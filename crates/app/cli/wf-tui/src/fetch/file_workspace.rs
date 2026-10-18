@@ -19,7 +19,10 @@ fn render_diff(diff: &serde_json::Value) -> String {
     let kind = diff.get("kind").and_then(|v| v.as_str()).unwrap_or("?");
     let additions = diff.get("additions").and_then(|v| v.as_u64()).unwrap_or(0);
     let deletions = diff.get("deletions").and_then(|v| v.as_u64()).unwrap_or(0);
-    let binary = diff.get("binary").and_then(|v| v.as_bool()).unwrap_or(false);
+    let binary = diff
+        .get("binary")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let mut out = vec![format!("diff --{kind} {path} (+{additions} -{deletions})")];
     if binary {
         out.push("(binary file: no textual diff)".to_string());

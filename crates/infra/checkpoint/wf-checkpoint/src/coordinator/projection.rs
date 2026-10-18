@@ -51,7 +51,8 @@ fn project_and_link(
     checkpoint_id: &str,
     entity_id: &str,
 ) -> Result<Option<String>, CheckpointError> {
-    let Some(file_checkpoint) = create_latest_file_checkpoint_with_retry(manager, entity_id)? else {
+    let Some(file_checkpoint) = create_latest_file_checkpoint_with_retry(manager, entity_id)?
+    else {
         tracing::debug!(
             entity_id = %entity_id,
             checkpoint_id = %checkpoint_id,

@@ -766,7 +766,8 @@ pub fn draw_git(
     let rows: Vec<String> = match data {
         ScreenData::Git(rows) => rows
             .iter()
-            .map(|r| format!("{} · {}", r.status, r.path))            .collect(),
+            .map(|r| format!("{} · {}", r.status, r.path))
+            .collect(),
         _ => Vec::new(),
     };
     let statuses: Vec<String> = match data {

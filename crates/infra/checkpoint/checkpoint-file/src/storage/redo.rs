@@ -83,10 +83,15 @@ mod tests {
         let all = storage.load_all_redo_stacks().unwrap();
         assert_eq!(
             all,
-            vec![("agent:a".to_string(), vec!["c1".to_string(), "c2".to_string()])]
+            vec![(
+                "agent:a".to_string(),
+                vec!["c1".to_string(), "c2".to_string()]
+            )]
         );
 
-        storage.store_redo_stack("agent:a", &["c3".to_string()]).unwrap();
+        storage
+            .store_redo_stack("agent:a", &["c3".to_string()])
+            .unwrap();
         assert_eq!(
             storage.load_all_redo_stacks().unwrap(),
             vec![("agent:a".to_string(), vec!["c3".to_string()])]

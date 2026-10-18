@@ -294,7 +294,10 @@ impl NativeSession {
             }
             SlashCommand::Checkpoints => {
                 let client = self.client.clone();
-                match client.get_json::<serde_json::Value>("/api/v1/checkpoints").await {
+                match client
+                    .get_json::<serde_json::Value>("/api/v1/checkpoints")
+                    .await
+                {
                     Ok(data) => {
                         let items = data
                             .get("data")
@@ -306,8 +309,10 @@ impl NativeSession {
                         } else {
                             for c in items {
                                 let id = c.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                                let entity = c.get("entity_id").and_then(|v| v.as_str()).unwrap_or("?");
-                                let status = c.get("status").and_then(|v| v.as_str()).unwrap_or("?");
+                                let entity =
+                                    c.get("entity_id").and_then(|v| v.as_str()).unwrap_or("?");
+                                let status =
+                                    c.get("status").and_then(|v| v.as_str()).unwrap_or("?");
                                 output::diag_line(&format!("{id}  {entity}  {status}"));
                             }
                         }

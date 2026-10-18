@@ -16,6 +16,7 @@ use crate::infra::context::ApiContext;
 use crate::{ApiError, BaseEvent, EventType};
 
 const MAX_BUFFER_BYTES: usize = 2 * 1024 * 1024;
+const TRIM_SLACK_BYTES: usize = 256 * 1024;
 const MAX_EXITED_SESSIONS: usize = 25;
 /// Per-subscriber backlog ceiling. Past this the WS consumer is considered
 /// too slow and is evicted with an `Overflow` frame; the client reconnects
@@ -548,8 +549,9 @@ fn append_output(state: &PtyState, text: String) {
     let mut dead: Vec<u64> = Vec::new();
     let mut out = lock(&state.output);
     out.buffer.push_str(&text);
-    out.cursor += text.len();
-    if out.buffer.len() > MAX_BUFFER_BYTES {
+    let text_len = text.len();
+    out.cursor += text_len;
+    if out.buffer.len() > MAX_BUFFER_BYTES + TRIM_SLACK_BYTES {
         let excess = out.buffer.len() - MAX_BUFFER_BYTES;
         let mut trim = excess;
         while trim > 0 && !out.buffer.is_char_boundary(trim) {
@@ -560,16 +562,26 @@ fn append_output(state: &PtyState, text: String) {
             out.start += trim;
         }
     }
+    let mut text_owned = Some(text);
+    let single = out.subscribers.len() == 1;
     for (token, sub) in out.subscribers.iter() {
-        if sub.queued.load(Ordering::Relaxed) + text.len() > SUBSCRIBER_MAX_QUEUED_BYTES {
+        if sub.queued.load(Ordering::Relaxed) + text_len > SUBSCRIBER_MAX_QUEUED_BYTES {
             let _ = sub.tx.send(PtyFrame::Overflow);
             dead.push(*token);
             continue;
         }
-        if sub.tx.send(PtyFrame::Data(text.clone())).is_err() {
+        let payload = if single {
+            text_owned.take().expect("single subscriber sends once")
+        } else {
+            text_owned
+                .as_ref()
+                .expect("multi subscriber retains text")
+                .clone()
+        };
+        if sub.tx.send(PtyFrame::Data(payload)).is_err() {
             dead.push(*token);
         } else {
-            sub.queued.fetch_add(text.len(), Ordering::Relaxed);
+            sub.queued.fetch_add(text_len, Ordering::Relaxed);
         }
     }
     for token in dead {

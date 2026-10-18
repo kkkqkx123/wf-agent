@@ -55,7 +55,10 @@ impl FileCheckpointManager {
             // before the actor's edits). This yields correct Added/Modified/
             // Deleted kinds instead of a per-commit delta that would only
             // show the last commit's files.
-            let baseline = match git.read_ref(crate::git_store::REF_MAIN).map_err(map_git_error)? {
+            let baseline = match git
+                .read_ref(crate::git_store::REF_MAIN)
+                .map_err(map_git_error)?
+            {
                 Some(main_head) => git
                     .read_commit(&main_head)
                     .ok()

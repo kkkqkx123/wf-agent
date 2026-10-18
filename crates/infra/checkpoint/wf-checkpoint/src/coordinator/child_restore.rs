@@ -142,11 +142,9 @@ where
         handles.push(tokio::spawn(async move {
             let result = match gate.acquire_wait().await {
                 Ok(_permit) => {
-                    restore_child_with_retry(
-                        &meta,
-                        restore_registry.as_ref(),
-                        &|id: String| load_bytes(id),
-                    )
+                    restore_child_with_retry(&meta, restore_registry.as_ref(), &|id: String| {
+                        load_bytes(id)
+                    })
                     .await
                 }
                 Err(e) => Err(CheckpointError::Internal(format!(
@@ -353,13 +351,19 @@ mod tests {
         assert_eq!(summary.failures.len(), 1);
         assert_eq!(summary.failures[0].entity_id, "child-1");
         assert_eq!(summary.failures[0].checkpoint_id, "cp-child");
-        assert_eq!(calls.load(Ordering::SeqCst), CHILD_RESTORE_MAX_ATTEMPTS as usize);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            CHILD_RESTORE_MAX_ATTEMPTS as usize
+        );
     }
 
     #[tokio::test]
     async fn strict_policy_surfaces_child_failure() {
         let registry = RestoreStrategyRegistry::new();
-        registry.register("child", counting_handler(Arc::new(AtomicUsize::new(0)), usize::MAX));
+        registry.register(
+            "child",
+            counting_handler(Arc::new(AtomicUsize::new(0)), usize::MAX),
+        );
 
         let err = collect_child_restore(
             vec![child_meta("cp-child", "child-1", "parent-1")],

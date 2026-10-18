@@ -391,12 +391,12 @@ impl FileCheckpointManager {
     /// otherwise it reports a conflict instead of orphaning new commits.
     pub fn redo_edit(&self, entity_id: &str) -> Result<String, CheckpointError> {
         let actor = self.actor_id_for(entity_id);
-        let next = self
-            .redo_stacks
-            .last(actor.as_str())
-            .ok_or_else(|| CheckpointError::Validation {
-                reason: format!("no redo available for actor '{}'", actor.as_str()),
-            })?;
+        let next =
+            self.redo_stacks
+                .last(actor.as_str())
+                .ok_or_else(|| CheckpointError::Validation {
+                    reason: format!("no redo available for actor '{}'", actor.as_str()),
+                })?;
         let git = self.git_ref()?;
         let refname = edit_ref_for_actor(actor.as_str());
         let current = git.read_ref(&refname).map_err(map_git_error)?;

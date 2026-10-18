@@ -14,9 +14,7 @@ use super::common::{format_ts, page_of};
 
 /// Build the edit-session rows from the paged sessions endpoint.
 pub(super) async fn fetch_edit_sessions(client: &WfClient) -> CliResult<(ScreenData, bool)> {
-    let data: serde_json::Value = client
-        .get_json("/api/v1/file-checkpoint/sessions")
-        .await?;
+    let data: serde_json::Value = client.get_json("/api/v1/file-checkpoint/sessions").await?;
     let (items, has_more) = page_of(&data);
     let rows = items.iter().map(session_row).collect();
     Ok((ScreenData::EditSessions(rows), has_more))
@@ -34,7 +32,12 @@ fn session_row(session: &serde_json::Value) -> EditSessionRow {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let created_at = format_ts(session.get("created_at").and_then(|v| v.as_i64()).unwrap_or(0));
+    let created_at = format_ts(
+        session
+            .get("created_at")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0),
+    );
     let mut detail = vec![format!("id: {id}")];
     if !label.is_empty() {
         detail.push(format!("label: {label}"));

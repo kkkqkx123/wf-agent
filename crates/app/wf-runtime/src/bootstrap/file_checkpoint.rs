@@ -22,7 +22,10 @@ pub fn init_file_checkpoint_manager(
             match manager.retry_pending_state_file_links() {
                 Ok(0) => {}
                 Ok(recovered) => {
-                    info!(recovered, "Recovered pending state-to-file checkpoint links");
+                    info!(
+                        recovered,
+                        "Recovered pending state-to-file checkpoint links"
+                    );
                 }
                 Err(err) => {
                     tracing::warn!("Failed to recover pending state-to-file links: {err}");

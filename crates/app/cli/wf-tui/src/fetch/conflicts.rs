@@ -12,9 +12,7 @@ use super::common::items_of;
 
 /// Build the conflict rows from the unresolved-conflict endpoint.
 pub(super) async fn fetch_conflicts(client: &WfClient) -> CliResult<(ScreenData, bool)> {
-    let data: serde_json::Value = client
-        .get_json("/api/v1/file-checkpoint/conflicts")
-        .await?;
+    let data: serde_json::Value = client.get_json("/api/v1/file-checkpoint/conflicts").await?;
     let rows = items_of(&data).iter().map(conflict_row).collect();
     Ok((ScreenData::Conflicts(rows), false))
 }

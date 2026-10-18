@@ -395,8 +395,10 @@ impl TuiApp {
             {
                 self.rollback_selected_edit_session();
             }
-            CKey::Char('r') if key.ctrl && !key.alt
-                && self.app.screen.navigation.current_kind() == ScreenKind::FileWorkspace =>
+            CKey::Char('r')
+                if key.ctrl
+                    && !key.alt
+                    && self.app.screen.navigation.current_kind() == ScreenKind::FileWorkspace =>
             {
                 self.redo_file_workspace_edit();
             }

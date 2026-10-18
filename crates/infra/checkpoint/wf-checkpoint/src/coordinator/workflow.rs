@@ -320,12 +320,14 @@ impl WorkflowCheckpointCoordinator {
         self.validate_checkpoint(&checkpoint).await?;
 
         match checkpoint.r#type {
-            Some(CheckpointType::Full) => checkpoint
-                .snapshot
-                .ok_or_else(|| CheckpointError::Corrupted {
-                    id: checkpoint_id.to_string(),
-                    reason: "full checkpoint missing snapshot".to_string(),
-                }),
+            Some(CheckpointType::Full) => {
+                checkpoint
+                    .snapshot
+                    .ok_or_else(|| CheckpointError::Corrupted {
+                        id: checkpoint_id.to_string(),
+                        reason: "full checkpoint missing snapshot".to_string(),
+                    })
+            }
             Some(CheckpointType::Delta) => {
                 let restorer = GenericDeltaRestorer::new(self.diff_calculator.clone());
                 restorer

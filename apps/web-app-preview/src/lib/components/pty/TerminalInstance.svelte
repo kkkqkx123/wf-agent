@@ -5,17 +5,19 @@
 	import { SerializeAddon } from '@xterm/addon-serialize';
 	import { WebLinksAddon } from '@xterm/addon-web-links';
 	import '@xterm/xterm/css/xterm.css';
-	import {
-		connectPty,
-		createTerminalWriter,
-		getPty,
-	} from '$lib/services/pty';
+	import { connectPty, createTerminalWriter, getPty } from '$lib/services/pty';
 	import type { PtySession } from '$lib/services/pty';
 	import type { PtySessionStore } from '$lib/stores/pty-session.svelte';
 	import { resolvedTheme } from '$lib/stores/theme.svelte';
 
 	interface Props {
-		session: { id: string; buffer?: string; scrollY?: number; cursor?: number; status?: 'running' | 'exited' };
+		session: {
+			id: string;
+			buffer?: string;
+			scrollY?: number;
+			cursor?: number;
+			status?: 'running' | 'exited';
+		};
 		store: PtySessionStore;
 		onConnect?: (id: string) => void;
 		onSessionExited?: (id: string) => void;
@@ -52,7 +54,10 @@
 	const encoder = new TextEncoder();
 
 	function byteLength(text: string): number {
-		return encoder.encode(text).length;
+		for (let i = 0; i < text.length; i += 1) {
+			if (text.charCodeAt(i) > 127) return encoder.encode(text).length;
+		}
+		return text.length;
 	}
 
 	function scheduleFit(): void {
@@ -196,7 +201,8 @@
 
 	function handlePaste(event: ClipboardEvent): void {
 		const clipboard = event.clipboardData;
-		const text = clipboard?.getData('text/plain') ?? clipboard?.getData('text') ?? '';
+		const text =
+			clipboard?.getData('text/plain') ?? clipboard?.getData('text') ?? '';
 		if (!text) return;
 		event.preventDefault();
 		event.stopPropagation();
@@ -206,7 +212,11 @@
 
 	function handlePointerDown(): void {
 		const active = document.activeElement;
-		if (active instanceof HTMLElement && active !== container && !container.contains(active)) {
+		if (
+			active instanceof HTMLElement &&
+			active !== container &&
+			!container.contains(active)
+		) {
 			active.blur();
 		}
 		focus();
@@ -223,8 +233,8 @@
 	onMount(() => {
 		const restore = session.buffer ?? '';
 		const restoreScrollY = session.scrollY ?? 0;
-		const startCursor = session.cursor ?? 0;
-		cursor = startCursor;
+		cursor = session.cursor ?? 0;
+		const openCursor = session.cursor ?? (restore ? -1 : 0);
 
 		term = new Terminal({
 			cursorBlink: true,
@@ -283,9 +293,11 @@
 		const handleWindowResize = () => scheduleFit();
 		window.addEventListener('resize', handleWindowResize);
 
-		const onTermResize = term.onResize((size: { rows: number; cols: number }) => {
-			scheduleResize(size.rows, size.cols);
-		});
+		const onTermResize = term.onResize(
+			(size: { rows: number; cols: number }) => {
+				scheduleResize(size.rows, size.cols);
+			},
+		);
 		const onTermData = term.onData((data: string) => {
 			if (disposed || exitHandled) return;
 			socket?.send(data);
@@ -302,22 +314,48 @@
 			container.removeEventListener('copy', handleCopy, true);
 			container.removeEventListener('paste', handlePaste, true);
 			container.removeEventListener('pointerdown', handlePointerDown);
-			container.removeEventListener('click', handleLinkClick, { capture: true });
+			container.removeEventListener('click', handleLinkClick, {
+				capture: true,
+			});
 			textareaFocusCleanup?.();
 		});
-
-		if (restore) {
-			term.write(restore);
-			if (restoreScrollY > 0) term.scrollToLine(restoreScrollY);
-		}
 
 		scheduleFit();
 		void document.fonts?.ready.then(() => scheduleFit());
 
 		// Exited sessions stay view-only until the user clones them.
-		if (session.status !== 'exited') {
-			open(startCursor);
-		}
+		// Restore through the coalescing writer in slices so a large
+		// snapshot never blocks the main thread in one parse.
+		const restoreAndOpen = async (): Promise<void> => {
+			if (restore) {
+				const STEP = 32_768;
+				let index = 0;
+				while (index < restore.length) {
+					if (disposed) return;
+					let end = Math.min(index + STEP, restore.length);
+					if (end < restore.length) {
+						const tail = restore.charCodeAt(end - 1);
+						if (tail >= 0xd800 && tail <= 0xdbff) end -= 1;
+					}
+					writer.push(restore.slice(index, end));
+					await new Promise<void>((resolve) => writer.flush(() => resolve()));
+					index = end;
+				}
+				if (disposed) return;
+				if (restoreScrollY > 0) {
+					try {
+						term.scrollToLine(restoreScrollY);
+					} catch {
+						// Container may be detached; observer retries fit.
+					}
+				}
+			}
+			if (disposed) return;
+			if (session.status !== 'exited') {
+				open(openCursor);
+			}
+		};
+		void restoreAndOpen();
 	});
 
 	onDestroy(() => {
@@ -351,7 +389,7 @@
 
 <div
 	bind:this={container}
-class="pty-instance h-full w-full min-h-0 min-w-0 overflow-hidden px-3 py-2"
+	class="pty-instance h-full w-full min-h-0 min-w-0 overflow-hidden px-3 py-2"
 ></div>
 
 <style>

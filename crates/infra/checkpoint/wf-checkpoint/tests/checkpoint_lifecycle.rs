@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use checkpoint_file::file::{FileCheckpointManager, FileContentEntry};
 use checkpoint_state::state::WorkflowCheckpointStateManager;
-use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
 use wf_checkpoint::coordinator::base::CheckpointCoordinator;
+use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
 use wf_storage::backend::StorageBackend;
 use wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot;
 use wf_types::checkpoint::{CheckpointTiming, CheckpointVariableState};
@@ -50,7 +50,10 @@ async fn create_interrupt_restore_round_trip() {
     file_manager
         .create_checkpoint(
             "wf-exec-1",
-            &[FileContentEntry::new("src/main.rs", b"fn main() {}".to_vec())],
+            &[FileContentEntry::new(
+                "src/main.rs",
+                b"fn main() {}".to_vec(),
+            )],
         )
         .unwrap();
 

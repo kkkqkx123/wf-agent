@@ -479,10 +479,7 @@ impl SqliteStorage {
     }
 
     /// Drop a pending state-to-file link after it has been retried.
-    pub fn delete_pending_state_file_link(
-        &self,
-        state_checkpoint_id: &str,
-    ) -> StorageResult<()> {
+    pub fn delete_pending_state_file_link(&self, state_checkpoint_id: &str) -> StorageResult<()> {
         let key = format!("{PENDING_STATE_FILE_LINK_PREFIX}{state_checkpoint_id}");
         self.with_conn(|conn| {
             conn.execute("DELETE FROM meta_kv WHERE key = ?1", [key])

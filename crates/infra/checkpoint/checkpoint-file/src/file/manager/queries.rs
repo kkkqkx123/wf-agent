@@ -109,8 +109,9 @@ impl FileCheckpointManager {
         let refs = git.list_refs("refs/wf/").map_err(map_git_error)?.len() as u64;
         let loose_objects = Self::list_object_ids(git).len() as u64;
         let store_bytes = crate::file::util::dir_size_bytes(git.git_dir());
-        let last_gc_ms = crate::storage::MetadataStore::load_metadata(storage, crate::gc::LAST_GC_KEY)?
-            .and_then(|value| value.parse::<i64>().ok());
+        let last_gc_ms =
+            crate::storage::MetadataStore::load_metadata(storage, crate::gc::LAST_GC_KEY)?
+                .and_then(|value| value.parse::<i64>().ok());
         Ok(crate::gc::StoreStats {
             commits,
             refs,

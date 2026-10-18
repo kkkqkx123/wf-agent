@@ -87,7 +87,10 @@ mod tests {
         assert_eq!(parse_command("/help"), Some(SlashCommand::Help));
         assert_eq!(parse_command("/clear"), Some(SlashCommand::Clear));
         assert_eq!(parse_command("/new"), Some(SlashCommand::New));
-        assert_eq!(parse_command("/checkpoints"), Some(SlashCommand::Checkpoints));
+        assert_eq!(
+            parse_command("/checkpoints"),
+            Some(SlashCommand::Checkpoints)
+        );
         assert_eq!(parse_command("/history"), Some(SlashCommand::History(None)));
         assert_eq!(
             parse_command("/history cargo"),

@@ -252,12 +252,8 @@ impl TuiApp {
             }
             ScreenData::Conflicts(rows) => {
                 let idx = selected.min(rows.len().saturating_sub(1));
-                rows.get(idx).map(|row| {
-                    (
-                        format!("Conflict {}", row.path),
-                        row.detail.clone(),
-                    )
-                })
+                rows.get(idx)
+                    .map(|row| (format!("Conflict {}", row.path), row.detail.clone()))
             }
             _ => None,
         };
@@ -1164,9 +1160,7 @@ impl TuiApp {
             _ => None,
         };
         let Some(session) = session else {
-            self.app
-                .notice
-                .set("No edit session selected.".to_string());
+            self.app.notice.set("No edit session selected.".to_string());
             return;
         };
         let Some(actor) = self
@@ -1350,9 +1344,7 @@ impl TuiApp {
     /// files are refused; main-line conflicts prompt for the feature name.
     pub(super) fn resolve_selected_conflict_side(&mut self, accept_ours: bool) {
         let Some(row) = self.selected_conflict_row() else {
-            self.app
-                .notice
-                .set("No conflict selected.".to_string());
+            self.app.notice.set("No conflict selected.".to_string());
             return;
         };
         if row.binary {
@@ -1368,12 +1360,12 @@ impl TuiApp {
                 self.spawn_conflict_resolution(row, feature, accept_ours);
             }
             None => {
-                let rx = self
-                    .modals
-                    .push_with_result(Box::new(crate::prompt_modal::PromptModal::new(
-                        "Resolve on main",
-                        "Feature name",
-                    )));
+                let rx =
+                    self.modals
+                        .push_with_result(Box::new(crate::prompt_modal::PromptModal::new(
+                            "Resolve on main",
+                            "Feature name",
+                        )));
                 let tx = self.feedback_tx.clone();
                 let client = self.client.clone();
                 self.tasks.push(tokio::spawn(async move {
@@ -1384,8 +1376,7 @@ impl TuiApp {
                             return;
                         }
                     };
-                    let outcome =
-                        resolve_conflict_side(&client, &row, &feature, accept_ours).await;
+                    let outcome = resolve_conflict_side(&client, &row, &feature, accept_ours).await;
                     let _ = tx.send(Feedback::Refresh(ScreenKind::Conflicts));
                     let _ = tx.send(Feedback::Refresh(ScreenKind::FileWorkspace));
                     let _ = tx.send(Feedback::Notice(outcome));
@@ -1395,17 +1386,11 @@ impl TuiApp {
     }
 
     /// Spawn the side-choice resolution for a feature-ref conflict.
-    fn spawn_conflict_resolution(
-        &mut self,
-        row: ConflictRow,
-        feature: String,
-        accept_ours: bool,
-    ) {
+    fn spawn_conflict_resolution(&mut self, row: ConflictRow, feature: String, accept_ours: bool) {
         let tx = self.feedback_tx.clone();
         let client = self.client.clone();
         self.tasks.push(tokio::spawn(async move {
-            let outcome =
-                resolve_conflict_side(&client, &row, &feature, accept_ours).await;
+            let outcome = resolve_conflict_side(&client, &row, &feature, accept_ours).await;
             let _ = tx.send(Feedback::Refresh(ScreenKind::Conflicts));
             let _ = tx.send(Feedback::Refresh(ScreenKind::FileWorkspace));
             let _ = tx.send(Feedback::Notice(outcome));
@@ -1452,8 +1437,7 @@ async fn resolve_conflict_side(
         return "Conflicted content is empty; resolve it in the CLI or web app.".to_string();
     };
     let Some(resolved) = rebuild_conflict_content(text, accept_ours) else {
-        return "No conflict markers found in the merged file; nothing to resolve."
-            .to_string();
+        return "No conflict markers found in the merged file; nothing to resolve.".to_string();
     };
     let body = serde_json::json!({
         "actor": actor,
@@ -1465,14 +1449,14 @@ async fn resolve_conflict_side(
         .await
     {
         Ok(value) => {
-            let remaining = value
-                .get("remaining")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
+            let remaining = value.get("remaining").and_then(|v| v.as_u64()).unwrap_or(0);
             if remaining == 0 {
                 format!("Resolved {}; no conflicts remain", row.path)
             } else {
-                format!("Resolved {}; {remaining} file(s) still conflicted", row.path)
+                format!(
+                    "Resolved {}; {remaining} file(s) still conflicted",
+                    row.path
+                )
             }
         }
         Err(err) => format!("Resolution failed: {err}"),

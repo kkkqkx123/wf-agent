@@ -446,7 +446,9 @@ pub(crate) fn origin_allowed(origin: Option<&str>, cors: &CorsConfig) -> bool {
     let Some(origin) = origin else {
         return false;
     };
-    cors.allowed_origins.iter().any(|allowed| allowed == "*" || allowed == origin)
+    cors.allowed_origins
+        .iter()
+        .any(|allowed| allowed == "*" || allowed == origin)
 }
 
 async fn cors_middleware(

@@ -26,10 +26,7 @@ pub(crate) fn routes() -> Router<ApiState> {
                 .delete(handle_delete_pty),
         )
         .route("/pty/{id}/connect", get(handle_connect_pty))
-        .route(
-            "/pty/{id}/connect-token",
-            post(handle_pty_connect_token),
-        )
+        .route("/pty/{id}/connect-token", post(handle_pty_connect_token))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -103,8 +100,7 @@ pub(crate) async fn handle_create_pty(
         body.rows,
         body.cols,
         body.title,
-    )
-    {
+    ) {
         Ok(view) => ok(view).into_response(),
         Err(err) => error_response(err.into()),
     }
@@ -194,7 +190,9 @@ pub(crate) async fn handle_connect_pty(
     ws: WebSocketUpgrade,
     request: Request<Body>,
 ) -> axum::response::Response {
-    ws.on_upgrade(move |socket| handle_pty_socket(socket, state, id, query.cursor, query.ticket, request))
+    ws.on_upgrade(move |socket| {
+        handle_pty_socket(socket, state, id, query.cursor, query.ticket, request)
+    })
 }
 
 /// A ticket (when present) is the credential: consume it and require an
@@ -263,11 +261,23 @@ async fn handle_pty_socket(
 
     let (mut sender, mut receiver) = socket.split();
 
-    for chunk in replay.as_bytes().chunks(65536) {
-        let text = String::from_utf8_lossy(chunk).to_string();
-        if sender.send(Message::Text(text.into())).await.is_err() {
+    let mut offset = 0;
+    while offset < replay.len() {
+        let mut end = (offset + 65536).min(replay.len());
+        while end < replay.len() && !replay.is_char_boundary(end) {
+            end -= 1;
+        }
+        if end <= offset {
+            break;
+        }
+        if sender
+            .send(Message::Text(replay[offset..end].to_string().into()))
+            .await
+            .is_err()
+        {
             return;
         }
+        offset = end;
     }
 
     // One control frame carries the absolute cursor after replay so the client can

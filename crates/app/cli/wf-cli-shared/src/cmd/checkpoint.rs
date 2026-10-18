@@ -390,7 +390,11 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                 )
             }
         }
-        CheckpointSub::FileRestore { entity, checkpoint, dry_run } => {
+        CheckpointSub::FileRestore {
+            entity,
+            checkpoint,
+            dry_run,
+        } => {
             if *dry_run {
                 let data = serde_json::json!({"dry_run": true, "entity": entity, "checkpoint": checkpoint});
                 return render_envelope(
@@ -629,12 +633,13 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                     "same_status": cp_a.status == cp_b.status,
                 }
             });
-            render_envelope(
-                cli.output,
-                OutputEnvelope::success("checkpoint-diff", data),
-            )
+            render_envelope(cli.output, OutputEnvelope::success("checkpoint-diff", data))
         }
-        CheckpointSub::Restore { id, resume, dry_run } => {
+        CheckpointSub::Restore {
+            id,
+            resume,
+            dry_run,
+        } => {
             if *dry_run {
                 // Preview: fetch and display checkpoint details without restoring.
                 let envelope = client
@@ -647,7 +652,8 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                 let data = serde_json::json!({"dry_run": true, "checkpoint": serde_json::to_value(&checkpoint).unwrap_or(serde_json::Value::Null)});
                 return render_envelope(
                     cli.output,
-                    OutputEnvelope::success("checkpoint-restore-dry-run", data).with_entity(id.clone()),
+                    OutputEnvelope::success("checkpoint-restore-dry-run", data)
+                        .with_entity(id.clone()),
                 );
             }
             if !resume {
@@ -687,7 +693,11 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                 )
             }
         }
-        CheckpointSub::RestoreAgent { id, checkpoint, dry_run } => {
+        CheckpointSub::RestoreAgent {
+            id,
+            checkpoint,
+            dry_run,
+        } => {
             if *dry_run {
                 let envelope = client
                     .generated()
@@ -699,7 +709,8 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                 let data = serde_json::json!({"dry_run": true, "checkpoint": serde_json::to_value(&cp).unwrap_or(serde_json::Value::Null)});
                 return render_envelope(
                     cli.output,
-                    OutputEnvelope::success("checkpoint-restore-agent-dry-run", data).with_entity(checkpoint.clone()),
+                    OutputEnvelope::success("checkpoint-restore-agent-dry-run", data)
+                        .with_entity(checkpoint.clone()),
                 );
             }
             confirm_destructive(cli, "restore agent checkpoint", checkpoint)?;
@@ -748,11 +759,7 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                 OutputEnvelope::success("checkpoint-chain", data).with_entity(id.clone()),
             )
         }
-        CheckpointSub::Gc {
-            id,
-            before,
-            domain,
-        } => {
+        CheckpointSub::Gc { id, before, domain } => {
             let path = match before {
                 Some(ts) => format!("/api/v1/executions/{id}/checkpoints/gc?before={ts}"),
                 None => format!("/api/v1/executions/{id}/checkpoints/gc"),
@@ -857,8 +864,7 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                 .await?;
             render_envelope(
                 cli.output,
-                OutputEnvelope::success("checkpoint-metadata", data)
-                    .with_entity(entity.clone()),
+                OutputEnvelope::success("checkpoint-metadata", data).with_entity(entity.clone()),
             )
         }
         CheckpointSub::MetadataSet { entity, json } => {
@@ -886,10 +892,7 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
         }
         CheckpointSub::DeleteByEntity { entity, domain } => {
             confirm_destructive(cli, "delete all checkpoints for entity", entity)?;
-            let mut path = format!(
-                "/api/v1/checkpoints/entity/{}",
-                encode_segment(entity)
-            );
+            let mut path = format!("/api/v1/checkpoints/entity/{}", encode_segment(entity));
             if let Some(entity_type) = entity_type(*domain) {
                 path.push_str(&format!("?entity_type={entity_type}"));
             }
@@ -959,8 +962,7 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             });
             render_envelope(
                 cli.output,
-                OutputEnvelope::success("checkpoint-file-rename", data)
-                    .with_entity(actor.clone()),
+                OutputEnvelope::success("checkpoint-file-rename", data).with_entity(actor.clone()),
             )
         }
         CheckpointSub::FileStateLinks { ids } => {

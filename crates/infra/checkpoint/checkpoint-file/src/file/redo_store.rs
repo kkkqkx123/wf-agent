@@ -69,7 +69,9 @@ impl RedoStackStore {
 
     /// The most recently undone commit id, without removing it.
     pub(crate) fn last(&self, actor: &str) -> Option<String> {
-        self.stacks.get(actor).and_then(|stack| stack.last().cloned())
+        self.stacks
+            .get(actor)
+            .and_then(|stack| stack.last().cloned())
     }
 
     /// Remove and return the most recently undone commit id, persisting the
@@ -91,7 +93,9 @@ impl RedoStackStore {
 
     /// Whether any redo is available for the actor.
     pub(crate) fn is_available(&self, actor: &str) -> bool {
-        self.stacks.get(actor).is_some_and(|stack| !stack.is_empty())
+        self.stacks
+            .get(actor)
+            .is_some_and(|stack| !stack.is_empty())
     }
 
     /// Discard the actor's redo history (a new commit supersedes it).

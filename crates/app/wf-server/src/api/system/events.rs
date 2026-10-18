@@ -45,10 +45,7 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
         .route("/events/stats", get(handle_event_stats))
         .route("/events/stream", get(handle_event_stream))
-        .route(
-            "/events/stream-ticket",
-            post(handle_events_stream_ticket),
-        )
+        .route("/events/stream-ticket", post(handle_events_stream_ticket))
         .route("/events/search", get(handle_search_events))
         .route("/events/size", get(handle_event_size))
         .route("/events/time-range", get(handle_event_time_range))

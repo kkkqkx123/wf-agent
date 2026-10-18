@@ -505,7 +505,12 @@ mod tests {
         let Some(Command::Checkpoint { sub }) = cli.command else {
             panic!("expected checkpoint command");
         };
-        let CheckpointSub::RestoreAgent { id, checkpoint, dry_run } = sub else {
+        let CheckpointSub::RestoreAgent {
+            id,
+            checkpoint,
+            dry_run,
+        } = sub
+        else {
             panic!("expected restore-agent");
         };
         assert_eq!(id, "loop-1");

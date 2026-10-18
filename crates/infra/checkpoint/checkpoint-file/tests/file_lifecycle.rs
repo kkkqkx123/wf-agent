@@ -61,14 +61,23 @@ fn edit_undo_redo_roundtrip() {
 
     manager.apply_agent_edit(&agent, "a.txt", b"v1").unwrap();
     manager.apply_agent_edit(&agent, "a.txt", b"v2").unwrap();
-    assert_eq!(content_of(&manager, agent.as_str(), "a.txt").as_deref(), Some(&b"v2"[..]));
+    assert_eq!(
+        content_of(&manager, agent.as_str(), "a.txt").as_deref(),
+        Some(&b"v2"[..])
+    );
 
     manager.undo_edit(agent.as_str()).unwrap();
-    assert_eq!(content_of(&manager, agent.as_str(), "a.txt").as_deref(), Some(&b"v1"[..]));
+    assert_eq!(
+        content_of(&manager, agent.as_str(), "a.txt").as_deref(),
+        Some(&b"v1"[..])
+    );
     assert!(manager.can_redo(agent.as_str()).unwrap());
 
     manager.redo_edit(agent.as_str()).unwrap();
-    assert_eq!(content_of(&manager, agent.as_str(), "a.txt").as_deref(), Some(&b"v2"[..]));
+    assert_eq!(
+        content_of(&manager, agent.as_str(), "a.txt").as_deref(),
+        Some(&b"v2"[..])
+    );
     assert!(!manager.can_redo(agent.as_str()).unwrap());
 }
 
@@ -121,7 +130,10 @@ fn new_commit_clears_superseded_redo() {
         "a new commit supersedes the undone history"
     );
     assert!(manager.redo_edit(agent.as_str()).is_err());
-    assert_eq!(content_of(&manager, agent.as_str(), "a.txt").as_deref(), Some(&b"v3"[..]));
+    assert_eq!(
+        content_of(&manager, agent.as_str(), "a.txt").as_deref(),
+        Some(&b"v3"[..])
+    );
 }
 
 #[test]
@@ -136,7 +148,10 @@ fn undo_isolated_per_actor() {
     manager.apply_agent_edit(&a, "a.txt", b"a2").unwrap();
 
     manager.undo_edit(a.as_str()).unwrap();
-    assert_eq!(content_of(&manager, a.as_str(), "a.txt").as_deref(), Some(&b"a1"[..]));
+    assert_eq!(
+        content_of(&manager, a.as_str(), "a.txt").as_deref(),
+        Some(&b"a1"[..])
+    );
     assert_eq!(
         content_of(&manager, b.as_str(), "b.txt").as_deref(),
         Some(&b"b1"[..]),

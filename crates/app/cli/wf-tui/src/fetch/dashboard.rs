@@ -61,7 +61,10 @@ pub(super) async fn fetch_dashboard(client: &WfClient) -> CliResult<ScreenData> 
         execution_count,
         running_count,
         checkpoint_count,
-        store_bytes: store.get("store_bytes").and_then(|v| v.as_u64()).unwrap_or(0),
+        store_bytes: store
+            .get("store_bytes")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
         store_objects: store
             .get("loose_objects")
             .and_then(|v| v.as_u64())

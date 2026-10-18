@@ -191,7 +191,7 @@ impl NativeSession {
                         continue;
                     }
                     if let Some(command) = input::parse_command(&trimmed) {
-                        match self.handle_command(command) {
+                        match self.handle_command(command).await {
                             CommandAction::Exit => break,
                             CommandAction::Continue => continue,
                             CommandAction::Ask(question) => self.ask(question).await,
@@ -275,11 +275,11 @@ impl NativeSession {
         }
     }
     /// Returns what the loop should do next.
-    fn handle_command(&mut self, command: SlashCommand) -> CommandAction {
+    async fn handle_command(&mut self, command: SlashCommand) -> CommandAction {
         match command {
             SlashCommand::Quit => CommandAction::Exit,
             SlashCommand::Help => {
-                output::diag_line("commands: /help show this help, /clear print a separator, /new start a fresh conversation, /quit exit (Ctrl-D also exits)");
+                output::diag_line("commands: /help show this help, /clear print a separator, /new start a fresh conversation, /checkpoints list checkpoints, /quit exit (Ctrl-D also exits)");
                 output::diag_line("history: /history [prefix] list recent prompts (optional prefix filter), /rerun [n] re-ask prompt n (default: last)");
                 output::diag_line("display: /markdown [raw|plain|styled] set or show stdout rendering, /reasoning [on|off], /usage [on|off], /tools [on|off], /display show all");
                 output::diag_line("keys: Tab or Right-arrow (at line end) accept the suggestion, Ctrl-Right or Alt-f accept one word, Up/Down browse history by prefix, Alt-b/Alt-f word motion, Alt-d/Alt-Backspace kill word, Alt-. insert history tail word, Ctrl-C cancels the running turn, Ctrl-C twice at the prompt quits, Ctrl-D quits");
@@ -290,6 +290,30 @@ impl NativeSession {
             }
             SlashCommand::Clear => {
                 output::diag_line("---");
+                CommandAction::Continue
+            }
+            SlashCommand::Checkpoints => {
+                let client = self.client.clone();
+                match client.get_json::<serde_json::Value>("/api/v1/checkpoints").await {
+                    Ok(data) => {
+                        let items = data
+                            .get("data")
+                            .and_then(|v| v.as_array())
+                            .cloned()
+                            .unwrap_or_default();
+                        if items.is_empty() {
+                            output::diag_line("no checkpoints");
+                        } else {
+                            for c in items {
+                                let id = c.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                                let entity = c.get("entity_id").and_then(|v| v.as_str()).unwrap_or("?");
+                                let status = c.get("status").and_then(|v| v.as_str()).unwrap_or("?");
+                                output::diag_line(&format!("{id}  {entity}  {status}"));
+                            }
+                        }
+                    }
+                    Err(err) => output::diag_line(&format!("checkpoint list failed: {err}")),
+                }
                 CommandAction::Continue
             }
             SlashCommand::New => {

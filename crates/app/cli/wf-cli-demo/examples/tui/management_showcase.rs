@@ -127,6 +127,7 @@ fn synthetic_checkpoints() -> ScreenData {
             entity_type: "execution".into(),
             checkpoint_type: "turn".into(),
             status: "completed".into(),
+            tags: vec![],
         },
         CheckpointRow {
             id: "cp-002-ccdd".into(),
@@ -135,6 +136,7 @@ fn synthetic_checkpoints() -> ScreenData {
             entity_type: "execution".into(),
             checkpoint_type: "turn".into(),
             status: "running".into(),
+            tags: vec![],
         },
         CheckpointRow {
             id: "cp-003-eeff".into(),
@@ -143,6 +145,7 @@ fn synthetic_checkpoints() -> ScreenData {
             entity_type: "workflow".into(),
             checkpoint_type: "manual".into(),
             status: "completed".into(),
+            tags: vec![],
         },
         CheckpointRow {
             id: "cp-004-gghh".into(),
@@ -151,6 +154,7 @@ fn synthetic_checkpoints() -> ScreenData {
             entity_type: "execution".into(),
             checkpoint_type: "turn".into(),
             status: "failed".into(),
+            tags: vec![],
         },
     ])
 }

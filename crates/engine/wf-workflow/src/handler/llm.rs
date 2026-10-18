@@ -106,6 +106,8 @@ impl LlmHandler {
             dead_loop_detection: cfg.dead_loop_detection.clone(),
             protocol_auto_converted: None,
             timeout_ms: cfg.exec_config.timeout,
+            prompt_caching: None,
+            cached_content: None,
         }
     }
 

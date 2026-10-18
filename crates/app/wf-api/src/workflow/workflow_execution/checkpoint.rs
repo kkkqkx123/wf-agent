@@ -22,6 +22,18 @@ use crate::infra::error::ApiError;
 
 use super::lifecycle::{default_options, execution_options, live_entity, EXECUTION_OPTIONS_VAR};
 
+/// Preview of what [`crate::workflow::workflow_execution::restore_checkpoint`]
+/// would restore, without side effects.
+#[derive(Clone, Serialize)]
+pub struct RestorePreview {
+    pub checkpoint_id: String,
+    pub execution_id: String,
+    pub status: String,
+    pub current_node_id: Option<String>,
+    pub node_result_keys: Vec<String>,
+    pub variable_keys: Vec<String>,
+}
+
 /// Restored execution state returned by [`crate::workflow::workflow_execution::restore_checkpoint`].
 ///
 /// Upgraded from a snapshot view into a runnable restore result: the restored
@@ -197,6 +209,40 @@ pub async fn restore_checkpoint(
         node_results: snapshot.node_results,
         variables,
         entity,
+    })
+}
+
+/// Preview what a restore would bring back, without creating a live entity
+/// or touching child hierarchies / file state.
+pub async fn preview_restore_checkpoint(
+    ctx: &ApiContext,
+    checkpoint_id: &str,
+) -> crate::infra::error::ApiResult<RestorePreview> {
+    let coordinator = checkpoint_coordinator(ctx);
+    let snapshot = coordinator
+        .preview_restore(checkpoint_id)
+        .await
+        .map_err(|e| ApiError::execution(format!("checkpoint preview failed: {e}")))?;
+    let mut node_result_keys: Vec<String> = snapshot
+        .node_results
+        .as_ref()
+        .map(|m| m.keys().cloned().collect())
+        .unwrap_or_default();
+    node_result_keys.sort();
+    let mut variable_keys: Vec<String> = snapshot
+        .variable_state
+        .variables
+        .keys()
+        .cloned()
+        .collect();
+    variable_keys.sort();
+    Ok(RestorePreview {
+        checkpoint_id: checkpoint_id.to_string(),
+        execution_id: snapshot.execution_id.clone(),
+        status: snapshot.status.clone(),
+        current_node_id: snapshot.current_node_id.clone(),
+        node_result_keys,
+        variable_keys,
     })
 }
 

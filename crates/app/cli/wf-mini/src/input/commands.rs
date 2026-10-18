@@ -7,6 +7,7 @@ pub enum SlashCommand {
     Help,
     Clear,
     New,
+    Checkpoints,
     History(Option<String>),
     Rerun(Option<usize>),
     Markdown(Option<String>),
@@ -27,6 +28,7 @@ pub fn parse_command(line: &str) -> Option<SlashCommand> {
         "/help" | "/?" if tokens.next().is_none() => Some(SlashCommand::Help),
         "/clear" if tokens.next().is_none() => Some(SlashCommand::Clear),
         "/new" if tokens.next().is_none() => Some(SlashCommand::New),
+        "/checkpoints" if tokens.next().is_none() => Some(SlashCommand::Checkpoints),
         "/history" => match tokens.next() {
             None => Some(SlashCommand::History(None)),
             Some(prefix) if tokens.next().is_none() => {
@@ -85,6 +87,7 @@ mod tests {
         assert_eq!(parse_command("/help"), Some(SlashCommand::Help));
         assert_eq!(parse_command("/clear"), Some(SlashCommand::Clear));
         assert_eq!(parse_command("/new"), Some(SlashCommand::New));
+        assert_eq!(parse_command("/checkpoints"), Some(SlashCommand::Checkpoints));
         assert_eq!(parse_command("/history"), Some(SlashCommand::History(None)));
         assert_eq!(
             parse_command("/history cargo"),

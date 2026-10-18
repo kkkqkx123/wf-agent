@@ -4,7 +4,7 @@
 
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -33,6 +33,10 @@ pub(crate) fn routes() -> Router<ApiState> {
             post(handle_restore_checkpoint),
         )
         .route(
+            "/executions/checkpoints/{cid}/preview",
+            get(handle_preview_restore_checkpoint),
+        )
+        .route(
             "/executions/checkpoints/{cid}/resume",
             post(handle_restore_and_resume),
         )
@@ -45,6 +49,10 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route(
             "/checkpoints/{id}",
             get(handle_get_checkpoint).delete(handle_delete_checkpoint),
+        )
+        .route(
+            "/checkpoints/{id}/tags",
+            put(handle_update_checkpoint_tags),
         )
         .route(
             "/checkpoints/entity/{entityId}",
@@ -199,6 +207,47 @@ pub(crate) async fn handle_restore_checkpoint(
     }
     match wf_api::workflow::workflow_execution::restore_checkpoint(&state.ctx, &path.cid).await {
         Ok(restored) => ok(restored).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/executions/checkpoints/{cid}/preview",
+    tag = "checkpoint",
+    params(CidPath),
+    responses(
+        (status = 200, description = "Restore preview", body = crate::envelope::ApiEnvelope<crate::api::checkpoint::views::RestorePreviewDoc>),
+        (status = 404, description = "Checkpoint not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_preview_restore_checkpoint(
+    State(state): State<ApiState>,
+    Path(path): Path<CidPath>,
+) -> impl IntoResponse {
+    if let Err(e) = wf_api::checkpoint::ensure_checkpoint_domain(
+        &state.ctx,
+        &path.cid,
+        wf_api::ExecutionDomain::Workflow,
+    )
+    .await
+    {
+        return error_response(e);
+    }
+    match wf_api::workflow::workflow_execution::preview_restore_checkpoint(&state.ctx, &path.cid).await {
+        Ok(preview) => {
+            let doc = crate::api::checkpoint::views::RestorePreviewDoc {
+                checkpoint_id: preview.checkpoint_id,
+                execution_id: preview.execution_id,
+                status: preview.status,
+                current_node_id: preview.current_node_id,
+                node_result_keys: preview.node_result_keys,
+                variable_keys: preview.variable_keys,
+            };
+            ok(doc).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -370,6 +419,31 @@ pub(crate) async fn handle_delete_checkpoint(
 ) -> impl IntoResponse {
     match wf_api::checkpoint::record::delete_checkpoint(&state.ctx.storage, &path.id).await {
         Ok(deleted) => ok(deleted).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/checkpoints/{id}/tags",
+    tag = "checkpoint",
+    params(IdPath),
+    request_body = Vec<String>,
+    responses(
+        (status = 200, description = "Tags updated", body = crate::envelope::ApiEnvelope<crate::api::checkpoint::views::CheckpointDoc>),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_update_checkpoint_tags(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Json(tags): Json<Vec<String>>,
+) -> impl IntoResponse {
+    match wf_api::checkpoint::record::update_checkpoint_tags(&state.ctx.storage, &path.id, tags).await
+    {
+        Ok(checkpoint) => ok(checkpoint).into_response(),
         Err(e) => error_response(e),
     }
 }

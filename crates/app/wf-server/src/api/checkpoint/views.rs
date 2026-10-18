@@ -133,6 +133,18 @@ pub(crate) struct RestoredCheckpointDoc {
     variables: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
+/// Preview of what a restore would bring back (`wf_api::RestorePreview`
+/// mirrored).
+#[derive(Serialize, ToSchema)]
+pub(crate) struct RestorePreviewDoc {
+    pub checkpoint_id: String,
+    pub execution_id: String,
+    pub status: String,
+    pub current_node_id: Option<String>,
+    pub node_result_keys: Vec<String>,
+    pub variable_keys: Vec<String>,
+}
+
 /// One file change recorded on an actor partition
 /// (`wf_checkpoint::provenance::DeltaSummary` mirrored).
 #[derive(Serialize, ToSchema)]

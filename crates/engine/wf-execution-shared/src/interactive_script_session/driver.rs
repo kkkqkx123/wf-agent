@@ -123,6 +123,8 @@ impl SuggestionProvider for LlmSuggestionProvider {
             dead_loop_detection: None,
             protocol_auto_converted: None,
             timeout_ms: None,
+            prompt_caching: None,
+            cached_content: None,
         };
         let outcome = crate::single_shot::generate_text_once(&self.gateway, &request, None)
             .await

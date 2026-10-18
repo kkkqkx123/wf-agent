@@ -169,7 +169,7 @@ pub use workflow::graph_query::{
 };
 pub use workflow::iteration::{AgentIterationAnalysis, ToolCallStat};
 pub use workflow::node_builder::{NoType, NodeBuilder, Typed};
-pub use workflow::workflow_execution::{ExecutionSummary, RestoredCheckpoint};
+pub use workflow::workflow_execution::{ExecutionSummary, RestorePreview, RestoredCheckpoint};
 pub use workflow::workflow_iteration::{
     ExecutionPathStepView, ExtendedNodeExecutionFilter, ExtendedNodeExecutionRecordView,
     NodeExecutionStats, OptimizationOpportunity, ToolDependencyView, WorkflowExecutionPathView,

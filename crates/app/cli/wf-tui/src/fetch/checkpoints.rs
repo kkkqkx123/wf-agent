@@ -36,6 +36,15 @@ pub(super) async fn fetch_checkpoints(client: &WfClient) -> CliResult<(ScreenDat
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string(),
+                tags: c
+                    .get("tags")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             })
         })
         .collect();

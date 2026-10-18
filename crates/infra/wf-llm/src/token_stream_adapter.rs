@@ -18,15 +18,13 @@ impl MetricsSinkAdapter {
 }
 
 impl llm_client::TokenUsageSink for MetricsSinkAdapter {
-    fn record_token_usage(
-        &self,
-        prompt_tokens: u64,
-        completion_tokens: u64,
-        total_cost: Option<f64>,
-        model: Option<&str>,
-    ) {
-        self.collector
-            .record_token_usage(prompt_tokens, completion_tokens, total_cost, model);
+    fn record_token_usage(&self, usage: &llm_types::llm::TokenUsageStats, model: Option<&str>) {
+        self.collector.record_token_usage(
+            usage.prompt_tokens as u64,
+            usage.completion_tokens as u64,
+            usage.total_cost,
+            model,
+        );
     }
 }
 

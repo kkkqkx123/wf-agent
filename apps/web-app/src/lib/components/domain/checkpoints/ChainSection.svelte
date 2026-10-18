@@ -11,8 +11,10 @@
 		deleteCheckpointsByEntity,
 		gcExecutionCheckpoints,
 		getStateFileLinks,
+		previewRestoreCheckpoint,
 		restoreCheckpoint,
 		resumeFromCheckpoint,
+		setCheckpointTags,
 		type StateFileLink,
 	} from '$lib/services/checkpoints';
 	import type { Checkpoint } from '$lib/types/models';
@@ -123,6 +125,8 @@
 	// ── dialogs ──
 	let restoreOpen = $state(false);
 	let restoreTarget = $state<Checkpoint | null>(null);
+	let restorePreview = $state<import('$lib/services/checkpoints').RestorePreview | null>(null);
+	let restorePreviewLoading = $state(false);
 	let deleteOpen = $state(false);
 	let deleteTarget = $state<Checkpoint | null>(null);
 	let resumeOpen = $state(false);
@@ -189,6 +193,20 @@
 			checkpointStore.endAction();
 		}
 	}
+
+	async function runSetTags(checkpoint: Checkpoint, tags: string[]): Promise<void> {
+		checkpointStore.beginAction('tag');
+		try {
+			await setCheckpointTags(checkpoint.id, tags);
+			toasts.success('Tags updated');
+			checkpointStore.bump('chain');
+		} catch (e) {
+			console.error('Tag update failed:', e);
+			toasts.error('Tag update failed', e instanceof Error ? e.message : undefined);
+		} finally {
+			checkpointStore.endAction();
+		}
+	}
 </script>
 
 <Card
@@ -234,6 +252,17 @@
 	onrestore={(checkpoint: Checkpoint) => {
 		restoreTarget = checkpoint;
 		restoreOpen = true;
+		restorePreview = null;
+		restorePreviewLoading = true;
+		void (async () => {
+			try {
+				restorePreview = await previewRestoreCheckpoint(checkpoint.id);
+			} catch (e) {
+				console.error('Restore preview failed:', e);
+			} finally {
+				restorePreviewLoading = false;
+			}
+		})();
 	}}
 	onresume={(checkpoint: Checkpoint) => {
 		resumeTarget = checkpoint;
@@ -247,6 +276,7 @@
 		purgeTarget = checkpoint;
 		purgeOpen = true;
 	}}
+	ontag={(checkpoint: Checkpoint, tags: string[]) => void runSetTags(checkpoint, tags)}
 />
 
 <Dialog
@@ -304,7 +334,10 @@
 	bind:open={restoreOpen}
 	title="Restore checkpoint"
 	description="Restore lands as a new commit on top of history. Pointers are never moved and other branches are untouched."
-	onclose={() => (restoreTarget = null)}
+	onclose={() => {
+		restoreTarget = null;
+		restorePreview = null;
+	}}
 >
 	{#if restoreTarget}
 		<p class="text-caption">
@@ -313,6 +346,24 @@
 			· {restoreTarget.actor}). Files covered by this checkpoint return to the
 			recorded state; everything else stays as-is.
 		</p>
+		{#if restorePreviewLoading}
+			<p class="text-caption text-muted-foreground">Loading preview…</p>
+		{:else if restorePreview}
+			<div class="mt-2 rounded border border-border p-2 text-caption">
+				<p class="font-medium">Restore preview</p>
+				<p>Execution: <span class="font-mono">{restorePreview.executionId}</span></p>
+				<p>Status: {restorePreview.status}</p>
+				{#if restorePreview.currentNodeId}
+					<p>Current node: <span class="font-mono">{restorePreview.currentNodeId}</span></p>
+				{/if}
+				{#if restorePreview.variableKeys.length > 0}
+					<p>Variables ({restorePreview.variableKeys.length}): {restorePreview.variableKeys.join(', ')}</p>
+				{/if}
+				{#if restorePreview.nodeResultKeys.length > 0}
+					<p>Node results ({restorePreview.nodeResultKeys.length}): {restorePreview.nodeResultKeys.join(', ')}</p>
+				{/if}
+			</div>
+		{/if}
 	{/if}
 	{#snippet footer()}
 		<Button variant="ghost" size="sm" onclick={() => (restoreOpen = false)}>

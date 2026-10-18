@@ -301,6 +301,43 @@ impl WorkflowCheckpointCoordinator {
 
         Ok((base_id, base_snapshot))
     }
+
+    /// Load a checkpoint and return its reconstructed snapshot without
+    /// performing the side effects of [`CheckpointCoordinator::restore`]
+    /// (no live entity registration, no child-hierarchy or file restore).
+    /// Used by dry-run / preview paths.
+    pub async fn preview_restore(
+        &self,
+        checkpoint_id: &str,
+    ) -> Result<WorkflowExecutionStateSnapshot, CheckpointError> {
+        let checkpoint = self
+            .state_manager
+            .load(checkpoint_id)
+            .await?
+            .ok_or_else(|| CheckpointError::NotFound {
+                id: checkpoint_id.to_string(),
+            })?;
+        self.validate_checkpoint(&checkpoint).await?;
+
+        match checkpoint.r#type {
+            Some(CheckpointType::Full) => checkpoint
+                .snapshot
+                .ok_or_else(|| CheckpointError::Corrupted {
+                    id: checkpoint_id.to_string(),
+                    reason: "full checkpoint missing snapshot".to_string(),
+                }),
+            Some(CheckpointType::Delta) => {
+                let restorer = GenericDeltaRestorer::new(self.diff_calculator.clone());
+                restorer
+                    .restore_full_state(checkpoint_id, &self.state_manager)
+                    .await
+            }
+            None => Err(CheckpointError::Corrupted {
+                id: checkpoint_id.to_string(),
+                reason: "checkpoint has no type".to_string(),
+            }),
+        }
+    }
 }
 
 impl CheckpointCoordinator for WorkflowCheckpointCoordinator {

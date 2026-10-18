@@ -64,6 +64,24 @@ pub async fn delete_checkpoint(ctx: &StorageContext, id: &str) -> crate::ApiResu
     ctx.checkpoint.delete(id).await.map_err(Into::into)
 }
 
+/// Update the tags on an existing checkpoint. Loads the record, replaces its
+/// tags, and saves it back. Returns the updated checkpoint.
+pub async fn update_checkpoint_tags(
+    ctx: &StorageContext,
+    id: &str,
+    tags: Vec<String>,
+) -> crate::ApiResult<Checkpoint> {
+    let mut checkpoint = ctx
+        .checkpoint
+        .load(id)
+        .await?
+        .ok_or_else(|| not_found("checkpoint", id))?;
+    checkpoint.tags = if tags.is_empty() { None } else { Some(tags) };
+    validate_chain_record(&checkpoint)?;
+    ctx.checkpoint.save(&checkpoint).await?;
+    Ok(checkpoint)
+}
+
 pub async fn list_checkpoints(
     ctx: &StorageContext,
     options: Option<CheckpointListOptions>,

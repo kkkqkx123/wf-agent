@@ -81,6 +81,10 @@ pub struct Cli {
     /// API key for remote server (x-api-key header). Also reads WF_API_KEY env.
     #[arg(long, global = true)]
     pub api_key: Option<String>,
+    /// Skip interactive confirmation prompts for destructive operations.
+    /// Also implied when stdin is not a TTY (scripted/CI mode).
+    #[arg(long, global = true)]
+    pub yes: bool,
     /// Subcommand; absent selects an interactive form.
     #[command(subcommand)]
     pub command: Option<Command>,

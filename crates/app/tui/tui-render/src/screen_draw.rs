@@ -471,6 +471,7 @@ pub fn draw_checkpoints(
                     ("checkpoint type".to_string(), row.checkpoint_type.clone()),
                     ("status".to_string(), row.status.clone()),
                     ("timestamp".to_string(), row.timestamp.clone()),
+                    ("tags".to_string(), row.tags.join(", ")),
                 ])
             })
             .unwrap_or_else(|| vec![EMPTY_TEXT.to_string()]),

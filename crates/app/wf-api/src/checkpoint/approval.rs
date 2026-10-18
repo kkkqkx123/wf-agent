@@ -245,6 +245,8 @@ pub async fn review_pending_approval(
         dead_loop_detection: None,
         protocol_auto_converted: None,
         timeout_ms: None,
+        prompt_caching: None,
+        cached_content: None,
     };
 
     match run_review_round(ctx, &request, &review_execution_id).await {

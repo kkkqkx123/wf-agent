@@ -265,6 +265,8 @@ impl LlmApprovalHandler {
             dead_loop_detection: None,
             protocol_auto_converted: None,
             timeout_ms: None,
+            prompt_caching: None,
+            cached_content: None,
         };
         let result = wf_execution_shared::generate_text_once(&self.gateway, &llm_request, None)
             .await

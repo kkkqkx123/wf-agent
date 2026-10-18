@@ -200,6 +200,9 @@ pub enum CheckpointSub {
         /// File checkpoint (commit) id to restore from.
         #[arg(long, value_name = "CHECKPOINT")]
         checkpoint: String,
+        /// Preview what would be restored without executing.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Run object-store cleanup on the file-checkpoint store.
     FileGc {
@@ -281,6 +284,30 @@ pub enum CheckpointSub {
         #[arg(value_name = "ID")]
         id: String,
     },
+    /// Set tags on a checkpoint (replaces existing tags).
+    Tag {
+        /// Checkpoint id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Comma-separated tags.
+        #[arg(value_name = "TAGS", value_delimiter = ',')]
+        tags: Vec<String>,
+    },
+    /// Remove all tags from a checkpoint.
+    Untag {
+        /// Checkpoint id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Compare two checkpoints and show their metadata differences.
+    Diff {
+        /// First checkpoint id.
+        #[arg(value_name = "ID_A")]
+        a: String,
+        /// Second checkpoint id.
+        #[arg(value_name = "ID_B")]
+        b: String,
+    },
     /// Restore a workflow checkpoint as a new execution branch; history
     /// is not rewritten and other branches are untouched.
     Restore {
@@ -290,6 +317,9 @@ pub enum CheckpointSub {
         /// Also resume the restored execution.
         #[arg(long)]
         resume: bool,
+        /// Preview what would be restored without executing.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Restore an agent-loop checkpoint as a new execution branch;
     /// history is not rewritten.
@@ -300,6 +330,9 @@ pub enum CheckpointSub {
         /// Checkpoint id.
         #[arg(long, value_name = "CHECKPOINT")]
         checkpoint: String,
+        /// Preview what would be restored without executing.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Delete a checkpoint.
     Delete {
@@ -472,7 +505,7 @@ mod tests {
         let Some(Command::Checkpoint { sub }) = cli.command else {
             panic!("expected checkpoint command");
         };
-        let CheckpointSub::RestoreAgent { id, checkpoint } = sub else {
+        let CheckpointSub::RestoreAgent { id, checkpoint, dry_run } = sub else {
             panic!("expected restore-agent");
         };
         assert_eq!(id, "loop-1");

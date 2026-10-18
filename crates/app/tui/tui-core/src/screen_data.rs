@@ -287,6 +287,7 @@ pub struct CheckpointRow {
     pub entity_type: String,
     pub checkpoint_type: String,
     pub status: String,
+    pub tags: Vec<String>,
 }
 
 /// One pending file-change approval row rendered on the approvals screen.

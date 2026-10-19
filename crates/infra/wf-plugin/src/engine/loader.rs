@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::fs;
 
 use super::PluginEngine;
-use crate::engine::config::{validate_manifest, PluginSystemConfig};
+use crate::engine::config::PluginSystemConfig;
 use crate::error::{PluginError, PluginResult};
 use crate::events::PluginEvent;
 use crate::manifest::{PluginManifest, PluginType};
@@ -27,13 +27,7 @@ impl PluginEngine {
             plugin_id: plugin_id.clone(),
         });
 
-        if let Some(errors) = validate_manifest(&manifest) {
-            tracing::warn!("plugin '{}' manifest invalid: {:?}", plugin_id, errors);
-            return Err(PluginError::InvalidManifest(errors.join(", ")));
-        }
-
-        self.check_permissions(&manifest)?;
-        self.check_sdk_version(&manifest)?;
+        self.check_admission(&manifest)?;
 
         if manifest.entry_point.ends_with(".wasm") {
             self.verify_wasm_signature(&base.join(&manifest.entry_point), &plugin_id)?;
@@ -92,6 +86,13 @@ impl PluginEngine {
             .parent()
             .map(|p| p.to_path_buf())
             .unwrap_or_default();
+        if !self.is_allowed(&manifest.id) {
+            return Err(PluginError::PermissionDenied {
+                plugin_id: manifest.id.clone(),
+                reason: "plugin is not on the host allow list or is block listed".into(),
+            });
+        }
+        self.check_admission(&manifest)?;
         self.publish(PluginEvent::Loading {
             plugin_id: manifest.id.clone(),
         });

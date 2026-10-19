@@ -4,7 +4,6 @@ use tokio::fs;
 use super::PluginEngine;
 use crate::context::{PluginContext, PluginLogger};
 use crate::dependency::{resolve_dependencies, ResolvedGraph};
-use crate::engine::config::validate_manifest;
 use crate::engine::loader::{load_plugin_module, scan_plugin_manifests};
 use crate::error::{PluginError, PluginResult};
 use crate::events::PluginEvent;
@@ -38,8 +37,15 @@ impl PluginEngine {
         if !graph.cycles.is_empty() {
             return Err(PluginError::CircularDependency);
         }
-        for m in &graph.version_mismatches {
-            tracing::warn!("plugin version mismatch: {}", m);
+        if !graph.version_mismatches.is_empty() {
+            if self.options.strict_dependency_versions {
+                return Err(PluginError::DependencyNotSatisfied(
+                    graph.version_mismatches.join("; "),
+                ));
+            }
+            for m in &graph.version_mismatches {
+                tracing::warn!("plugin version mismatch: {}", m);
+            }
         }
 
         let count = self.registry.len();
@@ -296,6 +302,14 @@ impl PluginEngine {
         let manifest: PluginManifest =
             toml::from_str(&content).map_err(|e| PluginError::InvalidManifest(e.to_string()))?;
 
+        if !self.is_allowed(&manifest.id) {
+            return Err(PluginError::PermissionDenied {
+                plugin_id: manifest.id.clone(),
+                reason: "plugin is not on the host allow list or is block listed".into(),
+            });
+        }
+        self.check_admission(&manifest)?;
+
         let _ = self.deactivate(plugin_id).await;
         self.registry.remove(plugin_id);
 
@@ -345,15 +359,7 @@ impl PluginEngine {
                 if !self.is_allowed(&plugin_id) {
                     continue;
                 }
-                if let Some(errors) = validate_manifest(&manifest) {
-                    tracing::warn!("plugin '{}' manifest invalid: {:?}", plugin_id, errors);
-                    continue;
-                }
-                if let Err(e) = self.check_permissions(&manifest) {
-                    tracing::warn!("plugin '{}' refused: {}", plugin_id, e);
-                    continue;
-                }
-                if let Err(e) = self.check_sdk_version(&manifest) {
+                if let Err(e) = self.check_admission(&manifest) {
                     tracing::warn!("plugin '{}' rejected: {}", plugin_id, e);
                     continue;
                 }

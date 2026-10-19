@@ -13,7 +13,7 @@ import {
 
 export type GraphPreset = 'workflow' | 'decision' | 'execution';
 
-export type GraphLayoutKind = 'layered' | 'columns' | 'force' | 'grid';
+export type GraphLayoutKind = 'layered' | 'columns' | 'rows' | 'compact';
 
 /** A labeled set of node ids highlighted together, e.g. an analysis result. */
 export interface GraphOverlay {

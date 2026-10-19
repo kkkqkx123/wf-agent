@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 use super::Edge;
 use super::WorkflowConfig;
@@ -59,6 +60,81 @@ pub struct TriggeredSubworkflowConfig {
     pub compression_fallback: Option<CompressionFallbackMode>,
 }
 
+/// Persisted canvas position for one node.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct LayoutPoint {
+    pub x: i32,
+    pub y: i32,
+}
+
+/// Canvas layout algorithm persisted with a workflow.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LayoutKind {
+    #[default]
+    Layered,
+    Columns,
+    Rows,
+    Compact,
+}
+
+/// Canvas layout direction persisted with a workflow.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LayoutDirection {
+    Lr,
+    Tb,
+    Rl,
+    Bt,
+}
+
+/// Canvas layout settings persisted with a workflow.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LayoutSettings {
+    #[serde(default)]
+    pub kind: LayoutKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<LayoutDirection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rank_sep: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node_sep: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row_height: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column_width: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wrap_count: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub padding: Option<i32>,
+}
+
+impl Default for LayoutSettings {
+    fn default() -> Self {
+        Self {
+            kind: LayoutKind::default(),
+            direction: None,
+            rank_sep: None,
+            node_sep: None,
+            row_height: None,
+            column_width: None,
+            wrap_count: None,
+            padding: None,
+        }
+    }
+}
+
+/// Persisted canvas layout for a workflow definition.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct WorkflowLayout {
+    #[serde(default)]
+    pub positions: BTreeMap<String, LayoutPoint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<LayoutSettings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<Timestamp>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkflowDefinition {
     pub id: Id,
@@ -83,6 +159,8 @@ pub struct WorkflowDefinition {
     /// Workflow-level hooks (BEFORE_EXECUTE / AFTER_EXECUTE, per node).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hooks: Option<Vec<HookPointConfig>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<WorkflowLayout>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -99,4 +177,6 @@ pub struct WorkflowTemplate {
     pub is_public: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_system: Option<bool>,
 }

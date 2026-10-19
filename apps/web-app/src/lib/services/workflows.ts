@@ -359,11 +359,20 @@ export async function executeWorkflow(
 	 * backend). Absent inherits the global default.
 	 */
 	fileScope?: unknown,
+	/**
+	 * Pinned workflow version to run. Absent executes the stored
+	 * definition as it stands.
+	 */
+	version?: string | null,
 ): Promise<string> {
 	const data = await call<{ execution_id?: string }>(
 		client.POST('/api/v1/workflows/{id}/execute', {
 			params: { path: { id } },
-			body: { input: input ?? null, file_scope: fileScope ?? null },
+			body: {
+				input: input ?? null,
+				file_scope: fileScope ?? null,
+				version: version ?? null,
+			},
 		}),
 	);
 	const executionId = data?.execution_id ?? '';

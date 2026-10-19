@@ -38,7 +38,14 @@ async fn load_metadata_parses_indexed_fields() {
     let storage = make_storage();
     let mgr = StorageBackedStateManager::<Envelope>::new(storage.clone());
     mgr.save(
-        &make_envelope("full-1", None, None, 1000, None, Some(json!({"state": "base"}))),
+        &make_envelope(
+            "full-1",
+            None,
+            None,
+            1000,
+            None,
+            Some(json!({"state": "base"})),
+        ),
         "agent_loop",
         "exec-1",
     )
@@ -71,7 +78,10 @@ async fn load_metadata_parses_indexed_fields() {
     assert_eq!(meta.previous_checkpoint_id.as_deref(), Some("full-1"));
     assert_eq!(meta.base_checkpoint_id.as_deref(), Some("full-1"));
 
-    assert!(CheckpointLoader::load_metadata(&mgr, "missing").await.unwrap().is_none());
+    assert!(CheckpointLoader::load_metadata(&mgr, "missing")
+        .await
+        .unwrap()
+        .is_none());
 }
 
 #[tokio::test]
@@ -101,6 +111,8 @@ async fn load_metadata_defaults_unknown_entity_and_rejects_missing_timestamp() {
         .save("raw-2", b"raw-payload", &json!({"entityType": "raw"}))
         .await
         .unwrap();
-    let err = CheckpointLoader::load_metadata(&mgr, "raw-2").await.unwrap_err();
+    let err = CheckpointLoader::load_metadata(&mgr, "raw-2")
+        .await
+        .unwrap_err();
     assert!(matches!(err, CheckpointError::Corrupted { .. }));
 }

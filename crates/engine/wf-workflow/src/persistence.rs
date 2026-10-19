@@ -118,7 +118,7 @@ pub async fn build_workflow_execution(
     WorkflowExecution {
         id: entity.id().clone(),
         workflow_id: entity.workflow_id().clone(),
-        workflow_version: None,
+        workflow_version: entity.workflow_version(),
         status,
         current_node_id: snapshot.current_node_id,
         graph: Some(graph.clone()),

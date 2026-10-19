@@ -139,7 +139,7 @@ pub use wf_execution_shared::{
     ChatSession, ChatTemplate, SingleShotOutcome, SingleShotToolExecution,
 };
 pub use workflow::approval::{ApprovalResult, ApprovalStatus};
-pub use workflow::builder::{Building, Empty, WorkflowBuilder};
+pub use workflow::builder::WorkflowBuilder;
 pub use workflow::draft::{
     delete_draft as delete_workflow_draft, get_draft as get_workflow_draft, hot_reload_to_draft,
     lifecycle_of as workflow_lifecycle_of, list_drafts as list_workflow_drafts, promote_all_drafts,
@@ -233,6 +233,7 @@ pub use wf_types::TriggerExecutionStorageMetadata;
 pub use wf_types::TriggerTemplateStorageMetadata;
 pub use wf_types::UserInteractionStorageMetadata;
 pub use wf_types::WorkflowDefinition;
+pub use wf_types::WorkflowLayout;
 
 // Foundation utilities re-exported so transport layers avoid direct
 // wf-common / wf-core deps for id generation, clocks and registries.

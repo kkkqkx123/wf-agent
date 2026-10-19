@@ -1,6 +1,6 @@
 //! Workflow definition CRUD operations: save, load, delete, clone, rollback.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -64,6 +64,39 @@ pub async fn get_workflow(ctx: &ApiContext, id: &str) -> crate::ApiResult<Workfl
         .load(id)
         .await?
         .ok_or_else(|| not_found("workflow", id))
+}
+
+/// Persist only the canvas layout (positions + settings) of a workflow.
+/// Layout is display data: this bypasses formal validation and the execution
+/// registry, leaves topology fields (including the workflow `updated_at`)
+/// untouched, and prunes positions of nodes that no longer exist.
+pub async fn save_workflow_layout(
+    ctx: &ApiContext,
+    id: &str,
+    layout: wf_types::WorkflowLayout,
+) -> crate::ApiResult<wf_types::WorkflowLayout> {
+    let mut workflow = get_workflow(ctx, id).await?;
+    let mut layout = layout;
+    let known: HashSet<String> = workflow.nodes.iter().map(|n| n.id.to_string()).collect();
+    layout.positions.retain(|node_id, _| known.contains(node_id));
+    layout.updated_at = Some(wf_common::now());
+    workflow.layout = Some(layout);
+    ctx.storage.workflow.save(&workflow).await?;
+    ctx.clear_stale(id);
+    Ok(workflow.layout.unwrap_or_default())
+}
+
+/// Remove the persisted canvas layout so the graph falls back to the default
+/// layout. Display data only: no validation or registry sync involved.
+pub async fn reset_workflow_layout(ctx: &ApiContext, id: &str) -> crate::ApiResult<()> {
+    let mut workflow = get_workflow(ctx, id).await?;
+    if workflow.layout.is_none() {
+        return Ok(());
+    }
+    workflow.layout = None;
+    ctx.storage.workflow.save(&workflow).await?;
+    ctx.clear_stale(id);
+    Ok(())
 }
 
 pub async fn workflow_exists(ctx: &ApiContext, id: &str) -> crate::ApiResult<bool> {
@@ -236,6 +269,7 @@ pub(super) fn upsert_workflow_registry(
         template_category: workflow.metadata.as_ref().and_then(|m| m.category.clone()),
         template_tags: workflow.metadata.as_ref().and_then(|m| m.tags.clone()),
         is_public: None,
+        is_system: None,
         enabled: Some(true),
     };
     registries
@@ -306,6 +340,7 @@ mod tests {
             metadata: None,
             available_tools: None,
             hooks: None,
+            layout: None,
             created_at: wf_common::now(),
             updated_at: wf_common::now(),
         }

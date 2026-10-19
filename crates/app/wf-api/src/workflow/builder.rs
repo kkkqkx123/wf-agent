@@ -1,19 +1,19 @@
 //! Typed workflow builder.
 //!
-//! Construction is split into two phases tracked in the type system: `Empty`
-//! (no nodes yet) and `Building` (at least one node; `build()` / `save()` are
-//! available). `build()` runs the config-level and full graph validation, so
-//! a workflow saved through [`WorkflowBuilder`] always passes the graph
-//! validator.
-
-use std::marker::PhantomData;
+//! A single consuming [`WorkflowBuilder`] assembles a `WorkflowDefinition`.
+//! Correctness is enforced by [`WorkflowBuilder::build`] / [`WorkflowBuilder::save`],
+//! which run the config-level and full graph validation, so a workflow saved
+//! through the builder always passes the graph validator. Construction never
+//! reaches an invalid graph through a separate type: the validator is the one
+//! source of truth for what a well-formed workflow is.
 
 use wf_types::hook::HookPointConfig;
 use wf_types::node::BaseStaticNode;
 use wf_types::tool::AvailableTools;
 use wf_types::workflow::config::WorkflowConfig;
 use wf_types::workflow::definition::{
-    TriggeredSubworkflowConfig, WorkflowDefinition, WorkflowDefinitionType, WorkflowMetadata,
+    TriggeredSubworkflowConfig, WorkflowDefinition, WorkflowDefinitionType, WorkflowLayout,
+    WorkflowMetadata,
 };
 use wf_types::workflow::edge::{Edge, EdgeType};
 use wf_types::workflow_execution::VariableDefinition;
@@ -21,17 +21,9 @@ use wf_types::workflow_execution::VariableDefinition;
 use crate::workflow::node_builder::NodeBuilder;
 use crate::ApiContext;
 
-/// Marker: no nodes have been added yet.
+/// Consuming workflow builder.
 #[derive(Debug)]
-pub struct Empty;
-
-/// Marker: at least one node has been added; the builder can be built/saved.
-#[derive(Debug)]
-pub struct Building;
-
-/// Consuming workflow builder with type-level phase tracking.
-#[derive(Debug)]
-pub struct WorkflowBuilder<S> {
+pub struct WorkflowBuilder {
     id: String,
     name: String,
     description: Option<String>,
@@ -45,10 +37,17 @@ pub struct WorkflowBuilder<S> {
     triggered_subworkflow_config: Option<TriggeredSubworkflowConfig>,
     nodes: Vec<BaseStaticNode>,
     edges: Vec<Edge>,
-    _marker: PhantomData<S>,
+    layout: Option<WorkflowLayout>,
 }
 
-impl WorkflowBuilder<Empty> {
+/// Serialization format accepted by [`WorkflowBuilder::from_config`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowConfigFormat {
+    Json,
+    Toml,
+}
+
+impl WorkflowBuilder {
     /// Start building a workflow with the given id.
     pub fn new(id: impl Into<String>) -> Self {
         let id = id.into();
@@ -66,141 +65,10 @@ impl WorkflowBuilder<Empty> {
             triggered_subworkflow_config: None,
             nodes: Vec::new(),
             edges: Vec::new(),
-            _marker: PhantomData,
+            layout: None,
         }
     }
 
-    /// Attach workflow-level hooks (BEFORE_EXECUTE / AFTER_EXECUTE per
-    /// node).
-    pub fn hooks(mut self, hooks: Vec<HookPointConfig>) -> Self {
-        self.hooks = Some(hooks);
-        self
-    }
-
-    /// Add a node, entering the `Building` phase.
-    pub fn add_node(self, node: BaseStaticNode) -> crate::ApiResult<WorkflowBuilder<Building>> {
-        if self.nodes.iter().any(|n| n.id == node.id) {
-            return Err(crate::ApiError::Validation(format!(
-                "duplicate node id '{}' in workflow '{}'",
-                node.id, self.id
-            )));
-        }
-        let mut nodes = self.nodes;
-        nodes.push(node);
-        Ok(WorkflowBuilder {
-            id: self.id,
-            name: self.name,
-            description: self.description,
-            r#type: self.r#type,
-            version: self.version,
-            config: self.config,
-            variables: self.variables,
-            metadata: self.metadata,
-            available_tools: self.available_tools,
-            hooks: self.hooks,
-            triggered_subworkflow_config: self.triggered_subworkflow_config,
-            nodes,
-            edges: self.edges,
-            _marker: PhantomData,
-        })
-    }
-
-    /// Add a START node (default id `start`).
-    pub fn add_start_node(self) -> crate::ApiResult<WorkflowBuilder<Building>> {
-        self.add_node(NodeBuilder::start("start").build())
-    }
-
-    /// Add an END node (default id `end`).
-    pub fn add_end_node(self) -> crate::ApiResult<WorkflowBuilder<Building>> {
-        self.add_node(NodeBuilder::end("end").build())
-    }
-
-    /// Rehydrate a builder from a serialized `WorkflowDefinition` (JSON or
-    /// TOML). Validation is deferred to `build()` / `save()`.
-    pub fn from_config(
-        content: &str,
-        format: WorkflowConfigFormat,
-    ) -> crate::ApiResult<WorkflowBuilder<Building>> {
-        let definition: WorkflowDefinition = match format {
-            WorkflowConfigFormat::Json => wf_config::parser::parse_json(content)?,
-            WorkflowConfigFormat::Toml => wf_config::parser::parse_toml(content)?,
-        };
-        Ok(WorkflowBuilder::from_definition(definition))
-    }
-
-    /// Rehydrate a builder from a JSON-serialized `WorkflowDefinition`.
-    pub fn from_config_json(content: &str) -> crate::ApiResult<WorkflowBuilder<Building>> {
-        WorkflowBuilder::from_config(content, WorkflowConfigFormat::Json)
-    }
-
-    /// Rehydrate a builder from a TOML-serialized `WorkflowDefinition`.
-    pub fn from_config_toml(content: &str) -> crate::ApiResult<WorkflowBuilder<Building>> {
-        WorkflowBuilder::from_config(content, WorkflowConfigFormat::Toml)
-    }
-
-    /// Initialize a `Building` builder from an already-valid definition.
-    fn from_definition(definition: WorkflowDefinition) -> WorkflowBuilder<Building> {
-        WorkflowBuilder {
-            id: definition.id,
-            name: definition.name,
-            description: definition.description,
-            r#type: definition.r#type,
-            version: definition.version,
-            config: definition.config,
-            variables: definition.variables.unwrap_or_default(),
-            metadata: definition.metadata,
-            available_tools: definition.available_tools,
-            hooks: definition.hooks,
-            triggered_subworkflow_config: definition.triggered_subworkflow_config,
-            nodes: definition.nodes,
-            edges: definition.edges,
-            _marker: PhantomData,
-        }
-    }
-}
-
-/// Serialization format accepted by
-/// [`WorkflowBuilder::from_config`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WorkflowConfigFormat {
-    Json,
-    Toml,
-}
-
-impl WorkflowBuilder<Building> {
-    /// Add another node to the workflow.
-    pub fn add_node(mut self, node: BaseStaticNode) -> crate::ApiResult<Self> {
-        if self.nodes.iter().any(|n| n.id == node.id) {
-            return Err(crate::ApiError::Validation(format!(
-                "duplicate node id '{}' in workflow '{}'",
-                node.id, self.id
-            )));
-        }
-        self.nodes.push(node);
-        Ok(self)
-    }
-
-    /// Add another END node.
-    pub fn add_end_node(self) -> crate::ApiResult<Self> {
-        self.add_node(NodeBuilder::end("end").build())
-    }
-
-    /// Validate the workflow (config + graph) and produce its definition.
-    pub fn build(self) -> crate::ApiResult<WorkflowDefinition> {
-        let definition = self.into_definition();
-        crate::workflow::validate_workflow(&definition)?;
-        Ok(definition)
-    }
-
-    /// Build and persist the workflow through the unified save path (storage +
-    /// execution registry), which re-runs the same validation.
-    pub async fn save(self, ctx: &ApiContext) -> crate::ApiResult<()> {
-        let definition = self.build()?;
-        crate::workflow::save_workflow(ctx, &definition).await
-    }
-}
-
-impl<S> WorkflowBuilder<S> {
     /// Set the workflow name.
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
@@ -250,10 +118,46 @@ impl<S> WorkflowBuilder<S> {
         self
     }
 
+    /// Set the persisted canvas layout (node positions and settings). Layout
+    /// is display data; it survives topology-only round-trips so re-saving a
+    /// rehydrated workflow never drops the saved graph positions.
+    pub fn layout(mut self, layout: WorkflowLayout) -> Self {
+        self.layout = Some(layout);
+        self
+    }
+
+    /// Attach workflow-level hooks (BEFORE_EXECUTE / AFTER_EXECUTE per node).
+    pub fn hooks(mut self, hooks: Vec<HookPointConfig>) -> Self {
+        self.hooks = Some(hooks);
+        self
+    }
+
     /// Add a variable definition.
     pub fn add_variable(mut self, variable: VariableDefinition) -> Self {
         self.variables.push(variable);
         self
+    }
+
+    /// Add a node.
+    pub fn add_node(mut self, node: BaseStaticNode) -> crate::ApiResult<Self> {
+        if self.nodes.iter().any(|n| n.id == node.id) {
+            return Err(crate::ApiError::Validation(format!(
+                "duplicate node id '{}' in workflow '{}'",
+                node.id, self.id
+            )));
+        }
+        self.nodes.push(node);
+        Ok(self)
+    }
+
+    /// Add a START node (default id `start`).
+    pub fn add_start_node(self) -> crate::ApiResult<Self> {
+        self.add_node(NodeBuilder::start("start").build())
+    }
+
+    /// Add an END node (default id `end`).
+    pub fn add_end_node(self) -> crate::ApiResult<Self> {
+        self.add_node(NodeBuilder::end("end").build())
     }
 
     /// Connect two registered nodes with a default edge.
@@ -306,6 +210,65 @@ impl<S> WorkflowBuilder<S> {
         Ok(self)
     }
 
+    /// Node ids currently registered.
+    pub fn node_ids(&self) -> Vec<&str> {
+        self.nodes.iter().map(|n| n.id.as_str()).collect()
+    }
+
+    /// Validate the workflow (config + graph) and produce its definition.
+    pub fn build(self) -> crate::ApiResult<WorkflowDefinition> {
+        let definition = self.into_definition();
+        crate::workflow::validate_workflow(&definition)?;
+        Ok(definition)
+    }
+
+    /// Build and persist the workflow through the unified save path (storage +
+    /// execution registry), which re-runs the same validation.
+    pub async fn save(self, ctx: &ApiContext) -> crate::ApiResult<()> {
+        let definition = self.build()?;
+        crate::workflow::save_workflow(ctx, &definition).await
+    }
+
+    /// Rehydrate a builder from a serialized `WorkflowDefinition` (JSON or
+    /// TOML). Validation is deferred to [`WorkflowBuilder::build`] /
+    /// [`WorkflowBuilder::save`].
+    pub fn from_config(content: &str, format: WorkflowConfigFormat) -> crate::ApiResult<Self> {
+        let definition: WorkflowDefinition = match format {
+            WorkflowConfigFormat::Json => wf_config::parser::parse_json(content)?,
+            WorkflowConfigFormat::Toml => wf_config::parser::parse_toml(content)?,
+        };
+        Ok(Self::from_definition(definition))
+    }
+
+    /// Rehydrate a builder from a JSON-serialized `WorkflowDefinition`.
+    pub fn from_config_json(content: &str) -> crate::ApiResult<Self> {
+        WorkflowBuilder::from_config(content, WorkflowConfigFormat::Json)
+    }
+
+    /// Rehydrate a builder from a TOML-serialized `WorkflowDefinition`.
+    pub fn from_config_toml(content: &str) -> crate::ApiResult<Self> {
+        WorkflowBuilder::from_config(content, WorkflowConfigFormat::Toml)
+    }
+
+    fn from_definition(definition: WorkflowDefinition) -> Self {
+        Self {
+            id: definition.id,
+            name: definition.name,
+            description: definition.description,
+            r#type: definition.r#type,
+            version: definition.version,
+            config: definition.config,
+            variables: definition.variables.unwrap_or_default(),
+            metadata: definition.metadata,
+            available_tools: definition.available_tools,
+            hooks: definition.hooks,
+            triggered_subworkflow_config: definition.triggered_subworkflow_config,
+            nodes: definition.nodes,
+            edges: definition.edges,
+            layout: definition.layout,
+        }
+    }
+
     fn ensure_nodes_exist(&self, from: &str, to: &str) -> crate::ApiResult<()> {
         if !self.nodes.iter().any(|n| n.id == from) {
             return Err(crate::ApiError::Validation(format!(
@@ -322,13 +285,6 @@ impl<S> WorkflowBuilder<S> {
         Ok(())
     }
 
-    /// Node ids currently registered.
-    pub fn node_ids(&self) -> Vec<&str> {
-        self.nodes.iter().map(|n| n.id.as_str()).collect()
-    }
-}
-
-impl<S> WorkflowBuilder<S> {
     fn into_definition(self) -> WorkflowDefinition {
         let now = wf_common::now();
         WorkflowDefinition {
@@ -347,6 +303,7 @@ impl<S> WorkflowBuilder<S> {
             updated_at: now,
             available_tools: self.available_tools,
             hooks: self.hooks,
+            layout: self.layout,
         }
     }
 }
@@ -380,6 +337,30 @@ mod tests {
             .add_node(start.clone())
             .and_then(|b| b.add_node(start))
             .unwrap_err();
+        assert!(matches!(err, crate::ApiError::Validation(_)));
+    }
+
+    #[test]
+    fn add_start_node_available_after_first_node() {
+        let builder = WorkflowBuilder::new("wf-start-late")
+            .add_node(
+                NodeBuilder::variable(
+                    "a",
+                    "va",
+                    wf_types::node::configs::VariableNodeType::String,
+                    "${input.x}",
+                )
+                .build(),
+            )
+            .unwrap()
+            .add_start_node()
+            .unwrap();
+        assert!(builder.node_ids().contains(&"start"));
+    }
+
+    #[test]
+    fn build_rejects_empty_workflow() {
+        let err = WorkflowBuilder::new("wf-empty").build().unwrap_err();
         assert!(matches!(err, crate::ApiError::Validation(_)));
     }
 
@@ -491,6 +472,46 @@ mod tests {
     }
 
     #[test]
+    fn layout_survives_build_and_rehydration() {
+        let mut positions = std::collections::BTreeMap::new();
+        positions.insert(
+            "start".to_string(),
+            wf_types::workflow::definition::LayoutPoint { x: 40, y: 80 },
+        );
+        let layout = WorkflowLayout {
+            positions,
+            settings: None,
+            updated_at: None,
+        };
+        let definition = WorkflowBuilder::new("wf-layout")
+            .add_start_node()
+            .unwrap()
+            .add_end_node()
+            .unwrap()
+            .add_edge("start", "end")
+            .unwrap()
+            .layout(layout)
+            .build()
+            .expect("valid graph must build");
+        let saved = definition.layout.as_ref().expect("layout persisted");
+        assert_eq!(saved.positions.get("start").map(|p| p.x), Some(40));
+
+        // Rehydrating the same definition must keep the layout, so a
+        // topology-only re-save never silently drops saved positions.
+        let rehydrated = WorkflowBuilder::from_definition(definition)
+            .build()
+            .expect("rehydrated graph must build");
+        assert_eq!(
+            rehydrated
+                .layout
+                .as_ref()
+                .and_then(|l| l.positions.get("start"))
+                .map(|p| p.y),
+            Some(80)
+        );
+    }
+
+    #[test]
     fn from_config_rehydrates_json_and_toml() {
         let json = r#"{
             "id": "wf-from-json",
@@ -505,7 +526,7 @@ mod tests {
             "created_at": 1000,
             "updated_at": 1000
         }"#;
-        let builder = WorkflowBuilder::<Empty>::from_config_json(json).unwrap();
+        let builder = WorkflowBuilder::from_config_json(json).unwrap();
         let definition = builder.build().expect("json workflow must build");
         assert_eq!(definition.id, "wf-from-json");
         assert_eq!(definition.nodes.len(), 2);
@@ -530,7 +551,7 @@ source_node_id = "start"
 target_node_id = "end"
 type = "DEFAULT"
 "#;
-        let builder = WorkflowBuilder::<Empty>::from_config_toml(toml).unwrap();
+        let builder = WorkflowBuilder::from_config_toml(toml).unwrap();
         let definition = builder.build().expect("toml workflow must build");
         assert_eq!(definition.id, "wf-from-toml");
         assert_eq!(definition.nodes.len(), 2);

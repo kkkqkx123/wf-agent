@@ -56,6 +56,7 @@ pub struct TemplateSummary {
     pub author: Option<String>,
     pub is_public: bool,
     pub enabled: bool,
+    pub is_system: bool,
     pub usage_count: u64,
     pub created_at: i64,
     pub updated_at: i64,
@@ -69,6 +70,7 @@ pub struct TemplateFilter {
     pub category: Option<String>,
     pub tags: Option<Vec<String>>,
     pub author: Option<String>,
+    pub include_system: Option<bool>,
 }
 
 // ── workflow templates ──────────────────────────────────────────
@@ -239,9 +241,13 @@ pub async fn query(ctx: &ApiContext, filter: &TemplateFilter) -> ApiResult<Vec<T
         author: filter.author.clone(),
     };
 
+    let include_system = filter.include_system.unwrap_or(false);
     Ok(summaries
         .into_iter()
         .filter(|s| {
+            if !include_system && s.is_system {
+                return false;
+            }
             basic.matches(
                 &s.name,
                 s.category.as_deref(),
@@ -314,6 +320,7 @@ pub async fn query_unified(
             category: filter.category.clone(),
             tags: filter.tags.clone(),
             author: filter.author.clone(),
+            include_system: filter.include_system,
         };
         summaries.extend(query(ctx, &library_filter).await?);
     }
@@ -363,7 +370,7 @@ pub async fn featured(ctx: &ApiContext, limit: Option<usize>) -> ApiResult<Vec<T
     let mut all = query(ctx, &TemplateFilter::default())
         .await?
         .into_iter()
-        .filter(|t| t.is_public && t.enabled)
+        .filter(|t| t.is_public && t.enabled && !t.is_system)
         .collect::<Vec<_>>();
     all.sort_by_key(|t| std::cmp::Reverse(t.usage_count));
     all.truncate(limit.unwrap_or(DEFAULT_FEATURED_LIMIT));
@@ -517,6 +524,7 @@ fn summary_from_workflow(template: WorkflowTemplate, usage_count: u64) -> Templa
         author,
         is_public: template.is_public.unwrap_or(true),
         enabled: template.enabled.unwrap_or(true),
+        is_system: template.is_system.unwrap_or(false),
         usage_count,
         created_at: template.definition.created_at,
         updated_at: template.definition.updated_at,
@@ -539,6 +547,7 @@ fn summary_from_agent(template: AgentTemplate, usage_count: u64) -> TemplateSumm
         author,
         is_public: template.is_public.unwrap_or(true),
         enabled: template.enabled.unwrap_or(true),
+        is_system: template.is_system.unwrap_or(false),
         usage_count,
         created_at: template.definition.created_at,
         updated_at: template.definition.updated_at,
@@ -559,6 +568,7 @@ fn summary_from_node(
         author: None,
         is_public: true,
         enabled: true,
+        is_system: false,
         usage_count,
         created_at: template.created_at,
         updated_at: template.updated_at,
@@ -579,6 +589,7 @@ fn summary_from_trigger(
         author: None,
         is_public: true,
         enabled: template.enabled,
+        is_system: false,
         usage_count,
         created_at: template.created_at,
         updated_at: template.updated_at,
@@ -620,6 +631,7 @@ mod tests {
                 }),
                 available_tools: None,
                 hooks: None,
+                layout: None,
                 created_at: now(),
                 updated_at: now(),
             },
@@ -627,6 +639,7 @@ mod tests {
             template_tags: Some(vec!["tag-a".into()]),
             is_public: Some(true),
             enabled: Some(true),
+            is_system: Some(false),
         }
     }
 
@@ -653,6 +666,7 @@ mod tests {
             template_tags: Some(vec!["tag-b".into()]),
             is_public: Some(true),
             enabled: Some(true),
+            is_system: Some(false),
         }
     }
 

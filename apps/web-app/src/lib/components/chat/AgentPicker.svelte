@@ -15,12 +15,11 @@
 
 	let { value = $bindable(''), class: className = '' }: Props = $props();
 
-	const internalAgentIds = new Set([
-		'@standard/explorer',
-		'@standard/worker',
-		'@standard/goal-review-executor',
-		'@standard/goal-review-reviewer',
-	]);
+	function isRunnableAgent(template: Template): boolean {
+		if (template.isSystem) return false;
+		if (template.enabled === false || template.isPublic === false) return false;
+		return true;
+	}
 
 	let open = $state(false);
 	let query = $state('');
@@ -30,9 +29,7 @@
 	$effect(() => {
 		void listTemplates({ kind: 'agent' })
 			.then((items) => {
-				templates = items.filter(
-					(item) => !internalAgentIds.has(item.id),
-				);
+				templates = items.filter(isRunnableAgent);
 			})
 			.catch(() => {
 				templates = [];

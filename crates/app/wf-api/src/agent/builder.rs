@@ -1,9 +1,10 @@
 //! Typed agent builders.
 //!
-//! Uses the same `PhantomData` phase-tracking pattern as
-//! [`crate::workflow::builder::WorkflowBuilder`]: construction phases live in the type
-//! system, so incomplete configurations (a tool config with no tools, a hook
-//! without a hook type, an unnamed definition) are unrepresentable.
+//! Construction phases are tracked in the type system with `PhantomData`, so
+//! incomplete configurations (a tool config with no tools, a hook without a
+//! hook type, an unnamed definition) are unrepresentable. Each phase
+//! constructor preserves the invariant, so the type never claims a completed
+//! phase it has not actually reached.
 //!
 //! The builders produce the static artifact types consumed by the engines:
 //! [`AvailableTools`](wf_types::tool::AvailableTools), [`AgentHookConfig`],

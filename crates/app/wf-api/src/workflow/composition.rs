@@ -119,6 +119,7 @@ mod tests {
             updated_at: 0,
             available_tools: None,
             hooks: None,
+            layout: None,
         }
     }
 

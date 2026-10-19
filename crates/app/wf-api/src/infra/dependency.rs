@@ -680,6 +680,7 @@ mod tests {
             metadata: None,
             available_tools: None,
             hooks: None,
+            layout: None,
             created_at: wf_common::now(),
             updated_at: wf_common::now(),
         }

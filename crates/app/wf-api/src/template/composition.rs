@@ -194,6 +194,7 @@ mod tests {
             updated_at: 0,
             available_tools: None,
             hooks: None,
+            layout: None,
         };
         apply_templates_to_definition(&mut definition, &regs);
         assert_eq!(

@@ -538,16 +538,13 @@ export class ChatSessionController {
 
 	/** Agent templates are optional; fall back to the built-in main agent. */
 	loadDefaultAgent(): void {
-		const internalAgentIds = new Set([
-			'@standard/explorer',
-			'@standard/worker',
-			'@standard/goal-review-executor',
-			'@standard/goal-review-reviewer',
-		]);
 		void listTemplates({ kind: 'agent' })
 			.then((templates) => {
 				const runnable = templates.filter(
-					(template) => !internalAgentIds.has(template.id),
+					(template) =>
+						!template.isSystem &&
+						template.enabled !== false &&
+						template.isPublic !== false,
 				);
 				const preferred =
 					runnable.find((template) =>

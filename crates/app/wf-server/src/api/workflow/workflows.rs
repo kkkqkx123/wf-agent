@@ -16,6 +16,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use wf_api::WorkflowDefinition;
+use wf_api::WorkflowLayout;
 use wf_api::WorkflowListOptions;
 
 use crate::envelope::{error_response, ok};
@@ -57,6 +58,12 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/workflows/import", post(handle_import_workflow))
         .route("/workflows/import-many", post(handle_import_many))
         .route("/workflows/{id}/metadata", patch(handle_update_metadata))
+        .route(
+            "/workflows/{id}/layout",
+            get(handle_get_workflow_layout)
+                .put(handle_update_workflow_layout)
+                .delete(handle_delete_workflow_layout),
+        )
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -654,6 +661,62 @@ pub(crate) async fn handle_update_metadata(
 ) -> impl IntoResponse {
     match wf_api::workflow::update_workflow_metadata(&state.ctx, &path.id, &metadata).await {
         Ok(()) => ok(metadata).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/workflows/{id}/layout",
+    tag = "workflow",
+    params(IdPath),
+    responses((status = 200, description = "Workflow layout", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_get_workflow_layout(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::workflow::get_workflow(&state.ctx, &path.id).await {
+        Ok(workflow) => ok(workflow.layout).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/workflows/{id}/layout",
+    tag = "workflow",
+    params(IdPath),
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Workflow layout saved", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_update_workflow_layout(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Json(layout): Json<WorkflowLayout>,
+) -> impl IntoResponse {
+    match wf_api::workflow::save_workflow_layout(&state.ctx, &path.id, layout).await {
+        Ok(saved) => ok(saved).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/workflows/{id}/layout",
+    tag = "workflow",
+    params(IdPath),
+    responses((status = 200, description = "Workflow layout reset", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_delete_workflow_layout(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::workflow::reset_workflow_layout(&state.ctx, &path.id).await {
+        Ok(()) => ok(None::<WorkflowLayout>).into_response(),
         Err(e) => error_response(e),
     }
 }

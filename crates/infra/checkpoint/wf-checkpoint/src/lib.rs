@@ -34,7 +34,7 @@ pub use checkpoint_base::strategy::cadenced::{
 pub use checkpoint_base::strategy::{
     create_checkpoint_strategy, CheckpointStrategy, StandardStrategy,
 };
-pub use checkpoint_base::version_manager::{CURRENT_FORMAT_VERSION, VersionManager};
+pub use checkpoint_base::version_manager::{VersionManager, CURRENT_FORMAT_VERSION};
 pub use checkpoint_file::event::{CheckpointEvent, CheckpointEventBus as FileEventBus};
 pub use checkpoint_file::file::FileCheckpointManager;
 pub use checkpoint_file::scope::ScopeEndOutcome;

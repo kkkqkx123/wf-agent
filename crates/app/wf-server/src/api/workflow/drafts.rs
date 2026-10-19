@@ -311,6 +311,7 @@ mod tests {
             updated_at: wf_api::now(),
             available_tools: None,
             hooks: None,
+            layout: None,
         }
     }
 

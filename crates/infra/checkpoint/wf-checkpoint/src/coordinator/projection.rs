@@ -306,7 +306,9 @@ mod tests {
 
         // A channel without any file history for the entity: Ok, Missing.
         let manager = FileCheckpointManager::new_in_memory().unwrap();
-        save_file_snapshot(Some(&manager), "c1", "no-history").await.unwrap();
+        save_file_snapshot(Some(&manager), "c1", "no-history")
+            .await
+            .unwrap();
         assert_eq!(
             manager.state_file_link_status("c1").unwrap(),
             StateFileLinkStatus::Missing
@@ -319,7 +321,9 @@ mod tests {
         let actor = manager.actor_id_for("loop-1");
         let head = manager.apply_agent_edit(&actor, "a.txt", b"one\n").unwrap();
 
-        save_file_snapshot(Some(&manager), "c1", "loop-1").await.unwrap();
+        save_file_snapshot(Some(&manager), "c1", "loop-1")
+            .await
+            .unwrap();
         assert_eq!(
             manager.state_file_link_status("c1").unwrap(),
             StateFileLinkStatus::Linked {

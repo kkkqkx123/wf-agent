@@ -216,7 +216,10 @@ async fn test_schema_version_inserted_on_first_open() {
 
 #[tokio::test]
 async fn test_schema_version_rejects_mismatch() {
-    let path = std::env::temp_dir().join(format!("wf-storage-version-reject-{}.db", uuid::Uuid::new_v4()));
+    let path = std::env::temp_dir().join(format!(
+        "wf-storage-version-reject-{}.db",
+        uuid::Uuid::new_v4()
+    ));
     let path_str = path.to_string_lossy().to_string();
     let table = "version_reject_table";
     let store = SqliteStorage::new(&path_str, table, wf_storage::domain::EntityIndexes::NONE)
@@ -231,7 +234,11 @@ async fn test_schema_version_rejects_mismatch() {
         .await
         .unwrap();
     drop(store);
-    let reopened = SqliteStorage::new(&path_str, table, wf_storage::domain::EntityIndexes::NONE).await;
-    assert!(reopened.is_err(), "mismatched schema version must fail to open");
+    let reopened =
+        SqliteStorage::new(&path_str, table, wf_storage::domain::EntityIndexes::NONE).await;
+    assert!(
+        reopened.is_err(),
+        "mismatched schema version must fail to open"
+    );
     let _ = std::fs::remove_file(&path);
 }

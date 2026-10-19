@@ -652,16 +652,10 @@ mod tests {
         let sm = coord.state_manager();
         let latest = sm.get_latest("loop-1").await.unwrap().unwrap();
 
-        let id = reuse_duplicate_checkpoint(
-            sm,
-            &latest,
-            "agent_loop",
-            "loop-1",
-            Some("changed"),
-            None,
-        )
-        .await
-        .unwrap();
+        let id =
+            reuse_duplicate_checkpoint(sm, &latest, "agent_loop", "loop-1", Some("changed"), None)
+                .await
+                .unwrap();
         assert_eq!(id, latest.id.to_string());
 
         // The merge lands on the blob metadata's `customFields.description`
@@ -686,16 +680,10 @@ mod tests {
 
         let bus = checkpoint_file::event::CheckpointEventBus::new();
         let mut rx = bus.subscribe();
-        let err = merge_description_back(
-            sm,
-            &latest.id,
-            "agent_loop",
-            "loop-1",
-            "late",
-            Some(&bus),
-        )
-        .await
-        .unwrap_err();
+        let err =
+            merge_description_back(sm, &latest.id, "agent_loop", "loop-1", "late", Some(&bus))
+                .await
+                .unwrap_err();
         assert!(matches!(err, CheckpointError::NotFound { .. }));
         let event = rx.recv().await.expect("skip event");
         assert!(matches!(

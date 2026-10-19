@@ -367,7 +367,10 @@ mod tests {
             1_700_000_000_000,
             crate::version_manager::CURRENT_FORMAT_VERSION,
         );
-        assert_eq!(state.format_version, crate::version_manager::CURRENT_FORMAT_VERSION);
+        assert_eq!(
+            state.format_version,
+            crate::version_manager::CURRENT_FORMAT_VERSION
+        );
         assert_eq!(state.status, Some("active".to_string()));
     }
 
@@ -497,14 +500,10 @@ mod tests {
 
     #[test]
     fn build_checkpoint_metadata_none_without_content() {
-        assert!(build_checkpoint_metadata(
-            None,
-            vec![],
-            HashMap::new(),
-            "1",
-            1_700_000_000_000
-        )
-        .is_none());
+        assert!(
+            build_checkpoint_metadata(None, vec![], HashMap::new(), "1", 1_700_000_000_000)
+                .is_none()
+        );
     }
 
     #[test]

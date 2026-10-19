@@ -109,7 +109,7 @@ mod tests {
     use std::sync::Arc;
     use wf_storage::backend::StorageBackend;
     use wf_types::checkpoint::agent::AgentStateSnapshot;
-    use wf_types::checkpoint::{CheckpointStatus, CheckpointType, CheckpointTiming};
+    use wf_types::checkpoint::{CheckpointStatus, CheckpointTiming, CheckpointType};
     use wf_types::storage::CheckpointStorageMetadata;
 
     fn meta_with(
@@ -156,10 +156,7 @@ mod tests {
         // Iteration alone still marks a coordinate row without sequence bounds.
         let fields = HashMap::from([(ITERATION_FIELD.to_string(), serde_json::json!(3))]);
         let meta = meta_with(Some(fields), None);
-        assert_eq!(
-            timeline_from_metadata(&meta),
-            Some((None, None, None))
-        );
+        assert_eq!(timeline_from_metadata(&meta), Some((None, None, None)));
 
         // Rows predating the coordinate fields fall back to the snapshot body.
         assert_eq!(timeline_from_metadata(&meta_with(None, None)), None);
@@ -170,17 +167,10 @@ mod tests {
     #[test]
     fn timeline_from_metadata_marks_unknown_trigger_wires() {
         let fields = HashMap::from([(ITERATION_FIELD.to_string(), serde_json::json!(3))]);
-        let meta = meta_with(
-            Some(fields),
-            Some(vec!["trigger:NO_SUCH".to_string()]),
-        );
+        let meta = meta_with(Some(fields), Some(vec!["trigger:NO_SUCH".to_string()]));
         assert_eq!(
             timeline_from_metadata(&meta),
-            Some((
-                None,
-                None,
-                Some("Unknown trigger (NO_SUCH)".to_string())
-            ))
+            Some((None, None, Some("Unknown trigger (NO_SUCH)".to_string())))
         );
     }
 

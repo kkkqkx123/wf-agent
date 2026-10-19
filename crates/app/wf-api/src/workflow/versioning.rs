@@ -62,7 +62,10 @@ pub async fn create_versioned_update(
     let current = super::definition::get_workflow(ctx, workflow_id).await?;
 
     if keep_original {
-        let base = current.version.clone().unwrap_or_else(|| "pre-update".to_string());
+        let base = current
+            .version
+            .clone()
+            .unwrap_or_else(|| "pre-update".to_string());
         let label = unique_version_label(ctx, workflow_id, &base).await?;
         super::version::save_workflow_version(ctx, workflow_id, &label, &current).await?;
     }
@@ -88,9 +91,7 @@ pub async fn create_versioned_update(
             parse_business_version(version)?;
             version.clone()
         }
-        None => {
-            auto_increment_version(current.version.as_deref().unwrap_or("0.0.0"), strategy)?
-        }
+        None => auto_increment_version(current.version.as_deref().unwrap_or("0.0.0"), strategy)?,
     };
     updated.version = Some(new_version.clone());
     updated.updated_at = wf_common::now();
@@ -198,6 +199,7 @@ mod tests {
             metadata: None,
             available_tools: None,
             hooks: None,
+            layout: None,
             created_at: wf_common::now(),
             updated_at: wf_common::now(),
         }
@@ -234,7 +236,9 @@ mod tests {
     #[tokio::test]
     async fn test_explicit_invalid_version_is_rejected() {
         let ctx = make_ctx();
-        save_workflow(&ctx, &make_workflow("wf-ver-bad")).await.unwrap();
+        save_workflow(&ctx, &make_workflow("wf-ver-bad"))
+            .await
+            .unwrap();
         let err = create_versioned_update(
             &ctx,
             "wf-ver-bad",

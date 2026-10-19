@@ -15,6 +15,10 @@ interface TemplateDto {
 	description?: string | null;
 	usage_count?: number;
 	tags?: string[] | null;
+	author?: string | null;
+	enabled?: boolean;
+	is_public?: boolean;
+	is_system?: boolean;
 }
 
 const KINDS: readonly TemplateKind[] = ['node', 'trigger', 'agent', 'workflow'];
@@ -35,6 +39,10 @@ function toTemplate(d: TemplateDto, fallbackKind: TemplateKind): Template {
 		usage: d.usage_count ?? 0,
 		featured: false,
 		tags: d.tags ?? [],
+		enabled: d.enabled ?? true,
+		isPublic: d.is_public ?? true,
+		isSystem: d.is_system ?? false,
+		author: d.author ?? null,
 	};
 }
 
@@ -158,6 +166,16 @@ export async function getTemplateDetail(
 				tags: Array.isArray(record.template_tags)
 					? (record.template_tags as string[])
 					: null,
+				enabled:
+					typeof record.enabled === 'boolean' ? record.enabled : undefined,
+				is_public:
+					typeof record.is_public === 'boolean'
+						? record.is_public
+						: undefined,
+				is_system:
+					typeof record.is_system === 'boolean'
+						? record.is_system
+						: undefined,
 			},
 			kind,
 		),

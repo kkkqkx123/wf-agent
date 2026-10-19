@@ -785,8 +785,7 @@ mod tests {
 
     #[test]
     fn test_index_file_rejects_unexpected_version() {
-        let path =
-            std::env::temp_dir().join(format!("wf-index-version-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("wf-index-version-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).unwrap();
         write_json(

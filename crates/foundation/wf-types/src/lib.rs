@@ -68,4 +68,5 @@ pub use storage::UserInteractionStorageMetadata;
 pub use storage::VariableStorageMetadata;
 pub use storage::{TriggerExecutionOutcome, TriggerExecutionStorageMetadata};
 pub use workflow::WorkflowDefinition;
+pub use workflow::WorkflowLayout;
 pub use workflow_execution::WorkflowExecution;

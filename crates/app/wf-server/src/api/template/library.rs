@@ -77,6 +77,7 @@ pub(crate) struct TemplateSummaryDoc {
     author: Option<String>,
     is_public: bool,
     enabled: bool,
+    is_system: bool,
     usage_count: u64,
     created_at: i64,
     updated_at: i64,
@@ -94,6 +95,7 @@ impl From<wf_api::template::template_library::TemplateSummary> for TemplateSumma
             author: view.author,
             is_public: view.is_public,
             enabled: view.enabled,
+            is_system: view.is_system,
             usage_count: view.usage_count,
             created_at: view.created_at,
             updated_at: view.updated_at,
@@ -109,6 +111,7 @@ pub(crate) struct LibraryQuery {
     category: Option<String>,
     author: Option<String>,
     tags: Option<String>,
+    include_system: Option<bool>,
 }
 
 #[utoipa::path(
@@ -145,6 +148,7 @@ pub(crate) async fn handle_query_library(
             .as_deref()
             .map(|t| t.split(',').map(ToOwned::to_owned).collect()),
         author: query.author,
+        include_system: query.include_system,
     };
     match wf_api::template::template_library::query_unified(&state.ctx, &filter).await {
         Ok(templates) => ok(templates

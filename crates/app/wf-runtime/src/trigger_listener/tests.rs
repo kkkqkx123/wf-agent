@@ -1698,6 +1698,7 @@ fn template_with_nodes() -> WorkflowTemplate {
             }),
             available_tools: None,
             hooks: None,
+            layout: None,
             created_at: 0,
             updated_at: 0,
         },
@@ -1705,6 +1706,7 @@ fn template_with_nodes() -> WorkflowTemplate {
         template_tags: None,
         is_public: None,
         enabled: None,
+        is_system: None,
     }
 }
 

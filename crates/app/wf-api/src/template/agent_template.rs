@@ -218,6 +218,7 @@ mod tests {
             template_tags: Some(vec!["tag-b".into()]),
             is_public: Some(true),
             enabled: Some(true),
+            is_system: Some(false),
         }
     }
 

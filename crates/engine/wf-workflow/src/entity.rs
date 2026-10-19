@@ -12,6 +12,9 @@ use crate::state::WorkflowExecutionState;
 pub struct WorkflowExecutionEntity {
     id: Id,
     workflow_id: Id,
+    /// Pinned workflow version this execution runs against. `None` means the
+    /// stored definition as it stands; `Some` is a saved version identifier.
+    workflow_version: Option<wf_types::Version>,
     pub state: Arc<tokio::sync::RwLock<WorkflowExecutionState>>,
     interruption: InterruptionState,
     cancellation: tokio_util::sync::CancellationToken,
@@ -34,6 +37,7 @@ impl WorkflowExecutionEntity {
         Self {
             id,
             workflow_id,
+            workflow_version: None,
             state: Arc::new(tokio::sync::RwLock::new(WorkflowExecutionState::new())),
             interruption: InterruptionState::new(),
             cancellation: tokio_util::sync::CancellationToken::new(),
@@ -73,6 +77,15 @@ impl WorkflowExecutionEntity {
 
     pub fn workflow_id(&self) -> &Id {
         &self.workflow_id
+    }
+
+    pub fn with_workflow_version(mut self, version: Option<wf_types::Version>) -> Self {
+        self.workflow_version = version;
+        self
+    }
+
+    pub fn workflow_version(&self) -> Option<wf_types::Version> {
+        self.workflow_version.clone()
     }
 
     pub fn variables(&self) -> &Arc<DashMap<String, Value>> {

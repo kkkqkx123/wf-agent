@@ -137,7 +137,9 @@ mod tests {
         let store = ManagerStore::with_sqlite(storage);
         let cloned = store.clone();
 
-        store.latest_checkpoints.insert("actor-a".to_string(), "head-1".to_string());
+        store
+            .latest_checkpoints
+            .insert("actor-a".to_string(), "head-1".to_string());
         assert_eq!(
             cloned.latest_checkpoints.get("actor-a").map(|e| e.clone()),
             Some("head-1".to_string()),

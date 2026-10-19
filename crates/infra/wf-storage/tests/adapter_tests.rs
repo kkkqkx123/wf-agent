@@ -29,6 +29,7 @@ fn make_wf(i: u32) -> wf_types::WorkflowDefinition {
         updated_at: 1000,
         available_tools: None,
         hooks: None,
+        layout: None,
     }
 }
 

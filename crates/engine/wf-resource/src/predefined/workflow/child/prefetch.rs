@@ -177,11 +177,13 @@ pub fn create_prefetch_workflow_with_prompt(system_prompt: Option<String>) -> Wo
             created_at: t,
             updated_at: t,
             hooks: None,
+            layout: None,
         },
         template_category: Some("system".into()),
         template_tags: Some(vec!["context".into(), "prefetch".into(), "code".into()]),
         is_public: Some(true),
         enabled: Some(true),
+        is_system: Some(true),
     }
 }
 

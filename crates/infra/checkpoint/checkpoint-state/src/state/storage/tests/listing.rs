@@ -226,8 +226,16 @@ async fn list_by_entity_paged_slices_in_timestamp_order() {
     );
 
     // Offset past the end and a zero limit both yield an empty window.
-    assert!(mgr.list_by_entity_paged("exec-1", 5, 2).await.unwrap().is_empty());
-    assert!(mgr.list_by_entity_paged("exec-1", 0, 0).await.unwrap().is_empty());
+    assert!(mgr
+        .list_by_entity_paged("exec-1", 5, 2)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(mgr
+        .list_by_entity_paged("exec-1", 0, 0)
+        .await
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test]
@@ -253,7 +261,14 @@ async fn count_by_entity_counts_only_the_entity_and_reflects_deletes() {
 
     // A second entity must not be counted.
     mgr.save(
-        &make_envelope("cp-other", None, None, 9000, None, Some(json!({"state": "x"}))),
+        &make_envelope(
+            "cp-other",
+            None,
+            None,
+            9000,
+            None,
+            Some(json!({"state": "x"})),
+        ),
         "test",
         "exec-2",
     )

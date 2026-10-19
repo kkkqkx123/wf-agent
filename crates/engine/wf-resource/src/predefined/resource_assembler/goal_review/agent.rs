@@ -67,6 +67,7 @@ pub fn goal_review_executor() -> AgentTemplate {
         template_tags: Some(vec!["goal-review".into(), "executor".into()]),
         is_public: Some(true),
         enabled: Some(true),
+        is_system: Some(true),
     }
 }
 
@@ -128,5 +129,6 @@ pub fn goal_review_reviewer() -> AgentTemplate {
         template_tags: Some(vec!["goal-review".into(), "reviewer".into()]),
         is_public: Some(true),
         enabled: Some(true),
+        is_system: Some(true),
     }
 }

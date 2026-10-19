@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
@@ -8,6 +10,7 @@
 	import type { Column } from '@wf-agent/ui/components/table';
 	import {
 		diffWorkflowVersions,
+		executeWorkflow,
 		type VersionDiff,
 	} from '$lib/services/workflows';
 	import { rollbackWorkflow } from '$lib/services/graph';
@@ -36,6 +39,8 @@
 	let rollbackTarget = $state('');
 	let rollbackArmed = $state(false);
 	let rollbackBusy = $state(false);
+	let runTarget = $state('');
+	let runBusy = $state(false);
 	let diffExplorer = $state<{ focus: (id: string) => void } | null>(null);
 
 	const versionColumns: Column<WorkflowVersion>[] = [
@@ -70,6 +75,7 @@
 			if (!compareFrom) compareFrom = versions[versions.length - 1].version;
 			if (!compareTo) compareTo = versions[0].version;
 			if (!rollbackTarget) rollbackTarget = versions[0].version;
+			if (!runTarget) runTarget = versions[0].version;
 		}
 	});
 
@@ -102,6 +108,28 @@
 			);
 		} finally {
 			rollbackBusy = false;
+		}
+	}
+
+	async function runVersion(): Promise<void> {
+		if (!runTarget || runBusy) return;
+		runBusy = true;
+		try {
+			const executionId = await executeWorkflow(
+				workflowId,
+				null,
+				undefined,
+				runTarget,
+			);
+			toasts.success(`Version ${runTarget} started`, executionId);
+			await goto(resolve('/executions/[id]', { id: executionId }));
+		} catch (e) {
+			toasts.error(
+				'Execution failed to start',
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			runBusy = false;
 		}
 	}
 </script>
@@ -242,6 +270,27 @@
 					Rollback
 				</Button>
 			{/if}
+		</div>
+	</Card>
+	<Card title="Run version">
+		<div class="flex flex-wrap items-end gap-2">
+			<Select
+				bind:value={runTarget}
+				options={versionOptions}
+				size="sm"
+				placeholder="Version"
+				class="w-32"
+			/>
+			<Button
+				variant="outline"
+				size="sm"
+				disabled={!runTarget || runBusy}
+				title="Execute this saved version instead of the current definition"
+				onclick={() => void runVersion()}
+			>
+				<Icon name="refresh" size={13} />
+				{runBusy ? 'Starting…' : `Run ${runTarget}`}
+			</Button>
 		</div>
 	</Card>
 </div>

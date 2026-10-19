@@ -165,7 +165,11 @@ mod tests {
         match event {
             CheckpointEvent::Failed { data, .. } => {
                 assert_eq!(data.operation.as_deref(), Some("persistence_failure"));
-                assert!(data.error.as_deref().expect("error text").contains("panicked"));
+                assert!(data
+                    .error
+                    .as_deref()
+                    .expect("error text")
+                    .contains("panicked"));
             }
             other => panic!("expected Failed, got {other:?}"),
         }

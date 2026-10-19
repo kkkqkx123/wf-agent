@@ -41,6 +41,7 @@ fn make_multi_step_definition(id: &str) -> WorkflowDefinition {
         r#type: None,
         version: Some("1.0.0".into()),
         hooks: None,
+        layout: None,
         nodes: vec![
             BaseStaticNode {
                 id: "start".into(),
@@ -170,6 +171,7 @@ async fn kill_restart_recover_drives_crashed_execution_to_completion() {
                 workflow_id: "wf-kill".into(),
                 input: Some(serde_json::json!({"greeting": "hi"})),
                 options: Some(options),
+                version: None,
             },
         )
         .await
@@ -322,6 +324,7 @@ async fn kill_restart_child_without_checkpoint_points_at_parent() {
                 workflow_id: "wf-kill-child".into(),
                 input: Some(serde_json::json!({"greeting": "hi"})),
                 options: Some(options),
+                version: None,
             },
         )
         .await

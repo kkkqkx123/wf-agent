@@ -20,7 +20,6 @@ use crate::infra::error::ApiError;
 use crate::infra::stream::{spawn_execution_stream, ExecutionEventStream};
 
 use super::checkpoint::{attach_checkpoints, entity_resume_snapshot};
-use super::graph::resolve_graph;
 
 /// Default wall-clock timeout applied to a workflow execution when the caller
 /// does not set `WorkflowExecutionOptions::timeout` and no engine budget is
@@ -49,10 +48,36 @@ pub(crate) const EXECUTION_OPTIONS_VAR: &str = "__execution_options";
 #[derive(Debug, Clone, Default)]
 pub struct ExecuteWorkflowParams {
     pub workflow_id: String,
+    /// Pinned workflow version to execute. `None` runs the stored definition
+    /// as it stands; `Some` loads that saved version instead.
+    pub version: Option<String>,
     /// Top-level execution input exposed as the `input` variable.
     pub input: Option<Value>,
     /// Execution options; `None` uses engine defaults.
     pub options: Option<WorkflowExecutionOptions>,
+}
+
+/// Load the workflow definition an execution runs against.
+///
+/// A pinned version reads that saved version; otherwise the stored
+/// definition is used. A missing workflow or version surfaces as not-found
+/// instead of falling back to another definition.
+async fn resolve_definition(
+    ctx: &ApiContext,
+    workflow_id: &str,
+    version: Option<&str>,
+) -> crate::infra::error::ApiResult<wf_types::workflow::WorkflowDefinition> {
+    match version {
+        Some(pinned) => {
+            crate::workflow::version::get_workflow_version(ctx, workflow_id, pinned).await
+        }
+        None => ctx
+            .storage
+            .workflow
+            .load(workflow_id)
+            .await?
+            .ok_or_else(|| crate::infra::error::not_found("workflow", workflow_id)),
+    }
 }
 
 /// Execute a workflow to completion and await its output.
@@ -64,14 +89,18 @@ pub async fn execute(
     ctx: &ApiContext,
     params: ExecuteWorkflowParams,
 ) -> crate::infra::error::ApiResult<WorkflowOutput> {
-    let graph = resolve_graph(ctx, &params.workflow_id).await?;
-    let hooks = resolve_hooks(ctx, &params.workflow_id).await?;
-    let definition = ctx.storage.workflow.load(&params.workflow_id).await?;
-    let entity = spawn_entity(ctx, &params.workflow_id);
+    let mut definition =
+        resolve_definition(ctx, &params.workflow_id, params.version.as_deref()).await?;
+    let graph =
+        super::graph::resolve_graph_for_definition(ctx, &params.workflow_id, &mut definition)
+            .await?;
+    let hooks = hooks_for_definition(&definition);
+    let version = params.version.clone().or(definition.version.clone());
+    let entity = spawn_entity(ctx, &params.workflow_id, version);
     let options = resolve_options(
         ctx,
         &entity,
-        definition.as_ref(),
+        Some(&definition),
         params.input,
         params.options,
     );
@@ -100,17 +129,21 @@ pub async fn stream(
     ctx: Arc<ApiContext>,
     params: ExecuteWorkflowParams,
 ) -> crate::infra::error::ApiResult<(Id, ExecutionEventStream)> {
-    let graph = resolve_graph(&ctx, &params.workflow_id).await?;
-    let hooks = resolve_hooks(&ctx, &params.workflow_id).await?;
-    let definition = ctx.storage.workflow.load(&params.workflow_id).await?;
-    let entity = spawn_entity(&ctx, &params.workflow_id);
+    let mut definition =
+        resolve_definition(&ctx, &params.workflow_id, params.version.as_deref()).await?;
+    let graph =
+        super::graph::resolve_graph_for_definition(&ctx, &params.workflow_id, &mut definition)
+            .await?;
+    let hooks = hooks_for_definition(&definition);
+    let version = params.version.clone().or(definition.version.clone());
+    let entity = spawn_entity(&ctx, &params.workflow_id, version);
     let execution_id = entity.id().clone();
     let (stream, sink) =
         spawn_execution_stream(Some(ctx.event_bus.clone()), execution_id.to_string());
     let options = resolve_options(
         &ctx,
         &entity,
-        definition.as_ref(),
+        Some(&definition),
         params.input,
         params.options,
     );
@@ -203,7 +236,14 @@ pub async fn resume(
     }
 
     let workflow_id = entity.workflow_id().to_string();
-    let graph = resolve_graph(ctx, &workflow_id).await?;
+    let mut definition = resolve_definition(
+        ctx,
+        &workflow_id,
+        entity.workflow_version().as_deref(),
+    )
+    .await?;
+    let graph =
+        super::graph::resolve_graph_for_definition(ctx, &workflow_id, &mut definition).await?;
 
     let options = execution_options(ctx, &entity).await;
     let checkpoints_enabled = options.enable_checkpoints.unwrap_or(true);
@@ -297,12 +337,19 @@ pub(crate) fn live_entity(
         .ok_or_else(|| ApiError::execution_not_found(execution_id))
 }
 
-fn spawn_entity(ctx: &ApiContext, workflow_id: &str) -> Arc<WorkflowExecutionEntity> {
+fn spawn_entity(
+    ctx: &ApiContext,
+    workflow_id: &str,
+    version: Option<wf_types::Version>,
+) -> Arc<WorkflowExecutionEntity> {
     let execution_id = wf_common::generate_id();
-    let entity = Arc::new(WorkflowExecutionEntity::new(
-        wf_types::Id::from(execution_id.clone()),
-        wf_types::Id::from(workflow_id.to_string()),
-    ));
+    let entity = Arc::new(
+        WorkflowExecutionEntity::new(
+            wf_types::Id::from(execution_id.clone()),
+            wf_types::Id::from(workflow_id.to_string()),
+        )
+        .with_workflow_version(version),
+    );
     let _ = ctx
         .workflow_executions
         .register(execution_id, entity.clone());
@@ -472,23 +519,16 @@ async fn run_workflow(
     }
 }
 
-/// Load the definition-level hooks of a stored workflow, converted into
-/// executable hook definitions.
-async fn resolve_hooks(
-    ctx: &ApiContext,
-    workflow_id: &str,
-) -> crate::infra::error::ApiResult<Vec<HookDefinition>> {
-    let definition = ctx
-        .storage
-        .workflow
-        .load(workflow_id)
-        .await?
-        .ok_or_else(|| crate::infra::error::not_found("workflow", workflow_id))?;
-    Ok(definition
+/// Convert the hook points carried by a resolved definition into executable
+/// hook definitions.
+fn hooks_for_definition(
+    definition: &wf_types::workflow::WorkflowDefinition,
+) -> Vec<HookDefinition> {
+    definition
         .hooks
         .as_ref()
         .map(|hooks| hooks.iter().map(Into::into).collect())
-        .unwrap_or_default())
+        .unwrap_or_default()
 }
 
 pub(crate) fn default_options() -> WorkflowExecutionOptions {

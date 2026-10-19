@@ -65,13 +65,18 @@
 		}
 	}
 
-	/** Re-runs the current workflow definition with the input recorded on the
-	 * run. The execute entry point has no version parameter, so a run made
-	 * against an older version replays against the definition live now. */
+	/** Re-runs the recorded input against the recorded version when the
+	 * run carries one, so a run made against an older version replays
+	 * that version instead of the definition live now. */
 	async function rerun(run: Execution): Promise<void> {
 		rerunId = run.id;
 		try {
-			const executionId = await executeWorkflow(workflowId, run.input ?? null);
+			const executionId = await executeWorkflow(
+				workflowId,
+				run.input ?? null,
+				undefined,
+				run.version ?? null,
+			);
 			toasts.success('Re-run started', executionId);
 			await loadRuns();
 		} catch (e) {
@@ -151,6 +156,14 @@
 									{run.id}
 								</a>
 								<StatusBadge status={run.status} size="sm" dot={false} />
+								{#if run.version}
+									<span
+										class="rounded border border-border px-1 font-mono text-micro text-muted-foreground"
+										title="Workflow version this run executed"
+									>
+										v{run.version}
+									</span>
+								{/if}
 							</div>
 							<p class="mt-0.5 text-micro text-muted-foreground">
 								<span class="tabular-nums">{formatDateTime(run.startedAt)}</span
@@ -180,7 +193,9 @@
 							size="sm"
 							class="shrink-0"
 							disabled={rerunId === run.id}
-							title="Re-run with the input recorded on this run"
+							title={run.version
+								? `Re-run version ${run.version} with the input recorded on this run`
+								: 'Re-run with the input recorded on this run'}
 							onclick={() => void rerun(run)}
 						>
 							<Icon name="refresh" size={13} />

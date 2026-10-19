@@ -394,6 +394,7 @@ mod tests {
             created_at: 1000,
             updated_at: 1000,
             hooks: None,
+            layout: None,
         };
         ctx.workflow.save(&definition).await.unwrap();
 

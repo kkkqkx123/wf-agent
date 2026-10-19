@@ -87,6 +87,7 @@ pub fn main_agent_template() -> AgentTemplate {
         template_tags: Some(vec!["builtin".into(), "main".into()]),
         is_public: Some(true),
         enabled: Some(true),
+        is_system: Some(false),
     }
 }
 

@@ -54,7 +54,10 @@ mod tests {
 
         // Other keys are untouched.
         storage.store_metadata("other", "o").unwrap();
-        assert_eq!(storage.load_metadata("other").unwrap(), Some("o".to_string()));
+        assert_eq!(
+            storage.load_metadata("other").unwrap(),
+            Some("o".to_string())
+        );
         assert_eq!(storage.load_metadata("k").unwrap(), Some("v2".to_string()));
     }
 

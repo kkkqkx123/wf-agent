@@ -210,6 +210,7 @@ mod tests {
             updated_at: wf_common::now(),
             available_tools: None,
             hooks: None,
+            layout: None,
         }
     }
 
@@ -258,6 +259,7 @@ mod tests {
             updated_at: wf_common::now(),
             available_tools: None,
             hooks: None,
+            layout: None,
         }
     }
 

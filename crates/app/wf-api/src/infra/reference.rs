@@ -271,6 +271,7 @@ mod tests {
             created_at: 1000,
             updated_at: 1000,
             hooks: None,
+            layout: None,
         }
     }
 
@@ -373,6 +374,7 @@ mod tests {
             created_at: 1000,
             updated_at: 1000,
             hooks: None,
+            layout: None,
         }
     }
 

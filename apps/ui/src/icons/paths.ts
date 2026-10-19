@@ -28,6 +28,7 @@ export const ICON_PATHS = {
 	pause: ['M10 4v16', 'M14 4v16'],
 	square: ['M6 6h12v12H6z'],
 	refresh: ['M21 12a9 9 0 1 1-3-6.7', 'M21 4v5h-5'],
+	undo: ['M3 7v6h6', 'M21 17a9 9 0 0 0-15-6.7L3 13'],
 	activity: ['M3 12h4l3 8 4-16 3 8h4'],
 	zap: ['m13 2-9 12h7l-1 8 9-12h-7l1-8Z'],
 	clock: ['M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10', 'M12 8.5V12l2.5 1.8'],

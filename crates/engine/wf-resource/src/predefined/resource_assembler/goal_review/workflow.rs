@@ -313,10 +313,12 @@ pub(crate) fn build_workflow(config: &GoalReviewConfig) -> Result<WorkflowTempla
             created_at: t,
             updated_at: t,
             hooks: None,
+            layout: None,
         },
         template_category: Some("code-review".into()),
         template_tags: Some(vec!["review".into(), "goal-driven".into()]),
         is_public: Some(true),
         enabled: Some(true),
+        is_system: Some(true),
     })
 }

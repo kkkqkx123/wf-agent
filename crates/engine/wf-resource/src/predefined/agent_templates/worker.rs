@@ -93,6 +93,7 @@ pub fn worker_agent_template() -> AgentTemplate {
         template_tags: Some(vec!["builtin".into(), "worker".into()]),
         is_public: Some(true),
         enabled: Some(true),
+        is_system: Some(true),
     }
 }
 

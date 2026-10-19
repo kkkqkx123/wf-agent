@@ -42,9 +42,11 @@ where
                 id: checkpoint_id.to_string(),
             })?;
 
-    let version = checkpoint.format_version().ok_or_else(|| CheckpointError::Validation {
-        reason: "checkpoint missing format version".to_string(),
-    })?;
+    let version = checkpoint
+        .format_version()
+        .ok_or_else(|| CheckpointError::Validation {
+            reason: "checkpoint missing format version".to_string(),
+        })?;
 
     let compatibility = version_manager.check_compatibility(version);
     if !compatibility.compatible {

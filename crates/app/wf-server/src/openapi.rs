@@ -237,6 +237,9 @@ use utoipa::OpenApi;
         crate::api::workflow::workflows::handle_import_workflow,
         crate::api::workflow::workflows::handle_import_many,
         crate::api::workflow::workflows::handle_update_metadata,
+        crate::api::workflow::workflows::handle_get_workflow_layout,
+        crate::api::workflow::workflows::handle_update_workflow_layout,
+        crate::api::workflow::workflows::handle_delete_workflow_layout,
         // ── checkpoint ──
         crate::api::checkpoint::checkpoints::handle_create_checkpoint,
         crate::api::checkpoint::checkpoints::handle_checkpoint_chain,

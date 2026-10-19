@@ -29,8 +29,28 @@ pub async fn resolve_graph(
         .load(workflow_id)
         .await?
         .ok_or_else(|| not_found("workflow", workflow_id))?;
-    crate::template::composition::apply_templates_to_definition(&mut definition, &ctx.registries);
-    let graph = definition_to_graph(&definition);
+    resolve_graph_for_definition(ctx, workflow_id, &mut definition).await
+}
+
+/// Build the executable graph from an already-resolved definition.
+///
+/// Version-pinned executions load their definition up front, so graph
+/// resolution works from that definition instead of re-reading the stored
+/// one; template expansion, validation and reference closure run the same
+/// either way.
+pub async fn resolve_graph_for_definition(
+    ctx: &ApiContext,
+    workflow_id: &str,
+    definition: &mut wf_types::workflow::WorkflowDefinition,
+) -> crate::infra::error::ApiResult<WorkflowGraphStructure> {
+    if ctx.is_stale(workflow_id) {
+        tracing::warn!(
+            workflow_id = %workflow_id,
+            "workflow is marked stale after an upstream change; revalidation runs before execution"
+        );
+    }
+    crate::template::composition::apply_templates_to_definition(definition, &ctx.registries);
+    let graph = definition_to_graph(definition);
     let val_ctx = crate::workflow::validation::build_reference_context(ctx).await;
     let ref_ctx = crate::workflow::validation::val_ctx_to_reference_context(&val_ctx);
     let (validated, warnings) = GraphValidator::validate_with_reference_context(graph, &ref_ctx)

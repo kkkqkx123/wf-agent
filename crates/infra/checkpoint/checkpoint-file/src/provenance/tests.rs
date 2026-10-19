@@ -1,8 +1,8 @@
 //! Provenance read-domain tests: change listings, diffs, timelines,
 //! conflict enumeration and source-index fallback semantics.
 
-use super::*;
 use super::timeline::content_similarity;
+use super::*;
 use crate::file::FileCheckpointManager;
 use crate::git_store::{
     commit_message, edit_ref_for_actor, feat_ref_for_name, merge_file_maps, GitStore, MODE_FILE,
@@ -50,8 +50,12 @@ fn rename_similarity_threshold_matches_standard_default() {
 fn list_changes_by_actor_reports_kinds_and_filters() {
     let manager = manager();
     let actor = manager.actor_id_for("entity-1");
-    let c1 = manager.apply_agent_edit(&actor, "a.txt", b"one\ntwo\n").unwrap();
-    let c2 = manager.apply_agent_edit(&actor, "a.txt", b"one\nthree\n").unwrap();
+    let c1 = manager
+        .apply_agent_edit(&actor, "a.txt", b"one\ntwo\n")
+        .unwrap();
+    let c2 = manager
+        .apply_agent_edit(&actor, "a.txt", b"one\nthree\n")
+        .unwrap();
     let c3 = manager.apply_agent_edit(&actor, "b.txt", b"bee\n").unwrap();
 
     let all = manager
@@ -64,7 +68,10 @@ fn list_changes_by_actor_reports_kinds_and_filters() {
         (c3.clone(), FileDiffKind::Added),
     ];
     for (id, kind) in expected {
-        let entry = all.iter().find(|c| c.snapshot_id == id).expect("commit listed");
+        let entry = all
+            .iter()
+            .find(|c| c.snapshot_id == id)
+            .expect("commit listed");
         assert_eq!(entry.kind, kind);
         assert_eq!(entry.source, actor.as_str());
         assert_eq!(entry.message.as_deref(), Some("tool edit"));
@@ -88,8 +95,12 @@ fn list_changes_by_actor_reports_kinds_and_filters() {
 fn list_changes_by_path_includes_deletion_tombstone() {
     let manager = manager();
     let actor = manager.actor_id_for("entity-1");
-    let c1 = manager.apply_agent_edit(&actor, "a.txt", b"one\ntwo\n").unwrap();
-    let c2 = manager.apply_agent_edit(&actor, "a.txt", b"one\nthree\n").unwrap();
+    let c1 = manager
+        .apply_agent_edit(&actor, "a.txt", b"one\ntwo\n")
+        .unwrap();
+    let c2 = manager
+        .apply_agent_edit(&actor, "a.txt", b"one\nthree\n")
+        .unwrap();
     let c3 = manager.apply_agent_delete(&actor, "a.txt").unwrap();
 
     let listed = manager.list_changes_by_path("a.txt", None).unwrap();
@@ -100,20 +111,36 @@ fn list_changes_by_path_includes_deletion_tombstone() {
         (c3.clone(), FileDiffKind::Deleted),
     ];
     for (id, kind) in expected {
-        let entry = listed.iter().find(|c| c.snapshot_id == id).expect("commit listed");
+        let entry = listed
+            .iter()
+            .find(|c| c.snapshot_id == id)
+            .expect("commit listed");
         assert_eq!(entry.kind, kind);
         assert_eq!(entry.file, "a.txt");
     }
     // Present files carry the resulting hash; a deletion is a tombstone
     // with no bytes and the removed line count.
-    assert!(!listed.iter().find(|c| c.snapshot_id == c1).unwrap().hash.is_empty());
-    assert!(!listed.iter().find(|c| c.snapshot_id == c2).unwrap().hash.is_empty());
+    assert!(!listed
+        .iter()
+        .find(|c| c.snapshot_id == c1)
+        .unwrap()
+        .hash
+        .is_empty());
+    assert!(!listed
+        .iter()
+        .find(|c| c.snapshot_id == c2)
+        .unwrap()
+        .hash
+        .is_empty());
     let tombstone = listed.iter().find(|c| c.snapshot_id == c3).unwrap();
     assert!(tombstone.hash.is_empty());
     assert_eq!((tombstone.additions, tombstone.deletions), (0, 2));
 
     // A path nobody ever touched stays empty (no similarity folding).
-    assert!(manager.list_changes_by_path("zzz.txt", None).unwrap().is_empty());
+    assert!(manager
+        .list_changes_by_path("zzz.txt", None)
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
@@ -181,9 +208,17 @@ fn file_timeline_links_rename_by_similarity() {
         .map(|i| format!("line {i}\n"))
         .collect::<String>()
         .into_bytes();
-    manager.apply_agent_edit(&actor, "doc.txt", &original).unwrap();
+    manager
+        .apply_agent_edit(&actor, "doc.txt", &original)
+        .unwrap();
     let renamed: Vec<u8> = (1..=10)
-        .map(|i| if i == 9 { "CHANGED\n".to_string() } else { format!("line {i}\n") })
+        .map(|i| {
+            if i == 9 {
+                "CHANGED\n".to_string()
+            } else {
+                format!("line {i}\n")
+            }
+        })
         .collect::<String>()
         .into_bytes();
     manager
@@ -209,7 +244,9 @@ fn file_timeline_does_not_link_dissimilar_renames() {
         .map(|i| format!("line {i}\n"))
         .collect::<String>()
         .into_bytes();
-    manager.apply_agent_edit(&actor, "doc.txt", &original).unwrap();
+    manager
+        .apply_agent_edit(&actor, "doc.txt", &original)
+        .unwrap();
     let other: Vec<u8> = (1..=10)
         .map(|i| format!("other {i}\n"))
         .collect::<String>()
@@ -251,7 +288,9 @@ fn partition_views_and_history_paging() {
     assert_eq!(edit.actor.as_deref(), Some(leaf.as_str()));
     assert_eq!(edit.history_len, 3);
     assert_eq!(edit.current_snapshot, c3);
-    assert!(partitions.iter().any(|p| p.name == REF_HUMAN && p.kind == "manual"));
+    assert!(partitions
+        .iter()
+        .any(|p| p.name == REF_HUMAN && p.kind == "manual"));
 
     let head = manager.partition_history(&edit_ref, 2, 0).unwrap();
     assert_eq!(head.len(), 2);
@@ -421,7 +460,11 @@ fn diff_workspaces_classifies_file_sets() {
         hash: crate::file::util::sha256_hex(content),
         timestamp: 1_000,
     };
-    let a = vec![w("p1.txt", b"one\n"), w("p2.txt", b"two\n"), w("p4.txt", b"same\n")];
+    let a = vec![
+        w("p1.txt", b"one\n"),
+        w("p2.txt", b"two\n"),
+        w("p4.txt", b"same\n"),
+    ];
     let b = vec![
         w("p1.txt", b"one\nnew\n"),
         w("p3.txt", b"three\n"),
@@ -434,7 +477,10 @@ fn diff_workspaces_classifies_file_sets() {
     let by_path: HashMap<&str, &FileDiffView> =
         views.iter().map(|v| (v.path.as_str(), v)).collect();
     assert_eq!(by_path["p1.txt"].kind, FileDiffKind::Modified);
-    assert_eq!((by_path["p1.txt"].additions, by_path["p1.txt"].deletions), (1, 0));
+    assert_eq!(
+        (by_path["p1.txt"].additions, by_path["p1.txt"].deletions),
+        (1, 0)
+    );
     assert!(!by_path["p1.txt"].hunks.is_empty());
     assert_eq!(by_path["p2.txt"].kind, FileDiffKind::Deleted);
     assert_eq!(by_path["p3.txt"].kind, FileDiffKind::Added);
@@ -478,8 +524,9 @@ fn parse_marker_conflicts_handles_all_shapes() {
 #[test]
 fn list_conflicts_enumerates_unresolved_merges() {
     let git = standalone_store();
-    let base: HashMap<String, Vec<u8>> =
-        [("f.txt".to_string(), b"base\n".to_vec())].into_iter().collect();
+    let base: HashMap<String, Vec<u8>> = [("f.txt".to_string(), b"base\n".to_vec())]
+        .into_iter()
+        .collect();
     let mut ours = base.clone();
     ours.insert("f.txt".to_string(), b"ours\n".to_vec());
     let mut theirs = base.clone();
@@ -494,9 +541,7 @@ fn list_conflicts_enumerates_unresolved_merges() {
     for (path, bytes) in &merged {
         tree_changes.insert(
             path.clone(),
-            bytes
-                .clone()
-                .map(|b| (MODE_FILE.to_string(), b)),
+            bytes.clone().map(|b| (MODE_FILE.to_string(), b)),
         );
     }
     let merged_tree = git.build_tree_from_parent(None, &tree_changes).unwrap();
@@ -511,7 +556,14 @@ fn list_conflicts_enumerates_unresolved_merges() {
         .write_commit(&ours_tree, &[], "agent:x", SYSTEM_COMMITTER, 1_000, "ours")
         .unwrap();
     let theirs_id = git
-        .write_commit(&theirs_tree, &[], "agent:y", SYSTEM_COMMITTER, 2_000, "theirs")
+        .write_commit(
+            &theirs_tree,
+            &[],
+            "agent:y",
+            SYSTEM_COMMITTER,
+            2_000,
+            "theirs",
+        )
         .unwrap();
     let merge_message = format!(
         "merge feature\n{TRAILER_STATE}: {STATE_CONFLICT_UNRESOLVED}\n{TRAILER_CONFLICT_FILE}: f.txt"
@@ -532,7 +584,11 @@ fn list_conflicts_enumerates_unresolved_merges() {
     let unresolved = unresolved_merges(&git).unwrap();
     assert_eq!(
         unresolved,
-        vec![(feat_ref.clone(), merge_id.clone(), vec!["f.txt".to_string()])]
+        vec![(
+            feat_ref.clone(),
+            merge_id.clone(),
+            vec!["f.txt".to_string()]
+        )]
     );
 
     let conflicts = list_conflicts(&git).unwrap();

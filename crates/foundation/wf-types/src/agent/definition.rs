@@ -45,4 +45,6 @@ pub struct AgentTemplate {
     pub is_public: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_system: Option<bool>,
 }

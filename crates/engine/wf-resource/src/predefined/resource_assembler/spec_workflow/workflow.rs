@@ -296,6 +296,7 @@ pub(crate) fn build_workflow(config: &SpecWorkflowConfig) -> Result<WorkflowTemp
         template_category: Some("spec-driven".into()),
         is_public: Some(true),
         enabled: Some(true),
+        is_system: Some(true),
         definition: WorkflowDefinition {
             id: SPEC_WORKFLOW_ID.into(),
             name: "Spec Workflow".into(),
@@ -316,6 +317,7 @@ pub(crate) fn build_workflow(config: &SpecWorkflowConfig) -> Result<WorkflowTemp
             updated_at: t,
             available_tools: None,
             hooks: None,
+            layout: None,
         },
     })
 }

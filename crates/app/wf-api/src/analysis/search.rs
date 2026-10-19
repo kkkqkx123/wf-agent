@@ -569,12 +569,14 @@ mod tests {
                 }),
                 available_tools: None,
                 hooks: None,
+                layout: None,
                 created_at: wf_common::now(),
                 updated_at: wf_common::now(),
             },
             template_category: None,
             template_tags: Some(vec!["blueprint".to_string()]),
             is_public: None,
+            is_system: None,
             enabled: None,
         }
     }

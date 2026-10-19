@@ -809,6 +809,7 @@ mod tests {
             metadata: None,
             available_tools: None,
             hooks: None,
+            layout: None,
             created_at: 1000,
             updated_at: 1000,
         };

@@ -179,6 +179,7 @@ pub async fn save_agent_template(
         template_category: None,
         template_tags: None,
         is_public: None,
+        is_system: None,
         enabled: None,
     };
     ctx.storage

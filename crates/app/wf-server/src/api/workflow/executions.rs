@@ -57,6 +57,10 @@ pub struct ExecuteBody {
     #[serde(default)]
     #[schema(value_type = Option<serde_json::Value>)]
     pub(crate) file_scope: Option<wf_types::config::file_scope::ExecutionFileScope>,
+    /// Pinned workflow version to execute. Missing runs the stored
+    /// definition as it stands; present loads that saved version instead.
+    #[serde(default)]
+    pub(crate) version: Option<String>,
 }
 
 fn execution_options(
@@ -105,6 +109,7 @@ pub(crate) async fn handle_execute_workflow(
 ) -> impl IntoResponse {
     let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
         workflow_id: path.id,
+        version: body.version,
         input: body.input,
         options: execution_options(body.file_scope),
     };
@@ -138,6 +143,7 @@ pub(crate) async fn handle_execute_stream(
 ) -> Response {
     let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
         workflow_id: path.id,
+        version: body.version,
         input: body.input,
         options: execution_options(body.file_scope),
     };
@@ -180,6 +186,7 @@ pub(crate) async fn handle_execute_background(
 ) -> impl IntoResponse {
     let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
         workflow_id: path.id,
+        version: body.version,
         input: body.input,
         options: execution_options(body.file_scope),
     };

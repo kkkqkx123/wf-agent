@@ -153,19 +153,144 @@ export function layeredPositions(
  */
 export function columnPositions(
 	nodes: DisplayNode[],
+	edges: Array<{ source: string; target: string }> = [],
 ): Map<string, { x: number; y: number }> {
-	const rows = new Map<number, number>();
 	const positions = new Map<string, { x: number; y: number }>();
+	if (nodes.length === 0) return positions;
+	const ranks = nodeRanks(nodes, edges);
+	const byRank = new Map<number, DisplayNode[]>();
 	for (const node of nodes) {
-		const iteration = node.iteration ?? 0;
-		const row = rows.get(iteration) ?? 0;
-		rows.set(iteration, row + 1);
-		positions.set(node.id, {
-			x: snapToGrid(40 + iteration * 200),
-			y: snapToGrid(40 + row * 80),
+		const rank = ranks.get(node.id) ?? 0;
+		const list = byRank.get(rank) ?? [];
+		list.push(node);
+		byRank.set(rank, list);
+	}
+	const sortedRanks = [...byRank.keys()].sort((a, b) => a - b);
+	let rankIndex = 0;
+	for (const rank of sortedRanks) {
+		const members = [...(byRank.get(rank) ?? [])].sort((a, b) =>
+			a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+		);
+		members.forEach((node, index) => {
+			positions.set(node.id, {
+				x: snapToGrid(40 + rankIndex * 220),
+				y: snapToGrid(40 + index * 90),
+			});
 		});
+		rankIndex += 1;
 	}
 	return positions;
+}
+
+export function rowPositions(
+	nodes: DisplayNode[],
+	edges: Array<{ source: string; target: string }> = [],
+): Map<string, { x: number; y: number }> {
+	const positions = new Map<string, { x: number; y: number }>();
+	if (nodes.length === 0) return positions;
+	const ranks = nodeRanks(nodes, edges);
+	const byRank = new Map<number, DisplayNode[]>();
+	for (const node of nodes) {
+		const rank = ranks.get(node.id) ?? 0;
+		const list = byRank.get(rank) ?? [];
+		list.push(node);
+		byRank.set(rank, list);
+	}
+	const sortedRanks = [...byRank.keys()].sort((a, b) => a - b);
+	let rankIndex = 0;
+	for (const rank of sortedRanks) {
+		const members = [...(byRank.get(rank) ?? [])].sort((a, b) =>
+			a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+		);
+		members.forEach((node, index) => {
+			positions.set(node.id, {
+				x: snapToGrid(40 + index * 160),
+				y: snapToGrid(40 + rankIndex * 100),
+			});
+		});
+		rankIndex += 1;
+	}
+	return positions;
+}
+
+export function compactPositions(
+	nodes: DisplayNode[],
+	edges: Array<{ source: string; target: string }> = [],
+	columns: number = 4,
+): Map<string, { x: number; y: number }> {
+	const positions = new Map<string, { x: number; y: number }>();
+	if (nodes.length === 0) return positions;
+	const order = topologicalOrder(nodes, edges);
+	const safeColumns = Math.max(1, Math.floor(columns));
+	order.forEach((node, index) => {
+		const column = index % safeColumns;
+		const row = Math.floor(index / safeColumns);
+		positions.set(node.id, {
+			x: snapToGrid(40 + column * 180),
+			y: snapToGrid(40 + row * 90),
+		});
+	});
+	return positions;
+}
+
+/** Topological rank per node: longest path from any source. Falls back to
+ *  iteration when present (decision graphs). */
+function nodeRanks(
+	nodes: DisplayNode[],
+	edges: Array<{ source: string; target: string }>,
+): Map<string, number> {
+	const ranks = new Map<string, number>();
+	if (nodes.some((node) => node.iteration !== undefined)) {
+		for (const node of nodes) ranks.set(node.id, node.iteration ?? 0);
+		return ranks;
+	}
+	const known = new Set(nodes.map((node) => node.id));
+	const indegree = new Map<string, number>();
+	const adjacency = new Map<string, string[]>();
+	for (const node of nodes) {
+		indegree.set(node.id, 0);
+		adjacency.set(node.id, []);
+	}
+	for (const edge of edges) {
+		if (!known.has(edge.source) || !known.has(edge.target)) continue;
+		if (edge.source === edge.target) continue;
+		adjacency.get(edge.source)?.push(edge.target);
+		indegree.set(edge.target, (indegree.get(edge.target) ?? 0) + 1);
+	}
+	const queue: string[] = [];
+	for (const node of nodes) {
+		if ((indegree.get(node.id) ?? 0) === 0) queue.push(node.id);
+	}
+	const order: string[] = [];
+	const working = new Map(indegree);
+	while (queue.length > 0) {
+		const current = queue.shift()!;
+		order.push(current);
+		for (const next of adjacency.get(current) ?? []) {
+			const remaining = (working.get(next) ?? 0) - 1;
+			working.set(next, remaining);
+			if (remaining === 0) queue.push(next);
+		}
+	}
+	for (const node of nodes) ranks.set(node.id, 0);
+	for (const current of order) {
+		for (const next of adjacency.get(current) ?? []) {
+			ranks.set(next, Math.max(ranks.get(next) ?? 0, (ranks.get(current) ?? 0) + 1));
+		}
+	}
+	return ranks;
+}
+
+function topologicalOrder(
+	nodes: DisplayNode[],
+	edges: Array<{ source: string; target: string }>,
+): DisplayNode[] {
+	const ranks = nodeRanks(nodes, edges);
+	return [...nodes].sort((a, b) => {
+		const rankDiff = (ranks.get(a.id) ?? 0) - (ranks.get(b.id) ?? 0);
+		if (rankDiff !== 0) return rankDiff;
+		return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+	});
 }
 
 export interface CanvasPoint {

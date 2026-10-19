@@ -90,6 +90,7 @@ fn make_definition(id: &str) -> WorkflowDefinition {
         metadata: None,
         available_tools: None,
         hooks: None,
+        layout: None,
         created_at: wf_common::now(),
         updated_at: wf_common::now(),
     }
@@ -189,6 +190,7 @@ fn make_multi_step_definition(id: &str) -> WorkflowDefinition {
         metadata: None,
         available_tools: None,
         hooks: None,
+        layout: None,
         created_at: wf_common::now(),
         updated_at: wf_common::now(),
     }
@@ -287,6 +289,7 @@ async fn executes_workflow_and_queries_status() {
             workflow_id: "wf-exec-1".into(),
             input: Some(serde_json::json!({"greeting": "hello"})),
             options: None,
+            version: None,
         },
     )
     .await
@@ -361,6 +364,7 @@ async fn persisted_execution_readable_after_restart() {
             workflow_id: "wf-persist".into(),
             input: Some(serde_json::json!({"greeting": "persist"})),
             options: None,
+            version: None,
         },
     )
     .await
@@ -420,6 +424,7 @@ async fn rejects_unknown_workflow() {
             workflow_id: "missing".into(),
             input: None,
             options: None,
+            version: None,
         },
     )
     .await
@@ -439,6 +444,7 @@ async fn checkpoint_create_and_restore_roundtrip() {
             workflow_id: "wf-cp-1".into(),
             input: Some(serde_json::json!({"greeting": "cp"})),
             options: None,
+            version: None,
         },
     )
     .await
@@ -486,6 +492,7 @@ async fn restore_checkpoint_then_resume_continues_from_breakpoint() {
             workflow_id: "wf-cp-break".into(),
             input: Some(serde_json::json!({"greeting": "hi"})),
             options: None,
+            version: None,
         },
     )
     .await
@@ -501,6 +508,7 @@ async fn restore_checkpoint_then_resume_continues_from_breakpoint() {
             workflow_id: "wf-cp-break".into(),
             input: Some(serde_json::json!({"greeting": "hi"})),
             options: Some(partial_options),
+            version: None,
         },
     )
     .await
@@ -554,6 +562,7 @@ async fn resume_returns_resumed_execution_result() {
             workflow_id: "wf-resume-1".into(),
             input: Some(serde_json::json!({"greeting": "r"})),
             options: None,
+            version: None,
         },
     )
     .await
@@ -593,6 +602,7 @@ async fn execution_summaries_project_persisted_records() {
             workflow_id: "wf-sum-1".into(),
             input: Some(serde_json::json!({"greeting": "hi"})),
             options: None,
+            version: None,
         },
     )
     .await
@@ -685,6 +695,7 @@ async fn restore_relinks_depth_root_and_children() {
             workflow_id: "wf-restore-hier".into(),
             input: Some(serde_json::json!({"greeting": "hi"})),
             options: None,
+            version: None,
         },
     )
     .await
@@ -698,4 +709,67 @@ async fn restore_relinks_depth_root_and_children() {
     let entity = restored.entity;
     assert!(entity.parent_execution_id().is_none());
     assert_eq!(entity.get_hierarchy_depth(), 0);
+}
+
+#[tokio::test]
+async fn executes_pinned_version_instead_of_current_definition() {
+    let ctx = make_ctx();
+    let pinned = make_definition("wf-versioned");
+    ctx.storage.workflow.save(&pinned).await.unwrap();
+    crate::workflow::version::save_workflow_version(&ctx, "wf-versioned", "1.0.0", &pinned)
+        .await
+        .expect("pin the initial definition");
+
+    // Break the live definition so a current-definition run cannot succeed;
+    // only the pinned snapshot stays executable.
+    let mut broken = pinned.clone();
+    broken.version = Some("2.0.0".into());
+    broken
+        .nodes
+        .retain(|node| node.node_type != StaticNodeType::Start);
+    ctx.storage.workflow.save(&broken).await.unwrap();
+
+    let output = execute(
+        &ctx,
+        ExecuteWorkflowParams {
+            workflow_id: "wf-versioned".into(),
+            version: Some("1.0.0".into()),
+            input: Some(serde_json::json!({"greeting": "pinned"})),
+            options: None,
+        },
+    )
+    .await
+    .expect("pinned version executes from the saved snapshot");
+    assert_eq!(output.result, serde_json::json!({"greeting": "pinned"}));
+
+    let records = ctx.storage.workflow_execution.list(None).await.unwrap();
+    assert_eq!(records.len(), 1, "only the pinned run is persisted");
+    assert_eq!(records[0].workflow_version.as_deref(), Some("1.0.0"));
+
+    let unknown = execute(
+        &ctx,
+        ExecuteWorkflowParams {
+            workflow_id: "wf-versioned".into(),
+            version: Some("9.9.9".into()),
+            input: None,
+            options: None,
+        },
+    )
+    .await;
+    assert!(unknown.is_err(), "unknown version must not execute");
+
+    let current = execute(
+        &ctx,
+        ExecuteWorkflowParams {
+            workflow_id: "wf-versioned".into(),
+            version: None,
+            input: None,
+            options: None,
+        },
+    )
+    .await;
+    assert!(
+        current.is_err(),
+        "broken current definition must fail validation"
+    );
 }

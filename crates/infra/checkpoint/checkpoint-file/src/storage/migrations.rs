@@ -126,7 +126,10 @@ mod tests {
             "source_index_paths",
             "redo_stacks",
         ] {
-            assert!(tables.contains(&expected.to_string()), "missing table {expected}");
+            assert!(
+                tables.contains(&expected.to_string()),
+                "missing table {expected}"
+            );
         }
     }
 
@@ -138,7 +141,10 @@ mod tests {
 
         let tables = table_names(&conn);
         for expected in ["review_state", "empty_dirs", "source_index", "redo_stacks"] {
-            assert!(tables.contains(&expected.to_string()), "missing table {expected}");
+            assert!(
+                tables.contains(&expected.to_string()),
+                "missing table {expected}"
+            );
         }
         // The light path does not create the metadata table.
         assert!(!tables.contains(&"meta_kv".to_string()));
@@ -151,8 +157,7 @@ mod tests {
             crate::storage::SqliteStorage::new_full(&dir.path().join("checkpoint.db")).unwrap();
         let mode = storage
             .with_conn(|conn| {
-                conn
-                    .query_row("PRAGMA journal_mode;", [], |row| row.get::<_, String>(0))
+                conn.query_row("PRAGMA journal_mode;", [], |row| row.get::<_, String>(0))
                     .map_err(db_err)
             })
             .unwrap();

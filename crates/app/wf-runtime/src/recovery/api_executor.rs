@@ -209,6 +209,7 @@ mod tests {
             r#type: None,
             version: Some("1.0.0".into()),
             hooks: None,
+            layout: None,
             nodes: vec![
                 BaseStaticNode {
                     id: "start".into(),
@@ -324,6 +325,7 @@ mod tests {
                 workflow_id: "wf-rec-1".into(),
                 input: Some(serde_json::json!({"greeting": "hi"})),
                 options: Some(partial_options),
+                version: None,
             },
         )
         .await

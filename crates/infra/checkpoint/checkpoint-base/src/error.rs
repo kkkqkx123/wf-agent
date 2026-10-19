@@ -69,25 +69,39 @@ mod tests {
         let e = CheckpointError::NotFound { id: "cp-1".into() };
         assert_eq!(e.to_string(), "checkpoint not found: cp-1");
 
-        let e = CheckpointError::Validation { reason: "bad shape".into() };
+        let e = CheckpointError::Validation {
+            reason: "bad shape".into(),
+        };
         assert!(e.to_string().contains("validation failed: bad shape"));
 
-        let e = CheckpointError::Corrupted { id: "cp-2".into(), reason: "no timestamp".into() };
+        let e = CheckpointError::Corrupted {
+            id: "cp-2".into(),
+            reason: "no timestamp".into(),
+        };
         assert!(e.to_string().contains("id=cp-2"));
         assert!(e.to_string().contains("no timestamp"));
 
         let e = CheckpointError::Serialization("boom".into());
         assert!(e.to_string().contains("serialization error: boom"));
 
-        let e = CheckpointError::VersionIncompatible { current: "1.0.0".into(), required: "2.0.0".into() };
+        let e = CheckpointError::VersionIncompatible {
+            current: "1.0.0".into(),
+            required: "2.0.0".into(),
+        };
         let s = e.to_string();
         assert!(s.contains("1.0.0") && s.contains("2.0.0"));
 
-        let e = CheckpointError::DeltaChainBroken { checkpoint_id: "cp-3".into(), missing_id: "cp-0".into() };
+        let e = CheckpointError::DeltaChainBroken {
+            checkpoint_id: "cp-3".into(),
+            missing_id: "cp-0".into(),
+        };
         let s = e.to_string();
         assert!(s.contains("cp-3") && s.contains("cp-0"));
 
-        let e = CheckpointError::DeltaChainTooLong { length: 11, max: 10 };
+        let e = CheckpointError::DeltaChainTooLong {
+            length: 11,
+            max: 10,
+        };
         assert!(e.to_string().contains("length=11") && e.to_string().contains("max=10"));
 
         let e = CheckpointError::Branch("ref gone".into());
@@ -99,7 +113,10 @@ mod tests {
         let e = CheckpointError::Coordinator("not initialized".into());
         assert!(e.to_string().contains("coordinator error: not initialized"));
 
-        let e = CheckpointError::MergeConflict { actor: "a1".into(), files: vec!["f.txt".into()] };
+        let e = CheckpointError::MergeConflict {
+            actor: "a1".into(),
+            files: vec!["f.txt".into()],
+        };
         assert!(e.to_string().contains("actor=a1") && e.to_string().contains("f.txt"));
 
         let e = CheckpointError::Internal("impossible state".into());

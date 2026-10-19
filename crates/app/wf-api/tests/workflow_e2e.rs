@@ -86,6 +86,7 @@ fn make_workflow(id: &str) -> WorkflowDefinition {
         metadata: None,
         available_tools: None,
         hooks: None,
+        layout: None,
         created_at: wf_common::now(),
         updated_at: wf_common::now(),
     }
@@ -118,6 +119,7 @@ async fn workflow_save_get_execute_status() {
             workflow_id: "wf-e2e-1".into(),
             input: Some(serde_json::json!({"greeting": "hi"})),
             options: None,
+            version: None,
         },
     )
     .await
@@ -144,6 +146,7 @@ async fn workflow_stream_ends_with_completed() {
             workflow_id: "wf-e2e-2".into(),
             input: Some(serde_json::json!({"greeting": "stream"})),
             options: None,
+            version: None,
         },
     )
     .await
@@ -190,6 +193,7 @@ async fn checkpoint_command_roundtrip_on_sqlite_store() {
             workflow_id: "wf-e2e-cp-sqlite".into(),
             input: Some(serde_json::json!({"greeting": "sqlite"})),
             options: None,
+            version: None,
         },
     )
     .await
@@ -265,6 +269,7 @@ async fn checkpoint_chain_respects_node_config_via_api() {
             workflow_id: "wf-e2e-cp-node".into(),
             input: Some(serde_json::json!({"greeting": "api"})),
             options: None,
+            version: None,
         },
     )
     .await

@@ -279,7 +279,9 @@ mod tests {
             StateFileLinkStatus::Missing
         );
 
-        manager.record_state_file_link("state-linked", "file-1").unwrap();
+        manager
+            .record_state_file_link("state-linked", "file-1")
+            .unwrap();
         assert_eq!(
             manager.state_file_link_status("state-linked").unwrap(),
             StateFileLinkStatus::Linked {
@@ -298,7 +300,9 @@ mod tests {
         );
 
         // A durable link wins over a pending marker for the same checkpoint.
-        manager.record_state_file_link("state-pending", "file-3").unwrap();
+        manager
+            .record_state_file_link("state-pending", "file-3")
+            .unwrap();
         assert_eq!(
             manager.state_file_link_status("state-pending").unwrap(),
             StateFileLinkStatus::Linked {
@@ -322,15 +326,15 @@ mod tests {
         assert_eq!(a.hash, crate::file::util::sha256_hex(b"one\n"));
 
         // No recorded link: explicit None, never a silent fallback to latest.
-        assert!(
-            manager
-                .restore_state_files("exec-1", "state-unknown")
-                .unwrap()
-                .is_none()
-        );
+        assert!(manager
+            .restore_state_files("exec-1", "state-unknown")
+            .unwrap()
+            .is_none());
 
         // A malformed link id is a corruption error, not a silent fallback.
-        manager.record_state_file_link("state-2", "not-a-hex").unwrap();
+        manager
+            .record_state_file_link("state-2", "not-a-hex")
+            .unwrap();
         assert!(matches!(
             manager.restore_state_files("exec-1", "state-2"),
             Err(CheckpointError::Corrupted { .. })

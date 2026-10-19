@@ -37,6 +37,7 @@
 	{nodes}
 	{edges}
 	preset="workflow"
+	layoutId={detail.id}
 	selectedId={state.selection}
 	onselect={(id) => (state.selection = id)}
 	onexpand={(id) => void state.expandNeighborhood(detail.id, id)}

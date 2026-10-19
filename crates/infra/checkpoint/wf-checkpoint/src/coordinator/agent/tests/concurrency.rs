@@ -22,8 +22,19 @@ async fn concurrent_creates_all_succeed_with_unique_ids() {
     let ids = futures::future::join_all(tasks).await;
 
     let unique: std::collections::HashSet<_> = ids.iter().collect();
-    assert_eq!(unique.len(), n as usize, "every creation must mint its own row");
-    assert_eq!(coord.state_manager().count_by_entity("loop-1").await.unwrap(), n as u64);
+    assert_eq!(
+        unique.len(),
+        n as usize,
+        "every creation must mint its own row"
+    );
+    assert_eq!(
+        coord
+            .state_manager()
+            .count_by_entity("loop-1")
+            .await
+            .unwrap(),
+        n as u64
+    );
 }
 
 #[tokio::test]
@@ -44,7 +55,11 @@ async fn concurrent_creates_keep_previous_links_resolvable() {
     });
     let _ids = futures::future::join_all(tasks).await;
 
-    let all = coord.state_manager().list_by_entity("loop-1").await.unwrap();
+    let all = coord
+        .state_manager()
+        .list_by_entity("loop-1")
+        .await
+        .unwrap();
     assert_eq!(all.len(), n as usize);
 
     // Every previous link must point at a row that exists: a racing merge

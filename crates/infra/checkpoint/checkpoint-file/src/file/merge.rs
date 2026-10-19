@@ -473,9 +473,16 @@ mod tests {
         // A second actor leaves its own edit line; deleting that ref makes
         // its commit, tree and blob unreachable.
         let other = manager.actor_id_for("entity-2");
-        manager.apply_agent_edit(&other, "b.txt", b"gone\n").unwrap();
+        manager
+            .apply_agent_edit(&other, "b.txt", b"gone\n")
+            .unwrap();
         let other_ref = edit_ref_for_actor(other.as_str());
-        assert!(manager.git_ref().unwrap().read_ref(&other_ref).unwrap().is_some());
+        assert!(manager
+            .git_ref()
+            .unwrap()
+            .read_ref(&other_ref)
+            .unwrap()
+            .is_some());
         manager.git_ref().unwrap().delete_ref(&other_ref).unwrap();
 
         let stats = manager
@@ -555,7 +562,12 @@ mod tests {
         }
 
         let stats = manager
-            .run_gc_with_grace(GcRetention { keep_recent_heads: 2 }, Duration::ZERO)
+            .run_gc_with_grace(
+                GcRetention {
+                    keep_recent_heads: 2,
+                },
+                Duration::ZERO,
+            )
             .unwrap();
         assert_eq!(stats.removed_checkpoints, 1);
 
@@ -571,7 +583,9 @@ mod tests {
         let actor = manager.actor_id_for("entity-1");
         let head = manager.apply_agent_edit(&actor, "a.txt", b"v1\n").unwrap();
         let other = manager.actor_id_for("entity-2");
-        let other_head = manager.apply_agent_edit(&other, "b.txt", b"other\n").unwrap();
+        let other_head = manager
+            .apply_agent_edit(&other, "b.txt", b"other\n")
+            .unwrap();
 
         let git = manager.git_ref().unwrap();
         let edit_ref = edit_ref_for_actor(actor.as_str());

@@ -58,7 +58,10 @@ mod tests {
         let root = std::path::Path::new("/tmp/wf-agent-workspace-a");
         let first = global_store_dir(root);
         let second = global_store_dir(root);
-        assert_eq!(first, second, "the same workspace must resolve to the same store");
+        assert_eq!(
+            first, second,
+            "the same workspace must resolve to the same store"
+        );
     }
 
     #[test]
@@ -79,7 +82,13 @@ mod tests {
         // Layout: `<data_dir>/wf/checkpoint/<hash16>/`.
         let mut comps = dir.components().rev();
         comps.next(); // hash leaf
-        assert_eq!(comps.next().map(|c| c.as_os_str()), Some(std::ffi::OsStr::new("checkpoint")));
-        assert_eq!(comps.next().map(|c| c.as_os_str()), Some(std::ffi::OsStr::new("wf")));
+        assert_eq!(
+            comps.next().map(|c| c.as_os_str()),
+            Some(std::ffi::OsStr::new("checkpoint"))
+        );
+        assert_eq!(
+            comps.next().map(|c| c.as_os_str()),
+            Some(std::ffi::OsStr::new("wf"))
+        );
     }
 }

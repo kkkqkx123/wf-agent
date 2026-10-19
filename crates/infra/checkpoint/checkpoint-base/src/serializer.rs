@@ -293,7 +293,7 @@ mod tests {
         assert!(metadata.contains_key("customFields"));
     }
 
-        #[test]
+    #[test]
     fn serializes_to_ts_compatible_uppercase_type_and_camelcase() {
         use wf_types::checkpoint::BaseCheckpointCore;
 

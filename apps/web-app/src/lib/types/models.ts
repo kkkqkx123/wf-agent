@@ -28,6 +28,8 @@ export interface Execution {
 	tags?: string[];
 	/** Workflow input captured with the execution; used to re-run it. */
 	input?: unknown;
+	/** Pinned workflow version the run executed; absent for legacy records. */
+	version?: string | null;
 	/** Terminal failure message recorded on the execution, if any. */
 	error?: string | null;
 }
@@ -526,6 +528,10 @@ export interface Template {
 	usage: number;
 	featured: boolean;
 	tags: string[];
+	enabled: boolean;
+	isPublic: boolean;
+	isSystem: boolean;
+	author?: string | null;
 }
 
 export interface QueryResult {

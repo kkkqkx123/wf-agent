@@ -225,7 +225,9 @@ fn large_blob_roundtrips_intact() {
 #[test]
 fn truncated_loose_object_reports_corruption_instead_of_panic() {
     let store = store();
-    let id = store.write_blob(b"payload that will be half written").unwrap();
+    let id = store
+        .write_blob(b"payload that will be half written")
+        .unwrap();
 
     // Simulate a crash mid-write: the loose object file exists but is
     // truncated (the store writes object before ref, so a torn object is
@@ -249,7 +251,10 @@ fn truncated_loose_object_reports_corruption_instead_of_panic() {
 
     let err = store.read_blob(&id).unwrap_err();
     assert!(
-        matches!(err, GitStoreError::Corrupt { .. } | GitStoreError::ObjectNotFound(_)),
+        matches!(
+            err,
+            GitStoreError::Corrupt { .. } | GitStoreError::ObjectNotFound(_)
+        ),
         "torn object must surface as an explicit error, got {err:?}"
     );
 }

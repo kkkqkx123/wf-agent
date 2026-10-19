@@ -56,6 +56,7 @@ interface ExecutionDto {
 	tasksDone?: number;
 	memory_peak_bytes?: number | null;
 	memoryPeakBytes?: number | null;
+	workflow_version?: string | null;
 	input?: unknown;
 }
 
@@ -93,6 +94,7 @@ function toExecution(d: ExecutionDto): Execution {
 		tasksDone: d.tasks_done ?? d.tasksDone ?? (completed ? 1 : 0),
 		failedNodes: d.failedNodes ?? d.error_count ?? 0,
 		memoryPeakBytes: d.memory_peak_bytes ?? d.memoryPeakBytes ?? null,
+		version: d.workflow_version ?? null,
 		input: d.input,
 		error: d.error ?? null,
 	};

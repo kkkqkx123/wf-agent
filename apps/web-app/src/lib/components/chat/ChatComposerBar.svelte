@@ -25,6 +25,7 @@
 	<div class="mx-auto max-w-3xl">
 		<Composer
 			bind:model={controller.model}
+			bind:agent={controller.agentId}
 			busy={chatStream.active}
 			draftKey={selectedId ?? NEW_SESSION}
 			suggestions={SUGGESTIONS}

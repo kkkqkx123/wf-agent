@@ -12,6 +12,7 @@
 	import { sessions } from '$lib/stores/sessions.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import ModelPicker from '$lib/components/chat/ModelPicker.svelte';
+	import AgentPicker from '$lib/components/chat/AgentPicker.svelte';
 	import type { MessageAttachment, OutgoingMessage } from '$lib/types/models';
 	import { mentionRef } from '$lib/utils/mentions';
 
@@ -37,6 +38,7 @@
 
 	interface Props {
 		model?: string;
+		agent?: string;
 		busy?: boolean;
 		draftKey?: string;
 		suggestions?: string[];
@@ -48,6 +50,7 @@
 
 	let {
 		model = $bindable(''),
+		agent = $bindable(''),
 		busy = false,
 		draftKey = 'new',
 		suggestions = [],
@@ -423,6 +426,7 @@
 	{/if}
 
 	<div class="flex items-center gap-2">
+		<AgentPicker bind:value={agent} class="shrink-0" />
 		<ModelPicker bind:value={model} class="shrink-0" />
 		<textarea
 			bind:this={box}

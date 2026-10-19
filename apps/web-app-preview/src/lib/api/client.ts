@@ -19,6 +19,17 @@ import {
         loopDetail,
 } from '$lib/fixtures/agentLoops';
 import { checkpoints, fileChanges, approvals, partitions, conflicts, editSessions } from '$lib/fixtures/checkpoints';
+import {
+        addMockCheckpoint,
+        decideMockApproval,
+        emitMockEvent,
+        onMockEvent,
+        removeMockCheckpoint,
+        removeMockCheckpointsBefore,
+        removeMockCheckpointsByEntity,
+        resolveMockConflicts,
+        setMockCheckpointTags,
+} from '$lib/fixtures/checkpoints';
 import { gitMeta, gitFiles, gitDiff, gitCommits, gitBranches, gitStash, gitRegistry } from '$lib/fixtures/git';
 import {
 	executions,
@@ -526,20 +537,104 @@ router.on('POST', '/api/v1/agent-loops/{id}/run', () => ({
 }));
 
 // ---------- checkpoints ----------
+//
+// The fixtures hold view-model rows; the services layer parses wire
+// `CheckpointDoc` fields (entity_id / checkpoint_type / timestamp / …), so
+// the mock serves the wire shape and keeps the mapping in one place.
+
+function toCheckpointWire(c: (typeof checkpoints)[number]) {
+	return {
+		id: c.id,
+		entity_id: c.executionId,
+		entity_type: c.executionId.startsWith('loop-') ? 'agent_loop' : 'execution',
+		checkpoint_type: c.kind,
+		timestamp: Date.parse(c.createdAt),
+		blob_size: c.sizeBytes,
+		chain_position: c.sequence,
+		status: c.restorable ? 'active' : 'corrupted',
+		tags: c.tags ?? [],
+	};
+}
+const checkpointsWire = () => checkpoints.map(toCheckpointWire);
+
 router.on('GET', '/api/v1/checkpoints', (_p, query) => {
-        return pageView(camelToSnakeDeep(checkpoints), +(query.limit ?? 50), +(query.offset ?? 0));
+	return pageView(checkpointsWire(), +(query.limit ?? 50), +(query.offset ?? 0));
 });
-router.on('GET', '/api/v1/checkpoints/entity/{entityId}', () => {
-        return camelToSnakeDeep(checkpoints);
+router.on('GET', '/api/v1/checkpoints/entity/{entityId}', (params) => {
+	const found = checkpoints.filter((c) => c.executionId === params.entityId);
+	return (found.length > 0 ? found : checkpoints).map(toCheckpointWire);
 });
+router.on('GET', '/api/v1/checkpoints/time-range', (params, query) => {
+	const from = query.from != null ? Number(query.from) : null;
+	const to = query.to != null ? Number(query.to) : null;
+	const filtered = checkpoints.filter((c) => {
+		const ts = Date.parse(c.createdAt);
+		return (from === null || ts >= from) && (to === null || ts <= to);
+	});
+	return pageView(filtered.map(toCheckpointWire), +(query.limit ?? 50), +(query.offset ?? 0));
+});
+router.on('GET', '/api/v1/checkpoints/entities', (params, query) => {
+	const ids = String(query.entity_ids ?? '')
+		.split(',')
+		.map((id) => id.trim())
+		.filter((id) => id.length > 0);
+	const filtered = ids.length === 0 ? checkpoints : checkpoints.filter((c) => ids.includes(c.executionId));
+	return pageView(filtered.map(toCheckpointWire), +(query.limit ?? 50), +(query.offset ?? 0));
+});
+router.on('GET', '/api/v1/checkpoints/entity/{entityId}/metadata', () => ({
+	metadata: { preview: true, notes: 'Fixture metadata for the preview store' },
+}));
+router.on('PUT', '/api/v1/checkpoints/entity/{entityId}/metadata', () => ({ ok: true }));
 router.on('GET', '/api/v1/checkpoints/stats', () => {
-        return { total: checkpoints.length, restorable: checkpoints.filter((c) => c.restorable).length };
+	return { total: checkpoints.length, restorable: checkpoints.filter((c) => c.restorable).length };
 });
 router.on('GET', '/api/v1/agent-checkpoints/stats', () => {
-        return { total: checkpoints.length, restorable: checkpoints.filter((c) => c.restorable).length };
+	const byType: Record<string, number> = {};
+	for (const c of checkpoints) byType[c.kind] = (byType[c.kind] ?? 0) + 1;
+	return {
+		total: checkpoints.length,
+		restorable: checkpoints.filter((c) => c.restorable).length,
+		by_type: byType,
+	};
 });
-router.on('POST', '/api/v1/executions/checkpoints/{cid}/restore', () => ({ ok: true }));
+router.on('GET', '/api/v1/executions/checkpoints/{cid}/preview', (params) => ({
+	checkpoint_id: params.cid,
+	execution_id: checkpoints.find((c) => c.id === params.cid)?.executionId ?? 'exec-7f31c2a9',
+	status: 'running',
+	current_node_id: 'build-bundle',
+	variable_keys: ['inputs', 'artifact'],
+	node_result_keys: ['build', 'tests'],
+}));
+router.on('POST', '/api/v1/executions/checkpoints/{cid}/restore', (params) => {
+	emitMockEvent('CHECKPOINT_RESTORED', { checkpoint_id: params.cid });
+	return { ok: true };
+});
 router.on('POST', '/api/v1/executions/checkpoints/{cid}/resume', () => ({ ok: true }));
+router.on('DELETE', '/api/v1/checkpoints/{id}', (params) => {
+	removeMockCheckpoint(params.id);
+	return { ok: true };
+});
+router.on('PUT', '/api/v1/checkpoints/{id}/tags', (params, _q, body) => {
+	setMockCheckpointTags(params.id, Array.isArray(body) ? body.map(String) : []);
+	return { ok: true };
+});
+router.on('DELETE', '/api/v1/checkpoints/entity/{entityId}', (params) => {
+	return { data: removeMockCheckpointsByEntity(params.entityId) };
+});
+router.on('POST', '/api/v1/executions/{id}/checkpoints', (params) => {
+	const row = addMockCheckpoint({
+		executionId: params.id,
+		kind: 'state',
+		actor: 'system',
+		note: 'Manual execution checkpoint (preview)',
+	});
+	return row.id;
+});
+router.on('POST', '/api/v1/executions/{id}/checkpoints/gc', (params, query) => {
+	const before = query.before != null ? Number(query.before) : Date.now();
+	void params;
+	return removeMockCheckpointsBefore(before);
+});
 
 // ---------- events ----------
 router.on('GET', '/api/v1/events', (_p, query) => {
@@ -758,11 +853,20 @@ router.on('GET', '/api/v1/file-checkpoint/timeline/{id}', (params) => ({
         truncated: false,
         total: 2,
 }));
-router.on('POST', '/api/v1/file-checkpoint/approvals/{id}/approve', () => ({ ok: true }));
-router.on('POST', '/api/v1/file-checkpoint/approvals/{id}/reject', () => ({ ok: true }));
+router.on('POST', '/api/v1/file-checkpoint/approvals/{id}/approve', (params) => {
+	decideMockApproval(params.id, true);
+	return { ok: true };
+});
+router.on('POST', '/api/v1/file-checkpoint/approvals/{id}/reject', (params) => {
+	decideMockApproval(params.id, false);
+	return { baseline_snapshot_id: 'preview-baseline' };
+});
 router.on('GET', '/api/v1/file-checkpoint/partitions', () => partitions);
 router.on('GET', '/api/v1/file-checkpoint/conflicts', () => conflicts);
-router.on('POST', '/api/v1/file-checkpoint/conflicts/resolve', () => ({ remaining: 0 }));
+router.on('POST', '/api/v1/file-checkpoint/conflicts/resolve', (_p, _q, body) => {
+	const remaining = resolveMockConflicts(Object.keys(body?.resolutions ?? {}));
+	return { remaining };
+});
 router.on('GET', '/api/v1/file-checkpoint/sessions', () => editSessions);
 router.on('POST', '/api/v1/file-checkpoint/sessions', () => 'sess-preview-1');
 router.on('POST', '/api/v1/file-checkpoint/sessions/{id}/rollback/{actor}', () => 'preview-rollback-snap');
@@ -782,14 +886,128 @@ router.on('GET', '/api/v1/file-checkpoint/index/status', () => ({
         needs_rebuild: false,
 }));
 router.on('POST', '/api/v1/file-checkpoint/index/rebuild', () => ({ indexed_commits: 42 }));
-router.on('POST', '/api/v1/file-checkpoint/checkpoints', () => ({
-        id: 'preview-file-ckpt',
-        timestamp: FIXTURE_EPOCH,
-        file_count: fileChanges.length,
-}));
+router.on('POST', '/api/v1/file-checkpoint/checkpoints', (_p, _q, body) => {
+	const row = addMockCheckpoint({
+		executionId: 'exec-7f31c2a9',
+		kind: 'file',
+		actor: String(body?.actor ?? 'manual'),
+		note: 'Manual workspace checkpoint (preview)',
+	});
+	return { id: row.id, timestamp: Date.parse(row.createdAt), file_count: fileChanges.length };
+});
 router.on('POST', '/api/v1/file-checkpoint/restore', () => ({ restored: 3 }));
 router.on('POST', '/api/v1/file-checkpoint/submit', () => ({ review_commit: 'preview-review-commit' }));
-router.on('DELETE', '/api/v1/checkpoints/{id}', () => ({ ok: true }));
+router.on('GET', '/api/v1/file-checkpoint/diff/main/{id}', () => ([
+	{
+		path: 'crates/checkpoint/src/restore_coordinator.rs',
+		kind: 'Modified',
+		diff: [
+			'--- a/crates/checkpoint/src/restore_coordinator.rs',
+			'+++ b/crates/checkpoint/src/restore_coordinator.rs',
+			'@@ -12,7 +12,7 @@',
+			' pub fn restore(&self, target: &Branch) -> Result<Snapshot> {',
+			'-    if self.branch_exists(target)? {',
+			'-        return Err(Error::BranchConflict(target.clone()));',
+			'-    }',
+			'+    if let Some(existing) = self.find_snapshot(target)? {',
+			'+        return Ok(existing);',
+			'+    }',
+			'     self.write_snapshot(target)',
+			' }',
+		].join('\n'),
+		additions: 3,
+		deletions: 3,
+	},
+	{
+		path: 'crates/checkpoint/src/idempotent_restore.rs',
+		kind: 'Added',
+		diff: [
+			'--- /dev/null',
+			'+++ b/crates/checkpoint/src/idempotent_restore.rs',
+			'@@ -0,0 +1,3 @@',
+			'+pub fn restore_once(target: &Branch) -> Result<Snapshot> {',
+			'+    self.find_snapshot(target)?.ok_or_else(|| Error::Missing(target.clone()))',
+			'+}',
+		].join('\n'),
+		additions: 3,
+		deletions: 0,
+	},
+]));
+router.on('POST', '/api/v1/file-checkpoint/merge-to-feature', (params, _q, body) => {
+	// Mirror the real merge driver: unresolved conflict rows keep the merge
+	// conflicted until they are resolved through the conflicts endpoint.
+	const details = conflicts.map((c) => ({
+		binary: false,
+		file: c.path,
+		regions: c.conflicts.map((r) => ({
+			start_line: r.start_line,
+			end_line: r.end_line,
+			base_lines: [],
+			ours_lines: [],
+			theirs_lines: [],
+		})),
+	}));
+	const commitId = details.length > 0
+		? `preview-feature-conflict-${Date.now().toString(36)}`
+		: `preview-feature-merge-${Date.now().toString(36)}`;
+	void params;
+	return {
+		commit_id: commitId,
+		conflict_files: conflicts.map((c) => c.path),
+		details,
+		parents: [String(body?.feature ?? 'refs/wf/feat/preview-feature'), 'preview-agent-head'],
+	};
+});
+router.on('POST', '/api/v1/file-checkpoint/merge-to-main', () => ({
+	checkpoint_id: 'preview-merge-ckpt',
+	merge_result: {
+		commit_id: `preview-main-merge-${Date.now().toString(36)}`,
+		conflict_files: [],
+		details: [],
+		parents: ['preview-main-head', 'preview-review-commit'],
+	},
+}));
+router.on('POST', '/api/v1/file-checkpoint/rollback-feature', () => ({
+	revert_commit: `preview-revert-${Date.now().toString(36)}`,
+}));
+router.on('GET', '/api/v1/file-checkpoint/gc/stats', () => ({
+	commits: 42,
+	refs: partitions.length,
+	loose_objects: 7,
+	store_bytes: 96 * 1024 * 1024,
+	last_gc_ms: FIXTURE_EPOCH - 2 * 3_600_000,
+}));
+router.on('POST', '/api/v1/file-checkpoint/gc', () => {
+	emitMockEvent('CHECKPOINT_GC_COMPLETED', { reclaimed_snapshots: 3 });
+	return { reclaimed_snapshots: 3, removed_checkpoints: 2, removed_snapshots: 5 };
+});
+router.on('GET', '/api/v1/file-checkpoint/state-links', (_p, query) => {
+	const ids = String(query.ids ?? '')
+		.split(',')
+		.map((id) => id.trim())
+		.filter((id) => id.length > 0);
+	return ids.map((id) => ({
+		checkpoint_id: id,
+		state: 'linked',
+		file_commit_id: `preview-file-${id.slice(0, 8)}`,
+	}));
+});
+router.on('POST', '/api/v1/file-checkpoint/rename', () => `preview-rename-${Date.now().toString(36)}`);
+router.on('GET', '/api/v1/file-checkpoint/partitions/{id}/history', (params, query) => {
+	const partition = partitions.find((p) => p.partition_id === params.id) ?? partitions[0];
+	const limit = Math.min(+(query.limit ?? 50), partition.history_len);
+	return Array.from({ length: limit }, (_unused, i) => ({
+		snapshot_id: `${partition.current_snapshot}-${partition.history_len - i}`,
+		timestamp: partition.updated_at - i * 3_600_000,
+		parents: i === 0 ? [] : [`${partition.current_snapshot}-${partition.history_len - i + 1}`],
+		is_merge: false,
+		has_conflicts: partition.partition_id === 'approval' && i === 0,
+		message: i === 0 ? 'Head commit (preview)' : `Preview commit ${partition.history_len - i}`,
+		actor: partition.actor,
+		session: null,
+		tool: null,
+	}));
+});
 // Preview has no concurrent editors, so the workflow lock is always free.
 router.on('GET', '/api/v1/workflows/{id}/lock', () => null);
 router.on('POST', '/api/v1/workflows/{id}/lock/acquire', (_p, _q, body) => ({
@@ -1060,4 +1278,70 @@ export async function downloadFile(
 // ---------------------------------------------------------------------------
 export function resolveApiKey(): string | undefined {
         return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// MockEventSource — fixture-backed SSE stream
+//
+// `sse.ts` opens a real `EventSource` against `/api/v1/events/stream`, which
+// no preview backend serves. Swap in a fixture implementation that replays
+// the same frame contract: a `connected` handshake, checkpoint-domain events
+// published by the mutation helpers (approve / delete / create / …), and a
+// slow heartbeat so the live badge and incremental refresh stay observable.
+// ---------------------------------------------------------------------------
+
+/** Rotating heartbeat events so the Live subscription visibly fires. */
+const HEARTBEAT_EVENTS = [
+        'CHECKPOINT_FILE_CHANGED',
+        'CHECKPOINT_CREATED',
+        'TOOL_APPROVAL_REQUESTED',
+];
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
+class MockEventSource {
+        static readonly CONNECTING = 0;
+        static readonly OPEN = 1;
+        static readonly CLOSED = 2;
+
+        readyState = MockEventSource.CONNECTING;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        onmessage: ((event: any) => void) | null = null;
+        onerror: (() => void) | null = null;
+
+        private unlisten: (() => void) | null = null;
+        private heartbeat: ReturnType<typeof setInterval> | null = null;
+        private beat = 0;
+
+        constructor(_url: string) {
+                void _url;
+                // Deliver on a macrotask so the caller finishes assigning
+                // the handlers before the handshake frame arrives.
+                setTimeout(() => {
+                        this.readyState = MockEventSource.OPEN;
+                        this.onmessage?.({
+                                data: JSON.stringify({ type: 'connected', timestamp: Date.now() }),
+                        });
+                        this.unlisten = onMockEvent((frame) => {
+                                this.onmessage?.({ data: JSON.stringify(frame) });
+                        });
+                        this.heartbeat = setInterval(() => {
+                                emitMockEvent(HEARTBEAT_EVENTS[this.beat % HEARTBEAT_EVENTS.length]);
+                                this.beat += 1;
+                        }, HEARTBEAT_INTERVAL_MS);
+                }, 50);
+        }
+
+        close(): void {
+                this.readyState = MockEventSource.CLOSED;
+                this.unlisten?.();
+                this.unlisten = null;
+                if (this.heartbeat !== null) clearInterval(this.heartbeat);
+                this.heartbeat = null;
+                this.onmessage = null;
+                this.onerror = null;
+        }
+}
+
+if (typeof window !== 'undefined') {
+        (window as { EventSource?: unknown }).EventSource = MockEventSource;
 }

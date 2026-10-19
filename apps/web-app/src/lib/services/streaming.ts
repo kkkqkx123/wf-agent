@@ -30,6 +30,8 @@ export interface LoopStreamBody {
 	model: string;
 	message: string;
 	conversation?: RunLoopMessage[];
+	/** Optional agent template id; empty falls back to the default main agent. */
+	agentId?: string;
 	/** Optional per-run filesystem scope; absent inherits the global default. */
 	fileScope?: unknown;
 }
@@ -49,6 +51,7 @@ export function streamLoopRun(
 		body: {
 			model: body.model,
 			message: body.message,
+			agent_id: body.agentId ?? '',
 			tool_call_protocol: { format: 'json' },
 			conversation: body.conversation ?? [],
 			file_scope: body.fileScope ?? null,

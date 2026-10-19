@@ -17,6 +17,7 @@ import {
 import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
 import { streamLoopRun } from '$lib/services/streaming';
 import { listModelProfiles } from '$lib/services/resources';
+import { listTemplates } from '$lib/services/templates';
 import {
 	cancelInteraction as cancelInteractionRequest,
 	listPendingInteractions,
@@ -58,6 +59,7 @@ export class ChatSessionController {
 	selectedId = $derived(page.url.searchParams.get('id'));
 
 	model = $state('');
+	agentId = $state('@standard/main');
 	revision = $state(0);
 
 	/** Inspector tab, mirrored into the address by the route. */
@@ -455,6 +457,7 @@ export class ChatSessionController {
 			this.selectedId ?? NEW_SESSION,
 			{
 				model: this.model.trim(),
+				agentId: this.agentId.trim(),
 				message: withAttachments(content, files),
 				conversation: history,
 			},
@@ -529,6 +532,28 @@ export class ChatSessionController {
 				const preferred =
 					profiles.find((item) => item.isDefault) ?? profiles[0];
 				if (preferred) this.model = preferred.model;
+			})
+			.catch(() => {});
+	}
+
+	/** Agent templates are optional; fall back to the built-in main agent. */
+	loadDefaultAgent(): void {
+		const internalAgentIds = new Set([
+			'@standard/explorer',
+			'@standard/worker',
+			'@standard/goal-review-executor',
+			'@standard/goal-review-reviewer',
+		]);
+		void listTemplates({ kind: 'agent' })
+			.then((templates) => {
+				const runnable = templates.filter(
+					(template) => !internalAgentIds.has(template.id),
+				);
+				const preferred =
+					runnable.find((template) =>
+						template.id === '@standard/main',
+					) ?? runnable[0];
+				if (preferred) this.agentId = preferred.id;
 			})
 			.catch(() => {});
 	}

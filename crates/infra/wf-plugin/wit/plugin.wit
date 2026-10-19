@@ -6,10 +6,12 @@
 // (`wf-plugin-sdk/src/wasm.rs`) remains supported: guests may target either
 // contract, and both paths expose the same `Plugin` trait surface upstairs.
 //
-// Versioning: still `@0.1.0-draft`. Guest and host must agree on the
-// interface names below; incompatible world changes require a version bump.
+// Versioning: major version encoded in the package name (`wf:plugin@1.0.0`).
+// Incompatible world changes require a new major version and a new
+// world; minor differences use feature detection. Guest and host must
+// agree on the interface names below.
 
-package wf:plugin@0.1.0-draft;
+package wf:plugin@1.0.0;
 
 interface lifecycle {
     /// Hook input envelope, mirroring the JSON passed today.

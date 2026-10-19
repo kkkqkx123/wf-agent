@@ -1,6 +1,6 @@
-//! Component-model guest host (`wf:plugin/plugin` world).
+//! Component-model guest host (`wf:plugin@1.0.0` world).
 //!
-//! Dual-compat companion to the core-module path in `plugin.rs`: component
+//! Companion to the core-module path in `plugin.rs`: component
 //! binaries (detected by magic in the loader) run through `bindgen!`
 //! bindings with a WASI p2 context instead of the `wf_*` export contract.
 //! The `Plugin` trait surface, contribution semantics, limits, and stats
@@ -78,10 +78,10 @@ impl WasiView for ComponentHostState {
 }
 
 /// Pinned component-world version. The WIT package
-/// (`wit/plugin.wit`) and these bindings must agree; a world change
-/// requires a version bump on both sides, and old guests then fail
+/// (`wit/plugin.wit`, `wf:plugin@1.0.0`) and these bindings must agree; a world change
+/// requires a new major version on both sides, and old guests then fail
 /// loudly at bind time instead of silently misbehaving.
-pub(crate) const WF_COMPONENT_WORLD_VERSION: &str = "0.1.0-draft";
+pub(crate) const WF_COMPONENT_WORLD_VERSION: &str = "1.0.0";
 
 /// One live component session: its private store plus the bindings bound
 /// to the instance inside it. Sessions are checked out exclusively, so
@@ -1028,22 +1028,22 @@ mod tests {
     (i32.store (i32.add (global.get $ret) (i32.const 4)) (i32.const 0))
     (i32.store (i32.add (global.get $ret) (i32.const 8)) (i32.const 0))
     (global.get $ret))
-  (func (export "wf:plugin/lifecycle@0.1.0-draft#on-load")
+  (func (export "wf:plugin/lifecycle@1.0.0#on-load")
     (param i32 i32 i32 i32) (result i32)
     (call $ok))
-  (func (export "wf:plugin/lifecycle@0.1.0-draft#on-activate")
+  (func (export "wf:plugin/lifecycle@1.0.0#on-activate")
     (param i32 i32 i32 i32) (result i32)
     (call $ok))
-  (func (export "wf:plugin/lifecycle@0.1.0-draft#on-deactivate")
+  (func (export "wf:plugin/lifecycle@1.0.0#on-deactivate")
     (result i32)
     (call $ok))
-  (func (export "wf:plugin/lifecycle@0.1.0-draft#on-unload")
+  (func (export "wf:plugin/lifecycle@1.0.0#on-unload")
     (result i32)
     (call $ok))
-  (func (export "wf:plugin/lifecycle@0.1.0-draft#on-config-change")
+  (func (export "wf:plugin/lifecycle@1.0.0#on-config-change")
     (param i32 i32) (result i32)
     (call $ok))
-  (func (export "wf:plugin/contributions@0.1.0-draft#register")
+  (func (export "wf:plugin/contributions@1.0.0#register")
     (result i32)
     (i32.store (global.get $ret) (i32.const 0))
     (i32.store (i32.add (global.get $ret) (i32.const 4)) (i32.const 0))
@@ -1058,7 +1058,7 @@ mod tests {
     (i32.store (i32.add (global.get $ret) (i32.const 40)) (i32.const 0))
     (i32.store (i32.add (global.get $ret) (i32.const 44)) (i32.const 0))
     (global.get $ret))
-  (func (export "wf:plugin/contributions@0.1.0-draft#dispatch")
+  (func (export "wf:plugin/contributions@1.0.0#dispatch")
     (param $tp i32) (param $tl i32) (param $np i32) (param $nl i32)
     (param $ip i32) (param $il i32)
     (result i32)
@@ -1151,8 +1151,8 @@ mod tests {
             name: None,
             description: None,
             plugin_type: Some(PluginType::Wasm),
-            sdk_version: None,
             entry_point: "plugin.wasm".into(),
+            versioned_entry_points: Default::default(),
             dependencies: Default::default(),
             optional_dependencies: Default::default(),
             contributions: vec![],
@@ -1183,7 +1183,6 @@ mod tests {
     fn hook_context(plugin_id: &str) -> PluginContext {
         PluginContext {
             plugin_id: plugin_id.to_owned(),
-            sdk_version: "0.1.0".into(),
             config: Value::Null,
             logger: crate::context::PluginLogger,
             contribution_manager: Arc::new(ContributionManager::new()),
@@ -1260,11 +1259,11 @@ mod tests {
             }
         }
         assert!(
-            names.contains(&"wf:plugin/lifecycle@0.1.0-draft".to_string()),
+            names.contains(&"wf:plugin/lifecycle@1.0.0".to_string()),
             "exports: {names:?}"
         );
         assert!(
-            names.contains(&"wf:plugin/contributions@0.1.0-draft".to_string()),
+            names.contains(&"wf:plugin/contributions@1.0.0".to_string()),
             "exports: {names:?}"
         );
     }
@@ -1430,12 +1429,12 @@ mod tests {
         TEST_GUEST_WAT
             .replacen(
                 "(module",
-                "(module\n  (import \"wf:plugin/host-log@0.1.0-draft\" \"log\" (func $host_log (param i32 i32 i32)))\n  (data (i32.const 4096) \"hello-host\")",
+                "(module\n  (import \"wf:plugin/host-log@1.0.0\" \"log\" (func $host_log (param i32 i32 i32)))\n  (data (i32.const 4096) \"hello-host\")",
                 1,
             )
             .replacen(
-                "(func (export \"wf:plugin/lifecycle@0.1.0-draft#on-load\")\n    (param i32 i32 i32 i32) (result i32)\n    (call $ok))",
-                "(func (export \"wf:plugin/lifecycle@0.1.0-draft#on-load\")\n    (param i32 i32 i32 i32) (result i32)\n    (call $host_log (i32.const 2) (i32.const 4096) (i32.const 10))\n    (call $ok))",
+                "(func (export \"wf:plugin/lifecycle@1.0.0#on-load\")\n    (param i32 i32 i32 i32) (result i32)\n    (call $ok))",
+                "(func (export \"wf:plugin/lifecycle@1.0.0#on-load\")\n    (param i32 i32 i32 i32) (result i32)\n    (call $host_log (i32.const 2) (i32.const 4096) (i32.const 10))\n    (call $ok))",
                 1,
             )
     }

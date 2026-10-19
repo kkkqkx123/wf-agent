@@ -12,7 +12,7 @@ use crate::error::{PluginError, PluginResult};
 use crate::manifest::PluginManifest;
 use crate::native::abi::{
     load_abi_info, ptr_to_string, ContributionRegistrarC, DispatchFn, PluginAbiResult,
-    PluginContextC, WF_PLUGIN_ABI_VERSION,
+    PluginContextC, WF_ABI_VERSION_V1,
 };
 use crate::plugin::Plugin;
 
@@ -90,7 +90,7 @@ impl Plugin for NativePlugin {
         let context_ptr = Box::into_raw(boxed) as *mut std::ffi::c_void;
 
         let c_registrar = ContributionRegistrarC {
-            abi_version: WF_PLUGIN_ABI_VERSION,
+            abi_version: WF_ABI_VERSION_V1,
             context: context_ptr,
             register_node_type: Some(ffi_register_node_type),
             register_tool_type: Some(ffi_register_tool_type),
@@ -161,7 +161,7 @@ fn call_config_hook_fn(
             let config_c = CString::new(config_json)
                 .map_err(|e| PluginError::NativeError(format!("CString error: {}", e)))?;
             let c_ctx = PluginContextC {
-                abi_version: WF_PLUGIN_ABI_VERSION,
+                abi_version: WF_ABI_VERSION_V1,
                 plugin_id: plugin_id_c.as_ptr(),
                 config_json: config_c.as_ptr(),
             };
@@ -192,7 +192,7 @@ fn call_hook_fn(
                 .map_err(|e| PluginError::NativeError(format!("CString error: {}", e)))?;
 
             let c_ctx = PluginContextC {
-                abi_version: WF_PLUGIN_ABI_VERSION,
+                abi_version: WF_ABI_VERSION_V1,
                 plugin_id: plugin_id_c.as_ptr(),
                 config_json: config_c.as_ptr(),
             };

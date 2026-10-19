@@ -281,7 +281,7 @@ pub(crate) async fn fetch_declaration(
     .await
     {
         let result: PluginResult<WasmContributionDecl> = Err(e);
-        drain_stdio(inner, export::ABI_VERSION, &session);
+        drain_stdio(inner, export::SUPPORTED_ABI_VERSIONS, &session);
         observe(inner, &session, &result);
         inner.pool.release(session, false).await;
         return result;
@@ -659,8 +659,8 @@ mod tests {
             name: None,
             description: None,
             plugin_type: Some(PluginType::Wasm),
-            sdk_version: None,
             entry_point: "plugin.wasm".into(),
+            versioned_entry_points: Default::default(),
             dependencies: Default::default(),
             optional_dependencies: Default::default(),
             contributions: vec![],
@@ -699,7 +699,6 @@ mod tests {
 
         let ctx = PluginContext {
             plugin_id: "stat".into(),
-            sdk_version: "0.1.0".into(),
             config: Value::Null,
             logger: crate::context::PluginLogger,
             contribution_manager: Arc::new(crate::contributions::ContributionManager::new()),
@@ -748,8 +747,8 @@ mod tests {
             name: None,
             description: None,
             plugin_type: Some(PluginType::Wasm),
-            sdk_version: None,
             entry_point: "plugin.wasm".into(),
+            versioned_entry_points: Default::default(),
             dependencies: Default::default(),
             optional_dependencies: Default::default(),
             contributions: vec![],
@@ -792,7 +791,6 @@ mod tests {
     fn hook_context(plugin_id: &str) -> PluginContext {
         PluginContext {
             plugin_id: plugin_id.to_owned(),
-            sdk_version: "0.1.0".into(),
             config: Value::Null,
             logger: crate::context::PluginLogger,
             contribution_manager: Arc::new(crate::contributions::ContributionManager::new()),
@@ -868,10 +866,13 @@ mod tests {
   (memory (export "memory") 1)
   (global $heap (mut i32) (i32.const 4096))
   (data (i32.const 0) "{\"tool_types\":[\"t\"]}")
+  (data (i32.const 8192) "\01\00\00\00")
   (func (export "alloc") (param $n i32) (result i32)
     (local $p i32) (global.get $heap) (local.set $p)
     (global.set $heap (i32.add (global.get $heap) (local.get $n)))
     (local.get $p))
+  (func (export "wf_supported_abi_versions") (result i64)
+    (i64.or (i64.extend_i32_u (i32.const 8192)) (i64.shl (i64.extend_i32_u (i32.const 1)) (i64.const 32))))
   (func (export "wf_heap_reset") (result i32)
     (global.set $heap (i32.const 4096))
     (i32.const 0))
@@ -905,11 +906,14 @@ mod tests {
 
     const ABI_PROBE_BASE_WAT: &str = r#"(module
   (memory (export "memory") 1)
-  (func (export "alloc") (param $n i32) (result i32) (i32.const 0)))
+  (data (i32.const 8192) "\01\00\00\00")
+  (func (export "alloc") (param $n i32) (result i32) (i32.const 0))
+  (func (export "wf_supported_abi_versions") (result i64)
+    (i64.or (i64.extend_i32_u (i32.const 8192)) (i64.shl (i64.extend_i32_u (i32.const 1)) (i64.const 32)))))
 "#;
 
     /// Build one live session from WAT and run the ABI version probe.
-    async fn negotiate_probe(wat: &str) -> PluginResult<()> {
+    async fn negotiate_probe(wat: &str) -> PluginResult<u32> {
         let bytes = wat::parse_str(wat).expect("valid wat");
         let engine = pool::engine_handle();
         let module = pool::cached_module(&engine, &bytes).expect("compile");
@@ -921,8 +925,8 @@ mod tests {
             name: None,
             description: None,
             plugin_type: Some(PluginType::Wasm),
-            sdk_version: None,
             entry_point: "plugin.wasm".into(),
+            versioned_entry_points: Default::default(),
             dependencies: Default::default(),
             optional_dependencies: Default::default(),
             contributions: vec![],
@@ -940,42 +944,59 @@ mod tests {
         super::abi::negotiate_abi_version(&mut session, &engine, "abi-probe", &limits).await
     }
 
-    fn with_version_func(base: &str, func: &str) -> String {
+    fn with_supported_versions(base: &str, versions: &[u32]) -> String {
+        let bytes: Vec<u8> = versions.iter().flat_map(|v| v.to_le_bytes()).collect();
+        let escaped: String = bytes.iter().map(|b| format!("\\{b:02X}")).collect();
+        let count = versions.len();
         let stripped = base.trim_end().strip_suffix(')').expect("wat ends");
-        format!("{stripped}\n  {func}\n)\n")
+        format!(
+            "{stripped}\n  (data (i32.const 16384) \"{escaped}\")\n  (func (export \"wf_supported_abi_versions\") (result i64)\n    (i64.or (i64.extend_i32_u (i32.const 16384)) (i64.shl (i64.extend_i32_u (i32.const {count})) (i64.const 32))))\n)\n"
+        )
+    }
+
+    fn without_supported_export(base: &str) -> String {
+        base.replace(
+            "  (func (export \"wf_supported_abi_versions\") (result i64)\n    (i64.or (i64.extend_i32_u (i32.const 8192)) (i64.shl (i64.extend_i32_u (i32.const 1)) (i64.const 32))))",
+            "",
+        )
+        .replace("  (data (i32.const 8192) \"\\01\\00\\00\\00\")", "")
     }
 
     #[tokio::test]
-    async fn abi_version_missing_means_v1() {
+    async fn abi_version_supported_v1_accepts() {
         negotiate_probe(ABI_PROBE_BASE_WAT)
             .await
-            .expect("absent version is compatible");
+            .expect("v1 is compatible");
     }
 
     #[tokio::test]
-    async fn abi_version_match_accepts_v1() {
-        let wat = with_version_func(
-            ABI_PROBE_BASE_WAT,
-            r#"(func (export "wf_abi_version") (result i32) (i32.const 1))"#,
+    async fn abi_version_missing_fails_load() {
+        let wat = without_supported_export(ABI_PROBE_BASE_WAT);
+        let err = negotiate_probe(&wat)
+            .await
+            .expect_err("missing export must fail");
+        assert!(
+            err.to_string().contains("wf_supported_abi_versions"),
+            "got: {err}"
         );
-        negotiate_probe(&wat).await.expect("v1 is compatible");
     }
 
     #[tokio::test]
     async fn abi_version_mismatch_fails_load() {
-        let wat = with_version_func(
-            ABI_PROBE_BASE_WAT,
-            r#"(func (export "wf_abi_version") (result i32) (i32.const 99))"#,
-        );
+        let wat = with_supported_versions(&without_supported_export(ABI_PROBE_BASE_WAT), &[99]);
         let err = negotiate_probe(&wat).await.expect_err("v99 must fail");
-        assert!(err.to_string().contains("incompatible abi"), "got: {err}");
+        assert!(
+            err.to_string().contains("no compatible version"),
+            "got: {err}"
+        );
     }
 
     #[tokio::test]
     async fn abi_version_wrong_signature_fails_load() {
-        let wat = with_version_func(
-            ABI_PROBE_BASE_WAT,
-            r#"(func (export "wf_abi_version") (param i32) (result i32) (local.get 0))"#,
+        let base = without_supported_export(ABI_PROBE_BASE_WAT);
+        let stripped = base.trim_end().strip_suffix(')').expect("wat ends");
+        let wat = format!(
+            "{stripped}\n  (func (export \"wf_supported_abi_versions\") (param i32) (result i64) (i64.extend_i32_u (local.get 0)))\n)\n"
         );
         let err = negotiate_probe(&wat)
             .await
@@ -986,14 +1007,26 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn abi_version_empty_list_fails_load() {
+        let wat = with_supported_versions(&without_supported_export(ABI_PROBE_BASE_WAT), &[]);
+        let err = negotiate_probe(&wat)
+            .await
+            .expect_err("empty list must fail");
+        assert!(err.to_string().contains("empty"), "got: {err}");
+    }
+
     const HOOK_FAIL_WAT: &str = r#"(module
   (memory (export "memory") 1)
   (global $heap (mut i32) (i32.const 4096))
   (data (i32.const 0) "bad config")
+  (data (i32.const 8192) "\01\00\00\00")
   (func (export "alloc") (param $n i32) (result i32)
     (local $p i32) (global.get $heap) (local.set $p)
     (global.set $heap (i32.add (global.get $heap) (local.get $n)))
     (local.get $p))
+  (func (export "wf_supported_abi_versions") (result i64)
+    (i64.or (i64.extend_i32_u (i32.const 8192)) (i64.shl (i64.extend_i32_u (i32.const 1)) (i64.const 32))))
   (func (export "wf_on_load") (param $p i32) (param $n i32) (result i32) (i32.const 7))
   (func (export "wf_last_error") (result i64)
     (i64.or (i64.extend_i32_u (i32.const 0)) (i64.shl (i64.extend_i32_u (i32.const 10)) (i64.const 32)))))
@@ -1002,10 +1035,13 @@ mod tests {
     const HOOK_FAIL_NO_DETAIL_WAT: &str = r#"(module
   (memory (export "memory") 1)
   (global $heap (mut i32) (i32.const 4096))
+  (data (i32.const 8192) "\01\00\00\00")
   (func (export "alloc") (param $n i32) (result i32)
     (local $p i32) (global.get $heap) (local.set $p)
     (global.set $heap (i32.add (global.get $heap) (local.get $n)))
     (local.get $p))
+  (func (export "wf_supported_abi_versions") (result i64)
+    (i64.or (i64.extend_i32_u (i32.const 8192)) (i64.shl (i64.extend_i32_u (i32.const 1)) (i64.const 32))))
   (func (export "wf_on_load") (param $p i32) (param $n i32) (result i32) (i32.const 7)))
 "#;
 
@@ -1044,10 +1080,13 @@ mod tests {
   (global $heap (mut i32) (i32.const 4096))
   (data (i32.const 0) "{{}}")
   (data (i32.const 1024) "{escaped}")
+  (data (i32.const 8192) "\01\00\00\00")
   (func (export "alloc") (param $n i32) (result i32)
     (local $p i32) (global.get $heap) (local.set $p)
     (global.set $heap (i32.add (global.get $heap) (local.get $n)))
     (local.get $p))
+  (func (export "wf_supported_abi_versions") (result i64)
+    (i64.or (i64.extend_i32_u (i32.const 8192)) (i64.shl (i64.extend_i32_u (i32.const 1)) (i64.const 32))))
   (func (export "wf_register") (result i64)
     (i64.or (i64.extend_i32_u (i32.const 0)) (i64.shl (i64.extend_i32_u (i32.const 2)) (i64.const 32))))
   (func (export "wf_dispatch")
@@ -1143,10 +1182,13 @@ mod tests {
   (data (i32.const 0) "{before_escaped}")
   (data (i32.const 128) "{after_escaped}")
   (data (i32.const 256) "{result_escaped}")
+  (data (i32.const 8192) "\01\00\00\00")
   (func (export "alloc") (param $n i32) (result i32)
     (local $p i32) (global.get $heap) (local.set $p)
     (global.set $heap (i32.add (global.get $heap) (local.get $n)))
     (local.get $p))
+  (func (export "wf_supported_abi_versions") (result i64)
+    (i64.or (i64.extend_i32_u (i32.const 8192)) (i64.shl (i64.extend_i32_u (i32.const 1)) (i64.const 32))))
   (func (export "wf_heap_reset") (result i32)
     (global.set $heap (i32.const 4096))
     (i32.const 0))
@@ -1216,10 +1258,13 @@ mod tests {
   (global $heap (mut i32) (i32.const 128))
   (data (i32.const 0) "{}")
   (data (i32.const 64) "hello-host")
+  (data (i32.const 8192) "\01\00\00\00")
   (func (export "alloc") (param $n i32) (result i32)
     (local $p i32) (global.get $heap) (local.set $p)
     (global.set $heap (i32.add (global.get $heap) (local.get $n)))
     (local.get $p))
+  (func (export "wf_supported_abi_versions") (result i64)
+    (i64.or (i64.extend_i32_u (i32.const 8192)) (i64.shl (i64.extend_i32_u (i32.const 1)) (i64.const 32))))
   (func (export "wf_on_load") (param $p i32) (param $n i32) (result i32)
     (call $hlog (i32.const 2) (i32.const 64) (i32.const 10))
     (i32.const 0))
@@ -1239,8 +1284,8 @@ mod tests {
             name: None,
             description: None,
             plugin_type: Some(PluginType::Wasm),
-            sdk_version: None,
             entry_point: "plugin.wasm".into(),
+            versioned_entry_points: Default::default(),
             dependencies: Default::default(),
             optional_dependencies: Default::default(),
             contributions: vec![],

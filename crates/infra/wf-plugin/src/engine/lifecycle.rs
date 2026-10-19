@@ -38,14 +38,14 @@ impl PluginEngine {
             return Err(PluginError::CircularDependency);
         }
         if !graph.version_mismatches.is_empty() {
-            if self.options.strict_dependency_versions {
-                return Err(PluginError::DependencyNotSatisfied(
-                    graph.version_mismatches.join("; "),
-                ));
-            }
-            for m in &graph.version_mismatches {
-                tracing::warn!("plugin version mismatch: {}", m);
-            }
+            return Err(PluginError::DependencyNotSatisfied(
+                graph.version_mismatches.join("; "),
+            ));
+        }
+        if !graph.global_conflicts.is_empty() {
+            return Err(PluginError::DependencyNotSatisfied(
+                graph.global_conflicts.join("; "),
+            ));
         }
 
         let count = self.registry.len();
@@ -97,7 +97,6 @@ impl PluginEngine {
             .unwrap_or_default();
         let ctx = PluginContext {
             plugin_id: plugin_id.to_owned(),
-            sdk_version: self.sdk_version.clone(),
             config: plugin_config,
             logger: PluginLogger,
             contribution_manager: self.contribution_manager.clone(),
@@ -232,7 +231,6 @@ impl PluginEngine {
         if let Some(instance) = self.registry.instance(plugin_id) {
             let ctx = PluginContext {
                 plugin_id: plugin_id.to_owned(),
-                sdk_version: self.sdk_version.clone(),
                 config: plugin_config,
                 logger: PluginLogger,
                 contribution_manager: self.contribution_manager.clone(),
@@ -313,9 +311,11 @@ impl PluginEngine {
         let _ = self.deactivate(plugin_id).await;
         self.registry.remove(plugin_id);
 
-        if manifest.entry_point.ends_with(".wasm") {
-            let artifact = plugin_dir.join(&manifest.entry_point);
-            self.verify_wasm_signature(&artifact, plugin_id)?;
+        for entry in crate::wasm::loader::all_entry_points(&manifest) {
+            if entry.ends_with(".wasm") {
+                let artifact = plugin_dir.join(&entry);
+                self.verify_wasm_signature(&artifact, plugin_id)?;
+            }
         }
         let plugin = load_plugin_module(&manifest, &plugin_dir, &self.options).await?;
         self.registry.register(manifest, plugin)?;
@@ -363,13 +363,18 @@ impl PluginEngine {
                     tracing::warn!("plugin '{}' rejected: {}", plugin_id, e);
                     continue;
                 }
-                if manifest.entry_point.ends_with(".wasm") {
-                    if let Err(e) =
-                        self.verify_wasm_signature(&base.join(&manifest.entry_point), &plugin_id)
-                    {
-                        tracing::warn!("plugin '{}' signature rejected: {}", plugin_id, e);
-                        continue;
+                let mut signature_ok = true;
+                for entry in crate::wasm::loader::all_entry_points(&manifest) {
+                    if entry.ends_with(".wasm") {
+                        if let Err(e) = self.verify_wasm_signature(&base.join(&entry), &plugin_id) {
+                            tracing::warn!("plugin '{}' signature rejected: {}", plugin_id, e);
+                            signature_ok = false;
+                            break;
+                        }
                     }
+                }
+                if !signature_ok {
+                    continue;
                 }
                 let plugin = match load_plugin_module(&manifest, &base, &self.options).await {
                     Ok(plugin) => plugin,

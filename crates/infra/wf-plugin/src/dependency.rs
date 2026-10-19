@@ -9,6 +9,7 @@ pub struct ResolvedGraph {
     pub cycles: Vec<Vec<String>>,
     pub missing: Vec<String>,
     pub version_mismatches: Vec<String>,
+    pub global_conflicts: Vec<String>,
 }
 
 pub fn resolve_dependencies(manifests: &[PluginManifest]) -> PluginResult<ResolvedGraph> {
@@ -17,12 +18,10 @@ pub fn resolve_dependencies(manifests: &[PluginManifest]) -> PluginResult<Resolv
     // Validate semver for all plugin versions
     for m in manifests {
         if semver::Version::parse(&m.version).is_err() {
-            version_mismatches.push(format!("{}: invalid version '{}'", m.id, m.version));
-        }
-        if let Some(ref sdk) = m.sdk_version {
-            if semver::VersionReq::parse(sdk).is_err() {
-                version_mismatches.push(format!("{}: invalid sdk_version '{}'", m.id, sdk));
-            }
+            version_mismatches.push(format!(
+                "{}: invalid version '{}'. Provide a valid semver version (e.g. '1.0.0').",
+                m.id, m.version
+            ));
         }
     }
 
@@ -34,8 +33,8 @@ pub fn resolve_dependencies(manifests: &[PluginManifest]) -> PluginResult<Resolv
                     if let Ok(ver) = semver::Version::parse(&dep.version) {
                         if !req.matches(&ver) {
                             version_mismatches.push(format!(
-                                "{}: dependency {} requires '{}', found '{}'",
-                                m.id, dep_id, req_str, dep.version
+                                "{}: dependency {} requires '{}', found '{}'. Update plugin '{}' to a version satisfying '{}' or update plugin '{}' to relax the requirement.",
+                                m.id, dep_id, req_str, dep.version, dep_id, req_str, m.id
                             ));
                         }
                     }
@@ -52,12 +51,62 @@ pub fn resolve_dependencies(manifests: &[PluginManifest]) -> PluginResult<Resolv
                     if let Ok(ver) = semver::Version::parse(&dep.version) {
                         if !req.matches(&ver) {
                             version_mismatches.push(format!(
-                                "{}: optional dependency {} requires '{}', found '{}'",
-                                m.id, dep_id, req_str, dep.version
+                                "{}: optional dependency {} requires '{}', found '{}'. Update plugin '{}' to a version satisfying '{}' or update plugin '{}' to relax the requirement.",
+                                m.id, dep_id, req_str, dep.version, dep_id, req_str, m.id
                             ));
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // Build global constraint table and detect cross-plugin conflicts.
+    // Constraints are stored as owned strings to avoid lifetime issues.
+    let mut global_constraints: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    for m in manifests {
+        for (dep_id, req_str) in &m.dependencies {
+            if semver::VersionReq::parse(req_str).is_ok() {
+                global_constraints
+                    .entry(dep_id.clone())
+                    .or_default()
+                    .push((m.id.clone(), req_str.clone()));
+            }
+        }
+        for (dep_id, req_str) in &m.optional_dependencies {
+            if semver::VersionReq::parse(req_str).is_ok() {
+                global_constraints
+                    .entry(dep_id.clone())
+                    .or_default()
+                    .push((m.id.clone(), req_str.clone()));
+            }
+        }
+    }
+
+    let mut global_conflicts = Vec::new();
+    for (dep_id, constraints) in &global_constraints {
+        if constraints.len() < 2 {
+            continue;
+        }
+        let dep_ver = manifests
+            .iter()
+            .find(|m| m.id == *dep_id)
+            .and_then(|m| semver::Version::parse(&m.version).ok());
+        if let Some(ver) = dep_ver {
+            let all_match = constraints.iter().all(|(_, req_str)| {
+                semver::VersionReq::parse(req_str)
+                    .map(|r| r.matches(&ver))
+                    .unwrap_or(false)
+            });
+            if !all_match {
+                let sources: Vec<String> = constraints
+                    .iter()
+                    .map(|(src, r)| format!("{src} requires '{r}'"))
+                    .collect();
+                global_conflicts.push(format!(
+                    "plugin '{dep_id}' version {ver} fails to satisfy conflicting constraints: {}. Align the dependency requirements across these plugins or update plugin '{dep_id}' to a version satisfying all of them.",
+                    sources.join(", ")
+                ));
             }
         }
     }
@@ -155,6 +204,7 @@ pub fn resolve_dependencies(manifests: &[PluginManifest]) -> PluginResult<Resolv
         cycles,
         missing,
         version_mismatches,
+        global_conflicts,
     })
 }
 
@@ -202,8 +252,8 @@ mod tests {
             name: None,
             description: None,
             plugin_type: None,
-            sdk_version: None,
             entry_point: "main.lua".to_string(),
+            versioned_entry_points: Default::default(),
             dependencies,
             optional_dependencies: std::collections::HashMap::new(),
             contributions: vec![],
@@ -275,6 +325,38 @@ mod tests {
         m.version = "not-semver".into();
         let graph = resolve_dependencies(&[m]).unwrap();
         assert!(!graph.version_mismatches.is_empty());
+    }
+
+    #[test]
+    fn test_global_conflict_detected_with_fix_suggestion() {
+        let mut a = make_manifest("a", &[]);
+        a.version = "1.5.0".into();
+        let mut b = make_manifest("b", &["a"]);
+        b.dependencies.insert("a".into(), "^1.0.0".into());
+        let mut c = make_manifest("c", &["a"]);
+        c.dependencies.insert("a".into(), "^2.0.0".into());
+        let graph = resolve_dependencies(&[a, b, c]).unwrap();
+        assert!(!graph.global_conflicts.is_empty());
+        let text = graph.global_conflicts.join("; ");
+        assert!(text.contains("conflicting constraints"), "got: {text}");
+        assert!(text.contains("update plugin"), "got: {text}");
+    }
+
+    #[test]
+    fn test_compatible_constraints_have_no_conflict() {
+        let mut a = make_manifest("a", &[]);
+        a.version = "1.6.0".into();
+        let mut b = make_manifest("b", &["a"]);
+        b.dependencies.insert("a".into(), ">=1.0.0, <2.0.0".into());
+        let mut c = make_manifest("c", &["a"]);
+        c.dependencies.insert("a".into(), ">=1.5.0, <1.9.0".into());
+        let graph = resolve_dependencies(&[a, b, c]).unwrap();
+        assert!(
+            graph.global_conflicts.is_empty(),
+            "{:?}",
+            graph.global_conflicts
+        );
+        assert!(graph.version_mismatches.is_empty());
     }
 
     #[test]

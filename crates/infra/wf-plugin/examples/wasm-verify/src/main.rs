@@ -29,11 +29,16 @@ fn chain(e: &(dyn std::error::Error + 'static)) -> String {
 }
 
 async fn verify(dir: PathBuf) -> Result<(), String> {
-    let toml_text =
-        std::fs::read_to_string(dir.join("plugin.toml")).map_err(|e| format!("plugin.toml: {e}"))?;
+    let toml_text = std::fs::read_to_string(dir.join("plugin.toml"))
+        .map_err(|e| format!("plugin.toml: {e}"))?;
     let manifest: PluginManifest =
         toml::from_str(&toml_text).map_err(|e| format!("manifest parse: {e}"))?;
-    println!("== {} ({}) entry={}", manifest.id, dir.display(), manifest.entry_point);
+    println!(
+        "== {} ({}) entry={}",
+        manifest.id,
+        dir.display(),
+        manifest.entry_point
+    );
 
     let plugin = load_wasm_plugin_with_base(&manifest, &dir)
         .await
@@ -42,14 +47,19 @@ async fn verify(dir: PathBuf) -> Result<(), String> {
     let manager = Arc::new(ContributionManager::new());
     let ctx = PluginContext {
         plugin_id: manifest.id.clone(),
-        sdk_version: "0.1.0".into(),
         config: json!({}),
         logger: PluginLogger,
         contribution_manager: manager.clone(),
     };
 
-    plugin.on_load(&ctx).await.map_err(|e| format!("on_load: {e}"))?;
-    plugin.on_activate(&ctx).await.map_err(|e| format!("on_activate: {e}"))?;
+    plugin
+        .on_load(&ctx)
+        .await
+        .map_err(|e| format!("on_load: {e}"))?;
+    plugin
+        .on_activate(&ctx)
+        .await
+        .map_err(|e| format!("on_activate: {e}"))?;
 
     manager.start_registration(&manifest.id);
     {
@@ -67,10 +77,19 @@ async fn verify(dir: PathBuf) -> Result<(), String> {
         .execute(PluginToolContext { args: json!({}) })
         .await
         .map_err(|e| format!("dispatch echo: {e}"))?;
-    println!("   echo -> {}", serde_json::to_string(&out).map_err(|e| e.to_string())?);
+    println!(
+        "   echo -> {}",
+        serde_json::to_string(&out).map_err(|e| e.to_string())?
+    );
 
-    plugin.on_deactivate(&ctx).await.map_err(|e| format!("on_deactivate: {e}"))?;
-    plugin.on_unload(&ctx).await.map_err(|e| format!("on_unload: {e}"))?;
+    plugin
+        .on_deactivate(&ctx)
+        .await
+        .map_err(|e| format!("on_deactivate: {e}"))?;
+    plugin
+        .on_unload(&ctx)
+        .await
+        .map_err(|e| format!("on_unload: {e}"))?;
     manager.unregister_all(&manifest.id);
     println!("== OK {}", manifest.id);
     Ok(())

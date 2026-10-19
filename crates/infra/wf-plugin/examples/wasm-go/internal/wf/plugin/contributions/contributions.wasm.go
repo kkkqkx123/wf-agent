@@ -6,18 +6,18 @@ import (
 	"go.bytecodealliance.org/cm"
 )
 
-// This file contains wasmimport and wasmexport declarations for "wf:plugin@0.1.0-draft".
+// This file contains wasmimport and wasmexport declarations for "wf:plugin@1.0.0".
 
-//go:wasmexport wf:plugin/contributions@0.1.0-draft#register
-//export wf:plugin/contributions@0.1.0-draft#register
+//go:wasmexport wf:plugin/contributions@1.0.0#register
+//export wf:plugin/contributions@1.0.0#register
 func wasmexport_Register() (result *Declaration) {
 	result_ := Exports.Register()
 	result = &result_
 	return
 }
 
-//go:wasmexport wf:plugin/contributions@0.1.0-draft#dispatch
-//export wf:plugin/contributions@0.1.0-draft#dispatch
+//go:wasmexport wf:plugin/contributions@1.0.0#dispatch
+//export wf:plugin/contributions@1.0.0#dispatch
 func wasmexport_Dispatch(handlerType0 *uint8, handlerType1 uint32, handlerName0 *uint8, handlerName1 uint32, inputJson0 *uint8, inputJson1 uint32) (result *cm.Result[string, string, string]) {
 	handlerType := cm.LiftString[string]((*uint8)(handlerType0), (uint32)(handlerType1))
 	handlerName := cm.LiftString[string]((*uint8)(handlerName0), (uint32)(handlerName1))

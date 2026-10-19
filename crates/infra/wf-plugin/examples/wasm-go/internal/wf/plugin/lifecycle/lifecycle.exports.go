@@ -6,7 +6,7 @@ import (
 	"go.bytecodealliance.org/cm"
 )
 
-// Exports represents the caller-defined exports from "wf:plugin/lifecycle@0.1.0-draft".
+// Exports represents the caller-defined exports from "wf:plugin/lifecycle@1.0.0".
 var Exports struct {
 	// OnLoad represents the caller-defined, exported function "on-load".
 	//

@@ -2,8 +2,8 @@
 
 package hostlog
 
-// This file contains wasmimport and wasmexport declarations for "wf:plugin@0.1.0-draft".
+// This file contains wasmimport and wasmexport declarations for "wf:plugin@1.0.0".
 
-//go:wasmimport wf:plugin/host-log@0.1.0-draft log
+//go:wasmimport wf:plugin/host-log@1.0.0 log
 //go:noescape
 func wasmimport_Log(level0 uint32, message0 *uint8, message1 uint32)

@@ -1,7 +1,9 @@
 use serde_json::Value;
 use wasmtime::{Engine, Memory, Store};
 
-use wf_plugin_sdk::wasm::{export, WasmContributionDecl, WasmHookInput, WF_WASM_ABI_VERSION};
+use wf_plugin_sdk::wasm::{
+    export, WasmContributionDecl, WasmHookInput, WF_WASM_SUPPORTED_ABI_VERSIONS,
+};
 
 use super::policy::WasmLimits;
 use super::pool::{outer_timeout_ms, PooledSession, WasmStoreState};
@@ -107,57 +109,93 @@ pub fn check_hook_status_with_detail(
 
 /// Negotiate the core-module ABI version with one live session.
 ///
-/// Guests may export `wf_abi_version() -> u32`; when absent version 1 is
-/// assumed for backward compatibility. A present but wrongly-typed export
-/// or a version other than the host's is a loud load failure so an
-/// upgraded guest never silently misbehaves.
+/// Guests must export `wf_supported_abi_versions() -> (ptr, len)` returning a
+/// packed pointer to a `u32` array of supported ABI major versions. The host
+/// selects the highest mutually-supported version. A missing export, an
+/// empty list, or an empty intersection all fail loading with a fix
+/// suggestion.
 pub async fn negotiate_abi_version(
     session: &mut PooledSession,
     engine: &Engine,
     plugin_id: &str,
     limits: &WasmLimits,
-) -> PluginResult<()> {
+) -> PluginResult<u32> {
     if session
         .instance
-        .get_func(&mut session.store, export::ABI_VERSION)
+        .get_func(&mut session.store, export::SUPPORTED_ABI_VERSIONS)
         .is_none()
     {
-        tracing::debug!(
-            "wasm plugin '{plugin_id}' has no '{}' export; assuming ABI version {WF_WASM_ABI_VERSION}",
-            export::ABI_VERSION
-        );
-        return Ok(());
+        return Err(PluginError::LoadFailed(format!(
+            "plugin '{plugin_id}' does not export '{}'; it must declare the ABI major versions it supports (host supports {WF_WASM_SUPPORTED_ABI_VERSIONS:?}). Update the plugin to implement the current handshake.",
+            export::SUPPORTED_ABI_VERSIONS
+        )));
     }
-    let version_fn = session
+    negotiate_supported_versions(session, engine, plugin_id, limits).await
+}
+
+async fn negotiate_supported_versions(
+    session: &mut PooledSession,
+    engine: &Engine,
+    plugin_id: &str,
+    limits: &WasmLimits,
+) -> PluginResult<u32> {
+    let versions_fn = session
         .instance
-        .get_typed_func::<(), u32>(&mut session.store, export::ABI_VERSION)
+        .get_typed_func::<(), u64>(&mut session.store, export::SUPPORTED_ABI_VERSIONS)
         .map_err(|e| {
             PluginError::LoadFailed(format!(
                 "plugin '{plugin_id}' export '{}' has an unexpected signature: {e}",
-                export::ABI_VERSION
+                export::SUPPORTED_ABI_VERSIONS
             ))
         })?;
     super::pool::arm_epoch(engine, &mut session.store, limits.call_timeout_ms);
-    let call = version_fn.call_async(&mut session.store, ());
-    let version = match outer_timeout_ms(limits.call_timeout_ms) {
+    let call = versions_fn.call_async(&mut session.store, ());
+    let packed = match outer_timeout_ms(limits.call_timeout_ms) {
         Some(ms) => tokio::time::timeout(std::time::Duration::from_millis(ms), call)
             .await
             .map_err(|_| PluginError::Timeout {
                 plugin_id: plugin_id.to_owned(),
             })?
             .map_err(|e| {
-                super::pool::wasm_err(&format!("plugin '{plugin_id}' abi version probe failed"), e)
+                super::pool::wasm_err(
+                    &format!("plugin '{plugin_id}' supported abi versions probe failed"),
+                    e,
+                )
             })?,
         None => call.await.map_err(|e| {
-            super::pool::wasm_err(&format!("plugin '{plugin_id}' abi version probe failed"), e)
+            super::pool::wasm_err(
+                &format!("plugin '{plugin_id}' supported abi versions probe failed"),
+                e,
+            )
         })?,
     };
-    if version == WF_WASM_ABI_VERSION {
-        Ok(())
-    } else {
-        Err(PluginError::LoadFailed(format!(
-            "plugin '{plugin_id}' uses incompatible abi version {version}, host expects {WF_WASM_ABI_VERSION}"
-        )))
+    let (ptr, len) = unpack_ptr_len(packed);
+    if len == 0 {
+        return Err(PluginError::LoadFailed(format!(
+            "plugin '{plugin_id}' exported empty supported abi versions list"
+        )));
+    }
+    let memory = session
+        .instance
+        .get_memory(&mut session.store, "memory")
+        .ok_or_else(|| PluginError::WasmError("guest has no memory export".into()))?;
+    let bytes = read_bytes(&session.store, &memory, ptr, len * 4)?;
+    let versions: Vec<u32> = bytes
+        .chunks_exact(4)
+        .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+        .collect();
+    let host_versions = WF_WASM_SUPPORTED_ABI_VERSIONS;
+    let mut common: Vec<u32> = versions
+        .iter()
+        .copied()
+        .filter(|v| host_versions.contains(v))
+        .collect();
+    common.sort_unstable();
+    match common.pop() {
+        Some(v) => Ok(v),
+        None => Err(PluginError::LoadFailed(format!(
+            "plugin '{plugin_id}' supports abi versions {versions:?}, host supports {host_versions:?}; no compatible version found. Update the plugin or upgrade the host."
+        ))),
     }
 }
 

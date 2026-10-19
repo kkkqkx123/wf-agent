@@ -27,7 +27,6 @@ pub struct PluginEngine {
     pub(crate) event_bus: Option<wf_core::EventBus>,
     pub(crate) plugin_event_bus: PluginEventBus,
     pub(crate) package_manager: Arc<PluginPackageManager>,
-    pub(crate) sdk_version: String,
     pub(crate) initialized: bool,
     pub(crate) event_tasks: Arc<std::sync::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
 }
@@ -38,7 +37,6 @@ impl PluginEngine {
         contribution_manager: Arc<ContributionManager>,
         bridge: Option<Arc<dyn ContributionBridge>>,
         options: PluginSystemConfig,
-        sdk_version: &str,
     ) -> Self {
         let guard = PluginGuard::new(options.guard_timeout_ms);
         if options.guard_timeout_ms == 0 {
@@ -57,7 +55,6 @@ impl PluginEngine {
             event_bus: None,
             plugin_event_bus: PluginEventBus::default(),
             package_manager: Arc::new(PluginPackageManager::new(&state_dir)),
-            sdk_version: sdk_version.to_owned(),
             initialized: false,
             event_tasks: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }

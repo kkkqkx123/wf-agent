@@ -47,8 +47,8 @@ impl ResourceAssemblerAdapter {
             name: Some(meta.name),
             description: Some(meta.description),
             plugin_type: None,
-            sdk_version: None,
             entry_point: format!("builtin://resource-assembler/{}", meta.id),
+            versioned_entry_points: Default::default(),
             dependencies: meta
                 .dependencies
                 .unwrap_or_default()

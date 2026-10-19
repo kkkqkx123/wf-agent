@@ -7,7 +7,12 @@
 
 use std::os::raw::c_char;
 
-pub const WF_PLUGIN_ABI_VERSION: u32 = 1;
+pub const WF_ABI_VERSION_V1: u32 = 1;
+
+/// Host ABI versions supported by this host, highest first. Negotiation
+/// selects the highest version present in both the plugin declaration and
+/// this list.
+pub const WF_SUPPORTED_ABI_VERSIONS: [u32; 1] = [WF_ABI_VERSION_V1];
 
 #[repr(C)]
 pub struct PluginContextC {

@@ -3,7 +3,7 @@
 // `wasm-tools component embed` can lift the core module into a component.
 //
 // This file deliberately omits the `package` declaration: it shares the
-// `wf:plugin@0.1.0-draft` package declared in `plugin.wit` (copied here by
+// `wf:plugin@1.0.0` package declared in `plugin.wit` (copied here by
 // `make deps`).
 
 world component {

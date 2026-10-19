@@ -68,12 +68,42 @@ pub async fn load_wasm_plugin_verified_with_base(
 /// Resolve the on-disk module path for a manifest, rejecting absolute
 /// entries, parent traversal, and escapes from the base directory.
 /// Shared by the default and verified load entries.
+///
+/// The host negotiates the highest mutually-supported ABI version; while
+/// only v1 exists the negotiated version is always v1, so the v1 entry is
+/// selected here. When future host versions add v2, this picks the highest
+/// supported entry present in `versioned_entry_points`, falling back to
+/// `entry_point` for single-version plugins.
+pub(crate) fn resolve_entry_point(manifest: &PluginManifest) -> String {
+    let host_versions = wf_plugin_sdk::wasm::WF_WASM_SUPPORTED_ABI_VERSIONS;
+    let negotiated = *host_versions.iter().max().unwrap_or(&1);
+    manifest
+        .versioned_entry_points
+        .get(&negotiated)
+        .cloned()
+        .unwrap_or_else(|| manifest.entry_point.clone())
+}
+
+/// All artifact paths a plugin may load: the default entry plus every
+/// versioned entry. Used for signature verification so multi-version
+/// plugins verify every candidate artifact, not just the negotiated one.
+pub(crate) fn all_entry_points(manifest: &PluginManifest) -> Vec<String> {
+    let mut entries = vec![manifest.entry_point.clone()];
+    for entry in manifest.versioned_entry_points.values() {
+        if !entries.contains(entry) {
+            entries.push(entry.clone());
+        }
+    }
+    entries
+}
+
 fn resolve_module_path(manifest: &PluginManifest, base_path: &Path) -> PluginResult<PathBuf> {
     let id = &manifest.id;
+    let entry_point = resolve_entry_point(manifest);
     validate_plugin_id(id)?;
-    validate_entry_point(&manifest.entry_point)?;
+    validate_entry_point(&entry_point)?;
 
-    let module_path = base_path.join(&manifest.entry_point);
+    let module_path = base_path.join(&entry_point);
     if let (Ok(canonical_base), Ok(canonical_module)) =
         (base_path.canonicalize(), module_path.canonicalize())
     {
@@ -233,17 +263,21 @@ fn validate_entry_point(entry: &str) -> PluginResult<()> {
 fn determine_base_path(manifest: &PluginManifest) -> PluginResult<std::path::PathBuf> {
     validate_plugin_id(&manifest.id)?;
     validate_entry_point(&manifest.entry_point)?;
+    for entry in manifest.versioned_entry_points.values() {
+        validate_entry_point(entry)?;
+    }
 
+    let negotiated = resolve_entry_point(manifest);
     let candidate = std::path::PathBuf::from("plugins").join(&manifest.id);
-    if candidate.join(&manifest.entry_point).exists() {
+    if candidate.join(&negotiated).exists() {
         return Ok(candidate);
     }
-    if std::path::Path::new(&manifest.entry_point).exists() {
+    if std::path::Path::new(&negotiated).exists() {
         return Ok(std::path::PathBuf::from("."));
     }
     Err(PluginError::LoadFailed(format!(
         "cannot find entry point '{}' for plugin '{}'",
-        manifest.entry_point, manifest.id
+        negotiated, manifest.id
     )))
 }
 
@@ -263,10 +297,13 @@ pub(crate) fn wasm_test_echo_wat(register_json: &str) -> String {
   (global $heap (mut i32) (i32.const 4096))
   (data (i32.const 0) "{escaped}")
   (data (i32.const 1024) "{result_escaped}")
+  (data (i32.const 8192) "\01\00\00\00")
   (func (export "alloc") (param $n i32) (result i32)
     (local $p i32) (global.get $heap) (local.set $p)
     (global.set $heap (i32.add (global.get $heap) (local.get $n)))
     (local.get $p))
+  (func (export "wf_supported_abi_versions") (result i64)
+    (i64.or (i64.extend_i32_u (i32.const 8192)) (i64.shl (i64.extend_i32_u (i32.const 1)) (i64.const 32))))
   (func (export "wf_on_load") (param $p i32) (param $n i32) (result i32) (i32.const 0))
   (func (export "wf_on_activate") (param $p i32) (param $n i32) (result i32) (i32.const 0))
   (func (export "wf_register") (result i64)
@@ -301,7 +338,10 @@ pub(crate) fn wasm_test_spin_wat() -> String {
     r#"(module
   (memory (export "memory") 1)
   (global $heap (mut i32) (i32.const 64))
+  (data (i32.const 8192) "\01\00\00\00")
   (func (export "alloc") (param $n i32) (result i32) (i32.const 64))
+  (func (export "wf_supported_abi_versions") (result i64)
+    (i64.or (i64.extend_i32_u (i32.const 8192)) (i64.shl (i64.extend_i32_u (i32.const 1)) (i64.const 32))))
   (func (export "wf_on_load") (param $p i32) (param $n i32) (result i32)
     (loop $spin (br $spin))
     (i32.const 0)))
@@ -319,10 +359,13 @@ pub(crate) fn wasm_test_preopen_wat() -> String {
     (func $prestat_get (param i32 i32) (result i32)))
   (memory (export "memory") 1)
   (global $heap (mut i32) (i32.const 128))
+  (data (i32.const 8192) "\01\00\00\00")
   (func (export "alloc") (param $n i32) (result i32)
     (local $p i32) (global.get $heap) (local.set $p)
     (global.set $heap (i32.add (global.get $heap) (local.get $n)))
     (local.get $p))
+  (func (export "wf_supported_abi_versions") (result i64)
+    (i64.or (i64.extend_i32_u (i32.const 8192)) (i64.shl (i64.extend_i32_u (i32.const 1)) (i64.const 32))))
   (func (export "wf_on_load") (param $p i32) (param $n i32) (result i32)
     (call $prestat_get (i32.const 3) (i32.const 64))))
 "#
@@ -342,8 +385,8 @@ mod tests {
             name: None,
             description: None,
             plugin_type: Some(PluginType::Wasm),
-            sdk_version: None,
             entry_point: entry.into(),
+            versioned_entry_points: Default::default(),
             dependencies: Default::default(),
             optional_dependencies: Default::default(),
             contributions: vec![],
@@ -370,6 +413,20 @@ mod tests {
         assert!(validate_plugin_id("").is_err());
         assert!(validate_plugin_id("../x").is_err());
         assert!(validate_plugin_id("ok-id").is_ok());
+    }
+
+    #[test]
+    fn versioned_entry_point_prefers_negotiated_version() {
+        let mut m = manifest("w", "plugin.wasm");
+        assert_eq!(resolve_entry_point(&m), "plugin.wasm");
+        m.versioned_entry_points.insert(1, "plugin_v1.wasm".into());
+        assert_eq!(resolve_entry_point(&m), "plugin_v1.wasm");
+        m.versioned_entry_points.insert(2, "plugin_v2.wasm".into());
+        assert_eq!(resolve_entry_point(&m), "plugin_v1.wasm");
+        let entries = all_entry_points(&m);
+        assert!(entries.contains(&"plugin.wasm".to_owned()));
+        assert!(entries.contains(&"plugin_v1.wasm".to_owned()));
+        assert!(entries.contains(&"plugin_v2.wasm".to_owned()));
     }
 
     #[test]
@@ -418,10 +475,14 @@ mod tests {
         std::fs::write(dir.join("plugin.wasm"), &bytes).expect("write module");
     }
 
+    fn write_named_module(dir: &std::path::Path, name: &str, wat: &str) {
+        let bytes = wat::parse_str(wat).expect("valid wat");
+        std::fs::write(dir.join(name), &bytes).expect("write module");
+    }
+
     fn test_context(plugin_id: &str) -> crate::context::PluginContext {
         crate::context::PluginContext {
             plugin_id: plugin_id.to_owned(),
-            sdk_version: "0.1.0".into(),
             config: serde_json::Value::Null,
             logger: crate::context::PluginLogger,
             contribution_manager: std::sync::Arc::new(
@@ -457,6 +518,42 @@ mod tests {
             .await
             .expect("tool executes");
         assert_eq!(out.result["echo"], true);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn versioned_entry_point_selects_negotiated_artifact() {
+        let dir = std::env::temp_dir().join("wf-wasm-test-versioned");
+        let _ = std::fs::create_dir_all(&dir);
+        write_named_module(
+            &dir,
+            "plugin.wasm",
+            &wasm_test_echo_wat(r#"{"tool_types":["legacy_tool"]}"#),
+        );
+        write_named_module(
+            &dir,
+            "plugin_v1.wasm",
+            &wasm_test_echo_wat(r#"{"tool_types":["v1_tool"]}"#),
+        );
+
+        let mut m = manifest("versioned", "plugin.wasm");
+        m.versioned_entry_points.insert(1, "plugin_v1.wasm".into());
+        let plugin = load_wasm_plugin_with_base(&m, &dir).await.expect("load");
+        let manager = crate::contributions::ContributionManager::new();
+        {
+            let mut registrar = manager.as_registrar();
+            plugin
+                .register_contributions(&mut registrar)
+                .expect("contributions register");
+        }
+        assert!(
+            manager.get_tool_executor("v1_tool").is_some(),
+            "negotiated v1 entry must be used"
+        );
+        assert!(
+            manager.get_tool_executor("legacy_tool").is_none(),
+            "fallback entry must not be used when versioned entry exists"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -523,7 +620,10 @@ mod tests {
         let wat = r#"(module
   (memory (export "memory") 1)
   (global $heap (mut i32) (i32.const 64))
+  (data (i32.const 8192) "\01\00\00\00")
   (func (export "alloc") (param $n i32) (result i32) (i32.const 64))
+  (func (export "wf_supported_abi_versions") (result i64)
+    (i64.or (i64.extend_i32_u (i32.const 8192)) (i64.shl (i64.extend_i32_u (i32.const 1)) (i64.const 32))))
   (func (export "wf_register") (result i64)
     (i64.or (i64.extend_i32_u (i32.const 0))
       (i64.shl (i64.extend_i32_u (i32.const 2147483647)) (i64.const 32)))))
@@ -547,7 +647,10 @@ mod tests {
   (memory (export "memory") 1)
   (global $heap (mut i32) (i32.const 64))
   (data (i32.const 0) "oops not json")
+  (data (i32.const 8192) "\01\00\00\00")
   (func (export "alloc") (param $n i32) (result i32) (i32.const 64))
+  (func (export "wf_supported_abi_versions") (result i64)
+    (i64.or (i64.extend_i32_u (i32.const 8192)) (i64.shl (i64.extend_i32_u (i32.const 1)) (i64.const 32))))
   (func (export "wf_register") (result i64)
     (i64.or (i64.extend_i32_u (i32.const 0))
       (i64.shl (i64.extend_i32_u (i32.const 13)) (i64.const 32)))))

@@ -45,8 +45,13 @@ pub struct PluginManifest {
     pub name: Option<String>,
     pub description: Option<String>,
     pub plugin_type: Option<PluginType>,
-    pub sdk_version: Option<String>,
     pub entry_point: String,
+    /// Version-keyed entry points for multi-version coexistence. Key is the
+    /// ABI major version; value is the entry-point path. When the host
+    /// negotiates a specific ABI version, it prefers the matching entry
+    /// from this map and falls back to `entry_point` when absent.
+    #[serde(default)]
+    pub versioned_entry_points: HashMap<u32, String>,
     #[serde(default)]
     pub dependencies: HashMap<String, String>,
     #[serde(default)]

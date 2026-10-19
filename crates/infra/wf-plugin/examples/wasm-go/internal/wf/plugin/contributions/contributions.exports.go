@@ -6,7 +6,7 @@ import (
 	"go.bytecodealliance.org/cm"
 )
 
-// Exports represents the caller-defined exports from "wf:plugin/contributions@0.1.0-draft".
+// Exports represents the caller-defined exports from "wf:plugin/contributions@1.0.0".
 var Exports struct {
 	// Register represents the caller-defined, exported function "register".
 	//

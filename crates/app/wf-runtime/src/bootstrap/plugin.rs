@@ -98,14 +98,9 @@ pub async fn init_plugins(
 
     let event_bus = wf_core::EventBus::new(256);
 
-    let mut engine = wf_plugin::PluginEngine::new(
-        registry,
-        contribution_manager,
-        bridge,
-        plugin_config,
-        env!("CARGO_PKG_VERSION"),
-    )
-    .with_event_bus(event_bus);
+    let mut engine =
+        wf_plugin::PluginEngine::new(registry, contribution_manager, bridge, plugin_config)
+            .with_event_bus(event_bus);
 
     engine.initialize().await.map_err(|e| {
         tracing::error!("Plugin engine initialization failed: {}", e);

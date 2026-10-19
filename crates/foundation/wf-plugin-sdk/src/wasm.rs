@@ -7,7 +7,7 @@
 //! only data encoding on both paths, so guests in any language can
 //! implement the contract without shared bindings.
 //!
-//! Middleware guests answer a dispatch with either a JSON boolean (legacy:
+//! Middleware guests answer a dispatch with either a JSON boolean:
 //! continue or stop, context unchanged) or an envelope object
 //! `{"proceed": bool, "context": <replacement>}` (both keys optional,
 //! defaulting to `true` and the incoming context). The host threads the
@@ -15,11 +15,16 @@
 
 /// Contract version implemented by the host loader. Guests should treat a
 /// mismatch as a load failure.
-pub const WF_WASM_ABI_VERSION: u32 = 1;
+pub const WF_WASM_ABI_VERSION_V1: u32 = 1;
 
 /// WIT world implemented by the component-model host
 /// (`wasm/component.rs` against `wit/plugin.wit`).
-pub const WF_WASM_WORLD: &str = "wf:plugin/plugin";
+pub const WF_WASM_WORLD: &str = "wf:plugin@1.0.0";
+
+/// Host ABI versions supported by this host, highest first. Negotiation
+/// selects the highest version present in both the guest declaration and
+/// this list.
+pub const WF_WASM_SUPPORTED_ABI_VERSIONS: [u32; 1] = [WF_WASM_ABI_VERSION_V1];
 
 /// Guest export names. `MEMORY` and `ALLOC` are required; `DEALLOC` is
 /// optional (without it, per-call allocations are dropped with the store).
@@ -28,9 +33,10 @@ pub const WF_WASM_WORLD: &str = "wf:plugin/plugin";
 /// Lifecycle hooks are optional and default to success when absent.
 /// `REGISTER` is optional (no contributions when absent); `DISPATCH` is
 /// required only when the registration declares contributions.
-/// `ABI_VERSION` is optional: guests exporting `wf_abi_version() -> u32`
-/// declare the contract version they implement; when absent the host
-/// assumes version 1. `LAST_ERROR` is optional: guests may export
+/// `SUPPORTED_ABI_VERSIONS` is required: guests export
+/// `wf_supported_abi_versions() -> u64` returning a packed `(ptr, len)`
+/// to a `u32` array of supported ABI major versions; the host selects the
+/// highest mutually supported version. `LAST_ERROR` is optional: guests may export
 /// `wf_last_error() -> i64` (same packed `(ptr, len)` as `REGISTER`)
 /// carrying a short UTF-8 detail string for the last failed hook call.
 pub mod export {
@@ -38,7 +44,7 @@ pub mod export {
     pub const ALLOC: &str = "alloc";
     pub const DEALLOC: &str = "dealloc";
     pub const HEAP_RESET: &str = "wf_heap_reset";
-    pub const ABI_VERSION: &str = "wf_abi_version";
+    pub const SUPPORTED_ABI_VERSIONS: &str = "wf_supported_abi_versions";
     pub const LAST_ERROR: &str = "wf_last_error";
     pub const ON_LOAD: &str = "wf_on_load";
     pub const ON_ACTIVATE: &str = "wf_on_activate";

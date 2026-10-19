@@ -8,7 +8,8 @@ use crate::error::PluginResult;
 // loading logic (manifest retrieval, symbol resolution, version check)
 // remains in this module.
 pub use wf_plugin_sdk::native::{
-    ContributionRegistrarC, DispatchFn, PluginContextC, WF_PLUGIN_ABI_VERSION,
+    ContributionRegistrarC, DispatchFn, PluginContextC, WF_ABI_VERSION_V1,
+    WF_SUPPORTED_ABI_VERSIONS,
 };
 
 /// Safe two-phase manifest loading: query size first, then fill buffer.
@@ -100,23 +101,47 @@ pub fn load_abi_info(lib: &libloading::Library) -> PluginResult<PluginAbiResult>
 }
 
 fn check_abi_version(lib: &libloading::Library) -> PluginResult<()> {
-    let version_fn: Option<libloading::Symbol<extern "C" fn() -> u32>> =
-        unsafe { lib.get(b"wf_plugin_abi_version").ok() };
-    match version_fn {
-        Some(sym) => {
-            let version = sym();
-            if version != WF_PLUGIN_ABI_VERSION {
-                Err(crate::error::PluginError::NativeError(format!(
-                    "ABI version mismatch: plugin={}, host={}",
-                    version, WF_PLUGIN_ABI_VERSION
-                )))
-            } else {
-                Ok(())
-            }
-        }
-        None => Err(crate::error::PluginError::NativeError(
-            "plugin does not export wf_plugin_abi_version (host ABI requires >= 1)".into(),
-        )),
+    let supported_fn: Option<libloading::Symbol<extern "C" fn(*mut u32, *mut usize) -> i32>> =
+        unsafe { lib.get(b"wf_plugin_supported_abi_versions").ok() };
+    let Some(sym) = supported_fn else {
+        return Err(crate::error::PluginError::NativeError(
+            "plugin does not export wf_plugin_supported_abi_versions; it must declare the ABI major versions it supports. Update the plugin to implement the current handshake.".into(),
+        ));
+    };
+    check_supported_abi_versions(*sym)
+}
+
+fn check_supported_abi_versions(
+    supported_fn: extern "C" fn(*mut u32, *mut usize) -> i32,
+) -> PluginResult<()> {
+    let mut len: usize = 0;
+    let result = supported_fn(std::ptr::null_mut(), &mut len as *mut usize);
+    if result != 0 {
+        return Err(crate::error::PluginError::NativeError(
+            "wf_plugin_supported_abi_versions failed (size query)".into(),
+        ));
+    }
+    if len == 0 {
+        return Err(crate::error::PluginError::NativeError(
+            "plugin exported empty supported abi versions list".into(),
+        ));
+    }
+    let mut buf = vec![0u32; len];
+    let mut written = buf.len();
+    let result = supported_fn(buf.as_mut_ptr(), &mut written as *mut usize);
+    if result != 0 {
+        return Err(crate::error::PluginError::NativeError(
+            "wf_plugin_supported_abi_versions failed (fill)".into(),
+        ));
+    }
+    buf.truncate(written);
+    if WF_SUPPORTED_ABI_VERSIONS.iter().any(|v| buf.contains(v)) {
+        Ok(())
+    } else {
+        Err(crate::error::PluginError::NativeError(format!(
+            "plugin supports abi versions {buf:?}, host supports {WF_SUPPORTED_ABI_VERSIONS:?}; \
+             no compatible version found. Update the plugin or upgrade the host."
+        )))
     }
 }
 

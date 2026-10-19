@@ -6,10 +6,10 @@ import (
 	"go.bytecodealliance.org/cm"
 )
 
-// This file contains wasmimport and wasmexport declarations for "wf:plugin@0.1.0-draft".
+// This file contains wasmimport and wasmexport declarations for "wf:plugin@1.0.0".
 
-//go:wasmexport wf:plugin/lifecycle@0.1.0-draft#on-load
-//export wf:plugin/lifecycle@0.1.0-draft#on-load
+//go:wasmexport wf:plugin/lifecycle@1.0.0#on-load
+//export wf:plugin/lifecycle@1.0.0#on-load
 func wasmexport_OnLoad(input0 *uint8, input1 uint32, input2 *uint8, input3 uint32) (result *cm.Result[string, struct{}, string]) {
 	input := lift_HookInput((*uint8)(input0), (uint32)(input1), (*uint8)(input2), (uint32)(input3))
 	result_ := Exports.OnLoad(input)
@@ -17,8 +17,8 @@ func wasmexport_OnLoad(input0 *uint8, input1 uint32, input2 *uint8, input3 uint3
 	return
 }
 
-//go:wasmexport wf:plugin/lifecycle@0.1.0-draft#on-activate
-//export wf:plugin/lifecycle@0.1.0-draft#on-activate
+//go:wasmexport wf:plugin/lifecycle@1.0.0#on-activate
+//export wf:plugin/lifecycle@1.0.0#on-activate
 func wasmexport_OnActivate(input0 *uint8, input1 uint32, input2 *uint8, input3 uint32) (result *cm.Result[string, struct{}, string]) {
 	input := lift_HookInput((*uint8)(input0), (uint32)(input1), (*uint8)(input2), (uint32)(input3))
 	result_ := Exports.OnActivate(input)
@@ -26,24 +26,24 @@ func wasmexport_OnActivate(input0 *uint8, input1 uint32, input2 *uint8, input3 u
 	return
 }
 
-//go:wasmexport wf:plugin/lifecycle@0.1.0-draft#on-deactivate
-//export wf:plugin/lifecycle@0.1.0-draft#on-deactivate
+//go:wasmexport wf:plugin/lifecycle@1.0.0#on-deactivate
+//export wf:plugin/lifecycle@1.0.0#on-deactivate
 func wasmexport_OnDeactivate() (result *cm.Result[string, struct{}, string]) {
 	result_ := Exports.OnDeactivate()
 	result = &result_
 	return
 }
 
-//go:wasmexport wf:plugin/lifecycle@0.1.0-draft#on-unload
-//export wf:plugin/lifecycle@0.1.0-draft#on-unload
+//go:wasmexport wf:plugin/lifecycle@1.0.0#on-unload
+//export wf:plugin/lifecycle@1.0.0#on-unload
 func wasmexport_OnUnload() (result *cm.Result[string, struct{}, string]) {
 	result_ := Exports.OnUnload()
 	result = &result_
 	return
 }
 
-//go:wasmexport wf:plugin/lifecycle@0.1.0-draft#on-config-change
-//export wf:plugin/lifecycle@0.1.0-draft#on-config-change
+//go:wasmexport wf:plugin/lifecycle@1.0.0#on-config-change
+//export wf:plugin/lifecycle@1.0.0#on-config-change
 func wasmexport_OnConfigChange(config0 *uint8, config1 uint32) (result *cm.Result[string, struct{}, string]) {
 	config := cm.LiftString[string]((*uint8)(config0), (uint32)(config1))
 	result_ := Exports.OnConfigChange(config)

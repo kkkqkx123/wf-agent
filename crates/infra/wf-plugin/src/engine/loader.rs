@@ -29,8 +29,10 @@ impl PluginEngine {
 
         self.check_admission(&manifest)?;
 
-        if manifest.entry_point.ends_with(".wasm") {
-            self.verify_wasm_signature(&base.join(&manifest.entry_point), &plugin_id)?;
+        for entry in crate::wasm::loader::all_entry_points(&manifest) {
+            if entry.ends_with(".wasm") {
+                self.verify_wasm_signature(&base.join(&entry), &plugin_id)?;
+            }
         }
 
         let plugin = load_plugin_module(&manifest, base, &self.options).await?;
@@ -96,8 +98,10 @@ impl PluginEngine {
         self.publish(PluginEvent::Loading {
             plugin_id: manifest.id.clone(),
         });
-        if manifest.entry_point.ends_with(".wasm") {
-            self.verify_wasm_signature(&plugin_dir.join(&manifest.entry_point), &manifest.id)?;
+        for entry in crate::wasm::loader::all_entry_points(&manifest) {
+            if entry.ends_with(".wasm") {
+                self.verify_wasm_signature(&plugin_dir.join(&entry), &manifest.id)?;
+            }
         }
         let plugin = load_plugin_module(&manifest, &plugin_dir, &self.options).await?;
         self.registry.register(manifest.clone(), plugin)?;
@@ -182,20 +186,36 @@ pub(crate) fn resolve_plugin_type(manifest: &PluginManifest) -> PluginResult<Plu
     if let Some(ref t) = manifest.plugin_type {
         return Ok(t.clone());
     }
-    let entry = manifest.entry_point.as_str();
-    if entry.ends_with(".lua") {
-        return Ok(PluginType::Lua);
+    let mut entries = vec![manifest.entry_point.as_str()];
+    entries.extend(manifest.versioned_entry_points.values().map(|s| s.as_str()));
+    let mut inferred: Option<PluginType> = None;
+    for entry in entries {
+        let current = if entry.ends_with(".lua") {
+            PluginType::Lua
+        } else if entry.ends_with(".so") || entry.ends_with(".dylib") || entry.ends_with(".dll") {
+            PluginType::Native
+        } else if entry.ends_with(".wasm") {
+            PluginType::Wasm
+        } else {
+            continue;
+        };
+        if let Some(ref prev) = inferred {
+            if std::mem::discriminant(prev) != std::mem::discriminant(&current) {
+                return Err(PluginError::LoadFailed(format!(
+                    "plugin '{}' mixes backend types across entry_point and versioned_entry_points; set plugin_type explicitly or align all entries to one backend",
+                    manifest.id
+                )));
+            }
+        } else {
+            inferred = Some(current);
+        }
     }
-    if entry.ends_with(".so") || entry.ends_with(".dylib") || entry.ends_with(".dll") {
-        return Ok(PluginType::Native);
-    }
-    if entry.ends_with(".wasm") {
-        return Ok(PluginType::Wasm);
-    }
-    Err(PluginError::LoadFailed(format!(
-        "cannot determine plugin type for '{}': set plugin_type in manifest or use .lua/.so/.dylib/.dll entry point",
-        manifest.id
-    )))
+    inferred.ok_or_else(|| {
+        PluginError::LoadFailed(format!(
+            "cannot determine plugin type for '{}': set plugin_type in manifest or use .lua/.so/.dylib/.dll/.wasm entry points",
+            manifest.id
+        ))
+    })
 }
 
 /// Load the backend module for a manifest, applying engine-global limit
@@ -281,8 +301,8 @@ mod tests {
             name: None,
             description: None,
             plugin_type: None,
-            sdk_version: None,
             entry_point: entry_point.into(),
+            versioned_entry_points: Default::default(),
             dependencies: Default::default(),
             optional_dependencies: Default::default(),
             contributions: vec![],

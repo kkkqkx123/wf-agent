@@ -26,8 +26,14 @@ pub use manifest::{
     PluginPermission, PluginType, WasmConfig, WASM_DEFAULT_FUEL_LIMIT,
     WASM_DEFAULT_MAX_MODULE_BYTES, WASM_DEFAULT_MEMORY_MAX_MB,
 };
-pub use native::{ContributionRegistrarC, DispatchFn, PluginContextC, WF_PLUGIN_ABI_VERSION};
+pub use native::{
+    ContributionRegistrarC, DispatchFn, PluginContextC, WF_ABI_VERSION_V1,
+    WF_SUPPORTED_ABI_VERSIONS,
+};
 #[doc(hidden)]
 pub use plugin::__private;
 pub use plugin::{NativeRegistrar, PluginState, WfNativePlugin};
-pub use wasm::{WasmContributionDecl, WasmMiddlewareDecl, WF_WASM_ABI_VERSION, WF_WASM_WORLD};
+pub use wasm::{
+    WasmContributionDecl, WasmMiddlewareDecl, WF_WASM_ABI_VERSION_V1,
+    WF_WASM_SUPPORTED_ABI_VERSIONS, WF_WASM_WORLD,
+};

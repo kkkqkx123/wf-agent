@@ -2,7 +2,7 @@
 //!
 //! A plugin author implements [`WfNativePlugin`] on a type and exports it
 //! with [`export_plugin!`]; the macro generates every `extern "C"` symbol the
-//! host loader resolves (`wf_plugin_abi_version`, `wf_plugin_get_manifest`,
+//! host loader resolves (`wf_plugin_supported_abi_versions`, `wf_plugin_get_manifest`,
 //! `wf_plugin_on_load`, `wf_plugin_register_contributions`,
 //! `wf_plugin_on_activate`, `wf_plugin_on_deactivate`, `wf_plugin_on_unload`,
 //! `wf_plugin_on_config_change`, `wf_plugin_dispatch_handler`). The macro
@@ -15,7 +15,7 @@ use std::sync::Mutex;
 
 use crate::error::{PluginError, PluginResult};
 use crate::manifest::PluginManifest;
-use crate::native::{ContributionRegistrarC, PluginContextC, WF_PLUGIN_ABI_VERSION};
+use crate::native::{ContributionRegistrarC, PluginContextC, WF_ABI_VERSION_V1};
 
 /// Author-side registration handle passed to [`WfNativePlugin::register`].
 /// Recorded names are forwarded into the host registrar; the host wraps each
@@ -178,10 +178,10 @@ unsafe fn context_config(ctx: *const PluginContextC) -> PluginResult<serde_json:
         ctx.as_ref()
             .ok_or_else(|| PluginError::NativeError("null plugin context".into()))?
     };
-    if ctx.abi_version != WF_PLUGIN_ABI_VERSION {
+    if ctx.abi_version != WF_ABI_VERSION_V1 {
         return Err(PluginError::NativeError(format!(
             "context ABI version mismatch: plugin={}, host={}",
-            ctx.abi_version, WF_PLUGIN_ABI_VERSION
+            ctx.abi_version, WF_ABI_VERSION_V1
         )));
     }
     let raw: String = if ctx.config_json.is_null() {
@@ -401,8 +401,24 @@ macro_rules! export_plugin {
         static WF_PLUGIN_SDK_STATE: $crate::PluginState<$plugin> = $crate::PluginState::new();
 
         #[no_mangle]
-        pub extern "C" fn wf_plugin_abi_version() -> u32 {
-            $crate::native::WF_PLUGIN_ABI_VERSION
+        pub extern "C" fn wf_plugin_supported_abi_versions(
+            out_versions: *mut u32,
+            out_len: *mut usize,
+        ) -> i32 {
+            const SUPPORTED: [u32; 1] = [$crate::native::WF_ABI_VERSION_V1];
+            unsafe {
+                if out_versions.is_null() {
+                    *out_len = SUPPORTED.len();
+                    return 0;
+                }
+                if *out_len < SUPPORTED.len() {
+                    *out_len = SUPPORTED.len();
+                    return 2;
+                }
+                std::ptr::copy_nonoverlapping(SUPPORTED.as_ptr(), out_versions, SUPPORTED.len());
+                *out_len = SUPPORTED.len();
+            }
+            0
         }
 
         #[no_mangle]
@@ -522,8 +538,8 @@ mod tests {
                 name: None,
                 description: None,
                 plugin_type: Some(crate::manifest::PluginType::Native),
-                sdk_version: None,
                 entry_point: "libdemo.so".into(),
+                versioned_entry_points: Default::default(),
                 dependencies: Default::default(),
                 optional_dependencies: Default::default(),
                 contributions: vec![],
@@ -565,7 +581,7 @@ mod tests {
         let plugin_id = CString::new("demo").unwrap();
         let config_json = CString::new(config.to_string()).unwrap();
         let ctx = PluginContextC {
-            abi_version: WF_PLUGIN_ABI_VERSION,
+            abi_version: WF_ABI_VERSION_V1,
             plugin_id: plugin_id.as_ptr(),
             config_json: config_json.as_ptr(),
         };
@@ -573,8 +589,22 @@ mod tests {
     }
 
     #[test]
-    fn abi_version_matches_contract() {
-        assert_eq!(wf_plugin_abi_version(), WF_PLUGIN_ABI_VERSION);
+    fn supported_abi_versions_match_contract() {
+        let mut len: usize = 0;
+        assert_eq!(
+            wf_plugin_supported_abi_versions(std::ptr::null_mut(), &mut len),
+            0
+        );
+        assert_eq!(len, 1);
+        let mut buf = vec![0u32; len];
+        let mut written = buf.len();
+        assert_eq!(
+            wf_plugin_supported_abi_versions(buf.as_mut_ptr(), &mut written),
+            0
+        );
+        assert_eq!(written, 1);
+        buf.truncate(written);
+        assert_eq!(buf, vec![WF_ABI_VERSION_V1]);
     }
 
     #[test]

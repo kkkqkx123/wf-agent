@@ -148,22 +148,26 @@ impl PluginPackageManager {
 
     /// Register a plugin directory after verifying its entry-point artifact
     /// against the configured trust. `Permissive` warns and proceeds on
-    /// missing/invalid signatures; `Enforcing` rejects them.
+    /// missing/invalid signatures; `Enforcing` rejects them. The default
+    /// entry plus every versioned entry is verified.
     pub fn install_verified(
         &self,
         manifest: &PluginManifest,
         source_path: &Path,
     ) -> PluginResult<()> {
-        let artifact = source_path.join(&manifest.entry_point);
         let trust = self.trust.lock().expect("trust poisoned").clone();
-        let status = verify_file(&artifact, &trust);
-        enforce_signature(&manifest.id, &artifact, &status, &trust, "installing")?;
+        for entry in crate::wasm::loader::all_entry_points(manifest) {
+            let artifact = source_path.join(&entry);
+            let status = verify_file(&artifact, &trust);
+            enforce_signature(&manifest.id, &artifact, &status, &trust, "installing")?;
+        }
         self.install(manifest, source_path)
     }
 
-    /// Re-verify an installed plugin's current entry-point artifact (files
+    /// Re-verify an installed plugin's current entry-point artifacts (files
     /// may change after installation). Returns `None` when the id is not
-    /// installed.
+    /// installed. When a plugin declares multiple versioned artifacts the
+    /// last status is returned.
     pub fn verify_installed(&self, plugin_id: &str) -> Option<SignatureStatus> {
         let source = self
             .state
@@ -174,13 +178,15 @@ impl PluginPackageManager {
             .find(|p| p.id == plugin_id)
             .map(|p| PathBuf::from(&p.source_path))?;
         let manifest_path = source.join("plugin.toml");
-        let entry = std::fs::read_to_string(&manifest_path)
+        let manifest = std::fs::read_to_string(&manifest_path)
             .ok()
-            .and_then(|content| toml::from_str::<PluginManifest>(&content).ok())
-            .map(|m| m.entry_point)
-            .unwrap_or_default();
+            .and_then(|content| toml::from_str::<PluginManifest>(&content).ok())?;
         let trust = self.trust.lock().expect("trust poisoned").clone();
-        Some(verify_file(&source.join(entry), &trust))
+        let mut last = None;
+        for entry in crate::wasm::loader::all_entry_points(&manifest) {
+            last = Some(verify_file(&source.join(entry), &trust));
+        }
+        last
     }
 }
 
@@ -221,8 +227,8 @@ mod tests {
             name: None,
             description: None,
             plugin_type: None,
-            sdk_version: None,
             entry_point: "main.lua".to_owned(),
+            versioned_entry_points: Default::default(),
             dependencies: Default::default(),
             optional_dependencies: Default::default(),
             contributions: vec![],

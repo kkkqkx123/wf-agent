@@ -1,4 +1,4 @@
-# Export surface for the `wf:plugin/plugin@0.1.0-draft` component world.
+# Export surface for the `wf:plugin/plugin@1.0.0` component world.
 #
 # `componentize-py` binds this module to the interfaces declared in
 # `wit/plugin.wit` by matching class names to WIT interface names

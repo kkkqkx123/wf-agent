@@ -559,6 +559,14 @@ router.on('GET', '/health', () => ({
         storage: 'sqlite',
         persistence: { mode: 'single', db: 'wf.db' },
 }));
+router.on('GET', '/api/v1/info', () => ({
+        apiVersion: 'v1',
+        version: '1.0.0',
+        name: 'wf-agent',
+}));
+router.on('GET', '/api/v1/favorites', (_p, query) => pageView([], +(query.limit ?? 50), +(query.offset ?? 0)));
+router.on('PUT', '/api/v1/favorites/{kind}/{id}', () => ({ ok: true }));
+router.on('DELETE', '/api/v1/favorites/{kind}/{id}', () => ({ ok: true }));
 router.on('GET', '/api/v1/storage/diagnose', () => camelToSnakeDeep(diagnostics));
 router.on('GET', '/api/v1/storage/stats', () => ({
         files: 128,

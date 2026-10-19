@@ -31,6 +31,15 @@ interface HealthDto {
 	persistence?: Record<string, unknown>;
 }
 
+interface InfoDto {
+	apiVersion?: string;
+	version?: string;
+	name?: string;
+}
+
+/** Expected backend protocol version. Development phase locks to v1. */
+export const EXPECTED_API_VERSION = 'v1';
+
 interface StorageDiagnoseDto {
 	name?: string;
 	status?: string;
@@ -127,6 +136,23 @@ export async function getHealth(): Promise<boolean> {
 	} catch {
 		return false;
 	}
+}
+
+/** Fetch backend protocol info. Returns null when unreachable. */
+export async function getApiInfo(): Promise<InfoDto | null> {
+	try {
+		return await call<InfoDto>(client.GET('/api/v1/info'));
+	} catch {
+		return null;
+	}
+}
+
+/** Check backend protocol compatibility. Null means unknown (unreachable). */
+export async function checkApiVersion(): Promise<boolean | null> {
+	const info = await getApiInfo();
+	if (!info) return null;
+	if (!info.apiVersion) return null;
+	return info.apiVersion === EXPECTED_API_VERSION;
 }
 
 export async function listDependencies(): Promise<Dependency[]> {

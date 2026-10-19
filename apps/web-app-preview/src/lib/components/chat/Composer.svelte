@@ -444,6 +444,7 @@
 			</Button>
 		{:else}
 			<Button
+				variant="brand"
 				size="sm"
 				disabled={!draft.trim() && queue.length === 0}
 				onclick={onSubmit}

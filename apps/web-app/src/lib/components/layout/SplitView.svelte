@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import Sheet from '@wf-agent/ui/components/Sheet.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import Separator from '@wf-agent/ui/components/Separator.svelte';
 	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
 	import { ui } from '$lib/stores/ui.svelte';
@@ -42,10 +43,36 @@
 		`${inspectorWidth ?? preferences.inspectorWidth}px`,
 	);
 
+	let collapsed = $state(false);
+
+	$effect(() => {
+		if (!inspectorOpen) collapsed = false;
+	});
+
+	function startResize(event: PointerEvent): void {
+		const handle = event.currentTarget as HTMLElement | null;
+		if (!handle) return;
+		event.preventDefault();
+		handle.setPointerCapture(event.pointerId);
+		const onMove = (moveEvent: PointerEvent): void => {
+			const width = window.innerWidth - moveEvent.clientX;
+			preferences.setInspectorWidth(width);
+		};
+		const onUp = (upEvent: PointerEvent): void => {
+			handle.releasePointerCapture(upEvent.pointerId);
+			handle.removeEventListener('pointermove', onMove);
+			handle.removeEventListener('pointerup', onUp);
+			handle.removeEventListener('pointercancel', onUp);
+		};
+		handle.addEventListener('pointermove', onMove);
+		handle.addEventListener('pointerup', onUp);
+		handle.addEventListener('pointercancel', onUp);
+	}
+
 	// Wide viewports dock the inspector; narrower ones overlay it as a sheet.
-	const docked = $derived(ui.inspectorDocked && inspectorOpen);
+	const docked = $derived(ui.inspectorDocked && inspectorOpen && !collapsed);
 	const secondaryVisible = $derived(
-		dual && secondary !== undefined && (secondaryOpen ?? true),
+		!collapsed && dual && secondary !== undefined && (secondaryOpen ?? true),
 	);
 	const dockedSecondary = $derived(ui.inspectorDocked && secondaryVisible);
 	const sheetTitle = $derived(
@@ -53,7 +80,7 @@
 	);
 
 	$effect(() => {
-		const anyOpen = inspectorOpen || secondaryVisible;
+		const anyOpen = (inspectorOpen && !collapsed) || secondaryVisible;
 		if (!anyOpen) {
 			ui.closeInspector();
 		} else if (!ui.inspectorDocked) {
@@ -67,21 +94,39 @@
 		{@render children()}
 	</div>
 
+	{#if inspectorOpen && collapsed}
+		<button
+			type="button"
+			class="flex w-8 shrink-0 items-center justify-center border-l border-border bg-card text-muted-foreground hover:text-foreground"
+			onclick={() => (collapsed = false)}
+			aria-label="Show details"
+			title="Show details"
+		>
+			<Icon name="panel-right" size={14} />
+		</button>
+	{/if}
+
 	{#if inspector && docked}
 		<Separator orientation="vertical" />
 		<aside
 			style:width={widthCss}
-			class="flex min-h-0 shrink-0 flex-col overflow-hidden bg-card"
+			class="relative flex min-h-0 shrink-0 flex-col overflow-hidden bg-card"
 		>
+			<button
+				type="button"
+				aria-label="Resize details"
+				class="absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize bg-transparent hover:bg-primary/20"
+				onpointerdown={startResize}
+			></button>
 			<div class="flex h-full min-h-0 flex-col">
 				<div
 					class="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border px-3"
 				>
 					<h2 class="truncate text-title font-semibold">{inspectorTitle}</h2>
 					<IconButton
-						icon="sliders"
-						label="Inspector width: {preferences.inspectorWidthLabel}"
-						onclick={() => preferences.cycleInspectorWidth()}
+						icon="chevron-right"
+						label="Hide details"
+						onclick={() => (collapsed = true)}
 					/>
 				</div>
 				<div class="min-h-0 flex-1 overflow-y-auto">
@@ -94,8 +139,14 @@
 		<Separator orientation="vertical" />
 		<aside
 			style:width={widthCss}
-			class="flex min-h-0 shrink-0 flex-col overflow-hidden bg-card"
+			class="relative flex min-h-0 shrink-0 flex-col overflow-hidden bg-card"
 		>
+			<button
+				type="button"
+				aria-label="Resize details"
+				class="absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize bg-transparent hover:bg-primary/20"
+				onpointerdown={startResize}
+			></button>
 			<div class="flex h-full min-h-0 flex-col">
 				<div
 					class="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border px-3"

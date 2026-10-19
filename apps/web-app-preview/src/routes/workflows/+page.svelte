@@ -15,7 +15,6 @@
 	import SplitView from '$lib/components/layout/SplitView.svelte';
 	import PageState from '$lib/components/layout/PageState.svelte';
 	import WorkflowCard from '$lib/components/domain/WorkflowCard.svelte';
-	import GraphCanvas from '$lib/components/domain/GraphCanvas.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
 	import FilterBar from '@wf-agent/ui/components/FilterBar.svelte';
@@ -25,7 +24,6 @@
 		listWorkflows,
 		getWorkflowDetail,
 	} from '$lib/services/workflows';
-	import { getGraphNeighbors } from '$lib/services/graph';
 	import type { Workflow, WorkflowDetail } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
@@ -43,14 +41,6 @@
 	let query = $state('');
 	let status = $state('');
 	let selectedId = $state<string | null>(null);
-	let graphNodeId = $state<string | null>(null);
-	let neighborhood = $state<{
-		predecessors: string[];
-		successors: string[];
-	} | null>(null);
-	let neighborhoodLoading = $state(false);
-	let neighborhoodError = $state<string | null>(null);
-	let neighborhoodRequest = 0;
 	let allWorkflows = $state<Workflow[]>([]);
 	let selected = $state<WorkflowDetail | null>(null);
 	let listError = $state<string | null>(null);
@@ -126,10 +116,6 @@
 
 	$effect(() => {
 		const id = selectedId;
-		graphNodeId = null;
-		neighborhood = null;
-		neighborhoodError = null;
-		neighborhoodLoading = false;
 		if (!id) {
 			selected = null;
 			return;
@@ -143,34 +129,6 @@
 				selected = null;
 				detailError = e instanceof Error ? e.message : 'Detail failed.';
 			});
-	});
-
-	async function loadNeighborhood(
-		workflowId: string,
-		nodeId: string,
-	): Promise<void> {
-		const request = ++neighborhoodRequest;
-		neighborhoodLoading = true;
-		neighborhoodError = null;
-		try {
-			const rows = await getGraphNeighbors(workflowId, nodeId);
-			if (request !== neighborhoodRequest) return;
-			neighborhood = rows;
-		} catch (e) {
-			if (request !== neighborhoodRequest) return;
-			neighborhood = null;
-			neighborhoodError =
-				e instanceof Error ? e.message : 'Neighborhood failed.';
-		} finally {
-			if (request === neighborhoodRequest) neighborhoodLoading = false;
-		}
-	}
-
-	$effect(() => {
-		const workflowId = selected?.id;
-		const nodeId = graphNodeId;
-		if (!workflowId || !nodeId) return;
-		void loadNeighborhood(workflowId, nodeId);
 	});
 
 	const filtered = $derived(
@@ -347,94 +305,10 @@
 						/>
 					</Card>
 
-					<div>
-						<h3 class="mb-1.5 text-caption font-medium">Graph</h3>
-						<GraphCanvas
-							nodes={(selected.graph.nodes ?? []).map((node) => ({
-								id: node.id,
-								label: node.label,
-								kind: node.kind,
-								status: node.status,
-							}))}
-							edges={(selected.graph.edges ?? []).map((edge) => ({
-								id: edge.id,
-								source: edge.from,
-								target: edge.to,
-								label: edge.label,
-								kind: edge.kind,
-							}))}
-							preset="workflow"
-							layout="layered"
-							selectedId={graphNodeId}
-							onselect={(id) => (graphNodeId = id)}
-							class="max-h-56"
-						/>
-						{#if graphNodeId}
-							<p class="mt-1.5 text-caption text-muted-foreground">
-								Selected node <span class="font-mono text-foreground"
-									>{graphNodeId}</span
-								>
-							</p>
-						{/if}
-					</div>
-
-					<Card title="Neighbors">
-						{#if !graphNodeId}
-							<p class="text-caption text-muted-foreground">
-								Select a node in the graph to see its neighborhood.
-							</p>
-						{:else if neighborhoodLoading}
-							<p class="text-caption text-muted-foreground">
-								Loading neighborhood…
-							</p>
-						{:else if neighborhoodError}
-							<p class="text-caption text-destructive">{neighborhoodError}</p>
-							<Button
-								variant="ghost"
-								size="sm"
-								class="mt-2"
-								onclick={() => {
-									const workflowId = selected?.id;
-									if (workflowId && graphNodeId) {
-										void loadNeighborhood(workflowId, graphNodeId);
-									}
-								}}
-							>
-								Retry
-							</Button>
-						{:else if neighborhood}
-							<div class="space-y-2">
-								<div>
-									<p
-										class="text-micro uppercase tracking-wide text-muted-foreground"
-									>
-										Predecessors · {neighborhood.predecessors.length}
-									</p>
-									<ul class="mt-1 space-y-1">
-										{#each neighborhood.predecessors as id (id)}
-											<li class="truncate font-mono text-caption">{id}</li>
-										{:else}
-											<li class="text-caption text-muted-foreground">—</li>
-										{/each}
-									</ul>
-								</div>
-								<div>
-									<p
-										class="text-micro uppercase tracking-wide text-muted-foreground"
-									>
-										Successors · {neighborhood.successors.length}
-									</p>
-									<ul class="mt-1 space-y-1">
-										{#each neighborhood.successors as id (id)}
-											<li class="truncate font-mono text-caption">{id}</li>
-										{:else}
-											<li class="text-caption text-muted-foreground">—</li>
-										{/each}
-									</ul>
-								</div>
-							</div>
-						{/if}
-					</Card>
+					<p class="text-caption text-muted-foreground">
+						Open full detail to inspect the graph, neighborhood and editing
+						tools.
+					</p>
 
 					<Button
 						variant="outline"

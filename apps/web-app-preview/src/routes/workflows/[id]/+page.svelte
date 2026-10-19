@@ -245,6 +245,10 @@
 			{/if}
 		{/snippet}
 		{#snippet actions()}
+			<Button variant="ghost" size="sm" href="/workflows">
+				<Icon name="arrow-left" size={13} />
+				Back to workflows
+			</Button>
 			<IconButton
 				icon="pencil"
 				label="Edit graph"

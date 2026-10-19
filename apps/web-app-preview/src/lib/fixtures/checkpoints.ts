@@ -297,3 +297,136 @@ export const editSessions: PreviewEditSession[] = [
 		created_at: Date.parse(minutesAgo(20)),
 	},
 ];
+
+// ---------------------------------------------------------------------------
+// Mutable preview state
+//
+// Write endpoints mutate these rows instead of returning canned `ok` bodies,
+// so the action → refresh loop the page implements can actually be verified
+// against the fixture store. Every mutation also publishes a checkpoint-domain
+// event that the mock SSE stream (see `lib/api/client.ts`) forwards to the
+// page's live subscription.
+// ---------------------------------------------------------------------------
+
+export interface MockEventFrame {
+	type: string;
+	timestamp: number;
+	metadata?: Record<string, unknown>;
+}
+
+const eventListeners = new Set<(frame: MockEventFrame) => void>();
+
+/** Subscribe to mock checkpoint-domain events (drives the mock SSE stream). */
+export function onMockEvent(
+	listener: (frame: MockEventFrame) => void,
+): () => void {
+	eventListeners.add(listener);
+	return () => eventListeners.delete(listener);
+}
+
+/** Publish a checkpoint-domain event to every open mock stream. */
+export function emitMockEvent(
+	type: string,
+	metadata?: Record<string, unknown>,
+): void {
+	const frame: MockEventFrame = { type, timestamp: Date.now(), metadata };
+	for (const listener of eventListeners) listener(frame);
+}
+
+function nextSequence(): number {
+	return checkpoints.reduce((max, row) => Math.max(max, row.sequence), 0) + 1;
+}
+
+/** Record a new checkpoint row and announce it on the mock stream. */
+export function addMockCheckpoint(input: {
+	executionId: string;
+	kind: 'state' | 'file';
+	actor: string;
+	note: string;
+}): Checkpoint {
+	const row: Checkpoint = {
+		id: `cp-preview-${nextSequence()}-${Date.now().toString(36)}`,
+		executionId: input.executionId,
+		sequence: nextSequence(),
+		kind: input.kind,
+		actor: input.actor,
+		createdAt: new Date().toISOString(),
+		sizeBytes: 1_048_576,
+		note: input.note,
+		restorable: true,
+	};
+	checkpoints.unshift(row);
+	emitMockEvent('CHECKPOINT_CREATED', {
+		checkpoint_id: row.id,
+		entity_id: row.executionId,
+	});
+	return row;
+}
+
+/** Delete one checkpoint by id; returns whether a row was removed. */
+export function removeMockCheckpoint(id: string): boolean {
+	const index = checkpoints.findIndex((row) => row.id === id);
+	if (index === -1) return false;
+	checkpoints.splice(index, 1);
+	emitMockEvent('CHECKPOINT_DELETED', { checkpoint_id: id });
+	return true;
+}
+
+/** Delete every checkpoint of one entity; returns the removed count. */
+export function removeMockCheckpointsByEntity(entityId: string): number {
+	const before = checkpoints.length;
+	for (let i = checkpoints.length - 1; i >= 0; i -= 1) {
+		if (checkpoints[i].executionId === entityId) checkpoints.splice(i, 1);
+	}
+	const removed = before - checkpoints.length;
+	if (removed > 0) {
+		emitMockEvent('CHECKPOINT_DELETED', { entity_id: entityId, removed });
+	}
+	return removed;
+}
+
+/** Delete checkpoints recorded before `before` (Unix ms); returns the count. */
+export function removeMockCheckpointsBefore(before: number): number {
+	const before_ = checkpoints.length;
+	for (let i = checkpoints.length - 1; i >= 0; i -= 1) {
+		if (Date.parse(checkpoints[i].createdAt) < before) checkpoints.splice(i, 1);
+	}
+	const removed = before_ - checkpoints.length;
+	if (removed > 0) emitMockEvent('CHECKPOINT_GC_COMPLETED', { removed });
+	return removed;
+}
+
+/** Replace the tags on one checkpoint; returns whether the row exists. */
+export function setMockCheckpointTags(id: string, tags: string[]): boolean {
+	const row = checkpoints.find((c) => c.id === id);
+	if (!row) return false;
+	row.tags = tags;
+	return true;
+}
+
+/** Decide the pending approval submitted by `actor` (its view id). */
+export function decideMockApproval(actor: string, approved: boolean): boolean {
+	const index = approvals.findIndex(
+		(row) => row.requester === actor && row.status === 'pending',
+	);
+	if (index === -1) return false;
+	const [row] = approvals.splice(index, 1);
+	row.status = approved ? 'approved' : 'rejected';
+	approvals.push(row);
+	emitMockEvent('TOOL_APPROVAL_RESPONDED', { actor, approved });
+	return true;
+}
+
+/**
+ * Drop resolved conflict rows (empty `paths` resolves everything); returns
+ * the number of remaining conflicted files.
+ */
+export function resolveMockConflicts(paths: string[]): number {
+	for (let i = conflicts.length - 1; i >= 0; i -= 1) {
+		if (paths.length === 0 || paths.includes(conflicts[i].path)) {
+			conflicts.splice(i, 1);
+		}
+	}
+	emitMockEvent('CHECKPOINT_FILE_CHANGED', { resolved: paths.length });
+	return conflicts.length;
+}

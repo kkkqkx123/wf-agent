@@ -12,7 +12,12 @@ impl WorkflowCheckpointCoordinator {
         &self,
         checkpoint_id: &str,
     ) -> Result<WorkflowCheckpoint, CheckpointError> {
-        crate::coordinator::migration::load_migrated(&self.state_manager, checkpoint_id).await
+        crate::coordinator::migration::load_migrated(
+            &self.state_manager,
+            &self.version_manager,
+            checkpoint_id,
+        )
+        .await
     }
 
     /// Post-restore phase: discover child executions. Latest checkpoints of

@@ -442,3 +442,159 @@ impl FileCheckpointManager {
         Some(packed)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::file::FileCheckpointManager;
+    use crate::gc::{GcRetention, GcStats};
+    use crate::git_store::{edit_ref_for_actor, MODE_FILE, REF_MAIN, SYSTEM_COMMITTER};
+    use std::collections::HashMap;
+    use std::time::Duration;
+
+    fn manager() -> FileCheckpointManager {
+        FileCheckpointManager::new_in_memory().expect("in-memory manager")
+    }
+
+    fn changes(pairs: &[(&str, &[u8])]) -> HashMap<String, Option<(String, Vec<u8>)>> {
+        pairs
+            .iter()
+            .map(|(p, b)| (p.to_string(), Some((MODE_FILE.to_string(), b.to_vec()))))
+            .collect()
+    }
+
+    #[test]
+    fn gc_prunes_unreachable_history_and_stays_idempotent() {
+        let manager = manager();
+        let actor = manager.actor_id_for("entity-1");
+        manager.apply_agent_edit(&actor, "a.txt", b"v1\n").unwrap();
+        manager.apply_agent_edit(&actor, "a.txt", b"v2\n").unwrap();
+        manager.apply_agent_edit(&actor, "a.txt", b"v3\n").unwrap();
+
+        // A second actor leaves its own edit line; deleting that ref makes
+        // its commit, tree and blob unreachable.
+        let other = manager.actor_id_for("entity-2");
+        manager.apply_agent_edit(&other, "b.txt", b"gone\n").unwrap();
+        let other_ref = edit_ref_for_actor(other.as_str());
+        assert!(manager.git_ref().unwrap().read_ref(&other_ref).unwrap().is_some());
+        manager.git_ref().unwrap().delete_ref(&other_ref).unwrap();
+
+        let stats = manager
+            .run_gc_with_grace(GcRetention::default(), Duration::ZERO)
+            .unwrap();
+        // The dropped edit line is reclaimed; the live line is untouched.
+        assert_eq!(stats.removed_checkpoints, 1);
+        assert!(stats.removed_snapshots >= 1);
+        assert!(stats.reclaimed_snapshots >= 1);
+
+        // The live line stays fully readable.
+        let files = manager.get_actor_workspace(actor.as_str()).unwrap();
+        let a = files
+            .iter()
+            .find(|f| f.path == "a.txt")
+            .expect("a.txt present");
+        assert_eq!(a.content, b"v3\n".to_vec());
+
+        // Source-index rows go with the pruned commits: only the live
+        // line's three edits remain.
+        assert_eq!(
+            manager.storage_ref().unwrap().count_source_index().unwrap(),
+            3
+        );
+
+        // A second run over the same store removes nothing.
+        assert_eq!(
+            manager
+                .run_gc_with_grace(GcRetention::default(), Duration::ZERO)
+                .unwrap(),
+            GcStats::default()
+        );
+    }
+
+    #[test]
+    fn gc_grace_window_protects_fresh_orphans() {
+        let manager = manager();
+        let actor = manager.actor_id_for("entity-1");
+        manager.apply_agent_edit(&actor, "a.txt", b"v1\n").unwrap();
+
+        let git = manager.git_ref().unwrap();
+        let tree = git
+            .build_tree_from_parent(None, &changes(&[("orphan.txt", b"loose\n")]))
+            .unwrap();
+        let orphan = git
+            .write_commit(&tree, &[], "agent:x", SYSTEM_COMMITTER, 5_000, "orphan")
+            .unwrap();
+
+        // A wide grace window keeps the just-written orphan alive.
+        let kept = manager
+            .run_gc_with_grace(GcRetention::default(), Duration::from_secs(3_600))
+            .unwrap();
+        assert_eq!(kept.removed_checkpoints, 0);
+        assert!(git.read_commit(&orphan).is_ok());
+
+        // A zero grace window reclaims it immediately.
+        let reaped = manager
+            .run_gc_with_grace(GcRetention::default(), Duration::ZERO)
+            .unwrap();
+        assert_eq!(reaped.removed_checkpoints, 1);
+        assert!(git.read_commit(&orphan).is_err());
+    }
+
+    #[test]
+    fn gc_keep_recent_heads_protects_newest_orphans() {
+        let manager = manager();
+        let git = manager.git_ref().unwrap();
+        let mut orphans = Vec::new();
+        for ts in [1_000i64, 2_000, 3_000] {
+            let tree = git
+                .build_tree_from_parent(None, &changes(&[("o.txt", ts.to_string().as_bytes())]))
+                .unwrap();
+            orphans.push(
+                git.write_commit(&tree, &[], "orphan", SYSTEM_COMMITTER, ts, "orphan")
+                    .unwrap(),
+            );
+        }
+
+        let stats = manager
+            .run_gc_with_grace(GcRetention { keep_recent_heads: 2 }, Duration::ZERO)
+            .unwrap();
+        assert_eq!(stats.removed_checkpoints, 1);
+
+        // The two newest orphans survive; the oldest is gone.
+        assert!(git.read_commit(&orphans[1]).is_ok());
+        assert!(git.read_commit(&orphans[2]).is_ok());
+        assert!(git.read_commit(&orphans[0]).is_err());
+    }
+
+    #[test]
+    fn gc_collects_merged_edit_refs() {
+        let manager = manager();
+        let actor = manager.actor_id_for("entity-1");
+        let head = manager.apply_agent_edit(&actor, "a.txt", b"v1\n").unwrap();
+        let other = manager.actor_id_for("entity-2");
+        let other_head = manager.apply_agent_edit(&other, "b.txt", b"other\n").unwrap();
+
+        let git = manager.git_ref().unwrap();
+        let edit_ref = edit_ref_for_actor(actor.as_str());
+        // Point main at the first actor's head: that line is fully merged.
+        git.write_ref(REF_MAIN, &head).unwrap();
+
+        let stats = manager
+            .run_gc_with_grace(GcRetention::default(), Duration::ZERO)
+            .unwrap();
+        assert_eq!(stats.removed_edit_refs, 1);
+        assert_eq!(
+            stats.removed_checkpoints, 0,
+            "everything is still ref-reachable"
+        );
+        assert!(
+            git.read_ref(&edit_ref).unwrap().is_none(),
+            "merged edit ref dropped"
+        );
+        assert_eq!(
+            git.read_ref(&edit_ref_for_actor(other.as_str()))
+                .unwrap()
+                .as_deref(),
+            Some(other_head.as_str())
+        );
+    }
+}

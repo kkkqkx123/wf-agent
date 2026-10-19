@@ -35,3 +35,34 @@ impl MetadataStore for SqliteStorage {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn metadata_roundtrip_replace_and_isolation() {
+        let storage = SqliteStorage::new_full_in_memory().unwrap();
+        assert_eq!(storage.load_metadata("k").unwrap(), None);
+
+        storage.store_metadata("k", "v1").unwrap();
+        assert_eq!(storage.load_metadata("k").unwrap(), Some("v1".to_string()));
+
+        // Re-storing replaces in place.
+        storage.store_metadata("k", "v2").unwrap();
+        assert_eq!(storage.load_metadata("k").unwrap(), Some("v2".to_string()));
+
+        // Other keys are untouched.
+        storage.store_metadata("other", "o").unwrap();
+        assert_eq!(storage.load_metadata("other").unwrap(), Some("o".to_string()));
+        assert_eq!(storage.load_metadata("k").unwrap(), Some("v2".to_string()));
+    }
+
+    #[test]
+    fn metadata_empty_value_roundtrips_distinct_from_absent() {
+        let storage = SqliteStorage::new_full_in_memory().unwrap();
+        storage.store_metadata("empty", "").unwrap();
+        assert_eq!(storage.load_metadata("empty").unwrap(), Some(String::new()));
+        assert_eq!(storage.load_metadata("absent").unwrap(), None);
+    }
+}

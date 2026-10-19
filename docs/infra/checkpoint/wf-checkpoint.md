@@ -91,3 +91,11 @@ workflow/    WorkflowCheckpointCoordinator(+ content_policy / progress / restore
 3. 执行侧通过 `CheckpointSession`(wf-tools 工具上下文)接入文件捕获,通过协调器接入状态检查点;
 4. 需要版本迁移时向 `VersionManager` 注册迁移 handler;
 5. 事件消费订阅 `CheckpointEventBus`(检查点生命周期)与 `ExecutionEventBus`(执行状态)。
+
+## 单元测试覆盖（内联）
+
+- `coordinator/agent/tests/`：恢复（含旧格式迁移、版本不兼容拒绝、delta 链与断链回退全量）、创建去重、报告、并发创建（同实体并发全部成功、previous 链无悬挂、最新可恢复）；
+- `coordinator/base.rs`：`reuse_duplicate_checkpoint` 语义——描述变更合并回最新行（写 blob `customFields.description`）、描述不变直接复用、目标被清理时报 `NotFound` 并发 `Skipped` 事件；
+- `coordinator/projection.rs`：文件投影跳过规则三态与各路径快照保存；
+- `coordinator/queue.rs`：持久化队列有界排空与积压 `Skipped` 事件；
+- `coordinator/agent/timeline.rs`：timeline 行模型——坐标字段读取、触发标签 wire 表解析（含未知 wire 显式标记）、按序列末端排序、无末端行排末尾。

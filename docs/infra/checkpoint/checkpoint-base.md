@@ -155,3 +155,8 @@
 - 当前格式 `CURRENT_FORMAT_VERSION = "1.1.0"`,最低兼容 `MIN_COMPATIBLE_VERSION = "1.0.0"`;
 - `SemanticVersion` 数字化解析(接受 3 段或 2 段形式),避免字符串比较(`"1.10.0" > "1.9.0"` 正确成立);
 - `VersionManager` 维护迁移 handler 注册表(`DashMap<版本, handler>`),对载入 blob 判定 `VersionCompatibility`(当前 / 可迁移 / 不兼容),迁移时以原始字节调用 handler 重写。
+
+## 单元测试覆盖
+
+- `error.rs`：全部 14 个 `CheckpointError` 变体的 Display 渲染冒烟，以及 `StorageError` / `std::io::Error` / `serde_json::Error` / `bincode::Error` 的 `From` 转换；
+- `delta/calculator/agent_tests.rs`：Agent 差分对称性——status 变更检测、消息追加 roundtrip、消息替换（full-replace）、`other_changes` 字段、`merge_deltas` 默认实现、完整 roundtrip。

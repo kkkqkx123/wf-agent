@@ -160,3 +160,116 @@ fn ancestor_and_merge_base() {
         Some(a.as_str())
     );
 }
+
+#[test]
+fn deep_linear_history_traverses_beyond_one_hundred_commits() {
+    let store = store();
+    let depth = 150usize;
+
+    let mut last = String::new();
+    for i in 0..depth {
+        let outcome = store
+            .commit_on_ref(
+                REF_MAIN,
+                &changes(&[("f", format!("v{i}").as_bytes())]),
+                "a",
+                &format!("commit {i}"),
+            )
+            .unwrap();
+        assert!(outcome.created, "commit {i} must land");
+        last = outcome.id;
+    }
+
+    let head = store.read_ref(REF_MAIN).unwrap().unwrap();
+    assert_eq!(head, last);
+
+    // Full traversal sees every commit exactly once.
+    let all = store.all_commits().unwrap();
+    assert_eq!(all.len(), depth);
+    let mut ids: Vec<_> = all.iter().map(|c| c.id.clone()).collect();
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids.len(), depth, "no duplicate ids in traversal");
+
+    // Bounded log keeps topological order from the tip.
+    let log = store.log(&head, 200).unwrap();
+    assert_eq!(log.len(), depth);
+    assert_eq!(log[0].id, head);
+
+    // The very first commit is an ancestor of the tip.
+    let first = log.last().unwrap().id.clone();
+    assert!(store.is_ancestor(&first, &head).unwrap());
+}
+
+#[test]
+fn large_blob_roundtrips_intact() {
+    let store = store();
+    // 2 MiB pseudo-random payload: well above any inline threshold, and
+    // incompressible enough that zlib cannot shrink it away.
+    let mut payload = Vec::with_capacity(2 * 1024 * 1024);
+    let mut x: u64 = 0x9E3779B97F4A7C15;
+    for _ in 0..payload.capacity() {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        payload.push(x as u8);
+    }
+
+    let id = store.write_blob(&payload).unwrap();
+    assert!(is_hex_id(&id));
+    let round = store.read_blob(&id).unwrap();
+    assert_eq!(round.len(), payload.len());
+    assert_eq!(round, payload);
+}
+
+#[test]
+fn truncated_loose_object_reports_corruption_instead_of_panic() {
+    let store = store();
+    let id = store.write_blob(b"payload that will be half written").unwrap();
+
+    // Simulate a crash mid-write: the loose object file exists but is
+    // truncated (the store writes object before ref, so a torn object is
+    // never referenced, but the file itself must still read as an error).
+    let loose = store
+        .git_dir()
+        .join("objects")
+        .join(&id[..2])
+        .join(&id[2..]);
+    assert!(loose.exists(), "loose object file exists before the tear");
+    // Loose objects are stored read-only: reopen for the simulated tear.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&loose).unwrap().permissions();
+        perms.set_mode(0o644);
+        std::fs::set_permissions(&loose, perms).unwrap();
+    }
+    let full = std::fs::read(&loose).unwrap();
+    std::fs::write(&loose, &full[..full.len() / 2]).unwrap();
+
+    let err = store.read_blob(&id).unwrap_err();
+    assert!(
+        matches!(err, GitStoreError::Corrupt { .. } | GitStoreError::ObjectNotFound(_)),
+        "torn object must surface as an explicit error, got {err:?}"
+    );
+}
+
+#[test]
+fn dangling_ref_reports_missing_object_explicitly() {
+    let store = store();
+    // A ref that points at a commit id with no object behind it: the state
+    // a crash between ref write and object write would leave behind.
+    let ghost = "1234567890123456789012345678901234567890";
+    store.write_ref(REF_MAIN, ghost).unwrap();
+
+    let err = store.read_commit(ghost).unwrap_err();
+    assert!(matches!(err, GitStoreError::ObjectNotFound(_)));
+
+    // Writes on other refs are untouched: the corruption is scoped to the
+    // torn row, not the whole store.
+    store
+        .commit_on_ref(REF_HUMAN, &changes(&[("f", b"1")]), "a", "ok")
+        .unwrap()
+        .id;
+    assert!(store.read_ref(REF_HUMAN).unwrap().is_some());
+}

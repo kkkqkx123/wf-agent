@@ -269,4 +269,71 @@ mod tests {
         // Retrying again finds nothing left to recover.
         assert_eq!(manager.retry_pending_state_file_links().unwrap(), 0);
     }
+
+    #[test]
+    fn state_file_link_status_reports_three_states() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+
+        assert_eq!(
+            manager.state_file_link_status("state-none").unwrap(),
+            StateFileLinkStatus::Missing
+        );
+
+        manager.record_state_file_link("state-linked", "file-1").unwrap();
+        assert_eq!(
+            manager.state_file_link_status("state-linked").unwrap(),
+            StateFileLinkStatus::Linked {
+                file_commit_id: "file-1".to_string()
+            }
+        );
+
+        manager
+            .record_pending_state_file_link("state-pending", "file-2")
+            .unwrap();
+        assert_eq!(
+            manager.state_file_link_status("state-pending").unwrap(),
+            StateFileLinkStatus::Pending {
+                file_commit_id: "file-2".to_string()
+            }
+        );
+
+        // A durable link wins over a pending marker for the same checkpoint.
+        manager.record_state_file_link("state-pending", "file-3").unwrap();
+        assert_eq!(
+            manager.state_file_link_status("state-pending").unwrap(),
+            StateFileLinkStatus::Linked {
+                file_commit_id: "file-3".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn restore_state_files_resolves_linked_commit_and_rejects_malformed() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let actor = manager.actor_id_for("exec-1");
+        let commit = manager.apply_agent_edit(&actor, "a.txt", b"one\n").unwrap();
+
+        manager.record_state_file_link("state-1", &commit).unwrap();
+        let files = manager
+            .restore_state_files("exec-1", "state-1")
+            .unwrap()
+            .expect("linked file set");
+        let a = files.iter().find(|f| f.path == "a.txt").expect("a.txt");
+        assert_eq!(a.hash, crate::file::util::sha256_hex(b"one\n"));
+
+        // No recorded link: explicit None, never a silent fallback to latest.
+        assert!(
+            manager
+                .restore_state_files("exec-1", "state-unknown")
+                .unwrap()
+                .is_none()
+        );
+
+        // A malformed link id is a corruption error, not a silent fallback.
+        manager.record_state_file_link("state-2", "not-a-hex").unwrap();
+        assert!(matches!(
+            manager.restore_state_files("exec-1", "state-2"),
+            Err(CheckpointError::Corrupted { .. })
+        ));
+    }
 }

@@ -8,4 +8,6 @@ mod delta_chain;
 mod lifecycle;
 #[cfg(test)]
 mod listing;
+#[cfg(test)]
+mod loader;
 mod support;

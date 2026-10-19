@@ -562,3 +562,145 @@ impl checkpoint_state::restore::ChildDiscoveryLoader for ChildDiscoveryIndex {
 }
 
 pub type ChildMetadataIndex = ChildDiscoveryIndex;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::coordinator::agent::AgentCheckpointCoordinator;
+    use checkpoint_state::state::AgentCheckpointStateManager;
+    use wf_storage::backend::StorageBackend;
+    use wf_types::checkpoint::agent::AgentStateSnapshot;
+    use wf_types::checkpoint::CheckpointTiming;
+
+    fn make_snapshot() -> AgentStateSnapshot {
+        AgentStateSnapshot {
+            agent_loop_id: "loop-1".to_string(),
+            status: "running".to_string(),
+            current_iteration: 1,
+            tool_call_count: 0,
+            conversation_snapshot: None,
+            conversation_view: None,
+            message_seq_start: None,
+            message_seq_end: None,
+            message_next_seq: None,
+            conversation_ledger: None,
+            conversation_tracker: None,
+            tool_call_history: None,
+            is_streaming: None,
+            variable_snapshots: None,
+            error: None,
+            started_at: None,
+            completed_at: None,
+            error_records: None,
+            retry_totals: None,
+            interruption_records: None,
+            event_records: None,
+            iteration_history: None,
+            current_iteration_record: None,
+            stream_message: None,
+            pending_tool_call_ids: None,
+            trigger_state: None,
+            hierarchy: None,
+            messages: None,
+            tool_discovery_state: None,
+            permanently_failed_tools: None,
+            loop_config: None,
+        }
+    }
+
+    async fn persist_one() -> AgentCheckpointCoordinator {
+        let storage = std::sync::Arc::new(StorageBackend::new_memory());
+        let sm = AgentCheckpointStateManager::new(storage);
+        let coord = AgentCheckpointCoordinator::new(sm);
+        let ctx = coord
+            .prepare("loop-1", CheckpointTiming::AfterExecute)
+            .await
+            .unwrap();
+        let cp = coord.build(ctx, make_snapshot()).await.unwrap();
+        coord.persist(&cp, "loop-1").await.unwrap();
+        coord
+    }
+
+    #[tokio::test]
+    async fn reuse_duplicate_keeps_latest_id_without_description_change() {
+        let coord = persist_one().await;
+        let sm = coord.state_manager();
+        let latest = sm.get_latest("loop-1").await.unwrap().unwrap();
+
+        // No description on the caller side: the latest id is reused.
+        let id = reuse_duplicate_checkpoint(sm, &latest, "agent_loop", "loop-1", None, None)
+            .await
+            .unwrap();
+        assert_eq!(id, latest.id.to_string());
+
+        // A description equal to the current one: reused without a merge.
+        reuse_duplicate_checkpoint(sm, &latest, "agent_loop", "loop-1", Some("d1"), None)
+            .await
+            .unwrap();
+        let latest2 = sm.get_latest("loop-1").await.unwrap().unwrap();
+        let id = reuse_duplicate_checkpoint(sm, &latest2, "agent_loop", "loop-1", Some("d1"), None)
+            .await
+            .unwrap();
+        assert_eq!(id, latest2.id.to_string());
+        // Exactly one row still exists: duplicates were never persisted.
+        assert_eq!(sm.count_by_entity("loop-1").await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn reuse_duplicate_merges_changed_description_back_into_latest_row() {
+        let coord = persist_one().await;
+        let sm = coord.state_manager();
+        let latest = sm.get_latest("loop-1").await.unwrap().unwrap();
+
+        let id = reuse_duplicate_checkpoint(
+            sm,
+            &latest,
+            "agent_loop",
+            "loop-1",
+            Some("changed"),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(id, latest.id.to_string());
+
+        // The merge lands on the blob metadata's `customFields.description`
+        // (the caller-facing description); the trigger label on the blob
+        // stays untouched.
+        let blob = sm.load(&latest.id).await.unwrap().unwrap();
+        let custom = blob
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("customFields"))
+            .and_then(|v| v.get("description"))
+            .and_then(|v| v.as_str());
+        assert_eq!(custom, Some("changed"));
+    }
+
+    #[tokio::test]
+    async fn merge_description_back_fails_when_target_was_cleaned() {
+        let coord = persist_one().await;
+        let sm = coord.state_manager();
+        let latest = sm.get_latest("loop-1").await.unwrap().unwrap();
+        sm.delete(&latest.id).await.unwrap();
+
+        let bus = checkpoint_file::event::CheckpointEventBus::new();
+        let mut rx = bus.subscribe();
+        let err = merge_description_back(
+            sm,
+            &latest.id,
+            "agent_loop",
+            "loop-1",
+            "late",
+            Some(&bus),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, CheckpointError::NotFound { .. }));
+        let event = rx.recv().await.expect("skip event");
+        assert!(matches!(
+            event,
+            checkpoint_file::event::CheckpointEvent::Skipped { .. }
+        ));
+    }
+}

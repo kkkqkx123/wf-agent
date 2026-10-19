@@ -1,6 +1,8 @@
 use super::support::*;
 use crate::state::CheckpointStateManager;
 use serde_json::json;
+use std::sync::Arc;
+use wf_storage::backend::StorageBackend;
 use wf_types::checkpoint::CheckpointType;
 
 #[tokio::test]
@@ -179,4 +181,89 @@ async fn list_latest_by_parent_ignores_checkpoints_of_other_parents() {
     let children = mgr.list_latest_by_parent("parent-1").await.unwrap();
     assert_eq!(children.len(), 1);
     assert_eq!(children[0].entity_id, "child-1");
+}
+
+async fn save_five_for_exec1(storage: &Arc<StorageBackend>) -> StorageBackedStateManager<Envelope> {
+    let mgr = StorageBackedStateManager::<Envelope>::new(storage.clone());
+    for i in 0..5 {
+        mgr.save(
+            &make_envelope(
+                &format!("cp-{i}"),
+                None,
+                None,
+                1000 + i * 100,
+                None,
+                Some(json!({"state": i})),
+            ),
+            "test",
+            "exec-1",
+        )
+        .await
+        .unwrap();
+    }
+    mgr
+}
+
+#[tokio::test]
+async fn list_by_entity_paged_slices_in_timestamp_order() {
+    let storage = make_storage();
+    let mgr = save_five_for_exec1(&storage).await;
+
+    let first = mgr.list_by_entity_paged("exec-1", 0, 2).await.unwrap();
+    assert_eq!(
+        first.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        ["cp-0", "cp-1"]
+    );
+    let middle = mgr.list_by_entity_paged("exec-1", 2, 2).await.unwrap();
+    assert_eq!(
+        middle.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        ["cp-2", "cp-3"]
+    );
+    let tail = mgr.list_by_entity_paged("exec-1", 4, 2).await.unwrap();
+    assert_eq!(
+        tail.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        ["cp-4"]
+    );
+
+    // Offset past the end and a zero limit both yield an empty window.
+    assert!(mgr.list_by_entity_paged("exec-1", 5, 2).await.unwrap().is_empty());
+    assert!(mgr.list_by_entity_paged("exec-1", 0, 0).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn list_by_entity_paged_pages_reassemble_the_full_listing() {
+    let storage = make_storage();
+    let mgr = save_five_for_exec1(&storage).await;
+
+    let mut paged = Vec::new();
+    for offset in [0u64, 2, 4] {
+        paged.extend(mgr.list_by_entity_paged("exec-1", offset, 2).await.unwrap());
+    }
+    let full = mgr.list_by_entity("exec-1").await.unwrap();
+    assert_eq!(
+        paged.iter().map(|m| m.id.clone()).collect::<Vec<_>>(),
+        full.iter().map(|m| m.id.clone()).collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+async fn count_by_entity_counts_only_the_entity_and_reflects_deletes() {
+    let storage = make_storage();
+    let mgr = save_five_for_exec1(&storage).await;
+
+    // A second entity must not be counted.
+    mgr.save(
+        &make_envelope("cp-other", None, None, 9000, None, Some(json!({"state": "x"}))),
+        "test",
+        "exec-2",
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(mgr.count_by_entity("exec-1").await.unwrap(), 5);
+    assert_eq!(mgr.count_by_entity("exec-2").await.unwrap(), 1);
+    assert_eq!(mgr.count_by_entity("exec-3").await.unwrap(), 0);
+
+    mgr.delete("cp-0").await.unwrap();
+    assert_eq!(mgr.count_by_entity("exec-1").await.unwrap(), 4);
 }

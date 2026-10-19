@@ -99,3 +99,69 @@ pub fn initialize_full(conn: &rusqlite::Connection) -> StorageResult<()> {
     initialize_database(conn)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn table_names(conn: &rusqlite::Connection) -> Vec<String> {
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+            .expect("sqlite_master query");
+        stmt.query_map([], |row| row.get::<_, String>(0))
+            .expect("iterate tables")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("table names")
+    }
+
+    #[test]
+    fn initialize_database_is_idempotent_and_creates_all_tables() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        initialize_database(&conn).unwrap();
+        // Re-running against an initialized database must be a no-op success.
+        initialize_database(&conn).unwrap();
+        initialize_full(&conn).unwrap();
+
+        let tables = table_names(&conn);
+        for expected in [
+            "meta_kv",
+            "review_state",
+            "empty_dirs",
+            "oversized_files",
+            "source_index",
+            "source_index_paths",
+            "redo_stacks",
+        ] {
+            assert!(tables.contains(&expected.to_string()), "missing table {expected}");
+        }
+    }
+
+    #[test]
+    fn apply_light_migrations_creates_git_tables_alone() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        apply_light_migrations(&conn).unwrap();
+        apply_light_migrations(&conn).unwrap();
+
+        let tables = table_names(&conn);
+        for expected in ["review_state", "empty_dirs", "source_index", "redo_stacks"] {
+            assert!(tables.contains(&expected.to_string()), "missing table {expected}");
+        }
+        // The light path does not create the metadata table.
+        assert!(!tables.contains(&"meta_kv".to_string()));
+    }
+
+    #[test]
+    fn file_database_uses_wal_journal_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage =
+            crate::storage::SqliteStorage::new_full(&dir.path().join("checkpoint.db")).unwrap();
+        let mode = storage
+            .with_conn(|conn| {
+                Ok(conn
+                    .query_row("PRAGMA journal_mode;", [], |row| row.get::<_, String>(0))
+                    .map_err(db_err)?)
+            })
+            .unwrap();
+        assert_eq!(mode, "wal");
+    }
+}

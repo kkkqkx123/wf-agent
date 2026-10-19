@@ -96,3 +96,170 @@ impl AgentCheckpointCoordinator {
         Ok(entries)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::coordinator::base::CheckpointCoordinator;
+    use checkpoint_base::metadata::builder::{
+        trigger_description, ITERATION_FIELD, MSG_SEQ_END_FIELD, MSG_SEQ_START_FIELD,
+    };
+    use checkpoint_state::state::AgentCheckpointStateManager;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use wf_storage::backend::StorageBackend;
+    use wf_types::checkpoint::agent::AgentStateSnapshot;
+    use wf_types::checkpoint::{CheckpointStatus, CheckpointType, CheckpointTiming};
+    use wf_types::storage::CheckpointStorageMetadata;
+
+    fn meta_with(
+        custom_fields: Option<HashMap<String, serde_json::Value>>,
+        tags: Option<Vec<String>>,
+    ) -> CheckpointStorageMetadata {
+        CheckpointStorageMetadata {
+            id: "row-1".to_string(),
+            entity_type: "agent_loop".to_string(),
+            entity_id: "loop-1".to_string(),
+            parent_entity_id: None,
+            checkpoint_type: CheckpointType::Full,
+            timestamp: 1000,
+            status: CheckpointStatus::Completed,
+            previous_checkpoint_id: None,
+            base_checkpoint_id: None,
+            chain_root_id: None,
+            chain_position: Some(0),
+            blob_size: None,
+            tags,
+            custom_fields,
+        }
+    }
+
+    #[test]
+    fn timeline_from_metadata_reads_coordinates_and_trigger() {
+        let mut fields = HashMap::new();
+        fields.insert(ITERATION_FIELD.to_string(), serde_json::json!(3));
+        fields.insert(MSG_SEQ_START_FIELD.to_string(), serde_json::json!(10));
+        fields.insert(MSG_SEQ_END_FIELD.to_string(), serde_json::json!(12));
+        let meta = meta_with(
+            Some(fields),
+            Some(vec!["trigger:AFTER_EXECUTE".to_string()]),
+        );
+        assert_eq!(
+            timeline_from_metadata(&meta),
+            Some((
+                Some(10),
+                Some(12),
+                Some(trigger_description(&CheckpointTiming::AfterExecute))
+            ))
+        );
+
+        // Iteration alone still marks a coordinate row without sequence bounds.
+        let fields = HashMap::from([(ITERATION_FIELD.to_string(), serde_json::json!(3))]);
+        let meta = meta_with(Some(fields), None);
+        assert_eq!(
+            timeline_from_metadata(&meta),
+            Some((None, None, None))
+        );
+
+        // Rows predating the coordinate fields fall back to the snapshot body.
+        assert_eq!(timeline_from_metadata(&meta_with(None, None)), None);
+        let fields = HashMap::from([(MSG_SEQ_END_FIELD.to_string(), serde_json::json!(9))]);
+        assert_eq!(timeline_from_metadata(&meta_with(Some(fields), None)), None);
+    }
+
+    #[test]
+    fn timeline_from_metadata_marks_unknown_trigger_wires() {
+        let fields = HashMap::from([(ITERATION_FIELD.to_string(), serde_json::json!(3))]);
+        let meta = meta_with(
+            Some(fields),
+            Some(vec!["trigger:NO_SUCH".to_string()]),
+        );
+        assert_eq!(
+            timeline_from_metadata(&meta),
+            Some((
+                None,
+                None,
+                Some("Unknown trigger (NO_SUCH)".to_string())
+            ))
+        );
+    }
+
+    fn snapshot(iteration: u32, start: Option<u64>, end: Option<u64>) -> AgentStateSnapshot {
+        AgentStateSnapshot {
+            agent_loop_id: "loop-1".to_string(),
+            status: "running".to_string(),
+            current_iteration: iteration,
+            tool_call_count: 0,
+            conversation_snapshot: None,
+            conversation_view: None,
+            message_seq_start: start,
+            message_seq_end: end,
+            message_next_seq: None,
+            conversation_ledger: None,
+            conversation_tracker: None,
+            tool_call_history: None,
+            is_streaming: None,
+            variable_snapshots: None,
+            error: None,
+            started_at: None,
+            completed_at: None,
+            error_records: None,
+            retry_totals: None,
+            interruption_records: None,
+            event_records: None,
+            iteration_history: None,
+            current_iteration_record: None,
+            stream_message: None,
+            pending_tool_call_ids: None,
+            trigger_state: None,
+            hierarchy: None,
+            messages: None,
+            tool_discovery_state: None,
+            permanently_failed_tools: None,
+            loop_config: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn timeline_orders_rows_by_sequence_end_and_labels_triggers() {
+        let sm = AgentCheckpointStateManager::new(Arc::new(StorageBackend::new_memory()));
+        let coord = AgentCheckpointCoordinator::new(sm);
+        let coord = &coord;
+
+        async fn persist(
+            coord: &AgentCheckpointCoordinator,
+            iter: u32,
+            start: Option<u64>,
+            end: Option<u64>,
+        ) -> String {
+            let ctx = coord
+                .prepare("loop-1", CheckpointTiming::AfterExecute)
+                .await
+                .unwrap();
+            let cp = coord.build(ctx, snapshot(iter, start, end)).await.unwrap();
+            coord.persist(&cp, "loop-1").await.unwrap();
+            cp.id
+        }
+
+        // Persist the newest row first: order must come from the sequence
+        // coordinates, not from insertion order.
+        let newest = persist(coord, 3, Some(20), None).await;
+        let mid = persist(coord, 2, Some(10), Some(20)).await;
+        let first = persist(coord, 1, Some(0), Some(10)).await;
+
+        let rows = coord.timeline("loop-1").await.unwrap();
+        let label = Some(trigger_description(&CheckpointTiming::AfterExecute));
+        assert_eq!(
+            rows.iter()
+                .map(|r| (r.0.clone(), r.1, r.2, r.3.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                (first, Some(0), Some(10), label.clone()),
+                (mid, Some(10), Some(20), label.clone()),
+                // A row without a sequence end sorts last, not by timestamp.
+                (newest, Some(20), None, label),
+            ]
+        );
+        assert!(rows.iter().all(|r| r.4.is_some()));
+    }
+}

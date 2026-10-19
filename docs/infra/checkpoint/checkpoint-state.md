@@ -76,3 +76,8 @@ restore/
 - **事务(RecoveryTransaction)**:批量恢复的事务包装。每个 `RecoveryOperation`(操作类型 `RecoveryOperationType`,状态 `RecoveryOperationStatus`)记录执行进展;事务结果(`RecoveryTransactionResult` / `RecoveryTransactionStatus`)决定失败时的 `RollbackStrategy`(回滚已恢复子级 / 保留部分结果等)。
 
 层级恢复读路径的关键设计:子级元数据用 `list_latest_by_entities` 批量解析;子级 blob 由各协调器提供 `load_bytes` 闭包加载;每子级恢复并发受 `ConcurrencyGate` 限制(协调器侧常量 5)。
+
+## 单元测试覆盖
+
+- `state/storage/tests/loader.rs`：`CheckpointLoader` 适配——原始字节 roundtrip（不解码直出）、索引元数据解析、`entityId` 缺省回退 `unknown`、缺 timestamp 报 `Corrupted`；
+- `state/storage/tests/listing.rs`：`list_by_entity_paged` 按时间序切片、分页拼接等于全量列表、越界/零 limit 返回空窗口；`count_by_entity` 按实体隔离计数并随删除下降。

@@ -123,3 +123,12 @@ Manager 的行为按文件拆分:
 ## 集成测试(仓库级)
 
 `crates/infra/checkpoint/wf-checkpoint/tests/` 中的 `file_branch_dag_integration.rs`、`source_capture.rs` 覆盖本层与协调器的联合语义。
+
+## 单元测试覆盖
+
+- `provenance/tests.rs`：变更列表（按 Actor / 路径）、diff 分类（增改删与二进制）、时间线与重命名相似度、冲突解析、分区视图与历史分页、源索引回退；
+- `file/merge.rs`：GC 执行路径——不可达清理（删 edit ref 后回收 commit/树/blob）、grace 窗口保护新鲜孤儿、零宽 grace 立即回收、源索引行随清理删除、二次运行幂等；
+- `manager_store.rs`：未初始化语义——git / 存储未绑定显式报 `Coordinator` 错误（不静默回退）、内存后端双句柄绑定、最新检查点镜像跨克隆共享；
+- `store_path.rs`：全局存储目录确定性、跨工作区唯一、`wf/checkpoint/<hash16>` 布局；
+- `git_store/tests.rs`：refs 原子回写、树与嵌套路径、深链（150 commit）遍历去重、超大 blob（2 MiB）roundtrip、截断松散对象显式报错不 panic、悬挂 ref 显式报 `ObjectNotFound` 且不波及其它 ref；
+- `storage/`：migrations 幂等 / 轻迁移 / WAL 模式、KV 元数据 roundtrip / 隔离 / 空值。

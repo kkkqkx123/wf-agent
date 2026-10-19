@@ -48,3 +48,38 @@ pub fn global_store_dir(workspace_root: &std::path::Path) -> PathBuf {
         .join("checkpoint")
         .join(&digest[..16])
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn store_dir_is_deterministic_per_workspace() {
+        let root = std::path::Path::new("/tmp/wf-agent-workspace-a");
+        let first = global_store_dir(root);
+        let second = global_store_dir(root);
+        assert_eq!(first, second, "the same workspace must resolve to the same store");
+    }
+
+    #[test]
+    fn distinct_workspaces_get_distinct_store_dirs() {
+        let a = global_store_dir(std::path::Path::new("/tmp/wf-agent-workspace-a"));
+        let b = global_store_dir(std::path::Path::new("/tmp/wf-agent-workspace-b"));
+        assert_ne!(a, b, "two workspaces must never share a store");
+    }
+
+    #[test]
+    fn store_dir_uses_hash16_under_wf_checkpoint_layout() {
+        let dir = global_store_dir(std::path::Path::new("/tmp/wf-agent-workspace-a"));
+        let leaf = dir.file_name().expect("store dir has a hash leaf");
+        let leaf = leaf.to_string_lossy();
+        assert_eq!(leaf.len(), 16, "hash leaf is exactly 16 hex chars");
+        assert!(leaf.chars().all(|c| c.is_ascii_hexdigit()));
+
+        // Layout: `<data_dir>/wf/checkpoint/<hash16>/`.
+        let mut comps = dir.components().rev();
+        comps.next(); // hash leaf
+        assert_eq!(comps.next().map(|c| c.as_os_str()), Some(std::ffi::OsStr::new("checkpoint")));
+        assert_eq!(comps.next().map(|c| c.as_os_str()), Some(std::ffi::OsStr::new("wf")));
+    }
+}

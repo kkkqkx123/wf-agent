@@ -271,3 +271,92 @@ pub fn restore_state_files(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::file::StateFileLinkStatus;
+
+    fn scope(enabled: bool, checkpoint_prefixes: &[&str]) -> ResolvedFileScope {
+        ResolvedFileScope {
+            enabled,
+            read_prefixes: vec![".".to_string()],
+            write_prefixes: vec![".".to_string()],
+            checkpoint_prefixes: checkpoint_prefixes.iter().map(|s| s.to_string()).collect(),
+            workdir: None,
+        }
+    }
+
+    #[test]
+    fn should_skip_file_projection_rules() {
+        // No scope: legacy global behavior, nothing to skip.
+        assert!(!should_skip_file_projection(None));
+        // A disabled channel skips entirely.
+        assert!(should_skip_file_projection(Some(&scope(false, &["src"]))));
+        // Enabled but no checkpoint prefix: nothing to project, no link.
+        assert!(should_skip_file_projection(Some(&scope(true, &[]))));
+        // Enabled with a checkpoint prefix: project.
+        assert!(!should_skip_file_projection(Some(&scope(true, &["src"]))));
+    }
+
+    #[tokio::test]
+    async fn save_file_snapshot_without_manager_or_history_is_ok() {
+        // No file channel at all: Ok with nothing to record.
+        assert!(save_file_snapshot(None, "c1", "e1").await.is_ok());
+
+        // A channel without any file history for the entity: Ok, Missing.
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        save_file_snapshot(Some(&manager), "c1", "no-history").await.unwrap();
+        assert_eq!(
+            manager.state_file_link_status("c1").unwrap(),
+            StateFileLinkStatus::Missing
+        );
+    }
+
+    #[tokio::test]
+    async fn save_file_snapshot_records_link_when_history_exists() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let actor = manager.actor_id_for("loop-1");
+        let head = manager.apply_agent_edit(&actor, "a.txt", b"one\n").unwrap();
+
+        save_file_snapshot(Some(&manager), "c1", "loop-1").await.unwrap();
+        assert_eq!(
+            manager.state_file_link_status("c1").unwrap(),
+            StateFileLinkStatus::Linked {
+                file_commit_id: head
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn save_file_snapshot_skipped_for_closed_channel() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let actor = manager.actor_id_for("loop-1");
+        manager.apply_agent_edit(&actor, "a.txt", b"one\n").unwrap();
+
+        save_file_snapshot_scoped(
+            Some(&manager),
+            "c1",
+            "loop-1",
+            Some(&scope(false, &["src"])),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            manager.state_file_link_status("c1").unwrap(),
+            StateFileLinkStatus::Missing
+        );
+    }
+
+    #[test]
+    fn record_state_file_link_with_retry_records_on_first_attempt() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        record_state_file_link_with_retry(&manager, "c1", "f1").unwrap();
+        assert_eq!(
+            manager.state_file_link_status("c1").unwrap(),
+            StateFileLinkStatus::Linked {
+                file_commit_id: "f1".to_string()
+            }
+        );
+    }
+}

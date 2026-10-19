@@ -86,3 +86,66 @@ pub(crate) struct ManagerPolicy {
 }
 
 impl ManagerPolicy {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uninitialized_git_reports_explicit_coordinator_error() {
+        let storage = Arc::new(SqliteStorage::new_full_in_memory().unwrap());
+        // `with_sqlite` binds storage only: no workspace git store yet.
+        let store = ManagerStore::with_sqlite(storage);
+
+        let err = match store.git_ref() {
+            Err(e) => e,
+            Ok(_) => panic!("git_ref must fail before a workspace binds a git store"),
+        };
+        assert!(matches!(err, CheckpointError::Coordinator(_)));
+
+        // Storage stays usable: the git gap must not hide it.
+        assert!(store.storage_ref().is_ok());
+    }
+
+    #[test]
+    fn unconfigured_storage_reports_explicit_coordinator_error() {
+        let store = ManagerStore {
+            storage: None,
+            git: None,
+            latest_checkpoints: Arc::new(DashMap::new()),
+        };
+
+        let err = match store.storage_ref() {
+            Err(e) => e,
+            Ok(_) => panic!("storage_ref must fail without configured storage"),
+        };
+        assert!(matches!(err, CheckpointError::Coordinator(_)));
+        assert!(store.git_ref().is_err());
+    }
+
+    #[test]
+    fn in_memory_backend_binds_both_handles() {
+        let storage = Arc::new(SqliteStorage::new_full_in_memory().unwrap());
+        let store = ManagerStore::new_in_memory_backend(storage).unwrap();
+        assert!(store.storage_ref().is_ok());
+        assert!(store.git_ref().is_ok());
+    }
+
+    #[test]
+    fn latest_checkpoint_mirror_is_shared_across_clones() {
+        let storage = Arc::new(SqliteStorage::new_full_in_memory().unwrap());
+        let store = ManagerStore::with_sqlite(storage);
+        let cloned = store.clone();
+
+        store.latest_checkpoints.insert("actor-a".to_string(), "head-1".to_string());
+        assert_eq!(
+            cloned.latest_checkpoints.get("actor-a").map(|e| e.clone()),
+            Some("head-1".to_string()),
+            "clones must observe the same mirror"
+        );
+
+        // Removal is equally visible through the shared map.
+        store.latest_checkpoints.remove("actor-a");
+        assert!(!cloned.latest_checkpoints.contains_key("actor-a"));
+    }
+}

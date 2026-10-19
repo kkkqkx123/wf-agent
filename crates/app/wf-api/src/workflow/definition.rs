@@ -35,6 +35,9 @@ pub async fn save_workflow_with_impact(
     ctx: &ApiContext,
     workflow: &WorkflowDefinition,
 ) -> crate::ApiResult<crate::infra::dependency::UpdateImpactReport> {
+    if let Some(version) = workflow.version.as_deref() {
+        super::versioning::parse_business_version(version)?;
+    }
     let warnings =
         crate::workflow::validation::validate_workflow_for_publish(ctx, workflow).await?;
     if !warnings.is_empty() {
@@ -116,11 +119,16 @@ pub async fn rollback_workflow(ctx: &ApiContext, id: &str, version: &str) -> cra
     let template = get_workflow_version(ctx, id, version).await?;
 
     if let Ok(current) = get_workflow(ctx, id).await {
-        let label = current
+        let base = current
             .version
             .clone()
             .unwrap_or_else(|| format!("pre-rollback-{}", version));
-        let _ = save_workflow_version(ctx, id, &label, &current).await;
+        let label = match get_workflow_version(ctx, id, &base).await {
+            Err(crate::ApiError::NotFound { .. }) => base,
+            Ok(_) => format!("{}-{}", base, wf_common::now()),
+            Err(other) => return Err(other),
+        };
+        save_workflow_version(ctx, id, &label, &current).await?;
     }
 
     save_workflow(ctx, &template).await?;

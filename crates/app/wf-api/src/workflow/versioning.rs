@@ -1,4 +1,6 @@
-//! Semantic versioning and versioned workflow updates.
+//! Business versioning for workflow definitions. The version field is a
+//! strict MAJOR.MINOR.PATCH label used only as a business tag; it never
+//! affects checkpoint format or storage schema versions.
 
 use wf_types::workflow::WorkflowMetadata;
 
@@ -24,6 +26,31 @@ pub struct WorkflowChanges {
     pub version: Option<String>,
 }
 
+/// Parse a strict MAJOR.MINOR.PATCH business version. Anything else is
+/// rejected instead of coerced so malformed input can never slip through.
+pub fn parse_business_version(version: &str) -> crate::ApiResult<(u32, u32, u32)> {
+    let parts: Vec<&str> = version.split('.').collect();
+    if parts.len() != 3 {
+        return Err(crate::ApiError::Validation(format!(
+            "invalid workflow version: '{version}', expected MAJOR.MINOR.PATCH"
+        )));
+    }
+    let mut numbers = [0u32; 3];
+    for (index, part) in parts.iter().enumerate() {
+        if part.is_empty() {
+            return Err(crate::ApiError::Validation(format!(
+                "invalid workflow version: '{version}', expected MAJOR.MINOR.PATCH"
+            )));
+        }
+        numbers[index] = part.parse::<u32>().map_err(|_| {
+            crate::ApiError::Validation(format!(
+                "invalid workflow version: '{version}', expected MAJOR.MINOR.PATCH"
+            ))
+        })?;
+    }
+    Ok((numbers[0], numbers[1], numbers[2]))
+}
+
 /// Create a versioned update of a workflow. Returns the new version.
 pub async fn create_versioned_update(
     ctx: &ApiContext,
@@ -35,10 +62,8 @@ pub async fn create_versioned_update(
     let current = super::definition::get_workflow(ctx, workflow_id).await?;
 
     if keep_original {
-        let label = current
-            .version
-            .clone()
-            .unwrap_or_else(|| "pre-update".to_string());
+        let base = current.version.clone().unwrap_or_else(|| "pre-update".to_string());
+        let label = unique_version_label(ctx, workflow_id, &base).await?;
         super::version::save_workflow_version(ctx, workflow_id, &label, &current).await?;
     }
 
@@ -59,8 +84,13 @@ pub async fn create_versioned_update(
         updated.edges = edges.clone();
     }
     let new_version = match &changes.version {
-        Some(version) => version.clone(),
-        None => auto_increment_version(current.version.as_deref().unwrap_or("0.0.0"), strategy),
+        Some(version) => {
+            parse_business_version(version)?;
+            version.clone()
+        }
+        None => {
+            auto_increment_version(current.version.as_deref().unwrap_or("0.0.0"), strategy)?
+        }
     };
     updated.version = Some(new_version.clone());
     updated.updated_at = wf_common::now();
@@ -69,15 +99,27 @@ pub async fn create_versioned_update(
     Ok(new_version)
 }
 
-/// Auto-increment a semver string.
-pub fn auto_increment_version(current_version: &str, strategy: VersionStrategy) -> String {
-    let parts: Vec<u32> = current_version
-        .split('.')
-        .filter_map(|p| p.parse().ok())
-        .collect();
-    let mut major = parts.first().copied().unwrap_or(0);
-    let mut minor = parts.get(1).copied().unwrap_or(0);
-    let mut patch = parts.get(2).copied().unwrap_or(0);
+/// Resolve a preservation label that never overwrites an existing snapshot.
+/// The preferred label is used when free; otherwise a timestamp suffix
+/// makes it unique.
+async fn unique_version_label(
+    ctx: &ApiContext,
+    workflow_id: &str,
+    base: &str,
+) -> crate::ApiResult<String> {
+    match super::version::get_workflow_version(ctx, workflow_id, base).await {
+        Err(crate::ApiError::NotFound { .. }) => Ok(base.to_string()),
+        Ok(_) => Ok(format!("{}-{}", base, wf_common::now())),
+        Err(other) => Err(other),
+    }
+}
+
+/// Auto-increment a strict semver string.
+pub fn auto_increment_version(
+    current_version: &str,
+    strategy: VersionStrategy,
+) -> crate::ApiResult<String> {
+    let (mut major, mut minor, mut patch) = parse_business_version(current_version)?;
     match strategy {
         VersionStrategy::Major => {
             major += 1;
@@ -92,7 +134,7 @@ pub fn auto_increment_version(current_version: &str, strategy: VersionStrategy) 
             patch += 1;
         }
     }
-    format!("{major}.{minor}.{patch}")
+    Ok(format!("{major}.{minor}.{patch}"))
 }
 
 #[cfg(test)]
@@ -164,22 +206,48 @@ mod tests {
     #[tokio::test]
     async fn test_auto_increment_version() {
         assert_eq!(
-            auto_increment_version("1.2.3", VersionStrategy::Patch),
+            auto_increment_version("1.2.3", VersionStrategy::Patch).unwrap(),
             "1.2.4"
         );
         assert_eq!(
-            auto_increment_version("1.2.3", VersionStrategy::Minor),
+            auto_increment_version("1.2.3", VersionStrategy::Minor).unwrap(),
             "1.3.0"
         );
         assert_eq!(
-            auto_increment_version("1.2.3", VersionStrategy::Major),
+            auto_increment_version("1.2.3", VersionStrategy::Major).unwrap(),
             "2.0.0"
         );
-        assert_eq!(auto_increment_version("", VersionStrategy::Patch), "0.0.1");
-        assert_eq!(
-            auto_increment_version("v2", VersionStrategy::Minor),
-            "0.1.0"
-        );
+        assert!(matches!(
+            auto_increment_version("", VersionStrategy::Patch).unwrap_err(),
+            crate::ApiError::Validation(_)
+        ));
+        assert!(matches!(
+            auto_increment_version("v2", VersionStrategy::Minor).unwrap_err(),
+            crate::ApiError::Validation(_)
+        ));
+        assert!(matches!(
+            auto_increment_version("1.2", VersionStrategy::Patch).unwrap_err(),
+            crate::ApiError::Validation(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_explicit_invalid_version_is_rejected() {
+        let ctx = make_ctx();
+        save_workflow(&ctx, &make_workflow("wf-ver-bad")).await.unwrap();
+        let err = create_versioned_update(
+            &ctx,
+            "wf-ver-bad",
+            VersionStrategy::Patch,
+            &WorkflowChanges {
+                version: Some("not-a-version".into()),
+                ..Default::default()
+            },
+            false,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, crate::ApiError::Validation(_)));
     }
 
     #[tokio::test]

@@ -195,9 +195,8 @@ macro_rules! define_storage_entities {
             /// delete inside one transaction on the shared pool, and the memory
             /// backend locks all stores in registry order before clearing. When
             /// no shared pool is available the stores are cleared sequentially as
-            /// a fallback. The internal schema version rows are removed like the
-            /// per-table `clear` does, so a fresh version row is written on the
-            /// next open.
+            /// a fallback. Internal schema version rows are preserved so the
+            /// version guard stays active without reopening.
             pub async fn clear_all(&self) -> Result<(), StorageError> {
                 if let Some(pool) = self.sqlite_pool.as_ref() {
                     let tables: Vec<&str> = self

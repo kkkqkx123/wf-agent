@@ -221,11 +221,11 @@ impl PostgresStorage {
         Ok(())
     }
 
-    /// Truncate the given tables inside one transaction. Tables come from
-    /// the storage context registry, never from external input. The internal
-    /// schema version rows are removed as well, matching the per-table
-    /// `clear` semantics. Crate-visible only; cache invalidation is the
-    /// caller's job.
+    /// Delete every business row of the given tables inside one transaction.
+    /// Tables come from the storage context registry, never from external
+    /// input. Internal schema version rows are preserved so the version guard
+    /// stays active without reopening. Crate-visible only; cache invalidation
+    /// is the caller's job.
     pub(crate) async fn clear_cross_table(
         pool: &PgPool,
         tables: &[&str],
@@ -240,7 +240,10 @@ impl PostgresStorage {
         })?;
 
         for table in tables {
-            let sql = format!("TRUNCATE TABLE {}", table);
+            let sql = format!(
+                "DELETE FROM {} WHERE id NOT LIKE '{}'",
+                table, SCHEMA_VERSION_EXCLUDE_PATTERN
+            );
             sqlx::query(&sql)
                 .execute(&mut *tx)
                 .await
@@ -551,7 +554,10 @@ impl Store for PostgresStorage {
     }
 
     async fn clear(&self) -> Result<(), StorageError> {
-        let sql = format!("TRUNCATE TABLE {}", self.table_name);
+        let sql = format!(
+            "DELETE FROM {} WHERE id NOT LIKE '{}'",
+            self.table_name, SCHEMA_VERSION_EXCLUDE_PATTERN
+        );
         sqlx::query(&sql)
             .execute(&self.pool)
             .await

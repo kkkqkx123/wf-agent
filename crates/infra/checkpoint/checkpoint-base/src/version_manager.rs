@@ -7,14 +7,17 @@ use std::fmt;
 pub const CURRENT_FORMAT_VERSION: &str = "1";
 pub const MIN_COMPATIBLE_VERSION: &str = "1";
 
-/// Semantic version parsed into numeric components so that comparison uses
-/// major/minor/patch values instead of string ordering.
+/// Format version parsed into a numeric value so that comparison uses
+/// integer ordering instead of string ordering. The development phase locks
+/// the format to a single version and provides no backward compatibility.
+/// Migration handlers stay unregistered until a stable release activates
+/// version evolution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SemanticVersion {
+pub struct FormatVersion {
     pub value: u32,
 }
 
-impl SemanticVersion {
+impl FormatVersion {
     pub fn parse(version: &str) -> Result<Self, CheckpointError> {
         let value = version
             .trim()
@@ -26,23 +29,23 @@ impl SemanticVersion {
 
 fn invalid_version(version: &str) -> CheckpointError {
     CheckpointError::Validation {
-        reason: format!("invalid semantic version: '{}'", version),
+        reason: format!("invalid format version: '{}'", version),
     }
 }
 
-impl fmt::Display for SemanticVersion {
+impl fmt::Display for FormatVersion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.value)
     }
 }
 
-impl PartialOrd for SemanticVersion {
+impl PartialOrd for FormatVersion {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for SemanticVersion {
+impl Ord for FormatVersion {
     fn cmp(&self, other: &Self) -> Ordering {
         self.value.cmp(&other.value)
     }
@@ -62,9 +65,9 @@ pub trait MigrationHandler: Send + Sync {
 
 pub struct VersionManager {
     current_version: String,
-    current_semver: SemanticVersion,
+    current_format: FormatVersion,
     min_compatible: String,
-    min_compatible_semver: SemanticVersion,
+    min_compatible_format: FormatVersion,
     migrations: DashMap<(String, String), Box<dyn MigrationHandler>>,
 }
 
@@ -72,11 +75,11 @@ impl VersionManager {
     pub fn new() -> Self {
         let manager = Self {
             current_version: CURRENT_FORMAT_VERSION.to_string(),
-            current_semver: SemanticVersion::parse(CURRENT_FORMAT_VERSION)
-                .expect("CURRENT_FORMAT_VERSION must be a valid semantic version"),
+            current_format: FormatVersion::parse(CURRENT_FORMAT_VERSION)
+                .expect("CURRENT_FORMAT_VERSION must be a valid format version"),
             min_compatible: MIN_COMPATIBLE_VERSION.to_string(),
-            min_compatible_semver: SemanticVersion::parse(MIN_COMPATIBLE_VERSION)
-                .expect("MIN_COMPATIBLE_VERSION must be a valid semantic version"),
+            min_compatible_format: FormatVersion::parse(MIN_COMPATIBLE_VERSION)
+                .expect("MIN_COMPATIBLE_VERSION must be a valid format version"),
             migrations: DashMap::new(),
         };
         manager.register_default_migrations();
@@ -84,8 +87,9 @@ impl VersionManager {
     }
 
     fn register_default_migrations(&self) {
-        // No migrations registered while the format is locked to a single
-        // version. Future releases register handlers here.
+        // Development phase locks the format to a single version, so no
+        // migration is registered. Stable releases register handlers here
+        // when version evolution is activated.
     }
 
     pub fn register_migration(
@@ -99,7 +103,7 @@ impl VersionManager {
     }
 
     pub fn check_compatibility(&self, data_version: &str) -> VersionCompatibility {
-        let version = match SemanticVersion::parse(data_version) {
+        let version = match FormatVersion::parse(data_version) {
             Ok(v) => v,
             Err(e) => {
                 return VersionCompatibility {
@@ -110,7 +114,7 @@ impl VersionManager {
             }
         };
 
-        if version < self.min_compatible_semver {
+        if version < self.min_compatible_format {
             return VersionCompatibility {
                 compatible: false,
                 requires_migration: false,
@@ -121,7 +125,7 @@ impl VersionManager {
             };
         }
 
-        if version > self.current_semver {
+        if version > self.current_format {
             return VersionCompatibility {
                 compatible: false,
                 requires_migration: false,
@@ -134,8 +138,8 @@ impl VersionManager {
 
         VersionCompatibility {
             compatible: true,
-            requires_migration: version < self.current_semver,
-            reason: if version < self.current_semver {
+            requires_migration: version < self.current_format,
+            reason: if version < self.current_format {
                 "migration required to latest format".to_string()
             } else {
                 "direct compatible".to_string()
@@ -159,8 +163,8 @@ impl VersionManager {
         data: &[u8],
         from_version: &str,
     ) -> Result<Vec<u8>, CheckpointError> {
-        let from = SemanticVersion::parse(from_version)?;
-        if from == self.current_semver {
+        let from = FormatVersion::parse(from_version)?;
+        if from == self.current_format {
             return Ok(data.to_vec());
         }
 
@@ -193,9 +197,9 @@ impl VersionManager {
         &mut self,
         version: impl Into<String>,
     ) -> Result<(), CheckpointError> {
-        let semver = SemanticVersion::parse(&version.into())?;
-        self.current_version = semver.to_string();
-        self.current_semver = semver;
+        let parsed = FormatVersion::parse(&version.into())?;
+        self.current_version = parsed.to_string();
+        self.current_format = parsed;
         Ok(())
     }
 
@@ -234,13 +238,13 @@ impl VersionManager {
     }
 
     pub fn get_version_distance(&self, a: &str, b: &str) -> Result<i64, CheckpointError> {
-        let a = SemanticVersion::parse(a)?;
-        let b = SemanticVersion::parse(b)?;
+        let a = FormatVersion::parse(a)?;
+        let b = FormatVersion::parse(b)?;
         Ok(a.value as i64 - b.value as i64)
     }
 
     pub fn compare(&self, a: &str, b: &str) -> Result<Ordering, CheckpointError> {
-        Ok(SemanticVersion::parse(a)?.cmp(&SemanticVersion::parse(b)?))
+        Ok(FormatVersion::parse(a)?.cmp(&FormatVersion::parse(b)?))
     }
 
     fn find_migration_path(

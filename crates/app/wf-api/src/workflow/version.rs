@@ -12,6 +12,9 @@ pub async fn save_workflow_version(
     template: &WorkflowDefinition,
 ) -> crate::ApiResult<()> {
     crate::workflow::validation::validate_workflow(template)?;
+    if let Some(current) = template.version.as_deref() {
+        super::versioning::parse_business_version(current)?;
+    }
     ctx.storage
         .workflow
         .save_version(workflow_id, version, template)

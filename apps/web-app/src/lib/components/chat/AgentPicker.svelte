@@ -5,7 +5,7 @@
 	 */
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import { cn } from '@wf-agent/ui/cn';
-	import { listTemplates } from '$lib/services/templates';
+	import { isRunnableTemplate, listTemplates, DEFAULT_AGENT_ID } from '$lib/services/templates';
 	import type { Template } from '$lib/types/models';
 
 	interface Props {
@@ -15,12 +15,6 @@
 
 	let { value = $bindable(''), class: className = '' }: Props = $props();
 
-	function isRunnableAgent(template: Template): boolean {
-		if (template.isSystem) return false;
-		if (template.enabled === false || template.isPublic === false) return false;
-		return true;
-	}
-
 	let open = $state(false);
 	let query = $state('');
 	let templates = $state<Template[]>([]);
@@ -29,7 +23,7 @@
 	$effect(() => {
 		void listTemplates({ kind: 'agent' })
 			.then((items) => {
-				templates = items.filter(isRunnableAgent);
+				templates = items.filter(isRunnableTemplate);
 			})
 			.catch(() => {
 				templates = [];
@@ -140,7 +134,7 @@
 							>
 								{template.name || template.id}
 							</span>
-							{#if template.id === '@standard/main'}
+							{#if template.id === DEFAULT_AGENT_ID}
 								<span class="shrink-0 font-mono text-micro text-info"
 									>default</span
 								>

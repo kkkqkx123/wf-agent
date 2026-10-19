@@ -13,6 +13,7 @@
 	import { toasts } from '$lib/stores/toast.svelte';
 	import ModelPicker from '$lib/components/chat/ModelPicker.svelte';
 	import AgentPicker from '$lib/components/chat/AgentPicker.svelte';
+	import WorkflowPicker from '$lib/components/chat/WorkflowPicker.svelte';
 	import type { MessageAttachment, OutgoingMessage } from '$lib/types/models';
 	import { mentionRef } from '$lib/utils/mentions';
 
@@ -39,6 +40,8 @@
 	interface Props {
 		model?: string;
 		agent?: string;
+		workflow?: string;
+		mode?: 'standard' | 'chat';
 		busy?: boolean;
 		draftKey?: string;
 		suggestions?: string[];
@@ -51,6 +54,8 @@
 	let {
 		model = $bindable(''),
 		agent = $bindable(''),
+		workflow = $bindable(''),
+		mode = $bindable('standard'),
 		busy = false,
 		draftKey = 'new',
 		suggestions = [],
@@ -427,6 +432,25 @@
 
 	<div class="flex items-center gap-2">
 		<AgentPicker bind:value={agent} class="shrink-0" />
+		<WorkflowPicker bind:value={workflow} class="shrink-0" />
+		<button
+			type="button"
+			aria-pressed={mode === 'chat'}
+			aria-label="Toggle plain chat mode"
+			title={mode === 'chat'
+				? 'Plain chat: tool-free responses. Click to switch back to the agent loop.'
+				: 'Agent loop with tools. Click to switch to tool-free plain chat.'}
+			onclick={() => (mode = mode === 'chat' ? 'standard' : 'chat')}
+			class={cn(
+				'flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-input bg-card px-2 text-caption transition-colors hover:bg-accent',
+				mode === 'chat'
+					? 'text-foreground'
+					: 'text-muted-foreground',
+			)}
+		>
+			<Icon name="loop" size={13} class="shrink-0" />
+			{mode === 'chat' ? 'Chat' : 'Agent'}
+		</button>
 		<ModelPicker bind:value={model} class="shrink-0" />
 		<textarea
 			bind:this={box}

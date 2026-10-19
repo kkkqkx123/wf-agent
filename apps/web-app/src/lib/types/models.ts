@@ -519,6 +519,12 @@ export type TemplateKind = 'node' | 'trigger' | 'agent' | 'workflow';
 /** Tab selection inside the template edit panel. */
 export type TemplateEditTab = 'json' | 'form' | 'graph';
 
+/**
+ * Governance flags mirror the backend's tri-state: `undefined` means the
+ * wire row did not set the flag (treated as unset, not as true).
+ */
+export type GovernanceFlag = boolean | undefined;
+
 export interface Template {
 	id: string;
 	name: string;
@@ -528,9 +534,9 @@ export interface Template {
 	usage: number;
 	featured: boolean;
 	tags: string[];
-	enabled: boolean;
-	isPublic: boolean;
-	isSystem: boolean;
+	enabled?: GovernanceFlag;
+	isPublic?: GovernanceFlag;
+	isSystem?: GovernanceFlag;
 	author?: string | null;
 }
 

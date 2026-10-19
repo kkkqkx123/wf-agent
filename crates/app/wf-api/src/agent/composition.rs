@@ -14,11 +14,14 @@
 //!   applies; it must be registered (`register_all` does this in
 //!   production) or the request is rejected.
 //! - an id with a registered template (user definition, or a user override
-//!   registered under the built-in id): that template's defaults apply.
+//!   registered under the built-in id): that template's defaults apply, but
+//!   only when the template is runnable (`enabled`/`is_public` not false,
+//!   `is_system` not true); otherwise the request is rejected.
 //! - an empty id is rejected: callers supply `DEFAULT_AGENT` before this
 //!   boundary, so an empty id reaching here is a caller bug.
-//! - any other explicit id: left untouched (`agent_id` remains a pure
-//!   label), matching the pre-template behavior.
+//! - any other explicit id: rejected as not found — an unregistered id has
+//!   no template semantics, so it never silently runs on built-in defaults
+//!   under a label that suggests a restricted agent was selected.
 
 use wf_execution_shared::agent_prompt::PromptEnvironment;
 use wf_resource::registry::ResourceRegistries;
@@ -205,6 +208,21 @@ fn attach_prompt_assembly(
     );
 }
 
+/// Reject a resolved template the caller may not run directly: disabled,
+/// private or system-flagged templates are display-layer categories only at
+/// the composition boundary; running one is a not-found so the API does not
+/// expose template governance details.
+fn ensure_runnable(template: &AgentTemplate) -> Result<(), ApiError> {
+    let runnable = template.enabled != Some(false)
+        && template.is_public != Some(false)
+        && template.is_system != Some(true);
+    if runnable {
+        Ok(())
+    } else {
+        Err(ApiError::not_found("agent_template", template.id.as_str()))
+    }
+}
+
 /// Resolve the effective template for a config/input pair and apply its
 /// defaults. See the module docs for the resolution semantics. After template
 /// defaults the shared prompt module produces the stable header, volatile
@@ -225,17 +243,12 @@ pub fn resolve_and_apply(
         return Ok((apply_final_defaults(config), input));
     };
     let Some(template) = resolve_template(regs, agent_id) else {
-        if requests_builtin_main(agent_id) {
-            return Err(ApiError::not_found(
-                "agent_template",
-                MAIN_AGENT_TEMPLATE_ID,
-            ));
-        }
-        let mut config = apply_final_defaults(config);
-        attach_exposure_artifacts(env, &mut config);
-        attach_prompt_assembly(env, None, &config, &mut input);
-        return Ok((config, input));
+        // An unregistered explicit id has no template semantics: reject
+        // instead of silently running on built-in defaults under a label
+        // that suggests a restricted agent was selected.
+        return Err(ApiError::not_found("agent_template", agent_id));
     };
+    ensure_runnable(&template)?;
     let mut applied = apply_template_defaults(config, &template, &mut input);
     let agent_config = template.definition.config.as_ref();
     attach_exposure_artifacts(env, &mut applied);
@@ -252,6 +265,90 @@ fn apply_final_defaults(mut config: AgentLoopConfig) -> AgentLoopConfig {
     }
     config
 }
+
+/// Caller-requested loop mode (wire `mode` on `/agent-loops/{id}/run|stream`).
+/// Absent and empty keep the standard agent loop.
+pub const CHAT_LOOP_MODE: &str = "chat";
+
+/// Iteration budget for tool-free chat runs: a plain question resolves in a
+/// single model round.
+const CHAT_MODE_MAX_ITERATIONS: u32 = 1;
+
+/// Translate a caller's loop mode into concrete loop config semantics at the
+/// composition entry point. `chat` suppresses every tool path via the explicit
+/// empty tool set (template defaults must not refill it) plus a disabled
+/// general tool, and caps the iteration budget when the caller left it unset.
+pub fn apply_loop_mode(
+    mode: Option<&str>,
+    config: &mut AgentLoopConfig,
+) -> Result<(), ApiError> {
+    let Some(mode) = mode else {
+        return Ok(());
+    };
+    match mode {
+        "" | "standard" => Ok(()),
+        CHAT_LOOP_MODE => {
+            config.available_tool_names = Some(Vec::new());
+            config.enable_general_tool = Some(false);
+            if config.max_iterations.is_none() {
+                config.max_iterations = Some(CHAT_MODE_MAX_ITERATIONS);
+            }
+            Ok(())
+        }
+        other => Err(ApiError::Validation(format!(
+            "unknown loop mode: {other}"
+        ))),
+    }
+}
+
+/// Resolve a workflow template's context summary for agent-loop injection.
+/// Same governance gate as agent templates: disabled, private or system
+/// workflow templates are rejected as not found so the API does not expose
+/// template governance details.
+pub fn resolve_workflow_context(
+    regs: &ResourceRegistries,
+    workflow_id: &str,
+) -> Result<String, ApiError> {
+    use wf_core::registry::Registry;
+    let template = regs.workflows.get(workflow_id).ok_or_else(|| {
+        ApiError::not_found("workflow_template", workflow_id)
+    })?;
+    let template = template.as_ref();
+    let runnable = template.enabled != Some(false)
+        && template.is_public != Some(false)
+        && template.is_system != Some(true);
+    if !runnable {
+        return Err(ApiError::not_found("workflow_template", workflow_id));
+    }
+    Ok(workflow_summary(template))
+}
+
+/// Truncated projection of a workflow template: identity plus the node list
+/// (bounded) and edge count, so the loop can reference the workflow without
+/// pulling the full graph into the prompt.
+fn workflow_summary(template: &wf_types::workflow::WorkflowTemplate) -> String {
+    const MAX_NODES: usize = 20;
+    let nodes = &template.definition.nodes;
+    let mut lines = Vec::with_capacity(nodes.len().min(MAX_NODES) + 4);
+    lines.push(format!("workflow: {} ({})", template.name, template.id));
+    if !template.description.is_empty() {
+        lines.push(format!("description: {}", template.description));
+    }
+    lines.push(format!("nodes ({}):", nodes.len()));
+    for node in nodes.iter().take(MAX_NODES) {
+        let name = node.name.as_deref().unwrap_or(&node.id);
+        lines.push(format!("- {} ({:?})", name, node.node_type));
+    }
+    if nodes.len() > MAX_NODES {
+        lines.push(format!("- … {} more nodes", nodes.len() - MAX_NODES));
+    }
+    lines.push(format!(
+        "edges: {}",
+        template.definition.edges.len()
+    ));
+    lines.join("\n")
+}
+
 
 /// Convert agent hook configs into loop `HookConfig` items through the
 /// canonical spec so defaults stay in one place.
@@ -381,13 +478,49 @@ mod tests {
     }
 
     #[test]
-    fn explicit_unknown_id_does_not_fall_back() {
+    fn explicit_unknown_id_is_rejected() {
         let regs = registries();
         assert!(resolve_template(&regs, "unknown-agent").is_none());
         let env = env_for(&regs);
-        let (config, _) = resolve_and_apply(&env, empty_config("unknown-agent"), input_with("hi"))
-            .expect("explicit id without template is untouched");
-        assert!(config.available_tool_names.is_none());
+        let err = resolve_and_apply(&env, empty_config("unknown-agent"), input_with("hi"))
+            .expect_err("unregistered id has no template semantics");
+        assert!(matches!(err, ApiError::NotFound { .. }));
+    }
+
+    #[test]
+    fn disabled_template_is_rejected() {
+        let regs = ResourceRegistries::new();
+        let mut template = main_template();
+        template.enabled = Some(false);
+        register_item_skip(&regs.agent_templates, MAIN_AGENT_TEMPLATE_ID.into(), template);
+        let env = env_for(&regs);
+        let err = resolve_and_apply(&env, empty_config(MAIN_AGENT_TEMPLATE_ID), input_with("hi"))
+            .expect_err("disabled template must not run");
+        assert!(matches!(err, ApiError::NotFound { .. }));
+    }
+
+    #[test]
+    fn private_template_is_rejected() {
+        let regs = ResourceRegistries::new();
+        let mut template = main_template();
+        template.is_public = Some(false);
+        register_item_skip(&regs.agent_templates, MAIN_AGENT_TEMPLATE_ID.into(), template);
+        let env = env_for(&regs);
+        let err = resolve_and_apply(&env, empty_config(MAIN_AGENT_TEMPLATE_ID), input_with("hi"))
+            .expect_err("private template must not run directly");
+        assert!(matches!(err, ApiError::NotFound { .. }));
+    }
+
+    #[test]
+    fn system_template_is_rejected() {
+        let regs = ResourceRegistries::new();
+        let mut template = main_template();
+        template.is_system = Some(true);
+        register_item_skip(&regs.agent_templates, MAIN_AGENT_TEMPLATE_ID.into(), template);
+        let env = env_for(&regs);
+        let err = resolve_and_apply(&env, empty_config(MAIN_AGENT_TEMPLATE_ID), input_with("hi"))
+            .expect_err("system-flagged template must not run directly");
+        assert!(matches!(err, ApiError::NotFound { .. }));
     }
 
     #[test]
@@ -651,5 +784,75 @@ mod tests {
         );
         assert!(!tails.iter().any(|m| m.id.as_str() == "old-tail"));
         assert_eq!(input.message, "hi");
+    }
+
+    #[test]
+    fn chat_mode_disables_every_tool_path() {
+        let regs = registries();
+        let mut config = empty_config(MAIN_AGENT_TEMPLATE_ID);
+        apply_loop_mode(Some("chat"), &mut config).expect("chat mode applies");
+        let env = env_for(&regs);
+        let (config, _) = resolve_and_apply(&env, config, input_with("hi")).expect("apply");
+        // The explicit empty set must survive template defaults untouched.
+        assert_eq!(config.available_tool_names, Some(Vec::new()));
+        assert_eq!(config.enable_general_tool, Some(false));
+        assert_eq!(config.max_iterations, Some(1));
+    }
+
+    #[test]
+    fn absent_and_standard_modes_change_nothing() {
+        let mut config = empty_config(MAIN_AGENT_TEMPLATE_ID);
+        apply_loop_mode(None, &mut config).expect("absent mode is a no-op");
+        apply_loop_mode(Some("standard"), &mut config).expect("standard mode is a no-op");
+        apply_loop_mode(Some(""), &mut config).expect("empty mode is a no-op");
+        assert_eq!(config.available_tool_names, None);
+        assert_eq!(config.max_iterations, None);
+    }
+
+    #[test]
+    fn unknown_mode_is_a_validation_error() {
+        let mut config = empty_config(MAIN_AGENT_TEMPLATE_ID);
+        let err = apply_loop_mode(Some("turbo"), &mut config)
+            .expect_err("unknown mode must not silently run");
+        assert!(matches!(err, ApiError::Validation(_)));
+    }
+
+    fn workflow_regs() -> ResourceRegistries {
+        let regs = registries();
+        // The predefined template is system-flagged and would be gated; the
+        // registry entry under test is a user-visible copy without the flag.
+        let mut template = wf_resource::predefined::workflow::create_prefetch_workflow();
+        template.is_system = None;
+        register_item_skip(&regs.workflows, "wf-context-test".into(), template);
+        regs
+    }
+
+    #[test]
+    fn workflow_context_resolves_for_registered_template() {
+        let regs = workflow_regs();
+        let summary = resolve_workflow_context(&regs, "wf-context-test").expect("summary");
+        assert!(summary.contains("workflow:"));
+        assert!(summary.contains("nodes ("));
+    }
+
+    #[test]
+    fn unregistered_workflow_context_is_rejected() {
+        let regs = workflow_regs();
+        let err =
+            resolve_workflow_context(&regs, "no-such-workflow").expect_err("unknown id rejected");
+        assert!(matches!(err, ApiError::NotFound { .. }));
+    }
+
+    #[test]
+    fn disabled_workflow_context_is_rejected() {
+        // A fresh registry: `register_item_skip` would keep the runnable
+        // entry already registered under the same id.
+        let regs = ResourceRegistries::new();
+        let mut template = wf_resource::predefined::workflow::create_prefetch_workflow();
+        template.enabled = Some(false);
+        register_item_skip(&regs.workflows, "wf-context-test".into(), template);
+        let err = resolve_workflow_context(&regs, "wf-context-test")
+            .expect_err("disabled workflow must not inject");
+        assert!(matches!(err, ApiError::NotFound { .. }));
     }
 }

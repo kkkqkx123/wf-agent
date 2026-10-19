@@ -47,6 +47,15 @@ pub struct RunAgentLoopBody {
     #[serde(default)]
     #[schema(value_type = Option<Value>)]
     file_scope: Option<wf_types::config::file_scope::ExecutionFileScope>,
+    /// Caller-requested run mode: `chat` runs a tool-free plain-chat loop;
+    /// missing or `standard` keeps the full agent loop. Translated at the
+    /// composition boundary, never stored on the config.
+    #[serde(default)]
+    mode: Option<String>,
+    /// Optional workflow template id injected as a volatile context message;
+    /// unknown or non-runnable templates are rejected as not found.
+    #[serde(default)]
+    workflow_id: Option<String>,
     #[serde(default)]
     context: HashMap<String, Value>,
     #[schema(value_type = Option<Vec<Value>>)]
@@ -92,11 +101,6 @@ pub(crate) fn params_from_body(
         history_normalization: false,
         checkpoint_message_interval: body.checkpoint_message_interval.filter(|n| *n > 0),
     };
-    let input = wf_api::AgentLoopInput {
-        message: body.message,
-        context: body.context,
-        conversation: body.conversation.unwrap_or_default(),
-    };
     // Composition boundary: resolve the agent template (built-in
     // `@standard/main` default, user overrides first) into a fully-resolved
     // config before the request reaches the execution APIs. The shared prompt
@@ -107,9 +111,40 @@ pub(crate) fn params_from_body(
         Some(state.ctx.tool_registry.as_ref()),
         state.ctx.metrics.as_deref(),
     );
-    wf_api::agent::composition::resolve_run_params(&env, {
-        wf_api::agent::agent_execution::RunAgentLoopParams::new(config, input)
-    })
+    let mut config = config;
+    wf_api::agent::composition::apply_loop_mode(body.mode.as_deref(), &mut config)?;
+    let input = wf_api::AgentLoopInput {
+        message: body.message,
+        context: body.context,
+        conversation: body.conversation.unwrap_or_default(),
+    };
+    let mut params = wf_api::agent::composition::resolve_run_params(
+        &env,
+        wf_api::agent::agent_execution::RunAgentLoopParams::new(config, input),
+    )?;
+    // Workflow context lands after prompt assembly so the marked volatile
+    // message survives this round's assembly and is stripped on the next
+    // round's import; the template is resolved and gated here, not by the
+    // caller.
+    if let Some(workflow_id) = body
+        .workflow_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        let summary =
+            wf_api::agent::composition::resolve_workflow_context(
+                state.ctx.registries.as_ref(),
+                workflow_id,
+            )?;
+        params
+            .input
+            .conversation
+            .push(wf_api::dynamic_context_message(format!(
+                "Selected workflow context:\n{summary}"
+            )));
+    }
+    Ok(params)
 }
 
 #[derive(Serialize, ToSchema)]

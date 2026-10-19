@@ -26,6 +26,8 @@
 		<Composer
 			bind:model={controller.model}
 			bind:agent={controller.agentId}
+			bind:workflow={controller.workflowId}
+			bind:mode={controller.loopMode}
 			busy={chatStream.active}
 			draftKey={selectedId ?? NEW_SESSION}
 			suggestions={SUGGESTIONS}

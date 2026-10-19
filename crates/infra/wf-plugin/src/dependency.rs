@@ -10,14 +10,35 @@ pub struct ResolvedGraph {
     pub missing: Vec<String>,
     pub version_mismatches: Vec<String>,
     pub global_conflicts: Vec<String>,
+    pub optional_warnings: Vec<String>,
+}
+
+struct ParsedConstraint {
+    source: String,
+    raw: String,
+    req: semver::VersionReq,
+}
+
+/// Probe whether a set of required constraints admits any version. Uses a
+/// fixed candidate list covering common major ranges; conclusive for the
+/// usual caret and range constraints without implementing a solver.
+fn required_constraints_admit_some(reqs: &[semver::VersionReq]) -> bool {
+    const CANDIDATES: [&str; 10] = [
+        "0.1.0", "0.9.0", "1.0.0", "1.5.0", "1.6.0", "1.9.0", "2.0.0", "2.5.0", "3.0.0", "10.0.0",
+    ];
+    CANDIDATES.iter().any(|raw| {
+        semver::Version::parse(raw)
+            .map(|version| reqs.iter().all(|req| req.matches(&version)))
+            .unwrap_or(false)
+    })
 }
 
 pub fn resolve_dependencies(manifests: &[PluginManifest]) -> PluginResult<ResolvedGraph> {
     let mut version_mismatches = Vec::new();
+    let mut optional_warnings = Vec::new();
 
-    // Validate semver for all plugin versions
     for m in manifests {
-        if semver::Version::parse(&m.version).is_err() {
+        if !crate::manifest::is_valid_plugin_version(&m.version) {
             version_mismatches.push(format!(
                 "{}: invalid version '{}'. Provide a valid semver version (e.g. '1.0.0').",
                 m.id, m.version
@@ -25,88 +46,119 @@ pub fn resolve_dependencies(manifests: &[PluginManifest]) -> PluginResult<Resolv
         }
     }
 
-    // Validate dependency version requirements
+    let versions: HashMap<&str, Option<semver::Version>> = manifests
+        .iter()
+        .map(|m| (m.id.as_str(), semver::Version::parse(&m.version).ok()))
+        .collect();
+
+    // Single parse pass over every declared constraint.
+    let mut required: HashMap<String, Vec<ParsedConstraint>> = HashMap::new();
+    let mut optional: HashMap<String, Vec<ParsedConstraint>> = HashMap::new();
     for m in manifests {
         for (dep_id, req_str) in &m.dependencies {
-            if let Some(dep) = manifests.iter().find(|d| d.id == *dep_id) {
-                if let Ok(req) = semver::VersionReq::parse(req_str) {
-                    if let Ok(ver) = semver::Version::parse(&dep.version) {
-                        if !req.matches(&ver) {
-                            version_mismatches.push(format!(
-                                "{}: dependency {} requires '{}', found '{}'. Update plugin '{}' to a version satisfying '{}' or update plugin '{}' to relax the requirement.",
-                                m.id, dep_id, req_str, dep.version, dep_id, req_str, m.id
-                            ));
-                        }
-                    }
+            match semver::VersionReq::parse(req_str) {
+                Ok(req) => required.entry(dep_id.clone()).or_default().push(
+                    ParsedConstraint {
+                        source: m.id.clone(),
+                        raw: req_str.clone(),
+                        req,
+                    },
+                ),
+                Err(_) => version_mismatches.push(format!(
+                    "{}: dependency {} has invalid requirement '{}'. Provide a valid semver requirement (e.g. '^1.0.0').",
+                    m.id, dep_id, req_str
+                )),
+            }
+        }
+        for (dep_id, req_str) in &m.optional_dependencies {
+            match semver::VersionReq::parse(req_str) {
+                Ok(req) => optional.entry(dep_id.clone()).or_default().push(
+                    ParsedConstraint {
+                        source: m.id.clone(),
+                        raw: req_str.clone(),
+                        req,
+                    },
+                ),
+                Err(_) => optional_warnings.push(format!(
+                    "{}: optional dependency {} has invalid requirement '{}'. Provide a valid semver requirement (e.g. '^1.0.0').",
+                    m.id, dep_id, req_str
+                )),
+            }
+        }
+    }
+
+    // Required constraints against the installed version.
+    for (dep_id, constraints) in &required {
+        if let Some(Some(installed)) = versions.get(dep_id.as_str()) {
+            for constraint in constraints {
+                if !constraint.req.matches(installed) {
+                    version_mismatches.push(format!(
+                        "{}: dependency {} requires '{}', found '{}'. Update plugin '{}' to a version satisfying '{}' or update plugin '{}' to relax the requirement.",
+                        constraint.source,
+                        dep_id,
+                        constraint.raw,
+                        installed,
+                        dep_id,
+                        constraint.raw,
+                        constraint.source
+                    ));
                 }
             }
         }
     }
 
-    // Validate optional dependencies version when present
-    for m in manifests {
-        for (dep_id, req_str) in &m.optional_dependencies {
-            if let Some(dep) = manifests.iter().find(|d| d.id == *dep_id) {
-                if let Ok(req) = semver::VersionReq::parse(req_str) {
-                    if let Ok(ver) = semver::Version::parse(&dep.version) {
-                        if !req.matches(&ver) {
-                            version_mismatches.push(format!(
-                                "{}: optional dependency {} requires '{}', found '{}'. Update plugin '{}' to a version satisfying '{}' or update plugin '{}' to relax the requirement.",
-                                m.id, dep_id, req_str, dep.version, dep_id, req_str, m.id
-                            ));
-                        }
-                    }
+    // Optional constraints never block; mismatches become warnings.
+    for (dep_id, constraints) in &optional {
+        if let Some(Some(installed)) = versions.get(dep_id.as_str()) {
+            for constraint in constraints {
+                if !constraint.req.matches(installed) {
+                    optional_warnings.push(format!(
+                        "{}: optional dependency {} requires '{}', found '{}'. Update plugin '{}' to a version satisfying '{}' or update plugin '{}' to relax the requirement; continuing without it.",
+                        constraint.source,
+                        dep_id,
+                        constraint.raw,
+                        installed,
+                        dep_id,
+                        constraint.raw,
+                        constraint.source
+                    ));
                 }
-            }
-        }
-    }
-
-    // Build global constraint table and detect cross-plugin conflicts.
-    // Constraints are stored as owned strings to avoid lifetime issues.
-    let mut global_constraints: HashMap<String, Vec<(String, String)>> = HashMap::new();
-    for m in manifests {
-        for (dep_id, req_str) in &m.dependencies {
-            if semver::VersionReq::parse(req_str).is_ok() {
-                global_constraints
-                    .entry(dep_id.clone())
-                    .or_default()
-                    .push((m.id.clone(), req_str.clone()));
-            }
-        }
-        for (dep_id, req_str) in &m.optional_dependencies {
-            if semver::VersionReq::parse(req_str).is_ok() {
-                global_constraints
-                    .entry(dep_id.clone())
-                    .or_default()
-                    .push((m.id.clone(), req_str.clone()));
             }
         }
     }
 
     let mut global_conflicts = Vec::new();
-    for (dep_id, constraints) in &global_constraints {
+    for (dep_id, constraints) in &required {
         if constraints.len() < 2 {
             continue;
         }
-        let dep_ver = manifests
-            .iter()
-            .find(|m| m.id == *dep_id)
-            .and_then(|m| semver::Version::parse(&m.version).ok());
-        if let Some(ver) = dep_ver {
-            let all_match = constraints.iter().all(|(_, req_str)| {
-                semver::VersionReq::parse(req_str)
-                    .map(|r| r.matches(&ver))
-                    .unwrap_or(false)
-            });
-            if !all_match {
-                let sources: Vec<String> = constraints
-                    .iter()
-                    .map(|(src, r)| format!("{src} requires '{r}'"))
-                    .collect();
-                global_conflicts.push(format!(
-                    "plugin '{dep_id}' version {ver} fails to satisfy conflicting constraints: {}. Align the dependency requirements across these plugins or update plugin '{dep_id}' to a version satisfying all of them.",
-                    sources.join(", ")
-                ));
+        match versions.get(dep_id.as_str()) {
+            Some(Some(installed)) => {
+                let all_match = constraints.iter().all(|c| c.req.matches(installed));
+                if !all_match {
+                    let sources: Vec<String> = constraints
+                        .iter()
+                        .map(|c| format!("{} requires '{}'", c.source, c.raw))
+                        .collect();
+                    global_conflicts.push(format!(
+                        "plugin '{dep_id}' version {installed} fails to satisfy conflicting constraints: {}. Align the dependency requirements across these plugins or update plugin '{dep_id}' to a version satisfying all of them.",
+                        sources.join(", ")
+                    ));
+                }
+            }
+            _ => {
+                let reqs: Vec<semver::VersionReq> =
+                    constraints.iter().map(|c| c.req.clone()).collect();
+                if !required_constraints_admit_some(&reqs) {
+                    let sources: Vec<String> = constraints
+                        .iter()
+                        .map(|c| format!("{} requires '{}'", c.source, c.raw))
+                        .collect();
+                    global_conflicts.push(format!(
+                        "constraints on missing plugin '{dep_id}' are mutually exclusive: {}. Align the dependency requirements across these plugins.",
+                        sources.join(", ")
+                    ));
+                }
             }
         }
     }
@@ -137,8 +189,28 @@ pub fn resolve_dependencies(manifests: &[PluginManifest]) -> PluginResult<Resolv
     }
 
     if !missing.is_empty() {
-        let err = missing.join(", ");
-        return Err(PluginError::DependencyNotSatisfied(err));
+        let mut details = Vec::new();
+        for name in &missing {
+            match required.get(name) {
+                Some(constraints) => {
+                    let sources: Vec<String> = constraints
+                        .iter()
+                        .map(|c| format!("{} requires '{}'", c.source, c.raw))
+                        .collect();
+                    let mut detail = format!("missing plugin '{name}' ({})", sources.join(", "));
+                    let reqs: Vec<semver::VersionReq> =
+                        constraints.iter().map(|c| c.req.clone()).collect();
+                    if constraints.len() > 1 && !required_constraints_admit_some(&reqs) {
+                        detail.push_str(
+                            "; the listed constraints are mutually exclusive, align them across the requiring plugins",
+                        );
+                    }
+                    details.push(detail);
+                }
+                None => details.push(format!("missing plugin '{name}'")),
+            }
+        }
+        return Err(PluginError::DependencyNotSatisfied(details.join("; ")));
     }
 
     let mut in_degree: HashMap<&str, usize> = HashMap::new();
@@ -205,6 +277,7 @@ pub fn resolve_dependencies(manifests: &[PluginManifest]) -> PluginResult<Resolv
         missing,
         version_mismatches,
         global_conflicts,
+        optional_warnings,
     })
 }
 
@@ -380,5 +453,38 @@ mod tests {
         assert!(a_pos < c_pos);
         assert!(b_pos < d_pos);
         assert!(c_pos < d_pos);
+    }
+
+    #[test]
+    fn test_optional_mismatch_warns_without_blocking() {
+        let mut a = make_manifest("a", &[]);
+        a.version = "1.0.0".into();
+        let mut b = make_manifest("b", &[]);
+        b.optional_dependencies.insert("a".into(), "^2.0.0".into());
+        let graph = resolve_dependencies(&[a, b]).unwrap();
+        assert!(graph.version_mismatches.is_empty());
+        assert!(graph.global_conflicts.is_empty());
+        assert_eq!(graph.optional_warnings.len(), 1);
+    }
+
+    #[test]
+    fn test_invalid_requirement_is_reported() {
+        let mut b = make_manifest("b", &["a"]);
+        b.dependencies.insert("a".into(), "not-a-req".into());
+        let mut a = make_manifest("a", &[]);
+        a.version = "1.0.0".into();
+        let graph = resolve_dependencies(&[a, b]).unwrap();
+        assert!(!graph.version_mismatches.is_empty());
+    }
+
+    #[test]
+    fn test_missing_with_exclusive_constraints_notes_conflict() {
+        let mut b = make_manifest("b", &["gone"]);
+        b.dependencies.insert("gone".into(), "^1.0.0".into());
+        let mut c = make_manifest("c", &["gone"]);
+        c.dependencies.insert("gone".into(), "^2.0.0".into());
+        let err = resolve_dependencies(&[b, c]).unwrap_err();
+        let text = err.to_string();
+        assert!(text.contains("mutually exclusive"), "got: {text}");
     }
 }

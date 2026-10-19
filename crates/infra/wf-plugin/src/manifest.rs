@@ -6,3 +6,9 @@ pub use wf_plugin_sdk::manifest::{
     LuaConfig, PluginLlmProviderDefinition, PluginManifest, PluginModelDiscovery, PluginModelInfo,
     PluginPermission, PluginType, WasmConfig,
 };
+
+/// Single predicate for plugin version validity shared by admission and
+/// dependency resolution.
+pub fn is_valid_plugin_version(version: &str) -> bool {
+    semver::Version::parse(version).is_ok()
+}

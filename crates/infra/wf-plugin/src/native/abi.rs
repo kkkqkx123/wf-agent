@@ -49,7 +49,7 @@ pub fn load_abi_info(lib: &libloading::Library) -> PluginResult<PluginAbiResult>
     };
     let manifest_bytes = load_manifest(*get_manifest)?;
 
-    check_abi_version(lib)?;
+    let negotiated_abi_version = check_abi_version(lib)?;
 
     let dispatch_handler: Option<DispatchFn> = unsafe {
         lib.get(b"wf_plugin_dispatch_handler")
@@ -90,6 +90,7 @@ pub fn load_abi_info(lib: &libloading::Library) -> PluginResult<PluginAbiResult>
 
     Ok(PluginAbiResult {
         manifest_bytes,
+        negotiated_abi_version,
         dispatch_handler,
         on_load,
         register_contributions,
@@ -100,7 +101,7 @@ pub fn load_abi_info(lib: &libloading::Library) -> PluginResult<PluginAbiResult>
     })
 }
 
-fn check_abi_version(lib: &libloading::Library) -> PluginResult<()> {
+fn check_abi_version(lib: &libloading::Library) -> PluginResult<u32> {
     let supported_fn: Option<libloading::Symbol<extern "C" fn(*mut u32, *mut usize) -> i32>> =
         unsafe { lib.get(b"wf_plugin_supported_abi_versions").ok() };
     let Some(sym) = supported_fn else {
@@ -113,7 +114,7 @@ fn check_abi_version(lib: &libloading::Library) -> PluginResult<()> {
 
 fn check_supported_abi_versions(
     supported_fn: extern "C" fn(*mut u32, *mut usize) -> i32,
-) -> PluginResult<()> {
+) -> PluginResult<u32> {
     let mut len: usize = 0;
     let result = supported_fn(std::ptr::null_mut(), &mut len as *mut usize);
     if result != 0 {
@@ -135,19 +136,25 @@ fn check_supported_abi_versions(
         ));
     }
     buf.truncate(written);
-    if WF_SUPPORTED_ABI_VERSIONS.iter().any(|v| buf.contains(v)) {
-        Ok(())
-    } else {
-        Err(crate::error::PluginError::NativeError(format!(
+    let mut common: Vec<u32> = buf
+        .iter()
+        .copied()
+        .filter(|v| WF_SUPPORTED_ABI_VERSIONS.contains(v))
+        .collect();
+    common.sort_unstable();
+    match common.pop() {
+        Some(version) => Ok(version),
+        None => Err(crate::error::PluginError::NativeError(format!(
             "plugin supports abi versions {buf:?}, host supports {WF_SUPPORTED_ABI_VERSIONS:?}; \
              no compatible version found. Update the plugin or upgrade the host."
-        )))
+        ))),
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct PluginAbiResult {
     pub manifest_bytes: Vec<u8>,
+    pub negotiated_abi_version: u32,
     pub dispatch_handler: Option<DispatchFn>,
     pub on_load: Option<extern "C" fn(*const PluginContextC) -> i32>,
     pub register_contributions: Option<extern "C" fn(*mut ContributionRegistrarC) -> i32>,

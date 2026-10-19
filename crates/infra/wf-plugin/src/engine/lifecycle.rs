@@ -47,6 +47,9 @@ impl PluginEngine {
                 graph.global_conflicts.join("; "),
             ));
         }
+        for warning in &graph.optional_warnings {
+            tracing::warn!("optional dependency issue: {warning}");
+        }
 
         let count = self.registry.len();
         tracing::info!("discovered {} plugin(s)", count);

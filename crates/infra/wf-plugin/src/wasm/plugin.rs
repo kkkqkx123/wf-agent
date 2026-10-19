@@ -272,7 +272,7 @@ pub(crate) async fn fetch_declaration(
     inner: &WasmPluginInner,
 ) -> PluginResult<WasmContributionDecl> {
     let mut session = inner.pool.acquire().await?;
-    if let Err(e) = abi::negotiate_abi_version(
+    let negotiated = match abi::negotiate_abi_version(
         &mut session,
         &inner.engine,
         &inner.manifest.id,
@@ -280,11 +280,26 @@ pub(crate) async fn fetch_declaration(
     )
     .await
     {
-        let result: PluginResult<WasmContributionDecl> = Err(e);
-        drain_stdio(inner, export::SUPPORTED_ABI_VERSIONS, &session);
-        observe(inner, &session, &result);
-        inner.pool.release(session, false).await;
-        return result;
+        Ok(version) => version,
+        Err(e) => {
+            let result: PluginResult<WasmContributionDecl> = Err(e);
+            drain_stdio(inner, export::SUPPORTED_ABI_VERSIONS, &session);
+            observe(inner, &session, &result);
+            inner.pool.release(session, false).await;
+            return result;
+        }
+    };
+    if let Some(expected) = abi::selected_entry_version(&inner.manifest) {
+        if expected != negotiated {
+            let result: PluginResult<WasmContributionDecl> = Err(PluginError::LoadFailed(format!(
+                "plugin '{}' manifest selects entry for abi version {expected} but the guest negotiated version {negotiated}. Check versioned_entry_points keys or the artifact placed at the selected path.",
+                inner.manifest.id
+            )));
+            drain_stdio(inner, export::SUPPORTED_ABI_VERSIONS, &session);
+            observe(inner, &session, &result);
+            inner.pool.release(session, false).await;
+            return result;
+        }
     }
     let result = fetch_declaration_inner(inner, &mut session).await;
     drain_stdio(inner, export::REGISTER, &session);

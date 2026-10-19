@@ -18,7 +18,9 @@
 pub const WF_WASM_ABI_VERSION_V1: u32 = 1;
 
 /// WIT world implemented by the component-model host
-/// (`wasm/component.rs` against `wit/plugin.wit`).
+/// (`wasm/component.rs` against `wit/plugin.wit`). Compatibility compares
+/// only the major version; the full string stays pinned while minor
+/// differences use feature detection.
 pub const WF_WASM_WORLD: &str = "wf:plugin@1.0.0";
 
 /// Host ABI versions supported by this host, highest first. Negotiation

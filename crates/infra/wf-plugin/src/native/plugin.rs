@@ -12,7 +12,7 @@ use crate::error::{PluginError, PluginResult};
 use crate::manifest::PluginManifest;
 use crate::native::abi::{
     load_abi_info, ptr_to_string, ContributionRegistrarC, DispatchFn, PluginAbiResult,
-    PluginContextC, WF_ABI_VERSION_V1,
+    PluginContextC,
 };
 use crate::plugin::Plugin;
 
@@ -51,23 +51,28 @@ impl Plugin for NativePlugin {
     }
 
     async fn on_load(&self, ctx: &PluginContext) -> PluginResult<()> {
-        call_hook_fn(self.abi.on_load, ctx)
+        call_hook_fn(self.abi.on_load, self.abi.negotiated_abi_version, ctx)
     }
 
     async fn on_unload(&self, ctx: &PluginContext) -> PluginResult<()> {
-        call_hook_fn(self.abi.on_unload, ctx)
+        call_hook_fn(self.abi.on_unload, self.abi.negotiated_abi_version, ctx)
     }
 
     async fn on_activate(&self, ctx: &PluginContext) -> PluginResult<()> {
-        call_hook_fn(self.abi.on_activate, ctx)
+        call_hook_fn(self.abi.on_activate, self.abi.negotiated_abi_version, ctx)
     }
 
     async fn on_deactivate(&self, ctx: &PluginContext) -> PluginResult<()> {
-        call_hook_fn(self.abi.on_deactivate, ctx)
+        call_hook_fn(self.abi.on_deactivate, self.abi.negotiated_abi_version, ctx)
     }
 
     async fn on_config_change(&self, config: &serde_json::Value) -> PluginResult<()> {
-        call_config_hook_fn(self.abi.on_config_change, self.manifest.id.as_str(), config)
+        call_config_hook_fn(
+            self.abi.on_config_change,
+            self.abi.negotiated_abi_version,
+            self.manifest.id.as_str(),
+            config,
+        )
     }
 
     fn register_contributions(
@@ -90,7 +95,7 @@ impl Plugin for NativePlugin {
         let context_ptr = Box::into_raw(boxed) as *mut std::ffi::c_void;
 
         let c_registrar = ContributionRegistrarC {
-            abi_version: WF_ABI_VERSION_V1,
+            abi_version: self.abi.negotiated_abi_version,
             context: context_ptr,
             register_node_type: Some(ffi_register_node_type),
             register_tool_type: Some(ffi_register_tool_type),
@@ -149,6 +154,7 @@ unsafe fn registrar_from_ctx(
 
 fn call_config_hook_fn(
     hook: Option<extern "C" fn(*const PluginContextC) -> i32>,
+    abi_version: u32,
     plugin_id: &str,
     config: &serde_json::Value,
 ) -> PluginResult<()> {
@@ -161,7 +167,7 @@ fn call_config_hook_fn(
             let config_c = CString::new(config_json)
                 .map_err(|e| PluginError::NativeError(format!("CString error: {}", e)))?;
             let c_ctx = PluginContextC {
-                abi_version: WF_ABI_VERSION_V1,
+                abi_version,
                 plugin_id: plugin_id_c.as_ptr(),
                 config_json: config_c.as_ptr(),
             };
@@ -179,6 +185,7 @@ fn call_config_hook_fn(
 
 fn call_hook_fn(
     hook: Option<extern "C" fn(*const PluginContextC) -> i32>,
+    abi_version: u32,
     ctx: &PluginContext,
 ) -> PluginResult<()> {
     match hook {
@@ -192,7 +199,7 @@ fn call_hook_fn(
                 .map_err(|e| PluginError::NativeError(format!("CString error: {}", e)))?;
 
             let c_ctx = PluginContextC {
-                abi_version: WF_ABI_VERSION_V1,
+                abi_version,
                 plugin_id: plugin_id_c.as_ptr(),
                 config_json: config_c.as_ptr(),
             };

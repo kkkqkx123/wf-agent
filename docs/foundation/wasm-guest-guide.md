@@ -37,7 +37,7 @@ Wasm 插件有两条加载路径，宿主按二进制头部自动分流，上层
 | `memory` | linear memory | 是 | 宿主读写 JSON 的通道 |
 | `alloc` | `(size: i32) -> i32` | 有输入调用时必需 | bump 分配器即可 |
 | `dealloc` | `(ptr: i32, len: i32)` | 否 | 缺省时泄漏以单次调用为界 |
-| `wf_abi_version` | `() -> u32` | 否 | 缺省视为 v1；返回非 1 则加载失败 |
+| `wf_supported_abi_versions` | `() -> i64` 打包 `(ptr, len)` 指向 `u32` 数组 | 是 | 缺失直接加载失败；与宿主取交集选最高版本，无交集则加载失败 |
 | `wf_last_error` | `() -> i64` | 否 | 与 `wf_register` 同一打包 `(ptr, len)`；钩子返回非 0 时宿主读取并拼入错误 |
 | `wf_on_load` 等 5 个钩子 | `(ptr: i32, len: i32) -> i32` | 否 | 缺省视同成功；返回非 0 即失败，错误含 code 与 `wf_last_error` 明细 |
 | `wf_register` | `() -> i64` | 有贡献时必需 | 返回打包的 `(ptr, len)`，指向贡献声明 JSON |
@@ -127,7 +127,7 @@ store_pool_size = 0     # 缺省 0（关闭）；>0 时启用实例池：Core �
 |---|---|---|
 | `does not export 'memory'/'alloc'` | 导出缺失 | 检查 `crate-type` 与 `#[no_mangle]`，确认链接后符号存在（`wasm-tools print` 或 `wasm2js` 查看） |
 | `hook 'wf_on_load' failed with code 7: bad config` | 钩子返回非 0 | code 为 guest 返回码；冒号后为 `wf_last_error` 明细（无该导出时仅 code） |
-| `uses incompatible abi version 99, host expects 1` | `wf_abi_version` 与宿主不一致 | 升级 guest/宿主使版本一致；删除该导出则按 v1 处理 |
+| `no compatible version found` / `does not export 'wf_supported_abi_versions'` | 握手失败：缺失导出、空列表或与宿主无交集 | 实现 `wf_supported_abi_versions` 并声明宿主支持的主版本；缺失导出不再视为 v1 |
 | `Timeout` | epoch 中断触发 | guest 陷入长循环；检查 `call_timeout_ms` 与 fuel 预算 |
 | `exhausted its fuel budget` | fuel 耗尽 | 提高 `fuel_limit`，或检查意外循环 |
 | `oversized message` | guest 返回的 `(ptr, len)` 越界 | 检查打包顺序（低 32 位指针，高 32 位长度）与分配器 |

@@ -69,19 +69,20 @@ pub async fn load_wasm_plugin_verified_with_base(
 /// entries, parent traversal, and escapes from the base directory.
 /// Shared by the default and verified load entries.
 ///
-/// The host negotiates the highest mutually-supported ABI version; while
-/// only v1 exists the negotiated version is always v1, so the v1 entry is
-/// selected here. When future host versions add v2, this picks the highest
-/// supported entry present in `versioned_entry_points`, falling back to
-/// `entry_point` for single-version plugins.
+/// Manifest declaration takes priority for entry selection while the guest
+/// export verifies it after load. This picks the host-preferred entry from
+/// `versioned_entry_points` and falls back to `entry_point` for
+/// single-version plugins; a mismatch between the selected key and the
+/// guest export fails loading during negotiation.
 pub(crate) fn resolve_entry_point(manifest: &PluginManifest) -> String {
-    let host_versions = wf_plugin_sdk::wasm::WF_WASM_SUPPORTED_ABI_VERSIONS;
-    let negotiated = *host_versions.iter().max().unwrap_or(&1);
-    manifest
-        .versioned_entry_points
-        .get(&negotiated)
-        .cloned()
-        .unwrap_or_else(|| manifest.entry_point.clone())
+    match super::abi::selected_entry_version(manifest) {
+        Some(version) => manifest
+            .versioned_entry_points
+            .get(&version)
+            .cloned()
+            .unwrap_or_else(|| manifest.entry_point.clone()),
+        None => manifest.entry_point.clone(),
+    }
 }
 
 /// All artifact paths a plugin may load: the default entry plus every

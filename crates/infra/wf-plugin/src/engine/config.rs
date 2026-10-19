@@ -114,7 +114,7 @@ pub(crate) fn validate_manifest(manifest: &PluginManifest) -> Option<Vec<String>
     }
     if manifest.version.is_empty() {
         errors.push("version is required".into());
-    } else if semver::Version::parse(&manifest.version).is_err() {
+    } else if !crate::manifest::is_valid_plugin_version(&manifest.version) {
         errors.push(format!(
             "version '{}' is not valid semver",
             manifest.version

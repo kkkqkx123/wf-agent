@@ -8,6 +8,7 @@ use wf_plugin_sdk::wasm::{
 use super::policy::WasmLimits;
 use super::pool::{outer_timeout_ms, PooledSession, WasmStoreState};
 use crate::error::{PluginError, PluginResult};
+use crate::manifest::PluginManifest;
 
 pub use export::*;
 
@@ -104,6 +105,18 @@ pub fn check_hook_status_with_detail(
                 "plugin '{plugin_id}' hook '{export_name}' failed with code {code}"
             ))),
         }
+    }
+}
+
+/// Manifest declaration takes priority for entry selection while the
+/// guest export verifies it. Returns the versioned key backing the
+/// resolved entry, or `None` when the fallback `entry_point` applies.
+pub fn selected_entry_version(manifest: &PluginManifest) -> Option<u32> {
+    let negotiated = WF_WASM_SUPPORTED_ABI_VERSIONS.iter().max().copied()?;
+    if manifest.versioned_entry_points.contains_key(&negotiated) {
+        Some(negotiated)
+    } else {
+        None
     }
 }
 

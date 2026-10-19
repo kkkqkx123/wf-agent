@@ -268,7 +268,7 @@ async fn build_writes_metadata_with_trigger_and_chain_position() {
     let custom = metadata.get("customFields").unwrap().as_object().unwrap();
     assert_eq!(
         custom.get(FORMAT_VERSION_FIELD).and_then(|v| v.as_str()),
-        Some("1.1.0")
+        Some("1")
     );
     assert!(custom.get(CREATED_AT_FIELD).is_some());
     assert_eq!(

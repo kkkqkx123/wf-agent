@@ -293,30 +293,7 @@ mod tests {
         assert!(metadata.contains_key("customFields"));
     }
 
-    #[test]
-    fn legacy_snake_case_json_still_deserializes() {
-        use wf_types::checkpoint::BaseCheckpointCore;
-
-        let legacy_json = r#"{
-            "id": "cp-legacy",
-            "type": "delta",
-            "base_checkpoint_id": "cp-full",
-            "previous_checkpoint_id": "cp-full",
-            "timestamp": 1700000000000,
-            "delta": {"added_variables": {"a": 1}}
-        }"#;
-
-        let envelope: BaseCheckpointCore<serde_json::Value, serde_json::Value> =
-            serde_json::from_str(legacy_json).unwrap();
-        assert_eq!(
-            envelope.r#type,
-            Some(wf_types::checkpoint::CheckpointType::Delta)
-        );
-        assert_eq!(envelope.base_checkpoint_id.as_deref(), Some("cp-full"));
-        assert_eq!(envelope.previous_checkpoint_id.as_deref(), Some("cp-full"));
-    }
-
-    #[test]
+        #[test]
     fn serializes_to_ts_compatible_uppercase_type_and_camelcase() {
         use wf_types::checkpoint::BaseCheckpointCore;
 

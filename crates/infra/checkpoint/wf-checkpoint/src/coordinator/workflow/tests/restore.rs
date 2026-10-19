@@ -107,53 +107,6 @@ async fn fallback_to_full_when_chain_base_missing() {
 }
 
 #[tokio::test]
-async fn restore_migrates_old_format_version() {
-    let coord = make_coordinator();
-    let ctx = coord
-        .prepare("exec-1", CheckpointTiming::BeforeExecute)
-        .await
-        .unwrap();
-    let mut cp = coord.build(ctx, make_snapshot()).await.unwrap();
-    cp.format_version = Some("1.0.0".to_string());
-    coord.persist(&cp, "exec-1").await.unwrap();
-
-    let entity = coord.restore(&cp.id).await.unwrap();
-    assert_eq!(entity.execution_id, "exec-1");
-}
-
-#[tokio::test]
-async fn restore_rejects_incompatible_version() {
-    let coord = make_coordinator();
-    let ctx = coord
-        .prepare("exec-1", CheckpointTiming::BeforeExecute)
-        .await
-        .unwrap();
-    let mut cp = coord.build(ctx, make_snapshot()).await.unwrap();
-    cp.format_version = Some("0.5.0".to_string());
-    coord.persist(&cp, "exec-1").await.unwrap();
-
-    let err = coord.restore(&cp.id).await.unwrap_err();
-    assert!(matches!(err, CheckpointError::VersionIncompatible { .. }));
-}
-
-#[tokio::test]
-async fn restore_future_version_rejected() {
-    let coord = make_coordinator();
-    let ctx = coord
-        .prepare("exec-1", CheckpointTiming::BeforeExecute)
-        .await
-        .unwrap();
-    let mut cp = coord.build(ctx, make_snapshot()).await.unwrap();
-    cp.format_version = Some("9.0.0".to_string());
-    coord.persist(&cp, "exec-1").await.unwrap();
-
-    assert!(matches!(
-        coord.restore(&cp.id).await.unwrap_err(),
-        CheckpointError::VersionIncompatible { .. }
-    ));
-}
-
-#[tokio::test]
 async fn restore_child_hierarchy_summary() {
     use wf_types::execution::{ExecutionHierarchy, ExecutionType};
 
@@ -207,10 +160,10 @@ async fn restore_child_hierarchy_summary() {
 #[tokio::test]
 async fn version_manager_is_exposed() {
     let coord = make_coordinator();
-    assert_eq!(coord.version_manager().current_version(), "1.1.0");
+    assert_eq!(coord.version_manager().current_version(), "1");
     let vm = VersionManager::new();
     let coord = make_coordinator().with_version_manager(vm);
-    assert_eq!(coord.version_manager().current_version(), "1.1.0");
+    assert_eq!(coord.version_manager().current_version(), "1");
 }
 
 #[tokio::test]

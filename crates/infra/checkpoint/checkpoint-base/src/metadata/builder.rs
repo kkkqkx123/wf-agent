@@ -367,10 +367,7 @@ mod tests {
             1_700_000_000_000,
             crate::version_manager::CURRENT_FORMAT_VERSION,
         );
-        assert_eq!(
-            state.format_version,
-            crate::version_manager::CURRENT_FORMAT_VERSION
-        );
+        assert_eq!(state.format_version, crate::version_manager::CURRENT_FORMAT_VERSION);
         assert_eq!(state.status, Some("active".to_string()));
     }
 
@@ -477,7 +474,7 @@ mod tests {
             Some("desc".to_string()),
             vec!["trigger:MANUAL".to_string()],
             fields,
-            "1.1.0",
+            "1",
             1_700_000_000_000,
         )
         .unwrap();
@@ -492,7 +489,7 @@ mod tests {
         let custom = metadata.get("customFields").unwrap().as_object().unwrap();
         assert_eq!(
             custom.get(FORMAT_VERSION_FIELD),
-            Some(&serde_json::json!("1.1.0"))
+            Some(&serde_json::json!("1"))
         );
         assert!(custom.get(CREATED_AT_FIELD).is_some());
         assert_eq!(custom.get("node_id"), Some(&serde_json::json!("node-1")));
@@ -504,7 +501,7 @@ mod tests {
             None,
             vec![],
             HashMap::new(),
-            "1.1.0",
+            "1",
             1_700_000_000_000
         )
         .is_none());

@@ -47,15 +47,10 @@ pub struct CheckpointStateBase {
     pub hierarchy: Option<super::super::execution::ExecutionHierarchy>,
 }
 
-/// Wire-compatible `"FULL"` / `"DELTA"` literal union. Legacy snake_case
-/// values written by earlier Rust versions are still accepted when
-/// deserializing.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum CheckpointType {
-    #[serde(alias = "full")]
     Full,
-    #[serde(alias = "delta")]
     Delta,
 }
 
@@ -92,12 +87,9 @@ pub struct BaseCheckpointCore<TDelta, TSnapshot> {
     pub id: super::super::Id,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub r#type: Option<CheckpointType>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "base_checkpoint_id")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub base_checkpoint_id: Option<super::super::Id>,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        alias = "previous_checkpoint_id"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_checkpoint_id: Option<super::super::Id>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delta: Option<TDelta>,
@@ -107,10 +99,7 @@ pub struct BaseCheckpointCore<TDelta, TSnapshot> {
     pub timestamp: Option<super::super::Timestamp>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<super::super::Metadata>,
-    /// Checkpoint format version of this blob. Absent for blobs written
-    /// before version tracking was introduced (treated as the minimum
-    /// compatible version by the VersionManager).
-    #[serde(skip_serializing_if = "Option::is_none", alias = "format_version")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub format_version: Option<String>,
 }
 

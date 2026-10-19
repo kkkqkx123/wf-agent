@@ -42,8 +42,8 @@ list. One `encode_item` helper serves both single and batch saves.
 All backends store `(id, data, metadata, hash, data_size, compressed,
 created_at, updated_at)`. Every payload carries a full-stream SHA-256 hash
 verified on read; `created_at` is preserved across overwrites via upsert
-semantics. One internal `__schema_version__:<table>` row per table guards
-schema compatibility; application queries always exclude it.
+semantics. One internal `__schema_version__:<table>` row per table records
+the schema version (locked to 1); application queries always exclude it.
 
 | Backend            | Use for                        | Notes                                            |
 | ------------------ | ------------------------------ | ------------------------------------------------ |

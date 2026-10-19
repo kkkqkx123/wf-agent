@@ -83,36 +83,6 @@ async fn fallback_to_full_when_chain_base_missing() {
 }
 
 #[tokio::test]
-async fn restore_migrates_old_format_version() {
-    let coord = make_coordinator();
-    let ctx = coord
-        .prepare("loop-1", CheckpointTiming::BeforeExecute)
-        .await
-        .unwrap();
-    let mut cp = coord.build(ctx, make_snapshot()).await.unwrap();
-    cp.format_version = Some("1.0.0".to_string());
-    coord.persist(&cp, "loop-1").await.unwrap();
-
-    let entity = coord.restore(&cp.id).await.unwrap();
-    assert_eq!(entity.agent_loop_id, "loop-1");
-}
-
-#[tokio::test]
-async fn restore_rejects_incompatible_version() {
-    let coord = make_coordinator();
-    let ctx = coord
-        .prepare("loop-1", CheckpointTiming::BeforeExecute)
-        .await
-        .unwrap();
-    let mut cp = coord.build(ctx, make_snapshot()).await.unwrap();
-    cp.format_version = Some("0.5.0".to_string());
-    coord.persist(&cp, "loop-1").await.unwrap();
-
-    let err = coord.restore(&cp.id).await.unwrap_err();
-    assert!(matches!(err, CheckpointError::VersionIncompatible { .. }));
-}
-
-#[tokio::test]
 async fn restore_restores_file_checkpoint() {
     use checkpoint_file::file::{FileCheckpointManager, FileContentEntry};
 

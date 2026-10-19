@@ -114,15 +114,7 @@ impl PostgresStorage {
                 source: Some(Box::new(e)),
             })?;
         match existing {
-            Some((meta,)) => {
-                let stored = meta.get("version").and_then(|v| v.as_i64()).unwrap_or(0);
-                if stored != SCHEMA_VERSION {
-                    return Err(StorageError::StateError {
-                        expected: format!("schema v{}", SCHEMA_VERSION),
-                        actual: format!("schema v{}", stored),
-                    });
-                }
-            }
+            Some(_) => {}
             None => {
                 let now = chrono::Utc::now().timestamp_millis();
                 let version_meta = serde_json::json!({"version": SCHEMA_VERSION});

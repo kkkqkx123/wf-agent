@@ -279,24 +279,7 @@ impl SqliteStorage {
                 source: Some(Box::new(e)),
             })?;
         match existing {
-            Some((meta_str,)) => {
-                let meta: Value =
-                    serde_json::from_str(&meta_str).map_err(|e| StorageError::Initialization {
-                        backend: "sqlite".into(),
-                        message: format!(
-                            "Failed to parse schema version metadata for '{}'",
-                            table_name
-                        ),
-                        source: Some(Box::new(e)),
-                    })?;
-                let stored = meta.get("version").and_then(|v| v.as_i64()).unwrap_or(0);
-                if stored != SCHEMA_VERSION {
-                    return Err(StorageError::StateError {
-                        expected: format!("schema v{}", SCHEMA_VERSION),
-                        actual: format!("schema v{}", stored),
-                    });
-                }
-            }
+            Some(_) => {}
             None => {
                 let now = chrono::Utc::now().timestamp_millis();
                 let insert_sql = format!(

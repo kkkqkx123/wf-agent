@@ -49,6 +49,7 @@ require_cmd node "package.json dep merge (no jq dependency)"
 PREVIEW_ONLY_PATHS=(
 "src/lib/fixtures/"       # all local sample data
 ".env"                    # preview env overrides (VITE_USE_MOCK etc.)
+"src/lib/api/mock/"       # fixture-backed mock internals (router, routes, SSE)
 )
  
 # client.ts is special: on first run the preview doesn't have its own
@@ -182,6 +183,7 @@ info "Verifying mirror consistency (allowlist: fixtures/, api/client.ts, .env)"
 VERIFY_EXCLUDES=(
 --exclude="fixtures"        # preview-only sample data
 --exclude="client.ts"       # fixture-backed API client
+--exclude="mock"            # fixture-backed mock internals
 )
 
 if ! diff -qr "${VERIFY_EXCLUDES[@]}" "$SRC_DIR/src" "$DST_DIR/src"; then
@@ -223,7 +225,8 @@ echo "  - src/lib/stores/**/*      src/lib/types/**/*    src/lib/utils/**/*"
 echo "  - src/routes/**/*"
 echo
 echo "Preserved in apps/web-app-preview (not overwritten):"
-echo "  - src/lib/api/client.ts   (fixture-backed client)"
+echo "  - src/lib/api/client.ts   (fixture-backed client facade)"
+echo "  - src/lib/api/mock/**     (fixture-backed mock internals)"
 echo "  - src/lib/fixtures/**/*   (sample data)"
 echo "  - .env                    (preview env vars)"
 echo

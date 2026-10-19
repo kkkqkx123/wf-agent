@@ -508,7 +508,7 @@ mod tests {
         let CheckpointSub::RestoreAgent {
             id,
             checkpoint,
-            dry_run,
+            dry_run: _,
         } = sub
         else {
             panic!("expected restore-agent");

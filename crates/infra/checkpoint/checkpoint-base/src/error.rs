@@ -119,7 +119,7 @@ mod tests {
         assert!(e.to_string().contains("disk full"));
 
         // io::Error wraps into the Io variant.
-        let e: CheckpointError = std::io::Error::new(std::io::ErrorKind::Other, "eof").into();
+        let e: CheckpointError = std::io::Error::other("eof").into();
         assert!(matches!(e, CheckpointError::Io(_)));
         assert!(e.to_string().contains("eof"));
 

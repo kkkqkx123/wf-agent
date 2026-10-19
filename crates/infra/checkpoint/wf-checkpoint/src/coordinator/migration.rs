@@ -1,7 +1,7 @@
 use checkpoint_base::delta::CheckpointLoader;
 use checkpoint_base::error::CheckpointError;
 use checkpoint_base::serializer::CheckpointSerializer;
-use checkpoint_base::version_manager::{VersionManager, MIN_COMPATIBLE_VERSION};
+use checkpoint_base::version_manager::VersionManager;
 use checkpoint_state::state::CheckpointStateManager;
 use wf_types::checkpoint::BaseCheckpointCore;
 
@@ -42,9 +42,9 @@ where
                 id: checkpoint_id.to_string(),
             })?;
 
-    let version = checkpoint
-        .format_version()
-        .unwrap_or(MIN_COMPATIBLE_VERSION);
+    let version = checkpoint.format_version().ok_or_else(|| CheckpointError::Validation {
+        reason: "checkpoint missing format version".to_string(),
+    })?;
 
     let compatibility = version_manager.check_compatibility(version);
     if !compatibility.compatible {

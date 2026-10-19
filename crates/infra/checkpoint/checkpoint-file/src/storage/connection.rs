@@ -63,7 +63,7 @@ impl SqliteStorage {
 
     pub fn new_full_in_memory() -> StorageResult<Self> {
         let conn = Connection::open_in_memory().map_err(db_err)?;
-        super::migrations::initialize_full(&conn)?;
+        super::migrations::initialize_database(&conn)?;
         Ok(SqliteStorage {
             conn: Arc::new(Mutex::new(conn)),
             path: None,
@@ -81,7 +81,7 @@ impl SqliteStorage {
 
     pub fn new_full(path: &Path) -> StorageResult<Self> {
         let conn = Connection::open(path).map_err(db_err)?;
-        super::migrations::initialize_full(&conn)?;
+        super::migrations::initialize_database(&conn)?;
         Ok(SqliteStorage {
             conn: Arc::new(Mutex::new(conn)),
             path: Some(path.to_path_buf()),

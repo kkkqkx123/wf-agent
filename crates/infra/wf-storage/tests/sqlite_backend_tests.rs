@@ -216,28 +216,22 @@ async fn test_schema_version_inserted_on_first_open() {
 
 #[tokio::test]
 async fn test_schema_version_rejects_mismatch() {
-    let store = make_store().await;
-    // Tamper with the version record to simulate an older schema.
+    let path = std::env::temp_dir().join(format!("wf-storage-version-reject-{}.db", uuid::Uuid::new_v4()));
+    let path_str = path.to_string_lossy().to_string();
+    let table = "version_reject_table";
+    let store = SqliteStorage::new(&path_str, table, wf_storage::domain::EntityIndexes::NONE)
+        .await
+        .unwrap();
     store
         .save(
-            "__schema_version__:test_filter",
+            &format!("__schema_version__:{table}"),
             b"",
             &serde_json::json!({"version": 0}),
         )
         .await
         .unwrap();
-
-    // Opening a new handle against the same in-memory DB would re-run the
-    // version check; since :memory: databases are per-connection we cannot
-    // test the rejection path with a second SqliteStorage::new. Instead,
-    // verify the check logic by directly reading and comparing.
-    let (_, meta) = store
-        .load("__schema_version__:test_filter")
-        .await
-        .unwrap()
-        .unwrap();
-    let stored = meta["version"].as_i64().unwrap();
-    assert_ne!(stored, 1, "version should have been tampered");
-    // The actual rejection happens at SqliteStorage::new time; this test
-    // confirms the version record exists and can be read.
+    drop(store);
+    let reopened = SqliteStorage::new(&path_str, table, wf_storage::domain::EntityIndexes::NONE).await;
+    assert!(reopened.is_err(), "mismatched schema version must fail to open");
+    let _ = std::fs::remove_file(&path);
 }

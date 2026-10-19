@@ -31,6 +31,11 @@ pub(crate) struct ApiState {
     pub(crate) locks: api::workflow::locks::WorkflowLocks,
 }
 
+/// Public API version served under `/api/{API_VERSION}` and reported by
+/// `/api/v1/info`. Single source for runtime responses; the OpenAPI macro
+/// keeps its own literal and is pinned to this value by a test.
+pub const API_VERSION: &str = "v1";
+
 /// Test-only API router with deterministic default middleware (no environment
 /// reads, so one process env cannot flake another test). Production and
 /// embedding paths use `api_router_with_config` / `serve_*_with_config`.

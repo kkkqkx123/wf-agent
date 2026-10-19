@@ -7,7 +7,7 @@ use axum::routing::get;
 use axum::Router;
 
 use crate::envelope::{error_response, ok};
-use crate::router::ApiState;
+use crate::router::{ApiState, API_VERSION};
 
 #[derive(serde::Serialize, utoipa::ToSchema)]
 pub struct HealthView {
@@ -78,7 +78,7 @@ pub(crate) async fn handle_info() -> impl IntoResponse {
     ok(InfoView {
         name: "Modular Agent Framework Server",
         version: env!("CARGO_PKG_VERSION"),
-        api_version: "v1",
+        api_version: API_VERSION,
         timestamp: wf_api::timestamp_to_iso(wf_api::now()),
     })
     .into_response()

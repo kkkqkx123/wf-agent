@@ -549,7 +549,7 @@ fn list_conflicts_enumerates_unresolved_merges() {
     let resolved_id = git
         .write_commit(
             &merged_tree,
-            &[merge_id.clone()],
+            std::slice::from_ref(&merge_id),
             "resolver",
             SYSTEM_COMMITTER,
             4_000,

@@ -100,7 +100,7 @@ mod tests {
         let mut rx = bus.subscribe();
 
         for _ in 0..3 {
-            let handle = tokio::spawn(async { () });
+            let handle = tokio::spawn(async {});
             push_persistence_handle(&queue, handle, Some(&bus), "e1", "c1", None).await;
         }
         assert_eq!(queue.lock().await.len(), 3);
@@ -119,12 +119,12 @@ mod tests {
         let metrics = collector();
 
         for _ in 0..MAX_PERSISTENCE_QUEUE {
-            let handle = tokio::spawn(async { () });
+            let handle = tokio::spawn(async {});
             push_persistence_handle(&queue, handle, None, "e1", "c0", None).await;
         }
         assert_eq!(queue.lock().await.len(), MAX_PERSISTENCE_QUEUE);
 
-        let handle = tokio::spawn(async { () });
+        let handle = tokio::spawn(async {});
         push_persistence_handle(&queue, handle, Some(&bus), "e1", "c-new", Some(&metrics)).await;
 
         // The backlog was awaited; only the new handle stays queued.
@@ -153,7 +153,7 @@ mod tests {
         let mut rx = bus.subscribe();
         let metrics = collector();
 
-        let good = tokio::spawn(async { () });
+        let good = tokio::spawn(async {});
         let bad = tokio::spawn(async { panic!("boom") });
         push_persistence_handle(&queue, good, None, "e1", "c1", None).await;
         push_persistence_handle(&queue, bad, None, "e1", "c2", None).await;
@@ -183,14 +183,14 @@ mod tests {
             let handle = if i == 0 {
                 tokio::spawn(async { panic!("backlog boom") })
             } else {
-                tokio::spawn(async { () })
+                tokio::spawn(async {})
             };
             push_persistence_handle(&queue, handle, None, "e1", &format!("c{i}"), None).await;
         }
 
         push_persistence_handle(
             &queue,
-            tokio::spawn(async { () }),
+            tokio::spawn(async {}),
             Some(&bus),
             "e1",
             "c-new",

@@ -841,6 +841,15 @@ mod tests {
     }
 
     #[test]
+    fn document_version_matches_router_constant() {
+        let v = doc();
+        assert_eq!(
+            v["info"]["version"].as_str().unwrap(),
+            crate::router::API_VERSION
+        );
+    }
+
+    #[test]
     fn every_operation_declares_a_success_response() {
         let v = doc();
         let mut ops = 0usize;

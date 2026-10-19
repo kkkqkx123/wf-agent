@@ -95,11 +95,6 @@ pub fn initialize_database(conn: &rusqlite::Connection) -> StorageResult<()> {
     Ok(())
 }
 
-pub fn initialize_full(conn: &rusqlite::Connection) -> StorageResult<()> {
-    initialize_database(conn)?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,7 +115,6 @@ mod tests {
         initialize_database(&conn).unwrap();
         // Re-running against an initialized database must be a no-op success.
         initialize_database(&conn).unwrap();
-        initialize_full(&conn).unwrap();
 
         let tables = table_names(&conn);
         for expected in [
@@ -157,9 +151,9 @@ mod tests {
             crate::storage::SqliteStorage::new_full(&dir.path().join("checkpoint.db")).unwrap();
         let mode = storage
             .with_conn(|conn| {
-                Ok(conn
+                conn
                     .query_row("PRAGMA journal_mode;", [], |row| row.get::<_, String>(0))
-                    .map_err(db_err)?)
+                    .map_err(db_err)
             })
             .unwrap();
         assert_eq!(mode, "wal");

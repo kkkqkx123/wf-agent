@@ -269,7 +269,6 @@ fn dangling_ref_reports_missing_object_explicitly() {
     // torn row, not the whole store.
     store
         .commit_on_ref(REF_HUMAN, &changes(&[("f", b"1")]), "a", "ok")
-        .unwrap()
-        .id;
+        .unwrap();
     assert!(store.read_ref(REF_HUMAN).unwrap().is_some());
 }

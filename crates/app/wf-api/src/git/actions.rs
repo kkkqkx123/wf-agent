@@ -493,10 +493,10 @@ fn dispatch_write(
             .stdout
             .trim()
             .to_string();
-            let argv = vec!["reset".to_string(), "--soft".to_string(), base.clone()];
+            let argv = ["reset".to_string(), "--soft".to_string(), base.clone()];
             let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
             run_git(&root, &refs, command_timeout_ms(ctx, false))?;
-            let argv = vec!["commit".to_string(), "-m".to_string(), head_msg];
+            let argv = ["commit".to_string(), "-m".to_string(), head_msg];
             let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
             run_git(&root, &refs, command_timeout_ms(ctx, false))?;
             Ok(finish(
@@ -588,7 +588,7 @@ fn dispatch_write(
             std::fs::write(&patch_path, &patch)
                 .map_err(|e| GitError::Command(format!("failed to write patch: {e}")))?;
             let patch_str = patch_path.to_str().unwrap_or("").to_string();
-            let argv = vec![
+            let argv = [
                 "apply".to_string(),
                 "--cached".to_string(),
                 patch_str.clone(),
@@ -599,7 +599,7 @@ fn dispatch_write(
             result?;
             Ok(finish(
                 format!("staged hunk {idx} of {path}"),
-                format!("git apply --cached <patch>"),
+                "git apply --cached <patch>".to_string(),
             ))
         }
         "remote.add" => {
@@ -722,7 +722,7 @@ fn dispatch_write(
             require_confirm(request, &path, action)?;
             validate_repo_path(&root, &path)?;
             // deinit + rm
-            let argv = vec![
+            let argv = [
                 "submodule".to_string(),
                 "deinit".to_string(),
                 "-f".to_string(),
@@ -879,7 +879,7 @@ fn dispatch_write(
             let echo = echo_of(action, &argv);
             let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
             run_git(&root, &refs, command_timeout_ms(ctx, false))?;
-            let argv = vec!["add".to_string(), "--".to_string(), path.clone()];
+            let argv = ["add".to_string(), "--".to_string(), path.clone()];
             let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
             run_git(&root, &refs, command_timeout_ms(ctx, false))?;
             Ok(finish(format!("accepted {side} for {path}"), echo))

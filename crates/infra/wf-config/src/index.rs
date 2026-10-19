@@ -86,12 +86,20 @@ pub fn load_index_file(path: &Path) -> ConfigResult<ConfigIndexFile> {
     } else {
         path.to_path_buf()
     };
-    crate::parser::parse_config_file(&file_path).map_err(|e| {
+    let index: ConfigIndexFile = crate::parser::parse_config_file(&file_path).map_err(|e| {
         ConfigError::Parse(format!(
             "Failed to parse index file: {}: {e}",
             file_path.display()
         ))
-    })
+    })?;
+    if index.version != "1.0" {
+        return Err(ConfigError::Parse(format!(
+            "Unsupported index version in {}: expected 1.0, got {}",
+            file_path.display(),
+            index.version
+        )));
+    }
+    Ok(index)
 }
 
 /// Check if an index file exists at the given path (or directory).
@@ -772,6 +780,20 @@ mod tests {
         let index = load_index_file(&path).unwrap();
         assert_eq!(index.index_type, IndexType::LlmProfiles);
         assert_eq!(index.paths.len(), 1);
+        let _ = std::fs::remove_dir_all(&path);
+    }
+
+    #[test]
+    fn test_index_file_rejects_unexpected_version() {
+        let path =
+            std::env::temp_dir().join(format!("wf-index-version-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).unwrap();
+        write_json(
+            &path.join("index.json"),
+            r#"{"version": "2.0", "type": "llm_profiles", "paths": ["./profiles/*.json"]}"#,
+        );
+        assert!(load_index_file(&path).is_err());
         let _ = std::fs::remove_dir_all(&path);
     }
 

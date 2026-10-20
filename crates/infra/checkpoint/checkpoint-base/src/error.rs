@@ -54,11 +54,6 @@ impl From<serde_json::Error> for CheckpointError {
     }
 }
 
-impl From<bincode::Error> for CheckpointError {
-    fn from(e: bincode::Error) -> Self {
-        CheckpointError::Serialization(e.to_string())
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -145,9 +140,5 @@ mod tests {
         let e: CheckpointError = json_err.into();
         assert!(matches!(e, CheckpointError::Serialization(_)));
 
-        // bincode errors map to Serialization too.
-        let bin_err = bincode::deserialize::<u8>(&[]).unwrap_err();
-        let e: CheckpointError = bin_err.into();
-        assert!(matches!(e, CheckpointError::Serialization(_)));
     }
 }

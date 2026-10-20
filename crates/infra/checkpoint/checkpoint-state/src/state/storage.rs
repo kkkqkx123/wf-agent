@@ -18,7 +18,7 @@ use checkpoint_base::cleanup_policy::CleanupStrategy;
 use checkpoint_base::clock::CheckpointClock;
 use checkpoint_base::delta::CheckpointLoader;
 use checkpoint_base::error::CheckpointError;
-use checkpoint_base::serializer::{CheckpointCodec, CheckpointSerializer};
+use checkpoint_base::serializer::CheckpointSerializer;
 use serde::Serialize;
 use wf_metrics::CheckpointMetricsCollector;
 use wf_storage::backend::StorageBackend;
@@ -154,7 +154,6 @@ where
         // execution futures).
         let data = CheckpointSerializer::serialize_with_compression_async(
             checkpoint,
-            CheckpointCodec::Json,
             self.compression,
         )
         .await?;

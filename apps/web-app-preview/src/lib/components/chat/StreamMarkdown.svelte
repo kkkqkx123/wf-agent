@@ -4,6 +4,7 @@
 	import { resolvedTheme } from '$lib/stores/theme.svelte';
 	import { cn } from '@wf-agent/ui/cn';
 	import CodeBlock from './CodeBlock.svelte';
+	import MentionText from './MentionText.svelte';
 
 	interface Props {
 		content: string;
@@ -17,7 +18,7 @@
 
 	/** The app paints fenced code blocks itself so they carry lexical
 	 * highlighting without pulling in an optional markstream peer. */
-	const components = { code_block: CodeBlock } as CustomComponentMap;
+	const components = { code_block: CodeBlock, text: MentionText } as CustomComponentMap;
 </script>
 
 <div class={cn('text-body', className)}>

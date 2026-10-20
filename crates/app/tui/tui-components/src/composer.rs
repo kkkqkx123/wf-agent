@@ -29,7 +29,7 @@ use ratatui::style::{Modifier, Style};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::mention::{parse_mentions, Mention, MentionKind};
+use crate::mention::{mention_style, parse_mentions, Mention, MentionKind};
 
 /// Bound of the prompt history ring (aligned with the opencode 200-entry
 /// cap; consecutive duplicates are skipped in `submit`).
@@ -902,11 +902,12 @@ impl Composer {
                 if col + w > width {
                     break;
                 }
-                let in_mention = mention_ranges
+                let mention_kind = mention_ranges
                     .iter()
-                    .any(|(r, _)| byte_offset >= r.start && byte_offset < r.end);
-                let g_style = if in_mention {
-                    style.add_modifier(Modifier::REVERSED)
+                    .find(|(r, _)| byte_offset >= r.start && byte_offset < r.end)
+                    .map(|(_, kind)| kind);
+                let g_style = if let Some(kind) = mention_kind {
+                    style.patch(mention_style(kind)).add_modifier(Modifier::REVERSED)
                 } else {
                     style
                 };

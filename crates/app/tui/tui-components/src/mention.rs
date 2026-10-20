@@ -20,6 +20,7 @@
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
+use ratatui::style::{Color, Style};
 use regex::Regex;
 
 /// Kind of a mention interval.
@@ -35,6 +36,10 @@ pub enum MentionKind {
     Workflow {
         id: String,
     },
+    Other {
+        kind: String,
+        value: String,
+    },
 }
 
 /// One parsed mention with its byte range in the source text.
@@ -44,6 +49,23 @@ pub struct Mention {
     pub kind: MentionKind,
     /// Raw matched text (including the leading `@`).
     pub raw: String,
+}
+
+/// Map a mention kind to a semantic foreground style for TUI rendering.
+pub fn mention_style(kind: &MentionKind) -> Style {
+    let color = match kind {
+        MentionKind::File { .. } => Color::Cyan,
+        MentionKind::Skill { .. } => Color::Magenta,
+        MentionKind::Workflow { .. } => Color::Blue,
+        MentionKind::Other { kind, .. } => match kind.as_str() {
+            "agent" | "agent_loop" => Color::Green,
+            "tool" => Color::Yellow,
+            "script" => Color::Yellow,
+            "resource" => Color::Cyan,
+            _ => Color::Gray,
+        },
+    };
+    Style::default().fg(color)
 }
 
 /// Parse all `@mention` intervals in `text`.
@@ -137,6 +159,20 @@ fn classify_token(token: &str) -> MentionKind {
     if token.contains('/') || token.contains('.') {
         return parse_file_token(token);
     }
+    // Canonical `@kind:value` entities that do not have a dedicated
+    // variant are preserved verbatim so highlighting and later resolution
+    // keep their original kind.
+    if let Some((kind, value)) = token.split_once(':') {
+        if !kind.is_empty()
+            && kind.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        {
+            return MentionKind::Other {
+                kind: kind.to_string(),
+                value: value.to_string(),
+            };
+        }
+    }
+
     // Fallback: treat as skill when no slash/dot, then we let the caller
     // disambiguate by checking existing skill/workflow registries. The parser
     // itself keeps it as Skill for simplicity; the filter layer can reinterpret.

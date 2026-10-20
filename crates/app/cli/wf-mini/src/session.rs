@@ -218,6 +218,9 @@ impl NativeSession {
             prev_prompt: self.prev_prompt.clone(),
             prompt: PROMPT.to_string(),
             term_cols: terminal_cols(),
+            skills: Vec::new(),
+            workflows: Vec::new(),
+            project_root: std::env::current_dir().ok(),
         };
         let engine = Arc::clone(&self.suggest);
         let broker = Arc::clone(&self.broker);

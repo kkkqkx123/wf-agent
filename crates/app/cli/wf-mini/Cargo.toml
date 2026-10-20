@@ -20,6 +20,7 @@ tui-markdown = { path = "../../tui/tui-markdown" }
 crossterm.workspace = true
 libc.workspace = true
 unicode-width.workspace = true
+regex.workspace = true
 
 [[bin]]
 name = "wf-mini"

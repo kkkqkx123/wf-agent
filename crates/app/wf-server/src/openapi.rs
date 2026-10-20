@@ -477,6 +477,7 @@ use utoipa::OpenApi;
         // ── observation ──
         crate::api::observation::analysis::handle_progress,
         crate::api::observation::analysis::handle_search,
+        crate::api::observation::analysis::handle_mention_search,
         crate::api::observation::analysis::handle_llm_metrics,
         crate::api::observation::analysis::handle_performance_compare,
         crate::api::observation::analysis::handle_stats,

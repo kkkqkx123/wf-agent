@@ -27,7 +27,8 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                 .handle_query_library(
                     author.as_deref(),
                     category.as_deref(),
-                    kind_param,
+                    None,
+                    kind_param.as_deref(),
                     None,
                     tags.as_deref(),
                 )
@@ -40,7 +41,7 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
         TemplateSub::Show { id, kind: _ } => {
             let envelope = client
                 .generated()
-                .handle_query_library(None, None, None, Some(id.as_str()), None)
+                .handle_query_library(None, None, None, Some(id.as_str()), None, None)
                 .await
                 .map_err(wf_client::client::into_typed_client_error)?;
             let data: serde_json::Value =

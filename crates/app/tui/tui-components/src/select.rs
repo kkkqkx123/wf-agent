@@ -48,6 +48,7 @@ pub struct GroupItem<T = ()> {
     pub label: String,
     pub description: Option<String>,
     pub data: T,
+    pub style: Option<Style>,
 }
 
 impl<T> GroupItem<T> {
@@ -56,11 +57,17 @@ impl<T> GroupItem<T> {
             label: label.into(),
             description: None,
             data,
+            style: None,
         }
     }
 
     pub fn described(mut self, description: impl Into<String>) -> Self {
         self.description = Some(description.into());
+        self
+    }
+
+    pub fn styled(mut self, style: Style) -> Self {
+        self.style = Some(style);
         self
     }
 }
@@ -294,12 +301,13 @@ impl<T> SelectList<T> {
                 }
             }
             let label = clamp_to_width(&label, w.saturating_sub(2));
+            let item_style = item.and_then(|i| i.style).unwrap_or_default();
             spans.push(Span::styled(
                 label,
                 if selected {
-                    Style::default().add_modifier(Modifier::BOLD)
+                    item_style.add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default()
+                    item_style
                 },
             ));
             out.push(Line::from(spans));

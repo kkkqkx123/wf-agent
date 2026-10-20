@@ -31,6 +31,12 @@ pub struct EditorSnapshot {
     /// Terminal width in columns at prompt start; resized live on resize
     /// events. Zero means unknown and falls back to single-row rendering.
     pub term_cols: u16,
+    /// Skill names available for `@skill:` mention completion.
+    pub skills: Vec<String>,
+    /// Workflow ids available for `@workflow:` mention completion.
+    pub workflows: Vec<String>,
+    /// Project root used for `@file:` mention scanning.
+    pub project_root: Option<std::path::PathBuf>,
 }
 
 /// What the session loop should do after one key.
@@ -318,6 +324,9 @@ impl EditorCore {
         let ctx = SuggestCtx {
             history: &self.snapshot.history,
             prev_prompt: self.snapshot.prev_prompt.as_deref(),
+            skills: &self.snapshot.skills,
+            workflows: &self.snapshot.workflows,
+            project_root: self.snapshot.project_root.as_deref(),
         };
         let fetched = self.engine.suggest(&line, &ctx);
         self.suggestion = if self.broker.is_current(token) {
@@ -522,6 +531,9 @@ mod tests {
                 prev_prompt: prev.map(|s| s.to_string()),
                 prompt: "> ".to_string(),
                 term_cols: 80,
+                skills: Vec::new(),
+                workflows: Vec::new(),
+                project_root: None,
             },
             Arc::new(SuggestEngine::new()),
             Arc::new(SuggestBroker::new()),

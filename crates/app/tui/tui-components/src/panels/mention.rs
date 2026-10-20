@@ -1,6 +1,7 @@
 //! Combined `@` mention panel: files (with optional `:#lines`), skills and
 //! workflows presented in three groups with a shared filter.
 
+use crate::mention::{mention_style, MentionKind};
 use crate::select::{Group, GroupItem, NavigateDir, SelectList};
 use tui_core::keymap::KeyAction;
 use wf_types::skill::SkillMetadata;
@@ -24,7 +25,13 @@ impl MentionPanel {
         if !files.is_empty() {
             let mut g = Group::new(Some("files"));
             for f in files {
-                g = g.item(GroupItem::new(f.clone(), f.clone()));
+                g = g.item(
+                    GroupItem::new(f.clone(), f.clone())
+                        .styled(mention_style(&MentionKind::File {
+                            path: f.clone(),
+                            lines: None,
+                        })),
+                );
             }
             groups.push(g);
         }
@@ -32,7 +39,13 @@ impl MentionPanel {
             let mut g = Group::new(Some("skills"));
             for s in skills {
                 let label = format!("skill:{}", s.name);
-                g = g.item(GroupItem::new(label.clone(), label).described(s.description.clone()));
+                g = g.item(
+                    GroupItem::new(label.clone(), label)
+                        .described(s.description.clone())
+                        .styled(mention_style(&MentionKind::Skill {
+                            name: s.name.clone(),
+                        })),
+                );
             }
             groups.push(g);
         }
@@ -40,7 +53,13 @@ impl MentionPanel {
             let mut g = Group::new(Some("workflows"));
             for wf in workflows {
                 let label = format!("workflow:{}", wf.id);
-                g = g.item(GroupItem::new(label.clone(), label).described(wf.name.clone()));
+                g = g.item(
+                    GroupItem::new(label.clone(), label)
+                        .described(wf.name.clone())
+                        .styled(mention_style(&MentionKind::Workflow {
+                            id: wf.id.clone(),
+                        })),
+                );
             }
             groups.push(g);
         }
@@ -97,6 +116,7 @@ impl MentionPanel {
                 self.list.navigate(NavigateDir::Next);
                 true
             }
+            KeyAction::Select | KeyAction::Submit | KeyAction::Cancel | KeyAction::Back => true,
             _ => false,
         }
     }

@@ -27,4 +27,4 @@ pub use config_resolver::CheckpointConfigResolver;
 pub use error::CheckpointError;
 pub use error_handling::{CheckpointErrorHandler, ErrorHandlingOutcome};
 pub use metadata::builder::{build_checkpoint_state, CheckpointMetadataBuilder};
-pub use serializer::{CheckpointCodec, CheckpointSerializer};
+pub use serializer::CheckpointSerializer;

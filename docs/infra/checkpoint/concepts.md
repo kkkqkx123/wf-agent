@@ -22,7 +22,7 @@
 | 时钟(CheckpointClock) | 抽象时钟,生产用系统时间,测试用 `ManualClock` 手动驱动/置失败。所有时间判断显式传入,时钟缺失不触发清理/保留判定。 |
 | 错误处理策略(CheckpointErrorHandler) | 对检查点错误做统一裁决,输出 `ErrorHandlingOutcome { should_rethrow, handled }`。默认严格(失败上抛),显式宽松配置才允许吞掉继续执行。 |
 | 版本管理(VersionManager) | 序列化格式版本(`CURRENT_FORMAT_VERSION = 1`，最低兼容 1)的比较、兼容性判定与迁移处理器注册。单整数比较，非字符串序。开发阶段锁定为一，不提供向后兼容，迁移能力仅为正式发布后的扩展点。 |
-| 序列化(CheckpointSerializer) | 执行状态信封的统一编码:bincode 或 JSON,外加单层压缩(>`512` 字节且策略为 Auto 时 gzip;读取按魔数透明解压)。文件侧压缩在 `checkpoint-file` 内部完成,不再叠加第三层。 |
+| 序列化(CheckpointSerializer) | 执行状态信封的统一编码:JSON,外加单层压缩(>`512` 字节且策略为 Auto 时 gzip;读取按魔数透明解压)。文件侧压缩在 `checkpoint-file` 内部完成,不再叠加第三层。 |
 | 缓存(CheckpointCache) | 基于 moka 的 TTL + 容量上限缓存,附单飞(single-flight):同 key 并发 miss 等待首个工厂调用完成后回读,避免重复昂贵加载。 |
 | 清理策略(cleanup_policy) | 执行状态检查点的回收决策:按年龄/数量/大小/分层(RetentionTier)筛选,再施加链保护(链内成员不删)。文件侧回收不在此,见 GC。 |
 | 依赖图(CheckpointDependencyGraph) | `referenced_by` / `chain_root_map` / `chain_groups` 三个映射,守卫 `wf-storage` 中线性 previous-id 链;与文件 Git DAG 完全分离。 |

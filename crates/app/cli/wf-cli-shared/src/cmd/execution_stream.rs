@@ -155,6 +155,7 @@ pub(crate) async fn run_workflow_streaming(
         let typed = wf_client::models::ExecuteBody {
             input,
             file_scope: None,
+            version: None,
         };
         let view = client.execute_workflow_background(workflow, &typed).await?;
         let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
@@ -177,6 +178,7 @@ pub(crate) async fn run_stream(
     let typed = wf_client::models::ExecuteBody {
         input,
         file_scope: None,
+        version: None,
     };
     let body = serde_json::to_value(&typed).unwrap_or(serde_json::Value::Null);
     let stream = client

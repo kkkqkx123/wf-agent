@@ -48,6 +48,7 @@ async fn run_body_forwards_checkpoint_message_interval() {
     .unwrap();
     assert_eq!(
         params_from_body(&test_state(), body)
+            .await
             .expect("resolve params")
             .config
             .checkpoint_message_interval,
@@ -63,6 +64,7 @@ async fn run_body_forwards_checkpoint_message_interval() {
     .unwrap();
     assert_eq!(
         params_from_body(&test_state(), zero)
+            .await
             .expect("resolve params")
             .config
             .checkpoint_message_interval,
@@ -77,6 +79,7 @@ async fn run_body_forwards_checkpoint_message_interval() {
     .unwrap();
     assert_eq!(
         params_from_body(&test_state(), absent)
+            .await
             .expect("resolve params")
             .config
             .checkpoint_message_interval,

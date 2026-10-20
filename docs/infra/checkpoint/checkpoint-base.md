@@ -110,9 +110,9 @@
 
 ## 序列化(serializer)
 
-`CheckpointSerializer` + `CheckpointCodec { Bincode, Json }`:
+`CheckpointSerializer`:
 
-- 编码选择按调用方传入;二进制 bincode 带魔数 `0xBC`;
+- 编码使用 serde_json;
 - 单层压缩:策略为 `Auto` 且编码后超过 `COMPRESSION_THRESHOLD`(512 字节)时 gzip(魔数 `1F 8B`),读取按魔数透明解压;
 - 文件侧快照压缩在 `checkpoint-file` 存储内部完成,此处不再叠加第三层。
 
@@ -158,5 +158,5 @@
 
 ## 单元测试覆盖
 
-- `error.rs`：全部 14 个 `CheckpointError` 变体的 Display 渲染冒烟，以及 `StorageError` / `std::io::Error` / `serde_json::Error` / `bincode::Error` 的 `From` 转换；
+- `error.rs`：全部 14 个 `CheckpointError` 变体的 Display 渲染冒烟，以及 `StorageError` / `std::io::Error` / `serde_json::Error` 的 `From` 转换；
 - `delta/calculator/agent_tests.rs`：Agent 差分对称性——status 变更检测、消息追加 roundtrip、消息替换（full-replace）、`other_changes` 字段、`merge_deltas` 默认实现、完整 roundtrip。

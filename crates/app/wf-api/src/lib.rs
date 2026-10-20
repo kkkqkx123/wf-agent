@@ -11,6 +11,7 @@ pub mod execution_logs;
 pub mod git;
 pub mod infra;
 pub mod llm;
+pub mod mention;
 pub mod pty;
 pub mod query;
 pub mod template;
@@ -382,7 +383,7 @@ pub use wf_checkpoint::scan::{ScanConfig, WorkspaceScan, WorkspaceScanner};
 pub use wf_checkpoint::watcher::{FileChangeKind, FileChangeRecord, ManualChangeService};
 pub use wf_checkpoint::{
     build_checkpoint_state, diff_stats_for_text, inline_word_diff, unified_diff_text, ActorId,
-    ActorIdError, ActorKind, CheckpointCodec, CheckpointMetadataBuilder, CheckpointSerializer,
+    ActorIdError, ActorKind, CheckpointMetadataBuilder, CheckpointSerializer,
     DiffStats,
 };
 

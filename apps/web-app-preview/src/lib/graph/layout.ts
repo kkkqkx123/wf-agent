@@ -173,8 +173,8 @@ export function columnPositions(
 		);
 		members.forEach((node, index) => {
 			positions.set(node.id, {
-				x: snapToGrid(40 + rankIndex * 220),
-				y: snapToGrid(40 + index * 90),
+				x: snapToGrid(40 + rankIndex * 200),
+				y: snapToGrid(40 + index * 80),
 			});
 		});
 		rankIndex += 1;

@@ -6,15 +6,9 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::io::{Read, Write};
 use wf_types::checkpoint::CompressionStrategy;
 
-const BINCODE_MAGIC: u8 = 0xBC;
 const GZIP_MAGIC: [u8; 2] = [0x1F, 0x8B];
 /// Compression threshold (compresses blobs larger than 512 bytes).
 pub const COMPRESSION_THRESHOLD: usize = 512;
-
-pub enum CheckpointCodec {
-    Bincode,
-    Json,
-}
 
 pub struct CheckpointSerializer;
 
@@ -26,19 +20,17 @@ pub struct CheckpointSerializer;
 impl CheckpointSerializer {
     pub fn serialize<T: Serialize>(
         value: &T,
-        codec: CheckpointCodec,
     ) -> Result<Vec<u8>, CheckpointError> {
-        Self::serialize_with_compression(value, codec, CompressionStrategy::None)
+        Self::serialize_with_compression(value, CompressionStrategy::None)
     }
 
     /// Serialize with an optional compression strategy. `Auto` compresses
     /// only when the encoded payload exceeds `COMPRESSION_THRESHOLD` bytes.
     pub fn serialize_with_compression<T: Serialize>(
         value: &T,
-        codec: CheckpointCodec,
         compression: CompressionStrategy,
     ) -> Result<Vec<u8>, CheckpointError> {
-        let data = Self::encode(value, codec)?;
+        let data = Self::encode(value)?;
         if Self::should_compress(data.len(), compression) {
             compress_gzip(&data)
         } else {
@@ -55,10 +47,9 @@ impl CheckpointSerializer {
     /// payloads skip the worker entirely.
     pub async fn serialize_with_compression_async<T: Serialize>(
         value: &T,
-        codec: CheckpointCodec,
         compression: CompressionStrategy,
     ) -> Result<Vec<u8>, CheckpointError> {
-        let data = Self::encode(value, codec)?;
+        let data = Self::encode(value)?;
         if !Self::should_compress(data.len(), compression) {
             return Ok(data);
         }
@@ -69,17 +60,8 @@ impl CheckpointSerializer {
             })?
     }
 
-    fn encode<T: Serialize>(value: &T, codec: CheckpointCodec) -> Result<Vec<u8>, CheckpointError> {
-        match codec {
-            CheckpointCodec::Bincode => {
-                let data = bincode::serialize(value)?;
-                let mut result = Vec::with_capacity(data.len() + 1);
-                result.push(BINCODE_MAGIC);
-                result.extend_from_slice(&data);
-                Ok(result)
-            }
-            CheckpointCodec::Json => Ok(serde_json::to_vec(value)?),
-        }
+    fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, CheckpointError> {
+        Ok(serde_json::to_vec(value)?)
     }
 
     fn should_compress(len: usize, compression: CompressionStrategy) -> bool {
@@ -92,29 +74,14 @@ impl CheckpointSerializer {
 
     pub fn deserialize<T: DeserializeOwned>(
         data: &[u8],
-        codec: CheckpointCodec,
     ) -> Result<T, CheckpointError> {
         let data = decompress_if_gzip(data)?;
-        match codec {
-            CheckpointCodec::Bincode => {
-                let data = if data.first() == Some(&BINCODE_MAGIC) {
-                    &data[1..]
-                } else {
-                    &data
-                };
-                Ok(bincode::deserialize(data)?)
-            }
-            CheckpointCodec::Json => Ok(serde_json::from_slice(&data)?),
-        }
+        Ok(serde_json::from_slice(&data)?)
     }
 
     pub fn auto_deserialize<T: DeserializeOwned>(data: &[u8]) -> Result<T, CheckpointError> {
         let data = decompress_if_gzip(data)?;
-        if data.first() == Some(&BINCODE_MAGIC) {
-            Self::deserialize(&data, CheckpointCodec::Bincode)
-        } else {
-            Self::deserialize(&data, CheckpointCodec::Json)
-        }
+        Ok(serde_json::from_slice(&data)?)
     }
 
     /// Whether the bytes are a gzip-compressed payload (magic-byte probe).
@@ -174,47 +141,19 @@ mod tests {
     }
 
     #[test]
-    fn bincode_roundtrip() {
-        let original = payload();
-        let bytes = CheckpointSerializer::serialize(&original, CheckpointCodec::Bincode).unwrap();
-        assert_eq!(bytes[0], BINCODE_MAGIC);
-
-        let restored: TestData =
-            CheckpointSerializer::deserialize(&bytes, CheckpointCodec::Bincode).unwrap();
-        assert_eq!(original, restored);
-    }
-
-    #[test]
     fn json_roundtrip() {
         let original = payload();
-        let bytes = CheckpointSerializer::serialize(&original, CheckpointCodec::Json).unwrap();
+        let bytes = CheckpointSerializer::serialize(&original).unwrap();
         let restored: TestData =
-            CheckpointSerializer::deserialize(&bytes, CheckpointCodec::Json).unwrap();
-        assert_eq!(original, restored);
-    }
-
-    #[test]
-    fn auto_detect_bincode() {
-        let original = payload();
-        let bytes = CheckpointSerializer::serialize(&original, CheckpointCodec::Bincode).unwrap();
-        let restored: TestData = CheckpointSerializer::auto_deserialize(&bytes).unwrap();
+            CheckpointSerializer::deserialize(&bytes).unwrap();
         assert_eq!(original, restored);
     }
 
     #[test]
     fn auto_detect_json() {
         let original = payload();
-        let bytes = CheckpointSerializer::serialize(&original, CheckpointCodec::Json).unwrap();
+        let bytes = CheckpointSerializer::serialize(&original).unwrap();
         let restored: TestData = CheckpointSerializer::auto_deserialize(&bytes).unwrap();
-        assert_eq!(original, restored);
-    }
-
-    #[test]
-    fn bincode_read_compat_without_magic() {
-        let original = payload();
-        let bytes = bincode::serialize(&original).unwrap();
-        let restored: TestData =
-            CheckpointSerializer::deserialize(&bytes, CheckpointCodec::Bincode).unwrap();
         assert_eq!(original, restored);
     }
 
@@ -223,7 +162,6 @@ mod tests {
         let original = payload();
         let bytes = CheckpointSerializer::serialize_with_compression(
             &original,
-            CheckpointCodec::Json,
             CompressionStrategy::Gzip,
         )
         .unwrap();
@@ -241,7 +179,6 @@ mod tests {
         };
         let compressed = CheckpointSerializer::serialize_with_compression(
             &large,
-            CheckpointCodec::Json,
             CompressionStrategy::Auto,
         )
         .unwrap();
@@ -250,7 +187,6 @@ mod tests {
         let small = payload();
         let plain = CheckpointSerializer::serialize_with_compression(
             &small,
-            CheckpointCodec::Json,
             CompressionStrategy::Auto,
         )
         .unwrap();
@@ -313,7 +249,7 @@ mod tests {
                 format_version: Some("1.0".to_string()),
             };
 
-        let json = CheckpointSerializer::serialize(&envelope, CheckpointCodec::Json).unwrap();
+        let json = CheckpointSerializer::serialize(&envelope).unwrap();
         let text = String::from_utf8(json).unwrap();
         assert!(text.contains("\"type\":\"FULL\""));
         assert!(text.contains("\"previousCheckpointId\":\"cp-0\""));
@@ -342,13 +278,11 @@ mod tests {
         };
         let sync = CheckpointSerializer::serialize_with_compression(
             &large,
-            CheckpointCodec::Json,
             CompressionStrategy::Auto,
         )
         .unwrap();
         let asynced = CheckpointSerializer::serialize_with_compression_async(
             &large,
-            CheckpointCodec::Json,
             CompressionStrategy::Auto,
         )
         .await

@@ -25,6 +25,7 @@ pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/executions/{id}/progress", get(handle_progress))
         .route("/search", get(handle_search))
+        .route("/mentions/search", get(handle_mention_search))
         .route("/analysis/llm-metrics", get(handle_llm_metrics))
         .route(
             "/analysis/performance/compare",
@@ -158,6 +159,49 @@ pub(crate) async fn handle_search(
         cursor: query.cursor,
     };
     match wf_api::analysis::search::search(&state.ctx, &query.q, &options).await {
+        Ok(result) => ok(result).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct MentionSearchQuery {
+    q: String,
+    kinds: Option<String>,
+    limit: Option<usize>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/mentions/search",
+    tag = "observation",
+    params(MentionSearchQuery),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_mention_search(
+    State(state): State<ApiState>,
+    Query(query): Query<MentionSearchQuery>,
+) -> impl IntoResponse {
+    if query.q.trim().is_empty() {
+        return error_response(wf_api::ApiError::Validation(
+            "q must not be blank".to_string(),
+        ));
+    }
+    let kinds = query.kinds.as_deref().map(|raw| {
+        raw.split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    });
+    let options = wf_api::mention::MentionSearchOptions {
+        query: query.q.clone(),
+        kinds,
+        limit: query.limit.unwrap_or(20),
+    };
+    match wf_api::mention::search(&state.ctx, &options).await {
         Ok(result) => ok(result).into_response(),
         Err(e) => error_response(e),
     }

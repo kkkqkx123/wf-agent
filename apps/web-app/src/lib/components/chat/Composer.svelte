@@ -9,7 +9,7 @@ import { cn } from '@wf-agent/ui/cn';
 		SLASH_COMMANDS,
 		type CommandAction,
 	} from '$lib/config/commands';
-	import { unifiedSearch, type SearchHit } from '$lib/services/search';
+	import { mentionSearch, type MentionCandidate } from '$lib/services/mentions';
 	import { sessions } from '$lib/stores/sessions.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import ModelPicker from '$lib/components/chat/ModelPicker.svelte';
@@ -17,6 +17,7 @@ import { cn } from '@wf-agent/ui/cn';
 	import WorkflowPicker from '$lib/components/chat/WorkflowPicker.svelte';
 	import type { MessageAttachment, OutgoingMessage } from '$lib/types/models';
 	import { entityMention } from '$lib/utils/mentions';
+	import { mentionClass, mentionIcon } from '$lib/utils/mention-style';
 
 	/** Largest inlined attachment per file; larger files are truncated. */
 	const ATTACHMENT_LIMIT = 64_000;
@@ -25,11 +26,16 @@ import { cn } from '@wf-agent/ui/cn';
 	const MENTION_KINDS = [
 		'workflow',
 		'agent_loop',
+		'agent',
 		'message',
 		'execution',
 		'checkpoint',
 		'task',
 		'event',
+		'skill',
+		'tool',
+		'script',
+		'resource',
 	];
 
 	const MENTION_DEBOUNCE_MS = 200;
@@ -71,10 +77,17 @@ import { cn } from '@wf-agent/ui/cn';
 	let queue = $state<OutgoingMessage[]>([]);
 	let box: HTMLTextAreaElement | null = $state(null);
 	let activeKey = $state('');
-	let candidates = $state<SearchHit[]>([]);
+	let candidates = $state<MentionCandidate[]>([]);
+	let mentionSelectedIndex = $state(0);
+	let mentionDismissed = $state(false);
 	let searching = $state(false);
 	let searchError = $state(false);
 	let activePicker = $state<string | null>(null);
+
+	$effect(() => {
+		candidates;
+		mentionSelectedIndex = 0;
+	});
 
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let latestRequest = 0;
@@ -137,7 +150,44 @@ import { cn } from '@wf-agent/ui/cn';
 		submit(message, true);
 	}
 
+	function selectMention(hit: MentionCandidate): void {
+		const reference =
+			hit.kind === FILE_KIND
+				? `@file:${hit.id}`
+				: entityMention(hit.kind, hit.id);
+		insertReference(reference, hit.kind === FILE_KIND ? '' : ' ');
+		mentionDismissed = true;
+		candidates = [];
+	}
+
 	function onKey(event: KeyboardEvent): void {
+		if (mentionVisible && candidates.length > 0) {
+			if (event.key === 'ArrowDown') {
+				event.preventDefault();
+				mentionSelectedIndex =
+					(mentionSelectedIndex + 1) % candidates.length;
+				return;
+			}
+			if (event.key === 'ArrowUp') {
+				event.preventDefault();
+				mentionSelectedIndex =
+					(mentionSelectedIndex - 1 + candidates.length) %
+					candidates.length;
+				return;
+			}
+			if (event.key === 'Enter' || event.key === 'Tab') {
+				event.preventDefault();
+				const hit = candidates[mentionSelectedIndex];
+				if (hit) selectMention(hit);
+				return;
+			}
+		}
+		if (mentionVisible && event.key === 'Escape') {
+			event.preventDefault();
+			mentionDismissed = true;
+			candidates = [];
+			return;
+		}
 		if (event.key === 'Enter' && !event.shiftKey) {
 			event.preventDefault();
 			onSubmit();
@@ -145,6 +195,7 @@ import { cn } from '@wf-agent/ui/cn';
 	}
 
 	function onInput(): void {
+		mentionDismissed = false;
 		sessions.setDraft(activeKey, draft);
 	}
 
@@ -194,6 +245,8 @@ import { cn } from '@wf-agent/ui/cn';
 		};
 	});
 
+	const mentionVisible = $derived(mention !== null && !mentionDismissed);
+
 	/** A typed kind narrows the search to that entity kind. */
 	const mentionTypes = $derived(
 		mention?.kind
@@ -215,12 +268,12 @@ import { cn } from '@wf-agent/ui/cn';
 
 	/** Candidates grouped by entity type, preserving search order within each group. */
 	const groupedCandidates = $derived.by(() => {
-		const groups: { type: string; items: SearchHit[] }[] = [];
+		const groups: { type: string; items: MentionCandidate[] }[] = [];
 		const seen = new Set<string>();
 		for (const hit of candidates) {
-			if (!seen.has(hit.type)) {
-				seen.add(hit.type);
-				groups.push({ type: hit.type, items: [] });
+			if (!seen.has(hit.kind)) {
+				seen.add(hit.kind);
+				groups.push({ type: hit.kind, items: [] });
 			}
 			groups[groups.length - 1].items.push(hit);
 		}
@@ -230,9 +283,15 @@ import { cn } from '@wf-agent/ui/cn';
 	// Candidates come from the shared search channel, so the newest query wins.
 	$effect(() => {
 		const term = mention?.term ?? '';
-		const types = mentionTypes.join(',');
+		const kinds = mentionTypes;
 		if (timer) clearTimeout(timer);
-		if (mention?.kind === FILE_KIND || !term) {
+		if (mention?.kind !== FILE_KIND && !term) {
+			candidates = [];
+			searching = false;
+			searchError = false;
+			return;
+		}
+		if (mention?.kind === FILE_KIND && mentionDismissed) {
 			candidates = [];
 			searching = false;
 			searchError = false;
@@ -242,7 +301,7 @@ import { cn } from '@wf-agent/ui/cn';
 		searching = true;
 		searchError = false;
 		timer = setTimeout(() => {
-			void unifiedSearch({ q: term, types, limit: 8 })
+			void mentionSearch({ q: term, kinds, limit: 8 })
 				.then((outcome) => {
 					if (request !== latestRequest) return;
 					candidates = outcome.items;
@@ -279,15 +338,15 @@ import { cn } from '@wf-agent/ui/cn';
 		}
 	}
 
-	function insertReference(reference: string): void {
+	function insertReference(reference: string, separator: string = ' '): void {
 		const cursor = box?.selectionStart ?? draft.length;
 		const before = draft.slice(0, cursor).replace(/@[\w./:-]*$/, reference);
 		// A full reference is followed by a separator; a bare kind prefix stays
 		// open so the value flows straight into the mention.
-		const separator = reference.endsWith(':') ? '' : ' ';
-		draft = `${before}${separator}${draft.slice(cursor)}`;
+		const trailing = reference.endsWith(':') ? '' : separator;
+		draft = `${before}${trailing}${draft.slice(cursor)}`;
 		box?.focus();
-		const caret = before.length + separator.length;
+		const caret = before.length + trailing.length;
 		box?.setSelectionRange(caret, caret);
 	}
 
@@ -408,24 +467,34 @@ import { cn } from '@wf-agent/ui/cn';
 		</div>
 	{/if}
 
-	{#if mention !== null}
+	{#if mentionVisible}
 		<div class="mb-2 flex flex-col gap-1" role="listbox" aria-label="Mentions">
 			{#each groupedCandidates as group (group.type)}
 				<div class="flex flex-col gap-1">
 					<p class="px-2 text-micro font-semibold uppercase text-muted-foreground">
 						{group.type}
 					</p>
-					{#each group.items as hit (`${hit.type}-${hit.id}`)}
+					{#each group.items as hit (`${hit.kind}-${hit.id}`)}
 						<button
 							type="button"
-							onclick={() => insertReference(entityMention(hit.type, hit.id))}
-							class="flex flex-col items-start gap-0.5 rounded-md border border-border bg-card px-2 py-1 text-left text-caption transition-colors hover:bg-accent"
+							aria-selected={hit === candidates[mentionSelectedIndex]}
+							onclick={() => selectMention(hit)}
+							class={cn(
+								'flex flex-col items-start gap-0.5 rounded-md border border-border bg-card px-2 py-1 text-left text-caption transition-colors hover:bg-accent',
+								mentionClass(hit.kind),
+								hit === candidates[mentionSelectedIndex] && 'bg-accent',
+							)}
 						>
 							<span class="flex w-full items-center gap-2">
+								<Icon
+									name={mentionIcon(hit.kind)}
+									size={12}
+									class="shrink-0"
+								/>
 								<span class="min-w-0 flex-1 truncate text-foreground"
 									>{hit.label}</span
 								>
-								<span class="shrink-0 font-mono text-micro text-info">{hit.type}</span
+								<span class="shrink-0 font-mono text-micro text-info">{hit.kind}</span
 								>
 							</span>
 							{#if hit.description}
@@ -448,13 +517,16 @@ import { cn } from '@wf-agent/ui/cn';
 						<button
 							type="button"
 							onclick={() => insertReference(`@${kind}:`)}
-							class="rounded-full border border-border bg-card px-2.5 py-1 font-mono text-micro text-info transition-colors hover:bg-accent"
+							class={cn(
+								'rounded-full border border-border bg-card px-2.5 py-1 font-mono text-micro transition-colors hover:bg-accent',
+								mentionClass(kind),
+							)}
 						>
 							@{kind}
 						</button>
 					{/each}
 				</div>
-			{:else if mention.kind === FILE_KIND}
+			{:else if mention!.kind === FILE_KIND}
 				<p class="px-2 text-micro text-muted-foreground">
 					Type a path, optionally with a line range (e.g. @file:src/a.ts#10-20).
 				</p>
@@ -462,9 +534,9 @@ import { cn } from '@wf-agent/ui/cn';
 				<p class="px-2 text-micro text-muted-foreground">
 					Mention search unavailable.
 				</p>
-			{:else if mention.term && candidates.length === 0}
+			{:else if mention!.term && candidates.length === 0}
 				<p class="px-2 text-micro text-muted-foreground">
-					No {mention.kind || 'matching'} results for “{mention.term}”.
+					No {mention!.kind || 'matching'} results for “{mention!.term}”.
 				</p>
 			{/if}
 		</div>

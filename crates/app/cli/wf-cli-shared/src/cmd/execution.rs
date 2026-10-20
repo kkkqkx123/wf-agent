@@ -151,6 +151,7 @@ pub(crate) async fn run_with_client(
                 let typed = wf_client::models::ExecuteBody {
                     input: input_value,
                     file_scope: None,
+                    version: None,
                 };
                 let view = client.execute_workflow(workflow, &typed).await?;
                 let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);

@@ -27,7 +27,7 @@ pub use checkpoint_base::metadata::builder::{
     fingerprint_option, trigger_description, trigger_tag, CheckpointMetadataBuilder,
     CHAIN_POSITION_FIELD, PROGRESS_COORD_KEYS, WF_PROGRESS_COORD_KEYS,
 };
-pub use checkpoint_base::serializer::{CheckpointCodec, CheckpointSerializer};
+pub use checkpoint_base::serializer::CheckpointSerializer;
 pub use checkpoint_base::strategy::cadenced::{
     CadencedCheckpointStrategy, CheckpointTimingVariant,
 };

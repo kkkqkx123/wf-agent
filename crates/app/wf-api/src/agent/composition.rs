@@ -331,7 +331,7 @@ pub async fn resolve_mentions(
     text: &str,
     excluded_workflow_id: Option<&str>,
 ) -> Vec<Message> {
-    let Ok(re) = regex::Regex::new(r"@([a-z][a-z0-9_]*):([\w./-]+)") else {
+    let Ok(re) = regex::Regex::new(r"@([a-z][a-z0-9_]*):([\w./-]+(?:#\d+(?:-\d+)?)?)") else {
         return Vec::new();
     };
     let mut seen = HashSet::new();
@@ -358,20 +358,8 @@ pub async fn resolve_mentions(
         }
 
         let summary = match kind {
-            "workflow" => resolve_workflow_context(&ctx.registries, id).ok(),
-            "agent_loop" => ctx
-                .storage
-                .agent_loop
-                .load(id)
-                .await
-                .ok()
-                .flatten()
-                .map(|meta| {
-                    format!(
-                        "agent_loop: {} (definition {})\nstatus: {}",
-                        meta.id, meta.definition_id, meta.status
-                    )
-                }),
+            "workflow" | "wf" => resolve_workflow_context(&ctx.registries, id).ok(),
+            "agent" | "agent_loop" => resolve_agent_loop_mention(ctx, id).await,
             "execution" => ctx
                 .storage
                 .workflow_execution
@@ -423,7 +411,11 @@ pub async fn resolve_mentions(
                         record.id, record.execution_id, snippet
                     )
                 }),
-            "file" => Some(format!("file: {id}")),
+            "file" => resolve_file_mention(id),
+            "skill" => resolve_skill_mention(ctx, id),
+            "tool" => resolve_tool_mention(ctx, id),
+            "script" => resolve_script_mention(ctx, id).await,
+            "resource" => Some(format!("resource: {id}")),
             _ => None,
         };
 
@@ -435,6 +427,98 @@ pub async fn resolve_mentions(
         }
     }
     out
+}
+
+fn parse_file_mention(raw: &str) -> (String, Option<(u32, u32)>) {
+    if let Some((path, range)) = raw.split_once('#') {
+        let (start, end) = if let Some((a, b)) = range.split_once('-') {
+            (a.parse::<u32>().ok(), b.parse::<u32>().ok())
+        } else {
+            (range.parse::<u32>().ok(), None)
+        };
+        let start = start.unwrap_or(1).max(1);
+        let end = end.unwrap_or(start).max(start);
+        (path.to_string(), Some((start, end)))
+    } else {
+        (raw.to_string(), None)
+    }
+}
+
+fn resolve_file_mention(raw: &str) -> Option<String> {
+    let (path, range) = parse_file_mention(raw);
+    let root = std::env::current_dir().ok()?;
+    let root_canonical = root.canonicalize().ok()?;
+    let full = if std::path::Path::new(&path).is_absolute() {
+        std::path::PathBuf::from(&path)
+    } else {
+        root.join(&path)
+    };
+    let canonical = full.canonicalize().ok()?;
+    if !canonical.starts_with(&root_canonical) {
+        return None;
+    }
+    let content = std::fs::read_to_string(&canonical).ok()?;
+    let lines: Vec<&str> = content.lines().collect();
+    if lines.is_empty() {
+        return Some(format!("file: {path}"));
+    }
+    let (start, end) = match range {
+        Some((s, e)) => (s as usize, e as usize),
+        None => (1usize, lines.len().min(200)),
+    };
+    let start = start.max(1).min(lines.len());
+    let end = end.max(start).min(lines.len()).min(start + 199);
+    let selected: Vec<String> = lines[start - 1..end]
+        .iter()
+        .map(|line| (*line).to_string())
+        .collect();
+    Some(format!(
+        "file: {path} (lines {start}-{end})\n{}",
+        selected.join("\n")
+    ))
+}
+
+fn resolve_skill_mention(ctx: &ApiContext, id: &str) -> Option<String> {
+    let meta = crate::entity::skill::get_skill(ctx, id).ok()?;
+    Some(format!(
+        "skill: {} ({})\n{}",
+        meta.name,
+        meta.version.as_deref().unwrap_or("unknown"),
+        meta.description
+    ))
+}
+
+fn resolve_tool_mention(ctx: &ApiContext, id: &str) -> Option<String> {
+    let tool = ctx.tool_registry.get_tool(id)?;
+    Some(format!(
+        "tool: {} ({})\n{}",
+        tool.name, tool.id, tool.description
+    ))
+}
+
+async fn resolve_script_mention(ctx: &ApiContext, id: &str) -> Option<String> {
+    let meta = ctx.storage.script.load(id).await.ok().flatten()?;
+    Some(format!(
+        "script: {} ({})\n{}",
+        meta.name,
+        meta.id,
+        meta.description.as_deref().unwrap_or("")
+    ))
+}
+
+async fn resolve_agent_loop_mention(ctx: &ApiContext, id: &str) -> Option<String> {
+    ctx.storage
+        .agent_loop
+        .load(id)
+        .await
+        .ok()
+        .flatten()
+        .map(|meta| {
+            format!(
+                "agent_loop: {} (definition {})\nstatus: {}",
+                meta.id, meta.definition_id, meta.status
+            )
+        })
 }
 
 /// Truncated projection of a workflow template: identity plus the node list

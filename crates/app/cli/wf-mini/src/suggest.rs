@@ -27,6 +27,7 @@
 //! off-process strategy lands, it can compute under the same token and let
 //! [`SuggestBroker::is_current`] decide whether the result is still wanted.
 
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Read-only context a strategy may consult for one fetch.
@@ -35,6 +36,12 @@ pub struct SuggestCtx<'a> {
     pub history: &'a [String],
     /// The previously submitted prompt, if any (backs `match_prev_cmd`).
     pub prev_prompt: Option<&'a str>,
+    /// Skill names available for mention completion.
+    pub skills: &'a [String],
+    /// Workflow ids available for mention completion.
+    pub workflows: &'a [String],
+    /// Project root used for file mention scanning.
+    pub project_root: Option<&'a std::path::Path>,
 }
 
 /// One suggestion source. Returns the FULL suggested line — callers
@@ -142,6 +149,112 @@ impl SuggestStrategy for CommandStrategy {
     }
 }
 
+/// File mention completion: turns `@` / `@file:` prefixes into a concrete
+/// project-relative path using a bounded filesystem scan, mirroring the
+/// `@file` data source used by the TUI composer.
+pub struct MentionStrategy;
+
+impl SuggestStrategy for MentionStrategy {
+    fn name(&self) -> &'static str {
+        "mention"
+    }
+
+    fn suggest(&self, buffer: &str, ctx: &SuggestCtx) -> Option<String> {
+        if buffer.is_empty() {
+            return None;
+        }
+        let at = buffer.rfind('@')?;
+        let after = &buffer[at + 1..];
+        if after.contains(' ')
+            || after.contains('\t')
+            || after.contains('\n')
+            || after.contains('@')
+        {
+            return None;
+        }
+        let (kind, term) = match after.find(':') {
+            Some(pos) => (&after[..pos], &after[pos + 1..]),
+            None => ("", after),
+        };
+        let root = ctx.project_root.unwrap_or_else(|| Path::new("."));
+        let term_lower = term.to_ascii_lowercase();
+        let mut candidates: Vec<String> = Vec::new();
+
+        if kind.is_empty() || kind == "file" {
+            for path in scan_files(root, None) {
+                if term.is_empty() || path.to_ascii_lowercase().contains(&term_lower) {
+                    candidates.push(if kind.is_empty() {
+                        format!("@{path}")
+                    } else {
+                        format!("@file:{path}")
+                    });
+                }
+            }
+        }
+        if kind.is_empty() || kind == "skill" {
+            for skill in ctx.skills {
+                if term.is_empty() || skill.to_ascii_lowercase().contains(&term_lower) {
+                    candidates.push(format!("@skill:{skill}"));
+                }
+            }
+        }
+        if kind.is_empty() || kind == "workflow" || kind == "wf" {
+            for workflow in ctx.workflows {
+                if term.is_empty() || workflow.to_ascii_lowercase().contains(&term_lower) {
+                    candidates.push(format!("@workflow:{workflow}"));
+                }
+            }
+        }
+
+        candidates.sort();
+        candidates.dedup();
+        candidates
+            .into_iter()
+            .find(|candidate| candidate.starts_with(buffer) && candidate.len() > buffer.len())
+    }
+}
+
+fn scan_files(root: &Path, _query: Option<&str>) -> Vec<String> {
+    let mut out = Vec::new();
+    let limit = 500usize;
+    let max_depth = 6usize;
+    let mut stack: Vec<(std::path::PathBuf, usize)> = vec![(root.to_path_buf(), 0)];
+    while let Some((dir, depth)) = stack.pop() {
+        if depth > max_depth || out.len() >= limit {
+            continue;
+        }
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(rel) = path
+                .strip_prefix(root)
+                .map(|p| p.to_string_lossy().to_string())
+            else {
+                continue;
+            };
+            if rel
+                .split('/')
+                .any(|part| matches!(part, ".git" | "node_modules" | "target" | ".next" | "dist"))
+            {
+                continue;
+            }
+            if path.is_dir() {
+                stack.push((path, depth + 1));
+            } else if path.is_file() {
+                out.push(rel);
+                if out.len() >= limit {
+                    break;
+                }
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 fn longest_common_prefix(candidates: &[&str]) -> Option<String> {
     let mut prefix: Option<String> = None;
     for candidate in candidates {
@@ -213,6 +326,7 @@ impl SuggestEngine {
             strategies: vec![
                 Box::new(HistoryStrategy),
                 Box::new(MatchPrevCmdStrategy),
+                Box::new(MentionStrategy),
                 Box::new(CommandStrategy),
             ],
         }
@@ -239,6 +353,9 @@ mod tests {
         SuggestCtx {
             history,
             prev_prompt: prev,
+            skills: &[],
+            workflows: &[],
+            project_root: None,
         }
     }
 

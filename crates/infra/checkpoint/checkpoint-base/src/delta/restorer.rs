@@ -147,7 +147,7 @@ impl<SS, DS> GenericDeltaRestorer<SS, DS> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::serializer::{CheckpointCodec, CheckpointSerializer};
+    use crate::serializer::CheckpointSerializer;
     use std::collections::HashMap;
     use wf_types::checkpoint::CheckpointStatus;
 
@@ -223,7 +223,7 @@ mod tests {
                 tags: None,
                 custom_fields: None,
             };
-            let bytes = CheckpointSerializer::serialize(data, CheckpointCodec::Json).unwrap();
+            let bytes = CheckpointSerializer::serialize(data).unwrap();
             self.entries.insert(id.to_string(), bytes);
             self.metas.insert(id.to_string(), meta);
         }

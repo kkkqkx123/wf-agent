@@ -6,6 +6,7 @@
 	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
 	import { splitAttachments } from '$lib/utils/attachments';
 	import { textRuns } from '$lib/utils/mentions';
+	import { mentionClass, mentionIcon } from '$lib/utils/mention-style';
 	import { formatDateTime } from '$lib/utils/format';
 	import { resolveToolOutputBudgets } from '$lib/config/tool-output';
 	import {
@@ -170,9 +171,16 @@
 				<p class="whitespace-pre-wrap break-words">
 					{#each runs as run, index (index)}
 						{#if run.kind}
-							<span class={cn(TAG, 'mx-0.5 font-mono not-italic')}
-								>{run.text}</span
+							<span
+								class={cn(
+									TAG,
+									'mx-0.5 inline-flex items-center gap-1 font-mono not-italic',
+									mentionClass(run.kind),
+								)}
 							>
+								<Icon name={mentionIcon(run.kind)} size={11} />
+								{run.text}
+							</span>
 						{:else}
 							{run.text}
 						{/if}

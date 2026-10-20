@@ -80,4 +80,12 @@ describe('textRuns', () => {
 			{ text: 'plain sentence', kind: null },
 		]);
 	});
+
+	it('classifies file path shorthand as a file mention', () => {
+		expect(textRuns('open @src/main.rs#10-20 now')).toEqual([
+			{ text: 'open ', kind: null },
+			{ text: '@src/main.rs#10-20', kind: 'file' },
+			{ text: ' now', kind: null },
+		]);
+	});
 });

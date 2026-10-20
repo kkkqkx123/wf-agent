@@ -35,7 +35,10 @@ export function mentionTone(kind: string): MentionTone {
 }
 
 /** Icon name for a mention kind, using the shared icon set. */
-export function mentionIcon(kind: string): IconName {
+export function mentionIcon(kind: string, label?: string): IconName {
+	if (kind === 'file' && label?.trim().endsWith('/')) {
+		return 'folder';
+	}
 	switch (mentionTone(kind)) {
 		case 'file':
 			return 'file';

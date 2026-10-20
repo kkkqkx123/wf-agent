@@ -4,9 +4,9 @@
 	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
 	import type { IconName } from '@wf-agent/ui/icons/paths';
 	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
+	import MentionBadge from '$lib/components/chat/MentionBadge.svelte';
 	import { splitAttachments } from '$lib/utils/attachments';
 	import { textRuns } from '$lib/utils/mentions';
-	import { mentionClass, mentionIcon } from '$lib/utils/mention-style';
 	import { formatDateTime } from '$lib/utils/format';
 	import { resolveToolOutputBudgets } from '$lib/config/tool-output';
 	import {
@@ -41,13 +41,15 @@
 		tool: 'blocks',
 	};
 
-	/** The small label every inline reference in a bubble shares. */
-	const TAG =
-		'rounded border border-border/70 bg-muted/60 px-1.5 text-micro text-muted-foreground';
-
 	let expandedIndex = $state<number | null>(null);
 
 	const isUser = $derived(message.role === 'user');
+	/** The small label every inline reference in a bubble shares. */
+	const TAG = $derived(
+		isUser
+			? 'rounded border border-border/70 bg-primary-foreground/10 px-1.5 text-micro text-primary-foreground'
+			: 'rounded border border-border/70 bg-muted/60 px-1.5 text-micro text-muted-foreground',
+	);
 	const isAssistant = $derived(message.role === 'assistant');
 	const showActions = $derived(
 		isAssistant && (onretry || oncontinue || onfeedback),
@@ -171,17 +173,12 @@
 				<p class="whitespace-pre-wrap break-words">
 					{#each runs as run, index (index)}
 						{#if run.kind}
-							<span
-								class={cn(
-									TAG,
-									'mx-0.5 inline-flex items-center gap-1 font-mono not-italic',
-									mentionClass(run.kind),
-								)}
-								title={run.text}
-								aria-label={`Mention ${run.kind}: ${run.text}`}
-							>
-								<Icon name={mentionIcon(run.kind)} size={11} />
-								{run.text}
+							<span class="mx-0.5 inline-flex">
+								<MentionBadge
+									text={run.text}
+									kind={run.kind}
+									surface={isUser ? 'primary' : 'muted'}
+								/>
 							</span>
 						{:else}
 							{run.text}

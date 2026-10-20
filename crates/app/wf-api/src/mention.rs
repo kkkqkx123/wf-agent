@@ -159,23 +159,30 @@ pub async fn search(
 
     // Files (best-effort local scan).
     if wants("file") {
-        let root = std::env::current_dir().unwrap_or_default();
+        let root = ctx
+            .user_git_config()
+            .and_then(|config| config.repo_root.clone())
+            .filter(|value| !value.trim().is_empty())
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         let mut files = scan_files(&root, if query.is_empty() { None } else { Some(query) });
         files.truncate(limit);
         for rel in files {
-            let label = std::path::Path::new(&rel)
+            let is_dir = rel.ends_with('/');
+            let clean = rel.trim_end_matches('/').to_string();
+            let label = std::path::Path::new(&clean)
                 .file_name()
                 .and_then(|n| n.to_str())
-                .unwrap_or(&rel)
+                .unwrap_or(&clean)
                 .to_string();
             out.push(MentionCandidate {
                 kind: "file".to_string(),
                 id: rel.clone(),
                 label,
-                description: Some(rel.clone()),
+                description: Some(clean.clone()),
                 value: rel.clone(),
-                keywords: vec![rel.clone()],
-                data: serde_json::json!({ "kind": "file" }),
+                keywords: vec![clean.clone()],
+                data: serde_json::json!({ "kind": if is_dir { "directory" } else { "file" } }),
             });
         }
     }
@@ -245,6 +252,15 @@ fn scan_files(root: &std::path::Path, query: Option<&str>) -> Vec<String> {
                 }
             }
             if path.is_dir() {
+                if out.len() < limit {
+                    let emit = match &needle {
+                        Some(q) => rel.to_ascii_lowercase().contains(q.as_str()),
+                        None => true,
+                    };
+                    if emit {
+                        out.push(format!("{rel}/"));
+                    }
+                }
                 stack.push((path, depth + 1));
             } else if path.is_file() {
                 if let Some(q) = &needle {

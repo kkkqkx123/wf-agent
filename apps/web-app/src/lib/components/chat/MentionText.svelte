@@ -1,10 +1,8 @@
 <script lang="ts">
 	import type { SvelteRenderableNode, SvelteRenderContext } from 'markstream-svelte';
 	import { resolveStreamingTextState } from 'markstream-core';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import { cn } from '@wf-agent/ui/cn';
 	import { textRuns } from '$lib/utils/mentions';
-	import { mentionClass, mentionIcon } from '$lib/utils/mention-style';
+	import MentionBadge from './MentionBadge.svelte';
 
 	interface Props {
 		node: SvelteRenderableNode;
@@ -69,16 +67,8 @@
 >
 	{#each renderRuns(streamInfo.stableContent) as run, i (i)}
 		{#if run.kind}
-			<span
-				class={cn(
-					'rounded border border-border/70 bg-muted/60 px-1.5 text-micro text-muted-foreground mx-0.5 inline-flex items-center gap-1 font-mono not-italic',
-					mentionClass(run.kind),
-				)}
-				title={run.text}
-				aria-label={`Mention ${run.kind}: ${run.text}`}
-			>
-				<Icon name={mentionIcon(run.kind)} size={11} />
-				{run.text}
+			<span class="mx-0.5 inline-flex">
+				<MentionBadge text={run.text} kind={run.kind} />
 			</span>
 		{:else}
 			{run.text}
@@ -88,16 +78,8 @@
 		<span class="markstream-svelte-text__stream-delta text-node-stream-delta {streamInfo.deltaClass}">
 			{#each renderRuns(streamInfo.deltaContent) as run, i (i)}
 				{#if run.kind}
-					<span
-						class={cn(
-							'rounded border border-border/70 bg-muted/60 px-1.5 text-micro text-muted-foreground mx-0.5 inline-flex items-center gap-1 font-mono not-italic',
-							mentionClass(run.kind),
-						)}
-						title={run.text}
-						aria-label={`Mention ${run.kind}: ${run.text}`}
-					>
-						<Icon name={mentionIcon(run.kind)} size={11} />
-						{run.text}
+					<span class="mx-0.5 inline-flex">
+						<MentionBadge text={run.text} kind={run.kind} />
 					</span>
 				{:else}
 					{run.text}

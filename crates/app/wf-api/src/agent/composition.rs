@@ -331,7 +331,9 @@ pub async fn resolve_mentions(
     text: &str,
     excluded_workflow_id: Option<&str>,
 ) -> Vec<Message> {
-    let Ok(re) = regex::Regex::new(r"@([a-z][a-z0-9_]*):([\w./-]+(?:#\d+(?:-\d+)?)?)") else {
+    let Ok(re) = regex::Regex::new(
+        r"@(?:(?P<kind>[a-z][a-z0-9_]*):(?P<value>[\w./-]+(?:#\d+(?:-\d+)?)?)|(?P<path>[\w./-]*[./][\w./-]*(?:#\d+(?:-\d+)?)?))",
+    ) else {
         return Vec::new();
     };
     let mut seen = HashSet::new();
@@ -340,14 +342,17 @@ pub async fn resolve_mentions(
         if out.len() >= 8 {
             break;
         }
-        let Some(kind_match) = capture.get(1) else {
-            continue;
+        let (kind, id) = if let Some(kind_match) = capture.name("kind") {
+            let Some(value_match) = capture.name("value") else {
+                continue;
+            };
+            (kind_match.as_str(), value_match.as_str())
+        } else {
+            let Some(path_match) = capture.name("path") else {
+                continue;
+            };
+            ("file", path_match.as_str())
         };
-        let Some(id_match) = capture.get(2) else {
-            continue;
-        };
-        let kind = kind_match.as_str();
-        let id = id_match.as_str();
         let key = format!("{kind}:{id}");
         if !seen.insert(key) {
             continue;
@@ -411,7 +416,7 @@ pub async fn resolve_mentions(
                         record.id, record.execution_id, snippet
                     )
                 }),
-            "file" => resolve_file_mention(id),
+            "file" => resolve_file_mention(ctx, id),
             "skill" => resolve_skill_mention(ctx, id),
             "tool" => resolve_tool_mention(ctx, id),
             "script" => resolve_script_mention(ctx, id).await,
@@ -444,9 +449,14 @@ fn parse_file_mention(raw: &str) -> (String, Option<(u32, u32)>) {
     }
 }
 
-fn resolve_file_mention(raw: &str) -> Option<String> {
+fn resolve_file_mention(ctx: &ApiContext, raw: &str) -> Option<String> {
     let (path, range) = parse_file_mention(raw);
-    let root = std::env::current_dir().ok()?;
+    let root = ctx
+        .user_git_config()
+        .and_then(|config| config.repo_root.clone())
+        .filter(|value| !value.trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::current_dir().ok())?;
     let root_canonical = root.canonicalize().ok()?;
     let full = if std::path::Path::new(&path).is_absolute() {
         std::path::PathBuf::from(&path)
@@ -456,6 +466,18 @@ fn resolve_file_mention(raw: &str) -> Option<String> {
     let canonical = full.canonicalize().ok()?;
     if !canonical.starts_with(&root_canonical) {
         return None;
+    }
+    if canonical.is_dir() {
+        let mut entries: Vec<String> = std::fs::read_dir(&canonical)
+            .ok()?
+            .flatten()
+            .take(50)
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .collect();
+        entries.sort();
+        return Some(format!("directory: {path}
+{}", entries.join("
+")));
     }
     let content = std::fs::read_to_string(&canonical).ok()?;
     let lines: Vec<&str> = content.lines().collect();

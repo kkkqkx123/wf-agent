@@ -20,14 +20,11 @@
 	import ToolCallGroup from './ToolCallGroup.svelte';
 	import { groupToolCalls } from '$lib/utils/tool-output';
 	import { preferences } from '$lib/stores/preferences.svelte';
-	import NodeTracePanel from './NodeTracePanel.svelte';
 	import ExecutionHierarchyBreadcrumb from './ExecutionHierarchyBreadcrumb.svelte';
 	import ExecutionHierarchyTree from './ExecutionHierarchyTree.svelte';
-	import ExecutionHistoryPanel from './ExecutionHistoryPanel.svelte';
-	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
+	import StreamMarkdown from '$lib/components/chat/LazyStreamMarkdown.svelte';
 	import { extractMarkdownText } from '$lib/utils/markdown';
-	import GraphExplorer from '$lib/components/domain/GraphExplorer.svelte';
-	import type { GraphOverlay } from '$lib/graph/display-model';
+		import type { GraphOverlay } from '$lib/graph/display-model';
 	import {
 		getExecutionTimeline,
 		getExecutionToolCalls,
@@ -67,9 +64,6 @@
 		defaultTab,
 		type ExecutionTab,
 	} from '$lib/config/execution-tabs';
-	import LoopMessagesPanel from './LoopMessagesPanel.svelte';
-	import LoopVariablesPanel from './LoopVariablesPanel.svelte';
-	import LoopCheckpointsPanel from './LoopCheckpointsPanel.svelte';
 	import type { StreamState } from '$lib/api/sse';
 	import type { EventRecord } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
@@ -1003,7 +997,8 @@
 					{/if}
 				{/if}
 			</div>
-			<GraphExplorer
+			{#await import('$lib/components/domain/GraphExplorer.svelte') then module}
+<module.default
 				bind:this={explorer}
 				nodes={overlayNodes}
 				edges={overlayEdges}
@@ -1055,21 +1050,24 @@
 						{/if}
 					{/if}
 				{/snippet}
-			</GraphExplorer>
+			</module.default>
+		{/await}
 		{:else if tab === 'trace'}
-			<NodeTracePanel
-				executionId={execution.id}
-				traces={nodeTraces}
-				skipped={nodeTracesSkipped}
-				loading={nodeTracesLoading}
-				error={nodeTracesError}
-				selectedNodeId={graphNodeId}
-				onretry={() => {
-					seenTrace = '';
-					nodeTracesError = null;
-				}}
-				onlocate={(nodeId) => focusGraphNode(nodeId)}
-			/>
+			{#await import('./NodeTracePanel.svelte') then module}
+				<module.default
+					executionId={execution.id}
+					traces={nodeTraces}
+					skipped={nodeTracesSkipped}
+					loading={nodeTracesLoading}
+					error={nodeTracesError}
+					selectedNodeId={graphNodeId}
+					onretry={() => {
+						seenTrace = '';
+						nodeTracesError = null;
+					}}
+					onlocate={(nodeId) => focusGraphNode(nodeId)}
+				/>
+			{/await}
 		{:else if tab === 'timeline'}
 			{#if timelineError}
 				<ErrorState
@@ -1274,11 +1272,17 @@
 				</div>
 			{/if}
 		{:else if tab === 'messages'}
-			<LoopMessagesPanel id={execution.id} />
+			{#await import('./LoopMessagesPanel.svelte') then module}
+				<module.default id={execution.id} />
+			{/await}
 		{:else if tab === 'variables'}
-			<LoopVariablesPanel id={execution.id} />
+			{#await import('./LoopVariablesPanel.svelte') then module}
+				<module.default id={execution.id} />
+			{/await}
 		{:else if tab === 'checkpoints'}
-			<LoopCheckpointsPanel id={execution.id} />
+			{#await import('./LoopCheckpointsPanel.svelte') then module}
+				<module.default id={execution.id} />
+			{/await}
 		{:else if tab === 'hierarchy'}
 			{#if hierarchyError}
 				<ErrorState
@@ -1300,7 +1304,9 @@
 			{/if}
 		{:else if tab === 'history'}
 			{#key execution.id}
-				<ExecutionHistoryPanel executionId={execution.id} />
+				{#await import('./ExecutionHistoryPanel.svelte') then module}
+					<module.default executionId={execution.id} />
+				{/await}
 			{/key}
 		{:else}
 			{#if stateLoading}

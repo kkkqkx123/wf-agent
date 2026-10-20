@@ -14,8 +14,7 @@
 	import Timeline from '$lib/components/domain/Timeline.svelte';
 	import TimelineOutline from '$lib/components/domain/TimelineOutline.svelte';
 	import ToolCallCard from '$lib/components/domain/ToolCallCard.svelte';
-	import GraphExplorer from '$lib/components/domain/GraphExplorer.svelte';
-	import {
+		import {
 		applyExecutionOverlay,
 		matchDecisionNodeId,
 		projectExecutionOverlay,
@@ -401,7 +400,8 @@
 				{/if}
 			{/if}
 		{:else if tab === 'graph'}
-			<GraphExplorer
+			{#await import('$lib/components/domain/GraphExplorer.svelte') then module}
+<module.default
 				bind:this={graphExplorer}
 				nodes={decisionOverlayNodes}
 				edges={decisionEdges}
@@ -411,7 +411,7 @@
 				onretry={() => void graph.reload()}
 				selectedId={selectedGraphNode}
 				onselect={handleGraphSelect}
-			/>
+			/> {/await}
 		{:else if tab === 'iterations'}
 			{#if selectedGraphNode !== null}
 				<div class="mb-2 flex items-center gap-2">

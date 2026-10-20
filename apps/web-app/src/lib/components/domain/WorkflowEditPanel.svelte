@@ -2,8 +2,7 @@
 	import Badge from '@wf-agent/ui/components/Badge.svelte';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
-	import GraphExplorer from '$lib/components/domain/GraphExplorer.svelte';
-	import IssueList from '$lib/components/domain/IssueList.svelte';
+		import IssueList from '$lib/components/domain/IssueList.svelte';
 	import type {
 		CanvasPosition,
 		PresenceCursor,
@@ -120,7 +119,8 @@
 		/>
 	</Card>
 {/if}
-<GraphExplorer
+{#await import('$lib/components/domain/GraphExplorer.svelte') then module}
+<module.default
 	bind:this={explorer}
 	nodes={store.nodes}
 	edges={store.edges}
@@ -151,4 +151,4 @@
 	ondeletegroups={(ids) => ondeletegroups(ids)}
 	{presence}
 	{oncursormove}
-/>
+/> {/await}

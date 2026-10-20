@@ -61,6 +61,14 @@
 	createHotkey(effectiveHotkey('app.help'), () => ui.toggleHelp(), {
 		enabled: !isShortcutDisabled('app.help'),
 	});
+	createHotkey(
+		effectiveHotkey('app.commandPalette'),
+		(event) => {
+			event.preventDefault();
+			ui.toggleCommand();
+		},
+		{ enabled: !isShortcutDisabled('app.commandPalette') },
+	);
 	createHotkey('?', (event) => {
 		if (isTypingTarget(event.target)) return;
 		event.preventDefault();

@@ -6,7 +6,7 @@
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import MessageBubble from '$lib/components/domain/MessageBubble.svelte';
 	import ReasoningBlock from '$lib/components/chat/ReasoningBlock.svelte';
-	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
+	import StreamMarkdown from '$lib/components/chat/LazyStreamMarkdown.svelte';
 	import ToolCallCard from '$lib/components/domain/ToolCallCard.svelte';
 	import BackgroundTasksBar from '$lib/components/domain/BackgroundTasksBar.svelte';
 	import ToolCallGroup from '$lib/components/domain/ToolCallGroup.svelte';

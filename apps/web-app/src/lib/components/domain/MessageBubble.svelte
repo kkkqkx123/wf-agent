@@ -3,7 +3,7 @@
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
 	import type { IconName } from '@wf-agent/ui/icons/paths';
-	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
+	import StreamMarkdown from '$lib/components/chat/LazyStreamMarkdown.svelte';
 	import MentionBadge from '$lib/components/chat/MentionBadge.svelte';
 	import { splitAttachments } from '$lib/utils/attachments';
 	import { textRuns } from '$lib/utils/mentions';

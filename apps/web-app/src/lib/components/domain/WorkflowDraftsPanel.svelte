@@ -6,8 +6,7 @@
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
-	import GraphExplorer from '$lib/components/domain/GraphExplorer.svelte';
-	import JsonViewer from '@wf-agent/ui/components/JsonViewer.svelte';
+		import JsonViewer from '@wf-agent/ui/components/JsonViewer.svelte';
 	import { getWorkflowDraftTopology } from '$lib/services/graph';
 	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
 	import type { WorkflowDraft } from '$lib/types/models';
@@ -120,11 +119,12 @@
 							onretry={() => void togglePreview(draft.id)}
 						/>
 					{:else}
-						<GraphExplorer
+						{#await import('$lib/components/domain/GraphExplorer.svelte') then module}
+<module.default
 							nodes={previewNodes}
 							edges={previewEdges}
 							preset="workflow"
-						/>
+						/> {/await}
 					{/if}
 				</div>
 			{/if}

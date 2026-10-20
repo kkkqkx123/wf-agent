@@ -7,7 +7,7 @@
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import JsonViewer from '@wf-agent/ui/components/JsonViewer.svelte';
-	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
+	import StreamMarkdown from '$lib/components/chat/LazyStreamMarkdown.svelte';
 	import KeyValueList from './KeyValueList.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import { toneText } from '@wf-agent/ui/components/variants';

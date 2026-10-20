@@ -12,8 +12,7 @@
 	import type { AgentLoop, Execution, Workflow } from '$lib/types/models';
 	import { ui } from '$lib/stores/ui.svelte';
 	import { cn } from '@wf-agent/ui/cn';
-	import { createHotkey } from '@tanstack/svelte-hotkeys';
-	import { effectiveHotkey, isShortcutDisabled } from '$lib/shortcuts/registry';
+
 
 	interface CommandItem {
 		id: string;
@@ -186,17 +185,6 @@
 			flat[activeIndex]?.run();
 		}
 	}
-
-	// Command palette toggle resolves through the shortcut catalog so user
-	// overrides apply; the in-dialog arrow/enter handling stays local.
-	createHotkey(
-		effectiveHotkey('app.commandPalette'),
-		(event) => {
-			event.preventDefault();
-			ui.toggleCommand();
-		},
-		{ enabled: !isShortcutDisabled('app.commandPalette') },
-	);
 
 	$effect(() => {
 		if (!ui.commandOpen) {

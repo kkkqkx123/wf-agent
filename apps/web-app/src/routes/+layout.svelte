@@ -5,8 +5,8 @@
 	import { setHrefResolver } from '@wf-agent/ui/link';
 	import { appPath } from '$lib/utils/route';
 	import AppShell from '$lib/components/layout/AppShell.svelte';
-	import CommandPalette from '$lib/components/layout/CommandPalette.svelte';
 	import Toaster from '$lib/components/layout/Toaster.svelte';
+	import { ui } from '$lib/stores/ui.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import {
 		applyDensityScale,
@@ -44,5 +44,9 @@
   keeps the default chrome. Pages needing immersive canvas or a third rail
   pass those slots instead of forking the shell. -->
 
-<CommandPalette />
+{#if ui.commandOpen}
+	{#await import('$lib/components/layout/CommandPalette.svelte') then module}
+		<module.default />
+	{/await}
+{/if}
 <Toaster />

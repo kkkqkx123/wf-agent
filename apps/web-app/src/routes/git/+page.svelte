@@ -9,7 +9,7 @@
 	import GitGroupsPanel from '$lib/components/domain/git/GitGroupsPanel.svelte';
 	import GitMainView from '$lib/components/domain/git/GitMainView.svelte';
 	import GitKeyInput from '$lib/components/domain/git/GitKeyInput.svelte';
-	import GitTerminalPanel from '$lib/components/domain/git/GitTerminalPanel.svelte';
+
 	import GitActionDialogs from '$lib/components/domain/git/GitActionDialogs.svelte';
 	import { page } from '$app/state';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
@@ -102,7 +102,11 @@
 				<div class="space-y-3">
 					<GitMainView {workbench} />
 					<GitKeyInput {workbench} />
-					<GitTerminalPanel {workbench} />
+					{#if workbench.terminalOpen}
+						{#await import('$lib/components/domain/git/GitTerminalPanel.svelte') then module}
+							<module.default {workbench} />
+						{/await}
+					{/if}
 				</div>
 			</div>
 		</PageState>

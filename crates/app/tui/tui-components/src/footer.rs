@@ -27,6 +27,7 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
+use tui_style::icons;
 use ratatui::text::{Line, Span};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -65,8 +66,8 @@ pub const NOTICE_TTL_MS: u64 = 3_000;
 /// Spinner rotation interval (40 ms).
 pub const SPINNER_TICK_MS: u64 = 40;
 
-/// Braille spinner frames.
-pub const SPINNER_FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+/// Braille spinner frames (centralized in `tui_style::icons`).
+pub use tui_style::icons::SPINNER_BRAILLE_10 as SPINNER_FRAMES;
 
 /// Width breakpoints for the status line.
 pub const STATUSLINE_SUMMARY_WIDTH: u16 = 120;
@@ -382,26 +383,26 @@ impl Footer {
         let leading = if busy {
             format!("{} [BUILD] ", spinner_frame(self.now_ms))
         } else {
-            "○ [EXIT] ".to_string()
+            format!("{} [EXIT] ", icons::READY)
         };
         spans.push(Span::styled(leading, label_style));
         spans.push(Span::raw(self.status_text()));
 
         if let Some((text, _)) = &self.state.notice {
             spans.push(Span::styled(
-                format!(" ⚠ {text}"),
+                format!(" {} {text}", icons::WARNING),
                 theme_style(theme, Role::Accent),
             ));
         } else if area.width >= STATUSLINE_SUMMARY_WIDTH {
             if let Some(exec) = &self.state.execution_id {
                 spans.push(Span::styled(
-                    format!(" ▣ {exec} · {}", format_duration(self.state.duration_ms)),
+                    format!(" {} {exec} · {}", icons::EXECUTION, format_duration(self.state.duration_ms)),
                     theme_style(theme, Role::Muted),
                 ));
             }
             if let Some(usage) = &self.state.usage {
                 spans.push(Span::styled(
-                    format!(" ◧ {}", usage_summary(usage)),
+                    format!(" {} {}", icons::USAGE, usage_summary(usage)),
                     theme_style(theme, Role::Muted),
                 ));
             }
@@ -422,7 +423,7 @@ impl Footer {
     /// the last error appended when present.
     fn status_text(&self) -> String {
         if let Some(err) = &self.state.last_error {
-            return format!("⚠ {err}");
+            return format!("{} {err}", icons::WARNING);
         }
         let mut parts = vec![
             format!("wf agent · iter:{}", self.state.iteration),

@@ -106,17 +106,19 @@ impl MentionTone {
     }
 
     /// Single-width glyph shown before a reference in the mention panel.
+    /// Each arm documents the corresponding Web icon name from
+    /// `@wf-agent/ui/icons` so the two surfaces stay comparable.
     pub fn icon(self) -> char {
         match self {
-            MentionTone::File => '▢',
-            MentionTone::Directory => '▤',
-            MentionTone::Skill => '✦',
-            MentionTone::Workflow => '⟳',
-            MentionTone::Agent => '☻',
-            MentionTone::Tool => '⚙',
-            MentionTone::Script => '❯',
-            MentionTone::Resource => '⇄',
-            MentionTone::Neutral => '#',
+            MentionTone::File => '▢',       // web: file
+            MentionTone::Directory => '▤',  // web: folder
+            MentionTone::Skill => '✦',      // web: sparkles
+            MentionTone::Workflow => '⟳',   // web: workflow
+            MentionTone::Agent => '☻',      // web: user
+            MentionTone::Tool => '⚙',       // web: terminal
+            MentionTone::Script => '❯',     // web: code
+            MentionTone::Resource => '⇄',   // web: link
+            MentionTone::Neutral => '#',    // web: hash
         }
     }
 

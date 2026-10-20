@@ -8,7 +8,7 @@
 use std::time::Duration;
 
 /// Spinner frame glyphs indexed by [`AnimationController::spinner_frame_at`].
-pub const SPINNER_CHARS: [&str; 8] = ["|", "/", "-", "\\", "|", "/", "-", "\\"];
+pub use crate::icons::SPINNER_ASCII_8 as SPINNER_CHARS;
 /// Pulse frame glyphs indexed by [`AnimationController::pulse_frame_at`].
 pub const PULSE_CHARS: [&str; 4] = ["●", "◉", "●", "○"];
 /// Bounce frame glyphs indexed by [`AnimationController::bounce_frame_at`].

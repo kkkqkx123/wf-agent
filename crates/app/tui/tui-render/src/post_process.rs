@@ -83,7 +83,14 @@ pub fn adapt_buffer_for_emoji(buf: &mut Buffer, preference: EmojiPreference) {
         return;
     }
     for cell in buf.content.iter_mut() {
-        if cell.symbol().chars().any(is_wide_pictograph) {
+        let symbol = cell.symbol();
+        if let Some(ch) = symbol.chars().next() {
+            if let Some(fallback) = tui_style::icons::ascii_fallback(ch) {
+                cell.set_symbol(fallback);
+                continue;
+            }
+        }
+        if symbol.chars().any(is_wide_pictograph) {
             cell.set_symbol("?");
         }
     }

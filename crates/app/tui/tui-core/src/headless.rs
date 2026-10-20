@@ -31,6 +31,7 @@
 
 use crate::reducer::{FooterState, SessionReducer};
 use tui_markdown::markdown::{ends_with_blank_line, render_plain_text, MarkdownStream};
+use tui_style::icons;
 use wf_types::events::ExecutionStreamEvent;
 
 /// One output delta from the headless renderer.
@@ -94,7 +95,7 @@ impl HeadlessRenderer {
                 self.had_output = true;
                 HeadlessDelta {
                     stdout: String::new(),
-                    diag: vec![format!("▲ {tool_name}")],
+                    diag: vec![format!("{} {tool_name}", icons::TOOL_CALL)],
                     had_output: true,
                 }
             }
@@ -106,11 +107,11 @@ impl HeadlessRenderer {
             } => {
                 self.had_output = true;
                 let diag = if *success {
-                    format!("✓ {tool_name}")
+                    format!("{} {tool_name}", icons::SUCCESS)
                 } else {
                     match error {
-                        Some(reason) => format!("✗ {tool_name}: {reason}"),
-                        None => format!("✗ {tool_name}"),
+                        Some(reason) => format!("{} {tool_name}: {reason}", icons::FAILURE),
+                        None => format!("{} {tool_name}", icons::FAILURE),
                     }
                 };
                 HeadlessDelta {

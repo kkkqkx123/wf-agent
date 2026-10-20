@@ -18,7 +18,7 @@ use crate::animation::AnimationMode;
 
 /// Braille spinner frames indexed by quarter-phase; shared with the footer
 /// spinner so both indicators step through the same sequence.
-pub const BRAILLE_FRAMES: [&str; 4] = ["⣾", "⣽", "⣻", "⢿"];
+pub use crate::icons::SPINNER_BRAILLE_4 as BRAILLE_FRAMES;
 
 /// Shimmer sweep period in milliseconds.
 pub const SHIMMER_PERIOD_MS: u64 = 2_000;

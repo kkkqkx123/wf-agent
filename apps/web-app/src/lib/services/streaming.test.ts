@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-	handleExecutionFrame,
-	handleGenerationFrame,
-} from '$lib/utils/stream-parser';
+import { handleExecutionFrame } from '$lib/utils/stream-parser';
 import type { StreamCallbacks } from '$lib/utils/stream-parser';
 
 function collect(): { callbacks: StreamCallbacks; calls: string[] } {
@@ -72,76 +69,6 @@ describe('handleExecutionFrame', () => {
 		handleExecutionFrame(
 			'',
 			{ event_type: 'text', text: 'not mine' },
-			{ onDelta: spy },
-		);
-		expect(spy).not.toHaveBeenCalled();
-	});
-});
-
-describe('handleGenerationFrame', () => {
-	it('appends only the increment of a text frame', () => {
-		const { callbacks, calls } = collect();
-		handleGenerationFrame(
-			{ event_type: 'text', text: 'wor', snapshot: 'hello wor' },
-			callbacks,
-		);
-		expect(calls).toEqual(['delta:wor']);
-	});
-
-	it('keeps an in-stream error distinguishable from a frame', () => {
-		const { callbacks, calls } = collect();
-		handleGenerationFrame({ event_type: 'error', error: 'boom' }, callbacks);
-		expect(calls).toEqual(['error:boom']);
-	});
-
-	it('routes reasoning and usage increments', () => {
-		const { callbacks, calls } = collect();
-		handleGenerationFrame(
-			{ event_type: 'reasoning_text', reasoning: 'think', snapshot: 'think' },
-			callbacks,
-		);
-		handleGenerationFrame(
-			{
-				event_type: 'usage',
-				usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
-			},
-			callbacks,
-		);
-		expect(calls).toEqual(['reasoning:think', 'usage:10:20:null']);
-	});
-
-	it('surfaces usage carried by the terminal message', () => {
-		const { callbacks, calls } = collect();
-		handleGenerationFrame(
-			{
-				event_type: 'final_message',
-				message: { content: [] },
-				usage: {
-					prompt_tokens: 5,
-					completion_tokens: 7,
-					total_tokens: 12,
-					total_cost: 0.001,
-				},
-			},
-			callbacks,
-		);
-		expect(calls).toEqual(['usage:5:7:0.001']);
-	});
-
-	it('maps an abort frame to an interruption', () => {
-		const { callbacks, calls } = collect();
-		handleGenerationFrame(
-			{ event_type: 'abort', reason: 'stopped' },
-			callbacks,
-		);
-		expect(calls).toEqual(['interrupted:stopped']);
-	});
-
-	it('ignores frames the timeline does not model', () => {
-		const spy = vi.fn();
-		handleGenerationFrame({ event_type: 'end' }, { onDelta: spy });
-		handleGenerationFrame(
-			{ event_type: 'final_message', message: { content: [] } },
 			{ onDelta: spy },
 		);
 		expect(spy).not.toHaveBeenCalled();

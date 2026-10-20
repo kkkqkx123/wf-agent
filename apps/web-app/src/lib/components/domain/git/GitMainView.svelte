@@ -4,6 +4,7 @@
 	import DiffView from '@wf-agent/ui/components/DiffView.svelte';
 	import { git as gitStore } from '$lib/stores/git.svelte';
 	import type { GitWorkbench } from '$lib/git/workbench.svelte';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		workbench: GitWorkbench;
@@ -13,10 +14,10 @@
 </script>
 
 <Card
-	title="Main view"
+	title={t('domain.git.mainViewTitle')}
 	description={workbench.selection
-		? `Selected: ${workbench.selection}`
-		: 'Selected diff and quick actions'}
+		? t('domain.git.selected', { selection: workbench.selection })
+		: t('domain.git.mainViewDescription')}
 >
 	{#if workbench.panel === 'commits' && workbench.commitFiles.length > 0}
 		<ul class="mb-2 divide-y divide-border">
@@ -44,14 +45,14 @@
 	{#if workbench.diff.length === 0}
 		<p class="text-caption text-muted-foreground">
 			{workbench.panel === 'commits'
-				? 'Select a commit, then pick a file to see its range diff.'
-				: 'Select a file to preview its hunk diff.'}
+				? t('domain.git.pickCommitFile')
+				: t('domain.git.pickFile')}
 		</p>
 	{:else}
 		<p class="mb-1 text-micro text-muted-foreground">
 			{workbench.diffSource === 'commit'
-				? 'commit range diff'
-				: 'unstaged diff'}
+				? t('domain.git.commitRangeDiff')
+				: t('domain.git.unstagedDiff')}
 		</p>
 		{#each workbench.diff as file (file.path)}
 			<div class="mb-2">
@@ -66,7 +67,7 @@
 									disabled={gitStore.busy}
 									onclick={() => void workbench.stageHunk(file.path, i)}
 								>
-									Stage hunk {i + 1}
+									{t('domain.git.stageHunk', { number: i + 1 })}
 								</Button>
 							{/each}
 						</div>

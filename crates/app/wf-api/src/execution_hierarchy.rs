@@ -495,6 +495,7 @@ mod tests {
         wf_types::AgentExecution {
             id: Id::from(id.to_string()),
             definition_id: Id::from("agent-1".to_string()),
+            execution_type: wf_types::execution::SessionExecutionType::Agent,
             status: ExecutionStatus::Failed,
             current_iteration: 3,
             tool_call_count: 2,

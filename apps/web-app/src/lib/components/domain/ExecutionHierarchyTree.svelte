@@ -10,6 +10,7 @@
 	import { cn } from '@wf-agent/ui/cn';
 	import { resolve } from '$app/paths';
 	import { formatNumber } from '$lib/utils/format';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		subtree: ExecutionSubtree;
@@ -80,21 +81,25 @@
 	{#if subtree.nodes.length === 0}
 		<EmptyState
 			icon="git-commit"
-			title="No nested executions"
-			description="Child runs appear here once this execution spawns one."
+			title={t('domain.hierarchyTree.emptyTitle')}
+			description={t('domain.hierarchyTree.emptyDescription')}
 			class="rounded-lg border border-border bg-card"
 		/>
 	{:else}
 		<div class="flex flex-wrap items-center gap-2">
 			<p class="text-micro text-muted-foreground">
-				{formatNumber(subtree.nodes.length)} execution(s) rooted at
-				{subtree.rootExecutionId}
+				{t('domain.hierarchyTree.rootedAt', {
+					count: formatNumber(subtree.nodes.length),
+					id: subtree.rootExecutionId,
+				})}
 			</p>
 			{#if subtree.truncated}
 				<span
 					class="rounded border border-warning/40 bg-warning/10 px-1.5 text-micro text-warning"
 				>
-					list truncated · {formatNumber(subtree.omitted)} omitted
+					{t('domain.hierarchyTree.truncated', {
+						count: formatNumber(subtree.omitted),
+					})}
 				</span>
 			{/if}
 		</div>
@@ -112,8 +117,8 @@
 					{#if row.hasChildren}
 						<IconButton
 							label={collapsed.has(row.node.executionId)
-								? 'Expand child executions'
-								: 'Collapse child executions'}
+								? t('domain.hierarchyTree.expand')
+								: t('domain.hierarchyTree.collapse')}
 							icon={collapsed.has(row.node.executionId)
 								? 'chevron-right'
 								: 'chevron-down'}
@@ -149,7 +154,7 @@
 						<StatusBadge status={row.node.status} size="sm" />
 					{:else}
 						<span class="text-micro text-muted-foreground/70">
-							record unavailable
+							{t('domain.hierarchyTree.recordUnavailable')}
 						</span>
 					{/if}
 				</li>

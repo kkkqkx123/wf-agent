@@ -14,7 +14,7 @@ use crate::contributions::{ContributionBridge, ContributionManager, Contribution
 use crate::error::PluginResult;
 use crate::event_bus::PluginEventBus;
 use crate::guard::PluginGuard;
-use crate::manifest::PluginPermission;
+use crate::manifest::{PluginManifest, PluginPermission};
 use crate::package::PluginPackageManager;
 use crate::registry::PluginRegistry;
 
@@ -96,6 +96,25 @@ impl PluginEngine {
         }
         let status = crate::signing::verify_file(artifact, trust);
         crate::signing::enforce_signature(plugin_id, artifact, &status, trust, "loading")
+    }
+
+    /// Verify the signature of every wasm artifact a manifest points at.
+    /// Wasm is the only backend whose artifacts carry signatures; the other
+    /// backends are covered by the package manager at install time.
+    ///
+    /// Signature checking is plain file hashing, so it stays available in
+    /// builds that compile the wasm backend out.
+    pub(crate) fn verify_wasm_artifacts(
+        &self,
+        base: &std::path::Path,
+        manifest: &PluginManifest,
+    ) -> PluginResult<()> {
+        for entry in crate::manifest::all_entry_points(manifest) {
+            if entry.ends_with(".wasm") {
+                self.verify_wasm_signature(&base.join(&entry), &manifest.id)?;
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn sync_manifest_llm_providers(&self, plugin_id: &str) {

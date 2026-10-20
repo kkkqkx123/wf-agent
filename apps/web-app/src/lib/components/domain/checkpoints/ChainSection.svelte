@@ -20,6 +20,7 @@
 	import type { Checkpoint } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { checkpoints as checkpointStore } from '$lib/stores/checkpoints.svelte';
+	import { t } from '$lib/i18n';
 
 	// No reload prop: the refetch is driven by `bump('chain')` notifying the
 	// route's live subscription, which reloads this tab.
@@ -34,21 +35,21 @@
 	async function runCreateExecution(): Promise<void> {
 		const id = execId.trim();
 		if (!id) {
-			toasts.error('Enter an execution id');
+			toasts.error(t('domain.checkpoint.executionIdRequired'));
 			return;
 		}
 		checkpointStore.beginAction('create');
 		try {
 			const checkpointId = await createExecutionCheckpoint(id);
 			toasts.success(
-				'Execution checkpoint created',
+				t('domain.checkpoint.created'),
 				checkpointId.slice(0, 10),
 			);
 			checkpointStore.bump('chain');
 		} catch (e) {
 			console.error('Execution checkpoint creation failed:', e);
 			toasts.error(
-				'Checkpoint creation failed',
+				t('domain.checkpoint.createFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -59,7 +60,7 @@
 	async function runGcExecution(): Promise<void> {
 		const id = execId.trim();
 		if (!id) {
-			toasts.error('Enter an execution id');
+			toasts.error(t('domain.checkpoint.executionIdRequired'));
 			return;
 		}
 		checkpointStore.beginAction('gc');
@@ -67,14 +68,14 @@
 			const removed = await gcExecutionCheckpoints(id);
 			gcOpen = false;
 			toasts.success(
-				'Execution checkpoints collected',
-				`${removed} checkpoint(s) removed`,
+				t('domain.checkpoint.collected'),
+				t('domain.checkpoint.removedCount', { count: removed }),
 			);
 			checkpointStore.bump('chain');
 		} catch (e) {
 			console.error('Execution checkpoint GC failed:', e);
 			toasts.error(
-				'Checkpoint GC failed',
+				t('domain.checkpoint.gcFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -94,13 +95,16 @@
 			purgeOpen = false;
 			purgeTarget = null;
 			toasts.success(
-				'Entity checkpoints deleted',
-				`${removed} checkpoint(s) removed`,
+				t('domain.checkpoint.purged'),
+				t('domain.checkpoint.removedCount', { count: removed }),
 			);
 			checkpointStore.bump('chain');
 		} catch (e) {
 			console.error('Entity checkpoint delete failed:', e);
-			toasts.error('Delete failed', e instanceof Error ? e.message : undefined);
+			toasts.error(
+				t('domain.checkpoint.deleteFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
 		} finally {
 			checkpointStore.endAction();
 		}
@@ -141,14 +145,14 @@
 			restoreOpen = false;
 			restoreTarget = null;
 			toasts.success(
-				'Checkpoint restored',
-				'Restore landed as a new commit; history was not rewritten.',
+				t('domain.loopCheckpoints.restored'),
+				t('domain.checkpoint.restoreNote'),
 			);
 			checkpointStore.bump('chain');
 		} catch (e) {
 			console.error('Restore failed:', e);
 			toasts.error(
-				'Restore failed',
+				t('domain.checkpoint.restoreFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -165,12 +169,15 @@
 			resumeOpen = false;
 			resumeTarget = null;
 			toasts.success(
-				'Resume requested',
-				`Execution continues from ${target.id.slice(0, 10)}`,
+				t('domain.checkpoint.resumeRequested'),
+				t('domain.checkpoint.resumeDetail', { id: target.id.slice(0, 10) }),
 			);
 		} catch (e) {
 			console.error('Resume failed:', e);
-			toasts.error('Resume failed', e instanceof Error ? e.message : undefined);
+			toasts.error(
+				t('domain.checkpoint.resumeFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
 		} finally {
 			checkpointStore.endAction();
 		}
@@ -184,11 +191,14 @@
 			await deleteCheckpoint(target.id);
 			deleteOpen = false;
 			deleteTarget = null;
-			toasts.success('Checkpoint deleted');
+			toasts.success(t('domain.checkpoint.deleted'));
 			checkpointStore.bump('chain');
 		} catch (e) {
 			console.error('Delete failed:', e);
-			toasts.error('Delete failed', e instanceof Error ? e.message : undefined);
+			toasts.error(
+				t('domain.checkpoint.deleteFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
 		} finally {
 			checkpointStore.endAction();
 		}
@@ -198,11 +208,14 @@
 		checkpointStore.beginAction('tag');
 		try {
 			await setCheckpointTags(checkpoint.id, tags);
-			toasts.success('Tags updated');
+			toasts.success(t('domain.checkpoint.tagsUpdated'));
 			checkpointStore.bump('chain');
 		} catch (e) {
 			console.error('Tag update failed:', e);
-			toasts.error('Tag update failed', e instanceof Error ? e.message : undefined);
+			toasts.error(
+				t('domain.checkpoint.tagsUpdateFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
 		} finally {
 			checkpointStore.endAction();
 		}
@@ -210,13 +223,13 @@
 </script>
 
 <Card
-	title="Execution checkpoints"
-	description="Create or garbage-collect workflow execution checkpoints by execution id"
+	title={t('domain.checkpoint.chainTitle')}
+	description={t('domain.checkpoint.chainDescription')}
 >
 	<div class="flex flex-wrap items-end gap-2">
 		<div class="min-w-64 flex-1">
 			<Input
-				label="Execution id"
+				label={t('domain.checkpoint.executionId')}
 				size="sm"
 				value={execId}
 				oninput={(event: Event) =>
@@ -230,7 +243,7 @@
 			disabled={checkpointStore.busy || !execId.trim()}
 			onclick={() => void runCreateExecution()}
 		>
-			Create checkpoint
+			{t('domain.checkpoint.createCheckpoint')}
 		</Button>
 		<Button
 			variant="outline"
@@ -238,7 +251,7 @@
 			disabled={checkpointStore.busy || !execId.trim()}
 			onclick={() => (gcOpen = true)}
 		>
-			GC execution
+			{t('domain.checkpoint.gc')}
 		</Button>
 	</div>
 </Card>
@@ -281,59 +294,59 @@
 
 <Dialog
 	bind:open={gcOpen}
-	title="Garbage-collect execution checkpoints"
-	description="Every checkpoint of the execution is removed. Files in the object store are reclaimed by the file-checkpoint GC."
+	title={t('domain.checkpoint.gcTitle')}
+	description={t('domain.checkpoint.gcDescription')}
 	onclose={() => (gcOpen = false)}
 >
 	<p class="text-caption">
-		Remove all checkpoints of <span class="font-mono">{execId.trim()}</span>?
-		This cannot be undone.
+		{t('domain.checkpoint.gcConfirm', { id: execId.trim() })}
 	</p>
 	{#snippet footer()}
 		<Button variant="ghost" size="sm" onclick={() => (gcOpen = false)}>
-			Cancel
+			{t('common.cancel')}
 		</Button>
 		<Button
 			size="sm"
 			disabled={checkpointStore.busy}
 			onclick={() => void runGcExecution()}
 		>
-			Collect
+			{t('domain.checkpoint.collect')}
 		</Button>
 	{/snippet}
 </Dialog>
 
 <Dialog
 	bind:open={purgeOpen}
-	title="Delete entity checkpoints"
-	description="Every checkpoint of the selected row's entity is removed, scoped by entity type."
+	title={t('domain.checkpoint.purgeTitleDialog')}
+	description={t('domain.checkpoint.purgeDescription')}
 	onclose={() => (purgeTarget = null)}
 >
 	{#if purgeTarget}
 		<p class="text-caption">
-			Delete all checkpoints of
-			<span class="font-mono">{purgeTarget.executionId}</span>
-			({purgeTarget.entityType})? This cannot be undone.
+			{t('domain.checkpoint.purgeConfirm', {
+				id: purgeTarget.executionId,
+				type: purgeTarget.entityType,
+			})}
 		</p>
 	{/if}
 	{#snippet footer()}
 		<Button variant="ghost" size="sm" onclick={() => (purgeOpen = false)}>
-			Cancel
+			{t('common.cancel')}
 		</Button>
 		<Button
 			size="sm"
 			disabled={checkpointStore.busy}
 			onclick={() => void runPurge()}
 		>
-			Delete all
+			{t('domain.checkpoint.deleteAll')}
 		</Button>
 	{/snippet}
 </Dialog>
 
 <Dialog
 	bind:open={restoreOpen}
-	title="Restore checkpoint"
-	description="Restore lands as a new commit on top of history. Pointers are never moved and other branches are untouched."
+	title={t('domain.checkpoint.restoreDialogTitle')}
+	description={t('domain.checkpoint.restoreDialogDescription')}
 	onclose={() => {
 		restoreTarget = null;
 		restorePreview = null;
@@ -341,92 +354,95 @@
 >
 	{#if restoreTarget}
 		<p class="text-caption">
-			Restore <span class="font-mono">{restoreTarget.id}</span>
-			({restoreTarget.kind}
-			· {restoreTarget.actor}). Files covered by this checkpoint return to the
-			recorded state; everything else stays as-is.
+			{t('domain.checkpoint.restoreConfirm', {
+				id: restoreTarget.id,
+				kind: restoreTarget.kind,
+				actor: restoreTarget.actor,
+			})}
 		</p>
 		{#if restorePreviewLoading}
-			<p class="text-caption text-muted-foreground">Loading preview…</p>
+			<p class="text-caption text-muted-foreground">{t('common.loading')}</p>
 		{:else if restorePreview}
 			<div class="mt-2 rounded border border-border p-2 text-caption">
-				<p class="font-medium">Restore preview</p>
-				<p>Execution: <span class="font-mono">{restorePreview.executionId}</span></p>
-				<p>Status: {restorePreview.status}</p>
+				<p class="font-medium">{t('domain.checkpoint.restorePreview')}</p>
+				<p>{t('domain.checkpoint.executionLabel')}: <span class="font-mono">{restorePreview.executionId}</span></p>
+				<p>{t('domain.graph.status')}: {restorePreview.status}</p>
 				{#if restorePreview.currentNodeId}
-					<p>Current node: <span class="font-mono">{restorePreview.currentNodeId}</span></p>
+					<p>{t('domain.inspector.currentNode')}: <span class="font-mono">{restorePreview.currentNodeId}</span></p>
 				{/if}
 				{#if restorePreview.variableKeys.length > 0}
-					<p>Variables ({restorePreview.variableKeys.length}): {restorePreview.variableKeys.join(', ')}</p>
+					<p>{t('domain.history.variables')} ({restorePreview.variableKeys.length}): {restorePreview.variableKeys.join(', ')}</p>
 				{/if}
 				{#if restorePreview.nodeResultKeys.length > 0}
-					<p>Node results ({restorePreview.nodeResultKeys.length}): {restorePreview.nodeResultKeys.join(', ')}</p>
+					<p>{t('domain.checkpoint.nodeResults')} ({restorePreview.nodeResultKeys.length}): {restorePreview.nodeResultKeys.join(', ')}</p>
 				{/if}
 			</div>
 		{/if}
 	{/if}
 	{#snippet footer()}
 		<Button variant="ghost" size="sm" onclick={() => (restoreOpen = false)}>
-			Cancel
+			{t('common.cancel')}
 		</Button>
 		<Button
 			size="sm"
 			disabled={checkpointStore.busy}
 			onclick={() => void runRestore()}
 		>
-			Restore as new commit
+			{t('domain.checkpoint.restoreAsCommit')}
 		</Button>
 	{/snippet}
 </Dialog>
 
 <Dialog
 	bind:open={deleteOpen}
-	title="Delete checkpoint"
-	description="Delete removes the checkpoint record. File history in the object store is reclaimed by garbage collection."
+	title={t('domain.checkpoint.deleteDialogTitle')}
+	description={t('domain.checkpoint.deleteDialogDescription')}
 	onclose={() => (deleteTarget = null)}
 >
 	{#if deleteTarget}
 		<p class="text-caption">
-			Delete <span class="font-mono">{deleteTarget.id}</span>? This cannot be
-			undone from this page.
+			{t('domain.checkpoint.deleteConfirm', { id: deleteTarget.id })}
 		</p>
 	{/if}
 	{#snippet footer()}
 		<Button variant="ghost" size="sm" onclick={() => (deleteOpen = false)}>
-			Cancel
+			{t('common.cancel')}
 		</Button>
 		<Button
 			size="sm"
 			disabled={checkpointStore.busy}
 			onclick={() => void runDelete()}
 		>
-			Delete
+			{t('common.delete')}
 		</Button>
 	{/snippet}
 </Dialog>
 
 <Dialog
 	bind:open={resumeOpen}
-	title="Resume execution"
-	description="The execution continues from this checkpoint. Completed steps are not replayed."
+	title={t('domain.checkpoint.resumeDialogTitle')}
+	description={t('domain.checkpoint.resumeDialogDescription')}
 	onclose={() => (resumeTarget = null)}
 >
 	{#if resumeTarget}
 		<p class="text-caption">
-			Resume <span class="font-mono">{resumeTarget.id}</span>
-			({resumeTarget.kind} · {resumeTarget.actor}).
+			{t('domain.checkpoint.resumeConfirm', {
+				id: resumeTarget.id,
+				kind: resumeTarget.kind,
+				actor: resumeTarget.actor,
+			})}
 		</p>
 	{/if}
 	{#snippet footer()}
 		<Button variant="ghost" size="sm" onclick={() => (resumeOpen = false)}>
-			Cancel
+			{t('common.cancel')}
 		</Button>
 		<Button
 			size="sm"
 			disabled={checkpointStore.busy}
 			onclick={() => void runResume()}
 		>
-			Resume from here
+			{t('domain.checkpoint.resume')}
 		</Button>
 	{/snippet}
 </Dialog>

@@ -3,7 +3,7 @@
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
 	import type { IconName } from '@wf-agent/ui/icons/paths';
-	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
+	import StreamMarkdown from '$lib/components/chat/LazyStreamMarkdown.svelte';
 	import MentionBadge from '$lib/components/chat/MentionBadge.svelte';
 	import { splitAttachments } from '$lib/utils/attachments';
 	import { textRuns } from '$lib/utils/mentions';
@@ -17,6 +17,7 @@
 	} from '$lib/utils/tool-output';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import { cn } from '@wf-agent/ui/cn';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		message: LoopMessage;
@@ -154,10 +155,14 @@
 						)}
 					/>
 					{toolExpanded
-						? 'Hide full output'
+						? t('domain.messageBubble.hideFullOutput')
 						: toolHidden
-							? 'Show output'
-							: `Show full output${toolPreview.hiddenLines > 0 ? ` (+${toolPreview.hiddenLines} lines)` : ''}`}
+							? t('domain.messageBubble.showOutput')
+							: toolPreview.hiddenLines > 0
+								? t('domain.messageBubble.showFullOutputLines', {
+										count: toolPreview.hiddenLines,
+									})
+								: t('domain.messageBubble.showFullOutput')}
 				</button>
 				{#if toolExpanded}
 					<pre
@@ -165,7 +170,7 @@
 						class="mt-1 max-h-96 overflow-auto rounded-md border border-border bg-muted px-2 py-1.5 text-left font-mono text-micro break-words whitespace-pre-wrap text-foreground">{toolFull.text}</pre>
 					{#if toolFull.capped}
 						<p class="mt-1 font-mono text-micro text-muted-foreground">
-							… {toolFull.hiddenLines} more lines
+							{t('domain.messageBubble.moreLines', { count: toolFull.hiddenLines })}
 						</p>
 					{/if}
 				{/if}
@@ -218,7 +223,7 @@
 				{#if onretry}
 					<IconButton
 						icon="refresh"
-						label="Retry this answer"
+						label={t('domain.messageBubble.retryAnswer')}
 						compact
 						onclick={onretry}
 					/>
@@ -226,7 +231,7 @@
 				{#if oncontinue}
 					<IconButton
 						icon="arrow-right"
-						label="Continue this answer"
+						label={t('domain.messageBubble.continueAnswer')}
 						compact
 						onclick={oncontinue}
 					/>
@@ -234,13 +239,13 @@
 				{#if onfeedback}
 					<IconButton
 						icon="check"
-						label="Helpful"
+						label={t('domain.messageBubble.helpful')}
 						compact
 						onclick={() => onfeedback('up')}
 					/>
 					<IconButton
 						icon="x"
-						label="Not helpful"
+						label={t('domain.messageBubble.notHelpful')}
 						compact
 						onclick={() => onfeedback('down')}
 					/>

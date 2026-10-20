@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod analysis;
 pub mod audit;
+pub mod chat;
 pub mod checkpoint;
 pub mod entity;
 pub mod execution_artifacts;

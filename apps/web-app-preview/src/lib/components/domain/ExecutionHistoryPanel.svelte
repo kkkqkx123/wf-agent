@@ -22,6 +22,7 @@
 		formatNumber,
 	} from '$lib/utils/format';
 	import { cn } from '@wf-agent/ui/cn';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		/**
@@ -38,43 +39,42 @@
 	type PanelSection =
 		'timeline' | 'iterations' | 'context' | 'transitions' | 'variables';
 
-	const SECTIONS: Array<{
-		id: PanelSection;
-		title: string;
-		unit: string;
-		empty: string;
-	}> = [
+	/** Section copy resolves through `t` inside `$derived`, so labels follow
+	 * the active locale reactively. */
+	const SECTIONS = $derived<
+		Array<{ id: PanelSection; title: string; unit: string; empty: string }>
+	>([
 		{
 			id: 'timeline',
-			title: 'Timeline',
-			unit: 'event(s)',
-			empty: 'No timeline events recorded.',
+			title: t('domain.history.timeline'),
+			unit: t('domain.history.timelineUnit'),
+			empty: t('domain.history.timelineEmpty'),
 		},
 		{
 			id: 'iterations',
-			title: 'Iterations',
-			unit: 'iteration(s)',
-			empty: 'No iterations recorded.',
+			title: t('domain.history.iterations'),
+			unit: t('domain.history.iterationsUnit'),
+			empty: t('domain.history.iterationsEmpty'),
 		},
 		{
 			id: 'context',
-			title: 'Context',
-			unit: 'step(s)',
-			empty: 'No context growth steps recorded.',
+			title: t('domain.history.context'),
+			unit: t('domain.history.contextUnit'),
+			empty: t('domain.history.contextEmpty'),
 		},
 		{
 			id: 'transitions',
-			title: 'Transitions',
-			unit: 'transition(s)',
-			empty: 'No status transitions recorded.',
+			title: t('domain.history.transitions'),
+			unit: t('domain.history.transitionsUnit'),
+			empty: t('domain.history.transitionsEmpty'),
 		},
 		{
 			id: 'variables',
-			title: 'Variables',
-			unit: 'variable(s)',
-			empty: 'No variables recorded.',
+			title: t('domain.history.variables'),
+			unit: t('domain.history.variablesUnit'),
+			empty: t('domain.history.variablesEmpty'),
 		},
-	];
+	]);
 
 	let executionType = $state<ExecutionKind | null>(null);
 	let timeline = $state<TimelineEntry[]>([]);
@@ -134,7 +134,9 @@
 		} catch (e: unknown) {
 			failed = {
 				...failed,
-				[section]: e instanceof Error ? e.message : 'Section failed to load.',
+				[section]: e instanceof Error
+					? e.message
+					: t('domain.history.loadFailed'),
 			};
 		} finally {
 			loading = null;
@@ -196,7 +198,7 @@
 								size="sm"
 								onclick={() => void ensureLoaded(section.id)}
 							>
-								Retry
+								{t('common.retry')}
 							</Button>
 						</div>
 					{:else if !loaded.includes(section.id)}
@@ -208,11 +210,13 @@
 					{:else if section.id === 'timeline'}
 						<p class="mb-2 text-micro text-muted-foreground">
 							{#if timeline.length >= timelineLimit}
-								At the {formatNumber(timelineLimit)}-event cap for one read;
-								later events are left out.
+								{t('domain.history.timelineCap', {
+									count: formatNumber(timelineLimit),
+								})}
 							{:else}
-								One read carries at most {formatNumber(timelineLimit)}
-								events.
+								{t('domain.history.readLimit', {
+									count: formatNumber(timelineLimit),
+								})}
 							{/if}
 						</p>
 						<div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_12rem]">
@@ -227,13 +231,17 @@
 								<li class="space-y-1 px-3 py-2">
 									<div class="flex flex-wrap items-center gap-2">
 										<span class="text-body font-medium text-foreground">
-											Iteration {iteration.iteration}
+											{t('domain.history.iteration', {
+												number: iteration.iteration,
+											})}
 										</span>
 										<span class="text-micro tabular-nums text-muted-foreground">
 											{formatDuration(iteration.durationMs)}
 										</span>
 										<span class="text-micro text-muted-foreground">
-											{formatNumber(iteration.toolCallCount)} tool call(s)
+											{t('domain.history.toolCalls', {
+												count: formatNumber(iteration.toolCallCount),
+											})}
 										</span>
 									</div>
 									{#if iteration.responseContent}
@@ -300,9 +308,9 @@
 	{#if executionType}
 		<p class="text-micro text-muted-foreground">
 			{#if executionType === 'agent_loop'}
-				Agent loop history; node-level records are on the Trace tab.
+				{t('domain.history.agentLoopHint')}
 			{:else}
-				Workflow history; iteration records only exist for agent loops.
+				{t('domain.history.workflowHint')}
 			{/if}
 		</p>
 	{/if}

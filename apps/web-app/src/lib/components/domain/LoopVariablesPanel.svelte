@@ -6,6 +6,7 @@
 	import type { Column } from '@wf-agent/ui/components/table';
 	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
 	import { formatDateTime } from '$lib/utils/format';
+	import { t } from '$lib/i18n';
 
 	/** Loop variable snapshot table; owns its own loading keyed by id. */
 	let { id }: { id: string } = $props();
@@ -28,32 +29,32 @@
 		} catch (e) {
 			seen = '';
 			variables = [];
-			error = e instanceof Error ? e.message : 'Variables failed.';
+			error = e instanceof Error ? e.message : t('domain.loopVariables.failed');
 		}
 	}
 
-	const variableColumns: Column<LoopVariable>[] = [
-		{ key: 'key', header: 'Key', text: (row) => row.key },
-		{ key: 'type', header: 'Type', text: (row) => row.type ?? '' },
-		{ key: 'value', header: 'Value', text: (row) => row.value },
-		{ key: 'scope', header: 'Scope', text: (row) => row.scope ?? '' },
+	const variableColumns = $derived<Column<LoopVariable>[]>([
+		{ key: 'key', header: t('domain.loopVariables.key'), text: (row) => row.key },
+		{ key: 'type', header: t('domain.loopVariables.type'), text: (row) => row.type ?? '' },
+		{ key: 'value', header: t('domain.loopVariables.value'), text: (row) => row.value },
+		{ key: 'scope', header: t('domain.loopVariables.scope'), text: (row) => row.scope ?? '' },
 		{
 			key: 'updated',
-			header: 'Updated',
+			header: t('domain.loopVariables.updated'),
 			text: (row) => formatDateTime(row.updatedAt ?? null),
 		},
-	];
+	]);
 </script>
 
 {#if error}
 	<ErrorState
-		title="Variables failed to load"
+		title={t('domain.loopVariables.failedTitle')}
 		description={error}
 		onretry={() => void load(id)}
 		class="rounded-lg border border-border bg-card"
 	/>
 {:else}
-	<Card title="Variables" bodyClass="p-0">
+	<Card title={t('domain.history.variables')} bodyClass="p-0">
 		<DataTable
 			columns={variableColumns}
 			rows={variables}

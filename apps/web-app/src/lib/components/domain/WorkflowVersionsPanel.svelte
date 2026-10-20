@@ -18,6 +18,7 @@
 	import type { WorkflowVersion } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDateTime } from '$lib/utils/format';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		workflowId: string;
@@ -42,21 +43,22 @@
 	let runBusy = $state(false);
 	let diffExplorer = $state<{ focus: (id: string) => void } | null>(null);
 
-	const versionColumns: Column<WorkflowVersion>[] = [
-		{ key: 'version', header: 'Version', text: (row) => row.version },
-		{ key: 'note', header: 'Note', text: (row) => row.note },
-		{ key: 'author', header: 'Author', text: (row) => row.author },
+	const versionColumns = $derived<Column<WorkflowVersion>[]>([
+		{ key: 'version', header: t('domain.versions.version'), text: (row) => row.version },
+		{ key: 'note', header: t('domain.versions.note'), text: (row) => row.note },
+		{ key: 'author', header: t('domain.versions.author'), text: (row) => row.author },
 		{
 			key: 'created',
-			header: 'Created',
+			header: t('domain.versions.created'),
 			text: (row) => formatDateTime(row.createdAt),
 		},
 		{
 			key: 'current',
-			header: 'State',
-			text: (row) => (row.current ? 'current' : 'superseded'),
+			header: t('domain.versions.state'),
+			text: (row) =>
+				row.current ? t('domain.versions.current') : t('domain.versions.superseded'),
 		},
-	];
+	]);
 
 	const versionOptions = $derived(
 		versions.map((row) => ({ value: row.version, label: row.version })),
@@ -85,7 +87,7 @@
 		try {
 			diff = await diffWorkflowVersions(workflowId, compareFrom, compareTo);
 		} catch (e) {
-			diffError = e instanceof Error ? e.message : 'Compare failed.';
+			diffError = e instanceof Error ? e.message : t('domain.versions.compareFailed');
 			diff = null;
 		} finally {
 			diffLoading = false;
@@ -98,11 +100,11 @@
 		try {
 			await rollbackWorkflow(workflowId, rollbackTarget);
 			rollbackArmed = false;
-			toasts.success(`Rolled back to ${rollbackTarget}`);
+			toasts.success(t('domain.versions.rolledBack', { version: rollbackTarget }));
 			onchanged();
 		} catch (e) {
 			toasts.error(
-				'Rollback failed',
+				t('domain.versions.rollbackFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -120,11 +122,14 @@
 				undefined,
 				runTarget,
 			);
-			toasts.success(`Version ${runTarget} started`, executionId);
+			toasts.success(
+				t('domain.versions.versionStarted', { version: runTarget }),
+				executionId,
+			);
 			await goto(resolve('/executions/[id]', { id: executionId }));
 		} catch (e) {
 			toasts.error(
-				'Execution failed to start',
+				t('domain.versions.startFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -133,7 +138,7 @@
 	}
 </script>
 
-<Card title="Version history" bodyClass="p-0">
+<Card title={t('domain.versions.historyTitle')} bodyClass="p-0">
 	<DataTable
 		columns={versionColumns}
 		rows={versions}
@@ -141,20 +146,20 @@
 	/>
 </Card>
 <div class="mt-3 grid gap-3 lg:grid-cols-2">
-	<Card title="Compare versions">
+	<Card title={t('domain.versions.compareTitle')}>
 		<div class="flex flex-wrap items-end gap-2">
 			<Select
 				bind:value={compareFrom}
 				options={versionOptions}
 				size="sm"
-				placeholder="From"
+				placeholder={t('domain.versions.from')}
 				class="w-32"
 			/>
 			<Select
 				bind:value={compareTo}
 				options={versionOptions}
 				size="sm"
-				placeholder="To"
+				placeholder={t('domain.versions.to')}
 				class="w-32"
 			/>
 			<Button
@@ -164,7 +169,7 @@
 				onclick={() => void runCompare()}
 			>
 				<Icon name="copy" size={13} />
-				Compare
+				{t('domain.versions.compare')}
 			</Button>
 		</div>
 		{#if diffError}
@@ -172,12 +177,15 @@
 		{:else if diff}
 			{#if diffIsEmpty}
 				<p class="mt-2 text-caption text-muted-foreground">
-					No differences between {compareFrom} and {compareTo}.
+					{t('domain.versions.noDifferences', {
+						from: compareFrom,
+						to: compareTo,
+					})}
 				</p>
 			{:else}
 				<ul class="mt-2 space-y-1 text-caption">
 					<li>
-						Added nodes ({diffView.addedNodes}):
+						{t('domain.versions.addedNodes', { count: diffView.addedNodes })}
 						{#each diff.addedNodes as nodeId (nodeId)}
 							<button
 								type="button"
@@ -190,7 +198,7 @@
 						{:else}—{/each}
 					</li>
 					<li>
-						Removed nodes ({diffView.removedNodes}):
+						{t('domain.versions.removedNodes', { count: diffView.removedNodes })}
 						{#each diff.removedNodes as nodeId (nodeId)}
 							<button
 								type="button"
@@ -203,7 +211,7 @@
 						{:else}—{/each}
 					</li>
 					<li>
-						Added edges ({diffView.addedEdges}):
+						{t('domain.versions.addedEdges', { count: diffView.addedEdges })}
 						{#each diff.addedEdges as edge (`${edge.source}->${edge.target}`)}
 							<button
 								type="button"
@@ -217,7 +225,7 @@
 						{:else}—{/each}
 					</li>
 					<li>
-						Removed edges ({diffView.removedEdges}):
+						{t('domain.versions.removedEdges', { count: diffView.removedEdges })}
 						{#each diff.removedEdges as edge (`${edge.source}->${edge.target}`)}
 							<button
 								type="button"
@@ -234,13 +242,13 @@
 			{/if}
 		{/if}
 	</Card>
-	<Card title="Rollback">
+	<Card title={t('domain.versions.rollbackTitle')}>
 		<div class="flex flex-wrap items-end gap-2">
 			<Select
 				bind:value={rollbackTarget}
 				options={versionOptions}
 				size="sm"
-				placeholder="Version"
+				placeholder={t('domain.versions.version')}
 				class="w-32"
 			/>
 			{#if rollbackArmed}
@@ -249,14 +257,14 @@
 					disabled={rollbackBusy || !rollbackTarget}
 					onclick={() => void runRollback()}
 				>
-					Confirm rollback to {rollbackTarget}
+					{t('domain.versions.confirmRollback', { version: rollbackTarget })}
 				</Button>
 				<Button
 					variant="ghost"
 					size="sm"
 					onclick={() => (rollbackArmed = false)}
 				>
-					Cancel
+					{t('common.cancel')}
 				</Button>
 			{:else}
 				<Button
@@ -266,29 +274,29 @@
 					onclick={() => (rollbackArmed = true)}
 				>
 					<Icon name="history" size={13} />
-					Rollback
+					{t('domain.versions.rollback')}
 				</Button>
 			{/if}
 		</div>
 	</Card>
-	<Card title="Run version">
+	<Card title={t('domain.versions.runTitle')}>
 		<div class="flex flex-wrap items-end gap-2">
 			<Select
 				bind:value={runTarget}
 				options={versionOptions}
 				size="sm"
-				placeholder="Version"
+				placeholder={t('domain.versions.version')}
 				class="w-32"
 			/>
 			<Button
 				variant="outline"
 				size="sm"
 				disabled={!runTarget || runBusy}
-				title="Execute this saved version instead of the current definition"
+				title={t('domain.versions.runTooltip')}
 				onclick={() => void runVersion()}
 			>
 				<Icon name="refresh" size={13} />
-				{runBusy ? 'Starting…' : `Run ${runTarget}`}
+				{runBusy ? t('domain.versions.starting') : t('domain.versions.run', { version: runTarget })}
 			</Button>
 		</div>
 	</Card>
@@ -297,7 +305,7 @@
 	<div class="mt-3">
 		{#if diffIsEmpty}
 			<p class="mb-2 text-caption text-muted-foreground">
-				Graph matches the text: no added or removed nodes or edges.
+				{t('domain.versions.graphMatches')}
 			</p>
 		{/if}
 		{#await import('$lib/components/domain/GraphExplorer.svelte') then module}
@@ -309,8 +317,16 @@
 			{selectedId}
 			onselect={(id) => (selectedId = id)}
 			overlays={[
-				{ id: 'added', label: 'Added', ids: diff.addedNodes },
-				{ id: 'removed', label: 'Removed', ids: diff.removedNodes },
+				{
+					id: 'added',
+					label: t('domain.versions.added'),
+					ids: diff.addedNodes,
+				},
+				{
+					id: 'removed',
+					label: t('domain.versions.removed'),
+					ids: diff.removedNodes,
+				},
 			]}
 		/> {/await}
 	</div>

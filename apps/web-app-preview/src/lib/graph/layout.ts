@@ -1,4 +1,3 @@
-import dagre from 'dagre';
 import type { DisplayEdge, DisplayNode } from './display-model';
 
 const NODE_WIDTH = 120;
@@ -57,17 +56,38 @@ export function connectedComponents(
 	nodes: DisplayNode[],
 	edges: Array<{ source: string; target: string }>,
 ): string[][] {
-	const graph = new dagre.graphlib.Graph({ directed: true });
-	for (const node of [...nodes].sort((a, b) => (a.id < b.id ? -1 : 1))) {
-		graph.setNode(node.id, {});
-	}
+	const known = new Set(nodes.map((node) => node.id));
+	const adjacency = new Map<string, string[]>();
+	for (const node of nodes) adjacency.set(node.id, []);
 	for (const edge of validEdges(nodes, edges)) {
-		graph.setEdge(edge.source, edge.target);
+		adjacency.get(edge.source)?.push(edge.target);
+		adjacency.get(edge.target)?.push(edge.source);
 	}
-	return dagre.graphlib.alg
-		.components(graph)
-		.map((members) => [...members].sort())
-		.sort((a, b) => (a[0]! < b[0]! ? -1 : 1));
+	const visited = new Set<string>();
+	const components: string[][] = [];
+	const sortedNodes = [...nodes].sort((a, b) =>
+		a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+	);
+	for (const node of sortedNodes) {
+		if (visited.has(node.id)) continue;
+		const stack = [node.id];
+		const component: string[] = [];
+		while (stack.length > 0) {
+			const current = stack.pop()!;
+			if (visited.has(current)) continue;
+			visited.add(current);
+			component.push(current);
+			for (const next of adjacency.get(current) ?? []) {
+				if (!visited.has(next)) stack.push(next);
+			}
+		}
+		component.sort();
+		components.push(component);
+	}
+	components.sort((a, b) =>
+		a[0]! < b[0]! ? -1 : a[0]! > b[0]! ? 1 : 0,
+	);
+	return components;
 }
 
 function nodeWidth(node: DisplayNode): number {
@@ -95,54 +115,56 @@ export function layeredPositions(
 	components.forEach((members, index) => {
 		for (const id of members) componentOf.set(id, index);
 	});
+	const ranks = nodeRanks(flowNodes, flowEdges);
 	let cursorX = ORIGIN;
-	const bottoms: number[] = [];
 	for (const members of components) {
-		const graph = new dagre.graphlib.Graph({ directed: true });
-		graph.setGraph({
-			rankdir: 'LR',
-			align: 'UL',
-			ranker: 'longest-path',
-			acyclicer: 'greedy',
-			nodesep: NODE_SEP,
-			ranksep: RANK_SEP,
-			marginx: 0,
-			marginy: 0,
-		});
-		graph.setDefaultEdgeLabel(() => ({}));
+		const byRank = new Map<number, string[]>();
 		for (const id of members) {
-			const node = flowById.get(id);
-			if (!node) continue;
-			graph.setNode(id, { width: nodeWidth(node), height: NODE_HEIGHT });
+			const rank = ranks.get(id) ?? 0;
+			const list = byRank.get(rank) ?? [];
+			list.push(id);
+			byRank.set(rank, list);
 		}
-		for (const edge of flowEdges) {
-			if (componentOf.get(edge.source) === componentOf.get(edge.target)) {
-				graph.setEdge(edge.source, edge.target);
-			}
+		const sortedRanks = [...byRank.keys()].sort((a, b) => a - b);
+		let maxMembers = 1;
+		for (const list of byRank.values()) {
+			maxMembers = Math.max(maxMembers, list.length);
 		}
-		dagre.layout(graph);
+		const rankSpan = maxMembers * NODE_HEIGHT + (maxMembers - 1) * NODE_SEP;
 		let minX = Number.POSITIVE_INFINITY;
-		let minY = Number.POSITIVE_INFINITY;
 		let maxX = Number.NEGATIVE_INFINITY;
+		let minY = Number.POSITIVE_INFINITY;
 		let maxY = Number.NEGATIVE_INFINITY;
-		for (const id of members) {
-			const placed = graph.node(id);
-			minX = Math.min(minX, placed.x - placed.width / 2);
-			minY = Math.min(minY, placed.y - placed.height / 2);
-			maxX = Math.max(maxX, placed.x + placed.width / 2);
-			maxY = Math.max(maxY, placed.y + placed.height / 2);
-		}
-		const shiftX = cursorX - minX;
-		const shiftY = ORIGIN - minY;
-		for (const id of members) {
-			const placed = graph.node(id);
-			positions.set(id, {
-				x: snapToGrid(placed.x + shiftX),
-				y: snapToGrid(placed.y + shiftY),
+		for (const rank of sortedRanks) {
+			const membersInRank = [...(byRank.get(rank) ?? [])].sort();
+			const rankHeight =
+				membersInRank.length * NODE_HEIGHT +
+				(membersInRank.length - 1) * NODE_SEP;
+			const startY = ORIGIN + (rankSpan - rankHeight) / 2;
+			membersInRank.forEach((id, index) => {
+				const node = flowById.get(id);
+				const x = cursorX + rank * (NODE_WIDTH + RANK_SEP);
+				const y = startY + index * (NODE_HEIGHT + NODE_SEP);
+				positions.set(id, {
+					x: snapToGrid(x),
+					y: snapToGrid(y),
+				});
 			});
 		}
-		bottoms.push(snapToGrid(maxY + shiftY));
-		cursorX = snapToGrid(maxX + shiftX) + COMPONENT_GAP;
+		for (const id of members) {
+			const placed = positions.get(id);
+			if (!placed) continue;
+			const node = flowById.get(id);
+			const width = node ? nodeWidth(node) : NODE_WIDTH;
+			minX = Math.min(minX, placed.x - width / 2);
+			minY = Math.min(minY, placed.y - NODE_HEIGHT / 2);
+			maxX = Math.max(maxX, placed.x + width / 2);
+			maxY = Math.max(maxY, placed.y + NODE_HEIGHT / 2);
+		}
+		cursorX = snapToGrid(maxX) + COMPONENT_GAP;
+		void minY;
+		void maxY;
+		void minX;
 	}
 	return positions;
 }
@@ -244,39 +266,25 @@ function nodeRanks(
 		for (const node of nodes) ranks.set(node.id, node.iteration ?? 0);
 		return ranks;
 	}
-	const known = new Set(nodes.map((node) => node.id));
-	const indegree = new Map<string, number>();
-	const adjacency = new Map<string, string[]>();
-	for (const node of nodes) {
-		indegree.set(node.id, 0);
-		adjacency.set(node.id, []);
-	}
-	for (const edge of edges) {
-		if (!known.has(edge.source) || !known.has(edge.target)) continue;
-		if (edge.source === edge.target) continue;
-		adjacency.get(edge.source)?.push(edge.target);
-		indegree.set(edge.target, (indegree.get(edge.target) ?? 0) + 1);
-	}
-	const queue: string[] = [];
-	for (const node of nodes) {
-		if ((indegree.get(node.id) ?? 0) === 0) queue.push(node.id);
-	}
-	const order: string[] = [];
-	const working = new Map(indegree);
-	while (queue.length > 0) {
-		const current = queue.shift()!;
-		order.push(current);
-		for (const next of adjacency.get(current) ?? []) {
-			const remaining = (working.get(next) ?? 0) - 1;
-			working.set(next, remaining);
-			if (remaining === 0) queue.push(next);
-		}
-	}
 	for (const node of nodes) ranks.set(node.id, 0);
-	for (const current of order) {
-		for (const next of adjacency.get(current) ?? []) {
-			ranks.set(next, Math.max(ranks.get(next) ?? 0, (ranks.get(current) ?? 0) + 1));
+	const known = new Set(nodes.map((node) => node.id));
+	const filtered = edges.filter(
+		(edge) =>
+			known.has(edge.source) &&
+			known.has(edge.target) &&
+			edge.source !== edge.target,
+	);
+	for (let i = 0; i < nodes.length; i += 1) {
+		let changed = false;
+		for (const edge of filtered) {
+			const sourceRank = ranks.get(edge.source) ?? 0;
+			const targetRank = ranks.get(edge.target) ?? 0;
+			if (targetRank < sourceRank + 1) {
+				ranks.set(edge.target, sourceRank + 1);
+				changed = true;
+			}
 		}
+		if (!changed) break;
 	}
 	return ranks;
 }

@@ -7,13 +7,32 @@ use axum::http::{Request, StatusCode};
 use axum::response::Response;
 use tower::ServiceExt;
 use wf_api::ApiContext;
+use wf_resource::registry::{register_item_skip, ResourceRegistries};
 
 use super::lifecycle::{params_from_body, RunAgentLoopBody};
+
+/// The built-in main agent template has to be registered, otherwise the
+/// composition boundary rejects the run as an unknown agent.
+const MAIN_AGENT_ID: &str = "@standard/main";
+
+fn registries() -> ResourceRegistries {
+    let regs = ResourceRegistries::new();
+    register_item_skip(
+        &regs.agent_templates,
+        MAIN_AGENT_ID.into(),
+        wf_resource::predefined::agent_templates::main_agent_template(),
+    );
+    wf_resource::predefined::agent_prompts::register(
+        &regs,
+        &wf_resource::registry::RegisterOptions::default(),
+    );
+    regs
+}
 
 fn make_ctx() -> Arc<ApiContext> {
     Arc::new(ApiContext::new(
         wf_storage::context::StorageContext::new_memory(),
-        Arc::new(wf_resource::registry::ResourceRegistries::new()),
+        Arc::new(registries()),
     ))
 }
 
@@ -40,7 +59,7 @@ async fn run_body_forwards_checkpoint_message_interval() {
     // Async context required: `params_from_body` builds an `ApiContext`,
     // whose constructor spawns background tasks on the current runtime.
     let body = serde_json::from_value::<RunAgentLoopBody>(serde_json::json!({
-        "agent_id": "agent1",
+        "agent_id": MAIN_AGENT_ID,
         "model": "mock",
         "message": "hi",
         "checkpoint_message_interval": 5,
@@ -56,7 +75,7 @@ async fn run_body_forwards_checkpoint_message_interval() {
     );
 
     let zero = serde_json::from_value::<RunAgentLoopBody>(serde_json::json!({
-        "agent_id": "agent1",
+        "agent_id": MAIN_AGENT_ID,
         "model": "mock",
         "message": "hi",
         "checkpoint_message_interval": 0,
@@ -72,7 +91,7 @@ async fn run_body_forwards_checkpoint_message_interval() {
     );
 
     let absent = serde_json::from_value::<RunAgentLoopBody>(serde_json::json!({
-        "agent_id": "agent1",
+        "agent_id": MAIN_AGENT_ID,
         "model": "mock",
         "message": "hi",
     }))

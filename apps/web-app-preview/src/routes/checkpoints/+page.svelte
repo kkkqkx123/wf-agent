@@ -10,9 +10,7 @@
 	import Input from '@wf-agent/ui/components/Input.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import PageState from '$lib/components/layout/PageState.svelte';
-	import ApprovalsSection from '$lib/components/domain/checkpoints/ApprovalsSection.svelte';
-	import ChainSection from '$lib/components/domain/checkpoints/ChainSection.svelte';
-	import FilesSection from '$lib/components/domain/checkpoints/FilesSection.svelte';
+
 	import {
 		listCheckpoints,
 		getApprovalRequests,
@@ -272,11 +270,17 @@
 			onretry={() => void reload()}
 		>
 			{#if tab === 'chain'}
-				<ChainSection {chain} />
+				{#await import('$lib/components/domain/checkpoints/ChainSection.svelte') then module}
+					<module.default {chain} />
+				{/await}
 			{:else if tab === 'files'}
-				<FilesSection />
+				{#await import('$lib/components/domain/checkpoints/FilesSection.svelte') then module}
+					<module.default />
+				{/await}
 			{:else}
-				<ApprovalsSection {approvals} onremove={removeApprovals} />
+				{#await import('$lib/components/domain/checkpoints/ApprovalsSection.svelte') then module}
+					<module.default {approvals} onremove={removeApprovals} />
+				{/await}
 			{/if}
 		</PageState>
 	</div>

@@ -1,0 +1,20 @@
+{
+	"app.title": "wf-agent",
+	"common.language": "Language",
+	"common.loading": "Loading...",
+	"common.search": "Search",
+	"common.cancel": "Cancel",
+	"common.close": "Close",
+	"common.save": "Save",
+	"common.edit": "Edit",
+	"common.delete": "Delete",
+	"common.create": "Create",
+	"common.confirm": "Confirm",
+	"common.retry": "Retry",
+	"common.error": "Error",
+	"common.back": "Back",
+	"common.refresh": "Refresh",
+	"common.copy": "Copy",
+	"common.copied": "Copied",
+	"common.items": "{count} items"
+}

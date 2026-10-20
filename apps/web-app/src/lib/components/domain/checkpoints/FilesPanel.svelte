@@ -33,6 +33,7 @@
 	import { checkpoints as store } from '$lib/stores/checkpoints.svelte';
 	import { fileWorkspace as workspace } from '$lib/stores/fileWorkspace.svelte';
 	import { formatRelativeTime } from '$lib/utils/format';
+	import { t } from '$lib/i18n';
 
 	let {
 		onresolve,
@@ -90,7 +91,9 @@
 		} catch (e) {
 			console.error('Failed to load file workspace segment:', e);
 			loadError =
-				e instanceof Error ? e.message : 'File workspace request failed';
+				e instanceof Error
+					? e.message
+					: t('domain.files.requestFailed');
 		} finally {
 			loading = false;
 		}
@@ -106,7 +109,7 @@
 		timelineShown = 0;
 		diffNote = null;
 		if (!change.actor) {
-			diffNote = 'No actor recorded for this change';
+			diffNote = t('domain.files.noActor');
 			return;
 		}
 		if (!workspace.actor) workspace.setActor(change.actor);
@@ -132,7 +135,7 @@
 			]);
 			const match = diffs[0] ?? null;
 			if (!match) {
-				diffNote = 'No diff against main for this path';
+				diffNote = t('domain.files.noDiff');
 			} else {
 				mainDiff = match;
 			}
@@ -142,8 +145,8 @@
 			timelineShown = Math.min(TIMELINE_PAGE, timeline?.entries.length ?? 0);
 		} catch (e) {
 			console.error('Failed to load diff against main:', e);
-			diffNote = 'Diff against main unavailable';
-			toasts.error('Diff against main unavailable');
+			diffNote = t('domain.files.diffUnavailable');
+			toasts.error(t('domain.files.diffUnavailable'));
 		} finally {
 			diffLoading = false;
 		}
@@ -151,7 +154,7 @@
 
 	async function reloadTree(): Promise<void> {
 		if (!workspace.actor.trim()) {
-			toasts.error('Enter an actor to browse the workspace tree');
+			toasts.error(t('domain.files.actorRequired'));
 			return;
 		}
 		try {
@@ -162,7 +165,7 @@
 		} catch (e) {
 			console.error('Failed to load workspace tree:', e);
 			toasts.error(
-				'Workspace tree unavailable',
+				t('domain.files.treeUnavailable'),
 				e instanceof Error ? e.message : undefined,
 			);
 		}
@@ -174,7 +177,7 @@
 		const name = content.path.split('/').pop() || 'preview';
 		const query = `actor=${encodeURIComponent(content.actor)}&path=${encodeURIComponent(content.path)}`;
 		void downloadFile(`/api/v1/file-checkpoint/content?${query}`, name).catch(
-			() => toasts.error('Download unavailable'),
+			() => toasts.error(t('domain.files.downloadUnavailable')),
 		);
 	}
 
@@ -215,7 +218,7 @@
 		} catch (e) {
 			console.error('Failed to load partition history:', e);
 			toasts.error(
-				'Partition history unavailable',
+				t('domain.files.historyUnavailable'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -253,11 +256,15 @@
 
 <div class="mt-3 grid gap-3 xl:grid-cols-2">
 	<Card
-		title="Partitions"
-		description="{partitions.length} ref lines in the checkpoint store"
+		title={t('domain.files.partitionsTitle')}
+		description={t('domain.files.partitionsDescription', {
+			count: partitions.length,
+		})}
 	>
 		{#if partitions.length === 0}
-			<p class="text-caption text-muted-foreground">No partitions reported.</p>
+			<p class="text-caption text-muted-foreground">
+				{t('domain.files.noPartitions')}
+			</p>
 		{:else}
 			<ul class="space-y-1.5">
 				{#each partitions.slice(0, partitionShown) as partition (partition.partitionId)}
@@ -281,7 +288,7 @@
 							size="sm"
 							onclick={() => openHistory(partition)}
 						>
-							History
+							{t('domain.files.history')}
 						</Button>
 					</li>
 				{/each}
@@ -292,10 +299,13 @@
 							size="sm"
 							onclick={() => (partitionShown += PARTITION_PAGE)}
 						>
-							Show {Math.min(
-								PARTITION_PAGE,
-								partitions.length - partitionShown,
-							)} more ({partitions.length - partitionShown} remaining)
+							{t('domain.files.showMore', {
+								shown: Math.min(
+									PARTITION_PAGE,
+									partitions.length - partitionShown,
+								),
+								remaining: partitions.length - partitionShown,
+							})}
 						</Button>
 					</li>
 				{/if}
@@ -304,14 +314,14 @@
 	</Card>
 
 	<Card
-		title="Conflicts"
+		title={t('domain.files.conflictsTitle')}
 		description={conflicts.length === 0
-			? 'No unresolved merge conflicts'
-			: `${conflicts.length} file(s) with unresolved merges`}
+			? t('domain.files.noConflicts')
+			: t('domain.files.conflictsCount', { count: conflicts.length })}
 	>
 		{#if conflicts.length === 0}
 			<p class="text-caption text-muted-foreground">
-				Conflicts are enumerated from unresolved merge commits.
+				{t('domain.files.conflictsHint')}
 			</p>
 		{:else}
 			<ul class="space-y-2">
@@ -321,7 +331,10 @@
 							>{conflict.path}</span
 						>
 						<span class="text-micro text-muted-foreground">
-							{conflict.partition} · {conflict.conflictCount} regions
+							{t('domain.files.regions', {
+								partition: conflict.partition,
+								count: conflict.conflictCount,
+							})}
 						</span>
 						<Button
 							variant="outline"
@@ -329,7 +342,7 @@
 							disabled={store.busy || workspace.busy}
 							onclick={() => onresolve(conflict)}
 						>
-							Resolve
+							{t('domain.checkpoint.resolve')}
 						</Button>
 					</li>
 				{/each}
@@ -342,46 +355,49 @@
 
 <Dialog
 	bind:open={historyOpen}
-	title="Partition history"
-	description={historyTarget
-		? `${historyTarget.name} · newest commit first`
-		: 'Newest commit first'}
-	onclose={() => (historyTarget = null)}
->
-	{#if historyTarget}
-		<p class="mb-2 font-mono text-micro text-muted-foreground">
-			{historyTarget.partitionId}
-		</p>
-	{/if}
-	{#if historyCommits.length === 0}
-		<p class="text-caption text-muted-foreground">
-			{historyLoading ? 'Loading commits…' : 'No commits reported.'}
-		</p>
-	{:else}
+	title={t('domain.files.historyTitle')}
+		description={historyTarget
+			? t('domain.files.historyDescription', { name: historyTarget.name })
+			: t('domain.files.historyDescriptionFallback')}
+		onclose={() => (historyTarget = null)}
+	>
+		{#if historyTarget}
+			<p class="mb-2 font-mono text-micro text-muted-foreground">
+				{historyTarget.partitionId}
+			</p>
+		{/if}
+		{#if historyCommits.length === 0}
+			<p class="text-caption text-muted-foreground">
+				{historyLoading
+					? t('common.loading')
+					: t('domain.files.noCommits')}
+			</p>
+		{:else}
 		<ul class="max-h-96 space-y-2 overflow-y-auto">
 			{#each historyCommits as commit (commit.snapshotId)}
 				<li class="border-b border-border pb-2 last:border-b-0">
 					<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption">
 						<span class="font-mono">{commit.snapshotId.slice(0, 10)}</span>
 						<span class="min-w-0 flex-1 truncate">
-							{commit.message ?? '(no message)'}
+							{commit.message ?? t('domain.files.noMessage')}
 						</span>
 						{#if commit.isMerge}
-							<Badge variant="neutral">merge</Badge>
+							<Badge variant="neutral">{t('domain.files.merge')}</Badge>
 						{/if}
 						{#if commit.hasConflicts}
-							<Badge variant="warning">conflicts</Badge>
+							<Badge variant="warning">{t('domain.files.conflicts')}</Badge>
 						{/if}
 						<span class="shrink-0 text-micro text-muted-foreground">
 							{formatRelativeTime(commit.timestamp)}
 						</span>
 					</div>
 					<div class="text-micro text-muted-foreground">
-						{commit.actor ?? 'unknown actor'}{commit.session
-							? ` · session ${commit.session}`
-							: ''}{commit.tool ? ` · ${commit.tool}` : ''}{commit.parents.length > 1
-							? ` · ${commit.parents.length} parents`
-							: ''}
+						{t('domain.files.commitMeta', {
+							actor: commit.actor ?? t('domain.files.unknownActor'),
+							session: commit.session ?? '',
+							tool: commit.tool ?? '',
+							parents: commit.parents.length,
+						})}
 					</div>
 				</li>
 			{/each}
@@ -394,13 +410,13 @@
 				disabled={historyLoading}
 				onclick={() => void loadHistory(historyCommits.length)}
 			>
-				Load more
+				{t('domain.files.loadMore')}
 			</Button>
 		{/if}
 	{/if}
 	{#snippet footer()}
 		<Button variant="ghost" size="sm" onclick={() => (historyOpen = false)}>
-			Close
+			{t('common.close')}
 		</Button>
 	{/snippet}
 </Dialog>

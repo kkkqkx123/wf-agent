@@ -12,6 +12,7 @@
 	import { checkpoints as store } from '$lib/stores/checkpoints.svelte';
 	import { fileWorkspace as workspace } from '$lib/stores/fileWorkspace.svelte';
 	import { formatBytes, formatRelativeTime } from '$lib/utils/format';
+	import { t } from '$lib/i18n';
 
 	let stats = $state<StoreStats | null>(null);
 	let gcNote = $state<string | null>(null);
@@ -23,7 +24,10 @@
 			error = null;
 		} catch (e) {
 			console.error('Failed to load store stats:', e);
-			error = e instanceof Error ? e.message : 'Store statistics unavailable';
+			error =
+				e instanceof Error
+					? e.message
+					: t('domain.files.statsUnavailable');
 		}
 	}
 
@@ -32,12 +36,18 @@
 		try {
 			const result = await runGc();
 			await loadStats();
-			gcNote = `Removed ${result.removedCheckpoints} commits, reclaimed ${result.reclaimedSnapshots} blobs`;
-			toasts.success('GC completed', gcNote);
+			gcNote = t('domain.files.gcNote', {
+				commits: result.removedCheckpoints,
+				blobs: result.reclaimedSnapshots,
+			});
+			toasts.success(t('domain.files.gcCompleted'), gcNote);
 			store.bump('files');
 		} catch (e) {
 			console.error('GC failed:', e);
-			toasts.error('GC failed', e instanceof Error ? e.message : undefined);
+			toasts.error(
+				t('domain.files.gcFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
 		} finally {
 			workspace.endAction();
 		}
@@ -52,27 +62,27 @@
 </script>
 
 <Card
-	title="Object store"
-	description="File-checkpoint storage footprint and garbage collection"
+	title={t('domain.files.storeTitle')}
+	description={t('domain.files.storeDescription')}
 >
 	{#if stats}
 		<div
 			class="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption tabular-nums text-muted-foreground"
 		>
-			<span>{stats.commits} commits</span>
-			<span>{stats.refs} refs</span>
-			<span>{stats.looseObjects} loose objects</span>
+			<span>{t('domain.files.commits', { count: stats.commits })}</span>
+			<span>{t('domain.files.refs', { count: stats.refs })}</span>
+			<span>{t('domain.files.looseObjects', { count: stats.looseObjects })}</span>
 			<span>{formatBytes(stats.storeBytes)}</span>
 			<span>
 				{stats.lastGcAt
-					? `last GC ${formatRelativeTime(stats.lastGcAt)}`
-					: 'no GC yet'}
+					? t('domain.files.lastGc', { time: formatRelativeTime(stats.lastGcAt) })
+					: t('domain.files.noGc')}
 			</span>
 		</div>
 	{:else if error}
 		<p class="text-caption text-destructive">{error}</p>
 		<Button variant="ghost" size="sm" onclick={() => void loadStats()}>
-			Retry
+			{t('common.retry')}
 		</Button>
 	{:else}
 		<Skeleton lines={4} />
@@ -89,7 +99,7 @@
 				onclick={() => void runGcSweep()}
 			>
 				<Icon name="database" size={13} />
-				Run GC
+				{t('domain.files.runGc')}
 			</Button>
 			<Button
 				variant="ghost"
@@ -97,7 +107,7 @@
 				disabled={workspace.busy}
 				onclick={() => void loadStats()}
 			>
-				Refresh
+				{t('common.refresh')}
 			</Button>
 		</div>
 	{/snippet}

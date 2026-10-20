@@ -1,5 +1,9 @@
 # 对话界面中的 Agent 与 Workflow 选择设计
 
+> 本设计已被 `chat-execution-entry-and-mode-design.md` 取代：workflow 不再作为
+> 上下文注入 chat，composer 的主入口改为执行类型（Agent / Workflow / Chat），
+> Mode toggle 已移除，Chat 改为独立的 tool-free 执行链路。
+
 ## 1. 背景
 
 当前对话界面仅支持模型选择（`ModelPicker`），后端 Agent Loop 运行已支持 `agent_id`，

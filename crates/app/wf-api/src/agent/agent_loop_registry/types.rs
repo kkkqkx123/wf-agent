@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 use serde_json::Value;
 
+use wf_types::execution::SessionExecutionType;
 use wf_types::ExecutionStatus;
 
 /// Agent loop query filter.
@@ -22,6 +23,9 @@ pub struct AgentLoopFilter {
 #[derive(Debug, Clone, Serialize)]
 pub struct AgentLoopSummary {
     pub id: String,
+    /// Which executor produced the run. A chat session is listed here too,
+    /// so a session list can tell the executors apart.
+    pub execution_type: SessionExecutionType,
     pub status: ExecutionStatus,
     pub current_iteration: u32,
     pub tool_call_count: u32,

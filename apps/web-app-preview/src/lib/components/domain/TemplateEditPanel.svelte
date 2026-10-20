@@ -5,8 +5,7 @@
 	import Input from '@wf-agent/ui/components/Input.svelte';
 	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
 	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
-	import GraphExplorer from '$lib/components/domain/GraphExplorer.svelte';
-	import IssueList from '$lib/components/domain/IssueList.svelte';
+		import IssueList from '$lib/components/domain/IssueList.svelte';
 	import JsonEditor from '@wf-agent/ui/components/JsonEditor.svelte';
 	import type { CanvasPosition } from '$lib/components/domain/GraphCanvas.svelte';
 	import { GraphEditStore } from '$lib/graph/edit-store.svelte';
@@ -361,7 +360,8 @@
 			Drag nodes to move · double-click empty canvas to add a node · click an
 			edge to delete it · shift-click another node to connect.
 		</p>
-		<GraphExplorer
+		{#await import('$lib/components/domain/GraphExplorer.svelte') then module}
+<module.default
 			bind:this={explorer}
 			nodes={store.nodes}
 			edges={store.edges}
@@ -388,7 +388,7 @@
 			ondeletenodes={(ids) => ondeletenodes(ids)}
 			ondeletegroups={(ids) => ondeletegroups(ids)}
 			onjumpparam={(id) => (store.selectedId = id)}
-		/>
+		/> {/await}
 		{#if selectedNode}
 			{#key store.selectedId}
 				<div class="grid grid-cols-2 gap-2">

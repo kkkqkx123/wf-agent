@@ -10,6 +10,7 @@
 		shortId,
 	} from '$lib/utils/format';
 	import { cn } from '@wf-agent/ui/cn';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		execution: Execution;
@@ -73,13 +74,16 @@
 		class="mt-1.5 flex items-center justify-between gap-2 text-micro text-muted-foreground"
 	>
 		<span class="tabular-nums">
-			{execution.tasksDone}/{execution.tasksTotal} tasks
+			{t('domain.executionCard.tasks', {
+					done: execution.tasksDone,
+					total: execution.tasksTotal,
+				})}
 		</span>
 		<span class="flex min-w-0 items-center gap-1.5">
 			{#if execution.failedNodes > 0}
 				<span class="flex items-center gap-1 text-destructive">
 					<Icon name="alert-triangle" size={11} />
-					{execution.failedNodes} failed
+					{t('domain.executionCard.failed', { count: execution.failedNodes })}
 				</span>
 			{/if}
 			{#if execution.currentNode}

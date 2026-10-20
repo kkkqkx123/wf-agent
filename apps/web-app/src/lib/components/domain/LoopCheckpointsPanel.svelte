@@ -11,6 +11,7 @@
 	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDateTime } from '$lib/utils/format';
+	import { t } from '$lib/i18n';
 
 	/** Loop checkpoint list with restore; owns its own loading keyed by id. */
 	let { id }: { id: string } = $props();
@@ -34,7 +35,7 @@
 		} catch (e) {
 			seen = '';
 			checkpoints = [];
-			error = e instanceof Error ? e.message : 'Checkpoints failed.';
+			error = e instanceof Error ? e.message : t('domain.loopCheckpoints.failed');
 		}
 	}
 
@@ -42,11 +43,11 @@
 		busy = true;
 		try {
 			await createAgentLoopCheckpoint(id);
-			toasts.success('Checkpoint created');
+			toasts.success(t('domain.loopCheckpoints.created'));
 			await load(id);
 		} catch (e) {
 			toasts.error(
-				'Checkpoint failed',
+				t('domain.loopCheckpoints.createFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -58,11 +59,11 @@
 		busy = true;
 		try {
 			await restoreAgentLoopCheckpoint(id, checkpointId);
-			toasts.success('Checkpoint restored');
+			toasts.success(t('domain.loopCheckpoints.restored'));
 			await load(id);
 		} catch (e) {
 			toasts.error(
-				'Restore failed',
+				t('domain.loopCheckpoints.restoreFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -73,7 +74,7 @@
 
 {#if error}
 	<ErrorState
-		title="Checkpoints failed to load"
+		title={t('domain.loopCheckpoints.failedTitle')}
 		description={error}
 		onretry={() => void load(id)}
 		class="rounded-lg border border-border bg-card"
@@ -86,7 +87,7 @@
 			disabled={busy}
 			onclick={() => void createCheckpoint()}
 		>
-			New checkpoint
+			{t('domain.loopCheckpoints.new')}
 		</Button>
 	</div>
 	<div class="space-y-2">
@@ -94,7 +95,9 @@
 			<Card title="{checkpoint.kind} · #{checkpoint.sequence}">
 				{#snippet actions()}
 					<Badge variant={checkpoint.restorable ? 'success' : 'neutral'}>
-						{checkpoint.restorable ? 'restorable' : 'locked'}
+						{checkpoint.restorable
+							? t('domain.loopCheckpoints.restorable')
+							: t('domain.loopCheckpoints.locked')}
 					</Badge>
 				{/snippet}
 				<p class="text-caption text-muted-foreground">
@@ -109,18 +112,18 @@
 						size="sm"
 						disabled={!checkpoint.restorable || busy}
 						title={checkpoint.restorable
-							? 'Restore this checkpoint'
-							: 'This checkpoint is locked and cannot be restored'}
+							? t('domain.loopCheckpoints.restoreTitle')
+							: t('domain.loopCheckpoints.lockedTitle')}
 						onclick={() => void restore(checkpoint.id)}
 					>
-						Restore
+						{t('domain.loopCheckpoints.restore')}
 					</Button>
 				{/snippet}
 			</Card>
 		{:else}
 			<Card>
 				<p class="text-caption text-muted-foreground">
-					No checkpoints recorded for this loop.
+					{t('domain.loopCheckpoints.empty')}
 				</p>
 			</Card>
 		{/each}

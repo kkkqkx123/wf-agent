@@ -25,7 +25,7 @@ wf-resource = { path = "../../engine/wf-resource" }
 wf-config = { path = "../../infra/wf-config" }
 wf-llm = { path = "../../infra/wf-llm" }
 wf-checkpoint = { path = "../../infra/checkpoint/wf-checkpoint" }
-wf-plugin = { path = "../../infra/wf-plugin", optional = true }
+wf-plugin = { path = "../../infra/wf-plugin", optional = true, default-features = false }
 wf-agent = { path = "../../engine/wf-agent" }
 wf-workflow = { path = "../../engine/wf-workflow" }
 wf-execution-shared = { path = "../../engine/wf-execution-shared" }
@@ -39,8 +39,11 @@ wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }
 tempfile.workspace = true
 
 [features]
-default = []
-plugins = ["wf-plugin/lua"]
+# Product default: the plugin engine plus all three backends. `plugins`
+# alone yields an engine with no loadable backend; name the backends to
+# keep.
+default = ["plugins", "lua", "native", "wasm"]
+plugins = ["dep:wf-plugin"]
 lua = ["wf-sandbox/lua", "wf-plugin/lua"]
 native = ["wf-plugin/native"]
 wasm = ["wf-plugin/wasm"]

@@ -7,7 +7,12 @@
 		"forceConsistentCasingInFileNames": true,
 		"resolveJsonModule": true,
 		"skipLibCheck": true,
-		"strict": true
+		"strict": true,
+		"baseUrl": ".",
+		"paths": {
+			"$paraglide": ["./src/lib/paraglide/index.ts"],
+			"$paraglide/*": ["./src/lib/paraglide/*"]
+		}
 	},
 	"exclude": [
 		"node_modules",

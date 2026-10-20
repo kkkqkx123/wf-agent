@@ -12,6 +12,17 @@
 	import type { AgentLoop, Execution, Workflow } from '$lib/types/models';
 	import { ui } from '$lib/stores/ui.svelte';
 	import { cn } from '@wf-agent/ui/cn';
+	import { t, type MessageKey } from '$lib/i18n';
+
+	// Group names double as filter tokens, so they stay internal ids and are
+	// translated only at render time.
+	const GROUP_LABEL: Record<string, MessageKey> = {
+		Navigate: 'layout.commandPalette.groupNavigate',
+		Executions: 'layout.commandPalette.groupExecutions',
+		Workflows: 'layout.commandPalette.groupWorkflows',
+		'Agent loops': 'layout.commandPalette.groupLoops',
+		Search: 'layout.commandPalette.groupSearch',
+	};
 
 
 	interface CommandItem {
@@ -78,10 +89,10 @@
 	const items = $derived.by<CommandItem[]>(() => {
 		const nav: CommandItem[] = NAV_ITEMS.map((item) => ({
 			id: `nav:${item.href}`,
-			label: item.label,
+			label: item.label(),
 			group: 'Navigate',
 			icon: item.icon,
-			hint: item.description,
+			hint: item.description(),
 			run: () => {
 				ui.setCommandOpen(false);
 				void goto(resolve(item.href));
@@ -196,8 +207,8 @@
 
 <Dialog
 	bind:open={ui.commandOpen}
-	title="Command palette"
-	description="Search navigation, executions, workflows and loops"
+	title={t('layout.commandPalette.title')}
+	description={t('layout.commandPalette.description')}
 	width="34rem"
 >
 	<div {onkeydown} role="presentation">
@@ -209,8 +220,8 @@
 			/>
 			<input
 				bind:value={query}
-				placeholder="Type to search…"
-				aria-label="Command palette search"
+				placeholder={t('layout.commandPalette.placeholder')}
+				aria-label={t('layout.commandPalette.searchLabel')}
 				class="h-9 w-full rounded-md border border-input bg-card pl-8 pr-2 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[hsl(var(--ring))]"
 			/>
 		</div>
@@ -218,14 +229,14 @@
 		<div class="mt-2 max-h-80 overflow-y-auto">
 			{#if flat.length === 0}
 				<p class="px-2 py-6 text-center text-caption text-muted-foreground">
-					No matches
+					{t('layout.commandPalette.noMatches')}
 				</p>
 			{:else}
 				{#each grouped as group (group.name)}
 					<p
 						class="px-2 py-1 text-micro uppercase tracking-wide text-muted-foreground"
 					>
-						{group.name}
+						{t(GROUP_LABEL[group.name] ?? group.name)}
 					</p>
 					{#each group.entries as item (item.id)}
 						{@const index = flat.indexOf(item)}

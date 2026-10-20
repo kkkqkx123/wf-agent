@@ -58,6 +58,7 @@
 		saveWorkflowLayout,
 	} from '$lib/services/layout';
 	import { cn } from '@wf-agent/ui/cn';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		nodes: DisplayNode[];
@@ -232,7 +233,10 @@
 				positions: savedPositions,
 				settings: { kind: layout },
 			}).catch(() => {
-				toasts.error('Layout save failed', 'The layout could not be persisted.');
+				toasts.error(
+					t('domain.graph.layoutSaveFailed'),
+					t('domain.graph.layoutSaveFailedDetail'),
+				);
 			});
 		}, 800);
 	}
@@ -248,7 +252,10 @@
 		try {
 			await resetWorkflowLayout(layoutId);
 		} catch {
-			toasts.error('Layout reset failed', 'The saved layout could not be removed.');
+			toasts.error(
+				t('domain.graph.layoutResetFailed'),
+				t('domain.graph.layoutResetFailedDetail'),
+			);
 		}
 	}
 
@@ -402,9 +409,12 @@
 	async function copyText(text: string, label: string): Promise<void> {
 		try {
 			await navigator.clipboard.writeText(text);
-			toasts.success(`${label} copied`);
+			toasts.success(t('domain.graph.copied', { name: label }));
 		} catch {
-			toasts.error('Copy failed', 'Clipboard is unavailable.');
+			toasts.error(
+				t('domain.graph.copyFailed'),
+				t('domain.graph.copyFailedDetail'),
+			);
 		}
 	}
 
@@ -414,13 +424,16 @@
 
 	function guardConnect(source: string, target: string): boolean {
 		if (isHiddenNode(source) || isHiddenNode(target)) {
-			toasts.info('Hidden group member', 'Expand the group before connecting.');
+			toasts.info(
+				t('domain.graph.hiddenMember'),
+				t('domain.graph.hiddenMemberConnect'),
+			);
 			return false;
 		}
 		if (isGroupTitleId(source) || isGroupTitleId(target)) {
 			toasts.info(
-				'Group title cannot connect',
-				'Expand the group and connect a member.',
+				t('domain.graph.groupTitleCannotConnect'),
+				t('domain.graph.groupTitleConnectDetail'),
 			);
 			return false;
 		}
@@ -431,8 +444,8 @@
 		const visible = moves.filter((move) => !isHiddenNode(move.id));
 		if (visible.length !== moves.length) {
 			toasts.info(
-				'Hidden group member',
-				'Expand the group before moving hidden nodes.',
+				t('domain.graph.hiddenMember'),
+				t('domain.graph.hiddenMemberMove'),
 			);
 		}
 		return visible;
@@ -486,8 +499,11 @@
 	});
 	const matchLabel = $derived(
 		matchIds.length === 0
-			? 'No matches'
-			: `${Math.min(matchIndex + 1, matchIds.length)} of ${matchIds.length}`,
+			? t('domain.graph.noMatches')
+			: t('domain.graph.matchOf', {
+					index: Math.min(matchIndex + 1, matchIds.length),
+					total: matchIds.length,
+				}),
 	);
 
 	$effect(() => {
@@ -541,41 +557,43 @@
 
 	const menuTitle = $derived(
 		!contextMenu || contextMenu.kind === 'blank'
-			? 'Canvas'
+			? t('domain.graph.menuCanvas')
 			: contextMenu.kind === 'group'
-				? `Group ${foldedView.titles[contextMenu.id ?? '']?.label ?? ''}`
+				? t('domain.graph.menuGroup', {
+						label: foldedView.titles[contextMenu.id ?? '']?.label ?? '',
+					})
 				: contextMenu.kind === 'edge'
-					? `Edge ${contextMenu.id ?? ''}`
-					: `Node ${contextMenu.id ?? ''}`,
+					? t('domain.graph.menuEdge', { id: contextMenu.id ?? '' })
+					: t('domain.graph.menuNode', { id: contextMenu.id ?? '' }),
 	);
 
 	const paramReason = $derived.by(() => {
-		if (!contextMenu || !contextMenu.id) return 'No target node.';
-		if (!onjumpparam) return 'No definition panel is available.';
+		if (!contextMenu || !contextMenu.id) return t('domain.graph.noTargetNode');
+		if (!onjumpparam) return t('domain.graph.noDefinitionPanel');
 		return null;
 	});
+
+	const readOnlyReason = $derived(t('domain.graph.readOnlyDelete'));
 
 	const menuItems = $derived.by((): ContextMenuItem[] => {
 		if (!contextMenu) return [];
 		const write = editMode;
 		if (contextMenu.kind === 'node') {
 			return [
-				{ id: 'locate', label: 'Focus node' },
-				{ id: 'copy-id', label: 'Copy node id' },
+				{ id: 'locate', label: t('domain.graph.focusNode') },
+				{ id: 'copy-id', label: t('domain.graph.copyNodeId') },
 				{
 					id: 'params',
-					label: 'Locate in definition',
+					label: t('domain.graph.locateInDefinition'),
 					disabled: paramReason !== null,
 					...(paramReason ? { reason: paramReason } : {}),
 				},
 				{
 					id: 'delete-node',
-					label: 'Delete node',
+					label: t('domain.graph.deleteNode'),
 					danger: true,
 					disabled: !write,
-					...(!write
-						? { reason: 'Read-only canvas. Enter edit mode to delete.' }
-						: {}),
+					...(!write ? { reason: readOnlyReason } : {}),
 				},
 			];
 		}
@@ -585,45 +603,45 @@
 				: undefined;
 			const collapsedNow = title ? folded.collapsed.has(title.groupId) : false;
 			return [
-				{ id: 'focus-group', label: 'Focus whole group' },
+				{ id: 'focus-group', label: t('domain.graph.focusWholeGroup') },
 				{
 					id: 'toggle-group',
-					label: collapsedNow ? 'Expand group' : 'Collapse group',
+					label: collapsedNow
+						? t('domain.graph.expandGroup')
+						: t('domain.graph.collapseGroup'),
 				},
 				{
 					id: 'delete-group',
-					label: 'Delete group',
+					label: t('domain.graph.deleteGroup'),
 					danger: true,
 					disabled: !write,
-					...(!write
-						? { reason: 'Read-only canvas. Enter edit mode to delete.' }
-						: {}),
+					...(!write ? { reason: readOnlyReason } : {}),
 				},
 			];
 		}
 		if (contextMenu.kind === 'edge') {
 			return [
-				{ id: 'focus-source', label: 'Focus source node' },
-				{ id: 'focus-target', label: 'Focus target node' },
+				{ id: 'focus-source', label: t('domain.graph.focusSource') },
+				{ id: 'focus-target', label: t('domain.graph.focusTarget') },
 				{
 					id: 'delete-edge',
-					label: 'Delete edge',
+					label: t('domain.graph.deleteEdge'),
 					danger: true,
 					disabled: !write,
-					...(!write
-						? { reason: 'Read-only canvas. Enter edit mode to delete.' }
-						: {}),
+					...(!write ? { reason: readOnlyReason } : {}),
 				},
 			];
 		}
 		return [
-			{ id: 'fit', label: 'Fit view' },
-			{ id: 'relayout', label: 'Re-run layout' },
+			{ id: 'fit', label: t('domain.graph.fitView') },
+			{ id: 'relayout', label: t('domain.graph.rerunLayout') },
 			{
 				id: 'edit-toggle',
-				label: editMode ? 'Exit edit mode' : 'Enter edit mode',
+				label: editMode
+					? t('domain.graph.exitEditMode')
+					: t('domain.graph.enterEditMode'),
 				disabled: !editable,
-				...(!editable ? { reason: 'This graph is not editable.' } : {}),
+				...(!editable ? { reason: t('domain.graph.notEditable') } : {}),
 			},
 		];
 	});
@@ -638,7 +656,7 @@
 				if (id) void focus(id);
 				break;
 			case 'copy-id':
-				if (id) void copyText(id, 'Node id');
+				if (id) void copyText(id, t('domain.graph.nodeId'));
 				break;
 			case 'params':
 				if (id && !paramReason) onjumpparam?.(id);
@@ -709,7 +727,10 @@
 			save: () => onsave?.(),
 			canWrite: () => editMode,
 			onreadonlywrite: () =>
-				toasts.info('Read-only canvas', 'Enter edit mode to change the graph.'),
+				toasts.info(
+					t('domain.graph.readOnlyCanvas'),
+					t('domain.graph.enterEditToChange'),
+				),
 		}));
 	});
 
@@ -732,9 +753,12 @@
 	function handleExport(): void {
 		const done = canvas?.exportPng() ?? false;
 		if (done) {
-			toasts.success('Graph exported as PNG');
+			toasts.success(t('domain.graph.exported'));
 		} else {
-			toasts.error('Graph export failed', 'The renderer is not ready yet.');
+			toasts.error(
+				t('domain.graph.exportFailed'),
+				t('domain.graph.exportFailedDetail'),
+			);
 		}
 	}
 
@@ -760,17 +784,17 @@
 			return;
 		}
 		toasts.info(
-			'Box selection',
-			`${ids.length} nodes in the box. Click a node to inspect it.`,
+			t('domain.graph.boxSelection'),
+			t('domain.graph.boxSelectionDetail', { count: ids.length }),
 		);
 	}
 
-	const layoutOptions = [
-		{ value: 'layered', label: 'Layered' },
-		{ value: 'columns', label: 'Columns' },
-		{ value: 'rows', label: 'Rows' },
-		{ value: 'compact', label: 'Compact' },
-	];
+	const layoutOptions = $derived([
+		{ value: 'layered', label: t('domain.graph.layoutLayered') },
+		{ value: 'columns', label: t('domain.graph.layoutColumns') },
+		{ value: 'rows', label: t('domain.graph.layoutRows') },
+		{ value: 'compact', label: t('domain.graph.layoutCompact') },
+	]);
 </script>
 
 <div
@@ -778,26 +802,30 @@
 	class={cn('flex min-h-0 flex-col gap-2', className)}
 >
 	<div class="flex flex-wrap items-center gap-1.5">
-		<IconButton icon="plus" label="Zoom in" onclick={() => canvas?.zoomIn()} />
+		<IconButton
+			icon="plus"
+			label={t('domain.graph.zoomIn')}
+			onclick={() => canvas?.zoomIn()}
+		/>
 		<IconButton
 			icon="minus"
-			label="Zoom out"
+			label={t('domain.graph.zoomOut')}
 			onclick={() => canvas?.zoomOut()}
 		/>
 		<IconButton
 			icon="maximize"
-			label="Fit to view (F)"
+			label={t('domain.graph.fitToView')}
 			onclick={() => canvas?.fit()}
 		/>
 		<IconButton
 			icon="refresh"
-			label="Re-run layout (R)"
+			label={t('domain.graph.rerunLayoutShortcut')}
 			onclick={() => canvas?.relayout()}
 		/>
 		{#if layoutId}
 			<IconButton
 				icon="undo"
-				label="Reset layout to default"
+				label={t('domain.graph.resetLayout')}
 				onclick={() => void handleResetLayout()}
 			/>
 		{/if}
@@ -808,23 +836,25 @@
 			placeholder=""
 			class="w-28"
 		/>
-		<IconButton icon="download" label="Export as PNG" onclick={handleExport} />
+		<IconButton
+			icon="download"
+			label={t('domain.graph.exportPng')}
+			onclick={handleExport}
+		/>
 		<IconButton
 			icon="filter"
-			label={showFilters ? 'Hide filters' : 'Show filters'}
+			label={showFilters
+				? t('domain.graph.hideFilters')
+				: t('domain.graph.showFilters')}
 			onclick={() => (showFilters = !showFilters)}
 		/>
 		<Button
 			variant={preferences.minimapMode === 'off' ? 'outline' : 'default'}
 			size="sm"
 			onclick={cycleMinimap}
-			title="Cycle minimap auto / on / off"
+			title={t('domain.graph.cycleMinimap')}
 		>
-			Minimap {preferences.minimapMode === 'auto'
-				? 'auto'
-				: preferences.minimapMode === 'on'
-					? 'on'
-					: 'off'}
+			{t('domain.graph.minimap')} {preferences.minimapMode}
 		</Button>
 		<Button
 			variant="outline"
@@ -832,7 +862,7 @@
 			disabled={!selectedId}
 			onclick={() => selectedId && canvas?.zoomTo(selectedId)}
 		>
-			Zoom to selection
+			{t('domain.graph.zoomToSelection')}
 		</Button>
 		<Button
 			variant="outline"
@@ -840,7 +870,7 @@
 			disabled={activeIds.size === 0}
 			onclick={() => canvas?.fitTo([...activeIds])}
 		>
-			Fit highlight
+			{t('domain.graph.fitHighlight')}
 		</Button>
 		{#if actions}
 			<span class="mx-1 h-5 w-px bg-border"></span>
@@ -850,17 +880,21 @@
 			<span class="mx-1 h-5 w-px bg-border"></span>
 			{#if !editMode}
 				<Button variant="outline" size="sm" onclick={() => onenteredit?.()}>
-					Enter edit mode
+					{t('domain.graph.enterEditMode')}
 				</Button>
 			{:else}
-				<Badge variant="warning">Editing{editDirty ? ' · unsaved' : ''}</Badge>
+				<Badge variant="warning"
+					>{editDirty
+						? t('domain.graph.editingUnsaved')
+						: t('domain.graph.editing')}</Badge
+				>
 				<Button
 					variant="outline"
 					size="sm"
 					disabled={!canUndo}
 					onclick={() => onundo?.()}
 				>
-					Undo
+					{t('domain.graph.undo')}
 				</Button>
 				<Button
 					variant="outline"
@@ -868,55 +902,60 @@
 					disabled={!canRedo}
 					onclick={() => onredo?.()}
 				>
-					Redo
+					{t('domain.graph.redo')}
 				</Button>
 				<Button variant="outline" size="sm" onclick={() => openAddNode(null)}>
-					Add node
+					{t('domain.graph.addNode')}
 				</Button>
 				<Button variant="outline" size="sm" onclick={handleDeleteSelected}>
-					Delete selected
+					{t('domain.graph.deleteSelected')}
 				</Button>
 				<Button
 					size="sm"
 					disabled={!editDirty || editBusy}
 					onclick={() => onsave?.()}
 				>
-					{editBusy ? 'Saving…' : 'Save draft'}
+					{editBusy ? t('domain.graph.saving') : t('domain.graph.saveDraft')}
 				</Button>
 				<Button variant="ghost" size="sm" onclick={() => onvalidate?.()}>
-					Validate
+					{t('domain.graph.validate')}
 				</Button>
 				<Button variant="ghost" size="sm" onclick={() => onpromote?.()}>
-					Promote
+					{t('domain.graph.promote')}
 				</Button>
 				<Button variant="ghost" size="sm" onclick={() => onexitedit?.()}>
-					Exit
+					{t('domain.graph.exit')}
 				</Button>
 			{/if}
 		{/if}
 		<span class="ml-auto text-micro text-muted-foreground">
 			{#if folded.auto.length > 0}
-				Folded {folded.auto.length} group(s) ·
+				{t('domain.graph.foldedGroups', { count: folded.auto.length })} ·
 			{/if}
 			{#if capped.truncated}
-				Showing {capped.nodes.length} of {capped.total} nodes · Retention order: failed,
-				running, critical path, selection ·
+				{t('domain.graph.showingOf', {
+					shown: capped.nodes.length,
+					total: capped.total,
+				})}
+				· {t('domain.graph.retentionOrder')} ·
 			{/if}
-			{filtered.nodes.length} nodes · {filtered.edges.length} edges
+			{t('domain.canvas.summary', {
+				nodes: filtered.nodes.length,
+				edges: filtered.edges.length,
+			})}
 		</span>
 	</div>
 
 	{#if editMode}
 		<p class="text-micro text-muted-foreground">
-			Drag nodes to move · drag a hotspot or shift-click another node to connect
-			from the selection · double-click empty canvas or use Add node to pick a
-			template · click an edge to delete it · Delete selected removes the
-			selection. Layout is frozen while editing.
+			{t('domain.graph.editHint')}
 		</p>
 	{/if}
 	{#if overlays.length > 0}
 		<div class="flex flex-wrap items-center gap-1.5">
-			<span class="text-micro text-muted-foreground">Highlight:</span>
+			<span class="text-micro text-muted-foreground"
+				>{t('domain.graph.highlight')}</span
+			>
 			{#each overlays as overlay (overlay.id)}
 				<Button
 					variant={activeOverlay === overlay.id ? 'default' : 'outline'}
@@ -931,7 +970,9 @@
 	{/if}
 	{#if groups.length > 0}
 		<div class="flex flex-wrap items-center gap-1.5">
-			<span class="text-micro text-muted-foreground">Groups:</span>
+			<span class="text-micro text-muted-foreground"
+				>{t('domain.graph.groups')}</span
+			>
 			{#each groups as group (group.id)}
 				<Button
 					variant={folded.collapsed.has(group.id) ? 'default' : 'outline'}
@@ -945,20 +986,20 @@
 				</Button>
 			{/each}
 			<Button variant="ghost" size="sm" onclick={collapseAllGroups}>
-				Collapse all
+				{t('domain.graph.collapseAll')}
 			</Button>
 			<Button variant="ghost" size="sm" onclick={expandAllGroups}>
-				Expand all
+				{t('domain.graph.expandAll')}
 			</Button>
 		</div>
 	{/if}
 
 	{#if showFilters}
-		<Card title="Filters" class="shrink-0">
+		<Card title={t('domain.graph.filters')} class="shrink-0">
 			<div class="flex flex-wrap items-center gap-2">
 				<Input
 					bind:value={query}
-					placeholder="Search nodes… (Enter to locate)"
+					placeholder={t('domain.graph.searchPlaceholder')}
 					onkeydown={(event) => {
 						if (event.key === 'Enter') {
 							event.preventDefault();
@@ -971,13 +1012,13 @@
 					<span class="text-micro text-muted-foreground">{matchLabel}</span>
 					<IconButton
 						icon="chevron-left"
-						label="Previous match"
+						label={t('domain.graph.previousMatch')}
 						disabled={matchIds.length === 0}
 						onclick={() => stepMatch(-1)}
 					/>
 					<IconButton
 						icon="chevron-right"
-						label="Next match"
+						label={t('domain.graph.nextMatch')}
 						disabled={matchIds.length === 0}
 						onclick={() => stepMatch(1)}
 					/>
@@ -1004,7 +1045,7 @@
 							query = '';
 						}}
 					>
-						Clear
+						{t('domain.inspector.clearFilter')}
 					</Button>
 				{/if}
 			</div>
@@ -1015,7 +1056,7 @@
 		<Skeleton class="h-96 w-full rounded-lg" />
 	{:else if error}
 		<ErrorState
-			title="Graph failed to load"
+			title={t('domain.graph.loadFailedTitle')}
 			description={error}
 			{onretry}
 			class="rounded-lg border border-border bg-card"
@@ -1023,8 +1064,8 @@
 	{:else if nodes.length === 0}
 		<EmptyState
 			icon="workflow"
-			title="No graph data"
-			description="This item has no nodes yet."
+			title={t('domain.graph.noDataTitle')}
+			description={t('domain.graph.noDataDescription')}
 			class="rounded-lg border border-border bg-card"
 		/>
 	{:else}
@@ -1060,8 +1101,8 @@
 				onmovenode={(id, position) => {
 					if (isHiddenNode(id)) {
 						toasts.info(
-							'Hidden group member',
-							'Expand the group before moving hidden nodes.',
+							t('domain.graph.hiddenMember'),
+							t('domain.graph.hiddenMemberMove'),
 						);
 						return;
 					}
@@ -1076,27 +1117,30 @@
 				onconnect={(source, target) => {
 					if (guardConnect(source, target)) onconnect?.(source, target);
 				}}
-				onconnectreject={(reason) => toasts.info('Cannot connect', reason)}
+				onconnectreject={(reason) =>
+					toasts.info(t('domain.graph.cannotConnect'), reason)}
 				oncontext={openContext}
 				class="min-h-0"
 			/>
 			<div class="flex min-h-0 flex-col gap-2">
 				{#if capped.truncated || folded.auto.length > 0}
-					<Card title="Large graph">
+					<Card title={t('domain.graph.largeGraph')}>
 						<p class="text-caption text-muted-foreground">
-							Retention order: failed, running, critical path, selection.
-							Non-critical groups fold first; leftovers sample across kinds.
+							{t('domain.graph.retentionOrderDetail')}
 							{#if folded.auto.length > 0}
-								Folded {folded.auto.length} non-critical group(s) ({folded.auto.join(
-									', ',
-								)}) to preserve structure.
+								{t('domain.graph.foldedNonCritical', {
+									count: folded.auto.length,
+									kinds: folded.auto.join(', '),
+								})}
 							{/if}
 							{#if capped.truncated}
-								Showing {capped.nodes.length} of {capped.total} nodes, sampled across
-								kinds ({aggregatedCounts
-									.map((entry) => `${entry.kind} ${entry.count}`)
-									.join(' · ')}). Fold to one kind or use filters; double-click
-								a node to expand its neighborhood.
+								{t('domain.graph.sampledAcrossKinds', {
+									shown: capped.nodes.length,
+									total: capped.total,
+									counts: aggregatedCounts
+										.map((entry) => `${entry.kind} ${entry.count}`)
+										.join(' · '),
+								})}
 							{/if}
 						</p>
 						<div class="mt-2 flex flex-wrap gap-1.5">
@@ -1106,7 +1150,7 @@
 									size="sm"
 									onclick={() => isolateKind(entry.kind)}
 								>
-									Fold to {entry.kind}
+									{t('domain.graph.foldTo', { kind: entry.kind })}
 								</Button>
 							{/each}
 							{#if hiddenKinds.length > 0}
@@ -1117,7 +1161,7 @@
 										hiddenKinds = [];
 									}}
 								>
-									Show all kinds
+									{t('domain.graph.showAllKinds')}
 								</Button>
 							{/if}
 						</div>
@@ -1128,17 +1172,19 @@
 						{#snippet actions()}
 							<IconButton
 								icon="x"
-								label="Clear selection"
+								label={t('domain.graph.clearSelection')}
 								onclick={() => onselect?.(null)}
 							/>
 						{/snippet}
 						{#if isGroupTitleId(selected.id)}
 							{@const title = foldedView.titles[selected.id]}
 							<p class="text-caption text-muted-foreground">
-								Group · {title?.label ?? selected.id} · {title?.memberIds
-									.length ?? 0} member(s) ·
-								{selectedNeighbors.predecessors} in · {selectedNeighbors.successors}
-								out
+								{t('domain.graph.groupSummary', {
+									label: title?.label ?? selected.id,
+									members: title?.memberIds.length ?? 0,
+									in: selectedNeighbors.predecessors,
+									out: selectedNeighbors.successors,
+								})}
 							</p>
 							{#if title}
 								<div class="mt-2 flex flex-wrap gap-1.5">
@@ -1148,33 +1194,37 @@
 										onclick={() => toggleGroup(title.groupId)}
 									>
 										{folded.collapsed.has(title.groupId)
-											? 'Expand group'
-											: 'Collapse group'}
+											? t('domain.graph.expandGroup')
+											: t('domain.graph.collapseGroup')}
 									</Button>
 									<Button
 										variant="outline"
 										size="sm"
 										onclick={() => focusGroup(selected.id)}
 									>
-										Focus whole group
+										{t('domain.graph.focusWholeGroup')}
 									</Button>
 								</div>
 								<p
 									class="mt-1 text-micro text-muted-foreground"
-									title="Groups have no definition entry."
+									title={t('domain.graph.groupsNoDefinition')}
 								>
-									Locate in definition is unavailable for groups.
+									{t('domain.graph.locateUnavailableForGroups')}
 								</p>
 							{/if}
 						{:else}
 							<dl class="space-y-1 text-caption">
 								<div class="flex justify-between gap-2">
-									<dt class="text-muted-foreground">Kind</dt>
+									<dt class="text-muted-foreground"
+										>{t('domain.graph.kind')}</dt
+									>
 									<dd class="font-mono">{selected.kind}</dd>
 								</div>
 								{#if selected.status}
 									<div class="flex justify-between gap-2">
-										<dt class="text-muted-foreground">Status</dt>
+										<dt class="text-muted-foreground"
+											>{t('domain.graph.status')}</dt
+										>
 										<dd>
 											<StatusBadge
 												status={selected.status}
@@ -1186,13 +1236,17 @@
 								{/if}
 								{#if selected.iteration !== undefined}
 									<div class="flex justify-between gap-2">
-										<dt class="text-muted-foreground">Iteration</dt>
+										<dt class="text-muted-foreground"
+											>{t('domain.history.iterations')}</dt
+										>
 										<dd class="font-mono">{selected.iteration}</dd>
 									</div>
 								{/if}
 								{#if heatLabels[selected.id]}
 									<div class="flex justify-between gap-2">
-										<dt class="text-muted-foreground">Duration</dt>
+										<dt class="text-muted-foreground"
+											>{t('domain.inspector.duration')}</dt
+										>
 										<dd class="font-mono tabular-nums">
 											{heatLabels[selected.id]}
 										</dd>
@@ -1200,17 +1254,23 @@
 								{/if}
 								{#if decisionLabels[selected.id]}
 									<div class="flex justify-between gap-2">
-										<dt class="text-muted-foreground">Branches</dt>
+										<dt class="text-muted-foreground"
+											>{t('domain.graph.branches')}</dt
+										>
 										<dd class="text-right font-mono">
 											{decisionLabels[selected.id]}
 										</dd>
 									</div>
 								{/if}
 								<div class="flex justify-between gap-2">
-									<dt class="text-muted-foreground">Links</dt>
+									<dt class="text-muted-foreground"
+										>{t('domain.graph.links')}</dt
+									>
 									<dd class="font-mono">
-										{selectedNeighbors.predecessors} in · {selectedNeighbors.successors}
-										out
+										{t('domain.graph.inOut', {
+											in: selectedNeighbors.predecessors,
+											out: selectedNeighbors.successors,
+										})}
 									</dd>
 								</div>
 							</dl>
@@ -1236,9 +1296,9 @@
 									variant="outline"
 									size="sm"
 									onclick={() =>
-										selected && void copyText(selected.id, 'Node id')}
+										selected && void copyText(selected.id, t('domain.graph.nodeId'))}
 								>
-									Copy node id
+									{t('domain.graph.copyNodeId')}
 								</Button>
 								{#if onjumpparam}
 									<Button
@@ -1246,28 +1306,28 @@
 										size="sm"
 										onclick={() => selected && onjumpparam?.(selected.id)}
 									>
-										Locate in definition
+										{t('domain.graph.locateInDefinition')}
 									</Button>
 								{:else}
 									<Button
 										variant="outline"
 										size="sm"
 										disabled
-										title="No definition panel is available."
+										title={t('domain.graph.noDefinitionPanel')}
 									>
-										Locate in definition
+										{t('domain.graph.locateInDefinition')}
 									</Button>
 								{/if}
 							</div>
 							{#if !onjumpparam}
 								<p class="mt-1 text-micro text-muted-foreground">
-									No definition panel is available.
+									{t('domain.graph.noDefinitionPanel')}
 								</p>
 							{/if}
 						{/if}
 					</Card>
 				{/if}
-				<Card title="Legend">
+				<Card title={t('domain.graph.legend')}>
 					<ul class="space-y-1">
 						{#each legendFor(preset) as entry (entry.label)}
 							<li

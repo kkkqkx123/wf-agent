@@ -2,6 +2,7 @@
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import GraphCanvas from '$lib/components/domain/GraphCanvas.svelte';
 	import { chatStream } from '$lib/stores/stream-run.svelte';
+	import { t } from '$lib/i18n';
 	import type { ChatSessionController } from '$lib/chat/chat-session.svelte';
 
 	interface Props {
@@ -29,9 +30,9 @@
 			class="text-micro text-muted-foreground underline-offset-2 hover:underline"
 			onclick={() => (controller.mapOpen = !controller.mapOpen)}
 		>
-			{mapOpen ? 'Hide decision map' : 'Show decision map'}
+			{mapOpen ? t('chat.decisionMap.hide') : t('chat.decisionMap.show')}
 			{chatStream.tools.length > 0
-				? ` · ${chatStream.tools.length} live tool(s)`
+				? ` · ${t('chat.decisionMap.liveTools', { count: chatStream.tools.length })}`
 				: ''}
 		</button>
 		{#if mapOpen}
@@ -40,7 +41,7 @@
 					<Skeleton shape="block" height="120px" class="rounded-lg" />
 				{:else if miniBaseNodes.length === 0}
 					<p class="text-micro text-muted-foreground">
-						No decision graph for this session yet.
+						{t('chat.decisionMap.noGraph')}
 					</p>
 				{:else}
 					<GraphCanvas

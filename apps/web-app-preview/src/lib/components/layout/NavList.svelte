@@ -50,7 +50,7 @@
 			<div class="w-full px-1.5">
 				<div class="mb-1 h-px bg-sidebar-border"></div>
 				{#each group.items as item (item.href)}
-					<Tooltip text={item.label} class="w-full">
+					<Tooltip text={item.label()} class="w-full">
 						<a
 							href={resolve(item.href)}
 							onclick={onnavigate}
@@ -73,7 +73,7 @@
 				<p
 					class="px-2 pb-1 text-micro uppercase tracking-wide text-muted-foreground"
 				>
-					{group.label}
+					{group.label()}
 				</p>
 				<div class="space-y-0.5">
 					{#each group.items as item (item.href)}
@@ -88,7 +88,7 @@
 							)}
 						>
 							<Icon name={item.icon} size={15} class="shrink-0" />
-							<span class="truncate">{item.label}</span>
+							<span class="truncate">{item.label()}</span>
 						</a>
 					{/each}
 				</div>

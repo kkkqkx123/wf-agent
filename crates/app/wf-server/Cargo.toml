@@ -18,10 +18,18 @@ wf-metrics = { path = "../../infra/wf-metrics" }
 wf-common = { path = "../../foundation/wf-common" }
 wf-api = { path = "../wf-api" }
 wf-types = { path = "../../foundation/wf-types" }
-wf-runtime = { path = "../wf-runtime" }
+wf-runtime = { path = "../wf-runtime", default-features = false }
 utoipa.workspace = true
 
 [features]
+# Product default: the plugin subsystem plus all three backends. The
+# runtime default features are off so that trimming here actually
+# removes a backend instead of being re-added downstream.
+default = ["plugins", "lua", "native", "wasm"]
+plugins = ["wf-runtime/plugins"]
+lua = ["wf-runtime/lua"]
+native = ["wf-runtime/native"]
+wasm = ["wf-runtime/wasm"]
 openapi-docs = []
 
 [[bin]]

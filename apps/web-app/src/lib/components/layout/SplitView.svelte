@@ -7,6 +7,7 @@
 	import { ui } from '$lib/stores/ui.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import { cn } from '@wf-agent/ui/cn';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		inspectorTitle?: string;
@@ -26,18 +27,26 @@
 	}
 
 	let {
-		inspectorTitle = 'Details',
+		inspectorTitle = '',
 		inspectorWidth,
 		inspectorOpen = false,
 		oninspectorclose,
 		dual = false,
-		secondaryTitle = 'Compare',
+		secondaryTitle = '',
 		secondary,
 		secondaryOpen,
 		class: className = '',
 		children,
 		inspector,
 	}: Props = $props();
+
+	// Defaults resolve at render time so they follow the active locale.
+	const resolvedInspectorTitle = $derived(
+		inspectorTitle || t('layout.splitView.details'),
+	);
+	const resolvedSecondaryTitle = $derived(
+		secondaryTitle || t('layout.splitView.compare'),
+	);
 
 	const widthCss = $derived(
 		`${inspectorWidth ?? preferences.inspectorWidth}px`,
@@ -76,7 +85,9 @@
 	);
 	const dockedSecondary = $derived(ui.inspectorDocked && secondaryVisible);
 	const sheetTitle = $derived(
-		secondaryVisible ? `${inspectorTitle} · ${secondaryTitle}` : inspectorTitle,
+		secondaryVisible
+			? `${resolvedInspectorTitle} · ${resolvedSecondaryTitle}`
+			: resolvedInspectorTitle,
 	);
 
 	$effect(() => {
@@ -84,7 +95,7 @@
 		if (!anyOpen) {
 			ui.closeInspector();
 		} else if (!ui.inspectorDocked) {
-			ui.openInspector(inspectorTitle);
+			ui.openInspector(resolvedInspectorTitle);
 		}
 	});
 </script>
@@ -99,8 +110,8 @@
 			type="button"
 			class="flex w-8 shrink-0 items-center justify-center border-l border-border bg-card text-muted-foreground hover:text-foreground"
 			onclick={() => (collapsed = false)}
-			aria-label="Show details"
-			title="Show details"
+			aria-label={t('layout.splitView.showDetails')}
+			title={t('layout.splitView.showDetails')}
 		>
 			<Icon name="panel-right" size={14} />
 		</button>
@@ -114,7 +125,7 @@
 		>
 			<button
 				type="button"
-				aria-label="Resize details"
+				aria-label={t('layout.splitView.resizeDetails')}
 				class="absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize bg-transparent hover:bg-primary/20"
 				onpointerdown={startResize}
 			></button>
@@ -122,10 +133,10 @@
 				<div
 					class="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border px-3"
 				>
-					<h2 class="truncate text-title font-semibold">{inspectorTitle}</h2>
+					<h2 class="truncate text-title font-semibold">{resolvedInspectorTitle}</h2>
 					<IconButton
 						icon="chevron-right"
-						label="Hide details"
+						label={t('layout.splitView.hideDetails')}
 						onclick={() => (collapsed = true)}
 					/>
 				</div>
@@ -143,7 +154,7 @@
 		>
 			<button
 				type="button"
-				aria-label="Resize details"
+				aria-label={t('layout.splitView.resizeDetails')}
 				class="absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize bg-transparent hover:bg-primary/20"
 				onpointerdown={startResize}
 			></button>
@@ -151,7 +162,7 @@
 				<div
 					class="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border px-3"
 				>
-					<h2 class="truncate text-title font-semibold">{secondaryTitle}</h2>
+					<h2 class="truncate text-title font-semibold">{resolvedSecondaryTitle}</h2>
 				</div>
 				<div class="min-h-0 flex-1 overflow-y-auto">
 					{@render secondary()}
@@ -177,7 +188,7 @@
 		{/if}
 		{#if secondary && secondaryVisible}
 			<div class="mt-4 border-t border-border pt-3">
-				<h3 class="mb-2 truncate text-title font-semibold">{secondaryTitle}</h3>
+				<h3 class="mb-2 truncate text-title font-semibold">{resolvedSecondaryTitle}</h3>
 				{@render secondary()}
 			</div>
 		{/if}

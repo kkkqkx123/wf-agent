@@ -29,11 +29,7 @@ impl PluginEngine {
 
         self.check_admission(&manifest)?;
 
-        for entry in crate::wasm::loader::all_entry_points(&manifest) {
-            if entry.ends_with(".wasm") {
-                self.verify_wasm_signature(&base.join(&entry), &plugin_id)?;
-            }
-        }
+        self.verify_wasm_artifacts(base, &manifest)?;
 
         let plugin = load_plugin_module(&manifest, base, &self.options).await?;
         self.registry.register(manifest, plugin)?;
@@ -98,11 +94,7 @@ impl PluginEngine {
         self.publish(PluginEvent::Loading {
             plugin_id: manifest.id.clone(),
         });
-        for entry in crate::wasm::loader::all_entry_points(&manifest) {
-            if entry.ends_with(".wasm") {
-                self.verify_wasm_signature(&plugin_dir.join(&entry), &manifest.id)?;
-            }
-        }
+        self.verify_wasm_artifacts(&plugin_dir, &manifest)?;
         let plugin = load_plugin_module(&manifest, &plugin_dir, &self.options).await?;
         self.registry.register(manifest.clone(), plugin)?;
         self.registry
@@ -241,13 +233,11 @@ pub(crate) async fn load_plugin_module(
             .await
         }
         #[cfg(not(feature = "lua"))]
-        PluginType::Lua => Err(PluginError::LoadFailed("lua feature not enabled".into())),
+        PluginType::Lua => Err(backend_not_compiled(PluginType::Lua)),
         #[cfg(feature = "native")]
         PluginType::Native => crate::native::loader::load_native_plugin_with_base(manifest, base),
         #[cfg(not(feature = "native"))]
-        PluginType::Native => Err(PluginError::LoadFailed(
-            "native plugins require the `native` feature and a trusted library; untrusted code should use wasm instead".into(),
-        )),
+        PluginType::Native => Err(backend_not_compiled(PluginType::Native)),
         #[cfg(feature = "wasm")]
         PluginType::Wasm => {
             crate::wasm::loader::load_wasm_plugin_with_engine_config(
@@ -259,7 +249,30 @@ pub(crate) async fn load_plugin_module(
             .await
         }
         #[cfg(not(feature = "wasm"))]
-        PluginType::Wasm => Err(PluginError::LoadFailed("wasm feature not enabled".into())),
+        PluginType::Wasm => Err(backend_not_compiled(PluginType::Wasm)),
+    }
+}
+
+/// Report a backend that this build does not contain. Distinct from the
+/// policy gate above: the backend may be compiled in but switched off by
+/// the host, or compiled out entirely.
+///
+/// The crate feature name is the single source of truth for the mapping,
+/// so the message never drifts from the manifest of this crate.
+#[cfg(not(all(
+    feature = "lua",
+    feature = "native",
+    feature = "wasm"
+)))]
+fn backend_not_compiled(backend: PluginType) -> PluginError {
+    let feature = match backend {
+        PluginType::Lua => "lua",
+        PluginType::Native => "native",
+        PluginType::Wasm => "wasm",
+    };
+    PluginError::BackendNotCompiled {
+        backend,
+        feature: feature.to_string(),
     }
 }
 

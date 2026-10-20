@@ -1,6 +1,7 @@
 <script lang="ts">
 	import UnsavedChangesDialog from '@wf-agent/ui/components/UnsavedChangesDialog.svelte';
 	import type { WorkflowEditSession } from '$lib/workflows/edit-session.svelte';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		controller: WorkflowEditSession;
@@ -11,8 +12,8 @@
 
 <UnsavedChangesDialog
 	bind:open={controller.unsavedOpen}
-	description="The edit canvas has unsaved draft changes. Leaving discards the canvas edits."
-	saveLabel="Save draft & leave"
+	description={t('domain.workflowUnsaved.description')}
+	saveLabel={t('domain.workflowUnsaved.saveAndLeave')}
 	busy={controller.unsavedBusy}
 	ondiscard={() => controller.discardWorkflowEdits()}
 	onsave={() => void controller.saveAndProceed()}

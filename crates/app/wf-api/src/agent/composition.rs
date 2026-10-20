@@ -270,36 +270,6 @@ fn apply_final_defaults(mut config: AgentLoopConfig) -> AgentLoopConfig {
     config
 }
 
-/// Caller-requested loop mode (wire `mode` on `/agent-loops/{id}/run|stream`).
-/// Absent and empty keep the standard agent loop.
-pub const CHAT_LOOP_MODE: &str = "chat";
-
-/// Iteration budget for tool-free chat runs: a plain question resolves in a
-/// single model round.
-const CHAT_MODE_MAX_ITERATIONS: u32 = 1;
-
-/// Translate a caller's loop mode into concrete loop config semantics at the
-/// composition entry point. `chat` suppresses every tool path via the explicit
-/// empty tool set (template defaults must not refill it) plus a disabled
-/// general tool, and caps the iteration budget when the caller left it unset.
-pub fn apply_loop_mode(mode: Option<&str>, config: &mut AgentLoopConfig) -> Result<(), ApiError> {
-    let Some(mode) = mode else {
-        return Ok(());
-    };
-    match mode {
-        "" | "standard" => Ok(()),
-        CHAT_LOOP_MODE => {
-            config.available_tool_names = Some(Vec::new());
-            config.enable_general_tool = Some(false);
-            if config.max_iterations.is_none() {
-                config.max_iterations = Some(CHAT_MODE_MAX_ITERATIONS);
-            }
-            Ok(())
-        }
-        other => Err(ApiError::Validation(format!("unknown loop mode: {other}"))),
-    }
-}
-
 /// Resolve a workflow template's context summary for agent-loop injection.
 /// Same governance gate as agent templates: disabled, private or system
 /// workflow templates are rejected as not found so the API does not expose
@@ -329,7 +299,6 @@ pub fn resolve_workflow_context(
 pub async fn resolve_mentions(
     ctx: &ApiContext,
     text: &str,
-    excluded_workflow_id: Option<&str>,
 ) -> Vec<Message> {
     let Ok(re) = regex::Regex::new(
         r"@(?:(?P<kind>[a-z][a-z0-9_]*):(?P<value>[\w./-]+(?:#\d+(?:-\d+)?)?)|(?P<path>[\w./-]*[./][\w./-]*(?:#\d+(?:-\d+)?)?))",
@@ -355,10 +324,6 @@ pub async fn resolve_mentions(
         };
         let key = format!("{kind}:{id}");
         if !seen.insert(key) {
-            continue;
-        }
-
-        if kind == "workflow" && excluded_workflow_id == Some(id) {
             continue;
         }
 
@@ -1012,37 +977,6 @@ mod tests {
         );
         assert!(!tails.iter().any(|m| m.id.as_str() == "old-tail"));
         assert_eq!(input.message, "hi");
-    }
-
-    #[test]
-    fn chat_mode_disables_every_tool_path() {
-        let regs = registries();
-        let mut config = empty_config(MAIN_AGENT_TEMPLATE_ID);
-        apply_loop_mode(Some("chat"), &mut config).expect("chat mode applies");
-        let env = env_for(&regs);
-        let (config, _) = resolve_and_apply(&env, config, input_with("hi")).expect("apply");
-        // The explicit empty set must survive template defaults untouched.
-        assert_eq!(config.available_tool_names, Some(Vec::new()));
-        assert_eq!(config.enable_general_tool, Some(false));
-        assert_eq!(config.max_iterations, Some(1));
-    }
-
-    #[test]
-    fn absent_and_standard_modes_change_nothing() {
-        let mut config = empty_config(MAIN_AGENT_TEMPLATE_ID);
-        apply_loop_mode(None, &mut config).expect("absent mode is a no-op");
-        apply_loop_mode(Some("standard"), &mut config).expect("standard mode is a no-op");
-        apply_loop_mode(Some(""), &mut config).expect("empty mode is a no-op");
-        assert_eq!(config.available_tool_names, None);
-        assert_eq!(config.max_iterations, None);
-    }
-
-    #[test]
-    fn unknown_mode_is_a_validation_error() {
-        let mut config = empty_config(MAIN_AGENT_TEMPLATE_ID);
-        let err = apply_loop_mode(Some("turbo"), &mut config)
-            .expect_err("unknown mode must not silently run");
-        assert!(matches!(err, ApiError::Validation(_)));
     }
 
     fn workflow_regs() -> ResourceRegistries {

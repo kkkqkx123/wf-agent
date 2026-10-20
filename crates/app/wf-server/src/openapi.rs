@@ -115,6 +115,8 @@ use utoipa::OpenApi;
         crate::api::agent::variables::handle_set_variable,
         crate::api::agent::variables::handle_delete_variable,
         crate::api::agent::variables::handle_batch_set_loop_variables,
+        // ── chat ──
+        crate::api::chat::handle_chat_stream,
         // ── workflow ──
         crate::api::workflow::approvals::handle_request_approval,
         crate::api::workflow::approvals::handle_check_approval,
@@ -707,9 +709,11 @@ use utoipa::OpenApi;
         crate::api::workflow::workflows::ValidateNodeBody,
         crate::api::llm::tools::ValidateToolParamsBody,
         crate::api::entity::variables::VariableBody,
+        crate::api::chat::ChatRunBody,
     )),
     tags(
         (name = "agent", description = "Agent loop management: CRUD, execution control, status, variables, and analysis"),
+        (name = "chat", description = "Tool-free multi-turn chat sessions"),
         (name = "workflow", description = "Workflow definition, versioning, execution, graph analysis, and approvals"),
         (name = "checkpoint", description = "Execution checkpoints and file workspace provenance"),
         (name = "trigger", description = "Trigger-led execution and webhook hooks"),

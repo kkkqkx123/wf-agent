@@ -5,6 +5,7 @@
 	import { toneText } from '@wf-agent/ui/components/variants';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { cn } from '@wf-agent/ui/cn';
+	import { t } from '$lib/i18n';
 
 	const TONE_ICON: Record<string, IconName> = {
 		success: 'check-circle',
@@ -21,7 +22,7 @@
 	<div
 		class="pointer-events-none fixed bottom-3 right-3 z-[60] flex w-80 flex-col gap-2"
 		role="region"
-		aria-label="Notifications"
+		aria-label={t('layout.toaster.notifications')}
 	>
 		{#each toasts.items as toast (toast.id)}
 			<div
@@ -55,7 +56,7 @@
 				</div>
 				<IconButton
 					icon="x"
-					label="Dismiss"
+					label={t('layout.toaster.dismiss')}
 					compact
 					onclick={() => toasts.dismiss(toast.id)}
 				/>

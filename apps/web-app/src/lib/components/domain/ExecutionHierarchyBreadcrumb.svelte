@@ -3,6 +3,7 @@
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import { cn } from '@wf-agent/ui/cn';
 	import { resolve } from '$app/paths';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		hierarchy: ExecutionHierarchy;
@@ -23,7 +24,7 @@
 </script>
 
 <nav
-	aria-label="Execution ancestry"
+	aria-label={t('domain.hierarchyBreadcrumb.ancestry')}
 	class={cn('flex flex-wrap items-center gap-1 text-caption', className)}
 >
 	{#each crumbs as crumb, index (crumb.executionId)}
@@ -44,6 +45,8 @@
 	<span
 		class="rounded border border-border px-1.5 text-micro text-muted-foreground"
 	>
-		{hierarchy.depth === 0 ? 'root execution' : `depth ${hierarchy.depth}`}
+		{hierarchy.depth === 0
+			? t('domain.hierarchyBreadcrumb.root')
+			: t('domain.hierarchyBreadcrumb.depth', { depth: hierarchy.depth })}
 	</span>
 </nav>

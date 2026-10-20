@@ -45,6 +45,7 @@
 	import { CANVAS_STYLESHEET } from '$lib/graph/canvas-style';
 	import { isGroupTitleId, type GroupTitle } from '$lib/graph/group-view';
 	import { cn } from '@wf-agent/ui/cn';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		nodes: DisplayNode[];
@@ -481,11 +482,11 @@
 		event.preventDefault();
 		event.stopPropagation();
 		if (!editSnapshot) {
-			connectRejectHandler?.('Read-only canvas. Enter edit mode to connect.');
+			connectRejectHandler?.(t('domain.canvas.readOnlyConnect'));
 			return;
 		}
 		if (hiddenSnapshot.has(spot.id) || isGroupTitleId(spot.id)) {
-			connectRejectHandler?.('Hidden group members cannot connect.');
+			connectRejectHandler?.(t('domain.canvas.hiddenCannotConnect'));
 			return;
 		}
 		endConnectDrag(false);
@@ -1005,7 +1006,7 @@
 <div
 	bind:this={wrapper}
 	role="application"
-	aria-label="Graph canvas workspace"
+	aria-label={t('domain.canvas.workspace')}
 	class={cn(
 		'relative overflow-hidden rounded-lg border border-border bg-muted/30',
 		className,
@@ -1017,14 +1018,14 @@
 		bind:this={container}
 		class={`w-full ${heightClass}`}
 		role="img"
-		aria-label="Graph canvas"
+		aria-label={t('domain.canvas.canvas')}
 	></div>
 	{#if editMode && !connectDrag}
 		{#each hotspots as spot (spot.id)}
 			<button
 				type="button"
-				aria-label="Connect from {spot.id}"
-				title="Drag to connect from {spot.id}"
+				aria-label={t('domain.canvas.connectFrom', { id: spot.id })}
+				title={t('domain.canvas.dragToConnect', { id: spot.id })}
 				class="absolute z-10 h-3 w-3 -translate-x-1/2 -translate-y-1/2 cursor-crosshair rounded-full border border-info bg-card hover:bg-info"
 				style:left={`${spot.x}px`}
 				style:top={`${spot.y}px`}
@@ -1055,13 +1056,13 @@
 		<div
 			class="pointer-events-none absolute inset-0 flex items-center justify-center text-caption text-muted-foreground"
 		>
-			Loading graph renderer…
+			{t('domain.canvas.loadingRenderer')}
 		</div>
 	{:else if empty}
 		<div
 			class="pointer-events-none absolute inset-0 flex items-center justify-center text-caption text-muted-foreground"
 		>
-			No nodes to display.
+			{t('domain.canvas.noNodes')}
 		</div>
 	{/if}
 	{#if hoverTip}
@@ -1097,7 +1098,10 @@
 	<div
 		class="pointer-events-none absolute right-2 bottom-2 rounded-md border border-border bg-card/90 px-2 py-1 text-micro text-muted-foreground"
 	>
-		{nodes.length} nodes · {edges.length} edges
+		{t('domain.canvas.summary', {
+			nodes: nodes.length,
+			edges: edges.length,
+		})}
 	</div>
 	{#if showMinimap && overview}
 		{@const topLeft = miniXY(overview.view.x1, overview.view.y1)}
@@ -1109,7 +1113,7 @@
 				width={MINI_W}
 				height={MINI_H}
 				role="img"
-				aria-label="Graph minimap"
+				aria-label={t('domain.canvas.minimap')}
 				class="block cursor-crosshair touch-none"
 				onpointerdown={onMiniDown}
 				onpointermove={onMiniMove}

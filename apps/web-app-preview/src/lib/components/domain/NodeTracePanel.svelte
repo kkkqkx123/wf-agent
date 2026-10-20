@@ -23,6 +23,7 @@
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { cn } from '@wf-agent/ui/cn';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		executionId: string;
@@ -82,7 +83,7 @@
 			reasoning = { ...reasoning, [nodeId]: steps };
 		} catch (e) {
 			toasts.error(
-				'Node context failed to load',
+				t('domain.nodeTrace.contextFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -113,7 +114,7 @@
 		<Skeleton lines={5} class="rounded-lg border border-border bg-card p-4" />
 	{:else if error}
 		<ErrorState
-			title="Node traces failed to load"
+			title={t('domain.nodeTrace.failedTitle')}
 			description={error}
 			onretry={() => onretry?.()}
 			class="rounded-lg border border-border bg-card"
@@ -121,8 +122,8 @@
 	{:else if traces.length === 0}
 		<EmptyState
 			icon="activity"
-			title="No node traces"
-			description="Node-level records appear once the workflow has executed a node."
+			title={t('domain.nodeTrace.emptyTitle')}
+			description={t('domain.nodeTrace.emptyDescription')}
 			class="rounded-lg border border-border bg-card"
 		/>
 	{:else}
@@ -135,27 +136,29 @@
 				/>
 				<Input
 					bind:value={search}
-					placeholder="Search node id, name or type…"
+					placeholder={t('domain.nodeTrace.searchPlaceholder')}
 					class="pl-8"
 				/>
 			</div>
 			<Select
 				bind:value={status}
 				options={statusOptions}
-				placeholder="All nodes"
+				placeholder={t('domain.nodeTrace.allNodes')}
 				class="w-36"
 			/>
 		</div>
 
 		<p class="text-micro text-muted-foreground">
-			{formatNumber(summary.total)} nodes · {formatNumber(summary.failed)} failed
-			·
-			{formatNumber(summary.retries)} retries
+			{t('domain.nodeTrace.summary', {
+				total: formatNumber(summary.total),
+				failed: formatNumber(summary.failed),
+				retries: formatNumber(summary.retries),
+			})}
 			{#if visible.length !== traces.length}
-				· showing {formatNumber(visible.length)}
+				· {t('domain.nodeTrace.showing', { count: formatNumber(visible.length) })}
 			{/if}
 			{#if skipped > 0}
-				· {formatNumber(skipped)} unaddressable row(s) dropped
+				· {t('domain.nodeTrace.skipped', { count: formatNumber(skipped) })}
 			{/if}
 		</p>
 
@@ -174,7 +177,7 @@
 			</div>
 		{:else}
 			<p class="text-caption text-muted-foreground">
-				No node matches the current filter.
+				{t('domain.nodeTrace.noFilterMatch')}
 			</p>
 		{/each}
 	{/if}

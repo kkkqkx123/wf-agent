@@ -6,8 +6,7 @@
 	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import Select from '@wf-agent/ui/components/Select.svelte';
-	import GraphExplorer from '$lib/components/domain/GraphExplorer.svelte';
-	import type { Column } from '@wf-agent/ui/components/table';
+		import type { Column } from '@wf-agent/ui/components/table';
 	import {
 		diffWorkflowVersions,
 		executeWorkflow,
@@ -301,7 +300,8 @@
 				Graph matches the text: no added or removed nodes or edges.
 			</p>
 		{/if}
-		<GraphExplorer
+		{#await import('$lib/components/domain/GraphExplorer.svelte') then module}
+<module.default
 			bind:this={diffExplorer}
 			nodes={diffGraphNodes}
 			edges={diffGraphEdges}
@@ -312,6 +312,6 @@
 				{ id: 'added', label: 'Added', ids: diff.addedNodes },
 				{ id: 'removed', label: 'Removed', ids: diff.removedNodes },
 			]}
-		/>
+		/> {/await}
 	</div>
 {/if}

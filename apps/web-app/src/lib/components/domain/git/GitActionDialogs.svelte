@@ -7,6 +7,7 @@
 	import { bindingsFor } from '$lib/git/bindings';
 	import { GUARDED_DANGERS, PARAM_LABELS } from '$lib/git/workbench.svelte';
 	import type { GitWorkbench } from '$lib/git/workbench.svelte';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		workbench: GitWorkbench;
@@ -17,8 +18,8 @@
 
 <Dialog
 	bind:open={workbench.dialogOpen}
-	title="Git action"
-	description="Parameterised actions run through the unified entry."
+	title={t('domain.git.actionTitle')}
+	description={t('domain.git.actionDescription')}
 >
 	{#if workbench.dialogAction}
 		<p class="mb-2 font-mono text-caption">{workbench.dialogAction}</p>
@@ -33,14 +34,16 @@
 		{#if workbench.dialogNeedsConfirm}
 			<div class="mt-2">
 				<Input
-					label={`Confirm (type: ${workbench.dialogTarget || 'target'})`}
+					label={t('domain.git.confirmTarget', {
+						target: workbench.dialogTarget || 'target',
+					})}
 					size="sm"
 					bind:value={workbench.dialogConfirm}
 					placeholder={workbench.dialogTarget || 'target'}
 				/>
 				{#if workbench.dialogConfirm.length > 0 && !workbench.dialogConfirmMatches}
 					<p class="mt-1 text-micro text-destructive">
-						Confirmation does not match the target.
+						{t('domain.git.confirmMismatch')}
 					</p>
 				{/if}
 			</div>
@@ -53,20 +56,20 @@
 			onclick={() => {
 				workbench.dialogOpen = false;
 				workbench.dialogAction = null;
-			}}>Cancel</Button
+			}}>{t('common.cancel')}</Button
 		>
 		<Button
 			size="sm"
 			disabled={gitStore.busy || !workbench.dialogCanSubmit}
-			onclick={() => void workbench.confirmDialog()}>Confirm</Button
+			onclick={() => void workbench.confirmDialog()}>{t('common.confirm')}</Button
 		>
 	{/snippet}
 </Dialog>
 
 <Dialog
 	bind:open={workbench.helpOpen}
-	title="Actions"
-	description={`All actions available in the ${workbench.panel} panel.`}
+	title={t('domain.git.actionsTitle')}
+	description={t('domain.git.actionsDescription', { panel: workbench.panel })}
 >
 	<div class="space-y-1">
 		{#each bindingsFor(workbench.panel) as binding (binding.id)}

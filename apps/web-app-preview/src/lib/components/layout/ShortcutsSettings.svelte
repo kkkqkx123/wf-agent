@@ -11,6 +11,7 @@
 		setShortcutOverride,
 		validateShortcut,
 	} from '$lib/shortcuts/registry';
+	import { t } from '$lib/i18n';
 
 	interface Row {
 		id: string;
@@ -47,7 +48,9 @@
 			const candidate = String(hotkey);
 			const validation = validateShortcut(candidate);
 			if (!validation.valid) {
-				message = `Invalid binding: ${validation.error ?? 'unknown error'}`;
+				message = t('layout.shortcuts.invalidBinding', {
+					error: validation.error ?? t('layout.shortcuts.unknownError'),
+				});
 				refresh();
 				return;
 			}
@@ -60,8 +63,13 @@
 				candidate === action?.defaultKeys ? null : candidate,
 			);
 			message = conflicts.length
-				? `${action?.label ?? id} saved, but it conflicts with an active binding.`
-				: `${action?.label ?? id} remapped to ${candidate}.`;
+				? t('layout.shortcuts.savedWithConflict', {
+						action: action?.label ?? id,
+					})
+				: t('layout.shortcuts.remapped', {
+						action: action?.label ?? id,
+						keys: candidate,
+					});
 			refresh();
 		},
 		onCancel: () => {
@@ -69,8 +77,9 @@
 		},
 		onClear: () => {
 			if (!recordingId) return;
-			clearShortcutOverride(recordingId);
-			message = `${recordingId} restored to its default binding.`;
+			const id = recordingId;
+			clearShortcutOverride(id);
+			message = t('layout.shortcuts.restored', { action: id });
 			recordingId = null;
 			refresh();
 		},
@@ -85,20 +94,20 @@
 	function disable(id: string): void {
 		clearShortcutOverride(id);
 		setShortcutOverride(id, null);
-		message = `${id} disabled.`;
+		message = t('layout.shortcuts.disabledMessage', { action: id });
 		refresh();
 	}
 
 	function restore(id: string): void {
 		clearShortcutOverride(id);
-		message = `${id} restored to its default binding.`;
+		message = t('layout.shortcuts.restored', { action: id });
 		refresh();
 	}
 </script>
 
 <Card
-	title="Keyboard shortcuts"
-	description="Record a new key combination or disable a binding. Stored locally in this browser."
+	title={t('layout.shortcuts.title')}
+	description={t('layout.shortcuts.description')}
 >
 	<div class="space-y-1">
 		{#each rows as row (row.id)}
@@ -112,14 +121,14 @@
 				<div class="flex shrink-0 items-center gap-2">
 					{#if recordingId === row.id}
 						<kbd class="animate-pulse rounded border px-2 py-0.5 text-xs"
-							>Recording… Esc to cancel</kbd
+							>{t('layout.shortcuts.recording')}</kbd
 						>
 					{:else}
 						<kbd
 							class="rounded border px-2 py-0.5 text-xs"
 							class:opacity-50={row.disabled}
 						>
-							{row.disabled ? 'Disabled' : row.keys}
+							{row.disabled ? t('layout.shortcuts.disabled') : row.keys}
 						</kbd>
 					{/if}
 					<Button
@@ -128,15 +137,15 @@
 						onclick={() => startRecording(row.id)}
 					>
 						<Icon name="pencil" size={12} />
-						Record
+						{t('layout.shortcuts.record')}
 					</Button>
 					{#if row.disabled || row.keys !== (SHORTCUT_ACTIONS.find((a) => a.id === row.id)?.defaultKeys ?? '')}
 						<Button size="sm" variant="ghost" onclick={() => restore(row.id)}
-							>Reset</Button
+							>{t('layout.shortcuts.reset')}</Button
 						>
 					{:else}
 						<Button size="sm" variant="ghost" onclick={() => disable(row.id)}
-							>Disable</Button
+							>{t('layout.shortcuts.disable')}</Button
 						>
 					{/if}
 				</div>
@@ -145,8 +154,7 @@
 	</div>
 	{#if recordingId}
 		<p class="mt-2 text-caption text-muted-foreground">
-			Press any key combination. Backspace/Delete clears the binding; Escape
-			cancels.
+			{t('layout.shortcuts.pressHint')}
 		</p>
 	{/if}
 	{#if message}

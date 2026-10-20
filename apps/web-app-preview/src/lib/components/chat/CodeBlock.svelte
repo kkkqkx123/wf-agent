@@ -13,6 +13,7 @@
 		normalizeLanguage,
 		type TokenKind,
 	} from '$lib/utils/highlight';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		node?: {
@@ -110,17 +111,19 @@
 				>{label}</span
 			>
 			{#if degraded}
-				<span class="text-micro text-muted-foreground/70">source only</span>
+				<span class="text-micro text-muted-foreground/70">
+					{t('chat.codeBlock.sourceOnly')}
+				</span>
 			{/if}
 		</span>
 		<button
 			type="button"
 			onclick={copy}
-			aria-label="Copy code"
+			aria-label={t('chat.codeBlock.copyCode')}
 			class="flex items-center gap-1 rounded px-1.5 py-0.5 text-micro text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 		>
 			<Icon name={copied ? 'check' : 'copy'} size={12} />
-			{copied ? 'Copied' : 'Copy'}
+			{copied ? t('common.copied') : t('common.copy')}
 		</button>
 	</div>
 	<pre

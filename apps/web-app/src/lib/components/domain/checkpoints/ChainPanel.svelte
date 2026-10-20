@@ -6,6 +6,7 @@
 	import type { Checkpoint } from '$lib/types/models';
 	import type { StateFileLink } from '$lib/services/checkpoints';
 	import { formatBytes, formatRelativeTime } from '$lib/utils/format';
+	import { t } from '$lib/i18n';
 
 	let {
 		chain,
@@ -36,15 +37,19 @@
 		<Card title="{checkpoint.kind} checkpoint · #{checkpoint.sequence}">
 			{#snippet actions()}
 				<Badge variant={checkpoint.restorable ? 'success' : 'neutral'}>
-					{checkpoint.restorable ? 'restorable' : 'locked'}
+					{checkpoint.restorable
+						? t('domain.loopCheckpoints.restorable')
+						: t('domain.loopCheckpoints.locked')}
 				</Badge>
 				{#if links.get(checkpoint.id)?.state === 'pending'}
-					<span title="The file snapshot link write failed and awaits startup compensation">
-						<Badge variant="warning">file link pending</Badge>
+					<span title={t('domain.checkpoint.linkPendingTitle')}>
+						<Badge variant="warning"
+							>{t('domain.checkpoint.linkPending')}</Badge
+						>
 					</span>
 				{:else if links.get(checkpoint.id)?.state === 'linked'}
-					<span title="Linked to a file snapshot">
-						<Badge variant="neutral">file linked</Badge>
+					<span title={t('domain.checkpoint.linkedTitle')}>
+						<Badge variant="neutral">{t('domain.checkpoint.linked')}</Badge>
 					</span>
 				{/if}
 			{/snippet}
@@ -71,7 +76,7 @@
 								tagDraft = (checkpoint.tags ?? []).join(', ');
 							}}
 						>
-							Edit tags
+							{t('domain.checkpoint.editTags')}
 						</Button>
 					{/if}
 				</div>
@@ -86,7 +91,7 @@
 							tagDraft = '';
 						}}
 					>
-						Add tags
+						{t('domain.checkpoint.addTags')}
 					</Button>
 				</div>
 			{/if}
@@ -97,7 +102,7 @@
 						value={tagDraft}
 						oninput={(event: Event) =>
 							(tagDraft = (event.target as HTMLInputElement).value)}
-						placeholder="comma-separated tags"
+						placeholder={t('domain.checkpoint.tagsPlaceholder')}
 					/>
 					<Button
 						size="sm"
@@ -111,14 +116,14 @@
 							editingTagsFor = null;
 						}}
 					>
-						Save
+						{t('common.save')}
 					</Button>
 					<Button
 						variant="ghost"
 						size="sm"
 						onclick={() => (editingTagsFor = null)}
 					>
-						Cancel
+						{t('common.cancel')}
 					</Button>
 				</div>
 			{/if}
@@ -129,22 +134,22 @@
 						size="sm"
 						disabled={!checkpoint.restorable || busy}
 						title={checkpoint.restorable
-							? 'Restore this checkpoint'
-							: 'This checkpoint is locked and cannot be restored'}
+							? t('domain.loopCheckpoints.restoreTitle')
+							: t('domain.loopCheckpoints.lockedTitle')}
 						onclick={() => onrestore(checkpoint)}
 					>
-						Restore
+						{t('domain.loopCheckpoints.restore')}
 					</Button>
 					<Button
 						variant="ghost"
 						size="sm"
 						disabled={busy || checkpoint.entityType === 'agent_loop'}
 						title={checkpoint.entityType === 'agent_loop'
-							? 'Resume is only available for workflow checkpoints'
-							: 'Resume execution from here'}
+							? t('domain.checkpoint.resumeWorkflowOnly')
+							: t('domain.checkpoint.resumeTitle')}
 						onclick={() => onresume(checkpoint)}
 					>
-						Resume from here
+						{t('domain.checkpoint.resume')}
 					</Button>
 					<Button
 						variant="ghost"
@@ -152,16 +157,16 @@
 						disabled={busy}
 						onclick={() => ondelete(checkpoint)}
 					>
-						Delete
+						{t('common.delete')}
 					</Button>
 					<Button
 						variant="ghost"
 						size="sm"
 						disabled={busy}
-						title="Delete every checkpoint of this entity"
+						title={t('domain.checkpoint.purgeTitle')}
 						onclick={() => onpurge(checkpoint)}
 					>
-						Purge entity
+						{t('domain.checkpoint.purge')}
 					</Button>
 				</div>
 			{/snippet}

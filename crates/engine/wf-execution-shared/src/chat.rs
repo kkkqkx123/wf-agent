@@ -8,7 +8,7 @@
 //! field, so a tool-carrying chat request cannot be constructed.
 
 use wf_llm::{message_builder::user_text, LlmGateway};
-use wf_types::llm::{LlmGenerationParams, LlmRequest, LlmResult};
+use wf_types::llm::{LlmGenerationParams, LlmRequest, LlmResult, TokenUsageStats};
 use wf_types::message::Message;
 
 use crate::conversation_session::ConversationSession;
@@ -50,29 +50,36 @@ impl ChatSession {
         &self.template
     }
 
-    /// Send one user turn and record the assistant reply.
+    /// Seed the session with an existing conversation, e.g. the messages a
+    /// persisted session was restored from. The seeded messages become the
+    /// history the next turn continues.
+    pub fn restore(&mut self, messages: Vec<Message>) {
+        for message in messages {
+            self.conversation.add_message(message);
+        }
+    }
+
+    /// Append the user turn and build the tool-free request for it.
     ///
-    /// Fails on blank text or on a missing profile id. Provider-reported
-    /// token usage is folded into the session when present.
-    pub async fn send(
+    /// Fails on blank text or on a missing profile id. The request carries
+    /// no tools, so the model cannot call back into the host.
+    pub fn begin_turn(
         &mut self,
-        gateway: &LlmGateway,
         text: &str,
         execution_id: Option<&str>,
-        cancel: Option<tokio_util::sync::CancellationToken>,
-    ) -> ExecutionSharedResult<LlmResult> {
+    ) -> ExecutionSharedResult<LlmRequest> {
         if text.trim().is_empty() {
             return Err(ExecutionSharedError::Internal(
-                "chat send requires non-empty text".to_string(),
+                "chat turn requires non-empty text".to_string(),
             ));
         }
         if self.template.profile_id.is_empty() {
             return Err(ExecutionSharedError::Internal(
-                "chat send requires a profile id".to_string(),
+                "chat turn requires a profile id".to_string(),
             ));
         }
         self.conversation.add_message(user_text(text));
-        let request = LlmRequest {
+        Ok(LlmRequest {
             profile_id: self.template.profile_id.clone(),
             messages: self.conversation.view_messages(),
             parameters: self.template.parameters.clone(),
@@ -88,16 +95,37 @@ impl ChatSession {
             timeout_ms: None,
             prompt_caching: None,
             cached_content: None,
-        };
+        })
+    }
+
+    /// Record the assistant reply produced for the prepared turn.
+    ///
+    /// Provider-reported token usage is folded into the session when present.
+    pub fn record_reply(&mut self, message: Message, usage: Option<&TokenUsageStats>) {
+        self.conversation.add_message(message);
+        if let Some(usage) = usage {
+            self.conversation.update_token_usage(usage);
+        }
+        self.conversation.finalize_current_request();
+    }
+
+    /// Send one user turn and record the assistant reply.
+    ///
+    /// Fails on blank text or on a missing profile id. Provider-reported
+    /// token usage is folded into the session when present.
+    pub async fn send(
+        &mut self,
+        gateway: &LlmGateway,
+        text: &str,
+        execution_id: Option<&str>,
+        cancel: Option<tokio_util::sync::CancellationToken>,
+    ) -> ExecutionSharedResult<LlmResult> {
+        let request = self.begin_turn(text, execution_id)?;
         let result = gateway
             .generate(&request, cancel)
             .await
             .map_err(|e| ExecutionSharedError::Internal(format!("chat generation failed: {e}")))?;
-        self.conversation.add_message(result.message.clone());
-        if let Some(usage) = result.usage.as_ref() {
-            self.conversation.update_token_usage(usage);
-        }
-        self.conversation.finalize_current_request();
+        self.record_reply(result.message.clone(), result.usage.as_ref());
         Ok(result)
     }
 
@@ -126,12 +154,13 @@ impl ChatSession {
 mod tests {
     use super::*;
     use std::sync::Arc;
+    use wf_types::llm::LlmFormat;
 
     fn mock_profile(id: &str) -> wf_types::llm::LlmProfile {
         wf_types::llm::LlmProfile {
             id: id.to_string(),
             name: id.to_string(),
-            format: wf_types::llm::LlmFormat::OpenaiChat,
+            format: LlmFormat::OpenaiChat,
             provider_id: None,
             model: "mock-model".to_string(),
             api_key: Some("sk-test".into()),
@@ -142,7 +171,6 @@ mod tests {
             max_retries: None,
             retry_delay: None,
             headers: None,
-            metadata: None,
             tool_call_protocol: None,
             auth_type: None,
             custom_headers: None,
@@ -155,6 +183,7 @@ mod tests {
             no_proxy: None,
             circuit_breaker: None,
             prompt_caching: None,
+            metadata: None,
         }
     }
 
@@ -202,10 +231,7 @@ mod tests {
     async fn missing_profile_is_rejected() {
         let gateway = gateway_with_texts("mock-chat-noprofile", &["unused"]);
         let mut session = ChatSession::new(String::new());
-        let err = session
-            .send(&gateway, "hello", None, None)
-            .await
-            .unwrap_err();
+        let err = session.send(&gateway, "hello", None, None).await.unwrap_err();
         assert!(err.to_string().contains("profile id"));
     }
 
@@ -218,5 +244,23 @@ mod tests {
         session.reset();
         assert!(session.history().is_empty());
         assert_eq!(session.token_usage(), 0);
+    }
+
+    #[test]
+    fn restored_history_continues_the_conversation() {
+        let mut session = ChatSession::new("mock-chat".to_string());
+        session.restore(vec![user_text("earlier question")]);
+        assert_eq!(session.history().len(), 1);
+        let request = session.begin_turn("next question", None).expect("request");
+        assert_eq!(request.messages.len(), 2);
+        assert!(request.tools.is_none());
+    }
+
+    #[test]
+    fn a_turn_never_carries_tools() {
+        let mut session = ChatSession::new("mock-chat".to_string());
+        let request = session.begin_turn("hello", None).expect("request");
+        assert!(request.tools.is_none());
+        assert!(request.tool_call_protocol.is_none());
     }
 }

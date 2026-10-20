@@ -43,7 +43,9 @@ wasmparser = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [features]
-default = []
+# Product default: all three backends. A build that must drop one names
+# the remaining backends with `default-features = false`.
+default = ["lua", "native", "wasm"]
 lua = ["dep:mlua", "wf-sandbox/lua"]
 native = ["dep:libloading"]
 wasm = ["dep:wasmtime", "dep:wasmtime-wasi", "dep:blake3", "dep:bytes", "dep:moka"]

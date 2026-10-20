@@ -24,6 +24,7 @@
 	} from '$lib/services/templates';
 	import type { TemplateKind } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		kind: TemplateKind;
@@ -205,8 +206,8 @@
 			if (session.hasGraphConflict(store.dirty)) {
 				loadStore();
 				toasts.info(
-					'Graph reloaded',
-					'The document changed; unmerged canvas edits were discarded.',
+					t('domain.templateEdit.graphReloaded'),
+					t('domain.templateEdit.graphReloadedDetail'),
 				);
 			} else {
 				syncGraphToText();
@@ -281,21 +282,21 @@
 		items={kind === 'workflow'
 			? [
 					{ id: 'json', label: 'JSON' },
-					{ id: 'form', label: 'Form' },
-					{ id: 'graph', label: 'Graph' },
+					{ id: 'form', label: t('domain.templateEdit.form') },
+					{ id: 'graph', label: t('domain.templateEdit.graph') },
 				]
 			: [
 					{ id: 'json', label: 'JSON' },
-					{ id: 'form', label: 'Form' },
+					{ id: 'form', label: t('domain.templateEdit.form') },
 				]}
 		value={tab}
 		size="sm"
 		onchange={(id) => switchTab(id as TemplateEditTab)}
 	/>
 	{#if validationState === 'valid'}
-		<Badge variant="success">Valid</Badge>
+		<Badge variant="success">{t('domain.templateEdit.valid')}</Badge>
 	{:else if validationState === 'invalid'}
-		<Badge variant="danger">Invalid</Badge>
+		<Badge variant="danger">{t('domain.templateEdit.invalid')}</Badge>
 	{/if}
 </div>
 {#if tab === 'form'}
@@ -336,29 +337,28 @@
 			</label>
 		{/each}
 		<p class="text-micro text-muted-foreground">
-			Form edits the core fields; the remaining definition stays in JSON mode.
+			{t('domain.templateEdit.formHint')}
 		</p>
 	</div>
 {:else if tab === 'graph'}
 	{#if kind !== 'workflow'}
 		<p class="text-caption text-muted-foreground">
-			Graph preview is only available for workflow templates.
+			{t('domain.templateEdit.graphOnlyWorkflow')}
 		</p>
 	{:else if topology.error}
 		<p class="text-caption text-destructive">
-			JSON error: {topology.error}. Fix it in the JSON tab first.
+			{t('domain.templateEdit.jsonError', { error: topology.error })}
 		</p>
 		<Button variant="outline" size="sm" onclick={() => switchTab('json')}>
-			Back to JSON
+			{t('domain.templateEdit.backToJson')}
 		</Button>
 	{:else if graphNodes.length === 0}
 		<p class="text-caption text-muted-foreground">
-			No nodes array in the definition yet.
+			{t('domain.templateEdit.noNodesArray')}
 		</p>
 	{:else}
 		<p class="text-micro text-muted-foreground">
-			Drag nodes to move · double-click empty canvas to add a node · click an
-			edge to delete it · shift-click another node to connect.
+			{t('domain.templateEdit.graphHint')}
 		</p>
 		{#await import('$lib/components/domain/GraphExplorer.svelte') then module}
 <module.default
@@ -394,11 +394,11 @@
 				<div class="grid grid-cols-2 gap-2">
 					<label class="block">
 						<span class="mb-1 block text-caption text-muted-foreground"
-							>Node name</span
+							>{t('domain.templateEdit.nodeName')}</span
 						>
 						<input
 							value={selectedNode.label}
-							placeholder="Node name"
+							placeholder={t('domain.templateEdit.nodeName')}
 							class="h-7 w-full rounded-md border border-input bg-card px-2.5 text-small"
 							oninput={(event) => {
 								const next = (event.currentTarget as HTMLInputElement).value;
@@ -412,7 +412,7 @@
 					</label>
 					<label class="block">
 						<span class="mb-1 block text-caption text-muted-foreground"
-							>Node type</span
+							>{t('domain.templateEdit.nodeType')}</span
 						>
 						<input
 							value={selectedNode.kind}
@@ -435,9 +435,11 @@
 			<pre
 				class="max-h-48 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-micro">{nodeSnippet}</pre>
 			<p class="text-micro text-muted-foreground">
-				Topology fields edit above; other stored fields merge back on save. {combinedIssues.length >
-				0
-					? `${combinedIssues.length} issue(s) need attention.`
+				{t('domain.templateEdit.topologyHint')}
+				{combinedIssues.length > 0
+					? t('domain.templateEdit.issuesNeedAttention', {
+							count: combinedIssues.length,
+						})
 					: ''}
 			</p>
 		{/if}
@@ -457,7 +459,9 @@
 				disabled={draftBusy}
 				onclick={() => onservercheck()}
 			>
-				{draftBusy ? 'Checking…' : 'Check with server rules'}
+				{draftBusy
+					? t('domain.templateEdit.checking')
+					: t('domain.templateEdit.checkWithServer')}
 			</Button>
 			<Button
 				variant="outline"
@@ -465,10 +469,12 @@
 				disabled={openWorkflowBusy}
 				onclick={() => onopenworkflow()}
 			>
-				{openWorkflowBusy ? 'Opening…' : 'Open as workflow'}
+				{openWorkflowBusy
+					? t('domain.templateEdit.opening')
+					: t('domain.templateEdit.openAsWorkflow')}
 			</Button>
 			<span class="text-micro text-muted-foreground">
-				Graph edits merge into JSON on save; issues map back to graph nodes.
+				{t('domain.templateEdit.mergeHint')}
 			</span>
 		</div>
 	{/if}
@@ -486,8 +492,10 @@
 		class="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5"
 	>
 		<p class="text-caption text-destructive">
-			JSON syntax{#if errorLine}
-				(line {errorLine}){/if}: {syntaxError}
+			{t('domain.templateEdit.syntaxError', {
+				line: errorLine,
+				error: syntaxError,
+			})}
 		</p>
 		{#if errorLine}
 			<Button
@@ -495,7 +503,7 @@
 				size="sm"
 				onclick={() => editor?.scrollToLine(errorLine ?? 1)}
 			>
-				Go to line
+				{t('domain.templateEdit.goToLine')}
 			</Button>
 		{/if}
 	</div>
@@ -507,28 +515,35 @@
 />
 <div class="flex items-center gap-2">
 	<Button variant="outline" size="sm" onclick={() => onvalidate()}>
-		Validate
+		{t('domain.graph.validate')}
 	</Button>
 	<Button size="sm" disabled={saveBusy} onclick={() => onsave()}>
-		{saveBusy ? 'Saving…' : isNew ? 'Create' : 'Save'}
+		{saveBusy
+			? t('domain.graph.saving')
+			: isNew
+				? t('common.create')
+				: t('common.save')}
 	</Button>
 	{#if !isNew}
-		<Button variant="ghost" size="sm" onclick={() => oncancel()}>Cancel</Button>
+		<Button variant="ghost" size="sm" onclick={() => oncancel()}
+			>{t('common.cancel')}</Button
+		>
 	{/if}
 </div>
 
 <Dialog
 	bind:open={conflictOpen}
-	title="Graph reloaded from document"
-	description="The document changed while the canvas had unsaved edits. The canvas reloaded from the document."
+	title={t('domain.templateEdit.conflictTitle')}
+	description={t('domain.templateEdit.conflictDescription')}
 >
 	<p class="text-caption text-muted-foreground">
-		Unmerged canvas edits were discarded; the document is the single source of
-		truth. No automatic merge is attempted.
+		{t('domain.templateEdit.conflictBody')}
 	</p>
 	{#snippet footer()}
 		<div class="flex items-center justify-end gap-2">
-			<Button size="sm" onclick={discardGraphChanges}>Got it</Button>
+			<Button size="sm" onclick={discardGraphChanges}
+				>{t('domain.templateEdit.gotIt')}</Button
+			>
 		</div>
 	{/snippet}
 </Dialog>

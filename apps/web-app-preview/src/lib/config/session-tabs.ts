@@ -1,3 +1,5 @@
+import { message } from '$lib/i18n';
+
 /**
  * Tabs a single agent loop session can be inspected through. The transcript is
  * separate because only the full detail page shows it as a tab; the chat column
@@ -14,16 +16,16 @@ export type SessionTab =
 	| 'analysis'
 	| 'messages';
 
-export const TAB_LABELS: Record<SessionTab, string> = {
-	overview: 'Overview',
-	graph: 'Graph',
-	iterations: 'Iterations',
-	variables: 'Variables',
-	checkpoints: 'Checkpoints',
-	tools: 'Tools',
-	timeline: 'Timeline',
-	analysis: 'Analysis',
-	messages: 'Messages',
+export const TAB_LABELS: Record<SessionTab, () => string> = {
+	overview: message('config.sessionTabs.overview'),
+	graph: message('config.sessionTabs.graph'),
+	iterations: message('config.sessionTabs.iterations'),
+	variables: message('config.sessionTabs.variables'),
+	checkpoints: message('config.sessionTabs.checkpoints'),
+	tools: message('config.sessionTabs.tools'),
+	timeline: message('config.sessionTabs.timeline'),
+	analysis: message('config.sessionTabs.analysis'),
+	messages: message('config.sessionTabs.messages'),
 };
 
 /** The eight tabs the session inspector offers. */

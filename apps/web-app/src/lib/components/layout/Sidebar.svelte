@@ -8,6 +8,7 @@
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import { ui } from '$lib/stores/ui.svelte';
 	import { cn } from '@wf-agent/ui/cn';
+	import { t } from '$lib/i18n';
 
 	const RAIL_WIDTH = '3.5rem';
 
@@ -34,7 +35,7 @@
 		>
 			<IconButton
 				icon="panel-left"
-				label="Expand sidebar"
+				label={t('layout.sidebar.expand')}
 				onclick={() => preferences.toggleSidebar()}
 			/>
 		</div>
@@ -46,7 +47,7 @@
 				<div class="mb-1 w-full px-1.5">
 					<div class="mb-1 h-px bg-sidebar-border"></div>
 					{#each group.items as item (item.href)}
-						<Tooltip text={item.label} class="w-full">
+						<Tooltip text={item.label()} class="w-full">
 							<a
 								href={resolve(item.href)}
 								onclick={navigate}
@@ -73,7 +74,7 @@
 				<p
 					class="px-2 py-1 text-micro uppercase tracking-wide text-muted-foreground"
 				>
-					{group.label}
+					{group.label()}
 				</p>
 				{#each group.items as item (item.href)}
 					<a
@@ -87,7 +88,7 @@
 						)}
 					>
 						<Icon name={item.icon} size={15} />
-						<span class="truncate">{item.label}</span>
+						<span class="truncate">{item.label()}</span>
 					</a>
 				{/each}
 			{/each}
@@ -117,7 +118,7 @@
 			</a>
 			<IconButton
 				icon="panel-left"
-				label="Collapse sidebar"
+				label={t('layout.sidebar.collapse')}
 				compact
 				onclick={() => preferences.toggleSidebar()}
 			/>
@@ -129,7 +130,7 @@
 					<p
 						class="px-2 pb-1 text-micro uppercase tracking-wide text-muted-foreground"
 					>
-						{group.label}
+						{group.label()}
 					</p>
 					<div class="space-y-0.5">
 						{#each group.items as item (item.href)}
@@ -145,7 +146,7 @@
 								)}
 							>
 								<Icon name={item.icon} size={15} class="shrink-0" />
-								<span class="truncate">{item.label}</span>
+								<span class="truncate">{item.label()}</span>
 							</a>
 						{/each}
 					</div>
@@ -156,7 +157,7 @@
 		<div class="border-t border-sidebar-border px-3 py-2">
 			<div class="flex items-center gap-2 text-micro text-muted-foreground">
 				<span class="h-1.5 w-1.5 rounded-full bg-success"></span>
-				<span>API reachable</span>
+				<span>{t('layout.sidebar.apiReachable')}</span>
 			</div>
 		</div>
 	</aside>

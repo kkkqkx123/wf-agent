@@ -56,6 +56,7 @@
 	} from '$lib/utils/format';
 	import type { UsageSnapshot } from '$lib/utils/stream-parser';
 	import { cn } from '@wf-agent/ui/cn';
+	import { t } from '$lib/i18n';
 
 	interface TabState {
 		loading: boolean;
@@ -182,10 +183,10 @@
 	});
 	const peakCalls = $derived(toolFrequency[0]?.count ?? 1);
 
-	const variableColumns: Column<LoopVariable>[] = [
-		{ key: 'key', header: 'Key', text: (row) => row.key },
-		{ key: 'value', header: 'Value', text: (row) => row.value },
-	];
+	const variableColumns = $derived<Column<LoopVariable>[]>([
+		{ key: 'key', header: t('domain.loopVariables.key'), text: (row) => row.key },
+		{ key: 'value', header: t('domain.loopVariables.value'), text: (row) => row.value },
+	]);
 
 	// Decision graph as display nodes, so history and live progress share
 	// one projection bridge instead of a static snapshot.
@@ -328,7 +329,7 @@
 	<div
 		id="session-panel"
 		role="tabpanel"
-		aria-label="Session sections"
+		aria-label={t('domain.session.sections')}
 		class={cn(
 			'min-h-0 flex-1',
 			showTranscript ? 'flex flex-col' : 'overflow-y-auto px-3 py-3',
@@ -336,7 +337,7 @@
 	>
 		{#if !sessionId}
 			<p class="text-caption text-muted-foreground">
-				Select a session to inspect its run.
+				{t('domain.session.selectPrompt')}
 			</p>
 		{:else if loading}
 			<div class="space-y-2">
@@ -345,7 +346,7 @@
 			</div>
 		{:else if error}
 			<ErrorState
-				title="Failed to load {TAB_LABELS[tab]}"
+				title={t('domain.session.failedToLoad', { name: TAB_LABELS[tab] })}
 				description={error}
 				onretry={() => void active.reload()}
 			/>
@@ -357,39 +358,51 @@
 						>{loop.id}</span
 					>
 				</div>
-				<Card title="Run facts">
+				<Card title={t('domain.session.runFacts')}>
 					<KeyValueList
 						items={[
-							{ key: 'profile', value: loop.profileId ?? '—' },
+							{ key: t('domain.session.factProfile'), value: loop.profileId ?? '—' },
 							{
-								key: 'iterations',
+								key: t('domain.history.iterations'),
 								value: formatNumber(loop.iteration),
 							},
-							{ key: 'tool calls', value: formatNumber(loop.toolCalls) },
-							{ key: 'duration', value: formatDuration(loop.durationMs) },
-							{ key: 'started', value: formatDateTime(loop.startedAt) },
 							{
-								key: 'ended',
+								key: t('domain.session.factToolCalls'),
+								value: formatNumber(loop.toolCalls),
+							},
+							{
+								key: t('domain.inspector.duration'),
+								value: formatDuration(loop.durationMs),
+							},
+							{
+								key: t('domain.inspector.started'),
+								value: formatDateTime(loop.startedAt),
+							},
+							{
+								key: t('domain.nodeTrace.ended'),
 								value: loop.endedAt ? formatDateTime(loop.endedAt) : '—',
 							},
 						]}
 					/>
 				</Card>
 				{#if usage}
-					<Card title="Usage (this run)" class="mt-3">
+					<Card title={t('domain.session.usage')} class="mt-3">
 						<KeyValueList
 							items={[
 								{
-									key: 'prompt tokens',
+									key: t('domain.session.usagePrompt'),
 									value: formatNumber(usage.promptTokens),
 								},
 								{
-									key: 'completion tokens',
+									key: t('domain.session.usageCompletion'),
 									value: formatNumber(usage.completionTokens),
 								},
-								{ key: 'total tokens', value: formatNumber(usageTotal) },
 								{
-									key: 'cost',
+									key: t('domain.session.usageTotal'),
+									value: formatNumber(usageTotal),
+								},
+								{
+									key: t('domain.session.usageCost'),
 									value:
 										usage.cost === null ? '—' : `$${usage.cost.toFixed(4)}`,
 								},
@@ -416,22 +429,22 @@
 			{#if selectedGraphNode !== null}
 				<div class="mb-2 flex items-center gap-2">
 					<p class="text-micro text-muted-foreground">
-						Filtered by graph node “{selectedGraphNode}”
+						{t('domain.session.filteredByNode', { node: selectedGraphNode })}
 					</p>
 					<button
 						type="button"
 						class="text-micro text-foreground underline-offset-2 hover:underline"
 						onclick={() => handleGraphSelect(null)}
 					>
-						Clear
+						{t('domain.inspector.clearFilter')}
 					</button>
 				</div>
 			{/if}
 			{#if visibleIterations.length === 0}
 				<p class="text-caption text-muted-foreground">
 					{selectedGraphNode !== null
-						? 'No iterations for the selected graph node.'
-						: 'No iteration records for this session.'}
+						? t('domain.session.noIterationsNode')
+						: t('domain.session.noIterations')}
 				</p>
 			{:else}
 				<ul class="space-y-2">
@@ -444,13 +457,15 @@
 									>#{iteration.index}</span
 								>
 								<span class="ml-2 text-foreground">
-									{iteration.summary || 'No response text'}
+									{iteration.summary || t('domain.session.noResponseText')}
 								</span>
 							</p>
 							<div class="flex shrink-0 items-center gap-2">
 								<span class="text-micro tabular-nums text-muted-foreground">
-									{iteration.toolCalls.length} calls ·
-									{formatDuration(iteration.durationMs)}
+									{t('domain.session.callsWithDuration', {
+										count: iteration.toolCalls.length,
+										duration: formatDuration(iteration.durationMs),
+									})}
 								</span>
 							</div>
 						</li>
@@ -463,12 +478,12 @@
 				rows={variables.data ?? []}
 				rowKey={(row) => row.key}
 				dense
-				emptyTitle="No variables"
+				emptyTitle={t('domain.session.noVariables')}
 			/>
 		{:else if tab === 'checkpoints'}
 			{#if (checkpoints.data ?? []).length === 0}
 				<p class="text-caption text-muted-foreground">
-					No checkpoints recorded for this session.
+					{t('domain.session.noCheckpoints')}
 				</p>
 			{:else}
 				<div class="space-y-2">
@@ -498,7 +513,7 @@
 									disabled={busy}
 									onclick={() => onrestore(checkpoint)}
 								>
-									Restore
+									{t('domain.loopCheckpoints.restore')}
 								</Button>
 							{/if}
 						</Card>
@@ -509,22 +524,22 @@
 			{#if selectedGraphNode !== null}
 				<div class="mb-2 flex items-center gap-2">
 					<p class="text-micro text-muted-foreground">
-						Filtered by graph node “{selectedGraphNode}”
+						{t('domain.session.filteredByNode', { node: selectedGraphNode })}
 					</p>
 					<button
 						type="button"
 						class="text-micro text-foreground underline-offset-2 hover:underline"
 						onclick={() => handleGraphSelect(null)}
 					>
-						Clear
+						{t('domain.inspector.clearFilter')}
 					</button>
 				</div>
 			{/if}
 			{#if visibleTools.length === 0}
 				<p class="text-caption text-muted-foreground">
 					{selectedGraphNode !== null
-						? 'No tool calls for the selected graph node.'
-						: 'No tool calls recorded for this session.'}
+						? t('domain.session.noToolCallsNode')
+						: t('domain.session.noToolCalls')}
 				</p>
 			{:else}
 				<div class="space-y-2">
@@ -534,8 +549,8 @@
 							role="button"
 							tabindex={toolNodeId ? 0 : -1}
 							aria-label={toolNodeId
-								? `Locate tool ${entry.name} on decision graph`
-								: `Tool ${entry.name}`}
+								? t('domain.session.locateToolGraph', { name: entry.name })
+								: t('domain.session.tool', { name: entry.name })}
 							onclick={() => handleToolFocus(entry)}
 							onkeydown={(event) => {
 								if (event.key === 'Enter' || event.key === ' ') {
@@ -579,7 +594,7 @@
 		{:else if tab === 'timeline'}
 			{#if (timeline.data ?? []).length === 0}
 				<p class="text-caption text-muted-foreground">
-					No timeline events for this session.
+					{t('domain.session.noTimeline')}
 				</p>
 			{:else}
 				<div class="flex items-start gap-3">
@@ -592,25 +607,28 @@
 			{/if}
 		{:else if tab === 'analysis'}
 			<div class="space-y-3">
-				<Card title="Call totals">
+				<Card title={t('domain.session.callTotals')}>
 					<KeyValueList
 						items={[
 							{
-								key: 'iterations',
+								key: t('domain.history.iterations'),
 								value: formatNumber(iterationList.length),
 							},
-							{ key: 'tool calls', value: formatNumber(toolCalls.length) },
-							{ key: 'failed', value: formatNumber(failedCalls) },
+							{
+								key: t('domain.session.factToolCalls'),
+								value: formatNumber(toolCalls.length),
+							},
+							{ key: t('domain.session.factFailed'), value: formatNumber(failedCalls) },
 						]}
 						dense
 					/>
 				</Card>
 				{#if toolFrequency.length === 0}
 					<p class="text-caption text-muted-foreground">
-						Nothing to aggregate yet.
+						{t('domain.session.nothingToAggregate')}
 					</p>
 				{:else}
-					<Card title="Tool frequency">
+					<Card title={t('domain.session.toolFrequency')}>
 						<ul class="space-y-2">
 							{#each toolFrequency as item (item.tool)}
 								<li class="flex items-center gap-3">
@@ -658,7 +676,7 @@
 				</TranscriptScroller>
 			{:else}
 				<p class="text-caption text-muted-foreground">
-					No messages recorded for this session.
+					{t('domain.session.noMessages')}
 				</p>
 			{/if}
 		{/if}

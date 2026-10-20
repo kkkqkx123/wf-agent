@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::manifest::PluginType;
+
 #[derive(Error, Debug)]
 pub enum PluginError {
     #[error("plugin not found: {0}")]
@@ -40,6 +42,8 @@ pub enum PluginError {
     NativeError(String),
     #[error("wasm error: {0}")]
     WasmError(String),
+    #[error("plugin backend '{backend:?}' is not compiled into this build (crate feature `{feature}` is off)")]
+    BackendNotCompiled { backend: PluginType, feature: String },
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("internal: {0}")]

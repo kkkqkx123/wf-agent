@@ -85,19 +85,6 @@ pub(crate) fn resolve_entry_point(manifest: &PluginManifest) -> String {
     }
 }
 
-/// All artifact paths a plugin may load: the default entry plus every
-/// versioned entry. Used for signature verification so multi-version
-/// plugins verify every candidate artifact, not just the negotiated one.
-pub(crate) fn all_entry_points(manifest: &PluginManifest) -> Vec<String> {
-    let mut entries = vec![manifest.entry_point.clone()];
-    for entry in manifest.versioned_entry_points.values() {
-        if !entries.contains(entry) {
-            entries.push(entry.clone());
-        }
-    }
-    entries
-}
-
 fn resolve_module_path(manifest: &PluginManifest, base_path: &Path) -> PluginResult<PathBuf> {
     let id = &manifest.id;
     let entry_point = resolve_entry_point(manifest);
@@ -424,7 +411,7 @@ mod tests {
         assert_eq!(resolve_entry_point(&m), "plugin_v1.wasm");
         m.versioned_entry_points.insert(2, "plugin_v2.wasm".into());
         assert_eq!(resolve_entry_point(&m), "plugin_v1.wasm");
-        let entries = all_entry_points(&m);
+        let entries = crate::manifest::all_entry_points(&m);
         assert!(entries.contains(&"plugin.wasm".to_owned()));
         assert!(entries.contains(&"plugin_v1.wasm".to_owned()));
         assert!(entries.contains(&"plugin_v2.wasm".to_owned()));

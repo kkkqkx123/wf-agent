@@ -5,6 +5,7 @@
 	import { git as gitStore } from '$lib/stores/git.svelte';
 	import { PANELS } from '$lib/git/workbench.svelte';
 	import type { GitWorkbench, PanelId } from '$lib/git/workbench.svelte';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		workbench: GitWorkbench;
@@ -14,7 +15,10 @@
 	let { workbench, panel = $bindable('status') }: Props = $props();
 </script>
 
-<Card title="Groups" description="Status, files, branches, commits, stash">
+<Card
+	title={t('domain.git.groupsTitle')}
+	description={t('domain.git.groupsDescription')}
+>
 	<div class="flex flex-col gap-1">
 		{#each PANELS as item (item.id)}
 			<button
@@ -36,31 +40,31 @@
 	{#if panel !== 'status'}
 		<Input
 			id="git-filter"
-			label="Filter"
+			label={t('domain.git.filter')}
 			size="sm"
 			bind:value={workbench.filters[panel]}
-			placeholder="Filter this panel"
+			placeholder={t('domain.git.filterPlaceholder')}
 		/>
 	{/if}
 	{#if panel === 'status' && workbench.status}
 		<ul class="mt-2 space-y-1 text-caption">
 			<li class="flex justify-between">
-				<span>Staged</span><span class="font-mono"
+				<span>{t('domain.git.staged')}</span><span class="font-mono"
 					>{workbench.status.staged}</span
 				>
 			</li>
 			<li class="flex justify-between">
-				<span>Unstaged</span><span class="font-mono"
+				<span>{t('domain.git.unstaged')}</span><span class="font-mono"
 					>{workbench.status.unstaged}</span
 				>
 			</li>
 			<li class="flex justify-between">
-				<span>Untracked</span><span class="font-mono"
+				<span>{t('domain.git.untracked')}</span><span class="font-mono"
 					>{workbench.status.untracked}</span
 				>
 			</li>
 			<li class="flex justify-between">
-				<span>Conflicted</span>
+				<span>{t('domain.git.conflicted')}</span>
 				<span
 					class="font-mono {workbench.status.conflicted > 0
 						? 'text-destructive'
@@ -91,15 +95,15 @@
 			{/each}
 		</ul>
 		{#if workbench.visibleFiles.length === 0}
-			<p class="mt-2 text-caption text-muted-foreground">
-				No files match the filter.
-			</p>
+				<p class="mt-2 text-caption text-muted-foreground">
+					{t('domain.git.noFilesMatch')}
+				</p>
 		{/if}
 		{#if workbench.worktrees.length > 0 || workbench.submodules.length > 0}
 			<div class="mt-3 space-y-2 border-t border-border pt-2">
 				{#if workbench.worktrees.length > 0}
 					<p class="text-micro font-medium text-muted-foreground">
-						Worktrees (read-only)
+						{t('domain.git.worktreesReadOnly')}
 					</p>
 					<ul class="space-y-0.5">
 						{#each workbench.worktrees as worktree (worktree.path)}
@@ -116,7 +120,7 @@
 				{/if}
 				{#if workbench.submodules.length > 0}
 					<p class="text-micro font-medium text-muted-foreground">
-						Submodules (read-only)
+						{t('domain.git.submodulesReadOnly')}
 					</p>
 					<ul class="space-y-0.5">
 						{#each workbench.submodules as submodule (submodule.path)}
@@ -130,8 +134,7 @@
 					</ul>
 				{/if}
 				<p class="text-micro text-muted-foreground">
-					Worktree and submodule actions are available via the key input and
-					action buttons. Lists refresh with the page.
+					{t('domain.git.worktreeHint')}
 				</p>
 			</div>
 		{/if}
@@ -158,9 +161,9 @@
 			{/each}
 		</ul>
 		{#if workbench.visibleConflicts.length === 0}
-			<p class="mt-2 text-caption text-muted-foreground">
-				No conflicted files.
-			</p>
+				<p class="mt-2 text-caption text-muted-foreground">
+					{t('domain.git.noConflicted')}
+				</p>
 		{/if}
 	{:else if panel === 'worktrees'}
 		<ul class="mt-2 space-y-1">
@@ -190,9 +193,9 @@
 			{/each}
 		</ul>
 		{#if workbench.visibleWorktrees.length === 0}
-			<p class="mt-2 text-caption text-muted-foreground">
-				No worktrees match the filter.
-			</p>
+				<p class="mt-2 text-caption text-muted-foreground">
+					{t('domain.git.noWorktreesMatch')}
+				</p>
 		{/if}
 	{:else if panel === 'submodules'}
 		<ul class="mt-2 space-y-1">
@@ -221,9 +224,9 @@
 			{/each}
 		</ul>
 		{#if workbench.visibleSubmodules.length === 0}
-			<p class="mt-2 text-caption text-muted-foreground">
-				No submodules match the filter.
-			</p>
+				<p class="mt-2 text-caption text-muted-foreground">
+					{t('domain.git.noSubmodulesMatch')}
+				</p>
 		{/if}
 	{:else if panel === 'remotes'}
 		<ul class="mt-2 space-y-1">
@@ -240,9 +243,9 @@
 			{/each}
 		</ul>
 		{#if workbench.visibleRemotes.length === 0}
-			<p class="mt-2 text-caption text-muted-foreground">
-				No remotes match the filter.
-			</p>
+				<p class="mt-2 text-caption text-muted-foreground">
+					{t('domain.git.noRemotesMatch')}
+				</p>
 		{/if}
 	{:else if panel === 'tags'}
 		<ul class="mt-2 space-y-1">
@@ -260,9 +263,9 @@
 			{/each}
 		</ul>
 		{#if workbench.visibleTags.length === 0}
-			<p class="mt-2 text-caption text-muted-foreground">
-				No tags match the filter.
-			</p>
+				<p class="mt-2 text-caption text-muted-foreground">
+					{t('domain.git.noTagsMatch')}
+				</p>
 		{/if}
 	{:else if panel === 'branches'}
 		<ul class="mt-2 space-y-1">
@@ -295,14 +298,16 @@
 			{/each}
 		</ul>
 		{#if workbench.visibleBranches.length === 0}
-			<p class="mt-2 text-caption text-muted-foreground">
-				No branches match the filter.
-			</p>
+				<p class="mt-2 text-caption text-muted-foreground">
+					{t('domain.git.noBranchesMatch')}
+				</p>
 		{/if}
 		{#if workbench.remotes.length > 0 || workbench.tags.length > 0}
 			<div class="mt-3 space-y-2 border-t border-border pt-2">
 				{#if workbench.remotes.length > 0}
-					<p class="text-micro font-medium text-muted-foreground">Remotes</p>
+					<p class="text-micro font-medium text-muted-foreground"
+						>{t('domain.git.remotes')}</p
+					>
 					<ul class="space-y-0.5">
 						{#each workbench.remotes as remote (remote.name)}
 							<li
@@ -315,7 +320,9 @@
 					</ul>
 				{/if}
 				{#if workbench.tags.length > 0}
-					<p class="text-micro font-medium text-muted-foreground">Tags</p>
+					<p class="text-micro font-medium text-muted-foreground"
+						>{t('domain.git.tags')}</p
+					>
 					<ul class="space-y-0.5">
 						{#each workbench.tags as tag (tag.name)}
 							<li
@@ -379,13 +386,13 @@
 			{/each}
 		</ul>
 		{#if workbench.visibleReflogs.length === 0}
-			<p class="mt-2 text-caption text-muted-foreground">
-				No reflog entries match the filter.
-			</p>
+				<p class="mt-2 text-caption text-muted-foreground">
+					{t('domain.git.noReflogsMatch')}
+				</p>
 		{/if}
 		{#if workbench.visibleCommits.length === 0}
 			<p class="mt-2 text-caption text-muted-foreground">
-				No commits match the filter.
+				{t('domain.git.noCommitsMatch')}
 			</p>
 		{/if}
 		{#if workbench.commitsHasMore && workbench.visibleCommits.length === workbench.commits.length}
@@ -396,8 +403,10 @@
 				onclick={() => void workbench.loadMoreCommits()}
 			>
 				{workbench.commitsLoading
-					? 'Loading…'
-					: `Show more (${workbench.commits.length} shown)`}
+					? t('common.loading')
+					: t('domain.git.showMoreCommits', {
+							shown: workbench.commits.length,
+						})}
 			</Button>
 		{/if}
 	{:else if panel === 'stash'}
@@ -421,9 +430,9 @@
 			{/each}
 		</ul>
 		{#if workbench.visibleStash.length === 0}
-			<p class="mt-2 text-caption text-muted-foreground">
-				No stash entries match the filter.
-			</p>
+				<p class="mt-2 text-caption text-muted-foreground">
+					{t('domain.git.noStashMatch')}
+				</p>
 		{/if}
 	{/if}
 </Card>

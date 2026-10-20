@@ -27,6 +27,7 @@
 	import type { DisplayPayload } from '$lib/utils/tool-output';
 	import { ansiStyleToCss, hasAnsi, parseAnsi } from '$lib/utils/ansi';
 	import { preferences } from '$lib/stores/preferences.svelte';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		entry: ToolCallEntry;
@@ -159,14 +160,14 @@
 		try {
 			if (approved) {
 				await approveApproval(id);
-				toasts.success('Approval granted');
+				toasts.success(t('domain.toolCall.approvalGranted'));
 			} else {
 				await rejectApproval(id);
-				toasts.warning('Approval rejected');
+				toasts.warning(t('domain.toolCall.approvalRejected'));
 			}
 		} catch (e) {
 			console.error('Failed to resolve approval:', e);
-			toasts.error('Approval decision failed');
+			toasts.error(t('domain.toolCall.approvalDecisionFailed'));
 		} finally {
 			decisionPending = false;
 		}
@@ -267,7 +268,7 @@
 					<p
 						class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
 					>
-						Subagents
+						{t('domain.toolCall.subagents')}
 					</p>
 					<ul class="space-y-1">
 						{#each liveSubagents as note (note.id)}
@@ -303,14 +304,14 @@
 			{/if}
 			{#if isScript && entry.exitCode !== null && entry.exitCode !== undefined}
 				<p class="text-micro tabular-nums text-muted-foreground">
-					exit code {entry.exitCode}
+					{t('domain.toolCall.exitCode', { code: entry.exitCode })}
 				</p>
 			{/if}
 			<div>
 				<p
 					class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
 				>
-					Input
+					{t('domain.nodeTrace.input')}
 				</p>
 				<JsonViewer value={entry.input} collapsed />
 			</div>
@@ -318,13 +319,13 @@
 				<p
 					class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
 				>
-					Output
+					{t('domain.nodeTrace.output')}
 					{#if previews && !hiddenBody && preview.overflow}
 						<span class="ml-1 font-mono normal-case tabular-nums">
 							{#if preview.hiddenLines > 0}
-								+{preview.hiddenLines} lines
+								{t('domain.toolCall.moreLines', { count: preview.hiddenLines })}
 							{:else}
-								+more
+								{t('domain.toolCall.more')}
 							{/if}
 						</span>
 					{/if}
@@ -347,7 +348,9 @@
 								showFullOutput && 'rotate-180',
 							)}
 						/>
-						{showFullOutput ? 'Hide output' : 'Show output'}
+						{showFullOutput
+							? t('domain.messageBubble.hideFullOutput')
+							: t('domain.messageBubble.showOutput')}
 					</button>
 					{#if showFullOutput}
 						<pre
@@ -357,7 +360,9 @@
 									>{/each}{:else}{fullBody.text}{/if}</pre>
 						{#if fullBody.capped}
 							<p class="mt-1 font-mono text-micro text-muted-foreground">
-								… {fullBody.hiddenLines} more lines — open Full result for everything
+								{t('domain.toolCall.moreLinesFullResult', {
+									count: fullBody.hiddenLines,
+								})}
 							</p>
 						{/if}
 					{/if}
@@ -392,7 +397,9 @@
 									showFullOutput && 'rotate-180',
 								)}
 							/>
-							{showFullOutput ? 'Hide full output' : 'Show full output'}
+							{showFullOutput
+								? t('domain.messageBubble.hideFullOutput')
+								: t('domain.messageBubble.showFullOutput')}
 						</button>
 					{/if}
 					{#if showFullOutput}
@@ -402,7 +409,7 @@
 					{/if}
 				{:else}
 					<p class="font-mono text-micro text-muted-foreground">
-						No content recorded
+						{t('domain.toolCall.noContent')}
 					</p>
 				{/if}
 			</div>
@@ -411,7 +418,7 @@
 					class="flex items-center justify-between gap-2 rounded-md bg-muted px-2 py-1.5"
 				>
 					<p class="text-micro text-muted-foreground">
-						Resolution happens in the approvals queue
+						{t('domain.toolCall.approvalsQueue')}
 					</p>
 					<div class="flex shrink-0 items-center gap-1.5">
 						{#if entry.approvalId}
@@ -422,7 +429,7 @@
 								onclick={() => void decide(true)}
 							>
 								<Icon name="check" size={13} />
-								Approve
+								{t('domain.toolCall.approve')}
 							</Button>
 							<Button
 								variant="ghost"
@@ -431,11 +438,11 @@
 								onclick={() => void decide(false)}
 							>
 								<Icon name="x" size={13} />
-								Reject
+								{t('domain.toolCall.reject')}
 							</Button>
 						{:else}
 							<Button variant="outline" size="sm" onclick={reviewApprovals}>
-								Review
+								{t('domain.toolCall.review')}
 							</Button>
 						{/if}
 					</div>
@@ -445,7 +452,7 @@
 				<div class="flex justify-end">
 					<Button variant="ghost" size="sm" onclick={() => (resultOpen = true)}>
 						<Icon name="maximize" size={13} />
-						Full result
+						{t('domain.toolCall.fullResult')}
 					</Button>
 				</div>
 			{/if}
@@ -455,7 +462,7 @@
 	<Dialog
 		bind:open={resultOpen}
 		title={entry.name}
-		description="Complete tool result"
+		description={t('domain.toolCall.fullResultDescription')}
 	>
 		<JsonViewer value={entry.output} maxLength={32000} />
 	</Dialog>

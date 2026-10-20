@@ -15,9 +15,13 @@ import { cn } from '@wf-agent/ui/cn';
 	import ModelPicker from '$lib/components/chat/ModelPicker.svelte';
 	import AgentPicker from '$lib/components/chat/AgentPicker.svelte';
 	import WorkflowPicker from '$lib/components/chat/WorkflowPicker.svelte';
+	import ExecutionTypePicker, {
+		type ExecutionType,
+	} from '$lib/components/chat/ExecutionTypePicker.svelte';
 	import type { MessageAttachment, OutgoingMessage } from '$lib/types/models';
 	import { entityMention, textRuns } from '$lib/utils/mentions';
 	import { mentionClass, mentionIcon } from '$lib/utils/mention-style';
+	import { t } from '$lib/i18n';
 
 	/** Largest inlined attachment per file; larger files are truncated. */
 	const ATTACHMENT_LIMIT = 64_000;
@@ -52,7 +56,7 @@ import { cn } from '@wf-agent/ui/cn';
 		model?: string;
 		agent?: string;
 		workflow?: string;
-		mode?: 'standard' | 'chat';
+		executionType?: ExecutionType;
 		busy?: boolean;
 		draftKey?: string;
 		suggestions?: string[];
@@ -66,7 +70,7 @@ import { cn } from '@wf-agent/ui/cn';
 		model = $bindable(''),
 		agent = $bindable(''),
 		workflow = $bindable(''),
-		mode = $bindable('standard'),
+		executionType = $bindable('agent'),
 		busy = false,
 		draftKey = 'new',
 		suggestions = [],
@@ -328,7 +332,11 @@ import { cn } from '@wf-agent/ui/cn';
 					},
 				];
 			} catch {
-				toasts.error(`Could not read ${file.name || 'attachment'}`);
+				toasts.error(
+					t('chat.composer.readFailed', {
+						name: file.name || t('chat.composer.attachment'),
+					}),
+				);
 			}
 		}
 	}
@@ -477,9 +485,9 @@ import { cn } from '@wf-agent/ui/cn';
 			event.preventDefault();
 			activePicker = 'agent';
 			box?.focus();
-		} else if (key === 'w') {
+		} else if (key === 'e') {
 			event.preventDefault();
-			activePicker = 'workflow';
+			activePicker = 'execution';
 			box?.focus();
 		} else if (key === 'm') {
 			event.preventDefault();
@@ -553,12 +561,12 @@ import { cn } from '@wf-agent/ui/cn';
 					<span class="min-w-0 flex-1 truncate">{item.text}</span>
 					{#if item.attachments.length > 0}
 						<span class="shrink-0 font-mono text-micro">
-							+{item.attachments.length} file
+							{t('chat.composer.fileCount', { count: item.attachments.length })}
 						</span>
 					{/if}
 					<button
 						type="button"
-						aria-label="Move queued message up"
+						aria-label={t('chat.composer.moveQueuedUp')}
 						disabled={index === 0}
 						class="shrink-0 hover:text-foreground disabled:opacity-40"
 						onclick={() => moveQueued(index, -1)}
@@ -567,7 +575,7 @@ import { cn } from '@wf-agent/ui/cn';
 					</button>
 					<button
 						type="button"
-						aria-label="Move queued message down"
+						aria-label={t('chat.composer.moveQueuedDown')}
 						disabled={index === queue.length - 1}
 						class="shrink-0 hover:text-foreground disabled:opacity-40"
 						onclick={() => moveQueued(index, 1)}
@@ -576,7 +584,7 @@ import { cn } from '@wf-agent/ui/cn';
 					</button>
 					<button
 						type="button"
-						aria-label="Edit queued message"
+						aria-label={t('chat.composer.editQueued')}
 						class="shrink-0 hover:text-foreground"
 						onclick={() => editQueued(index)}
 					>
@@ -584,7 +592,7 @@ import { cn } from '@wf-agent/ui/cn';
 					</button>
 					<button
 						type="button"
-						aria-label="Remove queued message"
+						aria-label={t('chat.composer.removeQueued')}
 						class="shrink-0 hover:text-foreground"
 						onclick={() => (queue = queue.filter((_, i) => i !== index))}
 					>
@@ -605,7 +613,7 @@ import { cn } from '@wf-agent/ui/cn';
 					{file.name}
 					<button
 						type="button"
-						aria-label="Remove attachment"
+						aria-label={t('chat.composer.removeAttachment')}
 						class="hover:text-foreground"
 						onclick={() =>
 							(attachments = attachments.filter((_, i) => i !== index))}
@@ -618,14 +626,14 @@ import { cn } from '@wf-agent/ui/cn';
 	{/if}
 
 	{#if mentionVisible}
-		<div class="mb-2 flex max-h-72 flex-col gap-1 overflow-y-auto" role="listbox" aria-label="Mentions">
+		<div class="mb-2 flex max-h-72 flex-col gap-1 overflow-y-auto" role="listbox" aria-label={t('chat.composer.mentions')}>
 			<div class="flex flex-wrap gap-1 px-2 pb-1">
 				{#each [
-					{ value: 'all', label: 'All' },
-					{ value: 'files-and-dirs', label: 'Files+Dirs' },
-					{ value: 'files', label: 'Files' },
-					{ value: 'directories', label: 'Dirs' },
-					{ value: 'resources', label: 'Resources' },
+					{ value: 'all', label: t('chat.composer.modeAll') },
+					{ value: 'files-and-dirs', label: t('chat.composer.modeFilesAndDirs') },
+					{ value: 'files', label: t('chat.composer.modeFiles') },
+					{ value: 'directories', label: t('chat.composer.modeDirs') },
+					{ value: 'resources', label: t('chat.composer.modeResources') },
 				] as mode (mode.value)}
 					<button
 						type="button"
@@ -688,11 +696,13 @@ import { cn } from '@wf-agent/ui/cn';
 						))}
 					class="px-2 text-micro text-info hover:underline"
 				>
-					Show {filteredCandidates.length - visibleCandidates.length} more
+					{t('chat.composer.showMore', {
+						count: filteredCandidates.length - visibleCandidates.length,
+					})}
 				</button>
 			{/if}
 			{#if searching}
-				<p class="px-2 text-micro text-muted-foreground">Searching…</p>
+				<p class="px-2 text-micro text-muted-foreground">{t('chat.composer.searching')}</p>
 			{:else if kindHints.length > 0}
 				<div class="flex flex-wrap gap-1.5">
 					{#each kindHints as kind (kind)}
@@ -710,22 +720,25 @@ import { cn } from '@wf-agent/ui/cn';
 				</div>
 			{:else if mention!.kind === FILE_KIND}
 				<p class="px-2 text-micro text-muted-foreground">
-					Type a path, optionally with a line range (e.g. @file:src/a.ts#10-20).
+					{t('chat.composer.fileHint')}
 				</p>
 			{:else if searchError}
 				<p class="px-2 text-micro text-muted-foreground">
-					Mention search unavailable.
+					{t('chat.composer.searchUnavailable')}
 				</p>
 			{:else if mention!.term && candidates.length === 0}
 				<p class="px-2 text-micro text-muted-foreground">
-					No {mention!.kind || 'matching'} results for “{mention!.term}”.
+					{t('chat.composer.noResults', {
+						kind: mention!.kind || t('chat.composer.matching'),
+						term: mention!.term,
+					})}
 				</p>
 			{/if}
 		</div>
 	{/if}
 
 	{#if commandHints.length > 0}
-		<div class="mb-2 flex flex-col gap-1" role="listbox" aria-label="Commands">
+		<div class="mb-2 flex flex-col gap-1" role="listbox" aria-label={t('chat.composer.commands')}>
 			{#each commandHints as command (command.name)}
 				<button
 					type="button"
@@ -747,7 +760,7 @@ import { cn } from '@wf-agent/ui/cn';
 	{/if}
 
 	{#if mentionChips.length > 0}
-		<div class="mb-2 flex flex-wrap gap-1.5" aria-label="Mentions in draft">
+		<div class="mb-2 flex flex-wrap gap-1.5" aria-label={t('chat.composer.mentionsInDraft')}>
 			{#each mentionChips as chip (chip.text)}
 				<span
 					class={cn(
@@ -759,7 +772,7 @@ import { cn } from '@wf-agent/ui/cn';
 					<button
 						type="button"
 						class="inline-flex items-center gap-1 hover:text-foreground"
-						aria-label={`Focus ${chip.text}`}
+						aria-label={t('chat.composer.focusMention', { name: chip.text })}
 						onclick={() => focusMention(chip.text)}
 					>
 						<Icon name={mentionIcon(chip.kind ?? '', chip.text)} size={11} />
@@ -767,7 +780,7 @@ import { cn } from '@wf-agent/ui/cn';
 					</button>
 					<button
 						type="button"
-						aria-label={`Remove ${chip.text}`}
+						aria-label={t('chat.composer.removeMention', { name: chip.text })}
 						class="ml-0.5 hover:text-foreground"
 						onclick={(event) => {
 							event.stopPropagation();
@@ -782,46 +795,42 @@ import { cn } from '@wf-agent/ui/cn';
 	{/if}
 
 	<div class="flex items-center gap-2">
-		<AgentPicker
-			bind:value={agent}
+		<ExecutionTypePicker
+			bind:value={executionType}
 			class="shrink-0"
 			activePicker={activePicker}
-			pickerKey="agent"
+			pickerKey="execution"
 			onActivate={(key) => (activePicker = key)}
 			onClose={() => {
 				activePicker = null;
 				box?.focus();
 			}}
 		/>
-		<WorkflowPicker
-			bind:value={workflow}
-			class="shrink-0"
-			activePicker={activePicker}
-			pickerKey="workflow"
-			onActivate={(key) => (activePicker = key)}
-			onClose={() => {
-				activePicker = null;
-				box?.focus();
-			}}
-		/>
-		<button
-			type="button"
-			aria-pressed={mode === 'chat'}
-			aria-label="Toggle plain chat mode"
-			title={mode === 'chat'
-				? 'Plain chat: tool-free responses. Click to switch back to the agent loop.'
-				: 'Agent loop with tools. Click to switch to tool-free plain chat.'}
-			onclick={() => (mode = mode === 'chat' ? 'standard' : 'chat')}
-			class={cn(
-				'flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-input bg-card px-2 text-caption transition-colors hover:bg-accent',
-				mode === 'chat'
-					? 'text-foreground'
-					: 'text-muted-foreground',
-			)}
-		>
-			<Icon name="loop" size={13} class="shrink-0" />
-			{mode === 'chat' ? 'Chat' : 'Agent'}
-		</button>
+		{#if executionType === 'agent'}
+			<AgentPicker
+				bind:value={agent}
+				class="shrink-0"
+				activePicker={activePicker}
+				pickerKey="agent"
+				onActivate={(key) => (activePicker = key)}
+				onClose={() => {
+					activePicker = null;
+					box?.focus();
+				}}
+			/>
+		{:else if executionType === 'workflow'}
+			<WorkflowPicker
+				bind:value={workflow}
+				class="shrink-0"
+				activePicker={activePicker}
+				pickerKey="workflow"
+				onActivate={(key) => (activePicker = key)}
+				onClose={() => {
+					activePicker = null;
+					box?.focus();
+				}}
+			/>
+		{/if}
 		<ModelPicker
 			bind:value={model}
 			class="shrink-0"
@@ -842,14 +851,14 @@ import { cn } from '@wf-agent/ui/cn';
 			ondrop={onDrop}
 			ondragover={(event) => event.preventDefault()}
 			rows={2}
-			placeholder="Message the agent… (Enter to send, Shift+Enter for newline)"
-			aria-label="Message composer"
+			placeholder={t('chat.composer.placeholder')}
+			aria-label={t('chat.composer.ariaLabel')}
 			class="max-h-36 min-h-9 flex-1 resize-y rounded-md border border-input bg-card px-2.5 py-2 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 		></textarea>
 		{#if busy}
 			<Button size="sm" variant="outline" onclick={() => onstop?.()}>
 				<Icon name="square" size={13} />
-				Stop
+				{t('chat.composer.stop')}
 			</Button>
 		{:else}
 			<Button
@@ -860,15 +869,19 @@ import { cn } from '@wf-agent/ui/cn';
 			>
 				<Icon name="arrow-up" size={14} />
 				{queue.length > 0
-					? `Send (${queue.length + (draft.trim() ? 1 : 0)})`
-					: 'Send'}
+					? t('chat.composer.sendQueued', {
+							count: queue.length + (draft.trim() ? 1 : 0),
+						})
+					: t('chat.composer.send')}
 			</Button>
 		{/if}
 	</div>
 	<p class="mt-1 text-micro text-muted-foreground">
-		Enter sends{#if busy}
-			· sending queues next{/if} · {SLASH_COMMANDS.map(
+		{t('chat.composer.hintsEnter')}{#if busy}
+			· {t('chat.composer.hintsQueue')}{/if} · {SLASH_COMMANDS.map(
 			(command) => `/${command.name}`,
-		).join(' ')} · @mentions resolve through search · paste or drop files to attach
+		).join(' ')} · {t('chat.composer.hintsMentions')} · {t(
+			'chat.composer.hintsAttach',
+		)}
 	</p>
 </div>

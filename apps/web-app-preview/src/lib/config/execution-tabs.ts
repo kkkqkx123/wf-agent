@@ -1,3 +1,4 @@
+import { message } from '$lib/i18n';
 import type { ExecutionKind } from '$lib/types/models';
 
 /** Tab strip of the execution inspector, in display order.
@@ -5,19 +6,19 @@ import type { ExecutionKind } from '$lib/types/models';
  * The inspector renders this list and the detail route restores `?tab=` from
  * it, so a tab added in one place is linkable from the other.
  */
-export const EXECUTION_TABS: { id: ExecutionTab; label: string }[] = [
-	{ id: 'overview', label: 'Overview' },
-	{ id: 'messages', label: 'Messages' },
-	{ id: 'variables', label: 'Variables' },
-	{ id: 'graph', label: 'Graph' },
-	{ id: 'trace', label: 'Trace' },
-	{ id: 'timeline', label: 'Timeline' },
-	{ id: 'tools', label: 'Tools' },
-	{ id: 'analysis', label: 'Analysis' },
-	{ id: 'state', label: 'State' },
-	{ id: 'hierarchy', label: 'Hierarchy' },
-	{ id: 'history', label: 'History' },
-	{ id: 'checkpoints', label: 'Checkpoints' },
+export const EXECUTION_TABS: { id: ExecutionTab; label: () => string }[] = [
+	{ id: 'overview', label: message('config.executionTabs.overview') },
+	{ id: 'messages', label: message('config.executionTabs.messages') },
+	{ id: 'variables', label: message('config.executionTabs.variables') },
+	{ id: 'graph', label: message('config.executionTabs.graph') },
+	{ id: 'trace', label: message('config.executionTabs.trace') },
+	{ id: 'timeline', label: message('config.executionTabs.timeline') },
+	{ id: 'tools', label: message('config.executionTabs.tools') },
+	{ id: 'analysis', label: message('config.executionTabs.analysis') },
+	{ id: 'state', label: message('config.executionTabs.state') },
+	{ id: 'hierarchy', label: message('config.executionTabs.hierarchy') },
+	{ id: 'history', label: message('config.executionTabs.history') },
+	{ id: 'checkpoints', label: message('config.executionTabs.checkpoints') },
 ];
 
 export type ExecutionTab =

@@ -1,10 +1,12 @@
+import { message } from '$lib/i18n';
+
 export type CommandAction = 'new' | 'retry' | 'continue';
 
 export interface SlashCommand {
 	name: string;
 	/** Argument the command accepts; null when it takes none. */
 	arg: string | null;
-	description: string;
+	description: () => string;
 	action: CommandAction;
 }
 
@@ -13,19 +15,19 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 	{
 		name: 'new',
 		arg: null,
-		description: 'Start a fresh draft session',
+		description: message('config.commands.new'),
 		action: 'new',
 	},
 	{
 		name: 'retry',
 		arg: null,
-		description: 'Resend the last user message',
+		description: message('config.commands.retry'),
 		action: 'retry',
 	},
 	{
 		name: 'continue',
 		arg: '[note]',
-		description: 'Keep the run going, optionally steering it',
+		description: message('config.commands.continue'),
 		action: 'continue',
 	},
 ];

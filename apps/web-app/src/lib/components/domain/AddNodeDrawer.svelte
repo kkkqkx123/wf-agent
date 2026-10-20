@@ -12,6 +12,7 @@
 		type NodeTemplateSummary,
 	} from '$lib/services/node-templates';
 	import { toasts } from '$lib/stores/toast.svelte';
+	import { t } from '$lib/i18n';
 	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {
@@ -67,7 +68,7 @@
 			hasMore = page.hasMore;
 		} catch (e) {
 			toasts.error(
-				'Failed to load node templates',
+				t('domain.addNode.loadError'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -90,14 +91,14 @@
 		type Group = { name: string; plugin: boolean; entries: Choice[] };
 		const groups: Group[] = [
 			{
-				name: 'Blank',
+				name: t('domain.addNode.blankGroup'),
 				plugin: false,
 				entries: [
 					{
 						key: 'blank',
 						nodeType: DEFAULT_NODE_TYPE,
 						name: null,
-						note: 'Unnamed step',
+						note: t('domain.addNode.unnamedStep'),
 					},
 				],
 			},
@@ -158,8 +159,8 @@
 
 <Dialog
 	bind:open
-	title="Add node"
-	description="Pick a node type to drop onto the canvas"
+	title={t('domain.addNode.title')}
+	description={t('domain.addNode.description')}
 	width="34rem"
 	{onclose}
 >
@@ -172,20 +173,20 @@
 			/>
 			<input
 				bind:value={query}
-				placeholder="Search node templates…"
-				aria-label="Search node templates"
+				placeholder={t('domain.addNode.searchPlaceholder')}
+				aria-label={t('domain.addNode.searchPlaceholder')}
 				class="h-9 w-full rounded-md border border-input bg-card pl-8 pr-2 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[hsl(var(--ring))]"
 			/>
 		</div>
 		{#if position}
 			<p class="mt-1 text-micro text-muted-foreground">
-				Drops at ({position.x}, {position.y})
+				{t('domain.addNode.dropsAt', { x: position.x, y: position.y })}
 			</p>
 		{/if}
 		<div class="mt-2 max-h-80 overflow-y-auto">
 			{#if loading}
 				<p class="px-2 py-6 text-center text-caption text-muted-foreground">
-					Loading templates…
+					{t('common.loading')}
 				</p>
 			{:else}
 				{#each grouped as group (group.name)}
@@ -197,7 +198,7 @@
 							<span
 								class="rounded border border-border px-1 text-micro text-muted-foreground"
 							>
-								plugin
+								{t('domain.addNode.plugin')}
 							</span>
 						{/if}
 					</div>
@@ -220,7 +221,7 @@
 								class="shrink-0 text-muted-foreground"
 							/>
 							<span class="min-w-0 flex-1 truncate text-body">
-								{choice.name ?? 'Blank step'}
+								{choice.name ?? t('domain.addNode.blankStep')}
 							</span>
 							<span class="shrink-0 truncate text-micro text-muted-foreground">
 								{choice.name ? choice.note : choice.nodeType}
@@ -233,16 +234,16 @@
 		{#if !loading && (skippedCount > 0 || hasMore)}
 			<p class="mt-2 px-2 text-micro text-muted-foreground">
 				{#if skippedCount > 0}
-					{skippedCount} row(s) skipped: incomplete template data.
+					{t('domain.addNode.skipped', { count: skippedCount })}
 				{/if}
 				{#if hasMore}
-					Showing the first page only; search to narrow down.
+					{t('domain.addNode.firstPageOnly')}
 				{/if}
 			</p>
 		{/if}
 		{#if !loading && grouped.some((group) => group.plugin)}
 			<p class="mt-1 px-2 text-micro text-muted-foreground">
-				Plugin node types run only once the plugin that owns them is installed.
+				{t('domain.addNode.pluginHint')}
 			</p>
 		{/if}
 	</div>

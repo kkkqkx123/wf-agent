@@ -5,6 +5,7 @@
 	import { getEntityMetadata, setEntityMetadata } from '$lib/services/checkpoints';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { checkpoints as checkpointStore } from '$lib/stores/checkpoints.svelte';
+	import { t } from '$lib/i18n';
 
 	let metadataEntityId = $state('');
 	let metadataText = $state('');
@@ -13,17 +14,19 @@
 	async function load(): Promise<void> {
 		const entity = metadataEntityId.trim();
 		if (!entity) {
-			toasts.error('Enter an entity id');
+			toasts.error(t('domain.checkpoint.entityIdRequired'));
 			return;
 		}
 		try {
 			const metadata = await getEntityMetadata(entity);
 			metadataText = JSON.stringify(metadata, null, 2);
-			note = `Loaded ${Object.keys(metadata).length} key(s)`;
+			note = t('domain.checkpoint.loadedKeys', {
+				count: Object.keys(metadata).length,
+			});
 		} catch (e) {
 			console.error('Metadata load failed:', e);
 			toasts.error(
-				'Metadata load failed',
+				t('domain.checkpoint.metadataLoadFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		}
@@ -32,7 +35,7 @@
 	async function save(): Promise<void> {
 		const entity = metadataEntityId.trim();
 		if (!entity) {
-			toasts.error('Enter an entity id');
+			toasts.error(t('domain.checkpoint.entityIdRequired'));
 			return;
 		}
 		let parsed: unknown;
@@ -40,24 +43,24 @@
 			parsed = JSON.parse(metadataText || '{}');
 		} catch (e) {
 			toasts.error(
-				'Metadata is not valid JSON',
+				t('domain.checkpoint.metadataInvalidJson'),
 				e instanceof Error ? e.message : undefined,
 			);
 			return;
 		}
 		if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-			toasts.error('Metadata must be a JSON object');
+			toasts.error(t('domain.checkpoint.metadataMustBeObject'));
 			return;
 		}
 		checkpointStore.beginAction('metadata');
 		try {
 			await setEntityMetadata(entity, parsed as Record<string, unknown>);
-			note = 'Metadata saved';
-			toasts.success('Metadata replaced', entity);
+			note = t('domain.checkpoint.metadataSavedNote');
+			toasts.success(t('domain.checkpoint.metadataReplaced'), entity);
 		} catch (e) {
 			console.error('Metadata save failed:', e);
 			toasts.error(
-				'Metadata save failed',
+				t('domain.checkpoint.metadataSaveFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -67,11 +70,13 @@
 </script>
 
 <section class="space-y-2">
-	<h3 class="text-caption font-medium text-foreground">Entity metadata</h3>
+	<h3 class="text-caption font-medium text-foreground">
+		{t('domain.checkpoint.entityMetadataTitle')}
+	</h3>
 	<div class="flex items-end gap-2">
 		<div class="min-w-0 flex-1">
 			<Input
-				label="Entity id"
+				label={t('domain.checkpoint.entityId')}
 				size="sm"
 				value={metadataEntityId}
 				oninput={(event: Event) =>
@@ -80,11 +85,11 @@
 			/>
 		</div>
 		<Button variant="outline" size="sm" onclick={() => void load()}>
-			Load
+			{t('domain.checkpoint.load')}
 		</Button>
 	</div>
 	<Textarea
-		label="Metadata (JSON object)"
+		label={t('domain.checkpoint.metadataLabel')}
 		bind:value={metadataText}
 		rows={6}
 		placeholder="metadata JSON"
@@ -95,7 +100,7 @@
 			disabled={checkpointStore.busy}
 			onclick={() => void save()}
 		>
-			Save metadata
+			{t('domain.checkpoint.saveMetadata')}
 		</Button>
 		{#if note}
 			<span class="text-micro text-muted-foreground">{note}</span>

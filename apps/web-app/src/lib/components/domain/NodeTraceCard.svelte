@@ -15,6 +15,7 @@
 	import { formatDateTime, formatDuration } from '$lib/utils/format';
 	import { extractMarkdownText } from '$lib/utils/markdown';
 	import { cn } from '@wf-agent/ui/cn';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		trace: NodeTrace;
@@ -67,13 +68,13 @@
 				>{title}</span
 			>
 			<span class="block truncate text-micro text-muted-foreground">
-				{trace.nodeType || 'unknown type'}
+				{trace.nodeType || t('domain.nodeTrace.unknownType')}
 			</span>
 		</span>
 		{#if trace.retryCount > 0}
 			<span
 				class="flex shrink-0 items-center gap-1 text-micro tabular-nums text-warning"
-				title={`${trace.retryCount} retr${trace.retryCount === 1 ? 'y' : 'ies'}`}
+				title={t('domain.nodeTrace.retries', { count: trace.retryCount })}
 			>
 				<Icon name="refresh" size={12} />
 				{trace.retryCount}
@@ -99,13 +100,15 @@
 		>
 			<dl class="grid grid-cols-2 gap-x-3 gap-y-1.5">
 				<div>
-					<dt class="text-micro text-muted-foreground">Started</dt>
+					<dt class="text-micro text-muted-foreground"
+						>{t('domain.inspector.started')}</dt
+					>
 					<dd class="text-caption tabular-nums">
 						{trace.startedAt ? formatDateTime(trace.startedAt) : '—'}
 					</dd>
 				</div>
 				<div>
-					<dt class="text-micro text-muted-foreground">Ended</dt>
+					<dt class="text-micro text-muted-foreground">{t('domain.nodeTrace.ended')}</dt>
 					<dd class="text-caption tabular-nums">
 						{trace.endedAt ? formatDateTime(trace.endedAt) : '—'}
 					</dd>
@@ -120,7 +123,7 @@
 						class="flex items-center gap-1.5 text-micro font-medium text-destructive"
 					>
 						<Icon name="alert-triangle" size={12} />
-						Failure
+						{t('domain.nodeTrace.failure')}
 					</p>
 					<p
 						class="mt-0.5 font-mono text-micro break-words whitespace-pre-wrap text-foreground"
@@ -134,7 +137,7 @@
 				<p
 					class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
 				>
-					Input
+					{t('domain.nodeTrace.input')}
 				</p>
 				<JsonViewer value={trace.input} collapsed />
 			</div>
@@ -142,7 +145,7 @@
 				<p
 					class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
 				>
-					Output
+					{t('domain.nodeTrace.output')}
 				</p>
 				{#if markdownOutput !== null}
 					<StreamMarkdown content={markdownOutput} done />
@@ -156,7 +159,7 @@
 					<p
 						class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
 					>
-						Tool dependencies
+						{t('domain.nodeTrace.toolDependencies')}
 					</p>
 					<ul class="flex flex-wrap gap-1.5">
 						{#each trace.toolDependencies as dependency (dependency.toolName)}
@@ -174,13 +177,15 @@
 			{/if}
 
 			{#if loading}
-				<p class="text-micro text-muted-foreground">Loading node context…</p>
+				<p class="text-micro text-muted-foreground">
+					{t('common.loading')}
+				</p>
 			{:else if detail}
 				<div>
 					<p
 						class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
 					>
-						Input parameters
+						{t('domain.nodeTrace.inputParameters')}
 					</p>
 					<KeyValueList items={detail.inputParameters} dense />
 				</div>
@@ -189,7 +194,7 @@
 						<p
 							class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
 						>
-							Variables in scope
+							{t('domain.nodeTrace.variablesInScope')}
 						</p>
 						<ul class="space-y-1">
 							{#each detail.availableVariables as variable (variable.name)}
@@ -208,7 +213,7 @@
 				{/if}
 			{:else if !hasDetail}
 				<p class="text-micro text-muted-foreground">
-					No context recorded for this node.
+					{t('domain.nodeTrace.noContext')}
 				</p>
 			{/if}
 
@@ -217,7 +222,7 @@
 					<p
 						class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
 					>
-						Reasoning
+						{t('domain.nodeTrace.reasoning')}
 					</p>
 					<ol class="space-y-1.5">
 						{#each reasoning as step (step.stepId)}
@@ -247,7 +252,7 @@
 			<div class="flex items-center gap-2">
 				<Button variant="ghost" size="sm" onclick={() => onlocate?.()}>
 					<Icon name="zoom-in" size={13} />
-					Locate on graph
+					{t('domain.inspector.locateOnGraph')}
 				</Button>
 			</div>
 		</div>

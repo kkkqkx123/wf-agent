@@ -8163,6 +8163,72 @@
         ]
       }
     },
+    "/api/v1/chat/stream": {
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "operationId": "handle_chat_stream",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRunBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Server-sent events stream",
+            "content": {
+              "text/event-stream": {}
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/checkpoints": {
       "get": {
         "tags": [
@@ -43690,6 +43756,31 @@
           }
         }
       },
+      "ChatRunBody": {
+        "type": "object",
+        "description": "Wire body of `/chat/stream`.",
+        "required": [
+          "profile_id",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "The user text of this turn."
+          },
+          "profile_id": {
+            "type": "string",
+            "description": "LLM profile id that serves the turn."
+          },
+          "session_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Session anchor of the conversation. Absent starts a new session."
+          }
+        }
+      },
       "CheckpointDoc": {
         "type": "object",
         "description": "One stored execution checkpoint (`wf_types::Checkpoint` mirrored).",
@@ -46606,13 +46697,6 @@
           "message": {
             "type": "string"
           },
-          "mode": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Caller-requested run mode: `chat` runs a tool-free plain-chat loop;\nmissing or `standard` keeps the full agent loop. Translated at the\ncomposition boundary, never stored on the config."
-          },
           "model": {
             "type": "string"
           },
@@ -46632,14 +46716,7 @@
             "format": "int32",
             "minimum": 0
           },
-          "tool_call_protocol": {},
-          "workflow_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Optional workflow template id injected as a volatile context message;\nunknown or non-runnable templates are rejected as not found."
-          }
+          "tool_call_protocol": {}
         }
       },
       "SaveVersionBody": {
@@ -47428,6 +47505,10 @@
     {
       "name": "agent",
       "description": "Agent loop management: CRUD, execution control, status, variables, and analysis"
+    },
+    {
+      "name": "chat",
+      "description": "Tool-free multi-turn chat sessions"
     },
     {
       "name": "workflow",

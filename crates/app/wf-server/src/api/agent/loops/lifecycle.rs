@@ -47,15 +47,6 @@ pub struct RunAgentLoopBody {
     #[serde(default)]
     #[schema(value_type = Option<Value>)]
     file_scope: Option<wf_types::config::file_scope::ExecutionFileScope>,
-    /// Caller-requested run mode: `chat` runs a tool-free plain-chat loop;
-    /// missing or `standard` keeps the full agent loop. Translated at the
-    /// composition boundary, never stored on the config.
-    #[serde(default)]
-    mode: Option<String>,
-    /// Optional workflow template id injected as a volatile context message;
-    /// unknown or non-runnable templates are rejected as not found.
-    #[serde(default)]
-    workflow_id: Option<String>,
     #[serde(default)]
     context: HashMap<String, Value>,
     #[schema(value_type = Option<Vec<Value>>)]
@@ -111,17 +102,9 @@ pub(crate) async fn params_from_body(
         Some(state.ctx.tool_registry.as_ref()),
         state.ctx.metrics.as_deref(),
     );
-    let mut config = config;
-    wf_api::agent::composition::apply_loop_mode(body.mode.as_deref(), &mut config)?;
-    let excluded_workflow_id = body
-        .workflow_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|id| !id.is_empty());
     let mention_messages = wf_api::agent::composition::resolve_mentions(
         &state.ctx,
         &body.message,
-        excluded_workflow_id,
     )
     .await;
     let input = wf_api::AgentLoopInput {
@@ -133,31 +116,9 @@ pub(crate) async fn params_from_body(
         &env,
         wf_api::agent::agent_execution::RunAgentLoopParams::new(config, input),
     )?;
-    // Workflow context lands after prompt assembly so the marked volatile
-    // message survives this round's assembly and is stripped on the next
-    // round's import; the template is resolved and gated here, not by the
-    // caller.
-    if let Some(workflow_id) = body
-        .workflow_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-    {
-        let summary = wf_api::agent::composition::resolve_workflow_context(
-            state.ctx.registries.as_ref(),
-            workflow_id,
-        )?;
-        params
-            .input
-            .conversation
-            .push(wf_api::dynamic_context_message(format!(
-                "Selected workflow context:\n{summary}"
-            )));
-    }
 
     for message in mention_messages {
-        // Supplemental context from inline mentions; the explicitly selected
-        // workflow context above is already excluded from this list.
+        // Supplemental context from inline mentions.
         params.input.conversation.push(message);
     }
     Ok(params)

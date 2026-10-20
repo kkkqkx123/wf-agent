@@ -49,6 +49,27 @@ const DEFAULT_RECENT_LIMIT: usize = 20;
 /// Default maximum search results when no explicit limit is given.
 const DEFAULT_SEARCH_LIMIT: usize = 50;
 
+/// Build a storage record from a message and its execution scoping.
+///
+/// The record is keyed by the message id, and a message enters the ledger
+/// with an id of its own: a provider reply may carry none, and two such
+/// replies would otherwise overwrite each other.
+pub fn record(
+    execution_id: &str,
+    agent_loop_id: Option<&str>,
+    mut message: Message,
+) -> MessageStorageMetadata {
+    if message.id.trim().is_empty() {
+        message.id = wf_common::generate_id();
+    }
+    MessageStorageMetadata {
+        id: message.id.clone(),
+        execution_id: execution_id.to_string(),
+        agent_loop_id: agent_loop_id.map(ToOwned::to_owned),
+        message,
+    }
+}
+
 /// Persist a message record (upsert by message id).
 pub async fn save(ctx: &ApiContext, record: &MessageStorageMetadata) -> ApiResult<()> {
     ctx.storage.message.save(record).await?;
@@ -63,12 +84,7 @@ pub async fn add_message(
     agent_loop_id: Option<&str>,
     message: Message,
 ) -> ApiResult<()> {
-    let record = MessageStorageMetadata {
-        id: message.id.clone(),
-        execution_id: execution_id.to_string(),
-        agent_loop_id: agent_loop_id.map(ToOwned::to_owned),
-        message,
-    };
+    let record = record(execution_id, agent_loop_id, message);
     save(ctx, &record).await
 }
 

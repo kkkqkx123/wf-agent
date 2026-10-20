@@ -3,8 +3,7 @@
 	import Badge from '@wf-agent/ui/components/Badge.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
-	import GraphExplorer from '$lib/components/domain/GraphExplorer.svelte';
-	import type { WorkflowDetail } from '$lib/types/models';
+		import type { WorkflowDetail } from '$lib/types/models';
 	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
 	import type { WorkflowGraphState } from '$lib/workflows/graph-state.svelte';
 
@@ -33,7 +32,8 @@
 		</button>.
 	</p>
 {/if}
-<GraphExplorer
+{#await import('$lib/components/domain/GraphExplorer.svelte') then module}
+<module.default
 	{nodes}
 	{edges}
 	preset="workflow"
@@ -46,7 +46,7 @@
 	activeOverlay={state.activeOverlay}
 	onoverlay={(id) => (state.activeOverlay = id)}
 	onjumpparam={(id) => state.jumpToNodeRow(id)}
-/>
+/> {/await}
 <div class="mt-3 grid gap-3 lg:grid-cols-2">
 	<Card title="Nodes">
 		<ul class="space-y-1.5">

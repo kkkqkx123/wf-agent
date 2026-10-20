@@ -51,7 +51,9 @@ pub use error::{PluginError, PluginResult};
 pub use event_bus::{PluginEventBus, PluginEventSubscription};
 pub use events::PluginEvent;
 pub use guard::PluginGuard;
-pub use manifest::{LuaConfig, PluginManifest, PluginPermission, PluginType, WasmConfig};
+pub use manifest::{
+    all_entry_points, LuaConfig, PluginManifest, PluginPermission, PluginType, WasmConfig,
+};
 pub use package::{InstalledPlugin, PackageState, PluginPackageManager};
 pub use plugin::Plugin;
 pub use registry::{ContributionRecord, PluginInfo, PluginRegistry, PluginStatus};

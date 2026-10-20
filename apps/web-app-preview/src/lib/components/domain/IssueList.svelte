@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { TemplateIssue } from '$lib/services/templates';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		issues: TemplateIssue[];
@@ -36,7 +37,7 @@
 						class="shrink-0 underline-offset-2 hover:underline"
 						onclick={() => onlocate?.(issue)}
 					>
-						Locate
+						{t('domain.graph.locate')}
 					</button>
 				{/if}
 			</li>

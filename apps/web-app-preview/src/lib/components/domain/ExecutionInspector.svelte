@@ -20,14 +20,11 @@
 	import ToolCallGroup from './ToolCallGroup.svelte';
 	import { groupToolCalls } from '$lib/utils/tool-output';
 	import { preferences } from '$lib/stores/preferences.svelte';
-	import NodeTracePanel from './NodeTracePanel.svelte';
 	import ExecutionHierarchyBreadcrumb from './ExecutionHierarchyBreadcrumb.svelte';
 	import ExecutionHierarchyTree from './ExecutionHierarchyTree.svelte';
-	import ExecutionHistoryPanel from './ExecutionHistoryPanel.svelte';
-	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
+	import StreamMarkdown from '$lib/components/chat/LazyStreamMarkdown.svelte';
 	import { extractMarkdownText } from '$lib/utils/markdown';
-	import GraphExplorer from '$lib/components/domain/GraphExplorer.svelte';
-	import type { GraphOverlay } from '$lib/graph/display-model';
+		import type { GraphOverlay } from '$lib/graph/display-model';
 	import {
 		getExecutionTimeline,
 		getExecutionToolCalls,
@@ -67,13 +64,11 @@
 		defaultTab,
 		type ExecutionTab,
 	} from '$lib/config/execution-tabs';
-	import LoopMessagesPanel from './LoopMessagesPanel.svelte';
-	import LoopVariablesPanel from './LoopVariablesPanel.svelte';
-	import LoopCheckpointsPanel from './LoopCheckpointsPanel.svelte';
 	import type { StreamState } from '$lib/api/sse';
 	import type { EventRecord } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		execution: ExecutionDetail;
@@ -288,7 +283,7 @@
 						mark.id,
 						typeof duration === 'number'
 							? formatDuration(duration)
-							: 'slow node',
+							: t('domain.inspector.slowNode'),
 					];
 				}),
 		);
@@ -301,7 +296,9 @@
 				.filter((edge) => edge.source === nodeId && (edge.label ?? '').trim())
 				.map((edge) => edge.label as string);
 			labels[nodeId] =
-				branches.length > 0 ? branches.slice(0, 3).join(' / ') : 'branch node';
+				branches.length > 0
+					? branches.slice(0, 3).join(' / ')
+					: t('domain.inspector.branchNode');
 		}
 		return labels;
 	});
@@ -403,7 +400,7 @@
 		}
 		const nodeId = matchToolNode(toolName, toolId);
 		if (!nodeId) {
-			toasts.info('No graph node matches this tool call');
+			toasts.info(t('domain.inspector.noGraphNodeMatch'));
 			return;
 		}
 		focusGraphNode(nodeId);
@@ -538,29 +535,37 @@
 	const overlays = $derived.by<GraphOverlay[]>(() => {
 		const list: GraphOverlay[] = [];
 		if (failedAll.length > 0) {
-			list.push({ id: 'failed', label: 'Failed nodes', ids: failedAll });
+			list.push({
+				id: 'failed',
+				label: t('domain.inspector.failedNodes'),
+				ids: failedAll,
+			});
 		}
 		if (criticalAll.length > 0) {
-			list.push({ id: 'critical', label: 'Critical path', ids: criticalAll });
+			list.push({
+				id: 'critical',
+				label: t('domain.inspector.criticalPath'),
+				ids: criticalAll,
+			});
 		}
 		if (decisionAll.length > 0) {
 			list.push({
 				id: 'decisions',
-				label: 'Decision points',
+				label: t('domain.inspector.decisionPoints'),
 				ids: decisionAll,
 			});
 		}
 		if (slowEntries.length > 0) {
 			list.push({
 				id: 'slow',
-				label: 'Slow nodes',
+				label: t('domain.inspector.slowNodes'),
 				ids: [...new Set(slowEntries.map((entry) => entry.node))],
 			});
 		}
 		if (activeOverlay === '__neighborhood') {
 			list.push({
 				id: '__neighborhood',
-				label: 'Neighborhood',
+				label: t('domain.inspector.neighborhood'),
 				ids: neighborhoodIds,
 			});
 		}
@@ -577,7 +582,7 @@
 			failedNodes = snapshot.failedNodes;
 			criticalPath = snapshot.criticalPath;
 		} catch (e) {
-			graphError = e instanceof Error ? e.message : 'Graph failed to load.';
+			graphError = e instanceof Error ? e.message : t('domain.inspector.graphFailed');
 		} finally {
 			graphLoading = false;
 		}
@@ -594,7 +599,7 @@
 			criticalPath = snapshot.criticalPath;
 			efficiency = snapshot.efficiency;
 		} catch (e) {
-			analysisError = e instanceof Error ? e.message : 'Analysis failed.';
+			analysisError = e instanceof Error ? e.message : t('domain.inspector.analysisFailed');
 		} finally {
 			analysisLoading = false;
 		}
@@ -610,7 +615,7 @@
 			callStack = snapshot.callStack;
 			memory = snapshot.memory;
 		} catch (e) {
-			stateError = e instanceof Error ? e.message : 'State failed to load.';
+			stateError = e instanceof Error ? e.message : t('domain.inspector.stateFailed');
 		} finally {
 			stateLoading = false;
 		}
@@ -627,7 +632,8 @@
 		} catch (e) {
 			seenTrace = '';
 			nodeTraces = [];
-			nodeTracesError = e instanceof Error ? e.message : 'Node traces failed.';
+			nodeTracesError =
+				e instanceof Error ? e.message : t('domain.inspector.tracesFailed');
 		} finally {
 			nodeTracesLoading = false;
 		}
@@ -644,7 +650,7 @@
 			activeOverlay = '__neighborhood';
 		} catch (e) {
 			toasts.error(
-				'Neighborhood failed to load',
+				t('domain.inspector.neighborhoodFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		}
@@ -663,7 +669,7 @@
 				.catch((e: unknown) => {
 					seenTools = '';
 					toolCalls = [];
-					toolsError = e instanceof Error ? e.message : 'Tools failed.';
+					toolsError = e instanceof Error ? e.message : t('domain.inspector.toolsFailed');
 				});
 		}
 		if (tab === 'timeline' && seenTimeline !== id) {
@@ -676,7 +682,8 @@
 				.catch((e: unknown) => {
 					seenTimeline = '';
 					timeline = [];
-					timelineError = e instanceof Error ? e.message : 'Timeline failed.';
+					timelineError =
+						e instanceof Error ? e.message : t('domain.inspector.timelineFailed');
 				});
 		}
 		if (tab === 'trace' && seenTrace !== id) {
@@ -721,7 +728,8 @@
 			seenHierarchy = null;
 			hierarchy = null;
 			subtree = null;
-			hierarchyError = e instanceof Error ? e.message : 'Hierarchy failed.';
+			hierarchyError =
+				e instanceof Error ? e.message : t('domain.inspector.hierarchyFailed');
 		}
 	}
 
@@ -771,9 +779,12 @@
 			<div
 				class="flex items-center justify-between text-micro text-muted-foreground"
 			>
-				<span>Progress</span>
+				<span>{t('domain.inspector.progress')}</span>
 				<span class="tabular-nums"
-					>{execution.tasksDone}/{execution.tasksTotal} tasks</span
+					>{t('domain.executionCard.tasks', {
+						done: execution.tasksDone,
+						total: execution.tasksTotal,
+					})}</span
 				>
 			</div>
 			<Progress value={execution.progress} tone={progressTone} />
@@ -781,25 +792,27 @@
 
 		<dl class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2">
 			<div>
-				<dt class="text-micro text-muted-foreground">Started</dt>
+				<dt class="text-micro text-muted-foreground">{t('domain.inspector.started')}</dt>
 				<dd class="text-caption tabular-nums">
 					{formatDateTime(execution.startedAt)}
 				</dd>
 			</div>
 			<div>
-				<dt class="text-micro text-muted-foreground">Duration</dt>
+				<dt class="text-micro text-muted-foreground">{t('domain.inspector.duration')}</dt>
 				<dd class="text-caption tabular-nums">
 					{formatDuration(execution.durationMs)}
 				</dd>
 			</div>
 			<div>
-				<dt class="text-micro text-muted-foreground">Memory peak</dt>
+				<dt class="text-micro text-muted-foreground"
+					>{t('domain.inspector.memoryPeak')}</dt
+				>
 				<dd class="text-caption tabular-nums">
 					{formatBytes(execution.memoryPeakBytes)}
 				</dd>
 			</div>
 			<div>
-				<dt class="text-micro text-muted-foreground">Trigger</dt>
+				<dt class="text-micro text-muted-foreground">{t('domain.inspector.trigger')}</dt>
 				<dd class="truncate text-caption">{execution.trigger ?? '—'}</dd>
 			</div>
 		</dl>
@@ -816,23 +829,26 @@
 	<div
 		id="execution-panel"
 		role="tabpanel"
-		aria-label="Execution sections"
+		aria-label={t('domain.inspector.sections')}
 		class="min-h-0 flex-1 overflow-y-auto px-3 py-3"
 	>
 		{#if tab === 'overview'}
 			<div class="space-y-3">
-				<Card title="Context">
+				<Card title={t('domain.inspector.context')}>
 					<KeyValueList items={contextItems} dense />
 				</Card>
-				<Card title="Current position">
-					<p class="text-body">{execution.currentNode ?? 'No active node'}</p>
+				<Card title={t('domain.inspector.currentPosition')}>
+					<p class="text-body">
+						{execution.currentNode ?? t('domain.inspector.noActiveNode')}
+					</p>
 					<p class="mt-1 text-caption text-muted-foreground">
-						{execution.failedNodes} failed nodes across {formatNumber(
-							execution.tasksTotal,
-						)} tasks
+						{t('domain.inspector.failedAcrossTasks', {
+							failed: execution.failedNodes,
+							total: formatNumber(execution.tasksTotal),
+						})}
 					</p>
 				</Card>
-				<Card title="Live output">
+				<Card title={t('domain.inspector.liveOutput')}>
 					{#if liveTrace}
 						<div class="flex items-center justify-between gap-2">
 							<p class="truncate font-mono text-caption text-foreground">
@@ -845,7 +861,7 @@
 									<span
 										class="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-running"
 									></span>
-									Live
+									{t('domain.inspector.live')}
 								</span>
 							{/if}
 						</div>
@@ -869,22 +885,22 @@
 								onclick={() =>
 									execution.currentNode && openNodeTrace(execution.currentNode)}
 							>
-								Open trace
+								{t('domain.inspector.openTrace')}
 							</button>
 						{/if}
 					{:else if nodeTracesLoading}
 						<p class="text-caption text-muted-foreground">
-							Loading node output…
+							{t('domain.inspector.loadingNodeOutput')}
 						</p>
 					{:else}
 						<p class="text-caption text-muted-foreground">
 							{isLive
-								? 'Node output appears once a node has produced it.'
-								: 'Open the Trace tab to load node outputs.'}
+								? t('domain.inspector.liveOutputEmpty')
+								: t('domain.inspector.openTraceHint')}
 						</p>
 					{/if}
 				</Card>
-				<Card title="Status migration">
+				<Card title={t('domain.inspector.statusMigration')}>
 					<ol class="space-y-1.5">
 						{#each execution.migration as entry, index (index)}
 							<li class="flex items-start gap-2 text-caption">
@@ -908,13 +924,20 @@
 			<div class="mb-2 flex flex-wrap items-center gap-2">
 				{#if isLive}
 					<span class="text-micro text-muted-foreground">
-						Live: {streamState === 'open' ? 'connected' : streamState}
+						{t('domain.inspector.liveColon', {
+							state:
+								streamState === 'open'
+									? t('domain.inspector.connected')
+									: streamState,
+						})}
 						{Object.keys(liveStatuses).length > 0
-							? `· ${Object.keys(liveStatuses).length} live node(s)`
+							? `· ${t('domain.inspector.liveNodes', { count: Object.keys(liveStatuses).length })}`
 							: ''}
 					</span>
 				{:else}
-					<span class="text-micro text-muted-foreground">Historical run</span>
+					<span class="text-micro text-muted-foreground"
+						>{t('domain.inspector.historicalRun')}</span
+					>
 				{/if}
 				{#if callStack.length > 0}
 					<span class="mx-1 h-4 w-px bg-border"></span>
@@ -927,7 +950,7 @@
 								replayPlaying = false;
 							}}
 						>
-							Start replay
+							{t('domain.inspector.startReplay')}
 						</button>
 					{:else}
 						<button
@@ -935,14 +958,16 @@
 							class="text-micro text-foreground underline-offset-2 hover:underline"
 							onclick={() => (replayPlaying = !replayPlaying)}
 						>
-							{replayPlaying ? 'Pause' : 'Play'}
+							{replayPlaying
+								? t('domain.inspector.pause')
+								: t('domain.inspector.play')}
 						</button>
 						<label class="text-micro text-muted-foreground">
-							Speed
+							{t('domain.inspector.speed')}
 							<select
 								bind:value={replaySpeed}
 								class="ml-1 rounded border border-border bg-card text-micro text-foreground"
-								aria-label="Replay speed"
+								aria-label={t('domain.inspector.replaySpeed')}
 							>
 								<option value={0.5}>0.5×</option>
 								<option value={1}>1×</option>
@@ -959,7 +984,7 @@
 								replayIndex = Math.max(0, (replayIndex ?? 1) - 1);
 							}}
 						>
-							Step back
+							{t('domain.inspector.stepBack')}
 						</button>
 						<button
 							type="button"
@@ -973,7 +998,7 @@
 								);
 							}}
 						>
-							Step forward
+							{t('domain.inspector.stepForward')}
 						</button>
 						<input
 							type="range"
@@ -985,7 +1010,7 @@
 								replayIndex = Number(event.currentTarget.value);
 							}}
 							class="w-32 accent-current"
-							aria-label="Replay position"
+							aria-label={t('domain.inspector.replayPosition')}
 						/>
 						<span class="text-micro tabular-nums text-muted-foreground">
 							{(replayIndex ?? 0) + 1}/{callStack.length}
@@ -998,12 +1023,13 @@
 								replayIndex = null;
 							}}
 						>
-							Exit replay
+							{t('domain.inspector.exitReplay')}
 						</button>
 					{/if}
 				{/if}
 			</div>
-			<GraphExplorer
+			{#await import('$lib/components/domain/GraphExplorer.svelte') then module}
+<module.default
 				bind:this={explorer}
 				nodes={overlayNodes}
 				edges={overlayEdges}
@@ -1014,7 +1040,7 @@
 				selectedId={graphNodeId}
 				onselect={(id) => (graphNodeId = id)}
 				onexpand={(id) => void expandNeighborhood(id)}
-				expandLabel="Reveal neighborhood"
+				expandLabel={t('domain.inspector.revealNeighborhood')}
 				{overlays}
 				{activeOverlay}
 				onoverlay={(id) => (activeOverlay = id)}
@@ -1033,14 +1059,14 @@
 							class="mt-1 text-micro text-foreground underline-offset-2 hover:underline"
 							onclick={() => graphNodeId && filterToolsByGraph(graphNodeId)}
 						>
-							Show tool calls for this node
+							{t('domain.inspector.showToolCalls')}
 						</button>
 						<button
 							type="button"
 							class="mt-1 text-micro text-foreground underline-offset-2 hover:underline"
 							onclick={() => graphNodeId && openNodeTrace(graphNodeId)}
 						>
-							Show node trace
+							{t('domain.inspector.showNodeTrace')}
 						</button>
 						{#if selectedAnalysisKind}
 							<button
@@ -1050,30 +1076,33 @@
 									selectedAnalysisKind &&
 									revealInAnalysis(selectedAnalysisKind)}
 							>
-								Show in analysis
+								{t('domain.inspector.showInAnalysis')}
 							</button>
 						{/if}
 					{/if}
 				{/snippet}
-			</GraphExplorer>
+			</module.default>
+		{/await}
 		{:else if tab === 'trace'}
-			<NodeTracePanel
-				executionId={execution.id}
-				traces={nodeTraces}
-				skipped={nodeTracesSkipped}
-				loading={nodeTracesLoading}
-				error={nodeTracesError}
-				selectedNodeId={graphNodeId}
-				onretry={() => {
-					seenTrace = '';
-					nodeTracesError = null;
-				}}
-				onlocate={(nodeId) => focusGraphNode(nodeId)}
-			/>
+			{#await import('./NodeTracePanel.svelte') then module}
+				<module.default
+					executionId={execution.id}
+					traces={nodeTraces}
+					skipped={nodeTracesSkipped}
+					loading={nodeTracesLoading}
+					error={nodeTracesError}
+					selectedNodeId={graphNodeId}
+					onretry={() => {
+						seenTrace = '';
+						nodeTracesError = null;
+					}}
+					onlocate={(nodeId) => focusGraphNode(nodeId)}
+				/>
+			{/await}
 		{:else if tab === 'timeline'}
 			{#if timelineError}
 				<ErrorState
-					title="Timeline failed to load"
+					title={t('domain.inspector.timelineFailedTitle')}
 					description={timelineError}
 					onretry={() => {
 						seenTimeline = '';
@@ -1084,7 +1113,10 @@
 			{:else}
 				{#if replayScope !== null}
 					<p class="mb-2 text-micro text-muted-foreground">
-						Following replay cursor ({scopedTimeline.length}/{timeline.length})
+						{t('domain.inspector.followingReplay', {
+							shown: scopedTimeline.length,
+							total: timeline.length,
+						})}
 					</p>
 				{/if}
 				<div class="flex items-start gap-3">
@@ -1098,7 +1130,7 @@
 		{:else if tab === 'tools'}
 			{#if toolsError}
 				<ErrorState
-					title="Tool calls failed to load"
+					title={t('domain.inspector.toolsFailedTitle')}
 					description={toolsError}
 					onretry={() => {
 						seenTools = '';
@@ -1110,20 +1142,27 @@
 				<div class="space-y-2">
 					{#if replayScope !== null}
 						<p class="text-micro text-muted-foreground">
-							Following replay cursor ({filteredTools.length}/{toolCalls.length})
+							{t('domain.inspector.followingReplay', {
+								shown: filteredTools.length,
+								total: toolCalls.length,
+							})}
 						</p>
 					{/if}
 					{#if toolFilter}
 						<div class="flex items-center gap-2">
 							<p class="text-micro text-muted-foreground">
-								Filtered by “{toolFilter}” ({filteredTools.length}/{toolCalls.length})
+								{t('domain.inspector.filteredBy', {
+									filter: toolFilter,
+									shown: filteredTools.length,
+									total: toolCalls.length,
+								})}
 							</p>
 							<button
 								type="button"
 								class="text-micro text-foreground underline-offset-2 hover:underline"
 								onclick={() => (toolFilter = '')}
 							>
-								Clear
+								{t('domain.inspector.clearFilter')}
 							</button>
 						</div>
 					{/if}
@@ -1131,8 +1170,8 @@
 						<div
 							role="button"
 							tabindex={0}
-							aria-label={`Locate tool ${entry.name} on graph`}
-							title="Click to locate on graph"
+							aria-label={t('domain.inspector.locateTool', { name: entry.name })}
+							title={t('domain.inspector.clickToLocate')}
 							onclick={() => focusToolOnGraph(entry.id, entry.name)}
 							onkeydown={(event) => {
 								if (event.key === 'Enter' || event.key === ' ') {
@@ -1162,8 +1201,8 @@
 						{:else}
 							<p class="text-caption text-muted-foreground">
 								{toolCalls.length === 0
-									? 'No tool calls recorded.'
-									: 'No tool calls match the filter.'}
+									? t('domain.inspector.noToolCalls')
+									: t('domain.inspector.noToolCallsMatch')}
 							</p>
 						{/each}
 					{:else}
@@ -1172,8 +1211,8 @@
 						{:else}
 							<p class="text-caption text-muted-foreground">
 								{toolCalls.length === 0
-									? 'No tool calls recorded.'
-									: 'No tool calls match the filter.'}
+									? t('domain.inspector.noToolCalls')
+									: t('domain.inspector.noToolCallsMatch')}
 							</p>
 						{/each}
 					{/if}
@@ -1187,7 +1226,7 @@
 				/>
 			{:else if analysisError}
 				<ErrorState
-					title="Analysis failed to load"
+					title={t('domain.inspector.analysisFailedTitle')}
 					description={analysisError}
 					onretry={() => void loadAnalysis(execution.id)}
 					class="rounded-lg border border-border bg-card"
@@ -1195,15 +1234,19 @@
 			{:else}
 				<div class="space-y-3">
 					{#if efficiency}
-						<Card title="Efficiency">
+						<Card title={t('domain.inspector.efficiency')}>
 							<p class="text-caption text-muted-foreground">
-								{efficiency.executedSteps} executed steps vs {efficiency.optimalSteps}
-								optimal ({efficiency.ratio.toFixed(2)}×) · {efficiency.wastefulNodes}
-								wasteful nodes · {efficiency.retryCount} retries
+								{t('domain.inspector.efficiencySummary', {
+									executed: efficiency.executedSteps,
+									optimal: efficiency.optimalSteps,
+									ratio: efficiency.ratio.toFixed(2),
+									wasteful: efficiency.wastefulNodes,
+									retries: efficiency.retryCount,
+								})}
 							</p>
 						</Card>
 					{/if}
-					<Card title="Slow nodes">
+					<Card title={t('domain.inspector.slowNodes')}>
 						<ul class="space-y-1.5" id="analysis-slow">
 							{#each slowDisplay as node (node.node)}
 								<li
@@ -1212,7 +1255,7 @@
 									<button
 										type="button"
 										class="truncate font-mono underline-offset-2 hover:underline"
-										title="Locate on graph"
+										title={t('domain.inspector.locateOnGraph')}
 										onclick={() => focusGraphNode(node.node)}
 									>
 										{node.node}
@@ -1223,12 +1266,12 @@
 								</li>
 							{:else}
 								<li class="text-caption text-muted-foreground">
-									No slow nodes recorded.
+									{t('domain.inspector.noSlowNodes')}
 								</li>
 							{/each}
 						</ul>
 					</Card>
-					<Card title="Critical path">
+					<Card title={t('domain.inspector.criticalPath')}>
 						<ol
 							class="flex flex-wrap items-center gap-1.5"
 							id="analysis-critical"
@@ -1238,7 +1281,7 @@
 									<button
 										type="button"
 										class="rounded border border-border px-1.5 py-0.5 font-mono text-micro underline-offset-2 hover:underline"
-										title="Locate on graph"
+										title={t('domain.inspector.locateOnGraph')}
 										onclick={() => focusGraphNode(node)}
 									>
 										{node}
@@ -1249,12 +1292,12 @@
 								</li>
 							{:else}
 								<li class="text-caption text-muted-foreground">
-									No path data.
+									{t('domain.inspector.noPathData')}
 								</li>
 							{/each}
 						</ol>
 					</Card>
-					<Card title="Decision points">
+					<Card title={t('domain.inspector.decisionPoints')}>
 						<div class="flex flex-wrap gap-1.5" id="analysis-decision">
 							{#each decisionAll as node (node)}
 								<button
@@ -1268,21 +1311,29 @@
 							{/each}
 						</div>
 						<p class="mt-2 text-caption text-muted-foreground">
-							{formatNumber(failedAll.length)} failed nodes
+							{t('domain.inspector.failedNodesCount', {
+								count: formatNumber(failedAll.length),
+							})}
 						</p>
 					</Card>
 				</div>
 			{/if}
 		{:else if tab === 'messages'}
-			<LoopMessagesPanel id={execution.id} />
+			{#await import('./LoopMessagesPanel.svelte') then module}
+				<module.default id={execution.id} />
+			{/await}
 		{:else if tab === 'variables'}
-			<LoopVariablesPanel id={execution.id} />
+			{#await import('./LoopVariablesPanel.svelte') then module}
+				<module.default id={execution.id} />
+			{/await}
 		{:else if tab === 'checkpoints'}
-			<LoopCheckpointsPanel id={execution.id} />
+			{#await import('./LoopCheckpointsPanel.svelte') then module}
+				<module.default id={execution.id} />
+			{/await}
 		{:else if tab === 'hierarchy'}
 			{#if hierarchyError}
 				<ErrorState
-					title="Hierarchy failed to load"
+					title={t('domain.inspector.hierarchyFailedTitle')}
 					description={hierarchyError}
 					onretry={() => loadHierarchy(execution.id)}
 					class="rounded-lg border border-border bg-card"
@@ -1300,7 +1351,9 @@
 			{/if}
 		{:else if tab === 'history'}
 			{#key execution.id}
-				<ExecutionHistoryPanel executionId={execution.id} />
+				{#await import('./ExecutionHistoryPanel.svelte') then module}
+					<module.default executionId={execution.id} />
+				{/await}
 			{/key}
 		{:else}
 			{#if stateLoading}
@@ -1310,17 +1363,17 @@
 				/>
 			{:else if stateError}
 				<ErrorState
-					title="State failed to load"
+					title={t('domain.inspector.stateFailedTitle')}
 					description={stateError}
 					onretry={() => void loadState(execution.id)}
 					class="rounded-lg border border-border bg-card"
 				/>
 			{:else}
 				<div class="space-y-3">
-					<Card title="Variables">
+					<Card title={t('domain.history.variables')}>
 						<KeyValueList items={variables} dense />
 					</Card>
-					<Card title="Call stack">
+					<Card title={t('domain.inspector.callStack')}>
 						<ol class="space-y-2">
 							{#each callStack as frame (frame.node)}
 								<li
@@ -1331,23 +1384,26 @@
 											>{frame.node}</span
 										>
 										<span class="text-micro text-muted-foreground">
-											depth {frame.depth} · {formatDateTime(frame.enteredAt)}
+											{t('domain.inspector.depth', { depth: frame.depth })} ·
+											{formatDateTime(frame.enteredAt)}
 										</span>
 									</span>
 									<StatusBadge status={frame.status} size="sm" dot={false} />
 								</li>
 							{:else}
 								<li class="text-caption text-muted-foreground">
-									Call stack empty.
+									{t('domain.inspector.callStackEmpty')}
 								</li>
 							{/each}
 						</ol>
 					</Card>
-					<Card title="Memory">
+					<Card title={t('domain.inspector.memory')}>
 						<div class="space-y-2">
 							<div>
 								<div class="flex items-center justify-between text-caption">
-									<span class="text-muted-foreground">Current</span>
+									<span class="text-muted-foreground"
+										>{t('domain.inspector.current')}</span
+									>
 									<span class="tabular-nums"
 										>{formatBytes(memory.currentBytes)}</span
 									>
@@ -1359,10 +1415,10 @@
 								/>
 							</div>
 							<p class="text-caption text-muted-foreground">
-								Peak {formatBytes(memory.peakBytes)} · snapshot {shortId(
-									execution.id,
-									10,
-								)}
+								{t('domain.inspector.peakSnapshot', {
+									peak: formatBytes(memory.peakBytes),
+									id: shortId(execution.id, 10),
+								})}
 							</p>
 						</div>
 					</Card>

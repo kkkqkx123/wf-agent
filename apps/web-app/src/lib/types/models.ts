@@ -37,6 +37,9 @@ export interface Execution {
 /** Which engine owns an execution. */
 export type ExecutionKind = 'workflow' | 'agent_loop';
 
+/** Which executor ran a session. */
+export type SessionExecutionType = 'agent' | 'chat' | 'workflow';
+
 /** One execution as referenced from a hierarchy view. */
 export interface ExecutionRef {
 	executionId: string;
@@ -371,6 +374,8 @@ export interface AgentLoop {
 	id: string;
 	name: string;
 	status: string;
+	/** Which executor ran the session. */
+	executionType: SessionExecutionType;
 	iteration: number;
 	maxIterations: number;
 	model: string;

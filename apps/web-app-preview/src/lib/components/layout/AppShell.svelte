@@ -14,6 +14,7 @@
 	import { cn } from '@wf-agent/ui/cn';
 	import { createHotkey } from '@tanstack/svelte-hotkeys';
 	import { effectiveHotkey, isShortcutDisabled } from '$lib/shortcuts/registry';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		children: Snippet;
@@ -61,6 +62,14 @@
 	createHotkey(effectiveHotkey('app.help'), () => ui.toggleHelp(), {
 		enabled: !isShortcutDisabled('app.help'),
 	});
+	createHotkey(
+		effectiveHotkey('app.commandPalette'),
+		(event) => {
+			event.preventDefault();
+			ui.toggleCommand();
+		},
+		{ enabled: !isShortcutDisabled('app.commandPalette') },
+	);
 	createHotkey('?', (event) => {
 		if (isTypingTarget(event.target)) return;
 		event.preventDefault();
@@ -114,7 +123,7 @@
 {/if}
 <Sheet
 	bind:open={ui.mobileNavOpen}
-	title="Navigation"
+	title={t('layout.appShell.navigation')}
 	side="left"
 	width="17rem"
 >
@@ -124,7 +133,7 @@
 				<p
 					class="px-2 pb-1 text-micro uppercase tracking-wide text-muted-foreground"
 				>
-					{group.label}
+					{group.label()}
 				</p>
 				<div class="space-y-0.5">
 					{#each group.items as item (item.href)}
@@ -140,7 +149,7 @@
 							)}
 						>
 							<Icon name={item.icon} size={15} />
-							<span class="truncate">{item.label}</span>
+							<span class="truncate">{item.label()}</span>
 						</a>
 					{/each}
 				</div>

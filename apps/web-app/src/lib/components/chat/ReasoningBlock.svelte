@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import { cn } from '@wf-agent/ui/cn';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		content: string;
@@ -31,7 +32,9 @@
 			class={cn('shrink-0 text-info', streaming && 'animate-pulse-dot')}
 		/>
 		<span class="flex-1 text-caption font-medium text-muted-foreground">
-			{streaming ? 'Thinking…' : 'Thinking'}
+			{streaming
+				? t('chat.reasoningBlock.thinkingStreaming')
+				: t('chat.reasoningBlock.thinking')}
 		</span>
 		<Icon
 			name="chevron-down"

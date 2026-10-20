@@ -15,6 +15,7 @@
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { checkpoints as store } from '$lib/stores/checkpoints.svelte';
 	import { fileWorkspace as workspace } from '$lib/stores/fileWorkspace.svelte';
+	import { t } from '$lib/i18n';
 
 	let renameOpen = $state(false);
 	let renameFrom = $state('');
@@ -25,7 +26,7 @@
 		const from = renameFrom.trim();
 		const to = renameTo.trim();
 		if (!actor || !from || !to) {
-			toasts.error('Enter an actor, source path and destination path');
+			toasts.error(t('domain.files.renameInputRequired'));
 			return;
 		}
 		workspace.beginAction('rename');
@@ -34,11 +35,17 @@
 			renameOpen = false;
 			renameFrom = '';
 			renameTo = '';
-			toasts.success('File renamed', `${from} → ${to} (${snapshot.slice(0, 10)})`);
+			toasts.success(
+				t('domain.files.renamed'),
+				`${from} → ${to} (${snapshot.slice(0, 10)})`,
+			);
 			store.bump('files');
 		} catch (e) {
 			console.error('Rename failed:', e);
-			toasts.error('Rename failed', e instanceof Error ? e.message : undefined);
+			toasts.error(
+				t('domain.files.renameFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
 		} finally {
 			workspace.endAction();
 		}
@@ -46,7 +53,7 @@
 
 	async function loadWorkspace(): Promise<void> {
 		if (!workspace.actor.trim()) {
-			toasts.error('Enter an actor to inspect the workspace');
+			toasts.error(t('domain.files.actorRequiredInspect'));
 			return;
 		}
 		try {
@@ -65,17 +72,23 @@
 	async function runUndo(): Promise<void> {
 		const actor = workspace.actor.trim();
 		if (!actor) {
-			toasts.error('Enter an actor for undo');
+			toasts.error(t('domain.files.actorRequiredUndo'));
 			return;
 		}
 		workspace.beginAction('undo');
 		try {
 			const snapshot = await undoEdit(actor);
-			toasts.success('Undo recorded', `Snapshot ${snapshot.slice(0, 10)}`);
+			toasts.success(
+				t('domain.files.undoRecorded'),
+				t('domain.files.snapshot', { id: snapshot.slice(0, 10) }),
+			);
 			store.bump('files');
 		} catch (e) {
 			console.error('Undo failed:', e);
-			toasts.error('Undo failed', e instanceof Error ? e.message : undefined);
+			toasts.error(
+				t('domain.files.undoFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
 		} finally {
 			workspace.endAction();
 		}
@@ -84,17 +97,23 @@
 	async function runRedo(): Promise<void> {
 		const actor = workspace.actor.trim();
 		if (!actor) {
-			toasts.error('Enter an actor for redo');
+			toasts.error(t('domain.files.actorRequiredRedo'));
 			return;
 		}
 		workspace.beginAction('redo');
 		try {
 			const snapshot = await redoEdit(actor);
-			toasts.success('Redo recorded', `Snapshot ${snapshot.slice(0, 10)}`);
+			toasts.success(
+				t('domain.files.redoRecorded'),
+				t('domain.files.snapshot', { id: snapshot.slice(0, 10) }),
+			);
 			store.bump('files');
 		} catch (e) {
 			console.error('Redo failed:', e);
-			toasts.error('Redo failed', e instanceof Error ? e.message : undefined);
+			toasts.error(
+				t('domain.files.redoFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
 		} finally {
 			workspace.endAction();
 		}
@@ -122,17 +141,17 @@
 </script>
 
 <Card
-	title="Workspace & index"
-	description="Actor undo/redo, workspace inspection and source-index health"
+	title={t('domain.files.workspaceTitle')}
+	description={t('domain.files.workspaceDescription')}
 >
 	<div class="mb-2">
 		<Input
-			label="Actor"
+			label={t('domain.files.actor')}
 			size="sm"
 			value={workspace.actor}
 			oninput={(event: Event) =>
 				workspace.setActor((event.target as HTMLInputElement).value)}
-			placeholder="Actor partition"
+			placeholder={t('domain.files.actorPartition')}
 		/>
 	</div>
 	<div class="flex flex-wrap gap-2">
@@ -143,7 +162,7 @@
 			onclick={() => void runUndo()}
 		>
 			<Icon name="arrow-left" size={13} />
-			Undo
+			{t('domain.graph.undo')}
 		</Button>
 		<Button
 			variant="outline"
@@ -151,7 +170,7 @@
 			disabled={workspace.busy}
 			onclick={() => void runRedo()}
 		>
-			Redo
+			{t('domain.graph.redo')}
 		</Button>
 		<Button
 			variant="outline"
@@ -159,7 +178,7 @@
 			disabled={workspace.busy}
 			onclick={() => void loadWorkspace()}
 		>
-			Inspect workspace
+			{t('domain.files.inspectWorkspace')}
 		</Button>
 		<Button
 			variant="outline"
@@ -168,7 +187,7 @@
 			onclick={() => void runRebuildIndex()}
 		>
 			<Icon name="database" size={13} />
-			Rebuild index
+			{t('domain.files.rebuildIndex')}
 		</Button>
 		<Button
 			variant="outline"
@@ -176,15 +195,18 @@
 			disabled={workspace.busy}
 			onclick={() => (renameOpen = true)}
 		>
-			Rename file
+			{t('domain.files.renameFile')}
 		</Button>
 	</div>
 	{#if workspace.indexStatus}
 		<p class="mt-2 text-caption tabular-nums text-muted-foreground">
-			Index: {workspace.indexStatus.indexedCommits}/{workspace.indexStatus
-				.totalCommits} commits{workspace.indexStatus.needsRebuild
-				? ' · rebuild recommended'
-				: ' · healthy'}
+			{t('domain.files.indexStatus', {
+				indexed: workspace.indexStatus.indexedCommits,
+				total: workspace.indexStatus.totalCommits,
+				state: workspace.indexStatus.needsRebuild
+					? t('domain.files.rebuildRecommended')
+					: t('domain.files.healthy'),
+			})}
 		</p>
 	{/if}
 	{#if workspace.workspaceFiles.length > 0}
@@ -200,7 +222,7 @@
 		</ul>
 		{#if workspace.workspaceFiles.length > 20}
 			<p class="mt-1 text-micro text-muted-foreground">
-				Showing 20 of {workspace.workspaceFiles.length} files.
+				{t('domain.files.showingFiles', { total: workspace.workspaceFiles.length })}
 			</p>
 		{/if}
 	{/if}
@@ -208,13 +230,13 @@
 
 <Dialog
 	bind:open={renameOpen}
-	title="Rename file"
-	description="Record a rename or move within the actor workspace. The destination is written with empty content unless a content write follows."
+	title={t('domain.files.renameFile')}
+	description={t('domain.files.renameDescription')}
 	onclose={() => (renameOpen = false)}
 >
 	<div class="space-y-2">
 		<Input
-			label="From path"
+			label={t('domain.files.fromPath')}
 			size="sm"
 			value={renameFrom}
 			oninput={(event: Event) =>
@@ -222,7 +244,7 @@
 			placeholder="src/old.rs"
 		/>
 		<Input
-			label="To path"
+			label={t('domain.files.toPath')}
 			size="sm"
 			value={renameTo}
 			oninput={(event: Event) =>
@@ -232,7 +254,7 @@
 	</div>
 	{#snippet footer()}
 		<Button variant="ghost" size="sm" onclick={() => (renameOpen = false)}>
-			Cancel
+			{t('common.cancel')}
 		</Button>
 		<Button
 			size="sm"
@@ -241,7 +263,7 @@
 				!renameTo.trim()}
 			onclick={() => void runRename()}
 		>
-			Rename
+			{t('domain.files.rename')}
 		</Button>
 	{/snippet}
 </Dialog>

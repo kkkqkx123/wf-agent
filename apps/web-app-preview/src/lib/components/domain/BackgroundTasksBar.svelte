@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { chatStream } from '$lib/stores/stream-run.svelte';
+	import { t } from '$lib/i18n';
 
 	const backgroundTools = $derived(
 		chatStream.tools.filter((tool) => tool.background?.sessionId),
@@ -14,11 +15,11 @@
 
 {#if backgroundTools.length > 0}
 	<section
-		aria-label="Background tasks"
+		aria-label={t('domain.backgroundTasks.title')}
 		class="rounded-lg border border-border bg-card px-3 py-2"
 	>
 		<p class="text-micro uppercase tracking-wide text-muted-foreground">
-			Background · {backgroundTools.length} running
+			{t('domain.backgroundTasks.running', { count: backgroundTools.length })}
 		</p>
 		<ul class="mt-1 space-y-1">
 			{#each backgroundTools as tool (tool.id)}
@@ -34,14 +35,13 @@
 						onclick={() => jumpTo(tool.id)}
 						class="shrink-0 text-micro text-muted-foreground transition-colors hover:text-foreground"
 					>
-						Jump
+						{t('domain.backgroundTasks.jump')}
 					</button>
 				</li>
 			{/each}
 		</ul>
 		<p class="mt-1 font-mono text-micro text-muted-foreground">
-			Follow up with shell_output or shell_wait, confirm with shell_ack. Offline
-			clients re-query shell_tasks after reconnect.
+			{t('domain.backgroundTasks.hint')}
 		</p>
 	</section>
 {/if}

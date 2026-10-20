@@ -5,6 +5,7 @@
 	import { getCheckpointsByTimeRange } from '$lib/services/checkpoints';
 	import type { Checkpoint } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
+	import { t } from '$lib/i18n';
 
 	let workflowId = $state('');
 	let rangeStart = $state('');
@@ -17,17 +18,20 @@
 		const start = Number(rangeStart);
 		const end = Number(rangeEnd);
 		if (!workflow || !Number.isFinite(start) || !Number.isFinite(end)) {
-			toasts.error('Enter a workflow id and numeric start/end milliseconds');
+			toasts.error(t('domain.checkpoint.rangeInputRequired'));
 			return;
 		}
 		try {
 			const page = await getCheckpointsByTimeRange({ workflowId: workflow, start, end });
 			results = page.items;
-			note = `${page.items.length} checkpoint(s)${page.hasMore ? ' (more available)' : ''}`;
+			note = t('domain.checkpoint.resultsNote', {
+				count: page.items.length,
+				more: page.hasMore ? t('domain.checkpoint.moreAvailable') : '',
+			});
 		} catch (e) {
 			console.error('Time-range query failed:', e);
 			toasts.error(
-				'Time-range query failed',
+				t('domain.checkpoint.rangeFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		}
@@ -35,9 +39,11 @@
 </script>
 
 <section class="space-y-2">
-	<h3 class="text-caption font-medium text-foreground">Time range</h3>
+	<h3 class="text-caption font-medium text-foreground">
+		{t('domain.checkpoint.timeRangeTitle')}
+	</h3>
 	<Input
-		label="Workflow id"
+		label={t('domain.checkpoint.workflowId')}
 		size="sm"
 		value={workflowId}
 		oninput={(event: Event) =>
@@ -46,7 +52,7 @@
 	/>
 	<div class="grid grid-cols-2 gap-2">
 		<Input
-			label="Start (epoch ms)"
+			label={t('domain.checkpoint.startMs')}
 			size="sm"
 			value={rangeStart}
 			oninput={(event: Event) =>
@@ -54,7 +60,7 @@
 			placeholder="0"
 		/>
 		<Input
-			label="End (epoch ms)"
+			label={t('domain.checkpoint.endMs')}
 			size="sm"
 			value={rangeEnd}
 			oninput={(event: Event) =>
@@ -63,7 +69,7 @@
 		/>
 	</div>
 	<Button variant="outline" size="sm" onclick={() => void run()}>
-		Query range
+		{t('domain.checkpoint.queryRange')}
 	</Button>
 	{#if note}
 		<p class="text-micro text-muted-foreground">{note}</p>

@@ -6,6 +6,7 @@
 		import type { WorkflowDetail } from '$lib/types/models';
 	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
 	import type { WorkflowGraphState } from '$lib/workflows/graph-state.svelte';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		detail: WorkflowDetail;
@@ -22,13 +23,15 @@
 
 {#if state.analysisError}
 	<p class="mb-2 text-caption text-warning">
-		Graph analysis unavailable ({state.analysisError});
+		{t('domain.workflowGraphTab.analysisUnavailable', {
+			error: state.analysisError,
+		})}
 		<button
 			type="button"
 			class="underline"
 			onclick={() => void state.loadAnalysis(detail.id)}
 		>
-			retry
+			{t('domain.hierarchyTree.retry')}
 		</button>.
 	</p>
 {/if}
@@ -41,14 +44,14 @@
 	selectedId={state.selection}
 	onselect={(id) => (state.selection = id)}
 	onexpand={(id) => void state.expandNeighborhood(detail.id, id)}
-	expandLabel="Reveal neighborhood"
+	expandLabel={t('domain.inspector.revealNeighborhood')}
 	overlays={state.effectiveOverlays}
 	activeOverlay={state.activeOverlay}
 	onoverlay={(id) => (state.activeOverlay = id)}
 	onjumpparam={(id) => state.jumpToNodeRow(id)}
 /> {/await}
 <div class="mt-3 grid gap-3 lg:grid-cols-2">
-	<Card title="Nodes">
+	<Card title={t('domain.workflowGraphTab.nodes')}>
 		<ul class="space-y-1.5">
 			{#each detail.graph.nodes as node (node.id)}
 				<li
@@ -69,12 +72,12 @@
 				</li>
 			{:else}
 				<li class="text-caption text-muted-foreground">
-					This definition has no nodes yet.
+					{t('domain.workflowGraphTab.noNodes')}
 				</li>
 			{/each}
 		</ul>
 	</Card>
-	<Card title="Edges">
+	<Card title={t('domain.workflowGraphTab.edges')}>
 		<ul class="space-y-1.5">
 			{#each detail.graph.edges as edge (edge.id)}
 				<li class="flex items-center gap-2 text-caption">
@@ -88,7 +91,7 @@
 				</li>
 			{:else}
 				<li class="text-caption text-muted-foreground">
-					This definition has no edges yet.
+					{t('domain.workflowGraphTab.noEdges')}
 				</li>
 			{/each}
 		</ul>

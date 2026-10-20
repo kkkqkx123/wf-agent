@@ -3,31 +3,41 @@
 	import { ui } from '$lib/stores/ui.svelte';
 	import { CANVAS_SHORTCUT_HELP } from '$lib/graph/canvas-shortcuts';
 	import { goto } from '$app/navigation';
+	import { t, type MessageKey } from '$lib/i18n';
 
 	interface Shortcut {
 		keys: string;
-		action: string;
+		/** Translation key for the action the shortcut triggers. */
+		actionKey?: MessageKey;
+		/** Pre-rendered action label, used for entries defined outside i18n. */
+		action?: string;
 	}
 
 	interface Link {
 		href: string;
-		label: string;
+		labelKey: MessageKey;
 	}
 
+	// Actions are stored as keys so the labels follow the active locale.
 	const globalShortcuts: Shortcut[] = [
-		{ keys: 'Ctrl+K', action: 'Global search' },
-		{ keys: 'F1 or ?', action: 'Toggle this help overlay' },
-		{ keys: 'Esc', action: 'Close dialogs and overlays' },
+		{ keys: 'Ctrl+K', actionKey: 'layout.help.globalSearch' },
+		{ keys: 'F1 or ?', actionKey: 'layout.help.toggleHelp' },
+		{ keys: 'Esc', actionKey: 'layout.help.closeDialogs' },
 	];
 
+	// Canvas entries live in the shared shortcut catalog, so their labels
+	// stay as-is instead of being duplicated as layout.* keys.
 	const canvasShortcuts: Shortcut[] = CANVAS_SHORTCUT_HELP.map((entry) => ({
 		keys: entry.keys,
 		action: entry.action,
 	}));
 
 	const links: Link[] = [
-		{ href: `/docs/user-guide.md`, label: 'User guide' },
-		{ href: 'https://github.com/atomgit-com/wf-agent#readme', label: 'README' },
+		{ href: `/docs/user-guide.md`, labelKey: 'layout.help.userGuide' },
+		{
+			href: 'https://github.com/atomgit-com/wf-agent#readme',
+			labelKey: 'layout.help.readme',
+		},
 	];
 
 	function navigateTo(href: string): void {
@@ -44,18 +54,18 @@
 
 <Dialog
 	bind:open={ui.helpOpen}
-	title="Help"
-	description="Keyboard shortcuts and documentation"
+	title={t('layout.help.title')}
+	description={t('layout.help.description')}
 	width="30rem"
 >
 	<section>
 		<p class="text-micro uppercase tracking-wide text-muted-foreground">
-			Global shortcuts
+			{t('layout.help.globalShortcuts')}
 		</p>
 		<ul class="mt-1 divide-y divide-border rounded-md border border-border">
 			{#each globalShortcuts as shortcut (shortcut.keys)}
 				<li class="flex items-center justify-between px-3 py-2">
-					<span class="text-body">{shortcut.action}</span>
+					<span class="text-body">{shortcut.action ?? t(shortcut.actionKey!)}</span>
 					<kbd
 						class="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-micro text-muted-foreground"
 					>
@@ -68,7 +78,7 @@
 
 	<section class="mt-4">
 		<p class="text-micro uppercase tracking-wide text-muted-foreground">
-			Canvas shortcuts
+			{t('layout.help.canvasShortcuts')}
 		</p>
 		<ul class="mt-1 divide-y divide-border rounded-md border border-border">
 			{#each canvasShortcuts as shortcut (shortcut.keys)}
@@ -86,7 +96,7 @@
 
 	<section class="mt-4">
 		<p class="text-micro uppercase tracking-wide text-muted-foreground">
-			Documentation
+			{t('layout.help.documentation')}
 		</p>
 		<ul class="mt-1 space-y-1">
 			{#each links as link (link.href)}
@@ -99,7 +109,7 @@
 						}}
 						class="text-body text-info hover:underline"
 					>
-						{link.label}
+						{t(link.labelKey)}
 					</button>
 				</li>
 			{/each}

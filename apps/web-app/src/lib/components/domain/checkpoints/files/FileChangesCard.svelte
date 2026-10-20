@@ -10,6 +10,7 @@
 	import { checkpoints as store } from '$lib/stores/checkpoints.svelte';
 	import { cn } from '@wf-agent/ui/cn';
 	import { formatRelativeTime } from '$lib/utils/format';
+	import { t } from '$lib/i18n';
 
 	let {
 		selectedId,
@@ -52,7 +53,8 @@
 			changesHasMore = page.hasMore;
 		} catch (e) {
 			console.error('Failed to load file changes:', e);
-			loadError = e instanceof Error ? e.message : 'Changes unavailable';
+			loadError =
+				e instanceof Error ? e.message : t('domain.files.changesUnavailable');
 		} finally {
 			loading = false;
 		}
@@ -77,13 +79,16 @@
 	}
 </script>
 
-<Card title="Changes" description="Recent file deltas grouped by session">
+<Card
+	title={t('domain.files.changesTitle')}
+	description={t('domain.files.changesDescription')}
+>
 	{#if loading && changes.length === 0}
 		<Skeleton lines={5} />
 	{:else if loadError && changes.length === 0}
 		<p class="text-caption text-destructive">{loadError}</p>
 		<Button variant="ghost" size="sm" onclick={() => void reload()}>
-			Retry
+			{t('common.retry')}
 		</Button>
 	{:else}
 		<ul class="divide-y divide-border">

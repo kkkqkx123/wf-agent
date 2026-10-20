@@ -156,7 +156,7 @@ impl PluginPackageManager {
         source_path: &Path,
     ) -> PluginResult<()> {
         let trust = self.trust.lock().expect("trust poisoned").clone();
-        for entry in crate::wasm::loader::all_entry_points(manifest) {
+        for entry in crate::manifest::all_entry_points(manifest) {
             let artifact = source_path.join(&entry);
             let status = verify_file(&artifact, &trust);
             enforce_signature(&manifest.id, &artifact, &status, &trust, "installing")?;
@@ -183,7 +183,7 @@ impl PluginPackageManager {
             .and_then(|content| toml::from_str::<PluginManifest>(&content).ok())?;
         let trust = self.trust.lock().expect("trust poisoned").clone();
         let mut last = None;
-        for entry in crate::wasm::loader::all_entry_points(&manifest) {
+        for entry in crate::manifest::all_entry_points(&manifest) {
             last = Some(verify_file(&source.join(entry), &trust));
         }
         last

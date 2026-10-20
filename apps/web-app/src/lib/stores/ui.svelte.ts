@@ -2,14 +2,6 @@ import { browser } from '$app/environment';
 
 export type ViewportKind = 'mobile' | 'tablet' | 'compact' | 'wide';
 
-const RECENT_LIMIT = 12;
-
-export interface RecentEntry {
-	href: string;
-	label: string;
-	visitedAt: number;
-}
-
 function kindFor(width: number): ViewportKind {
 	if (width < 768) return 'mobile';
 	if (width < 1024) return 'tablet';
@@ -24,7 +16,6 @@ class UiStore {
 	inspectorTitle = $state('');
 	commandOpen = $state(false);
 	helpOpen = $state(false);
-	recent = $state<RecentEntry[]>([]);
 
 	get viewport(): ViewportKind {
 		return kindFor(this.viewportWidth);
@@ -75,12 +66,6 @@ class UiStore {
 
 	setHelpOpen(open: boolean): void {
 		this.helpOpen = open;
-	}
-
-	recordVisit(href: string, label: string): void {
-		const next = this.recent.filter((entry) => entry.href !== href);
-		next.unshift({ href, label, visitedAt: Date.now() });
-		this.recent = next.slice(0, RECENT_LIMIT);
 	}
 }
 

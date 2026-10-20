@@ -421,12 +421,11 @@ async fn persist_conversation(
 ) {
     let agent_loop_id = agent_loop_id.to_string();
     for message in conversation {
-        let record = wf_types::MessageStorageMetadata {
-            id: message.id.clone(),
-            execution_id: agent_loop_id.clone(),
-            agent_loop_id: Some(agent_loop_id.clone()),
-            message: message.clone(),
-        };
+        let record = crate::entity::message::record(
+            &agent_loop_id,
+            Some(&agent_loop_id),
+            message.clone(),
+        );
         if let Err(err) = ctx.storage.message.save(&record).await {
             tracing::warn!(
                 target: "wf_api",

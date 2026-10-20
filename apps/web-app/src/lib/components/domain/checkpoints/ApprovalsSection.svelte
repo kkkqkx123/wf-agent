@@ -7,6 +7,7 @@
 	import type { Approval } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { checkpoints as checkpointStore } from '$lib/stores/checkpoints.svelte';
+	import { t } from '$lib/i18n';
 
 	// No reload prop: the refetch is driven by `bump('approvals')` notifying
 	// the route's live subscription, which reloads this tab. `onremove` drops
@@ -39,7 +40,7 @@
 		onremove([approval.id]);
 		try {
 			await approveApproval(approval.id);
-			toasts.success('Approval granted');
+			toasts.success(t('domain.toolCall.approvalGranted'));
 			// Approving merges into a feature ref, which also changes the
 			// file workspace.
 			checkpointStore.bump('approvals');
@@ -47,7 +48,7 @@
 		} catch (e) {
 			console.error('Failed to resolve approval:', e);
 			toasts.error(
-				'Approval decision failed',
+				t('domain.toolCall.approvalDecisionFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 			checkpointStore.bump('approvals');
@@ -63,12 +64,12 @@
 		try {
 			await rejectApproval(target.id, rejectReason || undefined);
 			rejectReason = '';
-			toasts.warning('Approval rejected');
+			toasts.warning(t('domain.toolCall.approvalRejected'));
 			checkpointStore.bump('approvals');
 		} catch (e) {
 			console.error('Failed to reject approval:', e);
 			toasts.error(
-				'Approval rejection failed',
+				t('domain.approvals.rejectionFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 			checkpointStore.bump('approvals');
@@ -100,11 +101,16 @@
 			}
 			if (failures.length === 0) {
 				toasts.success(
-					`${granted ? 'Approved' : 'Rejected'} ${decided} approval(s)`,
+					t(granted
+						? 'domain.approvals.batchApproved'
+						: 'domain.approvals.batchRejected', { count: decided }),
 				);
 			} else {
 				toasts.warning(
-					`Decided ${decided}, ${failures.length} failed`,
+					t('domain.approvals.batchPartial', {
+						decided,
+						failed: failures.length,
+					}),
 					failures.slice(0, 3).join('; '),
 				);
 			}
@@ -127,20 +133,22 @@
 
 <Dialog
 	bind:open={rejectOpen}
-	title="Reject approval"
-	description="Rejecting rolls the approval partition back to its baseline. Only the pending reference is removed; history is untouched."
+	title={t('domain.approvals.rejectTitle')}
+	description={t('domain.approvals.rejectDescription')}
 	onclose={() => (rejectTarget = null)}
 >
 	<Textarea
-		label="Reason (optional)"
+		label={t('domain.approvals.reason')}
 		bind:value={rejectReason}
-		placeholder="Why is this change unacceptable? What should change next?"
+		placeholder={t('domain.approvals.reasonPlaceholder')}
 		rows={3}
 	/>
 	{#snippet footer()}
 		<Button variant="ghost" size="sm" onclick={() => (rejectOpen = false)}>
-			Cancel
+			{t('common.cancel')}
 		</Button>
-		<Button size="sm" onclick={() => void runReject()}>Reject</Button>
+		<Button size="sm" onclick={() => void runReject()}
+			>{t('domain.toolCall.reject')}</Button
+		>
 	{/snippet}
 </Dialog>

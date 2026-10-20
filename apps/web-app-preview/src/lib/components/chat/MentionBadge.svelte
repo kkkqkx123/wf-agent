@@ -2,6 +2,7 @@
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import { cn } from '@wf-agent/ui/cn';
 	import { mentionClass, mentionIcon } from '$lib/utils/mention-style';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		text: string;
@@ -34,7 +35,7 @@
 		mentionClass(kind, text),
 	)}
 	title={text}
-	aria-label={`Mention ${kind}: ${text}`}
+	aria-label={t('chat.mentionBadge.aria', { kind, text })}
 >
 	<Icon name={mentionIcon(kind, text)} size={size === 'micro' ? 11 : 12} />
 	{text}

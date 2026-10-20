@@ -1,11 +1,7 @@
 import { openGetStream, openPostStream } from '$lib/api/stream';
 import type { StreamFailure } from '$lib/api/stream';
 import type { RunLoopMessage } from '$lib/services/agent-loops';
-import {
-	handleExecutionFrame,
-	handleGenerationFrame,
-	toErrorRecord,
-} from '$lib/utils/stream-parser';
+import { handleExecutionFrame, toErrorRecord } from '$lib/utils/stream-parser';
 import type { ErrorRecord, StreamCallbacks } from '$lib/utils/stream-parser';
 
 export type {
@@ -16,19 +12,6 @@ export type {
 	StreamCallbacks,
 } from '$lib/utils/stream-parser';
 
-/** The wire `Message` the LLM endpoints require, identity and time included. */
-function createUserMessage(text: string): RunLoopMessage {
-	return {
-		id: crypto.randomUUID(),
-		role: 'user',
-		content: text,
-		timestamp: Date.now(),
-	};
-}
-
-/** How the loop runs: full agent loop or tool-free plain chat. */
-export type LoopMode = 'standard' | 'chat';
-
 export interface LoopStreamBody {
 	model: string;
 	message: string;
@@ -37,10 +20,6 @@ export interface LoopStreamBody {
 	agentId?: string;
 	/** Optional per-run filesystem scope; absent inherits the global default. */
 	fileScope?: unknown;
-	/** `chat` runs a tool-free loop; absent keeps the standard agent loop. */
-	mode?: LoopMode;
-	/** Optional workflow template id injected as context; empty injects none. */
-	workflowId?: string;
 }
 
 /**
@@ -62,8 +41,6 @@ export function streamLoopRun(
 			tool_call_protocol: { format: 'json' },
 			conversation: body.conversation ?? [],
 			file_scope: body.fileScope ?? null,
-			...(body.mode === 'chat' ? { mode: 'chat' } : {}),
-			...(body.workflowId ? { workflow_id: body.workflowId } : {}),
 		},
 		signal,
 		onFrame: (event, data) => handleExecutionFrame(event, data, callbacks),
@@ -71,30 +48,35 @@ export function streamLoopRun(
 	});
 }
 
-/**
- * Body of the generate stream. The server endpoint takes the whole `LlmRequest`,
- * but only these two are sent: everything model-shaped is left for the profile
- * to decide.
- */
-export interface GenerationBody {
+/** Body of one chat turn. */
+export interface ChatTurnBody {
+	/** LLM profile id that serves the turn. */
 	profileId: string;
-	prompt: string;
+	/** The user text of this turn. */
+	message: string;
+	/** Session anchor of the conversation; absent starts a new session. */
+	sessionId?: string;
 }
 
-/** Stream a single generation request; frames report progress. */
-export function streamGeneration(
-	body: GenerationBody,
+/**
+ * Stream one chat turn. The turn belongs to a session: the session id
+ * anchors the conversation, so a session continues where the previous turn
+ * left off.
+ */
+export function streamChat(
+	body: ChatTurnBody,
 	callbacks: StreamCallbacks,
 	signal: AbortSignal,
 ): Promise<void> {
 	return openPostStream({
-		path: '/api/v1/llm/generate-stream',
+		path: '/api/v1/chat/stream',
 		body: {
 			profile_id: body.profileId,
-			messages: [createUserMessage(body.prompt)],
+			message: body.message,
+			...(body.sessionId ? { session_id: body.sessionId } : {}),
 		},
 		signal,
-		onFrame: (_event, data) => handleGenerationFrame(data, callbacks),
+		onFrame: (event, data) => handleExecutionFrame(event, data, callbacks),
 		onError: (failure) => callbacks.onError?.(failure),
 	});
 }

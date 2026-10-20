@@ -1,159 +1,169 @@
+import { message } from '$lib/i18n';
 import type { IconName } from '@wf-agent/ui/icons/paths';
 import type { AppPath } from '$lib/utils/route';
 
 export interface NavItem {
 	href: AppPath;
-	label: string;
+	label: () => string;
 	icon: IconName;
-	description: string;
+	description: () => string;
 	/** Segments rendered as sub-tabs instead of separate top level routes. */
-	segments?: Array<{ id: string; label: string; icon: IconName }>;
+	segments?: Array<{ id: string; label: () => string; icon: IconName }>;
 }
 
 export interface NavGroup {
 	id: string;
-	label: string;
+	label: () => string;
 	items: NavItem[];
 }
 
 export const NAV_GROUPS: NavGroup[] = [
 	{
 		id: 'overview',
-		label: 'Overview',
+		label: message('config.navigation.overview'),
 		items: [
 			{
 				href: '/dashboard',
-				label: 'Dashboard',
+				label: message('config.navigation.dashboard'),
 				icon: 'gauge',
-				description:
-					'Aggregated metrics for workflows, executions and checkpoints',
+				description: message('config.navigation.dashboardDescription'),
 			},
 		],
 	},
 	{
 		id: 'conversation',
-		label: 'Conversation',
+		label: message('config.navigation.conversation'),
 		items: [
 			{
 				href: '/chat',
-				label: 'Chat',
+				label: message('config.navigation.chat'),
 				icon: 'sparkles',
-				description: 'Dialogue-first agent IDE with sessions and composer',
+				description: message('config.navigation.chatDescription'),
 			},
 		],
 	},
 	{
 		id: 'execution',
-		label: 'Execution',
+		label: message('config.navigation.execution'),
 		items: [
 			{
 				href: '/executions',
-				label: 'Workbench',
+				label: message('config.navigation.workbench'),
 				icon: 'activity',
-				description:
-					'Unified execution list for workflows and agent loops, with live detail',
+				description: message('config.navigation.workbenchDescription'),
 			},
 		],
 	},
 	{
 		id: 'orchestration',
-		label: 'Orchestration',
+		label: message('config.navigation.orchestration'),
 		items: [
 			{
 				href: '/workflows',
-				label: 'Workflows',
+				label: message('config.navigation.workflows'),
 				icon: 'workflow',
-				description: 'Definitions, versions, drafts and graph',
+				description: message('config.navigation.workflowsDescription'),
 			},
 			{
 				href: '/templates',
-				label: 'Templates',
+				label: message('config.navigation.templates'),
 				icon: 'template',
-				description: 'Node, trigger and agent template registry',
+				description: message('config.navigation.templatesDescription'),
 			},
 		],
 	},
 	{
 		id: 'state',
-		label: 'State',
+		label: message('config.navigation.state'),
 		items: [
 			{
 				href: '/checkpoints',
-				label: 'Checkpoints',
+				label: message('config.navigation.checkpoints'),
 				icon: 'archive',
-				description: 'Execution chains, file workspace and approvals',
+				description: message('config.navigation.checkpointsDescription'),
 			},
 			{
 				href: '/git',
-				label: 'Git',
+				label: message('config.navigation.git'),
 				icon: 'git-commit',
-				description:
-					'User repository workbench: status, files, branches and terminal',
+				description: message('config.navigation.gitDescription'),
 			},
 		],
 	},
 	{
 		id: 'integration',
-		label: 'Integration',
+		label: message('config.navigation.integration'),
 		items: [
 			{
 				href: '/triggers',
-				label: 'Triggers',
+				label: message('config.navigation.triggers'),
 				icon: 'zap',
-				description: 'Trigger records and hook test dispatch',
+				description: message('config.navigation.triggersDescription'),
 			},
 			{
 				href: '/resources',
-				label: 'Models & Tools',
+				label: message('config.navigation.modelsTools'),
 				icon: 'cpu',
-				description: 'Profiles, providers, tools, scripts and skills',
+				description: message('config.navigation.modelsToolsDescription'),
 				segments: [
-					{ id: 'models', label: 'Models', icon: 'sparkles' },
-					{ id: 'tools', label: 'Tools', icon: 'blocks' },
-					{ id: 'scripts', label: 'Scripts', icon: 'code' },
-					{ id: 'skills', label: 'Skills', icon: 'star' },
+					{ id: 'models', label: message('config.navigation.models'), icon: 'sparkles' },
+					{ id: 'tools', label: message('config.navigation.tools'), icon: 'blocks' },
+					{ id: 'scripts', label: message('config.navigation.scripts'), icon: 'code' },
+					{ id: 'skills', label: message('config.navigation.skills'), icon: 'star' },
 				],
 			},
 		],
 	},
 	{
 		id: 'insight',
-		label: 'Insight',
+		label: message('config.navigation.insight'),
 		items: [
 			{
 				href: '/insights',
-				label: 'Query & Audit',
+				label: message('config.navigation.queryAudit'),
 				icon: 'chart',
-				description: 'Ad-hoc query, audit reports, errors and performance',
+				description: message('config.navigation.queryAuditDescription'),
 				segments: [
-					{ id: 'query', label: 'Query', icon: 'search' },
-					{ id: 'audit', label: 'Audit', icon: 'file' },
-					{ id: 'errors', label: 'Errors', icon: 'alert-triangle' },
-					{ id: 'performance', label: 'Performance', icon: 'gauge' },
+					{ id: 'query', label: message('config.navigation.query'), icon: 'search' },
+					{ id: 'audit', label: message('config.navigation.audit'), icon: 'file' },
+					{ id: 'errors', label: message('config.navigation.errors'), icon: 'alert-triangle' },
+					{
+						id: 'performance',
+						label: message('config.navigation.performance'),
+						icon: 'gauge',
+					},
 				],
 			},
 			{
 				href: '/events',
-				label: 'Events & System',
+				label: message('config.navigation.eventsSystem'),
 				icon: 'radio',
-				description: 'Event stream, dependencies and runtime diagnostics',
+				description: message('config.navigation.eventsSystemDescription'),
 				segments: [
-					{ id: 'stream', label: 'Stream', icon: 'radio' },
-					{ id: 'dependencies', label: 'Dependencies', icon: 'layers' },
-					{ id: 'operations', label: 'Operations', icon: 'shield' },
+					{ id: 'stream', label: message('config.navigation.stream'), icon: 'radio' },
+					{
+						id: 'dependencies',
+						label: message('config.navigation.dependencies'),
+						icon: 'layers',
+					},
+					{
+						id: 'operations',
+						label: message('config.navigation.operations'),
+						icon: 'shield',
+					},
 				],
 			},
 		],
 	},
 	{
 		id: 'workspace',
-		label: 'Workspace',
+		label: message('config.navigation.workspace'),
 		items: [
 			{
 				href: '/settings',
-				label: 'Settings',
+				label: message('config.navigation.settings'),
 				icon: 'sliders',
-				description: 'Appearance, execution defaults and notifications',
+				description: message('config.navigation.settingsDescription'),
 			},
 		],
 	},

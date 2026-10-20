@@ -77,12 +77,14 @@ class SessionStore {
 	/**
 	 * Open one session in the chat column. The address carries the selection, so
 	 * the sidebar, the chat header and a shared link all land on the same session.
+	 * The navigation is awaitable so a caller can wait for the address to
+	 * carry the new selection before it starts a run against it.
 	 */
-	open(id: string): void {
+	open(id: string): Promise<void> {
 		this.touch(id);
 		// The rule cannot see that the path half of the target is resolved.
 		// eslint-disable-next-line svelte/no-navigation-without-resolve
-		void goto(`${resolve('/chat')}?id=${encodeURIComponent(id)}`);
+		return goto(`${resolve('/chat')}?id=${encodeURIComponent(id)}`);
 	}
 
 	/** Leave any finished run behind and open a fresh draft. */

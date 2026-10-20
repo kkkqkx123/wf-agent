@@ -15,9 +15,12 @@ import {
 	projectExecutionOverlay,
 } from '$lib/graph/execution-projection';
 import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
-import { streamLoopRun, type LoopMode } from '$lib/services/streaming';
+import { streamLoopRun, streamChat, streamWorkflowExecution } from '$lib/services/streaming';
+import type { UsageSnapshot } from '$lib/utils/stream-parser';
+import type { StreamFailure } from '$lib/api/stream';
 import { listModelProfiles } from '$lib/services/resources';
 import { DEFAULT_AGENT_ID, isRunnableTemplate, listTemplates } from '$lib/services/templates';
+import { pickerState } from '$lib/stores/picker-state.svelte';
 import {
 	cancelInteraction as cancelInteractionRequest,
 	listPendingInteractions,
@@ -49,6 +52,9 @@ import { isSessionTab, type SessionTab } from '$lib/config/session-tabs';
  * but the network round trip is throttled to this cadence. */
 const INTERACTION_POLL_MS = 600;
 
+/** The executors the composer can hand a message to. */
+export type ChatExecutionType = 'agent' | 'workflow' | 'chat';
+
 /**
  * Per-page chat controller: owns selection, the transcript resource, the
  * live-stream tail state, the mini decision map projection and the send
@@ -60,10 +66,10 @@ export class ChatSessionController {
 
 	model = $state('');
 	agentId = $state(DEFAULT_AGENT_ID);
-	/** Workflow template id injected as conversation context; empty injects none. */
+	/** Workflow template to run when the workflow execution type is active. */
 	workflowId = $state('');
-	/** Tool-free plain-chat mode for lightweight questions. */
-	loopMode = $state<LoopMode>('standard');
+	/** Execution type for this composer turn. */
+	executionType = $state<ChatExecutionType>('agent');
 	revision = $state(0);
 
 	/** Inspector tab, mirrored into the address by the route. */
@@ -337,7 +343,17 @@ export class ChatSessionController {
 			toasts.error('Choose a model before sending');
 			return false;
 		}
-		void this.runStream(text, message.attachments);
+		if (this.executionType === 'workflow' && !this.workflowId.trim()) {
+			toasts.error('Choose a workflow before sending');
+			return false;
+		}
+		if (this.executionType === 'chat') {
+			void this.runChat(text, message.attachments);
+		} else if (this.executionType === 'workflow') {
+			void this.runWorkflow(text, message.attachments);
+		} else {
+			void this.runAgent(text, message.attachments);
+		}
 		return true;
 	}
 
@@ -446,7 +462,27 @@ export class ChatSessionController {
 		continue: (arg) => this.sendPrompt(arg ? `Continue: ${arg}` : 'Continue'),
 	};
 
-	async runStream(content: string, files: MessageAttachment[]): Promise<void> {
+	/**
+	 * Callbacks shared by every execution type: the answer text, the
+	 * reasoning and the token usage land in the same live stream.
+	 */
+	private streamCallbacks() {
+		return {
+			onDelta: (delta: string) => chatStream.appendDelta(delta),
+			onReasoning: (delta: string) => chatStream.appendReasoning(delta),
+			onUsage: (usage: UsageSnapshot) => {
+				chatStream.usage = usage;
+			},
+			onCompleted: () => chatStream.complete(),
+			onFailed: (message: string) => chatStream.fail(message),
+			onInterrupted: (reason: string) => chatStream.fail(reason),
+			onError: (failure: StreamFailure) =>
+				chatStream.fail(failure.message, failure.retryAfterMs),
+		};
+	}
+
+	/** Run the message through the agent loop. */
+	async runAgent(content: string, files: MessageAttachment[]): Promise<void> {
 		const draft = !this.selectedId;
 		const baseline = new SvelteSet(sessions.list.items.map((item) => item.id));
 		const startedAt = new SvelteDate().toISOString();
@@ -456,7 +492,12 @@ export class ChatSessionController {
 			content: message.content,
 			timestamp: Date.parse(message.createdAt) || Date.now(),
 		}));
-		const signal = chatStream.start(this.selectedId ?? NEW_SESSION);
+		const signal = chatStream.start(this.selectedId ?? NEW_SESSION, {
+			executionType: 'agent',
+			model: this.model.trim(),
+		});
+		pickerState.recordUsed('agent', this.agentId.trim());
+		pickerState.recordUsed('model', this.model.trim());
 		await streamLoopRun(
 			this.selectedId ?? NEW_SESSION,
 			{
@@ -464,12 +505,9 @@ export class ChatSessionController {
 				agentId: this.agentId.trim(),
 				message: withAttachments(content, files),
 				conversation: history,
-				mode: this.loopMode === 'chat' ? 'chat' : undefined,
-				workflowId: this.workflowId.trim() || undefined,
 			},
 			{
-				onDelta: (delta) => chatStream.appendDelta(delta),
-				onReasoning: (delta) => chatStream.appendReasoning(delta),
+				...this.streamCallbacks(),
 				onIterationStart: (iteration) => {
 					chatStream.iteration = iteration;
 				},
@@ -489,19 +527,75 @@ export class ChatSessionController {
 						tool.display,
 						tool.background,
 					),
-				onUsage: (usage) => {
-					chatStream.usage = usage;
-				},
 				onSubAgent: (id, name, success, details) =>
 					chatStream.noteSubAgent(id, name, success, details),
-				onCompleted: () => chatStream.complete(),
-				onFailed: (message) => chatStream.fail(message),
-				onInterrupted: (reason) => chatStream.fail(reason),
-				onError: (failure) =>
-					chatStream.fail(failure.message, failure.retryAfterMs),
 			},
 			signal,
 		);
+		await this.settleRun(draft, baseline, startedAt, content);
+	}
+
+	/**
+	 * Run the message through the chat executor. The chat session owns its
+	 * conversation, so the turn only carries the new message and the anchor
+	 * of the session it continues.
+	 */
+	async runChat(content: string, files: MessageAttachment[]): Promise<void> {
+		const sessionId = this.selectedId ?? `chat-${crypto.randomUUID()}`;
+		if (!this.selectedId) {
+			// The address has to carry the session before the run starts, so
+			// the live tail and the transcript address the same conversation.
+			await sessions.open(sessionId);
+			await tick();
+		}
+		pickerState.recordUsed('model', this.model.trim());
+		const signal = chatStream.start(sessionId, {
+			executionType: 'chat',
+			model: this.model.trim(),
+		});
+		await streamChat(
+			{
+				profileId: this.model.trim(),
+				message: withAttachments(content, files),
+				sessionId,
+			},
+			this.streamCallbacks(),
+			signal,
+		);
+		await this.settleRun(false, new SvelteSet<string>(), '', content);
+	}
+
+	/**
+	 * Run the message through a workflow. The graph is resolved from the
+	 * template on the server; the composer only hands over the message.
+	 */
+	async runWorkflow(content: string, files: MessageAttachment[]): Promise<void> {
+		const workflowId = this.workflowId.trim();
+		const signal = chatStream.start(this.selectedId ?? NEW_SESSION, {
+			executionType: 'workflow',
+			model: this.model.trim(),
+		});
+		pickerState.recordUsed('workflow', workflowId);
+		pickerState.recordUsed('model', this.model.trim());
+		await streamWorkflowExecution(
+			workflowId,
+			{ input: { message: withAttachments(content, files) } },
+			this.streamCallbacks(),
+			signal,
+		);
+		await this.settleRun(false, new SvelteSet<string>(), '', content);
+	}
+
+	/**
+	 * Close a run: the live stream ends, the session list catches up and the
+	 * transcript re-reads what the run stored.
+	 */
+	private async settleRun(
+		draft: boolean,
+		baseline: SvelteSet<string>,
+		startedAt: string,
+		content: string,
+	): Promise<void> {
 		if (!chatStream.error && !chatStream.done) chatStream.complete();
 		await sessions.refresh();
 		if (draft) {
@@ -510,7 +604,7 @@ export class ChatSessionController {
 				fresh.find((row) => row.startedAt >= startedAt) ?? fresh[0];
 			if (adopted) {
 				sessions.recordTitle(adopted.id, content);
-				sessions.open(adopted.id);
+				await sessions.open(adopted.id);
 			}
 		}
 		this.revision += 1;
@@ -531,13 +625,17 @@ export class ChatSessionController {
 		void this.transcript.reload();
 	}
 
-	/** Profiles are optional; the composer keeps a manual input. */
+	/**
+	 * Profiles are optional; the composer keeps a manual input. The value
+	 * is the profile id, because that is what the server resolves the model
+	 * by.
+	 */
 	loadDefaultModel(): void {
 		void listModelProfiles()
 			.then((profiles) => {
 				const preferred =
 					profiles.find((item) => item.isDefault) ?? profiles[0];
-				if (preferred) this.model = preferred.model;
+				if (preferred) this.model = preferred.id;
 			})
 			.catch(() => {});
 	}

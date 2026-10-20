@@ -3,6 +3,7 @@
 	import type { LoopMessage } from '$lib/types/models';
 	import MessageBubble from '$lib/components/domain/MessageBubble.svelte';
 	import PageState from '$lib/components/layout/PageState.svelte';
+	import { t } from '$lib/i18n';
 
 	/** Transcript of one agent loop run; owns its own loading keyed by id. */
 	let { id }: { id: string } = $props();
@@ -27,7 +28,7 @@
 		} catch (e) {
 			seen = '';
 			messages = [];
-			error = e instanceof Error ? e.message : 'Messages failed.';
+			error = e instanceof Error ? e.message : t('domain.loopMessages.failed');
 		} finally {
 			loading = false;
 		}
@@ -37,10 +38,10 @@
 <PageState
 	{loading}
 	{error}
-	errorTitle="Messages failed to load"
+	errorTitle={t('domain.loopMessages.failedTitle')}
 	empty={messages.length === 0}
-	emptyTitle="No messages recorded"
-	emptyDescription="Loop messages appear here once the run exchanges prompts with the model."
+	emptyTitle={t('domain.loopMessages.emptyTitle')}
+	emptyDescription={t('domain.loopMessages.emptyDescription')}
 	onretry={() => void load(id)}
 	class="rounded-lg border border-border bg-card"
 >

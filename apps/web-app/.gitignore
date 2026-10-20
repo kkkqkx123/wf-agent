@@ -1,6 +1,9 @@
 # SvelteKit files
 .svelte-kit/
 
+# Generated i18n runtime (compiled by the Paraglide Vite plugin)
+src/lib/paraglide/
+
 # Build output
 dist/
 build/

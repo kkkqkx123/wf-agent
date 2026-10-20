@@ -12,6 +12,7 @@ import type {
 	LoopIteration,
 	LoopMessage,
 	LoopVariable,
+	SessionExecutionType,
 	TimelineEntry,
 	ToolCallEntry,
 	WorkflowGraph,
@@ -33,6 +34,7 @@ import { inferDisplayKind } from '$lib/utils/tool-output';
 interface SummaryDto {
 	id?: string;
 	status?: string;
+	execution_type?: string | null;
 	current_iteration?: number;
 	tool_call_count?: number;
 	start_time?: number | null;
@@ -91,12 +93,20 @@ function toIso(value: number | null | undefined): string {
 		: new Date(value).toISOString();
 }
 
+/** The executor of a session; an unknown value reads as the agent loop. */
+function toSessionExecutionType(
+	value: string | null | undefined,
+): SessionExecutionType {
+	return value === 'chat' || value === 'workflow' ? value : 'agent';
+}
+
 function toLoop(d: SummaryDto): AgentLoop {
 	const id = d.id ?? '';
 	return {
 		id,
 		name: id,
 		status: d.status ?? '',
+		executionType: toSessionExecutionType(d.execution_type),
 		iteration: d.current_iteration ?? 0,
 		maxIterations: d.current_iteration ?? 0,
 		model: '',

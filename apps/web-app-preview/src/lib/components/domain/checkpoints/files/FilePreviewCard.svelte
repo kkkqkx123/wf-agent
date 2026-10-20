@@ -6,7 +6,7 @@
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import DiffView from '@wf-agent/ui/components/DiffView.svelte';
 	import JsonViewer from '@wf-agent/ui/components/JsonViewer.svelte';
-	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
+	import StreamMarkdown from '$lib/components/chat/LazyStreamMarkdown.svelte';
 	import type {
 		FileContent,
 		FileTimeline,

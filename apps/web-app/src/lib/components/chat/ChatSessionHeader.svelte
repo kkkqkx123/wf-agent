@@ -5,9 +5,22 @@
 	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import { sessions } from '$lib/stores/sessions.svelte';
-	import { formatNumber } from '$lib/utils/format';
 	import { appPath } from '$lib/utils/route';
+	import type { SessionExecutionType } from '$lib/types/models';
+	import { t, type MessageKey } from '$lib/i18n';
 	import type { ChatSessionController } from '$lib/chat/chat-session.svelte';
+
+	/** Message key for how each executor is named in the header. */
+	const EXECUTION_KEYS: Record<SessionExecutionType, MessageKey> = {
+		agent: 'chat.executionTypePicker.labelAgent',
+		chat: 'chat.executionTypePicker.labelChat',
+		workflow: 'chat.executionTypePicker.labelWorkflow',
+	};
+
+	/** Header label for an executor; unknown kinds fall back to the raw value. */
+	function executionLabel(type: SessionExecutionType): string {
+		return EXECUTION_KEYS[type] ? t(EXECUTION_KEYS[type]) : type;
+	}
 
 	interface Props {
 		controller: ChatSessionController;
@@ -28,23 +41,32 @@
 				</h1>
 				<StatusBadge status={session.status} size="sm" />
 				<Badge variant="outline">
-					iteration {formatNumber(session.iteration)}
+					{executionLabel(session.executionType)}
 				</Badge>
+				{#if session.profileId}
+					<Badge variant="outline" class="font-mono">
+						{session.profileId}
+					</Badge>
+				{/if}
 			</div>
 		{:else}
-			<h1 class="truncate text-title font-semibold">New session</h1>
+			<h1 class="truncate text-title font-semibold">
+				{t('chat.chatSessionHeader.newSession')}
+			</h1>
 		{/if}
 	</div>
 	{#if selectedId}
 		<IconButton
 			icon="star"
-			label={sessions.isStarred(selectedId) ? 'Unstar session' : 'Star session'}
+			label={sessions.isStarred(selectedId)
+				? t('chat.chatSessionHeader.unstar')
+				: t('chat.chatSessionHeader.star')}
 			onclick={() => void sessions.toggleStar(selectedId)}
 		/>
 	{/if}
 	<IconButton
 		icon="refresh"
-		label="Refresh session"
+		label={t('chat.chatSessionHeader.refresh')}
 		onclick={() => controller.refresh()}
 	/>
 	{#if selectedId}
@@ -54,7 +76,7 @@
 			href={appPath(`/executions/${selectedId}`)}
 		>
 			<Icon name="arrow-right" size={13} />
-			Full detail
+			{t('chat.chatSessionHeader.fullDetail')}
 		</Button>
 	{/if}
 </div>

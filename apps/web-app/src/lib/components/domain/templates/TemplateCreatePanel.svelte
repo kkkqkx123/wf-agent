@@ -6,6 +6,7 @@
 	import { templateFormFields } from '$lib/services/templates';
 	import type { TemplateKind } from '$lib/types/models';
 	import type { TemplateEditController } from '$lib/templates/template-edit-session.svelte';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		controller: TemplateEditController;
@@ -19,7 +20,7 @@
 		value={controller.createKind}
 		options={controller.kindOptions}
 		size="sm"
-		placeholder="Kind"
+		placeholder={t('domain.templateImport.kind')}
 		onchange={(value) => {
 			const next = value as TemplateKind;
 			if (next === controller.createKind) return;
@@ -33,13 +34,13 @@
 	/>
 	<input
 		bind:value={controller.createId}
-		placeholder="Template id"
+		placeholder={t('domain.template.createId')}
 		class="h-7 rounded-md border border-input bg-card px-2.5 text-small"
 	/>
 </div>
 <input
 	bind:value={controller.createName}
-	placeholder="Template name"
+	placeholder={t('domain.template.createName')}
 	class="h-8 w-full rounded-md border border-input bg-card px-2.5 text-body"
 />
 <TemplateEditPanel

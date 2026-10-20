@@ -1517,6 +1517,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chat/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_chat_stream"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/checkpoints": {
         parameters: {
             query?: never;
@@ -8671,6 +8687,15 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        /** @description Wire body of `/chat/stream`. */
+        ChatRunBody: {
+            /** @description The user text of this turn. */
+            message: string;
+            /** @description LLM profile id that serves the turn. */
+            profile_id: string;
+            /** @description Session anchor of the conversation. Absent starts a new session. */
+            session_id?: string | null;
+        };
         /** @description One stored execution checkpoint (`wf_types::Checkpoint` mirrored). */
         CheckpointDoc: {
             base_checkpoint_id?: string | null;
@@ -9688,23 +9713,12 @@ export interface components {
             /** Format: int32 */
             max_iterations?: number | null;
             message: string;
-            /**
-             * @description Caller-requested run mode: `chat` runs a tool-free plain-chat loop;
-             *     missing or `standard` keeps the full agent loop. Translated at the
-             *     composition boundary, never stored on the config.
-             */
-            mode?: string | null;
             model: string;
             /** Format: int64 */
             token_limit?: number | null;
             /** Format: int32 */
             token_warning_threshold?: number | null;
             tool_call_protocol: unknown;
-            /**
-             * @description Optional workflow template id injected as a volatile context message;
-             *     unknown or non-runnable templates are rejected as not found.
-             */
-            workflow_id?: string | null;
         };
         SaveVersionBody: {
             version: string;
@@ -18137,6 +18151,83 @@ export interface operations {
                 };
             };
             /** @description Invalid parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_chat_stream: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatRunBody"];
+            };
+        };
+        responses: {
+            /** @description Server-sent events stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description Invalid request body */
             400: {
                 headers: {
                     [name: string]: unknown;

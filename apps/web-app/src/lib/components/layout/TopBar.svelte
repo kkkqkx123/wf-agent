@@ -9,6 +9,8 @@
 	import { ui } from '$lib/stores/ui.svelte';
 	import { resolvedTheme } from '$lib/stores/theme.svelte';
 	import { cn } from '@wf-agent/ui/cn';
+	import LanguageSwitcher from './LanguageSwitcher.svelte';
+	import { t } from '$lib/i18n';
 
 	const activeItem = $derived(navItemFor(page.url.pathname));
 	const theme = $derived(resolvedTheme());
@@ -31,13 +33,13 @@
 >
 	<IconButton
 		icon="menu"
-		label="Toggle navigation"
+		label={t('layout.topbar.toggleNavigation')}
 		class="lg:hidden"
 		onclick={() => ui.toggleMobileNav()}
 	/>
 
 	<nav
-		aria-label="Breadcrumb"
+		aria-label={t('layout.topbar.breadcrumb')}
 		class="flex min-w-0 items-center gap-1.5 text-body"
 	>
 		<a
@@ -51,7 +53,7 @@
 				class="shrink-0 text-muted-foreground/60"
 			/>
 			<span class="truncate font-medium text-foreground"
-				>{activeItem.label}</span
+				>{activeItem.label()}</span
 			>
 		{/if}
 	</nav>
@@ -64,7 +66,7 @@
 			onclick={() => ui.setCommandOpen(true)}
 		>
 			<Icon name="search" size={13} />
-			<span>Search</span>
+			<span>{t('common.search')}</span>
 			<kbd
 				class="ml-1 rounded border border-border bg-muted px-1 font-mono text-[0.625rem] text-muted-foreground"
 			>
@@ -74,17 +76,17 @@
 
 		<IconButton
 			icon="command"
-			label="Command palette"
+			label={t('layout.topbar.commandPalette')}
 			onclick={() => ui.toggleCommand()}
 		/>
 		<IconButton
 			icon={THEME_ICON[preferences.theme]}
-			label="Cycle theme"
+			label={t('layout.topbar.cycleTheme')}
 			onclick={cycleTheme}
 		/>
 		<IconButton
 			icon="panel-right"
-			label="Toggle inspector"
+			label={t('layout.topbar.toggleInspector')}
 			active={preferences.inspectorPinned}
 			onclick={() => preferences.toggleInspectorPinned()}
 		/>
@@ -92,10 +94,11 @@
 			class={cn(
 				'ml-1 hidden items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-micro text-muted-foreground sm:flex',
 			)}
-			title="Current theme"
+			title={t('layout.topbar.currentTheme')}
 		>
 			<span class="h-1.5 w-1.5 rounded-full bg-success"></span>
 			{theme}
 		</span>
+		<LanguageSwitcher />
 	</div>
 </header>

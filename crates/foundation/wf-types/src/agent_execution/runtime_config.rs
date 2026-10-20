@@ -6,7 +6,7 @@ use crate::execution::FailureAction;
 use crate::llm::tool_call_protocol::ToolCallProtocolConfig;
 use crate::message::Message;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct AgentRuntimeConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub profile_id: Option<String>,

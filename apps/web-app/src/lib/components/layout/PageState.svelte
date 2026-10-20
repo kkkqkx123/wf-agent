@@ -5,6 +5,7 @@
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import type { IconName } from '@wf-agent/ui/icons/paths';
 	import { cn } from '@wf-agent/ui/cn';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		loading?: boolean;
@@ -26,17 +27,21 @@
 		loading = false,
 		error = null,
 		empty = false,
-		emptyTitle = 'Nothing to show',
+		emptyTitle = '',
 		emptyDescription,
 		emptyIcon,
 		emptyTone = 'default',
 		skeletonLines = 5,
-		errorTitle = 'Failed to load',
+		errorTitle = '',
 		class: className = '',
 		onretry,
 		emptyActions,
 		children,
 	}: Props = $props();
+
+	// Defaults resolve at render time so they follow the active locale.
+	const resolvedEmptyTitle = $derived(emptyTitle || t('layout.pageState.nothingToShow'));
+	const resolvedErrorTitle = $derived(errorTitle || t('layout.pageState.failedToLoad'));
 </script>
 
 <!-- Loading wins over error so a retry keeps the skeleton until it settles. -->
@@ -47,14 +52,14 @@
 	/>
 {:else if error}
 	<ErrorState
-		title={errorTitle}
+		title={resolvedErrorTitle}
 		description={error}
 		{onretry}
 		class={className}
 	/>
 {:else if empty}
 	<EmptyState
-		title={emptyTitle}
+		title={resolvedEmptyTitle}
 		description={emptyDescription}
 		tone={emptyTone}
 		class={className}

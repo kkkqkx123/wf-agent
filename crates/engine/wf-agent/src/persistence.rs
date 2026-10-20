@@ -72,6 +72,7 @@ pub async fn build_agent_execution(entity: &AgentLoopEntity) -> AgentExecution {
     AgentExecution {
         id: entity.id().clone(),
         definition_id: entity.definition_id().clone(),
+        execution_type: wf_types::execution::SessionExecutionType::Agent,
         status,
         current_iteration: state.current_iteration(),
         tool_call_count: state.tool_call_count(),

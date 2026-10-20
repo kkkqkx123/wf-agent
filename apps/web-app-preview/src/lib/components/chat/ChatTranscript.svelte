@@ -6,7 +6,7 @@
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import MessageBubble from '$lib/components/domain/MessageBubble.svelte';
 	import ReasoningBlock from '$lib/components/chat/ReasoningBlock.svelte';
-	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
+	import StreamMarkdown from '$lib/components/chat/LazyStreamMarkdown.svelte';
 	import ToolCallCard from '$lib/components/domain/ToolCallCard.svelte';
 	import BackgroundTasksBar from '$lib/components/domain/BackgroundTasksBar.svelte';
 	import ToolCallGroup from '$lib/components/domain/ToolCallGroup.svelte';
@@ -16,6 +16,7 @@
 	import { chatStream } from '$lib/stores/stream-run.svelte';
 	import { NEW_SESSION } from '$lib/stores/sessions.svelte';
 	import { formatDuration, formatNumber } from '$lib/utils/format';
+	import { t } from '$lib/i18n';
 	import type { LoopMessage, ToolCallEntry } from '$lib/types/models';
 	import type { ChatSessionController } from '$lib/chat/chat-session.svelte';
 
@@ -70,7 +71,7 @@
 						id={`live-tool-${entry.id}`}
 						role="button"
 						tabindex={0}
-						aria-label={`Locate tool ${entry.name} on decision map`}
+						aria-label={t('chat.chatTranscript.locateTool', { name: entry.name })}
 						onclick={() => controller.focusNodeFromTool(entry.id, entry.name)}
 						onkeydown={(event) => {
 							if (event.key === 'Enter' || event.key === ' ') {
@@ -118,6 +119,17 @@
 						<div
 							class="min-w-0 max-w-[min(46rem,88%)] rounded-lg border border-border bg-card px-3 py-2 text-card-foreground"
 						>
+							{#if chatStream.executionType}
+								<p
+									class="mb-1 flex items-center gap-1.5 text-micro uppercase tracking-wide text-muted-foreground"
+								>
+									<span>{chatStream.executionType}</span>
+									{#if chatStream.model}
+										<span aria-hidden="true">·</span>
+										<span class="truncate normal-case">{chatStream.model}</span>
+									{/if}
+								</p>
+							{/if}
 							<StreamMarkdown
 								content={chatStream.answer}
 								done={!chatStream.active}
@@ -126,9 +138,13 @@
 								<p
 									class="mt-1.5 border-t border-border/60 pt-1 text-micro tabular-nums text-muted-foreground"
 								>
-									{formatNumber(chatStream.usage.promptTokens)} prompt ·
-									{formatNumber(chatStream.usage.completionTokens)}
-									completion
+									{t('chat.chatTranscript.promptTokens', {
+										count: formatNumber(chatStream.usage.promptTokens),
+									})}
+									·
+									{t('chat.chatTranscript.completionTokens', {
+										count: formatNumber(chatStream.usage.completionTokens),
+									})}
 									{#if chatStream.usage.cost !== null}
 										· ${chatStream.usage.cost.toFixed(4)}
 									{/if}
@@ -145,17 +161,18 @@
 						{chatStream.error}
 						{#if chatStream.retryAfterMs !== null}
 							<span class="mt-1 block text-muted-foreground">
-								Rate limited — retry in
-								{formatDuration(chatStream.retryAfterMs)}.
+								{t('chat.chatTranscript.rateLimited', {
+									duration: formatDuration(chatStream.retryAfterMs),
+								})}
 							</span>
 						{/if}
 					</div>
 				{:else if chatStream.cancelled}
 					<p role="status" class="text-caption text-muted-foreground">
-						Run stopped before it finished.
+						{t('chat.chatTranscript.runStopped')}
 					</p>
 				{:else if chatStream.done}
-					<p role="status" class="sr-only">Run completed.</p>
+					<p role="status" class="sr-only">{t('chat.chatTranscript.runCompleted')}</p>
 				{/if}
 				{#if chatStream.active}
 					<div class="flex items-center gap-2">
@@ -163,8 +180,11 @@
 							class="flex items-center gap-2 text-caption text-muted-foreground"
 						>
 							<Icon name="loader" size={13} class="animate-spin" />
-							Running{#if chatStream.iteration !== null}
-								· iteration {chatStream.iteration}{/if}…
+							{chatStream.iteration !== null
+								? t('chat.chatTranscript.runningIteration', {
+										count: chatStream.iteration,
+									})
+								: t('chat.chatTranscript.running')}
 						</p>
 						<Button
 							variant="outline"
@@ -172,7 +192,7 @@
 							onclick={() => chatStream.stop()}
 						>
 							<Icon name="square" size={12} />
-							Stop
+							{t('chat.chatTranscript.stop')}
 						</Button>
 					</div>
 				{/if}
@@ -188,7 +208,7 @@
 				<Skeleton shape="block" height="72px" class="rounded-lg" />
 			{:else if controller.transcript.error}
 				<ErrorState
-					title="Failed to load session"
+					title={t('chat.chatTranscript.loadFailed')}
 					description={controller.transcript.error}
 					onretry={() => controller.transcript.reload()}
 					class="rounded-lg border border-border bg-card"
@@ -196,10 +216,12 @@
 			{:else}
 				<EmptyState
 					icon="sparkles"
-					title={selectedId ? 'No messages yet' : 'Start a conversation'}
+					title={selectedId
+						? t('chat.chatTranscript.emptyTitle')
+						: t('chat.chatTranscript.startTitle')}
 					description={selectedId
-						? 'This session has no recorded messages.'
-						: 'Ask anything. The first send creates a tracked agent loop for this session.'}
+						? t('chat.chatTranscript.emptyDescription')
+						: t('chat.chatTranscript.startDescription')}
 					class="rounded-lg border border-border bg-card"
 				/>
 			{/if}

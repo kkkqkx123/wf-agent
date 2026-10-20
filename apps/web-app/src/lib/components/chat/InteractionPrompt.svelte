@@ -17,6 +17,7 @@
 		PendingInteraction,
 	} from '$lib/services/interactions';
 	import type { ChatSessionController } from '$lib/chat/chat-session.svelte';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		controller: ChatSessionController;
@@ -131,13 +132,13 @@
 		{@const approval = interaction.approval}
 		<div
 			role="group"
-			aria-label={`Tool approval for ${approval.toolName}`}
+			aria-label={t('chat.interactionPrompt.approvalFor', { tool: approval.toolName })}
 			class="rounded-lg border border-warning/40 bg-warning/5 px-3 py-2.5"
 		>
 			<div class="flex items-center gap-2">
 				<Icon name="shield" size={14} class="shrink-0 text-warning" />
 				<span class="text-caption font-medium text-foreground">
-					Approval required
+					{t('chat.interactionPrompt.approvalRequired')}
 				</span>
 				{#if approval.riskLevel}
 					<Badge variant={riskVariant(approval.riskLevel)}>
@@ -170,7 +171,9 @@
 
 			{#if approval.pendingQueue.length > 0}
 				<p class="mt-1.5 text-micro text-muted-foreground">
-					{approval.pendingQueue.length} more queued:
+					{t('chat.interactionPrompt.moreQueued', {
+						count: approval.pendingQueue.length,
+					})}
 					{#each approval.pendingQueue as queued (queued.id || queued.name)}
 						<span class="ml-1 font-mono">{queued.name}</span>
 					{/each}
@@ -184,8 +187,8 @@
 						...reasons,
 						[interaction.id]: (event.currentTarget as HTMLInputElement).value,
 					})}
-				placeholder="Rejection reason (optional)"
-				aria-label="Rejection reason"
+				placeholder={t('chat.interactionPrompt.rejectionReasonPlaceholder')}
+				aria-label={t('chat.interactionPrompt.rejectionReason')}
 				class="mt-2 w-full rounded-md border border-input bg-card px-2 py-1 text-caption text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
 
@@ -196,7 +199,7 @@
 					onclick={() => void approve(interaction)}
 				>
 					<Icon name="check" size={13} />
-					Approve
+					{t('chat.interactionPrompt.approve')}
 				</Button>
 				<Button
 					size="sm"
@@ -205,20 +208,20 @@
 					onclick={() => void reject(interaction)}
 				>
 					<Icon name="x" size={13} />
-					Reject
+					{t('chat.interactionPrompt.reject')}
 				</Button>
 			</div>
 		</div>
 	{:else if interaction.questions.length > 0}
 		<div
 			role="group"
-			aria-label="Follow-up question"
+			aria-label={t('chat.interactionPrompt.questionGroup')}
 			class="rounded-lg border border-info/40 bg-info/5 px-3 py-2.5"
 		>
 			<div class="flex items-center gap-2">
 				<Icon name="info" size={14} class="shrink-0 text-info" />
 				<span class="text-caption font-medium text-foreground">
-					The agent needs more information
+					{t('chat.interactionPrompt.needsInfo')}
 				</span>
 			</div>
 
@@ -255,8 +258,8 @@
 							question.index,
 							(event.currentTarget as HTMLInputElement).value,
 						)}
-					placeholder="Or type an answer"
-					aria-label="Custom answer"
+					placeholder={t('chat.interactionPrompt.customAnswerPlaceholder')}
+					aria-label={t('chat.interactionPrompt.customAnswer')}
 					class="mt-1 w-full rounded-md border border-input bg-card px-2 py-1 text-caption text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 				/>
 			{/each}
@@ -268,7 +271,7 @@
 					onclick={() => void submitQuestions(interaction)}
 				>
 					<Icon name="arrow-up" size={13} />
-					Submit
+					{t('chat.interactionPrompt.submit')}
 				</Button>
 				<Button
 					size="sm"
@@ -276,7 +279,7 @@
 					disabled={submitting === interaction.id}
 					onclick={() => void cancel(interaction)}
 				>
-					Cancel
+					{t('common.cancel')}
 				</Button>
 			</div>
 		</div>

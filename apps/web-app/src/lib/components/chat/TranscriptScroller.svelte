@@ -14,6 +14,7 @@
 		VIRTUALIZE_THRESHOLD,
 	} from '$lib/config/virtualization';
 	import { cn } from '@wf-agent/ui/cn';
+	import { t } from '$lib/i18n';
 	import { createHotkey } from '@tanstack/svelte-hotkeys';
 	import { effectiveHotkey, isShortcutDisabled } from '$lib/shortcuts/registry';
 
@@ -409,11 +410,11 @@
 				<button
 					type="button"
 					onclick={toTop}
-					aria-label="Back to top"
+					aria-label={t('chat.transcriptScroller.backToTop')}
 					class="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-caption text-card-foreground shadow-sm transition-colors hover:bg-accent"
 				>
 					<Icon name="chevron-up" size={13} />
-					<span class="hidden sm:inline">Back to top</span>
+					<span class="hidden sm:inline">{t('chat.transcriptScroller.backToTop')}</span>
 				</button>
 			{/if}
 			{#if !following}
@@ -421,12 +422,12 @@
 					type="button"
 					onclick={resume}
 					aria-label={increments > 0
-						? `Back to tail, ${increments} new`
-						: 'Back to tail'}
+						? t('chat.transcriptScroller.backToTailNew', { count: increments })
+						: t('chat.transcriptScroller.backToTail')}
 					class="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-caption text-card-foreground shadow-sm transition-colors hover:bg-accent"
 				>
 					<Icon name="chevron-down" size={13} />
-					<span class="hidden sm:inline">Back to tail</span>
+					<span class="hidden sm:inline">{t('chat.transcriptScroller.backToTail')}</span>
 					{#if increments > 0}
 						<span class="font-mono text-micro text-muted-foreground">
 							+{increments}

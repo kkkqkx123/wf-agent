@@ -73,21 +73,6 @@ pub async fn generate_text(ctx: &ApiContext, request: &LlmRequest) -> ApiResult<
         .map_err(ApiError::execution_with_source)
 }
 
-/// Drive one turn of a caller-owned tool-free chat session through the
-/// shared gateway. The session stays with the caller; nothing is
-/// checkpointed or persisted.
-pub async fn chat_send(
-    ctx: &ApiContext,
-    session: &mut wf_execution_shared::ChatSession,
-    text: &str,
-    execution_id: Option<&str>,
-) -> ApiResult<LlmResult> {
-    session
-        .send(&ctx.llm_gateway, text, execution_id, None)
-        .await
-        .map_err(ApiError::execution_with_source)
-}
-
 /// Run several LLM requests in parallel; fails fast on the first error.
 pub async fn generate_batch(
     ctx: &ApiContext,

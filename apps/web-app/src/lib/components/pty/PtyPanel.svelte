@@ -10,6 +10,7 @@
 		type PtySessionStore,
 	} from '$lib/stores/pty-session.svelte';
 	import { getPty } from '$lib/services/pty';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		/** Repo root; scopes the session store and persistence. */
@@ -92,8 +93,8 @@
 
 {#if open && store.sessions.length > 0}
 	<Card
-		title="Terminal"
-		description="Repo-locked interactive shell; output streams over a persistent PTY."
+		title={t('pty.ptyPanel.title')}
+		description={t('pty.ptyPanel.description')}
 	>
 		<div class="mb-2 flex flex-wrap items-center gap-1">
 			{#each store.sessions as session (session.id)}
@@ -118,7 +119,7 @@
 						<button
 							type="button"
 							class="cursor-pointer px-1 py-0.5 hover:text-foreground"
-							title="Double-click to rename"
+							title={t('pty.ptyPanel.renameHint')}
 							onclick={() => {
 								store.setActive(session.id);
 								instance?.focus();
@@ -127,27 +128,27 @@
 						>
 							{session.title}
 							{#if session.status === 'exited'}
-								<span class="text-muted-foreground">(exited)</span>
+								<span class="text-muted-foreground">({t('pty.ptyPanel.exited')})</span>
 							{/if}
 						</button>
 					{/if}
 					<IconButton
 						icon="chevron-left"
-						label="Move left"
+						label={t('pty.ptyPanel.moveLeft')}
 						compact
 						variant="ghost"
 						onclick={() => store.move(session.id, -1)}
 					/>
 					<IconButton
 						icon="chevron-right"
-						label="Move right"
+						label={t('pty.ptyPanel.moveRight')}
 						compact
 						variant="ghost"
 						onclick={() => store.move(session.id, 1)}
 					/>
 					<IconButton
 						icon="x"
-						label="Close terminal"
+						label={t('pty.ptyPanel.closeTerminal')}
 						compact
 						variant="ghost"
 						onclick={() => void store.remove(session.id)}
@@ -156,7 +157,7 @@
 			{/each}
 			<IconButton
 				icon="plus"
-				label="New terminal"
+				label={t('pty.ptyPanel.newTerminal')}
 				compact
 				variant="ghost"
 				onclick={() => {
@@ -169,11 +170,13 @@
 
 		{#if failedId}
 			<div class="mb-2 flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1 text-micro">
-				<span>Terminal disconnected. The session may have ended.</span>
+				<span>{t('pty.ptyPanel.disconnected')}</span>
 				<Button size="sm" variant="outline" onclick={() => void restartExited(failedId!)}>
-					Restart
+					{t('pty.ptyPanel.restart')}
 				</Button>
-				<Button size="sm" variant="ghost" onclick={clearFailure}>Dismiss</Button>
+				<Button size="sm" variant="ghost" onclick={clearFailure}>
+					{t('pty.ptyPanel.dismiss')}
+				</Button>
 			</div>
 		{/if}
 
@@ -201,10 +204,10 @@
 				onclick={() => void store.remove(store.activeId!)}
 				disabled={!store.activeId}
 			>
-				Close active
+				{t('pty.ptyPanel.closeActive')}
 			</Button>
 			<Button size="sm" variant="ghost" onclick={closePanel}>
-				Hide panel
+				{t('pty.ptyPanel.hidePanel')}
 			</Button>
 		</div>
 	</Card>

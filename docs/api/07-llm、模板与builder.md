@@ -1,18 +1,23 @@
 # wf-api llm、template 与 builder
 
-对应 `src/llm/`（5 文件约 2,430 行）、`src/template/`（5 文件 + 根工具面约 1,400 行），并综述分散在各域的 8 个类型化 builder。原顶层 `builder/`、`llm.rs` 时代的 hook 模板（HookTemplate/AgentHookTemplate）实体已删除——hook 现为 workflow/agent 定义的内联配置（`CanonicalHookSpec`），wf-server 无 hook 模板端点。
+对应 `src/llm/`（5 文件约 2,430 行）、`src/chat.rs`（多轮对话执行链）、`src/template/`（5 文件 + 根工具面约 1,400 行），并综述分散在各域的 8 个类型化 builder。原顶层 `builder/`、`llm.rs` 时代的 hook 模板（HookTemplate/AgentHookTemplate）实体已删除——hook 现为 workflow/agent 定义的内联配置（`CanonicalHookSpec`），wf-server 无 hook 模板端点。
 
-## 1. llm 模块
+## 1. llm 与 chat 模块
 
-### 1.1 llm.rs（307 行）— 直接 LLM 生成（TS `GenerateCommand`/`GenerateBatchCommand`）
+### 1.1 llm.rs（311 行）— 直接 LLM 生成（TS `GenerateCommand`/`GenerateBatchCommand`）
 
 全部经共享 `LlmGateway`（profile 解析与引擎行为完全一致）；未知 profile → `NotFound`，参数畸形 → `Validation`。
 
 - `generate`（空消息 → Validation）、`generate_text`（显式拒绝带 tools 的请求）、`generate_batch`（逐条预检 + `join_all` 并发、**fail-fast on first error**）、`generate_stream`（`Box<dyn MessageStream>`）、`count_tokens`。
 - `generate_with_tools_once`：**单发有界工具轮**——委托 `wf-execution-shared` 共享原语 `SingleShotOutcome`（引擎与 API 同一语义），只执行 allowed_tools 内工具、模型发出的其余工具调用变错误、无第二轮、不落会话（checkpoint/approval 的 LLM 评审走此入口）。
-- `chat_send(ctx, &mut ChatSession, text, execution_id?)`：会话归调用方持有，不 checkpoint 不持久化。
 
-### 1.2 llm_profile.rs（616 行）— Profile 管理（TS `LLMProfileRegistryAPI`）
+### 1.2 chat.rs（358 行）— 多轮对话执行链
+
+chat 会话以 session id 为锚点：会话历史落在 message 存储，轮次只追加用户消息、调用 LLM、记录 assistant 消息并更新 token usage；无工具、无 iteration、无 checkpoint、不发布 agent loop 事件。会话记录写 `AgentExecution`（`execution_type = chat`），模型写 `context.profile_id`，供回放与审计还原当时的执行器。
+
+会话历史按存储时间戳排序，因此一轮内的两条消息必须落在不同的毫秒上：轮次从上一条已存消息继续编号，保证对话顺序全序。消息入账时补齐自己的 id（provider 回复可能不带 id，否则同 id 的多条回复会互相覆盖），该 id 同时是存储主键。
+
+### 1.3 llm_profile.rs（616 行）— Profile 管理（TS `LLMProfileRegistryAPI`）
 
 后端是 gateway 的 profile registry（所有 LLM 请求解析同一视图）。CRUD + `query`（id/name/model 子串、format 精确）；`validate` 与 create/update 判定恒一致（`wf_llm::config::profile`，**api_key 有意不要求**，可每请求注入）。
 
@@ -22,7 +27,7 @@
 - `update_with_impact` → `dependency::check_update_impact(Profile)`（更新总是生效，报告形式校验不过的依赖者并 mark_stale）。
 - 带 provider_id 的 profile 在 create 时先经 `llm_provider::assemble_check` 合并并回填。
 
-### 1.3 llm_provider.rs（116 行，新）— Provider 定义与模型发现
+### 1.4 llm_provider.rs（116 行，新）— Provider 定义与模型发现
 
 Provider = 连接模板（base URL/auth/headers/模型发现），按名引用一个线协议 format；profile 经 `LlmProfile::provider_id` 指向，**注册时显式 profile 字段必胜**。
 
@@ -30,7 +35,7 @@ Provider = 连接模板（base URL/auth/headers/模型发现），按名引用�
 - `list_models`：热路径之外显式调用，api_key 取第一个匹配 profile；**此处发现失败报错**（与装配期降级相反）。
 - `assemble_check(ctx, profile)`（供 profile create 调用）：无 provider 直通；发现失败 warn + 原样；目录非空且不含该 model 仅 warn（stale/自定义）；唯一改数据行为 = 回填缺失的 `context_window_size`。
 
-### 1.4 script.rs（845 行）— 脚本执行与注册表（TS `ScriptRegistryAPI` + `ExecuteScriptCommand`）
+### 1.5 script.rs（845 行）— 脚本执行与注册表（TS `ScriptRegistryAPI` + `ExecuteScriptCommand`）
 
 - `execute` 源解析顺序：**内联 code → template 渲染（wf-script + 参数 default_arguments）→ 进程级注册脚本（`wf_workflow::lookup_script`，与 `ExecuteScript` 触发动作同一注册表）**；仅存 metadata（无内容）明确拒绝。语言：params.language → 注册项推断（shell/python/javascript|js/lua）→ 默认 shell。经共享 `wf-sandbox::SandboxRuntime` 执行，与 `SCRIPT` 节点同路由。
 - `default_sandbox_config`：**`SandboxMode::Strict` fail-closed**（注释理由：LLM 生成脚本是最不可信输入，不得静默降级到记录模式；需要宽松必须自带 config——`ScriptExecuteParams.sandbox` 字段上一句 "defaults to a Lenient config" 注释是陈旧的）。按语言策略链（每链至少保留一个 Analysis 策略，保证 runtime 门成立）：shell = 默认 [static-analyzer, os-hook]；python = [ast-analyzer, direct]；javascript = [vm-context]；lua = [static-analyzer, mlua-sandbox]。
@@ -38,7 +43,7 @@ Provider = 连接模板（base URL/auth/headers/模型发现），按名引用�
 - 输出封顶 `apply_output_cap`：stdout/stderr 各保 tail，spill 文件 `{name}-stdout/-stderr`，截断 note 以 "; " 拼进 error。结果经 `OnceLock` 无锁一次性槽捕获。
 - 注册表 CRUD（`&StorageContext`）：`save_script`（纯 storage，不双写）、`save_script_with_impact`、get/delete/list/by_language/search、`set_script_enabled`（原子）+ enable/disable/is_enabled；`check_script_delete_references`（候选 id+name，节点 Script|InteractiveScript，键 `script_name/scriptName`）；`validate` 汇总 `ScriptValidation{valid, errors}`。
 
-### 1.5 tool.rs（544 行）— 工具执行与管理（TS `ToolRegistryAPI` + `ExecuteToolCommand`）
+### 1.6 tool.rs（544 行）— 工具执行与管理（TS `ToolRegistryAPI` + `ExecuteToolCommand`）
 
 执行走 live `ToolRegistry`（与引擎一致：禁用被拒、内置 handler、同 timeout/retry 语义）；管理经持久化 metadata + live registry **双视图同步（"never drift"）**。
 

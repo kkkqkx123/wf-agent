@@ -193,6 +193,7 @@ impl Entity for wf_types::AgentExecution {
             self.started_at,
             &[
                 ("definitionId", json!(self.definition_id)),
+                ("executionType", json!(self.execution_type)),
                 ("status", json!(self.status)),
                 ("currentIteration", json!(self.current_iteration)),
                 ("toolCallCount", json!(self.tool_call_count)),

@@ -11,6 +11,10 @@ use crate::Timestamp;
 pub struct AgentExecution {
     pub id: Id,
     pub definition_id: Id,
+    /// Which executor produced this run. The agent loop is the default, so a
+    /// record written by an agent run needs no explicit marker.
+    #[serde(default)]
+    pub execution_type: crate::execution::SessionExecutionType,
     pub status: AgentExecutionStatus,
     pub current_iteration: u32,
     pub tool_call_count: u32,
@@ -45,6 +49,7 @@ impl From<AgentStateSnapshot> for AgentExecution {
         Self {
             id: snapshot.agent_loop_id,
             definition_id: String::new(),
+            execution_type: crate::execution::SessionExecutionType::Agent,
             status,
             current_iteration: snapshot.current_iteration,
             tool_call_count: snapshot.tool_call_count,

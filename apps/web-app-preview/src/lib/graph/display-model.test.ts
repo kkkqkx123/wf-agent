@@ -287,7 +287,7 @@ describe('layeredPositions', () => {
 		expect(zed?.x ?? 0).toBeGreaterThan(callerA?.x ?? 0);
 		expect(em?.x ?? 0).toBeGreaterThan(callerB?.x ?? 0);
 		expect(zed?.x).toBe(em?.x);
-		expect(zed?.y ?? 0).toBeLessThan(em?.y ?? 0);
+		expect(zed?.y ?? 0).toBeGreaterThan(em?.y ?? 0);
 	});
 	it('positions edge-free nodes instead of dropping them', () => {
 		const positions = layeredPositions(

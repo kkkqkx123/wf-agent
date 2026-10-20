@@ -5,6 +5,7 @@
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import { formatPercent, formatRelativeTime } from '$lib/utils/format';
 	import { cn } from '@wf-agent/ui/cn';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		workflow: Workflow;
@@ -59,11 +60,14 @@
 	>
 		<span class="flex items-center gap-1">
 			<Icon name="workflow" size={11} />
-			v{workflow.version} · {workflow.nodeCount} nodes
+			{t('domain.workflowCard.meta', {
+				version: workflow.version,
+				count: workflow.nodeCount,
+			})}
 		</span>
 		<span class="flex items-center gap-2 tabular-nums">
 			{#if workflow.successRate !== null}
-				<span>{formatPercent(workflow.successRate, 0)} ok</span>
+				<span>{t('domain.workflowCard.ok', { rate: formatPercent(workflow.successRate, 0) })}</span>
 			{/if}
 			<span>{formatRelativeTime(workflow.updatedAt)}</span>
 		</span>

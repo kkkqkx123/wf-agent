@@ -314,12 +314,7 @@ impl PluginEngine {
         let _ = self.deactivate(plugin_id).await;
         self.registry.remove(plugin_id);
 
-        for entry in crate::wasm::loader::all_entry_points(&manifest) {
-            if entry.ends_with(".wasm") {
-                let artifact = plugin_dir.join(&entry);
-                self.verify_wasm_signature(&artifact, plugin_id)?;
-            }
-        }
+        self.verify_wasm_artifacts(&plugin_dir, &manifest)?;
         let plugin = load_plugin_module(&manifest, &plugin_dir, &self.options).await?;
         self.registry.register(manifest, plugin)?;
         self.registry.update_status(plugin_id, PluginStatus::Loaded);
@@ -366,17 +361,8 @@ impl PluginEngine {
                     tracing::warn!("plugin '{}' rejected: {}", plugin_id, e);
                     continue;
                 }
-                let mut signature_ok = true;
-                for entry in crate::wasm::loader::all_entry_points(&manifest) {
-                    if entry.ends_with(".wasm") {
-                        if let Err(e) = self.verify_wasm_signature(&base.join(&entry), &plugin_id) {
-                            tracing::warn!("plugin '{}' signature rejected: {}", plugin_id, e);
-                            signature_ok = false;
-                            break;
-                        }
-                    }
-                }
-                if !signature_ok {
+                if let Err(e) = self.verify_wasm_artifacts(&base, &manifest) {
+                    tracing::warn!("plugin '{}' signature rejected: {}", plugin_id, e);
                     continue;
                 }
                 let plugin = match load_plugin_module(&manifest, &base, &self.options).await {

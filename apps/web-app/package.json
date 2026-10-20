@@ -17,6 +17,7 @@
 		"test:watch": "vitest",
 		"lint": "eslint .",
 		"lint:fix": "eslint . --fix",
+		"lint:i18n": "node scripts/check-i18n.mjs",
 		"format": "prettier --write .",
 		"format:check": "prettier --check ."
 	},
@@ -33,6 +34,8 @@
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",
+		"@inlang/paraglide-js": "^2.25.4",
+		"@inlang/plugin-message-format": "^4.4.4",
 		"@sveltejs/adapter-auto": "^7.0.1",
 		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/kit": "^2.69.2",

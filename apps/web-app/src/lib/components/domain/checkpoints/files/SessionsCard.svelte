@@ -12,6 +12,7 @@
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { checkpoints as store } from '$lib/stores/checkpoints.svelte';
 	import { fileWorkspace as workspace } from '$lib/stores/fileWorkspace.svelte';
+	import { t } from '$lib/i18n';
 
 	let sessions = $state<EditSession[]>([]);
 
@@ -33,12 +34,12 @@
 		workspace.beginAction('begin-session');
 		try {
 			const id = await beginEditSession();
-			toasts.success('Edit session started', id);
+			toasts.success(t('domain.files.sessionStarted'), id);
 			store.bump('files');
 		} catch (e) {
 			console.error('Begin session failed:', e);
 			toasts.error(
-				'Begin session failed',
+				t('domain.files.sessionStartFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -49,21 +50,21 @@
 	async function runRollbackSession(session: EditSession): Promise<void> {
 		const actor = workspace.actor.trim();
 		if (!actor) {
-			toasts.error('Enter an actor to roll back the session');
+			toasts.error(t('domain.files.actorRequiredRollbackSession'));
 			return;
 		}
 		workspace.beginAction(`rollback-${session.id}`);
 		try {
 			const snapshot = await rollbackEditSession(session.id, actor);
 			toasts.success(
-				'Session rolled back',
-				`Snapshot ${snapshot.slice(0, 10)}`,
+				t('domain.files.sessionRolledBack'),
+				t('domain.files.snapshot', { id: snapshot.slice(0, 10) }),
 			);
 			store.bump('files');
 		} catch (e) {
 			console.error('Session rollback failed:', e);
 			toasts.error(
-				'Session rollback failed',
+				t('domain.files.sessionRollbackFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -73,8 +74,8 @@
 </script>
 
 <Card
-	title="Edit sessions"
-	description="Staged multi-file operations; rollback appends a revert commit"
+	title={t('domain.files.sessionsTitle')}
+	description={t('domain.files.sessionsDescription')}
 >
 	{#snippet actions()}
 		<Button
@@ -84,21 +85,23 @@
 			onclick={() => void runBeginSession()}
 		>
 			<Icon name="plus" size={13} />
-			New session
+			{t('domain.files.newSession')}
 		</Button>
 	{/snippet}
 	<div class="mb-2">
 		<Input
-			label="Rollback actor"
+			label={t('domain.files.rollbackActor')}
 			size="sm"
 			value={workspace.actor}
 			oninput={(event: Event) =>
 				workspace.setActor((event.target as HTMLInputElement).value)}
-			placeholder="Actor owning the session partition"
+			placeholder={t('domain.files.actorPartitionOwner')}
 		/>
 	</div>
 	{#if sessions.length === 0}
-		<p class="text-caption text-muted-foreground">No staged edit sessions.</p>
+		<p class="text-caption text-muted-foreground">
+			{t('domain.files.noSessions')}
+		</p>
 	{:else}
 		<ul class="space-y-2">
 			{#each sessions as session (session.id)}
@@ -112,10 +115,10 @@
 						variant="outline"
 						size="sm"
 						disabled={workspace.busy || !workspace.actor.trim()}
-						title="Roll back this session on the actor partition"
+						title={t('domain.files.rollbackSessionTitle')}
 						onclick={() => void runRollbackSession(session)}
 					>
-						Rollback
+						{t('domain.files.rollback')}
 					</Button>
 				</li>
 			{/each}

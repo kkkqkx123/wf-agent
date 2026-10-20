@@ -2,6 +2,7 @@ import type { IconName } from '@wf-agent/ui/icons/paths';
 
 export type MentionTone =
 	| 'file'
+	| 'directory'
 	| 'skill'
 	| 'workflow'
 	| 'agent'
@@ -11,7 +12,8 @@ export type MentionTone =
 	| 'neutral';
 
 /** Map a mention kind to a stable tone used by style helpers. */
-export function mentionTone(kind: string): MentionTone {
+export function mentionTone(kind: string, label?: string): MentionTone {
+	if (kind === 'file' && label?.trim().endsWith('/')) return 'directory';
 	switch (kind) {
 		case 'file':
 			return 'file';
@@ -60,10 +62,12 @@ export function mentionIcon(kind: string, label?: string): IconName {
 }
 
 /** Tailwind classes for a mention token, keeping layout in the base TAG. */
-export function mentionClass(kind: string): string {
-	switch (mentionTone(kind)) {
+export function mentionClass(kind: string, label?: string): string {
+	switch (mentionTone(kind, label)) {
 		case 'file':
 			return 'text-info border-info/40';
+		case 'directory':
+			return 'text-success border-success/40';
 		case 'skill':
 			return 'text-primary border-primary/40';
 		case 'workflow':
@@ -75,7 +79,7 @@ export function mentionClass(kind: string): string {
 		case 'script':
 			return 'text-warning border-warning/40';
 		case 'resource':
-			return 'text-info border-info/40';
+			return 'text-accent border-accent/40';
 		default:
 			return 'text-muted-foreground border-border/70';
 	}

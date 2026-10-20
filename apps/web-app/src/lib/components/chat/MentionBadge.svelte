@@ -31,7 +31,7 @@
 		'inline-flex items-center gap-1 rounded border px-1.5 font-mono not-italic',
 		size === 'micro' ? 'text-micro' : 'text-caption',
 		surfaceClass,
-		mentionClass(kind),
+		mentionClass(kind, text),
 	)}
 	title={text}
 	aria-label={`Mention ${kind}: ${text}`}

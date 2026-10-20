@@ -658,7 +658,7 @@ import { cn } from '@wf-agent/ui/cn';
 								<Icon
 									name={mentionIcon(hit.kind, hit.id)}
 									size={12}
-									class={cn('shrink-0', mentionClass(hit.kind))}
+									class={cn('shrink-0', mentionClass(hit.kind, hit.id))}
 								/>
 								<span class="min-w-0 flex-1 truncate text-foreground"
 									>{hit.label}</span
@@ -752,7 +752,7 @@ import { cn } from '@wf-agent/ui/cn';
 				<span
 					class={cn(
 						'inline-flex items-center gap-1 rounded border border-border/70 bg-muted/60 px-1.5 text-micro font-mono text-muted-foreground',
-						mentionClass(chip.kind ?? ''),
+						mentionClass(chip.kind ?? '', chip.text),
 					)}
 					title={chip.text}
 				>

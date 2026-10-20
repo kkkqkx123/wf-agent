@@ -26,7 +26,7 @@ impl MentionPanel {
             let mut g = Group::new(Some("files"));
             for f in files {
                 g = g.item(
-                    GroupItem::new(f.clone(), f.clone())
+                    GroupItem::new(f.clone(), format!("file:{}", f))
                         .styled(mention_style(&MentionKind::File {
                             path: f.clone(),
                             lines: None,

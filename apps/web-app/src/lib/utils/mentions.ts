@@ -9,7 +9,11 @@ export interface TextRun {
  * dots/dashes; file values may also carry path separators and an optional
  * `#start-end` line segment, matching the CLI mention grammar.
  */
-const MENTION_PATTERN = /@([a-z][a-z0-9_]*):([\w./-]+(?:#\d+(?:-\d+)?)?)/g;
+/** Canonical `@kind:value` references plus file-path shorthand such as
+ *  `@src/main.rs` or `@src/main.rs#10-20`, mirroring the TUI parser so the
+ *  two surfaces classify the same input consistently. */
+const MENTION_PATTERN =
+	/@([a-z][a-z0-9_]*):([\w./-]+(?:#\d+(?:-\d+)?)?)|@([\w./-]*[./][\w./-]*(?:#\d+(?:-\d+)?)?)/g;
 
 /** A mention value split into its target and optional 1-based line segment. */
 export interface MentionTarget {
@@ -65,7 +69,11 @@ export function textRuns(text: string): TextRun[] {
 		if (start > cursor) {
 			runs.push({ text: text.slice(cursor, start), kind: null });
 		}
-		runs.push({ text: match[0], kind: match[1] });
+		// Canonical mentions carry their kind in group 1; file-path
+		// shorthand (group 3) has no kind and is classified as `file`,
+		// matching the TUI parser.
+		const kind = match[1] ?? 'file';
+		runs.push({ text: match[0], kind });
 		cursor = start + match[0].length;
 	}
 	if (cursor < text.length || runs.length === 0) {

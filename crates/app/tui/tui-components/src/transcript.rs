@@ -483,11 +483,16 @@ impl HistoryLine {
 
 /// Clone a borrowed line into an owned (static) line.
 fn own_line(line: &Line<'_>) -> Line<'static> {
-    let spans: Vec<Span<'static>> = line
-        .spans
-        .iter()
-        .map(|s| Span::styled(s.content.to_string(), s.style))
-        .collect();
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    for span in &line.spans {
+        spans.extend(crate::mention::mention_styled_spans(
+            span.content.as_ref(),
+            span.style,
+        ));
+    }
+    if spans.is_empty() {
+        spans.push(Span::raw(String::new()));
+    }
     Line::from(spans)
 }
 

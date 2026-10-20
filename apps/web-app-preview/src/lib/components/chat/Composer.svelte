@@ -16,7 +16,7 @@ import { cn } from '@wf-agent/ui/cn';
 	import AgentPicker from '$lib/components/chat/AgentPicker.svelte';
 	import WorkflowPicker from '$lib/components/chat/WorkflowPicker.svelte';
 	import type { MessageAttachment, OutgoingMessage } from '$lib/types/models';
-	import { entityMention } from '$lib/utils/mentions';
+	import { entityMention, textRuns } from '$lib/utils/mentions';
 	import { mentionClass, mentionIcon } from '$lib/utils/mention-style';
 
 	/** Largest inlined attachment per file; larger files are truncated. */
@@ -73,6 +73,9 @@ import { cn } from '@wf-agent/ui/cn';
 	}: Props = $props();
 
 	let draft = $state('');
+	const mentionChips = $derived(
+		textRuns(draft).filter((run) => run.kind !== null),
+	);
 	let attachments = $state<MessageAttachment[]>([]);
 	let queue = $state<OutgoingMessage[]>([]);
 	let box: HTMLTextAreaElement | null = $state(null);
@@ -111,6 +114,26 @@ import { cn } from '@wf-agent/ui/cn';
 		draft = '';
 		attachments = [];
 		sessions.setDraft(activeKey, '');
+	}
+
+	function removeMention(token: string): void {
+		const index = draft.indexOf(token);
+		if (index < 0) return;
+		removeMentionAt(index, token.length);
+	}
+
+	function removeMentionAt(start: number, length: number): void {
+		draft = draft.slice(0, start) + draft.slice(start + length);
+		sessions.setDraft(activeKey, draft);
+		box?.focus();
+		box?.setSelectionRange(start, start);
+	}
+
+	function focusMention(token: string): void {
+		const index = draft.indexOf(token);
+		if (index < 0) return;
+		box?.focus();
+		box?.setSelectionRange(index, index + token.length);
 	}
 
 	function submit(message: OutgoingMessage, current: boolean): void {
@@ -187,6 +210,22 @@ import { cn } from '@wf-agent/ui/cn';
 			mentionDismissed = true;
 			candidates = [];
 			return;
+		}
+		// Delete an entire mention token when Backspace lands at its end,
+		// so a half-deleted reference cannot linger in the draft.
+		if (event.key === 'Backspace' && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+			const cursor = box?.selectionStart ?? draft.length;
+			const selectionEnd = box?.selectionEnd ?? draft.length;
+			if (cursor === selectionEnd) {
+				const hit = mentionChips.find((chip) =>
+					draft.slice(0, cursor).endsWith(chip.text),
+				);
+				if (hit) {
+					event.preventDefault();
+					removeMentionAt(cursor - hit.text.length, hit.text.length);
+					return;
+				}
+			}
 		}
 		if (event.key === 'Enter' && !event.shiftKey) {
 			event.preventDefault();
@@ -560,6 +599,41 @@ import { cn } from '@wf-agent/ui/cn';
 						{command.description}
 					</span>
 				</button>
+			{/each}
+		</div>
+	{/if}
+
+	{#if mentionChips.length > 0}
+		<div class="mb-2 flex flex-wrap gap-1.5" aria-label="Mentions in draft">
+			{#each mentionChips as chip (chip.text)}
+				<span
+					class={cn(
+						'inline-flex items-center gap-1 rounded border border-border/70 bg-muted/60 px-1.5 text-micro font-mono text-muted-foreground',
+						mentionClass(chip.kind ?? ''),
+					)}
+					title={chip.text}
+				>
+					<button
+						type="button"
+						class="inline-flex items-center gap-1 hover:text-foreground"
+						aria-label={`Focus ${chip.text}`}
+						onclick={() => focusMention(chip.text)}
+					>
+						<Icon name={mentionIcon(chip.kind ?? '')} size={11} />
+						{chip.text}
+					</button>
+					<button
+						type="button"
+						aria-label={`Remove ${chip.text}`}
+						class="ml-0.5 hover:text-foreground"
+						onclick={(event) => {
+							event.stopPropagation();
+							removeMention(chip.text);
+						}}
+					>
+						×
+					</button>
+				</span>
 			{/each}
 		</div>
 	{/if}

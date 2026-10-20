@@ -28,7 +28,7 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                     author.as_deref(),
                     category.as_deref(),
                     None,
-                    kind_param.as_deref(),
+                    kind_param,
                     None,
                     tags.as_deref(),
                 )

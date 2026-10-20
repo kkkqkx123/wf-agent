@@ -21,6 +21,7 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use ratatui::style::{Color, Style};
+use ratatui::text::Span;
 use regex::Regex;
 
 /// Kind of a mention interval.
@@ -66,6 +67,46 @@ pub fn mention_style(kind: &MentionKind) -> Style {
         },
     };
     Style::default().fg(color)
+}
+
+/// Render `text` as spans, applying the semantic mention style to any
+/// `@mention` interval while preserving `base` for the surrounding text.
+/// Mention ranges come from [`parse_mentions`], so the styling stays in
+/// sync with the composer and the mention panel.
+pub fn mention_styled_spans(text: &str, base: Style) -> Vec<Span<'static>> {
+    // Inline code and fenced code blocks carry a background fill; keep
+    // their text untouched so a mention-like token inside code is not
+    // mis-styled as a real reference.
+    if base.bg.is_some() {
+        return vec![Span::styled(text.to_string(), base)];
+    }
+    let mentions = parse_mentions(text);
+    if mentions.is_empty() {
+        return vec![Span::styled(text.to_string(), base)];
+    }
+    let mut out = Vec::new();
+    let mut cursor = 0usize;
+    for mention in mentions {
+        let start = mention.range.start.min(text.len());
+        let end = mention.range.end.min(text.len());
+        if start > cursor {
+            out.push(Span::styled(text[cursor..start].to_string(), base));
+        }
+        if end > start {
+            out.push(Span::styled(
+                text[start..end].to_string(),
+                base.patch(mention_style(&mention.kind)),
+            ));
+        }
+        cursor = cursor.max(end);
+    }
+    if cursor < text.len() {
+        out.push(Span::styled(text[cursor..].to_string(), base));
+    }
+    if out.is_empty() {
+        out.push(Span::styled(String::new(), base));
+    }
+    out
 }
 
 /// Parse all `@mention` intervals in `text`.

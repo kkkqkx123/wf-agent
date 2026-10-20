@@ -74,6 +74,8 @@
 					'rounded border border-border/70 bg-muted/60 px-1.5 text-micro text-muted-foreground mx-0.5 inline-flex items-center gap-1 font-mono not-italic',
 					mentionClass(run.kind),
 				)}
+				title={run.text}
+				aria-label={`Mention ${run.kind}: ${run.text}`}
 			>
 				<Icon name={mentionIcon(run.kind)} size={11} />
 				{run.text}
@@ -91,6 +93,8 @@
 							'rounded border border-border/70 bg-muted/60 px-1.5 text-micro text-muted-foreground mx-0.5 inline-flex items-center gap-1 font-mono not-italic',
 							mentionClass(run.kind),
 						)}
+						title={run.text}
+						aria-label={`Mention ${run.kind}: ${run.text}`}
 					>
 						<Icon name={mentionIcon(run.kind)} size={11} />
 						{run.text}

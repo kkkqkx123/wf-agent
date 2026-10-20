@@ -83,6 +83,8 @@ impl TurnParams {
             initial_tool_names: None,
             token_limit: None,
             token_warning_threshold: None,
+            mode: None,
+            workflow_id: None,
         }
     }
 

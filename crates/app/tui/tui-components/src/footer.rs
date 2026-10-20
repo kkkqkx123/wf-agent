@@ -97,7 +97,7 @@ pub enum FooterRoute {
     Queued,
     /// Workflow selection panel.
     Workflow,
-    /// `@` mention panel (files / skills / workflows).
+    /// `@` mention panel (files / directories / skills / workflows / resources).
     Mention,
 }
 

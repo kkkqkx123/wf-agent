@@ -44,6 +44,10 @@ import { cn } from '@wf-agent/ui/cn';
 	 * directly; they are not served by the entity search channel. */
 	const FILE_KIND = 'file';
 
+	/** Total candidates fetched from backend; visible subset rendered first. */
+	const MENTION_TOTAL_LIMIT = 30;
+	const MENTION_VISIBLE_LIMIT = 12;
+
 	interface Props {
 		model?: string;
 		agent?: string;
@@ -83,6 +87,8 @@ import { cn } from '@wf-agent/ui/cn';
 	let candidates = $state<MentionCandidate[]>([]);
 	let mentionSelectedIndex = $state(0);
 	let mentionDismissed = $state(false);
+	let mentionVisibleCount = $state(MENTION_VISIBLE_LIMIT);
+	let mentionMode = $state<'all' | 'files-and-dirs' | 'files' | 'directories' | 'resources'>('all');
 	let searching = $state(false);
 	let searchError = $state(false);
 	let activePicker = $state<string | null>(null);
@@ -90,6 +96,19 @@ import { cn } from '@wf-agent/ui/cn';
 	$effect(() => {
 		candidates;
 		mentionSelectedIndex = 0;
+		mentionVisibleCount = MENTION_VISIBLE_LIMIT;
+	});
+
+	$effect(() => {
+		if (mentionSelectedIndex >= filteredCandidates.length && filteredCandidates.length > 0) {
+			mentionSelectedIndex = filteredCandidates.length - 1;
+		}
+	});
+
+	$effect(() => {
+		if (mentionSelectedIndex + 1 > mentionVisibleCount) {
+			mentionVisibleCount = mentionSelectedIndex + 1;
+		}
 	});
 
 	let timer: ReturnType<typeof setTimeout> | null = null;
@@ -184,23 +203,82 @@ import { cn } from '@wf-agent/ui/cn';
 	}
 
 	function onKey(event: KeyboardEvent): void {
-		if (mentionVisible && candidates.length > 0) {
+		if (mentionVisible && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey) {
+			if (event.key === '1') {
+				event.preventDefault();
+				mentionMode = 'all';
+				return;
+			}
+			if (event.key === '2') {
+				event.preventDefault();
+				mentionMode = 'files-and-dirs';
+				return;
+			}
+			if (event.key === '3') {
+				event.preventDefault();
+				mentionMode = 'directories';
+				return;
+			}
+			if (event.key === '4') {
+				event.preventDefault();
+				mentionMode = 'resources';
+				return;
+			}
+		}
+		if (mentionVisible && filteredCandidates.length > 0) {
+			const pageSize = 5;
+			const scrollSelected = () => {
+				requestAnimationFrame(() => {
+					document
+						.querySelector('[aria-current="true"]')
+						?.scrollIntoView({ block: 'nearest' });
+				});
+			};
 			if (event.key === 'ArrowDown') {
 				event.preventDefault();
 				mentionSelectedIndex =
-					(mentionSelectedIndex + 1) % candidates.length;
+					(mentionSelectedIndex + 1) % filteredCandidates.length;
+				scrollSelected();
 				return;
 			}
 			if (event.key === 'ArrowUp') {
 				event.preventDefault();
 				mentionSelectedIndex =
-					(mentionSelectedIndex - 1 + candidates.length) %
-					candidates.length;
+					(mentionSelectedIndex - 1 + filteredCandidates.length) %
+					filteredCandidates.length;
+				scrollSelected();
+				return;
+			}
+			if (event.key === 'PageDown') {
+				event.preventDefault();
+				mentionSelectedIndex = Math.min(
+					filteredCandidates.length - 1,
+					mentionSelectedIndex + pageSize,
+				);
+				scrollSelected();
+				return;
+			}
+			if (event.key === 'PageUp') {
+				event.preventDefault();
+				mentionSelectedIndex = Math.max(0, mentionSelectedIndex - pageSize);
+				scrollSelected();
+				return;
+			}
+			if (event.key === 'Home') {
+				event.preventDefault();
+				mentionSelectedIndex = 0;
+				scrollSelected();
+				return;
+			}
+			if (event.key === 'End') {
+				event.preventDefault();
+				mentionSelectedIndex = filteredCandidates.length - 1;
+				scrollSelected();
 				return;
 			}
 			if (event.key === 'Enter' || event.key === 'Tab') {
 				event.preventDefault();
-				const hit = candidates[mentionSelectedIndex];
+				const hit = filteredCandidates[mentionSelectedIndex];
 				if (hit) selectMention(hit);
 				return;
 			}
@@ -305,17 +383,50 @@ import { cn } from '@wf-agent/ui/cn';
 		draft.startsWith('/') ? matchCommands(draft.slice(1).split(/\s+/)[0]) : [],
 	);
 
+	const GROUP_PRIORITY: Record<string, number> = {
+		file: 0,
+		skill: 2,
+		workflow: 3,
+		wf: 3,
+		agent: 4,
+		agent_loop: 4,
+		tool: 5,
+		script: 6,
+		resource: 7,
+	};
+
+	function modeMatches(hit: MentionCandidate): boolean {
+		const isDirectory = (hit.data as { kind?: string } | undefined)?.kind === 'directory';
+		switch (mentionMode) {
+			case 'all':
+				return true;
+			case 'files-and-dirs':
+				return hit.kind === 'file';
+			case 'files':
+				return hit.kind === 'file' && !isDirectory;
+			case 'directories':
+				return hit.kind === 'file' && isDirectory;
+			case 'resources':
+				return hit.kind !== 'file';
+			default:
+				return true;
+		}
+	}
+
 	/** Candidates grouped by entity type, preserving search order within each group. */
+	const filteredCandidates = $derived(candidates.filter(modeMatches));
+	const visibleCandidates = $derived(filteredCandidates.slice(0, mentionVisibleCount));
 	const groupedCandidates = $derived.by(() => {
 		const groups: { type: string; items: MentionCandidate[] }[] = [];
 		const seen = new Set<string>();
-		for (const hit of candidates) {
+		for (const hit of visibleCandidates) {
 			if (!seen.has(hit.kind)) {
 				seen.add(hit.kind);
 				groups.push({ type: hit.kind, items: [] });
 			}
 			groups[groups.length - 1].items.push(hit);
 		}
+		groups.sort((a, b) => (GROUP_PRIORITY[a.type] ?? 9) - (GROUP_PRIORITY[b.type] ?? 9));
 		return groups;
 	});
 
@@ -340,7 +451,7 @@ import { cn } from '@wf-agent/ui/cn';
 		searching = true;
 		searchError = false;
 		timer = setTimeout(() => {
-			void mentionSearch({ q: term, kinds, limit: 8 })
+			void mentionSearch({ q: term, kinds, limit: 30 })
 				.then((outcome) => {
 					if (request !== latestRequest) return;
 					candidates = outcome.items;
@@ -507,7 +618,27 @@ import { cn } from '@wf-agent/ui/cn';
 	{/if}
 
 	{#if mentionVisible}
-		<div class="mb-2 flex flex-col gap-1" role="listbox" aria-label="Mentions">
+		<div class="mb-2 flex max-h-72 flex-col gap-1 overflow-y-auto" role="listbox" aria-label="Mentions">
+			<div class="flex flex-wrap gap-1 px-2 pb-1">
+				{#each [
+					{ value: 'all', label: 'All' },
+					{ value: 'files-and-dirs', label: 'Files+Dirs' },
+					{ value: 'files', label: 'Files' },
+					{ value: 'directories', label: 'Dirs' },
+					{ value: 'resources', label: 'Resources' },
+				] as mode (mode.value)}
+					<button
+						type="button"
+						onclick={() => (mentionMode = mode.value as typeof mentionMode)}
+						class={cn(
+							'rounded-full border border-border bg-card px-2 py-0.5 text-micro transition-colors hover:bg-accent',
+							mentionMode === mode.value && 'bg-accent',
+						)}
+					>
+						{mode.label}
+					</button>
+				{/each}
+			</div>
 			{#each groupedCandidates as group (group.type)}
 				<div class="flex flex-col gap-1">
 					<p class="px-2 text-micro font-semibold uppercase text-muted-foreground">
@@ -516,19 +647,18 @@ import { cn } from '@wf-agent/ui/cn';
 					{#each group.items as hit (`${hit.kind}-${hit.id}`)}
 						<button
 							type="button"
-							aria-selected={hit === candidates[mentionSelectedIndex]}
+							aria-current={hit === filteredCandidates[mentionSelectedIndex] ? 'true' : undefined}
 							onclick={() => selectMention(hit)}
 							class={cn(
 								'flex flex-col items-start gap-0.5 rounded-md border border-border bg-card px-2 py-1 text-left text-caption transition-colors hover:bg-accent',
-								mentionClass(hit.kind),
 								hit === candidates[mentionSelectedIndex] && 'bg-accent',
 							)}
 						>
 							<span class="flex w-full items-center gap-2">
 								<Icon
-									name={mentionIcon(hit.kind)}
+									name={mentionIcon(hit.kind, hit.id)}
 									size={12}
-									class="shrink-0"
+									class={cn('shrink-0', mentionClass(hit.kind, hit.id))}
 								/>
 								<span class="min-w-0 flex-1 truncate text-foreground"
 									>{hit.label}</span
@@ -548,6 +678,19 @@ import { cn } from '@wf-agent/ui/cn';
 					{/each}
 				</div>
 			{/each}
+			{#if visibleCandidates.length < filteredCandidates.length}
+				<button
+					type="button"
+					onclick={() =>
+						(mentionVisibleCount = Math.min(
+							filteredCandidates.length,
+							mentionVisibleCount + MENTION_VISIBLE_LIMIT,
+						))}
+					class="px-2 text-micro text-info hover:underline"
+				>
+					Show {filteredCandidates.length - visibleCandidates.length} more
+				</button>
+			{/if}
 			{#if searching}
 				<p class="px-2 text-micro text-muted-foreground">Searching…</p>
 			{:else if kindHints.length > 0}
@@ -609,7 +752,7 @@ import { cn } from '@wf-agent/ui/cn';
 				<span
 					class={cn(
 						'inline-flex items-center gap-1 rounded border border-border/70 bg-muted/60 px-1.5 text-micro font-mono text-muted-foreground',
-						mentionClass(chip.kind ?? ''),
+						mentionClass(chip.kind ?? '', chip.text),
 					)}
 					title={chip.text}
 				>
@@ -619,7 +762,7 @@ import { cn } from '@wf-agent/ui/cn';
 						aria-label={`Focus ${chip.text}`}
 						onclick={() => focusMention(chip.text)}
 					>
-						<Icon name={mentionIcon(chip.kind ?? '')} size={11} />
+						<Icon name={mentionIcon(chip.kind ?? '', chip.text)} size={11} />
 						{chip.text}
 					</button>
 					<button

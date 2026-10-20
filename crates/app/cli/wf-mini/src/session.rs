@@ -120,10 +120,12 @@ impl NativeSession {
         let handle = wf_cli_shared::ClientHandle::from_cli(cli).await?;
         let client = handle.into_client();
         let (anchor, transcript) = Self::restore_session(&client, cli).await;
+        let history_file_config = input::load_history_file_config();
+        let history_limit = input::resolve_history_limit(history_file_config.as_ref());
         let history = match input::resolve_history_path(cli.history_file.as_deref(), cli.no_history)
         {
-            Some(path) => History::load(path),
-            None => History::new(),
+            Some(path) => History::load_with_limit(path, history_limit),
+            None => History::with_limit(history_limit),
         };
         let stdout_tty = std::io::stdout().is_terminal();
         let stderr_tty = std::io::stderr().is_terminal();
@@ -221,6 +223,7 @@ impl NativeSession {
             skills: Vec::new(),
             workflows: Vec::new(),
             project_root: std::env::current_dir().ok(),
+            suggestion_display_limit: self.display.suggestion_display_limit,
         };
         let engine = Arc::clone(&self.suggest);
         let broker = Arc::clone(&self.broker);

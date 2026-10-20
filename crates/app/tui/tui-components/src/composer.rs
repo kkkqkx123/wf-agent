@@ -897,6 +897,7 @@ impl Composer {
             let end = row.end.min(self.buf.len());
             let begin = row.start.min(end);
             let mut byte_offset = begin;
+            let mut active: Option<(MentionKind, Style)> = None;
             for grapheme in self.buf[begin..end].graphemes(true) {
                 let w = grapheme.width() as u16;
                 if col + w > width {
@@ -906,10 +907,24 @@ impl Composer {
                     .iter()
                     .find(|(r, _)| byte_offset >= r.start && byte_offset < r.end)
                     .map(|(_, kind)| kind);
-                let g_style = if let Some(kind) = mention_kind {
-                    style.patch(mention_style(kind)).add_modifier(Modifier::REVERSED)
-                } else {
-                    style
+                let g_style = match mention_kind {
+                    Some(kind) => {
+                        // Resolve the tone style once per mention range instead
+                        // of per grapheme.
+                        let mention_fg = match &active {
+                            Some((current, cached)) if current == kind => *cached,
+                            _ => {
+                                let computed = mention_style(kind);
+                                active = Some((kind.clone(), computed));
+                                computed
+                            }
+                        };
+                        style.patch(mention_fg).add_modifier(Modifier::REVERSED)
+                    }
+                    None => {
+                        active = None;
+                        style
+                    }
                 };
                 buf.set_string(area.x + col, y, grapheme, g_style);
                 col += w;

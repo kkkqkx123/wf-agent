@@ -26,6 +26,9 @@ mod core;
 mod keymap;
 mod r#loop;
 
-pub use core::{partial_word_bytes, CoreAction, EditorCore, EditorSnapshot, PromptEvent};
+pub use core::{
+    partial_word_bytes, truncate_suggestion, truncate_suggestion_with_limit, CoreAction, EditorCore,
+    EditorSnapshot, PromptEvent, SUGGESTION_DISPLAY_LIMIT,
+};
 pub use keymap::{map_key_event, Key};
 pub use r#loop::{run_tty, terminal_cols};

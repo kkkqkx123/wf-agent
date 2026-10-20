@@ -67,6 +67,7 @@ fn parse_action(name: &str) -> Option<KeyAction> {
         "scan" => KeyAction::Scan,
         "reload" => KeyAction::Reload,
         "cache_clear" => KeyAction::CacheClear,
+        "cycle_mode" => KeyAction::CycleMode,
         "approve" => KeyAction::Approve,
         "approve_all" => KeyAction::ApproveAll,
         "deny_once" => KeyAction::DenyOnce,
@@ -186,6 +187,7 @@ mod tests {
         assert_eq!(parse_action("tab_parent"), Some(KeyAction::TabParent));
         assert_eq!(parse_action("tab_child"), Some(KeyAction::TabChild));
         assert_eq!(parse_action("session_list"), Some(KeyAction::SessionList));
+        assert_eq!(parse_action("cycle_mode"), Some(KeyAction::CycleMode));
         assert_eq!(parse_action("tab_pick_1"), Some(KeyAction::TabPick(1)));
         assert_eq!(parse_action("tab_pick_9"), Some(KeyAction::TabPick(9)));
         assert_eq!(parse_action("tab_pick_0"), None);

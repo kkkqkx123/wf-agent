@@ -26,7 +26,7 @@ pub mod skill;
 pub mod workflow;
 
 pub use command::{CommandEntry, CommandId, CommandPalette};
-pub use mention::MentionPanel;
+pub use mention::{MentionEntry, MentionMode, MentionPanel};
 pub use model::ModelPanel;
 pub use queued::QueuedPanel;
 pub use skill::SkillPanel;

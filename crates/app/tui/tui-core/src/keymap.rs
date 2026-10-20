@@ -176,6 +176,8 @@ pub enum KeyAction {
     Reload,
     /// Clear the skill content/resource cache.
     CacheClear,
+    /// Cycle the active panel's mode (e.g. the mention group filter).
+    CycleMode,
     // Approval actions
     Approve,
     ApproveAll,
@@ -471,6 +473,7 @@ fn builtin_defaults(ctx: KeymapContext) -> Vec<(Key, KeyAction)> {
             (Key::plain(CKey::Char('S')), Scan),
             (Key::plain(CKey::Char('R')), Reload),
             (Key::plain(CKey::Char('C')), CacheClear),
+            (Key::plain(Tab), CycleMode),
         ],
         KeymapContext::Approval => vec![
             (Key::plain(Enter), Submit),

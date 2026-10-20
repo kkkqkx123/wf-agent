@@ -195,7 +195,7 @@ fn redraw(out: &mut impl Write, core: &EditorCore, state: &mut RedrawState) {
     let _ = out.write_all(core.prompt_text().as_bytes());
     let buffer: String = core.buffer().iter().collect();
     let _ = out.write_all(buffer.as_bytes());
-    if let Some(suffix) = core.suggestion_suffix() {
+    if let Some(suffix) = core.suggestion_display_suffix() {
         let _ = crossterm::queue!(out, crossterm::style::SetForegroundColor(Color::DarkGrey));
         let _ = out.write_all(suffix.as_bytes());
         let _ = crossterm::queue!(out, crossterm::style::ResetColor);
@@ -229,7 +229,7 @@ fn redraw_single(out: &mut impl Write, core: &EditorCore) {
     let _ = out.write_all(core.prompt_text().as_bytes());
     let buffer: String = core.buffer().iter().collect();
     let _ = out.write_all(buffer.as_bytes());
-    if let Some(suffix) = core.suggestion_suffix() {
+    if let Some(suffix) = core.suggestion_display_suffix() {
         let _ = crossterm::queue!(out, crossterm::style::SetForegroundColor(Color::DarkGrey));
         let _ = out.write_all(suffix.as_bytes());
         let _ = crossterm::queue!(out, crossterm::style::ResetColor);

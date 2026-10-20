@@ -2,6 +2,8 @@
 
 use std::collections::VecDeque;
 
+use wf_cli_shared::app_config::MiniConfig;
+
 /// Maximum history entries retained in memory.
 pub(crate) const HISTORY_LIMIT: usize = 200;
 
@@ -11,10 +13,21 @@ pub(crate) const HISTORY_LIMIT: usize = 200;
 ///
 /// File writes are best-effort and immediate (every submit appends, so a
 /// killed process loses nothing); failures never surface to the session.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct History {
     entries: VecDeque<String>,
     file: Option<std::path::PathBuf>,
+    limit: usize,
+}
+
+impl Default for History {
+    fn default() -> Self {
+        Self {
+            entries: VecDeque::new(),
+            file: None,
+            limit: HISTORY_LIMIT,
+        }
+    }
 }
 
 impl History {
@@ -22,19 +35,37 @@ impl History {
         Self::default()
     }
 
+    /// Create an empty history with an explicit retention cap.
+    pub fn with_limit(limit: usize) -> Self {
+        let limit = if limit == 0 { HISTORY_LIMIT } else { limit };
+        Self {
+            entries: VecDeque::new(),
+            file: None,
+            limit,
+        }
+    }
+
     /// Load the file tail (up to the memory cap) and keep appending to it.
     /// A missing or unreadable file reads as empty history.
     pub fn load(path: std::path::PathBuf) -> Self {
+        Self::load_with_limit(path, HISTORY_LIMIT)
+    }
+
+    /// Load with an explicit retention cap. A cap of zero falls back to
+    /// [`HISTORY_LIMIT`].
+    pub fn load_with_limit(path: std::path::PathBuf, limit: usize) -> Self {
+        let limit = if limit == 0 { HISTORY_LIMIT } else { limit };
         let mut history = Self {
             entries: VecDeque::new(),
             file: Some(path.clone()),
+            limit,
         };
         if let Ok(text) = std::fs::read_to_string(&path) {
             let lines: Vec<&str> = text
                 .lines()
                 .filter(|line| !line.trim().is_empty())
                 .collect();
-            let tail = lines.len().saturating_sub(HISTORY_LIMIT);
+            let tail = lines.len().saturating_sub(limit);
             for line in &lines[tail..] {
                 history.push_memory(line.trim());
             }
@@ -113,7 +144,7 @@ impl History {
             return;
         }
         self.entries.push_back(line.to_string());
-        if self.entries.len() > HISTORY_LIMIT {
+        if self.entries.len() > self.limit {
             self.entries.pop_front();
         }
     }
@@ -177,6 +208,28 @@ pub fn resolve_history_path(
                 .map(|home| std::path::PathBuf::from(home).join(".local").join("state"))
         })?;
     Some(base.join("wf").join("mini_history"))
+}
+
+/// Resolve the history retention cap: env, config file, then default.
+pub fn resolve_history_limit(file: Option<&MiniConfig>) -> usize {
+    const MIN: usize = 1;
+    const MAX: usize = 100_000;
+    if let Ok(raw) = std::env::var("WF_MINI_HISTORY_LIMIT") {
+        if let Ok(parsed) = raw.trim().parse::<usize>() {
+            return parsed.clamp(MIN, MAX);
+        }
+    }
+    file.and_then(|config| config.history_limit)
+        .map(|value| value.clamp(MIN, MAX))
+        .unwrap_or(HISTORY_LIMIT)
+}
+
+/// Load the mini config file, if present.
+pub fn load_file_config() -> Option<MiniConfig> {
+    let path = wf_cli_shared::app_config::config_file_path()?;
+    wf_cli_shared::app_config::ConfigManager::load(&path)
+        .ok()
+        .map(|manager| manager.config().mini.clone())
 }
 
 fn env_flag_disabled(name: &str) -> bool {

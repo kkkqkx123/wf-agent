@@ -102,6 +102,14 @@ pub struct MiniConfig {
     /// Approval prompt timeout in seconds. Defaults to 120 when unset.
     #[serde(default)]
     pub approval_timeout_secs: Option<u64>,
+    /// Maximum number of characters of a ghost suggestion that is painted
+    /// on the terminal before an ellipsis. Defaults to 30 when unset.
+    #[serde(default)]
+    pub suggestion_display_limit: Option<usize>,
+    /// Maximum number of prompt history entries retained in memory and on
+    /// disk tail. Defaults to 200 when unset.
+    #[serde(default)]
+    pub history_limit: Option<usize>,
 }
 
 /// Detail level name for the config file. Lowercase in TOML.

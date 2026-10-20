@@ -82,6 +82,7 @@ pub struct SelectList<T = ()> {
     filter: Option<String>,
     wrap: bool,
     select_pos: usize,
+    group_titles: bool,
 }
 
 impl<T> Default for SelectList<T> {
@@ -91,6 +92,7 @@ impl<T> Default for SelectList<T> {
             filter: None,
             wrap: true,
             select_pos: 0,
+            group_titles: false,
         }
     }
 }
@@ -105,6 +107,13 @@ impl<T> SelectList<T> {
 
     pub fn group(mut self, group: Group<T>) -> Self {
         self.groups.push(group);
+        self
+    }
+
+    /// Render one title row above the first item of every group. Off by
+    /// default so single-group lists keep their compact shape.
+    pub fn with_group_titles(mut self, show: bool) -> Self {
+        self.group_titles = show;
         self
     }
 
@@ -180,7 +189,7 @@ impl<T> SelectList<T> {
     /// The currently selected item, if any.
     pub fn selected(&self) -> Option<&GroupItem<T>> {
         let cands = self.candidates();
-        let pos = self.select_pos.min(cands.len().saturating_sub(1));
+        let pos = self.select_pos.min(cands.len().checked_sub(1)?);
         self.item_at(cands[pos])
     }
 
@@ -234,6 +243,18 @@ impl<T> SelectList<T> {
         }
         None
     }
+
+    /// Group index owning a global flat item index.
+    fn group_index(&self, flat: usize) -> usize {
+        let mut i = 0usize;
+        for (gid, g) in self.groups.iter().enumerate() {
+            i += g.items.len();
+            if flat < i {
+                return gid;
+            }
+        }
+        self.groups.len().saturating_sub(1)
+    }
 }
 
 /// Visible window over the candidate list that keeps the selection in view.
@@ -275,42 +296,88 @@ impl<T> SelectList<T> {
             return vec![Line::from("")];
         }
         let height = usize::from(window_height.max(1));
-        let (top, bottom) = view_window(self.select_pos, height, n);
         let w = usize::from(width.max(1));
         let show_desc = w > 40;
 
-        let mut out = Vec::new();
-        for (pos, &flat) in cands.iter().enumerate().take(bottom).skip(top) {
-            let item = self.item_at(flat);
-            let selected = pos == self.select_pos;
-            let marker = if selected { "→" } else { " " };
+        // Group titles occupy their own rows, so the visible window is
+        // computed over rendered rows rather than raw candidates.
+        let mut group_title: Vec<Option<&str>> = Vec::with_capacity(n);
+        let mut current_group: Option<usize> = None;
+        for &flat in &cands {
+            let gid = self.group_index(flat);
+            if current_group != Some(gid) {
+                group_title.push(self.groups[gid].title.as_deref());
+                current_group = Some(gid);
+            } else {
+                group_title.push(None);
+            }
+        }
+        let title_rows = usize::from(self.group_titles)
+            * group_title.iter().filter(|t| t.is_some()).count();
+        let total_rows = n + title_rows;
+        let selected_row = {
+            let mut row = 0usize;
+            let mut selected = 0usize;
+            for (pos, title) in group_title.iter().enumerate() {
+                if self.group_titles && title.is_some() {
+                    row += 1;
+                }
+                if pos == self.select_pos {
+                    selected = row;
+                }
+                row += 1;
+            }
+            selected
+        };
+        let (top, bottom) = view_window(selected_row, height, total_rows);
 
-            let mut spans: Vec<Span<'static>> = Vec::new();
-            spans.push(Span::styled(
-                marker,
-                if selected {
-                    Self::selected_style()
-                } else {
-                    Style::default()
-                },
-            ));
-            let mut label = item.map(|i| i.label.clone()).unwrap_or_default();
-            if show_desc {
-                if let Some(desc) = item.and_then(|i| i.description.as_ref()) {
-                    label = format!("{label} - {desc}");
+        let mut out = Vec::new();
+        let mut row = 0usize;
+        for (pos, &flat) in cands.iter().enumerate() {
+            if self.group_titles {
+                if let Some(title) = group_title[pos] {
+                    if row >= top && row < bottom {
+                        out.push(Line::from(Span::styled(
+                            title.to_uppercase(),
+                            Style::default().add_modifier(Modifier::DIM),
+                        )));
+                    }
+                    row += 1;
                 }
             }
-            let label = clamp_to_width(&label, w.saturating_sub(2));
-            let item_style = item.and_then(|i| i.style).unwrap_or_default();
-            spans.push(Span::styled(
-                label,
-                if selected {
-                    item_style.add_modifier(Modifier::BOLD)
-                } else {
-                    item_style
-                },
-            ));
-            out.push(Line::from(spans));
+            if row >= top && row < bottom {
+                let item = self.item_at(flat);
+                let selected = pos == self.select_pos;
+                let marker = if selected { "→" } else { " " };
+
+                let mut spans: Vec<Span<'static>> = Vec::new();
+                spans.push(Span::styled(
+                    marker,
+                    if selected {
+                        Self::selected_style()
+                    } else {
+                        Style::default()
+                    },
+                ));
+                let mut label = item.map(|i| i.label.clone()).unwrap_or_default();
+                if show_desc {
+                    if let Some(desc) = item.and_then(|i| i.description.as_ref()) {
+                        label = format!("{label} - {desc}");
+                    }
+                }
+                let label = clamp_to_width(&label, w.saturating_sub(2));
+                let item_style = item.and_then(|i| i.style).unwrap_or_default();
+                spans.push(Span::styled(
+                    label,
+                    if selected {
+                        item_style.add_modifier(Modifier::BOLD)
+                    } else {
+                        item_style
+                    },
+                ));
+                out.push(Line::from(spans));
+            }
+            row += 1;
         }
         out
     }
@@ -440,5 +507,35 @@ mod tests {
             " wf-a\n wf-b\n exec-1 - running\n→exec-2 - idle\n exec-3"
         );
         assert_eq!(rend(20), " wf-a\n wf-b\n exec-1\n→exec-2\n exec-3");
+    }
+
+    #[test]
+    fn render_lines_can_show_group_titles() {
+        let mut l: SelectList<u32> = SelectList::groups(vec![
+            Group::new(Some("Workflows"))
+                .item(GroupItem::new("wf-a", 1))
+                .item(GroupItem::new("wf-b", 2)),
+            Group::new(Some("Executions"))
+                .item(GroupItem::new("exec-1", 3))
+                .item(GroupItem::new("exec-2", 4))
+                .item(GroupItem::new("exec-3", 5)),
+        ])
+        .with_group_titles(true);
+        l.move_to(3);
+        // Height 10 fits all seven rendered rows: two titles plus five items.
+        let text = l
+            .render_lines(60, 10)
+            .iter()
+            .map(|ln| {
+                ln.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("WORKFLOWS"), "first group titled: {text}");
+        assert!(text.contains("EXECUTIONS"), "second group titled: {text}");
+        assert_eq!(l.render_lines(60, 10).len(), 7);
     }
 }

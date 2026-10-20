@@ -1,4 +1,5 @@
-//! Mention parsing for the TUI footer composer (inline form): `@` file / skill / workflow mentions.
+//! Mention parsing for the TUI footer composer (inline form): `@` file /
+//! directory / skill / workflow / tool / script / resource / agent mentions.
 //!
 //! The composer highlights mentions as intervals `Vec<(Range<usize>, MentionKind)>`
 //! where the range is byte offsets into the buffer. The streaming view never
@@ -6,7 +7,8 @@
 //!
 //! Syntax:
 //! * `@path/to/file` — file mention, optionally with line range
-//!   `file:#10`, `file:#10-20`, `file:10`, `file:10-20`, `file#10`, `file#10-20`
+//!   `file:#10`, `file:#10-20`, `file:10`, `file:10-20`, `file#10`, `file#10-20`;
+//!   a trailing `/` classifies the reference as a directory
 //! * `@skill:name` or `skill:name` after `@` — skill mention
 //! * `@workflow:id` / `@wf:id` / `workflow:id` — workflow mention
 //! * bare `@name` without prefix is treated as a file when it contains a `/`
@@ -20,9 +22,11 @@
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
-use ratatui::style::{Color, Style};
+use ratatui::style::Style;
 use ratatui::text::Span;
 use regex::Regex;
+
+use tui_style::theme::{ColorRole, Theme};
 
 /// Kind of a mention interval.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,6 +34,9 @@ pub enum MentionKind {
     File {
         path: String,
         lines: Option<(u32, u32)>,
+    },
+    Directory {
+        path: String,
     },
     Skill {
         name: String,
@@ -43,6 +50,119 @@ pub enum MentionKind {
     },
 }
 
+/// Semantic tone of a mention, sharing its names with the web mention
+/// palette so both surfaces classify the same reference identically.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MentionTone {
+    File,
+    Directory,
+    Skill,
+    Workflow,
+    Agent,
+    Tool,
+    Script,
+    Resource,
+    Neutral,
+}
+
+impl MentionTone {
+    /// Group order used by the mention panel.
+    pub const ORDER: [MentionTone; 9] = [
+        MentionTone::File,
+        MentionTone::Directory,
+        MentionTone::Skill,
+        MentionTone::Workflow,
+        MentionTone::Resource,
+        MentionTone::Tool,
+        MentionTone::Script,
+        MentionTone::Agent,
+        MentionTone::Neutral,
+    ];
+
+    /// Short group title shown above the tone's rows.
+    pub fn title(self) -> &'static str {
+        match self {
+            MentionTone::File => "files",
+            MentionTone::Directory => "directories",
+            MentionTone::Skill => "skills",
+            MentionTone::Workflow => "workflows",
+            MentionTone::Agent => "agents",
+            MentionTone::Tool => "tools",
+            MentionTone::Script => "scripts",
+            MentionTone::Resource => "resources",
+            MentionTone::Neutral => "mentions",
+        }
+    }
+
+    /// The single `MentionTone -> ColorRole` mapping table.
+    pub fn role(self) -> ColorRole {
+        match self {
+            MentionTone::File | MentionTone::Resource => ColorRole::Accent,
+            MentionTone::Directory | MentionTone::Agent => ColorRole::Add,
+            MentionTone::Skill | MentionTone::Workflow => ColorRole::Highlight,
+            MentionTone::Tool | MentionTone::Script => ColorRole::Warning,
+            MentionTone::Neutral => ColorRole::Muted,
+        }
+    }
+
+    /// Single-width glyph shown before a reference in the mention panel.
+    pub fn icon(self) -> char {
+        match self {
+            MentionTone::File => '▢',
+            MentionTone::Directory => '▤',
+            MentionTone::Skill => '✦',
+            MentionTone::Workflow => '⟳',
+            MentionTone::Agent => '☻',
+            MentionTone::Tool => '⚙',
+            MentionTone::Script => '❯',
+            MentionTone::Resource => '⇄',
+            MentionTone::Neutral => '#',
+        }
+    }
+
+    /// Foreground style for this tone, resolved through the dark palette so
+    /// the render pipeline can adapt it to light themes.
+    pub fn style(self) -> Style {
+        Theme::dark_default().style_for_role(self.role())
+    }
+}
+
+impl MentionKind {
+    /// Tone of this mention, mirroring the web `mentionTone` mapping.
+    pub fn tone(&self) -> MentionTone {
+        match self {
+            MentionKind::File { path, .. } => file_tone(path),
+            MentionKind::Directory { .. } => MentionTone::Directory,
+            MentionKind::Skill { .. } => MentionTone::Skill,
+            MentionKind::Workflow { .. } => MentionTone::Workflow,
+            MentionKind::Other { kind, value } => mention_tone(kind, value),
+        }
+    }
+}
+
+/// A file path ending in `/` is a directory reference.
+fn file_tone(path: &str) -> MentionTone {
+    if path.trim_end().ends_with('/') {
+        MentionTone::Directory
+    } else {
+        MentionTone::File
+    }
+}
+
+/// Map a raw mention kind and its value to a tone, mirroring the web mapping.
+pub fn mention_tone(kind: &str, value: &str) -> MentionTone {
+    match kind {
+        "file" => file_tone(value),
+        "wf" | "workflow" => MentionTone::Workflow,
+        "skill" => MentionTone::Skill,
+        "agent" | "agent_loop" => MentionTone::Agent,
+        "tool" => MentionTone::Tool,
+        "script" => MentionTone::Script,
+        "resource" => MentionTone::Resource,
+        _ => MentionTone::Neutral,
+    }
+}
+
 /// One parsed mention with its byte range in the source text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mention {
@@ -52,21 +172,20 @@ pub struct Mention {
     pub raw: String,
 }
 
-/// Map a mention kind to a semantic foreground style for TUI rendering.
+/// The single `MentionKind -> ColorRole` mapping table.
+pub fn mention_role(kind: &MentionKind) -> ColorRole {
+    kind.tone().role()
+}
+
+/// Semantic foreground style for TUI rendering, resolved through the dark
+/// palette so the render pipeline can adapt it to light themes.
 pub fn mention_style(kind: &MentionKind) -> Style {
-    let color = match kind {
-        MentionKind::File { .. } => Color::Cyan,
-        MentionKind::Skill { .. } => Color::Magenta,
-        MentionKind::Workflow { .. } => Color::Blue,
-        MentionKind::Other { kind, .. } => match kind.as_str() {
-            "agent" | "agent_loop" => Color::Green,
-            "tool" => Color::Yellow,
-            "script" => Color::Yellow,
-            "resource" => Color::Cyan,
-            _ => Color::Gray,
-        },
-    };
-    Style::default().fg(color)
+    kind.tone().style()
+}
+
+/// Single-width glyph shown before a mention reference in the panel.
+pub fn mention_icon(kind: &MentionKind) -> char {
+    kind.tone().icon()
 }
 
 /// Render `text` as spans, applying the semantic mention style to any
@@ -235,13 +354,13 @@ fn looks_like_file_with_lines(token: &str) -> bool {
 }
 
 fn parse_file_token(token: &str) -> MentionKind {
-    if let Some((path, lines)) = split_file_lines(token) {
-        MentionKind::File { path, lines }
-    } else {
-        MentionKind::File {
+    match split_file_lines(token) {
+        Some((path, _)) if path.trim_end().ends_with('/') => MentionKind::Directory { path },
+        Some((path, lines)) => MentionKind::File { path, lines },
+        None => MentionKind::File {
             path: token.to_string(),
             lines: None,
-        }
+        },
     }
 }
 
@@ -399,6 +518,13 @@ pub fn scan_files(project_root: &Path, query: Option<&str>) -> Vec<String> {
                 }
             }
             if path.is_dir() {
+                let emit = match &needle {
+                    Some(q) => rel.to_ascii_lowercase().contains(q.as_str()),
+                    None => true,
+                };
+                if emit && out.len() < limit {
+                    out.push(format!("{rel}/"));
+                }
                 stack.push((path, depth + 1));
             } else if path.is_file() {
                 if let Some(q) = &needle {
@@ -580,5 +706,91 @@ mod tests {
         ];
         assert_eq!(filter_candidates(&cands, "mo"), vec!["/model"]);
         assert_eq!(filter_candidates(&cands, "s"), vec!["/skills"]);
+    }
+
+    #[test]
+    fn tones_cover_every_kind_and_directory() {
+        assert_eq!(mention_tone("file", "src/main.rs"), MentionTone::File);
+        assert_eq!(mention_tone("file", "src/"), MentionTone::Directory);
+        assert_eq!(mention_tone("wf", "wf-1"), MentionTone::Workflow);
+        assert_eq!(mention_tone("agent_loop", "a1"), MentionTone::Agent);
+        assert_eq!(mention_tone("tool", "bash"), MentionTone::Tool);
+        assert_eq!(mention_tone("script", "build"), MentionTone::Script);
+        assert_eq!(
+            mention_tone("resource", "file:///tmp"),
+            MentionTone::Resource
+        );
+        assert_eq!(mention_tone("unknown", "x"), MentionTone::Neutral);
+    }
+
+    #[test]
+    fn role_table_is_semantic() {
+        assert_eq!(
+            mention_role(&MentionKind::File {
+                path: "a.rs".into(),
+                lines: None
+            }),
+            ColorRole::Accent
+        );
+        assert_eq!(
+            mention_role(&MentionKind::Directory {
+                path: "src/".into()
+            }),
+            ColorRole::Add
+        );
+        assert_eq!(
+            mention_role(&MentionKind::Skill {
+                name: "pdf".into()
+            }),
+            ColorRole::Highlight
+        );
+        assert_eq!(
+            mention_role(&MentionKind::Workflow {
+                id: "wf-1".into()
+            }),
+            ColorRole::Highlight
+        );
+        assert_eq!(
+            mention_role(&MentionKind::Other {
+                kind: "tool".into(),
+                value: "bash".into()
+            }),
+            ColorRole::Warning
+        );
+    }
+
+    #[test]
+    fn icons_are_single_width_glyphs() {
+        assert_eq!(
+            mention_icon(&MentionKind::Directory {
+                path: "src/".into()
+            }),
+            '▤'
+        );
+        assert_eq!(
+            mention_icon(&MentionKind::File {
+                path: "a.rs".into(),
+                lines: None
+            }),
+            '▢'
+        );
+    }
+
+    #[test]
+    fn parses_trailing_slash_as_directory() {
+        let mentions = parse_mentions("@src/ and @src/main.rs");
+        assert_eq!(mentions.len(), 2);
+        assert!(matches!(mentions[0].kind, MentionKind::Directory { .. }));
+        assert!(matches!(mentions[1].kind, MentionKind::File { .. }));
+    }
+
+    #[test]
+    fn scan_files_includes_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/main.rs"), "").unwrap();
+        let all = scan_files(dir.path(), None);
+        assert!(all.iter().any(|p| p == "src/"));
+        assert!(all.iter().any(|p| p == "src/main.rs"));
     }
 }

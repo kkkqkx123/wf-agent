@@ -8,6 +8,12 @@ use crate::suggest::{SuggestBroker, SuggestCtx, SuggestEngine};
 
 use super::keymap::Key;
 
+/// Maximum number of characters of a suggestion's ghost text that is
+/// painted on the terminal before an ellipsis. Longer suggestions are still
+/// accepted in full; only their on-screen preview is capped so a single long
+/// history entry cannot occupy the whole prompt area while typing.
+pub const SUGGESTION_DISPLAY_LIMIT: usize = 30;
+
 /// What one prompt read produced for the session loop.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PromptEvent {
@@ -37,6 +43,9 @@ pub struct EditorSnapshot {
     pub workflows: Vec<String>,
     /// Project root used for `@file:` mention scanning.
     pub project_root: Option<std::path::PathBuf>,
+    /// Maximum number of characters of a ghost suggestion painted before an
+    /// ellipsis. `0` falls back to the built-in default.
+    pub suggestion_display_limit: usize,
 }
 
 /// What the session loop should do after one key.
@@ -120,9 +129,20 @@ impl EditorCore {
 
     /// Suffix to draw dim after the cursor; only meaningful at end of
     /// buffer, which is where every suggestion-producing action leaves the
-    /// cursor anyway.
+    /// cursor anyway. Returns the complete suggestion so callers that need
+    /// the full text (accept, diagnostics) keep working.
     pub fn suggestion_suffix(&self) -> Option<&str> {
         self.suggestion.as_deref()
+    }
+
+    /// Ghost text actually painted on the terminal: the suggestion capped
+    /// to the configured display limit characters followed by an ellipsis
+    /// when it is longer. The complete suggestion is still inserted on
+    /// accept, so this only affects display.
+    pub fn suggestion_display_suffix(&self) -> Option<String> {
+        self.suggestion
+            .as_deref()
+            .map(|suffix| truncate_suggestion_with_limit(suffix, self.snapshot.suggestion_display_limit))
     }
 
     /// Display width of the buffer tail right of the cursor (for cursor
@@ -145,13 +165,22 @@ impl EditorCore {
     }
 
     /// Display width of the whole visible line (prompt, buffer, ghost).
+    ///
+    /// The ghost is rendered truncated (see [`SUGGESTION_DISPLAY_LIMIT`])
+    /// so an over-long history entry cannot force the prompt to wrap while
+    /// the user is still typing, which is what made the view jump. The
+    /// underlying suggestion stays complete and is inserted in full on
+    /// accept.
     pub fn full_line_width(&self) -> usize {
         let prompt_w = UnicodeWidthStr::width(self.prompt.as_str());
         let buf_w: usize = self.buffer.iter().map(|c| c.width().unwrap_or(0)).sum();
         let ghost_w = self
             .suggestion
             .as_deref()
-            .map(UnicodeWidthStr::width)
+            .map(|suffix| {
+                truncate_suggestion_with_limit(suffix, self.snapshot.suggestion_display_limit)
+            })
+            .map(|s| UnicodeWidthStr::width(s.as_str()))
             .unwrap_or(0);
         prompt_w + buf_w + ghost_w
     }
@@ -496,6 +525,29 @@ impl EditorCore {
     }
 }
 
+/// Cap a suggestion's on-screen preview to [`SUGGESTION_DISPLAY_LIMIT`]
+/// characters, appending an ellipsis when truncation occurred. Char-aware so
+/// multibyte input is never split.
+pub fn truncate_suggestion(suffix: &str) -> String {
+    truncate_suggestion_with_limit(suffix, SUGGESTION_DISPLAY_LIMIT)
+}
+
+/// Like [`truncate_suggestion`] but with an explicit character limit. A limit
+/// of zero falls back to [`SUGGESTION_DISPLAY_LIMIT`].
+pub fn truncate_suggestion_with_limit(suffix: &str, limit: usize) -> String {
+    let limit = if limit == 0 {
+        SUGGESTION_DISPLAY_LIMIT
+    } else {
+        limit
+    };
+    let count = suffix.chars().count();
+    if count <= limit {
+        return suffix.to_string();
+    }
+    let head: String = suffix.chars().take(limit).collect();
+    format!("{head}…")
+}
+
 /// Byte length of the next accept chunk of `suffix`: the leading
 /// whitespace run, or one word plus its trailing whitespace.
 pub fn partial_word_bytes(suffix: &str) -> usize {
@@ -534,6 +586,7 @@ mod tests {
                 skills: Vec::new(),
                 workflows: Vec::new(),
                 project_root: None,
+                suggestion_display_limit: 30,
             },
             Arc::new(SuggestEngine::new()),
             Arc::new(SuggestBroker::new()),

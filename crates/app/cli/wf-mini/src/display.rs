@@ -13,6 +13,11 @@ pub const MIN_APPROVAL_TIMEOUT_SECS: u64 = 5;
 pub const MAX_APPROVAL_TIMEOUT_SECS: u64 = 3600;
 pub const DEFAULT_APPROVAL_TIMEOUT_SECS: u64 = 120;
 
+/// Ghost suggestion display limit bounds (characters).
+pub const MIN_SUGGESTION_DISPLAY_LIMIT: usize = 10;
+pub const MAX_SUGGESTION_DISPLAY_LIMIT: usize = 200;
+pub const DEFAULT_SUGGESTION_DISPLAY_LIMIT: usize = 30;
+
 /// Resolved display settings for one session. `markdown` selects the stdout
 /// presentation; the `show_*` flags gate stderr streams (failures always
 /// show); `color` records whether ANSI styling may be emitted on stdout,
@@ -26,6 +31,7 @@ pub struct DisplayConfig {
     pub color: bool,
     pub stderr_color: bool,
     pub approval_timeout_secs: u64,
+    pub suggestion_display_limit: usize,
 }
 
 impl Default for DisplayConfig {
@@ -38,6 +44,7 @@ impl Default for DisplayConfig {
             color: false,
             stderr_color: false,
             approval_timeout_secs: DEFAULT_APPROVAL_TIMEOUT_SECS,
+            suggestion_display_limit: DEFAULT_SUGGESTION_DISPLAY_LIMIT,
         }
     }
 }
@@ -67,6 +74,7 @@ impl DisplayConfig {
             file.as_ref().and_then(|config| config.show_tools),
         );
         let approval_timeout_secs = resolve_approval_timeout(file.as_ref());
+        let suggestion_display_limit = resolve_suggestion_display_limit(file.as_ref());
         let color = color_enabled(cli, stdout_tty);
         let stderr_color = stderr_color_enabled(cli, stderr_tty);
         Self {
@@ -77,13 +85,14 @@ impl DisplayConfig {
             color,
             stderr_color,
             approval_timeout_secs,
+            suggestion_display_limit,
         }
     }
 
     /// One-line summary for the banner and `/display`.
     pub fn describe(&self) -> String {
         format!(
-            "markdown={} reasoning={} usage={} tools={} color={} stderr_color={} approval_timeout={}s",
+            "markdown={} reasoning={} usage={} tools={} color={} stderr_color={} approval_timeout={}s suggestion_display_limit={}",
             self.markdown.as_str(),
             on_off(self.show_reasoning),
             on_off(self.show_usage),
@@ -91,6 +100,7 @@ impl DisplayConfig {
             on_off(self.color),
             on_off(self.stderr_color),
             self.approval_timeout_secs,
+            self.suggestion_display_limit,
         )
     }
 }
@@ -138,6 +148,17 @@ fn resolve_approval_timeout(file: Option<&MiniConfig>) -> u64 {
     file.and_then(|config| config.approval_timeout_secs)
         .map(|secs| secs.clamp(MIN_APPROVAL_TIMEOUT_SECS, MAX_APPROVAL_TIMEOUT_SECS))
         .unwrap_or(DEFAULT_APPROVAL_TIMEOUT_SECS)
+}
+
+fn resolve_suggestion_display_limit(file: Option<&MiniConfig>) -> usize {
+    if let Ok(raw) = std::env::var("WF_MINI_SUGGESTION_DISPLAY_LIMIT") {
+        if let Ok(parsed) = raw.trim().parse::<usize>() {
+            return parsed.clamp(MIN_SUGGESTION_DISPLAY_LIMIT, MAX_SUGGESTION_DISPLAY_LIMIT);
+        }
+    }
+    file.and_then(|config| config.suggestion_display_limit)
+        .map(|value| value.clamp(MIN_SUGGESTION_DISPLAY_LIMIT, MAX_SUGGESTION_DISPLAY_LIMIT))
+        .unwrap_or(DEFAULT_SUGGESTION_DISPLAY_LIMIT)
 }
 
 fn load_file_config() -> Option<MiniConfig> {

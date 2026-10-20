@@ -24,7 +24,7 @@ export async function mentionSearch(params: {
 		return { items: [] };
 	}
 	const data = await call<{ items?: MentionCandidate[] }>(
-		(client as any).GET('/api/v1/mentions/search', {
+		client.GET('/api/v1/mentions/search', {
 			params: {
 				query: {
 					q: params.q,

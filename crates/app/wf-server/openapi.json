@@ -23978,6 +23978,93 @@
         ]
       }
     },
+    "/api/v1/mentions/search": {
+      "get": {
+        "tags": [
+          "observation"
+        ],
+        "operationId": "handle_mention_search",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kinds",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/messages": {
       "get": {
         "tags": [
@@ -46519,6 +46606,13 @@
           "message": {
             "type": "string"
           },
+          "mode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Caller-requested run mode: `chat` runs a tool-free plain-chat loop;\nmissing or `standard` keeps the full agent loop. Translated at the\ncomposition boundary, never stored on the config."
+          },
           "model": {
             "type": "string"
           },
@@ -46538,7 +46632,14 @@
             "format": "int32",
             "minimum": 0
           },
-          "tool_call_protocol": {}
+          "tool_call_protocol": {},
+          "workflow_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional workflow template id injected as a volatile context message;\nunknown or non-runnable templates are rejected as not found."
+          }
         }
       },
       "SaveVersionBody": {

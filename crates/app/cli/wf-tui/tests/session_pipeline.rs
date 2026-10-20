@@ -121,7 +121,7 @@ fn footer_reflects_reducer_state_and_routes_keys_by_view() {
         reducer.push_batch(&markdown_script());
         &reducer.footer().clone()
     });
-    assert!(footer.apply_height_with_width(80) > 0);
+    assert!(footer.apply_height() > 0);
 
     footer.present(FooterView::Prompt);
     assert_eq!(footer.keymap_context(), KeymapContext::Composer);

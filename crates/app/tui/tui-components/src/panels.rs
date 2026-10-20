@@ -18,6 +18,7 @@
 //! - Shared render helper and [`Renderable`] implementations
 
 pub mod command;
+pub mod filter;
 pub mod mention;
 pub mod model;
 pub mod queued;
@@ -26,6 +27,7 @@ pub mod skill;
 pub mod workflow;
 
 pub use command::{CommandEntry, CommandId, CommandPalette};
+pub use filter::PanelFilter;
 pub use mention::{MentionEntry, MentionMode, MentionPanel};
 pub use model::ModelPanel;
 pub use queued::QueuedPanel;
@@ -119,6 +121,30 @@ mod tests {
         // Backspace on an empty filter is a no-op.
         palette.filter_backspace();
         assert!(palette.visible_len() >= 7);
+    }
+
+    #[test]
+    fn palette_keeps_the_command_argument_apart() {
+        let mut palette = CommandPalette::with_filter("/");
+        for c in "copy all".chars() {
+            palette.filter_push(c);
+        }
+        assert_eq!(palette.argument(), "all");
+        assert_eq!(palette.selected_command(), Some(CommandId::Copy));
+        assert_eq!(palette.visible_len(), 1);
+    }
+
+    #[test]
+    fn model_panel_filters_its_candidates() {
+        let profiles = vec![
+            profile("default", "claude-3"),
+            profile("fast", "gpt-4o-mini"),
+        ];
+        let mut panel = ModelPanel::new(&profiles, None);
+        panel.filter_push('f');
+        assert_eq!(panel.selected_model(), Some("fast".to_string()));
+        panel.filter_backspace();
+        assert_eq!(panel.filter_text(), "");
     }
 
     #[test]

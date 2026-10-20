@@ -26,6 +26,7 @@ pub(crate) mod copy;
 pub(crate) mod keys;
 pub(crate) mod mouse_hit;
 mod perf;
+pub(crate) mod panels;
 mod render;
 mod replay;
 mod scrollbar;
@@ -58,6 +59,26 @@ use crate::stream_pacer::SegmentedPacer;
 use crate::terminal::{DoublePressTracker, SIGINT_DOUBLE_PRESS_WINDOW};
 use crate::transcript::HistoryLine;
 
+/// Candidate payload for a footer panel route.
+#[derive(Debug)]
+pub enum PanelPayload {
+    /// Model profiles for the model panel.
+    Profiles(Vec<wf_types::llm::LlmProfile>),
+    /// Skills for the skill panel.
+    Skills(Vec<wf_types::skill::SkillMetadata>),
+    /// Workflow summaries for the workflow panel.
+    Workflows(Vec<tui_components::panels::WorkflowSummaryRow>),
+    /// Local file and directory candidates for the mention panel.
+    MentionFiles(Vec<tui_components::panels::MentionEntry>),
+    /// Server-side mention entities fetched for one query.
+    MentionEntities {
+        /// The query the entities were fetched for.
+        query: String,
+        /// The candidates.
+        entries: Vec<tui_components::panels::MentionEntry>,
+    },
+}
+
 /// Events from the server side into the interactive event loop.
 #[derive(Debug)]
 pub enum InteractiveEvent {
@@ -73,6 +94,16 @@ pub enum InteractiveEvent {
     },
     /// One execution stream event from the active turn.
     TurnEvent(ExecutionStreamEvent),
+    /// Panel candidates landed for a route.
+    PanelCandidates {
+        route: crate::footer::FooterRoute,
+        payload: PanelPayload,
+    },
+    /// Panel candidates could not be loaded.
+    PanelFailed {
+        route: crate::footer::FooterRoute,
+        error: String,
+    },
     /// The first replay page landed: it replaces the whole scrollback.
     ReplayLoaded {
         lines: Vec<HistoryLine>,
@@ -99,6 +130,14 @@ pub enum InteractiveEvent {
 pub enum InteractiveAction {
     Continue,
     Exit,
+    /// Open the shell help modal.
+    ShowHelp,
+    /// Open a new chat session tab.
+    NewSession,
+    /// Open the shell session list overlay.
+    OpenSessionList,
+    /// Switch the shell to a management screen.
+    OpenScreen(crate::screens::ScreenKind),
 }
 
 /// Transcript drag selection in viewport display-row space. The anchor is
@@ -145,7 +184,7 @@ pub struct InteractiveController {
     rx: mpsc::UnboundedReceiver<InteractiveEvent>,
     reducer: SessionReducer,
     stream: crate::markdown::MarkdownStream,
-    footer: Footer,
+    pub(crate) footer: Footer,
     scrollback: Vec<HistoryLine>,
     pending_scroll: Vec<HistoryLine>,
     /// Private content version for the preparation cache. Every scrollback
@@ -301,6 +340,31 @@ pub struct InteractiveController {
     image_signature: u64,
     /// Expanded image level version: same invalidation contract as above.
     expanded_version: u64,
+    /// Model profiles cached for the model panel.
+    panel_profiles: Vec<wf_types::llm::LlmProfile>,
+    /// Skills cached for the skill panel.
+    panel_skills: Vec<wf_types::skill::SkillMetadata>,
+    /// Workflow summaries cached for the workflow panel.
+    panel_workflows: Vec<tui_components::panels::WorkflowSummaryRow>,
+    /// Local file and directory candidates for the mention panel.
+    panel_mention_files: Vec<tui_components::panels::MentionEntry>,
+    /// Server-side mention entities for the current query.
+    panel_mention_entities: Vec<tui_components::panels::MentionEntry>,
+    /// Mention query waiting for a server search.
+    mention_query_pending: Option<String>,
+    /// True while a mention entity search is in flight.
+    mention_search_inflight: bool,
+    /// Byte offset of the mention token the user dismissed; the panel stays
+    /// closed until that token leaves the composer.
+    dismissed_mention: Option<usize>,
+    /// Prompts submitted while a turn is running; drained in order.
+    prompt_queue: tui_components::queue::PromptQueue,
+    /// Session-level model override applied to the next turn.
+    model_override: Option<String>,
+    /// Key resolution table for the footer panel routes.
+    keymap: tui_core::keymap::Keymap,
+    /// Whether the user asked to edit the composer draft in `$EDITOR`.
+    pending_editor: bool,
 }
 
 impl InteractiveController {
@@ -499,7 +563,34 @@ impl InteractiveController {
             layout_probe: None,
             image_signature: 0,
             expanded_version: 0,
+            panel_profiles: Vec::new(),
+            panel_skills: Vec::new(),
+            panel_workflows: Vec::new(),
+            panel_mention_files: Vec::new(),
+            panel_mention_entities: Vec::new(),
+            mention_query_pending: None,
+            mention_search_inflight: false,
+            dismissed_mention: None,
+            prompt_queue: tui_components::queue::PromptQueue::new(),
+            model_override: None,
+            keymap: tui_core::keymap::builtin_keymap(),
+            pending_editor: false,
         }
+    }
+
+    /// Replace the key resolution table used by the footer panel routes.
+    /// The shell injects the user-configured keymap so panel bindings honor
+    /// the same overrides as the rest of the interface.
+    pub fn set_keymap(&mut self, keymap: tui_core::keymap::Keymap) {
+        self.keymap = keymap;
+    }
+
+    /// Take the pending external-editor request, if any. The shell runs the
+    /// handoff outside the event loop's key path.
+    pub fn take_pending_editor(&mut self) -> bool {
+        let pending = self.pending_editor;
+        self.pending_editor = false;
+        pending
     }
 
     /// Tear down the turn task and the interaction poll task.
@@ -587,6 +678,7 @@ impl InteractiveController {
             streaming_len: streaming_text.len(),
             streaming_hash: crate::prep_keys::hash_prefix(streaming_text),
             footer_digest: crate::redraw::footer_digest(&self.footer.state),
+            footer_route: self.footer.route.id(),
             input_hash: crate::prep_keys::hash_prefix(self.footer.composer.content()),
             width: self.last_layout_width,
             height: self.last_layout_height,

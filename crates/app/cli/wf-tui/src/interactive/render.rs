@@ -24,6 +24,10 @@ use crate::redraw::{AnimationArea, RedrawScope};
 use crate::theme::Theme;
 use tui_components::scrollbar;
 
+/// Columns reserved on the left of the composer input line for the prompt
+/// marker (`"> "` on the first row, blanks below).
+const PROMPT_PREFIX_WIDTH: u16 = 2;
+
 impl InteractiveController {
     /// Render the session into the supplied area. The single submit point
     /// branches on the shell-provided scope: full rebuilds everything,
@@ -34,26 +38,34 @@ impl InteractiveController {
     pub fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme, requested: RedrawScope) {
         self.footer.set_now(self.now_ms());
 
-        // Bottom grows with the composer: footer frame plus a mirrored
-        // prompt line of the same height. The scrollback keeps at least a
-        // small viewport; oversized input is windowed around the cursor.
+        // The bottom is the footer frame plus the composer input line. The
+        // footer height follows the active route (panel or blocking view);
+        // the input line only exists on the routes that own the composer.
+        // The scrollback keeps at least a small viewport.
         let width = area.width.max(1);
-        let mut composer_rows = self.footer.composer_height_for_width(width);
         let min_scroll: u16 = 3;
-        let available = area.height.saturating_sub(min_scroll);
-        let need = crate::footer::FOOTER_BASE_HEIGHT
-            .saturating_add(composer_rows)
-            .saturating_add(composer_rows);
-        if need > available && available > crate::footer::FOOTER_BASE_HEIGHT + 2 {
-            let fit = available.saturating_sub(crate::footer::FOOTER_BASE_HEIGHT) / 2;
-            composer_rows = fit.max(1).min(composer_rows);
+        let bottom_max = area.height.saturating_sub(min_scroll);
+        let mut footer_h = self.footer.apply_height();
+        let mut input_h = if self.footer.view == crate::footer::FooterView::Prompt
+            && self.footer.route.owns_composer_input()
+        {
+            self.footer.composer_height_for_width(width)
+        } else {
+            0
+        };
+        if footer_h.saturating_add(input_h) > bottom_max {
+            // The composer line keeps its rows; the panel main area absorbs
+            // the rest and the footer clamps its own main area.
+            footer_h = bottom_max.saturating_sub(input_h);
+            if footer_h < crate::footer::FOOTER_BASE_HEIGHT {
+                footer_h = crate::footer::FOOTER_BASE_HEIGHT.min(bottom_max);
+                input_h = bottom_max.saturating_sub(footer_h);
+            }
         }
-        let footer_h = crate::footer::FOOTER_BASE_HEIGHT.saturating_add(composer_rows);
-        let input_h = composer_rows;
         // Record the headless geometry probe for this frame so debug and
         // replay paths can assert layout without inspecting rendered pixels.
         self.layout_probe = Some(crate::render_model::probe_layout(area, footer_h, input_h));
-        // Top: scrollback. Middle: footer. Bottom: prompt line.
+        // Top: scrollback. Middle: footer. Bottom: composer line.
         let [scroll_area, footer_area, input_area] = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -73,14 +85,14 @@ impl InteractiveController {
             RedrawScope::Full => {
                 self.draw_scrollback_scoped(frame, scroll_area, scope, theme);
                 self.footer.draw(footer_area, frame.buffer_mut(), theme);
-                self.draw_input(frame, input_area);
+                self.draw_input(frame, input_area, theme);
                 let badge = self.paint_jump_badge(frame, scroll_area, theme);
                 self.record_hit_frame(scroll_area, badge, input_area);
             }
             RedrawScope::BottomOnly => {
                 self.draw_scrollback_cached(frame, scroll_area, theme);
                 self.footer.draw(footer_area, frame.buffer_mut(), theme);
-                self.draw_input(frame, input_area);
+                self.draw_input(frame, input_area, theme);
                 let badge = self.paint_jump_badge(frame, scroll_area, theme);
                 self.record_hit_frame(scroll_area, badge, input_area);
             }
@@ -311,6 +323,7 @@ impl InteractiveController {
             streaming_len: streaming_text.len(),
             streaming_hash: crate::prep_keys::hash_prefix(streaming_text),
             footer_digest: crate::redraw::footer_digest(&self.footer.state),
+            footer_route: self.footer.route.id(),
             input_hash: crate::prep_keys::hash_prefix(self.footer.composer.content()),
             width,
             height,
@@ -447,7 +460,11 @@ impl InteractiveController {
         }
     }
 
-    fn draw_input(&self, frame: &mut Frame, area: Rect) {
+    /// Draw the composer input line: the single composer surface of the
+    /// session. The panel routes never reach it (they own the footer main
+    /// area instead), and the mention route keeps it so the user sees the
+    /// query they are typing.
+    fn draw_input(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         use ratatui::style::Modifier;
         use ratatui::text::{Line, Span};
         let composer = &self.footer.composer;
@@ -471,56 +488,25 @@ impl InteractiveController {
             frame.render_widget(Paragraph::new(Line::from(spans)), area);
             return;
         }
-        if area.height == 0 {
+        if area.height == 0 || area.width <= PROMPT_PREFIX_WIDTH {
             return;
         }
-        let available = area.width.saturating_sub(2).max(1);
-        let mut rows = composer.visual_text_rows(available);
-        if rows.is_empty() {
-            rows.push(String::new());
-        }
-        let cursor_row = composer.cursor_visual_row(available).min(rows.len() - 1);
-        let visible = usize::from(area.height);
-        let start = if rows.len() <= visible {
-            0
-        } else {
-            (cursor_row + 1)
-                .saturating_sub(visible)
-                .min(rows.len() - visible)
+        // The prompt marker column is reserved on the left; the composer
+        // renders into the remaining columns, so the text, the placeholder,
+        // the mention highlights and the ghost suffix all share one surface.
+        let inner = Rect {
+            x: area.x + PROMPT_PREFIX_WIDTH,
+            y: area.y,
+            width: area.width - PROMPT_PREFIX_WIDTH,
+            height: area.height,
         };
-        let ghost = if composer.is_at_end() {
-            composer
-                .ghost()
-                .map(|suffix| suffix.split('\n').next().unwrap_or("").to_string())
-                .filter(|line| !line.is_empty())
-        } else {
-            None
-        };
-        let mut lines: Vec<Line<'static>> = Vec::new();
-        for (slot, text) in rows.iter().skip(start).take(visible).enumerate() {
-            let prefix = if start + slot == 0 { "> " } else { "  " };
-            let is_last = start + slot + 1 >= rows.len();
-            if is_last {
-                if let Some(ref suffix) = ghost {
-                    use unicode_width::UnicodeWidthStr;
-                    let used = text.width() as u16;
-                    let remain = available.saturating_sub(used);
-                    let clipped = truncate_echo(suffix, remain);
-                    lines.push(Line::from(vec![
-                        Span::raw(format!("{prefix}{text}")),
-                        Span::styled(
-                            clipped,
-                            ratatui::style::Style::default().add_modifier(Modifier::DIM),
-                        ),
-                    ]));
-                } else {
-                    lines.push(Line::from(vec![Span::raw(format!("{prefix}{text}"))]));
-                }
-            } else {
-                lines.push(Line::from(vec![Span::raw(format!("{prefix}{text}"))]));
-            }
+        let style = crate::footer::theme_style(theme, crate::transcript::Role::Default);
+        composer.render(inner, frame.buffer_mut(), style);
+        let buf = frame.buffer_mut();
+        buf.set_string(area.x, area.y, "> ", style);
+        for row in 1..area.height {
+            buf.set_string(area.x, area.y + row, "  ", style);
         }
-        frame.render_widget(Paragraph::new(lines), area);
     }
 
     /// Paint the transcript drag selection as reversed cells over the
@@ -616,22 +602,6 @@ impl InteractiveController {
         }
         buf.set_style(Rect::new(area.x, row, text_width, 1), underline);
     }
-}
-
-fn truncate_echo(text: &str, width: u16) -> String {
-    use unicode_segmentation::UnicodeSegmentation;
-    use unicode_width::UnicodeWidthStr;
-    let mut out = String::new();
-    let mut w = 0u16;
-    for grapheme in text.graphemes(true) {
-        let gw = grapheme.width() as u16;
-        if w + gw > width {
-            break;
-        }
-        out.push_str(grapheme);
-        w += gw;
-    }
-    out
 }
 
 fn draw_welcome(

@@ -58,7 +58,7 @@ impl InteractiveController {
             }
             CKey::End if !key.ctrl && !key.alt => {
                 if self.footer.view != FooterView::Prompt
-                    || self.footer.route != FooterRoute::Composer
+                    || !self.footer.route.owns_composer_input()
                     || (!self.footer.composer.search_active() && self.footer.composer.is_empty())
                 {
                     self.jump_to_latest();
@@ -188,13 +188,12 @@ impl InteractiveController {
     }
 
     /// Insert a bracketed-paste body into the prompt composer as one whole
-    /// string. Only the prompt composer accepts pastes: approval and
-    /// question views own their keys, and panel routes show selection lists
-    /// with no text entry. Returns whether the paste landed.
+    /// string. Only the routes that own the composer accept pastes: the
+    /// composer route and the composite mention route. Approval and
+    /// question views own their keys, and the exclusive panel routes show
+    /// selection lists with no text entry. Returns whether the paste landed.
     pub fn insert_paste(&mut self, text: &str) -> bool {
-        if self.footer.view != FooterView::Prompt
-            || self.footer.route != crate::footer::FooterRoute::Composer
-        {
+        if self.footer.view != FooterView::Prompt || !self.footer.route.owns_composer_input() {
             return false;
         }
         let normalized = normalize_paste(text);
@@ -202,6 +201,7 @@ impl InteractiveController {
             return false;
         }
         self.footer.composer.insert_text(&normalized);
+        self.sync_mention_route();
         true
     }
 
@@ -305,10 +305,15 @@ impl InteractiveController {
     }
 
     fn handle_prompt_key(&mut self, key: Key) -> InteractiveAction {
-        let composing = self.footer.route == FooterRoute::Composer;
+        // Panel routes own the keys: the panel branch runs before the
+        // composer branch so an open panel never leaks text into the
+        // composer.
+        if self.footer.route != FooterRoute::Composer {
+            return self.handle_panel_key(key);
+        }
         // An open reverse search owns the prompt keys first (menu/panel
         // routes keep their own Up/Down; approval/question never reach here).
-        if composing && self.footer.composer.search_active() {
+        if self.footer.composer.search_active() {
             if key.ctrl && !key.alt && matches!(key.code, CKey::Char('r') | CKey::Char('R')) {
                 self.footer.composer.search_older();
                 return InteractiveAction::Continue;
@@ -373,6 +378,9 @@ impl InteractiveController {
                 if self.handle_copy_command(&text) {
                     return InteractiveAction::Continue;
                 }
+                if self.handle_command_line(&text) {
+                    return InteractiveAction::Continue;
+                }
                 if !text.trim().is_empty() {
                     self.flush_activity();
                     let mut rows = vec![HistoryLine::new_role(format!("❯ {text}"), Role::Accent)];
@@ -385,47 +393,48 @@ impl InteractiveController {
                         seq,
                     );
                     self.pending_scroll.extend(rows);
-                    self.start_turn(text.trim().to_string(), None, None);
+                    self.submit_prompt(text.trim().to_string());
                 }
             }
             CKey::Up if !key.ctrl && !key.alt && !key.shift => {
-                if composing {
-                    self.move_composer_up();
-                }
+                self.move_composer_up();
             }
             CKey::Down if !key.ctrl && !key.alt && !key.shift => {
-                if composing {
-                    self.move_composer_down();
-                }
+                self.move_composer_down();
             }
             CKey::Right if !key.ctrl && !key.alt => {
-                if composing {
-                    if !self.footer.composer.accept_ghost() {
-                        self.footer.composer.move_right();
-                    }
-                } else {
+                if !self.footer.composer.accept_ghost() {
                     self.footer.composer.move_right();
                 }
             }
             CKey::End if !key.ctrl && !key.alt => {
-                if composing {
-                    if !self.footer.composer.accept_ghost() {
-                        self.footer.composer.end();
-                    }
-                } else {
+                if !self.footer.composer.accept_ghost() {
                     self.footer.composer.end();
                 }
             }
             CKey::Char('r') | CKey::Char('R') if key.ctrl && !key.alt => {
-                if composing {
-                    self.footer.composer.begin_search();
-                }
+                self.footer.composer.begin_search();
             }
-            CKey::Backspace => self.footer.composer.backspace(),
-            CKey::Delete => self.footer.composer.delete_forward(),
+            CKey::Backspace => {
+                self.footer.composer.backspace();
+                self.sync_mention_route();
+            }
+            CKey::Delete => {
+                self.footer.composer.delete_forward();
+                self.sync_mention_route();
+            }
             CKey::Left => self.footer.composer.move_left(),
             CKey::Home => self.footer.composer.home(),
-            CKey::Char(c) if !key.ctrl && !key.alt => self.footer.composer.insert_char(c),
+            CKey::Char(c) if !key.ctrl && !key.alt => {
+                // `/` opens the command palette when the composer is empty;
+                // anywhere else it is ordinary text.
+                if c == '/' && self.footer.composer.is_empty() {
+                    self.open_command_panel();
+                    return InteractiveAction::Continue;
+                }
+                self.footer.composer.insert_char(c);
+                self.sync_mention_route();
+            }
             _ => {}
         }
         InteractiveAction::Continue

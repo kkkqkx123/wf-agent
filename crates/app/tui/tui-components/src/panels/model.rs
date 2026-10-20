@@ -1,5 +1,6 @@
 //! The model profile panel.
 
+use crate::panels::filter::{apply, PanelFilter};
 use crate::select::{Group, GroupItem, NavigateDir, SelectList};
 use tui_core::keymap::KeyAction;
 use wf_types::llm::LlmProfile;
@@ -10,6 +11,8 @@ pub struct ModelPanel {
     list: SelectList<String>,
     /// Currently active profile id (marked in the list).
     current: Option<String>,
+    /// Filter text typed while the panel is open.
+    filter: PanelFilter,
 }
 
 impl ModelPanel {
@@ -33,6 +36,7 @@ impl ModelPanel {
         let mut panel = Self {
             list,
             current: current.map(str::to_string),
+            filter: PanelFilter::new(),
         };
         if let Some(cursor) = cursor {
             panel.list.move_to(cursor);
@@ -67,8 +71,30 @@ impl ModelPanel {
                 self.list.navigate(NavigateDir::Next);
                 true
             }
+            KeyAction::Clear => {
+                self.filter.clear();
+                apply(&mut self.list, self.filter.text());
+                true
+            }
             _ => false,
         }
+    }
+
+    /// Append a character to the filter.
+    pub fn filter_push(&mut self, c: char) {
+        self.filter.push(c);
+        apply(&mut self.list, self.filter.text());
+    }
+
+    /// Remove the last grapheme from the filter.
+    pub fn filter_backspace(&mut self) {
+        self.filter.backspace();
+        apply(&mut self.list, self.filter.text());
+    }
+
+    /// The filter text typed so far.
+    pub fn filter_text(&self) -> &str {
+        self.filter.text()
     }
 
     /// Render the panel rows.

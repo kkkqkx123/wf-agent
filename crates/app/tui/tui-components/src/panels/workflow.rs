@@ -1,5 +1,6 @@
 //! The workflow panel.
 
+use crate::panels::filter::{apply, PanelFilter};
 use crate::select::{Group, GroupItem, NavigateDir, SelectList};
 use tui_core::keymap::KeyAction;
 
@@ -57,6 +58,8 @@ impl WorkflowSummaryRow {
 #[derive(Debug, Clone)]
 pub struct WorkflowPanel {
     list: SelectList<String>,
+    /// Filter text typed while the panel is open.
+    filter: PanelFilter,
 }
 
 impl WorkflowPanel {
@@ -76,6 +79,7 @@ impl WorkflowPanel {
         }
         Self {
             list: SelectList::groups(vec![group]),
+            filter: PanelFilter::new(),
         }
     }
 
@@ -95,8 +99,30 @@ impl WorkflowPanel {
                 self.list.navigate(NavigateDir::Next);
                 true
             }
+            KeyAction::Clear => {
+                self.filter.clear();
+                apply(&mut self.list, self.filter.text());
+                true
+            }
             _ => false,
         }
+    }
+
+    /// Append a character to the filter.
+    pub fn filter_push(&mut self, c: char) {
+        self.filter.push(c);
+        apply(&mut self.list, self.filter.text());
+    }
+
+    /// Remove the last grapheme from the filter.
+    pub fn filter_backspace(&mut self) {
+        self.filter.backspace();
+        apply(&mut self.list, self.filter.text());
+    }
+
+    /// The filter text typed so far.
+    pub fn filter_text(&self) -> &str {
+        self.filter.text()
     }
 
     /// Render the panel rows.

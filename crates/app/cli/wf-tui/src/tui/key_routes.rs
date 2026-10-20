@@ -173,15 +173,41 @@ impl TuiApp {
                     return Ok(LoopAction::Continue);
                 }
             }
-            if let Some(session) = self.sessions.active_mut() {
-                match session.handle_key(key) {
+            // The session outcome is collected first so the shell actions
+            // (new tab, session list, screen switch) can run without the
+            // session borrow being alive.
+            let session_outcome = self.sessions.active_mut().map(|session| {
+                let action = session.handle_key(key);
+                (
+                    action,
+                    session.take_tool_viewer(),
+                    session.take_pending_copy(),
+                    session.take_copy_notice(),
+                )
+            });
+            if let Some((action, viewer, copy, notice)) = session_outcome {
+                match action {
                     InteractiveAction::Continue => {}
                     InteractiveAction::Exit => {
                         self.interactive_exit = true;
                         return Ok(LoopAction::Continue);
                     }
+                    InteractiveAction::ShowHelp => {
+                        self.modals.push(Box::new(HelpModal::with_overrides(
+                            self.keymap_overrides.clone(),
+                        )));
+                    }
+                    InteractiveAction::NewSession => {
+                        self.new_tab().await;
+                    }
+                    InteractiveAction::OpenSessionList => {
+                        self.open_session_list();
+                    }
+                    InteractiveAction::OpenScreen(kind) => {
+                        self.goto(kind);
+                    }
                 }
-                if let Some(request) = session.take_tool_viewer() {
+                if let Some(request) = viewer {
                     if request.is_diff {
                         self.modals
                             .push(Box::new(crate::file_viewer::DiffViewer::from_unified(
@@ -196,10 +222,10 @@ impl TuiApp {
                             )));
                     }
                 }
-                if let Some(copy) = session.take_pending_copy() {
+                if let Some(copy) = copy {
                     self.pending_copy = Some(copy);
                 }
-                if let Some(notice) = session.take_copy_notice() {
+                if let Some(notice) = notice {
                     self.app.notice.set(notice);
                 }
                 return Ok(LoopAction::Continue);

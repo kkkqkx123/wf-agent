@@ -589,6 +589,16 @@ impl Composer {
         self.cursor == 0
     }
 
+    /// Cursor position in the buffer as a byte offset.
+    pub fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    /// Character before the cursor, if any.
+    pub fn char_before_cursor(&self) -> Option<char> {
+        self.buf[..self.cursor].chars().next_back()
+    }
+
     /// Number of visual rows for `width`, counting logical newlines and
     /// soft wraps on grapheme boundaries. Empty input still needs one row.
     pub fn visual_row_count(&self, width: u16) -> usize {

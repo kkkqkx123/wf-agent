@@ -6,6 +6,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::mention::{mention_tone, MentionTone};
+use crate::panels::filter::{apply, PanelFilter};
 use crate::select::{Group, GroupItem, NavigateDir, SelectList};
 use tui_core::keymap::KeyAction;
 
@@ -105,7 +106,7 @@ impl MentionMode {
 pub struct MentionPanel {
     list: SelectList<String>,
     entries: Vec<MentionEntry>,
-    filter: String,
+    filter: PanelFilter,
     mode: MentionMode,
 }
 
@@ -116,10 +117,13 @@ impl MentionPanel {
         let mut panel = Self {
             list: SelectList::default(),
             entries: entries.to_vec(),
-            filter: filter.unwrap_or_default().to_string(),
+            filter: PanelFilter::new(),
             mode: MentionMode::All,
         };
         panel.rebuild();
+        if let Some(filter) = filter {
+            panel.set_filter(Some(filter));
+        }
         panel
     }
 
@@ -152,18 +156,28 @@ impl MentionPanel {
         if groups.is_empty() {
             groups.push(Group::new(Some("mentions")));
         }
-        let mut list = SelectList::groups(groups).with_group_titles(true);
-        list.set_filter(if self.filter.is_empty() {
-            None
-        } else {
-            Some(self.filter.as_str())
-        });
+        let list = SelectList::groups(groups).with_group_titles(true);
         self.list = list;
+        // Re-apply the filter over the rebuilt groups.
+        let text = self.filter.text().to_string();
+        apply(&mut self.list, &text);
     }
 
     /// The candidate reference under the cursor.
     pub fn selected_candidate(&self) -> Option<String> {
         self.list.selected().map(|item| item.data.clone())
+    }
+
+    /// Replace the candidate set, keeping the current filter and mode. Used
+    /// when fresh candidates land for the open mention query.
+    pub fn set_entries(&mut self, entries: &[MentionEntry]) {
+        self.entries = entries.to_vec();
+        self.rebuild();
+    }
+
+    /// The filter text typed so far.
+    pub fn filter_text(&self) -> &str {
+        self.filter.text()
     }
 
     /// Current mode.
@@ -180,27 +194,19 @@ impl MentionPanel {
     /// Push a character into the filter.
     pub fn filter_push(&mut self, c: char) {
         self.filter.push(c);
-        self.list.set_filter(if self.filter.is_empty() {
-            None
-        } else {
-            Some(self.filter.as_str())
-        });
+        apply(&mut self.list, self.filter.text());
     }
 
     /// Pop the last character from the filter.
     pub fn filter_backspace(&mut self) {
-        self.filter.pop();
-        self.list.set_filter(if self.filter.is_empty() {
-            None
-        } else {
-            Some(self.filter.as_str())
-        });
+        self.filter.backspace();
+        apply(&mut self.list, self.filter.text());
     }
 
     /// Re-apply a filter (fuzzy substring).
     pub fn set_filter(&mut self, filter: Option<&str>) {
-        self.filter = filter.unwrap_or_default().to_string();
-        self.list.set_filter(filter);
+        self.filter.set(filter.unwrap_or_default());
+        apply(&mut self.list, self.filter.text());
     }
 
     /// Apply a keymap action; returns whether it was consumed.

@@ -1,7 +1,7 @@
 //! Modular bottom pane: layout calculation and component composition.
 //!
 //! The bottom pane is the footer area of the TUI, containing:
-//! - [`Composer`] for text input
+//! - [`Composer`] for text input (drawn in the session input line)
 //! - [`StatusLine`] for agent status display
 //! - [`ApprovalView`] for tool approval
 //! - [`QuestionView`] for follow-up questions
@@ -13,8 +13,7 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
 use crate::footer::{
-    COMPOSER_MAIN_HEIGHT, FOOTER_BASE_HEIGHT, PANEL_MAIN_HEIGHT, PERMISSION_MAIN_HEIGHT,
-    QUESTION_MAIN_HEIGHT,
+    FOOTER_BASE_HEIGHT, PANEL_MAIN_HEIGHT, PERMISSION_MAIN_HEIGHT, QUESTION_MAIN_HEIGHT,
 };
 
 /// Layout configuration for the bottom pane.
@@ -34,27 +33,16 @@ pub struct BottomPaneLayout {
 
 impl BottomPaneLayout {
     /// Calculate layout for the given view/route combination.
+    ///
+    /// The composer route contributes no main rows: the composer is drawn
+    /// in the session input line below the footer.
     pub fn for_view(view: crate::footer::FooterView, route: crate::footer::FooterRoute) -> Self {
         let main = match (view, route) {
-            (crate::footer::FooterView::Prompt, crate::footer::FooterRoute::Composer) => {
-                COMPOSER_MAIN_HEIGHT
-            }
+            (crate::footer::FooterView::Prompt, crate::footer::FooterRoute::Composer) => 0,
             (crate::footer::FooterView::Prompt, _) => PANEL_MAIN_HEIGHT,
             (crate::footer::FooterView::Permission, _) => PERMISSION_MAIN_HEIGHT,
             (crate::footer::FooterView::Question, _) => QUESTION_MAIN_HEIGHT,
         };
-        Self {
-            total_height: FOOTER_BASE_HEIGHT + main,
-            top_decoration: 1,
-            main_height: main,
-            status_line: 1,
-            bottom_decoration: 1,
-        }
-    }
-
-    /// Calculate layout with a measured composer height (multiline input).
-    pub fn for_composer_height(composer_rows: u16) -> Self {
-        let main = composer_rows.clamp(COMPOSER_MAIN_HEIGHT, crate::footer::MAX_COMPOSER_HEIGHT);
         Self {
             total_height: FOOTER_BASE_HEIGHT + main,
             top_decoration: 1,
@@ -105,11 +93,8 @@ mod tests {
     #[test]
     fn layout_calculates_correctly() {
         let layout = BottomPaneLayout::for_view(FooterView::Prompt, FooterRoute::Composer);
-        assert_eq!(
-            layout.total_height,
-            FOOTER_BASE_HEIGHT + COMPOSER_MAIN_HEIGHT
-        );
-        assert_eq!(layout.main_height, COMPOSER_MAIN_HEIGHT);
+        assert_eq!(layout.total_height, FOOTER_BASE_HEIGHT);
+        assert_eq!(layout.main_height, 0);
         assert_eq!(layout.top_decoration, 1);
         assert_eq!(layout.status_line, 1);
         assert_eq!(layout.bottom_decoration, 1);

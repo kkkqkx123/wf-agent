@@ -73,6 +73,10 @@ pub struct RedrawSnapshot {
     pub streaming_hash: u64,
     /// Digest of the footer state (status text, phase, notice).
     pub footer_digest: u64,
+    /// Footer route discriminant. Switching routes swaps the footer main
+    /// area (composer / panel / blocking view) and therefore the footer
+    /// height, so a change grades a full frame.
+    pub footer_route: u8,
     /// Hash of the composer input text. Typing must force a full frame so a
     /// single-cell spinner never paints over a stale input row.
     pub input_hash: u64,
@@ -136,6 +140,7 @@ pub fn decide_scope(prev: Option<RedrawSnapshot>, next: RedrawSnapshot) -> Redra
         || prev.image_signature != next.image_signature
         || prev.expanded_version != next.expanded_version
         || prev.aspect_bucket != next.aspect_bucket
+        || prev.footer_route != next.footer_route
     {
         return RedrawScope::Full;
     }
@@ -1044,6 +1049,7 @@ mod tests {
             streaming_len: 0,
             streaming_hash: 0,
             footer_digest: 7,
+            footer_route: 0,
             input_hash: 0,
             width: 80,
             height: 24,

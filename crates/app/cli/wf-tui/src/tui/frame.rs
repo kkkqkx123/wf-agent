@@ -283,3 +283,86 @@ impl TuiApp {
         Ok(())
     }
 }
+
+impl TuiApp {
+    /// Run the external editor handoff when a session requested it: suspend
+    /// the TUI, open `$EDITOR` (or `$VISUAL`, falling back to `vi`) on a
+    /// temp file seeded with the composer draft, then resume the TUI and
+    /// load the edited text back into the composer.
+    pub(super) async fn apply_pending_editor(
+        &mut self,
+        guard: &mut TerminalGuard<CrosstermControl<io::Stdout>>,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    ) -> CliResult<()> {
+        // Take the request (and the draft) without holding the session borrow
+        // across the suspend/resume cycle.
+        let (pending, draft) = match self.sessions.active_mut() {
+            Some(session) => (session.take_pending_editor(), session.footer.composer.content().to_string()),
+            None => (false, String::new()),
+        };
+        if !pending {
+            return Ok(());
+        }
+
+        // Seed a temp file with the current draft.
+        let path = std::env::temp_dir().join(format!("wf-agent-editor-{}.md", std::process::id()));
+        if std::fs::write(&path, &draft).is_err() {
+            if let Some(session) = self.sessions.active_mut() {
+                session.footer.show_notice("could not write the editor buffer");
+            }
+            return Ok(());
+        }
+
+        // Suspend the TUI and hand control to the editor.
+        if let Err(err) = crate::editor::suspend_for_editor(guard, &mut self.editor) {
+            if let Some(session) = self.sessions.active_mut() {
+                session.footer.show_notice(format!("editor suspend failed: {err}"));
+            }
+            let _ = std::fs::remove_file(&path);
+            return Ok(());
+        }
+        let editor = std::env::var("EDITOR")
+            .or_else(|_| std::env::var("VISUAL"))
+            .unwrap_or_else(|_| "vi".to_string());
+        let status = std::process::Command::new(&editor).arg(&path).status();
+        // Resume the TUI regardless of the editor's exit status.
+        let modes = self.active_modes();
+        let _ = crate::editor::resume_after_editor(guard, modes, &mut self.editor);
+
+        match status {
+            Ok(code) if code.success() => {}
+            Ok(code) => {
+                if let Some(session) = self.sessions.active_mut() {
+                    session.footer.show_notice(format!("editor exited with {code}"));
+                }
+            }
+            Err(err) => {
+                if let Some(session) = self.sessions.active_mut() {
+                    session.footer.show_notice(format!("could not launch {editor}: {err}"));
+                }
+            }
+        }
+
+        // Load the edited text back into the composer. An empty result leaves
+        // the draft untouched so an accidental save does not wipe the input.
+        if let Ok(edited) = std::fs::read_to_string(&path) {
+            let trimmed = edited.trim_end_matches('\n');
+            if !trimmed.is_empty() || draft.is_empty() {
+                if let Some(session) = self.sessions.active_mut() {
+                    session.footer.composer.set_text(trimmed);
+                }
+            }
+        }
+        let _ = std::fs::remove_file(&path);
+
+        // Re-query geometry and force a full redraw: the editor may have
+        // changed the terminal size.
+        if let Ok((cols, rows)) = crossterm::terminal::size() {
+            let _ = terminal.resize(ratatui::layout::Rect::new(0, 0, cols, rows));
+        }
+        self.pending_scope.request(crate::redraw::RedrawScope::Full);
+        self.invalidation
+            .request(crate::redraw::InvalidationKind::Hard);
+        Ok(())
+    }
+}

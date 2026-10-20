@@ -41,6 +41,44 @@ pub(crate) fn cmd_stream_frames(
 }
 
 impl InteractiveController {
+    /// Submit a prompt: start a turn, or queue it while a turn is running.
+    /// One turn runs at a time; queued prompts drain in order once the
+    /// active turn reaches a terminal event.
+    pub(super) fn submit_prompt(&mut self, prompt: String) {
+        if self.turn_task.is_some() {
+            self.prompt_queue.push(prompt);
+            self.footer
+                .show_notice("queued: the current turn is still running");
+            return;
+        }
+        let model = self.model_override_name();
+        self.start_turn(prompt, None, model);
+    }
+
+    /// The model name the session override resolves to. The panel stores the
+    /// profile id; the turn request carries the model name.
+    pub(super) fn model_override_name(&self) -> Option<String> {
+        let id = self.model_override.as_deref()?;
+        self.panel_profiles
+            .iter()
+            .find(|profile| profile.id == id)
+            .map(|profile| profile.model.clone())
+            .or_else(|| Some(id.to_string()))
+    }
+
+    /// Start the next queued prompt when the active turn finished.
+    fn drain_prompt_queue(&mut self) {
+        let Some(prompt) = self.prompt_queue.pop() else {
+            return;
+        };
+        let text = prompt.text.trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        let model = self.model_override_name();
+        self.start_turn(text, None, model);
+    }
+
     /// Start an agent turn with the given prompt, seeded with the full
     /// session history. Streams server events into the session channel and
     /// polls pending interactions (approvals/questions) for the turn.
@@ -232,6 +270,23 @@ impl InteractiveController {
                     self.footer.present(crate::footer::FooterView::Question);
                 }
                 InteractiveEvent::TurnEvent(event) => self.handle_turn_event(event),
+                InteractiveEvent::PanelCandidates { route, payload } => {
+                    self.apply_panel_candidates(route, payload);
+                }
+                InteractiveEvent::PanelFailed { route, error } => {
+                    if route == crate::footer::FooterRoute::Mention {
+                        // The search slot frees up so the next query can run.
+                        self.mention_search_inflight = false;
+                    }
+                    if self.footer.route == route {
+                        self.footer.show_notice(format!("panel failed: {error}"));
+                        // A failed mention search still leaves the local
+                        // candidates usable, so the panel stays open.
+                        if route != crate::footer::FooterRoute::Mention {
+                            self.close_panel();
+                        }
+                    }
+                }
                 InteractiveEvent::ReplayLoaded {
                     mut lines,
                     has_more,
@@ -328,6 +383,7 @@ impl InteractiveController {
         }
         self.poll_stream_frame(false);
         self.settle_scrollback();
+        self.pump_mention_search();
     }
 
     /// Post one approval answer to the server; failures surface as a notice.
@@ -582,6 +638,7 @@ impl InteractiveController {
         self.flush_stream_tail();
         self.abort_turn();
         self.footer.present(crate::footer::FooterView::Prompt);
+        self.drain_prompt_queue();
     }
 
     /// Record a completed turn into the full session history. Interrupted

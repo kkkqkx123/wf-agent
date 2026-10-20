@@ -1,8 +1,7 @@
 //! The `/` command palette: built-in command set, typed filter and
 //! keymap-driven navigation.
 
-use unicode_segmentation::UnicodeSegmentation;
-
+use crate::panels::filter::{apply, PanelFilter};
 use crate::select::{Group, GroupItem, NavigateDir, SelectList};
 use tui_core::keymap::KeyAction;
 
@@ -47,7 +46,7 @@ pub struct CommandPalette {
     list: SelectList<CommandId>,
     entries: Vec<CommandEntry>,
     /// Filter text typed while the palette is open.
-    filter: String,
+    filter: PanelFilter,
 }
 
 impl Default for CommandPalette {
@@ -59,13 +58,45 @@ impl Default for CommandPalette {
 impl CommandPalette {
     /// Built-in command set.
     pub fn new() -> Self {
+        Self::with_filter("")
+    }
+
+    /// Built-in command set narrowed by `filter`.
+    pub fn with_filter(filter: &str) -> Self {
         let entries = Self::builtin_entries();
         let list = Self::build_list(&entries, "");
-        Self {
+        let mut panel = Self {
             list,
             entries,
-            filter: String::new(),
+            filter: PanelFilter::new(),
+        };
+        panel.filter.set(filter);
+        panel.apply_filter();
+        panel
+    }
+
+    /// The command part of the filter: everything before the first space.
+    /// The rest is the command argument.
+    fn command_filter(&self) -> &str {
+        let text = self.filter.text();
+        match text.split_once(' ') {
+            Some((command, _)) => command,
+            None => text,
         }
+    }
+
+    /// The argument typed after the command word.
+    pub fn argument(&self) -> &str {
+        match self.filter.text().split_once(' ') {
+            Some((_, argument)) => argument.trim(),
+            None => "",
+        }
+    }
+
+    /// Project the command part of the filter onto the list.
+    fn apply_filter(&mut self) {
+        let command = self.command_filter().to_string();
+        apply(&mut self.list, &command);
     }
 
     fn builtin_entries() -> Vec<CommandEntry> {
@@ -169,7 +200,7 @@ impl CommandPalette {
             }
             KeyAction::Clear => {
                 self.filter.clear();
-                self.list.set_filter(None);
+                self.apply_filter();
                 true
             }
             _ => false,
@@ -179,31 +210,18 @@ impl CommandPalette {
     /// Append a character to the filter.
     pub fn filter_push(&mut self, c: char) {
         self.filter.push(c);
-        self.list.set_filter(Some(self.filter.as_str()));
+        self.apply_filter();
     }
 
     /// Remove the last grapheme from the filter.
     pub fn filter_backspace(&mut self) {
-        let trimmed: String = self
-            .filter
-            .graphemes(true)
-            .rev()
-            .skip(1)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect();
-        self.filter = trimmed;
-        self.list.set_filter(if self.filter.is_empty() {
-            None
-        } else {
-            Some(self.filter.as_str())
-        });
+        self.filter.backspace();
+        self.apply_filter();
     }
 
     /// The filter text typed so far.
     pub fn filter_text(&self) -> &str {
-        &self.filter
+        self.filter.text()
     }
 
     /// Look a command up by its typed label (`"/model"`, leading `/`

@@ -2,12 +2,17 @@
 //!
 //! Layout model: the footer owns the bottom
 //! `Viewport::Inline(n)` rows and consists of a top decoration row, a main
-//! area (composer / panel / permission / question), the status line and a
-//! bottom decoration row. [`Footer::apply_height`] derives the required
-//! viewport height from the active [`FooterView`] × [`FooterRoute`] pair
-//! (base 3 + main area; composer 1, panel 16, permission 12, question 14 —
-//! aligned with the opencode `applyHeight` constants); the wf-tui footer
-//! event loop rebuilds the viewport only when the height actually changes.
+//! area (panel / permission / question), the status line and a bottom
+//! decoration row. [`Footer::apply_height`] derives the required viewport
+//! height from the active [`FooterView`] × [`FooterRoute`] pair (base 3 +
+//! main area; panel 16, permission 12, question 14 — aligned with the
+//! opencode `applyHeight` constants); the wf-tui footer event loop rebuilds
+//! the viewport only when the height actually changes.
+//!
+//! The composer is *not* part of the footer frame: the session draws it in
+//! the input line below the footer, so the footer main area only carries
+//! panels and the blocking views. The composer state still lives here
+//! ([`Footer::composer`]) because the input line reads it.
 //!
 //! The status line is width responsive (breakpoints 80 / 120): the right
 //! summary block only appears at ≥120 columns. A notice replaces the
@@ -42,12 +47,14 @@ use tui_style::theme::Theme;
 pub const FOOTER_BASE_HEIGHT: u16 = 3;
 
 /// Main-area height constants.
-pub const COMPOSER_MAIN_HEIGHT: u16 = 1;
 pub const PANEL_MAIN_HEIGHT: u16 = 16;
 pub const PERMISSION_MAIN_HEIGHT: u16 = 12;
 pub const QUESTION_MAIN_HEIGHT: u16 = 14;
 
-/// Upper bound for the growing composer main area, so a large paste never
+/// Minimum height of the composer input line drawn below the footer.
+pub const COMPOSER_MIN_HEIGHT: u16 = 1;
+
+/// Upper bound for the growing composer input line, so a large paste never
 /// squeezes the scrollback away. Rendering shows a cursor-following window
 /// once content exceeds this height.
 pub const MAX_COMPOSER_HEIGHT: u16 = 8;
@@ -101,6 +108,33 @@ pub enum FooterRoute {
     Mention,
 }
 
+impl FooterRoute {
+    /// Whether the composer keeps receiving text while this route is
+    /// active.
+    ///
+    /// The mention route is a *composite* view: the composer owns the text
+    /// and the panel is a derived view over it. Every other panel route is
+    /// *exclusive*: the panel owns its filter and the composer is paused.
+    pub fn owns_composer_input(self) -> bool {
+        matches!(self, FooterRoute::Composer | FooterRoute::Mention)
+    }
+
+    /// Stable numeric identity of the route. The redraw snapshot uses it to
+    /// detect route changes, which swap the footer main area and therefore
+    /// the footer height.
+    pub fn id(self) -> u8 {
+        match self {
+            FooterRoute::Composer => 0,
+            FooterRoute::Command => 1,
+            FooterRoute::Model => 2,
+            FooterRoute::Skill => 3,
+            FooterRoute::Queued => 4,
+            FooterRoute::Workflow => 5,
+            FooterRoute::Mention => 6,
+        }
+    }
+}
+
 /// The interactive panel attached to the current prompt route. Exactly one
 /// panel kind is live per route; opening a route installs its panel and
 /// leaving the route drops it.
@@ -121,9 +155,11 @@ pub struct Footer {
     pub view: FooterView,
     pub route: FooterRoute,
     pub state: FooterState,
+    /// Composer state. The session renders it in the input line below the
+    /// footer, not in the footer main area.
     pub composer: Composer,
     /// Panel attached to the current prompt route (command palette / model /
-    /// skill / queued).
+    /// skill / queued / workflow / mention).
     pub panel: Option<PanelState>,
     /// Pending tool approval (rendered while `FooterView::Permission`).
     pub approval: Option<ApprovalView>,
@@ -189,6 +225,14 @@ impl Footer {
         self.route = route;
     }
 
+    /// Install a panel and switch to its route in one step, so the route and
+    /// the attached panel can never disagree.
+    pub fn open_panel(&mut self, route: FooterRoute, panel: PanelState) {
+        self.view = FooterView::Prompt;
+        self.route = route;
+        self.panel = Some(panel);
+    }
+
     /// Close the current panel route and return to the composer.
     pub fn close_panel(&mut self) {
         self.panel = None;
@@ -196,24 +240,12 @@ impl Footer {
     }
 
     /// Required viewport height for the current view x route.
+    ///
+    /// The composer is drawn in the session input line below the footer, so
+    /// the composer route contributes no main-area rows.
     pub fn apply_height(&self) -> u16 {
-        self.apply_height_with_width(0)
-    }
-
-    /// Required viewport height for the current view x route, using the
-    /// given terminal width to size the growing composer. Width 0 keeps
-    /// the single-row baseline for tests without geometry.
-    pub fn apply_height_with_width(&self, width: u16) -> u16 {
         let main = match (self.view, self.route) {
-            (FooterView::Prompt, FooterRoute::Composer) => {
-                if width == 0 {
-                    COMPOSER_MAIN_HEIGHT
-                } else {
-                    self.composer
-                        .visual_row_count(width)
-                        .clamp(1, MAX_COMPOSER_HEIGHT as usize) as u16
-                }
-            }
+            (FooterView::Prompt, FooterRoute::Composer) => 0,
             (FooterView::Prompt, _) => PANEL_MAIN_HEIGHT,
             (FooterView::Permission, _) => PERMISSION_MAIN_HEIGHT,
             (FooterView::Question, _) => QUESTION_MAIN_HEIGHT,
@@ -221,14 +253,14 @@ impl Footer {
         FOOTER_BASE_HEIGHT + main
     }
 
-    /// Composer main-area rows for `width`, capped for layout.
+    /// Rows the composer input line needs at `width`, capped for layout.
     pub fn composer_height_for_width(&self, width: u16) -> u16 {
         if width == 0 {
-            return COMPOSER_MAIN_HEIGHT;
+            return COMPOSER_MIN_HEIGHT;
         }
         self.composer
             .visual_row_count(width)
-            .clamp(1, MAX_COMPOSER_HEIGHT as usize) as u16
+            .clamp(COMPOSER_MIN_HEIGHT as usize, MAX_COMPOSER_HEIGHT as usize) as u16
     }
 
     /// The keymap context the footer currently routes keys to.
@@ -287,10 +319,9 @@ impl Footer {
     /// Render the main area by the current view x route.
     fn draw_main(&mut self, area: Rect, buf: &mut Buffer, theme: &Theme) {
         match (self.view, self.route) {
-            (FooterView::Prompt, FooterRoute::Composer) => {
-                let style = theme_style(theme, Role::Default);
-                self.composer.render(area, buf, style);
-            }
+            // The composer lives in the session input line below the footer;
+            // the footer main area stays empty for the composer route.
+            (FooterView::Prompt, FooterRoute::Composer) => {}
             (FooterView::Prompt, _) => {
                 let lines = self.panel.as_ref().map(|panel| match panel {
                     PanelState::Command(p) => p.render_lines(area.width, area.height),
@@ -721,20 +752,18 @@ mod tests {
     }
 
     #[test]
-    fn composer_height_is_base_plus_one() {
+    fn composer_route_is_the_bare_footer_frame() {
+        // The composer is drawn in the session input line, so the footer
+        // itself only carries the frame rows.
         let footer = Footer::new();
-        assert_eq!(
-            footer.apply_height(),
-            FOOTER_BASE_HEIGHT + COMPOSER_MAIN_HEIGHT
-        );
+        assert_eq!(footer.apply_height(), FOOTER_BASE_HEIGHT);
     }
 
     #[test]
-    fn composer_height_grows_with_wrapped_rows_and_caps() {
+    fn composer_input_line_grows_with_wrapped_rows_and_caps() {
         let mut footer = Footer::new();
         footer.composer.set_text("ab\ncd\nef");
         assert_eq!(footer.composer_height_for_width(80), 3);
-        assert_eq!(footer.apply_height_with_width(80), FOOTER_BASE_HEIGHT + 3);
         footer.composer.set_text("a\n".repeat(20));
         assert_eq!(footer.composer_height_for_width(80), MAX_COMPOSER_HEIGHT);
     }
@@ -757,6 +786,31 @@ mod tests {
             footer.apply_height(),
             FOOTER_BASE_HEIGHT + QUESTION_MAIN_HEIGHT
         );
+    }
+
+    #[test]
+    fn open_panel_installs_route_and_panel_together() {
+        let mut footer = Footer::new();
+        footer.open_panel(
+            FooterRoute::Skill,
+            PanelState::Skill(SkillPanel::new(&[])),
+        );
+        assert_eq!(footer.route, FooterRoute::Skill);
+        assert!(footer.panel.is_some());
+        footer.close_panel();
+        assert_eq!(footer.route, FooterRoute::Composer);
+        assert!(footer.panel.is_none());
+    }
+
+    #[test]
+    fn only_the_composer_and_mention_routes_own_the_composer_input() {
+        assert!(FooterRoute::Composer.owns_composer_input());
+        assert!(FooterRoute::Mention.owns_composer_input());
+        assert!(!FooterRoute::Command.owns_composer_input());
+        assert!(!FooterRoute::Model.owns_composer_input());
+        assert!(!FooterRoute::Skill.owns_composer_input());
+        assert!(!FooterRoute::Queued.owns_composer_input());
+        assert!(!FooterRoute::Workflow.owns_composer_input());
     }
 
     #[test]
@@ -903,11 +957,10 @@ mod tests {
     }
 
     #[test]
-    fn draw_shows_composer_and_exit_statusline() {
+    fn draw_shows_statusline_without_the_composer() {
         let mut footer = Footer::new();
         let height = footer.apply_height();
         let text = render_text(&mut footer, 80, height);
-        assert!(text.contains("> Type a message"), "placeholder: {text}");
         assert!(text.contains("○ [EXIT]"), "idle label: {text}");
         assert!(text.contains("iter:0"), "iteration: {text}");
         assert!(text.contains("msgs:0"), "message count: {text}");

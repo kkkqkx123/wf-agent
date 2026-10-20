@@ -140,4 +140,5 @@ wf-mini 是轻量交互邻接界面，不直接具备 screen universe。视觉�
 
 当前 `tui-components` 已含，但有部分组件在 Full TUI 中已接线，部分主要存在于 component gallery/examples：
 - 已接线：composer、footer、scrollbar、transcript、modal、model_picker、approval/question overlay、file_viewer/DiffViewer、property_list/data_table/tab_bar/toggle_row、panels (command/model/skill/queued/workflow/mention)。
-- 库中存在但 Full TUI 主路径未直接使用：`bottom_pane`、`context_sidebar`、`command_palette`（非 footer command panel 的独立组件）、`file_selection`、`file_tree`、`queue`、`select`、`overlay`。
+- 库中存在但 Full TUI 主路径未直接使用：`bottom_pane`、`context_sidebar`、`command_palette`（非 footer command panel 的独立组件）、`file_selection`、`file_tree`、`select`、`overlay`。
+- `queue` 已接入：交互会话在 turn 运行期间提交的 prompt 进入队列，turn 结束后按序 drain，queued panel 负责编辑与删除。

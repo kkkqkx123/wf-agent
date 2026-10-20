@@ -73,8 +73,8 @@
 
 界面结构：
 - scrollback 历史区域 + preparation cache（`prep_cache`）。
-- footer（状态、composer、route panels、key hints）。
-- 底部 mirrored prompt/input 行；composer 过高时 windowed。
+- footer（状态行、route panels、key hints）；composer 不在 footer 框内，footer 主区只承载面板与阻塞视图。
+- 底部 composer input 行（`> ` 前缀列，文本、placeholder、mention 高亮、ghost 后缀同面渲染）；composer 过高时 windowed。
 - streaming tail line（2 column margin）+ spinner（Braille 10 frames / 40ms）。
 - scrollbar（estimated/accurate two-pass width）。
 - jump badge 与 anchors（prompt/todo/failed/subagent/checkpoint/decision），Ctrl shortcuts。
@@ -83,7 +83,8 @@
 Footer/bottom-pane 能力：
 - `FooterView`: Prompt / Permission / Question。
 - `FooterRoute`: Composer / Command / Model / Skill / Queued / Workflow / Mention。
-- 面板：`CommandPalette`, `ModelPanel`, `SkillPanel`, `QueuedPanel`, `WorkflowPanel`, `MentionPanel`。
+- 输入归属：Composer 与 Mention 拥有 composer 输入（Mention 是组合态，面板是 composer 查询的派生视图）；其余面板独占 filter，composer 暂停。
+- 面板：`CommandPalette`, `ModelPanel`, `SkillPanel`, `QueuedPanel`, `WorkflowPanel`, `MentionPanel`；面板均由 `wf-tui` 的 `interactive/panels.rs` 接入事件循环。
 - `FooterState` 路由/状态；notice TTL 3s，宽度断点 80/120。
 - approval/question 嵌入 footer Permission/Question 视图，不是居中 overlay。
 

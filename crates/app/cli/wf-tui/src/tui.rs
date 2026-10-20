@@ -557,6 +557,7 @@ impl TuiApp {
                                 self.last_interaction_clock_ms = Some(self.now_ms());
                                 self.apply_interactive_exit().await;
                                 self.apply_pending_replay().await?;
+                                self.apply_pending_editor(guard, terminal).await?;
                             }
                         }
                     }

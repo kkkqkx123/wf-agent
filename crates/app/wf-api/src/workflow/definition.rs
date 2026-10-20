@@ -78,7 +78,9 @@ pub async fn save_workflow_layout(
     let mut workflow = get_workflow(ctx, id).await?;
     let mut layout = layout;
     let known: HashSet<String> = workflow.nodes.iter().map(|n| n.id.to_string()).collect();
-    layout.positions.retain(|node_id, _| known.contains(node_id));
+    layout
+        .positions
+        .retain(|node_id, _| known.contains(node_id));
     layout.updated_at = Some(wf_common::now());
     workflow.layout = Some(layout);
     ctx.storage.workflow.save(&workflow).await?;

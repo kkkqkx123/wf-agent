@@ -15,8 +15,9 @@ import {
 	projectExecutionOverlay,
 } from '$lib/graph/execution-projection';
 import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
-import { streamLoopRun } from '$lib/services/streaming';
+import { streamLoopRun, type LoopMode } from '$lib/services/streaming';
 import { listModelProfiles } from '$lib/services/resources';
+import { DEFAULT_AGENT_ID, isRunnableTemplate, listTemplates } from '$lib/services/templates';
 import {
 	cancelInteraction as cancelInteractionRequest,
 	listPendingInteractions,
@@ -58,6 +59,11 @@ export class ChatSessionController {
 	selectedId = $derived(page.url.searchParams.get('id'));
 
 	model = $state('');
+	agentId = $state(DEFAULT_AGENT_ID);
+	/** Workflow template id injected as conversation context; empty injects none. */
+	workflowId = $state('');
+	/** Tool-free plain-chat mode for lightweight questions. */
+	loopMode = $state<LoopMode>('standard');
 	revision = $state(0);
 
 	/** Inspector tab, mirrored into the address by the route. */
@@ -455,8 +461,11 @@ export class ChatSessionController {
 			this.selectedId ?? NEW_SESSION,
 			{
 				model: this.model.trim(),
+				agentId: this.agentId.trim(),
 				message: withAttachments(content, files),
 				conversation: history,
+				mode: this.loopMode === 'chat' ? 'chat' : undefined,
+				workflowId: this.workflowId.trim() || undefined,
 			},
 			{
 				onDelta: (delta) => chatStream.appendDelta(delta),
@@ -529,6 +538,18 @@ export class ChatSessionController {
 				const preferred =
 					profiles.find((item) => item.isDefault) ?? profiles[0];
 				if (preferred) this.model = preferred.model;
+			})
+			.catch(() => {});
+	}
+
+	/** Agent templates are optional; fall back to the built-in main agent. */
+	loadDefaultAgent(): void {
+		void listTemplates({ kind: 'agent' })
+			.then((templates) => {
+				const runnable = templates.filter(isRunnableTemplate);
+				const preferred =
+					runnable.find((template) => template.id === DEFAULT_AGENT_ID) ?? runnable[0];
+				if (preferred) this.agentId = preferred.id;
 			})
 			.catch(() => {});
 	}

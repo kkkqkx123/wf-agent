@@ -236,12 +236,8 @@ pub async fn resume(
     }
 
     let workflow_id = entity.workflow_id().to_string();
-    let mut definition = resolve_definition(
-        ctx,
-        &workflow_id,
-        entity.workflow_version().as_deref(),
-    )
-    .await?;
+    let mut definition =
+        resolve_definition(ctx, &workflow_id, entity.workflow_version().as_deref()).await?;
     let graph =
         super::graph::resolve_graph_for_definition(ctx, &workflow_id, &mut definition).await?;
 

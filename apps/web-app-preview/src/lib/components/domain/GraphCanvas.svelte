@@ -94,6 +94,8 @@
 		onexpand?: (id: string) => void;
 		onboxselect?: (ids: string[]) => void;
 		onmovenode?: (id: string, position: CanvasPosition) => void;
+		/** View-mode drag report; when set, nodes stay draggable outside edit mode. */
+		onviewmove?: (id: string, position: CanvasPosition) => void;
 		/** Batched move for group drags; undoes in a single step. */
 		ongroupmove?: (moves: CanvasMove[]) => void;
 		/** Right-click context, positioned in client coordinates. */
@@ -134,6 +136,7 @@
 		onexpand,
 		onboxselect,
 		onmovenode,
+		onviewmove,
 		ongroupmove,
 		oncontext,
 		onbackgrounddoubleclick,
@@ -200,6 +203,7 @@
 	const hiddenSnapshot = $derived(new Set(hiddenIds));
 	const groupMoveHandler = $derived(ongroupmove);
 	const moveHandler = $derived(onmovenode);
+	const viewMoveHandler = $derived(onviewmove);
 	const contextHandler = $derived(oncontext);
 	const grabStart = new SvelteMap<string, CanvasPosition>();
 
@@ -426,7 +430,7 @@
 	function setNodesGrabbable(enabled: boolean): void {
 		const core = cy;
 		if (!core) return;
-		if (enabled && editSnapshot) {
+		if (enabled && (editSnapshot || viewMoveHandler)) {
 			core.autoungrabify(false);
 			core.nodes().grabify();
 		} else {
@@ -801,7 +805,20 @@
 			instance.on('dragfree', 'node', (event) => {
 				requestMiniRefresh();
 				refreshHotspots();
-				if (!editMode) return;
+				if (!editMode) {
+					// View-mode drag: layout persistence owns the position, the
+					// canvas stays a pure renderer.
+					const target = event.target;
+					const id = target.id() as string;
+					if (
+						viewMoveHandler &&
+						!isGroupTitleId(id) &&
+						!id.startsWith('groupbox:')
+					) {
+						viewMoveHandler(id, roundPosition(target.position() as CanvasPosition));
+					}
+					return;
+				}
 				const target = event.target;
 				const id = target.id() as string;
 				const position = roundPosition(target.position() as CanvasPosition);
@@ -967,7 +984,7 @@
 		if (!ready || !cy) return;
 		void editMode;
 		if (connectDrag) return;
-		if (editMode) {
+		if (editMode || viewMoveHandler) {
 			cy.autoungrabify(false);
 			cy.nodes().grabify();
 		} else {

@@ -22,6 +22,7 @@
 
 	onMount(() => {
 		controller.loadDefaultModel();
+		controller.loadDefaultAgent();
 	});
 </script>
 

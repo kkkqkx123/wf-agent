@@ -5,6 +5,7 @@ export interface SearchHit {
 	id: string;
 	type: string;
 	label: string;
+	description?: string | null;
 	matches: string[];
 	executionId: string | null;
 	agentLoopId: string | null;
@@ -22,6 +23,7 @@ interface SearchHitDto {
 	id?: string;
 	type?: string;
 	label?: string;
+	description?: string | null;
 	matches?: string[];
 	execution_id?: string | null;
 	agent_loop_id?: string | null;
@@ -40,6 +42,7 @@ function toHit(d: SearchHitDto): SearchHit {
 		id: d.id ?? '',
 		type: d.type ?? '',
 		label: d.label ?? d.id ?? '',
+		description: d.description ?? null,
 		matches: d.matches ?? [],
 		executionId: d.execution_id ?? null,
 		agentLoopId: d.agent_loop_id ?? null,

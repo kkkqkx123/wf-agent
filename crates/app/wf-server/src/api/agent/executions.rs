@@ -538,7 +538,7 @@ pub(crate) async fn handle_resume_checkpoint(
         return error_response(e);
     }
     let in_place = body.mode == ResumeCheckpointMode::InPlace;
-    let run_params = match super::loops::params_from_body(&state, body.run) {
+    let run_params = match super::loops::params_from_body(&state, body.run).await {
         Ok(params) => params,
         Err(e) => return error_response(e),
     };

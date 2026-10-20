@@ -62,7 +62,7 @@ pub struct RunAgentLoopBody {
     conversation: Option<Vec<Message>>,
 }
 
-pub(crate) fn params_from_body(
+pub(crate) async fn params_from_body(
     state: &ApiState,
     body: RunAgentLoopBody,
 ) -> Result<wf_api::agent::agent_execution::RunAgentLoopParams, wf_api::ApiError> {
@@ -113,6 +113,17 @@ pub(crate) fn params_from_body(
     );
     let mut config = config;
     wf_api::agent::composition::apply_loop_mode(body.mode.as_deref(), &mut config)?;
+    let excluded_workflow_id = body
+        .workflow_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty());
+    let mention_messages = wf_api::agent::composition::resolve_mentions(
+        &state.ctx,
+        &body.message,
+        excluded_workflow_id,
+    )
+    .await;
     let input = wf_api::AgentLoopInput {
         message: body.message,
         context: body.context,
@@ -132,17 +143,22 @@ pub(crate) fn params_from_body(
         .map(str::trim)
         .filter(|id| !id.is_empty())
     {
-        let summary =
-            wf_api::agent::composition::resolve_workflow_context(
-                state.ctx.registries.as_ref(),
-                workflow_id,
-            )?;
+        let summary = wf_api::agent::composition::resolve_workflow_context(
+            state.ctx.registries.as_ref(),
+            workflow_id,
+        )?;
         params
             .input
             .conversation
             .push(wf_api::dynamic_context_message(format!(
                 "Selected workflow context:\n{summary}"
             )));
+    }
+
+    for message in mention_messages {
+        // Supplemental context from inline mentions; the explicitly selected
+        // workflow context above is already excluded from this list.
+        params.input.conversation.push(message);
     }
     Ok(params)
 }
@@ -174,7 +190,7 @@ pub(crate) async fn handle_run_loop(
 ) -> impl IntoResponse {
     match wf_api::agent::agent_execution::run(
         &state.ctx,
-        match params_from_body(&state, body) {
+        match params_from_body(&state, body).await {
             Ok(params) => params,
             Err(e) => return error_response(e),
         },
@@ -211,7 +227,7 @@ pub(crate) async fn handle_stream_loop(
 ) -> Response {
     match wf_api::agent::agent_execution::stream(
         &state.ctx,
-        match params_from_body(&state, body) {
+        match params_from_body(&state, body).await {
             Ok(params) => params,
             Err(e) => return error_response(e),
         },

@@ -243,7 +243,7 @@ pub use wf_core::registry::Registry;
 
 // Engine approval policy + prompt environment re-exported so the HTTP layer
 // evaluates the same policy objects as the API facade.
-pub use wf_execution_shared::agent_prompt::{PromptEnvironment, dynamic_context_message};
+pub use wf_execution_shared::agent_prompt::{dynamic_context_message, PromptEnvironment};
 pub use wf_tools::approval::{ApprovalDecision, McpToolContext, ToolApprovalCoordinator};
 pub use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput};
 pub use wf_workflow::analysis::{analyze_reachability, get_reachable_nodes};

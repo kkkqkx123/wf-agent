@@ -23,8 +23,11 @@
 //!   no template semantics, so it never silently runs on built-in defaults
 //!   under a label that suggests a restricted agent was selected.
 
+use std::collections::HashSet;
+
 use wf_execution_shared::agent_prompt::PromptEnvironment;
 use wf_resource::registry::ResourceRegistries;
+use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_tools::callback::AgentLoopConfig;
 use wf_types::agent::{AgentConfig, AgentTemplate};
 use wf_types::message::Message;
@@ -32,6 +35,7 @@ use wf_types::tool::AvailableTools;
 
 use crate::agent::agent_config::{DEFAULT_MAX_ITERATIONS, DEFAULT_MODEL};
 use crate::agent::agent_execution::RunAgentLoopParams;
+use crate::infra::context::ApiContext;
 use crate::infra::error::ApiError;
 
 pub use wf_resource::predefined::agent_templates::MAIN_AGENT_TEMPLATE_ID;
@@ -278,10 +282,7 @@ const CHAT_MODE_MAX_ITERATIONS: u32 = 1;
 /// composition entry point. `chat` suppresses every tool path via the explicit
 /// empty tool set (template defaults must not refill it) plus a disabled
 /// general tool, and caps the iteration budget when the caller left it unset.
-pub fn apply_loop_mode(
-    mode: Option<&str>,
-    config: &mut AgentLoopConfig,
-) -> Result<(), ApiError> {
+pub fn apply_loop_mode(mode: Option<&str>, config: &mut AgentLoopConfig) -> Result<(), ApiError> {
     let Some(mode) = mode else {
         return Ok(());
     };
@@ -295,9 +296,7 @@ pub fn apply_loop_mode(
             }
             Ok(())
         }
-        other => Err(ApiError::Validation(format!(
-            "unknown loop mode: {other}"
-        ))),
+        other => Err(ApiError::Validation(format!("unknown loop mode: {other}"))),
     }
 }
 
@@ -310,9 +309,10 @@ pub fn resolve_workflow_context(
     workflow_id: &str,
 ) -> Result<String, ApiError> {
     use wf_core::registry::Registry;
-    let template = regs.workflows.get(workflow_id).ok_or_else(|| {
-        ApiError::not_found("workflow_template", workflow_id)
-    })?;
+    let template = regs
+        .workflows
+        .get(workflow_id)
+        .ok_or_else(|| ApiError::not_found("workflow_template", workflow_id))?;
     let template = template.as_ref();
     let runnable = template.enabled != Some(false)
         && template.is_public != Some(false)
@@ -321,6 +321,120 @@ pub fn resolve_workflow_context(
         return Err(ApiError::not_found("workflow_template", workflow_id));
     }
     Ok(workflow_summary(template))
+}
+
+/// Resolve inline mentions in a message into supplemental context messages.
+/// Storage-backed kinds are fetched best-effort; missing entities are skipped
+/// so a stale reference never fails the run.
+pub async fn resolve_mentions(
+    ctx: &ApiContext,
+    text: &str,
+    excluded_workflow_id: Option<&str>,
+) -> Vec<Message> {
+    let Ok(re) = regex::Regex::new(r"@([a-z][a-z0-9_]*):([\w./-]+)") else {
+        return Vec::new();
+    };
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for capture in re.captures_iter(text) {
+        if out.len() >= 8 {
+            break;
+        }
+        let Some(kind_match) = capture.get(1) else {
+            continue;
+        };
+        let Some(id_match) = capture.get(2) else {
+            continue;
+        };
+        let kind = kind_match.as_str();
+        let id = id_match.as_str();
+        let key = format!("{kind}:{id}");
+        if !seen.insert(key) {
+            continue;
+        }
+
+        if kind == "workflow" && excluded_workflow_id == Some(id) {
+            continue;
+        }
+
+        let summary = match kind {
+            "workflow" => resolve_workflow_context(&ctx.registries, id).ok(),
+            "agent_loop" => ctx
+                .storage
+                .agent_loop
+                .load(id)
+                .await
+                .ok()
+                .flatten()
+                .map(|meta| {
+                    format!(
+                        "agent_loop: {} (definition {})\nstatus: {}",
+                        meta.id, meta.definition_id, meta.status
+                    )
+                }),
+            "execution" => ctx
+                .storage
+                .workflow_execution
+                .load(id)
+                .await
+                .ok()
+                .flatten()
+                .map(|entity| {
+                    format!(
+                        "execution: {} (workflow {})\nstatus: {}",
+                        entity.id,
+                        entity.workflow_id,
+                        entity.status.as_str()
+                    )
+                }),
+            "task" => ctx.storage.task.load(id).await.ok().flatten().map(|meta| {
+                format!(
+                    "task: {} ({})\nstatus: {}",
+                    meta.id, meta.task_type, meta.status
+                )
+            }),
+            "checkpoint" => ctx
+                .storage
+                .checkpoint
+                .load(id)
+                .await
+                .ok()
+                .flatten()
+                .map(|meta| {
+                    format!(
+                        "checkpoint: {} (entity {} / {})",
+                        meta.id, meta.entity_type, meta.entity_id
+                    )
+                }),
+            "event" => ctx
+                .event_bus
+                .recent_events()
+                .into_iter()
+                .find(|event| event.id.to_string() == id)
+                .map(|event| format!("event: {} ({})", event.id, event.r#type.as_str())),
+            "message" => crate::entity::message::get(ctx, id)
+                .await
+                .ok()
+                .map(|record| {
+                    let text = crate::entity::message::message_text(&record.message);
+                    let snippet: String = text.chars().take(120).collect();
+                    format!(
+                        "message: {} (execution {})\n{}",
+                        record.id, record.execution_id, snippet
+                    )
+                }),
+            "file" => Some(format!("file: {id}")),
+            _ => None,
+        };
+
+        if let Some(summary) = summary {
+            let trimmed: String = summary.chars().take(1000).collect();
+            out.push(crate::dynamic_context_message(format!(
+                "Referenced {kind} context:\n{trimmed}"
+            )));
+        }
+    }
+    out
 }
 
 /// Truncated projection of a workflow template: identity plus the node list
@@ -342,13 +456,9 @@ fn workflow_summary(template: &wf_types::workflow::WorkflowTemplate) -> String {
     if nodes.len() > MAX_NODES {
         lines.push(format!("- … {} more nodes", nodes.len() - MAX_NODES));
     }
-    lines.push(format!(
-        "edges: {}",
-        template.definition.edges.len()
-    ));
+    lines.push(format!("edges: {}", template.definition.edges.len()));
     lines.join("\n")
 }
-
 
 /// Convert agent hook configs into loop `HookConfig` items through the
 /// canonical spec so defaults stay in one place.
@@ -492,7 +602,11 @@ mod tests {
         let regs = ResourceRegistries::new();
         let mut template = main_template();
         template.enabled = Some(false);
-        register_item_skip(&regs.agent_templates, MAIN_AGENT_TEMPLATE_ID.into(), template);
+        register_item_skip(
+            &regs.agent_templates,
+            MAIN_AGENT_TEMPLATE_ID.into(),
+            template,
+        );
         let env = env_for(&regs);
         let err = resolve_and_apply(&env, empty_config(MAIN_AGENT_TEMPLATE_ID), input_with("hi"))
             .expect_err("disabled template must not run");
@@ -504,7 +618,11 @@ mod tests {
         let regs = ResourceRegistries::new();
         let mut template = main_template();
         template.is_public = Some(false);
-        register_item_skip(&regs.agent_templates, MAIN_AGENT_TEMPLATE_ID.into(), template);
+        register_item_skip(
+            &regs.agent_templates,
+            MAIN_AGENT_TEMPLATE_ID.into(),
+            template,
+        );
         let env = env_for(&regs);
         let err = resolve_and_apply(&env, empty_config(MAIN_AGENT_TEMPLATE_ID), input_with("hi"))
             .expect_err("private template must not run directly");
@@ -516,7 +634,11 @@ mod tests {
         let regs = ResourceRegistries::new();
         let mut template = main_template();
         template.is_system = Some(true);
-        register_item_skip(&regs.agent_templates, MAIN_AGENT_TEMPLATE_ID.into(), template);
+        register_item_skip(
+            &regs.agent_templates,
+            MAIN_AGENT_TEMPLATE_ID.into(),
+            template,
+        );
         let env = env_for(&regs);
         let err = resolve_and_apply(&env, empty_config(MAIN_AGENT_TEMPLATE_ID), input_with("hi"))
             .expect_err("system-flagged template must not run directly");

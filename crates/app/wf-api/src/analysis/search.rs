@@ -93,6 +93,8 @@ pub struct SearchResultItem {
     pub id: String,
     pub r#type: String,
     pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub score: u32,
     pub matches: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -280,10 +282,16 @@ async fn search_workflows(
 
         let score = score(query, &fields);
         if score > 0 {
+            let description = if !template.description.is_empty() {
+                Some(template.description.clone())
+            } else {
+                template.definition.description.clone()
+            };
             out.push(SearchResultItem {
                 id: id.clone(),
                 r#type: "workflow".into(),
                 label: template.name.clone(),
+                description,
                 score,
                 matches: matched_fields(query, &fields),
                 execution_id: None,
@@ -302,17 +310,27 @@ async fn search_executions(
     let entities = ctx.storage.workflow_execution.list(None).await?;
     let mut out = Vec::new();
     for entity in entities {
-        let fields = [
+        let workflow_name = ctx
+            .registries
+            .workflows
+            .get(&entity.workflow_id)
+            .map(|template| template.name.clone())
+            .unwrap_or_default();
+        let mut fields = vec![
             entity.id.clone(),
             entity.workflow_id.clone(),
             entity.status.as_str().to_string(),
         ];
+        if !workflow_name.is_empty() {
+            fields.push(workflow_name);
+        }
         let score = score(query, &fields);
         if score > 0 {
             out.push(SearchResultItem {
                 id: entity.id.clone(),
                 r#type: "execution".into(),
                 label: format!("{} (workflow {})", entity.id, entity.workflow_id),
+                description: Some(format!("status: {}", entity.status.as_str())),
                 score,
                 matches: matched_fields(query, &fields),
                 execution_id: Some(entity.id.clone()),
@@ -342,6 +360,7 @@ async fn search_tasks(
                 id: entity.id.clone(),
                 r#type: "task".into(),
                 label: format!("{} ({})", entity.task_type, entity.status),
+                description: Some(format!("{} / {}", entity.task_type, entity.status)),
                 score,
                 matches: matched_fields(query, &fields),
                 execution_id: entity.execution_id.clone(),
@@ -371,6 +390,7 @@ async fn search_checkpoints(
                 id: entity.id.clone(),
                 r#type: "checkpoint".into(),
                 label: format!("{} (entity {})", entity.id, entity.entity_id),
+                description: Some(format!("{} / {}", entity.entity_type, entity.entity_id)),
                 score,
                 matches: matched_fields(query, &fields),
                 execution_id: None,
@@ -403,6 +423,7 @@ async fn search_events(ctx: &ApiContext, query: &str, limit: usize) -> Vec<Searc
                 id: event.id.clone(),
                 r#type: "event".into(),
                 label: format!("Event {}", event.r#type.as_str()),
+                description: Some(event.r#type.as_str().to_string()),
                 score,
                 matches: matched_fields(query, &fields),
                 execution_id: event.execution_id.clone(),
@@ -432,6 +453,7 @@ async fn search_agent_loops(
                 id: entity.id.clone(),
                 r#type: "agent_loop".into(),
                 label: format!("{} (definition {})", entity.id, entity.definition_id),
+                description: Some(format!("{} / {}", entity.definition_id, entity.status)),
                 score,
                 matches: matched_fields(query, &fields),
                 execution_id: Some(entity.id.clone()),
@@ -455,14 +477,13 @@ async fn search_messages(
         let text = crate::entity::message::message_text(&record.message);
         let fields = vec![record.id.clone(), record.execution_id.clone(), text.clone()];
         let item_score = score(query, &fields).max(1);
-        let label = {
-            let snippet: String = text.chars().take(80).collect();
-            format!("{}: {snippet}", record.id)
-        };
+        let snippet: String = text.chars().take(80).collect();
+        let label = format!("{}: {snippet}", record.id);
         out.push(SearchResultItem {
             id: record.id.clone(),
             r#type: "message".into(),
             label,
+            description: Some(snippet),
             score: item_score,
             matches: matched_fields(query, &fields),
             execution_id: Some(record.execution_id.clone()),

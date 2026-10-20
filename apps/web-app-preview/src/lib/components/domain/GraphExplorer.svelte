@@ -31,7 +31,9 @@
 	} from '$lib/graph/group-view';
 	import {
 		columnPositions,
+		compactPositions,
 		layeredPositions,
+		rowPositions,
 		sortIdsByCanvasPosition,
 	} from '$lib/graph/layout';
 	import { registerCanvasShortcuts } from '$lib/graph/canvas-shortcuts';
@@ -50,6 +52,11 @@
 	} from '$lib/graph/display-model';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
+	import {
+		getWorkflowLayout,
+		resetWorkflowLayout,
+		saveWorkflowLayout,
+	} from '$lib/services/layout';
 	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {
@@ -84,6 +91,8 @@
 		decisionIds?: string[];
 		heatLabels?: Record<string, string>;
 		decisionLabels?: Record<string, string>;
+		/** Workflow id backing the graph; enables layout load/save/reset. */
+		layoutId?: string;
 		onenteredit?: () => void;
 		onexitedit?: () => void;
 		onundo?: () => void;
@@ -145,6 +154,7 @@
 		decisionIds = [],
 		heatLabels = {},
 		decisionLabels = {},
+		layoutId = undefined,
 		onenteredit,
 		onexitedit,
 		onundo,
@@ -178,6 +188,69 @@
 	let hiddenKinds = $state<string[]>([]);
 	let collapsedIds = $state<string[]>([]);
 	let matchIndex = $state(0);
+
+	// Persisted layout (positions saved on the backend). Loaded once per
+	// workflow id; view-mode drags update it and debounce a save.
+	let savedPositions = $state<Record<string, CanvasPosition>>({});
+	let layoutLoadedId: string | null = null;
+	let layoutSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+	$effect(() => {
+		const id = layoutId;
+		if (!id || layoutLoadedId === id) return;
+		layoutLoadedId = id;
+		void getWorkflowLayout(id)
+			.then((saved) => {
+				if (!saved) return;
+				const positions: Record<string, CanvasPosition> = {};
+				for (const [nodeId, point] of Object.entries(saved.positions ?? {})) {
+					positions[nodeId] = { x: point.x, y: point.y };
+				}
+				savedPositions = positions;
+				const kind = saved.settings?.kind;
+				if (
+					kind === 'layered' ||
+					kind === 'columns' ||
+					kind === 'rows' ||
+					kind === 'compact'
+				) {
+					layout = kind;
+				}
+			})
+			.catch(() => {
+				// Layout persistence is optional; the preset layout still renders.
+			});
+	});
+
+	function handleViewMove(id: string, position: CanvasPosition): void {
+		if (!layoutId || editMode) return;
+		savedPositions = { ...savedPositions, [id]: position };
+		if (layoutSaveTimer) clearTimeout(layoutSaveTimer);
+		layoutSaveTimer = setTimeout(() => {
+			layoutSaveTimer = null;
+			void saveWorkflowLayout(layoutId, {
+				positions: savedPositions,
+				settings: { kind: layout },
+			}).catch(() => {
+				toasts.error('Layout save failed', 'The layout could not be persisted.');
+			});
+		}, 800);
+	}
+
+	async function handleResetLayout(): Promise<void> {
+		if (!layoutId) return;
+		if (layoutSaveTimer) {
+			clearTimeout(layoutSaveTimer);
+			layoutSaveTimer = null;
+		}
+		savedPositions = {};
+		canvas?.relayout();
+		try {
+			await resetWorkflowLayout(layoutId);
+		} catch {
+			toasts.error('Layout reset failed', 'The saved layout could not be removed.');
+		}
+	}
 
 	function cycleMinimap(): void {
 		const current = preferences.minimapMode;
@@ -394,10 +467,14 @@
 		const ids = capped.nodes.map((node) => node.id);
 		const base =
 			layout === 'columns'
-				? columnPositions(capped.nodes)
-				: layout === 'layered'
-					? layeredPositions(capped.nodes, capped.edges)
-					: new Map<string, { x: number; y: number }>();
+				? columnPositions(capped.nodes, capped.edges)
+				: layout === 'rows'
+					? rowPositions(capped.nodes, capped.edges)
+					: layout === 'compact'
+						? compactPositions(capped.nodes, capped.edges)
+						: layout === 'layered'
+							? layeredPositions(capped.nodes, capped.edges)
+							: new Map<string, { x: number; y: number }>();
 		const resolved = new SvelteMap<string, { x: number; y: number }>();
 		for (const id of ids) {
 			const override = positions?.[id];
@@ -691,8 +768,8 @@
 	const layoutOptions = [
 		{ value: 'layered', label: 'Layered' },
 		{ value: 'columns', label: 'Columns' },
-		{ value: 'force', label: 'Force' },
-		{ value: 'grid', label: 'Grid' },
+		{ value: 'rows', label: 'Rows' },
+		{ value: 'compact', label: 'Compact' },
 	];
 </script>
 
@@ -717,6 +794,13 @@
 			label="Re-run layout (R)"
 			onclick={() => canvas?.relayout()}
 		/>
+		{#if layoutId}
+			<IconButton
+				icon="undo"
+				label="Reset layout to default"
+				onclick={() => void handleResetLayout()}
+			/>
+		{/if}
 		<Select
 			bind:value={layout}
 			options={layoutOptions}
@@ -960,7 +1044,8 @@
 				{heatTierById}
 				{decisionIds}
 				tooltipLabels={mergedTooltipLabels}
-				{positions}
+				positions={{ ...savedPositions, ...(positions ?? {}) }}
+				onviewmove={handleViewMove}
 				{editMode}
 				{edgeLabelLimit}
 				minimap={preferences.minimapMode}

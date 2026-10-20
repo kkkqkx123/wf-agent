@@ -5,7 +5,12 @@ import { backendEdgeType } from '$lib/graph/display-model';
 import { issueTargetsNode } from '$lib/graph/execution-projection';
 import { asRecordList, graphField } from '$lib/services/graph';
 import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
-import type { KeyValue, Template, TemplateKind } from '$lib/types/models';
+import type {
+	GovernanceFlag,
+	KeyValue,
+	Template,
+	TemplateKind,
+} from '$lib/types/models';
 
 interface TemplateDto {
 	id?: string;
@@ -15,9 +20,31 @@ interface TemplateDto {
 	description?: string | null;
 	usage_count?: number;
 	tags?: string[] | null;
+	author?: string | null;
+	enabled?: boolean;
+	is_public?: boolean;
+	is_system?: boolean;
 }
 
 const KINDS: readonly TemplateKind[] = ['node', 'trigger', 'agent', 'workflow'];
+
+/** Built-in main agent every conversation falls back to. */
+export const DEFAULT_AGENT_ID = '@standard/main';
+
+/**
+ * Whether a template may be used directly from a selector: not a system
+ * fixture, not disabled, not private. Mirrors the composition boundary's
+ * runnable gate on the server, which enforces the same rule for every kind.
+ */
+export function isRunnableTemplate(template: {
+	enabled?: GovernanceFlag;
+	isPublic?: GovernanceFlag;
+	isSystem?: GovernanceFlag;
+}): boolean {
+	if (template.isSystem) return false;
+	if (template.enabled === false || template.isPublic === false) return false;
+	return true;
+}
 
 function normalizeKind(raw: unknown): TemplateKind | undefined {
 	if (typeof raw !== 'string') return undefined;
@@ -35,6 +62,10 @@ function toTemplate(d: TemplateDto, fallbackKind: TemplateKind): Template {
 		usage: d.usage_count ?? 0,
 		featured: false,
 		tags: d.tags ?? [],
+		enabled: d.enabled,
+		isPublic: d.is_public,
+		isSystem: d.is_system,
+		author: d.author ?? null,
 	};
 }
 
@@ -158,6 +189,16 @@ export async function getTemplateDetail(
 				tags: Array.isArray(record.template_tags)
 					? (record.template_tags as string[])
 					: null,
+				enabled:
+					typeof record.enabled === 'boolean' ? record.enabled : undefined,
+				is_public:
+					typeof record.is_public === 'boolean'
+						? record.is_public
+						: undefined,
+				is_system:
+					typeof record.is_system === 'boolean'
+						? record.is_system
+						: undefined,
 			},
 			kind,
 		),

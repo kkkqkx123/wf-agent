@@ -26,12 +26,21 @@ function createUserMessage(text: string): RunLoopMessage {
 	};
 }
 
+/** How the loop runs: full agent loop or tool-free plain chat. */
+export type LoopMode = 'standard' | 'chat';
+
 export interface LoopStreamBody {
 	model: string;
 	message: string;
 	conversation?: RunLoopMessage[];
+	/** Optional agent template id; empty falls back to the default main agent. */
+	agentId?: string;
 	/** Optional per-run filesystem scope; absent inherits the global default. */
 	fileScope?: unknown;
+	/** `chat` runs a tool-free loop; absent keeps the standard agent loop. */
+	mode?: LoopMode;
+	/** Optional workflow template id injected as context; empty injects none. */
+	workflowId?: string;
 }
 
 /**
@@ -49,9 +58,12 @@ export function streamLoopRun(
 		body: {
 			model: body.model,
 			message: body.message,
+			agent_id: body.agentId ?? '',
 			tool_call_protocol: { format: 'json' },
 			conversation: body.conversation ?? [],
 			file_scope: body.fileScope ?? null,
+			...(body.mode === 'chat' ? { mode: 'chat' } : {}),
+			...(body.workflowId ? { workflow_id: body.workflowId } : {}),
 		},
 		signal,
 		onFrame: (event, data) => handleExecutionFrame(event, data, callbacks),

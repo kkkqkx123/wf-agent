@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+import { cn } from '@wf-agent/ui/cn';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import {
 		commandLabel,
@@ -12,8 +13,10 @@
 	import { sessions } from '$lib/stores/sessions.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import ModelPicker from '$lib/components/chat/ModelPicker.svelte';
+	import AgentPicker from '$lib/components/chat/AgentPicker.svelte';
+	import WorkflowPicker from '$lib/components/chat/WorkflowPicker.svelte';
 	import type { MessageAttachment, OutgoingMessage } from '$lib/types/models';
-	import { mentionRef } from '$lib/utils/mentions';
+	import { entityMention } from '$lib/utils/mentions';
 
 	/** Largest inlined attachment per file; larger files are truncated. */
 	const ATTACHMENT_LIMIT = 64_000;
@@ -37,6 +40,9 @@
 
 	interface Props {
 		model?: string;
+		agent?: string;
+		workflow?: string;
+		mode?: 'standard' | 'chat';
 		busy?: boolean;
 		draftKey?: string;
 		suggestions?: string[];
@@ -48,6 +54,9 @@
 
 	let {
 		model = $bindable(''),
+		agent = $bindable(''),
+		workflow = $bindable(''),
+		mode = $bindable('standard'),
 		busy = false,
 		draftKey = 'new',
 		suggestions = [],
@@ -64,6 +73,8 @@
 	let activeKey = $state('');
 	let candidates = $state<SearchHit[]>([]);
 	let searching = $state(false);
+	let searchError = $state(false);
+	let activePicker = $state<string | null>(null);
 
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let latestRequest = 0;
@@ -202,6 +213,20 @@
 		draft.startsWith('/') ? matchCommands(draft.slice(1).split(/\s+/)[0]) : [],
 	);
 
+	/** Candidates grouped by entity type, preserving search order within each group. */
+	const groupedCandidates = $derived.by(() => {
+		const groups: { type: string; items: SearchHit[] }[] = [];
+		const seen = new Set<string>();
+		for (const hit of candidates) {
+			if (!seen.has(hit.type)) {
+				seen.add(hit.type);
+				groups.push({ type: hit.type, items: [] });
+			}
+			groups[groups.length - 1].items.push(hit);
+		}
+		return groups;
+	});
+
 	// Candidates come from the shared search channel, so the newest query wins.
 	$effect(() => {
 		const term = mention?.term ?? '';
@@ -210,27 +235,49 @@
 		if (mention?.kind === FILE_KIND || !term) {
 			candidates = [];
 			searching = false;
+			searchError = false;
 			return;
 		}
 		const request = (latestRequest += 1);
 		searching = true;
+		searchError = false;
 		timer = setTimeout(() => {
 			void unifiedSearch({ q: term, types, limit: 8 })
 				.then((outcome) => {
 					if (request !== latestRequest) return;
 					candidates = outcome.items;
 					searching = false;
+					searchError = false;
 				})
 				.catch(() => {
 					if (request !== latestRequest) return;
 					candidates = [];
 					searching = false;
+					searchError = true;
 				});
 		}, MENTION_DEBOUNCE_MS);
 		return () => {
 			if (timer) clearTimeout(timer);
 		};
 	});
+
+	function onGlobalKeydown(event: KeyboardEvent): void {
+		if (!(event.ctrlKey || event.metaKey) || !event.shiftKey) return;
+		const key = event.key.toLowerCase();
+		if (key === 'a') {
+			event.preventDefault();
+			activePicker = 'agent';
+			box?.focus();
+		} else if (key === 'w') {
+			event.preventDefault();
+			activePicker = 'workflow';
+			box?.focus();
+		} else if (key === 'm') {
+			event.preventDefault();
+			activePicker = 'model';
+			box?.focus();
+		}
+	}
 
 	function insertReference(reference: string): void {
 		const cursor = box?.selectionStart ?? draft.length;
@@ -266,6 +313,8 @@
 		box?.focus();
 	}
 </script>
+
+<svelte:window onkeydown={onGlobalKeydown} />
 
 <div>
 	{#if showSuggestions && suggestions.length > 0}
@@ -361,18 +410,35 @@
 
 	{#if mention !== null}
 		<div class="mb-2 flex flex-col gap-1" role="listbox" aria-label="Mentions">
-			{#each candidates as hit (`${hit.type}-${hit.id}`)}
-				<button
-					type="button"
-					onclick={() => insertReference(mentionRef(hit.type, hit.label))}
-					class="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1 text-left text-caption transition-colors hover:bg-accent"
-				>
-					<span class="min-w-0 flex-1 truncate text-foreground"
-						>{hit.label}</span
-					>
-					<span class="shrink-0 font-mono text-micro text-info">{hit.type}</span
-					>
-				</button>
+			{#each groupedCandidates as group (group.type)}
+				<div class="flex flex-col gap-1">
+					<p class="px-2 text-micro font-semibold uppercase text-muted-foreground">
+						{group.type}
+					</p>
+					{#each group.items as hit (`${hit.type}-${hit.id}`)}
+						<button
+							type="button"
+							onclick={() => insertReference(entityMention(hit.type, hit.id))}
+							class="flex flex-col items-start gap-0.5 rounded-md border border-border bg-card px-2 py-1 text-left text-caption transition-colors hover:bg-accent"
+						>
+							<span class="flex w-full items-center gap-2">
+								<span class="min-w-0 flex-1 truncate text-foreground"
+									>{hit.label}</span
+								>
+								<span class="shrink-0 font-mono text-micro text-info">{hit.type}</span
+								>
+							</span>
+							{#if hit.description}
+								<span class="w-full truncate text-micro text-muted-foreground">
+									{hit.description}
+								</span>
+							{/if}
+							<span class="w-full truncate font-mono text-micro text-muted-foreground">
+								{hit.id}
+							</span>
+						</button>
+					{/each}
+				</div>
 			{/each}
 			{#if searching}
 				<p class="px-2 text-micro text-muted-foreground">Searching…</p>
@@ -391,6 +457,10 @@
 			{:else if mention.kind === FILE_KIND}
 				<p class="px-2 text-micro text-muted-foreground">
 					Type a path, optionally with a line range (e.g. @file:src/a.ts#10-20).
+				</p>
+			{:else if searchError}
+				<p class="px-2 text-micro text-muted-foreground">
+					Mention search unavailable.
 				</p>
 			{:else if mention.term && candidates.length === 0}
 				<p class="px-2 text-micro text-muted-foreground">
@@ -423,7 +493,57 @@
 	{/if}
 
 	<div class="flex items-center gap-2">
-		<ModelPicker bind:value={model} class="shrink-0" />
+		<AgentPicker
+			bind:value={agent}
+			class="shrink-0"
+			activePicker={activePicker}
+			pickerKey="agent"
+			onActivate={(key) => (activePicker = key)}
+			onClose={() => {
+				activePicker = null;
+				box?.focus();
+			}}
+		/>
+		<WorkflowPicker
+			bind:value={workflow}
+			class="shrink-0"
+			activePicker={activePicker}
+			pickerKey="workflow"
+			onActivate={(key) => (activePicker = key)}
+			onClose={() => {
+				activePicker = null;
+				box?.focus();
+			}}
+		/>
+		<button
+			type="button"
+			aria-pressed={mode === 'chat'}
+			aria-label="Toggle plain chat mode"
+			title={mode === 'chat'
+				? 'Plain chat: tool-free responses. Click to switch back to the agent loop.'
+				: 'Agent loop with tools. Click to switch to tool-free plain chat.'}
+			onclick={() => (mode = mode === 'chat' ? 'standard' : 'chat')}
+			class={cn(
+				'flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-input bg-card px-2 text-caption transition-colors hover:bg-accent',
+				mode === 'chat'
+					? 'text-foreground'
+					: 'text-muted-foreground',
+			)}
+		>
+			<Icon name="loop" size={13} class="shrink-0" />
+			{mode === 'chat' ? 'Chat' : 'Agent'}
+		</button>
+		<ModelPicker
+			bind:value={model}
+			class="shrink-0"
+			activePicker={activePicker}
+			pickerKey="model"
+			onActivate={(key) => (activePicker = key)}
+			onClose={() => {
+				activePicker = null;
+				box?.focus();
+			}}
+		/>
 		<textarea
 			bind:this={box}
 			bind:value={draft}

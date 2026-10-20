@@ -18,13 +18,11 @@ export interface MentionTarget {
 	lineEnd: number | null;
 }
 
-/** The value half of a reference keeps to characters the parser accepts. */
-export function mentionRef(kind: string, label: string): string {
-	const value = label
-		.trim()
-		.toLowerCase()
-		.replace(/[^\w.-]+/g, '-')
-		.replace(/^-+|-+$/g, '');
+/** Build a canonical entity reference from its backend id. The id is kept
+ * verbatim so the reference can be resolved later; only surrounding
+ * whitespace is trimmed. */
+export function entityMention(kind: string, id: string): string {
+	const value = id.trim();
 	return value ? `@${kind}:${value}` : `@${kind}`;
 }
 

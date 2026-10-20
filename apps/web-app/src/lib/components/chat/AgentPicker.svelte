@@ -11,11 +11,25 @@
 	interface Props {
 		value?: string;
 		class?: string;
+		activePicker?: string | null;
+		pickerKey?: string;
+		onActivate?: (key: string | null) => void;
+		onClose?: () => void;
 	}
 
-	let { value = $bindable(''), class: className = '' }: Props = $props();
+	let {
+		value = $bindable(''),
+		class: className = '',
+		activePicker = undefined,
+		pickerKey = 'agent',
+		onActivate,
+		onClose,
+	}: Props = $props();
 
-	let open = $state(false);
+	let internalOpen = $state(false);
+	const open = $derived(
+		activePicker === undefined ? internalOpen : activePicker === pickerKey,
+	);
 	let query = $state('');
 	let templates = $state<Template[]>([]);
 	let root: HTMLDivElement | undefined = $state();
@@ -49,13 +63,16 @@
 	}
 
 	function openPanel(): void {
-		open = true;
 		query = '';
+		if (activePicker === undefined) internalOpen = true;
+		else onActivate?.(pickerKey);
 	}
 
 	function close(): void {
-		open = false;
 		query = '';
+		if (activePicker === undefined) internalOpen = false;
+		else onActivate?.(null);
+		onClose?.();
 	}
 
 	function onwindowclick(event: MouseEvent): void {

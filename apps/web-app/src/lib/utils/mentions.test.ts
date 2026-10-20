@@ -1,20 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
+	entityMention,
 	fileMentionRef,
-	mentionRef,
 	parseMentionValue,
 	textRuns,
 } from './mentions';
 
-describe('mentionRef', () => {
-	it('reduces a label to the characters the parser accepts', () => {
-		expect(mentionRef('workflow', 'Nightly Build Flow')).toBe(
-			'@workflow:nightly-build-flow',
-		);
+describe('entityMention', () => {
+	it('keeps the canonical id unchanged', () => {
+		expect(entityMention('execution', 'exec-123')).toBe('@execution:exec-123');
 	});
 
-	it('drops the value half when nothing survives', () => {
-		expect(mentionRef('workflow', '  ')).toBe('@workflow');
+	it('drops the value half when the id is empty', () => {
+		expect(entityMention('workflow', '  ')).toBe('@workflow');
 	});
 });
 

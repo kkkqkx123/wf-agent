@@ -28,6 +28,8 @@ export interface Execution {
 	tags?: string[];
 	/** Workflow input captured with the execution; used to re-run it. */
 	input?: unknown;
+	/** Pinned workflow version the run executed; absent for legacy records. */
+	version?: string | null;
 	/** Terminal failure message recorded on the execution, if any. */
 	error?: string | null;
 }
@@ -517,6 +519,12 @@ export type TemplateKind = 'node' | 'trigger' | 'agent' | 'workflow';
 /** Tab selection inside the template edit panel. */
 export type TemplateEditTab = 'json' | 'form' | 'graph';
 
+/**
+ * Governance flags mirror the backend's tri-state: `undefined` means the
+ * wire row did not set the flag (treated as unset, not as true).
+ */
+export type GovernanceFlag = boolean | undefined;
+
 export interface Template {
 	id: string;
 	name: string;
@@ -526,6 +534,10 @@ export interface Template {
 	usage: number;
 	featured: boolean;
 	tags: string[];
+	enabled?: GovernanceFlag;
+	isPublic?: GovernanceFlag;
+	isSystem?: GovernanceFlag;
+	author?: string | null;
 }
 
 export interface QueryResult {

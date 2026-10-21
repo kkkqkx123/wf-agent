@@ -1,0 +1,570 @@
+diff --git a/crates/app/wf-api/src/audit.rs b/crates/app/wf-api/src/audit.rs
+index 085ec8b..da68e0e 100644
+--- a/crates/app/wf-api/src/audit.rs
++++ b/crates/app/wf-api/src/audit.rs
+@@ -241,6 +241,8 @@ mod tests {
+                 started_at: wf_common::now(),
+                 completed_at: Some(wf_common::now() + 50),
+                 duration_ms: 50,
++                first_token_ms: None,
++                generation_ms: None,
+                 error: None,
+             });
+             state.end_iteration_with_content(Some("hi".into()));
+@@ -381,6 +383,8 @@ mod tests {
+                     started_at: 1000,
+                     completed_at: Some(1500),
+                     duration_ms: 500,
++                    first_token_ms: None,
++                    generation_ms: None,
+                     error: None,
+                 }]),
+                 response_content: Some("persisted".into()),
+diff --git a/crates/app/wf-api/src/audit/resolver.rs b/crates/app/wf-api/src/audit/resolver.rs
+index ba2cfaa..75cef79 100644
+--- a/crates/app/wf-api/src/audit/resolver.rs
++++ b/crates/app/wf-api/src/audit/resolver.rs
+@@ -311,6 +311,12 @@ pub(crate) fn persisted_iteration_view(
+ }
+ 
+ fn llm_view(iteration: u32, call: &LlmCallRecord) -> crate::audit::views::LlmCallAuditView {
++    let tokens_per_second = match (call.completion_tokens, call.generation_ms) {
++        (tokens, Some(ms)) if tokens > 0 && ms > 0 => {
++            Some(tokens as f64 / (ms as f64 / 1000.0))
++        }
++        _ => None,
++    };
+     crate::audit::views::LlmCallAuditView {
+         iteration,
+         seq: call.seq,
+@@ -323,6 +329,9 @@ fn llm_view(iteration: u32, call: &LlmCallRecord) -> crate::audit::views::LlmCal
+         started_at: call.started_at,
+         completed_at: call.completed_at,
+         duration_ms: call.duration_ms,
++        first_token_ms: call.first_token_ms,
++        generation_ms: call.generation_ms,
++        tokens_per_second,
+         error: call.error.clone(),
+     }
+ }
+diff --git a/crates/app/wf-api/src/audit/views.rs b/crates/app/wf-api/src/audit/views.rs
+index 5089b91..4526a0f 100644
+--- a/crates/app/wf-api/src/audit/views.rs
++++ b/crates/app/wf-api/src/audit/views.rs
+@@ -85,6 +85,15 @@ pub struct LlmCallAuditView {
+     pub completed_at: Option<i64>,
+     pub duration_ms: i64,
+     #[serde(skip_serializing_if = "Option::is_none")]
++    pub first_token_ms: Option<i64>,
++    #[serde(skip_serializing_if = "Option::is_none")]
++    pub generation_ms: Option<i64>,
++    /// Output tokens per second over the generation window; present only
++    /// when both the window duration and the completion token count are
++    /// positive.
++    #[serde(skip_serializing_if = "Option::is_none")]
++    pub tokens_per_second: Option<f64>,
++    #[serde(skip_serializing_if = "Option::is_none")]
+     pub error: Option<String>,
+ }
+ 
+diff --git a/crates/engine/wf-agent/src/coordinator/iteration/llm_call.rs b/crates/engine/wf-agent/src/coordinator/iteration/llm_call.rs
+index 526d21d..c32b4cc 100644
+--- a/crates/engine/wf-agent/src/coordinator/iteration/llm_call.rs
++++ b/crates/engine/wf-agent/src/coordinator/iteration/llm_call.rs
+@@ -86,7 +86,15 @@ impl AgentIterationCoordinator {
+                 self.persist_llm_call(
+                     entity,
+                     request,
+-                    llm_call_record(request, started_at, None, None, 0, 0, Some(e.to_string())),
++                    llm_call_record(
++                        request,
++                        started_at,
++                        None,
++                        None,
++                        None,
++                        None,
++                        Some(e.to_string()),
++                    ),
+                 )
+                 .await;
+                 // Without a model window there is nothing to compress
+@@ -110,7 +118,15 @@ impl AgentIterationCoordinator {
+                 self.persist_llm_call(
+                     entity,
+                     request,
+-                    llm_call_record(request, started_at, None, None, 0, 0, Some(e.to_string())),
++                    llm_call_record(
++                        request,
++                        started_at,
++                        None,
++                        None,
++                        None,
++                        None,
++                        Some(e.to_string()),
++                    ),
+                 )
+                 .await;
+                 return Err(e.into());
+@@ -140,8 +156,8 @@ impl AgentIterationCoordinator {
+                 started_at,
+                 model,
+                 Some(response_summary),
+-                usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
+-                usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
++                usage.as_ref(),
++                llm_result.stream_stats.clone(),
+                 None,
+             ),
+         )
+@@ -236,14 +252,17 @@ pub(super) fn build_response_summary(
+ }
+ 
+ /// Assemble one LLM call audit record. `seq` is assigned by the
+-/// state (`AgentLoopState::record_llm_call`).
++/// state (`AgentLoopState::record_llm_call`). `usage` carries the request's
++/// token counts; `stream_stats` carries the provider stream timing (real
++/// first-token latency and generation window) for streaming calls. Both are
++/// None on error paths.
+ pub(super) fn llm_call_record(
+     request: &LlmRequest,
+     started_at: i64,
+     model: Option<String>,
+     response_summary: Option<LlmResponseSummary>,
+-    prompt_tokens: u32,
+-    completion_tokens: u32,
++    usage: Option<&wf_execution_shared::RequestUsage>,
++    stream_stats: Option<wf_types::llm::StreamStats>,
+     error: Option<String>,
+ ) -> LlmCallRecord {
+     let completed_at = wf_common::now();
+@@ -253,11 +272,13 @@ pub(super) fn llm_call_record(
+         model,
+         request_summary: Some(build_request_summary(request)),
+         response_summary,
+-        prompt_tokens,
+-        completion_tokens,
++        prompt_tokens: usage.map(|u| u.prompt_tokens).unwrap_or(0),
++        completion_tokens: usage.map(|u| u.completion_tokens).unwrap_or(0),
+         started_at,
+         completed_at: Some(completed_at),
+         duration_ms: completed_at - started_at,
++        first_token_ms: stream_stats.as_ref().map(|s| s.time_to_first_chunk),
++        generation_ms: stream_stats.as_ref().map(|s| s.stream_duration),
+         error,
+     }
+ }
+diff --git a/crates/engine/wf-agent/src/coordinator/iteration/streaming.rs b/crates/engine/wf-agent/src/coordinator/iteration/streaming.rs
+index 0492854..648b8de 100644
+--- a/crates/engine/wf-agent/src/coordinator/iteration/streaming.rs
++++ b/crates/engine/wf-agent/src/coordinator/iteration/streaming.rs
+@@ -72,7 +72,15 @@ impl AgentIterationCoordinator {
+                 self.persist_llm_call(
+                     entity,
+                     request,
+-                    llm_call_record(request, started_at, None, None, 0, 0, Some(e.to_string())),
++                    llm_call_record(
++                        request,
++                        started_at,
++                        None,
++                        None,
++                        None,
++                        None,
++                        Some(e.to_string()),
++                    ),
+                 )
+                 .await;
+                 return Err(e.into());
+@@ -80,6 +88,7 @@ impl AgentIterationCoordinator {
+         };
+         let mut final_message: Option<Message> = None;
+         let mut request_usage: Option<RequestUsage> = None;
++        let mut stream_stats: Option<wf_types::llm::StreamStats> = None;
+         let mut content_parts: Vec<String> = Vec::new();
+         let mut failure: Option<LlmError> = None;
+ 
+@@ -126,6 +135,7 @@ impl AgentIterationCoordinator {
+                     final_message = Some(msg.message);
+                 }
+                 Ok(MessageStreamEvent::FinalMessage(msg)) => {
++                    stream_stats = msg.stream_stats.clone();
+                     let content = text_of(&msg.message.content);
+                     final_message = Some(msg.message);
+                     content_parts.push(content);
+@@ -199,8 +209,8 @@ impl AgentIterationCoordinator {
+                     started_at,
+                     None,
+                     None,
+-                    0,
+-                    0,
++                    None,
++                    stream_stats.clone(),
+                     Some(error.to_string()),
+                 ),
+             )
+@@ -213,7 +223,15 @@ impl AgentIterationCoordinator {
+             self.persist_llm_call(
+                 entity,
+                 request,
+-                llm_call_record(request, started_at, None, None, 0, 0, Some(message.clone())),
++                llm_call_record(
++                    request,
++                    started_at,
++                    None,
++                    None,
++                    None,
++                    stream_stats.clone(),
++                    Some(message.clone()),
++                ),
+             )
+             .await;
+             return Err(AgentError::LlmError(LlmError::StreamError(message)));
+@@ -253,11 +271,8 @@ impl AgentIterationCoordinator {
+                 started_at,
+                 None,
+                 Some(response_summary),
+-                request_usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
+-                request_usage
+-                    .as_ref()
+-                    .map(|u| u.completion_tokens)
+-                    .unwrap_or(0),
++                request_usage.as_ref(),
++                stream_stats.clone(),
+                 None,
+             ),
+         )
+diff --git a/crates/engine/wf-workflow/src/handler/llm/stream.rs b/crates/engine/wf-workflow/src/handler/llm/stream.rs
+index 0ff8ba8..67c3dfc 100644
+--- a/crates/engine/wf-workflow/src/handler/llm/stream.rs
++++ b/crates/engine/wf-workflow/src/handler/llm/stream.rs
+@@ -120,7 +120,7 @@ pub async fn run_streaming_request(
+                     reasoning_tokens: None,
+                     refusal: None,
+                     metadata: None,
+-                    stream_stats: None,
++                    stream_stats: final_msg.stream_stats,
+                 });
+             }
+             Some(Ok(MessageStreamEvent::Error(err))) => {
+diff --git a/crates/foundation/wf-types/src/agent_execution/record.rs b/crates/foundation/wf-types/src/agent_execution/record.rs
+index 5727e08..b47748e 100644
+--- a/crates/foundation/wf-types/src/agent_execution/record.rs
++++ b/crates/foundation/wf-types/src/agent_execution/record.rs
+@@ -118,6 +118,16 @@ pub struct LlmCallRecord {
+     #[serde(skip_serializing_if = "Option::is_none")]
+     pub completed_at: Option<Timestamp>,
+     pub duration_ms: i64,
++    /// Real time-to-first-token from the provider stream, in milliseconds.
++    /// Only present for streaming calls whose provider surfaced stream
++    /// statistics; absent in older records.
++    #[serde(skip_serializing_if = "Option::is_none")]
++    pub first_token_ms: Option<i64>,
++    /// Generation window (first to last stream chunk) in milliseconds.
++    /// Absent for non-streaming calls or when the stream carried no
++    /// statistics.
++    #[serde(skip_serializing_if = "Option::is_none")]
++    pub generation_ms: Option<i64>,
+     #[serde(skip_serializing_if = "Option::is_none")]
+     pub error: Option<String>,
+ }
+@@ -173,6 +183,8 @@ mod tests {
+             started_at: 100,
+             completed_at: Some(200),
+             duration_ms: 100,
++            first_token_ms: Some(40),
++            generation_ms: Some(60),
+             error: None,
+         };
+         let json = serde_json::to_string(&record).unwrap();
+@@ -180,6 +192,22 @@ mod tests {
+         assert_eq!(restored, record);
+     }
+ 
++    #[test]
++    fn llm_call_record_deserializes_old_blob_without_stream_timing() {
++        let json = serde_json::json!({
++            "seq": 0,
++            "profile_id": "p1",
++            "prompt_tokens": 10,
++            "completion_tokens": 20,
++            "started_at": 100,
++            "completed_at": 200,
++            "duration_ms": 100
++        });
++        let restored: LlmCallRecord = serde_json::from_value(json).unwrap();
++        assert_eq!(restored.first_token_ms, None);
++        assert_eq!(restored.generation_ms, None);
++    }
++
+     #[test]
+     fn iteration_record_deserializes_old_blob_without_llm_calls() {
+         let old = r#"{
+diff --git a/crates/infra/llm-suite b/crates/infra/llm-suite
+--- a/crates/infra/llm-suite
++++ b/crates/infra/llm-suite
+@@ -1 +1 @@
+-Subproject commit d48b132d8dd21bda22bd97816d9e44ded4c22793
++Subproject commit d48b132d8dd21bda22bd97816d9e44ded4c22793-dirty
+diff --git a/crates/infra/wf-llm/src/token_stream_adapter.rs b/crates/infra/wf-llm/src/token_stream_adapter.rs
+index a22b5c2..401e043 100644
+--- a/crates/infra/wf-llm/src/token_stream_adapter.rs
++++ b/crates/infra/wf-llm/src/token_stream_adapter.rs
+@@ -33,6 +33,20 @@ impl LlmMetricsSink for MetricsSinkAdapter {
+         self.collector.record_first_byte(duration_ms, model);
+     }
+ 
++    fn record_stream_stats(
++        &self,
++        stats: &llm_types::llm::StreamStats,
++        completion_tokens: u32,
++        model: Option<&str>,
++    ) {
++        self.collector.record_stream_stats(
++            stats.time_to_first_chunk as f64,
++            stats.stream_duration as f64,
++            completion_tokens as u64,
++            model,
++        );
++    }
++
+     fn record_request(
+         &self,
+         duration_ms: f64,
+diff --git a/crates/infra/wf-metrics/src/collectors/token.rs b/crates/infra/wf-metrics/src/collectors/token.rs
+index 22757e8..8b3d2d2 100644
+--- a/crates/infra/wf-metrics/src/collectors/token.rs
++++ b/crates/infra/wf-metrics/src/collectors/token.rs
+@@ -16,6 +16,13 @@ pub struct TokenUsageStats {
+     pub retry_count: u64,
+     pub avg_request_duration_ms: f64,
+     pub avg_first_byte_duration_ms: f64,
++    /// Real time-to-first-token observed from the provider stream, distinct
++    /// from the stream establishment proxy above.
++    pub avg_first_token_duration_ms: f64,
++    pub avg_generation_duration_ms: f64,
++    /// Output tokens per second across the generation windows of all
++    /// recorded streams (total generation tokens / total generation time).
++    pub avg_output_tokens_per_second: f64,
+     pub by_model: Vec<crate::metric::LabelGroup>,
+ }
+ 
+@@ -114,9 +121,41 @@ impl TokenMetricsCollector {
+         );
+     }
+ 
++    /// Record per-stream generation statistics reported by the LLM gateway:
++    /// the real time-to-first-token, the generation window (first to last
++    /// stream chunk) and the output tokens produced in that window.
++    pub fn record_stream_stats(
++        &self,
++        first_token_ms: f64,
++        generation_ms: f64,
++        completion_tokens: u64,
++        model: Option<&str>,
++    ) {
++        let model_label = model.unwrap_or("unknown");
++        let labels = labels(&[("model", model_label)]);
++        self.inner
++            .observe_histogram(token_metrics::FIRST_TOKEN_DURATION, first_token_ms, labels.clone());
++        self.inner.observe_histogram(
++            token_metrics::GENERATION_DURATION,
++            generation_ms,
++            labels.clone(),
++        );
++        self.inner.increment_counter_by(
++            token_metrics::GENERATION_TOKENS,
++            completion_tokens as f64,
++            labels,
++        );
++    }
++
+     pub fn usage_stats(&self) -> TokenUsageStats {
+         let duration = crate::collectors::latest(&self.inner, token_metrics::REQUEST_DURATION);
+         let first_byte = crate::collectors::latest(&self.inner, token_metrics::FIRST_BYTE_DURATION);
++        let first_token =
++            crate::collectors::latest(&self.inner, token_metrics::FIRST_TOKEN_DURATION);
++        let generation =
++            crate::collectors::latest(&self.inner, token_metrics::GENERATION_DURATION);
++        let generation_tokens =
++            crate::collectors::counter_total(&self.inner, token_metrics::GENERATION_TOKENS);
+         let avg_of = |m: &Option<crate::metric::Metric>| {
+             m.as_ref()
+                 .map(|d| {
+@@ -128,6 +167,13 @@ impl TokenMetricsCollector {
+                 })
+                 .unwrap_or(0.0)
+         };
++        // Aggregate ratio: total output tokens over total generation time.
++        // The histogram sum spans every observed generation window, so the
++        // ratio stays independent of how tokens were split across requests.
++        let avg_output_tokens_per_second = match generation.as_ref() {
++            Some(d) if d.sum > 0.0 => generation_tokens / (d.sum / 1000.0),
++            _ => 0.0,
++        };
+         TokenUsageStats {
+             total_tokens: crate::collectors::counter_total(&self.inner, token_metrics::TOTAL_TOKENS)
+                 as u64,
+@@ -150,6 +196,9 @@ impl TokenMetricsCollector {
+                 as u64,
+             avg_request_duration_ms: avg_of(&duration),
+             avg_first_byte_duration_ms: avg_of(&first_byte),
++            avg_first_token_duration_ms: avg_of(&first_token),
++            avg_generation_duration_ms: avg_of(&generation),
++            avg_output_tokens_per_second,
+             by_model: self
+                 .inner
+                 .query(&crate::metric::MetricFilter {
+@@ -230,4 +279,24 @@ mod tests {
+         assert_eq!(stats.retry_count, 2);
+         assert_eq!(stats.avg_first_byte_duration_ms, 50.0);
+     }
++
++    #[test]
++    fn records_stream_stats_and_derives_tps() {
++        let c = collector();
++        c.record_stream_stats(120.0, 2000.0, 100, Some("gpt-4o"));
++        c.record_stream_stats(80.0, 1000.0, 50, Some("gpt-4o"));
++        let stats = c.usage_stats();
++        assert_eq!(stats.avg_first_token_duration_ms, 100.0);
++        assert_eq!(stats.avg_generation_duration_ms, 1500.0);
++        assert_eq!(stats.avg_output_tokens_per_second, 50.0);
++    }
++
++    #[test]
++    fn stream_stats_without_tokens_yields_zero_tps() {
++        let c = collector();
++        c.record_stream_stats(50.0, 0.0, 0, Some("gpt-4o"));
++        let stats = c.usage_stats();
++        assert_eq!(stats.avg_first_token_duration_ms, 50.0);
++        assert_eq!(stats.avg_output_tokens_per_second, 0.0);
++    }
+ }
+diff --git a/crates/infra/wf-metrics/src/constants.rs b/crates/infra/wf-metrics/src/constants.rs
+index cc0f136..4816265 100644
+--- a/crates/infra/wf-metrics/src/constants.rs
++++ b/crates/infra/wf-metrics/src/constants.rs
+@@ -48,6 +48,9 @@ pub mod token_metrics {
+     pub const ERROR_COUNT: &str = "token.request.error.count";
+     pub const RETRY_COUNT: &str = "token.request.retry.count";
+     pub const FIRST_BYTE_DURATION: &str = "token.stream.first_byte.duration";
++    pub const FIRST_TOKEN_DURATION: &str = "token.stream.first_token.duration";
++    pub const GENERATION_DURATION: &str = "token.stream.generation.duration";
++    pub const GENERATION_TOKENS: &str = "token.stream.generation.tokens";
+ }
+ 
+ pub mod error_metrics {
+@@ -236,6 +239,9 @@ mod tests {
+             token_metrics::ERROR_COUNT,
+             token_metrics::RETRY_COUNT,
+             token_metrics::FIRST_BYTE_DURATION,
++            token_metrics::FIRST_TOKEN_DURATION,
++            token_metrics::GENERATION_DURATION,
++            token_metrics::GENERATION_TOKENS,
+             error_metrics::OCCURRENCE_COUNT,
+             error_metrics::RECOVERY_RATE,
+             error_metrics::AFFECTED_EXECUTIONS,
+diff --git a/crates/infra/wf-metrics/src/descriptions.rs b/crates/infra/wf-metrics/src/descriptions.rs
+index 95a7cf3..a2e8852 100644
+--- a/crates/infra/wf-metrics/src/descriptions.rs
++++ b/crates/infra/wf-metrics/src/descriptions.rs
+@@ -44,6 +44,9 @@ pub fn metric_description(name: &str) -> Option<&'static str> {
+         token_metrics::ERROR_COUNT => "Token request error count",
+         token_metrics::RETRY_COUNT => "Token request retry count",
+         token_metrics::FIRST_BYTE_DURATION => "Token stream first byte duration",
++        token_metrics::FIRST_TOKEN_DURATION => "Token stream first token duration",
++        token_metrics::GENERATION_DURATION => "Token stream generation window duration",
++        token_metrics::GENERATION_TOKENS => "Token stream generation output tokens",
+         error_metrics::OCCURRENCE_COUNT => "Error occurrence count",
+         error_metrics::RECOVERY_RATE => "Error recovery rate",
+         error_metrics::AFFECTED_EXECUTIONS => "Error affected executions",
+diff --git a/docs/plan/llm-stream-performance-stats-design.md b/docs/plan/llm-stream-performance-stats-design.md
+new file mode 100644
+index 0000000..45bda87
+--- /dev/null
++++ b/docs/plan/llm-stream-performance-stats-design.md
+@@ -0,0 +1,86 @@
++# LLM 流式性能统计（首 Token / Tokens Per Second）设计
++
++## 背景与现状
++
++本方案回答两个问题：TPS（tokens per second）与首 Token 统计应该在哪一层实现、如何实现。分析参照 `wf-pricing` 与 llm-suite 中价格计算的现有分层。
++
++### 现有链路盘点
++
++1. **价格计算的四层分工（参照模式）**
++   - llm-suite：持有契约与计算——`llm-suite-token` 定义 `PricingResolver` trait 与 `TokenPricing`/`ResolvedPricing` 类型，`llm-suite-gateway` 在收到 usage 时注入 resolver 计算成本后经 `TokenUsageSink` 上报。
++   - wf-pricing：宿主侧数据源（内置 LiteLLM 公共表 + wf-storage 自定义规则 + 组合 resolver）。
++   - wf-runtime：启动期接线（`build_composite_resolver` → `with_pricing_resolver`）。
++   - wf-metrics：聚合与导出（`TokenMetricsCollector` 计数器/直方图）。
++
++2. **首 Token / TPS 的现状**
++   - llm-suite `TokenRecordingStream` 已经完整采集每次流式请求的 `StreamStats`（`time_to_first_chunk` 真实首分片延迟、`stream_duration` 首末分片间隔、`chunk_count`、`total_duration`），并附加在 `FinalMessage` 事件上。
++   - 但宿主侧消费方（agent 循环、workflow LLM 节点）全部丢弃 `stream_stats`；gateway 层的 `record_first_byte` 只覆盖建流耗时（TTFB 代理），并非真实首 Token。
++   - agent 审计 `LlmCallRecord` 已有 `started_at`/`duration_ms`/token 数，可粗算 TPS 但无法剥离排队与首 Token 等待。
++   - 全仓库无任何 TPS 指标。
++
++### 核心结论
++
++**数据源已经存在，缺的是贯通。** 分层方式与价格计算一致：测量与契约留在 llm-suite，聚合留在宿主 infra 层（wf-metrics），消费落在 app 层（审计/API）。不放 wf-agent——因为 LLM 调用有四个来源（agent 循环、workflow LLM 节点、single-shot、脚本路径），只有 gateway 能统一覆盖且独占计时窗口；agent 层测得的 wall-clock 会混入队列与迭代开销。
++
++## 各阶段改动
++
++### 阶段一：llm-suite 子模块（独立仓库，单独 patch）
++
++1. `llm-suite-client` 的 `LlmMetricsSink` trait 增加观察点 `record_stream_stats(stats, completion_tokens, model)`，提供默认空实现，既有实现方不受影响。
++2. `TokenRecordingStream` 增加可选的 `SharedLlmMetricsSink`（builder 式 `with_metrics_sink`），在发出 `FinalMessage`（stats 已附加）时上报一次，带上累计的 completion tokens；每个流最多上报一次。
++3. `llm-suite-gateway` 的 `generate_stream` 在包装 `TokenRecordingStream` 时把已有的 `token_metrics` sink 传入。非流式路径不产生该统计（无首 Token 概念），由既有 `record_request` 覆盖。
++
++### 阶段二：wf-llm 适配器转发
++
++`token_stream_adapter::MetricsSinkAdapter` 重写新的 trait 方法，将 `time_to_first_chunk`、`stream_duration` 与 completion tokens 转发到 `TokenMetricsCollector`。与既有 `record_first_byte` 的转发模式完全一致。
++
++### 阶段三：wf-metrics 聚合
++
++1. 新指标常量：
++   - `token.stream.first_token.duration`（真实首 Token 延迟直方图；与既有 `token.stream.first_byte.duration` 建流代理并存，口径不同）
++   - `token.stream.generation.duration`（生成窗口直方图）
++   - `token.stream.generation.tokens`（生成窗口内输出 tokens 计数器）
++2. `TokenMetricsCollector` 新增 `record_stream_stats(first_token_ms, generation_ms, completion_tokens, model)`。
++3. `TokenUsageStats` 统计输出新增 `avg_first_token_duration_ms`、`avg_generation_duration_ms`、`avg_output_tokens_per_second`（= 生成 tokens 总量 / 生成时长总量，比值口径，避免直方图均值的比值失真）。
++4. 补充 `descriptions.rs` 与常量唯一性测试。
++
++### 阶段四：审计贯通（wf-types / wf-agent）
++
++1. `LlmCallRecord` 新增可选字段 `first_token_ms`、`generation_ms`（plain Option，旧 blob 反序列化为 None，与文件内既有兼容策略一致）。
++2. `llm_call_record` 构造函数增加 `stream_stats` 参数；agent 流式路径从 `FinalMessage` 捕获 `stream_stats` 填入，错误/中止路径传 None；阻塞路径透传 `LlmResult.stream_stats`（非流式通常为 None）。
++3. 每个 agent 请求在审计中即可看到真实首 Token 与生成窗口，TPS 可派生。
++
++### 阶段五：展示面（wf-workflow / wf-api）
++
++1. workflow LLM 节点把 `FinalMessage.stream_stats` 透传到返回的 `LlmResult.stream_stats`（该占位字段首次被真实填充）。
++2. wf-api 审计视图 `LlmCallAuditView` 新增 `first_token_ms`、`generation_ms`、派生 `tokens_per_second`（= completion_tokens / generation_ms，仅两者均有效时输出）。
++
++## 语义口径
++
++- `first_byte`（既有）：建流耗时，gateway 在 `generate_stream` 返回时测量，是 TTFT 的上界代理。
++- `first_token`（新增）：首个流事件到达的真实延迟，来自 `StreamStats.time_to_first_chunk`。
++- TPS：completion tokens / 生成窗口（首末分片间隔）。reasoning tokens 已含在 completion 口径内，不再单列。非流式请求不产生首 Token 与 TPS 统计。
++- 双轨原则：以上均为记账数据（cost track），只进 metrics 与审计，不进入压缩/限额等决策逻辑。
++
++## 明确不做
++
++- 不改 `AgentStreamEvent::Usage` / `ExecutionStreamEvent::Usage`：该事件面在 TUI/CLI 有十余处穷举匹配，为一个可选展示字段引入大范围涟漪不划算。状态栏如需实时 TPS，后续可基于 wf-metrics 或审计数据单独设计。
++- 不改 llm-suite 的 `TokenUsageHistory`：每请求计时由宿主侧 `LlmCallRecord` 承载，避免扩散持久化格式。
++- 不需要 wf-pricing 式的新宿主 crate：TPS/首 Token 是纯测量统计，无外部数据源，wf-metrics 即可承载。
++
++## 兼容性
++
++- trait 新方法带默认实现，所有既有 `LlmMetricsSink` 实现方无需改动即可编译。
++- `LlmCallRecord` 与审计视图新增字段均为可选 + `skip_serializing_if`，旧 checkpoint / 旧审计 JSON 反序列化不受影响。
++- 指标均为新增序列，Prometheus/JSON 导出向后兼容。
++
++## 验证
++
++- `cargo clippy --all-targets --all-features` 全量编译检查（需先 `git submodule update --init crates/infra/llm-suite`）。
++- llm-suite 子模块：`cargo test -p llm-suite-client token_stream`（新增 stats 上报测试）。
++- 宿主侧：wf-metrics token collector 单测、wf-agent stream/审计相关单测、wf-api audit 测试。
++
++## 交付物
++
++- 宿主仓库 patch（设计文档 + 阶段二至五代码）。
++- llm-suite 子模块 patch（阶段一），需在子模块仓库内单独应用与提交。

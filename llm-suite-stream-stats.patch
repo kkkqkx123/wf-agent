@@ -1,0 +1,237 @@
+diff --git a/crates/llm-suite-client/src/token_stream.rs b/crates/llm-suite-client/src/token_stream.rs
+index 6d71085..a04aff1 100644
+--- a/crates/llm-suite-client/src/token_stream.rs
++++ b/crates/llm-suite-client/src/token_stream.rs
+@@ -19,6 +19,18 @@ pub trait TokenUsageSink: Send + Sync {
+ /// adapter into this trait; the transport and gateway layers stay leaf.
+ pub trait LlmMetricsSink: TokenUsageSink {
+     fn record_first_byte(&self, duration_ms: f64, model: Option<&str>);
++    /// Per-stream generation statistics emitted once when the wrapped
++    /// stream produces its final message: real time-to-first-token,
++    /// generation window and output size. Default no-op so existing
++    /// implementors keep compiling; the facade adapter overrides it.
++    fn record_stream_stats(
++        &self,
++        stats: &StreamStats,
++        completion_tokens: u32,
++        model: Option<&str>,
++    ) {
++        let _ = (stats, completion_tokens, model);
++    }
+     fn record_request(
+         &self,
+         duration_ms: f64,
+@@ -43,9 +55,15 @@ pub type SharedLlmMetricsSink = Arc<dyn LlmMetricsSink>;
+ pub struct TokenRecordingStream {
+     inner: Box<dyn MessageStream>,
+     sink: Option<SharedTokenUsageSink>,
++    metrics: Option<SharedLlmMetricsSink>,
+     model: String,
+     last_usage: Option<TokenUsageStats>,
++    /// Output size reported with `record_stream_stats`: tracked separately
++    /// from `last_usage` because a final message without usage must not
++    /// erase a mid-stream usage observation.
++    completion_tokens: u32,
+     recorded: bool,
++    stats_recorded: bool,
+     start_time: i64,
+     first_chunk_time: Option<i64>,
+     last_chunk_time: Option<i64>,
+@@ -61,9 +79,12 @@ impl TokenRecordingStream {
+         Self {
+             inner,
+             sink,
++            metrics: None,
+             model,
+             last_usage: None,
++            completion_tokens: 0,
+             recorded: false,
++            stats_recorded: false,
+             start_time: llm_suite_common::time::now(),
+             first_chunk_time: None,
+             last_chunk_time: None,
+@@ -71,6 +92,13 @@ impl TokenRecordingStream {
+         }
+     }
+ 
++    /// Attach a metrics sink that receives the per-stream generation
++    /// statistics once the final message arrives. Zero overhead when absent.
++    pub fn with_metrics_sink(mut self, metrics: Option<SharedLlmMetricsSink>) -> Self {
++        self.metrics = metrics;
++        self
++    }
++
+     fn record(&mut self, usage: &TokenUsageStats) {
+         let Some(sink) = &self.sink else {
+             return;
+@@ -107,16 +135,26 @@ impl MessageStream for TokenRecordingStream {
+ 
+         if let Some(Ok(MessageStreamEvent::Usage(usage))) = &event {
+             self.last_usage = Some(usage.usage.clone());
++            self.completion_tokens = usage.usage.completion_tokens;
+             if !self.recorded {
+                 self.record(&usage.usage);
+             }
+         }
+ 
+         if let Some(Ok(MessageStreamEvent::FinalMessage(msg))) = &mut event {
++            if let Some(usage) = &msg.usage {
++                self.completion_tokens = usage.completion_tokens;
++            }
+             self.last_usage = msg.usage.clone();
+             if msg.stream_stats.is_none() {
+                 msg.stream_stats = Some(self.build_stats(now));
+             }
++            if !self.stats_recorded {
++                self.stats_recorded = true;
++                if let (Some(metrics), Some(stats)) = (&self.metrics, msg.stream_stats.as_ref()) {
++                    metrics.record_stream_stats(stats, self.completion_tokens, Some(&self.model));
++                }
++            }
+         }
+ 
+         if event.is_none() && !self.recorded {
+@@ -288,4 +326,119 @@ mod tests {
+         assert_eq!(usage.cache_read_tokens, Some(80));
+         assert_eq!(usage.cache_write_tokens, Some(15));
+     }
++
++    /// Captures the per-stream generation statistics forwarded to
++    /// `LlmMetricsSink::record_stream_stats`.
++    struct RecordingMetricsSink {
++        stats: std::sync::Mutex<Vec<(StreamStats, u32, Option<String>)>>,
++    }
++
++    impl RecordingMetricsSink {
++        fn new() -> Self {
++            Self {
++                stats: std::sync::Mutex::new(Vec::new()),
++            }
++        }
++
++        fn last(&self) -> (StreamStats, u32, Option<String>) {
++            self.stats
++                .lock()
++                .expect("stats lock poisoned")
++                .last()
++                .cloned()
++                .expect("metrics sink must have been called")
++        }
++    }
++
++    impl TokenUsageSink for RecordingMetricsSink {
++        fn record_token_usage(&self, _usage: &TokenUsageStats, _model: Option<&str>) {}
++    }
++
++    impl LlmMetricsSink for RecordingMetricsSink {
++        fn record_first_byte(&self, _duration_ms: f64, _model: Option<&str>) {}
++
++        fn record_stream_stats(
++            &self,
++            stats: &StreamStats,
++            completion_tokens: u32,
++            model: Option<&str>,
++        ) {
++            self.stats
++                .lock()
++                .expect("stats lock poisoned")
++                .push((stats.clone(), completion_tokens, model.map(String::from)));
++        }
++
++        fn record_request(
++            &self,
++            _duration_ms: f64,
++            _success: bool,
++            _error_kind: Option<&str>,
++            _model: Option<&str>,
++        ) {
++        }
++
++        fn record_retry(&self, _model: Option<&str>) {}
++    }
++
++    #[tokio::test]
++    async fn metrics_sink_receives_stream_stats_once() {
++        let message = Message {
++            id: llm_suite_types::Id::new(),
++            role: MessageRole::Assistant,
++            content: MessageContentValue::Text("done".to_string()),
++            timestamp: 0,
++            tool_call_id: None,
++            tool_name: None,
++            tool_calls: None,
++            thinking: None,
++            thinking_signature: None,
++            metadata: None,
++        };
++        let inner = FakeStream {
++            events: vec![
++                text_event("done"),
++                MessageStreamEvent::Usage(llm_suite_types::llm::MessageStreamUsage {
++                    usage: TokenUsageStats {
++                        prompt_tokens: 100,
++                        completion_tokens: 20,
++                        total_tokens: 120,
++                        reasoning_tokens: None,
++                        cache_read_tokens: None,
++                        cache_write_tokens: None,
++                        prompt_tokens_cost: None,
++                        completion_tokens_cost: None,
++                        total_cost: None,
++                    },
++                }),
++                MessageStreamEvent::FinalMessage(llm_suite_types::llm::MessageStreamFinal {
++                    message,
++                    usage: None,
++                    stream_stats: None,
++                    id: None,
++                    model: None,
++                }),
++            ],
++        };
++        let metrics = std::sync::Arc::new(RecordingMetricsSink::new());
++        let mut stream = TokenRecordingStream::new(
++            Box::new(inner),
++            None,
++            "claude-sonnet".to_string(),
++        )
++        .with_metrics_sink(Some(metrics.clone()));
++        while stream.next().await.is_some() {}
++
++        let (stats, completion_tokens, model) = metrics.last();
++        assert_eq!(model.as_deref(), Some("claude-sonnet"));
++        assert_eq!(completion_tokens, 20);
++        assert!(stats.chunk_count >= 2, "chunk_count: {}", stats.chunk_count);
++        assert!(
++            stats.time_to_first_chunk >= 0,
++            "time_to_first_chunk: {}",
++            stats.time_to_first_chunk
++        );
++        assert!(stats.stream_duration >= 0);
++        assert_eq!(metrics.stats.lock().expect("stats lock poisoned").len(), 1);
++    }
+ }
+diff --git a/crates/llm-suite-gateway/src/gateway.rs b/crates/llm-suite-gateway/src/gateway.rs
+index 4ea0c2f..505d4c3 100644
+--- a/crates/llm-suite-gateway/src/gateway.rs
++++ b/crates/llm-suite-gateway/src/gateway.rs
+@@ -343,11 +343,14 @@ impl LlmGateway {
+             .token_metrics
+             .as_ref()
+             .map(|m| Arc::clone(m) as llm_suite_client::SharedTokenUsageSink);
+-        Ok(Box::new(llm_suite_client::TokenRecordingStream::new(
+-            stream,
+-            usage_sink,
+-            prepared.profile.model.clone(),
+-        )))
++        Ok(Box::new(
++            llm_suite_client::TokenRecordingStream::new(
++                stream,
++                usage_sink,
++                prepared.profile.model.clone(),
++            )
++            .with_metrics_sink(self.token_metrics.clone()),
++        ))
+     }
+ 
+     pub async fn count_tokens(

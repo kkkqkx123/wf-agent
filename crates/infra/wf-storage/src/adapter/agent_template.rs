@@ -27,4 +27,31 @@ impl From<AgentTemplateListOptions> for QueryFilter {
 pub trait AgentTemplateStorageAdapter:
     BaseStorageAdapter<wf_types::agent::AgentTemplate, AgentTemplateListOptions>
 {
+    fn save_version<'a>(
+        &'a self,
+        agent_id: &'a str,
+        version: &'a str,
+        template: &'a wf_types::agent::AgentTemplate,
+    ) -> impl std::future::Future<Output = Result<(), crate::error::StorageError>> + Send + 'a;
+
+    fn list_versions<'a>(
+        &'a self,
+        agent_id: &'a str,
+    ) -> impl std::future::Future<Output = Result<Vec<wf_types::agent::AgentTemplate>, crate::error::StorageError>>
+           + Send
+           + 'a;
+
+    fn load_version<'a>(
+        &'a self,
+        agent_id: &'a str,
+        version: &'a str,
+    ) -> impl std::future::Future<Output = Result<Option<wf_types::agent::AgentTemplate>, crate::error::StorageError>>
+           + Send
+           + 'a;
+
+    fn delete_version<'a>(
+        &'a self,
+        agent_id: &'a str,
+        version: &'a str,
+    ) -> impl std::future::Future<Output = Result<bool, crate::error::StorageError>> + Send + 'a;
 }

@@ -28,7 +28,7 @@ use crate::{api, metrics, ws};
 pub(crate) struct ApiState {
     pub(crate) ctx: Arc<ApiContext>,
     pub(crate) config: Arc<ServerMiddlewareConfig>,
-    pub(crate) locks: api::workflow::locks::WorkflowLocks,
+    pub(crate) locks: api::workflow::locks::DefinitionLocks,
 }
 
 /// Public API version served under `/api/{API_VERSION}` and reported by
@@ -69,6 +69,7 @@ pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddleware
         .merge(api::agent::analysis::routes())
         .merge(api::agent::variables::routes())
         .merge(api::agent::drafts::routes())
+        .merge(api::agent::locks::routes())
         // chat domain (tool-free multi-turn executor)
         .merge(api::chat::routes())
         // shared checkpoint domain (execution records + file workspace)
@@ -121,7 +122,7 @@ pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddleware
     let app = app.with_state(ApiState {
         ctx,
         config,
-        locks: api::workflow::locks::WorkflowLocks::default(),
+        locks: api::workflow::locks::DefinitionLocks::default(),
     });
     mount_openapi_docs(app)
 }

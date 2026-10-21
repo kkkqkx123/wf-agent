@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::envelope::{error_response, ok};
-use crate::extract::IdPath;
+use crate::extract::{IdPath, IdVersionPath};
 use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
@@ -41,6 +41,10 @@ pub(crate) fn routes() -> Router<ApiState> {
                 .delete(handle_delete_workflow_template),
         )
         .route(
+            "/templates/library/workflows/{id}/unpublish",
+            post(handle_unpublish_workflow_template),
+        )
+        .route(
             "/templates/library/agents",
             get(handle_list_agent_templates).post(handle_register_agent_template),
         )
@@ -57,6 +61,19 @@ pub(crate) fn routes() -> Router<ApiState> {
             get(handle_get_agent_template)
                 .put(handle_update_agent_template)
                 .delete(handle_delete_agent_template),
+        )
+        .route(
+            "/templates/library/agents/{id}/versions",
+            get(handle_list_agent_template_versions)
+                .post(handle_save_agent_template_version),
+        )
+        .route(
+            "/templates/library/agents/{id}/versions/{version}",
+            get(handle_get_agent_template_version),
+        )
+        .route(
+            "/templates/library/agents/{id}/rollback",
+            post(handle_rollback_agent_template),
         )
 }
 
@@ -383,6 +400,24 @@ pub(crate) async fn handle_delete_workflow_template(
 }
 
 #[utoipa::path(
+    post,
+    path = "/api/v1/templates/library/workflows/{id}/unpublish",
+    tag = "template",
+    params(IdPath),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<String>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_unpublish_workflow_template(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::template::template_library::unpublish_workflow_template(&state.ctx, &path.id) {
+        Ok(()) => ok(path.id).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
     get,
     path = "/api/v1/templates/library/agents",
     tag = "template",
@@ -594,6 +629,94 @@ pub(crate) async fn handle_export_agent_template(
                 ok(template).into_response()
             }
         }
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/templates/library/agents/{id}/versions",
+    tag = "template",
+    params(IdPath),
+    responses((status = 200, description = "Agent template version list", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_list_agent_template_versions(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::template::template_library::list_agent_template_versions(&state.ctx, &path.id).await {
+        Ok(versions) => ok(versions).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/templates/library/agents/{id}/versions/{version}",
+    tag = "template",
+    params(IdVersionPath),
+    responses((status = 200, description = "Agent template version detail", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_get_agent_template_version(
+    State(state): State<ApiState>,
+    Path(path): Path<IdVersionPath>,
+) -> impl IntoResponse {
+    match wf_api::template::template_library::get_agent_template_version(&state.ctx, &path.id, &path.version).await {
+        Ok(version) => ok(version).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[derive(serde::Deserialize, utoipa::ToSchema)]
+pub(crate) struct SaveAgentTemplateVersionBody {
+    version: String,
+    #[schema(value_type = Object)]
+    template: wf_api::AgentTemplate,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/templates/library/agents/{id}/versions",
+    tag = "template",
+    params(IdPath),
+    request_body = SaveAgentTemplateVersionBody,
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_save_agent_template_version(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Json(body): Json<SaveAgentTemplateVersionBody>,
+) -> impl IntoResponse {
+    match wf_api::template::template_library::save_agent_template_version(&state.ctx, &path.id, &body.version, &body.template).await {
+        Ok(()) => ok(body.version).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[derive(serde::Deserialize, utoipa::ToSchema)]
+pub(crate) struct RollbackAgentTemplateBody {
+    version: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/templates/library/agents/{id}/rollback",
+    tag = "template",
+    params(IdPath),
+    request_body = RollbackAgentTemplateBody,
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_rollback_agent_template(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Json(body): Json<RollbackAgentTemplateBody>,
+) -> impl IntoResponse {
+    match wf_api::template::template_library::rollback_agent_template(&state.ctx, &path.id, &body.version).await {
+        Ok(()) => ok(()).into_response(),
         Err(e) => error_response(e),
     }
 }

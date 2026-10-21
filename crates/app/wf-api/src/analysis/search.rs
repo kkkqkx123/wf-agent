@@ -599,6 +599,7 @@ mod tests {
             is_public: None,
             is_system: None,
             enabled: None,
+            is_published: None,
         }
     }
 

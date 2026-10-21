@@ -10,6 +10,7 @@ use std::sync::Arc;
 use serde::Serialize;
 
 use wf_core::registry::{MutableRegistry, Registry};
+use wf_storage::adapter::agent_template::AgentTemplateStorageAdapter;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::agent::AgentTemplate;
 use wf_types::workflow::WorkflowTemplate;
@@ -88,6 +89,9 @@ pub fn list_workflow_templates(ctx: &ApiContext) -> ApiResult<Vec<WorkflowTempla
     let mut templates = Vec::new();
     for key in keys {
         if let Some(template) = ctx.registries.workflows.get(&key) {
+            if !template.is_published.unwrap_or(false) {
+                continue;
+            }
             templates.push(template.as_ref().clone());
         }
     }
@@ -104,9 +108,11 @@ pub fn register_workflow_template(ctx: &ApiContext, template: &WorkflowTemplate)
             &template.id.to_string(),
         ));
     }
+    let mut template = template.clone();
+    template.is_published = Some(true);
     registries
         .workflows
-        .register(template.id.to_string(), Arc::new(template.clone()))
+        .register(template.id.to_string(), Arc::new(template))
         .map_err(|e| ApiError::Conflict(e.to_string()))?;
     Ok(())
 }
@@ -127,9 +133,25 @@ pub fn update_workflow_template(ctx: &ApiContext, template: &WorkflowTemplate) -
     if !ctx.registries.workflows.has(&template.id) {
         return Err(not_found("workflow_template", &template.id.to_string()));
     }
+    let mut template = template.clone();
+    template.is_published = Some(true);
     ctx.registries
         .workflows
-        .register_or_replace(template.id.to_string(), Arc::new(template.clone()));
+        .register_or_replace(template.id.to_string(), Arc::new(template));
+    Ok(())
+}
+
+/// Remove a workflow template from the published library view without
+/// deleting it; the entry remains available to the runtime index.
+pub fn unpublish_workflow_template(ctx: &ApiContext, id: &str) -> ApiResult<()> {
+    if !ctx.registries.workflows.has(id) {
+        return Err(not_found("workflow_template", id));
+    }
+    let mut template = get_workflow_template(ctx, id)?;
+    template.is_published = Some(false);
+    ctx.registries
+        .workflows
+        .register_or_replace(template.id.to_string(), Arc::new(template));
     Ok(())
 }
 
@@ -207,6 +229,75 @@ pub async fn update_agent_template(ctx: &ApiContext, template: &AgentTemplate) -
         template.id.to_string(),
         std::sync::Arc::new(template.clone()),
     );
+    Ok(())
+}
+
+// ── agent template versions ─────────────────────────────
+
+pub async fn list_agent_template_versions(
+    ctx: &ApiContext,
+    id: &str,
+) -> ApiResult<Vec<wf_types::agent::AgentTemplate>> {
+    if !ctx.registries.agent_templates.has(id) {
+        return Err(not_found("agent_template", id));
+    }
+    ctx.storage
+        .agent_template
+        .list_versions(id)
+        .await
+        .map_err(crate::ApiError::from)
+}
+
+pub async fn get_agent_template_version(
+    ctx: &ApiContext,
+    id: &str,
+    version: &str,
+) -> ApiResult<wf_types::agent::AgentTemplate> {
+    ctx.storage
+        .agent_template
+        .load_version(id, version)
+        .await
+        .map_err(crate::ApiError::from)?
+        .ok_or_else(|| not_found("agent_template_version", &format!("{}:v{}", id, version)))
+}
+
+pub async fn save_agent_template_version(
+    ctx: &ApiContext,
+    id: &str,
+    version: &str,
+    template: &wf_types::agent::AgentTemplate,
+) -> ApiResult<()> {
+    ctx.storage
+        .agent_template
+        .save_version(id, version, template)
+        .await
+        .map_err(crate::ApiError::from)
+}
+
+pub async fn rollback_agent_template(
+    ctx: &ApiContext,
+    id: &str,
+    version: &str,
+) -> ApiResult<()> {
+    let template = get_agent_template_version(ctx, id, version).await?;
+    if let Ok(current) = get_agent_template(ctx, id) {
+        let base = current
+            .definition
+            .version
+            .clone()
+            .unwrap_or_else(|| format!("pre-rollback-{}", version));
+        let label = match get_agent_template_version(ctx, id, &base).await {
+            Err(crate::ApiError::NotFound { .. }) => base,
+            Ok(_) => format!("{}-{}", base, wf_common::now()),
+            Err(other) => return Err(other),
+        };
+        let _ = ctx
+            .storage
+            .agent_template
+            .save_version(id, &label, &current)
+            .await;
+    }
+    update_agent_template(ctx, &template).await?;
     Ok(())
 }
 
@@ -640,6 +731,7 @@ mod tests {
             is_public: Some(true),
             enabled: Some(true),
             is_system: Some(false),
+            is_published: Some(true),
         }
     }
 

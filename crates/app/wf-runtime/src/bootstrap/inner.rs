@@ -261,6 +261,33 @@ impl Runtime {
                     );
                 }
             }
+            // Hydrate persisted workflows into the runtime registry (unpublished)
+            // so tool dispatch and subgraph resolution see them after restart.
+            if let Ok(workflows) = storage_ctx
+                .workflow
+                .list(Some(wf_storage::adapter::workflow::WorkflowListOptions::default()))
+                .await
+            {
+                let mut restored = 0usize;
+                for workflow in workflows {
+                    let key = workflow.id.to_string();
+                    if !registries.workflows.has(&key) {
+                        if let Err(e) =
+                            wf_api::workflow::upsert_workflow_registry(&registries, &workflow)
+                        {
+                            warn!(error = %e, "hydrate persisted workflow skipped");
+                        } else {
+                            restored += 1;
+                        }
+                    }
+                }
+                if restored > 0 {
+                    info!(
+                        "Restored {} persisted workflow(s) from storage",
+                        restored
+                    );
+                }
+            }
         }
 
         let (shutdown_handle, _shutdown_waiter) = shutdown_channel();

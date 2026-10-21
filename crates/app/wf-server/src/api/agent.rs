@@ -1,5 +1,6 @@
 pub mod analysis;
 pub mod drafts;
+pub mod locks;
 pub mod executions;
 pub mod graphs;
 pub mod loops;

@@ -33,11 +33,11 @@ fn now_ms() -> u64 {
 }
 
 #[derive(Clone)]
-pub(crate) struct WorkflowLocks {
+pub(crate) struct DefinitionLocks {
     leases: Arc<Mutex<HashMap<String, Lease>>>,
 }
 
-impl Default for WorkflowLocks {
+impl Default for DefinitionLocks {
     fn default() -> Self {
         Self {
             leases: Arc::new(Mutex::new(HashMap::new())),
@@ -46,8 +46,8 @@ impl Default for WorkflowLocks {
 }
 
 struct Lease {
-    owner_id: String,
-    owner_name: String,
+    pub(crate) owner_id: String,
+    pub(crate) owner_name: String,
     expires_at: u64,
 }
 
@@ -65,21 +65,23 @@ impl Lease {
     }
 }
 
-impl WorkflowLocks {
-    fn current(&self, workflow_id: &str, now: u64) -> Option<LockView> {
+impl DefinitionLocks {
+    pub(crate) fn current(&self, kind: &str, id: &str, now: u64) -> Option<LockView> {
+        let key = format!("{}:{}", kind, id);
         let leases = self.leases.lock().expect("lock map mutex");
         leases
-            .get(workflow_id)
+            .get(&key)
             .filter(|lease| lease.active(now))
             .map(Lease::view)
     }
 
     /// Claim the lease when free (or renew own claim); an active claim by a
     /// different owner wins and is reported back untouched.
-    fn acquire(&self, workflow_id: &str, owner_id: &str, owner_name: &str) -> LockView {
+    pub(crate) fn acquire(&self, kind: &str, id: &str, owner_id: &str, owner_name: &str) -> LockView {
         let now = now_ms();
+        let key = format!("{}:{}", kind, id);
         let mut leases = self.leases.lock().expect("lock map mutex");
-        let entry = leases.entry(workflow_id.to_string()).or_insert(Lease {
+        let entry = leases.entry(key).or_insert(Lease {
             owner_id: owner_id.to_string(),
             owner_name: owner_name.to_string(),
             expires_at: 0,
@@ -94,10 +96,11 @@ impl WorkflowLocks {
 
     /// Extend an own lease, or report the active foreign holder. `None`
     /// means there is nothing to renew; the expired entry is dropped.
-    fn heartbeat(&self, workflow_id: &str, owner_id: &str) -> Option<LockView> {
+    pub(crate) fn heartbeat(&self, kind: &str, id: &str, owner_id: &str) -> Option<LockView> {
         let now = now_ms();
+        let key = format!("{}:{}", kind, id);
         let mut leases = self.leases.lock().expect("lock map mutex");
-        match leases.get_mut(workflow_id) {
+        match leases.get_mut(&key) {
             Some(lease) if lease.active(now) => {
                 if lease.owner_id == owner_id {
                     lease.expires_at = now + LEASE_MS;
@@ -105,7 +108,7 @@ impl WorkflowLocks {
                 Some(lease.view())
             }
             Some(_) => {
-                leases.remove(workflow_id);
+                leases.remove(&key);
                 None
             }
             None => None,
@@ -114,17 +117,18 @@ impl WorkflowLocks {
 
     /// Drop the lease when held by `owner_id` (or already expired); a lease
     /// held by someone else is left untouched. Returns the remaining holder.
-    fn release(&self, workflow_id: &str, owner_id: &str) -> Option<LockView> {
+    pub(crate) fn release(&self, kind: &str, id: &str, owner_id: &str) -> Option<LockView> {
         let now = now_ms();
+        let key = format!("{}:{}", kind, id);
         let mut leases = self.leases.lock().expect("lock map mutex");
         let removable = leases
-            .get(workflow_id)
+            .get(&key)
             .is_some_and(|lease| lease.owner_id == owner_id || !lease.active(now));
         if removable {
-            leases.remove(workflow_id);
+            leases.remove(&key);
         }
         leases
-            .get(workflow_id)
+            .get(&key)
             .filter(|lease| lease.active(now))
             .map(Lease::view)
     }
@@ -132,20 +136,20 @@ impl WorkflowLocks {
 
 #[derive(Serialize, ToSchema)]
 pub(crate) struct LockView {
-    owner_id: String,
-    owner_name: String,
+    pub(crate) owner_id: String,
+    pub(crate) owner_name: String,
     expires_at: u64,
 }
 
 #[derive(Deserialize, ToSchema)]
 pub(crate) struct AcquireLockBody {
-    owner_id: String,
-    owner_name: String,
+    pub(crate) owner_id: String,
+    pub(crate) owner_name: String,
 }
 
 #[derive(Deserialize, ToSchema)]
 pub(crate) struct OwnerBody {
-    owner_id: String,
+    pub(crate) owner_id: String,
 }
 
 pub(crate) fn routes() -> Router<ApiState> {
@@ -171,7 +175,7 @@ pub(crate) async fn handle_get_lock(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    ok(state.locks.current(&path.id, now_ms())).into_response()
+    ok(state.locks.current("workflow", &path.id, now_ms())).into_response()
 }
 
 #[utoipa::path(
@@ -193,7 +197,7 @@ pub(crate) async fn handle_acquire_lock(
     }
     ok(state
         .locks
-        .acquire(&path.id, &body.owner_id, &body.owner_name))
+        .acquire("workflow", &path.id, &body.owner_id, &body.owner_name))
     .into_response()
 }
 
@@ -211,7 +215,7 @@ pub(crate) async fn handle_heartbeat_lock(
     Path(path): Path<IdPath>,
     Json(body): Json<OwnerBody>,
 ) -> impl IntoResponse {
-    match state.locks.heartbeat(&path.id, &body.owner_id) {
+    match state.locks.heartbeat("workflow", &path.id, &body.owner_id) {
         Some(view) => ok(view).into_response(),
         None => err(ApiError::validation("no active lease to renew")).into_response(),
     }
@@ -231,7 +235,7 @@ pub(crate) async fn handle_release_lock(
     Path(path): Path<IdPath>,
     Json(body): Json<OwnerBody>,
 ) -> impl IntoResponse {
-    ok(state.locks.release(&path.id, &body.owner_id)).into_response()
+    ok(state.locks.release("workflow", &path.id, &body.owner_id)).into_response()
 }
 
 #[cfg(test)]
@@ -240,33 +244,33 @@ mod tests {
 
     #[test]
     fn acquire_is_idempotent_for_holder_and_blocks_others() {
-        let locks = WorkflowLocks::default();
-        let mine = locks.acquire("wf", "a", "Alice");
+        let locks = DefinitionLocks::default();
+        let mine = locks.acquire("workflow", "wf", "a", "Alice");
         assert_eq!(mine.owner_id, "a");
-        let stolen = locks.acquire("wf", "b", "Bob");
+        let stolen = locks.acquire("workflow", "wf", "b", "Bob");
         assert_eq!(stolen.owner_id, "a");
-        let renewed = locks.acquire("wf", "a", "Alice");
+        let renewed = locks.acquire("workflow", "wf", "a", "Alice");
         assert_eq!(renewed.owner_id, "a");
     }
 
     #[test]
     fn heartbeat_renews_only_the_holders_lease() {
-        let locks = WorkflowLocks::default();
-        locks.acquire("wf", "a", "Alice");
-        let by_owner = locks.heartbeat("wf", "a").expect("active lease");
+        let locks = DefinitionLocks::default();
+        locks.acquire("workflow", "wf", "a", "Alice");
+        let by_owner = locks.heartbeat("workflow", "wf", "a").expect("active lease");
         assert_eq!(by_owner.owner_id, "a");
-        let by_other = locks.heartbeat("wf", "b").expect("active lease");
+        let by_other = locks.heartbeat("workflow", "wf", "b").expect("active lease");
         assert_eq!(by_other.owner_id, "a");
-        assert!(locks.heartbeat("missing", "a").is_none());
+        assert!(locks.heartbeat("workflow", "missing", "a").is_none());
     }
 
     #[test]
     fn release_ignores_foreign_leases() {
-        let locks = WorkflowLocks::default();
-        locks.acquire("wf", "a", "Alice");
-        let after_foreign = locks.release("wf", "b");
+        let locks = DefinitionLocks::default();
+        locks.acquire("workflow", "wf", "a", "Alice");
+        let after_foreign = locks.release("workflow", "wf", "b");
         assert_eq!(after_foreign.expect("still held").owner_id, "a");
-        let after_own = locks.release("wf", "a");
+        let after_own = locks.release("workflow", "wf", "a");
         assert!(after_own.is_none());
     }
 }

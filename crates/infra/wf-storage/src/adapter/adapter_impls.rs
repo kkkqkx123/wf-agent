@@ -191,6 +191,53 @@ impl<S: Store + StoreExt> WorkflowStorageAdapter for WorkflowStorage<S> {
     }
 }
 
+// ─── AgentTemplateStorageAdapter (version support) ───
+
+impl<S: Store + StoreExt> AgentTemplateStorageAdapter for AgentTemplateStorage<S> {
+    async fn save_version(
+        &self,
+        agent_id: &str,
+        version: &str,
+        template: &wf_types::agent::AgentTemplate,
+    ) -> Result<(), StorageError> {
+        let composite_id = format!("{}:v{}", agent_id, version);
+        let data = serde_json::to_vec(template)?;
+        let metadata = serde_json::json!({
+            "entityType": "agent_template",
+            "agentId": agent_id,
+            "version": version,
+            "compressed": false,
+            "name": template.name,
+        });
+        self.store().save(&composite_id, &data, &metadata).await
+    }
+
+    async fn list_versions(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<wf_types::agent::AgentTemplate>, StorageError> {
+        let prefix = format!("{}:v", agent_id);
+        let filter = QueryFilter::new().with_id_prefix(&prefix);
+        self.entity_store.list(Some(&filter)).await
+    }
+
+    async fn load_version(
+        &self,
+        agent_id: &str,
+        version: &str,
+    ) -> Result<Option<wf_types::agent::AgentTemplate>, StorageError> {
+        let composite_id = format!("{}:v{}", agent_id, version);
+        self.entity_store.load(&composite_id).await
+    }
+
+    async fn delete_version(&self, agent_id: &str, version: &str) -> Result<bool, StorageError> {
+        let composite_id = format!("{}:v{}", agent_id, version);
+        let existed = self.entity_store.exists(&composite_id).await?;
+        self.entity_store.delete(&composite_id).await?;
+        Ok(existed)
+    }
+}
+
 // ─── WorkflowExecutionStorageAdapter ───
 
 impl<S: Store + StoreExt> WorkflowExecutionStorageAdapter for WorkflowExecutionStorage<S> {
@@ -761,4 +808,3 @@ impl<S: Store + StoreExt> WorkflowDraftStorageAdapter for WorkflowDraftStorage<S
 
 impl<S: Store + StoreExt> AgentDraftStorageAdapter for AgentDraftStorage<S> {}
 
-impl<S: Store + StoreExt> AgentTemplateStorageAdapter for AgentTemplateStorage<S> {}

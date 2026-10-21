@@ -75,7 +75,14 @@ pub fn load_custom_workflows(
     }
 
     match load_json::<WorkflowsFile>(path) {
-        Ok(file) => Ok(file.workflows),
+        Ok(file) => Ok(file
+            .workflows
+            .into_iter()
+            .map(|mut workflow| {
+                workflow.is_published = Some(true);
+                workflow
+            })
+            .collect()),
         Err(e) => Err(vec![e]),
     }
 }

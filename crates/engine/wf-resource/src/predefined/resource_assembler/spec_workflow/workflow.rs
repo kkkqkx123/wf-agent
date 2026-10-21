@@ -297,6 +297,7 @@ pub(crate) fn build_workflow(config: &SpecWorkflowConfig) -> Result<WorkflowTemp
         is_public: Some(true),
         enabled: Some(true),
         is_system: Some(true),
+        is_published: Some(true),
         definition: WorkflowDefinition {
             id: SPEC_WORKFLOW_ID.into(),
             name: "Spec Workflow".into(),

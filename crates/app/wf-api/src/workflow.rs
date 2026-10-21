@@ -27,7 +27,7 @@ pub mod workflow_iteration;
 pub use definition::{
     clone_workflow, delete_workflow, get_workflow, list_workflows, reset_workflow_layout,
     rollback_workflow, save_workflow, save_workflow_layout, save_workflow_with_impact,
-    update_workflow_metadata, workflow_exists,
+    update_workflow_metadata, upsert_workflow_registry, workflow_exists,
 };
 pub use execution::{
     delete_execution, get_execution, list_executions, save_execution, update_execution_status,

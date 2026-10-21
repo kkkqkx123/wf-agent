@@ -184,6 +184,7 @@ pub fn create_prefetch_workflow_with_prompt(system_prompt: Option<String>) -> Wo
         is_public: Some(true),
         enabled: Some(true),
         is_system: Some(true),
+        is_published: Some(true),
     }
 }
 

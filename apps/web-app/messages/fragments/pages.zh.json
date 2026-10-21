@@ -295,7 +295,7 @@
 	"page.templates.newTemplate": "新建模板",
 	"page.templates.noMatch": "没有匹配的模板",
 	"page.templates.noMatchDesc": "切换类型筛选或关闭精选开关。",
-	"page.templates.title": "模板库",
+	"page.templates.title": "定义库",
 	"page.triggers.cleanedUp": "已清理 {count} 条旧触发记录",
 	"page.triggers.cleanup": "清理旧记录",
 	"page.triggers.cleanupConfirm": "确认清理（30 天以上）",

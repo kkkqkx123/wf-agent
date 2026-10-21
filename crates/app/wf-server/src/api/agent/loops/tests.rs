@@ -40,7 +40,7 @@ fn test_state() -> crate::router::ApiState {
     crate::router::ApiState {
         ctx: make_ctx(),
         config: Arc::new(crate::middleware::ServerMiddlewareConfig::default()),
-        locks: crate::api::workflow::locks::WorkflowLocks::default(),
+        locks: crate::api::workflow::locks::DefinitionLocks::default(),
     }
 }
 

@@ -69,6 +69,17 @@ pub async fn validate_draft_complete(ctx: &ApiContext, id: &str) -> ApiResult<Ve
 /// Promote a draft agent to formal template registry.
 pub async fn promote_draft(ctx: &ApiContext, id: &str) -> ApiResult<Vec<String>> {
     let draft = get_draft(ctx, id).await?;
+    if let Ok(current) = crate::template::template_library::get_agent_template(ctx, id) {
+        let label = current
+            .definition
+            .version
+            .clone()
+            .unwrap_or_else(|| format!("pre-promote-{}", wf_common::now()));
+        let _ = crate::template::template_library::save_agent_template_version(
+            ctx, id, &label, &current,
+        )
+        .await;
+    }
     let warnings = crate::agent::save_agent_template(ctx, &draft).await?;
     let _ = delete_draft(ctx, id).await;
     Ok(warnings)

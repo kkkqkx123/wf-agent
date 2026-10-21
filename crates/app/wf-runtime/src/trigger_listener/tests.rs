@@ -1707,6 +1707,7 @@ fn template_with_nodes() -> WorkflowTemplate {
         is_public: None,
         enabled: None,
         is_system: None,
+        is_published: None,
     }
 }
 

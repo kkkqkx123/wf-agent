@@ -259,7 +259,7 @@ pub async fn update_workflow_metadata(
 /// Register the workflow in the execution index. A registry failure fails
 /// the whole save: validation failure equals registration failure, so the
 /// storage write and the index entry never silently diverge.
-pub(super) fn upsert_workflow_registry(
+pub fn upsert_workflow_registry(
     registries: &Arc<ResourceRegistries>,
     workflow: &WorkflowDefinition,
 ) -> crate::ApiResult<()> {
@@ -273,6 +273,7 @@ pub(super) fn upsert_workflow_registry(
         is_public: None,
         is_system: None,
         enabled: Some(true),
+        is_published: Some(false),
     };
     registries
         .upsert_workflow_template(template)

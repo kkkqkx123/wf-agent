@@ -6,8 +6,8 @@ import {
 	toLlmReasoningStep,
 	toNodeInputContext,
 	toNodeTrace,
-} from '$lib/services/node-trace';
-import type { NodeTrace } from '$lib/types/models';
+} from '#lib/services/node-trace';
+import type { NodeTrace } from '#lib/types/models';
 
 function trace(overrides: Partial<NodeTrace> = {}): NodeTrace {
 	return {

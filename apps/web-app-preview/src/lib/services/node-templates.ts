@@ -1,5 +1,5 @@
-import { client } from '$lib/api/client';
-import { call, extractPage, requireData } from '$lib/api/envelope';
+import { client } from '#lib/api/client';
+import { call, extractPage, requireData } from '#lib/api/envelope';
 
 /**
  * One node template as returned by `GET /api/v1/templates/node`. The backend

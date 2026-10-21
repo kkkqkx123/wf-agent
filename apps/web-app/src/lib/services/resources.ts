@@ -1,6 +1,6 @@
-import { client } from '$lib/api/client';
-import { call, extractPage, requireData } from '$lib/api/envelope';
-import type { PageResult } from '$lib/api/envelope';
+import { client } from '#lib/api/client';
+import { call, extractPage, requireData } from '#lib/api/envelope';
+import type { PageResult } from '#lib/api/envelope';
 import type {
 	ModelProfile,
 	Provider,
@@ -8,7 +8,7 @@ import type {
 	ToolRun,
 	Script,
 	Skill,
-} from '$lib/types/models';
+} from '#lib/types/models';
 
 /**
  * DTO shapes are local interfaces — the backend schemas in schema.d.ts

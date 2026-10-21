@@ -1,13 +1,13 @@
-import { client } from '$lib/api/client';
-import type { components } from '$lib/api/schema';
+import { client } from '#lib/api/client';
+import type { components } from '#lib/api/schema';
 import {
 	call,
 	extractCapped,
 	extractCursorPage,
 	extractPage,
 	requireData,
-} from '$lib/api/envelope';
-import type { CursorPageResult, PageResult } from '$lib/api/envelope';
+} from '#lib/api/envelope';
+import type { CursorPageResult, PageResult } from '#lib/api/envelope';
 import type {
 	Execution,
 	ExecutionDetail,
@@ -21,14 +21,14 @@ import type {
 	Metric,
 	TimelineEntry,
 	ToolCallEntry,
-} from '$lib/types/models';
+} from '#lib/types/models';
 import {
 	inferToolKind,
 	parseApprovalId,
 	parseToolEndpoint,
 	parseToolExitCode,
-} from '$lib/utils/toolcalls';
-import { inferDisplayKind } from '$lib/utils/tool-output';
+} from '#lib/utils/toolcalls';
+import { inferDisplayKind } from '#lib/utils/tool-output';
 
 interface ExecutionDto {
 	id?: string;

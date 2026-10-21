@@ -10,8 +10,8 @@
 	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
 	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
 	import type { Column } from '@wf-agent/ui/components/table';
-	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import PageState from '$lib/components/layout/PageState.svelte';
+	import PageHeader from '#lib/components/layout/PageHeader.svelte';
+	import PageState from '#lib/components/layout/PageState.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import {
 		exportQuery,
@@ -20,22 +20,22 @@
 		listInsightAuditReports,
 		listPerformanceNodes,
 		runQuery,
-	} from '$lib/services/insights';
+	} from '#lib/services/insights';
 	import type {
 		AuditReport,
 		ErrorAnalysis,
 		PerfNode,
 		QueryResult,
-	} from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { t } from '$lib/i18n';
+	} from '#lib/types/models';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { t } from '#lib/i18n';
 	import {
 		formatDateTime,
 		formatDuration,
 		formatNumber,
 		formatRelativeTime,
-	} from '$lib/utils/format';
-	import { gotoWithParams, parseListParams } from '$lib/utils/route';
+	} from '#lib/utils/format';
+	import { gotoWithParams, parseListParams } from '#lib/utils/route';
 
 	const TABS = [
 		{ id: 'query', label: 'Query' },
@@ -44,7 +44,7 @@
 		{ id: 'performance', label: 'Performance' },
 	];
 
-	const requestedTab = parseListParams(page.url).tab;
+	const requestedTab = parseListParams(page.url as unknown as URL).tab;
 	let tab = $state(
 		requestedTab && TABS.some((item) => item.id === requestedTab)
 			? requestedTab
@@ -52,7 +52,7 @@
 	);
 
 	$effect(() => {
-		gotoWithParams(page.url, { tab: tab === 'query' ? '' : tab });
+		gotoWithParams(page.url as unknown as URL, { tab: tab === 'query' ? '' : tab });
 	});
 	let statement = $state(
 		"SELECT execution_id, workflow, status, duration_ms\nFROM executions\nWHERE status != 'completed'\nORDER BY duration_ms DESC\nLIMIT 50;",

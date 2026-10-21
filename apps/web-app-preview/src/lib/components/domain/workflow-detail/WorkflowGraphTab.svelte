@@ -3,10 +3,10 @@
 	import Badge from '@wf-agent/ui/components/Badge.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
-		import type { WorkflowDetail } from '$lib/types/models';
-	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
-	import type { WorkflowGraphState } from '$lib/workflows/graph-state.svelte';
-	import { t } from '$lib/i18n';
+		import type { WorkflowDetail } from '#lib/types/models';
+	import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
+	import type { WorkflowGraphState } from '#lib/workflows/graph-state.svelte';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		detail: WorkflowDetail;
@@ -35,7 +35,7 @@
 		</button>.
 	</p>
 {/if}
-{#await import('$lib/components/domain/GraphExplorer.svelte') then module}
+{#await import('#lib/components/domain/GraphExplorer.svelte') then module}
 <module.default
 	{nodes}
 	{edges}

@@ -1,7 +1,7 @@
 <script lang="ts">
-	import type { TimelineEntry } from '$lib/types/models';
+	import type { TimelineEntry } from '#lib/types/models';
 	import { cn } from '@wf-agent/ui/cn';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		entries: TimelineEntry[];

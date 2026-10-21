@@ -1,7 +1,7 @@
-import type { Execution, Metric } from '$lib/types/models';
-import { listCheckpoints } from '$lib/services/checkpoints';
-import { listExecutions } from '$lib/services/executions';
-import { listWorkflows } from '$lib/services/workflows';
+import type { Execution, Metric } from '#lib/types/models';
+import { listCheckpoints } from '#lib/services/checkpoints';
+import { listExecutions } from '#lib/services/executions';
+import { listWorkflows } from '#lib/services/workflows';
 
 /** Aggregated overview metrics, mirroring the TUI DashboardData. */
 export interface DashboardStats {

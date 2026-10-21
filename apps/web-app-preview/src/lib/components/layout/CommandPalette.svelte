@@ -4,15 +4,15 @@
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import type { IconName } from '@wf-agent/ui/icons/paths';
 	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
-	import { NAV_ITEMS } from '$lib/config/navigation';
-	import { listExecutions } from '$lib/services/executions';
-	import { listWorkflows } from '$lib/services/workflows';
-	import { listAgentLoops } from '$lib/services/agent-loops';
-	import { unifiedSearch, type SearchHit } from '$lib/services/search';
-	import type { AgentLoop, Execution, Workflow } from '$lib/types/models';
-	import { ui } from '$lib/stores/ui.svelte';
+	import { NAV_ITEMS } from '#lib/config/navigation';
+	import { listExecutions } from '#lib/services/executions';
+	import { listWorkflows } from '#lib/services/workflows';
+	import { listAgentLoops } from '#lib/services/agent-loops';
+	import { unifiedSearch, type SearchHit } from '#lib/services/search';
+	import type { AgentLoop, Execution, Workflow } from '#lib/types/models';
+	import { ui } from '#lib/stores/ui.svelte';
 	import { cn } from '@wf-agent/ui/cn';
-	import { t, type MessageKey } from '$lib/i18n';
+	import { t, type MessageKey } from '#lib/i18n';
 
 	// Group names double as filter tokens, so they stay internal ids and are
 	// translated only at render time.

@@ -1,13 +1,13 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import ToolCallCard from '$lib/components/domain/ToolCallCard.svelte';
+	import ToolCallCard from '#lib/components/domain/ToolCallCard.svelte';
 	import {
 		describeToolGroup,
 		groupToolNames,
 		type ToolCallGroup,
-	} from '$lib/utils/tool-output';
-	import type { ToolCallEntry } from '$lib/types/models';
+	} from '#lib/utils/tool-output';
+	import type { ToolCallEntry } from '#lib/types/models';
 	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {

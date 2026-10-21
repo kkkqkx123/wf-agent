@@ -42,6 +42,9 @@ const merged = {
 	scripts: pick(src.scripts, dst.scripts),
 	engines: pick(src.engines, dst.engines),
 
+	// Package subpath imports (SvelteKit aliases) follow source
+	imports: pick(src.imports, dst.imports),
+
 	// Dependency blocks follow source so new deps propagate
 	devDependencies: pick(src.devDependencies, {}),
 	dependencies: pick(src.dependencies, {}),

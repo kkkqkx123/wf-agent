@@ -4,10 +4,10 @@
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import Separator from '@wf-agent/ui/components/Separator.svelte';
 	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
-	import { ui } from '$lib/stores/ui.svelte';
-	import { preferences } from '$lib/stores/preferences.svelte';
+	import { ui } from '#lib/stores/ui.svelte';
+	import { preferences } from '#lib/stores/preferences.svelte';
 	import { cn } from '@wf-agent/ui/cn';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		inspectorTitle?: string;

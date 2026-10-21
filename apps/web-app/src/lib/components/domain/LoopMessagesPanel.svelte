@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { getAgentLoopMessages } from '$lib/services/agent-loops';
-	import type { LoopMessage } from '$lib/types/models';
-	import MessageBubble from '$lib/components/domain/MessageBubble.svelte';
-	import PageState from '$lib/components/layout/PageState.svelte';
-	import { t } from '$lib/i18n';
+	import { getAgentLoopMessages } from '#lib/services/agent-loops';
+	import type { LoopMessage } from '#lib/types/models';
+	import MessageBubble from '#lib/components/domain/MessageBubble.svelte';
+	import PageState from '#lib/components/layout/PageState.svelte';
+	import { t } from '#lib/i18n';
 
 	/** Transcript of one agent loop run; owns its own loading keyed by id. */
 	let { id }: { id: string } = $props();

@@ -5,10 +5,10 @@
 	import { SerializeAddon } from '@xterm/addon-serialize';
 	import { WebLinksAddon } from '@xterm/addon-web-links';
 	import '@xterm/xterm/css/xterm.css';
-	import { connectPty, createTerminalWriter, getPty } from '$lib/services/pty';
-	import type { PtySession } from '$lib/services/pty';
-	import type { PtySessionStore } from '$lib/stores/pty-session.svelte';
-	import { resolvedTheme } from '$lib/stores/theme.svelte';
+	import { connectPty, createTerminalWriter, getPty } from '#lib/services/pty';
+	import type { PtySession } from '#lib/services/pty';
+	import type { PtySessionStore } from '#lib/stores/pty-session.svelte';
+	import { resolvedTheme } from '#lib/stores/theme.svelte';
 
 	interface Props {
 		session: {

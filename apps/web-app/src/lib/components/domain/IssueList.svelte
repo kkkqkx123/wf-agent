@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { TemplateIssue } from '$lib/services/templates';
-	import { t } from '$lib/i18n';
+	import type { TemplateIssue } from '#lib/services/templates';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		issues: TemplateIssue[];

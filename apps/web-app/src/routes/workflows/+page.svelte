@@ -11,27 +11,27 @@
 	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import SplitView from '$lib/components/layout/SplitView.svelte';
-	import PageState from '$lib/components/layout/PageState.svelte';
-	import WorkflowCard from '$lib/components/domain/WorkflowCard.svelte';
+	import PageHeader from '#lib/components/layout/PageHeader.svelte';
+	import SplitView from '#lib/components/layout/SplitView.svelte';
+	import PageState from '#lib/components/layout/PageState.svelte';
+	import WorkflowCard from '#lib/components/domain/WorkflowCard.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
-	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
+	import KeyValueList from '#lib/components/domain/KeyValueList.svelte';
 	import FilterBar from '@wf-agent/ui/components/FilterBar.svelte';
 	import {
 		createMinimalWorkflow,
 		importWorkflow,
 		listWorkflows,
 		getWorkflowDetail,
-	} from '$lib/services/workflows';
-	import type { Workflow, WorkflowDetail } from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { t } from '$lib/i18n';
+	} from '#lib/services/workflows';
+	import type { Workflow, WorkflowDetail } from '#lib/types/models';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { t } from '#lib/i18n';
 	import {
 		formatNumber,
 		formatPercent,
 		formatRelativeTime,
-	} from '$lib/utils/format';
+	} from '#lib/utils/format';
 
 	const STATUS_OPTIONS = [
 		{ value: 'active', label: 'Active' },

@@ -8,7 +8,7 @@ import type {
 	PerfNode,
 	QueryResult,
 	Template,
-} from '$lib/types/models';
+} from '#lib/types/models';
 import { minutesAgo } from './clock';
 
 export const overviewMetrics: Metric[] = [

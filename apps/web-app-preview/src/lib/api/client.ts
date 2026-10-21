@@ -3,7 +3,7 @@
  *
  * web-app-preview never talks to a real wf-server. Every call to
  * `client.GET` / `client.POST` below resolves instantly against the
- * hard-coded sample data in `$lib/fixtures`. The return shape matches
+ * hard-coded sample data in `#lib/fixtures`. The return shape matches
  * openapi-fetch ({ data, error, response }) so `envelope.ts` and the
  * services layer stay completely unchanged.
  *

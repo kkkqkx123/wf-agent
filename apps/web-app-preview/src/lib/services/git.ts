@@ -1,7 +1,7 @@
-import { client } from '$lib/api/client';
-import { call, requireData } from '$lib/api/envelope';
-import { gitHunksToDiffFile } from '$lib/types/diff';
-import type { DiffFile } from '$lib/types/diff';
+import { client } from '#lib/api/client';
+import { call, requireData } from '#lib/api/envelope';
+import { gitHunksToDiffFile } from '#lib/types/diff';
+import type { DiffFile } from '#lib/types/diff';
 
 export interface RepoMeta {
 	name: string;

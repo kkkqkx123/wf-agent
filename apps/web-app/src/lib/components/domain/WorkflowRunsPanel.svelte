@@ -9,17 +9,17 @@
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import { toneText } from '@wf-agent/ui/components/variants';
-	import { listExecutions } from '$lib/services/executions';
-	import { executeWorkflow } from '$lib/services/workflows';
-	import type { Execution } from '$lib/types/models';
+	import { listExecutions } from '#lib/services/executions';
+	import { executeWorkflow } from '#lib/services/workflows';
+	import type { Execution } from '#lib/types/models';
 	import {
 		formatDateTime,
 		formatDuration,
 		formatNumber,
-	} from '$lib/utils/format';
+	} from '#lib/utils/format';
 	import { statusTone, toneColorVar } from '@wf-agent/ui/status';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { t } from '$lib/i18n';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { t } from '#lib/i18n';
 	import { resolve } from '$app/paths';
 
 	interface Props {

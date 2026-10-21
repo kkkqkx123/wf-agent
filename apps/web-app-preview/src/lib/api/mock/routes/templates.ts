@@ -1,6 +1,6 @@
 /** Mock routes: node / trigger / workflow / agent templates and imports. */
 
-import { templates } from '$lib/fixtures/insights';
+import { templates } from '#lib/fixtures/insights';
 import { camelToSnakeDeep, pageView, type MockRouter } from '../router';
 
 export function registerTemplates(router: MockRouter): void {

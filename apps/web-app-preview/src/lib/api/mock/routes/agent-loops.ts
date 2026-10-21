@@ -5,9 +5,9 @@ import {
 	loopMessages,
 	loopVariables,
 	loopDetail,
-} from '$lib/fixtures/agentLoops';
-import { checkpoints } from '$lib/fixtures/checkpoints';
-import { FIXTURE_EPOCH } from '$lib/fixtures/clock';
+} from '#lib/fixtures/agentLoops';
+import { checkpoints } from '#lib/fixtures/checkpoints';
+import { FIXTURE_EPOCH } from '#lib/fixtures/clock';
 import { camelToSnakeDeep, pageView, type MockRouter } from '../router';
 
 export function registerAgentLoops(router: MockRouter): void {

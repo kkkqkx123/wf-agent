@@ -8,7 +8,7 @@ import {
 	gitBranches,
 	gitStash,
 	gitRegistry,
-} from '$lib/fixtures/git';
+} from '#lib/fixtures/git';
 import type { MockRouter } from '../router';
 
 export function registerGit(router: MockRouter): void {

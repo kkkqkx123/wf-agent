@@ -5,30 +5,30 @@
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
 	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import PageState from '$lib/components/layout/PageState.svelte';
-	import ExecutionInspector from '$lib/components/domain/ExecutionInspector.svelte';
+	import PageHeader from '#lib/components/layout/PageHeader.svelte';
+	import PageState from '#lib/components/layout/PageState.svelte';
+	import ExecutionInspector from '#lib/components/domain/ExecutionInspector.svelte';
 	import {
 		isExecutionTab,
 		type ExecutionTab,
-	} from '$lib/config/execution-tabs';
+	} from '#lib/config/execution-tabs';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import {
 		cancelExecution,
 		getExecutionDetail,
 		pauseExecution,
 		resumeExecution,
-	} from '$lib/services/executions';
+	} from '#lib/services/executions';
 	import {
 		cancelAgentLoop,
 		pauseAgentLoop,
 		resumeAgentLoop,
-	} from '$lib/services/agent-loops';
-	import type { ExecutionDetail } from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { formatDuration } from '$lib/utils/format';
-	import { gotoWithParams, parseListParams } from '$lib/utils/route';
-	import { t } from '$lib/i18n';
+	} from '#lib/services/agent-loops';
+	import type { ExecutionDetail } from '#lib/types/models';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { formatDuration } from '#lib/utils/format';
+	import { gotoWithParams, parseListParams } from '#lib/utils/route';
+	import { t } from '#lib/i18n';
 
 	let execution = $state<ExecutionDetail | null>(null);
 	let loadError = $state<string | null>(null);
@@ -36,13 +36,13 @@
 	let controlBusy = $state(false);
 	let cancelArmed = $state(false);
 
-	const requestedTab = parseListParams(page.url).tab ?? null;
+	const requestedTab = parseListParams(page.url as unknown as URL).tab ?? null;
 	let tab = $state<ExecutionTab>(
 		isExecutionTab(requestedTab) ? requestedTab : 'overview',
 	);
 
 	$effect(() => {
-		gotoWithParams(page.url, { tab: tab === 'overview' ? '' : tab });
+		gotoWithParams(page.url as unknown as URL, { tab: tab === 'overview' ? '' : tab });
 	});
 
 	async function load(id: string): Promise<void> {

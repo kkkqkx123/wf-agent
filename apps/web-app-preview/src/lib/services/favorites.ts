@@ -1,6 +1,6 @@
-import { client } from '$lib/api/client';
-import { call, extractPage } from '$lib/api/envelope';
-import type { PageResult } from '$lib/api/envelope';
+import { client } from '#lib/api/client';
+import { call, extractPage } from '#lib/api/envelope';
+import type { PageResult } from '#lib/api/envelope';
 
 export interface Favorite {
 	kind: string;

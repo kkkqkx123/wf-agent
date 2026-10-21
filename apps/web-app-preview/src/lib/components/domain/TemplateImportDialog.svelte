@@ -4,9 +4,9 @@
 	import Select from '@wf-agent/ui/components/Select.svelte';
 	import JsonEditor from '@wf-agent/ui/components/JsonEditor.svelte';
 	import UnsavedChangesDialog from '@wf-agent/ui/components/UnsavedChangesDialog.svelte';
-	import { jsonErrorLine } from '$lib/services/templates';
-	import type { TemplateKind } from '$lib/types/models';
-	import { t } from '$lib/i18n';
+	import { jsonErrorLine } from '#lib/services/templates';
+	import type { TemplateKind } from '#lib/types/models';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		open: boolean;

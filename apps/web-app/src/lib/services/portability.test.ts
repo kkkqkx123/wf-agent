@@ -6,7 +6,7 @@ import {
 	serializeBackupDocument,
 	validateBackupDocument,
 	type SettingsBackup,
-} from '$lib/services/portability';
+} from '#lib/services/portability';
 
 function validBackup(): SettingsBackup {
 	return {

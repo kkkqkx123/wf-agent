@@ -1,7 +1,7 @@
-import { client } from '$lib/api/client';
-import { call, extractCursorPage } from '$lib/api/envelope';
-import type { CursorPageResult } from '$lib/api/envelope';
-import type { EventRecord, Dependency, Diagnostic } from '$lib/types/models';
+import { client } from '#lib/api/client';
+import { call, extractCursorPage } from '#lib/api/envelope';
+import type { CursorPageResult } from '#lib/api/envelope';
+import type { EventRecord, Dependency, Diagnostic } from '#lib/types/models';
 
 interface EventDto {
 	id?: string;

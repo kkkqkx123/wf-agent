@@ -1,16 +1,16 @@
-import { client, downloadFile } from '$lib/api/client';
-import { call, requireData } from '$lib/api/envelope';
-import { ApiHttpError } from '$lib/api/envelope';
-import { backendEdgeType } from '$lib/graph/display-model';
-import { issueTargetsNode } from '$lib/graph/execution-projection';
-import { asRecordList, graphField } from '$lib/services/graph';
-import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
+import { client, downloadFile } from '#lib/api/client';
+import { call, requireData } from '#lib/api/envelope';
+import { ApiHttpError } from '#lib/api/envelope';
+import { backendEdgeType } from '#lib/graph/display-model';
+import { issueTargetsNode } from '#lib/graph/execution-projection';
+import { asRecordList, graphField } from '#lib/services/graph';
+import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
 import type {
 	GovernanceFlag,
 	KeyValue,
 	Template,
 	TemplateKind,
-} from '$lib/types/models';
+} from '#lib/types/models';
 
 interface TemplateDto {
 	id?: string;

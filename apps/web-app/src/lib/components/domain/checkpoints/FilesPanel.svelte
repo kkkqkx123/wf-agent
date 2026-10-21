@@ -3,14 +3,14 @@
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import Badge from '@wf-agent/ui/components/Badge.svelte';
 	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
-	import PageState from '$lib/components/layout/PageState.svelte';
+	import PageState from '#lib/components/layout/PageState.svelte';
 	import FileChangesCard from './files/FileChangesCard.svelte';
 	import FilePreviewCard from './files/FilePreviewCard.svelte';
 	import ReviewMergeCard from './files/ReviewMergeCard.svelte';
 	import SessionsCard from './files/SessionsCard.svelte';
 	import StorageCard from './files/StorageCard.svelte';
 	import WorkspaceCard from './files/WorkspaceCard.svelte';
-	import { downloadFile } from '$lib/api/client';
+	import { downloadFile } from '#lib/api/client';
 	import {
 		getMainDiffs,
 		getDiffActors,
@@ -26,14 +26,14 @@
 		type FileTree,
 		type PartitionCommit,
 		type PartitionView,
-	} from '$lib/services/checkpoints';
-	import type { DiffFile } from '$lib/types/diff';
-	import type { FileChange } from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { checkpoints as store } from '$lib/stores/checkpoints.svelte';
-	import { fileWorkspace as workspace } from '$lib/stores/fileWorkspace.svelte';
-	import { formatRelativeTime } from '$lib/utils/format';
-	import { t } from '$lib/i18n';
+	} from '#lib/services/checkpoints';
+	import type { DiffFile } from '#lib/types/diff';
+	import type { FileChange } from '#lib/types/models';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { checkpoints as store } from '#lib/stores/checkpoints.svelte';
+	import { fileWorkspace as workspace } from '#lib/stores/fileWorkspace.svelte';
+	import { formatRelativeTime } from '#lib/utils/format';
+	import { t } from '#lib/i18n';
 
 	let {
 		onresolve,

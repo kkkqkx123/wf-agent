@@ -1,6 +1,6 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-import { createPty, closePty, updatePty, getPty, listPtys } from '$lib/services/pty';
-import type { PtySession } from '$lib/services/pty';
+import { createPty, closePty, updatePty, getPty, listPtys } from '#lib/services/pty';
+import type { PtySession } from '#lib/services/pty';
 
 /**
  * Local view of a server PTY session. Buffer/scrollY/cursor live only in

@@ -8,7 +8,7 @@
  * slow heartbeat so the live badge and incremental refresh stay observable.
  */
 
-import { emitMockEvent, onMockEvent } from '$lib/fixtures/checkpoints';
+import { emitMockEvent, onMockEvent } from '#lib/fixtures/checkpoints';
 
 /** Rotating heartbeat events so the Live subscription visibly fires. */
 const HEARTBEAT_EVENTS = [

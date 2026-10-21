@@ -1,4 +1,4 @@
-import { message } from '$lib/i18n';
+import { message } from '#lib/i18n';
 
 /**
  * Tabs a single agent loop session can be inspected through. The transcript is

@@ -8,7 +8,7 @@
 	let { content, done = true, class: className = '' }: Props = $props();
 </script>
 
-{#await import('$lib/components/chat/StreamMarkdown.svelte') then module}
+{#await import('#lib/components/chat/StreamMarkdown.svelte') then module}
 	<module.default {content} {done} class={className} />
 {:catch}
 	<pre class="whitespace-pre-wrap text-body">{content}</pre>

@@ -1,0 +1,21 @@
+{
+	"app.title": "wf-agent",
+	"common.back": "返回",
+	"common.cancel": "取消",
+	"common.close": "关闭",
+	"common.confirm": "确认",
+	"common.copied": "已复制",
+	"common.copy": "复制",
+	"common.create": "创建",
+	"common.delete": "删除",
+	"common.edit": "编辑",
+	"common.error": "错误",
+	"common.items": "{count} 项",
+	"common.language": "语言",
+	"common.loading": "加载中...",
+	"common.refresh": "刷新",
+	"common.retry": "重试",
+	"common.save": "保存",
+	"common.search": "搜索",
+	"page.executions.selectB": "选择执行 B"
+}

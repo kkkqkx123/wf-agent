@@ -1,5 +1,5 @@
-import { openEventStream, type StreamState } from '$lib/api/sse';
-import type { EventRecord } from '$lib/types/models';
+import { openEventStream, type StreamState } from '#lib/api/sse';
+import type { EventRecord } from '#lib/types/models';
 
 export type CheckpointTab = 'chain' | 'files' | 'approvals';
 

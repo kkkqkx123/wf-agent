@@ -1,24 +1,24 @@
 import { SvelteSet } from 'svelte/reactivity';
 import { goto } from '$app/navigation';
 import { page } from '$app/state';
-import type { CanvasPosition } from '$lib/graph/canvas-model';
-import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
-import { GraphEditStore } from '$lib/graph/edit-store.svelte';
+import type { CanvasPosition } from '#lib/graph/canvas-model';
+import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
+import { GraphEditStore } from '#lib/graph/edit-store.svelte';
 import {
 	promoteWorkflowDraft,
 	saveWorkflowDraft,
 	validateWorkflowDraft,
-} from '$lib/services/graph';
+} from '#lib/services/graph';
 import {
 	allocateGraphNodeId,
 	serverTemplateIssues,
 	type TemplateIssue,
-} from '$lib/services/templates';
-import type { ValidationIssue, WorkflowDetail } from '$lib/types/models';
-import { toasts } from '$lib/stores/toast.svelte';
-import { nodeInsertStore } from '$lib/stores/node-insert.svelte';
-import { WorkflowLockStore } from '$lib/stores/workflow-lock.svelte';
-import { presence } from '$lib/stores/presence.svelte';
+} from '#lib/services/templates';
+import type { ValidationIssue, WorkflowDetail } from '#lib/types/models';
+import { toasts } from '#lib/stores/toast.svelte';
+import { nodeInsertStore } from '#lib/stores/node-insert.svelte';
+import { WorkflowLockStore } from '#lib/stores/workflow-lock.svelte';
+import { presence } from '#lib/stores/presence.svelte';
 
 /**
  * Edit-session controller for the workflow detail page. Holds the controlled

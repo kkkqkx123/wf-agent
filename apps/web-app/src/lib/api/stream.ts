@@ -1,4 +1,4 @@
-import { API_BASE_URL, resolveApiKey } from '$lib/api/client';
+import { API_BASE_URL, resolveApiKey } from '#lib/api/client';
 
 /**
  * Why a stream stopped. `status` and `retryAfterMs` are filled when the

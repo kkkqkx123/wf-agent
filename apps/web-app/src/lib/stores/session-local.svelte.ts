@@ -1,4 +1,4 @@
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 
 /** Draft key for a composer that has not produced a loop yet. */
 export const NEW_SESSION = 'new';

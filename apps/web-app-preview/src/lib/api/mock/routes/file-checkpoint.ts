@@ -6,14 +6,14 @@ import {
 	partitions,
 	conflicts,
 	editSessions,
-} from '$lib/fixtures/checkpoints';
+} from '#lib/fixtures/checkpoints';
 import {
 	addMockCheckpoint,
 	decideMockApproval,
 	emitMockEvent,
 	resolveMockConflicts,
-} from '$lib/fixtures/checkpoints';
-import { FIXTURE_EPOCH } from '$lib/fixtures/clock';
+} from '#lib/fixtures/checkpoints';
+import { FIXTURE_EPOCH } from '#lib/fixtures/clock';
 import { pageView, type MockRouter } from '../router';
 
 export function registerFileCheckpoint(router: MockRouter): void {

@@ -2,15 +2,15 @@
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
-	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
+	import KeyValueList from '#lib/components/domain/KeyValueList.svelte';
 	import {
 		summarizeTemplate,
 		type TemplateDetail,
-	} from '$lib/services/templates';
-	import type { TemplateKind } from '$lib/types/models';
-	import type { TemplateEditController } from '$lib/templates/template-edit-session.svelte';
-	import { formatNumber } from '$lib/utils/format';
-	import { t } from '$lib/i18n';
+	} from '#lib/services/templates';
+	import type { TemplateKind } from '#lib/types/models';
+	import type { TemplateEditController } from '#lib/templates/template-edit-session.svelte';
+	import { formatNumber } from '#lib/utils/format';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		kind: TemplateKind;

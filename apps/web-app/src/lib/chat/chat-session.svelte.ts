@@ -1,26 +1,26 @@
 import { tick } from 'svelte';
 import { page } from '$app/state';
-import { groupToolCalls } from '$lib/utils/tool-output';
-import { preferences } from '$lib/stores/preferences.svelte';
+import { groupToolCalls } from '#lib/utils/tool-output';
+import { preferences } from '#lib/stores/preferences.svelte';
 import { SvelteDate, SvelteSet } from 'svelte/reactivity';
 import {
 	getLoopGraph,
 	listLoopMessages,
 	type RunLoopMessage,
-} from '$lib/services/agent-loops';
+} from '#lib/services/agent-loops';
 import {
 	applyExecutionOverlay,
 	matchDecisionNodeId,
 	nodesForIteration,
 	projectExecutionOverlay,
-} from '$lib/graph/execution-projection';
-import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
-import { streamLoopRun, streamChat, streamWorkflowExecution } from '$lib/services/streaming';
-import type { UsageSnapshot } from '$lib/utils/stream-parser';
-import type { StreamFailure } from '$lib/api/stream';
-import { listModelProfiles } from '$lib/services/resources';
-import { DEFAULT_AGENT_ID, isRunnableTemplate, listTemplates } from '$lib/services/templates';
-import { pickerState } from '$lib/stores/picker-state.svelte';
+} from '#lib/graph/execution-projection';
+import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
+import { streamLoopRun, streamChat, streamWorkflowExecution } from '#lib/services/streaming';
+import type { UsageSnapshot } from '#lib/utils/stream-parser';
+import type { StreamFailure } from '#lib/api/stream';
+import { listModelProfiles } from '#lib/services/resources';
+import { DEFAULT_AGENT_ID, isRunnableTemplate, listTemplates } from '#lib/services/templates';
+import { pickerState } from '#lib/stores/picker-state.svelte';
 import {
 	cancelInteraction as cancelInteractionRequest,
 	listPendingInteractions,
@@ -28,25 +28,25 @@ import {
 	respondToolApproval,
 	type InteractionAnswer,
 	type PendingInteraction,
-} from '$lib/services/interactions';
-import type { CommandAction } from '$lib/config/commands';
+} from '#lib/services/interactions';
+import type { CommandAction } from '#lib/config/commands';
 import type {
 	LoopMessage,
 	MessageAttachment,
 	OutgoingMessage,
 	ToolCallEntry,
-} from '$lib/types/models';
-import { splitAttachments, withAttachments } from '$lib/utils/attachments';
-import { createResource } from '$lib/stores/collection.svelte';
+} from '#lib/types/models';
+import { splitAttachments, withAttachments } from '#lib/utils/attachments';
+import { createResource } from '#lib/stores/collection.svelte';
 import {
 	chatStream,
 	type LiveToolCall,
 	type SubAgentNote,
-} from '$lib/stores/stream-run.svelte';
-import { NEW_SESSION, sessions } from '$lib/stores/sessions.svelte';
-import { toasts } from '$lib/stores/toast.svelte';
-import { gotoWithParams } from '$lib/utils/route';
-import { isSessionTab, type SessionTab } from '$lib/config/session-tabs';
+} from '#lib/stores/stream-run.svelte';
+import { NEW_SESSION, sessions } from '#lib/stores/sessions.svelte';
+import { toasts } from '#lib/stores/toast.svelte';
+import { gotoWithParams } from '#lib/utils/route';
+import { isSessionTab, type SessionTab } from '#lib/config/session-tabs';
 
 /** Minimum gap between interaction polls; the 200ms projection beat drives it
  * but the network round trip is throttled to this cadence. */
@@ -613,7 +613,7 @@ export class ChatSessionController {
 
 	/** URL-sync effect body; the route hosts the $effect wrapper. */
 	syncAddress(tab: string, panelOpen: boolean): void {
-		void gotoWithParams(page.url, {
+		void gotoWithParams(page.url as unknown as URL, {
 			id: this.selectedId ?? '',
 			tab: tab === 'overview' ? '' : tab,
 			panel: panelOpen ? '' : 'closed',

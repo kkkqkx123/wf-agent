@@ -1,12 +1,12 @@
-import { client } from '$lib/api/client';
-import { call, requireData } from '$lib/api/envelope';
+import { client } from '#lib/api/client';
+import { call, requireData } from '#lib/api/envelope';
 import type {
 	LlmReasoningStep,
 	NodeInputContext,
 	NodeInputVariable,
 	NodeTrace,
 	NodeTraceToolDependency,
-} from '$lib/types/models';
+} from '#lib/types/models';
 
 interface NodeTraceDto {
 	execution_id?: string;

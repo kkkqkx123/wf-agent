@@ -4,13 +4,13 @@
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
 	import Button from '@wf-agent/ui/components/Button.svelte';
-	import { navItemFor } from '$lib/config/navigation';
-	import { preferences, type ThemeMode } from '$lib/stores/preferences.svelte';
-	import { ui } from '$lib/stores/ui.svelte';
-	import { resolvedTheme } from '$lib/stores/theme.svelte';
+	import { navItemFor } from '#lib/config/navigation';
+	import { preferences, type ThemeMode } from '#lib/stores/preferences.svelte';
+	import { ui } from '#lib/stores/ui.svelte';
+	import { resolvedTheme } from '#lib/stores/theme.svelte';
 	import { cn } from '@wf-agent/ui/cn';
 	import LanguageSwitcher from './LanguageSwitcher.svelte';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 
 	const activeItem = $derived(navItemFor(page.url.pathname));
 	const theme = $derived(resolvedTheme());

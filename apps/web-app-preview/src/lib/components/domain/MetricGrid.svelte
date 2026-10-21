@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { toneText } from '@wf-agent/ui/components/variants';
-	import type { Metric } from '$lib/types/models';
+	import type { Metric } from '#lib/types/models';
 	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {

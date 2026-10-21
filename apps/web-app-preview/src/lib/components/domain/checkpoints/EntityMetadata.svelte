@@ -2,10 +2,10 @@
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Input from '@wf-agent/ui/components/Input.svelte';
 	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
-	import { getEntityMetadata, setEntityMetadata } from '$lib/services/checkpoints';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { checkpoints as checkpointStore } from '$lib/stores/checkpoints.svelte';
-	import { t } from '$lib/i18n';
+	import { getEntityMetadata, setEntityMetadata } from '#lib/services/checkpoints';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { checkpoints as checkpointStore } from '#lib/stores/checkpoints.svelte';
+	import { t } from '#lib/i18n';
 
 	let metadataEntityId = $state('');
 	let metadataText = $state('');

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Execution } from '$lib/types/models';
+	import type { Execution } from '#lib/types/models';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import Progress from '@wf-agent/ui/components/Progress.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
@@ -8,9 +8,9 @@
 		formatDuration,
 		formatRelativeTime,
 		shortId,
-	} from '$lib/utils/format';
+	} from '#lib/utils/format';
 	import { cn } from '@wf-agent/ui/cn';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		execution: Execution;

@@ -3,10 +3,10 @@
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import Input from '@wf-agent/ui/components/Input.svelte';
-	import type { Checkpoint } from '$lib/types/models';
-	import type { StateFileLink } from '$lib/services/checkpoints';
-	import { formatBytes, formatRelativeTime } from '$lib/utils/format';
-	import { t } from '$lib/i18n';
+	import type { Checkpoint } from '#lib/types/models';
+	import type { StateFileLink } from '#lib/services/checkpoints';
+	import { formatBytes, formatRelativeTime } from '#lib/utils/format';
+	import { t } from '#lib/i18n';
 
 	let {
 		chain,

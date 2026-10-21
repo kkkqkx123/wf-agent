@@ -3,9 +3,9 @@
 	import type { IconName } from '@wf-agent/ui/icons/paths';
 	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
 	import { toneText } from '@wf-agent/ui/components/variants';
-	import { toasts } from '$lib/stores/toast.svelte';
+	import { toasts } from '#lib/stores/toast.svelte';
 	import { cn } from '@wf-agent/ui/cn';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 
 	const TONE_ICON: Record<string, IconName> = {
 		success: 'check-circle',

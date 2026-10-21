@@ -2,16 +2,16 @@
 	import {
 		createAgentLoopCheckpoint,
 		restoreAgentLoopCheckpoint,
-	} from '$lib/services/agent-loops';
-	import { listLoopCheckpoints } from '$lib/services/checkpoints';
-	import type { Checkpoint } from '$lib/types/models';
+	} from '#lib/services/agent-loops';
+	import { listLoopCheckpoints } from '#lib/services/checkpoints';
+	import type { Checkpoint } from '#lib/types/models';
 	import Badge from '@wf-agent/ui/components/Badge.svelte';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { formatDateTime } from '$lib/utils/format';
-	import { t } from '$lib/i18n';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { formatDateTime } from '#lib/utils/format';
+	import { t } from '#lib/i18n';
 
 	/** Loop checkpoint list with restore; owns its own loading keyed by id. */
 	let { id }: { id: string } = $props();

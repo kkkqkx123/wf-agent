@@ -1,5 +1,5 @@
-import { client } from '$lib/api/client';
-import { call } from '$lib/api/envelope';
+import { client } from '#lib/api/client';
+import { call } from '#lib/api/envelope';
 
 /** A single persisted node position (grid-snapped canvas coordinates). */
 export interface LayoutPoint {

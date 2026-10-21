@@ -1,6 +1,6 @@
-import { API_BASE_URL, client, resolveApiKey } from '$lib/api/client';
-import { call } from '$lib/api/envelope';
-import type { EventRecord } from '$lib/types/models';
+import { API_BASE_URL, client, resolveApiKey } from '#lib/api/client';
+import { call } from '#lib/api/envelope';
+import type { EventRecord } from '#lib/types/models';
 
 export type StreamState = 'connecting' | 'open' | 'reconnecting' | 'closed';
 

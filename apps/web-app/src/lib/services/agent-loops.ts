@@ -1,11 +1,11 @@
-import { client } from '$lib/api/client';
+import { client } from '#lib/api/client';
 import {
 	call,
 	extractCursorPage,
 	extractPage,
 	requireData,
-} from '$lib/api/envelope';
-import type { CursorPageResult, PageResult } from '$lib/api/envelope';
+} from '#lib/api/envelope';
+import type { CursorPageResult, PageResult } from '#lib/api/envelope';
 import type {
 	AgentLoop,
 	AgentLoopDetail,
@@ -16,20 +16,20 @@ import type {
 	TimelineEntry,
 	ToolCallEntry,
 	WorkflowGraph,
-} from '$lib/types/models';
+} from '#lib/types/models';
 import {
 	getDecisionGraph,
 	getDecisionSteps,
 	getDecisionToolFrequency,
 	toDecisionGraph,
-} from '$lib/services/graph';
+} from '#lib/services/graph';
 import {
 	inferToolKind,
 	parseApprovalId,
 	parseToolEndpoint,
 	parseToolExitCode,
-} from '$lib/utils/toolcalls';
-import { inferDisplayKind } from '$lib/utils/tool-output';
+} from '#lib/utils/toolcalls';
+import { inferDisplayKind } from '#lib/utils/tool-output';
 
 interface SummaryDto {
 	id?: string;

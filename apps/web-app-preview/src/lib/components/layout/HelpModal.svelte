@@ -1,9 +1,9 @@
 <script lang="ts">
 	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
-	import { ui } from '$lib/stores/ui.svelte';
-	import { CANVAS_SHORTCUT_HELP } from '$lib/graph/canvas-shortcuts';
+	import { ui } from '#lib/stores/ui.svelte';
+	import { CANVAS_SHORTCUT_HELP } from '#lib/graph/canvas-shortcuts';
 	import { goto } from '$app/navigation';
-	import { t, type MessageKey } from '$lib/i18n';
+	import { t, type MessageKey } from '#lib/i18n';
 
 	interface Shortcut {
 		keys: string;

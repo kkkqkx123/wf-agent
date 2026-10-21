@@ -1,6 +1,6 @@
-import { listWorkflows } from '$lib/services/workflows';
-import { createResource } from '$lib/stores/collection.svelte';
-import { shortId } from '$lib/utils/format';
+import { listWorkflows } from '#lib/services/workflows';
+import { createResource } from '#lib/stores/collection.svelte';
+import { shortId } from '#lib/utils/format';
 
 /** The shared page ceiling, so one request covers the workflow definitions. */
 const INDEX_LIMIT = 500;

@@ -7,31 +7,31 @@
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
 	import Input from '@wf-agent/ui/components/Input.svelte';
-	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import PageState from '$lib/components/layout/PageState.svelte';
+	import PageHeader from '#lib/components/layout/PageHeader.svelte';
+	import PageState from '#lib/components/layout/PageState.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
 	import type { Column } from '@wf-agent/ui/components/table';
 	import JsonEditor from '@wf-agent/ui/components/JsonEditor.svelte';
-	import { jsonErrorLine } from '$lib/services/templates';
+	import { jsonErrorLine } from '#lib/services/templates';
 	import {
 		cleanupTriggerExecutions,
 		listTriggerExecutions,
 		listHooks,
 		fireHook,
-	} from '$lib/services/triggers';
-	import type { Hook, TriggerRecord } from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { t, message } from '$lib/i18n';
-	import { formatDateTime, formatRelativeTime } from '$lib/utils/format';
-	import { gotoWithParams, parseListParams } from '$lib/utils/route';
+	} from '#lib/services/triggers';
+	import type { Hook, TriggerRecord } from '#lib/types/models';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { t, message } from '#lib/i18n';
+	import { formatDateTime, formatRelativeTime } from '#lib/utils/format';
+	import { gotoWithParams, parseListParams } from '#lib/utils/route';
 
 	const TABS = [
 		{ id: 'records', label: message('page.triggers.recordsTab') },
 		{ id: 'hooks', label: message('page.triggers.hooksTab') },
 	];
 
-	const requestedTab = parseListParams(page.url).tab;
+	const requestedTab = parseListParams(page.url as unknown as URL).tab;
 	let tab = $state(
 		requestedTab && TABS.some((item) => item.id === requestedTab)
 			? requestedTab
@@ -39,7 +39,7 @@
 	);
 
 	$effect(() => {
-		gotoWithParams(page.url, { tab: tab === 'records' ? '' : tab });
+		gotoWithParams(page.url as unknown as URL, { tab: tab === 'records' ? '' : tab });
 	});
 	let triggerRecords = $state<TriggerRecord[]>([]);
 	let hooks = $state<Hook[]>([]);

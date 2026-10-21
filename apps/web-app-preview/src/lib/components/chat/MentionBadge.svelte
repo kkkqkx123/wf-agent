@@ -1,8 +1,8 @@
 <script lang="ts">
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import { cn } from '@wf-agent/ui/cn';
-	import { mentionClass, mentionIcon } from '$lib/utils/mention-style';
-	import { t } from '$lib/i18n';
+	import { mentionClass, mentionIcon } from '#lib/utils/mention-style';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		text: string;

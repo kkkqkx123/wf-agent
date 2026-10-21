@@ -1,7 +1,7 @@
 <script lang="ts">
-	import SessionInspector from '$lib/components/domain/SessionInspector.svelte';
-	import { chatStream } from '$lib/stores/stream-run.svelte';
-	import type { ChatSessionController } from '$lib/chat/chat-session.svelte';
+	import SessionInspector from '#lib/components/domain/SessionInspector.svelte';
+	import { chatStream } from '#lib/stores/stream-run.svelte';
+	import type { ChatSessionController } from '#lib/chat/chat-session.svelte';
 
 	interface Props {
 		controller: ChatSessionController;

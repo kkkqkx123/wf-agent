@@ -1,7 +1,7 @@
-import { browser } from '$app/environment';
-import { parseToolOutputDetail } from '$lib/config/tool-output';
-import type { ToolOutputDetail } from '$lib/config/tool-output';
-import type { LocalPreferencesBackup } from '$lib/services/portability';
+import { browser } from '$app/env';
+import { parseToolOutputDetail } from '#lib/config/tool-output';
+import type { ToolOutputDetail } from '#lib/config/tool-output';
+import type { LocalPreferencesBackup } from '#lib/services/portability';
 
 /**
  * Local first-paint appearance track: theme, density, and shell geometry

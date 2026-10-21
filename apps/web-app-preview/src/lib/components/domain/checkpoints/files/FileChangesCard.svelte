@@ -5,12 +5,12 @@
 	import CursorPager from '@wf-agent/ui/components/CursorPager.svelte';
 	import { toneText } from '@wf-agent/ui/components/variants';
 	import type { StatusTone } from '@wf-agent/ui/status';
-	import { getFileChangesPage } from '$lib/services/checkpoints';
-	import type { FileChange } from '$lib/types/models';
-	import { checkpoints as store } from '$lib/stores/checkpoints.svelte';
+	import { getFileChangesPage } from '#lib/services/checkpoints';
+	import type { FileChange } from '#lib/types/models';
+	import { checkpoints as store } from '#lib/stores/checkpoints.svelte';
 	import { cn } from '@wf-agent/ui/cn';
-	import { formatRelativeTime } from '$lib/utils/format';
-	import { t } from '$lib/i18n';
+	import { formatRelativeTime } from '#lib/utils/format';
+	import { t } from '#lib/i18n';
 
 	let {
 		selectedId,

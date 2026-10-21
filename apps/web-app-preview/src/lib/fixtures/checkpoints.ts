@@ -1,4 +1,4 @@
-import type { Approval, Checkpoint, FileChange } from '$lib/types/models';
+import type { Approval, Checkpoint, FileChange } from '#lib/types/models';
 import { minutesAgo } from './clock';
 
 export const checkpoints: Checkpoint[] = [

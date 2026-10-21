@@ -1,4 +1,4 @@
-import { EXPECTED_API_VERSION, checkApiVersion, getHealth } from '$lib/services/events';
+import { EXPECTED_API_VERSION, checkApiVersion, getHealth } from '#lib/services/events';
 
 export type HealthStatus = 'checking' | 'reachable' | 'unreachable';
 

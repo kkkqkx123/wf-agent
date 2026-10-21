@@ -1,7 +1,7 @@
 /** Mock routes: workflows, their graphs and edit locks. */
 
-import { workflows, workflowDetail } from '$lib/fixtures/workflows';
-import { FIXTURE_EPOCH } from '$lib/fixtures/clock';
+import { workflows, workflowDetail } from '#lib/fixtures/workflows';
+import { FIXTURE_EPOCH } from '#lib/fixtures/clock';
 import { camelToSnakeDeep, pageView, type MockRouter } from '../router';
 
 export function registerWorkflows(router: MockRouter): void {

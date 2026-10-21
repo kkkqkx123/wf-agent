@@ -1,4 +1,4 @@
-import type { PageResult } from '$lib/api/envelope';
+import type { PageResult } from '#lib/api/envelope';
 import { behavior } from './behavior.svelte';
 
 export interface PageParams {

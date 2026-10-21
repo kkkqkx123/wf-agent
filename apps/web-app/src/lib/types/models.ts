@@ -1,6 +1,6 @@
 /** View models consumed by components. Populated from the backend API. */
 
-import type { DisplayKind } from '$lib/utils/tool-output';
+import type { DisplayKind } from '#lib/utils/tool-output';
 
 export interface KeyValue {
 	key: string;

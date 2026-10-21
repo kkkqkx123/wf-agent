@@ -3,7 +3,7 @@
 		LlmReasoningStep,
 		NodeInputContext,
 		NodeTrace,
-	} from '$lib/types/models';
+	} from '#lib/types/models';
 	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
 	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
 	import Input from '@wf-agent/ui/components/Input.svelte';
@@ -18,12 +18,12 @@
 		getNodeLlmReasoning,
 		summarizeNodeTraces,
 		type NodeTraceStatusFilter,
-	} from '$lib/services/node-trace';
-	import { formatNumber } from '$lib/utils/format';
-	import { toasts } from '$lib/stores/toast.svelte';
+	} from '#lib/services/node-trace';
+	import { formatNumber } from '#lib/utils/format';
+	import { toasts } from '#lib/stores/toast.svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { cn } from '@wf-agent/ui/cn';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		executionId: string;

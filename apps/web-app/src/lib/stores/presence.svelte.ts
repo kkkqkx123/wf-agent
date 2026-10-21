@@ -1,5 +1,5 @@
-import { browser } from '$app/environment';
-import type { PresenceCursor } from '$lib/graph/canvas-model';
+import { browser } from '$app/env';
+import type { PresenceCursor } from '#lib/graph/canvas-model';
 
 interface PresenceFrame extends PresenceCursor {
 	at: number;

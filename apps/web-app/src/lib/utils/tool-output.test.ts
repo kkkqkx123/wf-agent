@@ -13,8 +13,8 @@ import {
 	parseDisplayPayload,
 	previewFor,
 	previewSource,
-} from '$lib/utils/tool-output';
-import type { ToolCallEntry } from '$lib/types/models';
+} from '#lib/utils/tool-output';
+import type { ToolCallEntry } from '#lib/types/models';
 
 function toolCall(
 	overrides: Partial<ToolCallEntry> & { id: string; name: string },

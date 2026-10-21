@@ -4,7 +4,7 @@
  * module serves the wire contract without re-deriving it.
  */
 
-import type { Checkpoint } from '$lib/types/models';
+import type { Checkpoint } from '#lib/types/models';
 
 /**
  * Adapt a fixture checkpoint (view model) onto the wire `CheckpointDoc`

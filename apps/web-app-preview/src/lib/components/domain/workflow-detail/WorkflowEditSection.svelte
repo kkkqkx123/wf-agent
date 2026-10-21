@@ -1,7 +1,7 @@
 <script lang="ts">
-	import WorkflowEditPanel from '$lib/components/domain/WorkflowEditPanel.svelte';
-	import type { WorkflowEditSession } from '$lib/workflows/edit-session.svelte';
-	import { presence } from '$lib/stores/presence.svelte';
+	import WorkflowEditPanel from '#lib/components/domain/WorkflowEditPanel.svelte';
+	import type { WorkflowEditSession } from '#lib/workflows/edit-session.svelte';
+	import { presence } from '#lib/stores/presence.svelte';
 
 	interface Props {
 		controller: WorkflowEditSession;

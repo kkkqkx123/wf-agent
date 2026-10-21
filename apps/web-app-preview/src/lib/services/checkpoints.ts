@@ -1,18 +1,18 @@
-import { client } from '$lib/api/client';
-import { call, extractPage, requireData } from '$lib/api/envelope';
-import type { PageResult } from '$lib/api/envelope';
-import type { components } from '$lib/api/schema';
+import { client } from '#lib/api/client';
+import { call, extractPage, requireData } from '#lib/api/envelope';
+import type { PageResult } from '#lib/api/envelope';
+import type { components } from '#lib/api/schema';
 import type {
 	Approval,
 	Checkpoint,
 	FileChange,
 	FileChangeType,
-} from '$lib/types/models';
-import { toDiffFile } from '$lib/types/diff';
-import type { DiffFile } from '$lib/types/diff';
+} from '#lib/types/models';
+import { toDiffFile } from '#lib/types/diff';
+import type { DiffFile } from '#lib/types/diff';
 
 // Transport row types come from the generated OpenAPI snapshot; only the
-// page-facing view models in `$lib/types/models` are hand-maintained.
+// page-facing view models in `#lib/types/models` are hand-maintained.
 type CheckpointDoc = components['schemas']['CheckpointDoc'];
 type DeltaSummaryDoc = components['schemas']['DeltaSummaryDoc'];
 type PendingApprovalDoc = components['schemas']['PendingApprovalDoc'];

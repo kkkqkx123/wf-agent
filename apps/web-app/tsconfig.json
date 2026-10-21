@@ -1,28 +1,21 @@
 {
-	"extends": "./.svelte-kit/tsconfig.json",
+	"extends": "$app/tsconfig",
 	"compilerOptions": {
-		"allowJs": true,
-		"checkJs": true,
-		"esModuleInterop": true,
-		"forceConsistentCasingInFileNames": true,
-		"resolveJsonModule": true,
-		"skipLibCheck": true,
 		"strict": true,
-		"baseUrl": ".",
 		"paths": {
-			"$paraglide": ["./src/lib/paraglide/index.ts"],
-			"$paraglide/*": ["./src/lib/paraglide/*"]
+			"#lib/*": ["./src/lib/*"],
+			"#paraglide/*": ["./src/lib/paraglide/*"]
 		}
 	},
-	"exclude": [
-		"node_modules",
-		"tests",
-		"**/*.test.ts",
-		"**/*.test.js",
-		"**/*.spec.ts",
-		"**/*.spec.js",
-		"src/service-worker*",
-		"src/service-worker/**"
+	"include": [
+		"src",
+		"test",
+		"*",
+		".svelte-kit/ambient.d.ts",
+		".svelte-kit/non-ambient.d.ts",
+		".svelte-kit/env.d.ts"
 	],
-	"files": []
+	"exclude": [
+		"src/service-worker"
+	]
 }

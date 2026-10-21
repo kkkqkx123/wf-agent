@@ -12,20 +12,20 @@
 	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
 	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
-	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import TemplateImportDialog from '$lib/components/domain/TemplateImportDialog.svelte';
+	import PageHeader from '#lib/components/layout/PageHeader.svelte';
+	import TemplateImportDialog from '#lib/components/domain/TemplateImportDialog.svelte';
 	import {
 		cloneTemplate,
 		importTemplate,
 		listFeaturedTemplates,
 		listTemplates,
 		recordTemplateUsage,
-	} from '$lib/services/templates';
-	import type { Template, TemplateKind } from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { formatNumber } from '$lib/utils/format';
-	import { gotoWithParams, parseListParams } from '$lib/utils/route';
-	import { t } from '$lib/i18n';
+	} from '#lib/services/templates';
+	import type { Template, TemplateKind } from '#lib/types/models';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { formatNumber } from '#lib/utils/format';
+	import { gotoWithParams, parseListParams } from '#lib/utils/route';
+	import { t } from '#lib/i18n';
 
 	const TABS = [
 		{ id: 'all', label: 'All' },
@@ -35,7 +35,7 @@
 		{ id: 'workflow', label: 'Workflow' },
 	];
 
-	const requestedTab = parseListParams(page.url).tab;
+	const requestedTab = parseListParams(page.url as unknown as URL).tab;
 	let kind = $state(
 		requestedTab && TABS.some((item) => item.id === requestedTab)
 			? requestedTab
@@ -43,7 +43,7 @@
 	);
 
 	$effect(() => {
-		gotoWithParams(page.url, { tab: kind === 'all' ? '' : kind });
+		gotoWithParams(page.url as unknown as URL, { tab: kind === 'all' ? '' : kind });
 	});
 
 	let featuredOnly = $state(false);

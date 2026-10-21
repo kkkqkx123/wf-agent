@@ -7,8 +7,8 @@ import {
 	events,
 	dependencies,
 	diagnostics,
-} from '$lib/fixtures/insights';
-import { FIXTURE_EPOCH } from '$lib/fixtures/clock';
+} from '#lib/fixtures/insights';
+import { FIXTURE_EPOCH } from '#lib/fixtures/clock';
 import { camelToSnakeDeep, pageView, type MockRouter } from '../router';
 
 export function registerInsights(router: MockRouter): void {

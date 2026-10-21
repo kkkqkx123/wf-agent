@@ -1,6 +1,6 @@
-import { client } from '$lib/api/client';
-import { call, requireData } from '$lib/api/envelope';
-import type { components } from '$lib/api/schema';
+import { client } from '#lib/api/client';
+import { call, requireData } from '#lib/api/envelope';
+import type { components } from '#lib/api/schema';
 import type {
 	CycleResult,
 	DecisionPathStep,
@@ -12,7 +12,7 @@ import type {
 	TopologyResult,
 	ValidationIssue,
 	WorkflowGraph,
-} from '$lib/types/models';
+} from '#lib/types/models';
 
 type NodeDoc = components['schemas']['GraphNodeDoc'];
 type EdgeDoc = components['schemas']['GraphEdgeDoc'];

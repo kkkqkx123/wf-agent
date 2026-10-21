@@ -11,11 +11,11 @@
 		getIndexStatus,
 		rebuildIndex,
 		renameFile,
-	} from '$lib/services/checkpoints';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { checkpoints as store } from '$lib/stores/checkpoints.svelte';
-	import { fileWorkspace as workspace } from '$lib/stores/fileWorkspace.svelte';
-	import { t } from '$lib/i18n';
+	} from '#lib/services/checkpoints';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { checkpoints as store } from '#lib/stores/checkpoints.svelte';
+	import { fileWorkspace as workspace } from '#lib/stores/fileWorkspace.svelte';
+	import { t } from '#lib/i18n';
 
 	let renameOpen = $state(false);
 	let renameFrom = $state('');

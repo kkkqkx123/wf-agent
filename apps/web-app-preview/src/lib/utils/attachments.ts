@@ -1,4 +1,4 @@
-import type { MessageAttachment } from '$lib/types/models';
+import type { MessageAttachment } from '#lib/types/models';
 
 const BLOCK_PATTERN =
 	/<attachment name="([^"]*)">\n([\s\S]*?)\n<\/attachment>/g;

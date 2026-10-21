@@ -18,8 +18,8 @@
 		type CanvasMove,
 		type CanvasPosition,
 		type PresenceCursor,
-	} from '$lib/components/domain/GraphCanvas.svelte';
-	import AddNodeDrawer from '$lib/components/domain/AddNodeDrawer.svelte';
+	} from '#lib/components/domain/GraphCanvas.svelte';
+	import AddNodeDrawer from '#lib/components/domain/AddNodeDrawer.svelte';
 	import ContextMenu, {
 		type ContextMenuItem,
 	} from '@wf-agent/ui/components/ContextMenu.svelte';
@@ -28,15 +28,15 @@
 		foldForCap,
 		groupIdFromTitle,
 		isGroupTitleId,
-	} from '$lib/graph/group-view';
+	} from '#lib/graph/group-view';
 	import {
 		columnPositions,
 		compactPositions,
 		layeredPositions,
 		rowPositions,
 		sortIdsByCanvasPosition,
-	} from '$lib/graph/layout';
-	import { registerCanvasShortcuts } from '$lib/graph/canvas-shortcuts';
+	} from '#lib/graph/layout';
+	import { registerCanvasShortcuts } from '#lib/graph/canvas-shortcuts';
 	import {
 		capGraph,
 		distinctKinds,
@@ -49,16 +49,16 @@
 		type GraphLayoutKind,
 		type GraphOverlay,
 		type GraphPreset,
-	} from '$lib/graph/display-model';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { preferences } from '$lib/stores/preferences.svelte';
+	} from '#lib/graph/display-model';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { preferences } from '#lib/stores/preferences.svelte';
 	import {
 		getWorkflowLayout,
 		resetWorkflowLayout,
 		saveWorkflowLayout,
-	} from '$lib/services/layout';
+	} from '#lib/services/layout';
 	import { cn } from '@wf-agent/ui/cn';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		nodes: DisplayNode[];

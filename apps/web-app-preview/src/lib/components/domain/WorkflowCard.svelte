@@ -1,11 +1,11 @@
 <script lang="ts">
-	import type { Workflow } from '$lib/types/models';
+	import type { Workflow } from '#lib/types/models';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import Badge from '@wf-agent/ui/components/Badge.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
-	import { formatPercent, formatRelativeTime } from '$lib/utils/format';
+	import { formatPercent, formatRelativeTime } from '#lib/utils/format';
 	import { cn } from '@wf-agent/ui/cn';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		workflow: Workflow;

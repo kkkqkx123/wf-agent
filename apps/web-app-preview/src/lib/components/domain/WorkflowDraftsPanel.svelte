@@ -7,11 +7,11 @@
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 		import JsonViewer from '@wf-agent/ui/components/JsonViewer.svelte';
-	import { getWorkflowDraftTopology } from '$lib/services/graph';
-	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
-	import type { WorkflowDraft } from '$lib/types/models';
-	import { formatDateTime } from '$lib/utils/format';
-	import { t } from '$lib/i18n';
+	import { getWorkflowDraftTopology } from '#lib/services/graph';
+	import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
+	import type { WorkflowDraft } from '#lib/types/models';
+	import { formatDateTime } from '#lib/utils/format';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		drafts: WorkflowDraft[];
@@ -127,7 +127,7 @@
 							onretry={() => void togglePreview(draft.id)}
 						/>
 					{:else}
-						{#await import('$lib/components/domain/GraphExplorer.svelte') then module}
+						{#await import('#lib/components/domain/GraphExplorer.svelte') then module}
 <module.default
 							nodes={previewNodes}
 							edges={previewEdges}

@@ -2,12 +2,12 @@
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
 	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
-	import ApprovalsPanel from '$lib/components/domain/checkpoints/ApprovalsPanel.svelte';
-	import { approveApproval, rejectApproval } from '$lib/services/checkpoints';
-	import type { Approval } from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { checkpoints as checkpointStore } from '$lib/stores/checkpoints.svelte';
-	import { t } from '$lib/i18n';
+	import ApprovalsPanel from '#lib/components/domain/checkpoints/ApprovalsPanel.svelte';
+	import { approveApproval, rejectApproval } from '#lib/services/checkpoints';
+	import type { Approval } from '#lib/types/models';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { checkpoints as checkpointStore } from '#lib/stores/checkpoints.svelte';
+	import { t } from '#lib/i18n';
 
 	// No reload prop: the refetch is driven by `bump('approvals')` notifying
 	// the route's live subscription, which reloads this tab. `onremove` drops

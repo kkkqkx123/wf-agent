@@ -6,9 +6,9 @@
 	import Input from '@wf-agent/ui/components/Input.svelte';
 	import Select from '@wf-agent/ui/components/Select.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
-	import type { Approval } from '$lib/types/models';
-	import { formatDateTime } from '$lib/utils/format';
-	import { t } from '$lib/i18n';
+	import type { Approval } from '#lib/types/models';
+	import { formatDateTime } from '#lib/utils/format';
+	import { t } from '#lib/i18n';
 
 	let {
 		approvals,

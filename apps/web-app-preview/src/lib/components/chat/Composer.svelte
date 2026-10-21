@@ -8,20 +8,20 @@ import { cn } from '@wf-agent/ui/cn';
 		parseCommand,
 		SLASH_COMMANDS,
 		type CommandAction,
-	} from '$lib/config/commands';
-	import { mentionSearch, type MentionCandidate } from '$lib/services/mentions';
-	import { sessions } from '$lib/stores/sessions.svelte';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import ModelPicker from '$lib/components/chat/ModelPicker.svelte';
-	import AgentPicker from '$lib/components/chat/AgentPicker.svelte';
-	import WorkflowPicker from '$lib/components/chat/WorkflowPicker.svelte';
+	} from '#lib/config/commands';
+	import { mentionSearch, type MentionCandidate } from '#lib/services/mentions';
+	import { sessions } from '#lib/stores/sessions.svelte';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import ModelPicker from '#lib/components/chat/ModelPicker.svelte';
+	import AgentPicker from '#lib/components/chat/AgentPicker.svelte';
+	import WorkflowPicker from '#lib/components/chat/WorkflowPicker.svelte';
 	import ExecutionTypePicker, {
 		type ExecutionType,
-	} from '$lib/components/chat/ExecutionTypePicker.svelte';
-	import type { MessageAttachment, OutgoingMessage } from '$lib/types/models';
-	import { entityMention, textRuns } from '$lib/utils/mentions';
-	import { mentionClass, mentionIcon } from '$lib/utils/mention-style';
-	import { t } from '$lib/i18n';
+	} from '#lib/components/chat/ExecutionTypePicker.svelte';
+	import type { MessageAttachment, OutgoingMessage } from '#lib/types/models';
+	import { entityMention, textRuns } from '#lib/utils/mentions';
+	import { mentionClass, mentionIcon } from '#lib/utils/mention-style';
+	import { t } from '#lib/i18n';
 
 	/** Largest inlined attachment per file; larger files are truncated. */
 	const ATTACHMENT_LIMIT = 64_000;

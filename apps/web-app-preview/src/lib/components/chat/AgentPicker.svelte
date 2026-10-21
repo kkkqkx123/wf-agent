@@ -5,11 +5,11 @@
 	 */
 	import InstancePicker, {
 		type PickerOption,
-	} from '$lib/components/chat/InstancePicker.svelte';
-	import { isRunnableTemplate, listTemplates, DEFAULT_AGENT_ID } from '$lib/services/templates';
-	import { pickerState } from '$lib/stores/picker-state.svelte';
-	import { t } from '$lib/i18n';
-	import type { Template } from '$lib/types/models';
+	} from '#lib/components/chat/InstancePicker.svelte';
+	import { isRunnableTemplate, listTemplates, DEFAULT_AGENT_ID } from '#lib/services/templates';
+	import { pickerState } from '#lib/stores/picker-state.svelte';
+	import { t } from '#lib/i18n';
+	import type { Template } from '#lib/types/models';
 
 	interface Props {
 		value?: string;

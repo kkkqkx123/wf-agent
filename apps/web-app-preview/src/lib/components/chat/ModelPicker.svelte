@@ -7,11 +7,11 @@
 	 */
 	import InstancePicker, {
 		type PickerOption,
-	} from '$lib/components/chat/InstancePicker.svelte';
-	import { listModelProfiles } from '$lib/services/resources';
-	import { pickerState } from '$lib/stores/picker-state.svelte';
-	import { t } from '$lib/i18n';
-	import type { ModelProfile } from '$lib/types/models';
+	} from '#lib/components/chat/InstancePicker.svelte';
+	import { listModelProfiles } from '#lib/services/resources';
+	import { pickerState } from '#lib/stores/picker-state.svelte';
+	import { t } from '#lib/i18n';
+	import type { ModelProfile } from '#lib/types/models';
 
 	interface Props {
 		value?: string;

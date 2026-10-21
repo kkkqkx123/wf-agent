@@ -1,20 +1,20 @@
-import { client, downloadFile } from '$lib/api/client';
-import { call, extractPage, requireData } from '$lib/api/envelope';
-import type { PageResult } from '$lib/api/envelope';
+import { client, downloadFile } from '#lib/api/client';
+import { call, extractPage, requireData } from '#lib/api/envelope';
+import type { PageResult } from '#lib/api/envelope';
 import type {
 	Workflow,
 	WorkflowDetail,
 	WorkflowDraft,
 	WorkflowGraph,
 	WorkflowVersion,
-} from '$lib/types/models';
+} from '#lib/types/models';
 import {
 	getGraphEdges,
 	getGraphNodes,
 	toWorkflowGraph,
 	validateWorkflowDraft,
-} from '$lib/services/graph';
-import { diffTopology } from '$lib/graph/execution-projection';
+} from '#lib/services/graph';
+import { diffTopology } from '#lib/graph/execution-projection';
 
 interface WorkflowDto {
 	id?: string;

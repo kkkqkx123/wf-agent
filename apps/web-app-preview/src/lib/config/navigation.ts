@@ -1,6 +1,6 @@
-import { message } from '$lib/i18n';
+import { message } from '#lib/i18n';
 import type { IconName } from '@wf-agent/ui/icons/paths';
-import type { AppPath } from '$lib/utils/route';
+import type { AppPath } from '#lib/utils/route';
 
 export interface NavItem {
 	href: AppPath;

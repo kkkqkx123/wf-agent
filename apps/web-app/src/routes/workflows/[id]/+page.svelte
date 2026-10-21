@@ -10,31 +10,31 @@
 	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
 	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
-	import PageHeader from '$lib/components/layout/PageHeader.svelte';
+	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
-	import WorkflowGraphTab from '$lib/components/domain/workflow-detail/WorkflowGraphTab.svelte';
-	import WorkflowEditSection from '$lib/components/domain/workflow-detail/WorkflowEditSection.svelte';
-	import WorkflowUnsavedDialog from '$lib/components/domain/workflow-detail/WorkflowUnsavedDialog.svelte';
-	import WorkflowVersionsPanel from '$lib/components/domain/WorkflowVersionsPanel.svelte';
-	import WorkflowDraftsPanel from '$lib/components/domain/WorkflowDraftsPanel.svelte';
-	import WorkflowRunsPanel from '$lib/components/domain/WorkflowRunsPanel.svelte';
+	import WorkflowGraphTab from '#lib/components/domain/workflow-detail/WorkflowGraphTab.svelte';
+	import WorkflowEditSection from '#lib/components/domain/workflow-detail/WorkflowEditSection.svelte';
+	import WorkflowUnsavedDialog from '#lib/components/domain/workflow-detail/WorkflowUnsavedDialog.svelte';
+	import WorkflowVersionsPanel from '#lib/components/domain/WorkflowVersionsPanel.svelte';
+	import WorkflowDraftsPanel from '#lib/components/domain/WorkflowDraftsPanel.svelte';
+	import WorkflowRunsPanel from '#lib/components/domain/WorkflowRunsPanel.svelte';
 	import {
 		executeWorkflow,
 		exportWorkflow,
 		getWorkflowDetail,
-	} from '$lib/services/workflows';
+	} from '#lib/services/workflows';
 	import {
 		promoteWorkflowDraft,
 		validateWorkflowDraft,
-	} from '$lib/services/graph';
-	import type { WorkflowDetail } from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { formatNumber } from '$lib/utils/format';
-	import { gotoWithParams, parseListParams } from '$lib/utils/route';
-	import { t, message } from '$lib/i18n';
-	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
-	import { WorkflowEditSession } from '$lib/workflows/edit-session.svelte';
-	import { WorkflowGraphState } from '$lib/workflows/graph-state.svelte';
+	} from '#lib/services/graph';
+	import type { WorkflowDetail } from '#lib/types/models';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { formatNumber } from '#lib/utils/format';
+	import { gotoWithParams, parseListParams } from '#lib/utils/route';
+	import { t, message } from '#lib/i18n';
+	import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
+	import { WorkflowEditSession } from '#lib/workflows/edit-session.svelte';
+	import { WorkflowGraphState } from '#lib/workflows/graph-state.svelte';
 
 	const TABS = [
 		{ id: 'graph', label: message('page.workflowDetail.tabGraph') },
@@ -44,7 +44,7 @@
 		{ id: 'runs', label: message('page.workflowDetail.tabRuns') },
 	];
 
-	const requestedTab = parseListParams(page.url).tab;
+	const requestedTab = parseListParams(page.url as unknown as URL).tab;
 	let tab = $state(
 		requestedTab && TABS.some((item) => item.id === requestedTab)
 			? requestedTab
@@ -52,7 +52,7 @@
 	);
 
 	$effect(() => {
-		gotoWithParams(page.url, { tab: tab === 'graph' ? '' : tab });
+		gotoWithParams(page.url as unknown as URL, { tab: tab === 'graph' ? '' : tab });
 	});
 
 	let detail = $state<WorkflowDetail | null>(null);

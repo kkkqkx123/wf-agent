@@ -1,7 +1,7 @@
-import type { UsageSnapshot } from '$lib/services/streaming';
-import type { SessionExecutionType } from '$lib/types/models';
-import type { DisplayPayload } from '$lib/utils/tool-output';
-import type { BackgroundMarker } from '$lib/utils/stream-parser';
+import type { UsageSnapshot } from '#lib/services/streaming';
+import type { SessionExecutionType } from '#lib/types/models';
+import type { DisplayPayload } from '#lib/utils/tool-output';
+import type { BackgroundMarker } from '#lib/utils/stream-parser';
 
 /** Milliseconds between buffer flushes into the rendered answer. */
 export const STREAM_FLUSH_MS = 80;

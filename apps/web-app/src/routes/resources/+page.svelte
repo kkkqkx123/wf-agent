@@ -3,7 +3,7 @@
 	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
 	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
-	import PageHeader from '$lib/components/layout/PageHeader.svelte';
+	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import ModelsPanel from './ModelsPanel.svelte';
 	import ToolsPanel from './ToolsPanel.svelte';
 	import ScriptsPanel from './ScriptsPanel.svelte';
@@ -18,17 +18,17 @@
 		listTools,
 		setSkillEnabled,
 		setToolEnabled,
-	} from '$lib/services/resources';
+	} from '#lib/services/resources';
 	import type {
 		ModelProfile,
 		Provider,
 		Script,
 		Skill,
 		Tool,
-	} from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { gotoWithParams, parseListParams } from '$lib/utils/route';
-	import { t } from '$lib/i18n';
+	} from '#lib/types/models';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { gotoWithParams, parseListParams } from '#lib/utils/route';
+	import { t } from '#lib/i18n';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 
@@ -39,7 +39,7 @@
 		{ id: 'skills', label: 'Skills' },
 	];
 
-	const requestedTab = parseListParams(page.url).tab;
+	const requestedTab = parseListParams(page.url as unknown as URL).tab;
 	let tab = $state(
 		requestedTab && TABS.some((item) => item.id === requestedTab)
 			? requestedTab
@@ -47,7 +47,7 @@
 	);
 
 	$effect(() => {
-		gotoWithParams(page.url, { tab: tab === 'models' ? '' : tab });
+		gotoWithParams(page.url as unknown as URL, { tab: tab === 'models' ? '' : tab });
 	});
 	let modelProfiles = $state<ModelProfile[]>([]);
 	let providers = $state<Provider[]>([]);

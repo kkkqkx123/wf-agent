@@ -4,11 +4,11 @@
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
 	import Tooltip from '@wf-agent/ui/components/Tooltip.svelte';
-	import { NAV_GROUPS, navItemFor } from '$lib/config/navigation';
-	import { preferences } from '$lib/stores/preferences.svelte';
-	import { ui } from '$lib/stores/ui.svelte';
+	import { NAV_GROUPS, navItemFor } from '#lib/config/navigation';
+	import { preferences } from '#lib/stores/preferences.svelte';
+	import { ui } from '#lib/stores/ui.svelte';
 	import { cn } from '@wf-agent/ui/cn';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 
 	const RAIL_WIDTH = '3.5rem';
 

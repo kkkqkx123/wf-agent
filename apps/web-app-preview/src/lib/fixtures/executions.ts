@@ -5,7 +5,7 @@ import type {
 	ExecutionHistory,
 	ExecutionSubtree,
 	ToolCallEntry,
-} from '$lib/types/models';
+} from '#lib/types/models';
 import { FIXTURE_EPOCH, durationOf, minutesAgo } from './clock';
 
 export const executions: Execution[] = [

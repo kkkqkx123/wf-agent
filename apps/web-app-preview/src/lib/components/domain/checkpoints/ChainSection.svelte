@@ -3,8 +3,8 @@
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
 	import Input from '@wf-agent/ui/components/Input.svelte';
-	import ChainPanel from '$lib/components/domain/checkpoints/ChainPanel.svelte';
-	import AdvancedCheckpointCard from '$lib/components/domain/checkpoints/AdvancedCheckpointCard.svelte';
+	import ChainPanel from '#lib/components/domain/checkpoints/ChainPanel.svelte';
+	import AdvancedCheckpointCard from '#lib/components/domain/checkpoints/AdvancedCheckpointCard.svelte';
 	import {
 		createExecutionCheckpoint,
 		deleteCheckpoint,
@@ -16,11 +16,11 @@
 		resumeFromCheckpoint,
 		setCheckpointTags,
 		type StateFileLink,
-	} from '$lib/services/checkpoints';
-	import type { Checkpoint } from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { checkpoints as checkpointStore } from '$lib/stores/checkpoints.svelte';
-	import { t } from '$lib/i18n';
+	} from '#lib/services/checkpoints';
+	import type { Checkpoint } from '#lib/types/models';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { checkpoints as checkpointStore } from '#lib/stores/checkpoints.svelte';
+	import { t } from '#lib/i18n';
 
 	// No reload prop: the refetch is driven by `bump('chain')` notifying the
 	// route's live subscription, which reloads this tab.
@@ -129,7 +129,7 @@
 	// ── dialogs ──
 	let restoreOpen = $state(false);
 	let restoreTarget = $state<Checkpoint | null>(null);
-	let restorePreview = $state<import('$lib/services/checkpoints').RestorePreview | null>(null);
+	let restorePreview = $state<import('#lib/services/checkpoints').RestorePreview | null>(null);
 	let restorePreviewLoading = $state(false);
 	let deleteOpen = $state(false);
 	let deleteTarget = $state<Checkpoint | null>(null);

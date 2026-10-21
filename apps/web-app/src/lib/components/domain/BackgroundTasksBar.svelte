@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { chatStream } from '$lib/stores/stream-run.svelte';
-	import { t } from '$lib/i18n';
+	import { chatStream } from '#lib/stores/stream-run.svelte';
+	import { t } from '#lib/i18n';
 
 	const backgroundTools = $derived(
 		chatStream.tools.filter((tool) => tool.background?.sessionId),

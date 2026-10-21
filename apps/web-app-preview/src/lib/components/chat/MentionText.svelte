@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { SvelteRenderableNode, SvelteRenderContext } from 'markstream-svelte';
 	import { resolveStreamingTextState } from 'markstream-core';
-	import { textRuns } from '$lib/utils/mentions';
+	import { textRuns } from '#lib/utils/mentions';
 	import MentionBadge from './MentionBadge.svelte';
 
 	interface Props {

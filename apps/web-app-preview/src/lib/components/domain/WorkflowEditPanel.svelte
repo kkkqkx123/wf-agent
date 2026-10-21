@@ -2,15 +2,15 @@
 	import Badge from '@wf-agent/ui/components/Badge.svelte';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
-		import IssueList from '$lib/components/domain/IssueList.svelte';
+		import IssueList from '#lib/components/domain/IssueList.svelte';
 	import type {
 		CanvasPosition,
 		PresenceCursor,
-	} from '$lib/components/domain/GraphCanvas.svelte';
-	import { GraphEditStore } from '$lib/graph/edit-store.svelte';
-	import { WorkflowLockStore } from '$lib/stores/workflow-lock.svelte';
-	import { t } from '$lib/i18n';
-	import type { TemplateIssue } from '$lib/services/templates';
+	} from '#lib/components/domain/GraphCanvas.svelte';
+	import { GraphEditStore } from '#lib/graph/edit-store.svelte';
+	import { WorkflowLockStore } from '#lib/stores/workflow-lock.svelte';
+	import { t } from '#lib/i18n';
+	import type { TemplateIssue } from '#lib/services/templates';
 
 	interface Props {
 		store: GraphEditStore;
@@ -125,7 +125,7 @@
 		/>
 	</Card>
 {/if}
-{#await import('$lib/components/domain/GraphExplorer.svelte') then module}
+{#await import('#lib/components/domain/GraphExplorer.svelte') then module}
 <module.default
 	bind:this={explorer}
 	nodes={store.nodes}

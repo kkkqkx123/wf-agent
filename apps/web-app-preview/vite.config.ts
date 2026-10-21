@@ -5,7 +5,6 @@ import { visualizer } from 'rollup-plugin-visualizer';
 import { paraglideVitePlugin } from '@inlang/paraglide-js';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import adapter from '@sveltejs/adapter-auto';
-import path from 'node:path';
 
 export default defineConfig({
 	plugins: [
@@ -18,7 +17,6 @@ export default defineConfig({
 		sveltekit({
 			preprocess: vitePreprocess(),
 			adapter: adapter(),
-			alias: { '$lib': 'src/lib', '$paraglide': 'src/lib/paraglide' },
 		}),
 		visualizer({
 			filename: 'stats.md',
@@ -28,11 +26,6 @@ export default defineConfig({
 			brotliSize: true,
 		}),
 	],
-	resolve: {
-		alias: {
-			$paraglide: path.resolve('./src/lib/paraglide'),
-		},
-	},
 	server: {
 		host: '0.0.0.0',
 		port: 3017,

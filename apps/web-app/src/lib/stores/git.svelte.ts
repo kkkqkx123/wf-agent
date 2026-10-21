@@ -1,4 +1,4 @@
-import { getFingerprint } from '$lib/services/git';
+import { getFingerprint } from '#lib/services/git';
 
 export type GitPanel =
 	| 'status'

@@ -8,24 +8,24 @@
 	import Badge from '@wf-agent/ui/components/Badge.svelte';
 	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
 	import Input from '@wf-agent/ui/components/Input.svelte';
-	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import PageState from '$lib/components/layout/PageState.svelte';
+	import PageHeader from '#lib/components/layout/PageHeader.svelte';
+	import PageState from '#lib/components/layout/PageState.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import {
 		listEvents,
 		listDependencies,
 		getDiagnostics,
 		deleteAllEvents,
-	} from '$lib/services/events';
-	import type { Dependency, Diagnostic, EventRecord } from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
+	} from '#lib/services/events';
+	import type { Dependency, Diagnostic, EventRecord } from '#lib/types/models';
+	import { toasts } from '#lib/stores/toast.svelte';
 	import {
 		formatDateTime,
 		formatNumber,
 		formatRelativeTime,
-	} from '$lib/utils/format';
-	import { gotoWithParams, parseListParams } from '$lib/utils/route';
-	import { t } from '$lib/i18n';
+	} from '#lib/utils/format';
+	import { gotoWithParams, parseListParams } from '#lib/utils/route';
+	import { t } from '#lib/i18n';
 
 	const TABS = [
 		{ id: 'stream', label: t('page.events.stream') },
@@ -33,7 +33,7 @@
 		{ id: 'operations', label: t('page.events.operations') },
 	];
 
-	const requestedTab = parseListParams(page.url).tab;
+	const requestedTab = parseListParams(page.url as unknown as URL).tab;
 	let tab = $state(
 		requestedTab && TABS.some((item) => item.id === requestedTab)
 			? requestedTab
@@ -41,7 +41,7 @@
 	);
 
 	$effect(() => {
-		gotoWithParams(page.url, { tab: tab === 'stream' ? '' : tab });
+		gotoWithParams(page.url as unknown as URL, { tab: tab === 'stream' ? '' : tab });
 	});
 	let query = $state('');
 	let expandedId = $state<string | null>(null);

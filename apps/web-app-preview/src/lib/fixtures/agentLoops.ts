@@ -3,7 +3,7 @@ import type {
 	AgentLoopDetail,
 	LoopMessage,
 	LoopVariable,
-} from '$lib/types/models';
+} from '#lib/types/models';
 import { minutesAgo } from './clock';
 
 export const agentLoops: AgentLoop[] = [

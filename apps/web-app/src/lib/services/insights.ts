@@ -1,5 +1,5 @@
-import { client, downloadFile } from '$lib/api/client';
-import { call, extractPage } from '$lib/api/envelope';
+import { client, downloadFile } from '#lib/api/client';
+import { call, extractPage } from '#lib/api/envelope';
 import type {
 	QueryResult,
 	AuditReport,
@@ -10,7 +10,7 @@ import type {
 	EventRecord,
 	Dependency,
 	Diagnostic,
-} from '$lib/types/models';
+} from '#lib/types/models';
 
 type QueryRow = Record<string, string | number | null>;
 
@@ -95,7 +95,7 @@ export async function getOverviewMetrics(): Promise<Metric[]> {
 
 /** Template library served through the template registry routes. */
 export async function listInsightTemplates(): Promise<Template[]> {
-	const { listTemplates } = await import('$lib/services/templates');
+	const { listTemplates } = await import('#lib/services/templates');
 	return listTemplates({ kind: 'all' });
 }
 

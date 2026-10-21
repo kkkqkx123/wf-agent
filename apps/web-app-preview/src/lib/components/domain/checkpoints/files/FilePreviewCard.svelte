@@ -6,17 +6,17 @@
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import DiffView from '@wf-agent/ui/components/DiffView.svelte';
 	import JsonViewer from '@wf-agent/ui/components/JsonViewer.svelte';
-	import StreamMarkdown from '$lib/components/chat/LazyStreamMarkdown.svelte';
+	import StreamMarkdown from '#lib/components/chat/LazyStreamMarkdown.svelte';
 	import type {
 		FileContent,
 		FileTimeline,
 		FileTree,
-	} from '$lib/services/checkpoints';
-	import type { DiffFile } from '$lib/types/diff';
-	import type { FileChange } from '$lib/types/models';
-	import { fileWorkspace as workspace } from '$lib/stores/fileWorkspace.svelte';
-	import { formatBytes, formatRelativeTime } from '$lib/utils/format';
-	import { t } from '$lib/i18n';
+	} from '#lib/services/checkpoints';
+	import type { DiffFile } from '#lib/types/diff';
+	import type { FileChange } from '#lib/types/models';
+	import { fileWorkspace as workspace } from '#lib/stores/fileWorkspace.svelte';
+	import { formatBytes, formatRelativeTime } from '#lib/utils/format';
+	import { t } from '#lib/i18n';
 
 	let {
 		selectedChange,

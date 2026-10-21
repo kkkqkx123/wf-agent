@@ -1,4 +1,4 @@
-import type { LoopMessage } from '$lib/types/models';
+import type { LoopMessage } from '#lib/types/models';
 
 /**
  * Transcript anchor kinds shared by every transcript view. Names describe

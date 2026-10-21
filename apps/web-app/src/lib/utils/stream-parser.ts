@@ -1,6 +1,6 @@
-import type { StreamFailure } from '$lib/api/stream';
-import { parseDisplayPayload } from '$lib/utils/tool-output';
-import type { DisplayPayload } from '$lib/utils/tool-output';
+import type { StreamFailure } from '#lib/api/stream';
+import { parseDisplayPayload } from '#lib/utils/tool-output';
+import type { DisplayPayload } from '#lib/utils/tool-output';
 
 export interface ToolLifecycle {
 	toolCallId: string;

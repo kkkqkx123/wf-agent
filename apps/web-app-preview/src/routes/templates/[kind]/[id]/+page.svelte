@@ -9,22 +9,22 @@
 	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import UnsavedChangesDialog from '@wf-agent/ui/components/UnsavedChangesDialog.svelte';
-	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import TemplateDetailPreview from '$lib/components/domain/templates/TemplateDetailPreview.svelte';
-	import TemplateCreatePanel from '$lib/components/domain/templates/TemplateCreatePanel.svelte';
-	import TemplateEditSection from '$lib/components/domain/templates/TemplateEditSection.svelte';
+	import PageHeader from '#lib/components/layout/PageHeader.svelte';
+	import TemplateDetailPreview from '#lib/components/domain/templates/TemplateDetailPreview.svelte';
+	import TemplateCreatePanel from '#lib/components/domain/templates/TemplateCreatePanel.svelte';
+	import TemplateEditSection from '#lib/components/domain/templates/TemplateEditSection.svelte';
 	import {
 		getTemplateDetail,
 		type TemplateDetail,
-	} from '$lib/services/templates';
-	import type { TemplateKind } from '$lib/types/models';
+	} from '#lib/services/templates';
+	import type { TemplateKind } from '#lib/types/models';
 	import {
 		TemplateEditController,
 		VIEWS,
 		type DetailView,
-	} from '$lib/templates/template-edit-session.svelte';
-	import { gotoWithParams, parseListParams } from '$lib/utils/route';
-	import { t } from '$lib/i18n';
+	} from '#lib/templates/template-edit-session.svelte';
+	import { gotoWithParams, parseListParams } from '#lib/utils/route';
+	import { t } from '#lib/i18n';
 
 	const KINDS: readonly TemplateKind[] = [
 		'node',
@@ -71,7 +71,7 @@
 			: controller.editTab === 'graph'
 				? 'graph'
 				: 'edit';
-		void gotoWithParams(page.url, { tab: view === 'preview' ? '' : view });
+		void gotoWithParams(page.url as unknown as URL, { tab: view === 'preview' ? '' : view });
 	});
 
 	// Keep the session document fresh while typing; failed parses retain
@@ -95,7 +95,7 @@
 			detailLoading = false;
 			return;
 		}
-		const viewParam = parseListParams(page.url).tab;
+		const viewParam = parseListParams(page.url as unknown as URL).tab;
 		const view: DetailView = isView(viewParam)
 			? viewParam
 			: isNew

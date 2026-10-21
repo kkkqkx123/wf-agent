@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import type { ToolCallEntry } from '$lib/types/models';
-	import type { SubAgentNote } from '$lib/stores/stream-run.svelte';
+	import type { ToolCallEntry } from '#lib/types/models';
+	import type { SubAgentNote } from '#lib/stores/stream-run.svelte';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import type { IconName } from '@wf-agent/ui/icons/paths';
 	import Button from '@wf-agent/ui/components/Button.svelte';
@@ -11,11 +11,11 @@
 	import type { StatusTone } from '@wf-agent/ui/status';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import JsonViewer from '@wf-agent/ui/components/JsonViewer.svelte';
-	import { approveApproval, rejectApproval } from '$lib/services/checkpoints';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { formatDuration } from '$lib/utils/format';
+	import { approveApproval, rejectApproval } from '#lib/services/checkpoints';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { formatDuration } from '#lib/utils/format';
 	import { cn } from '@wf-agent/ui/cn';
-	import { resolveToolOutputBudgets } from '$lib/config/tool-output';
+	import { resolveToolOutputBudgets } from '#lib/config/tool-output';
 	import {
 		countSummary,
 		diffLineTone,
@@ -23,11 +23,11 @@
 		inferDisplayKind,
 		limitBodyLines,
 		previewFor,
-	} from '$lib/utils/tool-output';
-	import type { DisplayPayload } from '$lib/utils/tool-output';
-	import { ansiStyleToCss, hasAnsi, parseAnsi } from '$lib/utils/ansi';
-	import { preferences } from '$lib/stores/preferences.svelte';
-	import { t } from '$lib/i18n';
+	} from '#lib/utils/tool-output';
+	import type { DisplayPayload } from '#lib/utils/tool-output';
+	import { ansiStyleToCss, hasAnsi, parseAnsi } from '#lib/utils/ansi';
+	import { preferences } from '#lib/stores/preferences.svelte';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		entry: ToolCallEntry;

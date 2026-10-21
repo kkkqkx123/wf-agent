@@ -1,6 +1,6 @@
 /** Mock routes: the execution checkpoint chain and its stats / metadata. */
 
-import { checkpoints } from '$lib/fixtures/checkpoints';
+import { checkpoints } from '#lib/fixtures/checkpoints';
 import {
 	addMockCheckpoint,
 	emitMockEvent,
@@ -8,7 +8,7 @@ import {
 	removeMockCheckpointsBefore,
 	removeMockCheckpointsByEntity,
 	setMockCheckpointTags,
-} from '$lib/fixtures/checkpoints';
+} from '#lib/fixtures/checkpoints';
 import { pageView, type MockRouter } from '../router';
 import { toCheckpointWire } from '../wire';
 

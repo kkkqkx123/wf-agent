@@ -1,10 +1,10 @@
 <script lang="ts">
-	import Composer from '$lib/components/chat/Composer.svelte';
-	import DecisionMap from '$lib/components/chat/DecisionMap.svelte';
-	import { chatStream } from '$lib/stores/stream-run.svelte';
-	import { NEW_SESSION } from '$lib/stores/sessions.svelte';
-	import { t, type MessageKey } from '$lib/i18n';
-	import type { ChatSessionController } from '$lib/chat/chat-session.svelte';
+	import Composer from '#lib/components/chat/Composer.svelte';
+	import DecisionMap from '#lib/components/chat/DecisionMap.svelte';
+	import { chatStream } from '#lib/stores/stream-run.svelte';
+	import { NEW_SESSION } from '#lib/stores/sessions.svelte';
+	import { t, type MessageKey } from '#lib/i18n';
+	import type { ChatSessionController } from '#lib/chat/chat-session.svelte';
 
 	// Suggestion keys resolve through `t()` so the locale switch applies live.
 	const SUGGESTION_KEYS = [

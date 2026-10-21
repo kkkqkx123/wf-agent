@@ -11,14 +11,14 @@
 		diffWorkflowVersions,
 		executeWorkflow,
 		type VersionDiff,
-	} from '$lib/services/workflows';
-	import { rollbackWorkflow } from '$lib/services/graph';
-	import { buildVersionDiffView } from '$lib/graph/execution-projection';
-	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
-	import type { WorkflowVersion } from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { formatDateTime } from '$lib/utils/format';
-	import { t } from '$lib/i18n';
+	} from '#lib/services/workflows';
+	import { rollbackWorkflow } from '#lib/services/graph';
+	import { buildVersionDiffView } from '#lib/graph/execution-projection';
+	import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
+	import type { WorkflowVersion } from '#lib/types/models';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { formatDateTime } from '#lib/utils/format';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		workflowId: string;
@@ -308,7 +308,7 @@
 				{t('domain.versions.graphMatches')}
 			</p>
 		{/if}
-		{#await import('$lib/components/domain/GraphExplorer.svelte') then module}
+		{#await import('#lib/components/domain/GraphExplorer.svelte') then module}
 <module.default
 			bind:this={diffExplorer}
 			nodes={diffGraphNodes}

@@ -4,8 +4,8 @@
 	import {
 		getAgentCheckpointStats,
 		type AgentCheckpointStats,
-	} from '$lib/services/checkpoints';
-	import { t } from '$lib/i18n';
+	} from '#lib/services/checkpoints';
+	import { t } from '#lib/i18n';
 
 	let stats = $state<AgentCheckpointStats | null>(null);
 	let note = $state<string | null>(null);

@@ -1,4 +1,4 @@
-import { SHORTCUT_ACTIONS } from '$lib/shortcuts/actions';
+import { SHORTCUT_ACTIONS } from '#lib/shortcuts/actions';
 
 /**
  * Portable settings backup: local appearance track, shortcut overrides and

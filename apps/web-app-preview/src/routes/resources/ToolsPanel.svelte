@@ -3,9 +3,9 @@
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Switch from '@wf-agent/ui/components/Switch.svelte';
 	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
-	import type { Tool } from '$lib/types/models';
-	import { t } from '$lib/i18n';
-	import { formatNumber, formatPercent } from '$lib/utils/format';
+	import type { Tool } from '#lib/types/models';
+	import { t } from '#lib/i18n';
+	import { formatNumber, formatPercent } from '#lib/utils/format';
 
 	interface Props {
 		tools: Tool[];

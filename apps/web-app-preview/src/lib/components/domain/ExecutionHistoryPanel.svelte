@@ -7,7 +7,7 @@
 		KeyValue,
 		StatusTransition,
 		TimelineEntry,
-	} from '$lib/types/models';
+	} from '#lib/types/models';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import KeyValueList from './KeyValueList.svelte';
@@ -15,14 +15,14 @@
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import Timeline from './Timeline.svelte';
 	import TimelineOutline from './TimelineOutline.svelte';
-	import { getExecutionHistory } from '$lib/services/executions';
+	import { getExecutionHistory } from '#lib/services/executions';
 	import {
 		formatDateTime,
 		formatDuration,
 		formatNumber,
-	} from '$lib/utils/format';
+	} from '#lib/utils/format';
 	import { cn } from '@wf-agent/ui/cn';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		/**

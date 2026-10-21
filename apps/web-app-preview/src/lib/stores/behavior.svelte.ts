@@ -2,9 +2,9 @@ import {
 	DEFAULT_BEHAVIOR,
 	loadBehavior,
 	saveBehavior,
-} from '$lib/services/preferences';
-import type { Behavior } from '$lib/services/preferences';
-import type { BehaviorBackup } from '$lib/services/portability';
+} from '#lib/services/preferences';
+import type { Behavior } from '#lib/services/preferences';
+import type { BehaviorBackup } from '#lib/services/portability';
 
 /**
  * Server cross-device behavior track shared with the backend preference

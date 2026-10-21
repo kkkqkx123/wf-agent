@@ -1,6 +1,6 @@
-import { client } from '$lib/api/client';
-import { call } from '$lib/api/envelope';
-import type { components } from '$lib/api/schema';
+import { client } from '#lib/api/client';
+import { call } from '#lib/api/envelope';
+import type { components } from '#lib/api/schema';
 
 type LockView = components['schemas']['LockView'];
 

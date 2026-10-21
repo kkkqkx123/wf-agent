@@ -1,6 +1,6 @@
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
-import type { AgentLoop } from '$lib/types/models';
+import type { AgentLoop } from '#lib/types/models';
 import { NEW_SESSION, SessionLocalState } from './session-local.svelte';
 import { SessionRemoteState } from './session-remote.svelte';
 import { chatStream } from './stream-run.svelte';

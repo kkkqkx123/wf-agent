@@ -1,6 +1,6 @@
 <script lang="ts">
-	import PtyPanel from '$lib/components/pty/PtyPanel.svelte';
-	import type { GitWorkbench } from '$lib/git/workbench.svelte';
+	import PtyPanel from '#lib/components/pty/PtyPanel.svelte';
+	import type { GitWorkbench } from '#lib/git/workbench.svelte';
 
 	interface Props {
 		workbench: GitWorkbench;

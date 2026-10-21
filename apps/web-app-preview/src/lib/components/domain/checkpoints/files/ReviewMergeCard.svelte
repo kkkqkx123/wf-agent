@@ -10,12 +10,12 @@
 		mergeToMain,
 		rollbackFeature,
 		type PartitionView,
-	} from '$lib/services/checkpoints';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { checkpoints as store } from '$lib/stores/checkpoints.svelte';
-	import { fileWorkspace as workspace } from '$lib/stores/fileWorkspace.svelte';
-	import { formatRelativeTime } from '$lib/utils/format';
-	import { t } from '$lib/i18n';
+	} from '#lib/services/checkpoints';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { checkpoints as store } from '#lib/stores/checkpoints.svelte';
+	import { fileWorkspace as workspace } from '#lib/stores/fileWorkspace.svelte';
+	import { formatRelativeTime } from '#lib/utils/format';
+	import { t } from '#lib/i18n';
 
 	let {
 		partitions,

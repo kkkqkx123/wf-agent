@@ -2,10 +2,10 @@
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 	import type { Column } from '@wf-agent/ui/components/table';
-	import type { Script } from '$lib/types/models';
-	import { formatNumber, formatRelativeTime } from '$lib/utils/format';
+	import type { Script } from '#lib/types/models';
+	import { formatNumber, formatRelativeTime } from '#lib/utils/format';
 
 	interface Props {
 		scripts: Script[];

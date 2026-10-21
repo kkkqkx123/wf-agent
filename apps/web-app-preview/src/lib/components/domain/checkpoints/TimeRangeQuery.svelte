@@ -1,11 +1,11 @@
 <script lang="ts">
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Input from '@wf-agent/ui/components/Input.svelte';
-	import CheckpointHits from '$lib/components/domain/checkpoints/CheckpointHits.svelte';
-	import { getCheckpointsByTimeRange } from '$lib/services/checkpoints';
-	import type { Checkpoint } from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { t } from '$lib/i18n';
+	import CheckpointHits from '#lib/components/domain/checkpoints/CheckpointHits.svelte';
+	import { getCheckpointsByTimeRange } from '#lib/services/checkpoints';
+	import type { Checkpoint } from '#lib/types/models';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { t } from '#lib/i18n';
 
 	let workflowId = $state('');
 	let rangeStart = $state('');

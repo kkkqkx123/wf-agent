@@ -1,8 +1,8 @@
 <script lang="ts">
-	import TemplateEditPanel from '$lib/components/domain/TemplateEditPanel.svelte';
-	import type { TemplateDetail } from '$lib/services/templates';
-	import type { TemplateKind } from '$lib/types/models';
-	import type { TemplateEditController } from '$lib/templates/template-edit-session.svelte';
+	import TemplateEditPanel from '#lib/components/domain/TemplateEditPanel.svelte';
+	import type { TemplateDetail } from '#lib/services/templates';
+	import type { TemplateKind } from '#lib/types/models';
+	import type { TemplateEditController } from '#lib/templates/template-edit-session.svelte';
 
 	interface Props {
 		kind: TemplateKind;

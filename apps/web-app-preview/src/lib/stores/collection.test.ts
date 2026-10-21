@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createCollection, createResource } from './collection.svelte';
 import type { PageParams } from './collection.svelte';
-import type { PageResult } from '$lib/api/envelope';
+import type { PageResult } from '#lib/api/envelope';
 import { behavior } from './behavior.svelte';
 
 interface Row {

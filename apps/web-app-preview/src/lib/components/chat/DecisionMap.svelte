@@ -1,9 +1,9 @@
 <script lang="ts">
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
-	import GraphCanvas from '$lib/components/domain/GraphCanvas.svelte';
-	import { chatStream } from '$lib/stores/stream-run.svelte';
-	import { t } from '$lib/i18n';
-	import type { ChatSessionController } from '$lib/chat/chat-session.svelte';
+	import GraphCanvas from '#lib/components/domain/GraphCanvas.svelte';
+	import { chatStream } from '#lib/stores/stream-run.svelte';
+	import { t } from '#lib/i18n';
+	import type { ChatSessionController } from '#lib/chat/chat-session.svelte';
 
 	interface Props {
 		controller: ChatSessionController;

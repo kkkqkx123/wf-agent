@@ -15,9 +15,9 @@
 	import type {
 		InteractionAnswer,
 		PendingInteraction,
-	} from '$lib/services/interactions';
-	import type { ChatSessionController } from '$lib/chat/chat-session.svelte';
-	import { t } from '$lib/i18n';
+	} from '#lib/services/interactions';
+	import type { ChatSessionController } from '#lib/chat/chat-session.svelte';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		controller: ChatSessionController;

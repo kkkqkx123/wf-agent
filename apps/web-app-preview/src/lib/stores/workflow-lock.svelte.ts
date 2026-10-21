@@ -1,10 +1,10 @@
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import {
 	acquireWorkflowLock,
 	getWorkflowLock,
 	heartbeatWorkflowLock,
 	releaseWorkflowLock,
-} from '$lib/services/workflow-locks';
+} from '#lib/services/workflow-locks';
 
 const OWNER_KEY = 'wf-workflow-lock-owner';
 const HEARTBEAT_MS = 30_000;

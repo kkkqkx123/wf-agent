@@ -2,11 +2,11 @@
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Input from '@wf-agent/ui/components/Input.svelte';
 	import Select from '@wf-agent/ui/components/Select.svelte';
-	import CheckpointHits from '$lib/components/domain/checkpoints/CheckpointHits.svelte';
-	import { getCheckpointsByEntities } from '$lib/services/checkpoints';
-	import type { Checkpoint } from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { t } from '$lib/i18n';
+	import CheckpointHits from '#lib/components/domain/checkpoints/CheckpointHits.svelte';
+	import { getCheckpointsByEntities } from '#lib/services/checkpoints';
+	import type { Checkpoint } from '#lib/types/models';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { t } from '#lib/i18n';
 
 	let entityIds = $state('');
 	let entityType = $state('checkpoint');

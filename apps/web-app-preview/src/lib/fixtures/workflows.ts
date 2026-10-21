@@ -1,4 +1,4 @@
-import type { Workflow, WorkflowDetail } from '$lib/types/models';
+import type { Workflow, WorkflowDetail } from '#lib/types/models';
 import { minutesAgo } from './clock';
 
 export const workflows: Workflow[] = [

@@ -1,6 +1,6 @@
-import { browser } from '$app/environment';
-import { listFavorites, setFavorite } from '$lib/services/favorites';
-import { toasts } from '$lib/stores/toast.svelte';
+import { browser } from '$app/env';
+import { listFavorites, setFavorite } from '#lib/services/favorites';
+import { toasts } from '#lib/stores/toast.svelte';
 
 /** Kinds of instances the composer lets the user pick. */
 export type PickerKind = 'agent' | 'model' | 'workflow';

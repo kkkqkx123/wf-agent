@@ -2,15 +2,15 @@
 	import type {
 		ExecutionSubtree,
 		ExecutionSubtreeNode,
-	} from '$lib/types/models';
+	} from '#lib/types/models';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
 	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { cn } from '@wf-agent/ui/cn';
 	import { resolve } from '$app/paths';
-	import { formatNumber } from '$lib/utils/format';
-	import { t } from '$lib/i18n';
+	import { formatNumber } from '#lib/utils/format';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		subtree: ExecutionSubtree;

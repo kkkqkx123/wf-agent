@@ -8,9 +8,9 @@
 	import {
 		ptyStoreFor,
 		type PtySessionStore,
-	} from '$lib/stores/pty-session.svelte';
-	import { getPty } from '$lib/services/pty';
-	import { t } from '$lib/i18n';
+	} from '#lib/stores/pty-session.svelte';
+	import { getPty } from '#lib/services/pty';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		/** Repo root; scopes the session store and persistence. */

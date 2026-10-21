@@ -5,13 +5,13 @@
 	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
 	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
-	import PageHeader from '$lib/components/layout/PageHeader.svelte';
+	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
-	import SplitView from '$lib/components/layout/SplitView.svelte';
-	import ExecutionCard from '$lib/components/domain/ExecutionCard.svelte';
-	import ExecutionInspector from '$lib/components/domain/ExecutionInspector.svelte';
+	import SplitView from '#lib/components/layout/SplitView.svelte';
+	import ExecutionCard from '#lib/components/domain/ExecutionCard.svelte';
+	import ExecutionInspector from '#lib/components/domain/ExecutionInspector.svelte';
 	import FilterBar from '@wf-agent/ui/components/FilterBar.svelte';
-	import MetricGrid from '$lib/components/domain/MetricGrid.svelte';
+	import MetricGrid from '#lib/components/domain/MetricGrid.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
 	import type { Column } from '@wf-agent/ui/components/table';
@@ -23,11 +23,11 @@
 		listUnifiedExecutions,
 		getExecutionDetail,
 		getExecutionStats,
-	} from '$lib/services/executions';
-	import type { Execution, ExecutionDetail, Metric } from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { formatDateTime } from '$lib/utils/format';
-	import { t } from '$lib/i18n';
+	} from '#lib/services/executions';
+	import type { Execution, ExecutionDetail, Metric } from '#lib/types/models';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { formatDateTime } from '#lib/utils/format';
+	import { t } from '#lib/i18n';
 
 	/** Wire values of the backend execution status enum; the list endpoint
 	 * matches them with exact equality, so aliasing them would filter to

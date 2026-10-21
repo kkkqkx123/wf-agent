@@ -2,11 +2,11 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import Select from '@wf-agent/ui/components/Select.svelte';
-	import TemplateEditPanel from '$lib/components/domain/TemplateEditPanel.svelte';
-	import { templateFormFields } from '$lib/services/templates';
-	import type { TemplateKind } from '$lib/types/models';
-	import type { TemplateEditController } from '$lib/templates/template-edit-session.svelte';
-	import { t } from '$lib/i18n';
+	import TemplateEditPanel from '#lib/components/domain/TemplateEditPanel.svelte';
+	import { templateFormFields } from '#lib/services/templates';
+	import type { TemplateKind } from '#lib/types/models';
+	import type { TemplateEditController } from '#lib/templates/template-edit-session.svelte';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		controller: TemplateEditController;

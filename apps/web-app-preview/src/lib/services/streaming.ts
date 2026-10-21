@@ -1,8 +1,8 @@
-import { openGetStream, openPostStream } from '$lib/api/stream';
-import type { StreamFailure } from '$lib/api/stream';
-import type { RunLoopMessage } from '$lib/services/agent-loops';
-import { handleExecutionFrame, toErrorRecord } from '$lib/utils/stream-parser';
-import type { ErrorRecord, StreamCallbacks } from '$lib/utils/stream-parser';
+import { openGetStream, openPostStream } from '#lib/api/stream';
+import type { StreamFailure } from '#lib/api/stream';
+import type { RunLoopMessage } from '#lib/services/agent-loops';
+import { handleExecutionFrame, toErrorRecord } from '#lib/utils/stream-parser';
+import type { ErrorRecord, StreamCallbacks } from '#lib/utils/stream-parser';
 
 export type {
 	ToolLifecycle,
@@ -10,7 +10,7 @@ export type {
 	StreamNodeUpdate,
 	ErrorRecord,
 	StreamCallbacks,
-} from '$lib/utils/stream-parser';
+} from '#lib/utils/stream-parser';
 
 export interface LoopStreamBody {
 	model: string;

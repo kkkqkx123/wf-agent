@@ -3,18 +3,18 @@
 	import type { Snippet } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { setHrefResolver } from '@wf-agent/ui/link';
-	import { appPath } from '$lib/utils/route';
-	import AppShell from '$lib/components/layout/AppShell.svelte';
-	import Toaster from '$lib/components/layout/Toaster.svelte';
-	import { ui } from '$lib/stores/ui.svelte';
-	import { preferences } from '$lib/stores/preferences.svelte';
+	import { appPath } from '#lib/utils/route';
+	import AppShell from '#lib/components/layout/AppShell.svelte';
+	import Toaster from '#lib/components/layout/Toaster.svelte';
+	import { ui } from '#lib/stores/ui.svelte';
+	import { preferences } from '#lib/stores/preferences.svelte';
 	import {
 		applyDensityScale,
 		applyFontScale,
 		applyTheme,
 		listenToSystemTheme,
 		resolvedTheme,
-	} from '$lib/stores/theme.svelte';
+	} from '#lib/stores/theme.svelte';
 
 	interface Props {
 		children: Snippet;
@@ -24,7 +24,7 @@
 
 	// The shared kit renders links without knowing the router; the base path
 	// configured for this app is the only thing it needs.
-	setHrefResolver((route) => resolve(appPath(route)));
+	setHrefResolver((route) => resolve(appPath(route) as any));
 
 	$effect(() => {
 		applyTheme(resolvedTheme());
@@ -45,7 +45,7 @@
   pass those slots instead of forking the shell. -->
 
 {#if ui.commandOpen}
-	{#await import('$lib/components/layout/CommandPalette.svelte') then module}
+	{#await import('#lib/components/layout/CommandPalette.svelte') then module}
 		<module.default />
 	{/await}
 {/if}

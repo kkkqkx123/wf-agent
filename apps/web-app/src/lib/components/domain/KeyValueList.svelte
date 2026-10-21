@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { KeyValue } from '$lib/types/models';
+	import type { KeyValue } from '#lib/types/models';
 	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {

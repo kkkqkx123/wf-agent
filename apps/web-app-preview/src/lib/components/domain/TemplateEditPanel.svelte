@@ -5,12 +5,12 @@
 	import Input from '@wf-agent/ui/components/Input.svelte';
 	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
 	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
-		import IssueList from '$lib/components/domain/IssueList.svelte';
+		import IssueList from '#lib/components/domain/IssueList.svelte';
 	import JsonEditor from '@wf-agent/ui/components/JsonEditor.svelte';
-	import type { CanvasPosition } from '$lib/components/domain/GraphCanvas.svelte';
-	import { GraphEditStore } from '$lib/graph/edit-store.svelte';
-	import type { DisplayNode } from '$lib/graph/display-model';
-	import type { TemplateEditTab } from '$lib/types/models';
+	import type { CanvasPosition } from '#lib/components/domain/GraphCanvas.svelte';
+	import { GraphEditStore } from '#lib/graph/edit-store.svelte';
+	import type { DisplayNode } from '#lib/graph/display-model';
+	import type { TemplateEditTab } from '#lib/types/models';
 	import {
 		jsonErrorLine,
 		jsonFieldLine,
@@ -21,10 +21,10 @@
 		TemplateEditSession,
 		type TemplateFormField,
 		type TemplateIssue,
-	} from '$lib/services/templates';
-	import type { TemplateKind } from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { t } from '$lib/i18n';
+	} from '#lib/services/templates';
+	import type { TemplateKind } from '#lib/types/models';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		kind: TemplateKind;
@@ -360,7 +360,7 @@
 		<p class="text-micro text-muted-foreground">
 			{t('domain.templateEdit.graphHint')}
 		</p>
-		{#await import('$lib/components/domain/GraphExplorer.svelte') then module}
+		{#await import('#lib/components/domain/GraphExplorer.svelte') then module}
 <module.default
 			bind:this={explorer}
 			nodes={store.nodes}

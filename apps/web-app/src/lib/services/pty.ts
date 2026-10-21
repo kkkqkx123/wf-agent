@@ -2,9 +2,9 @@ import {
 	API_BASE_URL,
 	client,
 	resolveApiKey,
-} from '$lib/api/client';
-import { call, requireData } from '$lib/api/envelope';
-import type { components } from '$lib/api/schema';
+} from '#lib/api/client';
+import { call, requireData } from '#lib/api/envelope';
+import type { components } from '#lib/api/schema';
 
 export type PtySession = components['schemas']['PtySession'];
 

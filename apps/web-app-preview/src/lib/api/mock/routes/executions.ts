@@ -1,6 +1,6 @@
 /** Mock routes: executions, unified listings, timelines and artifacts. */
 
-import { agentLoops } from '$lib/fixtures/agentLoops';
+import { agentLoops } from '#lib/fixtures/agentLoops';
 import {
 	executions,
 	executionDetail,
@@ -8,8 +8,8 @@ import {
 	executionHistory,
 	executionSubtree,
 	executionToolCalls,
-} from '$lib/fixtures/executions';
-import { executionTimeline } from '$lib/fixtures/triggers';
+} from '#lib/fixtures/executions';
+import { executionTimeline } from '#lib/fixtures/triggers';
 import { camelToSnakeDeep, cursorPageView, pageView, type MockRouter } from '../router';
 
 export function registerExecutions(router: MockRouter): void {

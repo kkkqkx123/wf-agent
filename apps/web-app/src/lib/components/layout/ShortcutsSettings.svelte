@@ -10,8 +10,8 @@
 		resolvedShortcutRows,
 		setShortcutOverride,
 		validateShortcut,
-	} from '$lib/shortcuts/registry';
-	import { t } from '$lib/i18n';
+	} from '#lib/shortcuts/registry';
+	import { t } from '#lib/i18n';
 
 	interface Row {
 		id: string;

@@ -5,10 +5,10 @@ import {
 	saveWorkflowDraft,
 	deleteWorkflowDraft,
 	validateWorkflowDraft,
-} from '$lib/services/graph';
-import { GraphEditStore } from '$lib/graph/edit-store.svelte';
-import type { CanvasPosition } from '$lib/graph/canvas-model';
-import { createWorkflow } from '$lib/services/workflows';
+} from '#lib/services/graph';
+import { GraphEditStore } from '#lib/graph/edit-store.svelte';
+import type { CanvasPosition } from '#lib/graph/canvas-model';
+import { createWorkflow } from '#lib/services/workflows';
 import {
 	allocateGraphNodeId,
 	cloneTemplate,
@@ -24,12 +24,12 @@ import {
 	validateTemplateDefinition,
 	type TemplateDetail,
 	type TemplateIssue,
-} from '$lib/services/templates';
-import type { TemplateEditTab, TemplateKind } from '$lib/types/models';
-import { normalizeNodeType } from '$lib/graph/node-kind';
-import { nodeInsertStore } from '$lib/stores/node-insert.svelte';
-import { toasts } from '$lib/stores/toast.svelte';
-import { slugify } from '$lib/utils/format';
+} from '#lib/services/templates';
+import type { TemplateEditTab, TemplateKind } from '#lib/types/models';
+import { normalizeNodeType } from '#lib/graph/node-kind';
+import { nodeInsertStore } from '#lib/stores/node-insert.svelte';
+import { toasts } from '#lib/stores/toast.svelte';
+import { slugify } from '#lib/utils/format';
 
 export const VIEWS = ['preview', 'edit', 'graph'] as const;
 export type DetailView = (typeof VIEWS)[number];

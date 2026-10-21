@@ -4,22 +4,22 @@
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
 	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
-	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
-	import MessageBubble from '$lib/components/domain/MessageBubble.svelte';
-	import TranscriptScroller from '$lib/components/chat/TranscriptScroller.svelte';
-	import { isTranscriptAnchor } from '$lib/chat/transcript-anchors';
+	import KeyValueList from '#lib/components/domain/KeyValueList.svelte';
+	import MessageBubble from '#lib/components/domain/MessageBubble.svelte';
+	import TranscriptScroller from '#lib/components/chat/TranscriptScroller.svelte';
+	import { isTranscriptAnchor } from '#lib/chat/transcript-anchors';
 	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
-	import Timeline from '$lib/components/domain/Timeline.svelte';
-	import TimelineOutline from '$lib/components/domain/TimelineOutline.svelte';
-	import ToolCallCard from '$lib/components/domain/ToolCallCard.svelte';
+	import Timeline from '#lib/components/domain/Timeline.svelte';
+	import TimelineOutline from '#lib/components/domain/TimelineOutline.svelte';
+	import ToolCallCard from '#lib/components/domain/ToolCallCard.svelte';
 		import {
 		applyExecutionOverlay,
 		matchDecisionNodeId,
 		projectExecutionOverlay,
-	} from '$lib/graph/execution-projection';
-	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
+	} from '#lib/graph/execution-projection';
+	import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
 	import type { Column } from '@wf-agent/ui/components/table';
 	import {
 		getAgentLoop,
@@ -28,35 +28,35 @@
 		listLoopIterations,
 		listLoopTimeline,
 		listLoopVariables,
-	} from '$lib/services/agent-loops';
-	import { listLoopCheckpoints } from '$lib/services/checkpoints';
+	} from '#lib/services/agent-loops';
+	import { listLoopCheckpoints } from '#lib/services/checkpoints';
 	import type {
 		Checkpoint,
 		LoopMessage,
 		LoopVariable,
 		ToolCallEntry,
-	} from '$lib/types/models';
+	} from '#lib/types/models';
 	import {
 		INSPECTOR_TABS,
 		TAB_DATA,
 		TAB_LABELS,
 		type SessionTab,
 		type TabDataKey,
-	} from '$lib/config/session-tabs';
-	import { createResource } from '$lib/stores/collection.svelte';
-	import ToolCallGroup from '$lib/components/domain/ToolCallGroup.svelte';
-	import { groupToolCalls } from '$lib/utils/tool-output';
-	import { preferences } from '$lib/stores/preferences.svelte';
+	} from '#lib/config/session-tabs';
+	import { createResource } from '#lib/stores/collection.svelte';
+	import ToolCallGroup from '#lib/components/domain/ToolCallGroup.svelte';
+	import { groupToolCalls } from '#lib/utils/tool-output';
+	import { preferences } from '#lib/stores/preferences.svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import {
 		formatBytes,
 		formatDateTime,
 		formatDuration,
 		formatNumber,
-	} from '$lib/utils/format';
-	import type { UsageSnapshot } from '$lib/utils/stream-parser';
+	} from '#lib/utils/format';
+	import type { UsageSnapshot } from '#lib/utils/stream-parser';
 	import { cn } from '@wf-agent/ui/cn';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 
 	interface TabState {
 		loading: boolean;
@@ -413,7 +413,7 @@
 				{/if}
 			{/if}
 		{:else if tab === 'graph'}
-			{#await import('$lib/components/domain/GraphExplorer.svelte') then module}
+			{#await import('#lib/components/domain/GraphExplorer.svelte') then module}
 <module.default
 				bind:this={graphExplorer}
 				nodes={decisionOverlayNodes}

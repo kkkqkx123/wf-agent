@@ -1,4 +1,4 @@
-import type { Hook, TimelineEntry, TriggerRecord } from '$lib/types/models';
+import type { Hook, TimelineEntry, TriggerRecord } from '#lib/types/models';
 import { minutesAgo } from './clock';
 
 export const triggerRecords: TriggerRecord[] = [

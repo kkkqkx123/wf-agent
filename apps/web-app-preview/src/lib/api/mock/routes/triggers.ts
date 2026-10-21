@@ -1,6 +1,6 @@
 /** Mock routes: trigger history, trigger executions and hooks. */
 
-import { triggerRecords } from '$lib/fixtures/triggers';
+import { triggerRecords } from '#lib/fixtures/triggers';
 import { camelToSnakeDeep, pageView, type MockRouter } from '../router';
 
 export function registerTriggers(router: MockRouter): void {

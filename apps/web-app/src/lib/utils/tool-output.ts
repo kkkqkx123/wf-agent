@@ -18,9 +18,9 @@ import {
 	TOOL_PREVIEW_MAX_LINES,
 	TOOL_SHELL_PREVIEW_LINES,
 	resolveToolOutputBudgets,
-} from '$lib/config/tool-output';
-import type { ToolOutputBudgets } from '$lib/config/tool-output';
-import type { ToolCallEntry } from '$lib/types/models';
+} from '#lib/config/tool-output';
+import type { ToolOutputBudgets } from '#lib/config/tool-output';
+import type { ToolCallEntry } from '#lib/types/models';
 
 /** Presentation kind selected by the tool that produced the result. */
 export type DisplayKind = 'shell_tail' | 'diff' | 'count' | 'text';

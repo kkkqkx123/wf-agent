@@ -1,7 +1,7 @@
-import { getGraphAnalysis, getGraphNeighbors } from '$lib/services/graph';
-import type { GraphAnalysisResult } from '$lib/types/models';
-import type { GraphOverlay } from '$lib/graph/display-model';
-import { toasts } from '$lib/stores/toast.svelte';
+import { getGraphAnalysis, getGraphNeighbors } from '#lib/services/graph';
+import type { GraphAnalysisResult } from '#lib/types/models';
+import type { GraphOverlay } from '#lib/graph/display-model';
+import { toasts } from '#lib/stores/toast.svelte';
 
 /**
  * Selection and analysis state for the workflow graph tab. Owned by the

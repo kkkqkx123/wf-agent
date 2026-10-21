@@ -1,4 +1,4 @@
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { preferences, type ThemeMode } from './preferences.svelte';
 
 export const systemPreference = $state({ dark: false });

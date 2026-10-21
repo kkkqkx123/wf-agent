@@ -4,21 +4,21 @@
 	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
 	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
-	import MessageBubble from '$lib/components/domain/MessageBubble.svelte';
-	import ReasoningBlock from '$lib/components/chat/ReasoningBlock.svelte';
-	import StreamMarkdown from '$lib/components/chat/LazyStreamMarkdown.svelte';
-	import ToolCallCard from '$lib/components/domain/ToolCallCard.svelte';
-	import BackgroundTasksBar from '$lib/components/domain/BackgroundTasksBar.svelte';
-	import ToolCallGroup from '$lib/components/domain/ToolCallGroup.svelte';
-	import TranscriptScroller from '$lib/components/chat/TranscriptScroller.svelte';
-	import InteractionPrompt from '$lib/components/chat/InteractionPrompt.svelte';
-	import { isTranscriptAnchor } from '$lib/chat/transcript-anchors';
-	import { chatStream } from '$lib/stores/stream-run.svelte';
-	import { NEW_SESSION } from '$lib/stores/sessions.svelte';
-	import { formatDuration, formatNumber } from '$lib/utils/format';
-	import { t } from '$lib/i18n';
-	import type { LoopMessage, ToolCallEntry } from '$lib/types/models';
-	import type { ChatSessionController } from '$lib/chat/chat-session.svelte';
+	import MessageBubble from '#lib/components/domain/MessageBubble.svelte';
+	import ReasoningBlock from '#lib/components/chat/ReasoningBlock.svelte';
+	import StreamMarkdown from '#lib/components/chat/LazyStreamMarkdown.svelte';
+	import ToolCallCard from '#lib/components/domain/ToolCallCard.svelte';
+	import BackgroundTasksBar from '#lib/components/domain/BackgroundTasksBar.svelte';
+	import ToolCallGroup from '#lib/components/domain/ToolCallGroup.svelte';
+	import TranscriptScroller from '#lib/components/chat/TranscriptScroller.svelte';
+	import InteractionPrompt from '#lib/components/chat/InteractionPrompt.svelte';
+	import { isTranscriptAnchor } from '#lib/chat/transcript-anchors';
+	import { chatStream } from '#lib/stores/stream-run.svelte';
+	import { NEW_SESSION } from '#lib/stores/sessions.svelte';
+	import { formatDuration, formatNumber } from '#lib/utils/format';
+	import { t } from '#lib/i18n';
+	import type { LoopMessage, ToolCallEntry } from '#lib/types/models';
+	import type { ChatSessionController } from '#lib/chat/chat-session.svelte';
 
 	interface Props {
 		controller: ChatSessionController;

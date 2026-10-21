@@ -2,8 +2,8 @@ import type {
 	ExecutionHierarchy,
 	ExecutionSubtree,
 	NodeTrace,
-} from '$lib/types/models';
-import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
+} from '#lib/types/models';
+import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
 import {
 	getExecutionCriticalPath,
 	getExecutionDecisionPoints,
@@ -13,7 +13,7 @@ import {
 	getExecutionSlowNodes,
 	type EfficiencyEntry,
 	type SlowNodeEntry,
-} from '$lib/services/graph';
+} from '#lib/services/graph';
 import {
 	getExecutionCallStack,
 	getExecutionContext,
@@ -21,8 +21,8 @@ import {
 	getExecutionMemory,
 	getExecutionSubtree,
 	getExecutionVariables,
-} from '$lib/services/executions';
-import { getExecutionNodeTraces } from '$lib/services/node-trace';
+} from '#lib/services/executions';
+import { getExecutionNodeTraces } from '#lib/services/node-trace';
 
 /** Graph tab snapshot: display nodes/edges plus failure overlays. */
 export interface GraphSnapshot {

@@ -1,4 +1,4 @@
-import { message } from '$lib/i18n';
+import { message } from '#lib/i18n';
 
 export type CommandAction = 'new' | 'retry' | 'continue';
 

@@ -8,21 +8,21 @@
 	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
 	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
 	import Input from '@wf-agent/ui/components/Input.svelte';
-	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import PageState from '$lib/components/layout/PageState.svelte';
+	import PageHeader from '#lib/components/layout/PageHeader.svelte';
+	import PageState from '#lib/components/layout/PageState.svelte';
 
 	import {
 		listCheckpoints,
 		getApprovalRequests,
 		createFileCheckpoint,
-	} from '$lib/services/checkpoints';
-	import type { Approval, Checkpoint } from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { checkpoints as checkpointStore } from '$lib/stores/checkpoints.svelte';
-	import { fileWorkspace } from '$lib/stores/fileWorkspace.svelte';
-	import { gotoWithParams, parseListParams } from '$lib/utils/route';
-	import type { CheckpointDomain } from '$lib/stores/checkpoints.svelte';
-	import { t } from '$lib/i18n';
+	} from '#lib/services/checkpoints';
+	import type { Approval, Checkpoint } from '#lib/types/models';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { checkpoints as checkpointStore } from '#lib/stores/checkpoints.svelte';
+	import { fileWorkspace } from '#lib/stores/fileWorkspace.svelte';
+	import { gotoWithParams, parseListParams } from '#lib/utils/route';
+	import type { CheckpointDomain } from '#lib/stores/checkpoints.svelte';
+	import { t } from '#lib/i18n';
 
 	const TABS = [
 		{ id: 'chain', label: t('page.checkpoints.tabChain') },
@@ -30,7 +30,7 @@
 		{ id: 'approvals', label: t('page.checkpoints.tabApprovals') },
 	];
 
-	const requestedTab = parseListParams(page.url).tab;
+	const requestedTab = parseListParams(page.url as unknown as URL).tab;
 	let tab = $state(
 		requestedTab && TABS.some((item) => item.id === requestedTab)
 			? requestedTab
@@ -38,7 +38,7 @@
 	);
 
 	$effect(() => {
-		gotoWithParams(page.url, { tab: tab === 'chain' ? '' : tab });
+		gotoWithParams(page.url as unknown as URL, { tab: tab === 'chain' ? '' : tab });
 	});
 
 	// ── chain tab ──
@@ -271,15 +271,15 @@
 			onretry={() => void reload()}
 		>
 			{#if tab === 'chain'}
-				{#await import('$lib/components/domain/checkpoints/ChainSection.svelte') then module}
+				{#await import('#lib/components/domain/checkpoints/ChainSection.svelte') then module}
 					<module.default {chain} />
 				{/await}
 			{:else if tab === 'files'}
-				{#await import('$lib/components/domain/checkpoints/FilesSection.svelte') then module}
+				{#await import('#lib/components/domain/checkpoints/FilesSection.svelte') then module}
 					<module.default />
 				{/await}
 			{:else}
-				{#await import('$lib/components/domain/checkpoints/ApprovalsSection.svelte') then module}
+				{#await import('#lib/components/domain/checkpoints/ApprovalsSection.svelte') then module}
 					<module.default {approvals} onremove={removeApprovals} />
 				{/await}
 			{/if}

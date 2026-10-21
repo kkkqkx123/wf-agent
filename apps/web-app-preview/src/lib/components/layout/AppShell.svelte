@@ -1,20 +1,20 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import Sidebar from './Sidebar.svelte';
 	import TopBar from './TopBar.svelte';
 	import HelpModal from './HelpModal.svelte';
 	import Sheet from '@wf-agent/ui/components/Sheet.svelte';
-	import { NAV_GROUPS, navItemFor } from '$lib/config/navigation';
+	import { NAV_GROUPS, navItemFor } from '#lib/config/navigation';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import { ui } from '$lib/stores/ui.svelte';
-	import { preferences } from '$lib/stores/preferences.svelte';
+	import { ui } from '#lib/stores/ui.svelte';
+	import { preferences } from '#lib/stores/preferences.svelte';
 	import { cn } from '@wf-agent/ui/cn';
 	import { createHotkey } from '@tanstack/svelte-hotkeys';
-	import { effectiveHotkey, isShortcutDisabled } from '$lib/shortcuts/registry';
-	import { t } from '$lib/i18n';
+	import { effectiveHotkey, isShortcutDisabled } from '#lib/shortcuts/registry';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		children: Snippet;

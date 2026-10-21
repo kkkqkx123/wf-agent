@@ -9,8 +9,8 @@
  * guard and degraded to a safe default rather than trusted.
  */
 
-import { client } from '$lib/api/client';
-import { call, extractPage, requireData } from '$lib/api/envelope';
+import { client } from '#lib/api/client';
+import { call, extractPage, requireData } from '#lib/api/envelope';
 
 /** One offered answer of a follow-up question. */
 export interface InteractionOption {

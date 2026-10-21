@@ -5,8 +5,8 @@ import {
 	resolveToolOutputBudgets,
 	TOOL_OUTPUT_DETAIL_ORDER,
 	TOOL_OUTPUT_PRESETS,
-} from '$lib/config/tool-output';
-import { previewFor } from '$lib/utils/tool-output';
+} from '#lib/config/tool-output';
+import { previewFor } from '#lib/utils/tool-output';
 
 describe('tool output presets', () => {
 	it('covers compact, balanced and verbose', () => {

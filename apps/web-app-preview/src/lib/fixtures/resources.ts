@@ -4,7 +4,7 @@ import type {
 	Script,
 	Skill,
 	Tool,
-} from '$lib/types/models';
+} from '#lib/types/models';
 import { minutesAgo } from './clock';
 
 export const modelProfiles: ModelProfile[] = [

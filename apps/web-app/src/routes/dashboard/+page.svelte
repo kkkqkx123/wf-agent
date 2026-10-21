@@ -2,16 +2,16 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import MetricGrid from '$lib/components/domain/MetricGrid.svelte';
+	import PageHeader from '#lib/components/layout/PageHeader.svelte';
+	import MetricGrid from '#lib/components/domain/MetricGrid.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
 	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
 	import {
 		loadDashboardStats,
 		type DashboardStats,
-	} from '$lib/services/dashboard';
-	import { t } from '$lib/i18n';
+	} from '#lib/services/dashboard';
+	import { t } from '#lib/i18n';
 
 	let stats = $state<DashboardStats | null>(null);
 	let error = $state<string | null>(null);

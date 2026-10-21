@@ -5,7 +5,7 @@
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import type { IconName } from '@wf-agent/ui/icons/paths';
 	import { cn } from '@wf-agent/ui/cn';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		loading?: boolean;

@@ -1,12 +1,12 @@
 import { goto } from '$app/navigation';
-import type { Pathname } from '$app/types';
+import type { ResolvedPathname } from '$app/types';
 
 /**
  * Union of every pathname SvelteKit generated for this app.
  * Importing it keeps route literals honest: a typo in a href becomes a type error
  * instead of a runtime 404.
  */
-export type AppPath = Pathname;
+export type AppPath = ResolvedPathname;
 
 /**
  * Narrow a dynamically built string to the generated pathname union.
@@ -65,8 +65,7 @@ export async function gotoWithParams(
 	const target = `${url.pathname}${next ? `?${next}` : ''}${url.hash}`;
 	// eslint-disable-next-line svelte/no-navigation-without-resolve
 	await goto(target, {
-		keepFocus: true,
-		noScroll: true,
+		reset: false,
 		replaceState: true,
 	});
 }

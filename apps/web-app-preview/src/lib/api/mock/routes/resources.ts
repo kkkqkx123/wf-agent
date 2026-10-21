@@ -6,7 +6,7 @@ import {
 	tools,
 	scripts,
 	skills,
-} from '$lib/fixtures/resources';
+} from '#lib/fixtures/resources';
 import { camelToSnakeDeep, pageView, type MockRouter } from '../router';
 
 export function registerResources(router: MockRouter): void {

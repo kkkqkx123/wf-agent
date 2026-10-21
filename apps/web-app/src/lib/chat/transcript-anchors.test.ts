@@ -6,7 +6,7 @@ import {
 	resolveTranscriptAnchorKind,
 	TRANSCRIPT_ANCHOR_KINDS,
 } from './transcript-anchors';
-import type { LoopMessage } from '$lib/types/models';
+import type { LoopMessage } from '#lib/types/models';
 
 function message(overrides: Partial<LoopMessage>): LoopMessage {
 	return {

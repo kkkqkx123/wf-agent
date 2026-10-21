@@ -1,5 +1,5 @@
-import { client } from '$lib/api/client';
-import { call, requireData } from '$lib/api/envelope';
+import { client } from '#lib/api/client';
+import { call, requireData } from '#lib/api/envelope';
 
 /**
  * Server cross-device behavior track: kept in the server-side preference

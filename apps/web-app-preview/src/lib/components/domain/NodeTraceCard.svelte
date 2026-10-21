@@ -3,19 +3,19 @@
 		LlmReasoningStep,
 		NodeInputContext,
 		NodeTrace,
-	} from '$lib/types/models';
+	} from '#lib/types/models';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import JsonViewer from '@wf-agent/ui/components/JsonViewer.svelte';
-	import StreamMarkdown from '$lib/components/chat/LazyStreamMarkdown.svelte';
+	import StreamMarkdown from '#lib/components/chat/LazyStreamMarkdown.svelte';
 	import KeyValueList from './KeyValueList.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import { toneText } from '@wf-agent/ui/components/variants';
 	import { statusTone } from '@wf-agent/ui/status';
-	import { formatDateTime, formatDuration } from '$lib/utils/format';
-	import { extractMarkdownText } from '$lib/utils/markdown';
+	import { formatDateTime, formatDuration } from '#lib/utils/format';
+	import { extractMarkdownText } from '#lib/utils/markdown';
 	import { cn } from '@wf-agent/ui/cn';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		trace: NodeTrace;

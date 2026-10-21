@@ -4,11 +4,11 @@
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
-	import { sessions } from '$lib/stores/sessions.svelte';
-	import { appPath } from '$lib/utils/route';
-	import type { SessionExecutionType } from '$lib/types/models';
-	import { t, type MessageKey } from '$lib/i18n';
-	import type { ChatSessionController } from '$lib/chat/chat-session.svelte';
+	import { sessions } from '#lib/stores/sessions.svelte';
+	import { appPath } from '#lib/utils/route';
+	import type { SessionExecutionType } from '#lib/types/models';
+	import { t, type MessageKey } from '#lib/i18n';
+	import type { ChatSessionController } from '#lib/chat/chat-session.svelte';
 
 	/** Message key for how each executor is named in the header. */
 	const EXECUTION_KEYS: Record<SessionExecutionType, MessageKey> = {

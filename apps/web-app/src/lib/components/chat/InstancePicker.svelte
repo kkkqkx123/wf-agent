@@ -7,7 +7,7 @@
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import { cn } from '@wf-agent/ui/cn';
 	import type { IconName } from '@wf-agent/ui/icons/paths';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 
 	/** One selectable entry. */
 	export interface PickerOption {

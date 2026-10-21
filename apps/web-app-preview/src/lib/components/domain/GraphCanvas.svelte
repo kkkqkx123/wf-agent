@@ -1,29 +1,29 @@
 <script lang="ts" module>
-	export type * from '$lib/graph/canvas-model';
+	export type * from '#lib/graph/canvas-model';
 </script>
 
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
-	import { browser } from '$app/environment';
+	import { browser } from '$app/env';
 	import type { Core, ElementDefinition, NodeSingular } from 'cytoscape';
-	import { pushOverlapped } from '$lib/graph/layout';
+	import { pushOverlapped } from '#lib/graph/layout';
 	import type {
 		DisplayEdge,
 		DisplayNode,
 		GraphLayoutKind,
 		GraphPreset,
-	} from '$lib/graph/display-model';
-	import { buildElementDefs, rankEdgeIds } from '$lib/graph/canvas-elements';
+	} from '#lib/graph/display-model';
+	import { buildElementDefs, rankEdgeIds } from '#lib/graph/canvas-elements';
 	import {
 		canvasLayoutOptions,
 		presetPositions as presetPositionsFor,
-	} from '$lib/graph/canvas-layout';
+	} from '#lib/graph/canvas-layout';
 	import {
 		describeConnectRejection,
 		isConnectValid,
-	} from '$lib/graph/canvas-connect';
-	import { roundPosition, titleDragMoves } from '$lib/graph/canvas-drag';
+	} from '#lib/graph/canvas-connect';
+	import { roundPosition, titleDragMoves } from '#lib/graph/canvas-drag';
 	import {
 		computeMiniOverview,
 		MINIMAP_AUTO_THRESHOLD,
@@ -31,8 +31,8 @@
 		MINI_W,
 		miniPointerToWorld,
 		projectToMini,
-	} from '$lib/graph/canvas-minimap';
-	import { HoverTip } from '$lib/graph/canvas-tooltip.svelte';
+	} from '#lib/graph/canvas-minimap';
+	import { HoverTip } from '#lib/graph/canvas-tooltip.svelte';
 	import type {
 		CanvasContext,
 		CanvasMove,
@@ -41,11 +41,11 @@
 		ConnectSpot,
 		MiniOverview,
 		PresenceCursor,
-	} from '$lib/graph/canvas-model';
-	import { CANVAS_STYLESHEET } from '$lib/graph/canvas-style';
-	import { isGroupTitleId, type GroupTitle } from '$lib/graph/group-view';
+	} from '#lib/graph/canvas-model';
+	import { CANVAS_STYLESHEET } from '#lib/graph/canvas-style';
+	import { isGroupTitleId, type GroupTitle } from '#lib/graph/group-view';
 	import { cn } from '@wf-agent/ui/cn';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		nodes: DisplayNode[];

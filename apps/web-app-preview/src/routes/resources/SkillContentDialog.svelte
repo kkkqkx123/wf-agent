@@ -3,11 +3,11 @@
 	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
 	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 	import Input from '@wf-agent/ui/components/Input.svelte';
-	import { getSkillContent } from '$lib/services/resources';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import type { Skill } from '$lib/types/models';
+	import { getSkillContent } from '#lib/services/resources';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import type { Skill } from '#lib/types/models';
 
 	interface Props {
 		open?: boolean;

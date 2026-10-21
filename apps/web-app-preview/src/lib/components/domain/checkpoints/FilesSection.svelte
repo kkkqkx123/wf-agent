@@ -4,17 +4,17 @@
 	import Input from '@wf-agent/ui/components/Input.svelte';
 	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
-	import FilesPanel from '$lib/components/domain/checkpoints/FilesPanel.svelte';
+	import FilesPanel from '#lib/components/domain/checkpoints/FilesPanel.svelte';
 	import {
 		getFileContent,
 		resolveConflicts,
 		type ConflictFile,
-	} from '$lib/services/checkpoints';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { checkpoints as checkpointStore } from '$lib/stores/checkpoints.svelte';
-	import { fileWorkspace } from '$lib/stores/fileWorkspace.svelte';
-	import { hasConflictMarkers } from '$lib/types/diff';
-	import { t } from '$lib/i18n';
+	} from '#lib/services/checkpoints';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { checkpoints as checkpointStore } from '#lib/stores/checkpoints.svelte';
+	import { fileWorkspace } from '#lib/stores/fileWorkspace.svelte';
+	import { hasConflictMarkers } from '#lib/types/diff';
+	import { t } from '#lib/i18n';
 
 	// ── dialogs ──
 	let resolveOpen = $state(false);

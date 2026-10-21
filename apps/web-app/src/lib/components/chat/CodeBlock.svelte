@@ -12,8 +12,8 @@
 		highlightCode,
 		normalizeLanguage,
 		type TokenKind,
-	} from '$lib/utils/highlight';
-	import { t } from '$lib/i18n';
+	} from '#lib/utils/highlight';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		node?: {

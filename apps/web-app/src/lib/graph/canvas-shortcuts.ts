@@ -3,7 +3,7 @@ import {
 	effectiveHotkey,
 	isShortcutDisabled,
 	resolvedShortcutRows,
-} from '$lib/shortcuts/registry';
+} from '#lib/shortcuts/registry';
 
 /**
  * Shared vocabulary for canvas shortcuts. The global help overlay renders

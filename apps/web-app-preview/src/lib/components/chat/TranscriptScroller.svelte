@@ -5,18 +5,18 @@
 	import {
 		nextAnchorIndex,
 		prevAnchorIndex,
-	} from '$lib/chat/transcript-anchors';
+	} from '#lib/chat/transcript-anchors';
 	import {
 		FOLLOW_TAIL_SLACK_PX,
 		TRANSCRIPT_OVERSCAN_ROWS,
 		TRANSCRIPT_ROW_ESTIMATE_PX,
 		TRANSCRIPT_ROW_SIZE,
 		VIRTUALIZE_THRESHOLD,
-	} from '$lib/config/virtualization';
+	} from '#lib/config/virtualization';
 	import { cn } from '@wf-agent/ui/cn';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 	import { createHotkey } from '@tanstack/svelte-hotkeys';
-	import { effectiveHotkey, isShortcutDisabled } from '$lib/shortcuts/registry';
+	import { effectiveHotkey, isShortcutDisabled } from '#lib/shortcuts/registry';
 
 	interface Props {
 		items: T[];

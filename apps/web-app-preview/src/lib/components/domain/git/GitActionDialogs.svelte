@@ -3,11 +3,11 @@
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
 	import Input from '@wf-agent/ui/components/Input.svelte';
-	import { git as gitStore } from '$lib/stores/git.svelte';
-	import { bindingsFor } from '$lib/git/bindings';
-	import { GUARDED_DANGERS, PARAM_LABELS } from '$lib/git/workbench.svelte';
-	import type { GitWorkbench } from '$lib/git/workbench.svelte';
-	import { t } from '$lib/i18n';
+	import { git as gitStore } from '#lib/stores/git.svelte';
+	import { bindingsFor } from '#lib/git/bindings';
+	import { GUARDED_DANGERS, PARAM_LABELS } from '#lib/git/workbench.svelte';
+	import type { GitWorkbench } from '#lib/git/workbench.svelte';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		workbench: GitWorkbench;

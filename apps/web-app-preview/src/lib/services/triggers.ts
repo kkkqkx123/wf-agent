@@ -1,7 +1,7 @@
-import { client } from '$lib/api/client';
-import { call, extractPage, requireData } from '$lib/api/envelope';
-import type { PageResult } from '$lib/api/envelope';
-import type { Hook, TriggerRecord } from '$lib/types/models';
+import { client } from '#lib/api/client';
+import { call, extractPage, requireData } from '#lib/api/envelope';
+import type { PageResult } from '#lib/api/envelope';
+import type { Hook, TriggerRecord } from '#lib/types/models';
 
 interface TriggerRecordDto {
 	id?: string;

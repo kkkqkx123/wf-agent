@@ -1,7 +1,7 @@
 <script lang="ts">
 	import MarkdownRender, { type CustomComponentMap } from 'markstream-svelte';
 	import 'markstream-svelte/index.css';
-	import { resolvedTheme } from '$lib/stores/theme.svelte';
+	import { resolvedTheme } from '#lib/stores/theme.svelte';
 	import { cn } from '@wf-agent/ui/cn';
 	import CodeBlock from './CodeBlock.svelte';
 	import MentionText from './MentionText.svelte';

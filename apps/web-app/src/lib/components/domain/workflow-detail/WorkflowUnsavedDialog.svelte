@@ -1,7 +1,7 @@
 <script lang="ts">
 	import UnsavedChangesDialog from '@wf-agent/ui/components/UnsavedChangesDialog.svelte';
-	import type { WorkflowEditSession } from '$lib/workflows/edit-session.svelte';
-	import { t } from '$lib/i18n';
+	import type { WorkflowEditSession } from '#lib/workflows/edit-session.svelte';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		controller: WorkflowEditSession;

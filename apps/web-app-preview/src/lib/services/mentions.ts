@@ -1,5 +1,5 @@
-import { client } from '$lib/api/client';
-import { call } from '$lib/api/envelope';
+import { client } from '#lib/api/client';
+import { call } from '#lib/api/envelope';
 
 export interface MentionCandidate {
 	id: string;

@@ -1,5 +1,5 @@
-import { message } from '$lib/i18n';
-import type { ExecutionKind } from '$lib/types/models';
+import { message } from '#lib/i18n';
+import type { ExecutionKind } from '#lib/types/models';
 
 /** Tab strip of the execution inspector, in display order.
  *

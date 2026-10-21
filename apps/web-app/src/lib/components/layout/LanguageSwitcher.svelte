@@ -5,7 +5,7 @@
 		SUPPORTED_LOCALES,
 		type Locale,
 		t,
-	} from '$lib/i18n';
+	} from '#lib/i18n';
 
 	// Endonyms: a language is named in itself, so these are never translated.
 	const LABELS: Record<Locale, string> = { en: 'English', zh: '中文' };

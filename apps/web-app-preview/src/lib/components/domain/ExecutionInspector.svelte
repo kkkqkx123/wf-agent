@@ -6,7 +6,7 @@
 		NodeTrace,
 		TimelineEntry,
 		ToolCallEntry,
-	} from '$lib/types/models';
+	} from '#lib/types/models';
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
 	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
@@ -18,57 +18,57 @@
 	import TimelineOutline from './TimelineOutline.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
 	import ToolCallGroup from './ToolCallGroup.svelte';
-	import { groupToolCalls } from '$lib/utils/tool-output';
-	import { preferences } from '$lib/stores/preferences.svelte';
+	import { groupToolCalls } from '#lib/utils/tool-output';
+	import { preferences } from '#lib/stores/preferences.svelte';
 	import ExecutionHierarchyBreadcrumb from './ExecutionHierarchyBreadcrumb.svelte';
 	import ExecutionHierarchyTree from './ExecutionHierarchyTree.svelte';
-	import StreamMarkdown from '$lib/components/chat/LazyStreamMarkdown.svelte';
-	import { extractMarkdownText } from '$lib/utils/markdown';
-		import type { GraphOverlay } from '$lib/graph/display-model';
+	import StreamMarkdown from '#lib/components/chat/LazyStreamMarkdown.svelte';
+	import { extractMarkdownText } from '#lib/utils/markdown';
+		import type { GraphOverlay } from '#lib/graph/display-model';
 	import {
 		getExecutionTimeline,
 		getExecutionToolCalls,
-	} from '$lib/services/executions';
-	import { getExecutionGraphNeighbors } from '$lib/services/graph';
-	import type { EfficiencyEntry, SlowNodeEntry } from '$lib/services/graph';
+	} from '#lib/services/executions';
+	import { getExecutionGraphNeighbors } from '#lib/services/graph';
+	import type { EfficiencyEntry, SlowNodeEntry } from '#lib/services/graph';
 	import {
 		loadAnalysisData,
 		loadGraphData,
 		loadHierarchyData,
 		loadStateData,
 		loadTraceData,
-	} from '$lib/services/inspector-loaders';
+	} from '#lib/services/inspector-loaders';
 	import {
 		isLiveStatus,
 		watchExecutionActivity,
-	} from '$lib/services/inspector-activity';
+	} from '#lib/services/inspector-activity';
 	import {
 		formatBytes,
 		formatDateTime,
 		formatDuration,
 		formatNumber,
 		shortId,
-	} from '$lib/utils/format';
+	} from '#lib/utils/format';
 	import { statusTone } from '@wf-agent/ui/status';
 	import { cn } from '@wf-agent/ui/cn';
-	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
+	import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
 	import {
 		applyEdgeOverlay,
 		applyExecutionOverlay,
 		projectEdgeOverlay,
 		projectExecutionOverlay,
-	} from '$lib/graph/execution-projection';
+	} from '#lib/graph/execution-projection';
 	import {
 		EXECUTION_TABS,
 		TAB_GROUPS,
 		defaultTab,
 		type ExecutionTab,
-	} from '$lib/config/execution-tabs';
-	import type { StreamState } from '$lib/api/sse';
-	import type { EventRecord } from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
+	} from '#lib/config/execution-tabs';
+	import type { StreamState } from '#lib/api/sse';
+	import type { EventRecord } from '#lib/types/models';
+	import { toasts } from '#lib/stores/toast.svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		execution: ExecutionDetail;
@@ -1028,7 +1028,7 @@
 					{/if}
 				{/if}
 			</div>
-			{#await import('$lib/components/domain/GraphExplorer.svelte') then module}
+			{#await import('#lib/components/domain/GraphExplorer.svelte') then module}
 <module.default
 				bind:this={explorer}
 				nodes={overlayNodes}

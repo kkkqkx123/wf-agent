@@ -4,20 +4,20 @@
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
 	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
-	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import PageState from '$lib/components/layout/PageState.svelte';
-	import GitGroupsPanel from '$lib/components/domain/git/GitGroupsPanel.svelte';
-	import GitMainView from '$lib/components/domain/git/GitMainView.svelte';
-	import GitKeyInput from '$lib/components/domain/git/GitKeyInput.svelte';
+	import PageHeader from '#lib/components/layout/PageHeader.svelte';
+	import PageState from '#lib/components/layout/PageState.svelte';
+	import GitGroupsPanel from '#lib/components/domain/git/GitGroupsPanel.svelte';
+	import GitMainView from '#lib/components/domain/git/GitMainView.svelte';
+	import GitKeyInput from '#lib/components/domain/git/GitKeyInput.svelte';
 
-	import GitActionDialogs from '$lib/components/domain/git/GitActionDialogs.svelte';
+	import GitActionDialogs from '#lib/components/domain/git/GitActionDialogs.svelte';
 	import { page } from '$app/state';
-	import { gotoWithParams, parseListParams } from '$lib/utils/route';
-	import { GitWorkbench, PANELS } from '$lib/git/workbench.svelte';
-	import type { PanelId } from '$lib/git/workbench.svelte';
-	import { t } from '$lib/i18n';
+	import { gotoWithParams, parseListParams } from '#lib/utils/route';
+	import { GitWorkbench, PANELS } from '#lib/git/workbench.svelte';
+	import type { PanelId } from '#lib/git/workbench.svelte';
+	import { t } from '#lib/i18n';
 
-	const requested = parseListParams(page.url).panel;
+	const requested = parseListParams(page.url as unknown as URL).panel;
 	const workbench = new GitWorkbench();
 	workbench.panel =
 		requested === 'files' ||
@@ -37,7 +37,7 @@
 	onDestroy(() => workbench.stop());
 
 	$effect(() => {
-		void gotoWithParams(page.url, {
+		void gotoWithParams(page.url as unknown as URL, {
 			panel: workbench.panel === 'status' ? '' : workbench.panel,
 		});
 	});
@@ -104,7 +104,7 @@
 					<GitMainView {workbench} />
 					<GitKeyInput {workbench} />
 					{#if workbench.terminalOpen}
-						{#await import('$lib/components/domain/git/GitTerminalPanel.svelte') then module}
+						{#await import('#lib/components/domain/git/GitTerminalPanel.svelte') then module}
 							<module.default {workbench} />
 						{/await}
 					{/if}

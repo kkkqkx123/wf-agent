@@ -1,6 +1,6 @@
 import { SvelteSet } from 'svelte/reactivity';
-import { toasts } from '$lib/stores/toast.svelte';
-import { git as gitStore } from '$lib/stores/git.svelte';
+import { toasts } from '#lib/stores/toast.svelte';
+import { git as gitStore } from '#lib/stores/git.svelte';
 import {
 	getCommitFiles,
 	getDiff,
@@ -31,10 +31,10 @@ import {
 	type SubmoduleEntry,
 	type TagEntry,
 	type WorktreeEntry,
-} from '$lib/services/git';
-import { checkDrift, visibleControls } from '$lib/git/bindings';
-import type { DiffFile } from '$lib/types/diff';
-import { CLIENT_ONLY_ACTIONS, confirmTarget, parseToken } from '$lib/git/parse';
+} from '#lib/services/git';
+import { checkDrift, visibleControls } from '#lib/git/bindings';
+import type { DiffFile } from '#lib/types/diff';
+import { CLIENT_ONLY_ACTIONS, confirmTarget, parseToken } from '#lib/git/parse';
 
 export const PANELS = [
 	{ id: 'status', label: 'Status' },

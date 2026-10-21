@@ -7,34 +7,34 @@
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import Switch from '@wf-agent/ui/components/Switch.svelte';
 	import Select from '@wf-agent/ui/components/Select.svelte';
-	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import PageState from '$lib/components/layout/PageState.svelte';
-	import ShortcutsSettings from '$lib/components/layout/ShortcutsSettings.svelte';
+	import PageHeader from '#lib/components/layout/PageHeader.svelte';
+	import PageState from '#lib/components/layout/PageState.svelte';
+	import ShortcutsSettings from '#lib/components/layout/ShortcutsSettings.svelte';
 	import UnsavedChangesDialog from '@wf-agent/ui/components/UnsavedChangesDialog.svelte';
 	import {
 		preferences,
 		type Density,
 		type ThemeMode,
-	} from '$lib/stores/preferences.svelte';
+	} from '#lib/stores/preferences.svelte';
 	import {
 		describeToolOutputBudgets,
 		resolveToolOutputBudgets,
 		type ToolOutputDetail,
-	} from '$lib/config/tool-output';
-	import { behavior } from '$lib/stores/behavior.svelte';
-	import { toasts } from '$lib/stores/toast.svelte';
-	import { shortcutOverrides } from '$lib/shortcuts/registry';
-	import { saveShortcutOverrides } from '$lib/shortcuts/settings';
+	} from '#lib/config/tool-output';
+	import { behavior } from '#lib/stores/behavior.svelte';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { shortcutOverrides } from '#lib/shortcuts/registry';
+	import { saveShortcutOverrides } from '#lib/shortcuts/settings';
 	import {
 		backupFilename,
 		describeBackup,
 		parseBackupDocument,
 		serializeBackupDocument,
 		type SettingsBackup,
-	} from '$lib/services/portability';
+	} from '#lib/services/portability';
 	import { cn } from '@wf-agent/ui/cn';
-import { t, message } from '$lib/i18n';
-	import { gotoWithParams, parseListParams } from '$lib/utils/route';
+import { t, message } from '#lib/i18n';
+	import { gotoWithParams, parseListParams } from '#lib/utils/route';
 
 	const SECTIONS = [
 		{ id: 'appearance', label: message('page.settings.appearance'), icon: 'sun' },
@@ -45,7 +45,7 @@ import { t, message } from '$lib/i18n';
 		{ id: 'portability', label: message('page.settings.portability'), icon: 'archive' },
 	] as const;
 
-	const requestedSection = parseListParams(page.url).tab;
+	const requestedSection = parseListParams(page.url as unknown as URL).tab;
 	let section = $state<(typeof SECTIONS)[number]['id']>(
 		requestedSection === 'shortcuts' ||
 			requestedSection === 'execution' ||
@@ -57,7 +57,7 @@ import { t, message } from '$lib/i18n';
 	);
 
 	$effect(() => {
-		gotoWithParams(page.url, { tab: section === 'appearance' ? '' : section });
+		gotoWithParams(page.url as unknown as URL, { tab: section === 'appearance' ? '' : section });
 	});
 
 	const THEME_OPTIONS = [

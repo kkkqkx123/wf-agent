@@ -71,11 +71,12 @@ for (const name of [...names].sort()) {
 	if (failed) process.exit(1);
 }
 
-// Merge: base top-level file, then every fragment on top. Fragments win on
-// conflict so they remain the source of truth.
+// Merge: fragments are the sole source of truth. The top-level locale file is
+// a generated artifact, so start from an empty object instead of carrying over
+// stale keys that no fragment owns.
 for (const locale of LOCALES) {
 	const target = path.join(messagesDir, `${locale}.json`);
-	const merged = readJson(target);
+	const merged = {};
 	for (const [, name] of byLocale[locale]) {
 		Object.assign(merged, readJson(path.join(fragmentsDir, `${name}.${locale}.json`)));
 	}

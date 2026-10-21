@@ -1,5 +1,5 @@
 import type { UsageSnapshot } from '#lib/services/streaming';
-import type { SessionExecutionType } from '#lib/types/models';
+import type { SessionExecutorType } from '#lib/types/models';
 import type { DisplayPayload } from '#lib/utils/tool-output';
 import type { BackgroundMarker } from '#lib/utils/stream-parser';
 
@@ -65,7 +65,7 @@ export class StreamRunStore {
 	sessionKey = $state<string | null>(null);
 	active = $state(false);
 	/** Which executor runs the live turn. */
-	executionType = $state<SessionExecutionType | null>(null);
+	executionType = $state<SessionExecutorType | null>(null);
 	/** The model the live turn runs on. */
 	model = $state<string | null>(null);
 	answer = $state('');
@@ -92,7 +92,7 @@ export class StreamRunStore {
 
 	start(
 		sessionKey: string,
-		run?: { executionType: SessionExecutionType; model: string },
+		run?: { executionType: SessionExecutorType; model: string },
 	): AbortSignal {
 		this.stop();
 		this.sessionKey = sessionKey;

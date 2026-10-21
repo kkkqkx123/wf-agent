@@ -9,9 +9,12 @@
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import { toneText } from '@wf-agent/ui/components/variants';
-	import { listExecutions } from '#lib/services/executions';
-	import { executeWorkflow } from '#lib/services/workflows';
-	import type { Execution } from '#lib/types/models';
+	import {
+		getUnifiedExecutionDetail,
+		listUnifiedExecutions,
+	} from '#lib/services/executions';
+	import { runDefinition } from '#lib/services/run';
+	import type { DefinitionKind, Execution } from '#lib/types/models';
 	import {
 		formatDateTime,
 		formatDuration,
@@ -23,10 +26,13 @@
 	import { resolve } from '$app/paths';
 
 	interface Props {
-		workflowId: string;
+		/** The kind of definition the runs belong to. */
+		kind: DefinitionKind;
+		/** The definition the runs were made against. */
+		definitionId: string;
 	}
 
-	let { workflowId }: Props = $props();
+	let { kind, definitionId }: Props = $props();
 
 	/** Wire values of the backend execution status enum; the list endpoint
 	 * matches them with exact equality, so aliasing them would filter to
@@ -53,10 +59,10 @@
 		runsLoading = true;
 		runsError = null;
 		try {
-			const result = await listExecutions({
-				workflowId,
+			const result = await listUnifiedExecutions({
 				limit: 50,
 				status: status || undefined,
+				definitionId,
 			});
 			runs = result.items;
 		} catch (e) {
@@ -67,18 +73,25 @@
 		}
 	}
 
-	/** Re-runs the recorded input against the recorded version when the
-	 * run carries one, so a run made against an older version replays
-	 * that version instead of the definition live now. */
+	/**
+	 * Re-runs the definition. A workflow replays the recorded input against
+	 * the recorded version, so a run made against an older version replays
+	 * that version instead of the definition live now. An agent run needs a
+	 * message to answer, so it is started from the create-task flow instead.
+	 */
 	async function rerun(run: Execution): Promise<void> {
+		if (kind !== 'workflow') return;
 		rerunId = run.id;
 		try {
-			const executionId = await executeWorkflow(
-				workflowId,
-				run.input ?? null,
-				undefined,
-				run.version ?? null,
-			);
+			const detail = await getUnifiedExecutionDetail(run.id);
+			const record =
+				typeof detail.record === 'object' && detail.record !== null
+					? (detail.record as Record<string, unknown>)
+					: {};
+			const executionId = await runDefinition('workflow', definitionId, {
+				input: record.input ?? null,
+				version: (record.workflow_version as string | null) ?? null,
+			});
 			toasts.success(t('domain.runs.rerunStarted'), executionId);
 			await loadRuns();
 		} catch (e) {
@@ -197,21 +210,23 @@
 								</p>
 							{/if}
 						</div>
-						<Button
-							variant="ghost"
-							size="sm"
-							class="shrink-0"
-							disabled={rerunId === run.id}
-							title={run.version
-								? t('domain.runs.rerunVersionTitle', { version: run.version })
-								: t('domain.runs.rerunTitle')}
-							onclick={() => void rerun(run)}
-						>
-							<Icon name="refresh" size={13} />
-							{rerunId === run.id
-								? t('domain.runs.rerunning')
-								: t('domain.runs.rerun')}
-						</Button>
+						{#if kind === 'workflow'}
+							<Button
+								variant="ghost"
+								size="sm"
+								class="shrink-0"
+								disabled={rerunId === run.id}
+								title={run.version
+									? t('domain.runs.rerunVersionTitle', { 'run.version': run.version })
+									: t('domain.runs.rerunTitle')}
+								onclick={() => void rerun(run)}
+							>
+								<Icon name="refresh" size={13} />
+								{rerunId === run.id
+									? t('domain.runs.rerunning')
+									: t('domain.runs.rerun')}
+							</Button>
+						{/if}
 					</li>
 				{/each}
 			</ul>

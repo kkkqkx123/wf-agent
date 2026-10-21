@@ -12,7 +12,7 @@ import type {
 	LoopIteration,
 	LoopMessage,
 	LoopVariable,
-	SessionExecutionType,
+	SessionExecutorType,
 	TimelineEntry,
 	ToolCallEntry,
 	WorkflowGraph,
@@ -94,7 +94,7 @@ function toIso(value: number | null | undefined): string {
 }
 
 /** The executor of a session; an unknown value is rejected, not guessed. */
-function toSessionExecutionType(value: string | null | undefined): SessionExecutionType {
+function toSessionExecutorType(value: string | null | undefined): SessionExecutorType {
 	if (value === 'agent') return 'agent';
 	if (value === 'chat') return 'chat';
 	if (value === 'workflow') return 'workflow';
@@ -107,7 +107,7 @@ function toLoop(d: SummaryDto): AgentLoop {
 		id,
 		name: id,
 		status: d.status ?? '',
-		executionType: toSessionExecutionType(d.execution_type),
+		executionType: toSessionExecutorType(d.execution_type),
 		iteration: d.current_iteration ?? 0,
 		maxIterations: d.current_iteration ?? 0,
 		model: '',

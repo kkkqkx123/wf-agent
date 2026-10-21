@@ -8,13 +8,13 @@
 		PresenceCursor,
 	} from '#lib/components/domain/GraphCanvas.svelte';
 	import { GraphEditStore } from '#lib/graph/edit-store.svelte';
-	import { WorkflowLockStore } from '#lib/stores/workflow-lock.svelte';
+	import { EditLockStore } from '#lib/stores/edit-lock.svelte';
 	import { t } from '#lib/i18n';
 	import type { TemplateIssue } from '#lib/services/templates';
 
 	interface Props {
 		store: GraphEditStore;
-		lock: WorkflowLockStore;
+		lock: EditLockStore;
 		editMode: boolean;
 		editBusy: boolean;
 		issues: TemplateIssue[];
@@ -81,7 +81,7 @@
 	{:else if lock.lockedByOther}
 		<Badge variant="danger"
 			>{t('domain.workflowEdit.lockedByOther', {
-				holder: lock.displayHolder,
+				'lock.displayHolder': lock.displayHolder,
 			})}</Badge
 		>
 	{:else}

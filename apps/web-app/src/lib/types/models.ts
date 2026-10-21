@@ -38,7 +38,7 @@ export interface Execution {
 export type ExecutionKind = 'workflow' | 'agent' | 'chat';
 
 /** Which executor ran a session. */
-export type SessionExecutionType = 'agent' | 'chat' | 'workflow';
+export type SessionExecutorType = 'agent' | 'chat' | 'workflow';
 
 /** One execution as referenced from a hierarchy view. */
 export interface ExecutionRef {
@@ -294,22 +294,43 @@ export interface DecisionPathStep {
 	duration: number | null;
 }
 
-export interface WorkflowVersion {
+/**
+ * The definition kinds that can be edited and therefore carry drafts,
+ * versions and editing locks.
+ */
+export type DefinitionKind = 'workflow' | 'agent';
+
+/** One validation issue on a draft: the field it was raised on and why. */
+export interface DefinitionIssue {
+	field: string;
+	message: string;
+}
+
+/** A draft with its validation attached. */
+export interface DefinitionDraft {
+	kind: DefinitionKind;
+	id: string;
+	name: string;
+	updatedAt: string;
+	/** Whether the draft is promotable as it stands. */
+	valid: boolean;
+	/** The issues that do not block the promotion. */
+	issues: DefinitionIssue[];
+	/** Full upstream definition retained for inspection; drafts may be incomplete. */
+	definition: Record<string, unknown>;
+}
+
+/** One saved version of a formal definition. */
+export interface DefinitionVersion {
+	kind: DefinitionKind;
 	version: string;
 	createdAt: string;
 	author: string;
 	note: string;
+	/** The newest version is the one in place now. */
 	current: boolean;
-}
-
-export interface WorkflowDraft {
-	id: string;
-	name: string;
-	updatedAt: string;
-	valid: boolean;
-	issues: string[];
-	/** Full upstream definition retained for inspection; drafts may be incomplete. */
-	definition: Record<string, unknown> | null;
+	/** The definition as it was saved. */
+	definition: Record<string, unknown>;
 }
 
 export interface Workflow {
@@ -330,8 +351,8 @@ export interface Workflow {
 
 export interface WorkflowDetail extends Workflow {
 	graph: WorkflowGraph;
-	versions: WorkflowVersion[];
-	drafts: WorkflowDraft[];
+	versions: DefinitionVersion[];
+	drafts: DefinitionDraft[];
 }
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
@@ -375,7 +396,7 @@ export interface AgentLoop {
 	name: string;
 	status: string;
 	/** Which executor ran the session. */
-	executionType: SessionExecutionType;
+	executionType: SessionExecutorType;
 	iteration: number;
 	maxIterations: number;
 	model: string;

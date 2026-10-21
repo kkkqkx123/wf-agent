@@ -4,22 +4,24 @@
 	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
 	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import JsonViewer from '@wf-agent/ui/components/JsonViewer.svelte';
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
-		import JsonViewer from '@wf-agent/ui/components/JsonViewer.svelte';
 	import { getWorkflowDraftTopology } from '#lib/services/graph';
 	import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
-	import type { WorkflowDraft } from '#lib/types/models';
+	import type { DefinitionDraft, DefinitionKind } from '#lib/types/models';
 	import { formatDateTime } from '#lib/utils/format';
 	import { t } from '#lib/i18n';
 
 	interface Props {
-		drafts: WorkflowDraft[];
+		/** The kind of definition the drafts belong to. */
+		kind: DefinitionKind;
+		drafts: DefinitionDraft[];
 		onpromote: (draftId: string) => void;
 		onvalidate: (draftId: string) => void;
 	}
 
-	let { drafts, onpromote, onvalidate }: Props = $props();
+	let { kind, drafts, onpromote, onvalidate }: Props = $props();
 
 	let previewId = $state<string | null>(null);
 	let previewNodes = $state<DisplayNode[]>([]);
@@ -27,6 +29,10 @@
 	let previewError = $state<string | null>(null);
 	let previewLoading = $state(false);
 	let definitionId = $state<string | null>(null);
+
+	// Only a workflow has a graph to preview; every kind can show the
+	// definition it carries.
+	const hasGraph = $derived(kind === 'workflow');
 
 	function toggleDefinition(draftId: string): void {
 		definitionId = definitionId === draftId ? null : draftId;
@@ -72,14 +78,17 @@
 				<StatusBadge status={draft.valid ? 'completed' : 'failed'} size="sm" />
 			{/snippet}
 			<p class="text-caption text-muted-foreground">
-				{t('domain.drafts.updated', { time: formatDateTime(draft.updatedAt) })}
+				{t('domain.drafts.updated')}
+				{#if draft.updatedAt}
+					· <span class="tabular-nums">{formatDateTime(draft.updatedAt)}</span>
+				{/if}
 			</p>
 			{#if draft.issues.length > 0}
 				<ul class="mt-2 space-y-1">
 					{#each draft.issues as issue, index (index)}
 						<li class="flex items-start gap-1.5 text-caption text-destructive">
 							<Icon name="alert-circle" size={12} class="mt-0.5 shrink-0" />
-							<span>{issue}</span>
+							<span>{issue.field ? `${issue.field}: ${issue.message}` : issue.message}</span>
 						</li>
 					{/each}
 				</ul>
@@ -96,15 +105,17 @@
 					>
 						{t('domain.graph.validate')}
 					</Button>
-					<Button
-						variant="ghost"
-						size="sm"
-						onclick={() => void togglePreview(draft.id)}
-					>
-						{previewId === draft.id
-							? t('domain.drafts.hideGraph')
-							: t('domain.drafts.previewGraph')}
-					</Button>
+					{#if hasGraph}
+						<Button
+							variant="ghost"
+							size="sm"
+							onclick={() => void togglePreview(draft.id)}
+						>
+							{previewId === draft.id
+								? t('domain.drafts.hideGraph')
+								: t('domain.drafts.previewGraph')}
+						</Button>
+					{/if}
 					<Button
 						variant="ghost"
 						size="sm"

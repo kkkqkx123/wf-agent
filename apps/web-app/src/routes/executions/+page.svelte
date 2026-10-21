@@ -16,8 +16,11 @@
 	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
 	import type { Column } from '@wf-agent/ui/components/table';
 	import CursorPager from '@wf-agent/ui/components/CursorPager.svelte';
+	import CreateTaskPanel from '#lib/components/domain/CreateTaskPanel.svelte';
 	import Select from '@wf-agent/ui/components/Select.svelte';
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import {
 		listExecutions,
 		listUnifiedExecutions,
@@ -50,6 +53,7 @@
 	let view = $state<'list' | 'table'>('list');
 	let selectedId = $state<string | null>(null);
 	let compareMode = $state(false);
+	let showTaskPanel = $state(false);
 	let compareId = $state<string | null>(null);
 	let compareDetail = $state<ExecutionDetail | null>(null);
 	let allExecutions = $state<{ items: Execution[]; hasMore: boolean }>({
@@ -309,14 +313,32 @@
 					<Icon name="copy" size={13} />
 					{t('page.executions.compare')}
 				</Button>
-				<Button size="sm" href="/workflows">
+				<Button
+					size="sm"
+					active={showTaskPanel}
+					onclick={() => (showTaskPanel = !showTaskPanel)}
+				>
 					<Icon name="play" size={13} />
+					{t('page.executions.newTask')}
+				</Button>
+				<Button size="sm" href="/workflows">
+					<Icon name="blocks" size={13} />
 					{t('page.executions.startFromWorkflow')}
 				</Button>
 			{/snippet}
 		</PageHeader>
 
 		<div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+			{#if showTaskPanel}
+				<div class="mb-3">
+					<CreateTaskPanel
+						onstarted={(executionId) => {
+							showTaskPanel = false;
+							void goto(resolve('/executions/[id]', { id: executionId }));
+						}}
+					/>
+				</div>
+			{/if}
 			<MetricGrid metrics={overviewMetrics} class="mb-3" />
 
 			<FilterBar
@@ -331,10 +353,10 @@
 					<Select
 						value={engine}
 						options={[
-							{ value: 'all', label: 'All engines' },
-							{ value: 'workflow', label: 'Workflow' },
-							{ value: 'agent', label: 'Agent' },
-							{ value: 'chat', label: 'Chat' },
+							{ value: 'all', label: t('page.executions.engineAll') },
+							{ value: 'workflow', label: t('page.executions.engineWorkflow') },
+							{ value: 'agent', label: t('page.executions.engineAgent') },
+							{ value: 'chat', label: t('page.executions.engineChat') },
 						]}
 						size="sm"
 						class="w-36"

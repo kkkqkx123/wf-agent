@@ -1,24 +1,15 @@
-//! Draft versus formal agent lifecycle, mirroring workflow drafts.
+//! Draft versus formal agent lifecycle.
+//!
+//! An agent draft is an editable agent definition that promotes into the
+//! formal agent template registry. The lifecycle itself is shared with every
+//! other editable definition kind and lives in `crate::definition::draft`;
+//! this module holds what is specific to an agent: its payload and its
+//! parse-level check.
 
 use wf_storage::adapter::base::BaseStorageAdapter;
 
 use crate::infra::context::ApiContext;
 use crate::infra::error::{ApiError, ApiResult};
-
-pub use crate::workflow::draft::LifecycleStatus;
-
-pub async fn lifecycle_of(ctx: &ApiContext, agent_id: &str) -> Option<LifecycleStatus> {
-    if ctx
-        .storage
-        .agent_draft
-        .exists(agent_id)
-        .await
-        .unwrap_or(false)
-    {
-        return Some(LifecycleStatus::Draft);
-    }
-    Some(LifecycleStatus::Formal)
-}
 
 pub async fn save_draft(
     ctx: &ApiContext,
@@ -48,41 +39,6 @@ pub async fn get_draft(ctx: &ApiContext, id: &str) -> ApiResult<wf_types::agent:
 
 pub async fn list_drafts(ctx: &ApiContext) -> ApiResult<Vec<wf_types::agent::AgentDefinition>> {
     ctx.storage.agent_draft.list(None).await.map_err(Into::into)
-}
-
-pub async fn delete_draft(ctx: &ApiContext, id: &str) -> ApiResult<bool> {
-    Ok(ctx.storage.agent_draft.delete(id).await?)
-}
-
-/// Complete validation preview for publish, no persistence.
-pub async fn validate_draft_complete(ctx: &ApiContext, id: &str) -> ApiResult<Vec<String>> {
-    let draft = get_draft(ctx, id).await?;
-    crate::agent::validate_agent_definition(ctx, &draft).map_err(|e| match e {
-        ApiError::Validation(detail) => ApiError::Validation(format!(
-            "draft agent '{}' cannot be promoted: {}",
-            id, detail
-        )),
-        other => other,
-    })
-}
-
-/// Promote a draft agent to formal template registry.
-pub async fn promote_draft(ctx: &ApiContext, id: &str) -> ApiResult<Vec<String>> {
-    let draft = get_draft(ctx, id).await?;
-    if let Ok(current) = crate::template::template_library::get_agent_template(ctx, id) {
-        let label = current
-            .definition
-            .version
-            .clone()
-            .unwrap_or_else(|| format!("pre-promote-{}", wf_common::now()));
-        let _ = crate::template::template_library::save_agent_template_version(
-            ctx, id, &label, &current,
-        )
-        .await;
-    }
-    let warnings = crate::agent::save_agent_template(ctx, &draft).await?;
-    let _ = delete_draft(ctx, id).await;
-    Ok(warnings)
 }
 
 #[cfg(test)]
@@ -118,10 +74,21 @@ mod tests {
         let ctx = make_ctx();
         save_draft(&ctx, &draft_agent("agent-draft")).await.unwrap();
         assert_eq!(
-            lifecycle_of(&ctx, "agent-draft").await,
-            Some(LifecycleStatus::Draft)
+            crate::definition::draft::lifecycle_of(
+                &ctx,
+                crate::definition::draft::DefinitionKind::Agent,
+                "agent-draft"
+            )
+            .await,
+            Some(crate::definition::draft::LifecycleStatus::Draft)
         );
-        promote_draft(&ctx, "agent-draft").await.unwrap();
+        crate::definition::draft::promote_draft(
+            &ctx,
+            crate::definition::draft::DefinitionKind::Agent,
+            "agent-draft",
+        )
+        .await
+        .unwrap();
         assert!(get_draft(&ctx, "agent-draft").await.is_err());
         assert!(ctx.registries.agent_templates.has("agent-draft"));
     }

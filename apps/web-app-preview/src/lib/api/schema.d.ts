@@ -1432,6 +1432,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/analysis/llm-metrics/execution/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_execution_llm_metrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/analysis/performance/compare": {
         parameters: {
             query?: never;
@@ -4961,6 +4977,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/metrics/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_token"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/metrics/workflow": {
         parameters: {
             query?: never;
@@ -7745,6 +7777,7 @@ export interface components {
                     /** Format: int64 */
                     start_time: number;
                     status: string;
+                    version?: string | null;
                 }[];
                 /** Format: int64 */
                 limit: number;
@@ -10119,6 +10152,7 @@ export interface components {
             /** Format: int64 */
             start_time: number;
             status: string;
+            version?: string | null;
         };
         /**
          * @description Empty payload (`data: null`, e.g. the metadata PUT): utoipa cannot
@@ -17983,6 +18017,81 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_execution_llm_metrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Too many requests: rate limit exceeded (see Retry-After) */
             429: {
@@ -35947,6 +36056,70 @@ export interface operations {
             };
         };
     };
+    handle_token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     handle_workflow: {
         parameters: {
             query?: {
@@ -45001,6 +45174,8 @@ export interface operations {
                 status?: string;
                 /** @description Filter by executor (`workflow`, `agent` or `chat`) */
                 execution_type?: string;
+                /** @description Filter by definition (workflow id, or agent definition id) */
+                definition_id?: string;
                 /** @description Inclusive lower bound on start time (ms epoch) */
                 started_from?: number;
                 /** @description Inclusive upper bound on start time (ms epoch) */
@@ -45083,6 +45258,8 @@ export interface operations {
                 status?: string;
                 /** @description Filter by executor (`workflow`, `agent` or `chat`) */
                 execution_type?: string;
+                /** @description Filter by definition (workflow id, or agent definition id) */
+                definition_id?: string;
                 /** @description Inclusive lower bound on start time (ms epoch) */
                 started_from?: number;
                 /** @description Inclusive upper bound on start time (ms epoch) */

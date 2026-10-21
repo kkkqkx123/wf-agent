@@ -3,6 +3,7 @@ pub mod analysis;
 pub mod audit;
 pub mod chat;
 pub mod checkpoint;
+pub mod definition;
 pub mod entity;
 pub mod execution_artifacts;
 pub mod execution_hierarchy;
@@ -22,8 +23,7 @@ pub mod workflow;
 
 pub use agent::agent_checkpoint::AgentCheckpointStatistics;
 pub use agent::agent_draft::{
-    delete_draft as delete_agent_draft, get_draft as get_agent_draft,
-    list_drafts as list_agent_drafts, promote_draft as promote_agent_draft,
+    get_draft as get_agent_draft, list_drafts as list_agent_drafts,
     save_draft as save_agent_draft,
 };
 pub use agent::agent_error_analysis::{
@@ -80,6 +80,10 @@ pub use audit::{
     list_node_executions, list_tool_calls, AuditReport, AuditSource, AuditSummary,
     AuditTimelineEntry, AuditTimelineEntryType, IterationAuditView, LlmCallAuditView,
     NodeExecutionAuditView, ToolCallAuditView,
+};
+pub use definition::draft::{
+    delete_draft, draft_exists, lifecycle_of, promote_draft, validate_draft_complete,
+    DefinitionKind, LifecycleStatus, PromotionOutcome,
 };
 pub use entity::execution::{
     ensure_execution_domain, resolve_execution, resolve_execution_with_override, ExecutionDomain,
@@ -145,12 +149,9 @@ pub use wf_execution_shared::{
 pub use workflow::approval::{ApprovalResult, ApprovalStatus};
 pub use workflow::builder::WorkflowBuilder;
 pub use workflow::draft::{
-    delete_draft as delete_workflow_draft, get_draft as get_workflow_draft, hot_reload_to_draft,
-    lifecycle_of as workflow_lifecycle_of, list_drafts as list_workflow_drafts, promote_all_drafts,
-    promote_draft as promote_workflow_draft, save_draft as save_workflow_draft,
-    validate_draft_complete as validate_workflow_draft_complete,
+    get_draft as get_workflow_draft, hot_reload_to_draft, list_drafts as list_workflow_drafts,
+    promote_all_drafts, save_draft as save_workflow_draft,
     validate_draft_internal as validate_workflow_draft_internal,
-    LifecycleStatus as WorkflowLifecycleStatus,
 };
 pub use workflow::execution_builder::{ExecutionBuilder, ExecutionResult};
 pub use workflow::execution_graph::{

@@ -38,6 +38,8 @@ pub(crate) struct UnifiedExecutionsQuery {
     status: Option<String>,
     /// Filter by executor (`workflow`, `agent` or `chat`)
     execution_type: Option<String>,
+    /// Filter by definition (workflow id, or agent definition id)
+    definition_id: Option<String>,
     /// Inclusive lower bound on start time (ms epoch)
     started_from: Option<i64>,
     /// Inclusive upper bound on start time (ms epoch)
@@ -51,6 +53,8 @@ pub(crate) struct UnifiedExecutionsCountQuery {
     status: Option<String>,
     /// Filter by executor (`workflow`, `agent` or `chat`)
     execution_type: Option<String>,
+    /// Filter by definition (workflow id, or agent definition id)
+    definition_id: Option<String>,
     /// Inclusive lower bound on start time (ms epoch)
     started_from: Option<i64>,
     /// Inclusive upper bound on start time (ms epoch)
@@ -71,6 +75,8 @@ pub(crate) struct UnifiedExecutionDoc {
     #[serde(skip_serializing_if = "Option::is_none")]
     definition_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     parent_execution_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
@@ -85,6 +91,7 @@ impl From<UnifiedExecutionSummary> for UnifiedExecutionDoc {
             start_time: summary.start_time,
             end_time: summary.end_time,
             definition_id: summary.definition_id,
+            version: summary.version,
             parent_execution_id: summary.parent_execution_id,
             error: summary.error,
         }
@@ -94,6 +101,7 @@ impl From<UnifiedExecutionSummary> for UnifiedExecutionDoc {
 fn parse_filter(
     status: Option<&str>,
     execution_type: Option<&str>,
+    definition_id: Option<String>,
     started_from: Option<i64>,
     started_to: Option<i64>,
 ) -> Result<UnifiedExecutionFilter, String> {
@@ -114,6 +122,7 @@ fn parse_filter(
     Ok(UnifiedExecutionFilter {
         status,
         execution_type,
+        definition_id,
         started_from,
         started_to,
     })
@@ -143,6 +152,7 @@ pub(crate) async fn handle_unified_executions(
     let filter = match parse_filter(
         query.status.as_deref(),
         query.execution_type.as_deref(),
+        query.definition_id.clone(),
         query.started_from,
         query.started_to,
     ) {
@@ -181,6 +191,7 @@ pub(crate) async fn handle_unified_executions_count(
     let filter = match parse_filter(
         query.status.as_deref(),
         query.execution_type.as_deref(),
+        query.definition_id.clone(),
         query.started_from,
         query.started_to,
     ) {

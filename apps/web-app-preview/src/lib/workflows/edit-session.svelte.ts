@@ -5,10 +5,10 @@ import type { CanvasPosition } from '#lib/graph/canvas-model';
 import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
 import { GraphEditStore } from '#lib/graph/edit-store.svelte';
 import {
-	promoteWorkflowDraft,
-	saveWorkflowDraft,
-	validateWorkflowDraft,
-} from '#lib/services/graph';
+	promoteDefinitionDraft,
+	saveDefinitionDraft,
+	validateDefinitionDraft,
+} from '#lib/services/definitions';
 import {
 	allocateGraphNodeId,
 	serverTemplateIssues,
@@ -17,7 +17,7 @@ import {
 import type { ValidationIssue, WorkflowDetail } from '#lib/types/models';
 import { toasts } from '#lib/stores/toast.svelte';
 import { nodeInsertStore } from '#lib/stores/node-insert.svelte';
-import { WorkflowLockStore } from '#lib/stores/workflow-lock.svelte';
+import { EditLockStore } from '#lib/stores/edit-lock.svelte';
 import { presence } from '#lib/stores/presence.svelte';
 
 /**
@@ -28,7 +28,7 @@ import { presence } from '#lib/stores/presence.svelte';
  */
 export class WorkflowEditSession {
 	editStore = new GraphEditStore();
-	lockStore = new WorkflowLockStore();
+	lockStore = new EditLockStore('workflow');
 
 	/** Detail reload callback provided by the route, used after promotion. */
 	private reload: (id: string) => Promise<void>;
@@ -134,7 +134,7 @@ export class WorkflowEditSession {
 	 */
 	presenceEffect(): (() => void) | undefined {
 		if (this.tab !== 'edit' || !this.detail) return;
-		presence.join(this.detail.id);
+		presence.join('workflow', this.detail.id);
 		return () => presence.leave();
 	}
 
@@ -283,7 +283,8 @@ export class WorkflowEditSession {
 		}
 		this.editBusy = true;
 		try {
-			const savedId = await saveWorkflowDraft(
+			const savedId = await saveDefinitionDraft(
+				'workflow',
 				this.editStore.toDraftDefinition(id, this.detail.name),
 			);
 			this.editDraftId = savedId;
@@ -304,7 +305,7 @@ export class WorkflowEditSession {
 			return;
 		}
 		try {
-			this.editIssues = await validateWorkflowDraft(target);
+			this.editIssues = await validateDefinitionDraft('workflow', target);
 			if (this.editIssues.length === 0) {
 				toasts.success('Draft is valid');
 			} else {
@@ -335,7 +336,7 @@ export class WorkflowEditSession {
 			return;
 		}
 		try {
-			const report = await promoteWorkflowDraft(this.editDraftId);
+			const report = await promoteDefinitionDraft('workflow', this.editDraftId);
 			toasts.success(
 				`Draft promoted (${report.passCount} passed, ${report.warningCount} warnings)`,
 			);

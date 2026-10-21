@@ -461,6 +461,7 @@ interface UnifiedExecutionDto {
 	start_time?: number;
 	end_time?: number | null;
 	definition_id?: string | null;
+	version?: string | null;
 	parent_execution_id?: string | null;
 	error?: string | null;
 }
@@ -485,6 +486,7 @@ function toUnifiedExecution(d: UnifiedExecutionDto): Execution {
 		tasksDone: completed ? 1 : 0,
 		failedNodes: 0,
 		memoryPeakBytes: null,
+		version: d.version ?? null,
 		error: d.error ?? null,
 		kind,
 	};
@@ -496,6 +498,7 @@ export async function listUnifiedExecutions(params?: {
 	cursor?: string;
 	status?: string;
 	executionType?: string;
+	definitionId?: string;
 }): Promise<CursorPageResult<Execution>> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/unified-executions', {
@@ -505,6 +508,7 @@ export async function listUnifiedExecutions(params?: {
 					cursor: params?.cursor,
 					status: params?.status,
 					execution_type: params?.executionType,
+					definition_id: params?.definitionId,
 				},
 			},
 		}),

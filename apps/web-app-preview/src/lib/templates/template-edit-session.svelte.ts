@@ -2,10 +2,10 @@ import { SvelteSet } from 'svelte/reactivity';
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
 import {
-	saveWorkflowDraft,
-	deleteWorkflowDraft,
-	validateWorkflowDraft,
-} from '#lib/services/graph';
+	deleteDefinitionDraft,
+	saveDefinitionDraft,
+	validateDefinitionDraft,
+} from '#lib/services/definitions';
 import { GraphEditStore } from '#lib/graph/edit-store.svelte';
 import type { CanvasPosition } from '#lib/graph/canvas-model';
 import { createWorkflow } from '#lib/services/workflows';
@@ -328,8 +328,8 @@ export class TemplateEditController {
 		this.draftBusy = true;
 		let draftId: string | null = null;
 		try {
-			draftId = await saveWorkflowDraft(definition);
-			const issues = await validateWorkflowDraft(draftId);
+			draftId = await saveDefinitionDraft('workflow', definition);
+			const issues = await validateDefinitionDraft('workflow', draftId);
 			this.serverIssues = serverTemplateIssues(
 				issues,
 				this.session.topology().nodes,
@@ -349,7 +349,7 @@ export class TemplateEditController {
 			return false;
 		} finally {
 			if (draftId !== null) {
-				await deleteWorkflowDraft(draftId).catch(() => undefined);
+				await deleteDefinitionDraft('workflow', draftId).catch(() => undefined);
 			}
 			this.draftBusy = false;
 		}

@@ -51,6 +51,7 @@ export function registerExecutions(router: MockRouter): void {
 				start_time: Date.parse(e.startedAt),
 				end_time: e.endedAt ? Date.parse(e.endedAt) : null,
 				definition_id: e.workflowId,
+				version: e.version ?? null,
 				parent_execution_id: null,
 				error: e.error ?? null,
 			})),
@@ -61,6 +62,7 @@ export function registerExecutions(router: MockRouter): void {
 				start_time: Date.parse(loop.startedAt),
 				end_time: Date.parse(loop.updatedAt),
 				definition_id: loop.name,
+				version: null,
 				parent_execution_id: null,
 				error: null,
 			})),
@@ -68,10 +70,13 @@ export function registerExecutions(router: MockRouter): void {
 		const status = typeof query.status === 'string' ? query.status : null;
 		const executionType =
 			typeof query.execution_type === 'string' ? query.execution_type : null;
+		const definitionId =
+			typeof query.definition_id === 'string' ? query.definition_id : null;
 		const filtered = unified.filter(
 			(e) =>
 				(!status || e.status === status) &&
-				(!executionType || e.execution_type === executionType),
+				(!executionType || e.execution_type === executionType) &&
+				(!definitionId || e.definition_id === definitionId),
 		);
 		return cursorPageView(filtered, +(query.limit ?? 50), query.cursor);
 	});

@@ -4,17 +4,17 @@ import type { PageResult } from '#lib/api/envelope';
 import type {
 	Workflow,
 	WorkflowDetail,
-	WorkflowDraft,
 	WorkflowGraph,
-	WorkflowVersion,
 } from '#lib/types/models';
 import {
 	getGraphEdges,
 	getGraphNodes,
 	toWorkflowGraph,
-	validateWorkflowDraft,
 } from '#lib/services/graph';
-import { diffTopology } from '#lib/graph/execution-projection';
+import {
+	listDefinitionDrafts,
+	listDefinitionVersions,
+} from '#lib/services/definitions';
 
 interface WorkflowDto {
 	id?: string;
@@ -105,8 +105,8 @@ export async function getWorkflowDetail(id: string): Promise<WorkflowDetail> {
 	const base = toWorkflow(data);
 	const [graph, versions, drafts] = await Promise.all([
 		getWorkflowGraph(id),
-		getWorkflowVersions(id),
-		listWorkflowDrafts(),
+		listDefinitionVersions('workflow', id),
+		listDefinitionDrafts('workflow'),
 	]);
 	return { ...base, id, graph, versions, drafts };
 }
@@ -137,154 +137,6 @@ interface DefinitionDto {
 	metadata?: { author?: unknown } | null;
 	nodes?: unknown;
 	edges?: unknown;
-}
-
-function definitionVersion(value: unknown, fallback: string): string {
-	return typeof value === 'string' && value ? value : fallback;
-}
-
-/** Workflow version history: full definitions narrowed to row fields. */
-export async function getWorkflowVersions(
-	id: string,
-): Promise<WorkflowVersion[]> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/workflows/{id}/versions', { params: { path: { id } } }),
-	);
-	requireData(data, `Version list missing for workflow ${id}`);
-	const rows = Array.isArray(data) ? (data as DefinitionDto[]) : [];
-	return rows.map((d, index) => ({
-		version: definitionVersion(d.version, `v${index + 1}`),
-		createdAt: toIso(
-			(typeof d.created_at === 'number' ? d.created_at : null) ??
-				(typeof d.updated_at === 'number' ? d.updated_at : null),
-		),
-		author: typeof d.metadata?.author === 'string' ? d.metadata.author : '',
-		note: typeof d.name === 'string' ? d.name : '',
-		current: index === 0,
-	}));
-}
-
-/** One saved version definition (free-form full definition). */
-export async function getWorkflowVersionDefinition(
-	id: string,
-	version: string,
-): Promise<DefinitionDto> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/workflows/{id}/versions/{version}', {
-			params: { path: { id, version } },
-		}),
-	);
-	return requireData(
-		data,
-		`Version ${version} missing for workflow ${id}`,
-	) as DefinitionDto;
-}
-
-interface DiffNodeDto {
-	id?: unknown;
-}
-
-interface DiffEdgeDto {
-	id?: unknown;
-	source_node_id?: unknown;
-	target_node_id?: unknown;
-}
-
-export interface VersionDiff {
-	addedNodes: string[];
-	removedNodes: string[];
-	addedEdges: Array<{ source: string; target: string }>;
-	removedEdges: Array<{ source: string; target: string }>;
-}
-
-/** Structural diff between two saved versions, computed client-side. */
-export async function diffWorkflowVersions(
-	id: string,
-	from: string,
-	to: string,
-): Promise<VersionDiff> {
-	const [a, b] = await Promise.all([
-		getWorkflowVersionDefinition(id, from),
-		getWorkflowVersionDefinition(id, to),
-	]);
-	const toDisplay = (
-		d: DefinitionDto,
-	): {
-		nodes: { id: string }[];
-		edges: { source: string; target: string }[];
-	} => ({
-		nodes: (Array.isArray(d.nodes) ? (d.nodes as DiffNodeDto[]) : [])
-			.map((node) => String(node.id ?? ''))
-			.filter(Boolean)
-			.map((nodeId) => ({ id: nodeId })),
-		edges: (Array.isArray(d.edges) ? (d.edges as DiffEdgeDto[]) : []).map(
-			(edge) => ({
-				source: String(edge.source_node_id ?? ''),
-				target: String(edge.target_node_id ?? ''),
-			}),
-		),
-	});
-	const before = toDisplay(a);
-	const after = toDisplay(b);
-	return diffTopology(
-		before.nodes.map((node) => ({
-			id: node.id,
-			label: node.id,
-			kind: 'unknown',
-		})),
-		before.edges.map((edge) => ({
-			id: `${edge.source}->${edge.target}`,
-			source: edge.source,
-			target: edge.target,
-		})),
-		after.nodes.map((node) => ({
-			id: node.id,
-			label: node.id,
-			kind: 'unknown',
-		})),
-		after.edges.map((edge) => ({
-			id: `${edge.source}->${edge.target}`,
-			source: edge.source,
-			target: edge.target,
-		})),
-	);
-}
-
-/**
- * Editable drafts with validation attached. Drafts may be incomplete, so
- * each entry carries its current validation issues. The upstream list
- * already returns full definitions, so the raw row is retained for
- * inspection instead of narrowed to display fields.
- */
-export async function listWorkflowDrafts(): Promise<WorkflowDraft[]> {
-	const data = await call<unknown>(client.GET('/api/v1/workflows/drafts'));
-	requireData(data, 'Draft list');
-	const rows = Array.isArray(data)
-		? (data as Array<DefinitionDto & Record<string, unknown>>)
-		: [];
-	const validated = await Promise.allSettled(
-		rows.map((row) =>
-			validateWorkflowDraft(String(row.id ?? '')).then(
-				(issues): WorkflowDraft => ({
-					id: String(row.id ?? ''),
-					name: typeof row.name === 'string' ? row.name : String(row.id ?? ''),
-					updatedAt: toIso(
-						(typeof row.updated_at === 'number' ? row.updated_at : null) ??
-							(typeof row.created_at === 'number' ? row.created_at : null),
-					),
-					valid: issues.length === 0,
-					issues: issues.map((issue) => `${issue.field}: ${issue.message}`),
-					definition: { ...row },
-				}),
-			),
-		),
-	);
-	return validated
-		.filter(
-			(result): result is PromiseFulfilledResult<WorkflowDraft> =>
-				result.status === 'fulfilled',
-		)
-		.map((result) => result.value);
 }
 
 /** Create a new workflow. */

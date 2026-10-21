@@ -1,12 +1,13 @@
 import { browser } from '$app/env';
 import {
-	acquireWorkflowLock,
-	getWorkflowLock,
-	heartbeatWorkflowLock,
-	releaseWorkflowLock,
-} from '#lib/services/workflow-locks';
+	acquireDefinitionLock,
+	getDefinitionLock,
+	heartbeatDefinitionLock,
+	releaseDefinitionLock,
+} from '#lib/services/definitions';
+import type { DefinitionKind } from '#lib/types/models';
 
-const OWNER_KEY = 'wf-workflow-lock-owner';
+const OWNER_KEY = 'wf-definition-lock-owner';
 const HEARTBEAT_MS = 30_000;
 const POLL_MS = 20_000;
 
@@ -42,12 +43,15 @@ function storedOwner(): { ownerId: string; ownerName: string } {
 }
 
 /**
- * Single-write lock state for one workflow. The edit store stays unaware
+ * Single-write lock state for one definition. The edit store stays unaware
  * of locking; pages gate entering edit, saving and promoting on this
- * store. When the lock endpoints are absent the store reports unsupported
- * and leaves editing unblocked with a notice.
+ * store. The lease is keyed by the definition kind as well as its id, so a
+ * workflow and an agent never contend for the same lease.
+ *
+ * When the lock endpoints are absent the store reports unsupported and
+ * leaves editing unblocked with a notice.
  */
-export class WorkflowLockStore {
+export class EditLockStore {
 	holderId = $state<string | null>(null);
 	holderName = $state('');
 	supported = $state(true);
@@ -57,7 +61,8 @@ export class WorkflowLockStore {
 	/** Who holds the lease at loss time; empty when the lease simply expired. */
 	lockLostBy = $state('');
 
-	private workflowId = $state('');
+	private kind: DefinitionKind;
+	private definitionId = $state('');
 	private ownerId = $state('');
 	private ownerName = $state('');
 	private leaseActive = false;
@@ -97,7 +102,8 @@ export class WorkflowLockStore {
 		return this.holderName || this.holderId;
 	}
 
-	constructor() {
+	constructor(kind: DefinitionKind) {
+		this.kind = kind;
 		if (browser) {
 			const owner = storedOwner();
 			this.ownerId = owner.ownerId;
@@ -105,26 +111,26 @@ export class WorkflowLockStore {
 		}
 	}
 
-	watch(workflowId: string): void {
-		if (this.workflowId === workflowId && workflowId !== '') return;
-		// Switching workflows releases the previous lease without blocking;
+	watch(definitionId: string): void {
+		if (this.definitionId === definitionId && definitionId !== '') return;
+		// Switching definitions releases the previous lease without blocking;
 		// failures only surface as a notice.
-		if (this.workflowId && this.supported && this.held) {
-			const previousId = this.workflowId;
+		if (this.definitionId && this.supported && this.held) {
+			const previousId = this.definitionId;
 			const previousOwner = this.ownerId;
-			void releaseWorkflowLock(previousId, previousOwner).catch((e) => {
+			void releaseDefinitionLock(this.kind, previousId, previousOwner).catch((e) => {
 				this.refreshError =
 					e instanceof Error ? e.message : 'Lock release failed.';
 			});
 		}
 		this.dispose();
-		this.workflowId = workflowId;
+		this.definitionId = definitionId;
 		this.holderId = null;
 		this.holderName = '';
 		this.refreshError = null;
 		this.leaseActive = false;
 		this.acknowledgeLockLoss();
-		if (!workflowId || !browser) return;
+		if (!definitionId || !browser) return;
 		void this.refresh();
 		this.pollTimer = window.setInterval(() => {
 			void this.refresh();
@@ -132,10 +138,10 @@ export class WorkflowLockStore {
 	}
 
 	async acquire(): Promise<boolean> {
-		if (!this.workflowId) return false;
+		if (!this.definitionId) return false;
 		if (!this.supported) return true;
 		try {
-			const lock = await acquireWorkflowLock(this.workflowId, {
+			const lock = await acquireDefinitionLock(this.kind, this.definitionId, {
 				ownerId: this.ownerId,
 				ownerName: this.ownerName,
 			});
@@ -159,9 +165,9 @@ export class WorkflowLockStore {
 	async release(): Promise<void> {
 		this.stopHeartbeat();
 		this.leaseActive = false;
-		if (!this.workflowId || !this.supported || !this.held) return;
+		if (!this.definitionId || !this.supported || !this.held) return;
 		try {
-			await releaseWorkflowLock(this.workflowId, this.ownerId);
+			await releaseDefinitionLock(this.kind, this.definitionId, this.ownerId);
 			this.refreshError = null;
 		} catch (e) {
 			// Leaving edit never blocks on release failures.
@@ -179,7 +185,7 @@ export class WorkflowLockStore {
 			window.clearInterval(this.pollTimer);
 			this.pollTimer = null;
 		}
-		this.workflowId = '';
+		this.definitionId = '';
 	}
 
 	/** Clear a recorded lease loss after the user acted on it. */
@@ -189,9 +195,9 @@ export class WorkflowLockStore {
 	}
 
 	private async refresh(): Promise<void> {
-		if (!this.workflowId) return;
+		if (!this.definitionId) return;
 		try {
-			const lock = await getWorkflowLock(this.workflowId);
+			const lock = await getDefinitionLock(this.kind, this.definitionId);
 			this.supported = true;
 			this.applyHolder(lock?.ownerId ?? null, lock?.ownerName ?? '');
 			this.refreshError = null;
@@ -209,8 +215,8 @@ export class WorkflowLockStore {
 		this.stopHeartbeat();
 		if (!browser) return;
 		this.heartbeatTimer = window.setInterval(() => {
-			if (!this.workflowId || !this.held) return;
-			void heartbeatWorkflowLock(this.workflowId, this.ownerId)
+			if (!this.definitionId || !this.held) return;
+			void heartbeatDefinitionLock(this.kind, this.definitionId, this.ownerId)
 				.then((lock) => this.applyHolder(lock.ownerId, lock.ownerName))
 				.catch(() => {
 					void this.refresh();

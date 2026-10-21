@@ -1,15 +1,20 @@
 //! Agent draft lifecycle: editable agent definitions that promote into the
-//! formal agent template registry. Thin transport adapters over
-//! `wf-api::agent::agent_draft`.
+//! formal agent template registry. Thin transport adapters over the shared
+//! draft service at `wf-api::definition::draft`.
 
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 
+use crate::api::definition::drafts::ValidationIssueDoc;
 use crate::envelope::{error_response, ok};
 use crate::extract::IdPath;
 use crate::router::ApiState;
+
+/// The kind of definition these routes carry.
+const KIND: wf_api::definition::draft::DefinitionKind =
+    wf_api::definition::draft::DefinitionKind::Agent;
 
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -108,7 +113,7 @@ pub(crate) async fn handle_delete_draft(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::agent::agent_draft::delete_draft(&state.ctx, &path.id).await {
+    match wf_api::definition::draft::delete_draft(&state.ctx, KIND, &path.id).await {
         Ok(deleted) => ok(deleted).into_response(),
         Err(e) => error_response(e),
     }
@@ -131,8 +136,13 @@ pub(crate) async fn handle_promote_draft(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::agent::agent_draft::promote_draft(&state.ctx, &path.id).await {
-        Ok(warnings) => ok(warnings).into_response(),
+    match wf_api::definition::draft::promote_draft(&state.ctx, KIND, &path.id).await {
+        Ok(outcome) => ok(outcome
+            .warnings
+            .into_iter()
+            .map(ValidationIssueDoc::from)
+            .collect::<Vec<_>>())
+        .into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -154,8 +164,12 @@ pub(crate) async fn handle_validate_draft(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::agent::agent_draft::validate_draft_complete(&state.ctx, &path.id).await {
-        Ok(warnings) => ok(warnings).into_response(),
+    match wf_api::definition::draft::validate_draft_complete(&state.ctx, KIND, &path.id).await {
+        Ok(warnings) => ok(warnings
+            .into_iter()
+            .map(ValidationIssueDoc::from)
+            .collect::<Vec<_>>())
+        .into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -177,7 +191,7 @@ pub(crate) async fn handle_lifecycle(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    ok(wf_api::agent::agent_draft::lifecycle_of(&state.ctx, &path.id).await).into_response()
+    ok(wf_api::definition::draft::lifecycle_of(&state.ctx, KIND, &path.id).await).into_response()
 }
 
 #[cfg(test)]

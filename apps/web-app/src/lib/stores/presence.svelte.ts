@@ -1,5 +1,6 @@
 import { browser } from '$app/env';
 import type { PresenceCursor } from '#lib/graph/canvas-model';
+import type { DefinitionKind } from '#lib/types/models';
 
 interface PresenceFrame extends PresenceCursor {
 	at: number;
@@ -61,10 +62,14 @@ function isFrame(value: unknown): value is PresenceFrame {
 }
 
 /**
- * Same-origin presence over BroadcastChannel: every open tab of one workflow
- * broadcasts its cursor and renders the others. No server transport exists
- * yet (the WS protocol defers presence), so this stays tab-local; swapping
- * the channel for a socket later keeps the canvas `presence` prop unchanged.
+ * Same-origin presence over BroadcastChannel: every open tab of one
+ * definition broadcasts its cursor and renders the others. No server
+ * transport exists yet (the WS protocol defers presence), so this stays
+ * tab-local; swapping the channel for a socket later keeps the canvas
+ * `presence` prop unchanged.
+ *
+ * The channel is keyed by the definition kind as well as its id, so two
+ * different kinds of definition never share a canvas.
  */
 export class PresenceStore {
 	peers = $state<PresenceCursor[]>([]);
@@ -76,14 +81,14 @@ export class PresenceStore {
 	private lastSent = 0;
 	private timer: ReturnType<typeof setInterval> | null = null;
 
-	join(workflowId: string, name = 'this browser'): void {
+	join(kind: DefinitionKind, definitionId: string, name = 'this browser'): void {
 		if (!browser) return;
 		this.leave();
 		this.clientId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 		this.displayName = `${name} · ${this.clientId.slice(-4)}`;
 		let channel: BroadcastChannel;
 		try {
-			channel = new BroadcastChannel(`${CHANNEL_PREFIX}${workflowId}`);
+			channel = new BroadcastChannel(`${CHANNEL_PREFIX}${kind}-${definitionId}`);
 		} catch {
 			return;
 		}

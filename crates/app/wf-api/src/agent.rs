@@ -126,7 +126,7 @@ pub async fn list_executions_by_definition(
 pub fn validate_agent_definition(
     ctx: &ApiContext,
     definition: &wf_types::agent::AgentDefinition,
-) -> crate::ApiResult<Vec<String>> {
+) -> crate::ApiResult<Vec<wf_types::ValidationError>> {
     let val_ctx = wf_types::ValidationContext::empty();
     let validator = validation::AgentValidator::new(&val_ctx);
     let result = validator.validate(definition);
@@ -154,13 +154,7 @@ pub fn validate_agent_definition(
         }
     }
 
-    // Return warnings as strings.
-    let warnings: Vec<String> = result
-        .warnings
-        .into_iter()
-        .map(|w| format!("agent '{}': {}", definition.id, w.message))
-        .collect();
-    Ok(warnings)
+    Ok(result.warnings)
 }
 
 /// Formal save of an agent definition into the template registry.
@@ -169,7 +163,7 @@ pub fn validate_agent_definition(
 pub async fn save_agent_template(
     ctx: &ApiContext,
     definition: &wf_types::agent::AgentDefinition,
-) -> crate::ApiResult<Vec<String>> {
+) -> crate::ApiResult<Vec<wf_types::ValidationError>> {
     let warnings = validate_agent_definition(ctx, definition)?;
     let template = wf_types::agent::AgentTemplate {
         id: definition.id.clone(),

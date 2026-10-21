@@ -7810,6 +7810,76 @@
         ]
       }
     },
+    "/api/v1/analysis/llm-metrics/execution/{id}": {
+      "get": {
+        "tags": [
+          "observation"
+        ],
+        "operationId": "handle_execution_llm_metrics",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/analysis/performance/compare": {
       "get": {
         "tags": [
@@ -25428,6 +25498,56 @@
         ]
       }
     },
+    "/api/v1/metrics/token": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "handle_token",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/metrics/workflow": {
       "get": {
         "tags": [
@@ -34230,6 +34350,15 @@
             }
           },
           {
+            "name": "definition_id",
+            "in": "query",
+            "description": "Filter by definition (workflow id, or agent definition id)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "started_from",
             "in": "query",
             "description": "Inclusive lower bound on start time (ms epoch)",
@@ -34324,6 +34453,15 @@
             "name": "execution_type",
             "in": "query",
             "description": "Filter by executor (`workflow`, `agent` or `chat`)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "definition_id",
+            "in": "query",
+            "description": "Filter by definition (workflow id, or agent definition id)",
             "required": false,
             "schema": {
               "type": "string"
@@ -40595,6 +40733,12 @@
                     },
                     "status": {
                       "type": "string"
+                    },
+                    "version": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   }
                 }
@@ -48218,6 +48362,12 @@
           },
           "status": {
             "type": "string"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },

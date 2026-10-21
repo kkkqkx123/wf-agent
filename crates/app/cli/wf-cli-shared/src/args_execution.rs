@@ -20,6 +20,10 @@ pub enum ExecutionSub {
         /// Merge workflow and agent runs into one newest-first listing.
         #[arg(long)]
         unified: bool,
+        /// Filter by definition: a workflow id for workflow runs, an agent
+        /// definition id for agent runs.
+        #[arg(long, value_name = "DEFINITION")]
+        definition: Option<String>,
         /// Maximum number of results.
         #[arg(long, value_name = "N")]
         limit: Option<usize>,

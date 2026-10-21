@@ -13,6 +13,7 @@
 	import TemplateDetailPreview from '#lib/components/domain/templates/TemplateDetailPreview.svelte';
 	import TemplateCreatePanel from '#lib/components/domain/templates/TemplateCreatePanel.svelte';
 	import TemplateEditSection from '#lib/components/domain/templates/TemplateEditSection.svelte';
+	import DefinitionCapabilities from '#lib/components/domain/DefinitionCapabilities.svelte';
 	import {
 		getTemplateDetail,
 		type TemplateDetail,
@@ -235,6 +236,9 @@
 						description={t('page.templateDetail.notFoundDesc')}
 						class="rounded-lg border border-border bg-card"
 					/>
+				{/if}
+				{#if kind === 'agent' && !isNew}
+					<DefinitionCapabilities kind="agent" definitionId={routeIdParam} />
 				{/if}
 			</div>
 		</div>

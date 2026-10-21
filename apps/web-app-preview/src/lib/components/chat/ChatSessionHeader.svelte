@@ -6,19 +6,19 @@
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import { sessions } from '#lib/stores/sessions.svelte';
 	import { appPath } from '#lib/utils/route';
-	import type { SessionExecutionType } from '#lib/types/models';
+	import type { SessionExecutorType } from '#lib/types/models';
 	import { t, type MessageKey } from '#lib/i18n';
 	import type { ChatSessionController } from '#lib/chat/chat-session.svelte';
 
 	/** Message key for how each executor is named in the header. */
-	const EXECUTION_KEYS: Record<SessionExecutionType, MessageKey> = {
+	const EXECUTION_KEYS: Record<SessionExecutorType, MessageKey> = {
 		agent: 'chat.executionTypePicker.labelAgent',
 		chat: 'chat.executionTypePicker.labelChat',
 		workflow: 'chat.executionTypePicker.labelWorkflow',
 	};
 
 	/** Header label for an executor; unknown kinds fall back to the raw value. */
-	function executionLabel(type: SessionExecutionType): string {
+	function executionLabel(type: SessionExecutorType): string {
 		return EXECUTION_KEYS[type] ? t(EXECUTION_KEYS[type]) : type;
 	}
 

@@ -1,7 +1,7 @@
 //! Workflow draft lifecycle: editable drafts that never execute directly,
 //! publish preview validation, promotion to formal definitions and the
-//! Draft/Formal/Expired lifecycle view. Thin transport adapters over
-//! `wf-api::workflow::draft`.
+//! Draft/Formal/Expired lifecycle view. Thin transport adapters over the
+//! shared draft service at `wf-api::definition::draft`.
 
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
@@ -10,9 +10,14 @@ use axum::{Json, Router};
 use serde::Serialize;
 use utoipa::ToSchema;
 
+use crate::api::definition::drafts::ValidationIssueDoc;
 use crate::envelope::{error_response, ok};
 use crate::extract::IdPath;
 use crate::router::ApiState;
+
+/// The kind of definition these routes carry.
+const KIND: wf_api::definition::draft::DefinitionKind =
+    wf_api::definition::draft::DefinitionKind::Workflow;
 
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -99,25 +104,9 @@ pub(crate) async fn handle_delete_draft(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::draft::delete_draft(&state.ctx, &path.id).await {
+    match wf_api::definition::draft::delete_draft(&state.ctx, KIND, &path.id).await {
         Ok(deleted) => ok(deleted).into_response(),
         Err(e) => error_response(e),
-    }
-}
-
-/// One validation issue on a draft: dotted field path plus message.
-#[derive(Debug, Clone, Serialize, ToSchema)]
-pub(crate) struct ValidationIssueDoc {
-    field: String,
-    message: String,
-}
-
-impl From<wf_types::ValidationError> for ValidationIssueDoc {
-    fn from(view: wf_types::ValidationError) -> Self {
-        Self {
-            field: view.field,
-            message: view.message,
-        }
     }
 }
 
@@ -187,8 +176,8 @@ pub(crate) async fn handle_promote_draft(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::draft::promote_draft(&state.ctx, &path.id).await {
-        Ok(report) => ok(PromoteReportDoc::from(report)).into_response(),
+    match wf_api::definition::draft::promote_draft(&state.ctx, KIND, &path.id).await {
+        Ok(outcome) => ok(PromoteReportDoc::from(outcome.impact)).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -225,7 +214,7 @@ pub(crate) async fn handle_validate_draft(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::draft::validate_draft_complete(&state.ctx, &path.id).await {
+    match wf_api::definition::draft::validate_draft_complete(&state.ctx, KIND, &path.id).await {
         Ok(warnings) => ok(warnings
             .into_iter()
             .map(ValidationIssueDoc::from)
@@ -248,7 +237,7 @@ pub(crate) async fn handle_lifecycle(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    ok(wf_api::workflow::draft::lifecycle_of(&state.ctx, &path.id).await).into_response()
+    ok(wf_api::definition::draft::lifecycle_of(&state.ctx, KIND, &path.id).await).into_response()
 }
 
 #[cfg(test)]

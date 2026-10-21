@@ -33,6 +33,7 @@ pub(crate) async fn run_with_client(
             workflow,
             agent,
             unified,
+            definition,
             limit,
             offset,
             order,
@@ -54,6 +55,7 @@ pub(crate) async fn run_with_client(
                     .generated()
                     .handle_unified_executions(
                         cursor.as_deref(),
+                        definition.as_deref(),
                         None,
                         limit.map(|v| v as i64),
                         None,

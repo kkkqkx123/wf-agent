@@ -6,34 +6,37 @@
 	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import Select from '@wf-agent/ui/components/Select.svelte';
-		import type { Column } from '@wf-agent/ui/components/table';
+	import type { Column } from '@wf-agent/ui/components/table';
 	import {
-		diffWorkflowVersions,
-		executeWorkflow,
-		type VersionDiff,
-	} from '#lib/services/workflows';
-	import { rollbackWorkflow } from '#lib/services/graph';
+		diffDefinitionVersions,
+		rollbackDefinition,
+		type DefinitionDiff,
+	} from '#lib/services/definitions';
+	import { runDefinition } from '#lib/services/run';
 	import { buildVersionDiffView } from '#lib/graph/execution-projection';
 	import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
-	import type { WorkflowVersion } from '#lib/types/models';
+	import type { DefinitionKind, DefinitionVersion } from '#lib/types/models';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { formatDateTime } from '#lib/utils/format';
 	import { t } from '#lib/i18n';
 
 	interface Props {
-		workflowId: string;
-		versions: WorkflowVersion[];
+		/** The kind of definition the versions belong to. */
+		kind: DefinitionKind;
+		/** The definition the versions are of. */
+		definitionId: string;
+		versions: DefinitionVersion[];
 		nodes: DisplayNode[];
 		edges: DisplayEdge[];
 		onchanged: () => void;
 	}
 
-	let { workflowId, versions, nodes, edges, onchanged }: Props = $props();
+	let { kind, definitionId, versions, nodes, edges, onchanged }: Props = $props();
 
 	let selectedId = $state<string | null>(null);
 	let compareFrom = $state('');
 	let compareTo = $state('');
-	let diff = $state<VersionDiff | null>(null);
+	let diff = $state<DefinitionDiff | null>(null);
 	let diffError = $state<string | null>(null);
 	let diffLoading = $state(false);
 	let rollbackTarget = $state('');
@@ -43,7 +46,11 @@
 	let runBusy = $state(false);
 	let diffExplorer = $state<{ focus: (id: string) => void } | null>(null);
 
-	const versionColumns = $derived<Column<WorkflowVersion>[]>([
+	// Only a workflow has a graph to diff; a definition without one is
+	// compared by the fields that changed.
+	const hasGraph = $derived(kind === 'workflow');
+
+	const versionColumns = $derived<Column<DefinitionVersion>[]>([
 		{ key: 'version', header: t('domain.versions.version'), text: (row) => row.version },
 		{ key: 'note', header: t('domain.versions.note'), text: (row) => row.note },
 		{ key: 'author', header: t('domain.versions.author'), text: (row) => row.author },
@@ -69,7 +76,11 @@
 	const diffView = $derived(buildVersionDiffView(nodes, edges, diff));
 	const diffGraphNodes = $derived<DisplayNode[]>(diffView.nodes);
 	const diffGraphEdges = $derived<DisplayEdge[]>(diffView.edges);
-	const diffIsEmpty = $derived(diff !== null && diffView.empty);
+	const diffIsEmpty = $derived(
+		diff !== null &&
+			diffView.empty &&
+			(diff.changedFields?.length ?? 0) === 0,
+	);
 
 	$effect(() => {
 		if (versions.length > 0) {
@@ -85,7 +96,7 @@
 		diffLoading = true;
 		diffError = null;
 		try {
-			diff = await diffWorkflowVersions(workflowId, compareFrom, compareTo);
+			diff = await diffDefinitionVersions(kind, definitionId, compareFrom, compareTo);
 		} catch (e) {
 			diffError = e instanceof Error ? e.message : t('domain.versions.compareFailed');
 			diff = null;
@@ -98,9 +109,9 @@
 		if (!rollbackTarget) return;
 		rollbackBusy = true;
 		try {
-			await rollbackWorkflow(workflowId, rollbackTarget);
+			await rollbackDefinition(kind, definitionId, rollbackTarget);
 			rollbackArmed = false;
-			toasts.success(t('domain.versions.rolledBack', { version: rollbackTarget }));
+			toasts.success(t('domain.versions.rolledBack', { rollbackTarget }));
 			onchanged();
 		} catch (e) {
 			toasts.error(
@@ -113,17 +124,14 @@
 	}
 
 	async function runVersion(): Promise<void> {
-		if (!runTarget || runBusy) return;
+		if (!runTarget || runBusy || kind !== 'workflow') return;
 		runBusy = true;
 		try {
-			const executionId = await executeWorkflow(
-				workflowId,
-				null,
-				undefined,
-				runTarget,
-			);
+			const executionId = await runDefinition('workflow', definitionId, {
+				version: runTarget,
+			});
 			toasts.success(
-				t('domain.versions.versionStarted', { version: runTarget }),
+				t('domain.versions.versionStarted', { runTarget }),
 				executionId,
 			);
 			await goto(resolve('/executions/[id]', { id: executionId }));
@@ -177,67 +185,76 @@
 		{:else if diff}
 			{#if diffIsEmpty}
 				<p class="mt-2 text-caption text-muted-foreground">
-					{t('domain.versions.noDifferences', {
-						from: compareFrom,
-						to: compareTo,
-					})}
+					{t('domain.versions.noDifferences')}
 				</p>
 			{:else}
 				<ul class="mt-2 space-y-1 text-caption">
-					<li>
-						{t('domain.versions.addedNodes', { count: diffView.addedNodes })}
-						{#each diff.addedNodes as nodeId (nodeId)}
-							<button
-								type="button"
-								aria-current={selectedId === nodeId}
-								class="mr-1 font-mono text-success underline-offset-2 hover:underline aria-[current=true]:rounded aria-[current=true]:bg-success/15 aria-[current=true]:ring-1 aria-[current=true]:ring-success"
-								onclick={() => diffExplorer?.focus(nodeId)}
-							>
-								{nodeId}
-							</button>
-						{:else}—{/each}
-					</li>
-					<li>
-						{t('domain.versions.removedNodes', { count: diffView.removedNodes })}
-						{#each diff.removedNodes as nodeId (nodeId)}
-							<button
-								type="button"
-								aria-current={selectedId === nodeId}
-								class="mr-1 font-mono text-destructive underline-offset-2 hover:underline aria-[current=true]:rounded aria-[current=true]:bg-success/15 aria-[current=true]:ring-1 aria-[current=true]:ring-destructive"
-								onclick={() => diffExplorer?.focus(nodeId)}
-							>
-								{nodeId}
-							</button>
-						{:else}—{/each}
-					</li>
-					<li>
-						{t('domain.versions.addedEdges', { count: diffView.addedEdges })}
-						{#each diff.addedEdges as edge (`${edge.source}->${edge.target}`)}
-							<button
-								type="button"
-								aria-current={selectedId === edge.source ||
-									selectedId === edge.target}
-								class="mr-1 font-mono text-success underline-offset-2 hover:underline aria-[current=true]:rounded aria-[current=true]:bg-success/15 aria-[current=true]:ring-1 aria-[current=true]:ring-success"
-								onclick={() => diffExplorer?.focus(edge.source)}
-							>
-								{edge.source} → {edge.target}
-							</button>
-						{:else}—{/each}
-					</li>
-					<li>
-						{t('domain.versions.removedEdges', { count: diffView.removedEdges })}
-						{#each diff.removedEdges as edge (`${edge.source}->${edge.target}`)}
-							<button
-								type="button"
-								aria-current={selectedId === edge.source ||
-									selectedId === edge.target}
-								class="mr-1 font-mono text-destructive underline-offset-2 hover:underline aria-[current=true]:rounded aria-[current=true]:bg-success/15 aria-[current=true]:ring-1 aria-[current=true]:ring-destructive"
-								onclick={() => diffExplorer?.focus(edge.source)}
-							>
-								{edge.source} → {edge.target}
-							</button>
-						{:else}—{/each}
-					</li>
+					{#if hasGraph}
+						<li>
+							{t('domain.versions.addedNodes')}
+							{#each diff.addedNodes as nodeId (nodeId)}
+								<button
+									type="button"
+									aria-current={selectedId === nodeId}
+									class="mr-1 font-mono text-success underline-offset-2 hover:underline aria-[current=true]:rounded aria-[current=true]:bg-success/15 aria-[current=true]:ring-1 aria-[current=true]:ring-success"
+									onclick={() => diffExplorer?.focus(nodeId)}
+								>
+									{nodeId}
+								</button>
+							{:else}—{/each}
+						</li>
+						<li>
+							{t('domain.versions.removedNodes')}
+							{#each diff.removedNodes as nodeId (nodeId)}
+								<button
+									type="button"
+									aria-current={selectedId === nodeId}
+									class="mr-1 font-mono text-destructive underline-offset-2 hover:underline aria-[current=true]:rounded aria-[current=true]:bg-success/15 aria-[current=true]:ring-1 aria-[current=true]:ring-destructive"
+									onclick={() => diffExplorer?.focus(nodeId)}
+								>
+									{nodeId}
+								</button>
+							{:else}—{/each}
+						</li>
+						<li>
+							{t('domain.versions.addedEdges')}
+							{#each diff.addedEdges as edge (`${edge.source}->${edge.target}`)}
+								<button
+									type="button"
+									aria-current={selectedId === edge.source ||
+										selectedId === edge.target}
+									class="mr-1 font-mono text-success underline-offset-2 hover:underline aria-[current=true]:rounded aria-[current=true]:bg-success/15 aria-[current=true]:ring-1 aria-[current=true]:ring-success"
+									onclick={() => diffExplorer?.focus(edge.source)}
+								>
+									{edge.source} → {edge.target}
+								</button>
+							{:else}—{/each}
+						</li>
+						<li>
+							{t('domain.versions.removedEdges')}
+							{#each diff.removedEdges as edge (`${edge.source}->${edge.target}`)}
+								<button
+									type="button"
+									aria-current={selectedId === edge.source ||
+										selectedId === edge.target}
+									class="mr-1 font-mono text-destructive underline-offset-2 hover:underline aria-[current=true]:rounded aria-[current=true]:bg-success/15 aria-[current=true]:ring-1 aria-[current=true]:ring-destructive"
+									onclick={() => diffExplorer?.focus(edge.source)}
+								>
+									{edge.source} → {edge.target}
+								</button>
+							{:else}—{/each}
+						</li>
+					{/if}
+					{#if diff.changedFields.length > 0}
+						<li>
+							{t('domain.versions.changedFields', {
+								count: diff.changedFields.length,
+							})}
+							{#each diff.changedFields as field (field)}
+								<span class="mr-1 font-mono">{field}</span>
+							{/each}
+						</li>
+					{/if}
 				</ul>
 			{/if}
 		{/if}
@@ -280,28 +297,34 @@
 		</div>
 	</Card>
 	<Card title={t('domain.versions.runTitle')}>
-		<div class="flex flex-wrap items-end gap-2">
-			<Select
-				bind:value={runTarget}
-				options={versionOptions}
-				size="sm"
-				placeholder={t('domain.versions.version')}
-				class="w-32"
-			/>
-			<Button
-				variant="outline"
-				size="sm"
-				disabled={!runTarget || runBusy}
-				title={t('domain.versions.runTooltip')}
-				onclick={() => void runVersion()}
-			>
-				<Icon name="refresh" size={13} />
-				{runBusy ? t('domain.versions.starting') : t('domain.versions.run', { version: runTarget })}
-			</Button>
-		</div>
+		{#if kind === 'workflow'}
+			<div class="flex flex-wrap items-end gap-2">
+				<Select
+					bind:value={runTarget}
+					options={versionOptions}
+					size="sm"
+					placeholder={t('domain.versions.version')}
+					class="w-32"
+				/>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={!runTarget || runBusy}
+					title={t('domain.versions.runTooltip')}
+					onclick={() => void runVersion()}
+				>
+					<Icon name="refresh" size={13} />
+					{runBusy ? t('domain.versions.starting') : t('domain.versions.run', { runTarget })}
+				</Button>
+			</div>
+		{:else}
+			<p class="text-caption text-muted-foreground">
+				{t('domain.versions.runUnavailable')}
+			</p>
+		{/if}
 	</Card>
 </div>
-{#if diff && !diffLoading}
+{#if diff && !diffLoading && hasGraph}
 	<div class="mt-3">
 		{#if diffIsEmpty}
 			<p class="mb-2 text-caption text-muted-foreground">

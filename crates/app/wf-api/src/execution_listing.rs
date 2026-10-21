@@ -30,6 +30,9 @@ use crate::infra::error::ApiResult;
 pub struct UnifiedExecutionFilter {
     pub status: Option<ExecutionStatus>,
     pub execution_type: Option<ExecutionType>,
+    /// Definition the runs belong to: a workflow id for workflow runs, an
+    /// agent definition id for agent and chat runs.
+    pub definition_id: Option<String>,
     /// Inclusive lower bound on the execution start time (ms epoch).
     pub started_from: Option<i64>,
     /// Inclusive upper bound on the execution start time (ms epoch).
@@ -48,6 +51,9 @@ pub struct UnifiedExecutionSummary {
     /// Workflow id for workflow runs, agent definition id for agent runs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub definition_id: Option<String>,
+    /// The definition version the run was pinned to, when it was.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_execution_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -73,6 +79,7 @@ pub async fn list_unified(
     if wants_workflow {
         let options = filter.map(|f| crate::WorkflowExecutionListOptions {
             status_filter: f.status.as_ref().map(|s| s.as_str().to_string()),
+            workflow_id_filter: f.definition_id.clone(),
             started_from: f.started_from,
             started_to: f.started_to,
             order_desc: Some(true),
@@ -87,6 +94,7 @@ pub async fn list_unified(
                 start_time: record.started_at,
                 end_time: record.completed_at,
                 definition_id: Some(record.workflow_id.to_string()),
+                version: record.workflow_version.clone(),
                 parent_execution_id: record
                     .hierarchy
                     .as_ref()
@@ -104,9 +112,9 @@ pub async fn list_unified(
         let agent_filter = filter.map(|f| agent_execution_registry::AgentExecutionFilter {
             status: f.status.clone(),
             execution_type: f.execution_type,
+            agent_id: f.definition_id.clone(),
             started_from: f.started_from,
             started_to: f.started_to,
-            ..agent_execution_registry::AgentExecutionFilter::default()
         });
         let summaries = agent_execution_registry::summaries(ctx, agent_filter.as_ref()).await?;
         for summary in summaries {
@@ -117,6 +125,7 @@ pub async fn list_unified(
                 start_time: summary.start_time,
                 end_time: summary.end_time,
                 definition_id: summary.definition_id,
+                version: None,
                 parent_execution_id: summary.parent_execution_id,
                 error: summary.error,
             });
@@ -136,6 +145,11 @@ pub async fn list_unified(
                     return false;
                 }
             }
+            if let Some(definition_id) = &filter.definition_id {
+                if r.definition_id.as_deref() != Some(definition_id.as_str()) {
+                    return false;
+                }
+            }
             if let Some(from) = filter.started_from {
                 if r.start_time < from {
                     return false;
@@ -150,8 +164,15 @@ pub async fn list_unified(
         });
     }
 
-    let page: Vec<UnifiedExecutionSummary> =
-        merged.into_iter().skip(offset).take(limit + 1).collect();
+    // One item past the page tells whether a following page exists. The page
+    // size may be "take everything", so the extra item is added without
+    // wrapping: a wrapped addition would read as a zero-length page and drop
+    // every row.
+    let page: Vec<UnifiedExecutionSummary> = merged
+        .into_iter()
+        .skip(offset)
+        .take(limit.saturating_add(1))
+        .collect();
     let has_more = page.len() > limit;
     let mut page = page;
     page.truncate(limit);
@@ -425,5 +446,41 @@ mod tests {
         assert!(!has_more);
         assert_eq!(second.len(), 1);
         assert_ne!(first[0].execution_id, second[0].execution_id);
+    }
+
+    /// The count reads the whole merged list, so its page size has to be one
+    /// that adding the extra item to cannot wrap.
+    #[tokio::test]
+    async fn counts_every_run() {
+        let ctx = make_ctx();
+        save_workflow(&ctx, "wf-run-1", 10).await;
+        save_agent(&ctx, "agent-run-1", 20).await;
+
+        assert_eq!(count_unified(&ctx, None).await.unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn filters_by_definition() {
+        let ctx = make_ctx();
+        save_workflow(&ctx, "wf-run-1", 10).await;
+        save_agent(&ctx, "agent-run-1", 20).await;
+
+        let by_workflow = UnifiedExecutionFilter {
+            definition_id: Some("wf-1".to_string()),
+            ..UnifiedExecutionFilter::default()
+        };
+        let (page, _) = list_unified(&ctx, Some(&by_workflow), 10, 0).await.unwrap();
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].execution_id, "wf-run-1");
+
+        let by_agent = UnifiedExecutionFilter {
+            definition_id: Some("agent-1".to_string()),
+            ..UnifiedExecutionFilter::default()
+        };
+        let (page, _) = list_unified(&ctx, Some(&by_agent), 10, 0).await.unwrap();
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].execution_id, "agent-run-1");
+
+        assert_eq!(count_unified(&ctx, Some(&by_agent)).await.unwrap(), 1);
     }
 }

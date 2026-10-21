@@ -5,48 +5,20 @@
 //! plus reference closure, and are the sole source for execution, default
 //! listing and the reverse index. Expired is the stale mark applied by
 //! update impact checks, cleared on formal re-save.
+//!
+//! The lifecycle itself is shared with every other editable definition kind
+//! and lives in `crate::definition::draft`; this module holds what is
+//! specific to a workflow: its payload, its parse-level check and its
+//! formal save.
 
-use serde::Serialize;
 use wf_storage::adapter::base::BaseStorageAdapter;
 
 use crate::infra::context::ApiContext;
 use crate::infra::error::{ApiError, ApiResult};
 
-/// Lifecycle view of a workflow id.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum LifecycleStatus {
-    Draft,
-    Formal,
-    Expired,
-}
-
-impl LifecycleStatus {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            LifecycleStatus::Draft => "draft",
-            LifecycleStatus::Formal => "formal",
-            LifecycleStatus::Expired => "expired",
-        }
-    }
-}
-
-/// Resolve the lifecycle view of a workflow id.
-pub async fn lifecycle_of(ctx: &ApiContext, workflow_id: &str) -> Option<LifecycleStatus> {
-    if ctx
-        .storage
-        .workflow_draft
-        .exists(workflow_id)
-        .await
-        .unwrap_or(false)
-    {
-        return Some(LifecycleStatus::Draft);
-    }
-    if ctx.is_stale(workflow_id) {
-        return Some(LifecycleStatus::Expired);
-    }
-    Some(LifecycleStatus::Formal)
-}
+/// The kind of definition this module's drafts carry.
+const KIND: crate::definition::draft::DefinitionKind =
+    crate::definition::draft::DefinitionKind::Workflow;
 
 /// Parse-level draft check: only id and name are required. Graph and
 /// reference checks are intentionally skipped so half-finished edits can
@@ -91,10 +63,6 @@ pub async fn list_drafts(ctx: &ApiContext) -> ApiResult<Vec<wf_types::WorkflowDe
         .map_err(Into::into)
 }
 
-pub async fn delete_draft(ctx: &ApiContext, id: &str) -> ApiResult<bool> {
-    Ok(ctx.storage.workflow_draft.delete(id).await?)
-}
-
 /// Internal validation for editor realtime hints: shape plus graph, no
 /// external references, no persistence, no state change.
 pub async fn validate_draft_internal(
@@ -103,43 +71,6 @@ pub async fn validate_draft_internal(
     let ctx = wf_types::ValidationContext::empty();
     let validator = crate::workflow::validation::WorkflowValidator::new(&ctx);
     validator.validate(workflow)
-}
-
-/// Complete validation preview for publish: shape plus graph plus reference
-/// closure, no persistence, no state change. Returns warnings on success.
-pub async fn validate_draft_complete(
-    ctx: &ApiContext,
-    id: &str,
-) -> ApiResult<Vec<wf_types::ValidationError>> {
-    let draft = get_draft(ctx, id).await?;
-    crate::workflow::validation::validate_workflow_for_publish(ctx, &draft)
-        .await
-        .map_err(|e| match e {
-            ApiError::Validation(detail) => {
-                ApiError::Validation(format!("draft '{}' cannot be promoted: {}", id, detail))
-            }
-            other => other,
-        })
-}
-
-/// Promote a draft to formal: full formal validation plus formal save
-/// pipeline plus version snapshot. Warnings allow promotion; errors reject
-/// it with a located report. On success the draft is removed.
-pub async fn promote_draft(
-    ctx: &ApiContext,
-    id: &str,
-) -> ApiResult<crate::infra::dependency::UpdateImpactReport> {
-    let draft = get_draft(ctx, id).await?;
-    if let Ok(current) = crate::workflow::definition::get_workflow(ctx, id).await {
-        let label = current
-            .version
-            .clone()
-            .unwrap_or_else(|| format!("pre-promote-{}", wf_common::now()));
-        let _ = crate::workflow::version::save_workflow_version(ctx, id, &label, &current).await;
-    }
-    let report = crate::workflow::definition::save_workflow_with_impact(ctx, &draft).await?;
-    let _ = delete_draft(ctx, id).await;
-    Ok(report)
 }
 
 /// Batch promote all drafts, collecting per-draft outcomes. Formal saves
@@ -156,7 +87,11 @@ pub async fn promote_all_drafts(
     };
     let mut out = Vec::new();
     for id in ids {
-        let result = promote_draft(ctx, &id).await;
+        let result =
+            match crate::definition::draft::promote_draft(ctx, KIND, &id).await {
+                Ok(outcome) => Ok(outcome.impact),
+                Err(e) => Err(e),
+            };
         out.push((id, result));
     }
     out
@@ -169,7 +104,7 @@ pub async fn hot_reload_to_draft(
     workflow: &wf_types::WorkflowDefinition,
 ) -> ApiResult<Vec<wf_types::ValidationError>> {
     save_draft(ctx, workflow).await?;
-    validate_draft_complete(ctx, &workflow.id.to_string()).await
+    crate::definition::draft::validate_draft_complete(ctx, KIND, &workflow.id.to_string()).await
 }
 
 #[cfg(test)]
@@ -269,8 +204,8 @@ mod tests {
         let draft = draft_workflow("draft-1");
         save_draft(&ctx, &draft).await.unwrap();
         assert_eq!(
-            lifecycle_of(&ctx, "draft-1").await,
-            Some(LifecycleStatus::Draft)
+            crate::definition::draft::lifecycle_of(&ctx, KIND, "draft-1").await,
+            Some(crate::definition::draft::LifecycleStatus::Draft)
         );
         assert!(!validate_draft_internal(&draft).await.is_valid());
         assert!(
@@ -286,7 +221,9 @@ mod tests {
         save_draft(&ctx, &formal_workflow("wf-promote"))
             .await
             .unwrap();
-        promote_draft(&ctx, "wf-promote").await.unwrap();
+        crate::definition::draft::promote_draft(&ctx, KIND, "wf-promote")
+            .await
+            .unwrap();
         assert!(get_draft(&ctx, "wf-promote").await.is_err());
         assert!(
             crate::workflow::definition::get_workflow(&ctx, "wf-promote")
@@ -301,7 +238,9 @@ mod tests {
         save_draft(&ctx, &draft_workflow("draft-bad"))
             .await
             .unwrap();
-        let err = promote_draft(&ctx, "draft-bad").await.unwrap_err();
+        let err = crate::definition::draft::promote_draft(&ctx, KIND, "draft-bad")
+            .await
+            .unwrap_err();
         assert!(matches!(err, ApiError::Validation(_)));
         assert!(get_draft(&ctx, "draft-bad").await.is_ok());
     }

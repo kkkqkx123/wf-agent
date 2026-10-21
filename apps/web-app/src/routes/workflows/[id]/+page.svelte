@@ -15,18 +15,18 @@
 	import WorkflowGraphTab from '#lib/components/domain/workflow-detail/WorkflowGraphTab.svelte';
 	import WorkflowEditSection from '#lib/components/domain/workflow-detail/WorkflowEditSection.svelte';
 	import WorkflowUnsavedDialog from '#lib/components/domain/workflow-detail/WorkflowUnsavedDialog.svelte';
-	import WorkflowVersionsPanel from '#lib/components/domain/WorkflowVersionsPanel.svelte';
-	import WorkflowDraftsPanel from '#lib/components/domain/WorkflowDraftsPanel.svelte';
-	import WorkflowRunsPanel from '#lib/components/domain/WorkflowRunsPanel.svelte';
+	import DefinitionVersionsPanel from '#lib/components/domain/DefinitionVersionsPanel.svelte';
+	import DefinitionDraftsPanel from '#lib/components/domain/DefinitionDraftsPanel.svelte';
+	import RunsPanel from '#lib/components/domain/RunsPanel.svelte';
 	import {
 		executeWorkflow,
 		exportWorkflow,
 		getWorkflowDetail,
 	} from '#lib/services/workflows';
 	import {
-		promoteWorkflowDraft,
-		validateWorkflowDraft,
-	} from '#lib/services/graph';
+		promoteDefinitionDraft,
+		validateDefinitionDraft,
+	} from '#lib/services/definitions';
 	import type { WorkflowDetail } from '#lib/types/models';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { formatNumber } from '#lib/utils/format';
@@ -110,7 +110,7 @@
 
 	async function runPromote(draftId: string): Promise<void> {
 		try {
-			const report = await promoteWorkflowDraft(draftId);
+			const report = await promoteDefinitionDraft('workflow', draftId);
 			toasts.success(
 				`Draft promoted (${report.passCount} passed, ${report.warningCount} warnings)`,
 			);
@@ -126,7 +126,7 @@
 
 	async function runValidate(draftId: string): Promise<void> {
 		try {
-			const issues = await validateWorkflowDraft(draftId);
+			const issues = await validateDefinitionDraft('workflow', draftId);
 			if (detail) {
 				detail = {
 					...detail,
@@ -135,9 +135,7 @@
 							? {
 									...draft,
 									valid: issues.length === 0,
-									issues: issues.map(
-										(issue) => `${issue.field}: ${issue.message}`,
-									),
+									issues,
 								}
 							: draft,
 					),
@@ -306,8 +304,9 @@
 			<WorkflowEditSection controller={session} workflowId={detail.id} />
 		{:else if tab === 'versions'}
 			{#if detail}
-				<WorkflowVersionsPanel
-					workflowId={detail.id}
+				<DefinitionVersionsPanel
+					kind="workflow"
+					definitionId={detail.id}
 					versions={detail.versions}
 					{nodes}
 					{edges}
@@ -318,13 +317,14 @@
 				/>
 			{/if}
 		{:else if tab === 'drafts'}
-			<WorkflowDraftsPanel
+			<DefinitionDraftsPanel
+				kind="workflow"
 				drafts={detail.drafts}
 				onpromote={(draftId) => void runPromote(draftId)}
 				onvalidate={(draftId) => void runValidate(draftId)}
 			/>
 		{:else}
-			<WorkflowRunsPanel workflowId={detail.id} />
+			<RunsPanel kind="workflow" definitionId={detail.id} />
 		{/if}
 	</div>
 </div>

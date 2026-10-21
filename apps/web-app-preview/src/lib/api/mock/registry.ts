@@ -8,6 +8,7 @@
  */
 
 import type { MockRouter } from './router';
+import { registerDefinitions } from './routes/definitions';
 import { registerWorkflows } from './routes/workflows';
 import { registerExecutions } from './routes/executions';
 import { registerAgentLoops } from './routes/agent-loops';
@@ -21,6 +22,9 @@ import { registerGit } from './routes/git';
 import { registerPty } from './routes/pty';
 
 export function registerAllRoutes(router: MockRouter): void {
+	// Definition routes come first: their literal paths (`/workflows/drafts`,
+	// `/agents/drafts`) would otherwise be captured by the `{id}` patterns.
+	registerDefinitions(router);
 	registerWorkflows(router);
 	registerExecutions(router);
 	registerAgentLoops(router);

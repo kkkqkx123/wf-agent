@@ -10,6 +10,18 @@ pub enum PluginType {
     Wasm,
 }
 
+impl PluginType {
+    /// The crate feature that gates this backend. Single source of truth for
+    /// the mapping used by `BackendNotCompiled` and any tooling that needs to
+    /// name the feature for a backend.
+    pub const fn feature_name(self) -> &'static str {
+        match self {
+            PluginType::Lua => "lua",
+            PluginType::Native => "native",
+            PluginType::Wasm => "wasm",
+        }
+    }
+}
 /// Declared capability a plugin may touch. Enforcement differs by backend:
 /// wasm guests get runtime capability enforcement (WASI grants), while lua
 /// and native declarations are admission and audit input only (blocklist

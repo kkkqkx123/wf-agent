@@ -102,8 +102,8 @@ impl PluginEngine {
     /// Wasm is the only backend whose artifacts carry signatures; the other
     /// backends are covered by the package manager at install time.
     ///
-    /// Signature checking is plain file hashing, so it stays available in
-    /// builds that compile the wasm backend out.
+    /// Signature checking is plain file hashing and does not require the wasm
+    /// backend to be compiled in, so it stays available in trimmed builds.
     pub(crate) fn verify_wasm_artifacts(
         &self,
         base: &std::path::Path,

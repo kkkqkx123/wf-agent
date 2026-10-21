@@ -257,22 +257,12 @@ pub(crate) async fn load_plugin_module(
 /// policy gate above: the backend may be compiled in but switched off by
 /// the host, or compiled out entirely.
 ///
-/// The crate feature name is the single source of truth for the mapping,
-/// so the message never drifts from the manifest of this crate.
-#[cfg(not(all(
-    feature = "lua",
-    feature = "native",
-    feature = "wasm"
-)))]
+/// The feature name comes from `PluginType::feature_name`, the single source
+/// of truth for the backend-to-feature mapping.
 fn backend_not_compiled(backend: PluginType) -> PluginError {
-    let feature = match backend {
-        PluginType::Lua => "lua",
-        PluginType::Native => "native",
-        PluginType::Wasm => "wasm",
-    };
     PluginError::BackendNotCompiled {
         backend,
-        feature: feature.to_string(),
+        feature: backend.feature_name().to_string(),
     }
 }
 

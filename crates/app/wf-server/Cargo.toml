@@ -25,6 +25,8 @@ utoipa.workspace = true
 # Product default: the plugin subsystem plus all three backends. The
 # runtime default features are off so that trimming here actually
 # removes a backend instead of being re-added downstream.
+# `lua`/`native`/`wasm` each imply `plugins` through the runtime.
+# `native` is compiled in by default but stays disabled at runtime.
 default = ["plugins", "lua", "native", "wasm"]
 plugins = ["wf-runtime/plugins"]
 lua = ["wf-runtime/lua"]

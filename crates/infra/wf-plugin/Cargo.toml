@@ -45,6 +45,8 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 [features]
 # Product default: all three backends. A build that must drop one names
 # the remaining backends with `default-features = false`.
+# `native` is compiled in by default but remains disabled at runtime
+# (`native_enabled = false`); compiling it is not the same as allowing it.
 default = ["lua", "native", "wasm"]
 lua = ["dep:mlua", "wf-sandbox/lua"]
 native = ["dep:libloading"]

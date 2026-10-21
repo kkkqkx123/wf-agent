@@ -42,6 +42,9 @@ tempfile.workspace = true
 # Product default: the plugin engine plus all three backends. `plugins`
 # alone yields an engine with no loadable backend; name the backends to
 # keep.
+# `lua`/`native`/`wasm` each imply `plugins`: they forward
+# `wf-plugin/<backend>`, which enables the optional dependency.
+# `native` is compiled in by default but stays disabled at runtime.
 default = ["plugins", "lua", "native", "wasm"]
 plugins = ["dep:wf-plugin"]
 lua = ["wf-sandbox/lua", "wf-plugin/lua"]

@@ -12,6 +12,7 @@ use crate::adapter::execution::{WorkflowExecutionListOptions, WorkflowExecutionS
 use crate::adapter::message::{MessageListOptions, MessageStorageAdapter};
 use crate::adapter::metrics::{MetricRecord, MetricsDataPoint, MetricsStorageAdapter};
 use crate::adapter::node_template::{NodeTemplateListOptions, NodeTemplateStorageAdapter};
+use crate::adapter::pricing_rule::{PricingRule, PricingRuleListOptions};
 use crate::adapter::script::{ScriptListOptions, ScriptStorageAdapter};
 use crate::adapter::task::{TaskListOptions, TaskStorageAdapter};
 use crate::adapter::template_usage::{TemplateUsageListOptions, TemplateUsageStorageAdapter};
@@ -123,6 +124,11 @@ make_base_adapter!(
     TemplateUsageStorage,
     wf_types::TemplateUsageMetadata,
     TemplateUsageListOptions
+);
+make_base_adapter!(
+    PricingRuleStorage,
+    PricingRule,
+    PricingRuleListOptions
 );
 
 // ─── WorkflowStorageAdapter ───

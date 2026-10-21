@@ -1,9 +1,9 @@
 use crate::adapter::adapter_impls::{
     AgentDraftStorage, AgentExecutionStorage, AgentLoopStorage, AgentProfileStorage,
     AgentTemplateStorage, CheckpointStorage, MessageStorage, MetricsStorage, NodeTemplateStorage,
-    ScriptStorage, TaskStorage, TemplateUsageStorage, ToolDefinitionStorage, ToolStorage,
-    TriggerExecutionStorage, TriggerTemplateStorage, UserInteractionStorage, VariableStorage,
-    WorkflowDraftStorage, WorkflowExecutionStorage, WorkflowStorage,
+    PricingRuleStorage, ScriptStorage, TaskStorage, TemplateUsageStorage, ToolDefinitionStorage,
+    ToolStorage, TriggerExecutionStorage, TriggerTemplateStorage, UserInteractionStorage,
+    VariableStorage, WorkflowDraftStorage, WorkflowExecutionStorage, WorkflowStorage,
 };
 use crate::backend::StorageBackend;
 use crate::decorator::cache::{CacheConfig, CachingStore};
@@ -351,6 +351,11 @@ define_storage_entities!(
     template_usage,
     "template_usage",
     TemplateUsageStorage,
+    EntityIndexes::NONE,
+    PricingRule,
+    pricing_rule,
+    "pricing_rule",
+    PricingRuleStorage,
     EntityIndexes::NONE,
 );
 

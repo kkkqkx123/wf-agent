@@ -979,6 +979,7 @@ fn test_llm_gateway_registers_and_rejects_invalid_profiles() {
             provider_definitions: Vec::new(),
         },
         None,
+        None,
     )
     .unwrap();
     assert!(gateway.has_profile("openai"));
@@ -1015,6 +1016,7 @@ fn test_llm_gateway_registers_and_rejects_invalid_profiles() {
             }],
             provider_definitions: Vec::new(),
         },
+        None,
         None,
     ) {
         Ok(_) => panic!("invalid profile must be rejected"),

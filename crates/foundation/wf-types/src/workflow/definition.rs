@@ -89,7 +89,7 @@ pub enum LayoutDirection {
 }
 
 /// Canvas layout settings persisted with a workflow.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct LayoutSettings {
     #[serde(default)]
     pub kind: LayoutKind,
@@ -107,21 +107,6 @@ pub struct LayoutSettings {
     pub wrap_count: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub padding: Option<i32>,
-}
-
-impl Default for LayoutSettings {
-    fn default() -> Self {
-        Self {
-            kind: LayoutKind::default(),
-            direction: None,
-            rank_sep: None,
-            node_sep: None,
-            row_height: None,
-            column_width: None,
-            wrap_count: None,
-            padding: None,
-        }
-    }
 }
 
 /// Persisted canvas layout for a workflow definition.

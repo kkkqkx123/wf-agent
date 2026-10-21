@@ -1,0 +1,11 @@
+[package]
+name = "wf-pricing"
+version.workspace = true
+edition.workspace = true
+description = "LiteLLM-style public + custom pricing resolver for LLM token cost"
+
+[dependencies]
+llm-token = { package = "llm-suite-token", path = "../llm-suite/crates/llm-suite-token" }
+wf-storage = { path = "../wf-storage" }
+serde = { workspace = true }
+serde_json = { workspace = true }

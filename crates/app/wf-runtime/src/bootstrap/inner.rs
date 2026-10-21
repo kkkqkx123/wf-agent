@@ -195,7 +195,14 @@ impl Runtime {
             tool_registry.set_tool_metrics(metrics.registry().tool());
         }
 
-        let llm_gateway = create_llm_gateway(metrics.as_ref().map(|m| m.registry().as_ref()));
+        let pricing_resolver = wf_pricing::build_composite_resolver(
+            storage_manager.shared_context().as_deref(),
+        )
+        .await;
+        let llm_gateway = create_llm_gateway(
+            metrics.as_ref().map(|m| m.registry().as_ref()),
+            Some(pricing_resolver),
+        );
 
         #[cfg(feature = "plugins")]
         let plugin_engine = init_plugins(

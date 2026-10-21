@@ -368,7 +368,7 @@ pub async fn resolve_mentions(
                 .event_bus
                 .recent_events()
                 .into_iter()
-                .find(|event| event.id.to_string() == id)
+                .find(|event| event.id == id)
                 .map(|event| format!("event: {} ({})", event.id, event.r#type.as_str())),
             "message" => crate::entity::message::get(ctx, id)
                 .await

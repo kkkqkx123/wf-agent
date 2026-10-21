@@ -86,3 +86,6 @@ Thumbs.db
 # Performance
 *.cpuprofile
 *.heapprofile
+
+# External/volatile pricing data (regenerate via scripts/fetch-litellm-pricing.sh)
+crates/infra/wf-pricing/src/data/litellm_public.json

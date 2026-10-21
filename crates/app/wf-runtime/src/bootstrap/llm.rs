@@ -4,6 +4,7 @@ use wf_config::processor::llm_profile::{
     transform_llm_profile, validate_llm_profile, validate_provider_definition,
 };
 use wf_llm::LlmGateway;
+use wf_pricing::PricingResolver;
 
 use crate::error::RuntimeResult;
 
@@ -12,12 +13,22 @@ use super::config::LlmConfig;
 /// Create an empty LLM gateway (no providers, no profiles). Plugins are
 /// activated against this gateway first so their codecs and provider
 /// definitions land before file-layer profiles register.
-pub fn create_llm_gateway(metrics: Option<&wf_metrics::MetricsRegistry>) -> Arc<LlmGateway> {
+///
+/// `pricing` optionally attaches a pricing resolver so recorded token usage is
+/// enriched with a computed cost before reaching the metrics sink.
+pub fn create_llm_gateway(
+    metrics: Option<&wf_metrics::MetricsRegistry>,
+    pricing: Option<Arc<dyn PricingResolver>>,
+) -> Arc<LlmGateway> {
     let gateway = LlmGateway::new();
     let gateway = match metrics {
         Some(registry) => gateway.with_token_metrics(Arc::new(
             wf_llm::token_stream_adapter::MetricsSinkAdapter::new(registry.token()),
         )),
+        None => gateway,
+    };
+    let gateway = match pricing {
+        Some(resolver) => gateway.with_pricing_resolver(resolver),
         None => gateway,
     };
     Arc::new(gateway)
@@ -56,8 +67,9 @@ pub fn register_llm_config(gateway: &LlmGateway, config: &LlmConfig) -> RuntimeR
 pub fn init_llm_gateway(
     config: &LlmConfig,
     metrics: Option<&wf_metrics::MetricsRegistry>,
+    pricing: Option<Arc<dyn PricingResolver>>,
 ) -> RuntimeResult<Arc<LlmGateway>> {
-    let gateway = create_llm_gateway(metrics);
+    let gateway = create_llm_gateway(metrics, pricing);
     register_llm_config(&gateway, config)?;
     Ok(gateway)
 }

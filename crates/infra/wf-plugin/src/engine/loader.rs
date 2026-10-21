@@ -176,7 +176,7 @@ pub(crate) async fn scan_plugin_manifests(
 
 pub(crate) fn resolve_plugin_type(manifest: &PluginManifest) -> PluginResult<PluginType> {
     if let Some(ref t) = manifest.plugin_type {
-        return Ok(t.clone());
+        return Ok(*t);
     }
     let mut entries = vec![manifest.entry_point.as_str()];
     entries.extend(manifest.versioned_entry_points.values().map(|s| s.as_str()));
@@ -259,6 +259,7 @@ pub(crate) async fn load_plugin_module(
 ///
 /// The feature name comes from `PluginType::feature_name`, the single source
 /// of truth for the backend-to-feature mapping.
+#[allow(dead_code)]
 fn backend_not_compiled(backend: PluginType) -> PluginError {
     PluginError::BackendNotCompiled {
         backend,

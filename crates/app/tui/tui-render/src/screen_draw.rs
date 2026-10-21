@@ -1,8 +1,7 @@
 //! Per-screen rendering implementations.
 //!
 //! Each `draw_*` function receives a pre-populated [`ScreenData`] and renders
-//! it into a ratatui frame area. These are called from
-//! [`Screens::draw`](wf_tui::screens::Screens::draw).
+//! it into a ratatui frame area. These are called from `Screens::draw`.
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};

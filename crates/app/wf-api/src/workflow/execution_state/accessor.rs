@@ -5,7 +5,7 @@ use wf_types::ExecutionStatus;
 
 use crate::infra::state_tracker::{ExecutionStateAccessor, StatePoint};
 
-/// Adapter from a live [`WorkflowExecutionEntity`] to the normalized
+/// Adapter from a live [`wf_workflow::entity::WorkflowExecutionEntity`] to the normalized
 /// [`StatePoint`] consumed by the shared execution-state recorder.
 pub struct WorkflowStateAccessor {
     pub entity: std::sync::Arc<wf_workflow::entity::WorkflowExecutionEntity>,

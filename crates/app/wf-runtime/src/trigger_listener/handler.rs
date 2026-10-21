@@ -77,7 +77,7 @@ pub fn register_compression_handler(
 /// Unlike [`register_compression_handler`], the service publishes the
 /// snapshot-carrying handoff instead of spawning: the caller must arm the
 /// listener side with the same summary workflow and policy (see
-/// [`CompressionRouteConfig`]), otherwise published handoffs never run.
+/// `CompressionRouteConfig`), otherwise published handoffs never run.
 /// Production wiring; tests and listener-less embedding keep the direct
 /// registration.
 pub fn register_routed_compression_handler(

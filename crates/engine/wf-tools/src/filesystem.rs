@@ -1,9 +1,9 @@
 //! Filesystem tool handlers: shared entry points for the registered file
 //! operations. The implementation is split by responsibility:
-//! [`config`] holds the tool configuration, [`scope`] the execution scope
-//! gates, [`ignore`] the discovery and capture ignore rules,
-//! [`handlers_read`] the read-side operations, [`handlers_write`] the
-//! write-side operations and [`patch_ops`] the patch/diff operations.
+//! `config` holds the tool configuration, `scope` the execution scope
+//! gates, `ignore` the discovery and capture ignore rules,
+//! `handlers_read` the read-side operations, `handlers_write` the
+//! write-side operations and `patch_ops` the patch/diff operations.
 
 mod config;
 mod handlers_read;

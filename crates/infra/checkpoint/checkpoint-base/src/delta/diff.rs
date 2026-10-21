@@ -35,7 +35,7 @@ where
 {
     /// Restore the full state by replaying the delta chain. The returned
     /// future is `Send`: `restore_full_state` is awaited inside the
-    /// [`CheckpointCoordinator::restore`] implementations, whose futures are
+    /// `CheckpointCoordinator::restore` implementations, whose futures are
     /// required to be `Send` (RPITIT `+ Send`).
     fn restore_full_state(
         &self,

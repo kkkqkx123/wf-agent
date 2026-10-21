@@ -59,7 +59,7 @@ pub mod endpoints {
     }
 
     /// Session shortcut `POST /api/v1/agent-loops/cli/run`, same id-reuse
-    /// note as [`agent_cli_stream`](self::agent_cli_stream).
+    /// note as [`agent_cli_stream`].
     pub fn agent_cli_run() -> String {
         "/api/v1/agent-loops/cli/run".to_string()
     }

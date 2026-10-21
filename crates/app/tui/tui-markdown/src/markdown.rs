@@ -10,8 +10,8 @@
 //! * [`plain`] — whole-source Markdown → plain text ([`render_plain_text`]).
 //! * [`styled`] — whole-source Markdown → styled ratatui `Line`s
 //!   ([`render_styled_lines`], [`render_styled_lines_animated`]).
-//! * [`document`] — backend-neutral semantic model ([`Document`],
-//!   [`StyleRole`], [`StyledSpan`]) shared by every frontend.
+//! * [`document`] — backend-neutral semantic model ([`crate::markdown::document::Document`],
+//!   [`crate::markdown::document::StyleRole`], [`crate::markdown::document::StyledSpan`]) shared by every frontend.
 //! * [`highlight`] — dependency-free per-language code tokenizer plus the
 //!   bounded [`highlight::HighlightCache`] behind fenced code coloring.
 //! * [`math`] — LaTeX to Unicode fallback ([`math::latex_to_unicode`]) for

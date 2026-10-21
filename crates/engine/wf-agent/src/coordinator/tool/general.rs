@@ -12,7 +12,7 @@ use super::types::ToolRunCtx;
 ///
 /// Holds no reference to the coordinator (no Arc cycle): it snapshots the
 /// immutable execution context and the run entity, then routes every inner
-/// invocation through the shared [`run_tool`] pipeline so visibility,
+/// invocation through the shared `run_tool` pipeline so visibility,
 /// approval, checkpoint, failure protection and timeout apply exactly as to
 /// direct calls. Tool-call hooks are intentionally excluded: the outer
 /// `general` call fires `BEFORE/AFTER_TOOL_CALL` once, inner invocations do

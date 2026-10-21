@@ -3,7 +3,7 @@
 //!
 //! [`TerminalCapabilities`] is the aggregate result of probing the
 //! connected terminal at startup. [`TerminalProbe`] orchestrates the
-//! individual [`CapabilityProbe`]s.
+//! individual `CapabilityProbe`s.
 
 use std::io::{IsTerminal, Write};
 use std::time::{Duration, Instant};

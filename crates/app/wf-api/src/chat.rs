@@ -122,6 +122,7 @@ async fn drive_turn(
     let mut answer = String::new();
     let mut usage: Option<TokenUsageStats> = None;
     let mut assistant: Option<Message> = None;
+    let mut refusal: Option<String> = None;
     while let Some(event) = stream.next().await {
         match event {
             Ok(MessageStreamEvent::Text(text)) => {
@@ -194,6 +195,16 @@ async fn drive_turn(
             Ok(MessageStreamEvent::Error(error)) => {
                 return TurnOutcome::Failed { error: error.error };
             }
+            // A refusal declines to answer instead of answering: it never
+            // mixes into the answer text. Remember it so a turn that ends
+            // without a final message still reports why.
+            Ok(MessageStreamEvent::Refusal(refused)) => {
+                refusal = Some(refused.snapshot.clone());
+            }
+            // Redacted thinking and annotations are folded into the final
+            // message by the accumulator; nothing to do per event.
+            Ok(MessageStreamEvent::RedactedThinking(_)) | Ok(MessageStreamEvent::Annotation(_)) => {
+            }
             Ok(MessageStreamEvent::Abort(abort)) => {
                 return TurnOutcome::Interrupted {
                     reason: abort.reason,
@@ -213,7 +224,9 @@ async fn drive_turn(
     }
     let Some(message) = assistant else {
         return TurnOutcome::Failed {
-            error: "chat stream ended without a final message".to_string(),
+            error: refusal
+                .filter(|refusal| !refusal.is_empty())
+                .unwrap_or_else(|| "chat stream ended without a final message".to_string()),
         };
     };
     session.record_reply(message, usage.as_ref());

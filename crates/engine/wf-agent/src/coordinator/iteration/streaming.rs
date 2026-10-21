@@ -182,7 +182,13 @@ impl AgentIterationCoordinator {
                 | Ok(MessageStreamEvent::Connect(_))
                 | Ok(MessageStreamEvent::Start(_))
                 | Ok(MessageStreamEvent::InputJson(_))
-                | Ok(MessageStreamEvent::ToolCallDelta(_)) => {}
+                | Ok(MessageStreamEvent::ToolCallDelta(_))
+                // Refusals travel on their own channel and never mix into
+                // the answer text; redacted thinking and annotations are
+                // folded into the final message by the accumulator.
+                | Ok(MessageStreamEvent::Refusal(_))
+                | Ok(MessageStreamEvent::RedactedThinking(_))
+                | Ok(MessageStreamEvent::Annotation(_)) => {}
                 Err(e) => {
                     publish_stream_termination(
                         self.event_bus.as_deref(),

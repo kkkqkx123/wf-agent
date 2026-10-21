@@ -89,11 +89,12 @@ impl LlmCodec for PluginCodecAdapter {
         serde_json::from_value(value).map_err(LlmError::from)
     }
 
-    fn parse_stream_chunk(&self, data: &str) -> LlmResult<Option<MessageStreamEvent>> {
+    fn parse_stream_chunk_events(&self, data: &str) -> LlmResult<Vec<MessageStreamEvent>> {
         let value = self.codec.parse_stream_chunk(data).map_err(plugin_error)?;
         value
             .map(|event| serde_json::from_value(event).map_err(LlmError::from))
             .transpose()
+            .map(|event| event.into_iter().collect())
     }
 
     fn convert_tools(&self, tools: &[Tool]) -> LlmResult<Vec<serde_json::Value>> {
@@ -229,6 +230,6 @@ mod tests {
         assert_eq!(http.method(), reqwest::Method::POST);
         assert_eq!(http.url().as_str(), "https://api.test.test/v1/chat");
         assert!(adapter.parse_response("{}", &request).is_err());
-        assert!(adapter.parse_stream_chunk("{}").unwrap().is_none());
+        assert!(adapter.parse_stream_chunk_events("{}").unwrap().is_empty());
     }
 }

@@ -8,13 +8,13 @@
 //! this module, with the replay pagination state machine shared with the
 //! history overlay at [`crate::pager`]:
 //!
-//! * [`keys`] — keyboard input handling (prompt, approval, question, scroll).
-//! * [`render`] — the draw path (scrollback viewport, footer, prompt line).
-//! * [`replay`] — replay-history loading and older-page pagination.
-//! * [`perf`] — performance-policy application (motion tiers, footer tier).
-//! * [`anchors`] — unified jump anchors for prompts, todos, failures,
+//! * `keys` — keyboard input handling (prompt, approval, question, scroll).
+//! * `render` — the draw path (scrollback viewport, footer, prompt line).
+//! * `replay` — replay-history loading and older-page pagination.
+//! * `perf` — performance-policy application (motion tiers, footer tier).
+//! * `anchors` — unified jump anchors for prompts, todos, failures,
 //!   sub-agents, checkpoints and decisions.
-//! * [`subagent_blocks`] — sub-agent start/end row bookkeeping for jumps.
+//! * `subagent_blocks` — sub-agent start/end row bookkeeping for jumps.
 //!
 //! This root file keeps the cohesive session state machine itself: the
 //! [`InteractiveController`] struct, its lifecycle, the event pump, and the

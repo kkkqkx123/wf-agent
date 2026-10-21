@@ -121,6 +121,7 @@ async fn test_stream_events_text_only() {
             stream_stats: None,
             id: None,
             model: None,
+            refusal: None,
         }),
         MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}),
     ]);
@@ -184,6 +185,7 @@ async fn test_stream_events_with_tool_call() {
             stream_stats: None,
             id: None,
             model: None,
+            refusal: None,
         }),
         MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}),
     ]);

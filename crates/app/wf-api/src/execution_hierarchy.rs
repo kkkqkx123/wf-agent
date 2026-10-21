@@ -333,7 +333,7 @@ pub async fn hierarchy(ctx: &ApiContext, id: &str) -> ApiResult<ExecutionHierarc
 ///
 /// One prefix scan per record kind covers every persisted node; the live
 /// managers are then walked in memory and the two sets reconciled by
-/// [`merge_persisted_then_live`]. Neither step issues a query per node, so the
+/// `merge_persisted_then_live`. Neither step issues a query per node, so the
 /// cost does not grow with the width of the tree. Paging only bounds the
 /// response: nodes sort breadth-first (root first, then each level in child
 /// order) and the page carries the offset of the following page.

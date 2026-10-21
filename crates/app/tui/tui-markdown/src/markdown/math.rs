@@ -1,6 +1,6 @@
 //! Dependency-free Unicode rendering for LaTeX math expressions.
 //!
-//! The document model keeps the raw expression in [`StyledSpan::latex`] while
+//! The document model keeps the raw expression in [`crate::markdown::document::StyledSpan::latex`] while
 //! this module derives the readable fallback shown on screen. Only widely
 //! supported single-cell glyphs are used so the output survives the terminal
 //! cell measurement unchanged.

@@ -3,7 +3,7 @@
 //! Both the workflow `AGENT_LOOP` handler and the direct composition boundary
 //! call this module so one agent definition renders identically on both
 //! entries. The module holds no executor and knows nothing about session
-//! origins; it only turns an [`AgentConfig`] plus a narrow variable view
+//! origins; it only turns a [`wf_types::agent::AgentConfig`] plus a narrow variable view
 //! into texts and into the messages that carry them.
 //!
 //! Stable header: inline `system_prompt` wins, `system_prompt_template_id`

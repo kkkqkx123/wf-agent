@@ -1,7 +1,7 @@
 //! UTF-8 chunk decoding with cross-chunk carry for the session output
 //! readers.
 //!
-//! [`Utf8ChunkDecoder`] decodes raw pipe bytes chunk by chunk while carrying
+//! `Utf8ChunkDecoder` decodes raw pipe bytes chunk by chunk while carrying
 //! the incomplete tail of a multi-byte UTF-8 sequence across reads, so a
 //! character split at a chunk boundary is never corrupted by per-chunk lossy
 //! decoding (at most 3 bytes are carried). The PTY path additionally

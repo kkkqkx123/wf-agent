@@ -2,7 +2,7 @@
 //!
 //! One TUI process keeps one [`SessionTabs`] holding a live
 //! [`InteractiveController`] per open chat tab. All tabs share the cloned
-//! [`WfClient`] handle, the terminal backend and the render pipeline owned
+//! [`wf_client::WfClient`] handle, the terminal backend and the render pipeline owned
 //! by the shell; each tab keeps its own scrollback, reducer, footer and
 //! stream tasks. Only the active tab receives input and paints; background
 //! tabs keep pumping their event channels so their streams continue.

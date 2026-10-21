@@ -13,7 +13,7 @@
 //!   when color is unavailable.
 //!
 //! `Plain`/`Styled` emit the *settled* region only: the cut follows
-//! [`settled_boundary`], so a whole in-flight block (the current
+//! [`tui_markdown::markdown::settled_boundary`], so a whole in-flight block (the current
 //! paragraph, an open fence, an unclosed table) stays held until a later
 //! delta can no longer rewrite it. `Raw` never re-renders its input, so
 //! it cuts at the last newline instead. Either way a half-typed construct

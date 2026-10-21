@@ -1,7 +1,7 @@
 //! Process-wide hook handler registry.
 //!
 //! Handlers register under a stable name, optionally bound to a hook type
-//! (dynamic registration) and prioritized. Fire ([`fire`]) resolves
+//! (dynamic registration) and prioritized. Fire ([`crate::hooks::fire()`]) resolves
 //! static `HookDefinition.handler` names through this registry and
 //! notifies type-bound handlers; each notification is panic-guarded so a
 //! panicking handler never takes down the engine. The registry enforces

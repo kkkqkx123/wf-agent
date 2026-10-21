@@ -9,7 +9,7 @@
 //! The registry is strongly typed: the shared context stores the concrete
 //! registry instead of a `Box<dyn Any>` carrier, so a missing registry is the
 //! only runtime failure mode (any other mismatch fails at compile time).
-//! Engines convert their internal error types into [`ExecutionSharedError`]
+//! Engines convert their internal error types into [`crate::error::ExecutionSharedError`]
 //! at this trait boundary (see `wf_workflow::error` for the workflow engine's
 //! conversion).
 

@@ -310,7 +310,9 @@ fn message_text(message: &Message) -> String {
                 MessageContent::Text { text } => Some(text.clone()),
                 MessageContent::Thinking { thinking, .. } => Some(thinking.clone()),
                 MessageContent::ToolResult { tool_result } => Some(tool_result.content.clone()),
-                MessageContent::ToolUse { .. } | MessageContent::ImageUrl { .. } => None,
+                MessageContent::ToolUse { .. }
+                | MessageContent::ImageUrl { .. }
+                | MessageContent::RedactedThinking { .. } => None,
             })
             .collect::<Vec<_>>()
             .join(" "),

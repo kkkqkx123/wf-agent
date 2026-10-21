@@ -5,8 +5,8 @@
 //! - `eager`: connected immediately at registration;
 //! - `keep-alive`: connected immediately and periodically health-checked.
 //!
-//! Server configuration and runtime state live in [`registry`]; the
-//! background maintenance loops live in [`health`].
+//! Server configuration and runtime state live in [`super::registry`]; the
+//! background maintenance loops live in [`super::health`].
 
 use dashmap::DashMap;
 use serde_json::Value;

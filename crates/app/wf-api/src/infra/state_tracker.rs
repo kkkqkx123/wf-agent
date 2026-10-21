@@ -2,7 +2,8 @@
 //!
 //! The read side of execution state (`execution_state.rs`) is reconstructed
 //! from live entities / persisted records. This module is the *record* side:
-//! point-in-time snapshots are persisted through the [`PersistenceLayer`]
+//! point-in-time snapshots are persisted through the
+//! [`crate::infra::persistence::PersistenceLayer`]
 //! snapshot store, keyed per execution, so callers can answer "what was the
 //! variable/call-stack/memory state at iteration N".
 //!

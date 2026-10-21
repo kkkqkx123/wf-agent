@@ -1,7 +1,7 @@
 //! Native plugin author-side wrapper over the C ABI v1 contract.
 //!
 //! A plugin author implements [`WfNativePlugin`] on a type and exports it
-//! with [`export_plugin!`]; the macro generates every `extern "C"` symbol the
+//! with [`crate::export_plugin!`]; the macro generates every `extern "C"` symbol the
 //! host loader resolves (`wf_plugin_supported_abi_versions`, `wf_plugin_get_manifest`,
 //! `wf_plugin_on_load`, `wf_plugin_register_contributions`,
 //! `wf_plugin_on_activate`, `wf_plugin_on_deactivate`, `wf_plugin_on_unload`,

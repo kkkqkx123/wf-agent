@@ -2,7 +2,7 @@
 //!
 //! Pure, stateless string analysis that detects the boundaries and in-flight
 //! state of top-level markdown blocks (fenced code, tables, reference
-//! definitions, blank-line settlement). Used by [`MarkdownStream`] to split a
+//! definitions, blank-line settlement). Used by [`crate::markdown::stream::MarkdownStream`] to split a
 //! growing source into a settled (committed) region and an in-flight
 //! (streaming) region. No rendering and no buffers live here.
 

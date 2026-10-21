@@ -7,7 +7,7 @@
 //! phase it has not actually reached.
 //!
 //! The builders produce the static artifact types consumed by the engines:
-//! [`AvailableTools`](wf_types::tool::AvailableTools), [`AgentHookConfig`],
+//! [`AvailableTools`], [`AgentHookConfig`],
 //! agent definitions and loop configs. Value builders are pure; the
 //! execution builder drives a loop through
 //! [`crate::agent::agent_execution`].

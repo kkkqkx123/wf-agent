@@ -1,7 +1,7 @@
 //! Convenience lookups over the predefined tool risk classifications.
 //!
 //! The single source of truth for each tool's risk level is the
-//! [`ToolDefinition::risk_level`] field; this module offers quick queries
+//! [`super::schema::ToolDefinition::risk_level`] field; this module offers quick queries
 //! without materializing full [`wf_types::tool::Tool`] definitions.
 
 use wf_types::tool::ToolRiskLevel;

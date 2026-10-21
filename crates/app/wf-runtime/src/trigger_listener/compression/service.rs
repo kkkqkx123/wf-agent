@@ -36,9 +36,9 @@ enum CompressionDispatch {
 ///
 /// Synchronous duties only: parse the signal, skip snapshots that carry
 /// nothing to compress, and hand the request over (direct spawn or routed
-/// publish depending on [`CompressionDispatch`]), then return. No execution
+/// publish depending on `CompressionDispatch`), then return. No execution
 /// policy lives here: retry budget, degraded fallback, write-back
-/// orchestration and audit all belong to [`CompressionPipeline`]. The fire
+/// orchestration and audit all belong to `CompressionPipeline`. The fire
 /// therefore always returns at takeover, never after the compression lands.
 pub struct CompressionService {
     pipeline: Arc<CompressionPipeline>,

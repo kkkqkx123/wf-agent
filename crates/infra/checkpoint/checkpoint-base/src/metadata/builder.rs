@@ -238,7 +238,7 @@ fn trigger_wire_name(trigger: &CheckpointTiming) -> &'static str {
     }
 }
 
-/// Reverse of [`trigger_wire_name`]: parse a wire name back into its
+/// Reverse of `trigger_wire_name`: parse a wire name back into its
 /// trigger. This is the single wire table: coordinators must resolve labels
 /// through here instead of keeping a second match, so adding a trigger can
 /// never silently drift the timeline. Unknown names stay `None` and callers

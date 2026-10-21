@@ -15,7 +15,7 @@ use wf_types::script::sandbox::{
 /// validates the whole configuration up front (fail-fast): every rule must
 /// reference an existing profile and `default_profile` must exist. Unknown
 /// match fields are rejected at deserialization time because
-/// [`SandboxProfileRule::match_field`] is a closed enum. Glob patterns are
+/// [`SandboxRuleMatchField`] is a closed enum. Glob patterns are
 /// precompiled into regexes at compile time, so per-execution resolution is
 /// infallible and only performs matching.
 #[derive(Debug, Default)]

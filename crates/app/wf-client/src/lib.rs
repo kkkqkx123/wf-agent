@@ -1,12 +1,12 @@
 //! `wf-client`: generated HTTP client for `wf-server`.
 //!
-//! The progenitor-generated API lives in [`generated`] (built from the
+//! The progenitor-generated API lives in `generated` (built from the
 //! committed `wf-server/openapi.json` snapshot via `build.rs`; never edit the
 //! output by hand). Hand-written layers add connection setup, envelope
 //! unwrapping, and SSE streaming:
 //!
 //! - [`WfClient`] / [`ClientConfig`] (`client.rs`): strong-type-first
-//!   helpers over [`generated`], plus one documented JSON escape hatch.
+//!   helpers over `generated`, plus one documented JSON escape hatch.
 //! - [`ClientError`] (`error.rs`): shared status and envelope mapping.
 //! - [`SseFrame`] (`sse.rs`): streaming endpoints the generator skips.
 

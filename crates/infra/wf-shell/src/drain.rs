@@ -1,9 +1,9 @@
 //! Store-level coordination between the output reader threads and the
 //! completion monitor.
 //!
-//! Two primitives: [`MonitorWakeup`], a bounded condvar wakeup the readers
+//! Two primitives: `MonitorWakeup`, a bounded condvar wakeup the readers
 //! signal when a command's output reaches EOF so the monitor detects exits
-//! without polling, and [`OutputDrain`], a reader counter a waiter uses to
+//! without polling, and `OutputDrain`, a reader counter a waiter uses to
 //! wait for the session output buffer to be fully drained after the process
 //! has exited.
 

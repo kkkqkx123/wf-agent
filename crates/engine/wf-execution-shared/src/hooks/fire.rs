@@ -5,7 +5,7 @@
 //! notification barrier completes before the engine moves on. The pipeline
 //! itself carries no behavior — filtering (condition / enabled / priority),
 //! payload resolution and ordered notification only; behavior lives in
-//! registered [`HookHandler`]s. Notification uses one global priority order
+//! registered [`crate::hooks::handler::HookHandler`]s. Notification uses one global priority order
 //! across static and dynamic handlers so a high-priority dynamic handler
 //! can precede a low-priority static one.
 

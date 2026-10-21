@@ -38,7 +38,7 @@ enum WriteOp {
 }
 
 /// Buffered persistence layer: writes land on a bounded `mpsc` channel
-/// (capacity [`DEFAULT_QUEUE_CAPACITY`], configurable) and are drained by a
+/// (capacity `DEFAULT_QUEUE_CAPACITY`, configurable) and are drained by a
 /// single flusher task that batches them into the inner backend when a buffer
 /// fills or on a time interval.
 /// Queries hit the inner backend; `pending_writes` reports the un-persisted
@@ -101,7 +101,7 @@ impl BufferedPersistenceLayer {
     }
 
     /// Capacity of the bounded write channel (default
-    /// [`DEFAULT_QUEUE_CAPACITY`]). Data writes beyond the capacity are
+    /// `DEFAULT_QUEUE_CAPACITY`). Data writes beyond the capacity are
     /// dropped (newest first) and counted on the `health()` report; control
     /// ops (`Flush`/`Shutdown`) always wait for capacity.
     pub fn with_queue_capacity(mut self, capacity: usize) -> Self {

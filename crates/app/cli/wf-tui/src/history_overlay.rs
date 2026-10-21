@@ -1,7 +1,7 @@
 //! `Ctrl+T` history overlay: one session's scrollback, one page at a time.
 //!
 //! The overlay reads through the same cursor-paginated replay source the
-//! interactive session uses ([`replay_scrollack_page`]): the tail page lands
+//! interactive session uses ([`crate::replay::replay_scrollack_page`]): the tail page lands
 //! when the overlay opens and a `PageUp` pinned to the oldest loaded row asks
 //! for the page behind it. The window keeps the pages it has landed so a
 //! later `PageUp` scrolls the rows already in memory before paging again.

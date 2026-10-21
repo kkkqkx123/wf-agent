@@ -23,7 +23,7 @@ use super::checkpoint::{attach_checkpoints, entity_resume_snapshot};
 
 /// Default wall-clock timeout applied to a workflow execution when the caller
 /// does not set `WorkflowExecutionOptions::timeout` and no engine budget is
-/// configured (see [`entry_timeout_ms`]).
+/// configured (see `entry_timeout_ms`).
 pub const DEFAULT_EXECUTION_TIMEOUT_MS: u64 = 300_000;
 
 /// Wall-clock budget applied at the API boundary around an execution.
@@ -82,7 +82,7 @@ async fn resolve_definition(
 
 /// Execute a workflow to completion and await its output.
 ///
-/// Bounded by a wall-clock timeout resolved by [`entry_timeout_ms`]: an
+/// Bounded by a wall-clock timeout resolved by `entry_timeout_ms`: an
 /// explicit `options.timeout` (ms) when set, otherwise the built-in default
 /// raised to the engine budget. An elapse maps onto `ApiError::Timeout`.
 pub async fn execute(

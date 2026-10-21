@@ -1,10 +1,10 @@
 //! Modular bottom pane: layout calculation and component composition.
 //!
 //! The bottom pane is the footer area of the TUI, containing:
-//! - [`Composer`] for text input (drawn in the session input line)
-//! - [`StatusLine`] for agent status display
-//! - [`ApprovalView`] for tool approval
-//! - [`QuestionView`] for follow-up questions
+//! - [`crate::composer::Composer`] for text input (drawn in the session input line)
+//! - `StatusLine` for agent status display
+//! - [`crate::approval_overlay::ApprovalView`] for tool approval
+//! - [`crate::question_overlay::QuestionView`] for follow-up questions
 //! - Selection popup panels (command palette, model picker, etc.)
 //!
 //! This module provides layout constants and calculation utilities shared

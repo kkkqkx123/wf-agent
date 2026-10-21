@@ -2,7 +2,7 @@
 //!
 //! Tools: read_file, write_file, edit_file, apply_patch, apply_diff,
 //! list_files, grep_search, glob_search. Each tool lives in its own file
-//! under [`filesystem`]; this module aggregates the definitions and wires
+//! under `filesystem`; this module aggregates the definitions and wires
 //! the shared [`FsToolHandlers`] into the registry.
 
 pub mod apply_diff;

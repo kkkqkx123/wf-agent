@@ -1,9 +1,9 @@
 //! Selection panels for the inline footer prompt view: the `/` command
 //! palette plus the model / skill / queued-prompt panels.
 //!
-//! Every panel wraps a [`SelectList`] (grouped scrolling list) and stays
+//! Every panel wraps a [`crate::select::SelectList`] (grouped scrolling list) and stays
 //! pure data: navigation delegates to the list, filtering goes through
-//! [`SelectList::set_filter`] (case-insensitive substring) and rendering
+//! [`crate::select::SelectList::set_filter`] (case-insensitive substring) and rendering
 //! produces ratatui lines for a
 //! caller-provided width / window height.
 //!
@@ -15,7 +15,7 @@
 //! - Command palette data types and panel (`CommandId`, `CommandEntry`,
 //!   `CommandPalette`)
 //! - Model / skill / workflow / mention / queued panels
-//! - Shared render helper and [`Renderable`] implementations
+//! - Shared render helper and [`tui_core::renderable::Renderable`] implementations
 
 pub mod command;
 pub mod filter;

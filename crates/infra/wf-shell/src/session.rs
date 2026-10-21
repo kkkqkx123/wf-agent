@@ -1,7 +1,7 @@
 //! One command running inside a terminal session.
 //!
 //! A [`ShellSession`] wraps a single subprocess backend plus the output reader
-//! threads that drain its output into the session [`OutputBuffer`], dispatching
+//! threads that drain its output into the session `OutputBuffer`, dispatching
 //! per-line events, and coordinates the exit state shared by the store monitor
 //! thread, `status()` queries and blocking waiters.
 

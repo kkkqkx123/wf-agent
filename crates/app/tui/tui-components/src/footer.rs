@@ -638,7 +638,7 @@ pub(crate) fn wrap_columns(text: &str, width: usize) -> Vec<String> {
 /// Status indicator widget with animation support.
 ///
 /// Displays an animated spinner or static indicator based on the current
-/// [`MotionMode`]. Supports different indicator styles and can be used
+/// [`tui_style::motion::MotionMode`]. Supports different indicator styles and can be used
 /// for loading states, processing indicators, or other status displays.
 #[derive(Debug, Clone)]
 pub struct StatusIndicatorWidget {

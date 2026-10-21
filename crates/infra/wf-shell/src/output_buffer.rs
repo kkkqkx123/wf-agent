@@ -1,14 +1,14 @@
 //! Segmented ring buffer of session output with an incremental read cursor.
 //!
 //! The buffer keeps the tail of the output once it exceeds
-//! [`MAX_OUTPUT_BYTES`]. All positions are **absolute**: they index the
+//! `MAX_OUTPUT_BYTES`. All positions are **absolute**: they index the
 //! stream of every byte ever appended (`written`), so a byte offset recorded
 //! before a truncation stays valid afterwards (a window that fell into the
 //! dropped prefix is reported with a truncation marker instead of being
 //! silently empty).
 //!
 //! The retained content is kept as a list of byte segments (each ≤
-//! [`SEGMENT_BYTES`]) so appending and front-truncation are amortized O(1)
+//! `SEGMENT_BYTES`) so appending and front-truncation are amortized O(1)
 //! instead of O(n) copies on a single `String`. Every segment is valid UTF-8
 //! and every segment boundary falls on a character boundary (chunks are
 //! pushed whole and larger inputs are split on char boundaries), which is

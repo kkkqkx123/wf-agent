@@ -2,7 +2,7 @@
 //!
 //! [`FooterState`] merges the reducer's incremental snapshot with
 //! UI-only fields (model label, execution id, elapsed time, notice)
-//! and is owned by [`tui_components::footer::Footer`].
+//! and is owned by `tui_components::footer::Footer`.
 
 use crate::reducer::{ActiveBackgroundTask, ActiveSubAgent, Phase, UsageMeta};
 

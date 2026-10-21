@@ -52,7 +52,7 @@ impl History {
     }
 
     /// Load with an explicit retention cap. A cap of zero falls back to
-    /// [`HISTORY_LIMIT`].
+    /// `HISTORY_LIMIT`.
     pub fn load_with_limit(path: std::path::PathBuf, limit: usize) -> Self {
         let limit = if limit == 0 { HISTORY_LIMIT } else { limit };
         let mut history = Self {

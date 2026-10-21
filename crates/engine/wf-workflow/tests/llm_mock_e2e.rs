@@ -160,6 +160,7 @@ async fn stream_emits_chunks_and_aggregates_output() {
             stream_stats: None,
             id: None,
             model: None,
+            refusal: None,
         }),
         wf_types::llm::MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}),
     ]);

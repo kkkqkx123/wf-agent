@@ -1,6 +1,6 @@
 //! Hook audit event publication (record channel).
 //!
-//! Hook delivery is a synchronous fire ([`crate::hooks::fire`]): handlers
+//! Hook delivery is a synchronous fire ([`crate::hooks::fire()`]): handlers
 //! settle first, then the `HOOK_TRIGGERED` event published here follows as
 //! the audit copy. Persistence, external subscriptions and user trigger
 //! template matching consume it, but no functional delivery depends on it:

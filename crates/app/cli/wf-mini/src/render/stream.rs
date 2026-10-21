@@ -66,10 +66,10 @@ const DEFAULT_MAX_SOURCE_BYTES: usize = 64 * 1024;
 /// reference definition) stays held back until no later delta can rewrite
 /// it. `Raw` never re-renders its input, so it cuts at the last newline
 /// instead. Whatever was emitted is final: bytes on stdout cannot be
-/// retracted, so [`diff_suffix`]'s common-prefix path stays as the
+/// retracted, so `diff_suffix`'s common-prefix path stays as the
 /// last-resort repair for a rewrite the hold-backs did not foresee.
 ///
-/// When the accumulated source passes [`DEFAULT_MAX_SOURCE_BYTES`], the
+/// When the accumulated source passes `DEFAULT_MAX_SOURCE_BYTES`, the
 /// renderer emits the settled output once and degrades to verbatim
 /// passthrough: later deltas skip markdown rendering and stream through a
 /// single-line buffer with the same complete-lines-only discipline, so

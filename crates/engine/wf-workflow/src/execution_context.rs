@@ -170,7 +170,7 @@ impl ExecutionContextRegistry {
     }
 
     /// Register an execution's write-back target (generic form; used by
-    /// tests with recording targets and by [`register_workflow`]).
+    /// tests with recording targets and by [`ExecutionContextRegistry::register_workflow`]).
     pub fn register(&self, execution_id: impl Into<String>, target: Arc<dyn ContextWriter>) {
         self.entries.insert(execution_id.into(), target);
     }

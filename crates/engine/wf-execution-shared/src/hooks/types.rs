@@ -34,7 +34,7 @@ pub struct HookDefinition {
     /// emission time and surfaced on the `HOOK_TRIGGERED` audit event.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub payload: Option<Value>,
-    /// Optional name of a dynamically registered [`HookHandler`]. When set,
+    /// Optional name of a dynamically registered [`crate::hooks::handler::HookHandler`]. When set,
     /// the handler is notified synchronously during fire; when absent
     /// the hook degrades to the audit-only behavior (event + log).
     #[serde(default, skip_serializing_if = "Option::is_none")]

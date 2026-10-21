@@ -1,6 +1,6 @@
 //! Wrapped-row to source-column mapping for precise selection and copy.
 //!
-//! [`WrappedLineMap`] in [`crate::anchor`] resolves a wrapped row to its
+//! [`crate::anchor::WrappedLineMap`] in [`crate::anchor`] resolves a wrapped row to its
 //! logical line. This module goes one step further: [`WrappedColumnMap`]
 //! resolves a wrapped row to the source column interval it was reflowed
 //! from, so a visual selection spanning wrapped rows maps back to exact

@@ -14,13 +14,13 @@
 //! drop `Flush` barriers). Instead the queue is rate-limited by count per
 //! event kind, so a wedged sink cannot grow memory without bound:
 //!
-//! - **Output** lines are capped at [`MAX_QUEUED_OUTPUT_EVENTS`]: once the
+//! - **Output** lines are capped at `MAX_QUEUED_OUTPUT_EVENTS`: once the
 //!   backlog reaches the cap further lines are dropped and counted. A drop
 //!   sentinel is synthesized on the next delivered output so a push consumer
-//!   can fall back to the pull-side [`crate::engine::OutputBuffer`].
+//!   can fall back to the pull-side `OutputBuffer`.
 //! - **Lifecycle** events (`SessionCreated` / `CommandStarted` /
 //!   `CommandCompleted` / `SessionTerminated`) are capped at
-//!   [`MAX_QUEUED_LIFECYCLE_EVENTS`] (drops are logged).
+//!   `MAX_QUEUED_LIFECYCLE_EVENTS` (drops are logged).
 //! - **`Flush`** barriers are never rate-limited: they are the reliable
 //!   drain contract.
 //!
@@ -114,7 +114,7 @@ pub(crate) enum ShellEvent {
 /// One dedicated dispatch thread consumes the queue and calls the sink, so the
 /// engine (in particular the per-command output reader threads) never blocks
 /// on sink work. Events are delivered in queue order. A
-/// [`Flush`](ShellEvent::Flush) marker lets a caller wait until every event
+/// `Flush` marker lets a caller wait until every event
 /// queued before the call has been delivered.
 pub struct EventDispatcher {
     tx: tokio::sync::mpsc::UnboundedSender<ShellEvent>,

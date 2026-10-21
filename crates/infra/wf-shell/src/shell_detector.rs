@@ -266,7 +266,7 @@ impl ShellDetector {
         self.resolve_shell_path(shell_type).is_some()
     }
 
-    /// Resolve the shell path (same as [`resolve_shell_path`]).
+    /// Resolve the shell path (same as [`Self::resolve_shell_path`]).
     pub fn get_shell_path(&self, shell_type: ShellType) -> Option<String> {
         self.resolve_shell_path(shell_type)
     }

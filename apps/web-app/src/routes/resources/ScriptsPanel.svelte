@@ -2,6 +2,7 @@
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
+	import { t } from '$lib/i18n';
 	import type { Column } from '@wf-agent/ui/components/table';
 	import type { Script } from '$lib/types/models';
 	import { formatNumber, formatRelativeTime } from '$lib/utils/format';
@@ -15,27 +16,27 @@
 	const scriptColumns: Column<Script>[] = [
 		{
 			key: 'name',
-			header: 'Script',
+			header: t('page.resources.scripts.columnScript'),
 			text: (script) => script.name,
 			cellClass: 'font-mono text-caption',
 		},
 		{
 			key: 'runtime',
-			header: 'Runtime',
+			header: t('page.resources.scripts.columnRuntime'),
 			text: (script) => script.runtime,
 			cellClass: 'text-caption text-muted-foreground',
 		},
-		{ key: 'state', header: 'State', cell: scriptStateCell },
+		{ key: 'state', header: t('page.resources.scripts.columnState'), cell: scriptStateCell },
 		{
 			key: 'runs',
-			header: 'Runs',
+			header: t('page.resources.scripts.columnRuns'),
 			align: 'right',
 			text: (script) => formatNumber(script.runs),
 			cellClass: 'tabular-nums text-caption',
 		},
 		{
 			key: 'updated',
-			header: 'Updated',
+			header: t('page.resources.scripts.columnUpdated'),
 			align: 'right',
 			text: (script) => formatRelativeTime(script.updatedAt),
 			cellClass: 'text-caption text-muted-foreground',
@@ -48,8 +49,8 @@
 		columns={scriptColumns}
 		rows={scripts}
 		rowKey={(script) => script.id}
-		emptyTitle="No scripts registered"
-		emptyDescription="Scripts appear here once the registry has entries."
+		emptyTitle={t('page.resources.scripts.noScripts')}
+		emptyDescription={t('page.resources.scripts.noScriptsDesc')}
 		virtualize={false}
 	/>
 </Card>

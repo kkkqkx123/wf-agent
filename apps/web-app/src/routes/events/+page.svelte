@@ -25,11 +25,12 @@
 		formatRelativeTime,
 	} from '$lib/utils/format';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
+	import { t } from '$lib/i18n';
 
 	const TABS = [
-		{ id: 'stream', label: 'Event stream' },
-		{ id: 'dependencies', label: 'Dependencies' },
-		{ id: 'operations', label: 'Operations' },
+		{ id: 'stream', label: t('page.events.stream') },
+		{ id: 'dependencies', label: t('page.events.dependencies') },
+		{ id: 'operations', label: t('page.events.operations') },
 	];
 
 	const requestedTab = parseListParams(page.url).tab;
@@ -87,7 +88,7 @@
 			}
 		} catch (e) {
 			console.error('Failed to load events segment:', e);
-			loadError = e instanceof Error ? e.message : 'Event request failed';
+			loadError = e instanceof Error ? e.message : t('page.events.requestFailed');
 		} finally {
 			loading = false;
 		}
@@ -104,9 +105,9 @@
 		try {
 			await deleteAllEvents();
 			await reload();
-			toasts.success('Events cleared');
+			toasts.success(t('page.events.cleared'));
 		} catch {
-			toasts.error('Deletion requires confirmation');
+			toasts.error(t('page.events.deletionRequiresConfirmation'));
 		}
 	}
 
@@ -128,23 +129,23 @@
 	} {
 		if (current === 'dependencies') {
 			return {
-				title: 'No dependencies recorded',
+				title: t('page.events.noDependencies'),
 				description:
-					'Caller and callee links appear once tool and script calls are traced.',
+					t('page.events.noDependenciesDesc'),
 			};
 		}
 		if (current === 'operations') {
 			return {
-				title: 'No diagnostics reported',
+				title: t('page.events.noDiagnostics'),
 				description:
-					'Runtime diagnostics appear once the backend publishes health checks.',
+					t('page.events.noDiagnosticsDesc'),
 			};
 		}
 		return {
-			title: query.trim() ? 'No matching events' : 'No events captured',
+			title: query.trim() ? t('page.events.noMatching') : t('page.events.noCaptured'),
 			description: query.trim()
-				? 'No event matches the current filter. Clear the filter to see the full stream.'
-				: 'Event records appear here once a workflow run or agent loop emits them.',
+				? t('page.events.noMatchingDesc')
+				: t('page.events.noCapturedDesc'),
 		};
 	}
 
@@ -161,8 +162,8 @@
 
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
-		title="Events & system"
-		description="Event stream, dependency impact and runtime diagnostics."
+		title={t('page.events.title')}
+		description={t('page.events.description')}
 	>
 		{#snippet meta()}
 			<span
@@ -178,7 +179,7 @@
 		{#snippet actions()}
 			<IconButton
 				icon="refresh"
-				label="Refresh"
+				label={t('common.refresh')}
 				onclick={() => void reload()}
 			/>
 			<Button variant="outline" size="sm" onclick={() => void clearEvents()}>
@@ -198,7 +199,7 @@
 	<div
 		id="events-panel"
 		role="tabpanel"
-		aria-label="Event sections"
+		aria-label={t('page.events.sections')}
 		class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
 	>
 		{#if tab === 'stream'}
@@ -211,7 +212,7 @@
 					/>
 					<Input
 						bind:value={query}
-						placeholder="Filter by type, source or payload…"
+						placeholder={t('page.events.filterPlaceholder')}
 						class="pl-8"
 					/>
 				</div>
@@ -283,7 +284,7 @@
 					</ul>
 				</Card>
 			{:else if tab === 'dependencies'}
-				<Card title="Callers and impact">
+				<Card title={t('page.events.callersImpact')}>
 					<ul class="divide-y divide-border">
 						{#each dependencies as dependency (dependency.id)}
 							<li
@@ -331,40 +332,40 @@
 					{/each}
 				</div>
 
-				<Card title="Runtime operations" class="mt-3">
+				<Card title={t('page.events.runtimeOperations')} class="mt-3">
 					<div class="flex flex-wrap gap-2">
 						<Button
 							variant="outline"
 							size="sm"
-							onclick={() => toasts.info('Storage diagnostics queued')}
+							onclick={() => toasts.info(t('page.events.storageDiagnosticsQueued'))}
 						>
 							<Icon name="database" size={13} />
-							Storage diagnostics
+							{t('page.events.storageDiagnostics')}
 						</Button>
 						<Button
 							variant="outline"
 							size="sm"
-							onclick={() => toasts.info('System diagnostics queued')}
+							onclick={() => toasts.info(t('page.events.systemDiagnosticsQueued'))}
 						>
 							<Icon name="gauge" size={13} />
-							System diagnostics
+							{t('page.events.systemDiagnostics')}
 						</Button>
 						<Button
 							variant="outline"
 							size="sm"
-							onclick={() => toasts.info('Metrics snapshot queued')}
+							onclick={() => toasts.info(t('page.events.metricsSnapshotQueued'))}
 						>
 							<Icon name="chart" size={13} />
-							Metrics snapshot
+							{t('page.events.metricsSnapshot')}
 						</Button>
 						<Button
 							variant="outline"
 							size="sm"
 							onclick={() =>
-								toasts.warning('Expiry cleanup requires confirmation')}
+								toasts.warning(t('page.events.expiryCleanupConfirm'))}
 						>
 							<Icon name="clock" size={13} />
-							Clean expired
+							{t('page.events.cleanExpired')}
 						</Button>
 					</div>
 				</Card>

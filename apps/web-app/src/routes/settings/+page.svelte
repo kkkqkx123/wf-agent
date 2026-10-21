@@ -33,15 +33,16 @@
 		type SettingsBackup,
 	} from '$lib/services/portability';
 	import { cn } from '@wf-agent/ui/cn';
+import { t, message } from '$lib/i18n';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	const SECTIONS = [
-		{ id: 'appearance', label: 'Appearance', icon: 'sun' },
-		{ id: 'shortcuts', label: 'Shortcuts', icon: 'command' },
-		{ id: 'execution', label: 'Execution defaults', icon: 'activity' },
-		{ id: 'notifications', label: 'Notifications', icon: 'bell' },
-		{ id: 'workspace', label: 'Workspace', icon: 'sliders' },
-		{ id: 'portability', label: 'Portability', icon: 'archive' },
+		{ id: 'appearance', label: message('page.settings.appearance'), icon: 'sun' },
+		{ id: 'shortcuts', label: message('page.settings.shortcuts'), icon: 'command' },
+		{ id: 'execution', label: message('page.settings.executionDefaults'), icon: 'activity' },
+		{ id: 'notifications', label: message('page.settings.notifications'), icon: 'bell' },
+		{ id: 'workspace', label: message('page.settings.workspace'), icon: 'sliders' },
+		{ id: 'portability', label: message('page.settings.portability'), icon: 'archive' },
 	] as const;
 
 	const requestedSection = parseListParams(page.url).tab;
@@ -60,21 +61,21 @@
 	});
 
 	const THEME_OPTIONS = [
-		{ value: 'light', label: 'Light' },
-		{ value: 'dark', label: 'Dark' },
-		{ value: 'system', label: 'Follow system' },
+		{ value: 'light', label: message('page.settings.themeLight') },
+		{ value: 'dark', label: message('page.settings.themeDark') },
+		{ value: 'system', label: message('page.settings.themeSystem') },
 	];
 
 	const DENSITY_OPTIONS = [
-		{ value: 'compact', label: 'Compact' },
-		{ value: 'default', label: 'Default' },
-		{ value: 'comfortable', label: 'Comfortable' },
+		{ value: 'compact', label: message('page.settings.densityCompact') },
+		{ value: 'default', label: message('page.settings.densityDefault') },
+		{ value: 'comfortable', label: message('page.settings.densityComfortable') },
 	];
 
 	const TOOL_DETAIL_OPTIONS = [
-		{ value: 'compact', label: 'Compact' },
-		{ value: 'balanced', label: 'Balanced' },
-		{ value: 'verbose', label: 'Verbose' },
+		{ value: 'compact', label: message('page.settings.detailCompact') },
+		{ value: 'balanced', label: message('page.settings.detailBalanced') },
+		{ value: 'verbose', label: message('page.settings.detailVerbose') },
 	];
 
 	const toolBudgetsHint = $derived(
@@ -126,18 +127,18 @@
 	async function saveBehavior(): Promise<void> {
 		await behavior.save();
 		if (behavior.error) {
-			toasts.error('Preferences failed to save', behavior.error);
+			toasts.error(t('page.settings.prefsSaveFailed'), behavior.error);
 		} else {
-			toasts.success('Preferences saved');
+			toasts.success(t('page.settings.prefsSaved'));
 		}
 	}
 
 	async function restoreBehavior(): Promise<void> {
 		await behavior.restoreDefaults();
 		if (behavior.error) {
-			toasts.error('Restore failed', behavior.error);
+			toasts.error(t('page.settings.restoreFailed'), behavior.error);
 		} else {
-			toasts.success('Defaults restored');
+			toasts.success(t('page.settings.defaultsRestored'));
 		}
 	}
 
@@ -210,7 +211,7 @@
 		anchor.click();
 		anchor.remove();
 		URL.revokeObjectURL(url);
-		backupMessage = 'Backup downloaded.';
+		backupMessage = t('page.settings.backupDownloaded');
 		backupError = null;
 	}
 
@@ -228,7 +229,7 @@
 			backupMessage = `Ready to restore: ${describeBackup(pendingBackup)}.`;
 		} catch (error) {
 			backupError =
-				error instanceof Error ? error.message : 'Invalid backup file';
+				error instanceof Error ? error.message : t('page.settings.invalidBackup');
 		} finally {
 			event.currentTarget.value = '';
 		}
@@ -238,10 +239,10 @@
 		if (!pendingBackup) return;
 		preferences.applyBackup(pendingBackup.preferences);
 		saveShortcutOverrides({ ...pendingBackup.shortcuts });
-		backupMessage = 'Local preferences and shortcuts restored.';
+		backupMessage = t('page.settings.localRestored');
 		backupError = null;
 		pendingBackup = null;
-		toasts.success('Local settings restored');
+		toasts.success(t('page.settings.localSettingsRestored'));
 	}
 
 	async function applyFullBackup(): Promise<void> {
@@ -257,9 +258,9 @@
 				return;
 			}
 			backupError = null;
-			backupMessage = 'Backup fully restored.';
+			backupMessage = t('page.settings.backupFullyRestored');
 			pendingBackup = null;
-			toasts.success('Settings restored');
+			toasts.success(t('page.settings.settingsRestored'));
 		} finally {
 			backupBusy = false;
 		}
@@ -268,15 +269,15 @@
 
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
-		title="Settings"
-		description="Appearance and workspace stay local and apply instantly. Execution and notification preferences are cross-device server behavior and need Save."
+		title={t('page.settings.title')}
+		description={t('page.settings.description')}
 	>
 		{#snippet actions()}
 			{#if serverSection}
 				{#if behavior.dirty}
 					<span
 						class="rounded border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-micro text-warning"
-						>Unsaved changes</span
+						>{t('page.settings.unsaved')}</span
 					>
 				{/if}
 				<Button
@@ -286,7 +287,7 @@
 					onclick={() => void restoreBehavior()}
 				>
 					<Icon name="history" size={13} />
-					Restore defaults
+					{t('page.settings.restoreDefaults')}
 				</Button>
 				<Button
 					size="sm"
@@ -294,7 +295,7 @@
 					onclick={() => void saveBehavior()}
 				>
 					<Icon name="check" size={13} />
-					{behavior.saving ? 'Saving…' : 'Save server preferences'}
+					{behavior.saving ? t('page.settings.saving') : t('page.settings.saveServerPrefs')}
 				</Button>
 			{:else}
 				<span class="text-caption text-muted-foreground">
@@ -320,7 +321,7 @@
 					)}
 				>
 					<Icon name={item.icon} size={15} />
-					<span class="truncate">{item.label}</span>
+					<span class="truncate">{item.label()}</span>
 				</button>
 			{/each}
 		</nav>
@@ -329,13 +330,13 @@
 			{#if section === 'appearance'}
 				<div class="space-y-3">
 					<Card
-						title="Theme"
-						description="Applied before first paint and persisted locally."
+						title={t('page.settings.theme')}
+						description={t('page.settings.themeDesc')}
 					>
 						<Select
 							value={preferences.theme}
 							options={THEME_OPTIONS}
-							placeholder="Theme"
+							placeholder={t('page.settings.theme')}
 							class="w-56"
 							onchange={(value) => preferences.setTheme(value as ThemeMode)}
 						/>
@@ -357,20 +358,20 @@
 												: 'monitor'}
 										size={13}
 									/>
-									{option.label}
+									{option.label()}
 								</Button>
 							{/each}
 						</div>
 					</Card>
 
 					<Card
-						title="Type density"
-						description="Scales interface type and corner roundness without changing layout units."
+						title={t('page.settings.typeDensity')}
+						description={t('page.settings.typeDensityDesc')}
 					>
 						<Select
 							value={preferences.density}
 							options={DENSITY_OPTIONS}
-							placeholder="Density"
+							placeholder={t('page.settings.density')}
 							class="w-56"
 							onchange={(value) => preferences.setDensity(value as Density)}
 						/>
@@ -381,12 +382,12 @@
 					</Card>
 
 					<Card
-						title="Tool output"
-						description="How much of each tool result shows inline. Retrieval outputs always collapse to counts; failures stay expandable on every preset. Verbose shows more rows per card, but retrieval output stays collapsed until expanded per card — safe for inspecting retrieval without flooding the transcript."
+						title={t('page.settings.toolOutput')}
+						description={t('page.settings.toolOutputDesc')}
 					>
 						<Switch
 							checked={preferences.toolOutputPreviews}
-							label="Summarize tool outputs"
+							label={t('page.settings.summarizeToolOutputs')}
 							onchange={() =>
 								preferences.setToolOutputPreviews(
 									!preferences.toolOutputPreviews,
@@ -396,7 +397,7 @@
 							<Select
 								value={preferences.toolOutputDetail}
 								options={TOOL_DETAIL_OPTIONS}
-								placeholder="Detail"
+								placeholder={t('page.settings.detail')}
 								class="w-56"
 								disabled={!preferences.toolOutputPreviews}
 								onchange={(value) =>
@@ -415,12 +416,12 @@
 			{:else if section === 'portability'}
 				<div class="space-y-3">
 					<Card
-						title="Backup"
-						description="One versioned file with appearance, shortcuts and server behavior. Download never needs the server."
+						title={t('page.settings.backup')}
+						description={t('page.settings.backupDesc')}
 					>
 						<Button size="sm" variant="outline" onclick={exportBackup}>
 							<Icon name="download" size={13} />
-							Export settings
+							{t('page.settings.exportSettings')}
 						</Button>
 						{#if backupMessage && !pendingBackup}
 							<p class="mt-2 text-caption text-muted-foreground">
@@ -429,8 +430,8 @@
 						{/if}
 					</Card>
 					<Card
-						title="Restore"
-						description="Unknown versions, unknown keys and mistyped values are rejected without changing anything."
+						title={t('page.settings.restore')}
+						description={t('page.settings.restoreDesc')}
 					>
 						<input
 							type="file"
@@ -461,7 +462,7 @@
 									onclick={() => void applyFullBackup()}
 								>
 									<Icon name="upload" size={13} />
-									{backupBusy ? 'Restoring…' : 'Restore all'}
+									{backupBusy ? t('page.settings.restoring') : t('page.settings.restoreAll')}
 								</Button>
 								<Button
 									size="sm"
@@ -485,7 +486,7 @@
 				<PageState
 					loading={behavior.loading}
 					error={serverUnreachable ? behavior.error : null}
-					errorTitle="Server preferences unavailable"
+					errorTitle={t('page.settings.serverPrefsUnavailable')}
 					onretry={() => void behavior.load()}
 				>
 					{#if section === 'execution'}
@@ -496,18 +497,17 @@
 							</p>
 							{#if behavior.loaded && behavior.error}
 								<p class="text-caption text-destructive">
-									Server preferences update failed ({behavior.error}); edits
-									stay local until Save succeeds.
+									{t('page.settings.serverUpdateFailed', { error: behavior.error ?? '' })}
 								</p>
 							{/if}
 							<Card
-								title="Paging"
-								description="Cursor pages have no total; this sets the requested page size. Stored server-side."
+								title={t('page.settings.paging')}
+								description={t('page.settings.pagingDesc')}
 							>
 								<Select
 									value={pageSize}
 									options={PAGE_SIZE_OPTIONS}
-									placeholder="Page size"
+									placeholder={t('page.settings.pageSize')}
 									class="w-40"
 									disabled={serverUnreachable}
 									onchange={(value) => {
@@ -515,10 +515,10 @@
 									}}
 								/>
 							</Card>
-							<Card title="Live updates" description="Stored server-side.">
+							<Card title={t('page.settings.liveUpdates')} description={t('page.settings.storedServerSide')}>
 								<Switch
 									checked={behavior.autoRefresh}
-									label="Auto refresh lists"
+									label={t('page.settings.autoRefresh')}
 									disabled={serverUnreachable}
 									onchange={() => {
 										behavior.autoRefresh = !behavior.autoRefresh;
@@ -526,7 +526,7 @@
 								/>
 								<Switch
 									checked={behavior.streamFollow}
-									label="Follow stream tail"
+									label={t('page.settings.followStream')}
 									class="mt-2"
 									disabled={serverUnreachable}
 									onchange={() => {
@@ -538,40 +538,39 @@
 					{:else}
 						<div class="space-y-3">
 							<p class="text-caption text-muted-foreground">
-								Toast previews apply instantly; the accessibility preference
-								below is stored server-side and needs Save.
+								{t('page.settings.toastPreviewNote')}
 							</p>
-							<Card title="Toasts">
+							<Card title={t('page.settings.toasts')}>
 								<div class="mt-1 flex gap-2">
 									<Button
 										variant="outline"
 										size="sm"
 										onclick={() =>
-											toasts.success('Saved', 'Preference applied')}
+											toasts.success(t('page.settings.saved'), t('page.settings.preferenceApplied'))}
 									>
-										Test success toast
+										{t('page.settings.testSuccessToast')}
 									</Button>
 									<Button
 										variant="outline"
 										size="sm"
 										onclick={() =>
-											toasts.error('Blocked', 'Retry may be required')}
+											toasts.error(t('page.settings.blocked'), t('page.settings.retryMayBeRequired'))}
 									>
-										Test error toast
+										{t('page.settings.testErrorToast')}
 									</Button>
 								</div>
 							</Card>
-							<Card title="Accessibility" description="Stored server-side.">
+							<Card title={t('page.settings.accessibility')} description={t('page.settings.storedServerSide')}>
 								<Switch
 									checked={behavior.reduceMotion}
-									label="Always reduce motion"
+									label={t('page.settings.reduceMotion')}
 									disabled={serverUnreachable}
 									onchange={() => {
 										behavior.reduceMotion = !behavior.reduceMotion;
 									}}
 								/>
 								<p class="mt-2 text-caption text-muted-foreground">
-									The OS reduced-motion preference is honoured automatically.
+									{t('page.settings.reduceMotionNote')}
 								</p>
 							</Card>
 						</div>
@@ -579,20 +578,20 @@
 				</PageState>
 			{:else}
 				<div class="space-y-3">
-					<Card title="Shell">
+					<Card title={t('page.settings.shell')}>
 						<Switch
 							checked={preferences.sidebarCollapsed}
-							label="Collapse sidebar to icon rail"
+							label={t('page.settings.collapseSidebar')}
 							onchange={() => preferences.toggleSidebar()}
 						/>
 						<Switch
 							checked={preferences.inspectorPinned}
-							label="Keep inspector docked on wide screens"
+							label={t('page.settings.keepInspectorDocked')}
 							class="mt-2"
 							onchange={() => preferences.toggleInspectorPinned()}
 						/>
 					</Card>
-					<Card title="Sidebar width" description="Persisted between sessions.">
+					<Card title={t('page.settings.sidebarWidth')} description={t('page.settings.persistentNote')}>
 						<div class="flex items-center gap-3">
 							<input
 								type="range"
@@ -621,8 +620,8 @@
 
 <UnsavedChangesDialog
 	bind:open={unsavedOpen}
-	description="Server preferences have unsaved edits. Leaving discards the local changes."
-	saveLabel="Save & leave"
+	description={t('page.settings.unsavedDialogDesc')}
+	saveLabel={t('page.settings.saveLeave')}
 	busy={unsavedBusy}
 	ondiscard={() => void discardAndProceed()}
 	onsave={() => void saveAndProceed()}

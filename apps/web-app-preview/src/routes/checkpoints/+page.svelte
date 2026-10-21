@@ -22,11 +22,12 @@
 	import { fileWorkspace } from '$lib/stores/fileWorkspace.svelte';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 	import type { CheckpointDomain } from '$lib/stores/checkpoints.svelte';
+	import { t } from '$lib/i18n';
 
 	const TABS = [
-		{ id: 'chain', label: 'Checkpoint chain' },
-		{ id: 'files', label: 'File workspace' },
-		{ id: 'approvals', label: 'Approvals' },
+		{ id: 'chain', label: t('page.checkpoints.tabChain') },
+		{ id: 'files', label: t('page.checkpoints.tabFiles') },
+		{ id: 'approvals', label: t('page.checkpoints.tabApprovals') },
 	];
 
 	const requestedTab = parseListParams(page.url).tab;
@@ -104,7 +105,7 @@
 			}
 		} catch (e) {
 			console.error('Failed to load checkpoints segment:', e);
-			loadError = e instanceof Error ? e.message : 'Checkpoint request failed';
+			loadError = e instanceof Error ? e.message : t('page.checkpoints.requestFailed');
 		} finally {
 			loading = false;
 			if (chainDirty || approvalsDirty) {
@@ -158,7 +159,7 @@
 	async function runCreateFileCheckpoint(): Promise<void> {
 		const actor = fileWorkspace.actor.trim() || 'manual';
 		if (!actor) {
-			toasts.error('Enter an actor for the checkpoint');
+			toasts.error(t('page.checkpoints.enterActor'));
 			return;
 		}
 		checkpointStore.beginAction('create');
@@ -166,14 +167,14 @@
 			const created = await createFileCheckpoint(actor);
 			createOpen = false;
 			toasts.success(
-				'File checkpoint created',
+				t('page.checkpoints.fileCheckpointCreated'),
 				`${created.fileCount} files · ${created.id.slice(0, 10)}`,
 			);
 			checkpointStore.bump('files');
 		} catch (e) {
 			console.error('File checkpoint creation failed:', e);
 			toasts.error(
-				'Checkpoint creation failed',
+				t('page.checkpoints.creationFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -187,15 +188,15 @@
 	} {
 		if (current === 'approvals') {
 			return {
-				title: 'No approval requests',
+				title: t('page.checkpoints.noApprovals'),
 				description:
-					'Pending approvals appear here when a run asks for confirmation.',
+					t('page.checkpoints.noApprovalsDesc'),
 			};
 		}
 		return {
-			title: 'No checkpoints',
+			title: t('page.checkpoints.noCheckpoints'),
 			description:
-				'Checkpoints appear here once a run records a restorable state.',
+				t('page.checkpoints.noCheckpointsDesc'),
 		};
 	}
 
@@ -211,17 +212,17 @@
 
 	const liveLabel = $derived(
 		checkpointStore.liveState === 'open'
-			? 'Live'
+			? t('page.checkpoints.live')
 			: checkpointStore.liveState === 'reconnecting'
-				? 'Reconnecting'
-				: 'Offline',
+				? t('page.checkpoints.reconnecting')
+				: t('page.checkpoints.offline'),
 	);
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
-		title="Checkpoints & files"
-		description="Execution checkpoint chains, file workspace changes and pending approvals."
+		title={t('page.checkpoints.title')}
+		description={t('page.checkpoints.description')}
 	>
 		{#snippet actions()}
 			<Badge
@@ -231,7 +232,7 @@
 			</Badge>
 			<IconButton
 				icon="refresh"
-				label="Refresh"
+				label={t('common.refresh')}
 				onclick={() => void reload()}
 			/>
 			<Button
@@ -243,7 +244,7 @@
 				}}
 			>
 				<Icon name="plus" size={13} />
-				Create checkpoint
+				{t('page.checkpoints.createCheckpoint')}
 			</Button>
 		{/snippet}
 	</PageHeader>
@@ -258,7 +259,7 @@
 	<div
 		id="checkpoints-panel"
 		role="tabpanel"
-		aria-label="Checkpoint sections"
+		aria-label={t('page.checkpoints.sections')}
 		class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
 	>
 		<PageState
@@ -288,11 +289,11 @@
 
 <Dialog
 	bind:open={createOpen}
-	title="Create file checkpoint"
-	description="Capture the full workspace for one actor."
+	title={t('page.checkpoints.createFileCheckpoint')}
+	description={t('page.checkpoints.createFileCheckpointDesc')}
 >
 	<Input
-		label="Actor"
+		label={t('page.checkpoints.actor')}
 		value={fileWorkspace.actor}
 		oninput={(event: Event) =>
 			fileWorkspace.setActor((event.target as HTMLInputElement).value)}

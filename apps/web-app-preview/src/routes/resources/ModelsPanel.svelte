@@ -4,6 +4,7 @@
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
 	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
+	import { t } from '$lib/i18n';
 	import type { Column } from '@wf-agent/ui/components/table';
 	import type { ModelProfile, Provider } from '$lib/types/models';
 	import { formatNumber } from '$lib/utils/format';
@@ -16,37 +17,37 @@
 	let { modelProfiles, providers }: Props = $props();
 
 	const profileColumns: Column<ModelProfile>[] = [
-		{ key: 'name', header: 'Profile', cell: profileNameCell },
+		{ key: 'name', header: t('page.resources.models.columnProfile'), cell: profileNameCell },
 		{
 			key: 'provider',
-			header: 'Provider',
+			header: t('page.resources.models.columnProvider'),
 			text: (profile) => profile.provider,
 			cellClass: 'text-caption text-muted-foreground',
 		},
 		{
 			key: 'model',
-			header: 'Model',
+			header: t('page.resources.models.columnModel'),
 			text: (profile) => profile.model,
 			cellClass: 'font-mono text-caption',
 		},
-		{ key: 'status', header: 'Status', cell: profileStatusCell },
+		{ key: 'status', header: t('page.resources.models.columnStatus'), cell: profileStatusCell },
 		{
 			key: 'requests',
-			header: 'Requests',
+			header: t('page.resources.models.columnRequests'),
 			align: 'right',
 			text: (profile) => formatNumber(profile.requests),
 			cellClass: 'tabular-nums text-caption',
 		},
 		{
 			key: 'tokens',
-			header: 'Tokens',
+			header: t('page.resources.models.columnTokens'),
 			align: 'right',
 			text: (profile) => formatNumber(profile.tokens),
 			cellClass: 'tabular-nums text-caption text-muted-foreground',
 		},
 		{
 			key: 'cost',
-			header: 'Cost',
+			header: t('page.resources.models.columnCost'),
 			align: 'right',
 			text: (profile) =>
 				profile.cost === null ? '—' : `$${profile.cost.toFixed(2)}`,
@@ -56,23 +57,23 @@
 </script>
 
 <div class="space-y-3">
-	<Card title="Model profiles" bodyClass="p-0">
+	<Card title={t('page.resources.models.title')} bodyClass="p-0">
 		<DataTable
 			columns={profileColumns}
 			rows={modelProfiles}
 			rowKey={(profile) => profile.id}
-			emptyTitle="No model profiles"
-			emptyDescription="Profiles appear here once a provider exposes them."
+			emptyTitle={t('page.resources.models.noProfiles')}
+			emptyDescription={t('page.resources.models.noProfilesDesc')}
 			virtualize={false}
 		/>
 	</Card>
 
-	<Card title="Providers">
+	<Card title={t('page.resources.models.providers')}>
 		{#if providers.length === 0}
 			<EmptyState
 				icon="database"
-				title="No providers configured"
-				description="Providers appear here once a model backend is connected."
+				title={t('page.resources.models.noProviders')}
+				description={t('page.resources.models.noProvidersDesc')}
 				class="py-6"
 			/>
 		{:else}

@@ -15,6 +15,7 @@
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 	import { GitWorkbench, PANELS } from '$lib/git/workbench.svelte';
 	import type { PanelId } from '$lib/git/workbench.svelte';
+	import { t } from '$lib/i18n';
 
 	const requested = parseListParams(page.url).panel;
 	const workbench = new GitWorkbench();
@@ -44,8 +45,8 @@
 
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
-		title="Git"
-		description="User repository workbench: status, files, branches, commits and stash."
+		title={t('page.git.title')}
+		description={t('page.git.description')}
 	>
 		{#snippet actions()}
 			{#if workbench.meta}
@@ -58,12 +59,12 @@
 					>
 				{/if}
 				{#if workbench.meta.mergeHead || workbench.meta.rebaseHead || workbench.meta.cherryPickHead}
-					<Badge variant="warning">mid-operation</Badge>
+					<Badge variant="warning">{t('page.git.midOperation')}</Badge>
 				{/if}
 			{/if}
 			<IconButton
 				icon="refresh"
-				label="Refresh"
+				label={t('common.refresh')}
 				onclick={() => void workbench.reload()}
 			/>
 			<Button
@@ -71,7 +72,7 @@
 				variant="outline"
 				onclick={() => void workbench.toggleTerminal()}
 			>
-				{workbench.terminalOpen ? 'Hide terminal' : 'Terminal'}
+				{workbench.terminalOpen ? t('page.git.hideTerminal') : t('page.git.terminal')}
 			</Button>
 		{/snippet}
 	</PageHeader>
@@ -86,15 +87,15 @@
 	<div
 		id="git-panel"
 		role="tabpanel"
-		aria-label="Git panels"
+		aria-label={t('page.git.sections')}
 		class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
 	>
 		<PageState
 			loading={workbench.loading}
 			error={workbench.loadError}
 			empty={workbench.noRepo}
-			emptyTitle="No repository"
-			emptyDescription="Configure user_git.repo_root with user_git.enabled=true to attach the user repository."
+			emptyTitle={t('page.git.noRepoTitle')}
+			emptyDescription={t('page.git.noRepoDesc')}
 			onretry={() => void workbench.reload()}
 		>
 			<div class="grid gap-3 xl:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">

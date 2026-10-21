@@ -3,6 +3,7 @@
 	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
 	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
+	import { t } from '$lib/i18n';
 	import Input from '@wf-agent/ui/components/Input.svelte';
 	import { getSkillContent } from '$lib/services/resources';
 	import { toasts } from '$lib/stores/toast.svelte';
@@ -27,7 +28,7 @@
 					.filter((line) =>
 						line.toLowerCase().includes(skillFilter.trim().toLowerCase()),
 					)
-					.join('\n') || 'No lines match the filter.'
+					.join('\n') || t('page.resources.skillContent.noLinesMatch')
 			: skillContent,
 	);
 
@@ -50,7 +51,7 @@
 			skillContent = await getSkillContent(next.name);
 		} catch (e) {
 			skillContentError =
-				e instanceof Error ? e.message : 'Prompt failed to load.';
+				e instanceof Error ? e.message : t('page.resources.skillContent.promptLoadFailed');
 		}
 	}
 
@@ -58,17 +59,22 @@
 		if (!skillContent) return;
 		try {
 			await navigator.clipboard.writeText(skillContent);
-			toasts.success('Prompt copied');
+			toasts.success(t('page.resources.skillContent.copied'));
 		} catch (e) {
-			toasts.error('Copy failed', e instanceof Error ? e.message : undefined);
+			toasts.error(t('page.resources.skillContent.copyFailed'), e instanceof Error ? e.message : undefined);
 		}
 	}
 </script>
 
-<Dialog bind:open title={skill ? `Prompt · ${skill.name}` : 'Skill prompt'}>
+<Dialog
+	bind:open
+	title={skill
+		? t('page.resources.skillContent.title', { name: skill.name })
+		: t('page.resources.skillContent.fallbackTitle')}
+>
 	{#if skillContentError}
 		<ErrorState
-			title="Prompt failed to load"
+			title={t('page.resources.skillContent.promptLoadFailed')}
 			description={skillContentError}
 			onretry={() => {
 				if (skill) void loadSkillContent(skill);
@@ -80,7 +86,7 @@
 		<div class="mb-2 flex items-center gap-2">
 			<Input
 				bind:value={skillFilter}
-				placeholder="Filter lines…"
+				placeholder={t('page.resources.skillContent.filterPlaceholder')}
 				size="sm"
 				class="w-full"
 			/>

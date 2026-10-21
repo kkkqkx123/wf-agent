@@ -3,6 +3,7 @@
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Switch from '@wf-agent/ui/components/Switch.svelte';
 	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
+	import { t } from '$lib/i18n';
 	import type { Skill } from '$lib/types/models';
 	import { cn } from '@wf-agent/ui/cn';
 
@@ -19,8 +20,8 @@
 {#if skills.length === 0}
 	<EmptyState
 		icon="sparkles"
-		title="No skills registered"
-		description="Skills appear here once the registry has entries."
+		title={t('page.resources.skills.noSkills')}
+		description={t('page.resources.skills.noSkillsDesc')}
 		class="rounded-lg border border-border bg-card"
 	/>
 {:else}
@@ -30,7 +31,7 @@
 				{#snippet actions()}
 					<Switch
 						checked={skillEnabled[skill.id] ?? false}
-						label="Enable {skill.name}"
+						label={t('page.resources.skills.enable', { name: skill.name })}
 						hideLabel
 						onchange={(checked) => ontoggle(skill.id, checked)}
 					/>

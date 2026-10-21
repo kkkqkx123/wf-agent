@@ -5,7 +5,7 @@
 
 	interface Option {
 		value: string;
-		label: string;
+		label: string | (() => string);
 		disabled?: boolean;
 	}
 
@@ -53,7 +53,7 @@
 		{/if}
 		{#each options as option (option.value)}
 			<option value={option.value} disabled={option.disabled}
-				>{option.label}</option
+				>{typeof option.label === 'function' ? option.label() : option.label}</option
 			>
 		{/each}
 	</select>

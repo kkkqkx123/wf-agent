@@ -22,12 +22,13 @@
 	} from '$lib/services/triggers';
 	import type { Hook, TriggerRecord } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
+	import { t, message } from '$lib/i18n';
 	import { formatDateTime, formatRelativeTime } from '$lib/utils/format';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	const TABS = [
-		{ id: 'records', label: 'Trigger records' },
-		{ id: 'hooks', label: 'Hook test dispatch' },
+		{ id: 'records', label: message('page.triggers.recordsTab') },
+		{ id: 'hooks', label: message('page.triggers.hooksTab') },
 	];
 
 	const requestedTab = parseListParams(page.url).tab;
@@ -91,7 +92,7 @@
 				seenRecords = false;
 				triggerRecords = [];
 				recordsError =
-					e instanceof Error ? e.message : 'Trigger records failed.';
+					e instanceof Error ? e.message : t('page.triggers.recordsLoadFailed');
 			} finally {
 				recordsLoading = false;
 			}
@@ -105,7 +106,7 @@
 			} catch (e) {
 				seenHooks = false;
 				hooks = [];
-				hooksError = e instanceof Error ? e.message : 'Hook registry failed.';
+				hooksError = e instanceof Error ? e.message : t('page.triggers.hooksLoadFailed');
 			} finally {
 				hooksLoading = false;
 			}
@@ -122,13 +123,13 @@
 		cleanupBusy = true;
 		try {
 			const removed = await cleanupTriggerExecutions();
-			toasts.success(`Cleaned up ${removed} old trigger records`);
+			toasts.success(t('page.triggers.cleanedUp', { count: removed }));
 			cleanupArmed = false;
 			seenRecords = false;
 			await loadTab('records');
 		} catch (e) {
 			toasts.error(
-				'Cleanup failed',
+				t('page.triggers.cleanupFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -143,18 +144,18 @@
 			parsed = JSON.parse(payload);
 			payloadError = null;
 		} catch (e) {
-			payloadError = e instanceof Error ? e.message : 'Invalid JSON';
+			payloadError = e instanceof Error ? e.message : t('page.triggers.invalidJson');
 			return;
 		}
 		dispatchBusy = true;
 		try {
 			const result = await fireHook(hookName, parsed);
-			lastDispatch = `Test dispatched to ${hookName}: ${result.status}`;
+			lastDispatch = t('page.triggers.dispatched', { hook: hookName, status: result.status });
 			toasts.success(lastDispatch);
 		} catch (e) {
 			lastDispatch = null;
 			toasts.error(
-				'Dispatch failed',
+				t('page.triggers.dispatchFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -165,25 +166,25 @@
 	const recordColumns: Column<TriggerRecord>[] = [
 		{
 			key: 'trigger',
-			header: 'Trigger',
+			header: t('page.triggers.columnTrigger'),
 			text: (record) => record.triggerName,
 			cellClass: 'font-mono text-caption',
 		},
 		{
 			key: 'workflow',
-			header: 'Workflow',
+			header: t('page.triggers.columnWorkflow'),
 			text: (record) => record.workflowName,
 		},
 		{
 			key: 'execution',
-			header: 'Execution',
+			header: t('page.triggers.columnExecution'),
 			text: (record) => record.executionId,
 			cellClass: 'font-mono text-caption text-muted-foreground',
 		},
-		{ key: 'status', header: 'Status', cell: recordStatusCell },
+		{ key: 'status', header: t('page.triggers.columnStatus'), cell: recordStatusCell },
 		{
 			key: 'fired',
-			header: 'Fired',
+			header: t('page.triggers.columnFired'),
 			align: 'right',
 			text: (record) => formatRelativeTime(record.firedAt),
 			cellClass: 'text-caption text-muted-foreground',
@@ -193,13 +194,13 @@
 
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
-		title="Triggers & hooks"
-		description="Fired trigger records and hook test dispatch."
+		title={t('page.triggers.title')}
+		description={t('page.triggers.description')}
 	>
 		{#snippet actions()}
 			<IconButton
 				icon="refresh"
-				label="Refresh"
+				label={t('common.refresh')}
 				onclick={() => void reload()}
 			/>
 			{#if cleanupArmed}
@@ -209,14 +210,14 @@
 					disabled={cleanupBusy}
 					onclick={() => void runCleanup()}
 				>
-					Confirm cleanup (30d+)
+					{t('page.triggers.cleanupConfirm')}
 				</Button>
 				<Button
 					variant="ghost"
 					size="sm"
 					onclick={() => (cleanupArmed = false)}
 				>
-					Keep
+					{t('page.executionDetail.keep')}
 				</Button>
 			{:else}
 				<Button
@@ -225,7 +226,7 @@
 					onclick={() => (cleanupArmed = true)}
 				>
 					<Icon name="trash" size={13} />
-					Clean up old records
+					{t('page.triggers.cleanup')}
 				</Button>
 			{/if}
 		{/snippet}
@@ -241,17 +242,17 @@
 	<div
 		id="triggers-panel"
 		role="tabpanel"
-		aria-label="Trigger sections"
+		aria-label={t('page.triggers.sections')}
 		class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
 	>
 		{#if tab === 'records'}
 			<PageState
 				loading={recordsLoading}
 				error={recordsError}
-				errorTitle="Trigger records failed to load"
+				errorTitle={t('page.triggers.recordsLoadFailed')}
 				empty={triggerRecords.length === 0}
-				emptyTitle="No trigger records"
-				emptyDescription="Fired triggers appear here once a workflow or hook fires."
+				emptyTitle={t('page.triggers.noRecords')}
+				emptyDescription={t('page.triggers.noRecordsDesc')}
 				onretry={() => void reload()}
 			>
 				<Card bodyClass="p-0">
@@ -265,14 +266,14 @@
 			</PageState>
 		{:else}
 			<div class="grid gap-3 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
-				<Card title="Hooks">
+				<Card title={t('page.triggers.hooks')}>
 					<PageState
 						loading={hooksLoading}
 						error={hooksError}
-						errorTitle="Hook registry failed to load"
+						errorTitle={t('page.triggers.hooksLoadFailed')}
 						empty={hooks.length === 0}
-						emptyTitle="No hooks registered"
-						emptyDescription="The backend exposes no hook registry endpoint, so there is nothing to pick. Enter a hook name manually on the right to dispatch a test payload."
+						emptyTitle={t('page.triggers.noHooks')}
+						emptyDescription={t('page.triggers.noHooksDesc')}
 						onretry={() => void reload()}
 					>
 						<ul class="space-y-1">
@@ -294,7 +295,7 @@
 										<span class="mt-1 flex items-center gap-2">
 											<StatusBadge status={hook.lastStatus} size="sm" />
 											<span class="text-micro text-muted-foreground">
-												{hook.deliveries} deliveries
+												{t('page.triggers.deliveries', { count: hook.deliveries })}
 											</span>
 										</span>
 									</button>
@@ -304,31 +305,31 @@
 					</PageState>
 				</Card>
 
-				<Card title="Dispatch test payload">
+				<Card title={t('page.triggers.dispatchPayload')}>
 					<div class="space-y-2">
 						<label class="block">
 							<span class="mb-1 block text-caption text-muted-foreground"
-								>Hook name{#if hooks.length === 0}
-									<span class="ml-1 text-micro">· manual mode, no registry</span
+								>{t('page.triggers.hookName')}{#if hooks.length === 0}
+									<span class="ml-1 text-micro">{t('page.triggers.manualMode')}</span
 									>{/if}</span
 							>
 							<Input
 								bind:value={hookName}
 								placeholder={hooks.length === 0
-									? 'Enter hook name manually'
-									: 'Pick from the list or type a name'}
+									? t('page.triggers.hookNameManual')
+									: t('page.triggers.hookNamePick')}
 							/>
 						</label>
 						<div class="block">
 							<span class="mb-1 block text-caption text-muted-foreground"
-								>Payload</span
+								>{t('page.triggers.payload')}</span
 							>
 							<JsonEditor
 								bind:this={payloadEditor}
 								bind:value={payload}
 								errorLine={payloadErrorLine}
 								placeholder={'{\n  "repo": "wf-agent"\n}'}
-								label="Hook payload"
+								label={t('page.triggers.hookPayload')}
 								minHeight="10rem"
 							/>
 						</div>
@@ -337,8 +338,10 @@
 								class="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5"
 							>
 								<p class="text-caption text-destructive">
-									JSON syntax{#if payloadErrorLine}
-										(line {payloadErrorLine}){/if}: {payloadError}
+									{t('page.triggers.syntaxError', {
+										line: payloadErrorLine ? ` (${payloadErrorLine})` : '',
+										error: payloadError,
+									})}
 								</p>
 								{#if payloadErrorLine}
 									<Button
@@ -347,7 +350,7 @@
 										onclick={() =>
 											payloadEditor?.scrollToLine(payloadErrorLine ?? 1)}
 									>
-										Go to line
+										{t('page.resources.toolRun.goToLine')}
 									</Button>
 								{/if}
 							</div>
@@ -359,7 +362,7 @@
 								onclick={() => void dispatch()}
 							>
 								<Icon name="zap" size={13} />
-								{dispatchBusy ? 'Sending…' : 'Send test'}
+								{dispatchBusy ? t('page.triggers.sending') : t('page.triggers.sendTest')}
 							</Button>
 						</div>
 						{#if lastDispatch}
@@ -370,7 +373,7 @@
 							</p>
 						{/if}
 						<p class="text-micro text-muted-foreground">
-							Last delivery {formatDateTime(
+							{t('page.triggers.lastDelivery')} {formatDateTime(
 								hooks.find((hook) => hook.name === hookName)?.lastDeliveredAt ??
 									null,
 							)}

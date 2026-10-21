@@ -27,19 +27,20 @@
 	import type { Execution, ExecutionDetail, Metric } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDateTime } from '$lib/utils/format';
+	import { t } from '$lib/i18n';
 
 	/** Wire values of the backend execution status enum; the list endpoint
 	 * matches them with exact equality, so aliasing them would filter to
 	 * nothing. */
 	const STATUS_OPTIONS = [
-		{ value: 'created', label: 'Created' },
-		{ value: 'running', label: 'Running' },
-		{ value: 'paused', label: 'Paused' },
-		{ value: 'completed', label: 'Completed' },
-		{ value: 'failed', label: 'Failed' },
-		{ value: 'stopped', label: 'Stopped' },
-		{ value: 'cancelled', label: 'Cancelled' },
-		{ value: 'timeout', label: 'Timeout' },
+		{ value: 'created', label: t('domain.runs.statusCreated') },
+		{ value: 'running', label: t('domain.runs.statusRunning') },
+		{ value: 'paused', label: t('domain.runs.statusPaused') },
+		{ value: 'completed', label: t('domain.runs.statusCompleted') },
+		{ value: 'failed', label: t('domain.runs.statusFailed') },
+		{ value: 'stopped', label: t('domain.runs.statusStopped') },
+		{ value: 'cancelled', label: t('domain.runs.statusCancelled') },
+		{ value: 'timeout', label: t('domain.runs.statusTimeout') },
 	];
 
 	let query = $state('');
@@ -121,7 +122,7 @@
 			};
 		} catch (e) {
 			console.error('Failed to load more executions:', e);
-			toasts.error('More executions unavailable');
+			toasts.error(t('page.executions.moreUnavailable'));
 		} finally {
 			loadingMore = false;
 		}
@@ -140,7 +141,7 @@
 			.catch((e) => {
 				detail = null;
 				toasts.error(
-					'Execution detail failed',
+					t('page.executions.detailFailed'),
 					e instanceof Error ? e.message : undefined,
 				);
 			});
@@ -163,7 +164,7 @@
 			.catch((e) => {
 				compareDetail = null;
 				toasts.error(
-					'Compare detail failed',
+					t('page.executions.compareDetailFailed'),
 					e instanceof Error ? e.message : undefined,
 				);
 			});
@@ -218,25 +219,25 @@
 	const executionColumns: Column<Execution>[] = [
 		{
 			key: 'id',
-			header: 'Execution',
+			header: t('page.executions.columnExecution'),
 			text: (execution) => execution.id,
 			cellClass: 'font-mono text-caption',
 		},
 		{
 			key: 'workflow',
-			header: 'Workflow',
+			header: t('page.executions.columnWorkflow'),
 			text: (execution) => execution.workflowName,
 		},
-		{ key: 'status', header: 'Status', cell: executionStatusCell },
+		{ key: 'status', header: t('page.executions.columnStatus'), cell: executionStatusCell },
 		{
 			key: 'started',
-			header: 'Started',
+			header: t('page.executions.columnStarted'),
 			text: (execution) => formatDateTime(execution.startedAt),
 			cellClass: 'tabular-nums text-caption text-muted-foreground',
 		},
 		{
 			key: 'tasks',
-			header: 'Tasks',
+			header: t('page.executions.columnTasks'),
 			align: 'right',
 			text: (execution) => `${execution.tasksDone}/${execution.tasksTotal}`,
 			cellClass: 'tabular-nums text-caption text-muted-foreground',
@@ -245,22 +246,22 @@
 </script>
 
 <SplitView
-	inspectorTitle="Execution detail"
+	inspectorTitle={t('page.executionDetail.titleFallback')}
 	inspectorOpen={selectedId !== null}
 	dual={compareMode}
-	secondaryTitle="Compare"
+	secondaryTitle={t('page.executions.compare')}
 	secondaryOpen={compareMode && compareId !== null}
 	class="h-full"
 >
 	<div class="flex h-full min-h-0 flex-col">
 		<PageHeader
-			title="Execution workbench"
-			description="Live execution list with status, duration and per-run detail."
+			title={t('page.executions.title')}
+			description={t('page.executions.description')}
 		>
 			{#snippet actions()}
 				<IconButton
 					icon="refresh"
-					label="Refresh"
+					label={t('common.refresh')}
 					onclick={() => void reload()}
 				/>
 				<Button
@@ -269,7 +270,7 @@
 					onclick={() => (view = view === 'list' ? 'table' : 'list')}
 				>
 					<Icon name={view === 'list' ? 'blocks' : 'menu'} size={13} />
-					{view === 'list' ? 'Table' : 'Cards'}
+					{view === 'list' ? t('page.executions.table') : t('page.executions.cards')}
 				</Button>
 				<Button
 					variant="outline"
@@ -278,11 +279,11 @@
 					onclick={toggleCompare}
 				>
 					<Icon name="copy" size={13} />
-					Compare
+					{t('page.executions.compare')}
 				</Button>
 				<Button size="sm" href="/workflows">
 					<Icon name="play" size={13} />
-					Start from workflow
+					{t('page.executions.startFromWorkflow')}
 				</Button>
 			{/snippet}
 		</PageHeader>
@@ -294,7 +295,7 @@
 				bind:query
 				bind:status
 				statusOptions={STATUS_OPTIONS}
-				placeholder="Filter by workflow or id…"
+				placeholder={t('page.executions.filterPlaceholder')}
 				class="mb-3"
 				onstatuschange={() => void reload()}
 			>
@@ -334,13 +335,13 @@
 						value={compareId ?? ''}
 						options={compareOptions}
 						size="sm"
-						placeholder="Select execution B…"
+						placeholder={t('page.executions.selectBPlaceholder')}
 						class="w-64"
 						onchange={(value) => (compareId = value || null)}
 					/>
 					<IconButton
 						icon="arrow-right"
-						label="Swap A and B"
+						label={t('page.executions.swap')}
 						disabled={!selectedId || !compareId}
 						onclick={swapCompare}
 					/>
@@ -357,7 +358,7 @@
 				</div>
 			{:else if error}
 				<ErrorState
-					title="Failed to load executions"
+					title={t('page.executions.loadFailed')}
 					description={error}
 					onretry={() => void reload()}
 				/>
@@ -365,8 +366,8 @@
 				<EmptyState
 					icon="activity"
 					tone="brand"
-					title="No executions match"
-					description="Adjust the status filter or clear the search to see more runs."
+					title={t('page.executions.noMatch')}
+					description={t('page.executions.noMatchDesc')}
 					class="rounded-lg border border-border bg-card"
 				/>
 			{:else if view === 'list'}
@@ -416,7 +417,7 @@
 						})
 						.catch((e) => {
 							toasts.error(
-								'Execution detail failed',
+								t('page.executions.detailFailed'),
 								e instanceof Error ? e.message : undefined,
 							);
 						});
@@ -438,7 +439,7 @@
 						})
 						.catch((e) => {
 							toasts.error(
-								'Compare detail failed',
+								t('page.executions.compareDetailFailed'),
 								e instanceof Error ? e.message : undefined,
 							);
 						});
@@ -447,8 +448,8 @@
 		{:else}
 			<EmptyState
 				icon="copy"
-				title="Select execution B"
-				description="Pick a second run above to compare full details side by side."
+				title={t('page.executions.selectB')}
+				description={t('page.executions.selectBDesc')}
 				class="m-3 rounded-lg border border-border bg-card"
 			/>
 		{/if}

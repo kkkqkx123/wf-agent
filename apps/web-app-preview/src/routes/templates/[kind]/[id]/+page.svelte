@@ -24,6 +24,7 @@
 		type DetailView,
 	} from '$lib/templates/template-edit-session.svelte';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
+	import { t } from '$lib/i18n';
 
 	const KINDS: readonly TemplateKind[] = [
 		'node',
@@ -131,7 +132,7 @@
 				controller.editMode = false;
 			}
 		} catch (e) {
-			detailError = e instanceof Error ? e.message : 'Template detail failed.';
+			detailError = e instanceof Error ? e.message : t('page.templateDetail.loadFailed');
 			detail = null;
 		} finally {
 			detailLoading = false;
@@ -158,13 +159,13 @@
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
 		title={isNew
-			? 'New template'
-			: (detail?.template.name ?? 'Template detail')}
+			? t('page.templates.newTemplate')
+			: (detail?.template.name ?? t('page.templateDetail.titleFallback'))}
 		description={isNew
-			? 'Create a template in the library.'
+			? t('page.templates.createInLibrary')
 			: kind
 				? `${kind} template · ${routeIdParam}`
-				: 'Template detail'}
+				 : t('page.templateDetail.titleFallback')}
 	>
 		{#snippet actions()}
 			{#if controller.insertNodeType !== null}
@@ -187,7 +188,7 @@
 	{#if kind === null}
 		<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
 			<ErrorState
-				title="Unknown template kind"
+				title={t('page.templateDetail.unknownKind')}
 				description={`Expected one of node, trigger, agent, workflow; got "${routeKindParam}".`}
 			/>
 		</div>
@@ -198,8 +199,8 @@
 	{:else if !isNew && detailError}
 		<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
 			<ErrorState
-				title="Template detail failed to load"
-				description={detailError ?? 'Template detail failed.'}
+				title={t('page.templateDetail.loadFailed')}
+				description={detailError ?? t('page.templateDetail.loadFailed')}
 				onretry={() => {
 					if (kind) void loadDetail(kind, routeIdParam, 'preview');
 				}}
@@ -230,8 +231,8 @@
 				{:else}
 					<EmptyState
 						icon="template"
-						title="Template not found"
-						description="It may have been deleted."
+						title={t('page.templateDetail.notFound')}
+						description={t('page.templateDetail.notFoundDesc')}
 						class="rounded-lg border border-border bg-card"
 					/>
 				{/if}
@@ -242,6 +243,6 @@
 
 <UnsavedChangesDialog
 	bind:open={controller.unsavedOpen}
-	description="This template has unsaved edits. Leaving discards the JSON, form and canvas changes."
+	description={t('page.templateDetail.unsavedDesc')}
 	ondiscard={() => controller.discardEditsAndLeave()}
 />

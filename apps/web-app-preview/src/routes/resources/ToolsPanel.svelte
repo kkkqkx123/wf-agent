@@ -4,6 +4,7 @@
 	import Switch from '@wf-agent/ui/components/Switch.svelte';
 	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
 	import type { Tool } from '$lib/types/models';
+	import { t } from '$lib/i18n';
 	import { formatNumber, formatPercent } from '$lib/utils/format';
 
 	interface Props {
@@ -19,8 +20,8 @@
 {#if tools.length === 0}
 	<EmptyState
 		icon="blocks"
-		title="No tools registered"
-		description="Tools appear here once the registry has entries."
+		title={t('page.resources.tools.noTools')}
+		description={t('page.resources.tools.noToolsDesc')}
 		class="rounded-lg border border-border bg-card"
 	/>
 {:else}
@@ -30,7 +31,7 @@
 				{#snippet actions()}
 					<Switch
 						checked={toolEnabled[tool.id] ?? false}
-						label="Enable {tool.name}"
+						label={t('page.resources.tools.enable', { name: tool.name })}
 						hideLabel
 						onchange={(checked) => ontoggle(tool.id, checked)}
 					/>

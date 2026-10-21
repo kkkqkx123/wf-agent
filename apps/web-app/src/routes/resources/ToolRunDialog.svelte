@@ -146,7 +146,7 @@
 		} catch (e) {
 			return {
 				value: null,
-				error: e instanceof Error ? e.message : 'Invalid JSON',
+				error: e instanceof Error ? e.message : t('page.resources.toolRun.invalidJson'),
 			};
 		}
 	}
@@ -157,7 +157,7 @@
 		const { value, error } = parseToolParams();
 		toolSyntaxError = error;
 		if (!value) {
-			toolIssues = [error ?? 'Invalid JSON'];
+			toolIssues = [error ?? t('page.resources.toolRun.invalidJson')];
 			toolValidated = false;
 			toolValidatedSnapshot = null;
 			return;
@@ -168,7 +168,7 @@
 			toolValidated = true;
 			toolValidatedSnapshot = toolParams;
 		} catch (e) {
-			toolIssues = [e instanceof Error ? e.message : 'Validation failed.'];
+			toolIssues = [e instanceof Error ? e.message : t('page.resources.toolRun.validationFailed')];
 			toolValidated = false;
 			toolValidatedSnapshot = null;
 		} finally {
@@ -182,7 +182,7 @@
 		const { value, error } = parseToolParams();
 		toolSyntaxError = error;
 		if (!value) {
-			toolIssues = [error ?? 'Invalid JSON'];
+			toolIssues = [error ?? t('page.resources.toolRun.invalidJson')];
 			toolValidated = false;
 			toolValidatedSnapshot = null;
 			return;
@@ -193,7 +193,7 @@
 			toolRun = await executeTool(tool.id, value);
 		} catch (e) {
 			toasts.error(
-				'Tool run failed',
+				t('page.resources.toolRun.runFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -204,16 +204,16 @@
 
 <Dialog
 	bind:open
-	title={tool ? `Validate / run ${tool.name}` : 'Tool'}
+	title={tool ? t('page.resources.toolRun.validateRun', { name: tool.name }) : t('page.resources.toolRun.tool')}
 	description={toolSchema
-		? 'Structured fields with JSON advanced mode; validation stays server-side.'
-		: 'Free-form JSON validated server-side; no parameter schema was reported for this tool.'}
+		? t('page.resources.toolRun.structuredDesc')
+		: t('page.resources.toolRun.freeformDesc')}
 >
 	{#if toolSchema && Object.keys(toolSchema.properties).length > 0}
 		<Segmented
 			items={[
-				{ id: 'form', label: 'Form' },
-				{ id: 'json', label: 'JSON' },
+				{ id: 'form', label: t('page.resources.toolRun.form') },
+				{ id: 'json', label: t('page.resources.toolRun.json') },
 			]}
 			value={toolTab}
 			size="sm"
@@ -276,8 +276,7 @@
 					</label>
 				{/each}
 				<p class="text-micro text-muted-foreground">
-					Form edits typed fields; object and array values use JSON fragments in
-					the multiline box. Remaining parameters stay in JSON mode.
+					{t('page.resources.toolRun.formNote')}
 				</p>
 			</div>
 		{:else}
@@ -287,7 +286,7 @@
 					bind:value={toolParams}
 					errorLine={toolErrorLine}
 					placeholder={'{\n  "input": "value"\n}'}
-					label="Tool parameters"
+					label={t('page.resources.toolRun.parameters')}
 					minHeight="8rem"
 				/>
 			</div>
@@ -298,7 +297,7 @@
 			bind:value={toolParams}
 			errorLine={toolErrorLine}
 			placeholder={'{\n  "input": "value"\n}'}
-			label="Tool parameters"
+			label={t('page.resources.toolRun.parameters')}
 			minHeight="8rem"
 		/>
 	{/if}
@@ -307,8 +306,10 @@
 			class="mt-2 flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5"
 		>
 			<p class="text-caption text-destructive">
-				JSON syntax{#if toolErrorLine}
-					(line {toolErrorLine}){/if}: {toolSyntaxError}
+				{t('page.resources.toolRun.syntaxError', {
+					line: toolErrorLine ? ` (${toolErrorLine})` : '',
+					error: toolSyntaxError,
+				})}
 			</p>
 			{#if toolErrorLine}
 				<Button
@@ -316,7 +317,7 @@
 					size="sm"
 					onclick={() => toolEditor?.scrollToLine(toolErrorLine ?? 1)}
 				>
-					Go to line
+					{t('page.resources.toolRun.goToLine')}
 				</Button>
 			{/if}
 		</div>
@@ -326,16 +327,16 @@
 			<IssueList issues={toolTemplateIssues} />
 		</div>
 	{:else if toolShowValid}
-		<p class="mt-2 text-caption text-success">Parameters are valid.</p>
+		<p class="mt-2 text-caption text-success">{t('page.resources.toolRun.parametersValid')}</p>
 	{:else if toolValidationStale}
 		<p class="mt-2 text-caption text-muted-foreground">
-			Parameters changed after validation; validate again.
+			{t('page.resources.toolRun.parametersStale')}
 		</p>
 	{/if}
 	{#if toolRun}
 		<div class="mt-2 rounded-md border border-border bg-muted/40 p-2">
 			<p class="text-caption">
-				{toolRun.success ? 'Succeeded' : `Failed: ${toolRun.error}`}
+				{toolRun.success ? t('page.resources.toolRun.succeeded') : t('page.resources.toolRun.failed', { error: toolRun.error ?? '' })}
 			</p>
 			{#if toolRun.output}
 				<pre
@@ -354,14 +355,14 @@
 				disabled={toolBusy}
 				onclick={() => void runToolValidation()}
 			>
-				Validate
+				{t('page.resources.toolRun.validate')}
 			</Button>
 			<Button
 				size="sm"
 				disabled={toolBusy}
 				onclick={() => void runToolExecute()}
 			>
-				{toolBusy ? 'Running…' : 'Run'}
+				{toolBusy ? t('page.resources.toolRun.running') : t('page.resources.toolRun.run')}
 			</Button>
 		</div>
 	{/snippet}

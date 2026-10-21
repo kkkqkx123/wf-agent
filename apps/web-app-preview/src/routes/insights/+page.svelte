@@ -28,6 +28,7 @@
 		QueryResult,
 	} from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
+	import { t } from '$lib/i18n';
 	import {
 		formatDateTime,
 		formatDuration,
@@ -112,7 +113,7 @@
 			}
 		} catch (e) {
 			console.error('Failed to load insights segment:', e);
-			loadError = e instanceof Error ? e.message : 'Insight request failed';
+			loadError = e instanceof Error ? e.message : t('page.insights.loadFailed');
 		} finally {
 			loading = false;
 		}
@@ -132,10 +133,10 @@
 		try {
 			queryResult = await runQuery({ limit: 50 });
 			seenQuery = true;
-			toasts.success('Default scope executed');
+			toasts.success(t('page.insights.defaultScopeExecuted'));
 		} catch (e) {
-			queryError = e instanceof Error ? e.message : 'Query request failed';
-			toasts.error('Query failed', e instanceof Error ? e.message : undefined);
+			queryError = e instanceof Error ? e.message : t('page.insights.queryFailed');
+			toasts.error(t('page.insights.queryFailedTitle'), e instanceof Error ? e.message : undefined);
 		} finally {
 			queryBusy = false;
 		}
@@ -144,9 +145,9 @@
 	async function exportAdhocQuery(): Promise<void> {
 		try {
 			await exportQuery({ expressions: [], format: 'csv', limit: 50 });
-			toasts.success('Export queued');
+			toasts.success(t('page.insights.exportQueued'));
 		} catch (e) {
-			toasts.error('Export failed', e instanceof Error ? e.message : undefined);
+			toasts.error(t('page.insights.exportFailed'), e instanceof Error ? e.message : undefined);
 		}
 	}
 
@@ -159,59 +160,59 @@
 	);
 
 	const auditColumns: Column<AuditReport>[] = [
-		{ key: 'execution', header: 'Execution', text: (row) => row.executionId },
-		{ key: 'status', header: 'Status', text: (row) => row.status },
+		{ key: 'execution', header: t('page.insights.columnExecution'), text: (row) => row.executionId },
+		{ key: 'status', header: t('page.insights.columnStatus'), text: (row) => row.status },
 		{
 			key: 'nodes',
-			header: 'Nodes',
+			header: t('page.insights.columnNodes'),
 			align: 'right',
 			text: (row) => formatNumber(row.nodes),
 		},
 		{
 			key: 'duration',
-			header: 'Duration',
+			header: t('page.insights.columnDuration'),
 			align: 'right',
 			text: (row) => formatDuration(row.durationMs),
 		},
 		{
 			key: 'tools',
-			header: 'Tool calls',
+			header: t('page.insights.columnToolCalls'),
 			align: 'right',
 			text: (row) => formatNumber(row.toolCalls),
 		},
 		{
 			key: 'llm',
-			header: 'LLM calls',
+			header: t('page.insights.columnLlmCalls'),
 			align: 'right',
 			text: (row) => formatNumber(row.llmCalls),
 		},
 		{
 			key: 'generated',
-			header: 'Generated',
+			header: t('page.insights.columnGenerated'),
 			text: (row) => formatRelativeTime(row.generatedAt),
 		},
 	];
 
 	const errorColumns: Column<ErrorAnalysis>[] = [
-		{ key: 'category', header: 'Category', text: (row) => row.category },
-		{ key: 'rootCause', header: 'Root cause', text: (row) => row.rootCause },
+		{ key: 'category', header: t('page.insights.columnCategory'), text: (row) => row.category },
+		{ key: 'rootCause', header: t('page.insights.columnRootCause'), text: (row) => row.rootCause },
 		{
 			key: 'count',
-			header: 'Count',
+			header: t('page.insights.columnCount'),
 			align: 'right',
 			text: (row) => formatNumber(row.occurrences),
 		},
 		{
 			key: 'first',
-			header: 'First seen',
+			header: t('page.insights.columnFirstSeen'),
 			text: (row) => formatDateTime(row.firstSeen),
 		},
 		{
 			key: 'last',
-			header: 'Last seen',
+			header: t('page.insights.columnLastSeen'),
 			text: (row) => formatRelativeTime(row.lastSeen),
 		},
-		{ key: 'status', header: 'State', text: (row) => row.status },
+		{ key: 'status', header: t('page.insights.columnState'), text: (row) => row.status },
 	];
 
 	function emptyCopyFor(current: string): {
@@ -220,22 +221,22 @@
 	} {
 		if (current === 'audit') {
 			return {
-				title: 'No audit reports',
+				title: t('page.insights.noAuditReports'),
 				description:
-					'Audit reports are produced per execution; run a workflow to generate one.',
+					t('page.insights.noAuditReportsDesc'),
 			};
 		}
 		if (current === 'errors') {
 			return {
-				title: 'No error analysis',
+				title: t('page.insights.noErrorAnalysis'),
 				description:
-					'Error analysis is produced per execution and appears after a failed run.',
+					t('page.insights.noErrorAnalysisDesc'),
 			};
 		}
 		return {
-			title: 'No performance data',
+			title: t('page.insights.noPerformanceData'),
 			description:
-				'Node timings appear once executions report per-node duration.',
+				t('page.insights.noPerformanceDataDesc'),
 		};
 	}
 
@@ -252,13 +253,13 @@
 
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
-		title="Query & audit"
-		description="Ad-hoc queries, execution audit reports, error analysis and performance breakdown."
+		title={t('page.insights.title')}
+		description={t('page.insights.description')}
 	>
 		{#snippet actions()}
 			<IconButton
 				icon="refresh"
-				label="Refresh"
+				label={t('common.refresh')}
 				onclick={() => void reload()}
 			/>
 			<Button
@@ -282,12 +283,12 @@
 	<div
 		id="insights-panel"
 		role="tabpanel"
-		aria-label="Insight sections"
+		aria-label={t('page.insights.sections')}
 		class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
 	>
 		{#if tab === 'query'}
 			<div class="space-y-3">
-				<Card title="Ad-hoc query">
+				<Card title={t('page.insights.adhocQuery')}>
 					<Textarea
 						bind:value={statement}
 						class="min-h-28 font-mono text-caption"
@@ -304,10 +305,10 @@
 							onclick={() => void runAdhocQuery()}
 						>
 							<Icon name="play" size={13} />
-							{queryBusy ? 'Running…' : 'Run query'}
+							{queryBusy ? t('page.insights.running') : t('page.insights.runQuery')}
 						</Button>
 						<Button variant="ghost" size="sm" onclick={() => (statement = '')}
-							>Clear</Button
+							>{t('page.insights.clear')}</Button
 						>
 						<span class="ml-auto text-micro tabular-nums text-muted-foreground">
 							{queryResult.elapsedMs} ms
@@ -317,7 +318,7 @@
 				</Card>
 
 				<Card
-					title="Result"
+					title={t('page.insights.result')}
 					description="{formatNumber(queryResult.rows.length)} rows"
 					bodyClass="p-0"
 				>
@@ -325,8 +326,8 @@
 						loading={queryBusy}
 						error={queryError}
 						empty={queryResult.rows.length === 0}
-						emptyTitle="No rows returned"
-						emptyDescription="Run the default execution scope to populate the result grid."
+						emptyTitle={t('page.insights.noRows')}
+						emptyDescription={t('page.insights.runDefaultScope')}
 					>
 						<DataTable
 							columns={rowColumns}
@@ -352,12 +353,12 @@
 				onretry={() => void reload()}
 			>
 				{#if tab === 'audit'}
-					<Card title="Audit reports" bodyClass="p-0">
+					<Card title={t('page.insights.auditReports')} bodyClass="p-0">
 						<DataTable
 							columns={auditColumns}
 							rows={auditReports}
 							rowKey={(row) => row.id}
-							emptyDescription="The backend exposes per-execution audit reports only, with no global aggregator yet."
+							emptyDescription={t('page.insights.auditNoAggregator')}
 						/>
 					</Card>
 					<div class="mt-3 flex flex-wrap gap-2">
@@ -376,19 +377,19 @@
 								</p>
 								{#snippet footer()}
 									<Button variant="ghost" size="sm" href="/insights"
-										>Open read-only report</Button
+										>{t('page.insights.openReport')}</Button
 									>
 								{/snippet}
 							</Card>
 						{/each}
 					</div>
 				{:else if tab === 'errors'}
-					<Card title="Error analysis" bodyClass="p-0">
+					<Card title={t('page.insights.errorAnalysis')} bodyClass="p-0">
 						<DataTable
 							columns={errorColumns}
 							rows={errorAnalyses}
 							rowKey={(row) => row.id}
-							emptyDescription="The backend exposes per-execution error analysis only, with no global aggregator yet."
+							emptyDescription={t('page.insights.errorNoAggregator')}
 						/>
 					</Card>
 					<div class="mt-3 grid gap-3 lg:grid-cols-2">
@@ -418,7 +419,7 @@
 						{/each}
 					</div>
 				{:else}
-					<Card title="Node performance">
+					<Card title={t('page.insights.nodePerformance')}>
 						<ul class="space-y-3">
 							{#each perfNodes as node (node.node)}
 								<li>

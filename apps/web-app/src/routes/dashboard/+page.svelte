@@ -11,6 +11,7 @@
 		loadDashboardStats,
 		type DashboardStats,
 	} from '$lib/services/dashboard';
+	import { t } from '$lib/i18n';
 
 	let stats = $state<DashboardStats | null>(null);
 	let error = $state<string | null>(null);
@@ -37,13 +38,13 @@
 
 <div class="h-full overflow-y-auto">
 	<PageHeader
-		title="Dashboard"
-		description="Aggregated overview of workflows, executions and checkpoints"
+		title={t('page.dashboard.title')}
+		description={t('page.dashboard.description')}
 	/>
 
 	<div class="p-4 pt-0">
 		{#if error}
-			<ErrorState title="Failed to load dashboard" description={error} />
+			<ErrorState title={t('page.dashboard.loadFailed')} description={error} />
 		{:else if !stats}
 			<div
 				class="grid gap-2 grid-cols-[repeat(auto-fit,minmax(min(100%,9rem),1fr))]"
@@ -59,19 +60,19 @@
 
 			<section class="mt-6">
 				<div class="flex items-center justify-between">
-					<h2 class="text-heading font-semibold">Recent executions</h2>
+					<h2 class="text-heading font-semibold">{t('page.dashboard.recentExecutions')}</h2>
 					<button
 						type="button"
 						class="text-body text-muted-foreground hover:text-foreground"
 						onclick={() => goto(resolve('/executions'))}
 					>
-						View all
+						{t('page.dashboard.viewAll')}
 					</button>
 				</div>
 				{#if stats.recentExecutions.length === 0}
 					<EmptyState
-						title="No executions yet"
-						description="Run a workflow or start an agent loop to see activity here"
+						title={t('page.dashboard.noExecutions')}
+						description={t('page.dashboard.noExecutionsDesc')}
 					/>
 				{:else}
 					<ul

@@ -4,7 +4,7 @@
 
 	interface Item {
 		id: string;
-		label: string;
+		label: string | (() => string);
 		count?: number;
 	}
 
@@ -79,7 +79,7 @@
 						: 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
 				)}
 			>
-				<span>{item.label}</span>
+				<span>{typeof item.label === 'function' ? item.label() : item.label}</span>
 				{#if item.count !== undefined}
 					<span
 						class="rounded-full bg-muted px-1.5 text-micro tabular-nums text-muted-foreground"

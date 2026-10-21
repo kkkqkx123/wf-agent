@@ -31,16 +31,17 @@
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatNumber } from '$lib/utils/format';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
+	import { t, message } from '$lib/i18n';
 	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
 	import { WorkflowEditSession } from '$lib/workflows/edit-session.svelte';
 	import { WorkflowGraphState } from '$lib/workflows/graph-state.svelte';
 
 	const TABS = [
-		{ id: 'graph', label: 'Graph' },
-		{ id: 'edit', label: 'Edit' },
-		{ id: 'versions', label: 'Versions' },
-		{ id: 'drafts', label: 'Drafts' },
-		{ id: 'runs', label: 'Runs' },
+		{ id: 'graph', label: message('page.workflowDetail.tabGraph') },
+		{ id: 'edit', label: message('page.workflowDetail.tabEdit') },
+		{ id: 'versions', label: message('page.workflowDetail.tabVersions') },
+		{ id: 'drafts', label: message('page.workflowDetail.tabDrafts') },
+		{ id: 'runs', label: message('page.workflowDetail.tabRuns') },
 	];
 
 	const requestedTab = parseListParams(page.url).tab;
@@ -89,7 +90,7 @@
 			// detail load, as the page-level state did before the split.
 			void graphState.load(id);
 		} catch (e) {
-			detailError = e instanceof Error ? e.message : 'Failed to load workflow.';
+			detailError = e instanceof Error ? e.message : t('page.workflowDetail.loadFailed');
 			detail = null;
 		} finally {
 			detailLoading = false;
@@ -117,7 +118,7 @@
 			if (id) await load(id);
 		} catch (e) {
 			toasts.error(
-				'Promotion failed',
+				t('page.workflowDetail.promotionFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		}
@@ -144,12 +145,12 @@
 			}
 			toasts.success(
 				issues.length === 0
-					? 'Draft is valid'
-					: `Draft has ${issues.length} issue(s)`,
+					? t('page.workflowDetail.draftValid')
+					: t('page.workflowDetail.draftIssues', { count: issues.length }),
 			);
 		} catch (e) {
 			toasts.error(
-				'Validation failed',
+				t('page.workflowDetail.validationFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		}
@@ -158,20 +159,20 @@
 	async function runExport(id: string): Promise<void> {
 		try {
 			await exportWorkflow(id);
-			toasts.success('Workflow definition exported');
+			toasts.success(t('page.workflowDetail.exported'));
 		} catch (e) {
-			toasts.error('Export failed', e instanceof Error ? e.message : undefined);
+			toasts.error(t('page.workflowDetail.exportFailed'), e instanceof Error ? e.message : undefined);
 		}
 	}
 
 	async function runExecute(id: string): Promise<void> {
 		try {
 			const executionId = await executeWorkflow(id);
-			toasts.success('Execution started');
+			toasts.success(t('page.workflowDetail.executionStarted'));
 			await goto(resolve('/executions/[id]', { id: executionId }));
 		} catch (e) {
 			toasts.error(
-				'Execution failed to start',
+				t('page.workflowDetail.executionFailedToStart'),
 				e instanceof Error ? e.message : undefined,
 			);
 		}
@@ -227,7 +228,7 @@
 
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
-		title={workflow?.name ?? 'Workflow detail'}
+		title={workflow?.name ?? t('page.workflowDetail.title')}
 		description={workflow?.description ?? ''}
 	>
 		{#snippet meta()}
@@ -247,11 +248,11 @@
 		{#snippet actions()}
 			<Button variant="ghost" size="sm" href="/workflows">
 				<Icon name="arrow-left" size={13} />
-				Back to workflows
+				{t('page.workflowDetail.backToWorkflows')}
 			</Button>
 			<IconButton
 				icon="pencil"
-				label="Edit graph"
+				label={t('page.workflowDetail.editGraph')}
 				onclick={() => session.requestTab('edit')}
 			/>
 			<Button
@@ -263,7 +264,7 @@
 				}}
 			>
 				<Icon name="download" size={13} />
-				Export
+				{t('domain.template.export')}
 			</Button>
 			<Button
 				variant="brand"
@@ -274,7 +275,7 @@
 				}}
 			>
 				<Icon name="play" size={13} />
-				Run
+				{t('domain.git.run')}
 			</Button>
 		{/snippet}
 	</PageHeader>
@@ -291,8 +292,8 @@
 			<Skeleton lines={6} class="rounded-lg border border-border bg-card p-4" />
 		{:else if detailError || !detail}
 			<ErrorState
-				title="Workflow failed to load"
-				description={detailError ?? 'Unknown error.'}
+				title={t('page.workflowDetail.loadFailed')}
+				description={detailError ?? t('page.workflowDetail.unknownError')}
 				onretry={() => {
 					const id = page.params.id;
 					if (id) void load(id);

@@ -28,6 +28,7 @@
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDuration } from '$lib/utils/format';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
+	import { t } from '$lib/i18n';
 
 	let execution = $state<ExecutionDetail | null>(null);
 	let loadError = $state<string | null>(null);
@@ -50,7 +51,7 @@
 		try {
 			execution = await getExecutionDetail(id);
 		} catch (e) {
-			loadError = e instanceof Error ? e.message : 'Failed to load execution.';
+			loadError = e instanceof Error ? e.message : t('page.executionDetail.errorTitle');
 			execution = null;
 		} finally {
 			loading = false;
@@ -86,11 +87,11 @@
 		controlBusy = true;
 		try {
 			await action(id);
-			toasts.success(`${label} done`);
+			toasts.success(t('page.executionDetail.done', { label }));
 			await load(id);
 		} catch (e) {
 			toasts.error(
-				`${label} failed`,
+				t('page.executionDetail.failed', { label }),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -114,8 +115,8 @@
 
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
-		title={execution?.workflowName ?? 'Execution detail'}
-		description="Full execution detail with state, timeline and analysis."
+		title={execution?.workflowName ?? t('page.executionDetail.titleFallback')}
+		description={t('page.executionDetail.description')}
 	>
 		{#snippet meta()}
 			{#if execution}
@@ -136,15 +137,15 @@
 				{@const controls = controlsFor(execution.kind)}
 				<IconButton
 					icon="pause"
-					label="Pause execution"
+					label={t('page.executionDetail.pause')}
 					disabled={controlBusy}
-					onclick={() => void runControl('Pause', controls.pause)}
+					onclick={() => void runControl(t('page.executionDetail.pause'), controls.pause)}
 				/>
 				<IconButton
 					icon="play"
-					label="Resume execution"
+					label={t('page.executionDetail.resume')}
 					disabled={controlBusy}
-					onclick={() => void runControl('Resume', controls.resume)}
+					onclick={() => void runControl(t('page.executionDetail.resume'), controls.resume)}
 				/>
 				{#if cancelArmed}
 					<Button
@@ -153,17 +154,17 @@
 						disabled={controlBusy}
 						onclick={() => {
 							cancelArmed = false;
-							void runControl('Cancel', controls.cancel);
+							void runControl(t('page.executionDetail.cancel'), controls.cancel);
 						}}
 					>
-						Confirm cancel
+						{t('page.executionDetail.cancelArmed')}
 					</Button>
 					<Button
 						variant="ghost"
 						size="sm"
 						onclick={() => (cancelArmed = false)}
 					>
-						Keep
+						{t('page.executionDetail.keep')}
 					</Button>
 				{:else}
 					<Button
@@ -172,13 +173,13 @@
 						onclick={() => (cancelArmed = true)}
 					>
 						<Icon name="square" size={13} />
-						Cancel
+						{t('page.executionDetail.cancel')}
 					</Button>
 				{/if}
 			{/if}
 			<Button variant="outline" size="sm" href="/executions">
 				<Icon name="arrow-left" size={13} />
-				Back to workbench
+				{t('page.executionDetail.backToWorkbench')}
 			</Button>
 		{/snippet}
 	</PageHeader>
@@ -187,10 +188,10 @@
 		<PageState
 			{loading}
 			error={loadError}
-			errorTitle="Execution failed to load"
+			errorTitle={t('page.executionDetail.errorTitle')}
 			empty={!execution}
-			emptyTitle="Execution not found"
-			emptyDescription="This execution is no longer available. It may have been pruned, or the link points at an unknown id."
+			emptyTitle={t('page.executionDetail.notFound')}
+			emptyDescription={t('page.executionDetail.notFoundDesc')}
 			onretry={() => {
 				const id = page.params.id;
 				if (id) void load(id);

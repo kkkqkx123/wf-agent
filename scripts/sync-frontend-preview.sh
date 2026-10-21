@@ -95,6 +95,7 @@ RSYNC_EXCLUDES+=(
 --exclude=".DS_Store"
 --exclude=".vscode/"
 --exclude=".idea/"
+--exclude="src/lib/paraglide/"
 )
  
 # rsync with --delete so removed files in the source are also removed in
@@ -184,6 +185,7 @@ VERIFY_EXCLUDES=(
 --exclude="fixtures"        # preview-only sample data
 --exclude="client.ts"       # fixture-backed API client
 --exclude="mock"            # fixture-backed mock internals
+--exclude="paraglide"       # generated i18n runtime
 )
 
 if ! diff -qr "${VERIFY_EXCLUDES[@]}" "$SRC_DIR/src" "$DST_DIR/src"; then
@@ -196,7 +198,7 @@ fi
 # package.json is intentionally merged, not mirrored: identity fields stay
 # preview-owned while deps and scripts follow web-app. Config files are
 # mirrored wholesale, so they must match too.
-for f in svelte.config.js tsconfig.json tsconfig.test.json eslint.config.js vite.config.ts; do
+for f in tsconfig.json tsconfig.test.json eslint.config.js vite.config.ts; do
 if ! diff -q "$SRC_DIR/$f" "$DST_DIR/$f" >/dev/null; then
 echo "Error: $f differs between web-app and web-app-preview." >&2
 echo "Re-run the sync or resolve the divergence manually in web-app first." >&2

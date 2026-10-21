@@ -3,6 +3,8 @@ import tailwindcss from '@tailwindcss/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { visualizer } from 'rollup-plugin-visualizer';
 import { paraglideVitePlugin } from '@inlang/paraglide-js';
+import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
+import adapter from '@sveltejs/adapter-auto';
 import path from 'node:path';
 
 export default defineConfig({
@@ -11,10 +13,13 @@ export default defineConfig({
 		paraglideVitePlugin({
 			project: './project.inlang',
 			outdir: './src/lib/paraglide',
-			// Client-rendered app: no server-visible strategy is needed.
 			strategy: ['localStorage', 'preferredLanguage', 'baseLocale'],
 		}),
-		sveltekit(),
+		sveltekit({
+			preprocess: vitePreprocess(),
+			adapter: adapter(),
+			alias: { '$lib': 'src/lib', '$paraglide': 'src/lib/paraglide' },
+		}),
 		visualizer({
 			filename: 'stats.md',
 			template: 'markdown',

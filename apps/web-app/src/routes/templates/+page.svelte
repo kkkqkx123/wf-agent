@@ -25,6 +25,7 @@
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatNumber } from '$lib/utils/format';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
+	import { t } from '$lib/i18n';
 
 	const TABS = [
 		{ id: 'all', label: 'All' },
@@ -71,7 +72,7 @@
 				featured: t.featured || featuredIds.has(t.id),
 			}));
 		} catch (e) {
-			listError = e instanceof Error ? e.message : 'Templates failed.';
+			listError = e instanceof Error ? e.message : t('page.templates.loadFailed');
 			templates = [];
 		} finally {
 			listLoading = false;
@@ -101,13 +102,13 @@
 		try {
 			const newId = await cloneTemplate(row.id, row.kind, `${row.name} (copy)`);
 			void recordTemplateUsage(row.id).catch(() => undefined);
-			toasts.success('Template cloned');
+			toasts.success(t('page.templates.cloned'));
 			await reload();
 			await goto(
 				resolve('/templates/[kind]/[id]', { kind: row.kind, id: newId }),
 			);
 		} catch (e) {
-			toasts.error('Clone failed', e instanceof Error ? e.message : undefined);
+			toasts.error(t('page.templates.cloneFailed'), e instanceof Error ? e.message : undefined);
 		}
 	}
 
@@ -127,7 +128,7 @@
 		importBusy = true;
 		try {
 			const newId = await importTemplate(importKind, importText);
-			toasts.success('Template imported');
+			toasts.success(t('page.templates.imported'));
 			importOpen = false;
 			importText = '';
 			await reload();
@@ -166,22 +167,22 @@
 
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
-		title="Template library"
-		description="Reusable node, trigger, agent and workflow templates from the registry."
+		title={t('page.templates.title')}
+		description={t('page.templates.description')}
 	>
 		{#snippet actions()}
 			<IconButton
 				icon="refresh"
-				label="Refresh"
+				label={t('common.refresh')}
 				onclick={() => void reload()}
 			/>
 			<Button variant="outline" size="sm" onclick={() => (importOpen = true)}>
 				<Icon name="upload" size={13} />
-				Import
+				{t('page.templates.import')}
 			</Button>
 			<Button size="sm" onclick={startCreate}>
 				<Icon name="plus" size={13} />
-				New template
+				{t('page.templates.newTemplate')}
 			</Button>
 		{/snippet}
 	</PageHeader>
@@ -204,7 +205,7 @@
 			<Skeleton lines={5} class="rounded-lg border border-border bg-card p-4" />
 		{:else if listError}
 			<ErrorState
-				title="Templates failed to load"
+				title={t('page.templates.loadFailed')}
 				description={listError}
 				onretry={() => void reload()}
 				class="rounded-lg border border-border bg-card"
@@ -212,8 +213,8 @@
 		{:else if filtered.length === 0}
 			<EmptyState
 				icon="template"
-				title="No templates match"
-				description="Switch the kind filter or disable the featured toggle."
+				title={t('page.templates.noMatch')}
+				description={t('page.templates.noMatchDesc')}
 				class="rounded-lg border border-border bg-card"
 			/>
 		{:else}

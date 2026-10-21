@@ -28,6 +28,7 @@
 	} from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
+	import { t } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 
@@ -107,7 +108,7 @@
 				);
 			}
 		} catch (e) {
-			tabError = e instanceof Error ? e.message : 'Resources failed.';
+			tabError = e instanceof Error ? e.message : t('page.resources.loadFailed');
 			if (current === 'models') seenModels = false;
 			if (current === 'tools') seenTools = false;
 			if (current === 'scripts') seenScripts = false;
@@ -133,7 +134,7 @@
 		} catch (e) {
 			toolEnabled = { ...toolEnabled, [id]: previous };
 			toasts.error(
-				'Tool toggle failed',
+				t('page.resources.toolToggleFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		}
@@ -149,7 +150,7 @@
 		} catch (e) {
 			skillEnabled = { ...skillEnabled, [name]: previous };
 			toasts.error(
-				'Skill toggle failed',
+				t('page.resources.skillToggleFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		}
@@ -168,13 +169,13 @@
 
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
-		title="Models & tools"
-		description="Read-only operations console for profiles, providers, tool registry, scripts and skills."
+		title={t('page.resources.title')}
+		description={t('page.resources.description')}
 	>
 		{#snippet actions()}
 			<IconButton
 				icon="refresh"
-				label="Refresh"
+				label={t('common.refresh')}
 				onclick={() => void reload()}
 			/>
 		{/snippet}
@@ -190,14 +191,14 @@
 	<div
 		id="resources-panel"
 		role="tabpanel"
-		aria-label="Resource sections"
+		aria-label={t('page.resources.sections')}
 		class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
 	>
 		{#if tabLoading}
 			<Skeleton lines={5} class="rounded-lg border border-border bg-card p-4" />
 		{:else if tabError}
 			<ErrorState
-				title="Resources failed to load"
+				title={t('page.resources.loadFailed')}
 				description={tabError}
 				onretry={() => void loadTab(tab)}
 				class="rounded-lg border border-border bg-card"

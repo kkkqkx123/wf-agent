@@ -26,6 +26,7 @@
 	} from '$lib/services/workflows';
 	import type { Workflow, WorkflowDetail } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
+	import { t } from '$lib/i18n';
 	import {
 		formatNumber,
 		formatPercent,
@@ -69,7 +70,7 @@
 				selectedId = page.items[0].id;
 			}
 		} catch (e) {
-			listError = e instanceof Error ? e.message : 'Workflows failed.';
+			listError = e instanceof Error ? e.message : t('page.workflows.loadFailed');
 			allWorkflows = [];
 		} finally {
 			listLoading = false;
@@ -93,7 +94,7 @@
 			await reload();
 			await goto(resolve('/workflows/[id]', { id }));
 		} catch (e) {
-			importError = e instanceof Error ? e.message : 'Import failed.';
+			importError = e instanceof Error ? e.message : t('page.workflows.importFailed');
 		} finally {
 			importBusy = false;
 		}
@@ -103,12 +104,12 @@
 		newBusy = true;
 		try {
 			const workflow = await createMinimalWorkflow(newName);
-			toasts.success('Workflow created');
+			toasts.success(t('page.workflows.created'));
 			newOpen = false;
 			newName = '';
 			await goto(resolve('/workflows/[id]', { id: workflow.id }));
 		} catch (e) {
-			toasts.error('Create failed', e instanceof Error ? e.message : undefined);
+			toasts.error(t('page.workflows.createFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			newBusy = false;
 		}
@@ -127,7 +128,7 @@
 			})
 			.catch((e) => {
 				selected = null;
-				detailError = e instanceof Error ? e.message : 'Detail failed.';
+				detailError = e instanceof Error ? e.message : t('page.workflows.detailLoadFailed');
 			});
 	});
 
@@ -146,31 +147,31 @@
 	const filteredCopy = $derived(
 		query.trim() || status
 			? {
-					title: 'No workflows match',
-					description: 'Clear the filters to browse every definition.',
+					title: t('page.workflows.noMatch'),
+					description: t('page.workflows.noMatchDesc'),
 				}
 			: {
-					title: 'No workflows yet',
+					title: t('page.workflows.noWorkflows'),
 					description:
-						'Create a definition or import one to start orchestrating runs.',
+						t('page.workflows.noWorkflowsDesc'),
 				},
 	);
 </script>
 
 <SplitView
-	inspectorTitle="Workflow detail"
+	inspectorTitle={t('page.workflowDetail.title')}
 	inspectorOpen={selectedId !== null}
 	class="h-full"
 >
 	<div class="flex h-full min-h-0 flex-col">
 		<PageHeader
-			title="Workflows"
-			description="Definitions, versions and drafts across the orchestration layer."
+			title={t('page.workflows.title')}
+			description={t('page.workflows.description')}
 		>
 			{#snippet actions()}
 				<IconButton
 					icon="refresh"
-					label="Refresh"
+					label={t('common.refresh')}
 					onclick={() => void reload()}
 				/>
 				<Button
@@ -183,7 +184,7 @@
 					}}
 				>
 					<Icon name="upload" size={13} />
-					Import
+					{t('page.workflows.import')}
 				</Button>
 				<Button
 					size="sm"
@@ -193,7 +194,7 @@
 					}}
 				>
 					<Icon name="plus" size={13} />
-					New
+					{t('page.workflows.new')}
 				</Button>
 			{/snippet}
 		</PageHeader>
@@ -203,12 +204,12 @@
 				bind:query
 				bind:status
 				statusOptions={STATUS_OPTIONS}
-				placeholder="Filter by name or tag…"
+				placeholder={t('page.workflows.filterPlaceholder')}
 				class="mb-3"
 			>
 				{#snippet trailing()}
 					<span class="text-caption text-muted-foreground"
-						>{filtered.length} shown</span
+						>{t('page.workflows.shown', { count: filtered.length })}</span
 					>
 				{/snippet}
 			</FilterBar>
@@ -216,7 +217,7 @@
 			<PageState
 				loading={listLoading}
 				error={listError}
-				errorTitle="Workflows failed to load"
+				errorTitle={t('page.workflows.loadFailed')}
 				empty={filtered.length === 0}
 				emptyIcon="workflow"
 				emptyTone="brand"
@@ -238,10 +239,10 @@
 		</div>
 	</div>
 
-	{#snippet inspector()}
+		{#snippet inspector()}
 		{#if detailError && !selected}
 			<ErrorState
-				title="Detail failed to load"
+				title={t('page.workflows.detailLoadFailed')}
 				description={detailError}
 				onretry={() => {
 					if (selectedId) {
@@ -251,7 +252,7 @@
 								selected = row;
 							})
 							.catch((e) => {
-								detailError = e instanceof Error ? e.message : 'Detail failed.';
+								detailError = e instanceof Error ? e.message : t('page.workflows.detailLoadFailed');
 							});
 					}
 				}}
@@ -280,7 +281,7 @@
 				</div>
 
 				<div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
-					<Card title="Summary">
+					<Card title={t('page.workflows.summary')}>
 						<KeyValueList
 							items={[
 								{ key: 'version', value: `v${selected.version}` },
@@ -327,8 +328,8 @@
 
 <Dialog
 	bind:open={importOpen}
-	title="Import workflow"
-	description="Paste a workflow definition as JSON."
+	title={t('page.workflows.importWorkflow')}
+	description={t('page.workflows.importWorkflowDesc')}
 >
 	<Textarea
 		bind:value={importText}
@@ -345,10 +346,10 @@
 	{#snippet footer()}
 		<div class="flex items-center justify-end gap-2">
 			<Button variant="ghost" size="sm" onclick={() => (importOpen = false)}>
-				Cancel
+			 {t('common.cancel')}
 			</Button>
 			<Button size="sm" disabled={importBusy} onclick={() => void runImport()}>
-				{importBusy ? 'Importing…' : 'Import'}
+			 {importBusy ? t('page.workflows.importing') : t('page.workflows.import')}
 			</Button>
 		</div>
 	{/snippet}
@@ -356,17 +357,17 @@
 
 <Dialog
 	bind:open={newOpen}
-	title="New workflow"
-	description="A minimal start → end definition to extend in the detail view."
+	title={t('page.workflows.newWorkflow')}
+	description={t('page.workflows.newWorkflowDesc')}
 >
-	<Input bind:value={newName} placeholder="Workflow name" />
+	<Input bind:value={newName} placeholder={t('page.workflows.workflowName')} />
 	{#snippet footer()}
 		<div class="flex items-center justify-end gap-2">
 			<Button variant="ghost" size="sm" onclick={() => (newOpen = false)}>
-				Cancel
+				{t('common.cancel')}
 			</Button>
 			<Button size="sm" disabled={newBusy} onclick={() => void runCreate()}>
-				{newBusy ? 'Creating…' : 'Create'}
+				{newBusy ? t('page.workflows.creating') : t('common.create')}
 			</Button>
 		</div>
 	{/snippet}

@@ -14,6 +14,7 @@
 	import { checkpoints as checkpointStore } from '$lib/stores/checkpoints.svelte';
 	import { fileWorkspace } from '$lib/stores/fileWorkspace.svelte';
 	import { hasConflictMarkers } from '$lib/types/diff';
+	import { t } from '$lib/i18n';
 
 	// ── dialogs ──
 	let resolveOpen = $state(false);
@@ -29,24 +30,24 @@
 		if (!target) return;
 		const actor = fileWorkspace.actor.trim();
 		if (!actor) {
-			toasts.error('Enter the resolving actor');
+			toasts.error(t('domain.checkpoint.actorRequiredResolve'));
 			return;
 		}
 		if (!resolveContent) {
-			toasts.error('Resolve the file content first');
+			toasts.error(t('domain.checkpoint.contentRequired'));
 			return;
 		}
 		if (resolveBinary) {
 			toasts.error(
-				'Binary conflicts cannot be resolved here',
-				'Use the terminal',
+				t('domain.checkpoint.binaryCannotResolve'),
+				t('domain.checkpoint.useTerminal'),
 			);
 			return;
 		}
 		if (hasConflictMarkers(resolveContent)) {
 			toasts.warning(
-				'Conflict markers remain',
-				'The resolution still carries <<<<<<</>>>>>>> markers and will stay conflicted.',
+				t('domain.checkpoint.markersRemainTitle'),
+				t('domain.checkpoint.markersRemainDetail'),
 			);
 		}
 		checkpointStore.beginAction('resolve');
@@ -58,14 +59,18 @@
 			resolveTarget = null;
 			resolveContent = '';
 			toasts.success(
-				remaining === 0 ? 'Conflict fully resolved' : 'Resolution recorded',
-				remaining === 0 ? target.path : `${remaining} file(s) still conflicted`,
+				remaining === 0
+					? t('domain.checkpoint.fullyResolved')
+					: t('domain.checkpoint.resolutionRecorded'),
+				remaining === 0
+					? target.path
+					: t('domain.checkpoint.stillConflicted', { count: remaining }),
 			);
 			checkpointStore.bump('files');
 		} catch (e) {
 			console.error('Conflict resolution failed:', e);
 			toasts.error(
-				'Resolution failed',
+				t('domain.checkpoint.resolutionFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -94,16 +99,14 @@
 				if (resolveTarget !== conflict) return;
 				resolveBinary = content.isBinary;
 				if (content.isBinary) {
-					resolveNote =
-						'Binary file: frontend resolution is unsupported, use the terminal.';
+					resolveNote = t('domain.checkpoint.binaryNote');
 					return;
 				}
 				resolveContent = content.content ?? '';
 				if (!resolveContent) {
-					resolveNote = 'Conflicted content is empty at this commit.';
+					resolveNote = t('domain.checkpoint.emptyContent');
 				} else if (content.truncated) {
-					resolveNote =
-						'Content truncated at 1 MiB; verify the tail in the terminal.';
+					resolveNote = t('domain.checkpoint.truncatedNote');
 				}
 			})
 			.catch((e) => {
@@ -111,8 +114,8 @@
 				console.error('Failed to load conflicted content:', e);
 				resolveNote =
 					e instanceof Error
-						? `Conflicted content unavailable: ${e.message}`
-						: 'Conflicted content unavailable.';
+						? t('domain.checkpoint.contentUnavailable', { error: e.message })
+						: t('domain.checkpoint.contentUnavailableError');
 			})
 			.finally(() => {
 				if (resolveTarget === conflict) resolveLoading = false;
@@ -126,28 +129,29 @@
 
 <Dialog
 	bind:open={resolveOpen}
-	title="Resolve conflict"
-	description="Commit the resolved file content as a child of the conflicted head. Files still carrying markers stay conflicted."
+	title={t('domain.checkpoint.resolveTitle')}
+	description={t('domain.checkpoint.resolveDescription')}
 	onclose={() => (resolveTarget = null)}
 >
 	{#if resolveTarget}
 		<p class="mb-2 text-caption">
-			<span class="font-mono">{resolveTarget.path}</span> on
+			<span class="font-mono">{resolveTarget.path}</span>
+			{t('domain.checkpoint.onPartition')}
 			<span class="font-mono">{resolveTarget.partition}</span>
 		</p>
 	{/if}
 	<div class="grid gap-2 sm:grid-cols-2">
 		<Input
-			label="Actor"
+			label={t('domain.files.actor')}
 			value={fileWorkspace.actor}
 			oninput={(event: Event) =>
 				fileWorkspace.setActor((event.target as HTMLInputElement).value)}
-			placeholder="Resolving actor"
+			placeholder={t('domain.checkpoint.resolvingActor')}
 		/>
 		<Input
-			label="Feature"
+			label={t('domain.files.feature')}
 			bind:value={resolveFeature}
-			placeholder="Feature name for refs/wf/feat/<name>"
+			placeholder={t('domain.files.featureNamePlaceholder')}
 		/>
 	</div>
 	<div class="mt-2">
@@ -155,8 +159,7 @@
 			<Skeleton lines={6} />
 		{:else if resolveBinary}
 			<p class="text-caption text-warning">
-				Binary file: resolve it in the terminal, the frontend cannot merge
-				binary content.
+				{t('domain.checkpoint.binaryWarning')}
 			</p>
 		{:else}
 			{#if resolveTarget && resolveTarget.regions.length > 0}
@@ -166,25 +169,34 @@
 					{#each resolveTarget.regions as region, index (index)}
 						<div class="border-b border-border p-2 last:border-b-0">
 							<p class="text-micro text-muted-foreground">
-								Region {index + 1} · line {region.startLine}
+								{t('domain.checkpoint.region', {
+									number: index + 1,
+									line: region.startLine,
+								})}
 							</p>
 							<div class="mt-1 grid gap-2 sm:grid-cols-3">
 								<div>
-									<p class="text-micro text-muted-foreground">base</p>
+									<p class="text-micro text-muted-foreground"
+										>{t('domain.checkpoint.base')}</p
+									>
 									<pre
 										class="whitespace-pre-wrap font-mono text-micro">{region.base.join(
 											'\n',
 										) || '∅'}</pre>
 								</div>
 								<div>
-									<p class="text-micro text-muted-foreground">ours</p>
+									<p class="text-micro text-muted-foreground"
+										>{t('domain.checkpoint.ours')}</p
+									>
 									<pre
 										class="whitespace-pre-wrap font-mono text-micro">{region.ours.join(
 											'\n',
 										) || '∅'}</pre>
 								</div>
 								<div>
-									<p class="text-micro text-muted-foreground">theirs</p>
+									<p class="text-micro text-muted-foreground"
+										>{t('domain.checkpoint.theirs')}</p
+									>
 									<pre
 										class="whitespace-pre-wrap font-mono text-micro">{region.theirs.join(
 											'\n',
@@ -196,9 +208,9 @@
 				</div>
 			{/if}
 			<Textarea
-				label="Resolved content"
+				label={t('domain.checkpoint.resolvedContent')}
 				bind:value={resolveContent}
-				placeholder="Edit the conflicted content in place"
+				placeholder={t('domain.checkpoint.resolvedPlaceholder')}
 				rows={10}
 			/>
 		{/if}
@@ -207,13 +219,13 @@
 		{/if}
 		{#if resolveHasMarkers && !resolveBinary}
 			<p class="mt-1 text-micro text-warning">
-				Conflict markers remain: saving now keeps the file conflicted.
+				{t('domain.checkpoint.markersRemain')}
 			</p>
 		{/if}
 	</div>
 	{#snippet footer()}
 		<Button variant="ghost" size="sm" onclick={() => (resolveOpen = false)}>
-			Cancel
+			{t('common.cancel')}
 		</Button>
 		<Button
 			size="sm"
@@ -225,7 +237,7 @@
 				!resolveContent}
 			onclick={() => void runResolveConflict()}
 		>
-			Commit resolution
+			{t('domain.checkpoint.commitResolution')}
 		</Button>
 	{/snippet}
 </Dialog>

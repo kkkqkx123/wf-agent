@@ -16,6 +16,7 @@
 	import type { FileChange } from '$lib/types/models';
 	import { fileWorkspace as workspace } from '$lib/stores/fileWorkspace.svelte';
 	import { formatBytes, formatRelativeTime } from '$lib/utils/format';
+	import { t } from '$lib/i18n';
 
 	let {
 		selectedChange,
@@ -68,26 +69,26 @@
 
 <div class="space-y-3">
 	{#if diffLoading}
-		<Card title="Selected delta">
+		<Card title={t('domain.files.selectedDelta')}>
 			<Skeleton shape="block" height="6rem" />
 		</Card>
 	{:else if mainDiff && !mainDiff.binary}
 		<DiffView
 			lines={mainDiff.lines}
 			title={mainDiff.truncated
-				? `${mainDiff.path} · truncated`
+				? t('domain.files.truncatedPath', { path: mainDiff.path })
 				: mainDiff.path}
 		/>
 	{:else if mainDiff?.binary}
 		<Card title={mainDiff.path}>
 			<p class="text-caption text-muted-foreground">
-				Binary content has no text diff
+				{t('domain.files.binaryNoDiff')}
 			</p>
 		</Card>
 	{:else}
-		<Card title="Selected delta">
+		<Card title={t('domain.files.selectedDelta')}>
 			<p class="text-caption text-muted-foreground">
-				{diffNote ?? 'Select a change to preview its diff against main'}
+				{diffNote ?? t('domain.files.selectChange')}
 			</p>
 		</Card>
 	{/if}
@@ -96,7 +97,7 @@
 			{#snippet actions()}
 				<Button variant="ghost" size="sm" onclick={ondownload}>
 					<Icon name="download" size={13} />
-					Download
+					{t('domain.files.download')}
 				</Button>
 			{/snippet}
 			{#if isMarkdownPath(previewContent.path)}
@@ -108,24 +109,31 @@
 					class="max-h-64 overflow-auto rounded-md bg-muted px-2 py-1.5 font-mono text-micro break-words whitespace-pre-wrap text-foreground">{previewContent.content}</pre>
 			{/if}
 			<p class="mt-1.5 text-micro tabular-nums text-muted-foreground">
-				{formatBytes(previewContent.size)}{previewContent.truncated
-					? ' · truncated'
-					: ''}
+				{t('domain.files.sizeTruncated', {
+					size: formatBytes(previewContent.size),
+					truncated: previewContent.truncated
+						? t('domain.files.truncated')
+						: '',
+				})}
 			</p>
 		</Card>
 	{:else if previewContent?.isBinary}
 		<Card title={previewContent.path}>
 			<p class="text-caption text-muted-foreground">
-				Binary content has no text preview
+				{t('domain.files.binaryNoPreview')}
 			</p>
 		</Card>
 	{/if}
 	{#if previewTimeline && timelineEntries.length > 0}
 		<Card
-			title="Version history"
-			description="{previewTimeline.total} versions{previewTimeline.truncated
-				? ' · truncated at 5000'
-				: ''}{selectedChange?.path ? ` · ${selectedChange.path}` : ''}"
+			title={t('domain.versions.historyTitle')}
+			description={t('domain.files.timelineDescription', {
+				total: previewTimeline.total,
+				truncated: previewTimeline.truncated
+					? t('domain.files.truncatedAt', { limit: 5000 })
+					: '',
+				path: selectedChange?.path ?? '',
+			})}
 		>
 			<ul class="space-y-1.5">
 				{#each timelineVisible as entry (entry.snapshotId)}
@@ -138,7 +146,7 @@
 						<span class="min-w-0 flex-1 truncate">{entry.source}</span>
 						{#if entry.movedFrom}
 							<span class="text-micro text-muted-foreground">
-								renamed from {entry.movedFrom}
+								{t('domain.files.renamedFrom', { from: entry.movedFrom })}
 							</span>
 						{/if}
 						<span class="shrink-0 text-micro tabular-nums text-muted-foreground"
@@ -152,27 +160,34 @@
 			{#snippet footer()}
 				{#if timelineShown < timelineEntries.length}
 					<Button variant="ghost" size="sm" onclick={onshowmore}>
-						Show more ({timelineEntries.length - timelineShown} remaining)
+						{t('domain.files.showMoreRemaining', {
+							remaining: timelineEntries.length - timelineShown,
+						})}
 					</Button>
 				{/if}
 			{/snippet}
 		</Card>
 	{/if}
 	<Card
-		title="Workspace tree"
+		title={t('domain.files.treeTitle')}
 		description={previewTree
-			? `${previewTree.total} files${previewTree.truncated ? ' · truncated at 2000' : ''}`
-			: 'Browse an actor workspace by path prefix'}
+			? t('domain.files.treeDescription', {
+					total: previewTree.total,
+					truncated: previewTree.truncated
+						? t('domain.files.truncatedAt', { limit: 2000 })
+						: '',
+				})
+			: t('domain.files.treeHint')}
 	>
 		<div class="mb-2 flex flex-wrap items-end gap-2">
 			<div class="min-w-40 flex-1">
 				<Input
-					label="Path prefix"
+					label={t('domain.files.pathPrefix')}
 					size="sm"
 					value={treePrefix}
 					oninput={(event: Event) =>
 						ontreeprefix((event.target as HTMLInputElement).value)}
-					placeholder="src/lib (empty lists all)"
+					placeholder={t('domain.files.pathPrefixPlaceholder')}
 				/>
 			</div>
 			<Button
@@ -181,7 +196,7 @@
 				disabled={!workspace.actor.trim()}
 				onclick={onreloadtree}
 			>
-				Apply filter
+				{t('domain.files.applyFilter')}
 			</Button>
 		</div>
 		{#if previewTree && previewTree.entries.length > 0}
@@ -197,7 +212,7 @@
 			</ul>
 		{:else}
 			<p class="text-caption text-muted-foreground">
-				No tree loaded yet — select a change or apply a filter.
+				{t('domain.files.noTree')}
 			</p>
 		{/if}
 	</Card>

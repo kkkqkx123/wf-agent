@@ -6,6 +6,7 @@
 	import UnsavedChangesDialog from '@wf-agent/ui/components/UnsavedChangesDialog.svelte';
 	import { jsonErrorLine } from '$lib/services/templates';
 	import type { TemplateKind } from '$lib/types/models';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		open: boolean;
@@ -55,20 +56,20 @@
 
 <Dialog
 	bind:open
-	title="Import template"
-	description="Import any template kind from JSON text."
+	title={t('domain.templateImport.title')}
+	description={t('domain.templateImport.description')}
 	onclose={requestClose}
 >
 	<Select
 		bind:value={kind}
 		options={[
-			{ value: 'node', label: 'Node' },
-			{ value: 'trigger', label: 'Trigger' },
-			{ value: 'agent', label: 'Agent' },
-			{ value: 'workflow', label: 'Workflow' },
+			{ value: 'node', label: t('domain.templateImport.node') },
+			{ value: 'trigger', label: t('domain.templateImport.trigger') },
+			{ value: 'agent', label: t('domain.templateImport.agent') },
+			{ value: 'workflow', label: t('domain.templateImport.workflow') },
 		]}
 		size="sm"
-		placeholder="Kind"
+		placeholder={t('domain.templateImport.kind')}
 		class="mb-2 w-40"
 	/>
 	<JsonEditor
@@ -76,7 +77,7 @@
 		bind:value={text}
 		{errorLine}
 		placeholder={'{\n  "id": "my-template",\n  …\n}'}
-		label="Import template JSON"
+		label={t('domain.templateImport.jsonLabel')}
 		minHeight="12rem"
 	/>
 	{#if error}
@@ -84,8 +85,10 @@
 			class="mt-2 flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5"
 		>
 			<p class="text-caption text-destructive">
-				JSON syntax{#if errorLine}
-					(line {errorLine}){/if}: {error}
+				{t('domain.templateEdit.syntaxError', {
+					line: errorLine,
+					error: error,
+				})}
 			</p>
 			{#if errorLine}
 				<Button
@@ -93,16 +96,18 @@
 					size="sm"
 					onclick={() => editor?.scrollToLine(errorLine ?? 1)}
 				>
-					Go to line
+					{t('domain.templateEdit.goToLine')}
 				</Button>
 			{/if}
 		</div>
 	{/if}
 	{#snippet footer()}
 		<div class="flex items-center justify-end gap-2">
-			<Button variant="ghost" size="sm" onclick={requestClose}>Cancel</Button>
+			<Button variant="ghost" size="sm" onclick={requestClose}
+				>{t('common.cancel')}</Button
+			>
 			<Button size="sm" disabled={busy} onclick={() => onimport()}>
-				{busy ? 'Importing…' : 'Import'}
+				{busy ? t('domain.templateImport.importing') : t('domain.templateImport.import')}
 			</Button>
 		</div>
 	{/snippet}
@@ -110,9 +115,9 @@
 
 <UnsavedChangesDialog
 	bind:open={confirmOpen}
-	title="Discard import text?"
-	description="The import text has not been imported yet. Closing now discards it."
-	discardLabel="Discard import text"
+	title={t('domain.templateImport.discardTitle')}
+	description={t('domain.templateImport.discardDescription')}
+	discardLabel={t('domain.templateImport.discardLabel')}
 	{busy}
 	ondiscard={discardText}
 />

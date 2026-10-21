@@ -10,6 +10,7 @@
 	import type { TemplateKind } from '$lib/types/models';
 	import type { TemplateEditController } from '$lib/templates/template-edit-session.svelte';
 	import { formatNumber } from '$lib/utils/format';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		kind: TemplateKind;
@@ -27,11 +28,11 @@
 	<span class="text-muted-foreground">{detail.template.kind}</span>
 	<span class="text-muted-foreground">·</span>
 	<span class="text-muted-foreground">
-		version {detail.version ?? '—'}
+		{t('domain.template.version', { version: detail.version ?? '—' })}
 	</span>
 	<span class="text-muted-foreground">·</span>
 	<span class="text-muted-foreground">
-		{formatNumber(detail.template.usage)} uses
+		{t('domain.template.uses', { count: formatNumber(detail.template.usage) })}
 	</span>
 </div>
 {#if detail.template.description}
@@ -41,12 +42,12 @@
 {/if}
 {#if summary.length > 0}
 	<div>
-		<span class="text-caption font-medium">Summary</span>
+		<span class="text-caption font-medium">{t('domain.template.summary')}</span>
 		<KeyValueList items={summary} dense />
 	</div>
 {/if}
 <div>
-	<span class="text-caption font-medium">Definition preview</span>
+	<span class="text-caption font-medium">{t('domain.template.definitionPreview')}</span>
 	<pre
 		class="mt-1 max-h-72 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-micro">{detail.definitionJson}</pre>
 </div>
@@ -57,7 +58,7 @@
 		onclick={() => controller.requestView('edit')}
 	>
 		<Icon name="pencil" size={13} />
-		Edit
+		{t('common.edit')}
 	</Button>
 	<Button
 		variant="outline"
@@ -65,14 +66,14 @@
 		onclick={() => void controller.runExport()}
 	>
 		<Icon name="download" size={13} />
-		Export
+		{t('domain.template.export')}
 	</Button>
 	<Button
 		variant="outline"
 		size="sm"
 		onclick={() => void controller.runClone()}
 	>
-		Clone as new
+		{t('domain.template.cloneAsNew')}
 	</Button>
 	{#if kind === 'workflow'}
 		<Button
@@ -80,19 +81,19 @@
 			size="sm"
 			onclick={() => controller.requestView('graph')}
 		>
-			Edit graph
+			{t('domain.template.editGraph')}
 		</Button>
 	{/if}
 	{#if controller.deleteArmed}
 		<Button size="sm" onclick={() => void controller.runDelete()}>
-			Confirm delete
+			{t('domain.template.confirmDelete')}
 		</Button>
 		<Button
 			variant="ghost"
 			size="sm"
 			onclick={() => (controller.deleteArmed = false)}
 		>
-			Keep
+			{t('domain.template.keep')}
 		</Button>
 	{:else}
 		<Button
@@ -100,7 +101,7 @@
 			size="sm"
 			onclick={() => (controller.deleteArmed = true)}
 		>
-			Delete
+			{t('common.delete')}
 		</Button>
 	{/if}
 </div>

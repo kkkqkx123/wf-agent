@@ -5,8 +5,8 @@
 	"type": "module",
 	"main": "dist/index.js",
 	"scripts": {
-		"dev": "vite dev",
-		"build": "vite build",
+		"dev": "node scripts/merge-fragments.mjs && vite dev",
+		"build": "node scripts/merge-fragments.mjs && vite build",
 		"preview": "vite preview",
 		"start": "node dist/index.js",
 		"clean": "rimraf dist",

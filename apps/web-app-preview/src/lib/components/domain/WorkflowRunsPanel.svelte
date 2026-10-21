@@ -19,6 +19,7 @@
 	} from '$lib/utils/format';
 	import { statusTone, toneColorVar } from '@wf-agent/ui/status';
 	import { toasts } from '$lib/stores/toast.svelte';
+	import { t } from '$lib/i18n';
 	import { resolve } from '$app/paths';
 
 	interface Props {
@@ -30,16 +31,16 @@
 	/** Wire values of the backend execution status enum; the list endpoint
 	 * matches them with exact equality, so aliasing them would filter to
 	 * nothing. */
-	const STATUS_OPTIONS = [
-		{ value: 'created', label: 'Created' },
-		{ value: 'running', label: 'Running' },
-		{ value: 'paused', label: 'Paused' },
-		{ value: 'completed', label: 'Completed' },
-		{ value: 'failed', label: 'Failed' },
-		{ value: 'stopped', label: 'Stopped' },
-		{ value: 'cancelled', label: 'Cancelled' },
-		{ value: 'timeout', label: 'Timeout' },
-	];
+	const STATUS_OPTIONS = $derived([
+		{ value: 'created', label: t('domain.runs.statusCreated') },
+		{ value: 'running', label: t('domain.runs.statusRunning') },
+		{ value: 'paused', label: t('domain.runs.statusPaused') },
+		{ value: 'completed', label: t('domain.runs.statusCompleted') },
+		{ value: 'failed', label: t('domain.runs.statusFailed') },
+		{ value: 'stopped', label: t('domain.runs.statusStopped') },
+		{ value: 'cancelled', label: t('domain.runs.statusCancelled') },
+		{ value: 'timeout', label: t('domain.runs.statusTimeout') },
+	]);
 
 	let runs = $state<Execution[]>([]);
 	let runsError = $state<string | null>(null);
@@ -59,7 +60,8 @@
 			});
 			runs = result.items;
 		} catch (e) {
-			runsError = e instanceof Error ? e.message : 'Runs failed to load.';
+			runsError =
+				e instanceof Error ? e.message : t('domain.runs.loadFailed');
 		} finally {
 			runsLoading = false;
 		}
@@ -77,10 +79,13 @@
 				undefined,
 				run.version ?? null,
 			);
-			toasts.success('Re-run started', executionId);
+			toasts.success(t('domain.runs.rerunStarted'), executionId);
 			await loadRuns();
 		} catch (e) {
-			toasts.error('Re-run failed', e instanceof Error ? e.message : undefined);
+			toasts.error(
+				t('domain.runs.rerunFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
 		} finally {
 			rerunId = null;
 		}
@@ -104,7 +109,7 @@
 		bind:query
 		bind:status
 		statusOptions={STATUS_OPTIONS}
-		placeholder="Filter by execution id…"
+		placeholder={t('domain.runs.filterPlaceholder')}
 		onstatuschange={() => void loadRuns()}
 	>
 		{#snippet trailing()}
@@ -115,7 +120,7 @@
 				onclick={() => void loadRuns()}
 			>
 				<Icon name="refresh" size={13} />
-				Refresh
+				{t('common.refresh')}
 			</Button>
 		{/snippet}
 	</FilterBar>
@@ -124,7 +129,7 @@
 		<Skeleton lines={4} class="rounded-lg border border-border bg-card p-4" />
 	{:else if runsError}
 		<ErrorState
-			title="Runs failed to load"
+			title={t('domain.runs.failedTitle')}
 			description={runsError}
 			onretry={() => void loadRuns()}
 			class="rounded-lg border border-border bg-card"
@@ -132,14 +137,16 @@
 	{:else if visibleRuns.length === 0}
 		<EmptyState
 			icon="activity"
-			title={runs.length === 0 ? 'No runs yet' : 'No matching runs'}
+			title={runs.length === 0
+				? t('domain.runs.emptyTitle')
+				: t('domain.runs.noMatchTitle')}
 			description={runs.length === 0
-				? 'Executions of this workflow appear here once it runs.'
-				: 'No execution matches the current filter.'}
+				? t('domain.runs.emptyDescription')
+				: t('domain.runs.noMatchDescription')}
 			class="rounded-lg border border-border bg-card"
 		/>
 	{:else}
-		<Card title="Runs" bodyClass="p-0">
+		<Card title={t('domain.runs.title')} bodyClass="p-0">
 			<ul class="divide-y divide-border">
 				{#each visibleRuns as run (run.id)}
 					{@const tone = statusTone(run.status)}
@@ -159,7 +166,7 @@
 								{#if run.version}
 									<span
 										class="rounded border border-border px-1 font-mono text-micro text-muted-foreground"
-										title="Workflow version this run executed"
+										title={t('domain.runs.versionTitle')}
 									>
 										v{run.version}
 									</span>
@@ -175,7 +182,9 @@
 								{/if}
 								{#if run.failedNodes > 0}
 									· <span class={toneText('danger', 'text-muted-foreground')}
-										>{formatNumber(run.failedNodes)} failed node(s)</span
+										>{t('domain.runs.failedNodes', {
+											count: formatNumber(run.failedNodes),
+										})}</span
 									>
 								{/if}
 							</p>
@@ -194,12 +203,14 @@
 							class="shrink-0"
 							disabled={rerunId === run.id}
 							title={run.version
-								? `Re-run version ${run.version} with the input recorded on this run`
-								: 'Re-run with the input recorded on this run'}
+								? t('domain.runs.rerunVersionTitle', { version: run.version })
+								: t('domain.runs.rerunTitle')}
 							onclick={() => void rerun(run)}
 						>
 							<Icon name="refresh" size={13} />
-							{rerunId === run.id ? 'Re-running…' : 'Re-run'}
+							{rerunId === run.id
+								? t('domain.runs.rerunning')
+								: t('domain.runs.rerun')}
 						</Button>
 					</li>
 				{/each}

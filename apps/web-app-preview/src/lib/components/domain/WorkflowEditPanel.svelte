@@ -9,6 +9,7 @@
 	} from '$lib/components/domain/GraphCanvas.svelte';
 	import { GraphEditStore } from '$lib/graph/edit-store.svelte';
 	import { WorkflowLockStore } from '$lib/stores/workflow-lock.svelte';
+	import { t } from '$lib/i18n';
 	import type { TemplateIssue } from '$lib/services/templates';
 
 	interface Props {
@@ -74,43 +75,48 @@
 
 <div class="mb-2 flex flex-wrap items-center gap-2 text-caption">
 	{#if !lock.supported}
-		<Badge variant="warning">No lock protection</Badge>
+		<Badge variant="warning">{t('domain.workflowEdit.noLock')}</Badge>
 	{:else if lock.held}
-		<Badge variant="success">Editing · you hold the lock</Badge>
+		<Badge variant="success">{t('domain.workflowEdit.lockHeld')}</Badge>
 	{:else if lock.lockedByOther}
-		<Badge variant="danger">Read-only · held by {lock.displayHolder}</Badge>
+		<Badge variant="danger"
+			>{t('domain.workflowEdit.lockedByOther', {
+				holder: lock.displayHolder,
+			})}</Badge
+		>
 	{:else}
-		<Badge variant="outline">Unlocked</Badge>
+		<Badge variant="outline">{t('domain.workflowEdit.unlocked')}</Badge>
 	{/if}
 	{#if lock.refreshError}
 		<span class="text-micro text-muted-foreground"
-			>Lock query failed; saving is disabled.</span
+			>{t('domain.workflowEdit.lockQueryFailed')}</span
 		>
 	{/if}
 </div>
 {#if editMode && lock.lockLost}
-	<Card title="Edit lock lost" class="mb-2 border-destructive/40">
+	<Card title={t('domain.workflowEdit.lockLostTitle')} class="mb-2 border-destructive/40">
 		<p class="text-caption text-muted-foreground">
 			{#if lock.lockLostBy}
-				Held by {lock.lockLostBy}.
+				{t('domain.workflowEdit.lockLostBy', { holder: lock.lockLostBy })}
 			{:else}
-				The lease expired.
+				{t('domain.workflowEdit.lockExpired')}
 			{/if}
-			The canvas is read-only and your edits are kept. Re-acquire the lock to continue
-			editing, or exit edit mode.
+			{t('domain.workflowEdit.lockLostBody')}
 		</p>
 		{#snippet footer()}
 			<div class="flex items-center gap-2">
-				<Button size="sm" onclick={() => onrelock()}>Re-acquire lock</Button>
+				<Button size="sm" onclick={() => onrelock()}
+					>{t('domain.workflowEdit.reacquire')}</Button
+				>
 				<Button variant="ghost" size="sm" onclick={() => onexitedit()}>
-					Exit edit mode
+					{t('domain.graph.exitEditMode')}
 				</Button>
 			</div>
 		{/snippet}
 	</Card>
 {/if}
 {#if issues.length > 0}
-	<Card title="Validation issues" class="mb-2">
+	<Card title={t('domain.workflowEdit.validationIssues')} class="mb-2">
 		<IssueList
 			{issues}
 			onlocate={(issue) => {

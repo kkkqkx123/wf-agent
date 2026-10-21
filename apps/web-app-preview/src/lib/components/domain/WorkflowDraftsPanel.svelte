@@ -11,6 +11,7 @@
 	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
 	import type { WorkflowDraft } from '$lib/types/models';
 	import { formatDateTime } from '$lib/utils/format';
+	import { t } from '$lib/i18n';
 
 	interface Props {
 		drafts: WorkflowDraft[];
@@ -56,7 +57,8 @@
 				kind: edge.kind,
 			}));
 		} catch (e) {
-			previewError = e instanceof Error ? e.message : 'Draft preview failed.';
+			previewError =
+				e instanceof Error ? e.message : t('domain.drafts.previewFailed');
 		} finally {
 			previewLoading = false;
 		}
@@ -70,7 +72,7 @@
 				<StatusBadge status={draft.valid ? 'completed' : 'failed'} size="sm" />
 			{/snippet}
 			<p class="text-caption text-muted-foreground">
-				Updated {formatDateTime(draft.updatedAt)}
+				{t('domain.drafts.updated', { time: formatDateTime(draft.updatedAt) })}
 			</p>
 			{#if draft.issues.length > 0}
 				<ul class="mt-2 space-y-1">
@@ -84,27 +86,33 @@
 			{/if}
 			{#snippet footer()}
 				<div class="flex items-center gap-2">
-					<Button size="sm" onclick={() => onpromote(draft.id)}>Promote</Button>
+					<Button size="sm" onclick={() => onpromote(draft.id)}
+						>{t('domain.graph.promote')}</Button
+					>
 					<Button
 						variant="ghost"
 						size="sm"
 						onclick={() => onvalidate(draft.id)}
 					>
-						Validate
+						{t('domain.graph.validate')}
 					</Button>
 					<Button
 						variant="ghost"
 						size="sm"
 						onclick={() => void togglePreview(draft.id)}
 					>
-						{previewId === draft.id ? 'Hide graph' : 'Preview graph'}
+						{previewId === draft.id
+							? t('domain.drafts.hideGraph')
+							: t('domain.drafts.previewGraph')}
 					</Button>
 					<Button
 						variant="ghost"
 						size="sm"
 						onclick={() => toggleDefinition(draft.id)}
 					>
-						{definitionId === draft.id ? 'Hide definition' : 'View definition'}
+						{definitionId === draft.id
+							? t('domain.drafts.hideDefinition')
+							: t('domain.drafts.viewDefinition')}
 					</Button>
 				</div>
 			{/snippet}
@@ -114,7 +122,7 @@
 						<Skeleton lines={4} />
 					{:else if previewError}
 						<ErrorState
-							title="Draft preview failed to load"
+							title={t('domain.drafts.previewFailedTitle')}
 							description={previewError}
 							onretry={() => void togglePreview(draft.id)}
 						/>
@@ -137,8 +145,8 @@
 	{:else}
 		<EmptyState
 			icon="file"
-			title="No drafts"
-			description="Editable drafts for this workspace appear here."
+			title={t('domain.drafts.emptyTitle')}
+			description={t('domain.drafts.emptyDescription')}
 			class="rounded-lg border border-border bg-card"
 		/>
 	{/each}

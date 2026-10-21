@@ -8,6 +8,7 @@
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import type { Approval } from '$lib/types/models';
 	import { formatDateTime } from '$lib/utils/format';
+	import { t } from '$lib/i18n';
 
 	let {
 		approvals,
@@ -21,12 +22,12 @@
 		onbatch: (approvals: Approval[], granted: boolean) => void;
 	} = $props();
 
-	const statusOptions = [
-		{ value: 'all', label: 'All statuses' },
-		{ value: 'pending', label: 'Pending' },
-		{ value: 'approved', label: 'Approved' },
-		{ value: 'rejected', label: 'Rejected' },
-	];
+	const statusOptions = $derived([
+		{ value: 'all', label: t('domain.approvals.allStatuses') },
+		{ value: 'pending', label: t('domain.approvals.pending') },
+		{ value: 'approved', label: t('domain.approvals.approved') },
+		{ value: 'rejected', label: t('domain.approvals.rejected') },
+	]);
 
 	let statusFilter = $state('all');
 	let actorFilter = $state('');
@@ -70,35 +71,35 @@
 </script>
 
 <Card
-	title="Pending approvals"
-	description="Filter and decide change approvals in bulk"
+	title={t('domain.approvals.title')}
+	description={t('domain.approvals.description')}
 >
 	{#snippet actions()}
 		{#if selectedPending.length > 0}
 			<Button size="sm" onclick={() => batch(true)}>
 				<Icon name="check" size={13} />
-				Approve {selectedPending.length}
+				{t('domain.toolCall.approve')} {selectedPending.length}
 			</Button>
 			<Button variant="outline" size="sm" onclick={() => batch(false)}>
 				<Icon name="x" size={13} />
-				Reject {selectedPending.length}
+				{t('domain.toolCall.reject')} {selectedPending.length}
 			</Button>
 		{/if}
 	{/snippet}
 
 	<div class="mb-3 grid gap-2 sm:grid-cols-2">
 		<Select
-			label="Status"
+			label={t('domain.approvals.status')}
 			size="sm"
 			value={statusFilter}
 			options={statusOptions}
 			onchange={(value) => (statusFilter = value)}
 		/>
 		<Input
-			label="Requester"
+			label={t('domain.approvals.requester')}
 			size="sm"
 			bind:value={actorFilter}
-			placeholder="Filter by requester"
+			placeholder={t('domain.approvals.filterRequester')}
 		/>
 	</div>
 
@@ -115,7 +116,7 @@
 				checked={selectedPending.length === selectable.length}
 				onchange={toggleAll}
 			/>
-			Select all pending ({selectable.length})
+			{t('domain.approvals.selectAllPending', { count: selectable.length })}
 		</label>
 	{/if}
 
@@ -126,7 +127,7 @@
 					{#if approval.status === 'pending'}
 						<input
 							type="checkbox"
-							aria-label="Select approval"
+							aria-label={t('domain.approvals.selectApproval')}
 							checked={selected.has(approval.id)}
 							onchange={() => toggle(approval.id)}
 						/>
@@ -147,7 +148,7 @@
 						<div class="flex items-center gap-2">
 							<Button size="sm" onclick={() => ondecide(approval, true)}>
 								<Icon name="check" size={13} />
-								Approve
+								{t('domain.toolCall.approve')}
 							</Button>
 							<Button
 								variant="outline"
@@ -155,19 +156,19 @@
 								onclick={() => ondecide(approval, false)}
 							>
 								<Icon name="x" size={13} />
-								Reject
+								{t('domain.toolCall.reject')}
 							</Button>
 						</div>
 					{:else}
 						<span class="text-caption text-muted-foreground">
-							Resolved · {approval.status}
+							{t('domain.approvals.resolvedAs', { status: approval.status })}
 						</span>
 					{/if}
 				{/snippet}
 			</Card>
 		{:else}
 			<p class="text-caption text-muted-foreground">
-				No approvals match the current filters.
+				{t('domain.approvals.noMatch')}
 			</p>
 		{/each}
 	</div>

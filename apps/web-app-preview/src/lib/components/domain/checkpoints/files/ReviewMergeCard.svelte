@@ -15,6 +15,7 @@
 	import { checkpoints as store } from '$lib/stores/checkpoints.svelte';
 	import { fileWorkspace as workspace } from '$lib/stores/fileWorkspace.svelte';
 	import { formatRelativeTime } from '$lib/utils/format';
+	import { t } from '$lib/i18n';
 
 	let {
 		partitions,
@@ -55,7 +56,7 @@
 
 	const targetOptions = $derived([
 		...featureNames.map((name) => ({ value: name, label: name })),
-		{ value: NEW_FEATURE, label: 'New feature…' },
+		{ value: NEW_FEATURE, label: t('domain.files.newFeature') },
 	]);
 	const targetSelectValue = $derived(
 		reviewFeature && !featureNames.includes(reviewFeature)
@@ -79,18 +80,21 @@
 	async function runSubmitReview(): Promise<void> {
 		const actor = workspace.actor.trim();
 		if (!actor) {
-			toasts.error('Enter an actor to submit for review');
+			toasts.error(t('domain.files.actorRequiredSubmit'));
 			return;
 		}
 		workspace.beginAction('submit');
 		try {
 			const { reviewCommit } = await submitForReview(actor);
-			toasts.success('Submitted for review', reviewCommit.slice(0, 10));
+			toasts.success(t('domain.files.submitted'), reviewCommit.slice(0, 10));
 			store.bump('files');
 			store.bump('approvals');
 		} catch (e) {
 			console.error('Submit for review failed:', e);
-			toasts.error('Submit failed', e instanceof Error ? e.message : undefined);
+			toasts.error(
+				t('domain.files.submitFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
 		} finally {
 			workspace.endAction();
 		}
@@ -100,11 +104,11 @@
 		const actor = workspace.actor.trim();
 		const feature = reviewFeature.trim();
 		if (!actor) {
-			toasts.error('Enter an actor to merge');
+			toasts.error(t('domain.files.actorRequiredMerge'));
 			return;
 		}
 		if (!feature) {
-			toasts.error('Enter a feature name for refs/wf/feat/<name>');
+			toasts.error(t('domain.files.featureRequired'));
 			return;
 		}
 		workspace.beginAction('merge-feature');
@@ -112,16 +116,19 @@
 			const outcome = await mergeToFeature(actor, feature);
 			if (outcome.conflictFiles.length > 0) {
 				toasts.warning(
-					'Merge has conflicts',
+					t('domain.files.mergeConflicts'),
 					outcome.conflictFiles.slice(0, 3).join(', '),
 				);
 			} else {
-				toasts.success('Merged to feature', outcome.commitId.slice(0, 10));
+				toasts.success(t('domain.files.mergedFeature'), outcome.commitId.slice(0, 10));
 			}
 			store.bump('files');
 		} catch (e) {
 			console.error('Merge to feature failed:', e);
-			toasts.error('Merge failed', e instanceof Error ? e.message : undefined);
+			toasts.error(
+				t('domain.files.mergeFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
 		} finally {
 			workspace.endAction();
 		}
@@ -134,11 +141,11 @@
 			...parseExtraFeatures(reviewFeaturesText),
 		];
 		if (!actor) {
-			toasts.error('Enter an actor to merge');
+			toasts.error(t('domain.files.actorRequiredMerge'));
 			return;
 		}
 		if (features.length === 0) {
-			toasts.error('Enter at least one feature name');
+			toasts.error(t('domain.files.featureRequired'));
 			return;
 		}
 		workspace.beginAction('merge-main');
@@ -147,17 +154,17 @@
 			mergeMainOpen = false;
 			if (outcome.conflictFiles.length > 0) {
 				toasts.warning(
-					'Merge to main has conflicts',
+					t('domain.files.mergeMainConflicts'),
 					outcome.conflictFiles.slice(0, 3).join(', '),
 				);
 			} else {
-				toasts.success('Merged to main', outcome.checkpointId.slice(0, 10));
+				toasts.success(t('domain.files.mergedMain'), outcome.checkpointId.slice(0, 10));
 			}
 			store.bump('files');
 		} catch (e) {
 			console.error('Merge to main failed:', e);
 			toasts.error(
-				'Merge to main failed',
+				t('domain.files.mergeMainFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -169,23 +176,23 @@
 		const actor = workspace.actor.trim();
 		const head = rollbackHead.trim();
 		if (!actor) {
-			toasts.error('Enter an actor for rollback');
+			toasts.error(t('domain.files.actorRequiredRollback'));
 			return;
 		}
 		if (!head) {
-			toasts.error('Enter the merged feature head commit to revert');
+			toasts.error(t('domain.files.headRequired'));
 			return;
 		}
 		workspace.beginAction('rollback-feature');
 		try {
 			const { revertCommit } = await rollbackFeature(actor, head);
 			rollbackOpen = false;
-			toasts.success('Feature rolled back', revertCommit.slice(0, 10));
+			toasts.success(t('domain.files.featureRolledBack'), revertCommit.slice(0, 10));
 			store.bump('files');
 		} catch (e) {
 			console.error('Feature rollback failed:', e);
 			toasts.error(
-				'Rollback failed',
+				t('domain.files.rollbackFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -196,25 +203,25 @@
 
 <div class="mt-3 grid gap-3 xl:grid-cols-2">
 	<Card
-		title="Review & merge"
-		description="Submit edit lines, merge features, roll back merged features"
+		title={t('domain.files.reviewMergeTitle')}
+		description={t('domain.files.reviewMergeDescription')}
 	>
 		<div class="grid gap-2 sm:grid-cols-2">
 			<Input
-				label="Actor"
+				label={t('domain.files.actor')}
 				size="sm"
 				value={workspace.actor}
 				oninput={(event: Event) =>
 					workspace.setActor((event.target as HTMLInputElement).value)}
-				placeholder="Actor partition"
+				placeholder={t('domain.files.actorPartition')}
 			/>
 			{#if featureNames.length > 0}
 				<Select
-					label="Feature"
+					label={t('domain.files.feature')}
 					size="sm"
 					value={targetSelectValue}
 					options={targetOptions}
-					placeholder="Pick a feature"
+					placeholder={t('domain.files.pickFeature')}
 					onchange={(value) => {
 						reviewFeature = value === NEW_FEATURE ? '' : value;
 					}}
@@ -225,20 +232,20 @@
 			<div class="mt-2">
 				<Input
 					label={featureNames.length === 0
-						? 'Feature (no existing features yet)'
-						: 'New feature name'}
+						? t('domain.files.featureNoneYet')
+						: t('domain.files.newFeatureName')}
 					size="sm"
 					value={reviewFeature}
 					oninput={(event: Event) =>
 						(reviewFeature = (event.target as HTMLInputElement).value)}
-					placeholder="Feature name for refs/wf/feat/<name>"
+					placeholder={t('domain.files.featureNamePlaceholder')}
 				/>
 			</div>
 		{/if}
 		{#if featureNames.length > 0}
 			<fieldset class="mt-2">
 				<legend class="text-caption text-muted-foreground">
-					Features for main
+					{t('domain.files.featuresForMain')}
 				</legend>
 				<div class="mt-1 flex flex-wrap gap-x-3 gap-y-1">
 					{#each featureNames as name (name)}
@@ -264,8 +271,8 @@
 		<div class="mt-2">
 			<Input
 				label={featureNames.length > 0
-					? 'Extra features for main (comma or space separated)'
-					: 'Features for main (comma or space separated)'}
+					? t('domain.files.extraFeatures')
+					: t('domain.files.featuresForMainInput')}
 				size="sm"
 				value={reviewFeaturesText}
 				oninput={(event: Event) =>
@@ -280,7 +287,7 @@
 				disabled={workspace.busy}
 				onclick={() => void runSubmitReview()}
 			>
-				Submit for review
+				{t('domain.files.submitReview')}
 			</Button>
 			<Button
 				variant="outline"
@@ -288,7 +295,7 @@
 				disabled={workspace.busy}
 				onclick={() => void runMergeToFeature()}
 			>
-				Merge to feature
+				{t('domain.files.mergeToFeature')}
 			</Button>
 			<Button
 				variant="outline"
@@ -296,30 +303,30 @@
 				disabled={workspace.busy}
 				onclick={() => (mergeMainOpen = true)}
 			>
-				Merge to main
+				{t('domain.files.mergeToMain')}
 			</Button>
 		</div>
 	</Card>
 
 	<Card
-		title="Feature rollback"
-		description="Append a revert commit; other merged features stay untouched"
+		title={t('domain.files.rollbackCardTitle')}
+		description={t('domain.files.rollbackCardDescription')}
 	>
 		{#if rollbackOptions.length > 0}
 			<Select
-				label="Merged feature head"
+				label={t('domain.files.mergedFeatureHead')}
 				size="sm"
 				value={rollbackHead}
 				options={rollbackOptions}
-				placeholder="Pick a feature head to revert"
+				placeholder={t('domain.files.pickFeatureHead')}
 				onchange={(value) => (rollbackHead = value)}
 			/>
 		{/if}
 		<div class="mt-2">
 			<Input
 				label={rollbackOptions.length > 0
-					? 'Head commit (prefilled from selection, editable)'
-					: 'Merged feature head commit'}
+					? t('domain.files.headCommitEditable')
+					: t('domain.files.headCommit')}
 				size="sm"
 				value={rollbackHead}
 				oninput={(event: Event) =>
@@ -334,7 +341,7 @@
 				disabled={workspace.busy || !rollbackHead.trim()}
 				onclick={() => (rollbackOpen = true)}
 			>
-				Roll back feature
+				{t('domain.files.rollbackFeature')}
 			</Button>
 		</div>
 	</Card>
@@ -342,48 +349,48 @@
 
 <Dialog
 	bind:open={mergeMainOpen}
-	title="Merge into main"
-	description="Each feature is merged into main in order with its own merge commit. Main is the shared line; confirm the feature order before continuing."
+	title={t('domain.files.mergeMainTitle')}
+	description={t('domain.files.mergeMainDescription')}
 	onclose={() => (mergeMainOpen = false)}
 >
 	<p class="text-caption">
-		Merging into main:
-		<span class="font-mono">{pendingMainFeatures.join(', ') || '—'}</span>
+		{t('domain.files.mergeMainConfirm', {
+			features: pendingMainFeatures.join(', ') || '—',
+		})}
 	</p>
 	{#snippet footer()}
 		<Button variant="ghost" size="sm" onclick={() => (mergeMainOpen = false)}>
-			Cancel
+			{t('common.cancel')}
 		</Button>
 		<Button
 			size="sm"
 			disabled={workspace.busy || pendingMainFeatures.length === 0}
 			onclick={() => void runMergeToMain()}
 		>
-			Merge to main
+			{t('domain.files.mergeToMain')}
 		</Button>
 	{/snippet}
 </Dialog>
 
 <Dialog
 	bind:open={rollbackOpen}
-	title="Roll back merged feature"
-	description="Appends a revert commit; other merged features are left untouched."
+	title={t('domain.files.rollbackDialogTitle')}
+	description={t('domain.files.rollbackDialogDescription')}
 	onclose={() => (rollbackOpen = false)}
 >
 	<p class="text-caption">
-		Revert <span class="font-mono">{rollbackHead.trim()}</span> as a new commit on
-		main.
+		{t('domain.files.rollbackConfirm', { head: rollbackHead.trim() })}
 	</p>
 	{#snippet footer()}
 		<Button variant="ghost" size="sm" onclick={() => (rollbackOpen = false)}>
-			Cancel
+			{t('common.cancel')}
 		</Button>
 		<Button
 			size="sm"
 			disabled={workspace.busy || !rollbackHead.trim()}
 			onclick={() => void runRollbackMergedFeature()}
 		>
-			Roll back
+			{t('domain.files.rollback')}
 		</Button>
 	{/snippet}
 </Dialog>

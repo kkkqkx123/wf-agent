@@ -6,16 +6,20 @@
 	import { getCheckpointsByEntities } from '$lib/services/checkpoints';
 	import type { Checkpoint } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
+	import { t } from '$lib/i18n';
 
 	let entityIds = $state('');
 	let entityType = $state('checkpoint');
 	let results = $state<Checkpoint[]>([]);
 	let note = $state<string | null>(null);
 
-	const entityTypeOptions = [
-		{ value: 'checkpoint', label: 'Workflow execution (checkpoint)' },
-		{ value: 'agent_loop', label: 'Agent loop (agent_loop)' },
-	];
+	const entityTypeOptions = $derived([
+		{
+			value: 'checkpoint',
+			label: t('domain.checkpoint.typeCheckpoint'),
+		},
+		{ value: 'agent_loop', label: t('domain.checkpoint.typeAgentLoop') },
+	]);
 
 	async function run(): Promise<void> {
 		const ids = entityIds
@@ -23,7 +27,7 @@
 			.map((id) => id.trim())
 			.filter((id) => id.length > 0);
 		if (ids.length === 0) {
-			toasts.error('Enter at least one entity id');
+			toasts.error(t('domain.checkpoint.entityIdsRequired'));
 			return;
 		}
 		try {
@@ -32,11 +36,14 @@
 				entityType,
 			});
 			results = page.items;
-			note = `${page.items.length} checkpoint(s)${page.hasMore ? ' (more available)' : ''}`;
+			note = t('domain.checkpoint.resultsNote', {
+				count: page.items.length,
+				more: page.hasMore ? t('domain.checkpoint.moreAvailable') : '',
+			});
 		} catch (e) {
 			console.error('Entity checkpoint query failed:', e);
 			toasts.error(
-				'Entity query failed',
+				t('domain.checkpoint.entityFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
 		}
@@ -44,9 +51,11 @@
 </script>
 
 <section class="space-y-2">
-	<h3 class="text-caption font-medium text-foreground">Entity batch</h3>
+	<h3 class="text-caption font-medium text-foreground">
+		{t('domain.checkpoint.entityBatchTitle')}
+	</h3>
 	<Input
-		label="Entity ids"
+		label={t('domain.checkpoint.entityIds')}
 		size="sm"
 		value={entityIds}
 		oninput={(event: Event) =>
@@ -54,14 +63,14 @@
 		placeholder="id-1, id-2, id-3"
 	/>
 	<Select
-		label="Entity type"
+		label={t('domain.checkpoint.entityType')}
 		size="sm"
 		value={entityType}
 		options={entityTypeOptions}
 		onchange={(value) => (entityType = value)}
 	/>
 	<Button variant="outline" size="sm" onclick={() => void run()}>
-		Query entities
+		{t('domain.checkpoint.queryEntities')}
 	</Button>
 	{#if note}
 		<p class="text-micro text-muted-foreground">{note}</p>

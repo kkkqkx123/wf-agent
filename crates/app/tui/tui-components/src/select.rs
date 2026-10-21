@@ -312,8 +312,8 @@ impl<T> SelectList<T> {
                 group_title.push(None);
             }
         }
-        let title_rows = usize::from(self.group_titles)
-            * group_title.iter().filter(|t| t.is_some()).count();
+        let title_rows =
+            usize::from(self.group_titles) * group_title.iter().filter(|t| t.is_some()).count();
         let total_rows = n + title_rows;
         let selected_row = {
             let mut row = 0usize;

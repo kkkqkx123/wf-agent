@@ -72,7 +72,7 @@ pub async fn build_agent_execution(entity: &AgentLoopEntity) -> AgentExecution {
     AgentExecution {
         id: entity.id().clone(),
         definition_id: entity.definition_id().clone(),
-        execution_type: wf_types::execution::SessionExecutionType::Agent,
+        execution_type: wf_types::execution::ExecutionType::Agent,
         status,
         current_iteration: state.current_iteration(),
         tool_call_count: state.tool_call_count(),
@@ -130,7 +130,7 @@ async fn build_agent_hierarchy(entity: &AgentLoopEntity) -> Option<ExecutionHier
         entity.definition_id().clone(),
         entity.id().clone(),
         ancestors,
-        parent.as_ref().map(|p| p.parent_type.clone()),
+        parent.as_ref().map(|p| p.parent_type),
         Some(manager.root_execution_type()),
         manager.fork_path(),
     ))
@@ -189,12 +189,12 @@ mod tests {
         let root_manager =
             std::sync::Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
                 Id::from("loop-root".to_string()),
-                wf_types::execution::ExecutionType::AgentLoop,
+                wf_types::execution::ExecutionType::Agent,
             ));
         let child_manager = root_manager
             .derive_child(
                 Id::from("loop-child".to_string()),
-                wf_types::execution::ExecutionType::AgentLoop,
+                wf_types::execution::ExecutionType::Agent,
                 None,
             )
             .expect("derive");
@@ -209,7 +209,7 @@ mod tests {
         );
         assert_eq!(
             hierarchy.parent_execution_type,
-            Some(wf_types::execution::ExecutionType::AgentLoop)
+            Some(wf_types::execution::ExecutionType::Agent)
         );
         // A child never records its own children; the tree is recovered by
         // querying the child records.

@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_storage::adapter::base::BaseStorageAdapter;
-use wf_types::execution::SessionExecutionType;
+use wf_types::execution::ExecutionType;
 use wf_types::ExecutionStatus;
 
 use crate::agent::agent_loop_registry::types::{
@@ -208,7 +208,7 @@ pub async fn live_summary(entity: &wf_agent::entity::AgentLoopEntity) -> AgentLo
     let end_time = snapshot.end_time();
     AgentLoopSummary {
         id: entity.id().to_string(),
-        execution_type: SessionExecutionType::Agent,
+        execution_type: ExecutionType::Agent,
         status,
         current_iteration: snapshot.current_iteration(),
         tool_call_count: snapshot.tool_call_count(),
@@ -251,7 +251,7 @@ fn meta_summary(meta: &wf_types::AgentLoopStorageMetadata) -> Option<AgentLoopSu
     let start_time = meta.started_at;
     Some(AgentLoopSummary {
         id: meta.id.to_string(),
-        execution_type: SessionExecutionType::Agent,
+        execution_type: ExecutionType::Agent,
         status,
         current_iteration: meta.current_iteration,
         tool_call_count: 0,

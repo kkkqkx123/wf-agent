@@ -170,7 +170,7 @@ impl WorkflowExecutionEntity {
     pub async fn unregister_child(&self, child_id: &Id) {
         for child_type in [
             wf_types::execution::ExecutionType::Workflow,
-            wf_types::execution::ExecutionType::AgentLoop,
+            wf_types::execution::ExecutionType::Agent,
         ] {
             if self.hierarchy.remove_child(child_id, &child_type) {
                 break;

@@ -307,9 +307,9 @@
 
 	{#if executionType}
 		<p class="text-micro text-muted-foreground">
-			{#if executionType === 'agent_loop'}
+			{#if executionType === 'agent'}
 				{t('domain.history.agentLoopHint')}
-			{:else}
+			{:else if executionType === 'workflow'}
 				{t('domain.history.workflowHint')}
 			{/if}
 		</p>

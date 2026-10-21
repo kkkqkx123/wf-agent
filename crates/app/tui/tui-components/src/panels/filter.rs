@@ -72,11 +72,9 @@ mod tests {
     use crate::select::{Group, GroupItem};
 
     fn list() -> SelectList<u32> {
-        SelectList::groups(vec![
-            Group::new(Some("items"))
-                .item(GroupItem::new("alpha", 1))
-                .item(GroupItem::new("beta", 2)),
-        ])
+        SelectList::groups(vec![Group::new(Some("items"))
+            .item(GroupItem::new("alpha", 1))
+            .item(GroupItem::new("beta", 2))])
     }
 
     #[test]

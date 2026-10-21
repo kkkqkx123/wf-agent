@@ -312,9 +312,7 @@ pub(crate) fn persisted_iteration_view(
 
 fn llm_view(iteration: u32, call: &LlmCallRecord) -> crate::audit::views::LlmCallAuditView {
     let tokens_per_second = match (call.completion_tokens, call.generation_ms) {
-        (tokens, Some(ms)) if tokens > 0 && ms > 0 => {
-            Some(tokens as f64 / (ms as f64 / 1000.0))
-        }
+        (tokens, Some(ms)) if tokens > 0 && ms > 0 => Some(tokens as f64 / (ms as f64 / 1000.0)),
         _ => None,
     };
     crate::audit::views::LlmCallAuditView {

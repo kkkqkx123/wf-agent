@@ -27,8 +27,8 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
-use tui_style::icons;
 use ratatui::text::{Line, Span};
+use tui_style::icons;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -396,7 +396,11 @@ impl Footer {
         } else if area.width >= STATUSLINE_SUMMARY_WIDTH {
             if let Some(exec) = &self.state.execution_id {
                 spans.push(Span::styled(
-                    format!(" {} {exec} · {}", icons::EXECUTION, format_duration(self.state.duration_ms)),
+                    format!(
+                        " {} {exec} · {}",
+                        icons::EXECUTION,
+                        format_duration(self.state.duration_ms)
+                    ),
                     theme_style(theme, Role::Muted),
                 ));
             }
@@ -792,10 +796,7 @@ mod tests {
     #[test]
     fn open_panel_installs_route_and_panel_together() {
         let mut footer = Footer::new();
-        footer.open_panel(
-            FooterRoute::Skill,
-            PanelState::Skill(SkillPanel::new(&[])),
-        );
+        footer.open_panel(FooterRoute::Skill, PanelState::Skill(SkillPanel::new(&[])));
         assert_eq!(footer.route, FooterRoute::Skill);
         assert!(footer.panel.is_some());
         footer.close_panel();

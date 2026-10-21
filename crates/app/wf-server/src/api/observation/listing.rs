@@ -1,8 +1,9 @@
-//! Unified execution listing: one time-ordered view over workflow runs
-//! and agent loop runs. Per-engine lists stay where they are; this route
-//! merges both sides for callers that do not care which engine owns a run.
+//! Unified execution listing: one time-ordered view over workflow runs,
+//! agent loop runs and chat sessions. Per-engine lists stay where they are;
+//! this route merges the sides for callers that do not care which executor
+//! owns a run, and the detail route below answers for one id across engines.
 
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
@@ -12,6 +13,7 @@ use utoipa::{IntoParams, ToSchema};
 use wf_api::execution_listing::{UnifiedExecutionFilter, UnifiedExecutionSummary};
 
 use crate::envelope::{err, ApiError};
+use crate::extract::IdPath;
 use crate::paged::{ok_cursor_page, resolve_cursor_page};
 use crate::router::ApiState;
 
@@ -22,6 +24,7 @@ pub(crate) fn routes() -> Router<ApiState> {
             "/unified-executions/count",
             get(handle_unified_executions_count),
         )
+        .route("/unified-executions/{id}", get(handle_unified_execution))
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -33,7 +36,7 @@ pub(crate) struct UnifiedExecutionsQuery {
     cursor: Option<String>,
     /// Filter by status (running, paused, completed, failed, ...)
     status: Option<String>,
-    /// Filter by engine (`workflow` or `agent_loop`)
+    /// Filter by executor (`workflow`, `agent` or `chat`)
     execution_type: Option<String>,
     /// Inclusive lower bound on start time (ms epoch)
     started_from: Option<i64>,
@@ -46,7 +49,7 @@ pub(crate) struct UnifiedExecutionsQuery {
 pub(crate) struct UnifiedExecutionsCountQuery {
     /// Filter by status (running, paused, completed, failed, ...)
     status: Option<String>,
-    /// Filter by engine (`workflow` or `agent_loop`)
+    /// Filter by executor (`workflow`, `agent` or `chat`)
     execution_type: Option<String>,
     /// Inclusive lower bound on start time (ms epoch)
     started_from: Option<i64>,
@@ -103,13 +106,10 @@ fn parse_filter(
     };
     let execution_type = match execution_type {
         None => None,
-        Some(raw) if raw.eq_ignore_ascii_case("workflow") => {
-            Some(wf_types::execution::ExecutionType::Workflow)
-        }
-        Some(raw) if raw.eq_ignore_ascii_case("agent_loop") => {
-            Some(wf_types::execution::ExecutionType::AgentLoop)
-        }
-        Some(raw) => return Err(format!("unknown execution_type: {raw}")),
+        Some(raw) => Some(
+            wf_types::execution::ExecutionType::parse(raw)
+                .ok_or_else(|| format!("unknown execution_type: {raw}"))?,
+        ),
     };
     Ok(UnifiedExecutionFilter {
         status,
@@ -189,6 +189,63 @@ pub(crate) async fn handle_unified_executions_count(
     };
     match wf_api::execution_listing::count_unified(&state.ctx, Some(&filter)).await {
         Ok(count) => crate::envelope::ok(UnifiedExecutionCountView { count }).into_response(),
+        Err(e) => crate::envelope::error_response(e),
+    }
+}
+
+/// One execution across engines, tagged with its real executor. The chat
+/// transcript is not embedded: a chat detail carries the session id as
+/// `execution_id`, and the caller reads its messages through the existing
+/// conversation endpoint.
+#[derive(Debug, Serialize, ToSchema)]
+pub(crate) struct UnifiedExecutionDetailDoc {
+    execution_id: String,
+    #[schema(value_type = String)]
+    execution_type: wf_types::execution::ExecutionType,
+    #[schema(value_type = String)]
+    status: wf_types::ExecutionStatus,
+    start_time: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    end_time: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    definition_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent_execution_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    record: serde_json::Value,
+}
+
+impl From<wf_api::execution_listing::UnifiedExecutionDetail> for UnifiedExecutionDetailDoc {
+    fn from(detail: wf_api::execution_listing::UnifiedExecutionDetail) -> Self {
+        Self {
+            execution_id: detail.execution_id,
+            execution_type: detail.execution_type,
+            status: detail.status,
+            start_time: detail.start_time,
+            end_time: detail.end_time,
+            definition_id: detail.definition_id,
+            parent_execution_id: detail.parent_execution_id,
+            error: detail.error,
+            record: detail.record,
+        }
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/unified-executions/{id}",
+    tag = "observation",
+    params(IdPath),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::observation::listing::UnifiedExecutionDetailDoc>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_unified_execution(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::execution_listing::get_unified_detail(&state.ctx, &path.id).await {
+        Ok(detail) => crate::envelope::ok(UnifiedExecutionDetailDoc::from(detail)).into_response(),
         Err(e) => crate::envelope::error_response(e),
     }
 }

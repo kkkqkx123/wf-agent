@@ -183,7 +183,7 @@ impl TriggeredAgentExecutionManager {
         let child_execution_id = Id::from(wf_common::generate_id());
         let child_manager = parent.as_ref().hierarchy_manager().derive_child(
             child_execution_id.clone(),
-            wf_types::execution::ExecutionType::AgentLoop,
+            wf_types::execution::ExecutionType::Agent,
             None,
         );
         let child_manager = match child_manager {

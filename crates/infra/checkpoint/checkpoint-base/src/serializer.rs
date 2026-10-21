@@ -18,9 +18,7 @@ pub struct CheckpointSerializer;
 /// and the storage backend stores the resulting bytes opaquely; no third
 /// compression layer is applied here.
 impl CheckpointSerializer {
-    pub fn serialize<T: Serialize>(
-        value: &T,
-    ) -> Result<Vec<u8>, CheckpointError> {
+    pub fn serialize<T: Serialize>(value: &T) -> Result<Vec<u8>, CheckpointError> {
         Self::serialize_with_compression(value, CompressionStrategy::None)
     }
 
@@ -72,9 +70,7 @@ impl CheckpointSerializer {
         }
     }
 
-    pub fn deserialize<T: DeserializeOwned>(
-        data: &[u8],
-    ) -> Result<T, CheckpointError> {
+    pub fn deserialize<T: DeserializeOwned>(data: &[u8]) -> Result<T, CheckpointError> {
         let data = decompress_if_gzip(data)?;
         Ok(serde_json::from_slice(&data)?)
     }
@@ -144,8 +140,7 @@ mod tests {
     fn json_roundtrip() {
         let original = payload();
         let bytes = CheckpointSerializer::serialize(&original).unwrap();
-        let restored: TestData =
-            CheckpointSerializer::deserialize(&bytes).unwrap();
+        let restored: TestData = CheckpointSerializer::deserialize(&bytes).unwrap();
         assert_eq!(original, restored);
     }
 
@@ -160,11 +155,9 @@ mod tests {
     #[test]
     fn gzip_roundtrip() {
         let original = payload();
-        let bytes = CheckpointSerializer::serialize_with_compression(
-            &original,
-            CompressionStrategy::Gzip,
-        )
-        .unwrap();
+        let bytes =
+            CheckpointSerializer::serialize_with_compression(&original, CompressionStrategy::Gzip)
+                .unwrap();
         assert_eq!(&bytes[..2], &GZIP_MAGIC);
 
         let restored: TestData = CheckpointSerializer::auto_deserialize(&bytes).unwrap();
@@ -177,19 +170,15 @@ mod tests {
             id: "x".repeat(COMPRESSION_THRESHOLD + 200),
             value: 1,
         };
-        let compressed = CheckpointSerializer::serialize_with_compression(
-            &large,
-            CompressionStrategy::Auto,
-        )
-        .unwrap();
+        let compressed =
+            CheckpointSerializer::serialize_with_compression(&large, CompressionStrategy::Auto)
+                .unwrap();
         assert_eq!(&compressed[..2], &GZIP_MAGIC);
 
         let small = payload();
-        let plain = CheckpointSerializer::serialize_with_compression(
-            &small,
-            CompressionStrategy::Auto,
-        )
-        .unwrap();
+        let plain =
+            CheckpointSerializer::serialize_with_compression(&small, CompressionStrategy::Auto)
+                .unwrap();
         assert_ne!(&plain[..2], &GZIP_MAGIC);
     }
 
@@ -276,11 +265,9 @@ mod tests {
             id: "x".repeat(COMPRESSION_THRESHOLD + 200),
             value: 7,
         };
-        let sync = CheckpointSerializer::serialize_with_compression(
-            &large,
-            CompressionStrategy::Auto,
-        )
-        .unwrap();
+        let sync =
+            CheckpointSerializer::serialize_with_compression(&large, CompressionStrategy::Auto)
+                .unwrap();
         let asynced = CheckpointSerializer::serialize_with_compression_async(
             &large,
             CompressionStrategy::Auto,

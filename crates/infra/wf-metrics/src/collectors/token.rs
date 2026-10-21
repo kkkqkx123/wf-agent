@@ -133,8 +133,11 @@ impl TokenMetricsCollector {
     ) {
         let model_label = model.unwrap_or("unknown");
         let labels = labels(&[("model", model_label)]);
-        self.inner
-            .observe_histogram(token_metrics::FIRST_TOKEN_DURATION, first_token_ms, labels.clone());
+        self.inner.observe_histogram(
+            token_metrics::FIRST_TOKEN_DURATION,
+            first_token_ms,
+            labels.clone(),
+        );
         self.inner.observe_histogram(
             token_metrics::GENERATION_DURATION,
             generation_ms,
@@ -152,8 +155,7 @@ impl TokenMetricsCollector {
         let first_byte = crate::collectors::latest(&self.inner, token_metrics::FIRST_BYTE_DURATION);
         let first_token =
             crate::collectors::latest(&self.inner, token_metrics::FIRST_TOKEN_DURATION);
-        let generation =
-            crate::collectors::latest(&self.inner, token_metrics::GENERATION_DURATION);
+        let generation = crate::collectors::latest(&self.inner, token_metrics::GENERATION_DURATION);
         let generation_tokens =
             crate::collectors::counter_total(&self.inner, token_metrics::GENERATION_TOKENS);
         let avg_of = |m: &Option<crate::metric::Metric>| {

@@ -355,7 +355,7 @@ mod tests {
         let record = wf_types::AgentExecution {
             id: wf_types::Id::from("loop-persisted".to_string()),
             definition_id: wf_types::Id::from("agent-x".to_string()),
-            execution_type: wf_types::execution::SessionExecutionType::Agent,
+            execution_type: wf_types::execution::ExecutionType::Agent,
             status: wf_types::ExecutionStatus::Completed,
             current_iteration: 1,
             tool_call_count: 2,

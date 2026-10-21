@@ -255,7 +255,7 @@ impl ExecutionIndexRow {
     /// The engine that owns this execution's tree root. A row that is its own
     /// root names no engine, because it is that engine.
     pub fn root_kind(&self) -> ExecutionType {
-        self.root_type.clone().unwrap_or_else(|| self.kind.clone())
+        self.root_type.unwrap_or(self.kind)
     }
 
     pub fn depth(&self) -> u32 {
@@ -317,7 +317,7 @@ mod tests {
     fn branching_fixture() -> (String, Value, Value) {
         (
             "g".to_string(),
-            meta(Some(("a", ExecutionType::AgentLoop)), &["r", "a", "g"]),
+            meta(Some(("a", ExecutionType::Agent)), &["r", "a", "g"]),
             meta(Some(("r", ExecutionType::Workflow)), &["r", "b"]),
         )
     }
@@ -325,11 +325,11 @@ mod tests {
     #[test]
     fn ancestors_come_from_the_rows_own_path() {
         let (id, grandchild, sibling) = branching_fixture();
-        let row = ExecutionIndexRow::parse(id, ExecutionType::AgentLoop, &grandchild).unwrap();
+        let row = ExecutionIndexRow::parse(id, ExecutionType::Agent, &grandchild).unwrap();
         assert_eq!(row.ancestors(), vec!["r".to_string(), "a".to_string()]);
 
         let sibling =
-            ExecutionIndexRow::parse("b".to_string(), ExecutionType::AgentLoop, &sibling).unwrap();
+            ExecutionIndexRow::parse("b".to_string(), ExecutionType::Agent, &sibling).unwrap();
         assert_eq!(sibling.ancestors(), vec!["r".to_string()]);
     }
 
@@ -354,8 +354,8 @@ mod tests {
     fn root_and_depth_are_read_off_the_path() {
         let row = ExecutionIndexRow::parse(
             "g".to_string(),
-            ExecutionType::AgentLoop,
-            &meta(Some(("a", ExecutionType::AgentLoop)), &["r", "a", "g"]),
+            ExecutionType::Agent,
+            &meta(Some(("a", ExecutionType::Agent)), &["r", "a", "g"]),
         )
         .unwrap();
         assert_eq!(row.root(), "r");
@@ -384,8 +384,8 @@ mod tests {
     /// answers disagree about the same tree.
     #[test]
     fn a_parent_key_that_contradicts_the_path_is_rejected() {
-        let value = meta(Some(("a", ExecutionType::AgentLoop)), &["r", "g"]);
-        let err = ExecutionIndexRow::parse("g".to_string(), ExecutionType::AgentLoop, &value)
+        let value = meta(Some(("a", ExecutionType::Agent)), &["r", "g"]);
+        let err = ExecutionIndexRow::parse("g".to_string(), ExecutionType::Agent, &value)
             .expect_err("the path implies parent `r`");
         assert!(matches!(err, ExecutionIndexError::Inconsistent { .. }));
     }
@@ -401,7 +401,7 @@ mod tests {
     #[test]
     fn a_nested_execution_without_a_parent_is_rejected() {
         let value = meta(None, &["r", "a", "g"]);
-        let err = ExecutionIndexRow::parse("g".to_string(), ExecutionType::AgentLoop, &value)
+        let err = ExecutionIndexRow::parse("g".to_string(), ExecutionType::Agent, &value)
             .expect_err("a nested execution must name a parent");
         assert!(matches!(err, ExecutionIndexError::Inconsistent { .. }));
     }
@@ -435,12 +435,12 @@ mod tests {
     /// fetching those executions' own records.
     #[test]
     fn parent_and_root_engines_are_read_off_the_row() {
-        let value = meta(Some(("a", ExecutionType::AgentLoop)), &["r", "a", "g"]);
-        let row = ExecutionIndexRow::parse("g".to_string(), ExecutionType::AgentLoop, &value)
+        let value = meta(Some(("a", ExecutionType::Agent)), &["r", "a", "g"]);
+        let row = ExecutionIndexRow::parse("g".to_string(), ExecutionType::Agent, &value)
             .expect("a well-formed nested row parses");
         assert_eq!(
             row.parent(),
-            Some(("a", &ExecutionType::AgentLoop)),
+            Some(("a", &ExecutionType::Agent)),
             "the parent arrives as one id-and-engine fact"
         );
         assert_eq!(row.root_kind(), ExecutionType::Workflow);
@@ -463,9 +463,9 @@ mod tests {
     /// the parent's own record, which is what the pair exists to avoid.
     #[test]
     fn a_parent_id_without_its_engine_is_rejected() {
-        let mut value = meta(Some(("a", ExecutionType::AgentLoop)), &["r", "a", "g"]);
+        let mut value = meta(Some(("a", ExecutionType::Agent)), &["r", "a", "g"]);
         value.as_object_mut().unwrap().remove(PARENT_TYPE);
-        let err = ExecutionIndexRow::parse("g".to_string(), ExecutionType::AgentLoop, &value)
+        let err = ExecutionIndexRow::parse("g".to_string(), ExecutionType::Agent, &value)
             .expect_err("the parent engine travels with the parent id");
         assert!(matches!(err, ExecutionIndexError::MissingField { .. }));
     }
@@ -474,9 +474,9 @@ mod tests {
     /// nested row that names no root engine has no way to answer.
     #[test]
     fn a_nested_execution_without_a_root_engine_is_rejected() {
-        let mut value = meta(Some(("a", ExecutionType::AgentLoop)), &["r", "a", "g"]);
+        let mut value = meta(Some(("a", ExecutionType::Agent)), &["r", "a", "g"]);
         value.as_object_mut().unwrap().remove(ROOT_TYPE);
-        let err = ExecutionIndexRow::parse("g".to_string(), ExecutionType::AgentLoop, &value)
+        let err = ExecutionIndexRow::parse("g".to_string(), ExecutionType::Agent, &value)
             .expect_err("the root engine has to come from the row");
         assert!(matches!(err, ExecutionIndexError::MissingField { .. }));
     }
@@ -485,12 +485,12 @@ mod tests {
     /// value to guess past.
     #[test]
     fn an_unreadable_engine_key_is_an_error() {
-        let mut value = meta(Some(("a", ExecutionType::AgentLoop)), &["r", "a", "g"]);
+        let mut value = meta(Some(("a", ExecutionType::Agent)), &["r", "a", "g"]);
         value
             .as_object_mut()
             .unwrap()
             .insert(ROOT_TYPE.into(), json!("something_else"));
-        let err = ExecutionIndexRow::parse("g".to_string(), ExecutionType::AgentLoop, &value)
+        let err = ExecutionIndexRow::parse("g".to_string(), ExecutionType::Agent, &value)
             .expect_err("an unknown engine must not be guessed");
         assert!(matches!(err, ExecutionIndexError::UnreadableField { .. }));
     }

@@ -43,7 +43,10 @@ pub enum PluginError {
     #[error("wasm error: {0}")]
     WasmError(String),
     #[error("plugin backend '{backend:?}' is not compiled into this build (crate feature `{feature}` is off)")]
-    BackendNotCompiled { backend: PluginType, feature: String },
+    BackendNotCompiled {
+        backend: PluginType,
+        feature: String,
+    },
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("internal: {0}")]

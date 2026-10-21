@@ -316,7 +316,7 @@ impl AgentLoopExecutor {
                 .manager
                 .derive_child(
                     execution_id.clone(),
-                    wf_types::execution::ExecutionType::AgentLoop,
+                    wf_types::execution::ExecutionType::Agent,
                     None,
                 )
                 .map_err(|e| {
@@ -334,7 +334,7 @@ impl AgentLoopExecutor {
             if let Some(link) = parent.as_ref() {
                 link.manager.remove_child(
                     execution_id.as_str(),
-                    &wf_types::execution::ExecutionType::AgentLoop,
+                    &wf_types::execution::ExecutionType::Agent,
                 );
             }
             return Err(e);
@@ -514,7 +514,7 @@ impl ChildRunReclaim {
         if let Some(manager) = &self.parent_manager {
             manager.remove_child(
                 self.child_id.as_str(),
-                &wf_types::execution::ExecutionType::AgentLoop,
+                &wf_types::execution::ExecutionType::Agent,
             );
         }
     }
@@ -1413,12 +1413,12 @@ mod tests {
         let parent_manager =
             std::sync::Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
                 Id::from("depth-root".to_string()),
-                wf_types::execution::ExecutionType::AgentLoop,
+                wf_types::execution::ExecutionType::Agent,
             ));
         let deep_manager = parent_manager
             .derive_child(
                 Id::from("depth-parent".to_string()),
-                wf_types::execution::ExecutionType::AgentLoop,
+                wf_types::execution::ExecutionType::Agent,
                 None,
             )
             .expect("derive depth-1 parent");
@@ -1732,12 +1732,12 @@ mod tests {
         let parent_manager =
             std::sync::Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
                 Id::from("sync-depth-root".to_string()),
-                wf_types::execution::ExecutionType::AgentLoop,
+                wf_types::execution::ExecutionType::Agent,
             ));
         let deep_manager = parent_manager
             .derive_child(
                 Id::from("sync-depth-parent".to_string()),
-                wf_types::execution::ExecutionType::AgentLoop,
+                wf_types::execution::ExecutionType::Agent,
                 None,
             )
             .expect("derive depth-1 parent");
@@ -1779,7 +1779,7 @@ mod tests {
         };
         let manager = wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
             "p".to_string(),
-            wf_types::execution::ExecutionType::AgentLoop,
+            wf_types::execution::ExecutionType::Agent,
         );
         let parent = ParentLink {
             file_scope: wf_types::config::file_scope::ResolvedExecutionScope::some(parent_scope),

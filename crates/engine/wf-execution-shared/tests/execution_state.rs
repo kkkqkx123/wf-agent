@@ -27,7 +27,7 @@ fn agent_record(id: &str) -> AgentExecution {
     AgentExecution {
         id: id.to_string(),
         definition_id: "agent-def-1".to_string(),
-        execution_type: wf_types::execution::SessionExecutionType::Agent,
+        execution_type: wf_types::execution::ExecutionType::Agent,
         status: ExecutionStatus::Running,
         current_iteration: 0,
         tool_call_count: 0,

@@ -232,7 +232,7 @@ mod tests {
         let record = wf_types::AgentExecution {
             id: Id::from("persisted-loop".to_string()),
             definition_id: Id::from("agent-x".to_string()),
-            execution_type: wf_types::execution::SessionExecutionType::Agent,
+            execution_type: wf_types::execution::ExecutionType::Agent,
             status: ExecutionStatus::Completed,
             current_iteration: 2,
             tool_call_count: 4,

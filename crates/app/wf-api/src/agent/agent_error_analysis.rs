@@ -367,7 +367,7 @@ mod tests {
         let record = wf_types::AgentExecution {
             id: Id::from("exec-p".to_string()),
             definition_id: Id::from("agent-p".to_string()),
-            execution_type: wf_types::execution::SessionExecutionType::Agent,
+            execution_type: wf_types::execution::ExecutionType::Agent,
             status: ExecutionStatus::Failed,
             current_iteration: 1,
             tool_call_count: 0,

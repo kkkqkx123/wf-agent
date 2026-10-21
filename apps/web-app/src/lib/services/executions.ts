@@ -469,7 +469,7 @@ function toUnifiedExecution(d: UnifiedExecutionDto): Execution {
 	const status = String(d.status ?? 'running').toLowerCase();
 	const completed =
 		status === 'completed' || status === 'succeeded' || status === 'success';
-	const kind = d.execution_type === 'agent_loop' ? 'agent_loop' : 'workflow';
+	const kind = toExecutionKind(d.execution_type ?? 'workflow');
 	return {
 		id: d.execution_id ?? '',
 		workflowId: d.definition_id ?? '',
@@ -513,6 +513,62 @@ export async function listUnifiedExecutions(params?: {
 		requireData(data, 'Unified execution list'),
 	);
 	return { ...page, items: page.items.map(toUnifiedExecution) };
+}
+
+interface UnifiedExecutionDetailDto {
+	execution_id?: string;
+	execution_type?: string;
+	status?: string;
+	start_time?: number;
+	end_time?: number | null;
+	definition_id?: string | null;
+	parent_execution_id?: string | null;
+	error?: string | null;
+	record?: unknown;
+}
+
+/**
+ * One execution across engines, tagged with its real executor. The detail
+ * carries the owning engine's raw record as `record`; a chat detail carries
+ * the session id as its id, and the caller reads its messages through the
+ * conversation endpoint.
+ */
+export interface UnifiedExecutionDetail {
+	executionId: string;
+	executionType: ExecutionKind;
+	status: string;
+	startTime: string;
+	endTime: string | null;
+	definitionId: string | null;
+	parentExecutionId: string | null;
+	error: string | null;
+	record: unknown;
+}
+
+/** Detail of one execution across engines, dispatched by the backend. */
+export async function getUnifiedExecutionDetail(
+	executionId: string,
+): Promise<UnifiedExecutionDetail> {
+	const id = requireExecutionId(executionId);
+	const data = requireData(
+		await call<UnifiedExecutionDetailDto>(
+			client.GET('/api/v1/unified-executions/{id}', {
+				params: { path: { id } },
+			}),
+		),
+		`Unified execution ${id}`,
+	);
+	return {
+		executionId: data.execution_id ?? id,
+		executionType: toExecutionKind(data.execution_type ?? 'workflow'),
+		status: String(data.status ?? 'running'),
+		startTime: toIso(data.start_time),
+		endTime: toIsoOrNull(data.end_time),
+		definitionId: data.definition_id ?? null,
+		parentExecutionId: data.parent_execution_id ?? null,
+		error: data.error ?? null,
+		record: data.record ?? null,
+	};
 }
 
 interface LogEntryDto {
@@ -576,14 +632,15 @@ type IterationDoc = components['schemas']['IterationDoc'];
 type StatusTransitionDoc = components['schemas']['StateTransitionDoc'];
 
 /**
- * The wire carries `ExecutionType` as a plain string so a further engine can
- * ship without a schema rebuild. The client knows the engines that exist and
- * refuses to file a run under one it does not recognise, rather than
- * guessing the majority case and mislabelling the run.
+ * The wire carries `ExecutionType` as a plain string naming the executor that
+ * ran it. The client knows the executors that exist and refuses to file a run
+ * under one it does not recognise, rather than guessing the majority case
+ * and mislabelling the run.
  */
 function toExecutionKind(value: string): ExecutionKind {
 	if (value === 'workflow') return 'workflow';
-	if (value === 'agent_loop') return 'agent_loop';
+	if (value === 'agent') return 'agent';
+	if (value === 'chat') return 'chat';
 	throw new Error(`Unknown execution type: ${value}`);
 }
 

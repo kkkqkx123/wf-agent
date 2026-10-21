@@ -16,7 +16,7 @@ use wf_llm::MessageStream;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::agent_execution::AgentRuntimeConfig;
 use wf_types::events::ExecutionStreamEvent;
-use wf_types::execution::SessionExecutionType;
+use wf_types::execution::ExecutionType;
 use wf_types::llm::{MessageStreamEvent, TokenUsageStats};
 use wf_types::message::Message;
 use wf_types::{AgentExecution, ExecutionStatus, Id};
@@ -107,15 +107,9 @@ pub async fn stream(ctx: &ApiContext, params: ChatTurnParams) -> ApiResult<Execu
 
 /// Outcome of one streamed chat turn.
 enum TurnOutcome {
-    Completed {
-        answer: String,
-    },
-    Failed {
-        error: String,
-    },
-    Interrupted {
-        reason: String,
-    },
+    Completed { answer: String },
+    Failed { error: String },
+    Interrupted { reason: String },
 }
 
 /// Consume the provider stream, forwarding deltas to the consumer and
@@ -132,14 +126,7 @@ async fn drive_turn(
         match event {
             Ok(MessageStreamEvent::Text(text)) => {
                 answer.push_str(&text.text);
-                if !send_frame(
-                    tx,
-                    ExecutionStreamEvent::LlmDelta {
-                        content: text.text,
-                    },
-                )
-                .await
-                {
+                if !send_frame(tx, ExecutionStreamEvent::LlmDelta { content: text.text }).await {
                     return TurnOutcome::Failed {
                         error: "chat consumer disconnected".to_string(),
                     };
@@ -194,8 +181,7 @@ async fn drive_turn(
                         reasoning_tokens: reported.usage.reasoning_tokens,
                         cache_read_tokens: reported.usage.cache_read_tokens,
                         cache_write_tokens: reported.usage.cache_write_tokens,
-                        total_tokens: Some(reported.usage.total_tokens)
-                            .filter(|total| *total > 0),
+                        total_tokens: Some(reported.usage.total_tokens).filter(|total| *total > 0),
                     },
                 )
                 .await
@@ -254,8 +240,9 @@ fn merge_usage(total: &mut Option<TokenUsageStats>, reported: &TokenUsageStats) 
             current.cache_read_tokens = reported.cache_read_tokens.or(current.cache_read_tokens);
             current.cache_write_tokens = reported.cache_write_tokens.or(current.cache_write_tokens);
             current.prompt_tokens_cost = reported.prompt_tokens_cost.or(current.prompt_tokens_cost);
-            current.completion_tokens_cost =
-                reported.completion_tokens_cost.or(current.completion_tokens_cost);
+            current.completion_tokens_cost = reported
+                .completion_tokens_cost
+                .or(current.completion_tokens_cost);
             current.total_cost = reported.total_cost.or(current.total_cost);
         }
     }
@@ -316,7 +303,7 @@ async fn finish_turn(
     let record = AgentExecution {
         id: Id::from(session_id.to_string()),
         definition_id: Id::from(CHAT_SESSION_DEFINITION_ID.to_string()),
-        execution_type: SessionExecutionType::Chat,
+        execution_type: ExecutionType::Chat,
         status,
         current_iteration: 0,
         tool_call_count: 0,
@@ -461,7 +448,7 @@ mod tests {
             .await
             .expect("session record readable")
             .expect("session record written");
-        assert_eq!(record.execution_type, SessionExecutionType::Chat);
+        assert_eq!(record.execution_type, ExecutionType::Chat);
         assert_eq!(record.status, ExecutionStatus::Completed);
         assert_eq!(record.definition_id, CHAT_SESSION_DEFINITION_ID);
         assert_eq!(record.current_iteration, 0);
@@ -474,9 +461,10 @@ mod tests {
             Some("mock")
         );
 
-        let messages = crate::agent::agent_message::conversation_history(&ctx, "chat-session", None)
-            .await
-            .expect("messages readable");
+        let messages =
+            crate::agent::agent_message::conversation_history(&ctx, "chat-session", None)
+                .await
+                .expect("messages readable");
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].role, MessageRole::User);
         assert_eq!(messages[1].role, MessageRole::Assistant);
@@ -510,11 +498,15 @@ mod tests {
             MessageContentValue::Text(text) if text.contains("second question")
         ));
 
-        let messages = crate::agent::agent_message::conversation_history(&ctx, "chat-session", None)
-            .await
-            .expect("messages readable");
+        let messages =
+            crate::agent::agent_message::conversation_history(&ctx, "chat-session", None)
+                .await
+                .expect("messages readable");
         assert_eq!(messages.len(), 4);
-        let roles: Vec<MessageRole> = messages.iter().map(|message| message.role.clone()).collect();
+        let roles: Vec<MessageRole> = messages
+            .iter()
+            .map(|message| message.role.clone())
+            .collect();
         assert_eq!(
             roles,
             vec![
@@ -549,7 +541,7 @@ mod tests {
             .expect("summaries readable");
         let chat_sessions: Vec<_> = sessions
             .into_iter()
-            .filter(|summary| summary.execution_type == SessionExecutionType::Chat)
+            .filter(|summary| summary.execution_type == ExecutionType::Chat)
             .collect();
         assert_eq!(chat_sessions.len(), 1);
     }

@@ -571,7 +571,7 @@ impl WorkflowCheckpointIntegration {
             entity.workflow_id().clone(),
             entity.id().clone(),
             ancestors,
-            parent.as_ref().map(|p| p.parent_type.clone()),
+            parent.as_ref().map(|p| p.parent_type),
             Some(manager.root_execution_type()),
             manager.fork_path(),
         ))

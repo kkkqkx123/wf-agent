@@ -1,19 +1,21 @@
 //! Cross-engine execution listing.
 //!
-//! Workflow runs and agent loop runs share one id space but live in
-//! separate stores with separate list endpoints. This module merges both
-//! sides into a single time-ordered view so callers that do not care which
-//! engine owns a run (overview pages, log tailing, artifact scans) issue
-//! one query instead of two.
+//! Workflow runs, agent loop runs and chat sessions share one id space but
+//! live in separate stores with separate list endpoints. This module merges
+//! the sides into a single time-ordered view so callers that do not care
+//! which engine owns a run (overview pages, log tailing, artifact scans)
+//! issue one query instead of two.
 //!
-//! The merge is in memory over the two engine listings, newest first. Page
+//! The merge is in memory over the engine listings, newest first. Page
 //! slicing happens here on the merged order with one extra item kept to
 //! report whether a following page exists.
 //!
 //! The workflow side reads persisted records, matching the workflow list
 //! endpoint; a live workflow run appears once its record is written. The
 //! agent side merges live loops with persisted records, so live agent runs
-//! are always present.
+//! are always present. Chat sessions are persisted `agent_execution` rows
+//! whose executor is `Chat`; they surface with their real type instead of
+//! being filed under the agent loop.
 
 use serde::Serialize;
 use wf_types::execution::ExecutionType;
@@ -66,7 +68,7 @@ pub async fn list_unified(
     let mut merged: Vec<UnifiedExecutionSummary> = Vec::new();
 
     let wants_workflow = filter
-        .and_then(|f| f.execution_type.clone())
+        .and_then(|f| f.execution_type)
         .is_none_or(|t| t == ExecutionType::Workflow);
     if wants_workflow {
         let options = filter.map(|f| crate::WorkflowExecutionListOptions {
@@ -95,12 +97,13 @@ pub async fn list_unified(
         }
     }
 
-    let wants_agent = filter
-        .and_then(|f| f.execution_type.clone())
-        .is_none_or(|t| t == ExecutionType::AgentLoop);
-    if wants_agent {
+    let wants_agent_or_chat = filter
+        .and_then(|f| f.execution_type)
+        .is_none_or(|t| t == ExecutionType::Agent || t == ExecutionType::Chat);
+    if wants_agent_or_chat {
         let agent_filter = filter.map(|f| agent_execution_registry::AgentExecutionFilter {
             status: f.status.clone(),
+            execution_type: f.execution_type,
             started_from: f.started_from,
             started_to: f.started_to,
             ..agent_execution_registry::AgentExecutionFilter::default()
@@ -109,7 +112,7 @@ pub async fn list_unified(
         for summary in summaries {
             merged.push(UnifiedExecutionSummary {
                 execution_id: summary.execution_id,
-                execution_type: ExecutionType::AgentLoop,
+                execution_type: summary.execution_type,
                 status: summary.status,
                 start_time: summary.start_time,
                 end_time: summary.end_time,
@@ -164,6 +167,76 @@ pub async fn count_unified(
     Ok(page.len())
 }
 
+/// One execution with its real executor attached, for the unified detail
+/// route. The transcript is not embedded: a chat detail carries the session
+/// id as `execution_id`, and the caller reads its messages through the
+/// existing conversation endpoint.
+#[derive(Debug, Clone, Serialize)]
+pub struct UnifiedExecutionDetail {
+    pub execution_id: String,
+    pub execution_type: ExecutionType,
+    pub status: ExecutionStatus,
+    pub start_time: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_time: Option<i64>,
+    /// Workflow id for workflow runs, agent definition id for agent runs,
+    /// `@chat` for chat sessions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub definition_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_execution_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// The owning engine's raw record.
+    pub record: serde_json::Value,
+}
+
+/// Load one execution by id across engines, tagged with its real executor.
+///
+/// Dispatch goes through [`crate::resolve_execution`]: a dual hit is a
+/// `Conflict`, an unknown id is `ExecutionNotFound`, and the chat executor
+/// needs no special case because chat sessions are `agent_execution` rows.
+pub async fn get_unified_detail(ctx: &ApiContext, id: &str) -> ApiResult<UnifiedExecutionDetail> {
+    match crate::resolve_execution(ctx, id).await? {
+        crate::ExecutionDomain::Workflow => {
+            let record = crate::workflow::execution::get_execution(ctx, id).await?;
+            Ok(UnifiedExecutionDetail {
+                execution_id: record.id.to_string(),
+                execution_type: ExecutionType::Workflow,
+                status: record.status.clone(),
+                start_time: record.started_at,
+                end_time: record.completed_at,
+                definition_id: Some(record.workflow_id.to_string()),
+                parent_execution_id: record
+                    .hierarchy
+                    .as_ref()
+                    .and_then(|h| h.parent_execution_id())
+                    .map(|p| p.to_string()),
+                error: record.error.clone(),
+                record: serde_json::to_value(&record)?,
+            })
+        }
+        crate::ExecutionDomain::AgentLoop => {
+            let record = crate::agent::get_agent_execution(&ctx.storage, id).await?;
+            Ok(UnifiedExecutionDetail {
+                execution_id: record.id.to_string(),
+                execution_type: record.execution_type,
+                status: record.status.clone(),
+                start_time: record.started_at,
+                end_time: record.completed_at,
+                definition_id: Some(record.definition_id.to_string()),
+                parent_execution_id: record
+                    .hierarchy
+                    .as_ref()
+                    .and_then(|h| h.parent_execution_id())
+                    .map(|p| p.to_string()),
+                error: record.error.clone(),
+                record: serde_json::to_value(&record)?,
+            })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,10 +276,25 @@ mod tests {
     }
 
     async fn save_agent(ctx: &ApiContext, id: &str, started_at: i64) {
+        save_agent_as(
+            ctx,
+            id,
+            wf_types::execution::ExecutionType::Agent,
+            started_at,
+        )
+        .await;
+    }
+
+    async fn save_agent_as(
+        ctx: &ApiContext,
+        id: &str,
+        execution_type: wf_types::execution::ExecutionType,
+        started_at: i64,
+    ) {
         let record = wf_types::AgentExecution {
             id: wf_types::Id::from(id.to_string()),
             definition_id: wf_types::Id::from("agent-1".to_string()),
-            execution_type: wf_types::execution::SessionExecutionType::Agent,
+            execution_type,
             status: ExecutionStatus::Running,
             current_iteration: 0,
             tool_call_count: 0,
@@ -233,6 +321,72 @@ mod tests {
         assert_eq!(page.len(), 2);
         assert_eq!(page[0].execution_id, "agent-run-1");
         assert_eq!(page[1].execution_id, "wf-run-1");
+    }
+
+    #[tokio::test]
+    async fn chat_sessions_keep_their_own_type() {
+        let ctx = make_ctx();
+        save_agent(&ctx, "agent-run-1", 20).await;
+        save_agent_as(
+            &ctx,
+            "chat-session-1",
+            wf_types::execution::ExecutionType::Chat,
+            30,
+        )
+        .await;
+
+        let (page, _) = list_unified(&ctx, None, 10, 0).await.unwrap();
+        assert_eq!(page.len(), 2);
+        assert_eq!(page[0].execution_id, "chat-session-1");
+        assert_eq!(
+            page[0].execution_type,
+            wf_types::execution::ExecutionType::Chat
+        );
+        assert_eq!(
+            page[1].execution_type,
+            wf_types::execution::ExecutionType::Agent
+        );
+
+        let chat_only = UnifiedExecutionFilter {
+            execution_type: Some(wf_types::execution::ExecutionType::Chat),
+            ..UnifiedExecutionFilter::default()
+        };
+        let (page, _) = list_unified(&ctx, Some(&chat_only), 10, 0).await.unwrap();
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].execution_id, "chat-session-1");
+
+        let agent_only = UnifiedExecutionFilter {
+            execution_type: Some(wf_types::execution::ExecutionType::Agent),
+            ..UnifiedExecutionFilter::default()
+        };
+        let (page, _) = list_unified(&ctx, Some(&agent_only), 10, 0).await.unwrap();
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].execution_id, "agent-run-1");
+    }
+
+    #[tokio::test]
+    async fn unified_detail_dispatches_by_engine() {
+        let ctx = make_ctx();
+        save_workflow(&ctx, "wf-run-1", 10).await;
+        save_agent_as(
+            &ctx,
+            "chat-session-1",
+            wf_types::execution::ExecutionType::Chat,
+            30,
+        )
+        .await;
+
+        let workflow = get_unified_detail(&ctx, "wf-run-1").await.unwrap();
+        assert_eq!(workflow.execution_type, ExecutionType::Workflow);
+        assert_eq!(workflow.definition_id.as_deref(), Some("wf-1"));
+
+        let chat = get_unified_detail(&ctx, "chat-session-1").await.unwrap();
+        assert_eq!(
+            chat.execution_type,
+            wf_types::execution::ExecutionType::Chat
+        );
+
+        assert!(get_unified_detail(&ctx, "missing").await.is_err());
     }
 
     #[tokio::test]

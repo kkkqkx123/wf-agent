@@ -38,7 +38,9 @@ export type ExecutionTab =
 /** Tabs each execution kind offers, in display order.
  *
  * Workflow keeps the nine inspector tabs; agent loops swap trace/state for the
- * loop-specific messages/variables/checkpoints dimensions.
+ * loop-specific messages/variables/checkpoints dimensions; chat is a
+ * tool-free transcript, so it keeps the reading tabs without tools, graph,
+ * analysis or checkpoints.
  */
 export const TAB_GROUPS: Record<ExecutionKind, ExecutionTab[]> = {
 	workflow: [
@@ -52,7 +54,7 @@ export const TAB_GROUPS: Record<ExecutionKind, ExecutionTab[]> = {
 		'hierarchy',
 		'history',
 	],
-	agent_loop: [
+	agent: [
 		'overview',
 		'messages',
 		'variables',
@@ -64,11 +66,19 @@ export const TAB_GROUPS: Record<ExecutionKind, ExecutionTab[]> = {
 		'hierarchy',
 		'history',
 	],
+	chat: [
+		'overview',
+		'messages',
+		'variables',
+		'timeline',
+		'hierarchy',
+		'history',
+	],
 };
 
 /** Default tab shown when no (or an invalid) `?tab=` value is present. */
-export function defaultTab(kind: ExecutionKind): ExecutionTab {
-	return kind === 'agent_loop' ? 'overview' : 'overview';
+export function defaultTab(_kind: ExecutionKind): ExecutionTab {
+	return 'overview';
 }
 
 /** Whether a URL or caller-supplied value names a real execution tab. */

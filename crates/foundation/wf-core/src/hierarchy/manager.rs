@@ -68,7 +68,7 @@ impl ExecutionHierarchyManager {
         Self {
             inner: RwLock::new(HierarchyInner {
                 execution_id: execution_id.clone(),
-                execution_type: execution_type.clone(),
+                execution_type,
                 parent: None,
                 children: HashMap::new(),
                 depth: 0,
@@ -131,9 +131,7 @@ impl ExecutionHierarchyManager {
     }
 
     pub fn execution_type(&self) -> ExecutionType {
-        wf_common::lock::read_ok(self.inner.read())
-            .execution_type
-            .clone()
+        wf_common::lock::read_ok(self.inner.read()).execution_type
     }
 
     pub fn parent(&self) -> Option<ParentExecutionContext> {
@@ -170,11 +168,11 @@ impl ExecutionHierarchyManager {
                 )));
             }
             parent_id = inner.execution_id.clone();
-            parent_type = inner.execution_type.clone();
+            parent_type = inner.execution_type;
             parent_ancestors = inner.ancestors.clone();
             parent_depth = inner.depth;
             parent_root_id = inner.root_execution_id.clone();
-            parent_root_type = inner.root_execution_type.clone();
+            parent_root_type = inner.root_execution_type;
         }
         let new_depth = parent_depth.saturating_add(1);
         if new_depth > MAX_EXECUTION_DEPTH {
@@ -202,7 +200,7 @@ impl ExecutionHierarchyManager {
         let child = Arc::new(Self {
             inner: RwLock::new(HierarchyInner {
                 execution_id: child_id.clone(),
-                execution_type: child_type.clone(),
+                execution_type: child_type,
                 parent: Some(ParentExecutionContext {
                     parent_id: parent_id.clone(),
                     parent_type,
@@ -244,13 +242,12 @@ impl ExecutionHierarchyManager {
             .map(|parent_id| ParentExecutionContext {
                 parent_type: hierarchy
                     .parent_execution_type
-                    .clone()
                     .unwrap_or(default_parent_type),
                 parent_id,
             });
         let ancestors = hierarchy.ancestors();
         let root_id = hierarchy.root_execution_id();
-        let root_type = hierarchy.root_execution_type.clone().unwrap_or_else(|| {
+        let root_type = hierarchy.root_execution_type.unwrap_or_else(|| {
             if root_id == manager.execution_id() {
                 manager.execution_type()
             } else {
@@ -325,9 +322,7 @@ impl ExecutionHierarchyManager {
     }
 
     pub fn root_execution_type(&self) -> ExecutionType {
-        wf_common::lock::read_ok(self.inner.read())
-            .root_execution_type
-            .clone()
+        wf_common::lock::read_ok(self.inner.read()).root_execution_type
     }
 
     /// The root-to-parent execution id chain (oldest first, excluding
@@ -359,7 +354,8 @@ impl ExecutionHierarchyManager {
 fn child_type_str(t: &ExecutionType) -> &str {
     match t {
         ExecutionType::Workflow => "workflow",
-        ExecutionType::AgentLoop => "agent_loop",
+        ExecutionType::Agent => "agent",
+        ExecutionType::Chat => "chat",
     }
 }
 
@@ -383,7 +379,7 @@ mod tests {
             manager.execution_id(),
             manager.execution_id(),
             manager.ancestors(),
-            parent.as_ref().map(|p| p.parent_type.clone()),
+            parent.as_ref().map(|p| p.parent_type),
             Some(manager.root_execution_type()),
             manager.fork_path(),
         )
@@ -400,13 +396,13 @@ mod tests {
     #[test]
     fn test_add_and_remove_child() {
         let m = ExecutionHierarchyManager::new("exec1".to_string(), ExecutionType::Workflow);
-        m.add_child(make_ref("child1", ExecutionType::AgentLoop));
+        m.add_child(make_ref("child1", ExecutionType::Agent));
 
         assert_eq!(m.children().len(), 1);
 
-        assert!(m.remove_child("child1", &ExecutionType::AgentLoop));
+        assert!(m.remove_child("child1", &ExecutionType::Agent));
         assert!(m.children().is_empty());
-        assert!(!m.remove_child("child1", &ExecutionType::AgentLoop));
+        assert!(!m.remove_child("child1", &ExecutionType::Agent));
     }
 
     /// Link `m` under `parent_id`, given the parent's own root-to-parent
@@ -461,7 +457,7 @@ mod tests {
 
     #[test]
     fn test_set_parent_full_carries_the_parent_chain() {
-        let m = ExecutionHierarchyManager::new("child".to_string(), ExecutionType::AgentLoop);
+        let m = ExecutionHierarchyManager::new("child".to_string(), ExecutionType::Agent);
         link_under(
             &m,
             "parent",
@@ -484,7 +480,7 @@ mod tests {
     /// second time.
     #[test]
     fn test_set_parent_full_dedups_chain_tail() {
-        let m = ExecutionHierarchyManager::new("child".to_string(), ExecutionType::AgentLoop);
+        let m = ExecutionHierarchyManager::new("child".to_string(), ExecutionType::Agent);
         link_under(
             &m,
             "parent",
@@ -502,7 +498,7 @@ mod tests {
     fn test_three_level_chain_roundtrip_through_record() {
         // root -> child -> grandchild: the grandchild's chain is the child's
         // chain extended by the child id, and survives a record roundtrip.
-        let child = ExecutionHierarchyManager::new("child".to_string(), ExecutionType::AgentLoop);
+        let child = ExecutionHierarchyManager::new("child".to_string(), ExecutionType::Agent);
         link_under(
             &child,
             "root",
@@ -513,13 +509,13 @@ mod tests {
         assert_eq!(child.ancestors(), vec!["root".to_string()]);
 
         let grandchild =
-            ExecutionHierarchyManager::new("grandchild".to_string(), ExecutionType::AgentLoop);
+            ExecutionHierarchyManager::new("grandchild".to_string(), ExecutionType::Agent);
         let child_chain = child.ancestors();
         let child_chain: Vec<&str> = child_chain.iter().map(String::as_str).collect();
         link_under(
             &grandchild,
             "child",
-            ExecutionType::AgentLoop,
+            ExecutionType::Agent,
             &child_chain,
             ExecutionType::Workflow,
         );
@@ -531,9 +527,9 @@ mod tests {
 
         let restored = ExecutionHierarchyManager::restore(
             "grandchild".to_string(),
-            ExecutionType::AgentLoop,
+            ExecutionType::Agent,
             &record_of(&grandchild),
-            ExecutionType::AgentLoop,
+            ExecutionType::Agent,
         );
         assert_eq!(
             restored.ancestors(),
@@ -555,19 +551,19 @@ mod tests {
         // Children are discovered from the child records, so a manager
         // rebuilt from a persisted record starts with an empty child list
         // even when the live manager had registered children.
-        let m = ExecutionHierarchyManager::new("exec1".to_string(), ExecutionType::AgentLoop);
+        let m = ExecutionHierarchyManager::new("exec1".to_string(), ExecutionType::Agent);
         m.add_child(make_ref("c1", ExecutionType::Workflow));
-        m.add_child(make_ref("c2", ExecutionType::AgentLoop));
+        m.add_child(make_ref("c2", ExecutionType::Agent));
         assert_eq!(m.children().len(), 2);
 
         let restored = ExecutionHierarchyManager::restore(
             "exec1".to_string(),
-            ExecutionType::AgentLoop,
+            ExecutionType::Agent,
             &record_of(&m),
-            ExecutionType::AgentLoop,
+            ExecutionType::Agent,
         );
         assert!(restored.children().is_empty());
-        assert_eq!(restored.root_execution_type(), ExecutionType::AgentLoop);
+        assert_eq!(restored.root_execution_type(), ExecutionType::Agent);
     }
 
     #[test]
@@ -601,7 +597,7 @@ mod tests {
 
     #[test]
     fn test_root_has_no_ancestors() {
-        let m = ExecutionHierarchyManager::new("root".to_string(), ExecutionType::AgentLoop);
+        let m = ExecutionHierarchyManager::new("root".to_string(), ExecutionType::Agent);
         assert!(m.ancestors().is_empty());
         assert!(record_of(&m).ancestors().is_empty());
     }
@@ -610,7 +606,7 @@ mod tests {
     fn test_child_key_collision_different_types() {
         let m = ExecutionHierarchyManager::new("exec1".to_string(), ExecutionType::Workflow);
         m.add_child(make_ref("same_id", ExecutionType::Workflow));
-        m.add_child(make_ref("same_id", ExecutionType::AgentLoop));
+        m.add_child(make_ref("same_id", ExecutionType::Agent));
 
         assert_eq!(m.children().len(), 2);
     }
@@ -665,7 +661,7 @@ mod tests {
     /// in a depth or a root that the chain contradicts.
     #[test]
     fn test_set_parent_full_reads_depth_and_root_from_the_chain() {
-        let m = ExecutionHierarchyManager::new("child".to_string(), ExecutionType::AgentLoop);
+        let m = ExecutionHierarchyManager::new("child".to_string(), ExecutionType::Agent);
         link_under(
             &m,
             "parent",
@@ -699,15 +695,15 @@ mod tests {
 
     #[test]
     fn test_restore_keeps_own_execution_type() {
-        let m = ExecutionHierarchyManager::new("exec1".to_string(), ExecutionType::AgentLoop);
+        let m = ExecutionHierarchyManager::new("exec1".to_string(), ExecutionType::Agent);
         m.add_child(make_ref("c1", ExecutionType::Workflow));
         let restored = ExecutionHierarchyManager::restore(
             "exec1".to_string(),
-            ExecutionType::AgentLoop,
+            ExecutionType::Agent,
             &record_of(&m),
-            ExecutionType::AgentLoop,
+            ExecutionType::Agent,
         );
-        assert_eq!(restored.root_execution_type(), ExecutionType::AgentLoop);
+        assert_eq!(restored.root_execution_type(), ExecutionType::Agent);
     }
 
     #[test]
@@ -793,7 +789,7 @@ mod tests {
             "root".to_string(),
             ExecutionType::Workflow,
         ));
-        let result = root.derive_child("kid/exec".to_string(), ExecutionType::AgentLoop, None);
+        let result = root.derive_child("kid/exec".to_string(), ExecutionType::Agent, None);
         assert!(matches!(result, Err(CoreError::HierarchyInvalidId { .. })));
     }
 }

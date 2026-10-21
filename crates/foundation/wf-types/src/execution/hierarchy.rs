@@ -1,10 +1,36 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionType {
     Workflow,
-    AgentLoop,
+    /// Full agent loop: tools, iterations, checkpoints and approvals.
+    #[default]
+    Agent,
+    /// Tool-free multi-turn question answering.
+    Chat,
+}
+
+impl ExecutionType {
+    /// Stable wire name of the executor.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Workflow => "workflow",
+            Self::Agent => "agent",
+            Self::Chat => "chat",
+        }
+    }
+
+    /// Parse a wire name back into its executor. Strict: retired names are
+    /// rejected rather than aliased.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "workflow" | "workflows" => Some(Self::Workflow),
+            "agent" => Some(Self::Agent),
+            "chat" => Some(Self::Chat),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -164,7 +190,7 @@ mod tests {
         let parent_type = if ancestors.is_empty() {
             None
         } else {
-            Some(ExecutionType::AgentLoop)
+            Some(ExecutionType::Agent)
         };
         ExecutionHierarchy::new(
             "wf-1".into(),
@@ -195,7 +221,27 @@ mod tests {
         assert_eq!(decode_path(child.path()), child.chain());
         assert_eq!(child.depth(), 1);
         assert_eq!(child.parent_execution_id(), Some(Id::from("root")));
-        assert_eq!(child.parent_execution_type, Some(ExecutionType::AgentLoop));
+        assert_eq!(child.parent_execution_type, Some(ExecutionType::Agent));
+    }
+
+    #[test]
+    fn executor_names_roundtrip_through_the_wire() {
+        for kind in [
+            ExecutionType::Workflow,
+            ExecutionType::Agent,
+            ExecutionType::Chat,
+        ] {
+            assert_eq!(ExecutionType::parse(kind.as_str()), Some(kind));
+            let json = serde_json::to_string(&kind).expect("serializes");
+            assert_eq!(json, format!("\"{}\"", kind.as_str()));
+            let back: ExecutionType = serde_json::from_str(&json).expect("deserializes");
+            assert_eq!(&back, &kind);
+        }
+    }
+
+    #[test]
+    fn agent_is_the_default_executor() {
+        assert_eq!(ExecutionType::default(), ExecutionType::Agent);
     }
 
     /// A record that knows its parent but not the longer chain still describes

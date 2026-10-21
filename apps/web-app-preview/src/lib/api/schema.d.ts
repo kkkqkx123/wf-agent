@@ -6373,6 +6373,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/unified-executions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_unified_execution"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/variables": {
         parameters: {
             query?: never;
@@ -8351,6 +8367,29 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_UnifiedExecutionDetailDoc: {
+            /**
+             * @description One execution across engines, tagged with its real executor. The chat
+             *     transcript is not embedded: a chat detail carries the session id as
+             *     `execution_id`, and the caller reads its messages through the existing
+             *     conversation endpoint.
+             */
+            data?: {
+                definition_id?: string | null;
+                /** Format: int64 */
+                end_time?: number | null;
+                error?: string | null;
+                execution_id: string;
+                execution_type: string;
+                parent_execution_id?: string | null;
+                record: unknown;
+                /** Format: int64 */
+                start_time: number;
+                status: string;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_Value: {
             data?: unknown;
             error?: null | components["schemas"]["ApiErrorBody"];
@@ -9914,6 +9953,25 @@ export interface components {
         UnifiedExecutionCountView: {
             count: number;
         };
+        /**
+         * @description One execution across engines, tagged with its real executor. The chat
+         *     transcript is not embedded: a chat detail carries the session id as
+         *     `execution_id`, and the caller reads its messages through the existing
+         *     conversation endpoint.
+         */
+        UnifiedExecutionDetailDoc: {
+            definition_id?: string | null;
+            /** Format: int64 */
+            end_time?: number | null;
+            error?: string | null;
+            execution_id: string;
+            execution_type: string;
+            parent_execution_id?: string | null;
+            record: unknown;
+            /** Format: int64 */
+            start_time: number;
+            status: string;
+        };
         /** @description One run in the unified listing, regardless of owning engine. */
         UnifiedExecutionDoc: {
             definition_id?: string | null;
@@ -10137,6 +10195,8 @@ export interface operations {
                 offset?: number;
                 status?: string;
                 agent_id?: string;
+                /** @description Filter by executor (`agent` or `chat`) */
+                execution_type?: string;
                 /** @description Inclusive lower bound on `startedAt` (ms epoch). */
                 started_from?: number;
                 /** @description Inclusive upper bound on `startedAt` (ms epoch). */
@@ -10375,6 +10435,8 @@ export interface operations {
             query?: {
                 status?: string;
                 agent_id?: string;
+                /** @description Filter by executor (`agent` or `chat`) */
+                execution_type?: string;
                 started_from?: number;
                 started_to?: number;
             };
@@ -44124,7 +44186,7 @@ export interface operations {
                 cursor?: string;
                 /** @description Filter by status (running, paused, completed, failed, ...) */
                 status?: string;
-                /** @description Filter by engine (`workflow` or `agent_loop`) */
+                /** @description Filter by executor (`workflow`, `agent` or `chat`) */
                 execution_type?: string;
                 /** @description Inclusive lower bound on start time (ms epoch) */
                 started_from?: number;
@@ -44206,7 +44268,7 @@ export interface operations {
             query?: {
                 /** @description Filter by status (running, paused, completed, failed, ...) */
                 status?: string;
-                /** @description Filter by engine (`workflow` or `agent_loop`) */
+                /** @description Filter by executor (`workflow`, `agent` or `chat`) */
                 execution_type?: string;
                 /** @description Inclusive lower bound on start time (ms epoch) */
                 started_from?: number;
@@ -44250,6 +44312,81 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_unified_execution: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_UnifiedExecutionDetailDoc"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Too many requests: rate limit exceeded (see Retry-After) */
             429: {

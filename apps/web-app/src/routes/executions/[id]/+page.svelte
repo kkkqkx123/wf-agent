@@ -8,6 +8,7 @@
 	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import PageState from '#lib/components/layout/PageState.svelte';
 	import ExecutionInspector from '#lib/components/domain/ExecutionInspector.svelte';
+	import SessionInspector from '#lib/components/domain/SessionInspector.svelte';
 	import {
 		isExecutionTab,
 		type ExecutionTab,
@@ -16,8 +17,10 @@
 	import {
 		cancelExecution,
 		getExecutionDetail,
+		getUnifiedExecutionDetail,
 		pauseExecution,
 		resumeExecution,
+		type UnifiedExecutionDetail,
 	} from '#lib/services/executions';
 	import {
 		cancelAgentLoop,
@@ -31,6 +34,7 @@
 	import { t } from '#lib/i18n';
 
 	let execution = $state<ExecutionDetail | null>(null);
+	let unified = $state<UnifiedExecutionDetail | null>(null);
 	let loadError = $state<string | null>(null);
 	let loading = $state(false);
 	let controlBusy = $state(false);
@@ -49,33 +53,43 @@
 		loadError = null;
 		loading = true;
 		try {
-			execution = await getExecutionDetail(id);
+			// The unified detail dispatches by executor: agent and chat runs
+			// render the session transcript, workflow runs render the run
+			// inspector below.
+			unified = await getUnifiedExecutionDetail(id);
+			execution =
+				unified.executionType === 'workflow' ? await getExecutionDetail(id) : null;
 		} catch (e) {
 			loadError = e instanceof Error ? e.message : t('page.executionDetail.errorTitle');
 			execution = null;
+			unified = null;
 		} finally {
 			loading = false;
 		}
 	}
 
 	// Each engine exposes its own pause/resume/cancel endpoints; pick per kind.
-	function controlsFor(kind: ExecutionDetail['kind']): {
+	// Chat sessions are terminal transcripts with no live controls.
+	function controlsFor(kind: UnifiedExecutionDetail['executionType']): {
 		pause: (id: string) => Promise<void>;
 		resume: (id: string) => Promise<void>;
 		cancel: (id: string) => Promise<void>;
-	} {
-		if (kind === 'agent_loop') {
+	} | null {
+		if (kind === 'agent') {
 			return {
 				pause: pauseAgentLoop,
 				resume: resumeAgentLoop,
 				cancel: cancelAgentLoop,
 			};
 		}
-		return {
-			pause: pauseExecution,
-			resume: resumeExecution,
-			cancel: cancelExecution,
-		};
+		if (kind === 'workflow') {
+			return {
+				pause: pauseExecution,
+				resume: resumeExecution,
+				cancel: cancelExecution,
+			};
+		}
+		return null;
 	}
 
 	async function runControl(
@@ -108,19 +122,19 @@
 	$effect(() => {
 		const id = page.params.id;
 		if (!id) return;
-		if (execution && execution.id === id) return;
+		if (unified && unified.executionId === id) return;
 		void load(id);
 	});
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
-		title={execution?.workflowName ?? t('page.executionDetail.titleFallback')}
+		title={execution?.workflowName ?? unified?.definitionId ?? t('page.executionDetail.titleFallback')}
 		description={t('page.executionDetail.description')}
 	>
 		{#snippet meta()}
 			{#if execution}
-				<StatusBadge status={execution.status} />
+				<StatusBadge status={execution.status} size="sm" />
 				<Badge variant="outline">{formatDuration(execution.durationMs)}</Badge>
 				<span class="font-mono text-caption text-muted-foreground"
 					>{execution.id}</span
@@ -130,11 +144,17 @@
 						>{execution.trigger}</span
 					>
 				{/if}
+			{:else if unified}
+				<StatusBadge status={unified.status} size="sm" />
+				<Badge variant="outline">{unified.executionType}</Badge>
+				<span class="font-mono text-caption text-muted-foreground"
+					>{unified.executionId}</span
+				>
 			{/if}
 		{/snippet}
 		{#snippet actions()}
-			{#if execution}
-				{@const controls = controlsFor(execution.kind)}
+			{@const controls = unified ? controlsFor(unified.executionType) : null}
+			{#if controls}
 				<IconButton
 					icon="pause"
 					label={t('page.executionDetail.pause')}
@@ -189,7 +209,7 @@
 			{loading}
 			error={loadError}
 			errorTitle={t('page.executionDetail.errorTitle')}
-			empty={!execution}
+			empty={!execution && !unified}
 			emptyTitle={t('page.executionDetail.notFound')}
 			emptyDescription={t('page.executionDetail.notFoundDesc')}
 			onretry={() => {
@@ -201,7 +221,9 @@
 			<div
 				class="h-full overflow-hidden rounded-lg border border-border bg-card"
 			>
-				{#if execution}
+				{#if unified && (unified.executionType === 'agent' || unified.executionType === 'chat')}
+					<SessionInspector sessionId={unified.executionId} />
+				{:else if execution}
 					<ExecutionInspector
 						{execution}
 						bind:tab

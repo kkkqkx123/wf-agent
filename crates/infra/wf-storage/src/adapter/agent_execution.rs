@@ -9,6 +9,8 @@ pub struct AgentExecutionListOptions {
     pub limit: Option<u64>,
     pub definition_id_filter: Option<String>,
     pub status_filter: Option<String>,
+    /// Filter by executor (`agent`, `chat`, `workflow` wire names).
+    pub execution_type_filter: Option<String>,
     /// Inclusive lower bound on `startedAt` (ms epoch).
     pub started_from: Option<i64>,
     /// Inclusive upper bound on `startedAt` (ms epoch).
@@ -32,6 +34,9 @@ impl From<AgentExecutionListOptions> for QueryFilter {
         }
         if let Some(value) = opts.definition_id_filter {
             filter.add_op(FilterOp::Eq("definitionId".into(), value));
+        }
+        if let Some(value) = opts.execution_type_filter {
+            filter.add_op(FilterOp::Eq("executionType".into(), value));
         }
         match (opts.started_from, opts.started_to) {
             (Some(from), Some(to)) => {

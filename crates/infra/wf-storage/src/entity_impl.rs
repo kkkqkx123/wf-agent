@@ -464,7 +464,7 @@ mod tests {
             Id::from("kid".to_string()),
             vec![Id::from("root".to_string())],
             Some(ExecutionType::Workflow),
-            Some(ExecutionType::AgentLoop),
+            Some(ExecutionType::Agent),
             None,
         );
         let meta = execution_metadata(
@@ -477,7 +477,7 @@ mod tests {
         assert_eq!(meta["executionPath"], json!("/root/kid/"));
         assert_eq!(meta["parentExecutionId"], json!("root"));
         assert_eq!(meta["parentExecutionType"], json!("workflow"));
-        assert_eq!(meta["rootExecutionType"], json!("agent_loop"));
+        assert_eq!(meta["rootExecutionType"], json!("agent"));
         assert_eq!(meta["startedAt"], json!(1_700_000_000));
         assert_eq!(meta["status"], json!("failed"));
 

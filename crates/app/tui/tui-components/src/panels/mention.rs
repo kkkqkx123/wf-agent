@@ -240,7 +240,10 @@ impl MentionPanel {
             header,
             Style::default().add_modifier(Modifier::DIM),
         ))];
-        lines.extend(self.list.render_lines(width, window_height.saturating_sub(1)));
+        lines.extend(
+            self.list
+                .render_lines(width, window_height.saturating_sub(1)),
+        );
         lines
     }
 

@@ -35,7 +35,7 @@ export interface Execution {
 }
 
 /** Which engine owns an execution. */
-export type ExecutionKind = 'workflow' | 'agent_loop';
+export type ExecutionKind = 'workflow' | 'agent' | 'chat';
 
 /** Which executor ran a session. */
 export type SessionExecutionType = 'agent' | 'chat' | 'workflow';

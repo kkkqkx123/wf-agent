@@ -152,11 +152,9 @@ where
         // The async variant keeps the compressor's deflate working set off
         // the caller's stack (checkpoint saves sit deep inside nested
         // execution futures).
-        let data = CheckpointSerializer::serialize_with_compression_async(
-            checkpoint,
-            self.compression,
-        )
-        .await?;
+        let data =
+            CheckpointSerializer::serialize_with_compression_async(checkpoint, self.compression)
+                .await?;
 
         let (chain_root_id, chain_position) = self
             .compute_chain_info(&id, &checkpoint_type, previous_checkpoint_id.as_deref())

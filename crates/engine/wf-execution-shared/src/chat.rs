@@ -231,7 +231,10 @@ mod tests {
     async fn missing_profile_is_rejected() {
         let gateway = gateway_with_texts("mock-chat-noprofile", &["unused"]);
         let mut session = ChatSession::new(String::new());
-        let err = session.send(&gateway, "hello", None, None).await.unwrap_err();
+        let err = session
+            .send(&gateway, "hello", None, None)
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("profile id"));
     }
 

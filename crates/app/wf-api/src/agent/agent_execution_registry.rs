@@ -2,6 +2,7 @@ use serde::Serialize;
 
 use wf_storage::adapter::agent_execution::AgentExecutionListOptions;
 use wf_storage::adapter::base::BaseStorageAdapter;
+use wf_types::execution::ExecutionType;
 use wf_types::ExecutionStatus;
 
 use crate::agent::agent_loop_registry::{AgentExecutionStatistics, AgentLoopStatistics};
@@ -14,6 +15,9 @@ pub struct AgentExecutionFilter {
     pub status: Option<ExecutionStatus>,
     /// Agent definition id (all runs of the definition).
     pub agent_id: Option<String>,
+    /// Executor filter. Live loops always run the agent executor, so a
+    /// `Chat` filter excludes every live record.
+    pub execution_type: Option<ExecutionType>,
     /// Inclusive lower bound on the execution start time (ms epoch).
     pub started_from: Option<i64>,
     /// Inclusive upper bound on the execution start time (ms epoch).
@@ -24,6 +28,9 @@ pub struct AgentExecutionFilter {
 #[derive(Debug, Clone, Serialize)]
 pub struct AgentExecutionSummary {
     pub execution_id: String,
+    /// Which executor produced the run. Live loops always report `Agent`;
+    /// persisted records carry their stored executor.
+    pub execution_type: ExecutionType,
     pub status: ExecutionStatus,
     pub current_iteration: u32,
     pub tool_call_count: u32,
@@ -43,10 +50,11 @@ pub async fn summaries(
     ctx: &ApiContext,
     filter: Option<&AgentExecutionFilter>,
 ) -> ApiResult<Vec<AgentExecutionSummary>> {
-    let mut records = live_records(ctx).await;
+    let mut records = live_records(ctx, filter).await;
     let storage_options = filter.map(|f| AgentExecutionListOptions {
         status_filter: f.status.as_ref().map(|s| s.as_str().to_string()),
         definition_id_filter: f.agent_id.clone(),
+        execution_type_filter: f.execution_type.as_ref().map(|t| t.as_str().to_string()),
         started_from: f.started_from,
         started_to: f.started_to,
         ..AgentExecutionListOptions::default()
@@ -79,6 +87,7 @@ pub async fn summaries(
         };
         records.push(AgentExecutionSummary {
             execution_id: record.id.to_string(),
+            execution_type: record.execution_type,
             status: record.status.clone(),
             current_iteration: record.current_iteration,
             tool_call_count: record.tool_call_count,
@@ -93,6 +102,11 @@ pub async fn summaries(
 
     if let Some(filter) = filter {
         records.retain(|r| {
+            if let Some(execution_type) = &filter.execution_type {
+                if &r.execution_type != execution_type {
+                    return false;
+                }
+            }
             if let Some(status) = &filter.status {
                 if &r.status != status {
                     return false;
@@ -192,13 +206,24 @@ pub async fn status_statistics(ctx: &ApiContext) -> ApiResult<AgentLoopStatistic
     crate::agent::agent_loop_registry::statistics(ctx).await
 }
 
-async fn live_records(ctx: &ApiContext) -> Vec<AgentExecutionSummary> {
+async fn live_records(
+    ctx: &ApiContext,
+    filter: Option<&AgentExecutionFilter>,
+) -> Vec<AgentExecutionSummary> {
+    // Live loops always run the agent executor: an executor filter for
+    // anything else excludes every live record up front.
+    if let Some(execution_type) = filter.and_then(|f| f.execution_type.as_ref()) {
+        if *execution_type != ExecutionType::Agent {
+            return Vec::new();
+        }
+    }
     let mut records = Vec::new();
     for id in ctx.agent_loops.get_all_ids() {
         if let Some(entity) = ctx.agent_loop(&id.to_string()) {
             let state = entity.state.read().await;
             records.push(AgentExecutionSummary {
                 execution_id: id.to_string(),
+                execution_type: ExecutionType::Agent,
                 status: state.status().into(),
                 current_iteration: state.current_iteration(),
                 tool_call_count: state.tool_call_count(),

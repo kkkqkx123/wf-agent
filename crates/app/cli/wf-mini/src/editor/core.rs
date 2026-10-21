@@ -140,9 +140,9 @@ impl EditorCore {
     /// when it is longer. The complete suggestion is still inserted on
     /// accept, so this only affects display.
     pub fn suggestion_display_suffix(&self) -> Option<String> {
-        self.suggestion
-            .as_deref()
-            .map(|suffix| truncate_suggestion_with_limit(suffix, self.snapshot.suggestion_display_limit))
+        self.suggestion.as_deref().map(|suffix| {
+            truncate_suggestion_with_limit(suffix, self.snapshot.suggestion_display_limit)
+        })
     }
 
     /// Display width of the buffer tail right of the cursor (for cursor

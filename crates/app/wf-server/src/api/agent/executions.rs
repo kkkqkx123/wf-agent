@@ -79,6 +79,8 @@ pub(crate) struct AgentExecutionsQuery {
     offset: Option<u64>,
     status: Option<String>,
     agent_id: Option<String>,
+    /// Filter by executor (`agent` or `chat`)
+    execution_type: Option<String>,
     /// Inclusive lower bound on `startedAt` (ms epoch).
     started_from: Option<i64>,
     /// Inclusive upper bound on `startedAt` (ms epoch).
@@ -93,6 +95,8 @@ pub(crate) struct AgentExecutionsQuery {
 pub(crate) struct AgentExecutionsCountQuery {
     status: Option<String>,
     agent_id: Option<String>,
+    /// Filter by executor (`agent` or `chat`)
+    execution_type: Option<String>,
     started_from: Option<i64>,
     started_to: Option<i64>,
 }
@@ -118,6 +122,17 @@ fn parse_status_opt(status: Option<&str>) -> Result<Option<wf_types::ExecutionSt
             .parse::<wf_types::ExecutionStatus>()
             .map(Some)
             .map_err(|_| format!("unknown status: {raw}")),
+    }
+}
+
+fn parse_execution_type_opt(
+    execution_type: Option<&str>,
+) -> Result<Option<wf_types::execution::ExecutionType>, String> {
+    match execution_type {
+        None => Ok(None),
+        Some(raw) => wf_types::execution::ExecutionType::parse(raw)
+            .map(Some)
+            .ok_or_else(|| format!("unknown execution_type: {raw}")),
     }
 }
 
@@ -151,10 +166,18 @@ pub(crate) async fn handle_agent_executions(
                 .into_response()
         }
     };
+    let execution_type = match parse_execution_type_opt(query.execution_type.as_deref()) {
+        Ok(execution_type) => execution_type,
+        Err(message) => {
+            return crate::envelope::err(crate::envelope::ApiError::validation(message))
+                .into_response()
+        }
+    };
     let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     let filter = wf_api::AgentExecutionFilter {
         status,
         agent_id: query.agent_id,
+        execution_type,
         started_from: query.started_from,
         started_to: query.started_to,
     };
@@ -196,9 +219,17 @@ pub(crate) async fn handle_agent_executions_count(
                 .into_response()
         }
     };
+    let execution_type = match parse_execution_type_opt(query.execution_type.as_deref()) {
+        Ok(execution_type) => execution_type,
+        Err(message) => {
+            return crate::envelope::err(crate::envelope::ApiError::validation(message))
+                .into_response()
+        }
+    };
     let filter = wf_api::AgentExecutionFilter {
         status,
         agent_id: query.agent_id,
+        execution_type,
         started_from: query.started_from,
         started_to: query.started_to,
     };

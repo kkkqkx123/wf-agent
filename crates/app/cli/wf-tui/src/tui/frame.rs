@@ -297,7 +297,10 @@ impl TuiApp {
         // Take the request (and the draft) without holding the session borrow
         // across the suspend/resume cycle.
         let (pending, draft) = match self.sessions.active_mut() {
-            Some(session) => (session.take_pending_editor(), session.footer.composer.content().to_string()),
+            Some(session) => (
+                session.take_pending_editor(),
+                session.footer.composer.content().to_string(),
+            ),
             None => (false, String::new()),
         };
         if !pending {
@@ -308,7 +311,9 @@ impl TuiApp {
         let path = std::env::temp_dir().join(format!("wf-agent-editor-{}.md", std::process::id()));
         if std::fs::write(&path, &draft).is_err() {
             if let Some(session) = self.sessions.active_mut() {
-                session.footer.show_notice("could not write the editor buffer");
+                session
+                    .footer
+                    .show_notice("could not write the editor buffer");
             }
             return Ok(());
         }
@@ -316,7 +321,9 @@ impl TuiApp {
         // Suspend the TUI and hand control to the editor.
         if let Err(err) = crate::editor::suspend_for_editor(guard, &mut self.editor) {
             if let Some(session) = self.sessions.active_mut() {
-                session.footer.show_notice(format!("editor suspend failed: {err}"));
+                session
+                    .footer
+                    .show_notice(format!("editor suspend failed: {err}"));
             }
             let _ = std::fs::remove_file(&path);
             return Ok(());
@@ -333,12 +340,16 @@ impl TuiApp {
             Ok(code) if code.success() => {}
             Ok(code) => {
                 if let Some(session) = self.sessions.active_mut() {
-                    session.footer.show_notice(format!("editor exited with {code}"));
+                    session
+                        .footer
+                        .show_notice(format!("editor exited with {code}"));
                 }
             }
             Err(err) => {
                 if let Some(session) = self.sessions.active_mut() {
-                    session.footer.show_notice(format!("could not launch {editor}: {err}"));
+                    session
+                        .footer
+                        .show_notice(format!("could not launch {editor}: {err}"));
                 }
             }
         }

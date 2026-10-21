@@ -171,6 +171,15 @@
             }
           },
           {
+            "name": "execution_type",
+            "in": "query",
+            "description": "Filter by executor (`agent` or `chat`)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "started_from",
             "in": "query",
             "description": "Inclusive lower bound on `startedAt` (ms epoch).",
@@ -452,6 +461,15 @@
           {
             "name": "agent_id",
             "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "execution_type",
+            "in": "query",
+            "description": "Filter by executor (`agent` or `chat`)",
             "required": false,
             "schema": {
               "type": "string"
@@ -33539,7 +33557,7 @@
           {
             "name": "execution_type",
             "in": "query",
-            "description": "Filter by engine (`workflow` or `agent_loop`)",
+            "description": "Filter by executor (`workflow`, `agent` or `chat`)",
             "required": false,
             "schema": {
               "type": "string"
@@ -33639,7 +33657,7 @@
           {
             "name": "execution_type",
             "in": "query",
-            "description": "Filter by engine (`workflow` or `agent_loop`)",
+            "description": "Filter by executor (`workflow`, `agent` or `chat`)",
             "required": false,
             "schema": {
               "type": "string"
@@ -33692,6 +33710,76 @@
           },
           "403": {
             "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/unified-executions/{id}": {
+      "get": {
+        "tags": [
+          "observation"
+        ],
+        "operationId": "handle_unified_execution",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_UnifiedExecutionDetailDoc"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "429": {
             "description": "Too many requests: rate limit exceeded (see Retry-After)"
@@ -42461,6 +42549,79 @@
           }
         }
       },
+      "ApiEnvelope_UnifiedExecutionDetailDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "One execution across engines, tagged with its real executor. The chat\ntranscript is not embedded: a chat detail carries the session id as\n`execution_id`, and the caller reads its messages through the existing\nconversation endpoint.",
+            "required": [
+              "execution_id",
+              "execution_type",
+              "status",
+              "start_time",
+              "record"
+            ],
+            "properties": {
+              "definition_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "end_time": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "execution_id": {
+                "type": "string"
+              },
+              "execution_type": {
+                "type": "string"
+              },
+              "parent_execution_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "record": {},
+              "start_time": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "status": {
+                "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_Value": {
         "type": "object",
         "required": [
@@ -47263,6 +47424,58 @@
           "count": {
             "type": "integer",
             "minimum": 0
+          }
+        }
+      },
+      "UnifiedExecutionDetailDoc": {
+        "type": "object",
+        "description": "One execution across engines, tagged with its real executor. The chat\ntranscript is not embedded: a chat detail carries the session id as\n`execution_id`, and the caller reads its messages through the existing\nconversation endpoint.",
+        "required": [
+          "execution_id",
+          "execution_type",
+          "status",
+          "start_time",
+          "record"
+        ],
+        "properties": {
+          "definition_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "end_time": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "execution_id": {
+            "type": "string"
+          },
+          "execution_type": {
+            "type": "string"
+          },
+          "parent_execution_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "record": {},
+          "start_time": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
           }
         }
       },

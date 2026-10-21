@@ -110,7 +110,7 @@ impl AgentLoopCoordinator {
                     let child_manager = parent_manager
                         .derive_child(
                             entity.id().clone(),
-                            wf_types::execution::ExecutionType::AgentLoop,
+                            wf_types::execution::ExecutionType::Agent,
                             None,
                         )
                         .map_err(|e| {

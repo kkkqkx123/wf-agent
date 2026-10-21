@@ -166,19 +166,20 @@ pub async fn artifacts_for_execution(
                 );
             }
         }
-        ExecutionType::AgentLoop => {
+        ExecutionType::Agent | ExecutionType::Chat => {
             let record = ctx
                 .storage
                 .agent_execution
                 .load(execution_id)
                 .await?
                 .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
+            let executor = record.execution_type;
             for iteration in record.iteration_history.as_deref().unwrap_or(&[]) {
                 if let Some(response) = iteration.response_content.as_deref() {
                     push(
                         &mut out,
                         execution_id,
-                        ExecutionType::AgentLoop,
+                        executor,
                         format!("iteration-{}", iteration.iteration),
                         ArtifactKind::IterationResponse,
                         &serde_json::Value::String(response.to_string()),
@@ -189,7 +190,7 @@ pub async fn artifacts_for_execution(
                         push(
                             &mut out,
                             execution_id,
-                            ExecutionType::AgentLoop,
+                            executor,
                             format!("{}#{}", call.name, call.id),
                             ArtifactKind::ToolResult,
                             result,

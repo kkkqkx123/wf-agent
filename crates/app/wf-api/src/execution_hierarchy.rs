@@ -90,7 +90,7 @@ fn is_zero(value: &usize) -> bool {
 
 /// Both execution record kinds share one id space, so a hierarchy query has to
 /// consult both and reconcile the rows.
-const KINDS: [ExecutionType; 2] = [ExecutionType::Workflow, ExecutionType::AgentLoop];
+const KINDS: [ExecutionType; 2] = [ExecutionType::Workflow, ExecutionType::Agent];
 
 /// One persisted row that could not be interpreted.
 ///
@@ -120,7 +120,10 @@ async fn scan_rows(
                 .list_metadata(Some(filter))
                 .await?
         }
-        ExecutionType::AgentLoop => {
+        // Chat sessions are `agent_execution` rows, so the agent store
+        // answers for both executors; the row kind is the owning store,
+        // the true executor comes off the record itself.
+        ExecutionType::Agent | ExecutionType::Chat => {
             ctx.storage
                 .agent_execution
                 .entity_store()
@@ -131,7 +134,7 @@ async fn scan_rows(
     let mut rows = Vec::new();
     let mut rejected = Vec::new();
     for (id, meta) in raw {
-        match ExecutionIndexRow::parse(id.clone(), kind.clone(), &meta) {
+        match ExecutionIndexRow::parse(id.clone(), *kind, &meta) {
             Ok(row) => rows.push(row),
             Err(err) => rejected.push((id, err)),
         }
@@ -233,11 +236,11 @@ fn merge_persisted_then_live<T>(
 fn placement_from_row(row: &ExecutionIndexRow) -> Placement {
     Placement {
         id: row.id().to_string(),
-        kind: row.kind().clone(),
+        kind: *row.kind(),
         status: row.status().clone(),
         parent: row.parent().map(|(parent_id, parent_type)| ExecutionRef {
             execution_id: parent_id.to_string(),
-            execution_type: parent_type.clone(),
+            execution_type: *parent_type,
         }),
         root: ExecutionRef {
             execution_id: row.root().to_string(),
@@ -255,7 +258,7 @@ fn live_placement(ctx: &ApiContext, id: &str) -> Option<Placement> {
     let handle = ctx.execution_instance(id)?;
     let manager = handle.hierarchy_manager()?;
     let kind = match handle.kind() {
-        ExecutionKind::Agent => ExecutionType::AgentLoop,
+        ExecutionKind::Agent => ExecutionType::Agent,
         ExecutionKind::Workflow => ExecutionType::Workflow,
     };
     // One constructor builds lineage for the live answer and for the persisted
@@ -351,7 +354,7 @@ pub async fn subtree(
         .iter()
         .map(|row| ExecutionSubtreeNode {
             execution_id: row.id().to_string(),
-            execution_type: row.kind().clone(),
+            execution_type: *row.kind(),
             status: Some(row.status().clone()),
             depth: depth_within(row, root.depth),
             parent_execution_id: row.parent().map(|(parent_id, _)| parent_id.to_string()),
@@ -366,7 +369,7 @@ pub async fn subtree(
             Some(ExecutionSubtreeNode {
                 execution_id: handle.id().to_string(),
                 execution_type: match handle.kind() {
-                    ExecutionKind::Agent => ExecutionType::AgentLoop,
+                    ExecutionKind::Agent => ExecutionType::Agent,
                     ExecutionKind::Workflow => ExecutionType::Workflow,
                 },
                 status: Some(handle.status().into()),
@@ -460,7 +463,7 @@ mod tests {
             manager.execution_id(),
             manager.execution_id(),
             ancestors,
-            parent.as_ref().map(|p| p.parent_type.clone()),
+            parent.as_ref().map(|p| p.parent_type),
             Some(manager.root_execution_type()),
             manager.fork_path(),
         ))
@@ -495,7 +498,7 @@ mod tests {
         wf_types::AgentExecution {
             id: Id::from(id.to_string()),
             definition_id: Id::from("agent-1".to_string()),
-            execution_type: wf_types::execution::SessionExecutionType::Agent,
+            execution_type: wf_types::execution::ExecutionType::Agent,
             status: ExecutionStatus::Failed,
             current_iteration: 3,
             tool_call_count: 2,
@@ -516,13 +519,13 @@ mod tests {
         register_agent(
             &ctx,
             "live-root",
-            manager("live-root", ExecutionType::AgentLoop),
+            manager("live-root", ExecutionType::Agent),
         )
         .await;
 
         let view = hierarchy(&ctx, "live-root").await.unwrap();
         assert_eq!(view.execution_id, "live-root");
-        assert_eq!(view.execution_type, ExecutionType::AgentLoop);
+        assert_eq!(view.execution_type, ExecutionType::Agent);
         assert_eq!(view.depth, 0);
         assert!(view.parent.is_none());
         assert_eq!(view.root.execution_id, "live-root");
@@ -532,9 +535,9 @@ mod tests {
     #[tokio::test]
     async fn live_child_reports_depth_root_and_parent() {
         let ctx = make_ctx();
-        let root = manager("root", ExecutionType::AgentLoop);
+        let root = manager("root", ExecutionType::Agent);
         let child = root
-            .derive_child(Id::from("kid"), ExecutionType::AgentLoop, None)
+            .derive_child(Id::from("kid"), ExecutionType::Agent, None)
             .unwrap();
         register_agent(&ctx, "root", root).await;
         register_agent(&ctx, "kid", child).await;
@@ -543,7 +546,7 @@ mod tests {
         assert_eq!(view.depth, 1);
         let parent = view.parent.expect("a derived child has a parent");
         assert_eq!(parent.execution_id, "root");
-        assert_eq!(parent.execution_type, ExecutionType::AgentLoop);
+        assert_eq!(parent.execution_type, ExecutionType::Agent);
         assert_eq!(view.root.execution_id, "root");
         assert_eq!(view.ancestors, vec!["root".to_string()]);
     }
@@ -553,13 +556,13 @@ mod tests {
         let ctx = make_ctx();
         let root = manager("root", ExecutionType::Workflow);
         let a = root
-            .derive_child(Id::from("a"), ExecutionType::AgentLoop, None)
+            .derive_child(Id::from("a"), ExecutionType::Agent, None)
             .unwrap();
         let b = root
             .derive_child(Id::from("b"), ExecutionType::Workflow, None)
             .unwrap();
         let a1 = a
-            .derive_child(Id::from("a1"), ExecutionType::AgentLoop, None)
+            .derive_child(Id::from("a1"), ExecutionType::Agent, None)
             .unwrap();
         register_agent(&ctx, "root", root).await;
         register_agent(&ctx, "a", a).await;
@@ -613,7 +616,7 @@ mod tests {
         let ctx = make_ctx();
         let root_manager = manager("wf-root", ExecutionType::Workflow);
         let child_manager = root_manager
-            .derive_child(Id::from("agent-kid"), ExecutionType::AgentLoop, None)
+            .derive_child(Id::from("agent-kid"), ExecutionType::Agent, None)
             .unwrap();
 
         ctx.storage
@@ -634,7 +637,7 @@ mod tests {
             .unwrap();
 
         let view = hierarchy(&ctx, "agent-kid").await.unwrap();
-        assert_eq!(view.execution_type, ExecutionType::AgentLoop);
+        assert_eq!(view.execution_type, ExecutionType::Agent);
         assert_eq!(view.status, ExecutionStatus::Failed);
         assert_eq!(view.depth, 1);
         assert_eq!(view.root.execution_id, "wf-root");
@@ -643,7 +646,7 @@ mod tests {
 
         let tree = subtree(&ctx, "wf-root", usize::MAX, 0).await.unwrap();
         assert_eq!(tree.nodes.len(), 2);
-        assert_eq!(tree.nodes[1].execution_type, ExecutionType::AgentLoop);
+        assert_eq!(tree.nodes[1].execution_type, ExecutionType::Agent);
     }
 
     /// A parent that last persisted before its children existed still reports
@@ -654,7 +657,7 @@ mod tests {
         let ctx = make_ctx();
         let root_manager = manager("wf-root", ExecutionType::Workflow);
         let child_manager = root_manager
-            .derive_child(Id::from("agent-kid"), ExecutionType::AgentLoop, None)
+            .derive_child(Id::from("agent-kid"), ExecutionType::Agent, None)
             .unwrap();
 
         // The parent record is written from the manager as it looked before
@@ -706,10 +709,10 @@ mod tests {
         let ctx = make_ctx();
         let root = manager("r", ExecutionType::Workflow);
         let child = root
-            .derive_child(Id::from("c"), ExecutionType::AgentLoop, None)
+            .derive_child(Id::from("c"), ExecutionType::Agent, None)
             .unwrap();
         let grandchild = child
-            .derive_child(Id::from("g"), ExecutionType::AgentLoop, None)
+            .derive_child(Id::from("g"), ExecutionType::Agent, None)
             .unwrap();
 
         for (id, mgr) in [("r", &root), ("c", &child), ("g", &grandchild)] {
@@ -742,7 +745,7 @@ mod tests {
             .unwrap();
         for i in 0..child_count {
             let child = root
-                .derive_child(Id::from(format!("c{i}")), ExecutionType::AgentLoop, None)
+                .derive_child(Id::from(format!("c{i}")), ExecutionType::Agent, None)
                 .unwrap();
             ctx.storage
                 .agent_execution
@@ -755,13 +758,13 @@ mod tests {
     async fn branching_tree(ctx: &ApiContext) {
         let root = manager("r", ExecutionType::Workflow);
         let a = root
-            .derive_child(Id::from("a"), ExecutionType::AgentLoop, None)
+            .derive_child(Id::from("a"), ExecutionType::Agent, None)
             .unwrap();
         let b = root
-            .derive_child(Id::from("b"), ExecutionType::AgentLoop, None)
+            .derive_child(Id::from("b"), ExecutionType::Agent, None)
             .unwrap();
         let g = a
-            .derive_child(Id::from("g"), ExecutionType::AgentLoop, None)
+            .derive_child(Id::from("g"), ExecutionType::Agent, None)
             .unwrap();
 
         ctx.storage
@@ -841,12 +844,12 @@ mod tests {
     #[tokio::test]
     async fn direct_children_merge_live_and_persisted() {
         let ctx = make_ctx();
-        let root = manager("live-root", ExecutionType::AgentLoop);
+        let root = manager("live-root", ExecutionType::Agent);
         let live_child = root
-            .derive_child(Id::from("live-kid"), ExecutionType::AgentLoop, None)
+            .derive_child(Id::from("live-kid"), ExecutionType::Agent, None)
             .unwrap();
         let stored_child = root
-            .derive_child(Id::from("stored-kid"), ExecutionType::AgentLoop, None)
+            .derive_child(Id::from("stored-kid"), ExecutionType::Agent, None)
             .unwrap();
         register_agent(&ctx, "live-root", root).await;
         register_agent(&ctx, "live-kid", live_child).await;
@@ -867,9 +870,9 @@ mod tests {
     #[tokio::test]
     async fn a_live_branch_with_no_records_yet_still_appears() {
         let ctx = make_ctx();
-        let root = manager("run", ExecutionType::AgentLoop);
+        let root = manager("run", ExecutionType::Agent);
         let child = root
-            .derive_child(Id::from("agent-kid"), ExecutionType::AgentLoop, None)
+            .derive_child(Id::from("agent-kid"), ExecutionType::Agent, None)
             .unwrap();
         register_agent(&ctx, "run", root).await;
         register_agent(&ctx, "agent-kid", child).await;
@@ -963,7 +966,7 @@ mod tests {
         let ctx = make_ctx();
         let root = manager("r", ExecutionType::Workflow);
         let child = root
-            .derive_child(Id::from("kid"), ExecutionType::AgentLoop, None)
+            .derive_child(Id::from("kid"), ExecutionType::Agent, None)
             .unwrap();
         ctx.storage
             .workflow_execution
@@ -987,7 +990,7 @@ mod tests {
         assert_eq!(view.status, ExecutionStatus::Failed);
         assert_eq!(
             execution_type(&ctx, "kid").await.unwrap(),
-            ExecutionType::AgentLoop
+            ExecutionType::Agent
         );
 
         let tree = subtree(&ctx, "r", usize::MAX, 0).await.unwrap();

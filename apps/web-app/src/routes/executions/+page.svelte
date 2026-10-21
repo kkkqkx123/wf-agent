@@ -24,6 +24,7 @@
 		getExecutionDetail,
 		getExecutionStats,
 	} from '#lib/services/executions';
+	import SessionInspector from '#lib/components/domain/SessionInspector.svelte';
 	import type { Execution, ExecutionDetail, Metric } from '#lib/types/models';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { formatDateTime } from '#lib/utils/format';
@@ -45,7 +46,7 @@
 
 	let query = $state('');
 	let status = $state('');
-	let engine = $state<'all' | 'workflow' | 'agent_loop'>('all');
+	let engine = $state<'all' | 'workflow' | 'agent' | 'chat'>('all');
 	let view = $state<'list' | 'table'>('list');
 	let selectedId = $state<string | null>(null);
 	let compareMode = $state(false);
@@ -134,6 +135,13 @@
 			detail = null;
 			return;
 		}
+		// Agent and chat runs render through the session inspector, which
+		// loads its own data; only workflow runs use the workflow detail.
+		const kind = allExecutions.items.find((row) => row.id === id)?.kind;
+		if (kind === 'agent' || kind === 'chat') {
+			detail = null;
+			return;
+		}
 		void getExecutionDetail(id)
 			.then((row) => {
 				detail = row;
@@ -154,6 +162,13 @@
 			return;
 		}
 		if (id === selectedId) {
+			compareDetail = null;
+			return;
+		}
+		// The compare view is the workflow run inspector; non-workflow
+		// candidates never enter it.
+		const kind = allExecutions.items.find((row) => row.id === id)?.kind;
+		if (kind === 'agent' || kind === 'chat') {
 			compareDetail = null;
 			return;
 		}
@@ -185,11 +200,24 @@
 	const selected = $derived(detail);
 	const compared = $derived(compareDetail);
 
+	// The inspector switches by executor kind: agent and chat runs render
+	// the session transcript, workflow runs render the run inspector. Rows
+	// from the workflow-only list carry no kind and read as workflow.
+	const selectedKind = $derived(
+		filtered.find((execution) => execution.id === selectedId)?.kind ?? 'workflow',
+	);
+
 	// Compare candidates exclude the primary selection so A/B never render
 	// the same run twice. Labels stay short: the full id remains in detail.
+	// Only workflow runs are comparable: the compare view is the run
+	// inspector, while agent and chat runs render the session transcript.
 	const compareOptions = $derived(
 		filtered
-			.filter((execution) => execution.id !== selectedId)
+			.filter(
+				(execution) =>
+					execution.id !== selectedId &&
+					(execution.kind === undefined || execution.kind === 'workflow'),
+			)
 			.map((execution) => ({
 				value: execution.id,
 				label: `${execution.workflowName} · ${execution.id.slice(0, 8)}`,
@@ -305,13 +333,16 @@
 						options={[
 							{ value: 'all', label: 'All engines' },
 							{ value: 'workflow', label: 'Workflow' },
-							{ value: 'agent_loop', label: 'Agent' },
+							{ value: 'agent', label: 'Agent' },
+							{ value: 'chat', label: 'Chat' },
 						]}
 						size="sm"
 						class="w-36"
 						onchange={(value) => {
 							engine =
-								value === 'agent_loop' || value === 'workflow' ? value : 'all';
+								value === 'agent' || value === 'workflow' || value === 'chat'
+									? value
+									: 'all';
 							selectedId = null;
 							void reload();
 						}}
@@ -405,7 +436,11 @@
 	</div>
 
 	{#snippet inspector()}
-		{#if selected}
+		{#if selectedKind === 'agent' || selectedKind === 'chat'}
+			{#if selectedId}
+				<SessionInspector sessionId={selectedId} />
+			{/if}
+		{:else if selected}
 			<ExecutionInspector
 				execution={selected}
 				onrefresh={() => {

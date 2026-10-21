@@ -86,7 +86,7 @@ impl AgentLoopCoordinator {
                     if let Some(parent) = registry.get(&parent_id) {
                         parent.as_ref().hierarchy_manager().remove_child(
                             entity.id().as_str(),
-                            &wf_types::execution::ExecutionType::AgentLoop,
+                            &wf_types::execution::ExecutionType::Agent,
                         );
                     }
                 }

@@ -110,15 +110,15 @@ impl MentionTone {
     /// `@wf-agent/ui/icons` so the two surfaces stay comparable.
     pub fn icon(self) -> char {
         match self {
-            MentionTone::File => '▢',       // web: file
-            MentionTone::Directory => '▤',  // web: folder
-            MentionTone::Skill => '✦',      // web: sparkles
-            MentionTone::Workflow => '⟳',   // web: workflow
-            MentionTone::Agent => '☻',      // web: user
-            MentionTone::Tool => '⚙',       // web: terminal
-            MentionTone::Script => '❯',     // web: code
-            MentionTone::Resource => '⇄',   // web: link
-            MentionTone::Neutral => '#',    // web: hash
+            MentionTone::File => '▢',      // web: file
+            MentionTone::Directory => '▤', // web: folder
+            MentionTone::Skill => '✦',     // web: sparkles
+            MentionTone::Workflow => '⟳',  // web: workflow
+            MentionTone::Agent => '☻',     // web: user
+            MentionTone::Tool => '⚙',      // web: terminal
+            MentionTone::Script => '❯',    // web: code
+            MentionTone::Resource => '⇄',  // web: link
+            MentionTone::Neutral => '#',   // web: hash
         }
     }
 
@@ -326,7 +326,9 @@ fn classify_token(token: &str) -> MentionKind {
     // keep their original kind.
     if let Some((kind, value)) = token.split_once(':') {
         if !kind.is_empty()
-            && kind.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+            && kind
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
         {
             return MentionKind::Other {
                 kind: kind.to_string(),
@@ -741,15 +743,11 @@ mod tests {
             ColorRole::Add
         );
         assert_eq!(
-            mention_role(&MentionKind::Skill {
-                name: "pdf".into()
-            }),
+            mention_role(&MentionKind::Skill { name: "pdf".into() }),
             ColorRole::Highlight
         );
         assert_eq!(
-            mention_role(&MentionKind::Workflow {
-                id: "wf-1".into()
-            }),
+            mention_role(&MentionKind::Workflow { id: "wf-1".into() }),
             ColorRole::Highlight
         );
         assert_eq!(

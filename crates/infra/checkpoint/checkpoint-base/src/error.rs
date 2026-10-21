@@ -54,7 +54,6 @@ impl From<serde_json::Error> for CheckpointError {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,6 +138,5 @@ mod tests {
         let json_err = serde_json::from_str::<serde_json::Value>("{").unwrap_err();
         let e: CheckpointError = json_err.into();
         assert!(matches!(e, CheckpointError::Serialization(_)));
-
     }
 }

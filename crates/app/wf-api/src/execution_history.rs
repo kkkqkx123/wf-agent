@@ -124,7 +124,7 @@ pub async fn history(
     let execution_type = execution_hierarchy::execution_type(ctx, id).await?;
     let mut view = ExecutionHistoryView {
         execution_id: id.to_string(),
-        execution_type: execution_type.clone(),
+        execution_type,
         timeline_limit: crate::infra::events::TIMELINE_LIMIT,
         timeline: Vec::new(),
         node_executions: Vec::new(),
@@ -147,7 +147,7 @@ pub async fn history(
                     execution_state::workflow_execution_status_transitions(ctx, id).await?;
             }
         }
-        ExecutionType::AgentLoop => {
+        ExecutionType::Agent | ExecutionType::Chat => {
             if sections.timeline {
                 view.timeline = crate::infra::events::agent_timeline(ctx, id).await?;
             }
@@ -233,7 +233,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(view.execution_id, "loop-h");
-        assert_eq!(view.execution_type, ExecutionType::AgentLoop);
+        assert_eq!(view.execution_type, ExecutionType::Agent);
         assert_eq!(view.iterations.len(), 1);
         assert_eq!(view.iterations[0].tool_calls.len(), 1);
         // The workflow-only sections stay empty rather than borrowing data

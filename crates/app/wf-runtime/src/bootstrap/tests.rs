@@ -74,7 +74,7 @@ fn dispatch_tool_context() -> (
 ) {
     let manager = Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
         wf_types::Id::from("test-host".to_string()),
-        wf_types::execution::ExecutionType::AgentLoop,
+        wf_types::execution::ExecutionType::Agent,
     ));
     let link = wf_tools::callback::ParentLink {
         file_scope: wf_types::config::file_scope::ResolvedExecutionScope::none(),

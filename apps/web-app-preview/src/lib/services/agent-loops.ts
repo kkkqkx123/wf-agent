@@ -93,11 +93,12 @@ function toIso(value: number | null | undefined): string {
 		: new Date(value).toISOString();
 }
 
-/** The executor of a session; an unknown value reads as the agent loop. */
-function toSessionExecutionType(
-	value: string | null | undefined,
-): SessionExecutionType {
-	return value === 'chat' || value === 'workflow' ? value : 'agent';
+/** The executor of a session; an unknown value is rejected, not guessed. */
+function toSessionExecutionType(value: string | null | undefined): SessionExecutionType {
+	if (value === 'agent') return 'agent';
+	if (value === 'chat') return 'chat';
+	if (value === 'workflow') return 'workflow';
+	throw new Error(`Unknown session execution type: ${value ?? 'null'}`);
 }
 
 function toLoop(d: SummaryDto): AgentLoop {

@@ -56,7 +56,7 @@ export function registerExecutions(router: MockRouter): void {
 			})),
 			...agentLoops.map((loop) => ({
 				execution_id: loop.id,
-				execution_type: 'agent_loop',
+				execution_type: loop.executionType,
 				status: loop.status,
 				start_time: Date.parse(loop.startedAt),
 				end_time: Date.parse(loop.updatedAt),
@@ -66,10 +66,42 @@ export function registerExecutions(router: MockRouter): void {
 			})),
 		].sort((a, b) => b.start_time - a.start_time);
 		const status = typeof query.status === 'string' ? query.status : null;
-		const filtered = status
-			? unified.filter((e) => e.status === status)
-			: unified;
+		const executionType =
+			typeof query.execution_type === 'string' ? query.execution_type : null;
+		const filtered = unified.filter(
+			(e) =>
+				(!status || e.status === status) &&
+				(!executionType || e.execution_type === executionType),
+		);
 		return cursorPageView(filtered, +(query.limit ?? 50), query.cursor);
+	});
+	router.on('GET', '/api/v1/unified-executions/{id}', (params) => {
+		const workflow = executions.find((e) => e.id === params.id);
+		if (workflow) {
+			return {
+				execution_id: workflow.id,
+				execution_type: 'workflow',
+				status: workflow.status,
+				start_time: Date.parse(workflow.startedAt),
+				end_time: workflow.endedAt ? Date.parse(workflow.endedAt) : null,
+				definition_id: workflow.workflowId,
+				parent_execution_id: null,
+				error: workflow.error ?? null,
+				record: workflow,
+			};
+		}
+		const loop = agentLoops.find((l) => l.id === params.id) ?? agentLoops[0];
+		return {
+			execution_id: loop.id,
+			execution_type: loop.executionType,
+			status: loop.status,
+			start_time: Date.parse(loop.startedAt),
+			end_time: Date.parse(loop.updatedAt),
+			definition_id: loop.name,
+			parent_execution_id: null,
+			error: null,
+			record: loop,
+		};
 	});
 	router.on('GET', '/api/v1/executions/{id}/logs', (_p, query) => {
 		const entries = executionTimeline.map((entry, index) => ({

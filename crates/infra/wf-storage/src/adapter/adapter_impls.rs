@@ -125,11 +125,7 @@ make_base_adapter!(
     wf_types::TemplateUsageMetadata,
     TemplateUsageListOptions
 );
-make_base_adapter!(
-    PricingRuleStorage,
-    PricingRule,
-    PricingRuleListOptions
-);
+make_base_adapter!(PricingRuleStorage, PricingRule, PricingRuleListOptions);
 
 // ─── WorkflowStorageAdapter ───
 

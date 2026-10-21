@@ -69,13 +69,13 @@ impl RestoredAgentLoop {
         match self.lineage.as_ref() {
             Some(hierarchy) => wf_core::hierarchy::manager::ExecutionHierarchyManager::restore(
                 self.agent_loop_id.clone(),
-                ExecutionType::AgentLoop,
+                ExecutionType::Agent,
                 hierarchy,
-                ExecutionType::AgentLoop,
+                ExecutionType::Agent,
             ),
             None => Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
                 self.agent_loop_id.clone(),
-                ExecutionType::AgentLoop,
+                ExecutionType::Agent,
             )),
         }
     }
@@ -635,7 +635,7 @@ impl AgentCheckpointIntegration {
             entity.definition_id().clone(),
             entity.id().clone(),
             ancestors,
-            parent.as_ref().map(|p| p.parent_type.clone()),
+            parent.as_ref().map(|p| p.parent_type),
             Some(manager.root_execution_type()),
             manager.fork_path(),
         ))

@@ -65,7 +65,7 @@ impl AgentLoopEntity {
         let definition_id = id.clone();
         let hierarchy = Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
             id.clone(),
-            wf_types::execution::ExecutionType::AgentLoop,
+            wf_types::execution::ExecutionType::Agent,
         ));
         Self {
             id,
@@ -341,7 +341,7 @@ impl AgentLoopEntity {
         }
         self.hierarchy
             .register_child_ref(wf_core::ChildExecutionReference {
-                child_type: wf_types::execution::ExecutionType::AgentLoop,
+                child_type: wf_types::execution::ExecutionType::Agent,
                 child_id,
                 created_at: wf_common::now(),
                 fork_path: None,
@@ -355,7 +355,7 @@ impl AgentLoopEntity {
     pub async fn unregister_child(&self, child_id: &Id) {
         for child_type in [
             wf_types::execution::ExecutionType::Workflow,
-            wf_types::execution::ExecutionType::AgentLoop,
+            wf_types::execution::ExecutionType::Agent,
         ] {
             if self.hierarchy.remove_child(child_id, &child_type) {
                 break;

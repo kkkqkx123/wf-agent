@@ -13,7 +13,9 @@
 //!   panel is a derived view over the mention query under the cursor.
 
 use crate::footer::FooterRoute;
-use crate::interactive::{InteractiveAction, InteractiveController, InteractiveEvent, PanelPayload};
+use crate::interactive::{
+    InteractiveAction, InteractiveController, InteractiveEvent, PanelPayload,
+};
 use crate::keymap::{CKey, Key};
 use tui_components::footer::PanelState;
 use tui_components::panels::{
@@ -616,8 +618,9 @@ impl InteractiveController {
         tokio::spawn(async move {
             match client.get_json::<serde_json::Value>("/api/v1/skills").await {
                 Ok(value) => {
-                    let skills = serde_json::from_value::<Vec<wf_types::skill::SkillMetadata>>(value)
-                        .unwrap_or_default();
+                    let skills =
+                        serde_json::from_value::<Vec<wf_types::skill::SkillMetadata>>(value)
+                            .unwrap_or_default();
                     let _ = tx.send(InteractiveEvent::PanelCandidates {
                         route: FooterRoute::Skill,
                         payload: PanelPayload::Skills(skills),

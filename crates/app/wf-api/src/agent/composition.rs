@@ -296,10 +296,7 @@ pub fn resolve_workflow_context(
 /// Resolve inline mentions in a message into supplemental context messages.
 /// Storage-backed kinds are fetched best-effort; missing entities are skipped
 /// so a stale reference never fails the run.
-pub async fn resolve_mentions(
-    ctx: &ApiContext,
-    text: &str,
-) -> Vec<Message> {
+pub async fn resolve_mentions(ctx: &ApiContext, text: &str) -> Vec<Message> {
     let Ok(re) = regex::Regex::new(
         r"@(?:(?P<kind>[a-z][a-z0-9_]*):(?P<value>[\w./-]+(?:#\d+(?:-\d+)?)?)|(?P<path>[\w./-]*[./][\w./-]*(?:#\d+(?:-\d+)?)?))",
     ) else {
@@ -440,9 +437,14 @@ fn resolve_file_mention(ctx: &ApiContext, raw: &str) -> Option<String> {
             .map(|entry| entry.file_name().to_string_lossy().to_string())
             .collect();
         entries.sort();
-        return Some(format!("directory: {path}
-{}", entries.join("
-")));
+        return Some(format!(
+            "directory: {path}
+{}",
+            entries.join(
+                "
+"
+            )
+        ));
     }
     let content = std::fs::read_to_string(&canonical).ok()?;
     let lines: Vec<&str> = content.lines().collect();

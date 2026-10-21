@@ -272,7 +272,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = json_body(response).await;
         assert_eq!(body["data"]["execution_id"], "loop-1");
-        assert_eq!(body["data"]["execution_type"], "agent_loop");
+        assert_eq!(body["data"]["execution_type"], "agent");
         assert_eq!(body["data"]["depth"], 0);
 
         let tree = send(ctx.clone(), "/api/v1/executions/loop-1/subtree").await;

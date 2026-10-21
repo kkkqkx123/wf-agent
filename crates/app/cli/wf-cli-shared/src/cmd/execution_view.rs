@@ -7,7 +7,7 @@
 pub(crate) fn execution_type_label(kind: &str) -> &'static str {
     match kind {
         "workflow" => "workflow",
-        "agent_loop" => "agent_loop",
+        "agent" | "agent_loop" => "agent",
         _ => "unknown",
     }
 }

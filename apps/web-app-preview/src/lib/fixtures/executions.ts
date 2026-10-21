@@ -302,14 +302,14 @@ export const executionSubtree: ExecutionSubtree = {
 		},
 		{
 			executionId: HIERARCHY_CHILD,
-			executionType: 'agent_loop',
+			executionType: 'agent',
 			status: 'running',
 			depth: 1,
 			parentExecutionId: HIERARCHY_ROOT,
 		},
 		{
 			executionId: HIERARCHY_GRANDCHILD,
-			executionType: 'agent_loop',
+			executionType: 'agent',
 			status: 'completed',
 			depth: 2,
 			parentExecutionId: HIERARCHY_CHILD,

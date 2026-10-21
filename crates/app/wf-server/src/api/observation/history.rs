@@ -355,7 +355,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = json_body(response).await;
         assert_eq!(body["data"]["execution_id"], "loop-h");
-        assert_eq!(body["data"]["execution_type"], "agent_loop");
+        assert_eq!(body["data"]["execution_type"], "agent");
         assert_eq!(body["data"]["iterations"].as_array().unwrap().len(), 1);
         // Workflow-only sections are omitted rather than reported as empty.
         assert!(body["data"].get("node_executions").is_none());

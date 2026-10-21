@@ -120,7 +120,7 @@ pub async fn run_streaming_request(
                     reasoning_tokens: None,
                     refusal: None,
                     metadata: None,
-                    stream_stats: None,
+                    stream_stats: final_msg.stream_stats,
                 });
             }
             Some(Ok(MessageStreamEvent::Error(err))) => {

@@ -86,7 +86,15 @@ impl AgentIterationCoordinator {
                 self.persist_llm_call(
                     entity,
                     request,
-                    llm_call_record(request, started_at, None, None, 0, 0, Some(e.to_string())),
+                    llm_call_record(
+                        request,
+                        started_at,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(e.to_string()),
+                    ),
                 )
                 .await;
                 // Without a model window there is nothing to compress
@@ -110,7 +118,15 @@ impl AgentIterationCoordinator {
                 self.persist_llm_call(
                     entity,
                     request,
-                    llm_call_record(request, started_at, None, None, 0, 0, Some(e.to_string())),
+                    llm_call_record(
+                        request,
+                        started_at,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(e.to_string()),
+                    ),
                 )
                 .await;
                 return Err(e.into());
@@ -140,8 +156,8 @@ impl AgentIterationCoordinator {
                 started_at,
                 model,
                 Some(response_summary),
-                usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
-                usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
+                usage.as_ref(),
+                llm_result.stream_stats.clone(),
                 None,
             ),
         )
@@ -236,14 +252,17 @@ pub(super) fn build_response_summary(
 }
 
 /// Assemble one LLM call audit record. `seq` is assigned by the
-/// state (`AgentLoopState::record_llm_call`).
+/// state (`AgentLoopState::record_llm_call`). `usage` carries the request's
+/// token counts; `stream_stats` carries the provider stream timing (real
+/// first-token latency and generation window) for streaming calls. Both are
+/// None on error paths.
 pub(super) fn llm_call_record(
     request: &LlmRequest,
     started_at: i64,
     model: Option<String>,
     response_summary: Option<LlmResponseSummary>,
-    prompt_tokens: u32,
-    completion_tokens: u32,
+    usage: Option<&wf_execution_shared::RequestUsage>,
+    stream_stats: Option<wf_types::llm::StreamStats>,
     error: Option<String>,
 ) -> LlmCallRecord {
     let completed_at = wf_common::now();
@@ -253,11 +272,13 @@ pub(super) fn llm_call_record(
         model,
         request_summary: Some(build_request_summary(request)),
         response_summary,
-        prompt_tokens,
-        completion_tokens,
+        prompt_tokens: usage.map(|u| u.prompt_tokens).unwrap_or(0),
+        completion_tokens: usage.map(|u| u.completion_tokens).unwrap_or(0),
         started_at,
         completed_at: Some(completed_at),
         duration_ms: completed_at - started_at,
+        first_token_ms: stream_stats.as_ref().map(|s| s.time_to_first_chunk),
+        generation_ms: stream_stats.as_ref().map(|s| s.stream_duration),
         error,
     }
 }

@@ -241,6 +241,8 @@ mod tests {
                 started_at: wf_common::now(),
                 completed_at: Some(wf_common::now() + 50),
                 duration_ms: 50,
+                first_token_ms: None,
+                generation_ms: None,
                 error: None,
             });
             state.end_iteration_with_content(Some("hi".into()));
@@ -381,6 +383,8 @@ mod tests {
                     started_at: 1000,
                     completed_at: Some(1500),
                     duration_ms: 500,
+                    first_token_ms: None,
+                    generation_ms: None,
                     error: None,
                 }]),
                 response_content: Some("persisted".into()),

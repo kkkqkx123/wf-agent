@@ -33,6 +33,20 @@ impl LlmMetricsSink for MetricsSinkAdapter {
         self.collector.record_first_byte(duration_ms, model);
     }
 
+    fn record_stream_stats(
+        &self,
+        stats: &llm_types::llm::StreamStats,
+        completion_tokens: u32,
+        model: Option<&str>,
+    ) {
+        self.collector.record_stream_stats(
+            stats.time_to_first_chunk as f64,
+            stats.stream_duration as f64,
+            completion_tokens as u64,
+            model,
+        );
+    }
+
     fn record_request(
         &self,
         duration_ms: f64,

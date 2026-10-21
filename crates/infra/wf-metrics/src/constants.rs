@@ -48,6 +48,9 @@ pub mod token_metrics {
     pub const ERROR_COUNT: &str = "token.request.error.count";
     pub const RETRY_COUNT: &str = "token.request.retry.count";
     pub const FIRST_BYTE_DURATION: &str = "token.stream.first_byte.duration";
+    pub const FIRST_TOKEN_DURATION: &str = "token.stream.first_token.duration";
+    pub const GENERATION_DURATION: &str = "token.stream.generation.duration";
+    pub const GENERATION_TOKENS: &str = "token.stream.generation.tokens";
 }
 
 pub mod error_metrics {
@@ -236,6 +239,9 @@ mod tests {
             token_metrics::ERROR_COUNT,
             token_metrics::RETRY_COUNT,
             token_metrics::FIRST_BYTE_DURATION,
+            token_metrics::FIRST_TOKEN_DURATION,
+            token_metrics::GENERATION_DURATION,
+            token_metrics::GENERATION_TOKENS,
             error_metrics::OCCURRENCE_COUNT,
             error_metrics::RECOVERY_RATE,
             error_metrics::AFFECTED_EXECUTIONS,

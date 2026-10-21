@@ -72,7 +72,15 @@ impl AgentIterationCoordinator {
                 self.persist_llm_call(
                     entity,
                     request,
-                    llm_call_record(request, started_at, None, None, 0, 0, Some(e.to_string())),
+                    llm_call_record(
+                        request,
+                        started_at,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(e.to_string()),
+                    ),
                 )
                 .await;
                 return Err(e.into());
@@ -80,6 +88,7 @@ impl AgentIterationCoordinator {
         };
         let mut final_message: Option<Message> = None;
         let mut request_usage: Option<RequestUsage> = None;
+        let mut stream_stats: Option<wf_types::llm::StreamStats> = None;
         let mut content_parts: Vec<String> = Vec::new();
         let mut failure: Option<LlmError> = None;
 
@@ -126,6 +135,7 @@ impl AgentIterationCoordinator {
                     final_message = Some(msg.message);
                 }
                 Ok(MessageStreamEvent::FinalMessage(msg)) => {
+                    stream_stats = msg.stream_stats.clone();
                     let content = text_of(&msg.message.content);
                     final_message = Some(msg.message);
                     content_parts.push(content);
@@ -199,8 +209,8 @@ impl AgentIterationCoordinator {
                     started_at,
                     None,
                     None,
-                    0,
-                    0,
+                    None,
+                    stream_stats.clone(),
                     Some(error.to_string()),
                 ),
             )
@@ -213,7 +223,15 @@ impl AgentIterationCoordinator {
             self.persist_llm_call(
                 entity,
                 request,
-                llm_call_record(request, started_at, None, None, 0, 0, Some(message.clone())),
+                llm_call_record(
+                    request,
+                    started_at,
+                    None,
+                    None,
+                    None,
+                    stream_stats.clone(),
+                    Some(message.clone()),
+                ),
             )
             .await;
             return Err(AgentError::LlmError(LlmError::StreamError(message)));
@@ -253,11 +271,8 @@ impl AgentIterationCoordinator {
                 started_at,
                 None,
                 Some(response_summary),
-                request_usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
-                request_usage
-                    .as_ref()
-                    .map(|u| u.completion_tokens)
-                    .unwrap_or(0),
+                request_usage.as_ref(),
+                stream_stats.clone(),
                 None,
             ),
         )

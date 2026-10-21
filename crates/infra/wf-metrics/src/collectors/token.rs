@@ -16,6 +16,13 @@ pub struct TokenUsageStats {
     pub retry_count: u64,
     pub avg_request_duration_ms: f64,
     pub avg_first_byte_duration_ms: f64,
+    /// Real time-to-first-token observed from the provider stream, distinct
+    /// from the stream establishment proxy above.
+    pub avg_first_token_duration_ms: f64,
+    pub avg_generation_duration_ms: f64,
+    /// Output tokens per second across the generation windows of all
+    /// recorded streams (total generation tokens / total generation time).
+    pub avg_output_tokens_per_second: f64,
     pub by_model: Vec<crate::metric::LabelGroup>,
 }
 
@@ -114,9 +121,41 @@ impl TokenMetricsCollector {
         );
     }
 
+    /// Record per-stream generation statistics reported by the LLM gateway:
+    /// the real time-to-first-token, the generation window (first to last
+    /// stream chunk) and the output tokens produced in that window.
+    pub fn record_stream_stats(
+        &self,
+        first_token_ms: f64,
+        generation_ms: f64,
+        completion_tokens: u64,
+        model: Option<&str>,
+    ) {
+        let model_label = model.unwrap_or("unknown");
+        let labels = labels(&[("model", model_label)]);
+        self.inner
+            .observe_histogram(token_metrics::FIRST_TOKEN_DURATION, first_token_ms, labels.clone());
+        self.inner.observe_histogram(
+            token_metrics::GENERATION_DURATION,
+            generation_ms,
+            labels.clone(),
+        );
+        self.inner.increment_counter_by(
+            token_metrics::GENERATION_TOKENS,
+            completion_tokens as f64,
+            labels,
+        );
+    }
+
     pub fn usage_stats(&self) -> TokenUsageStats {
         let duration = crate::collectors::latest(&self.inner, token_metrics::REQUEST_DURATION);
         let first_byte = crate::collectors::latest(&self.inner, token_metrics::FIRST_BYTE_DURATION);
+        let first_token =
+            crate::collectors::latest(&self.inner, token_metrics::FIRST_TOKEN_DURATION);
+        let generation =
+            crate::collectors::latest(&self.inner, token_metrics::GENERATION_DURATION);
+        let generation_tokens =
+            crate::collectors::counter_total(&self.inner, token_metrics::GENERATION_TOKENS);
         let avg_of = |m: &Option<crate::metric::Metric>| {
             m.as_ref()
                 .map(|d| {
@@ -127,6 +166,13 @@ impl TokenMetricsCollector {
                     }
                 })
                 .unwrap_or(0.0)
+        };
+        // Aggregate ratio: total output tokens over total generation time.
+        // The histogram sum spans every observed generation window, so the
+        // ratio stays independent of how tokens were split across requests.
+        let avg_output_tokens_per_second = match generation.as_ref() {
+            Some(d) if d.sum > 0.0 => generation_tokens / (d.sum / 1000.0),
+            _ => 0.0,
         };
         TokenUsageStats {
             total_tokens: crate::collectors::counter_total(&self.inner, token_metrics::TOTAL_TOKENS)
@@ -150,6 +196,9 @@ impl TokenMetricsCollector {
                 as u64,
             avg_request_duration_ms: avg_of(&duration),
             avg_first_byte_duration_ms: avg_of(&first_byte),
+            avg_first_token_duration_ms: avg_of(&first_token),
+            avg_generation_duration_ms: avg_of(&generation),
+            avg_output_tokens_per_second,
             by_model: self
                 .inner
                 .query(&crate::metric::MetricFilter {
@@ -229,5 +278,25 @@ mod tests {
         let stats = c.usage_stats();
         assert_eq!(stats.retry_count, 2);
         assert_eq!(stats.avg_first_byte_duration_ms, 50.0);
+    }
+
+    #[test]
+    fn records_stream_stats_and_derives_tps() {
+        let c = collector();
+        c.record_stream_stats(120.0, 2000.0, 100, Some("gpt-4o"));
+        c.record_stream_stats(80.0, 1000.0, 50, Some("gpt-4o"));
+        let stats = c.usage_stats();
+        assert_eq!(stats.avg_first_token_duration_ms, 100.0);
+        assert_eq!(stats.avg_generation_duration_ms, 1500.0);
+        assert_eq!(stats.avg_output_tokens_per_second, 50.0);
+    }
+
+    #[test]
+    fn stream_stats_without_tokens_yields_zero_tps() {
+        let c = collector();
+        c.record_stream_stats(50.0, 0.0, 0, Some("gpt-4o"));
+        let stats = c.usage_stats();
+        assert_eq!(stats.avg_first_token_duration_ms, 50.0);
+        assert_eq!(stats.avg_output_tokens_per_second, 0.0);
     }
 }

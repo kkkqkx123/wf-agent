@@ -118,6 +118,16 @@ pub struct LlmCallRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<Timestamp>,
     pub duration_ms: i64,
+    /// Real time-to-first-token from the provider stream, in milliseconds.
+    /// Only present for streaming calls whose provider surfaced stream
+    /// statistics; absent in older records.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_token_ms: Option<i64>,
+    /// Generation window (first to last stream chunk) in milliseconds.
+    /// Absent for non-streaming calls or when the stream carried no
+    /// statistics.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation_ms: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -173,11 +183,29 @@ mod tests {
             started_at: 100,
             completed_at: Some(200),
             duration_ms: 100,
+            first_token_ms: Some(40),
+            generation_ms: Some(60),
             error: None,
         };
         let json = serde_json::to_string(&record).unwrap();
         let restored: LlmCallRecord = serde_json::from_str(&json).unwrap();
         assert_eq!(restored, record);
+    }
+
+    #[test]
+    fn llm_call_record_deserializes_old_blob_without_stream_timing() {
+        let json = serde_json::json!({
+            "seq": 0,
+            "profile_id": "p1",
+            "prompt_tokens": 10,
+            "completion_tokens": 20,
+            "started_at": 100,
+            "completed_at": 200,
+            "duration_ms": 100
+        });
+        let restored: LlmCallRecord = serde_json::from_value(json).unwrap();
+        assert_eq!(restored.first_token_ms, None);
+        assert_eq!(restored.generation_ms, None);
     }
 
     #[test]

@@ -85,6 +85,15 @@ pub struct LlmCallAuditView {
     pub completed_at: Option<i64>,
     pub duration_ms: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_token_ms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation_ms: Option<i64>,
+    /// Output tokens per second over the generation window; present only
+    /// when both the window duration and the completion token count are
+    /// positive.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokens_per_second: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 

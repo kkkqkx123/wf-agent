@@ -30,7 +30,10 @@ pub use retry_budget::{
 pub use subgraph::SubgraphMetricsCollector;
 pub use template::{TemplateMetricsCollector, TemplateUsageStats};
 pub use timeout::{TimeoutMetricsCollector, TimeoutStats};
-pub use token::TokenMetricsCollector;
+pub use token::{
+    ExecutionTokenUsage, StreamStatsRecord, TokenCallLabels, TokenMetricsCollector,
+    TokenUsageRecord, TokenUsageStats,
+};
 pub use tool::ToolMetricsCollector;
 pub use workflow::{WorkflowMetricsCollector, WorkflowUsageStats};
 

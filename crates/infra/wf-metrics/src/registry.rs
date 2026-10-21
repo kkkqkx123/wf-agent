@@ -549,7 +549,15 @@ mod tests {
         registry.node().record_execution_start("n1", "Llm");
         registry.event().record_event("NodeStarted", None, None);
         registry.tool().record_tool_call_start("http", "exec-1");
-        registry.token().record_token_usage(10, 5, None, None);
+        registry
+            .token()
+            .record_token_usage(&crate::collectors::TokenUsageRecord {
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                total_tokens: 15,
+                reported_total_tokens: 15,
+                ..Default::default()
+            });
         registry.error().record_error("llm", "agent", None);
         registry.agent().record_execution_start("default");
         registry.agent_loop().record_iteration(100.0);

@@ -42,6 +42,11 @@ pub use llm_token::count::{
 };
 pub use llm_token::estimation;
 pub use llm_token::estimation::{estimate_tokens, TokenEstimator};
+pub use llm_token::usage;
+pub use llm_token::usage::{
+    normalize_usage, token_accounting, LlmCallContext, LlmUsageReport, NormalizedUsage,
+    ReasoningTokenScope, TokenAccounting,
+};
 pub use llm_tool_call::partial_json_parser;
 pub use llm_tool_call::partial_json_parser::{
     parse_partial_json, recover_partial_json, PartialParseResult,

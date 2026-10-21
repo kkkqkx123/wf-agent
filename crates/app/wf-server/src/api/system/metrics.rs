@@ -36,6 +36,7 @@ pub(crate) fn routes() -> Router<RegistryState> {
         .route("/workflow", get(handle_workflow))
         .route("/node-templates", get(handle_node_templates))
         .route("/agents", get(handle_agents))
+        .route("/token", get(handle_token))
         .route("/report", get(handle_report))
         .route("/export", get(handle_export))
         .route("/collectors", get(handle_collectors))
@@ -134,6 +135,21 @@ pub(crate) async fn handle_agents(
         Some(id) => state.registry.agent().usage_stats_for(&id),
         None => state.registry.agent().usage_stats(),
     };
+    crate::envelope::ok(stats).into_response()
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/metrics/token",
+    tag = "system",
+    responses(
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_token(State(state): State<RegistryState>) -> impl IntoResponse {
+    let stats = state.registry.token().usage_stats();
     crate::envelope::ok(stats).into_response()
 }
 

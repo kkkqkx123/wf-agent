@@ -102,9 +102,18 @@ mod tests {
         registry.agent_loop().record_iteration(50.0);
         registry.error().record_error("llm", "agent", Some("e1"));
         registry.tool().record_tool_call_start("http", "e1");
-        registry
-            .token()
-            .record_token_usage(10, 5, Some(0.002), Some("gpt-4o"));
+        registry.token().record_token_usage(&wf_metrics::collectors::TokenUsageRecord {
+            labels: wf_metrics::collectors::TokenCallLabels {
+                model: Some("gpt-4o".to_string()),
+                ..Default::default()
+            },
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: 15,
+            reported_total_tokens: 15,
+            total_cost: Some(0.002),
+            ..Default::default()
+        });
         registry.config().record_access();
         registry.resource().record_memory_usage(1024);
         registry

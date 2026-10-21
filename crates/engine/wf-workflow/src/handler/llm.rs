@@ -35,6 +35,21 @@ use tool_exec::{call_llm, execute_tool_call, pending_queue_for, resolve_tools, L
 /// error branch instead of burning more interactions on blind path retries.
 const MAX_CONSECUTIVE_SCOPE_VIOLATION_ROUNDS: u32 = 3;
 
+/// Tokens consumed by one model response.
+///
+/// The provider total is used when it is present; otherwise the sum of the
+/// input and output counters is the best available number.
+fn response_tokens(response: &wf_types::llm::LlmResult) -> u64 {
+    let Some(usage) = &response.usage else {
+        return 0;
+    };
+    if usage.total_tokens > 0 {
+        u64::from(usage.total_tokens)
+    } else {
+        u64::from(usage.prompt_tokens) + u64::from(usage.completion_tokens)
+    }
+}
+
 pub struct LlmHandler {
     gateway: Arc<LlmGateway>,
     file_checkpoint: Option<wf_checkpoint::FileCheckpointManager>,
@@ -142,6 +157,10 @@ impl LlmHandler {
         let mut executed_tool_calls: Vec<Value> = Vec::new();
         let mut final_response: Option<wf_types::llm::LlmResult> = None;
         let mut aggregated_content: Option<String> = None;
+        // Tokens consumed by this node across all of its rounds. Recorded
+        // once the node finishes so the node series carries the whole node
+        // cost instead of a single round.
+        let mut node_tokens: u64 = 0;
 
         // Multi-round tool loop: keep calling the model while it emits tool
         // calls, feeding tool results back, up to max_interactions
@@ -178,10 +197,17 @@ impl LlmHandler {
                 .await?;
                 final_response = outcome.final_response;
                 aggregated_content = outcome.aggregated_content;
+                node_tokens = node_tokens.saturating_add(
+                    final_response
+                        .as_ref()
+                        .map(response_tokens)
+                        .unwrap_or_default(),
+                );
                 break;
             }
 
             let response = call_llm(ctx, &self.gateway, &request).await?;
+            node_tokens = node_tokens.saturating_add(response_tokens(&response));
             record_non_stream_usage(ctx, &request, &response, cfg.token_tracking_enabled).await;
             if cfg.token_tracking_enabled {
                 emit_token_usage_events(ctx, cfg.token_warning_threshold, &request).await;
@@ -388,6 +414,17 @@ impl LlmHandler {
             ctx,
             completion_meta,
         );
+
+        // The node series carries the tokens of every round the node made.
+        if node_tokens > 0 {
+            if let Some(metrics) = ctx.metrics.as_ref() {
+                metrics.node().record_token_usage(
+                    &ctx.node_id,
+                    ctx.node_type.canonical_name(),
+                    node_tokens,
+                );
+            }
+        }
 
         Ok(NodeExecutionResult {
             output,

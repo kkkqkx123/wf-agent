@@ -63,7 +63,9 @@ pub use analysis::error_analysis::{
     SimilarErrorGroup, WorkflowErrorHotspot, WorkflowErrorStats, WorkflowNodeRef,
     WorkflowRootCauseAnalysis,
 };
-pub use analysis::llm_metrics::{agent_llm_metrics, flush, AgentLlmMetrics, ModelTokenUsage};
+pub use analysis::llm_metrics::{
+    agent_llm_metrics, execution_token_usage, flush, AgentLlmMetrics, ModelTokenUsage,
+};
 pub use analysis::performance::{
     ExecutionComparison, ExecutionPerformanceProfile, NodeComparisonView, NodeRef,
     NodeTimelineEntry, PerformanceBottleneckView, PerformanceSummaryView, PerformanceTier,

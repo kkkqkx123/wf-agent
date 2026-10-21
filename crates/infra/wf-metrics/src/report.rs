@@ -605,15 +605,26 @@ mod tests {
     #[tokio::test]
     async fn report_detects_token_error_rate() {
         let registry = MetricsRegistry::new();
+        let call = crate::collectors::TokenCallLabels {
+            model: Some("model-a".to_string()),
+            ..Default::default()
+        };
         for _ in 0..4 {
-            registry
-                .token()
-                .record_token_usage(10, 10, None, Some("model-a"));
+            registry.token().record_token_usage(
+                &crate::collectors::TokenUsageRecord {
+                    labels: call.clone(),
+                    prompt_tokens: 10,
+                    completion_tokens: 10,
+                    total_tokens: 20,
+                    reported_total_tokens: 20,
+                    ..Default::default()
+                },
+            );
         }
         for _ in 0..4 {
             registry
                 .token()
-                .record_request(10.0, false, Some("timeout"), Some("model-a"));
+                .record_request(10.0, false, Some("timeout"), &call);
         }
         let report = generate_report(&registry, &ReportOptions::default()).await;
         assert!(report

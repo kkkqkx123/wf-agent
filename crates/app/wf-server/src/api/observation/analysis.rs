@@ -28,6 +28,10 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/mentions/search", get(handle_mention_search))
         .route("/analysis/llm-metrics", get(handle_llm_metrics))
         .route(
+            "/analysis/llm-metrics/execution/{id}",
+            get(handle_execution_llm_metrics),
+        )
+        .route(
             "/analysis/performance/compare",
             get(handle_performance_compare),
         )
@@ -217,6 +221,25 @@ pub(crate) async fn handle_mention_search(
 pub(crate) async fn handle_llm_metrics(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::analysis::llm_metrics::agent_llm_metrics(&state.ctx).await {
         Ok(metrics) => ok(metrics).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/analysis/llm-metrics/execution/{id}",
+    tag = "observation",
+    params(IdPath),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_execution_llm_metrics(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::analysis::llm_metrics::execution_token_usage(&state.ctx, &path.id).await {
+        Ok(Some(usage)) => ok(usage).into_response(),
+        Ok(None) => error_response(wf_api::ApiError::not_found("llm_usage", &path.id)),
         Err(e) => error_response(e),
     }
 }

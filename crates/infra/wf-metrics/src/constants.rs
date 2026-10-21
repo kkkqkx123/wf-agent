@@ -39,10 +39,31 @@ pub mod tool_metrics {
 }
 
 pub mod token_metrics {
+    /// Total tokens consumed, normalized to a provider-independent scope.
     pub const TOTAL_TOKENS: &str = "token.usage.total";
+    /// Input tokens exactly as the provider reported them. The placement of
+    /// the cached input inside this number varies per provider.
     pub const PROMPT_TOKENS: &str = "token.usage.prompt";
+    /// Output tokens exactly as the provider reported them.
     pub const COMPLETION_TOKENS: &str = "token.usage.completion";
+    /// Input tokens that were not served from the cache.
+    pub const INPUT_TOKENS: &str = "token.usage.input";
+    /// Output tokens, normalized to a provider-independent scope.
+    pub const OUTPUT_TOKENS: &str = "token.usage.output";
+    /// Reasoning tokens reported by the provider.
+    pub const REASONING_TOKENS: &str = "token.usage.reasoning";
+    /// Input tokens served from the prompt cache.
+    pub const CACHE_READ_TOKENS: &str = "token.usage.cache_read";
+    /// Input tokens written into the prompt cache.
+    pub const CACHE_WRITE_TOKENS: &str = "token.usage.cache_write";
+    /// Total tokens as reported by the provider, kept for reconciliation
+    /// against the normalized total.
+    pub const REPORTED_TOTAL_TOKENS: &str = "token.usage.reported_total";
     pub const COST: &str = "token.cost.total";
+    /// Cost of the input part of a request.
+    pub const PROMPT_COST: &str = "token.cost.prompt";
+    /// Cost of the output part of a request.
+    pub const COMPLETION_COST: &str = "token.cost.completion";
     pub const REQUEST_COUNT: &str = "token.request.count";
     pub const REQUEST_DURATION: &str = "token.request.duration";
     pub const ERROR_COUNT: &str = "token.request.error.count";
@@ -51,6 +72,37 @@ pub mod token_metrics {
     pub const FIRST_TOKEN_DURATION: &str = "token.stream.first_token.duration";
     pub const GENERATION_DURATION: &str = "token.stream.generation.duration";
     pub const GENERATION_TOKENS: &str = "token.stream.generation.tokens";
+    /// End-to-end duration of a streamed request.
+    pub const STREAM_TOTAL_DURATION: &str = "token.stream.total.duration";
+    /// Number of chunks a streamed request produced.
+    pub const STREAM_CHUNK_COUNT: &str = "token.stream.chunk.count";
+    /// Share of the input that was served from the cache.
+    pub const CACHE_HIT_RATIO: &str = "token.cache.hit.ratio";
+    /// Requests that were served at least partly from the cache.
+    pub const CACHE_REQUEST_HIT_COUNT: &str = "token.cache.request.hit.count";
+    /// Requests without any cache read.
+    pub const CACHE_REQUEST_MISS_COUNT: &str = "token.cache.request.miss.count";
+    /// Requests that wrote into the cache.
+    pub const CACHE_WRITE_COUNT: &str = "token.cache.write.count";
+    /// Cost the cache saved against pricing every input token at the base
+    /// rate.
+    pub const CACHE_SAVED_COST: &str = "token.cache.saved.cost";
+    /// Delay from the request to the first reasoning chunk.
+    pub const REASONING_DURATION: &str = "token.reasoning.duration";
+    /// Length of the streamed reasoning text.
+    pub const REASONING_CHARACTERS: &str = "token.reasoning.characters";
+    /// Share of the output that came from reasoning.
+    pub const REASONING_RATIO: &str = "token.reasoning.ratio";
+    /// Input tokens of a single request.
+    pub const REQUEST_INPUT_TOKENS: &str = "token.request.input_tokens";
+    /// Output tokens of a single request.
+    pub const REQUEST_OUTPUT_TOKENS: &str = "token.request.output_tokens";
+    /// Total tokens of a single request.
+    pub const REQUEST_TOTAL_TOKENS: &str = "token.request.total_tokens";
+    /// Requests whose usage was produced locally.
+    pub const ESTIMATED_REQUEST_COUNT: &str = "token.usage.estimated.count";
+    /// Tokens attributed to locally estimated requests.
+    pub const ESTIMATED_TOKENS: &str = "token.usage.estimated.tokens";
 }
 
 pub mod error_metrics {
@@ -233,7 +285,15 @@ mod tests {
             token_metrics::TOTAL_TOKENS,
             token_metrics::PROMPT_TOKENS,
             token_metrics::COMPLETION_TOKENS,
+            token_metrics::INPUT_TOKENS,
+            token_metrics::OUTPUT_TOKENS,
+            token_metrics::REASONING_TOKENS,
+            token_metrics::CACHE_READ_TOKENS,
+            token_metrics::CACHE_WRITE_TOKENS,
+            token_metrics::REPORTED_TOTAL_TOKENS,
             token_metrics::COST,
+            token_metrics::PROMPT_COST,
+            token_metrics::COMPLETION_COST,
             token_metrics::REQUEST_COUNT,
             token_metrics::REQUEST_DURATION,
             token_metrics::ERROR_COUNT,
@@ -242,6 +302,21 @@ mod tests {
             token_metrics::FIRST_TOKEN_DURATION,
             token_metrics::GENERATION_DURATION,
             token_metrics::GENERATION_TOKENS,
+            token_metrics::STREAM_TOTAL_DURATION,
+            token_metrics::STREAM_CHUNK_COUNT,
+            token_metrics::CACHE_HIT_RATIO,
+            token_metrics::CACHE_REQUEST_HIT_COUNT,
+            token_metrics::CACHE_REQUEST_MISS_COUNT,
+            token_metrics::CACHE_WRITE_COUNT,
+            token_metrics::CACHE_SAVED_COST,
+            token_metrics::REASONING_DURATION,
+            token_metrics::REASONING_CHARACTERS,
+            token_metrics::REASONING_RATIO,
+            token_metrics::REQUEST_INPUT_TOKENS,
+            token_metrics::REQUEST_OUTPUT_TOKENS,
+            token_metrics::REQUEST_TOTAL_TOKENS,
+            token_metrics::ESTIMATED_REQUEST_COUNT,
+            token_metrics::ESTIMATED_TOKENS,
             error_metrics::OCCURRENCE_COUNT,
             error_metrics::RECOVERY_RATE,
             error_metrics::AFFECTED_EXECUTIONS,

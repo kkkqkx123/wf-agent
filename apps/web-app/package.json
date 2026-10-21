@@ -17,7 +17,7 @@
 		"test:watch": "vitest",
 		"lint": "eslint .",
 		"lint:fix": "eslint . --fix",
-		"lint:i18n": "node scripts/check-i18n.mjs",
+		"lint:i18n": "node scripts/merge-fragments.mjs && node scripts/check-i18n.mjs",
 		"format": "prettier --write .",
 		"format:check": "prettier --check ."
 	},

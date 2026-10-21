@@ -9,7 +9,7 @@
  * string key.
  */
 import { m } from '$paraglide/messages.js';
-import { getLocale, locales, setLocale } from '$paraglide/runtime.js';
+import { getLocale, locales, setLocale as paraglideSetLocale } from '$paraglide/runtime.js';
 
 export type Locale = (typeof locales)[number];
 
@@ -18,12 +18,19 @@ export const DEFAULT_LOCALE: Locale = 'en';
 
 export type MessageKey = keyof typeof m;
 
+/**
+ * Value type expected by a single message. Paraglide compiles each message into
+ * a function whose first argument carries its placeholders, so this resolves to
+ * that argument type instead of a loose record.
+ */
+export type MessageValues<K extends MessageKey> = Parameters<(typeof m)[K]>[0];
+
 /** Renders one message in the active locale. */
-export function t(
-	key: MessageKey,
-	values?: Record<string, string | number>,
+export function t<K extends MessageKey>(
+	key: K,
+	values?: MessageValues<K>,
 ): string {
-	return (m[key] as (values?: Record<string, unknown>) => string)(values);
+	return (m[key] as (values?: unknown) => string)(values);
 }
 
 /**
@@ -31,10 +38,17 @@ export function t(
  * entries and option lists.
  */
 export function message(key: MessageKey): () => string {
-	return () => t(key);
+	return () => (t as (key: MessageKey, ...args: any[]) => string)(key);
 }
 
-export { getLocale, setLocale };
+export function setLocale(
+	locale: Locale,
+	options?: { reload?: boolean },
+): ReturnType<typeof paraglideSetLocale> {
+	return paraglideSetLocale(locale, options);
+}
+
+export { getLocale };
 
 /** Active locale, for `Intl` formatting outside components. */
 export function currentLocale(): Locale {

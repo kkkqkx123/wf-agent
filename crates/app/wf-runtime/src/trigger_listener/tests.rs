@@ -1695,6 +1695,7 @@ fn template_with_nodes() -> WorkflowTemplate {
                 author: None,
                 tags: None,
                 category: None,
+                ..Default::default()
             }),
             available_tools: None,
             hooks: None,

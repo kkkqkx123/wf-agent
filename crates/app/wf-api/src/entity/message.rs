@@ -342,6 +342,8 @@ pub(crate) fn message_text(message: &Message) -> String {
                 MessageContent::ToolResult { tool_result } => Some(tool_result.content.clone()),
                 MessageContent::ToolUse { .. }
                 | MessageContent::ImageUrl { .. }
+                | MessageContent::InputAudio { .. }
+                | MessageContent::FileInput { .. }
                 | MessageContent::RedactedThinking { .. } => None,
             })
             .collect::<Vec<_>>()

@@ -518,7 +518,13 @@ export class TemplateEditController {
 		if (!kind || this.isNew) return;
 		try {
 			await deleteTemplate(kind, this.routeIdParam);
-			toasts.success('Template deleted');
+			// A workflow template is the user's own workflow, published:
+			// removing it from the library leaves the workflow in place.
+			toasts.success(
+				kind === 'workflow'
+					? 'Removed from the template library'
+					: 'Template deleted',
+			);
 			await this.backToLibrary();
 		} catch (e) {
 			toasts.error('Delete failed', e instanceof Error ? e.message : undefined);

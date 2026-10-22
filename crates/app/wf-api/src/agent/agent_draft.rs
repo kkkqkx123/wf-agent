@@ -41,6 +41,22 @@ pub async fn list_drafts(ctx: &ApiContext) -> ApiResult<Vec<wf_types::agent::Age
     ctx.storage.agent_draft.list(None).await.map_err(Into::into)
 }
 
+/// The drafts that belong to one agent definition.
+///
+/// A draft is a revision of one definition, so it is stored under that
+/// definition's id; the drafts of a definition are the ones filed under
+/// it.
+pub async fn list_drafts_of(
+    ctx: &ApiContext,
+    definition_id: &str,
+) -> ApiResult<Vec<wf_types::agent::AgentDefinition>> {
+    Ok(list_drafts(ctx)
+        .await?
+        .into_iter()
+        .filter(|draft| draft.id == definition_id)
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -26,6 +26,7 @@ pub fn workflow_metadata(tags: &[&str]) -> WorkflowMetadata {
         author: Some("system".into()),
         tags: Some(tags.iter().map(|tag| (*tag).to_string()).collect()),
         category: Some("system".into()),
+        ..Default::default()
     }
 }
 

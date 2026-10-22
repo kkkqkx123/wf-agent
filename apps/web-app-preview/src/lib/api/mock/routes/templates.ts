@@ -36,7 +36,10 @@ export function registerTemplates(router: MockRouter): void {
 		return camelToSnakeDeep(templates.find((t) => t.kind === 'trigger') ?? undefined);
 	});
 	router.on('GET', '/api/v1/templates/library/workflows/{id}', () => {
-		return camelToSnakeDeep(templates.find((t) => t.kind === 'workflow') ?? undefined);
+		const template = templates.find((t) => t.kind === 'workflow');
+		// The library lists published entries only, so the sample entry is
+		// published.
+		return camelToSnakeDeep({ ...template, is_published: true });
 	});
 	router.on('GET', '/api/v1/templates/library/agents/{id}', () => {
 		return camelToSnakeDeep(templates.find((t) => t.kind === 'agent') ?? undefined);
@@ -48,4 +51,7 @@ export function registerTemplates(router: MockRouter): void {
 	router.on('POST', '/api/v1/templates/library/agents/import', () => 'preview-template-id');
 	router.on('GET', '/api/v1/templates/library/workflows/{id}/export', () => ({}));
 	router.on('GET', '/api/v1/templates/library/agents/{id}/export', () => ({}));
+	// Publishing answers with the workflow id it acted on.
+	router.on('POST', '/api/v1/templates/library/workflows/{id}/publish', (params) => params.id);
+	router.on('POST', '/api/v1/templates/library/workflows/{id}/unpublish', (params) => params.id);
 }

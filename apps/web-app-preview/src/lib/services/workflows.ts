@@ -34,6 +34,18 @@ interface WorkflowDto {
 	runs?: number;
 	success_rate?: number | null;
 	successRate?: number | null;
+	/** Whether the workflow is published to the template library. */
+	published?: boolean;
+	/** The workflow definition's own metadata. */
+	metadata?: {
+		author?: string;
+		tags?: string[];
+		category?: string;
+		published?: boolean;
+		is_public?: boolean;
+		is_system?: boolean;
+		enabled?: boolean;
+	};
 }
 
 function parseVersion(
@@ -69,6 +81,7 @@ function toWorkflow(d: WorkflowDto): Workflow {
 		updatedAt: toIso(d.updated_at ?? d.updatedAt),
 		runs: d.runs ?? 0,
 		successRate: d.success_rate ?? d.successRate ?? null,
+		published: d.published ?? d.metadata?.published ?? false,
 	};
 }
 
@@ -106,9 +119,9 @@ export async function getWorkflowDetail(id: string): Promise<WorkflowDetail> {
 	const [graph, versions, drafts] = await Promise.all([
 		getWorkflowGraph(id),
 		listDefinitionVersions('workflow', id),
-		listDefinitionDrafts('workflow'),
+		listDefinitionDrafts('workflow', id),
 	]);
-	return { ...base, id, graph, versions, drafts };
+	return { ...base, id, graph, versions, drafts, metadata: data.metadata };
 }
 
 /** Compatibility alias. */

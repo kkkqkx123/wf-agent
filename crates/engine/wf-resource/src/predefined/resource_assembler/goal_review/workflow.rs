@@ -308,6 +308,7 @@ pub(crate) fn build_workflow(config: &GoalReviewConfig) -> Result<WorkflowTempla
                     "agent-loop".into(),
                 ]),
                 category: Some("code-review".into()),
+                ..Default::default()
             }),
             available_tools: None,
             created_at: t,

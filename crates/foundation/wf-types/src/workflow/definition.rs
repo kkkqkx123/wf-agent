@@ -19,7 +19,7 @@ pub enum WorkflowDefinitionType {
     Dependent,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct WorkflowMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
@@ -27,6 +27,23 @@ pub struct WorkflowMetadata {
     pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
+    /// Whether the workflow is published to the template library.
+    ///
+    /// The marker lives with the definition because the registry is in
+    /// memory: a definition is the only place a publish decision can
+    /// outlive a restart. The registry entry derives its published state
+    /// from here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub published: Option<bool>,
+    /// Whether anyone may use the workflow from the template library.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_public: Option<bool>,
+    /// Whether the workflow is a system fixture rather than a user entry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_system: Option<bool>,
+    /// Whether the workflow may be run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
 }
 
 /// Terminal-failure fallback policy declared by a compression summary

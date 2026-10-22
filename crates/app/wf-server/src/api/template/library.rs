@@ -41,6 +41,10 @@ pub(crate) fn routes() -> Router<ApiState> {
                 .delete(handle_delete_workflow_template),
         )
         .route(
+            "/templates/library/workflows/{id}/publish",
+            post(handle_publish_workflow_template),
+        )
+        .route(
             "/templates/library/workflows/{id}/unpublish",
             post(handle_unpublish_workflow_template),
         )
@@ -298,6 +302,7 @@ pub(crate) async fn handle_clone_template(
             .map(|t| serde_json::to_value(&t).unwrap_or_default())
     } else {
         wf_api::template::template_library::clone_workflow_template(&state.ctx, &path.id, &new_name)
+            .await
             .map(|t| serde_json::to_value(&t).unwrap_or_default())
     };
     match result {
@@ -354,7 +359,8 @@ pub(crate) async fn handle_register_workflow_template(
     State(state): State<ApiState>,
     Json(template): Json<wf_api::WorkflowTemplate>,
 ) -> impl IntoResponse {
-    match wf_api::template::template_library::register_workflow_template(&state.ctx, &template) {
+    match wf_api::template::template_library::register_workflow_template(&state.ctx, &template).await
+    {
         Ok(()) => ok(template.id.to_string()).into_response(),
         Err(e) => error_response(e),
     }
@@ -375,7 +381,7 @@ pub(crate) async fn handle_update_workflow_template(
     Json(mut template): Json<wf_api::WorkflowTemplate>,
 ) -> impl IntoResponse {
     template.id = wf_api::Id::from(path.id.clone());
-    match wf_api::template::template_library::update_workflow_template(&state.ctx, &template) {
+    match wf_api::template::template_library::update_workflow_template(&state.ctx, &template).await {
         Ok(()) => ok(path.id).into_response(),
         Err(e) => error_response(e),
     }
@@ -401,6 +407,24 @@ pub(crate) async fn handle_delete_workflow_template(
 
 #[utoipa::path(
     post,
+    path = "/api/v1/templates/library/workflows/{id}/publish",
+    tag = "template",
+    params(IdPath),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<String>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_publish_workflow_template(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::template::template_library::publish_workflow_template(&state.ctx, &path.id).await {
+        Ok(()) => ok(path.id).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
     path = "/api/v1/templates/library/workflows/{id}/unpublish",
     tag = "template",
     params(IdPath),
@@ -411,7 +435,7 @@ pub(crate) async fn handle_unpublish_workflow_template(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::template::template_library::unpublish_workflow_template(&state.ctx, &path.id) {
+    match wf_api::template::template_library::unpublish_workflow_template(&state.ctx, &path.id).await {
         Ok(()) => ok(path.id).into_response(),
         Err(e) => error_response(e),
     }
@@ -538,7 +562,8 @@ pub(crate) async fn handle_import_workflow_template(
             Ok(template) => template,
             Err(e) => return error_response(e),
         };
-    match wf_api::template::template_library::register_workflow_template(&state.ctx, &template) {
+    match wf_api::template::template_library::register_workflow_template(&state.ctx, &template).await
+    {
         Ok(()) => ok(template.id.to_string()).into_response(),
         Err(e) => error_response(e),
     }

@@ -3,12 +3,12 @@
 //! Draft/Formal/Expired lifecycle view. Thin transport adapters over the
 //! shared draft service at `wf-api::definition::draft`.
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::Serialize;
-use utoipa::ToSchema;
+use serde::{Deserialize, Serialize};
+use utoipa::{IntoParams, ToSchema};
 
 use crate::api::definition::drafts::ValidationIssueDoc;
 use crate::envelope::{error_response, ok};
@@ -38,16 +38,33 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/workflows/{id}/lifecycle", get(handle_lifecycle))
 }
 
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct DraftListQuery {
+    /// Narrow the list to the drafts of one definition.
+    definition_id: Option<String>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/workflows/drafts",
     operation_id = "get_workflows_drafts",
     tag = "workflow",
+    params(DraftListQuery),
     responses((status = 200, description = "Draft list: array of full workflow definitions (free-form; drafts may be incomplete and never execute directly)", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
-pub(crate) async fn handle_list_drafts(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::workflow::draft::list_drafts(&state.ctx).await {
+pub(crate) async fn handle_list_drafts(
+    State(state): State<ApiState>,
+    Query(query): Query<DraftListQuery>,
+) -> impl IntoResponse {
+    let drafts = match query.definition_id {
+        Some(definition_id) => {
+            wf_api::workflow::draft::list_drafts_of(&state.ctx, &definition_id).await
+        }
+        None => wf_api::workflow::draft::list_drafts(&state.ctx).await,
+    };
+    match drafts {
         Ok(drafts) => ok(drafts).into_response(),
         Err(e) => error_response(e),
     }

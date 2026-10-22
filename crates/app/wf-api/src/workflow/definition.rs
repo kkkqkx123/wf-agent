@@ -6,12 +6,13 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use wf_common;
+use wf_core::registry::Registry;
 use wf_resource::registry::ResourceRegistries;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::adapter::execution::WorkflowExecutionListOptions;
 use wf_storage::adapter::workflow::{WorkflowListOptions, WorkflowStorageAdapter};
 use wf_storage::domain::Store;
-use wf_types::workflow::{WorkflowMetadata, WorkflowTemplate};
+use wf_types::workflow::WorkflowTemplate;
 use wf_types::WorkflowDefinition;
 
 use crate::workflow::execution::delete_execution;
@@ -234,11 +235,7 @@ pub async fn update_workflow_metadata(
         workflow.description = value.as_str().map(String::from);
     }
     let previous_meta = workflow.metadata.clone();
-    let mut workflow_meta = previous_meta.unwrap_or(WorkflowMetadata {
-        author: None,
-        tags: None,
-        category: None,
-    });
+    let mut workflow_meta = previous_meta.unwrap_or_default();
     if let Some(value) = metadata.get("category") {
         workflow_meta.category = value.as_str().map(String::from);
     }
@@ -259,21 +256,41 @@ pub async fn update_workflow_metadata(
 /// Register the workflow in the execution index. A registry failure fails
 /// the whole save: validation failure equals registration failure, so the
 /// storage write and the index entry never silently diverge.
+///
+/// The library facts come from the definition, which is the only place a
+/// publish or governance decision can outlive a restart. A definition that
+/// states no fact keeps the one the registered entry already carries, so
+/// an entry written by the resource assembly — a system fixture — stays
+/// what it is.
 pub fn upsert_workflow_registry(
     registries: &Arc<ResourceRegistries>,
     workflow: &WorkflowDefinition,
 ) -> crate::ApiResult<()> {
+    let existing = registries.workflows.get(&workflow.id.to_string());
+    let metadata = workflow.metadata.as_ref();
     let template = WorkflowTemplate {
         id: workflow.id.clone(),
         name: workflow.name.clone(),
         description: workflow.description.clone().unwrap_or_default(),
         definition: workflow.clone(),
-        template_category: workflow.metadata.as_ref().and_then(|m| m.category.clone()),
-        template_tags: workflow.metadata.as_ref().and_then(|m| m.tags.clone()),
-        is_public: None,
-        is_system: None,
-        enabled: Some(true),
-        is_published: Some(false),
+        template_category: metadata.and_then(|m| m.category.clone()),
+        template_tags: metadata.and_then(|m| m.tags.clone()),
+        is_public: metadata
+            .and_then(|m| m.is_public)
+            .or_else(|| existing.as_ref().and_then(|t| t.is_public)),
+        is_system: metadata
+            .and_then(|m| m.is_system)
+            .or_else(|| existing.as_ref().and_then(|t| t.is_system)),
+        enabled: metadata
+            .and_then(|m| m.enabled)
+            .or_else(|| existing.as_ref().and_then(|t| t.enabled))
+            .or(Some(true)),
+        is_published: Some(
+            metadata
+                .and_then(|m| m.published)
+                .or_else(|| existing.as_ref().and_then(|t| t.is_published))
+                .unwrap_or(false),
+        ),
     };
     registries
         .upsert_workflow_template(template)

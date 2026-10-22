@@ -16,6 +16,8 @@
 	import DefinitionCapabilities from '#lib/components/domain/DefinitionCapabilities.svelte';
 	import {
 		getTemplateDetail,
+		publishWorkflowTemplate,
+		unpublishWorkflowTemplate,
 		type TemplateDetail,
 	} from '#lib/services/templates';
 	import type { TemplateKind } from '#lib/types/models';
@@ -25,6 +27,7 @@
 		type DetailView,
 	} from '#lib/templates/template-edit-session.svelte';
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
+	import { toasts } from '#lib/stores/toast.svelte';
 	import { t } from '#lib/i18n';
 
 	const KINDS: readonly TemplateKind[] = [
@@ -53,6 +56,10 @@
 	let detailLoading = $state(true);
 	let detailError = $state<string | null>(null);
 	let loadedKey = $state('');
+	let publishBusy = $state(false);
+
+	/** Whether the workflow template is published to the library. */
+	const published = $derived(detail?.template.published === true);
 
 	const controller = new TemplateEditController({
 		kind: () => kind,
@@ -148,6 +155,41 @@
 		return () => window.removeEventListener('beforeunload', onBeforeUnload);
 	});
 
+	/**
+	 * Publish the workflow to the library or take it back out of it. The
+	 * published mark belongs to the definition, so the entry is re-read
+	 * afterwards to show the state that was stored.
+	 */
+	async function runTogglePublish(): Promise<void> {
+		const id = routeIdParam;
+		if (!id || kind !== 'workflow' || publishBusy) return;
+		publishBusy = true;
+		try {
+			if (published) {
+				await unpublishWorkflowTemplate(id);
+				toasts.success(t('page.templateDetail.unpublished'));
+			} else {
+				await publishWorkflowTemplate(id);
+				toasts.success(t('page.templateDetail.published'));
+			}
+			// The address carries the view the user is on; re-reading it
+			// keeps that view instead of dropping back to the preview.
+			const viewParam = parseListParams(page.url as unknown as URL).tab;
+			await loadDetail(
+				'workflow',
+				id,
+				isView(viewParam) ? viewParam : 'preview',
+			);
+		} catch (e) {
+			toasts.error(
+				t('page.templateDetail.publishFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			publishBusy = false;
+		}
+	}
+
 	beforeNavigate((navigation) => {
 		if (navigation.willUnload) return;
 		if (!controller.editDirty()) return;
@@ -177,6 +219,19 @@
 				>
 					<Icon name="blocks" size={13} />
 					Insert as {controller.insertNodeType}
+				</Button>
+			{/if}
+			{#if kind === 'workflow' && !isNew && detail}
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={publishBusy}
+					onclick={() => void runTogglePublish()}
+				>
+					<Icon name={published ? 'archive' : 'upload'} size={13} />
+					{published
+						? t('page.templateDetail.unpublish')
+						: t('page.templateDetail.publish')}
 				</Button>
 			{/if}
 			<Button variant="ghost" size="sm" href="/templates">

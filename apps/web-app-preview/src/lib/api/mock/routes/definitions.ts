@@ -9,7 +9,7 @@ import { FIXTURE_EPOCH } from '#lib/fixtures/clock';
 import { camelToSnakeDeep, type MockRouter } from '../router';
 
 const WORKFLOW_DRAFT = {
-	id: 'release-pipeline-draft',
+	id: 'wf-release-train',
 	name: 'Release pipeline (draft)',
 	description: 'Builds, signs and publishes a release bundle.',
 	version: '3.1.0',
@@ -22,7 +22,7 @@ const WORKFLOW_DRAFT = {
 };
 
 const AGENT_DRAFT = {
-	id: 'triage-agent-draft',
+	id: 'tpl-6',
 	name: 'Triage agent (draft)',
 	description: 'Reads an incident and proposes the next action.',
 	version: '0.4.0',
@@ -80,7 +80,20 @@ function lockHolder(body: unknown): {
 
 export function registerDefinitions(router: MockRouter): void {
 	// ---------- workflow drafts ----------
-	router.on('GET', '/api/v1/workflows/drafts', () => [WORKFLOW_DRAFT]);
+	// A definition id narrows the list to the drafts of that definition: the
+	// draft filed under the definition itself and the one the canvas editor
+	// writes for it.
+	router.on('GET', '/api/v1/workflows/drafts', (_p, query) => {
+		const definitionId = query.definition_id;
+		if (typeof definitionId !== 'string' || definitionId === '') {
+			return [WORKFLOW_DRAFT];
+		}
+		return [WORKFLOW_DRAFT].filter(
+			(draft) =>
+				draft.id === definitionId ||
+				draft.id === `${definitionId}-canvas`,
+		);
+	});
 	router.on('GET', '/api/v1/workflows/drafts/{id}', () => WORKFLOW_DRAFT);
 	router.on('GET', '/api/v1/workflows/drafts/{id}/validate', () => []);
 	router.on('POST', '/api/v1/workflows/drafts', (_p, _q, body) => {
@@ -99,7 +112,13 @@ export function registerDefinitions(router: MockRouter): void {
 	router.on('POST', '/api/v1/workflows/{id}/rollback', () => ({}));
 
 	// ---------- agent drafts ----------
-	router.on('GET', '/api/v1/agents/drafts', () => [AGENT_DRAFT]);
+	router.on('GET', '/api/v1/agents/drafts', (_p, query) => {
+		const definitionId = query.definition_id;
+		if (typeof definitionId !== 'string' || definitionId === '') {
+			return [AGENT_DRAFT];
+		}
+		return [AGENT_DRAFT].filter((draft) => draft.id === definitionId);
+	});
 	router.on('GET', '/api/v1/agents/drafts/{id}', () => AGENT_DRAFT);
 	router.on('GET', '/api/v1/agents/drafts/{id}/validate', () => []);
 	router.on('POST', '/api/v1/agents/drafts', (_p, _q, body) => {

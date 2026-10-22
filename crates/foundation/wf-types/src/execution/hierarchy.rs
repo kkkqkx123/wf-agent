@@ -25,7 +25,7 @@ impl ExecutionType {
     /// rejected rather than aliased.
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
-            "workflow" | "workflows" => Some(Self::Workflow),
+            "workflow" => Some(Self::Workflow),
             "agent" => Some(Self::Agent),
             "chat" => Some(Self::Chat),
             _ => None,

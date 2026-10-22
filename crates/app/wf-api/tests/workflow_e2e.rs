@@ -370,6 +370,7 @@ async fn workflow_search_and_versioned_update_via_api() {
         author: Some("alice".into()),
         tags: Some(vec!["finance".into(), "core".into()]),
         category: Some("finance".into()),
+        ..Default::default()
     });
     save_workflow(&ctx, &billing).await.unwrap();
 
@@ -379,6 +380,7 @@ async fn workflow_search_and_versioned_update_via_api() {
         author: Some("bob".into()),
         tags: Some(vec!["compliance".into()]),
         category: Some("ops".into()),
+        ..Default::default()
     });
     save_workflow(&ctx, &audit).await.unwrap();
 

@@ -261,8 +261,10 @@ impl Runtime {
                     );
                 }
             }
-            // Hydrate persisted workflows into the runtime registry (unpublished)
-            // so tool dispatch and subgraph resolution see them after restart.
+            // Hydrate persisted workflows into the runtime registry so tool
+            // dispatch and subgraph resolution see them after restart. Each
+            // workflow keeps the published state its definition carries, so
+            // a published workflow stays in the template library.
             if let Ok(workflows) = storage_ctx
                 .workflow
                 .list(Some(wf_storage::adapter::workflow::WorkflowListOptions::default()))

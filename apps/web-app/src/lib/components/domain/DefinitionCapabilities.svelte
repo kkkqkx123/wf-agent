@@ -42,7 +42,7 @@
 		loadError = null;
 		try {
 			const [loadedDrafts, loadedVersions] = await Promise.all([
-				listDefinitionDrafts(kind),
+				listDefinitionDrafts(kind, definitionId),
 				listDefinitionVersions(kind, definitionId),
 			]);
 			drafts = loadedDrafts;

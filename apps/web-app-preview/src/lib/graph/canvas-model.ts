@@ -1,5 +1,15 @@
 /** Shared geometry types for the graph canvas and its logic modules. */
 
+/**
+ * The draft document the canvas editor writes a workflow's edits under.
+ *
+ * A draft is a document of its own, so it carries its own id; the suffix
+ * ties it back to the workflow whose canvas produced it.
+ */
+export function canvasDraftId(workflowId: string): string {
+	return `${workflowId}-canvas`;
+}
+
 export interface CanvasPosition {
 	x: number;
 	y: number;

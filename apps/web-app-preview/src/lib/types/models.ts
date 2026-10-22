@@ -347,12 +347,31 @@ export interface Workflow {
 	updatedAt: string;
 	runs: number;
 	successRate: number | null;
+	/** Whether the workflow is published to the template library. */
+	published: boolean;
 }
 
 export interface WorkflowDetail extends Workflow {
 	graph: WorkflowGraph;
 	versions: DefinitionVersion[];
 	drafts: DefinitionDraft[];
+	/** The workflow definition's own metadata. */
+	metadata?: WorkflowMetadata;
+}
+
+/** The workflow definition's own metadata. */
+export interface WorkflowMetadata {
+	author?: string;
+	tags?: string[];
+	category?: string;
+	/** Whether the workflow is published to the template library. */
+	published?: boolean;
+	/** Whether anyone may use the workflow from the template library. */
+	is_public?: boolean;
+	/** Whether the workflow is a system fixture rather than a user entry. */
+	is_system?: boolean;
+	/** Whether the workflow may be run. */
+	enabled?: boolean;
 }
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
@@ -563,6 +582,8 @@ export interface Template {
 	enabled?: GovernanceFlag;
 	isPublic?: GovernanceFlag;
 	isSystem?: GovernanceFlag;
+	/** Whether the template is published to the library. */
+	published?: GovernanceFlag;
 	author?: string | null;
 }
 

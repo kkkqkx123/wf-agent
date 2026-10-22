@@ -24,6 +24,10 @@
 		getWorkflowDetail,
 	} from '#lib/services/workflows';
 	import {
+		publishWorkflowTemplate,
+		unpublishWorkflowTemplate,
+	} from '#lib/services/templates';
+	import {
 		promoteDefinitionDraft,
 		validateDefinitionDraft,
 	} from '#lib/services/definitions';
@@ -58,6 +62,7 @@
 	let detail = $state<WorkflowDetail | null>(null);
 	let detailError = $state<string | null>(null);
 	let detailLoading = $state(true);
+	let publishBusy = $state(false);
 
 	const workflow = $derived(detail);
 
@@ -121,6 +126,34 @@
 				t('page.workflowDetail.promotionFailed'),
 				e instanceof Error ? e.message : undefined,
 			);
+		}
+	}
+
+	/**
+	 * Publish the workflow to the template library, or take it back out of
+	 * it. The published state belongs to the definition, so the page
+	 * re-reads the workflow to show the state that was stored.
+	 */
+	async function runTogglePublish(): Promise<void> {
+		const id = page.params.id;
+		if (!id || !workflow || publishBusy) return;
+		publishBusy = true;
+		try {
+			if (workflow.published) {
+				await unpublishWorkflowTemplate(id);
+				toasts.success(t('page.workflowDetail.unpublished'));
+			} else {
+				await publishWorkflowTemplate(id);
+				toasts.success(t('page.workflowDetail.published'));
+			}
+			await load(id);
+		} catch (e) {
+			toasts.error(
+				t('page.workflowDetail.publishFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			publishBusy = false;
 		}
 	}
 
@@ -253,6 +286,19 @@
 				label={t('page.workflowDetail.editGraph')}
 				onclick={() => session.requestTab('edit')}
 			/>
+			{#if workflow}
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={publishBusy}
+					onclick={() => void runTogglePublish()}
+				>
+					<Icon name={workflow.published ? 'archive' : 'upload'} size={13} />
+					{workflow.published
+						? t('page.workflowDetail.unpublish')
+						: t('page.workflowDetail.publish')}
+				</Button>
+			{/if}
 			<Button
 				variant="outline"
 				size="sm"

@@ -232,6 +232,7 @@ mod tests {
                     author: Some("alice".into()),
                     tags: Some(vec!["ecommerce".into(), "core".into()]),
                     category: Some("sales".into()),
+                    ..Default::default()
                 }),
             ),
         )
@@ -247,6 +248,7 @@ mod tests {
                     author: Some("bob".into()),
                     tags: Some(vec!["ecommerce".into()]),
                     category: Some("ops".into()),
+                    ..Default::default()
                 }),
             ),
         )
@@ -342,6 +344,7 @@ mod tests {
                     author: Some("carol".into()),
                     tags: Some(vec!["alpha".into(), "beta".into()]),
                     category: Some("finance".into()),
+                    ..Default::default()
                 }),
             ),
         )
@@ -357,6 +360,7 @@ mod tests {
                     author: Some("carol".into()),
                     tags: Some(vec!["beta".into()]),
                     category: Some("hr".into()),
+                    ..Default::default()
                 }),
             ),
         )

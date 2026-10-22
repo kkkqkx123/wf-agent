@@ -81,7 +81,7 @@ done
 # source, and should never be copied between projects.
 #
 # src/lib/api/schema.d.ts is deliberately NOT excluded: the synced runtime
-# modules (envelope.ts, services/graph.ts, services/workflow-locks.ts) import
+# modules (envelope.ts, services/graph.ts, services/definitions.ts) import
 # types from it, so the preview must type-check against the same contract
 # declarations as the main app. Only the API client stays fixture-backed.
 RSYNC_EXCLUDES+=(

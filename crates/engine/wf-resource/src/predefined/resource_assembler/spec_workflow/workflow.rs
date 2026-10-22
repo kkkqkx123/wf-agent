@@ -313,6 +313,7 @@ pub(crate) fn build_workflow(config: &SpecWorkflowConfig) -> Result<WorkflowTemp
                 author: None,
                 tags: Some(vec!["spec-driven".into(), "planning".into()]),
                 category: Some("spec-driven".into()),
+                ..Default::default()
             }),
             created_at: t,
             updated_at: t,

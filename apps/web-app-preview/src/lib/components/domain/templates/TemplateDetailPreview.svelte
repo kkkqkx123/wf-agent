@@ -86,7 +86,9 @@
 	{/if}
 	{#if controller.deleteArmed}
 		<Button size="sm" onclick={() => void controller.runDelete()}>
-			{t('domain.template.confirmDelete')}
+			{kind === 'workflow'
+				? t('domain.template.confirmRemoveFromLibrary')
+				: t('domain.template.confirmDelete')}
 		</Button>
 		<Button
 			variant="ghost"
@@ -101,7 +103,9 @@
 			size="sm"
 			onclick={() => (controller.deleteArmed = true)}
 		>
-			{t('common.delete')}
+			{kind === 'workflow'
+				? t('domain.template.removeFromLibrary')
+				: t('common.delete')}
 		</Button>
 	{/if}
 </div>

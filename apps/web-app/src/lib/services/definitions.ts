@@ -114,14 +114,24 @@ function toDraft(
  * The drafts of one definition kind, each with its validation attached.
  * Drafts may be incomplete, so a draft that cannot be promoted is listed
  * with the issues that say why.
+ *
+ * A definition id narrows the list to the drafts of that definition: a
+ * draft is a revision of one definition, so the drafts of another
+ * definition are not part of this view.
  */
 export async function listDefinitionDrafts(
 	kind: DefinitionKind,
+	definitionId?: string,
 ): Promise<DefinitionDraft[]> {
+	const query = definitionId === undefined ? {} : { definition_id: definitionId };
 	const data =
 		kind === 'workflow'
-			? await call<unknown>(client.GET('/api/v1/workflows/drafts'))
-			: await call<unknown>(client.GET('/api/v1/agents/drafts'));
+			? await call<unknown>(
+					client.GET('/api/v1/workflows/drafts', { params: { query } }),
+				)
+			: await call<unknown>(
+					client.GET('/api/v1/agents/drafts', { params: { query } }),
+				);
 	const rows = Array.isArray(data) ? data : [];
 	const validated = await Promise.allSettled(
 		rows.map((row) => {

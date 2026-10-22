@@ -285,7 +285,11 @@ export class WorkflowEditSession {
 		try {
 			const savedId = await saveDefinitionDraft(
 				'workflow',
-				this.editStore.toDraftDefinition(id, this.detail.name),
+				this.editStore.toDraftDefinition(
+					id,
+					this.detail.name,
+					this.detail.metadata,
+				),
 			);
 			this.editDraftId = savedId;
 			this.editStore.markClean();

@@ -24,6 +24,7 @@ interface TemplateDto {
 	enabled?: boolean;
 	is_public?: boolean;
 	is_system?: boolean;
+	is_published?: boolean;
 }
 
 const KINDS: readonly TemplateKind[] = ['node', 'trigger', 'agent', 'workflow'];
@@ -65,6 +66,7 @@ function toTemplate(d: TemplateDto, fallbackKind: TemplateKind): Template {
 		enabled: d.enabled,
 		isPublic: d.is_public,
 		isSystem: d.is_system,
+		published: d.is_published,
 		author: d.author ?? null,
 	};
 }
@@ -117,6 +119,31 @@ export async function cloneTemplate(
 	const newId = typeof data?.id === 'string' ? data.id : '';
 	if (!newId) throw new Error('Clone returned no id');
 	return newId;
+}
+
+/**
+ * Publish a workflow to the template library. The published mark is written
+ * to the workflow definition, so the workflow stays published across a
+ * restart.
+ */
+export async function publishWorkflowTemplate(id: string): Promise<void> {
+	await call<string>(
+		client.POST('/api/v1/templates/library/workflows/{id}/publish', {
+			params: { path: { id } },
+		}),
+	);
+}
+
+/**
+ * Remove a workflow from the published library view. The workflow itself
+ * stays where it is and keeps running.
+ */
+export async function unpublishWorkflowTemplate(id: string): Promise<void> {
+	await call<string>(
+		client.POST('/api/v1/templates/library/workflows/{id}/unpublish', {
+			params: { path: { id } },
+		}),
+	);
 }
 
 /**
@@ -198,6 +225,10 @@ export async function getTemplateDetail(
 				is_system:
 					typeof record.is_system === 'boolean'
 						? record.is_system
+						: undefined,
+				is_published:
+					typeof record.is_published === 'boolean'
+						? record.is_published
 						: undefined,
 			},
 			kind,

@@ -305,11 +305,11 @@
 		</section>
 	{/each}
 
-	{#if executionType}
+	{#if executionType === 'agent' || executionType === 'workflow'}
 		<p class="text-micro text-muted-foreground">
 			{#if executionType === 'agent'}
 				{t('domain.history.agentLoopHint')}
-			{:else if executionType === 'workflow'}
+			{:else}
 				{t('domain.history.workflowHint')}
 			{/if}
 		</p>

@@ -16,6 +16,7 @@ export const workflows: Workflow[] = [
 		updatedAt: minutesAgo(120),
 		runs: 148,
 		successRate: 0.91,
+		published: true,
 	},
 	{
 		id: 'wf-incident-triage',
@@ -32,6 +33,7 @@ export const workflows: Workflow[] = [
 		updatedAt: minutesAgo(300),
 		runs: 61,
 		successRate: 0.78,
+		published: false,
 	},
 	{
 		id: 'wf-data-sync',
@@ -47,6 +49,7 @@ export const workflows: Workflow[] = [
 		updatedAt: minutesAgo(640),
 		runs: 902,
 		successRate: 0.99,
+		published: false,
 	},
 	{
 		id: 'wf-model-eval',
@@ -62,6 +65,7 @@ export const workflows: Workflow[] = [
 		updatedAt: minutesAgo(45),
 		runs: 76,
 		successRate: 0.84,
+		published: false,
 	},
 	{
 		id: 'wf-doc-pipeline',
@@ -77,6 +81,7 @@ export const workflows: Workflow[] = [
 		updatedAt: minutesAgo(1500),
 		runs: 12,
 		successRate: null,
+		published: false,
 	},
 	{
 		id: 'wf-cost-report',
@@ -92,6 +97,7 @@ export const workflows: Workflow[] = [
 		updatedAt: minutesAgo(880),
 		runs: 34,
 		successRate: 0.97,
+		published: false,
 	},
 	{
 		id: 'wf-sandbox-smoke',
@@ -107,6 +113,7 @@ export const workflows: Workflow[] = [
 		updatedAt: minutesAgo(4200),
 		runs: 5,
 		successRate: 0.6,
+		published: false,
 	},
 	{
 		id: 'wf-feedback-loop',
@@ -123,6 +130,7 @@ export const workflows: Workflow[] = [
 		updatedAt: minutesAgo(260),
 		runs: 0,
 		successRate: null,
+		published: false,
 	},
 ];
 

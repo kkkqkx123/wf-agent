@@ -63,6 +63,30 @@ pub async fn list_drafts(ctx: &ApiContext) -> ApiResult<Vec<wf_types::WorkflowDe
         .map_err(Into::into)
 }
 
+/// The id the canvas editor files a workflow's draft under.
+///
+/// A draft is a document of its own, so it carries its own id; the suffix
+/// ties it back to the workflow whose canvas produced it.
+pub fn canvas_draft_id(definition_id: &str) -> String {
+    format!("{definition_id}-canvas")
+}
+
+/// The drafts that belong to one workflow.
+///
+/// A workflow owns two kinds of draft: the one filed under its own id and
+/// the one the canvas editor writes for it.
+pub async fn list_drafts_of(
+    ctx: &ApiContext,
+    definition_id: &str,
+) -> ApiResult<Vec<wf_types::WorkflowDefinition>> {
+    let canvas = canvas_draft_id(definition_id);
+    Ok(list_drafts(ctx)
+        .await?
+        .into_iter()
+        .filter(|draft| draft.id == definition_id || draft.id == canvas)
+        .collect())
+}
+
 /// Internal validation for editor realtime hints: shape plus graph, no
 /// external references, no persistence, no state change.
 pub async fn validate_draft_internal(
@@ -243,5 +267,19 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, ApiError::Validation(_)));
         assert!(get_draft(&ctx, "draft-bad").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn list_drafts_of_narrows_to_one_definition() {
+        let ctx = make_ctx();
+        save_draft(&ctx, &formal_workflow("wf-owned")).await.unwrap();
+        save_draft(&ctx, &formal_workflow(&canvas_draft_id("wf-owned")))
+            .await
+            .unwrap();
+        save_draft(&ctx, &formal_workflow("wf-other")).await.unwrap();
+
+        let drafts = list_drafts_of(&ctx, "wf-owned").await.unwrap();
+        assert_eq!(drafts.len(), 2);
+        assert!(drafts.iter().all(|d| d.id.to_string().starts_with("wf-owned")));
     }
 }

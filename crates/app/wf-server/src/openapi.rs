@@ -405,6 +405,7 @@ use utoipa::OpenApi;
         crate::api::template::library::handle_register_workflow_template,
         crate::api::template::library::handle_update_workflow_template,
         crate::api::template::library::handle_delete_workflow_template,
+        crate::api::template::library::handle_publish_workflow_template,
         crate::api::template::library::handle_unpublish_workflow_template,
         crate::api::template::library::handle_list_agent_templates,
         crate::api::template::library::handle_get_agent_template,

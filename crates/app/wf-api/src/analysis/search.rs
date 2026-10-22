@@ -587,6 +587,7 @@ mod tests {
                     author: None,
                     tags,
                     category: None,
+                    ..Default::default()
                 }),
                 available_tools: None,
                 hooks: None,

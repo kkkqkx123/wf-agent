@@ -14,6 +14,8 @@ pub struct WorkflowSummary {
     pub node_count: usize,
     pub edge_count: usize,
     pub updated_at: i64,
+    /// Whether the workflow is published to the template library.
+    pub published: bool,
 }
 
 /// Project a workflow definition onto WorkflowSummary.
@@ -26,6 +28,11 @@ pub fn to_summary(wf: WorkflowDefinition) -> WorkflowSummary {
         node_count: wf.nodes.len(),
         edge_count: wf.edges.len(),
         updated_at: wf.updated_at,
+        published: wf
+            .metadata
+            .as_ref()
+            .and_then(|m| m.published)
+            .unwrap_or(false),
     }
 }
 

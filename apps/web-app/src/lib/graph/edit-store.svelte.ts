@@ -1,5 +1,6 @@
 import type { DisplayEdge, DisplayNode } from './display-model';
 import { backendEdgeType } from './display-model';
+import { canvasDraftId } from './canvas-model';
 import { groupTitleId } from './group-view';
 import { SvelteSet } from 'svelte/reactivity';
 
@@ -251,11 +252,22 @@ export class GraphEditStore {
 		);
 	}
 
-	/** Backend-shaped definition for the draft save endpoint. */
-	toDraftDefinition(workflowId: string, name: string): Record<string, unknown> {
+	/**
+	 * Backend-shaped definition for the draft save endpoint.
+	 *
+	 * The draft states the workflow's own metadata so a promotion keeps it:
+	 * the author, category, tags and the published mark are the definition's
+	 * identity, not part of the canvas edit.
+	 */
+	toDraftDefinition(
+		workflowId: string,
+		name: string,
+		metadata?: object,
+	): Record<string, unknown> {
 		return {
-			id: `${workflowId}-canvas`,
+			id: canvasDraftId(workflowId),
 			name,
+			...(metadata ? { metadata } : {}),
 			nodes: this.nodes.map((node) => ({
 				id: node.id,
 				node_type: node.kind,

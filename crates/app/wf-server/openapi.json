@@ -6709,6 +6709,17 @@
           "agent"
         ],
         "operationId": "get_agents_drafts",
+        "parameters": [
+          {
+            "name": "definition_id",
+            "in": "query",
+            "description": "Narrow the list to the drafts of one definition.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "List of agent drafts",
@@ -31371,6 +31382,76 @@
         ]
       }
     },
+    "/api/v1/templates/library/workflows/{id}/publish": {
+      "post": {
+        "tags": [
+          "template"
+        ],
+        "operationId": "handle_publish_workflow_template",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_String"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/templates/library/workflows/{id}/unpublish": {
       "post": {
         "tags": [
@@ -36164,6 +36245,17 @@
           "workflow"
         ],
         "operationId": "get_workflows_drafts",
+        "parameters": [
+          {
+            "name": "definition_id",
+            "in": "query",
+            "description": "Narrow the list to the drafts of one definition.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Draft list: array of full workflow definitions (free-form; drafts may be incomplete and never execute directly)",

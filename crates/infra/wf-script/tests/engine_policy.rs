@@ -613,7 +613,7 @@ async fn argument_expression_default_interpolates_through_engine() {
             r#type: None,
             label: None,
             required: None,
-            default: Some(json!("$fallback.dir")),
+            default: Some(json!("${fallback.dir}")),
             source: Some(ArgumentValueSource::Expression),
             description: None,
             options: None,

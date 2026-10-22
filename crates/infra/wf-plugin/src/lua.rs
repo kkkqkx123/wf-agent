@@ -1,3 +1,6 @@
+pub mod bridge;
+pub mod codec;
+pub mod handlers;
 pub mod loader;
 pub mod plugin;
 pub mod pool;

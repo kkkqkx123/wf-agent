@@ -109,24 +109,27 @@ pub(crate) async fn run_with_client(
             context_evolution,
         } => {
             if *timeline {
+                // Escape hatch: loop timeline stays generic JSON for forward compatibility.
                 let data: serde_json::Value = client
-                    .get_json(&format!("/api/v1/agent-loops/{id}/timeline"))
+                    .get_json(&crate::paths::agent_loops_id_timeline(id))
                     .await?;
                 render_envelope(
                     cli.output,
                     OutputEnvelope::success("execution-timeline", data).with_entity(id.clone()),
                 )
             } else if *iterations {
+                // Escape hatch: iteration history is an entity payload with evolving fields.
                 let data: serde_json::Value = client
-                    .get_json(&format!("/api/v1/agent-loops/{id}/iteration-history"))
+                    .get_json(&crate::paths::agent_loops_id_iteration_history(id))
                     .await?;
                 render_envelope(
                     cli.output,
                     OutputEnvelope::success("execution-iterations", data).with_entity(id.clone()),
                 )
             } else if *context_evolution {
+                // Escape hatch: context evolution is a dynamic observation query.
                 let data: serde_json::Value = client
-                    .get_json(&format!("/api/v1/agent-loops/{id}/context-evolution"))
+                    .get_json(&crate::paths::agent_loops_id_context_evolution(id))
                     .await?;
                 render_envelope(
                     cli.output,
@@ -209,13 +212,7 @@ pub(crate) async fn run_with_client(
         }
         ExecutionSub::Status { id } => status_execution(client, cli, id).await,
         ExecutionSub::Hierarchy { id } => {
-            let envelope = client
-                .generated()
-                .get_executions_id_hierarchy(id)
-                .await
-                .map_err(wf_client::client::into_typed_client_error)?;
-            let view: wf_client::models::HierarchyDoc =
-                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
+            let view = client.execution_hierarchy(id).await?;
             let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
             if cli.output == crate::output::OutputFormat::Text {
                 print_hierarchy(&data);
@@ -228,13 +225,9 @@ pub(crate) async fn run_with_client(
             }
         }
         ExecutionSub::Subtree { id, limit, cursor } => {
-            let envelope = client
-                .generated()
-                .get_executions_id_subtree(id, cursor.as_deref(), limit.map(|v| v as i64))
-                .await
-                .map_err(wf_client::client::into_typed_client_error)?;
-            let view: wf_client::models::SubtreeDoc =
-                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
+            let view = client
+                .execution_subtree(id, cursor.as_deref(), limit.map(|v| v as i64))
+                .await?;
             let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
             if cli.output == crate::output::OutputFormat::Text {
                 print_subtree(&data);
@@ -247,13 +240,9 @@ pub(crate) async fn run_with_client(
             }
         }
         ExecutionSub::History { id, include } => {
-            let envelope = client
-                .generated()
-                .get_executions_id_history(id, include.as_deref())
-                .await
-                .map_err(wf_client::client::into_typed_client_error)?;
-            let view: wf_client::models::HistoryDoc =
-                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
+            let view = client
+                .execution_history(id, include.as_deref())
+                .await?;
             let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
             if cli.output == crate::output::OutputFormat::Text {
                 print_history(&data);
@@ -297,7 +286,6 @@ pub(crate) async fn run_with_client(
             variable_history,
             var_name,
             context_transitions,
-            node_transitions,
             memory,
         } => {
             inspect_execution(
@@ -311,7 +299,6 @@ pub(crate) async fn run_with_client(
                 *variable_history,
                 var_name.as_deref(),
                 *context_transitions,
-                *node_transitions,
                 *memory,
             )
             .await
@@ -368,30 +355,29 @@ pub(crate) async fn run_with_client(
             limit,
         } => {
             let data: serde_json::Value = if let Some(name) = variable {
+                // Escape hatch: variable history is an entity payload.
                 client
-                    .get_json(&format!(
-                        "/api/v1/executions/{id}/state-records/variables/{name}/history"
-                    ))
+                    .get_json(&crate::paths::executions_id_state_record_variable_history(id, name))
                     .await?
             } else if *most_changed {
+                // Escape hatch: dynamic observation query with caller-chosen limit.
                 client
-                    .get_json(&format!(
-                        "/api/v1/executions/{id}/state-records/most-changed?limit={limit}"
-                    ))
+                    .get_json(&crate::paths::executions_id_most_changed(id, *limit))
                     .await?
             } else if *memory {
+                // Escape hatch: memory snapshot is an entity payload.
                 client
-                    .get_json(&format!("/api/v1/executions/{id}/memory"))
+                    .get_json(&crate::paths::executions_id_memory(id))
                     .await?
             } else if let Some(n) = at_iteration {
+                // Escape hatch: per-iteration state is an entity payload.
                 client
-                    .get_json(&format!(
-                        "/api/v1/executions/{id}/state-records/iterations/{n}"
-                    ))
+                    .get_json(&crate::paths::executions_id_state_record_iteration(id, *n))
                     .await?
             } else {
+                // Escape hatch: state record listing is a dynamic observation query.
                 client
-                    .get_json(&format!("/api/v1/executions/{id}/state-records"))
+                    .get_json(&crate::paths::executions_id_state_records(id))
                     .await?
             };
             let kind = if variable.is_some() {
@@ -436,7 +422,11 @@ async fn list_agent_executions(
         params.push(format!("order={o}"));
     }
     let data: serde_json::Value = client
-        .get_json(&format!("/api/v1/agent-executions?{}", params.join("&")))
+        .get_json(&format!(
+            "{}?{}",
+            crate::paths::AGENT_EXECUTIONS,
+            params.join("&")
+        ))
         .await?;
     Ok(paged_or_array(data, limit, offset, order))
 }
@@ -464,7 +454,11 @@ async fn list_workflow_executions(
         params.push(format!("order={o}"));
     }
     let data: serde_json::Value = client
-        .get_json(&format!("/api/v1/executions?{}", params.join("&")))
+        .get_json(&format!(
+            "{}?{}",
+            crate::paths::EXECUTIONS,
+            params.join("&")
+        ))
         .await?;
     Ok(paged_or_array(data, limit, offset, order))
 }
@@ -487,9 +481,9 @@ async fn list_loop_summaries(
         params.push(format!("offset={o}"));
     }
     let path = if params.is_empty() {
-        "/api/v1/agent-loops/summaries".to_string()
+        crate::paths::AGENT_LOOPS_SUMMARIES.to_string()
     } else {
-        format!("/api/v1/agent-loops/summaries?{}", params.join("&"))
+        format!("{}?{}", crate::paths::AGENT_LOOPS_SUMMARIES, params.join("&"))
     };
     let data: serde_json::Value = client.get_json(&path).await?;
     Ok(paged_or_array(data, limit, offset, order))
@@ -518,8 +512,9 @@ fn paged_or_array(
 }
 
 async fn show_variables(client: &WfClient, cli: &Cli, id: &str) -> CliResult<()> {
+    // Escape hatch: variables are an entity payload with caller-defined shape.
     if let Ok(vars) = client
-        .get_json::<serde_json::Value>(&format!("/api/v1/executions/{id}/variables"))
+        .get_json::<serde_json::Value>(&crate::paths::executions_id_variables(id))
         .await
     {
         if vars.as_array().is_some_and(|v| !v.is_empty()) {
@@ -623,39 +618,39 @@ async fn inspect_execution(
     variable_history: bool,
     var_name: Option<&str>,
     context_transitions: bool,
-    node_transitions: bool,
     memory: bool,
 ) -> CliResult<()> {
     let mut out = serde_json::Map::new();
+    // Escape hatch: inspect merges entity payloads and dynamic observations.
     let state: serde_json::Value = client
-        .get_json(&format!("/api/v1/executions/{id}/state"))
+        .get_json(&crate::paths::executions_id_state(id))
         .await
         .unwrap_or(serde_json::Value::Null);
     out.insert("state".into(), state);
     if variables {
         let vars: serde_json::Value = client
-            .get_json(&format!("/api/v1/executions/{id}/variables"))
+            .get_json(&crate::paths::executions_id_variables(id))
             .await
             .unwrap_or(serde_json::Value::Null);
         out.insert("variables".into(), vars);
     }
     if transitions {
         let trans: serde_json::Value = client
-            .get_json(&format!("/api/v1/executions/{id}/transitions"))
+            .get_json(&crate::paths::executions_id_transitions(id))
             .await
             .unwrap_or(serde_json::Value::Null);
         out.insert("transitions".into(), trans);
     }
     if context {
         let evo: serde_json::Value = client
-            .get_json(&format!("/api/v1/executions/{id}/context-evolution"))
+            .get_json(&crate::paths::executions_id_context_evolution(id))
             .await
             .unwrap_or(serde_json::Value::Null);
         out.insert("contextEvolution".into(), evo);
     }
     if call_stack {
         let stack: serde_json::Value = client
-            .get_json(&format!("/api/v1/executions/{id}/call-stack"))
+            .get_json(&crate::paths::executions_id_call_stack(id))
             .await
             .unwrap_or(serde_json::Value::Null);
         out.insert("callStack".into(), stack);
@@ -663,9 +658,7 @@ async fn inspect_execution(
     if variable_history {
         if let Some(name) = var_name {
             let hist: serde_json::Value = client
-                .get_json(&format!(
-                    "/api/v1/executions/{id}/state-records/variables/{name}/history"
-                ))
+                .get_json(&crate::paths::executions_id_state_record_variable_history(id, name))
                 .await?;
             out.insert("variableHistory".into(), hist);
         } else {
@@ -677,21 +670,14 @@ async fn inspect_execution(
     }
     if context_transitions {
         let trans: serde_json::Value = client
-            .get_json(&format!("/api/v1/executions/{id}/context-transitions"))
+            .get_json(&crate::paths::executions_id_context_transitions(id))
             .await
             .unwrap_or(serde_json::Value::Null);
         out.insert("contextTransitions".into(), trans);
     }
-    if node_transitions {
-        let trans: serde_json::Value = client
-            .get_json(&format!("/api/v1/executions/{id}/node-transitions"))
-            .await
-            .unwrap_or(serde_json::Value::Null);
-        out.insert("nodeTransitions".into(), trans);
-    }
     if memory {
         let mem: serde_json::Value = client
-            .get_json(&format!("/api/v1/executions/{id}/memory"))
+            .get_json(&crate::paths::executions_id_memory(id))
             .await
             .unwrap_or(serde_json::Value::Null);
         out.insert("memory".into(), mem);

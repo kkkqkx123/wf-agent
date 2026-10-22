@@ -26,15 +26,14 @@ pub(crate) fn cmd_stream_frames(
         .filter_map(|item| async move {
             match item {
                 Err(e) => Some(Err(e)),
-                Ok(frame) => {
-                    if frame.event == "metadata" {
-                        return None;
+                Ok(frame) => match wf_client::sse::decode_execution_frame(&frame) {
+                    wf_client::sse::ExecutionFrame::Metadata(_) => None,
+                    wf_client::sse::ExecutionFrame::Engine(base) => {
+                        Some(Ok(ExecutionStreamEvent::Engine(base)))
                     }
-                    match serde_json::from_value::<ExecutionStreamEvent>(frame.data) {
-                        Ok(event) => Some(Ok(event)),
-                        Err(_) => None,
-                    }
-                }
+                    wf_client::sse::ExecutionFrame::Event(event) => Some(Ok(event)),
+                    wf_client::sse::ExecutionFrame::Raw(_) => None,
+                },
             }
         })
         .boxed()

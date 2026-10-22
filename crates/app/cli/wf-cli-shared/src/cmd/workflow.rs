@@ -540,10 +540,11 @@ pub(crate) async fn run_with_client(
             let wants_analysis =
                 *analysis || *slow_nodes || *efficiency || *path_probability || *alternative_paths;
             if wants_analysis {
+                // Escape hatch: execution graph analyses are dynamic observation queries.
                 let mut out = serde_json::Map::new();
                 if *analysis {
                     let a: serde_json::Value = client
-                        .get_json(&format!("/api/v1/executions/{id}/analysis/paths"))
+                        .get_json(&crate::paths::executions_id_analysis_paths(id))
                         .await?;
                     out.insert("analysis".into(), a);
                 }
@@ -551,33 +552,31 @@ pub(crate) async fn run_with_client(
                     // CLI flag is a 0-1 fraction; the server takes 0-100.
                     let pct = percentile * 100.0;
                     let slow: serde_json::Value = client
-                        .get_json(&format!(
-                            "/api/v1/executions/{id}/analysis/slow-nodes?percentile={pct}"
-                        ))
+                        .get_json(&crate::paths::executions_id_analysis_slow_nodes(id, pct))
                         .await?;
                     out.insert("slowNodes".into(), slow);
                 }
                 if *efficiency {
                     let eff: serde_json::Value = client
-                        .get_json(&format!("/api/v1/executions/{id}/analysis/efficiency"))
+                        .get_json(&crate::paths::executions_id_analysis_efficiency(id))
                         .await?;
                     out.insert("efficiency".into(), eff);
                 }
                 if *path_probability {
                     let prob: serde_json::Value = client
-                        .get_json(&format!("/api/v1/executions/{id}/analysis/probabilities"))
+                        .get_json(&crate::paths::executions_id_analysis_probabilities(id))
                         .await?;
                     out.insert("pathProbability".into(), prob);
                 }
                 if *alternative_paths {
                     let alt: serde_json::Value = client
-                        .get_json(&format!("/api/v1/executions/{id}/analysis/alternatives"))
+                        .get_json(&crate::paths::executions_id_analysis_alternatives(id))
                         .await?;
                     out.insert("alternativePaths".into(), alt);
                 }
                 // Always include the raw graph alongside analyses for context.
                 if let Ok(graph) = client
-                    .get_json::<serde_json::Value>(&format!("/api/v1/executions/{id}/graph"))
+                    .get_json::<serde_json::Value>(&crate::paths::executions_id_graph(id))
                     .await
                 {
                     out.insert("graph".into(), graph);
@@ -589,8 +588,9 @@ pub(crate) async fn run_with_client(
                         .with_entity(id.clone()),
                 )
             } else {
+                // Escape hatch: raw execution graph is a dynamic topology payload.
                 let data: serde_json::Value = client
-                    .get_json(&format!("/api/v1/executions/{id}/graph"))
+                    .get_json(&crate::paths::executions_id_graph(id))
                     .await?;
                 render_envelope(
                     cli.output,

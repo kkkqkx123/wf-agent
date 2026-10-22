@@ -11,12 +11,13 @@ use crate::screens::{
 use super::common::{format_ts, items_of, page_of};
 
 pub(super) async fn fetch_dashboard(client: &WfClient) -> CliResult<ScreenData> {
+    // Escape hatch: dashboard merges list payloads for counts; field shapes stay dynamic.
     let (workflows, executions, sessions, checkpoints, store) = tokio::join!(
-        client.get_json::<serde_json::Value>("/api/v1/workflows/summaries"),
-        client.get_json::<serde_json::Value>("/api/v1/agent-executions"),
-        client.get_json::<serde_json::Value>("/api/v1/agent-loops/summaries"),
-        client.get_json::<serde_json::Value>("/api/v1/checkpoints"),
-        client.get_json::<serde_json::Value>("/api/v1/file-checkpoint/gc/stats"),
+        client.get_json::<serde_json::Value>(wf_cli_shared::paths::WORKFLOWS_SUMMARIES),
+        client.get_json::<serde_json::Value>(wf_cli_shared::paths::AGENT_EXECUTIONS),
+        client.get_json::<serde_json::Value>(wf_cli_shared::paths::AGENT_LOOPS_SUMMARIES),
+        client.get_json::<serde_json::Value>(wf_cli_shared::paths::CHECKPOINTS),
+        client.get_json::<serde_json::Value>(wf_cli_shared::paths::FILE_CHECKPOINT_GC_STATS),
     );
     let workflows = items_of(&workflows.unwrap_or_default());
     let mut executions = items_of(&executions.unwrap_or_default());
@@ -74,7 +75,9 @@ pub(super) async fn fetch_dashboard(client: &WfClient) -> CliResult<ScreenData> 
 }
 
 pub(super) async fn fetch_workflows(client: &WfClient) -> CliResult<(ScreenData, bool)> {
-    let data: serde_json::Value = client.get_json("/api/v1/workflows/summaries").await?;
+    // Escape hatch: workflow summaries stay dynamic for list display.
+    let data: serde_json::Value =
+        client.get_json(wf_cli_shared::paths::WORKFLOWS_SUMMARIES).await?;
     let (items, has_more) = page_of(&data);
     let rows = items
         .into_iter()
@@ -102,8 +105,8 @@ pub(super) async fn fetch_executions(
     filter: ExecStatusFilter,
 ) -> CliResult<(ScreenData, bool)> {
     let (executions, sessions) = tokio::join!(
-        client.get_json::<serde_json::Value>("/api/v1/agent-executions"),
-        client.get_json::<serde_json::Value>("/api/v1/agent-loops/summaries"),
+        client.get_json::<serde_json::Value>(wf_cli_shared::paths::AGENT_EXECUTIONS),
+        client.get_json::<serde_json::Value>(wf_cli_shared::paths::AGENT_LOOPS_SUMMARIES),
     );
     let (exec_items, exec_more) = page_of(&executions.unwrap_or_default());
     let (session_items, session_more) = page_of(&sessions.unwrap_or_default());
@@ -165,10 +168,11 @@ pub(super) async fn fetch_executions(
 }
 
 pub(super) async fn fetch_insights(client: &WfClient) -> CliResult<ScreenData> {
+    // Escape hatch: insights aggregate dynamic list payloads.
     let (workflows, executions, sessions) = tokio::join!(
-        client.get_json::<serde_json::Value>("/api/v1/workflows/summaries"),
-        client.get_json::<serde_json::Value>("/api/v1/agent-executions"),
-        client.get_json::<serde_json::Value>("/api/v1/agent-loops/summaries"),
+        client.get_json::<serde_json::Value>(wf_cli_shared::paths::WORKFLOWS_SUMMARIES),
+        client.get_json::<serde_json::Value>(wf_cli_shared::paths::AGENT_EXECUTIONS),
+        client.get_json::<serde_json::Value>(wf_cli_shared::paths::AGENT_LOOPS_SUMMARIES),
     );
     let workflows = items_of(&workflows.unwrap_or_default());
     let executions = items_of(&executions.unwrap_or_default());

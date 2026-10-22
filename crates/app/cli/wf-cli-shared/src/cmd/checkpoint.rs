@@ -680,13 +680,10 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                     .post_executions_checkpoints_cid_restore(id)
                     .await
                     .map_err(wf_client::client::into_typed_client_error)?;
-                let data: serde_json::Value =
+                let view: wf_client::models::RestoredCheckpointDoc =
                     wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
-                let execution_id = data
-                    .get("execution_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
+                let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
+                let execution_id = view.execution_id.clone();
                 render_envelope(
                     cli.output,
                     OutputEnvelope::success("checkpoint-restore", data).with_entity(execution_id),
@@ -747,13 +744,18 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             )
         }
         CheckpointSub::Chain { id, domain } => {
-            let path = match domain {
+            // Typed chain read; the loop route returns the capped item view
+            // while the execution route returns the chain analysis shape.
+            let data = match domain {
                 Some(CheckpointDomain::Agent) => {
-                    format!("/api/v1/agent-loops/{id}/checkpoints/chain")
+                    let view = client.agent_loop_checkpoints_chain(id).await?;
+                    serde_json::to_value(&view).unwrap_or(serde_json::Value::Null)
                 }
-                _ => format!("/api/v1/executions/{id}/checkpoints/chain"),
+                _ => {
+                    let view = client.execution_checkpoints_chain(id).await?;
+                    serde_json::to_value(&view).unwrap_or(serde_json::Value::Null)
+                }
             };
-            let data: serde_json::Value = client.get_json(&path).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-chain", data).with_entity(id.clone()),

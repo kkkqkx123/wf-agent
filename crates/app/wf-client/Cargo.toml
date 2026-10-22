@@ -17,6 +17,7 @@ reqwest.workspace = true
 eventsource-stream.workspace = true
 tokio-util.workspace = true
 progenitor-client.workspace = true
+wf-types.workspace = true
 
 [build-dependencies]
 serde_json.workspace = true

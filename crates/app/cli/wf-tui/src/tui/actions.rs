@@ -69,16 +69,32 @@ impl TuiApp {
         let client = self.client.clone();
         let tx = self.data_tx.clone();
         self.tasks.push(tokio::spawn(async move {
-            let path = if is_loop {
-                format!("/api/v1/agent-loops/{task_entity}/checkpoints/chain")
+            // Typed chain read; the loop route returns the capped item view
+            // while the execution route returns the chain analysis shape.
+            // Both convert back to JSON for the read-only chain viewer.
+            let result = if is_loop {
+                client
+                    .agent_loop_checkpoints_chain(&task_entity)
+                    .await
+                    .map(|view| {
+                        crate::fetch::format_checkpoint_chain(
+                            &serde_json::to_value(&view)
+                                .unwrap_or(serde_json::Value::Null),
+                        )
+                    })
+                    .map_err(crate::error::CliError::from)
             } else {
-                format!("/api/v1/executions/{task_entity}/checkpoints/chain")
+                client
+                    .execution_checkpoints_chain(&task_entity)
+                    .await
+                    .map(|view| {
+                        crate::fetch::format_checkpoint_chain(
+                            &serde_json::to_value(&view)
+                                .unwrap_or(serde_json::Value::Null),
+                        )
+                    })
+                    .map_err(crate::error::CliError::from)
             };
-            let result = client
-                .get_json::<serde_json::Value>(&path)
-                .await
-                .map(|chain| crate::fetch::format_checkpoint_chain(&chain))
-                .map_err(crate::error::CliError::from);
             let _ = tx.send(DataResult::CheckpointChain {
                 title: format!("Chain {}", short_id(&task_entity)),
                 result,

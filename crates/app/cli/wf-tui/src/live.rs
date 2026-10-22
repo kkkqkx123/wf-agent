@@ -50,7 +50,11 @@ pub fn spawn(client: WfClient, tx: UnboundedSender<Feedback>) -> tokio::task::Jo
                     let Ok(frame) = frame else {
                         break;
                     };
-                    for kind in screens_for_event(&frame.data) {
+                    let decoded = wf_client::sse::decode_system_frame(&frame);
+                    let Some(base) = decoded.into_base_event() else {
+                        continue;
+                    };
+                    for kind in screens_for_event(&base) {
                         let _ = tx.send(Feedback::Refresh(kind));
                     }
                 }
@@ -60,29 +64,30 @@ pub fn spawn(client: WfClient, tx: UnboundedSender<Feedback>) -> tokio::task::Jo
     })
 }
 
-/// Screens invalidated by one event payload (its `type` field). The
-/// vocabulary mirrors the checkpoint event types published by the server;
-/// unknown types invalidate nothing.
-fn screens_for_event(payload: &serde_json::Value) -> Vec<ScreenKind> {
-    match payload.get("type").and_then(|v| v.as_str()) {
-        Some("CHECKPOINT_CREATED")
-        | Some("CHECKPOINT_RESTORED")
-        | Some("CHECKPOINT_DELETED")
-        | Some("CHECKPOINT_FAILED")
-        | Some("CHECKPOINT_GC_COMPLETED")
-        | Some("CHECKPOINT_RESTORE_STARTED")
-        | Some("CHECKPOINT_RESTORE_COMPLETED") => {
+/// Screens invalidated by one bus event. The vocabulary mirrors the
+/// checkpoint event types published by the server; unknown types invalidate
+/// nothing.
+fn screens_for_event(event: &wf_types::events::BaseEvent) -> Vec<ScreenKind> {
+    use wf_types::events::EventType as T;
+    match event.r#type {
+        T::CheckpointCreated
+        | T::CheckpointRestored
+        | T::CheckpointDeleted
+        | T::CheckpointFailed
+        | T::CheckpointGcCompleted
+        | T::CheckpointRestoreStarted
+        | T::CheckpointRestoreCompleted => {
             vec![ScreenKind::Checkpoints, ScreenKind::Dashboard]
         }
-        Some("CHECKPOINT_FILE_CHANGED")
-        | Some("CHECKPOINT_MERGE_CONFLICTED")
-        | Some("CHECKPOINT_APPROVAL_RESOLVED") => vec![
-            ScreenKind::FileApprovals,
-            ScreenKind::FileWorkspace,
-            ScreenKind::Checkpoints,
-            ScreenKind::Conflicts,
-        ],
-        Some("CHECKPOINT_REVIEW_SUBMITTED") => vec![ScreenKind::FileApprovals],
+        T::CheckpointFileChanged | T::CheckpointMergeConflicted | T::CheckpointApprovalResolved => {
+            vec![
+                ScreenKind::FileApprovals,
+                ScreenKind::FileWorkspace,
+                ScreenKind::Checkpoints,
+                ScreenKind::Conflicts,
+            ]
+        }
+        T::CheckpointReviewSubmitted => vec![ScreenKind::FileApprovals],
         _ => Vec::new(),
     }
 }
@@ -90,18 +95,30 @@ fn screens_for_event(payload: &serde_json::Value) -> Vec<ScreenKind> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wf_types::events::{BaseEvent, EventType};
+
+    fn base_fixture(event_type: EventType) -> BaseEvent {
+        BaseEvent {
+            id: "evt-1".to_string(),
+            r#type: event_type,
+            timestamp: 1,
+            event_name: None,
+            workflow_id: None,
+            execution_id: Some("exec-1".to_string()),
+            agent_loop_id: None,
+            metadata: None,
+        }
+    }
 
     #[test]
     fn checkpoint_events_map_to_their_screens() {
-        let created = serde_json::json!({ "type": "CHECKPOINT_CREATED" });
         assert_eq!(
-            screens_for_event(&created),
+            screens_for_event(&base_fixture(EventType::CheckpointCreated)),
             vec![ScreenKind::Checkpoints, ScreenKind::Dashboard]
         );
 
-        let changed = serde_json::json!({ "type": "CHECKPOINT_FILE_CHANGED" });
         assert_eq!(
-            screens_for_event(&changed),
+            screens_for_event(&base_fixture(EventType::CheckpointFileChanged)),
             vec![
                 ScreenKind::FileApprovals,
                 ScreenKind::FileWorkspace,
@@ -110,18 +127,38 @@ mod tests {
             ]
         );
 
-        let submitted = serde_json::json!({ "type": "CHECKPOINT_REVIEW_SUBMITTED" });
         assert_eq!(
-            screens_for_event(&submitted),
+            screens_for_event(&base_fixture(EventType::CheckpointReviewSubmitted)),
             vec![ScreenKind::FileApprovals]
         );
     }
 
     #[test]
     fn unrelated_and_malformed_frames_invalidate_nothing() {
-        assert!(screens_for_event(&serde_json::json!({ "type": "connected" })).is_empty());
-        assert!(screens_for_event(&serde_json::json!({ "type": "MESSAGE_ADDED" })).is_empty());
-        assert!(screens_for_event(&serde_json::json!({})).is_empty());
+        assert!(screens_for_event(&base_fixture(EventType::MessageAdded)).is_empty());
+        assert!(screens_for_event(&base_fixture(EventType::Heartbeat)).is_empty());
+    }
+
+    #[test]
+    fn hello_and_unknown_frames_decode_to_no_base_event() {
+        let hello = wf_client::SseFrame {
+            event: String::new(),
+            data: serde_json::json!({"type": "connected", "data": {"executionId": "e1"}}),
+        };
+        assert!(
+            wf_client::sse::decode_system_frame(&hello)
+                .into_base_event()
+                .is_none()
+        );
+        let unknown = wf_client::SseFrame {
+            event: String::new(),
+            data: serde_json::json!({"type": "future_unknown", "x": 1}),
+        };
+        assert!(
+            wf_client::sse::decode_system_frame(&unknown)
+                .into_base_event()
+                .is_none()
+        );
     }
 
     #[test]

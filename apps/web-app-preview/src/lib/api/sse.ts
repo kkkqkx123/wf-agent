@@ -1,6 +1,8 @@
 import { API_BASE_URL, client, resolveApiKey } from '#lib/api/client';
 import { call } from '#lib/api/envelope';
 import type { EventRecord } from '#lib/types/models';
+import { decodeSystemFrame } from '#lib/utils/stream-parser';
+import type { BaseEventFrame } from '#lib/utils/stream-parser';
 
 export type StreamState = 'connecting' | 'open' | 'reconnecting' | 'closed';
 
@@ -16,7 +18,7 @@ interface StreamFrame {
 	metadata?: Record<string, unknown>;
 }
 
-function toEventRecord(frame: StreamFrame): EventRecord {
+function toEventRecord(frame: BaseEventFrame | StreamFrame): EventRecord {
 	return {
 		id: frame.id ?? '',
 		type: frame.type ?? '',
@@ -105,17 +107,20 @@ export function openEventStream(options: EventStreamOptions): () => void {
 				`${API_BASE_URL}/api/v1/events/stream?${params.toString()}`,
 			);
 			source.onmessage = (message) => {
-				let frame: StreamFrame;
+				let raw: unknown;
 				try {
-					frame = JSON.parse(message.data as string) as StreamFrame;
+					raw = JSON.parse(message.data as string) as unknown;
 				} catch {
 					return;
 				}
-				if (frame.type === 'connected') {
+				const decoded = decodeSystemFrame(raw);
+				if (decoded.kind === 'connected') {
 					attempt = 0;
 					onState('open');
 					return;
 				}
+				if (decoded.kind !== 'base') return;
+				const frame = decoded.base;
 				if (typeof frame.timestamp === 'number') {
 					lastTimestamp = frame.timestamp;
 				}

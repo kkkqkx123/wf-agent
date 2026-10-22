@@ -7,11 +7,13 @@
 use futures::Stream;
 use futures::StreamExt;
 
+use wf_types::events::{BaseEvent, ExecutionStreamEvent};
+
 use crate::error::{from_status_body, ClientError, ClientResult};
 use crate::WfClient;
 
 /// One parsed SSE frame.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SseFrame {
     /// Event name (`event:` field, empty for message-only frames).
     pub event: String,
@@ -25,6 +27,133 @@ impl SseFrame {
         self.event.eq_ignore_ascii_case("error")
     }
 }
+
+/// Execution-stream preface: the single-field view the workflow execute
+/// stream emits first (`event: metadata`). It lives server-side; this shape
+/// mirrors it so the client decodes without importing server code.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StreamMetadata {
+    pub execution_id: String,
+}
+
+/// System-stream hello: the `type: connected` envelope the events stream
+/// emits first. The inner execution id is optional (scoped streams fill it,
+/// unscoped streams send null).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SystemConnected {
+    pub execution_id: Option<String>,
+}
+
+/// Decoded execution-stream frame. Unknown payloads fall back to `Raw`,
+/// which retains the event line and original data for forward compatibility.
+/// Decoding never fails as a stream error; only transport failures use
+/// `ClientError`.
+#[derive(Debug, Clone)]
+pub enum ExecutionFrame {
+    Metadata(StreamMetadata),
+    Engine(BaseEvent),
+    Event(ExecutionStreamEvent),
+    Raw(SseFrame),
+}
+
+/// Decoded system-event frame. The `connected` envelope stands alone; every
+/// other frame decodes as a bare bus event, with `Raw` preserving unknown
+/// payloads.
+#[derive(Debug, Clone)]
+pub enum SystemFrame {
+    Connected(SystemConnected),
+    Base(BaseEvent),
+    Raw(SseFrame),
+}
+
+impl ExecutionFrame {
+    /// Typed protocol event for renderers. Preface and raw frames have no
+    /// progress payload, so they map to `None` and callers skip them.
+    pub fn into_stream_event(self) -> Option<ExecutionStreamEvent> {
+        match self {
+            Self::Metadata(_) | Self::Raw(_) => None,
+            Self::Engine(base) => Some(ExecutionStreamEvent::Engine(base)),
+            Self::Event(event) => Some(event),
+        }
+    }
+}
+
+impl SystemFrame {
+    /// Bus event for consumers. Hello and raw frames carry no routing
+    /// payload, so they map to `None` and callers skip them.
+    pub fn into_base_event(self) -> Option<BaseEvent> {
+        match self {
+            Self::Base(base) => Some(base),
+            Self::Connected(_) | Self::Raw(_) => None,
+        }
+    }
+}
+
+/// Decode one execution-stream frame by its `event:` line, falling back to
+/// the raw frame when the payload does not match the expected shape.
+pub fn decode_execution_frame(frame: &SseFrame) -> ExecutionFrame {
+    match frame.event.as_str() {
+        "metadata" => match serde_json::from_value::<StreamMetadata>(frame.data.clone()) {
+            Ok(meta) => ExecutionFrame::Metadata(meta),
+            Err(_) => ExecutionFrame::Raw(frame.clone()),
+        },
+        "engine" => match serde_json::from_value::<BaseEvent>(frame.data.clone()) {
+            Ok(base) => ExecutionFrame::Engine(base),
+            Err(_) => ExecutionFrame::Raw(frame.clone()),
+        },
+        "" => match serde_json::from_value::<ExecutionStreamEvent>(frame.data.clone()) {
+            Ok(event) => ExecutionFrame::Event(event),
+            Err(_) => ExecutionFrame::Raw(frame.clone()),
+        },
+        _ => ExecutionFrame::Raw(frame.clone()),
+    }
+}
+
+/// Decode one system-event frame. The hello envelope is detected by its
+/// `type: connected` marker (either the event line or the payload field,
+/// since the server sends it as a bare data frame); the rest decode as bare
+/// bus events with raw fallback.
+pub fn decode_system_frame(frame: &SseFrame) -> SystemFrame {
+    let payload_connected = frame
+        .data
+        .get("type")
+        .and_then(|v| v.as_str())
+        .is_some_and(|t| t == "connected");
+    if frame.event == "connected" || payload_connected {
+        return SystemFrame::Connected(SystemConnected {
+            execution_id: connected_execution_id(&frame.data),
+        });
+    }
+    match serde_json::from_value::<BaseEvent>(frame.data.clone()) {
+        Ok(base) => SystemFrame::Base(base),
+        Err(_) => SystemFrame::Raw(frame.clone()),
+    }
+}
+
+fn connected_execution_id(payload: &serde_json::Value) -> Option<String> {
+    payload
+        .get("data")
+        .and_then(|inner| {
+            inner
+                .get("executionId")
+                .or_else(|| inner.get("execution_id"))
+        })
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .or_else(|| {
+            payload
+                .get("executionId")
+                .or_else(|| payload.get("execution_id"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        })
+}
+
+// Future payload families keep the same branch-then-fallback shape when a
+// CLI consumer appears. The LLM family branches on its `event_type` tag
+// (`MessageStreamEvent` in `llm-suite-types`); the error-chain family
+// decodes its bare error-record view. Neither is implemented here because
+// no CLI surface consumes them.
 
 /// Known streaming endpoints owned by this layer. The set mirrors the
 /// `text/event-stream` operations in the committed snapshot.
@@ -47,6 +176,17 @@ pub mod endpoints {
 
     /// `GET /api/v1/events/stream`
     pub const EVENTS_STREAM: &str = "/api/v1/events/stream";
+
+    /// `GET /api/v1/events/stream` scoped to one execution, with optional
+    /// workflow scope. Query strings stay here so callers never rebuild the
+    /// literal by hand.
+    pub fn events_stream_for_execution(id: &str, workflow: Option<&str>) -> String {
+        let mut path = format!("{EVENTS_STREAM}?execution_id={id}");
+        if let Some(workflow) = workflow {
+            path.push_str(&format!("&workflow_id={workflow}"));
+        }
+        path
+    }
 
     /// `GET /api/v1/executions/{id}/error-analysis/stream`
     pub fn error_chain_stream(id: &str) -> String {
@@ -181,6 +321,18 @@ mod tests {
         assert_eq!(endpoints::agent_cli_run(), "/api/v1/agent-loops/cli/run");
     }
 
+    #[test]
+    fn execution_scoped_event_stream_builds_query() {
+        assert_eq!(
+            endpoints::events_stream_for_execution("e1", None),
+            "/api/v1/events/stream?execution_id=e1"
+        );
+        assert_eq!(
+            endpoints::events_stream_for_execution("e1", Some("w1")),
+            "/api/v1/events/stream?execution_id=e1&workflow_id=w1"
+        );
+    }
+
     /// The streaming endpoint table mirrors the snapshot `text/event-stream`
     /// set: any snapshot drift fails here instead of silently diverging.
     #[test]
@@ -246,5 +398,142 @@ mod tests {
             table, snapshot,
             "streaming endpoint table must exactly mirror the snapshot SSE set"
         );
+    }
+
+    use super::{decode_execution_frame, decode_system_frame, ExecutionFrame, SseFrame, SystemFrame};
+    use wf_types::events::{BaseEvent, EventType, ExecutionStreamEvent};
+
+    fn base_fixture(event_type: EventType) -> serde_json::Value {
+        let base = BaseEvent {
+            id: "evt-1".to_string(),
+            r#type: event_type,
+            timestamp: 1_700_000_000,
+            event_name: None,
+            workflow_id: Some("w1".to_string()),
+            execution_id: Some("exec-1".to_string()),
+            agent_loop_id: None,
+            metadata: None,
+        };
+        serde_json::to_value(&base).expect("base fixture serializes")
+    }
+
+    #[test]
+    fn execution_preface_decodes_to_metadata() {
+        let frame = SseFrame {
+            event: "metadata".to_string(),
+            data: serde_json::json!({"execution_id": "exec-1"}),
+        };
+        match decode_execution_frame(&frame) {
+            ExecutionFrame::Metadata(meta) => assert_eq!(meta.execution_id, "exec-1"),
+            other => panic!("expected metadata, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn execution_engine_line_decodes_to_base_event() {
+        let frame = SseFrame {
+            event: "engine".to_string(),
+            data: base_fixture(EventType::NodeStarted),
+        };
+        match decode_execution_frame(&frame) {
+            ExecutionFrame::Engine(base) => {
+                assert_eq!(base.r#type, EventType::NodeStarted);
+                assert_eq!(base.execution_id.as_deref(), Some("exec-1"));
+            }
+            other => panic!("expected engine, got {other:?}"),
+        }
+        match decode_execution_frame(&frame).into_stream_event() {
+            Some(ExecutionStreamEvent::Engine(base)) => {
+                assert_eq!(base.r#type, EventType::NodeStarted)
+            }
+            other => panic!("expected engine stream event, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn execution_protocol_event_decodes_to_typed_event() {
+        let frame = SseFrame {
+            event: String::new(),
+            data: serde_json::json!({"type": "llm_delta", "content": "hi"}),
+        };
+        match decode_execution_frame(&frame) {
+            ExecutionFrame::Event(ExecutionStreamEvent::LlmDelta { content }) => {
+                assert_eq!(content, "hi")
+            }
+            other => panic!("expected protocol event, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn execution_unknown_tag_falls_back_to_raw_without_loss() {
+        let data = serde_json::json!({"type": "future_unknown_kind", "content": "hi"});
+        let frame = SseFrame {
+            event: String::new(),
+            data: data.clone(),
+        };
+        match decode_execution_frame(&frame) {
+            ExecutionFrame::Raw(raw) => {
+                assert_eq!(raw.event, "");
+                assert_eq!(raw.data, data);
+            }
+            other => panic!("expected raw fallback, got {other:?}"),
+        }
+        assert!(decode_execution_frame(&frame).into_stream_event().is_none());
+    }
+
+    #[test]
+    fn execution_malformed_engine_falls_back_to_raw() {
+        let data = serde_json::json!({"not": "an event"});
+        let frame = SseFrame {
+            event: "engine".to_string(),
+            data: data.clone(),
+        };
+        match decode_execution_frame(&frame) {
+            ExecutionFrame::Raw(raw) => assert_eq!(raw.data, data),
+            other => panic!("expected raw fallback, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn system_connected_envelope_decodes_alone() {
+        let frame = SseFrame {
+            event: String::new(),
+            data: serde_json::json!({"type": "connected", "data": {"executionId": "exec-1"}}),
+        };
+        match decode_system_frame(&frame) {
+            SystemFrame::Connected(hello) => {
+                assert_eq!(hello.execution_id.as_deref(), Some("exec-1"))
+            }
+            other => panic!("expected connected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn system_bus_event_decodes_to_base() {
+        let frame = SseFrame {
+            event: String::new(),
+            data: base_fixture(EventType::CheckpointCreated),
+        };
+        match decode_system_frame(&frame) {
+            SystemFrame::Base(base) => assert_eq!(base.r#type, EventType::CheckpointCreated),
+            other => panic!("expected base, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn system_unknown_payload_falls_back_to_raw() {
+        let data = serde_json::json!({"type": "future_unknown", "x": 1});
+        let frame = SseFrame {
+            event: String::new(),
+            data: data.clone(),
+        };
+        match decode_system_frame(&frame) {
+            SystemFrame::Raw(raw) => {
+                assert_eq!(raw.event, "");
+                assert_eq!(raw.data, data);
+            }
+            other => panic!("expected raw fallback, got {other:?}"),
+        }
+        assert!(decode_system_frame(&frame).into_base_event().is_none());
     }
 }

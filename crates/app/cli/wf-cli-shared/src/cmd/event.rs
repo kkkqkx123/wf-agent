@@ -104,14 +104,16 @@ async fn follow_stream(
         .unwrap_or_default();
     if cli.output == crate::output::OutputFormat::Text {
         for ev in &history_items {
-            println!(
-                "[{}] {} {}",
-                ev.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0),
-                ev.get("type").and_then(|v| v.as_str()).unwrap_or("?"),
-                ev.get("execution_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("-")
-            );
+            if let Ok(base) =
+                serde_json::from_value::<wf_types::events::BaseEvent>(ev.clone())
+            {
+                println!(
+                    "[{}] {} {}",
+                    base.timestamp,
+                    base.r#type.as_str(),
+                    base.execution_id.as_deref().unwrap_or("-")
+                );
+            }
         }
     } else if !history_items.is_empty() {
         render_envelope(
@@ -121,10 +123,7 @@ async fn follow_stream(
         )?;
     }
 
-    let mut path = format!("/api/v1/events/stream?execution_id={id}");
-    if let Some(wf) = workflow {
-        path.push_str(&format!("&workflow_id={wf}"));
-    }
+    let path = wf_client::endpoints::events_stream_for_execution(id, workflow);
     let mut stream = client.get_stream(&path).await?;
     let mut live_count = 0usize;
     loop {
@@ -132,26 +131,31 @@ async fn follow_stream(
             item = stream.next() => {
                 match item {
                     Some(Ok(frame)) => {
-                        if frame.event == "connected" {
-                            continue;
-                        }
-                        live_count += 1;
-                        if cli.output == crate::output::OutputFormat::Text {
-                            println!(
-                                "[{}] {} {}",
-                                frame.data.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0),
-                                frame.data.get("type").and_then(|v| v.as_str()).unwrap_or("?"),
-                                frame.data.get("execution_id").and_then(|v| v.as_str()).unwrap_or("-")
-                            );
-                        } else {
-                            render_envelope(
-                                crate::output::OutputFormat::JsonLines,
-                                OutputEnvelope::success("event-follow", frame.data.clone())
-                                    .with_entity(id.to_string()),
-                            )?;
-                        }
-                        if is_terminal_type(frame.data.get("type").and_then(|v| v.as_str()).unwrap_or("")) {
-                            break;
+                        match wf_client::sse::decode_system_frame(&frame) {
+                            wf_client::sse::SystemFrame::Connected(_) => continue,
+                            wf_client::sse::SystemFrame::Raw(_) => continue,
+                            wf_client::sse::SystemFrame::Base(base) => {
+                                live_count += 1;
+                                if cli.output == crate::output::OutputFormat::Text {
+                                    println!(
+                                        "[{}] {} {}",
+                                        base.timestamp,
+                                        base.r#type.as_str(),
+                                        base.execution_id.as_deref().unwrap_or("-")
+                                    );
+                                } else {
+                                    let data = serde_json::to_value(&base)
+                                        .unwrap_or(serde_json::Value::Null);
+                                    render_envelope(
+                                        crate::output::OutputFormat::JsonLines,
+                                        OutputEnvelope::success("event-follow", data)
+                                            .with_entity(id.to_string()),
+                                    )?;
+                                }
+                                if is_terminal_event(&base.r#type) {
+                                    break;
+                                }
+                            }
                         }
                     }
                     Some(Err(e)) => return Err(crate::error::CliError::from(e)),
@@ -168,7 +172,7 @@ async fn follow_stream(
     )
 }
 
-fn is_terminal_type(event_type: &str) -> bool {
-    let upper = event_type.to_ascii_uppercase();
-    upper.ends_with("COMPLETED") || upper.ends_with("FAILED") || upper.ends_with("CANCELLED")
+fn is_terminal_event(event_type: &wf_types::events::EventType) -> bool {
+    let name = event_type.as_str();
+    name.ends_with("COMPLETED") || name.ends_with("FAILED") || name.ends_with("CANCELLED")
 }

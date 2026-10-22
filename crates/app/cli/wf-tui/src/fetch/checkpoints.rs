@@ -174,15 +174,29 @@ mod tests {
 
     #[test]
     fn checkpoint_chain_renders_counts_and_transitions() {
+        // Fixture mirrors CappedChainDoc field names from the snapshot.
         let chain = serde_json::json!({
             "execution_id": "loop-1",
-            "checkpoints": [{"id": "cp-1", "entity_id": "loop-1"}],
-            "transitions": [],
-            "total_elapsed": 0,
-            "checkpoint_count": 1,
+            "checkpoints": [
+                {"id": "cp-1", "entity_id": "loop-1", "checkpoint_type": "full", "status": "completed"},
+                {"id": "cp-2", "entity_id": "loop-1", "checkpoint_type": "full", "status": "completed"}
+            ],
+            "transitions": [
+                {
+                    "from_checkpoint_id": "cp-1",
+                    "to_checkpoint_id": "cp-2",
+                    "elapsed": 12,
+                    "type": "commit"
+                }
+            ],
+            "total_elapsed": 12,
+            "checkpoint_count": 2,
         });
         let text = format_checkpoint_chain(&chain);
         assert!(text.contains("execution: loop-1"));
         assert!(text.contains("cp-1"));
+        assert!(text.contains("cp-2"));
+        assert!(text.contains("cp-1 -> cp-2"));
+        assert!(text.contains("checkpoints: 2"));
     }
 }

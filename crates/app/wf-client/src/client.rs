@@ -340,10 +340,84 @@ impl WfClient {
     }
 
     /// Typed execution detail (`GET /api/v1/executions/{id}`).
+    /// Response `data` is a plain string on this route, so the path and
+    /// envelope stay typed while the payload passes through as JSON.
     pub async fn execution_detail(&self, id: &str) -> ClientResult<serde_json::Value> {
         let envelope = self
             .generated
             .handle_get_execution(id)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed execution hierarchy (`GET /api/v1/executions/{id}/hierarchy`).
+    pub async fn execution_hierarchy(
+        &self,
+        id: &str,
+    ) -> ClientResult<crate::models::HierarchyDoc> {
+        let envelope = self
+            .generated
+            .get_executions_id_hierarchy(id)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed execution subtree page (`GET /api/v1/executions/{id}/subtree`).
+    pub async fn execution_subtree(
+        &self,
+        id: &str,
+        cursor: Option<&str>,
+        limit: Option<i64>,
+    ) -> ClientResult<crate::models::SubtreeDoc> {
+        let envelope = self
+            .generated
+            .get_executions_id_subtree(id, cursor, limit)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed execution history (`GET /api/v1/executions/{id}/history`).
+    pub async fn execution_history(
+        &self,
+        id: &str,
+        include: Option<&str>,
+    ) -> ClientResult<crate::models::HistoryDoc> {
+        let envelope = self
+            .generated
+            .get_executions_id_history(id, include)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed checkpoint chain analysis for one execution
+    /// (`GET /api/v1/executions/{id}/checkpoints/chain`).
+    pub async fn execution_checkpoints_chain(
+        &self,
+        id: &str,
+    ) -> ClientResult<crate::models::CappedChainDoc> {
+        let envelope = self
+            .generated
+            .get_executions_id_checkpoints_chain(id)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed checkpoint chain for one agent loop
+    /// (`GET /api/v1/agent-loops/{id}/checkpoints/chain`).
+    /// The loop route returns a capped item view rather than the execution
+    /// analysis shape, so the unwrapped data type differs intentionally.
+    pub async fn agent_loop_checkpoints_chain(
+        &self,
+        id: &str,
+    ) -> ClientResult<crate::models::ApiEnvelopeCappedViewCheckpointDocData> {
+        let envelope = self
+            .generated
+            .get_agent_loops_id_checkpoints_chain(id)
             .await
             .map_err(map_typed_error)?;
         unwrap_generated_envelope(envelope.into_inner())
@@ -373,7 +447,9 @@ impl WfClient {
     }
 
     /// Typed GET that unwraps the standard `ApiEnvelope<T>` shell.
-    pub async fn get<T>(&self, path: &str) -> ClientResult<T>
+    /// Private: outside callers use the documented `get_json` escape hatch
+    /// or a typed helper above so the retention reason stays explicit.
+    async fn get<T>(&self, path: &str) -> ClientResult<T>
     where
         T: DeserializeOwned,
     {
@@ -381,7 +457,8 @@ impl WfClient {
     }
 
     /// Typed POST with JSON body that unwraps `ApiEnvelope<T>`.
-    pub async fn post<B, T>(&self, path: &str, body: &B) -> ClientResult<T>
+    /// Private: outside callers use `post_json` or a typed helper.
+    async fn post<B, T>(&self, path: &str, body: &B) -> ClientResult<T>
     where
         B: Serialize + ?Sized,
         T: DeserializeOwned,
@@ -392,7 +469,8 @@ impl WfClient {
     }
 
     /// Typed PUT helper for management commands.
-    pub async fn put<B, T>(&self, path: &str, body: &B) -> ClientResult<T>
+    /// Private: outside callers use `put_json`.
+    async fn put<B, T>(&self, path: &str, body: &B) -> ClientResult<T>
     where
         B: Serialize + ?Sized,
         T: DeserializeOwned,
@@ -402,7 +480,8 @@ impl WfClient {
         self.send(reqwest::Method::PUT, path, Some(&body)).await
     }
 
-    pub async fn delete<T>(&self, path: &str) -> ClientResult<T>
+    /// Private: outside callers use `delete_json`.
+    async fn delete<T>(&self, path: &str) -> ClientResult<T>
     where
         T: DeserializeOwned,
     {

@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleExecutionFrame } from '#lib/utils/stream-parser';
+import {
+	decodeErrorChainFrame,
+	decodeExecutionFrame,
+	decodeSystemFrame,
+	handleExecutionFrame,
+} from '#lib/utils/stream-parser';
 import type { StreamCallbacks } from '#lib/utils/stream-parser';
 
 function collect(): { callbacks: StreamCallbacks; calls: string[] } {
@@ -162,5 +167,92 @@ describe('tool lifecycle', () => {
 			{ onToolEnd: (tool) => seen.push(tool.background) },
 		);
 		expect(seen).toEqual([null]);
+	});
+});
+
+describe('decodeExecutionFrame', () => {
+	it('decodes the metadata preface', () => {
+		const decoded = decodeExecutionFrame('metadata', {
+			execution_id: 'exec-1',
+		});
+		expect(decoded).toEqual({ kind: 'metadata', executionId: 'exec-1' });
+	});
+
+	it('decodes an engine line to its bus event', () => {
+		const decoded = decodeExecutionFrame('engine', {
+			id: 'evt-1',
+			type: 'NODE_STARTED',
+			timestamp: 1700000000,
+			execution_id: 'exec-1',
+		});
+		expect(decoded.kind).toBe('engine');
+		if (decoded.kind === 'engine') {
+			expect(decoded.base.type).toBe('NODE_STARTED');
+		}
+	});
+
+	it('decodes a protocol event', () => {
+		const decoded = decodeExecutionFrame('', {
+			type: 'llm_delta',
+			content: 'hi',
+		});
+		expect(decoded.kind).toBe('protocol');
+	});
+
+	it('falls back to raw on unknown tags without loss', () => {
+		const data = { type: 'future_unknown_kind', content: 'hi' };
+		const decoded = decodeExecutionFrame('', data);
+		expect(decoded).toEqual({ kind: 'raw', event: '', data });
+	});
+
+	it('falls back to raw on malformed engine lines', () => {
+		const data = { not: 'an event' };
+		const decoded = decodeExecutionFrame('engine', data);
+		expect(decoded).toEqual({ kind: 'raw', event: 'engine', data });
+	});
+});
+
+describe('decodeSystemFrame', () => {
+	it('decodes the connected envelope alone', () => {
+		const decoded = decodeSystemFrame({
+			type: 'connected',
+			data: { executionId: 'exec-1' },
+		});
+		expect(decoded).toEqual({
+			kind: 'connected',
+			executionId: 'exec-1',
+		});
+	});
+
+	it('decodes a bus event', () => {
+		const decoded = decodeSystemFrame({
+			id: 'evt-1',
+			type: 'CHECKPOINT_CREATED',
+			timestamp: 1,
+			execution_id: 'exec-1',
+		});
+		expect(decoded.kind).toBe('base');
+	});
+
+	it('falls back to raw on unknown payloads', () => {
+		const data = { type: 'future_unknown', x: 1 };
+		expect(decodeSystemFrame(data)).toEqual({ kind: 'raw', data });
+		expect(decodeSystemFrame({})).toEqual({ kind: 'raw', data: {} });
+	});
+});
+
+describe('decodeErrorChainFrame', () => {
+	it('decodes a whole error record', () => {
+		const decoded = decodeErrorChainFrame({
+			id: 'e1',
+			error: 'boom',
+			timestamp: 1,
+		});
+		expect(decoded.kind).toBe('record');
+	});
+
+	it('falls back to raw when the id is missing', () => {
+		const data = { error: 'boom' };
+		expect(decodeErrorChainFrame(data)).toEqual({ kind: 'raw', data });
 	});
 });

@@ -159,9 +159,6 @@ pub enum ExecutionSub {
         /// Include context transitions.
         #[arg(long = "context-transitions")]
         context_transitions: bool,
-        /// Include node transitions.
-        #[arg(long = "node-transitions")]
-        node_transitions: bool,
         /// Include memory usage.
         #[arg(long)]
         memory: bool,

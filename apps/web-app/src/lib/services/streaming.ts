@@ -1,7 +1,7 @@
 import { openGetStream, openPostStream } from '#lib/api/stream';
 import type { StreamFailure } from '#lib/api/stream';
 import type { RunLoopMessage } from '#lib/services/agent-loops';
-import { handleExecutionFrame, toErrorRecord } from '#lib/utils/stream-parser';
+import { decodeErrorChainFrame, handleExecutionFrame } from '#lib/utils/stream-parser';
 import type { ErrorRecord, StreamCallbacks } from '#lib/utils/stream-parser';
 
 export type {
@@ -10,6 +10,11 @@ export type {
 	StreamNodeUpdate,
 	ErrorRecord,
 	StreamCallbacks,
+	BaseEventFrame,
+	ExecutionFrame,
+	SystemFrame,
+	ErrorChainFrame,
+	StreamMetadata,
 } from '#lib/utils/stream-parser';
 
 export interface LoopStreamBody {
@@ -113,8 +118,8 @@ export function streamErrorAnalysis(
 		path: `/api/v1/executions/${id}/error-analysis/stream`,
 		signal,
 		onFrame: (_event, data) => {
-			const record = toErrorRecord(data);
-			if (record) callbacks.onRecord(record);
+			const decoded = decodeErrorChainFrame(data);
+			if (decoded.kind === 'record') callbacks.onRecord(decoded.record);
 		},
 		onError: (failure) => callbacks.onError(failure),
 	});

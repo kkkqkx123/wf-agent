@@ -26,10 +26,12 @@ impl ExecutionDomain {
         }
     }
 
+    /// Parse a wire name back into its domain. Strict: retired names are
+    /// rejected rather than aliased.
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
-            "agent" | "agent_loop" | "agent-loop" | "agentloop" => Some(ExecutionDomain::AgentLoop),
-            "workflow" | "workflows" => Some(ExecutionDomain::Workflow),
+            "agent_loop" => Some(ExecutionDomain::AgentLoop),
+            "workflow" => Some(ExecutionDomain::Workflow),
             _ => None,
         }
     }

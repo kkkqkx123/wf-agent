@@ -17,6 +17,8 @@
 
 **workflows.rs（517，21）**：`GET|POST /workflows`；`GET|PUT|DELETE /workflows/{id}`；`POST /workflows/{id}/clone`；`POST /workflows/validate`、`/validate/node`；`POST /workflows/parse`、`/transform`；`GET /workflows/summaries`、`/search`、`/by-name/{name}`、`/by-tags`、`/by-category/{category}`、`/by-author/{author}`；`POST /workflows/export-all`、`GET /workflows/{id}/export`、`POST /workflows/import`、`/import-many`；`PATCH /workflows/{id}/metadata`。
 
+**drafts.rs（383，8）**：`GET|POST /workflows/drafts`（列表接受 `?definition_id=` 收窄到某一定义的草稿）；`GET|DELETE /workflows/drafts/{id}`；`POST /workflows/drafts/{id}/promote`（画布草稿提升为它所修订的那个工作流的正式定义）；`POST /workflows/drafts/promote-all`；`GET /workflows/drafts/{id}/validate`；`GET /workflows/{id}/lifecycle`。
+
 **versions.rs（139，5）**：`GET|POST /workflows/{id}/versions`；`GET /workflows/{id}/versions/{version}`；`POST /workflows/{id}/rollback`、`/versions/increment?level=`。
 
 **graphs.rs（245，9）**：`GET /workflows/{id}/graph` + `/summary`、`/nodes?node_type=`、`/edges`、`/neighbors/{nodeId}`、`/analysis`、`/cycles`、`/topology`、`/reachability`。
@@ -89,7 +91,7 @@
 
 **template_queries.rs（104，6）**：`GET /templates/agent` + `/summaries`、`/featured`、`/popular`；`GET /templates/agent-trigger` + `/summaries`。
 
-**template_library.rs（234，13）**：`GET /templates/library`、`/featured`、`/popular`；`POST /templates/library/{id}/usage`、`/clone`；`GET|POST /templates/library/workflows` + `GET|DELETE /{id}`；`GET|POST /templates/library/agents` + `GET|DELETE /{id}`。
+**template_library.rs（747，25）**：`GET /templates/library`、`/featured`、`/popular`；`POST /templates/library/{id}/usage`、`/clone`；`GET|POST /templates/library/workflows`；`POST /templates/library/workflows/import`；`GET /templates/library/workflows/{id}/export`；`GET|PUT|DELETE /templates/library/workflows/{id}`；`POST /templates/library/workflows/{id}/publish`、`/unpublish`（发布标记落盘到工作流定义）；`GET|POST /templates/library/agents`；`POST /templates/library/agents/import`；`GET /templates/library/agents/{id}/export`；`GET|PUT|DELETE /templates/library/agents/{id}`；`GET|POST /templates/library/agents/{id}/versions`；`GET /templates/library/agents/{id}/versions/{version}`；`POST /templates/library/agents/{id}/rollback`。工作流模板的 DELETE 只撤下库里的存在（清发布标记 + 条目离开注册表），工作流本身留存。
 
 **triggers.rs（186，9）**：`GET|POST /trigger-executions`；`POST /trigger-executions/cleanup`；`GET /trigger-executions/stats`、`/by-execution/{executionId}`、`/by-trigger/{name}`、`/by-workflow/{id}`；`GET|DELETE /trigger-executions/{id}`。（旧 `/triggers*` 实体 CRUD 端点已删除。）
 

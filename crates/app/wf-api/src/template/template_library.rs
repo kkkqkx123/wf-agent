@@ -128,10 +128,18 @@ fn template_definition(template: &WorkflowTemplate, published: bool) -> Workflow
 }
 
 /// The registry entry a workflow template registers under.
+///
+/// The entry follows the definition: the library facts it carries are the
+/// ones the definition states, and a fact the definition leaves open keeps
+/// the one the template states.
 fn template_entry(template: &WorkflowTemplate, definition: WorkflowDefinition) -> WorkflowTemplate {
+    let facts = crate::workflow::library_facts(definition.metadata.as_ref(), Some(template));
     let mut entry = template.clone();
     entry.definition = definition;
-    entry.is_published = Some(true);
+    entry.is_public = facts.is_public;
+    entry.is_system = facts.is_system;
+    entry.enabled = facts.enabled;
+    entry.is_published = Some(facts.is_published);
     entry
 }
 
@@ -151,13 +159,16 @@ pub async fn register_workflow_template(
             &template.id.to_string(),
         ));
     }
-    let definition = template_definition(template, true);
+    let mut definition = template_definition(template, true);
+    let stored = ctx.storage.workflow.load(&template.id).await?;
+    crate::workflow::carry_metadata(stored.as_ref(), &mut definition);
     ctx.storage.workflow.save(&definition).await?;
     let entry = template_entry(template, definition);
     registries
         .workflows
         .register(entry.id.to_string(), Arc::new(entry))
         .map_err(|e| ApiError::Conflict(e.to_string()))?;
+    ctx.clear_stale(&template.id.to_string());
     Ok(())
 }
 
@@ -169,12 +180,12 @@ pub async fn register_workflow_template(
 /// entry leaves the registry. The workflow itself stays where it is and
 /// can be published again.
 pub async fn delete_workflow_template(ctx: &ApiContext, id: &str) -> ApiResult<()> {
-    set_published(ctx, id, false).await?;
     ctx.registries
         .workflows
         .unregister(id)
         .map(|_| ())
         .ok_or_else(|| not_found("workflow_template", id))?;
+    clear_published(ctx, id).await?;
     let _ = ctx.storage.template_usage.delete(id).await;
     Ok(())
 }
@@ -191,12 +202,15 @@ pub async fn update_workflow_template(
     if !ctx.registries.workflows.has(&template.id) {
         return Err(not_found("workflow_template", &template.id.to_string()));
     }
-    let definition = template_definition(template, true);
+    let mut definition = template_definition(template, true);
+    let stored = ctx.storage.workflow.load(&template.id).await?;
+    crate::workflow::carry_metadata(stored.as_ref(), &mut definition);
     ctx.storage.workflow.save(&definition).await?;
     let entry = template_entry(template, definition);
     ctx.registries
         .workflows
         .register_or_replace(entry.id.to_string(), Arc::new(entry));
+    ctx.clear_stale(&template.id.to_string());
     Ok(())
 }
 
@@ -214,23 +228,51 @@ pub async fn unpublish_workflow_template(ctx: &ApiContext, id: &str) -> ApiResul
     set_published(ctx, id, false).await
 }
 
+/// Clear the published mark of a workflow in the stored definition.
+///
+/// The mark is what keeps a workflow in the library across a restart, so
+/// taking the workflow out of the library clears it there. A workflow with
+/// no stored definition has no mark to clear.
+async fn clear_published(ctx: &ApiContext, id: &str) -> ApiResult<()> {
+    let Some(mut definition) = ctx.storage.workflow.load(id).await? else {
+        return Ok(());
+    };
+    definition
+        .metadata
+        .get_or_insert_with(Default::default)
+        .published = Some(false);
+    ctx.storage.workflow.save(&definition).await?;
+    Ok(())
+}
+
 /// Write the published mark of a workflow.
 ///
-/// A stored workflow carries the mark in its definition, which is what
-/// makes it outlive a restart. A workflow with no stored definition — a
-/// predefined resource — carries it in the registry entry alone, and the
-/// resource assembly publishes it again on the next start.
+/// The stored definition is the record of what the workflow is, so the mark
+/// is written there: that is what makes it outlive a restart. The registry
+/// entry follows the definition, so a workflow that is not registered yet
+/// joins the registry here and can be published again after it was taken
+/// out of the library.
+///
+/// A workflow with no stored definition — a predefined resource — carries the
+/// mark in the registry entry alone, and the resource assembly publishes it
+/// again on the next start.
 async fn set_published(ctx: &ApiContext, id: &str, published: bool) -> ApiResult<()> {
-    let mut entry = get_workflow_template(ctx, id)?;
-    if let Some(mut definition) = ctx.storage.workflow.load(id).await? {
-        definition
-            .metadata
-            .get_or_insert_with(Default::default)
-            .published = Some(published);
-        ctx.storage.workflow.save(&definition).await?;
-        entry.definition = definition;
-    }
-    entry.is_published = Some(published);
+    let Some(mut definition) = ctx.storage.workflow.load(id).await? else {
+        let mut entry = get_workflow_template(ctx, id)?;
+        entry.is_published = Some(published);
+        ctx.registries
+            .workflows
+            .register_or_replace(entry.id.to_string(), Arc::new(entry));
+        return Ok(());
+    };
+    definition
+        .metadata
+        .get_or_insert_with(Default::default)
+        .published = Some(published);
+    ctx.storage.workflow.save(&definition).await?;
+    // The entry is derived from the definition, so it carries the mark that
+    // was just written.
+    let entry = crate::workflow::library_entry(&ctx.registries, &definition);
     ctx.registries
         .workflows
         .register_or_replace(entry.id.to_string(), Arc::new(entry));
@@ -1039,6 +1081,27 @@ mod tests {
             Some(false)
         );
         assert_eq!(list_workflow_templates(&ctx).unwrap().len(), 2);
+    }
+
+    /// A workflow taken out of the library can be published again: the
+    /// publish mark lives in the definition, so the entry is rebuilt from it.
+    #[tokio::test]
+    async fn a_workflow_taken_out_of_the_library_can_be_published_again() {
+        let ctx = make_ctx();
+        let template = workflow_template("wf-republish", "analytics");
+        register_workflow_template(&ctx, &template).await.unwrap();
+        delete_workflow_template(&ctx, "wf-republish").await.unwrap();
+        assert!(!ctx.registries.workflows.has("wf-republish"));
+
+        publish_workflow_template(&ctx, "wf-republish").await.unwrap();
+
+        assert!(ctx.registries.workflows.has("wf-republish"));
+        let stored = ctx.storage.workflow.load("wf-republish").await.unwrap().unwrap();
+        assert_eq!(
+            stored.metadata.as_ref().and_then(|m| m.published),
+            Some(true)
+        );
+        assert_eq!(list_workflow_templates(&ctx).unwrap().len(), 3);
     }
 
     /// The library governance travels with the definition, so it outlives a

@@ -13,7 +13,7 @@
 | [04-infra基础设施.md](./04-infra基础设施.md) | infra 模块：ApiContext、错误、持久化层、事件、依赖索引、订阅/流、插件桥、共享校验 |
 | [05-查询与分析.md](./05-查询与分析.md) | query / audit / analysis 模块：记录查询、三源审计、错误根因、性能、进度、搜索、统计 |
 | [06-checkpoint与trigger域.md](./06-checkpoint与trigger域.md) | checkpoint 模块（统一记录/文件/审批/来源）与 trigger 模块（模板注册、执行历史、builder、校验） |
-| [07-llm、模板与builder.md](./07-llm、模板与builder.md) | llm / template 模块与跨域 builder 总览：LLM/Profile/Provider/脚本/工具、模板库、类型状态机构造器 |
+| [07-llm-模板-builder.md](./07-llm-模板-builder.md) | llm / template 模块与跨域 builder 总览：LLM/Profile/Provider/脚本/工具、模板库、类型状态机构造器 |
 | [08-wf-server-HTTP层.md](./08-wf-server-HTTP层.md) | wf-server：路由结构、契约端点清单、信封/SSE/WS/中间件/配置 |
 | [09-openapi-文档生成.md](./09-openapi-文档生成.md) | wf-server OpenAPI：注解→聚合→类型注册→快照→测试；离线 codegen（`tools/openapi-codegen`）；新增端点清单 |
 

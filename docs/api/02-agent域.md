@@ -63,7 +63,7 @@ live `state.error_records()` 优先、持久 `AgentExecution.error` 文本用 `e
 - `agent_draft.rs`（117）：镜像 workflow draft 三态，复用 `workflow::draft::LifecycleStatus`；`promote_draft` → `save_agent_template` → 删 draft。
 - `agent_config.rs`（33）：常量 `DEFAULT_AGENT = "@standard/main"`、`DEFAULT_MODEL = "default"`、`DEFAULT_MAX_ITERATIONS = 50`；`build_agent_loop_config` 构造"未解析意图"（max_iterations 故意留 None，由 composition 最终填）。
 - `validation.rs`（97）：`AgentValidator`（四步：shape → profile 引用 → 工具四桶列表 → **tool_call_protocol 与 profile format 兼容性**，用引擎 `AgentLoopValidator::validate_tool_call_protocol` 保证 API 时与运行时规则一致）。
-- `builder.rs`（900）、`composition.rs`（636）见 [07-llm、模板与builder.md](./07-llm、模板与builder.md)。
+- `builder.rs`（900）、`composition.rs`（636）见 [07-llm-模板-builder.md](./07-llm-模板-builder.md)。
 
 ## 2. entity 模块（低层存储实体 CRUD）
 

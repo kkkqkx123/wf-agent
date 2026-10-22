@@ -12,7 +12,7 @@ use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::adapter::execution::WorkflowExecutionListOptions;
 use wf_storage::adapter::workflow::{WorkflowListOptions, WorkflowStorageAdapter};
 use wf_storage::domain::Store;
-use wf_types::workflow::WorkflowTemplate;
+use wf_types::workflow::{WorkflowMetadata, WorkflowTemplate};
 use wf_types::WorkflowDefinition;
 
 use crate::workflow::execution::delete_execution;
@@ -36,11 +36,16 @@ pub async fn save_workflow_with_impact(
     ctx: &ApiContext,
     workflow: &WorkflowDefinition,
 ) -> crate::ApiResult<crate::infra::dependency::UpdateImpactReport> {
+    let mut workflow = workflow.clone();
+    // The stored definition is the record of what the workflow is; a
+    // replacement that states no fact of its own keeps the stored one.
+    let stored = ctx.storage.workflow.load(&workflow.id).await?;
+    carry_metadata(stored.as_ref(), &mut workflow);
     if let Some(version) = workflow.version.as_deref() {
         super::versioning::parse_business_version(version)?;
     }
     let warnings =
-        crate::workflow::validation::validate_workflow_for_publish(ctx, workflow).await?;
+        crate::workflow::validation::validate_workflow_for_publish(ctx, &workflow).await?;
     if !warnings.is_empty() {
         tracing::warn!(
             workflow_id = %workflow.id,
@@ -48,8 +53,8 @@ pub async fn save_workflow_with_impact(
             "workflow saved with reference warnings"
         );
     }
-    ctx.storage.workflow.save(workflow).await?;
-    upsert_workflow_registry(&ctx.registries, workflow)?;
+    ctx.storage.workflow.save(&workflow).await?;
+    upsert_workflow_registry(&ctx.registries, &workflow)?;
     ctx.clear_stale(&workflow.id.to_string());
     crate::infra::dependency::check_update_impact(
         ctx,
@@ -253,48 +258,125 @@ pub async fn update_workflow_metadata(
     Ok(())
 }
 
-/// Register the workflow in the execution index. A registry failure fails
-/// the whole save: validation failure equals registration failure, so the
-/// storage write and the index entry never silently diverge.
+/// The library facts a workflow carries: whether it appears in the template
+/// library, whether anyone may use it, whether it is a system fixture and
+/// whether it may run.
+///
+/// The definition states them, because the definition is the only form that
+/// outlives a restart. A fact the definition leaves open keeps the one the
+/// registered entry already carries, so an entry written by the resource
+/// assembly — a system fixture — stays what it is.
+#[derive(Debug, Clone, Copy)]
+pub struct LibraryFacts {
+    /// Whether the workflow appears in the template library.
+    pub is_published: bool,
+    /// Whether anyone may use the workflow from the template library.
+    pub is_public: Option<bool>,
+    /// Whether the workflow is a system fixture rather than a user entry.
+    pub is_system: Option<bool>,
+    /// Whether the workflow may run.
+    pub enabled: Option<bool>,
+}
+
+/// Derive the library facts of a workflow from its definition and the
+/// registered entry it replaces.
+pub fn library_facts(
+    metadata: Option<&WorkflowMetadata>,
+    entry: Option<&WorkflowTemplate>,
+) -> LibraryFacts {
+    LibraryFacts {
+        is_published: metadata
+            .and_then(|m| m.published)
+            .or_else(|| entry.and_then(|t| t.is_published))
+            .unwrap_or(false),
+        is_public: metadata
+            .and_then(|m| m.is_public)
+            .or_else(|| entry.and_then(|t| t.is_public)),
+        is_system: metadata
+            .and_then(|m| m.is_system)
+            .or_else(|| entry.and_then(|t| t.is_system)),
+        enabled: metadata
+            .and_then(|m| m.enabled)
+            .or_else(|| entry.and_then(|t| t.enabled))
+            .or(Some(true)),
+    }
+}
+
+/// The registry entry a workflow definition is registered under.
 ///
 /// The library facts come from the definition, which is the only place a
 /// publish or governance decision can outlive a restart. A definition that
-/// states no fact keeps the one the registered entry already carries, so
-/// an entry written by the resource assembly — a system fixture — stays
-/// what it is.
-pub fn upsert_workflow_registry(
+/// states no fact keeps the one the registered entry already carries, so an
+/// entry written by the resource assembly — a system fixture — stays what it
+/// is.
+pub fn library_entry(
     registries: &Arc<ResourceRegistries>,
     workflow: &WorkflowDefinition,
-) -> crate::ApiResult<()> {
+) -> WorkflowTemplate {
     let existing = registries.workflows.get(&workflow.id.to_string());
     let metadata = workflow.metadata.as_ref();
-    let template = WorkflowTemplate {
+    let facts = library_facts(metadata, existing.as_deref());
+    WorkflowTemplate {
         id: workflow.id.clone(),
         name: workflow.name.clone(),
         description: workflow.description.clone().unwrap_or_default(),
         definition: workflow.clone(),
         template_category: metadata.and_then(|m| m.category.clone()),
         template_tags: metadata.and_then(|m| m.tags.clone()),
-        is_public: metadata
-            .and_then(|m| m.is_public)
-            .or_else(|| existing.as_ref().and_then(|t| t.is_public)),
-        is_system: metadata
-            .and_then(|m| m.is_system)
-            .or_else(|| existing.as_ref().and_then(|t| t.is_system)),
-        enabled: metadata
-            .and_then(|m| m.enabled)
-            .or_else(|| existing.as_ref().and_then(|t| t.enabled))
-            .or(Some(true)),
-        is_published: Some(
-            metadata
-                .and_then(|m| m.published)
-                .or_else(|| existing.as_ref().and_then(|t| t.is_published))
-                .unwrap_or(false),
-        ),
-    };
+        is_public: facts.is_public,
+        is_system: facts.is_system,
+        enabled: facts.enabled,
+        is_published: Some(facts.is_published),
+    }
+}
+
+/// Register the workflow in the execution index. A registry failure fails
+/// the whole save: validation failure equals registration failure, so the
+/// storage write and the index entry never silently diverge.
+pub fn upsert_workflow_registry(
+    registries: &Arc<ResourceRegistries>,
+    workflow: &WorkflowDefinition,
+) -> crate::ApiResult<()> {
+    let template = library_entry(registries, workflow);
     registries
         .upsert_workflow_template(template)
         .map_err(crate::ApiError::Conflict)
+}
+
+/// Carry the metadata of the stored definition into a definition that is
+/// about to replace it.
+///
+/// The stored definition is the record of what the workflow is: its author,
+/// its classification, and whether it appears in the template library. A
+/// replacement that states no fact of its own must not drop one — the
+/// workflow would leave the library on the next start. A fact the
+/// replacement states wins, so an explicit unpublish survives.
+pub fn carry_metadata(stored: Option<&WorkflowDefinition>, incoming: &mut WorkflowDefinition) {
+    let Some(stored) = stored.and_then(|w| w.metadata.as_ref()) else {
+        return;
+    };
+    let metadata = incoming.metadata.get_or_insert_with(Default::default);
+    if metadata.author.is_none() {
+        metadata.author = stored.author.clone();
+    }
+    if metadata.tags.is_none() {
+        metadata.tags = stored.tags.clone();
+    }
+    if metadata.category.is_none() {
+        metadata.category = stored.category.clone();
+    }
+    if metadata.published.is_none() {
+        metadata.published = stored.published;
+    }
+    if metadata.is_public.is_none() {
+        metadata.is_public = stored.is_public;
+    }
+    if metadata.is_system.is_none() {
+        metadata.is_system = stored.is_system;
+    }
+    if metadata.enabled.is_none() {
+        metadata.enabled = stored.enabled;
+    }
 }
 
 #[cfg(test)]
@@ -507,6 +589,60 @@ mod tests {
         assert!(delete_workflow(&ctx, "wf-del").await.unwrap());
         assert!(!ctx.registries.workflows.has("wf-del"));
         assert!(!workflow_exists(&ctx, "wf-del").await.unwrap());
+    }
+
+    /// The library facts live in the definition, so a full-document replace
+    /// that states none of them keeps them: the workflow stays in the
+    /// library across a restart.
+    #[tokio::test]
+    async fn a_replace_keeps_the_library_facts_of_the_stored_definition() {
+        let ctx = make_ctx();
+        let mut published = make_workflow("wf-published");
+        published.metadata = Some(WorkflowMetadata {
+            published: Some(true),
+            author: Some("alice".into()),
+            ..Default::default()
+        });
+        save_workflow(&ctx, &published).await.unwrap();
+
+        save_workflow(&ctx, &make_workflow("wf-published"))
+            .await
+            .unwrap();
+
+        let stored = ctx.storage.workflow.load("wf-published").await.unwrap().unwrap();
+        let metadata = stored.metadata.as_ref().unwrap();
+        assert_eq!(metadata.published, Some(true));
+        assert_eq!(metadata.author.as_deref(), Some("alice"));
+        let entry = ctx.registries.workflows.get("wf-published").unwrap();
+        assert_eq!(entry.is_published, Some(true));
+    }
+
+    /// A fact the replacement states wins: an explicit unpublish survives the
+    /// save.
+    #[tokio::test]
+    async fn a_stated_fact_wins_over_the_stored_one() {
+        let ctx = make_ctx();
+        let mut published = make_workflow("wf-unpublished");
+        published.metadata = Some(WorkflowMetadata {
+            published: Some(true),
+            ..Default::default()
+        });
+        save_workflow(&ctx, &published).await.unwrap();
+
+        let mut replacement = make_workflow("wf-unpublished");
+        replacement.metadata = Some(WorkflowMetadata {
+            published: Some(false),
+            ..Default::default()
+        });
+        save_workflow(&ctx, &replacement).await.unwrap();
+
+        let stored = ctx.storage.workflow.load("wf-unpublished").await.unwrap().unwrap();
+        assert_eq!(
+            stored.metadata.as_ref().and_then(|m| m.published),
+            Some(false)
+        );
+        let entry = ctx.registries.workflows.get("wf-unpublished").unwrap();
+        assert_eq!(entry.is_published, Some(false));
     }
 
     #[tokio::test]

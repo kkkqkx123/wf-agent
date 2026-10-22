@@ -1,8 +1,30 @@
 /** Mock routes: workflows, their graphs and edit locks. */
 
 import { workflows, workflowDetail } from '#lib/fixtures/workflows';
+import type { Workflow, WorkflowDetail } from '#lib/types/models';
 import { FIXTURE_EPOCH } from '#lib/fixtures/clock';
 import { camelToSnakeDeep, pageView, type MockRouter } from '../router';
+
+/** The document the server answers a workflow with: the definition plus
+ * the display fields the list view reads from it. */
+function workflowDocument(workflow: Workflow | WorkflowDetail): Record<string, unknown> {
+	const definition =
+		'definition' in workflow
+			? workflow.definition
+			: { id: workflow.id, name: workflow.name, description: workflow.description };
+	return {
+		...definition,
+		category: workflow.category,
+		tags: workflow.tags,
+		author: workflow.author,
+		status: workflow.status,
+		node_count: workflow.nodeCount,
+		edge_count: workflow.edgeCount,
+		runs: workflow.runs,
+		success_rate: workflow.successRate,
+		published: workflow.published,
+	};
+}
 
 export function registerWorkflows(router: MockRouter): void {
 	// ---------- workflows ----------
@@ -13,7 +35,7 @@ export function registerWorkflows(router: MockRouter): void {
 		const found = workflowDetail.id === params.id
 			? workflowDetail
 			: workflows.find((w) => w.id === params.id) ?? workflows[0];
-		return camelToSnakeDeep(found);
+		return camelToSnakeDeep(workflowDocument(found));
 	});
 	router.on('GET', '/api/v1/workflows/{id}/graph', (params) => {
 		const detail = workflowDetail.id === params.id

@@ -63,12 +63,31 @@ pub async fn list_drafts(ctx: &ApiContext) -> ApiResult<Vec<wf_types::WorkflowDe
         .map_err(Into::into)
 }
 
+/// The suffix a canvas draft's derived id carries.
+const CANVAS_DRAFT_SUFFIX: &str = "-canvas";
+
 /// The id the canvas editor files a workflow's draft under.
 ///
 /// A draft is a document of its own, so it carries its own id; the suffix
 /// ties it back to the workflow whose canvas produced it.
 pub fn canvas_draft_id(definition_id: &str) -> String {
-    format!("{definition_id}-canvas")
+    format!("{definition_id}{CANVAS_DRAFT_SUFFIX}")
+}
+
+/// The definition a draft revises.
+///
+/// A draft is a revision of one definition. The canvas editor files its
+/// draft under a derived id, so the definition it revises is the id that
+/// derived id was derived from. A draft filed under a definition's own id
+/// revises that definition and keeps its id.
+pub async fn draft_owner_id(ctx: &ApiContext, draft_id: &str) -> ApiResult<String> {
+    if ctx.storage.workflow.load(draft_id).await?.is_some() {
+        return Ok(draft_id.to_string());
+    }
+    Ok(match draft_id.strip_suffix(CANVAS_DRAFT_SUFFIX) {
+        Some(owner) => owner.to_string(),
+        None => draft_id.to_string(),
+    })
 }
 
 /// The drafts that belong to one workflow.
@@ -281,5 +300,21 @@ mod tests {
         let drafts = list_drafts_of(&ctx, "wf-owned").await.unwrap();
         assert_eq!(drafts.len(), 2);
         assert!(drafts.iter().all(|d| d.id.to_string().starts_with("wf-owned")));
+    }
+
+    /// A canvas draft revises the workflow it was derived from; a draft filed
+    /// under a definition's own id revises that definition.
+    #[tokio::test]
+    async fn a_draft_names_the_definition_it_revises() {
+        let ctx = make_ctx();
+        crate::workflow::definition::save_workflow(&ctx, &formal_workflow("wf-owned"))
+            .await
+            .unwrap();
+
+        assert_eq!(draft_owner_id(&ctx, "wf-owned").await.unwrap(), "wf-owned");
+        assert_eq!(
+            draft_owner_id(&ctx, &canvas_draft_id("wf-owned")).await.unwrap(),
+            "wf-owned"
+        );
     }
 }

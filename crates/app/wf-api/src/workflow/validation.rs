@@ -12,7 +12,6 @@ use crate::ApiError;
 use wf_types::WorkflowDefinition;
 use wf_types::{validate_tool_list, ValidationContext, ValidationError, ValidationResult};
 
-use super::definition::upsert_workflow_registry;
 use super::workflow_execution::definition_to_graph;
 
 /// Workflow-specific validator that uses the shared [`ValidationContext`].
@@ -321,17 +320,6 @@ pub async fn validate_workflow_for_publish(
             )))
         }
     }
-}
-
-/// Save a workflow and sync the registry (convenience wrapper).
-pub async fn save_workflow(
-    ctx: &ApiContext,
-    workflow: &WorkflowDefinition,
-) -> crate::ApiResult<()> {
-    validate_workflow(workflow)?;
-    ctx.storage.workflow.save(workflow).await?;
-    upsert_workflow_registry(&ctx.registries, workflow)?;
-    Ok(())
 }
 
 /// Convert a ValidationContext to a ReferenceContext for compatibility

@@ -144,6 +144,8 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                 )
             }
             _ => {
+                // A workflow template is the user's own workflow, published:
+                // removing it from the library leaves the workflow in place.
                 let envelope = client
                     .generated()
                     .handle_delete_workflow_template(id)
@@ -151,7 +153,7 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                     .map_err(wf_client::client::into_typed_client_error)?;
                 let _: serde_json::Value =
                     wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
-                let data = serde_json::json!({"deleted": id, "kind": "workflow"});
+                let data = serde_json::json!({"removed_from_library": id, "kind": "workflow"});
                 render_envelope(
                     cli.output,
                     OutputEnvelope::success("template-delete", data).with_entity(id.clone()),

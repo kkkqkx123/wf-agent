@@ -288,7 +288,7 @@ export class WorkflowEditSession {
 				this.editStore.toDraftDefinition(
 					id,
 					this.detail.name,
-					this.detail.metadata,
+					this.detail.definition,
 				),
 			);
 			this.editDraftId = savedId;

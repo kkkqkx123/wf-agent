@@ -355,24 +355,12 @@ export interface WorkflowDetail extends Workflow {
 	graph: WorkflowGraph;
 	versions: DefinitionVersion[];
 	drafts: DefinitionDraft[];
-	/** The workflow definition's own metadata. */
-	metadata?: WorkflowMetadata;
+	/** The workflow definition document, in the shape the server stores it. */
+	definition: WorkflowDefinitionDoc;
 }
 
-/** The workflow definition's own metadata. */
-export interface WorkflowMetadata {
-	author?: string;
-	tags?: string[];
-	category?: string;
-	/** Whether the workflow is published to the template library. */
-	published?: boolean;
-	/** Whether anyone may use the workflow from the template library. */
-	is_public?: boolean;
-	/** Whether the workflow is a system fixture rather than a user entry. */
-	is_system?: boolean;
-	/** Whether the workflow may be run. */
-	enabled?: boolean;
-}
+/** A workflow definition document, in the shape the server stores it. */
+export type WorkflowDefinitionDoc = Record<string, unknown>;
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 

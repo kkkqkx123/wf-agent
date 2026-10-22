@@ -3,6 +3,7 @@ import { call, extractPage, requireData } from '#lib/api/envelope';
 import type { PageResult } from '#lib/api/envelope';
 import type {
 	Workflow,
+	WorkflowDefinitionDoc,
 	WorkflowDetail,
 	WorkflowGraph,
 } from '#lib/types/models';
@@ -47,6 +48,10 @@ interface WorkflowDto {
 		enabled?: boolean;
 	};
 }
+
+/** The workflow detail response: the definition document plus the
+ * fields the list view reads from it. */
+type WorkflowDetailDoc = WorkflowDto & WorkflowDefinitionDoc;
 
 function parseVersion(
 	value: string | number | undefined,
@@ -110,7 +115,7 @@ export async function listWorkflows(params?: {
 /** Detailed view of a single workflow with true aggregation. */
 export async function getWorkflowDetail(id: string): Promise<WorkflowDetail> {
 	const data = requireData(
-		await call<WorkflowDto>(
+		await call<WorkflowDetailDoc>(
 			client.GET('/api/v1/workflows/{id}', { params: { path: { id } } }),
 		),
 		`Workflow ${id}`,
@@ -121,7 +126,7 @@ export async function getWorkflowDetail(id: string): Promise<WorkflowDetail> {
 		listDefinitionVersions('workflow', id),
 		listDefinitionDrafts('workflow', id),
 	]);
-	return { ...base, id, graph, versions, drafts, metadata: data.metadata };
+	return { ...base, id, graph, versions, drafts, definition: data };
 }
 
 /** Compatibility alias. */

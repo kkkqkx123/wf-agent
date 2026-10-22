@@ -23754,7 +23754,7 @@ export interface operations {
                  */
                 before?: number;
                 /**
-                 * @description Explicit domain override (`workflow` / `agent`), only needed for
+                 * @description Explicit domain override (`workflow` / `agent_loop`), only needed for
                  *     ambiguous execution ids; otherwise the domain is auto-resolved.
                  */
                 domain?: string;

@@ -109,6 +109,7 @@ workflow 与 agent 两域镜像实现（`workflow/draft.rs`、`agent/agent_draft
 | 资源 | storage | registry | 现状 |
 |------|---------|----------|------|
 | workflow 定义 | ✔ | ✔（upsert，注册失败=保存失败） | 全管线一致 |
+| workflow 模板（模板库） | ✔（先落定义） | ✔（后注册） | 一致；delete 只撤下库里的存在，不删定义 |
 | agent 定义（模板） | ✔（先持久化） | ✔（后注册） | 一致 |
 | trigger 模板 save（HTTP 面） | ✔ | ✔（upsert） | 已修复为双写 |
 | TriggerTemplateBuilder register | ✔ | ✔（严格注册，重名 Conflict） | 一致 |

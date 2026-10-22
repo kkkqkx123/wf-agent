@@ -4,22 +4,22 @@
 
 ## 1. 定义生命周期
 
-### 1.1 definition.rs（591 行）— CRUD 与级联
+### 1.1 definition.rs（789 行）— CRUD 与级联
 
-`save_workflow` = 委托 `save_workflow_with_impact`（丢报告）。完整管线：**① publish 级校验（shape+graph+reference closure，warnings 只 warn 不阻断）→ ② storage.save → ③ 注册进 registry（注册失败=整个 save 失败，防 storage 与索引静默分叉）→ ④ `ctx.clear_stale(id)`（清 Expired 标记）→ ⑤ `check_update_impact(SubWorkflow)` 返回下游影响报告**。
+`save_workflow` = 委托 `save_workflow_with_impact`（丢报告）。完整管线：**① 承接已存定义的元数据（`carry_metadata`：定义写明的取定义的，没写明的保留已存的那份，发布标记因此不会在整文档替换时丢失）→ ② publish 级校验（shape+graph+reference closure，warnings 只 warn 不阻断）→ ③ storage.save → ④ 注册进 registry（注册失败=整个 save 失败，防 storage 与索引静默分叉；条目由定义派生，`library_entry` / `library_facts`）→ ⑤ `ctx.clear_stale(id)`（清 Expired 标记）→ ⑥ `check_update_impact(SubWorkflow)` 返回下游影响报告**。
 
 - `clone_workflow`：新 id（给定或 `generate_id`）+ 名称 `" (copy)"` + provenance 元数据 `cloned_from`/`cloned_at`；provenance 写失败则回滚（删 registry + 存储）。
 - `rollback_workflow`：先把当前版本快照存为版本（label = 当前 version 或 `"pre-rollback-{version}"`），再 load 目标版本走 `save_workflow` 管线。
 - `delete_workflow` 级联：registry remove → clear_stale → 删 draft → **经 `WorkflowCheckpointStateManager` 对每个执行逐个删检查点** → 删执行记录 → 按 `"{id}:v"` 前缀删版本复合键 → 删本体。
 - `update_workflow_metadata`：description/category/tags → `storage.update_metadata` + `save_workflow`（重走完整管线）。
 
-### 1.2 draft.rs（305 行）— Draft/Formal/Expired 三态
+### 1.2 draft.rs（320 行）— Draft/Formal/Expired 三态
 
 契约（模块头）：draft 可残缺/悬挂、**永不直接执行**；formal 必须过 shape+graph+引用闭合，是执行、默认列表、反向索引的唯一来源；Expired 是 update-impact 打的 stale 标记，正式重存即清除。
 
 - `LifecycleStatus { Draft, Formal, Expired }`（snake_case 序列化）；`lifecycle_of`：draft 存储存在 → Draft；`ctx.is_stale` → Expired；否则 Formal。
 - 校验分层：`validate_draft_parse`（仅 id/name 非空）→ `validate_draft_internal`（编辑器实时提示：shape+graph，`ValidationContext::empty()`，无 I/O）→ `validate_draft_complete`（发布前预览 = get_draft + publish 校验，错误包装 `"draft '{id}' cannot be promoted: …"`）。
-- `promote_draft`：同名正式版本先快照（label `"pre-promote-{now_ms}"`）→ `save_workflow_with_impact` → 删 draft（失败保留 draft），返回影响报告；`promote_all_drafts` 逐个互不阻断。
+- `promote_draft`：先定出草稿所修订的定义（`draft_owner_id`：画布草稿的派生 id 归到它来自的那个定义，以定义自身 id 归档的草稿归到该定义）→ 同名正式版本先快照（label `"pre-promote-{now_ms}"`）→ `save_workflow_with_impact` → 删 draft（失败保留 draft），返回影响报告；`promote_all_drafts` 逐个互不阻断。
 - `hot_reload_to_draft`：文件/配置加载落到 draft 并附校验预览，不直接写正式注册表。
 
 ### 1.3 validation.rs（366 行）— 两级校验中心
@@ -27,7 +27,7 @@
 - `validate_workflow`（& 自由函数）= shape（`wf_config::processor::workflow::validate_workflow_definition`）+ graph（`GraphValidator::validate`），draft-friendly 无外部引用。
 - `validate_workflow_for_publish` = 两级之上 + **reference closure**（`validate_with_reference_context`）+ 工具列表 + hook handler 存在性 + prompt template 注册表检查（sync 路径因不能做 I/O 跳过该项）。
 - `build_reference_context`：基于 `infra::validation::build_validation_context` 补 `workflow_graphs`（全部已存工作流转图）与 trigger_templates 详情，全内存无网络。`val_ctx_to_reference_context` 是唯一 ValidationContext→ReferenceContext 转换点。
-- 已知冗余：本文件内还有一个私有路径 `save_workflow`（draft 级校验 + 直存），未被根再导出，正式路径一律用 definition.rs 版本。
+- 本文件只做校验，正式保存一律走 definition.rs 的 `save_workflow`。
 
 ### 1.4 search.rs / summary.rs / import_export.rs / version.rs / versioning.rs
 
@@ -102,7 +102,7 @@
 
 ## 5. builder 与 composition
 
-`builder.rs`（525，`WorkflowBuilder<Empty/Building>`：`build()` 跑两级校验、`save()` 走正式管线；`from_config_json/toml` 校验延迟到 build；`add_conditional_edge` condition 为 `${...}` 运行时表达式）与 `node_builder.rs`（434，`NodeBuilder<NoType/Typed>`：13 个类型化便捷构造器——fork 固定 Parallel、join 固定 WaitForAll、loop_start 固定 max_iterations=1、`with_checkpoint` 写入 execution_config 覆盖 workflow 级策略）、`execution_builder.rs`（527，**先订阅后 spawn**、`CallbackPack` 分发 NodeCompleted/NodeFailed/WorkflowExecutionFailed、`execute_with_result` 从持久记录投影、`execute_stream` 回调转发任务注册键 `"{execution_id}:callbacks"`）——详见 [07-llm、模板与builder.md](./07-llm、模板与builder.md) 的模式综述。
+`builder.rs`（525，`WorkflowBuilder<Empty/Building>`：`build()` 跑两级校验、`save()` 走正式管线；`from_config_json/toml` 校验延迟到 build；`add_conditional_edge` condition 为 `${...}` 运行时表达式）与 `node_builder.rs`（434，`NodeBuilder<NoType/Typed>`：13 个类型化便捷构造器——fork 固定 Parallel、join 固定 WaitForAll、loop_start 固定 max_iterations=1、`with_checkpoint` 写入 execution_config 覆盖 workflow 级策略）、`execution_builder.rs`（527，**先订阅后 spawn**、`CallbackPack` 分发 NodeCompleted/NodeFailed/WorkflowExecutionFailed、`execute_with_result` 从持久记录投影、`execute_stream` 回调转发任务注册键 `"{execution_id}:callbacks"`）——详见 [07-llm-模板-builder.md](./07-llm-模板-builder.md) 的模式综述。
 
 `composition.rs`（149 行）：`resolve_options` = caller `WorkflowExecutionOptions` 必胜 → 存储 `WorkflowConfig` 补默认 → 最终兜底 `enable_checkpoints: Some(true)`；`workflow_hooks_to_definitions`（自被删除的顶层 composition/hook.rs 并入）。
 

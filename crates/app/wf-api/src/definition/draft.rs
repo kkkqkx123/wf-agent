@@ -146,8 +146,13 @@ pub async fn promote_draft(
 ) -> ApiResult<PromotionOutcome> {
     match kind {
         DefinitionKind::Workflow => {
-            let draft = crate::workflow::draft::get_draft(ctx, id).await?;
-            snapshot_workflow_version(ctx, id).await;
+            let mut draft = crate::workflow::draft::get_draft(ctx, id).await?;
+            // A canvas draft is a revision of the workflow it was derived
+            // from, so promoting it produces that workflow's formal
+            // definition rather than a second one.
+            let owner = crate::workflow::draft::draft_owner_id(ctx, id).await?;
+            draft.id = owner.clone();
+            snapshot_workflow_version(ctx, &owner).await;
             let impact = crate::workflow::definition::save_workflow_with_impact(ctx, &draft).await?;
             let _ = delete_draft(ctx, kind, id).await;
             Ok(PromotionOutcome {

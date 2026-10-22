@@ -292,7 +292,7 @@ pub(crate) struct GcCheckpointsQuery {
     /// Only delete checkpoints before this timestamp (epoch millis); when
     /// omitted every checkpoint of the execution is removed.
     before: Option<i64>,
-    /// Explicit domain override (`workflow` / `agent`), only needed for
+    /// Explicit domain override (`workflow` / `agent_loop`), only needed for
     /// ambiguous execution ids; otherwise the domain is auto-resolved.
     domain: Option<String>,
 }

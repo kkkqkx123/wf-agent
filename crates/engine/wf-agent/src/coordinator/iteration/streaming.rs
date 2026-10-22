@@ -188,7 +188,8 @@ impl AgentIterationCoordinator {
                 // folded into the final message by the accumulator.
                 | Ok(MessageStreamEvent::Refusal(_))
                 | Ok(MessageStreamEvent::RedactedThinking(_))
-                | Ok(MessageStreamEvent::Annotation(_)) => {}
+                | Ok(MessageStreamEvent::Annotation(_))
+                | Ok(MessageStreamEvent::NativeBlock(_)) => {}
                 Err(e) => {
                     publish_stream_termination(
                         self.event_bus.as_deref(),

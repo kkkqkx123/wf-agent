@@ -344,7 +344,8 @@ pub(crate) fn message_text(message: &Message) -> String {
                 | MessageContent::ImageUrl { .. }
                 | MessageContent::InputAudio { .. }
                 | MessageContent::FileInput { .. }
-                | MessageContent::RedactedThinking { .. } => None,
+                | MessageContent::RedactedThinking { .. }
+                | MessageContent::Native { .. } => None,
             })
             .collect::<Vec<_>>()
             .join(" "),

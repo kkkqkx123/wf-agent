@@ -1,0 +1,524 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
+
+use wf_checkpoint::{ActorId, ActorKind, WorkspaceChangeCollector};
+use wf_script::{ScriptDefinition, ScriptEngine, ScriptEngineOptions, ScriptExecutionOptions};
+use wf_types::enums::ScriptLanguage;
+use wf_types::script::sandbox::{SandboxConfig, SandboxMode, ScriptExecutionResult};
+
+use crate::infra::context::ApiContext;
+use crate::infra::error::{ApiError, ApiResult};
+
+use super::{ScriptExecuteParams, ScriptValidation};
+
+/// Parse a script language from its canonical string; `None` for unknown
+/// values (registered scripts may carry arbitrary language labels).
+fn parse_script_language(value: &str) -> Option<ScriptLanguage> {
+    match value {
+        "shell" => Some(ScriptLanguage::Shell),
+        "python" => Some(ScriptLanguage::Python),
+        "javascript" | "js" => Some(ScriptLanguage::JavaScript),
+        "lua" => Some(ScriptLanguage::Lua),
+        _ => None,
+    }
+}
+
+/// Working-directory boundary check for direct executions: when the sandbox
+/// config names allowed read/write prefixes, a configured directory must sit
+/// inside them. Empty allow sets mean no bounds are known, so the legacy
+/// behavior is kept; relative directories are resolved against the bound
+/// file-checkpoint workspace root when one exists.
+fn validate_working_directory(
+    working_directory: Option<&str>,
+    sandbox_config: &SandboxConfig,
+    workspace_root: Option<&std::path::Path>,
+) -> ApiResult<()> {
+    use wf_types::config::file_scope::{normalize_scope_path, scope_path_contains};
+    let Some(dir) = working_directory else {
+        return Ok(());
+    };
+    if dir.trim().is_empty() || dir.contains('\0') {
+        return Err(ApiError::Validation(
+            "working_directory must not be empty".to_string(),
+        ));
+    }
+    let filesystem = sandbox_config
+        .policy
+        .as_ref()
+        .and_then(|policy| policy.filesystem.as_ref());
+    let mut bounds: Vec<&String> = Vec::new();
+    if let Some(fs) = filesystem {
+        if let Some(read) = fs.allowed_read_paths.as_ref() {
+            bounds.extend(read.iter());
+        }
+        if let Some(write) = fs.allowed_write_paths.as_ref() {
+            bounds.extend(write.iter());
+        }
+    }
+    if bounds.is_empty() {
+        return Ok(());
+    }
+    let candidate = std::path::Path::new(dir);
+    let resolved = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else if let Some(root) = workspace_root {
+        root.join(candidate)
+    } else {
+        return Ok(());
+    };
+    let lexical = normalize_scope_path(&resolved.to_string_lossy());
+    if !bounds
+        .iter()
+        .any(|bound| scope_path_contains(bound, &lexical))
+    {
+        return Err(ApiError::Validation(format!(
+            "working_directory '{dir}' is outside the sandbox allowed paths"
+        )));
+    }
+    let physical = resolved.canonicalize().ok().or_else(|| {
+        resolved
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .and_then(|parent| parent.canonicalize().ok())
+            .and_then(|parent| resolved.file_name().map(|name| parent.join(name)))
+    });
+    if let Some(physical) = physical {
+        let physical_str = physical.to_string_lossy().to_string();
+        if !bounds
+            .iter()
+            .any(|bound| scope_path_contains(bound, &physical_str))
+        {
+            return Err(ApiError::Validation(format!(
+                "working_directory '{dir}' escapes the sandbox allowed paths through a link"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Execute a script. When neither `code` nor `template` is supplied, the
+/// script is resolved from the process-wide script registry (the same
+/// registry `ExecuteScript` trigger actions use); a stored-but-contentless
+/// metadata entry alone is rejected.
+pub async fn execute(
+    ctx: &ApiContext,
+    params: &ScriptExecuteParams,
+) -> ApiResult<ScriptExecutionResult> {
+    if params.name.trim().is_empty() {
+        return Err(ApiError::Validation("script name is required".into()));
+    }
+
+    let language = params
+        .language
+        .or_else(|| {
+            lookup_registered_language(&params.name)
+                .and_then(|stored| parse_script_language(&stored))
+        })
+        .unwrap_or(ScriptLanguage::Shell);
+
+    let (code, template, arguments) = if let Some(code) = &params.code {
+        (Some(code.clone()), None, None)
+    } else if let Some(template) = &params.template {
+        (
+            None,
+            Some(template.clone()),
+            Some(default_arguments(params)),
+        )
+    } else if let Some(registered) = wf_workflow::lookup_script(&params.name) {
+        let arguments = registered.arguments.clone().or_else(|| {
+            if params.args.is_empty() {
+                None
+            } else {
+                Some(default_arguments(params))
+            }
+        });
+        (
+            registered.content.clone(),
+            registered.template.clone(),
+            arguments,
+        )
+    } else {
+        return Err(ApiError::Validation(format!(
+            "script '{}' has no inline code or template and is not registered",
+            params.name
+        )));
+    };
+
+    let script = ScriptDefinition {
+        name: params.name.clone(),
+        content: code,
+        template,
+        arguments,
+        language: Some(language.as_str().to_string()),
+        executor_mode: None,
+        interactive: None,
+        security_policy: None,
+        description: None,
+        enabled: None,
+    };
+
+    let options = ScriptExecutionOptions {
+        executor_mode: None,
+        working_directory: params.working_directory.clone(),
+        environment: params.environment.clone(),
+        timeout_ms: params.timeout_ms,
+        retries: None,
+        retry_delay_ms: None,
+        exponential_backoff: None,
+        interactive: None,
+        security_policy: None,
+        input_files: None,
+        stdin: None,
+        stdin_file: None,
+        max_output_bytes: params.max_output_bytes,
+        output_spill_dir: params.output_spill_dir.clone(),
+    };
+    if let Err(reason) = options.validate_output_cap() {
+        return Err(ApiError::Validation(reason));
+    }
+    let engine_options = ScriptEngineOptions {
+        args: params.args.clone(),
+        context_variables: HashMap::new(),
+    };
+
+    let sandbox = ctx.sandbox.clone();
+    let sandbox_config = params
+        .sandbox
+        .clone()
+        .unwrap_or_else(|| default_sandbox_config(language));
+    validate_working_directory(
+        params.working_directory.as_deref(),
+        &sandbox_config,
+        manager_workspace_root(ctx),
+    )?;
+
+    // Script-change capture: diff the allowed-write scope inside
+    // the workspace root before/after the execution and record the changes
+    // on a `wf` actor partition named after the script. Best-effort — a
+    // capture failure never fails the script call itself.
+    let script_manager = ctx.file_checkpoint_manager().cloned();
+    let script_collector = script_manager.as_ref().and_then(|manager| {
+        let allowed = sandbox_config
+            .policy
+            .as_ref()
+            .and_then(|policy| policy.filesystem.as_ref())
+            .and_then(|fs| fs.allowed_write_paths.clone())
+            .unwrap_or_default();
+        manager.collector_for(&allowed)
+    });
+    let script_before = match &script_collector {
+        Some(collector) => match collector.capture() {
+            Ok(before) => Some(before),
+            Err(err) => {
+                tracing::warn!(error = %err, "script change capture: before-scan failed; capture skipped");
+                None
+            }
+        },
+        None => None,
+    };
+    let script_actor = ActorId::new(ActorKind::Wf, &[wf_types::Id::from(params.name.clone())])
+        .unwrap_or_else(|_| {
+            ActorId::new(ActorKind::Wf, &[wf_types::Id::from("script")])
+                .expect("static actor id is valid")
+        });
+
+    let script_name = params.name.clone();
+    let language_for_exec = language;
+    // The script engine hands the rendered command to a closure; keep the
+    // full sandbox result (mode / strategy / violations) in a one-shot
+    // slot so the API can return it untouched. `OnceLock` is lock-free and
+    // written exactly once (the engine discards the closure's rich output).
+    let sandbox_result: Arc<std::sync::OnceLock<ScriptExecutionResult>> =
+        Arc::new(std::sync::OnceLock::new());
+    let sandbox_result_sink = sandbox_result.clone();
+
+    let engine_result = ScriptEngine
+        .execute(
+            &script,
+            Some(&options),
+            &engine_options,
+            move |command, options| {
+                let sandbox = sandbox.clone();
+                let sandbox_config = sandbox_config.clone();
+                let language = language_for_exec.as_str();
+                let script_name = script_name.clone();
+                let sandbox_result_sink = sandbox_result_sink.clone();
+                let env = options.as_ref().and_then(|o| o.environment.clone());
+                let workdir = options.as_ref().and_then(|o| o.working_directory.clone());
+                async move {
+                    let mut config = sandbox_config;
+                    if env.is_some() {
+                        config.env = env;
+                    }
+                    if workdir.is_some() {
+                        config.workdir = workdir;
+                    }
+                    let result = sandbox
+                        .execute_named(language, &script_name, &command, &config)
+                        .await;
+                    let _ = sandbox_result_sink.set(result.clone());
+                    to_script_result(result)
+                }
+            },
+        )
+        .await;
+
+    // Record the script's workspace changes (best-effort; also on failure —
+    // the script may have touched files before erroring).
+    if let (Some(manager), Some(collector), Some(before), Some(base)) = (
+        script_manager.as_ref(),
+        script_collector.as_ref(),
+        script_before.as_ref(),
+        manager_workspace_root(ctx),
+    ) {
+        match collector.capture() {
+            Ok(after) => {
+                let changes = WorkspaceChangeCollector::diff(before, &after);
+                if !changes.is_empty() {
+                    if let Err(err) = manager.apply_workspace_changes(
+                        &script_actor,
+                        base,
+                        &changes,
+                        manager.failure_behavior(),
+                    ) {
+                        tracing::warn!(error = %err, "script change capture: failed to apply workspace changes");
+                    }
+                }
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, "script change capture: after-scan failed; changes not recorded");
+            }
+        }
+    }
+
+    if !engine_result.success {
+        let error = engine_result
+            .error
+            .unwrap_or_else(|| "script execution failed".into());
+        if let Some(metrics) = ctx.metrics.as_ref() {
+            metrics
+                .error()
+                .record_error("script_execution", "script", None);
+            metrics
+                .template()
+                .record_error(&params.name, "execution_failed", &[]);
+        }
+        return Err(ApiError::execution(error));
+    }
+
+    let mut output = sandbox_result
+        .get()
+        .cloned()
+        .ok_or_else(|| ApiError::execution("sandbox produced no result"))?;
+    output = apply_output_cap(
+        &params.name,
+        output,
+        params.max_output_bytes,
+        params.output_spill_dir.as_deref(),
+    );
+    Ok(output)
+}
+
+/// Bound a direct sandbox result to the requested output cap so ad-hoc
+/// executions share the router truncation semantics without changing the
+/// shared result shape: streams keep their tails, full content spills to
+/// disk when requested, and truncation details join the error note.
+fn apply_output_cap(
+    script_name: &str,
+    mut result: ScriptExecutionResult,
+    max_bytes: Option<u64>,
+    spill_dir: Option<&str>,
+) -> ScriptExecutionResult {
+    if max_bytes.is_none() {
+        return result;
+    }
+    let capped_out = wf_script::cap_stream(
+        result.stdout.clone(),
+        max_bytes,
+        spill_dir,
+        &format!("{script_name}-stdout"),
+    );
+    let capped_err = wf_script::cap_stream(
+        result.stderr.clone(),
+        max_bytes,
+        spill_dir,
+        &format!("{script_name}-stderr"),
+    );
+    result.stdout = capped_out.text;
+    result.stderr = capped_err.text;
+    let mut notes: Vec<String> = Vec::new();
+    if capped_out.truncated || capped_err.truncated {
+        notes.push(format!(
+            "output truncated to last {} bytes per stream ({} stdout + {} stderr bytes total)",
+            max_bytes.unwrap_or(0),
+            capped_out.total_bytes,
+            capped_err.total_bytes
+        ));
+    }
+    for path in [capped_out.spilled_path, capped_err.spilled_path]
+        .into_iter()
+        .flatten()
+    {
+        notes.push(format!("full output spilled to {path}"));
+    }
+    for note in [capped_out.spill_error, capped_err.spill_error]
+        .into_iter()
+        .flatten()
+    {
+        notes.push(note);
+    }
+    if !notes.is_empty() {
+        let suffix = notes.join("; ");
+        result.error = Some(match result.error.take() {
+            Some(prev) => format!("{prev}; {suffix}"),
+            None => suffix,
+        });
+    }
+    result
+}
+
+/// The workspace root of the attached file-checkpoint manager, if any.
+fn manager_workspace_root(ctx: &ApiContext) -> Option<&std::path::Path> {
+    ctx.file_checkpoint_manager()?.workspace_root()
+}
+
+/// Validate a script definition without executing it: non-empty name and
+/// at least one source of code, plus a well-formed sandbox config.
+pub async fn validate(
+    _ctx: &ApiContext,
+    params: &ScriptExecuteParams,
+) -> ApiResult<ScriptValidation> {
+    let mut errors = Vec::new();
+    if params.name.trim().is_empty() {
+        errors.push("Script name is required".into());
+    }
+    if params.code.is_none()
+        && params.template.is_none()
+        && wf_workflow::lookup_script(&params.name).is_none()
+    {
+        errors.push("Script must provide inline code, a template, or be registered".into());
+    }
+    if let Some(template) = &params.template {
+        if template.trim().is_empty() {
+            errors.push("Script template must not be empty".into());
+        }
+    }
+    if params.code.is_some() || params.template.is_some() {
+        let shape = wf_script::ScriptDefinition {
+            name: params.name.clone(),
+            content: params.code.clone(),
+            template: params.template.clone(),
+            arguments: None,
+            language: None,
+            executor_mode: None,
+            interactive: None,
+            security_policy: None,
+            description: None,
+            enabled: None,
+        };
+        if let Err(e) = wf_script::ScriptEngine::validate_definition_shape(&shape) {
+            errors.push(e.to_string());
+        }
+    }
+    if let Some(config) = &params.sandbox {
+        if let Err(e) = serde_json::to_value(config) {
+            errors.push(format!("Invalid sandbox config: {e}"));
+        }
+    }
+    Ok(ScriptValidation {
+        valid: errors.is_empty(),
+        errors,
+    })
+}
+
+/// Whether a stored script metadata entry is present and enabled.
+pub async fn is_enabled(ctx: &ApiContext, name: &str) -> ApiResult<bool> {
+    super::storage::is_script_enabled(&ctx.storage, name).await
+}
+
+fn default_arguments(params: &ScriptExecuteParams) -> Vec<wf_script::ScriptArgument> {
+    params
+        .args
+        .iter()
+        .map(|(key, value)| wf_script::ScriptArgument {
+            key: key.clone(),
+            r#type: None,
+            label: None,
+            required: Some(false),
+            default: Some(value.clone()),
+            source: None,
+            description: None,
+            options: None,
+            pattern: None,
+        })
+        .collect()
+}
+
+/// Default sandbox config for direct script execution.
+///
+/// Strict is the fail-closed default: LLM-generated scripts are the least
+/// trusted input and must not silently downgrade to recording-only mode.
+/// Callers that genuinely need the lenient behavior pass their own
+/// `SandboxConfig`. Every language keeps at least one Analysis strategy in
+/// its chain so the runtime's gate guarantee holds without
+/// `skip_gate_check`:
+/// - shell: `static-analyzer` gate + `os-hook` execution;
+/// - python: `ast-analyzer` gate + `direct` execution;
+/// - javascript: `vm-context` (policy enforced inside the wrapped execution);
+/// - lua: `static-analyzer` gate + `mlua-sandbox` execution.
+fn default_sandbox_config(language: ScriptLanguage) -> SandboxConfig {
+    let mut config = SandboxConfig {
+        mode: Some(SandboxMode::Strict),
+        policy: None,
+        shell_strategy: None,
+        python_strategy: None,
+        javascript_strategy: None,
+        lua_strategy: None,
+        vfs: None,
+        workdir: None,
+        env: None,
+        resource_limits: None,
+        skip_gate_check: None,
+    };
+    match language {
+        ScriptLanguage::Python => {
+            config.python_strategy = Some(vec!["ast-analyzer".into(), "direct".into()]);
+        }
+        ScriptLanguage::JavaScript => {
+            config.javascript_strategy = Some(vec!["vm-context".into()]);
+        }
+        ScriptLanguage::Lua => {
+            // Lua's default chain has an analysis gate; `mlua-sandbox` runs
+            // only after the static-analyzer has inspected the code.
+            config.lua_strategy = Some(vec!["static-analyzer".into(), "mlua-sandbox".into()]);
+        }
+        ScriptLanguage::Shell => {
+            // shell keeps the default [static-analyzer, os-hook] chain with
+            // the analysis gate intact.
+        }
+    }
+    config
+}
+
+fn lookup_registered_language(name: &str) -> Option<String> {
+    wf_workflow::lookup_script(name).and_then(|s| s.language)
+}
+
+fn to_script_result(result: ScriptExecutionResult) -> wf_script::ScriptExecutionResult {
+    wf_script::ScriptExecutionResult {
+        success: result.success,
+        script_name: result.script_name,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        exit_code: result.exit_code,
+        execution_time_ms: result.execution_time,
+        error: result.error,
+        requires_review: false,
+        truncated: false,
+        output_bytes: None,
+        stdout_path: None,
+        stderr_path: None,
+    }
+}
+

@@ -160,6 +160,7 @@ fn make_direct_call(id: String, tool: &str, arguments: &str) -> LlmToolCall {
             arguments: arguments.to_string(),
         },
         call_id: None,
+        thought_signature: None,
     }
 }
 

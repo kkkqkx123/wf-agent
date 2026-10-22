@@ -314,7 +314,8 @@ fn message_text(message: &Message) -> String {
                 | MessageContent::ImageUrl { .. }
                 | MessageContent::InputAudio { .. }
                 | MessageContent::FileInput { .. }
-                | MessageContent::RedactedThinking { .. } => None,
+                | MessageContent::RedactedThinking { .. }
+                | MessageContent::Native { .. } => None,
             })
             .collect::<Vec<_>>()
             .join(" "),
@@ -612,6 +613,7 @@ mod tests {
                     id: "call-3".to_string(),
                     name: "grep_search".to_string(),
                     input: serde_json::json!({}),
+                    thought_signature: None,
                 },
             }]),
             timestamp: 1005,

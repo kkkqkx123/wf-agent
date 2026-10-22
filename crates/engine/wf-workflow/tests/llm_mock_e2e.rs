@@ -40,6 +40,7 @@ fn tool_call(id: &str, name: &str, args: &str) -> LlmToolCall {
             arguments: args.to_string(),
         },
         call_id: None,
+    thought_signature: None,
     }
 }
 

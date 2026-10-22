@@ -1,28 +1,18 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use wf_agent::approval::ToolApprovalHandler;
 use wf_agent::coordinator::lifecycle::AgentLoopCoordinator;
 use wf_agent::entity::AgentLoopEntity;
 use wf_agent::registry::AgentLoopRegistry;
-use wf_storage::adapter::base::BaseStorageAdapter;
-use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput};
+use wf_tools::callback::{AgentLoopConfig, AgentLoopInput};
 
 use crate::infra::context::ApiContext;
 use crate::infra::error::ApiError;
-use crate::infra::state_tracker::{ExecutionStateAccessor, StatePoint};
-use crate::infra::stream::ExecutionEventStream;
-use wf_execution_shared::types::execution_entity::ExecutionEntity;
-use wf_execution_shared::types::state_manager::StateManager;
 
 /// Default wall-clock timeout for an agent loop when the config sets neither
 /// `max_execution_time` nor `max_iterations` (30s per iteration, 3 default
 /// iterations). An elapse maps onto `ApiError::Timeout`.
 const DEFAULT_AGENT_TIMEOUT_MS: u64 = 90_000;
-
-/// Per-iteration time budget used to derive the default agent timeout from
-/// `max_iterations` (30 seconds per iteration).
-const AGENT_TIMEOUT_PER_ITERATION_MS: u64 = 30_000;
 
 /// Parameters for running an agent loop.
 #[derive(Clone)]
@@ -71,262 +61,22 @@ impl std::fmt::Debug for RunAgentLoopParams {
     }
 }
 
-/// Application-facing agent loop API.
-///
-/// Launches agent loops through the `wf-agent` engine. The live entity is
-/// registered in the shared [`AgentLoopRegistry`] so `pause` / `resume` /
-/// `cancel` and status queries apply to the running loop.
-/// Run an agent loop to completion and await the final output.
-///
-/// Every run gets a fresh `agent_loop_id`; `config.agent_id` only
-/// identifies the agent definition. Bounded by a wall-clock timeout: the
-/// config's `max_execution_time` when set, otherwise `max_iterations ×
-/// 30s` (default 90s). An elapse maps onto `ApiError::Timeout`.
-pub async fn run(
-    ctx: &ApiContext,
-    params: RunAgentLoopParams,
-) -> crate::infra::error::ApiResult<AgentLoopOutput> {
-    gate_agent_config(ctx, &params.config)?;
-    let agent_loop_id = params
-        .agent_loop_id
-        .clone()
-        .unwrap_or_else(|| wf_types::Id::from(wf_common::generate_id()));
-    let coordinator = coordinator_for(ctx, &params, Some(agent_loop_id.as_str()))
-        .with_agent_loop_id(agent_loop_id.clone());
-    let timeout_ms = agent_timeout_ms(&params.config);
-    let config = params.config.clone();
-    let input = params.input.clone();
-    let outcome =
-        crate::infra::error::with_timeout(Duration::from_millis(timeout_ms), async move {
-            coordinator.execute(config, input).await.map_err(Into::into)
-        })
-        .await;
-    match outcome {
-        Ok(output) => {
-            // Persist the produced conversation so agent-loop messages are
-            // queryable through `message::save` (storage injected via the
-            // shared context, mirroring the checkpoint wiring pattern).
-            // Messages are scoped to the per-run agent loop id.
-            persist_conversation(ctx, &output.agent_loop_id, &output.conversation).await;
-            Ok(output)
-        }
-        Err(e) => {
-            // A wall-clock timeout drops the coordinator mid-loop: the
-            // start record stays `Running`. Mark the live entity failed
-            // and persist the terminal record so the agent execution store
-            // reflects the failure.
-            if let Some(entity) = ctx.agent_loop(&agent_loop_id.to_string()) {
-                if let Err(terr) = entity.state.write().await.fail(e.to_string()) {
-                    tracing::warn!(
-                        error = %terr,
-                        "failed to mark live agent entity failed after coordinator error"
-                    );
-                }
-                let record = wf_agent::build_agent_execution(&entity).await;
-                ctx.state_manager.persist_agent(&record).await;
-            }
-            Err(e)
-        }
-    }
-}
+mod accessor;
+mod checkpoint;
+#[cfg(test)]
+mod tests;
+mod lifecycle;
 
-/// Run an agent loop in streaming mode. Events (message deltas, tool
-/// lifecycle, iteration boundaries, terminal outcome) flow through the
-/// returned stream.
-pub async fn stream(
-    ctx: &ApiContext,
-    params: RunAgentLoopParams,
-) -> crate::infra::error::ApiResult<ExecutionEventStream> {
-    gate_agent_config(ctx, &params.config)?;
-    // Resolve the loop id up front (instead of inside the coordinator) so
-    // the host-default approval handler can scope its interaction records
-    // to the same execution.
-    let agent_loop_id = params
-        .agent_loop_id
-        .clone()
-        .unwrap_or_else(|| wf_types::Id::from(wf_common::generate_id()));
-    let mut coordinator = coordinator_for(ctx, &params, Some(agent_loop_id.as_str()));
-    coordinator = coordinator.with_agent_loop_id(agent_loop_id);
-    let stream = coordinator
-        .execute_stream(params.config, params.input)
-        .await;
-    Ok(ExecutionEventStream::from_agent_stream(stream))
-}
+pub use accessor::AgentStateAccessor;
+pub use checkpoint::{auto_resume, resume_from_checkpoint};
+pub use lifecycle::{cancel, pause, resume, run, status, stream};
 
-/// Pause a running agent loop (checked between iterations).
-pub async fn pause(ctx: &ApiContext, agent_loop_id: &str) -> crate::infra::error::ApiResult<()> {
-    let entity = live_entity(ctx, agent_loop_id)?;
-    entity.pause().await?;
-    Ok(())
-}
-
-/// Resume a paused agent loop.
-pub async fn resume(ctx: &ApiContext, agent_loop_id: &str) -> crate::infra::error::ApiResult<()> {
-    let entity = live_entity(ctx, agent_loop_id)?;
-    if entity.is_completed() || entity.is_failed() || entity.is_cancelled() {
-        return Err(ApiError::Validation(format!(
-            "agent loop {agent_loop_id} is terminal and cannot resume; restore from checkpoint instead"
-        )));
-    }
-    entity.resume().await?;
-    Ok(())
-}
-
-/// Cancel (stop) a running agent loop.
-pub async fn cancel(ctx: &ApiContext, agent_loop_id: &str) -> crate::infra::error::ApiResult<()> {
-    let entity = live_entity(ctx, agent_loop_id)?;
-    entity.stop().await?;
-    Ok(())
-}
-
-/// Resume an agent loop from a checkpoint.
-///
-/// This drives the engine coordinators (`resume_from_checkpoint_with_mode`)
-/// over the checkpoints in `ctx.checkpoint_store` (run boundary / interval /
-/// hook opt-in checkpoints as well as manual `agent_checkpoint` snapshots,
-/// which share the same store and chain).
-///
-/// - `in_place = false` (default, branch): continues under a fresh execution
-///   id linked to the source through the checkpoint lineage (live source
-///   registry first, snapshot-restored manager otherwise); the source chain
-///   is never mutated.
-/// - `in_place = true`: continues under the source execution id; the source
-///   execution must be terminal or paused (a live run is rejected), and a
-///   caller-preset loop id conflicting with the source is rejected.
-///
-/// Ownership is checked up front: the checkpoint must be partitioned under
-/// `agent_loop_id` in the checkpoint store.
-pub async fn resume_from_checkpoint(
-    ctx: &ApiContext,
-    agent_loop_id: &str,
-    checkpoint_id: &str,
-    params: RunAgentLoopParams,
-    in_place: bool,
-) -> crate::infra::error::ApiResult<AgentLoopOutput> {
-    use wf_checkpoint::CheckpointStateManager;
-
-    gate_agent_config(ctx, &params.config)?;
-    let state_manager =
-        wf_checkpoint::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
-    let owned = state_manager
-        .list_by_entity(agent_loop_id)
-        .await
-        .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?
-        .iter()
-        .any(|meta| meta.id.as_str() == checkpoint_id);
-    if !owned {
-        return Err(ApiError::Validation(format!(
-            "checkpoint {checkpoint_id} does not belong to agent loop {agent_loop_id}"
-        )));
-    }
-    let mut coordinator = coordinator_for(ctx, &params, None);
-    if in_place {
-        coordinator = coordinator.with_agent_loop_id(wf_types::Id::from(agent_loop_id.to_string()));
-    } else if let Some(id) = params.agent_loop_id.clone() {
-        coordinator = coordinator.with_agent_loop_id(id);
-    }
-    let timeout_ms = agent_timeout_ms(&params.config);
-    let config = params.config.clone();
-    let input = params.input.clone();
-    let outcome =
-        crate::infra::error::with_timeout(Duration::from_millis(timeout_ms), async move {
-            coordinator
-                .resume_from_checkpoint_with_mode(checkpoint_id, config, input, in_place)
-                .await
-                .map_err(Into::into)
-        })
-        .await;
-    match outcome {
-        Ok(output) => {
-            persist_conversation(ctx, &output.agent_loop_id, &output.conversation).await;
-            Ok(output)
-        }
-        Err(e) => Err(e),
-    }
-}
-
-/// Automatically resume an agent execution from its latest checkpoint using
-/// the declarative loop configuration captured in the snapshot. No caller
-/// config or new user message is required; the source execution id is reused
-/// in place. Missing checkpoints, terminal snapshots, missing loop configs
-/// and live sources surface as validation errors so the recovery
-/// orchestrator can skip with a reason instead of backfilling defaults.
-pub async fn auto_resume(
-    ctx: &ApiContext,
-    agent_loop_id: &str,
-) -> crate::infra::error::ApiResult<AgentLoopOutput> {
-    use wf_checkpoint::CheckpointStateManager;
-
-    let state_manager =
-        wf_checkpoint::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
-    let latest = state_manager
-        .get_latest(agent_loop_id)
-        .await
-        .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?
-        .ok_or_else(|| {
-            ApiError::Validation(format!(
-                "agent execution {agent_loop_id} has no checkpoint; auto-resume requires a checkpoint"
-            ))
-        })?;
-    let coordinator = coordinator(ctx);
-    let checkpoint_id = latest.id.clone();
-    let timeout_ms = ctx
-        .storage
-        .agent_execution
-        .load(agent_loop_id)
-        .await
-        .ok()
-        .flatten()
-        .and_then(|record| record.loop_config)
-        .map(|config| agent_timeout_ms(&config))
-        .unwrap_or(DEFAULT_AGENT_TIMEOUT_MS);
-    let outcome =
-        crate::infra::error::with_timeout(Duration::from_millis(timeout_ms), async move {
-            coordinator
-                .auto_resume_from_checkpoint(&checkpoint_id)
-                .await
-                .map_err(|e| {
-                    let message = e.to_string();
-                    let lower = message.to_lowercase();
-                    if lower.contains("no loop_config")
-                        || lower.contains("terminal")
-                        || lower.contains("still live")
-                        || lower.contains("invalid")
-                        || lower.contains("no checkpoint")
-                    {
-                        ApiError::Validation(format!(
-                            "agent execution {agent_loop_id} not auto-recoverable: {message}"
-                        ))
-                    } else {
-                        ApiError::execution(format!("agent auto-resume failed: {e}"))
-                    }
-                })
-        })
-        .await?;
-    persist_conversation(ctx, &outcome.agent_loop_id, &outcome.conversation).await;
-    Ok(outcome)
-}
-
-/// Query the live status of an agent loop execution.
-///
-/// Returns the typed [`wf_types::ExecutionStatus`] (the persisted status
-/// contract) instead of a Debug string, so callers can match without
-/// string parsing. A timeout in the engine state reads as `Timeout`.
-pub async fn status(
-    ctx: &ApiContext,
-    agent_loop_id: &str,
-) -> crate::infra::error::ApiResult<wf_types::ExecutionStatus> {
-    let entity = live_entity(ctx, agent_loop_id)?;
-    let status: wf_types::ExecutionStatus = entity.state.read().await.status().into();
-    Ok(status)
-}
-
-/// Access the shared agent loop registry (query/records/cleanup).
+// helpers re-exported as pub(crate) maybe
 pub fn registry(ctx: &ApiContext) -> Arc<AgentLoopRegistry> {
     ctx.agent_loops.clone()
 }
 
-fn coordinator(ctx: &ApiContext) -> AgentLoopCoordinator {
+pub(crate) fn coordinator(ctx: &ApiContext) -> AgentLoopCoordinator {
     let mut coordinator = AgentLoopCoordinator::with_store(
         ctx.llm_gateway.clone(),
         ctx.tool_registry.clone(),
@@ -347,12 +97,7 @@ fn coordinator(ctx: &ApiContext) -> AgentLoopCoordinator {
     coordinator
 }
 
-/// Assemble the coordinator for a run/stream invocation, routing the
-/// caller-supplied approval wiring (if any) into the loop. Without one,
-/// the host-default tool approval config (when enabled) attaches its
-/// effective policy together with an interaction-backed handler scoped to
-/// the execution id.
-fn coordinator_for(
+pub(crate) fn coordinator_for(
     ctx: &ApiContext,
     params: &RunAgentLoopParams,
     execution_id: Option<&str>,
@@ -364,8 +109,6 @@ fn coordinator_for(
     if let Some(handler) = params.approval_handler.clone() {
         coordinator = coordinator.with_approval_handler(handler);
     }
-    // Host wiring only fills the pieces the caller left unset, so a
-    // caller-supplied policy is never overwritten by the host default.
     if params.approval_options.is_none() || params.approval_handler.is_none() {
         if let Some(execution_id) = execution_id {
             if let Some(wiring) =
@@ -383,7 +126,7 @@ fn coordinator_for(
     coordinator
 }
 
-fn live_entity(
+pub(crate) fn live_entity(
     ctx: &ApiContext,
     agent_loop_id: &str,
 ) -> crate::infra::error::ApiResult<Arc<AgentLoopEntity>> {
@@ -391,9 +134,7 @@ fn live_entity(
         .ok_or_else(|| ApiError::execution_not_found(agent_loop_id))
 }
 
-/// Execution gate: reject error-level agent config issues before the loop
-/// starts instead of failing piecemeal mid-execution. Warnings pass.
-fn gate_agent_config(ctx: &ApiContext, config: &AgentLoopConfig) -> crate::ApiResult<()> {
+pub(crate) fn gate_agent_config(ctx: &ApiContext, config: &AgentLoopConfig) -> crate::ApiResult<()> {
     match wf_agent::validation::AgentLoopValidator::validate_or_fail(config, &ctx.tool_registry) {
         Ok(_) => Ok(()),
         Err(errors) => {
@@ -411,467 +152,13 @@ fn gate_agent_config(ctx: &ApiContext, config: &AgentLoopConfig) -> crate::ApiRe
     }
 }
 
-/// Persist the final conversation of an agent loop into the message
-/// adapter, scoped to the per-run agent loop id. Idempotent: message ids
-/// are the storage keys, so re-running a loop never duplicates a message.
-async fn persist_conversation(
-    ctx: &ApiContext,
-    agent_loop_id: &wf_types::Id,
-    conversation: &[wf_types::message::Message],
-) {
-    let agent_loop_id = agent_loop_id.to_string();
-    for message in conversation {
-        let record =
-            crate::entity::message::record(&agent_loop_id, Some(&agent_loop_id), message.clone());
-        if let Err(err) = ctx.storage.message.save(&record).await {
-            tracing::warn!(
-                target: "wf_api",
-                agent_loop_id = %agent_loop_id,
-                error = %err,
-                "failed to persist agent conversation message"
-            );
-        }
-    }
-}
-
-/// Derive the default agent loop wall-clock timeout: `max_execution_time` when
-/// set, otherwise `max_iterations × 30s`, falling back to the 90s default.
-fn agent_timeout_ms(config: &AgentLoopConfig) -> u64 {
+pub(crate) fn agent_timeout_ms(config: &AgentLoopConfig) -> u64 {
     if let Some(max_execution_time) = config.max_execution_time {
         return max_execution_time;
     }
     config
         .max_iterations
-        .map(|iterations| iterations as u64 * AGENT_TIMEOUT_PER_ITERATION_MS)
-        .unwrap_or(DEFAULT_AGENT_TIMEOUT_MS)
+        .map(|iterations| iterations as u64 * 30_000)
+        .unwrap_or(90_000)
         .max(1)
-}
-
-/// Adapter from a live [`AgentLoopEntity`] to the normalized [`StatePoint`]
-/// consumed by the shared execution-state recorder.
-pub struct AgentStateAccessor {
-    pub entity: Arc<AgentLoopEntity>,
-}
-
-#[async_trait::async_trait]
-impl ExecutionStateAccessor for AgentStateAccessor {
-    async fn capture(&self) -> StatePoint {
-        let snapshot = match self.entity.state.read().await.create_snapshot().await {
-            Ok(snapshot) => snapshot,
-            Err(err) => {
-                tracing::warn!(
-                    target: "wf_api",
-                    agent_loop_id = %self.entity.id(),
-                    error = %err,
-                    "state capture: snapshot failed, recording empty state"
-                );
-                return StatePoint {
-                    iteration: 0,
-                    status: wf_types::ExecutionStatus::Running,
-                    variables: Default::default(),
-                    call_stack_depth: 0,
-                    memory_usage: None,
-                };
-            }
-        };
-        let variables: std::collections::BTreeMap<String, serde_json::Value> =
-            snapshot.variable_snapshots.into_iter().collect();
-        let memory_usage = variables
-            .values()
-            .map(|v| serde_json::to_vec(v).map(|b| b.len() as i64).unwrap_or(0))
-            .sum();
-        StatePoint {
-            iteration: snapshot.current_iteration,
-            status: snapshot.status.into(),
-            variables,
-            call_stack_depth: snapshot.iteration_history.len(),
-            memory_usage: Some(memory_usage),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use wf_llm::{LlmGateway, LlmResponseSpec, MockLlmClient};
-    use wf_resource::registry::ResourceRegistries;
-    use wf_storage::context::StorageContext;
-
-    fn gateway_with(mock: Arc<MockLlmClient>) -> Arc<LlmGateway> {
-        let gateway = LlmGateway::new();
-        gateway.register_mock("mock", mock);
-        Arc::new(gateway)
-    }
-
-    fn make_ctx() -> Arc<ApiContext> {
-        let mock = Arc::new(MockLlmClient::new());
-        mock.script(LlmResponseSpec::text("hello from mock"));
-        let mut ctx = ApiContext::from_runtime_parts(
-            Arc::new(StorageContext::new_memory()),
-            Arc::new(ResourceRegistries::new()),
-            Arc::new(wf_core::EventBus::new(64)),
-            gateway_with(mock),
-            Arc::new(wf_tools::create_default_tool_registry()),
-            None,
-        );
-        ctx =
-            ctx.with_checkpoint_store(Arc::new(wf_storage::backend::StorageBackend::new_memory()));
-        Arc::new(ctx)
-    }
-
-    #[tokio::test]
-    async fn runs_agent_loop_to_completion() {
-        let ctx = make_ctx();
-        let output = run(
-            &ctx,
-            RunAgentLoopParams::new(
-                AgentLoopConfig {
-                    file_scope: None,
-                    agent_id: wf_types::Id::from("agent-1".to_string()),
-                    model: "mock".to_string(),
-                    max_iterations: Some(3),
-                    max_execution_time: None,
-                    hooks: Vec::new(),
-                    available_tool_names: None,
-                    initial_tool_names: Vec::new(),
-                    discoverable_tool_names: Vec::new(),
-                    enable_general_tool: None,
-                    activated_tool_names: Vec::new(),
-                    hidden_tool_names: Vec::new(),
-                    tool_call_protocol: None,
-                    token_limit: None,
-                    token_warning_threshold: None,
-                    enable_token_tracking: None,
-                    general_description: None,
-                    discoverable_metadata_block: None,
-                    history_normalization: false,
-                    checkpoint_message_interval: None,
-                },
-                AgentLoopInput {
-                    message: "hi".to_string(),
-                    context: Default::default(),
-                    conversation: Vec::new(),
-                },
-            ),
-        )
-        .await
-        .expect("agent loop should complete");
-        assert_eq!(output.result, serde_json::json!("hello from mock"));
-        assert_eq!(output.iterations, 1);
-
-        // The produced conversation is persisted and queryable via the
-        // message adapter, scoped to the per-run agent loop id (not the agent
-        // definition id).
-        let persisted = ctx.storage.message.list(None).await.unwrap();
-        assert!(
-            !persisted.is_empty(),
-            "agent conversation must be persisted"
-        );
-        let scoped = persisted[0].agent_loop_id.as_deref().unwrap();
-        assert_ne!(scoped, "agent-1", "loop id must differ from definition id");
-        assert!(persisted
-            .iter()
-            .all(|r| r.agent_loop_id.as_deref() == Some(scoped)));
-
-        // An `AgentExecution` record is persisted, keyed by the
-        // per-run agent loop id and linked to the definition.
-        let executions = ctx.storage.agent_execution.list(None).await.unwrap();
-        assert_eq!(executions.len(), 1, "agent execution must be persisted");
-        assert_eq!(executions[0].definition_id, wf_types::Id::from("agent-1"));
-        assert_eq!(executions[0].id.to_string(), scoped);
-    }
-
-    /// After a real `run`, the persisted `AgentExecution`
-    /// record is readable through a fresh context (empty live registries), so
-    /// the persisted branches of the agent queries return real data.
-    #[tokio::test]
-    async fn persisted_agent_execution_readable_after_restart() {
-        let storage = Arc::new(StorageContext::new_memory());
-        let mock = Arc::new(MockLlmClient::new());
-        mock.script(LlmResponseSpec::text("persisted agent"));
-        let gateway = gateway_with(mock);
-
-        let mut ctx1 = ApiContext::from_runtime_parts(
-            storage.clone(),
-            Arc::new(ResourceRegistries::new()),
-            Arc::new(wf_core::EventBus::new(64)),
-            gateway.clone(),
-            Arc::new(wf_tools::create_default_tool_registry()),
-            None,
-        );
-        ctx1 =
-            ctx1.with_checkpoint_store(Arc::new(wf_storage::backend::StorageBackend::new_memory()));
-
-        let ctx1 = Arc::new(ctx1);
-        let output = run(
-            &ctx1,
-            RunAgentLoopParams::new(
-                AgentLoopConfig {
-                    file_scope: None,
-                    agent_id: wf_types::Id::from("agent-persist".to_string()),
-                    model: "mock".to_string(),
-                    max_iterations: Some(3),
-                    max_execution_time: None,
-                    hooks: Vec::new(),
-                    available_tool_names: None,
-                    initial_tool_names: Vec::new(),
-                    discoverable_tool_names: Vec::new(),
-                    enable_general_tool: None,
-                    activated_tool_names: Vec::new(),
-                    hidden_tool_names: Vec::new(),
-                    tool_call_protocol: None,
-                    token_limit: None,
-                    token_warning_threshold: None,
-                    enable_token_tracking: None,
-                    general_description: None,
-                    discoverable_metadata_block: None,
-                    history_normalization: false,
-                    checkpoint_message_interval: None,
-                },
-                AgentLoopInput {
-                    message: "hi".to_string(),
-                    context: Default::default(),
-                    conversation: Vec::new(),
-                },
-            ),
-        )
-        .await
-        .expect("agent loop should complete");
-        let agent_loop_id = output.agent_loop_id.to_string();
-        assert_ne!(agent_loop_id, "agent-persist");
-
-        let ctx2 = Arc::new(ApiContext::from_runtime_parts(
-            storage,
-            Arc::new(ResourceRegistries::new()),
-            Arc::new(wf_core::EventBus::new(64)),
-            gateway,
-            Arc::new(wf_tools::create_default_tool_registry()),
-            None,
-        ));
-
-        use crate::workflow::execution_state::agent_execution_get_state;
-        let view = agent_execution_get_state(&ctx2, &agent_loop_id)
-            .await
-            .expect("persisted agent state query");
-        assert_eq!(view.source, "persisted");
-        assert_eq!(view.status, wf_types::ExecutionStatus::Completed);
-        assert_eq!(view.agent_loop_id, agent_loop_id);
-
-        let executions = crate::agent::list_agent_executions(&ctx2.storage, None)
-            .await
-            .unwrap();
-        assert_eq!(executions.len(), 1);
-        assert_eq!(
-            executions[0].definition_id,
-            wf_types::Id::from("agent-persist")
-        );
-        assert_eq!(executions[0].id.to_string(), agent_loop_id);
-    }
-
-    #[tokio::test]
-    async fn streams_agent_loop_events() {
-        let ctx = make_ctx();
-        let mut stream = stream(
-            &ctx,
-            RunAgentLoopParams::new(
-                AgentLoopConfig {
-                    file_scope: None,
-                    agent_id: wf_types::Id::from("agent-2".to_string()),
-                    model: "mock".to_string(),
-                    max_iterations: Some(3),
-                    max_execution_time: None,
-                    hooks: Vec::new(),
-                    available_tool_names: None,
-                    initial_tool_names: Vec::new(),
-                    discoverable_tool_names: Vec::new(),
-                    enable_general_tool: None,
-                    activated_tool_names: Vec::new(),
-                    hidden_tool_names: Vec::new(),
-                    tool_call_protocol: None,
-                    token_limit: None,
-                    token_warning_threshold: None,
-                    enable_token_tracking: None,
-                    general_description: None,
-                    discoverable_metadata_block: None,
-                    history_normalization: false,
-                    checkpoint_message_interval: None,
-                },
-                AgentLoopInput {
-                    message: "hi".to_string(),
-                    context: Default::default(),
-                    conversation: Vec::new(),
-                },
-            ),
-        )
-        .await
-        .expect("agent stream");
-        use futures::StreamExt;
-        let mut saw_completed = false;
-        while let Some(event) = stream.next().await {
-            if let crate::infra::stream::ExecutionStreamEvent::Completed { .. } = event {
-                saw_completed = true;
-            }
-        }
-        assert!(saw_completed, "stream must end with Completed");
-    }
-
-    #[tokio::test]
-    async fn pause_resume_cancel_control_handles() {
-        let ctx = make_ctx();
-        let id = wf_types::Id::from("agent-ctrl-1".to_string());
-        let entity = Arc::new(AgentLoopEntity::new(id.clone()));
-        let _ = ctx.agent_loops.register(entity.clone());
-
-        pause(&ctx, &id.to_string()).await.expect("pause");
-        assert!(entity.state.read().await.is_paused());
-        assert!(entity.interruption().is_interrupted());
-
-        resume(&ctx, &id.to_string()).await.expect("resume");
-        assert!(!entity.interruption().is_interrupted());
-
-        cancel(&ctx, &id.to_string()).await.expect("cancel");
-        assert!(entity.state.read().await.is_cancelled());
-
-        let err = pause(&ctx, "missing").await.expect_err("unknown loop");
-        assert!(matches!(err, ApiError::ExecutionNotFound { .. }));
-    }
-
-    fn resume_config() -> AgentLoopConfig {
-        AgentLoopConfig {
-            file_scope: None,
-            agent_id: wf_types::Id::from("agent-resume".to_string()),
-            model: "mock".to_string(),
-            max_iterations: Some(3),
-            max_execution_time: None,
-            hooks: Vec::new(),
-            available_tool_names: None,
-            initial_tool_names: Vec::new(),
-            discoverable_tool_names: Vec::new(),
-            enable_general_tool: None,
-            activated_tool_names: Vec::new(),
-            hidden_tool_names: Vec::new(),
-            tool_call_protocol: None,
-            token_limit: None,
-            token_warning_threshold: None,
-            enable_token_tracking: None,
-            general_description: None,
-            discoverable_metadata_block: None,
-            history_normalization: false,
-            checkpoint_message_interval: Some(1),
-        }
-    }
-
-    fn resume_input(message: &str) -> AgentLoopInput {
-        AgentLoopInput {
-            message: message.to_string(),
-            context: Default::default(),
-            conversation: Vec::new(),
-        }
-    }
-
-    /// Run one agent loop and return `(loop_id, first_checkpoint_id)`.
-    ///
-    /// Shared setup for the resume tests: each test needs its own completed
-    /// loop with at least one engine checkpoint, and keeping the setup here
-    /// (rather than repeating a long fixture) keeps the per-test futures
-    /// small. The resume tests each drive a full coordinator run, which is
-    /// the deepest stack user in this crate, so they stay split instead of
-    /// chaining several runs inside one test.
-    async fn run_loop_with_checkpoint(ctx: &Arc<ApiContext>, message: &str) -> (String, String) {
-        use wf_checkpoint::CheckpointStateManager;
-
-        let output = run(
-            ctx,
-            RunAgentLoopParams::new(resume_config(), resume_input(message)),
-        )
-        .await
-        .expect("run completes");
-        let loop_id = output.agent_loop_id.to_string();
-
-        let state_manager =
-            wf_checkpoint::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
-        let checkpoints = state_manager
-            .list_by_entity(&loop_id)
-            .await
-            .expect("engine checkpoints list");
-        assert!(
-            !checkpoints.is_empty(),
-            "message backstop must persist engine checkpoints"
-        );
-        (loop_id, checkpoints[0].id.to_string())
-    }
-
-    #[tokio::test]
-    async fn resume_from_engine_checkpoint_branches_under_new_execution_id() {
-        let ctx = make_ctx();
-        let (loop_id, checkpoint_id) = run_loop_with_checkpoint(&ctx, "hi").await;
-
-        // Branch (default): a fresh execution id continues the restored
-        // state; the source id is untouched.
-        let branch = resume_from_checkpoint(
-            &ctx,
-            &loop_id,
-            &checkpoint_id,
-            RunAgentLoopParams::new(resume_config(), resume_input("branch off")),
-            false,
-        )
-        .await
-        .expect("branch resume completes");
-        assert_ne!(
-            branch.agent_loop_id.to_string(),
-            loop_id,
-            "branch resume must not reuse the source execution id"
-        );
-    }
-
-    #[tokio::test]
-    async fn resume_from_engine_checkpoint_in_place_keeps_execution_id() {
-        let ctx = make_ctx();
-        let (loop_id, checkpoint_id) = run_loop_with_checkpoint(&ctx, "hi").await;
-
-        // In-place: the completed source is terminal, so continuation under
-        // the source id is accepted and appends to the same partition.
-        let continued = resume_from_checkpoint(
-            &ctx,
-            &loop_id,
-            &checkpoint_id,
-            RunAgentLoopParams::new(resume_config(), resume_input("continue")),
-            true,
-        )
-        .await
-        .expect("in-place resume completes");
-        assert_eq!(continued.agent_loop_id.to_string(), loop_id);
-    }
-
-    #[tokio::test]
-    async fn resume_rejects_foreign_and_unknown_checkpoints() {
-        let ctx = make_ctx();
-        let (loop_id, checkpoint_id) = run_loop_with_checkpoint(&ctx, "hi").await;
-
-        // Ownership: a checkpoint of another loop is rejected.
-        let (other_id, _) = run_loop_with_checkpoint(&ctx, "other").await;
-        assert_ne!(other_id, loop_id);
-        let err = resume_from_checkpoint(
-            &ctx,
-            &other_id,
-            &checkpoint_id,
-            RunAgentLoopParams::new(resume_config(), resume_input("cross")),
-            true,
-        )
-        .await
-        .expect_err("cross-loop checkpoint must be rejected");
-        assert!(matches!(err, ApiError::Validation(_)));
-
-        // An unknown checkpoint id is rejected too.
-        let err = resume_from_checkpoint(
-            &ctx,
-            &loop_id,
-            "missing-checkpoint",
-            RunAgentLoopParams::new(resume_config(), resume_input("missing")),
-            false,
-        )
-        .await
-        .expect_err("unknown checkpoint must be rejected");
-        assert!(matches!(err, ApiError::Validation(_)));
-    }
 }

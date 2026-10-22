@@ -325,6 +325,7 @@ mod tests {
                     id: id.into(),
                     name: "read_file".into(),
                     input: serde_json::json!({ "path": path }),
+                    thought_signature: None,
                 },
             }]),
             timestamp: 0,

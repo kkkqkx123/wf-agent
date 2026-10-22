@@ -152,6 +152,38 @@ pub(crate) struct OwnerBody {
     pub(crate) owner_id: String,
 }
 
+/// Publish a lease holder transition on the shared event bus. Pushes carry
+/// only the transition; holders re-read the lease over REST. Bus failures
+/// never fail the REST response.
+pub(crate) async fn publish_lock_event(
+    ctx: &wf_api::ApiContext,
+    kind: &str,
+    id: &str,
+    action: &str,
+    owner_id: &str,
+    owner_name: &str,
+) {
+    let mut metadata = std::collections::HashMap::new();
+    metadata.insert("kind".to_string(), serde_json::json!(kind));
+    metadata.insert("definition_id".to_string(), serde_json::json!(id));
+    metadata.insert("action".to_string(), serde_json::json!(action));
+    metadata.insert("owner_id".to_string(), serde_json::json!(owner_id));
+    metadata.insert("owner_name".to_string(), serde_json::json!(owner_name));
+    let event = wf_types::events::BaseEvent {
+        id: wf_common::generate_id(),
+        r#type: wf_types::events::EventType::DefinitionLockChanged,
+        timestamp: wf_api::now(),
+        workflow_id: None,
+        execution_id: None,
+        agent_loop_id: None,
+        event_name: Some("definition.lock_changed".to_string()),
+        metadata: Some(metadata),
+    };
+    if let Err(err) = wf_api::infra::events::dispatch(ctx, event).await {
+        tracing::warn!(target: "wf_server", %kind, %id, %action, %err, "lock event dispatch failed");
+    }
+}
+
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/workflows/{id}/lock", get(handle_get_lock))
@@ -195,10 +227,25 @@ pub(crate) async fn handle_acquire_lock(
     if body.owner_id.is_empty() {
         return err(ApiError::validation("owner_id must not be empty")).into_response();
     }
-    ok(state
+    let before = state
         .locks
-        .acquire("workflow", &path.id, &body.owner_id, &body.owner_name))
-    .into_response()
+        .current("workflow", &path.id, now_ms())
+        .map(|view| view.owner_id);
+    let view = state
+        .locks
+        .acquire("workflow", &path.id, &body.owner_id, &body.owner_name);
+    if before.as_deref() != Some(view.owner_id.as_str()) {
+        publish_lock_event(
+            &state.ctx,
+            "workflow",
+            &path.id,
+            "acquired",
+            &view.owner_id,
+            &view.owner_name,
+        )
+        .await;
+    }
+    ok(view).into_response()
 }
 
 #[utoipa::path(
@@ -215,9 +262,23 @@ pub(crate) async fn handle_heartbeat_lock(
     Path(path): Path<IdPath>,
     Json(body): Json<OwnerBody>,
 ) -> impl IntoResponse {
+    let before = state.locks.current("workflow", &path.id, now_ms());
     match state.locks.heartbeat("workflow", &path.id, &body.owner_id) {
         Some(view) => ok(view).into_response(),
-        None => err(ApiError::validation("no active lease to renew")).into_response(),
+        None => {
+            if let Some(prev) = before {
+                publish_lock_event(
+                    &state.ctx,
+                    "workflow",
+                    &path.id,
+                    "expired",
+                    &prev.owner_id,
+                    &prev.owner_name,
+                )
+                .await;
+            }
+            err(ApiError::validation("no active lease to renew")).into_response()
+        }
     }
 }
 
@@ -235,7 +296,23 @@ pub(crate) async fn handle_release_lock(
     Path(path): Path<IdPath>,
     Json(body): Json<OwnerBody>,
 ) -> impl IntoResponse {
-    ok(state.locks.release("workflow", &path.id, &body.owner_id)).into_response()
+    let before = state.locks.current("workflow", &path.id, now_ms());
+    let after = state.locks.release("workflow", &path.id, &body.owner_id);
+    if let Some(prev) = before {
+        let changed = after.as_ref().is_none_or(|view| view.owner_id != prev.owner_id);
+        if changed {
+            publish_lock_event(
+                &state.ctx,
+                "workflow",
+                &path.id,
+                "released",
+                &prev.owner_id,
+                &prev.owner_name,
+            )
+            .await;
+        }
+    }
+    ok(after).into_response()
 }
 
 #[cfg(test)]

@@ -15,27 +15,28 @@ const DEFAULT_DATA_TTL: Duration = Duration::from_secs(5);
 /// A fetch that never reports back is retried after this duration.
 pub(super) const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Per-screen cache TTL: aggregation screens refresh slowly and live lists
-/// refresh more eagerly.
+/// Per-screen cache TTL: the live event feeds invalidate out of band, so
+/// these are only a slow safety net for missed pushes.
 pub(super) fn data_ttl(kind: ScreenKind) -> Duration {
     match kind {
-        ScreenKind::Dashboard => Duration::from_secs(10),
-        ScreenKind::Workflow => Duration::from_secs(5),
-        ScreenKind::Executions | ScreenKind::Checkpoints => Duration::from_secs(3),
-        ScreenKind::Insights => Duration::from_secs(10),
-        ScreenKind::Catalog | ScreenKind::Git => Duration::from_secs(5),
+        ScreenKind::Dashboard => Duration::from_secs(60),
+        ScreenKind::Workflow => Duration::from_secs(30),
+        ScreenKind::Executions | ScreenKind::Checkpoints => Duration::from_secs(30),
+        ScreenKind::Insights => Duration::from_secs(60),
+        ScreenKind::Catalog | ScreenKind::Git => Duration::from_secs(60),
         ScreenKind::FileWorkspace
         | ScreenKind::FileTimeline
         | ScreenKind::EditSessions
         | ScreenKind::FileApprovals
-        | ScreenKind::Conflicts => Duration::from_secs(5),
+        | ScreenKind::Conflicts => Duration::from_secs(30),
         ScreenKind::Settings => DEFAULT_DATA_TTL,
         ScreenKind::Interactive => DEFAULT_DATA_TTL,
     }
 }
 
-/// Fresh detail lines stay cached this long before a reselection refetches.
-const DETAIL_TTL: Duration = Duration::from_secs(10);
+/// Fresh detail lines stay cached this long; event invalidation drops the
+/// screen rows, and this only bounds reselection refetches.
+const DETAIL_TTL: Duration = Duration::from_secs(30);
 
 /// Payload sent back by a background fetch.
 pub(super) enum DataResult {
@@ -395,6 +396,9 @@ impl TuiApp {
             match msg {
                 Feedback::Notice(text) => self.app.notice.set(text),
                 Feedback::Refresh(kind) => self.invalidate(kind),
+                Feedback::RefreshSidebar => {
+                    self.sidebar_fetched_at = None;
+                }
                 Feedback::Filter(query) => {
                     self.app.screen.list_filter = query;
                     self.app.screen.detail_scroll = 0;

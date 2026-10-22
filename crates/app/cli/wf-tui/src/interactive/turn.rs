@@ -160,110 +160,70 @@ impl InteractiveController {
         ));
     }
 
-    /// Poll pending server interactions for the active turn and forward
-    /// approvals/questions into the session channel. Seen records answer at
-    /// most once; aborted with the turn. An event-stream subscription wakes
-    /// the loop early on approval announcements; the periodic poll remains
-    /// as fallback.
+    /// Watch pending server interactions for the active turn and forward
+    /// approvals/questions into the session channel. Seen records forward at
+    /// most once; aborted with the turn. The shared event-driven watcher
+    /// reads the pending list only after an approval announcement or a
+    /// reconnect, with backoff while the stream is down.
     fn spawn_interaction_poll(
         client: wf_client::WfClient,
         tx: tokio::sync::mpsc::UnboundedSender<InteractiveEvent>,
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
-            use futures::StreamExt;
-            let mut seen = std::collections::HashSet::new();
-            let mut events = client
-                .get_stream(wf_client::endpoints::EVENTS_STREAM)
-                .await
-                .ok()
-                .map(Box::pin);
+            use wf_cli_shared::run_interaction::{PendingWatchStep, PendingWatcher};
+            let mut watcher = PendingWatcher::new(&client).await;
             loop {
-                if let Some(stream) = events.as_mut() {
-                    tokio::select! {
-                        _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => {}
-                        frame = stream.next() => {
-                            match frame {
-                                Some(Ok(frame)) => {
-                                    if !wf_cli_shared::run_interaction::is_interaction_request_event(
-                                        &frame,
-                                    ) {
-                                        if tx.is_closed() {
+                match watcher.next_batch(|| tx.is_closed()).await {
+                    PendingWatchStep::Stopped => break,
+                    PendingWatchStep::Ready(items) => {
+                        let mut closed = false;
+                        for item in items {
+                            let id = item
+                                .get("id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or_default()
+                                .to_string();
+                            if id.is_empty() {
+                                continue;
+                            }
+                            let kind = item
+                                .get("interaction_type")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            if kind == "tool_approval" {
+                                let request_data =
+                                    item.get("request_data").cloned().unwrap_or_default();
+                                match serde_json::from_value(request_data) {
+                                    Ok(request) => {
+                                        if tx
+                                            .send(InteractiveEvent::ApprovalRequested {
+                                                interaction_id: id,
+                                                request,
+                                            })
+                                            .is_err()
+                                        {
+                                            closed = true;
                                             break;
                                         }
-                                        continue;
                                     }
+                                    Err(_) => continue,
                                 }
-                                Some(Err(_)) | None => {
-                                    events = None;
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    if !tx.is_closed() {
-                        if let Ok(stream) = client
-                            .get_stream(wf_client::endpoints::EVENTS_STREAM)
-                            .await
-                        {
-                            events = Some(Box::pin(stream));
-                        }
-                    }
-                }
-                if tx.is_closed() {
-                    break;
-                }
-                let pending: serde_json::Value = match client
-                    .get_json("/api/v1/interactions/by-status/pending")
-                    .await
-                {
-                    Ok(value) => value,
-                    Err(_) => continue,
-                };
-                let items = pending
-                    .get("items")
-                    .and_then(|v| v.as_array())
-                    .cloned()
-                    .or_else(|| pending.as_array().cloned())
-                    .unwrap_or_default();
-                for item in items {
-                    let id = item
-                        .get("id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default()
-                        .to_string();
-                    if id.is_empty() || !seen.insert(id.clone()) {
-                        continue;
-                    }
-                    let kind = item
-                        .get("interaction_type")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    if kind == "tool_approval" {
-                        let request_data = item.get("request_data").cloned().unwrap_or_default();
-                        match serde_json::from_value(request_data) {
-                            Ok(request) => {
+                            } else {
+                                let request =
+                                    item.get("request_data").cloned().unwrap_or(item.clone());
                                 if tx
-                                    .send(InteractiveEvent::ApprovalRequested {
+                                    .send(InteractiveEvent::QuestionRequested {
                                         interaction_id: id,
                                         request,
                                     })
                                     .is_err()
                                 {
+                                    closed = true;
                                     break;
                                 }
                             }
-                            Err(_) => continue,
                         }
-                    } else {
-                        let request = item.get("request_data").cloned().unwrap_or(item.clone());
-                        if tx
-                            .send(InteractiveEvent::QuestionRequested {
-                                interaction_id: id,
-                                request,
-                            })
-                            .is_err()
-                        {
+                        if closed {
                             break;
                         }
                     }

@@ -1,17 +1,20 @@
 //! Server-side interaction answering for headless runs.
 //!
 //! The engine runs on the server and surfaces tool approvals and follow-up
-//! questions as pending interaction records. This module polls
-//! `GET /api/v1/interactions/by-status/pending` while a run is in flight
-//! and answers from stdin (`--interactive`), from the prefix whitelist, or
-//! blindly (`--assume-yes`). Without any answering mode the run proceeds
-//! under the server host default and follow-ups fail the run afterwards.
+//! questions as pending interaction records. This module watches the event
+//! stream while a run is in flight and reads the pending list only after a
+//! relevant bus event or a reconnect, answering from stdin
+//! (`--interactive`), from the prefix whitelist, or blindly
+//! (`--assume-yes`). Without any answering mode the run proceeds under the
+//! server host default and follow-ups fail the run afterwards.
 
 use std::collections::HashSet;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use futures::Stream;
 use serde_json::Value;
 use wf_client::WfClient;
 
@@ -43,6 +46,170 @@ impl AnswerPolicy {
     }
 }
 
+/// Boxed SSE frame stream held by [`PendingWatcher`].
+type SseFrameStream =
+    Pin<Box<dyn Stream<Item = Result<wf_client::SseFrame, wf_client::ClientError>> + Send>>;
+
+/// Reconnect backoff for event-stream consumers: 1s doubling to a 30s
+/// cap, plus sub-second jitter from the wall clock so restarted processes
+/// do not reconnect in lockstep. No extra dependencies for one timer.
+pub fn stream_reconnect_delay(attempt: u32) -> Duration {
+    const BASE: Duration = Duration::from_secs(1);
+    const MAX: Duration = Duration::from_secs(30);
+    let backoff = BASE
+        .checked_mul(1 << attempt.min(5))
+        .unwrap_or(MAX)
+        .min(MAX);
+    let jitter = Duration::from_millis(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|elapsed| u64::from(elapsed.subsec_nanos() % 500))
+            .unwrap_or(0),
+    );
+    backoff.saturating_add(jitter)
+}
+
+/// Outcome of one watcher step.
+pub enum PendingWatchStep {
+    /// The stop predicate held; the caller exits its loop.
+    Stopped,
+    /// Unseen pending records fetched after a wake trigger.
+    Ready(Vec<Value>),
+}
+
+/// Event-driven pending-interaction watcher shared by headless runs, the
+/// mini approver and the TUI turn task.
+///
+/// The watcher holds one `GET /api/v1/events/stream` subscription and only
+/// reads the pending list after a relevant bus event or a (re)connect.
+/// There is no fixed polling tick: without a stream the loop backs off
+/// between reconnect attempts, and the stop predicate runs on every wakeup
+/// so shutdown never waits on the network. Each record surfaces at most
+/// once per watcher lifetime; already-answered races resolve as no-ops
+/// server-side.
+pub struct PendingWatcher {
+    client: WfClient,
+    stream: Option<SseFrameStream>,
+    reconnect_attempt: u32,
+    fetch_due: bool,
+    seen: HashSet<String>,
+}
+
+impl PendingWatcher {
+    /// Open the event subscription; a failed open leaves the watcher
+    /// disconnected and the first step reconnects with backoff.
+    pub async fn new(client: &WfClient) -> Self {
+        let stream = client
+            .get_stream(wf_client::endpoints::EVENTS_STREAM)
+            .await
+            .ok()
+            .map(|stream| Box::pin(stream) as _);
+        Self {
+            client: client.clone(),
+            stream,
+            reconnect_attempt: 0,
+            fetch_due: true,
+            seen: HashSet::new(),
+        }
+    }
+
+    /// Wait for the next trigger (relevant bus event or reconnect), then
+    /// read the pending list once and return records not seen before. The
+    /// stop predicate is checked on every wakeup and between reconnect
+    /// backoff slices.
+    pub async fn next_batch(&mut self, is_stopped: impl Fn() -> bool) -> PendingWatchStep {
+        use futures::StreamExt;
+        loop {
+            if is_stopped() {
+                return PendingWatchStep::Stopped;
+            }
+            if self.stream.is_none() {
+                if sleep_backoff(stream_reconnect_delay(self.reconnect_attempt), &is_stopped)
+                    .await
+                {
+                    return PendingWatchStep::Stopped;
+                }
+                match self
+                    .client
+                    .get_stream(wf_client::endpoints::EVENTS_STREAM)
+                    .await
+                {
+                    Ok(stream) => {
+                        self.stream = Some(Box::pin(stream));
+                        self.reconnect_attempt = 0;
+                        self.fetch_due = true;
+                    }
+                    Err(_) => {
+                        self.reconnect_attempt = self.reconnect_attempt.saturating_add(1);
+                        continue;
+                    }
+                }
+            }
+            if !self.fetch_due {
+                let frame = match self.stream.as_mut() {
+                    Some(stream) => stream.next().await,
+                    None => None,
+                };
+                match frame {
+                    Some(Ok(frame)) => {
+                        if !is_interaction_request_event(&frame) {
+                            continue;
+                        }
+                    }
+                    Some(Err(_)) | None => {
+                        self.stream = None;
+                        self.reconnect_attempt = self.reconnect_attempt.saturating_add(1);
+                        continue;
+                    }
+                }
+            }
+            self.fetch_due = false;
+            match self
+                .client
+                .get_json("/api/v1/interactions/by-status/pending")
+                .await
+            {
+                Ok(pending) => return PendingWatchStep::Ready(unseen_items(&pending, &mut self.seen)),
+                Err(_) => continue,
+            }
+        }
+    }
+}
+
+/// Sleep in one-second slices so a long backoff still notices shutdown
+/// promptly. Returns true when the stop predicate held mid-sleep.
+async fn sleep_backoff(total: Duration, is_stopped: &impl Fn() -> bool) -> bool {
+    let mut remaining: u64 = total.as_millis().try_into().unwrap_or(u64::MAX).max(1);
+    while remaining > 0 {
+        let slice = remaining.min(1_000);
+        tokio::time::sleep(Duration::from_millis(slice)).await;
+        if is_stopped() {
+            return true;
+        }
+        remaining -= slice;
+    }
+    false
+}
+
+/// Extract pending records the watcher has not surfaced yet.
+fn unseen_items(pending: &Value, seen: &mut HashSet<String>) -> Vec<Value> {
+    pending
+        .get("items")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .or_else(|| pending.as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|item| {
+            let id = item
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            !id.is_empty() && seen.insert(id.to_string())
+        })
+        .collect()
+}
+
 /// True for bus events that announce a new approval or follow-up.
 /// Pollers use this to wake early on the event stream; other frames stay on
 /// the periodic fallback so noisy streams cannot cause poll storms.
@@ -65,7 +232,6 @@ pub(crate) struct InteractionPoller {
     prompt: Option<Arc<StdioPromptSource>>,
     diag: Arc<Mutex<DiagWriter>>,
     followup_requested: Arc<AtomicBool>,
-    seen: HashSet<String>,
 }
 
 impl InteractionPoller {
@@ -82,82 +248,29 @@ impl InteractionPoller {
             prompt,
             diag,
             followup_requested,
-            seen: HashSet::new(),
         }
     }
 
     /// Run until `stop` flips. Each unseen pending interaction is answered
     /// exactly once; already-answered races resolve as no-ops server-side.
-    /// An event-stream subscription wakes the loop early on approval and
-    /// follow-up announcements; the periodic poll remains as fallback when
-    /// the stream drops or carries unrelated events.
+    /// The shared event-driven watcher only reads the pending list after a
+    /// relevant bus event or a reconnect, with backoff while the stream is
+    /// down.
     pub(crate) async fn run_until(&mut self, stop: Arc<AtomicBool>) {
-        use futures::StreamExt;
-        let mut events = self
-            .client
-            .get_stream(wf_client::endpoints::EVENTS_STREAM)
-            .await
-            .ok()
-            .map(Box::pin);
+        let mut watcher = PendingWatcher::new(&self.client).await;
         loop {
-            if let Some(stream) = events.as_mut() {
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_millis(500)) => {}
-                    frame = stream.next() => {
-                        match frame {
-                            Some(Ok(frame)) => {
-                                if !is_interaction_request_event(&frame) {
-                                    if stop.load(Ordering::SeqCst) {
-                                        break;
-                                    }
-                                    continue;
-                                }
-                            }
-                            Some(Err(_)) | None => {
-                                events = None;
-                            }
-                        }
+            match watcher.next_batch(|| stop.load(Ordering::SeqCst)).await {
+                PendingWatchStep::Stopped => break,
+                PendingWatchStep::Ready(items) => {
+                    for item in items {
+                        let id = item
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string();
+                        self.answer_one(&id, &item).await;
                     }
                 }
-            } else {
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                if !stop.load(Ordering::SeqCst) {
-                    if let Ok(stream) = self
-                        .client
-                        .get_stream(wf_client::endpoints::EVENTS_STREAM)
-                        .await
-                    {
-                        events = Some(Box::pin(stream));
-                    }
-                }
-            }
-            if stop.load(Ordering::SeqCst) {
-                break;
-            }
-            let pending: Value = match self
-                .client
-                .get_json("/api/v1/interactions/by-status/pending")
-                .await
-            {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
-            let items = pending
-                .get("items")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .or_else(|| pending.as_array().cloned())
-                .unwrap_or_default();
-            for item in items {
-                let id = item
-                    .get("id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default()
-                    .to_string();
-                if id.is_empty() || !self.seen.insert(id.clone()) {
-                    continue;
-                }
-                self.answer_one(&id, &item).await;
             }
         }
     }

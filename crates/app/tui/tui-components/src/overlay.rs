@@ -13,6 +13,9 @@ pub enum LoopAction {
 pub enum Feedback {
     Notice(String),
     Refresh(ScreenKind),
+    /// Drop the sidebar cache so the next loop iteration refetches it; the
+    /// live event feeds send this alongside screen refreshes.
+    RefreshSidebar,
     Filter(String),
 }
 

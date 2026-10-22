@@ -227,7 +227,26 @@ pub(crate) async fn run_stream(
     ))
 }
 
-/// Poll an execution until it stops changing.
+/// Bus event types after which an execution no longer changes. Mirrors
+/// `EventSubscriptionOptions::is_terminal` so stream-driven followers and
+/// the server subscription agree on when a run ends.
+pub(crate) fn is_terminal_event(event_type: &wf_types::events::EventType) -> bool {
+    use wf_types::events::EventType as T;
+    matches!(
+        event_type,
+        T::WorkflowExecutionCompleted
+            | T::WorkflowExecutionFailed
+            | T::WorkflowExecutionCancelled
+            | T::AgentCompleted
+            | T::AgentFailed
+            | T::AgentCancelled
+    )
+}
+
+/// Watch an execution until it stops changing. The event stream is the
+/// primary channel: every bus event re-reads the status and terminal events
+/// end the watch. The fixed interval survives only as the degraded path
+/// when the stream cannot be opened or drops mid-watch.
 pub(crate) async fn watch_execution(
     cli: &Cli,
     client: &WfClient,
@@ -247,16 +266,86 @@ pub(crate) async fn watch_execution(
             OutputEnvelope::success("execution-watch", data).with_entity(id.to_string()),
         );
     }
+    match client
+        .get_stream(&wf_client::endpoints::events_stream_for_execution(
+            id, None,
+        ))
+        .await
+    {
+        Ok(stream) => {
+            watch_via_stream(cli, client, id, text, &mut last, Box::pin(stream)).await
+        }
+        Err(_) => watch_via_poll(cli, client, id, text, &mut last, interval).await,
+    }
+}
+
+/// Stream-driven watch: status is re-read on bus events (bounded by actual
+/// activity, silent when idle) and terminal events end the watch after one
+/// confirming read. A dropped stream degrades to interval polling.
+async fn watch_via_stream(
+    cli: &Cli,
+    client: &WfClient,
+    id: &str,
+    text: bool,
+    last: &mut String,
+    mut stream: std::pin::Pin<
+        Box<dyn futures::Stream<Item = Result<wf_client::SseFrame, wf_client::ClientError>> + Send>,
+    >,
+) -> CliResult<()> {
+    loop {
+        tokio::select! {
+            frame = stream.next() => {
+                match frame {
+                    Some(Ok(frame)) => {
+                        let terminal = wf_client::sse::decode_system_frame(&frame)
+                            .into_base_event()
+                            .is_some_and(|base| is_terminal_event(&base.r#type));
+                        let status = fetch_execution_status(client, id).await?;
+                        if status != *last {
+                            *last = status;
+                            if text {
+                                println!("{id} {last}");
+                            }
+                        }
+                        if terminal || is_terminal_status(last) {
+                            let data = serde_json::json!({"executionId": id, "status": last});
+                            return render_envelope(
+                                cli.output,
+                                OutputEnvelope::success("execution-watch", data).with_entity(id.to_string()),
+                            );
+                        }
+                    }
+                    Some(Err(_)) | None => {
+                        return watch_via_poll(cli, client, id, text, last, 1_000).await;
+                    }
+                }
+            }
+            _ = tokio::signal::ctrl_c() => {
+                return Err(CliError::Interrupted("watch cancelled".to_string()));
+            }
+        }
+    }
+}
+
+/// Interval watch: the degraded path when the event stream is unavailable.
+async fn watch_via_poll(
+    cli: &Cli,
+    client: &WfClient,
+    id: &str,
+    text: bool,
+    last: &mut String,
+    interval: u64,
+) -> CliResult<()> {
     loop {
         tokio::select! {
             _ = tokio::time::sleep(std::time::Duration::from_millis(interval)) => {
                 let status = fetch_execution_status(client, id).await?;
-                if status != last {
-                    last = status;
+                if status != *last {
+                    *last = status.clone();
                     if text {
                         println!("{id} {last}");
                     }
-                    if is_terminal_status(&last) {
+                    if is_terminal_status(last) {
                         let data = serde_json::json!({"executionId": id, "status": last});
                         return render_envelope(
                             cli.output,

@@ -32,7 +32,36 @@ pub(crate) async fn handle_git_action(
         confirm: body.confirm,
     };
     match wf_api::git::execute_action(&state.ctx, &request) {
-        Ok(outcome) => ok(outcome).into_response(),
+        Ok(outcome) => {
+            // The readonly `refresh` entry only re-reads state; every other
+            // success mutated the repository and wakes fingerprint listeners.
+            if request.action.trim() != "refresh" {
+                publish_git_changed(&state.ctx, request.action.trim()).await;
+            }
+            ok(outcome).into_response()
+        }
         Err(err) => error_response(err.into()),
+    }
+}
+
+/// Publish a repository transition on the shared event bus. Pushes carry
+/// only the transition; the fingerprint stays the cheap change guard over
+/// REST. Bus failures never fail the action response.
+async fn publish_git_changed(ctx: &wf_api::ApiContext, action: &str) {
+    let mut metadata = std::collections::HashMap::new();
+    metadata.insert("source".to_string(), serde_json::json!("action"));
+    metadata.insert("action".to_string(), serde_json::json!(action));
+    let event = wf_types::events::BaseEvent {
+        id: wf_common::generate_id(),
+        r#type: wf_types::events::EventType::GitChanged,
+        timestamp: wf_api::now(),
+        workflow_id: None,
+        execution_id: None,
+        agent_loop_id: None,
+        event_name: Some("git.changed".to_string()),
+        metadata: Some(metadata),
+    };
+    if let Err(err) = wf_api::infra::events::dispatch(ctx, event).await {
+        tracing::warn!(target: "wf_server", %action, %err, "git change event dispatch failed");
     }
 }

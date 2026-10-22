@@ -51,8 +51,8 @@ import { gotoWithParams } from '#lib/utils/route';
 import { isSessionTab, type SessionTab } from '#lib/config/session-tabs';
 
 /** Burst throttle for event-driven interaction refreshes; pushes arrive
- * sparsely, so this only coalesces approval/follow-up storms. The 5s
- * disconnected fallback below bypasses it with force. */
+ * sparsely, so this only coalesces approval/follow-up storms. The 30s
+ * disconnected safety net below bypasses it with force. */
 const INTERACTION_POLL_MS = 600;
 
 /** The executors the composer can hand a message to. */
@@ -153,16 +153,28 @@ export class ChatSessionController {
 			return stop;
 		});
 
-		// Fallback while the event stream is not open (offline, auth error):
-		// poll at a slow cadence instead of the old 600ms hot loop.
+		// Safety net while the event stream is not open (offline, auth
+		// error): slow cadence plus a refresh when the tab becomes visible.
 		$effect(() => {
+			const SAFETY_NET_MS = 30_000;
+			const onVisible = () => {
+				if (document.hidden) return;
+				if (!this.selectedId) return;
+				if (this.interactionLiveState === 'open') return;
+				if (!chatStream.active && this.pendingInteractions.length === 0) return;
+				this.refreshInteractions();
+			};
 			const id = window.setInterval(() => {
 				if (!this.selectedId) return;
 				if (this.interactionLiveState === 'open') return;
 				if (!chatStream.active && this.pendingInteractions.length === 0) return;
 				this.refreshInteractions();
-			}, 5000);
-			return () => window.clearInterval(id);
+			}, SAFETY_NET_MS);
+			document.addEventListener('visibilitychange', onVisible);
+			return () => {
+				window.clearInterval(id);
+				document.removeEventListener('visibilitychange', onVisible);
+			};
 		});
 
 		$effect(() => {

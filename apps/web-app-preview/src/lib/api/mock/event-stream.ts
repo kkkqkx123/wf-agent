@@ -11,10 +11,15 @@
 import { emitMockEvent, onMockEvent } from '#lib/fixtures/checkpoints';
 
 /** Rotating heartbeat events so the Live subscription visibly fires. */
-const HEARTBEAT_EVENTS = [
-	'CHECKPOINT_FILE_CHANGED',
-	'CHECKPOINT_CREATED',
-	'TOOL_APPROVAL_REQUESTED',
+const HEARTBEAT_EVENTS: Array<{ type: string; metadata?: Record<string, unknown> }> = [
+	{ type: 'CHECKPOINT_FILE_CHANGED' },
+	{ type: 'CHECKPOINT_CREATED' },
+	{ type: 'TOOL_APPROVAL_REQUESTED' },
+	{ type: 'GIT_CHANGED', metadata: { source: 'action', action: 'stage' } },
+	{
+		type: 'DEFINITION_LOCK_CHANGED',
+		metadata: { kind: 'workflow', definition_id: '', action: 'acquired' },
+	},
 ];
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
@@ -45,7 +50,8 @@ class MockEventSource {
 				this.onmessage?.({ data: JSON.stringify(frame) });
 			});
 			this.heartbeat = setInterval(() => {
-				emitMockEvent(HEARTBEAT_EVENTS[this.beat % HEARTBEAT_EVENTS.length]);
+				const beat = HEARTBEAT_EVENTS[this.beat % HEARTBEAT_EVENTS.length];
+				emitMockEvent(beat.type, beat.metadata);
 				this.beat += 1;
 			}, HEARTBEAT_INTERVAL_MS);
 		}, 50);

@@ -183,6 +183,16 @@ pub enum EventType {
     /// reclaim or explicit removal. Metadata carries `session_id`, `exit_code`
     /// and `reason` (process/idle/removed).
     PtyExited,
+    /// A definition editing lease changed hands: acquired, released or
+    /// expired. Metadata carries `kind` (workflow/agent), `definition_id`,
+    /// `action` (acquired/released/expired) and the holder identity. Pushes
+    /// only carry the transition; holders re-read the lease over REST.
+    DefinitionLockChanged,
+    /// The git workbench state changed through the server write entry.
+    /// Metadata carries `source` (action/watch) and the triggering action
+    /// name. Pushes only carry the transition; the fingerprint stays the
+    /// cheap change guard over REST.
+    GitChanged,
 }
 
 impl EventType {
@@ -333,6 +343,8 @@ impl EventType {
             EventType::WorkflowErrorBranchSuspended => "WORKFLOW_ERROR_BRANCH_SUSPENDED",
             EventType::WorkflowErrorBranchResumed => "WORKFLOW_ERROR_BRANCH_RESUMED",
             EventType::PtyExited => "PTY_EXITED",
+            EventType::DefinitionLockChanged => "DEFINITION_LOCK_CHANGED",
+            EventType::GitChanged => "GIT_CHANGED",
         }
     }
 }

@@ -5,11 +5,13 @@ import {
 	heartbeatDefinitionLock,
 	releaseDefinitionLock,
 } from '#lib/services/definitions';
+import { live } from '#lib/stores/live.svelte';
 import type { DefinitionKind } from '#lib/types/models';
 
 const OWNER_KEY = 'wf-definition-lock-owner';
 const HEARTBEAT_MS = 30_000;
-const POLL_MS = 20_000;
+/** Slow safety net for missed pushes; the live bus event is the primary trigger. */
+const SAFETY_POLL_MS = 60_000;
 
 function storedOwner(): { ownerId: string; ownerName: string } {
 	if (!browser) return { ownerId: '', ownerName: '' };
@@ -48,10 +50,12 @@ function storedOwner(): { ownerId: string; ownerName: string } {
  * store. The lease is keyed by the definition kind as well as its id, so a
  * workflow and an agent never contend for the same lease.
  *
- * Transport: REST poll plus holder heartbeat. The WS protocol carries no
- * lock events yet, so there is no push subscription here; `notifyRemoteHint`
- * is the seam a future lock event will call, and it simply re-reads the
- * holder through the same REST path.
+ * Transport: push plus REST safety net. The server publishes a
+ * `DEFINITION_LOCK_CHANGED` bus event on every holder transition
+ * (acquired/released/expired); this store subscribes to the shared live
+ * feed and re-reads the holder for its own kind and id. The interval below
+ * only heals missed pushes while disconnected. The heartbeat stays a
+ * periodic write: renewing our own lease cannot be a push.
  *
  * When the lock endpoints are absent the store reports unsupported and
  * leaves editing unblocked with a notice.
@@ -73,6 +77,7 @@ export class EditLockStore {
 	private leaseActive = false;
 	private heartbeatTimer: number | null = null;
 	private pollTimer: number | null = null;
+	private unsubscribeLive: (() => void) | null = null;
 
 	get held(): boolean {
 		return (
@@ -137,9 +142,24 @@ export class EditLockStore {
 		this.acknowledgeLockLoss();
 		if (!definitionId || !browser) return;
 		void this.refresh();
+		this.unsubscribeLive = live.subscribe((event) => {
+			if (event.type !== 'DEFINITION_LOCK_CHANGED') return;
+			if (!this.definitionId) return;
+			try {
+				const meta = JSON.parse(event.payload || '{}') as {
+					kind?: unknown;
+					definition_id?: unknown;
+				};
+				if (meta.kind === this.kind && meta.definition_id === this.definitionId) {
+					this.notifyRemoteHint(event.type);
+				}
+			} catch {
+				// Malformed push payloads never trigger a refresh.
+			}
+		});
 		this.pollTimer = window.setInterval(() => {
 			void this.refresh();
-		}, POLL_MS);
+		}, SAFETY_POLL_MS);
 	}
 
 	async acquire(): Promise<boolean> {
@@ -190,6 +210,10 @@ export class EditLockStore {
 			window.clearInterval(this.pollTimer);
 			this.pollTimer = null;
 		}
+		if (this.unsubscribeLive !== null) {
+			this.unsubscribeLive();
+			this.unsubscribeLive = null;
+		}
 		this.definitionId = '';
 	}
 
@@ -200,9 +224,10 @@ export class EditLockStore {
 	}
 
 	/**
-	 * Realtime seam for a future lock event. Until the backend dispatches
-	 * lock changes, push callers invoke this to re-read the holder; unknown
-	 * event types are ignored so the REST poll stays authoritative.
+	 * Realtime seam for lock pushes: the live-feed subscription calls this
+	 * with the bus event type, and it simply re-reads the holder through
+	 * the same REST path. Unknown event types are ignored so the REST read
+	 * stays authoritative.
 	 */
 	notifyRemoteHint(eventType?: string): void {
 		if (!eventType) {

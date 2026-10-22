@@ -11,7 +11,6 @@ import { call, requireData } from '#lib/api/envelope';
  */
 export interface Behavior {
 	pageSize: number;
-	autoRefresh: boolean;
 	streamFollow: boolean;
 	reduceMotion: boolean;
 }
@@ -20,13 +19,11 @@ type PreferenceDocument = Record<string, unknown>;
 
 export const DEFAULT_BEHAVIOR: Behavior = {
 	pageSize: 50,
-	autoRefresh: true,
 	streamFollow: true,
 	reduceMotion: false,
 };
 
 const PAGE_SIZE_OPTION = 'execution.page-size';
-const AUTO_REFRESH_OPTION = 'execution.auto-refresh';
 const STREAM_FOLLOW_OPTION = 'execution.stream-follow';
 const REDUCE_MOTION_OPTION = 'appearance.reduce-motion';
 
@@ -46,11 +43,6 @@ function fromDocument(doc: PreferenceDocument): Behavior {
 			typeof pageSize === 'number' && Number.isFinite(pageSize)
 				? pageSize
 				: DEFAULT_BEHAVIOR.pageSize,
-		autoRefresh: booleanOption(
-			doc,
-			AUTO_REFRESH_OPTION,
-			DEFAULT_BEHAVIOR.autoRefresh,
-		),
 		streamFollow: booleanOption(
 			doc,
 			STREAM_FOLLOW_OPTION,
@@ -67,7 +59,6 @@ function fromDocument(doc: PreferenceDocument): Behavior {
 function toDocument(behavior: Behavior): PreferenceDocument {
 	return {
 		[PAGE_SIZE_OPTION]: behavior.pageSize,
-		[AUTO_REFRESH_OPTION]: behavior.autoRefresh,
 		[STREAM_FOLLOW_OPTION]: behavior.streamFollow,
 		[REDUCE_MOTION_OPTION]: behavior.reduceMotion,
 	};

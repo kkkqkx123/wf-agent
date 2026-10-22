@@ -195,7 +195,6 @@ import { t, message } from '#lib/i18n';
 			shortcuts: shortcutOverrides(),
 			behavior: {
 				pageSize: behavior.pageSize,
-				autoRefresh: behavior.autoRefresh,
 				streamFollow: behavior.streamFollow,
 				reduceMotion: behavior.reduceMotion,
 			},
@@ -516,14 +515,6 @@ import { t, message } from '#lib/i18n';
 								/>
 							</Card>
 							<Card title={t('page.settings.liveUpdates')} description={t('page.settings.storedServerSide')}>
-								<Switch
-									checked={behavior.autoRefresh}
-									label={t('page.settings.autoRefresh')}
-									disabled={serverUnreachable}
-									onchange={() => {
-										behavior.autoRefresh = !behavior.autoRefresh;
-									}}
-								/>
 								<Switch
 									checked={behavior.streamFollow}
 									label={t('page.settings.followStream')}

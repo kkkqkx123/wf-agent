@@ -89,9 +89,6 @@ pub enum EventSub {
         /// Also include workflow id filter.
         #[arg(long, value_name = "ID")]
         workflow: Option<String>,
-        /// Polling interval in milliseconds (fallback when subscription unavailable).
-        #[arg(long, value_name = "MS", default_value_t = 500)]
-        interval: u64,
         /// Only fetch once (no streaming).
         #[arg(long)]
         once: bool,

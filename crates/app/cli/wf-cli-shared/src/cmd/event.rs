@@ -66,7 +66,6 @@ pub async fn run(cli: &Cli, sub: &EventSub) -> CliResult<()> {
             id,
             types: _,
             workflow,
-            interval: _,
             once,
         } => {
             if *once {

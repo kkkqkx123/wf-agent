@@ -13,7 +13,6 @@ import type { BehaviorBackup } from '#lib/services/portability';
  */
 class BehaviorStore {
 	pageSize = $state(DEFAULT_BEHAVIOR.pageSize);
-	autoRefresh = $state(DEFAULT_BEHAVIOR.autoRefresh);
 	streamFollow = $state(DEFAULT_BEHAVIOR.streamFollow);
 	reduceMotion = $state(DEFAULT_BEHAVIOR.reduceMotion);
 
@@ -32,7 +31,6 @@ class BehaviorStore {
 		try {
 			const stored = await loadBehavior();
 			this.pageSize = stored.pageSize;
-			this.autoRefresh = stored.autoRefresh;
 			this.streamFollow = stored.streamFollow;
 			this.reduceMotion = stored.reduceMotion;
 			this.error = null;
@@ -61,7 +59,6 @@ class BehaviorStore {
 
 	async restoreDefaults(): Promise<void> {
 		this.pageSize = DEFAULT_BEHAVIOR.pageSize;
-		this.autoRefresh = DEFAULT_BEHAVIOR.autoRefresh;
 		this.streamFollow = DEFAULT_BEHAVIOR.streamFollow;
 		this.reduceMotion = DEFAULT_BEHAVIOR.reduceMotion;
 		await this.save();
@@ -70,7 +67,6 @@ class BehaviorStore {
 	/** Stage validated backup values locally; the caller saves them. */
 	applyBackup(backup: BehaviorBackup): void {
 		this.pageSize = backup.pageSize;
-		this.autoRefresh = backup.autoRefresh;
 		this.streamFollow = backup.streamFollow;
 		this.reduceMotion = backup.reduceMotion;
 	}
@@ -78,7 +74,6 @@ class BehaviorStore {
 	private current(): Behavior {
 		return {
 			pageSize: this.pageSize,
-			autoRefresh: this.autoRefresh,
 			streamFollow: this.streamFollow,
 			reduceMotion: this.reduceMotion,
 		};

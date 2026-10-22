@@ -1288,7 +1288,6 @@
 	"page.resources.tools.noToolsDesc": "注册表有条目后，工具会显示在这里。",
 	"page.settings.accessibility": "无障碍",
 	"page.settings.appearance": "外观",
-	"page.settings.autoRefresh": "自动刷新列表",
 	"page.settings.backup": "备份",
 	"page.settings.backupDesc": "包含外观、快捷键与服务端行为的一个带版本文件。下载无需服务器。",
 	"page.settings.backupDownloaded": "备份已下载。",

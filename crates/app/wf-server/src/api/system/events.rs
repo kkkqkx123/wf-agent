@@ -545,6 +545,9 @@ pub(crate) struct StreamEventsQuery {
     checkpoint_only: Option<bool>,
     /// Narrow checkpoint events to one file path.
     file_path: Option<String>,
+    /// Only these event types (comma-separated canonical SCREAMING names);
+    /// unknown names are rejected so a typo never silently matches nothing.
+    event_types: Option<String>,
     /// Narrow checkpoint events to one snapshot or commit id.
     snapshot_id: Option<String>,
     /// Opaque reconnect cursor (same hex token as the websocket `cursor`);
@@ -579,6 +582,21 @@ pub(crate) async fn handle_events_stream_ticket(
         expires_in: ticket::TICKET_TTL_SECS,
     })
     .into_response()
+}
+
+/// Parse a comma-separated canonical event type list for stream
+/// filtering; unknown names are rejected so a typo never silently matches
+/// nothing.
+fn parse_event_types(raw: &str) -> Result<Vec<wf_types::events::EventType>, String> {
+    use std::str::FromStr;
+    raw.split(',')
+        .map(|name| name.trim())
+        .filter(|name| !name.is_empty())
+        .map(|name| {
+            wf_types::events::EventType::from_str(&name.to_ascii_uppercase())
+                .map_err(|_| format!("unknown event type: {name}"))
+        })
+        .collect()
 }
 
 #[utoipa::path(
@@ -620,11 +638,16 @@ pub(crate) async fn handle_event_stream(
     let _guard = SseClientGuard;
 
     let execution_id = query.execution_id.clone();
+    let event_types = match query.event_types.as_deref().map(parse_event_types) {
+        Some(Ok(types)) => Some(types),
+        Some(Err(message)) => return err(ApiError::validation(message)).into_response(),
+        None => None,
+    };
     let options = EventSubscriptionOptions {
         execution_id: query.execution_id.clone(),
         agent_loop_id: query.agent_loop_id.clone(),
         workflow_id: query.workflow_id.clone(),
-        event_types: None,
+        event_types: event_types.clone(),
         checkpoint_only: query.checkpoint_only.unwrap_or(false),
         file_path: query.file_path.clone(),
         snapshot_id: query.snapshot_id.clone(),
@@ -633,7 +656,7 @@ pub(crate) async fn handle_event_stream(
         execution_id: query.execution_id,
         agent_loop_id: query.agent_loop_id,
         workflow_id: query.workflow_id,
-        event_types: None,
+        event_types,
         limit: Some(500),
     };
     let since = query.since.as_deref().and_then(crate::ws::decode_sse_since);
@@ -695,6 +718,28 @@ pub(crate) async fn handle_event_stream(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use wf_types::events::EventType;
+
+    #[test]
+    fn stream_event_types_accept_canonical_names_case_insensitively() {
+        let parsed = parse_event_types("WORKFLOW_EXECUTION_COMPLETED, git_changed").unwrap();
+        assert_eq!(
+            parsed,
+            vec![
+                EventType::WorkflowExecutionCompleted,
+                EventType::GitChanged,
+            ]
+        );
+        assert!(parse_event_types(" , ").unwrap().is_empty());
+    }
+
+    #[test]
+    fn stream_event_types_reject_unknown_names() {
+        assert!(parse_event_types("NOPE_NOT_A_TYPE").is_err());
+        assert!(parse_event_types("WORKFLOW_EXECUTION_COMPLETED, BOGUS").is_err());
+    }
+
     use axum::body::Body as AxBody;
     use axum::http::Request;
     use axum::response::Response;

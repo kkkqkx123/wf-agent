@@ -28,7 +28,6 @@ export interface LocalPreferencesBackup {
 
 export interface BehaviorBackup {
 	pageSize: number;
-	autoRefresh: boolean;
 	streamFollow: boolean;
 	reduceMotion: boolean;
 }
@@ -58,7 +57,6 @@ const PREFERENCE_KEYS: ReadonlyArray<keyof LocalPreferencesBackup> = [
 
 const BEHAVIOR_KEYS: ReadonlyArray<keyof BehaviorBackup> = [
 	'pageSize',
-	'autoRefresh',
 	'streamFollow',
 	'reduceMotion',
 ];
@@ -180,7 +178,6 @@ function validateBehavior(raw: unknown): BehaviorBackup {
 	}
 	return {
 		pageSize: raw.pageSize as number,
-		autoRefresh: checkBoolean(raw.autoRefresh, 'behavior.autoRefresh'),
 		streamFollow: checkBoolean(raw.streamFollow, 'behavior.streamFollow'),
 		reduceMotion: checkBoolean(raw.reduceMotion, 'behavior.reduceMotion'),
 	};

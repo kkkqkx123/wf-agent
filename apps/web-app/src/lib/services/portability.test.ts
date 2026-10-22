@@ -25,7 +25,6 @@ function validBackup(): SettingsBackup {
 		shortcuts: { 'app.commandPalette': 'Mod+K' },
 		behavior: {
 			pageSize: 50,
-			autoRefresh: true,
 			streamFollow: true,
 			reduceMotion: false,
 		},

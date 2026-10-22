@@ -120,7 +120,9 @@ pub struct TuiPerfPolicy {
     pub sync_output: bool,
     /// Simplified transcript rendering (fewer styles, no shimmer).
     pub simplified_render: bool,
-    /// Sidebar refresh interval in milliseconds.
+    /// Sidebar safety-net refresh interval in milliseconds. Live event
+    /// feeds invalidate the sidebar out of band, so this only heals missed
+    /// pushes; tiers stay ordered so constrained devices poll less often.
     pub sidebar_refresh_interval_ms: u64,
     /// Prompt-enter animation allowed.
     pub prompt_enter_animation: bool,
@@ -149,7 +151,7 @@ impl TuiPerfPolicy {
                 enable_alternate_scroll: true,
                 sync_output: true,
                 simplified_render: false,
-                sidebar_refresh_interval_ms: 500,
+                sidebar_refresh_interval_ms: 5_000,
                 prompt_enter_animation: true,
                 idle_animation: true,
                 quantize_glyph_colors: false,
@@ -165,7 +167,7 @@ impl TuiPerfPolicy {
                 enable_alternate_scroll: true,
                 sync_output: true,
                 simplified_render: false,
-                sidebar_refresh_interval_ms: 1_000,
+                sidebar_refresh_interval_ms: 15_000,
                 prompt_enter_animation: false,
                 idle_animation: false,
                 quantize_glyph_colors: false,
@@ -181,7 +183,7 @@ impl TuiPerfPolicy {
                 enable_alternate_scroll: true,
                 sync_output: false,
                 simplified_render: true,
-                sidebar_refresh_interval_ms: 2_000,
+                sidebar_refresh_interval_ms: 30_000,
                 prompt_enter_animation: false,
                 idle_animation: false,
                 quantize_glyph_colors: false,
@@ -205,7 +207,7 @@ impl TuiPerfPolicy {
             enable_alternate_scroll: true,
             sync_output: true,
             simplified_render: true,
-            sidebar_refresh_interval_ms: 1_000,
+            sidebar_refresh_interval_ms: 15_000,
             prompt_enter_animation: false,
             idle_animation: false,
             quantize_glyph_colors: false,
@@ -539,7 +541,7 @@ mod tests {
         assert!(policy.sync_output);
         assert!(!policy.simplified_render);
         assert_eq!(policy.redraw_interval_ms(), 8);
-        assert_eq!(policy.sidebar_refresh_interval_ms, 500);
+        assert_eq!(policy.sidebar_refresh_interval_ms, 5_000);
         assert!(policy.prompt_enter_animation);
         assert!(policy.idle_animation);
         assert!(!policy.quantize_glyph_colors);
@@ -554,7 +556,7 @@ mod tests {
         assert!(policy.enable_keyboard_enhancement);
         assert!(policy.enable_focus_change);
         assert_eq!(policy.redraw_fps, 60);
-        assert_eq!(policy.sidebar_refresh_interval_ms, 1_000);
+        assert_eq!(policy.sidebar_refresh_interval_ms, 15_000);
         assert!(!policy.prompt_enter_animation);
         assert!(!policy.idle_animation);
     }
@@ -571,7 +573,7 @@ mod tests {
         assert!(policy.simplified_render);
         assert_eq!(policy.redraw_fps, 12);
         assert_eq!(policy.redraw_interval_ms(), 83);
-        assert_eq!(policy.sidebar_refresh_interval_ms, 2_000);
+        assert_eq!(policy.sidebar_refresh_interval_ms, 30_000);
         assert!(!policy.prompt_enter_animation);
         assert!(!policy.idle_animation);
     }
@@ -799,7 +801,7 @@ mod tests {
         assert!(!policy.enable_keyboard_enhancement);
         assert!(policy.simplified_render);
         assert!(policy.keep_spinner);
-        assert_eq!(policy.sidebar_refresh_interval_ms, 1_000);
+        assert_eq!(policy.sidebar_refresh_interval_ms, 15_000);
     }
 
     #[test]

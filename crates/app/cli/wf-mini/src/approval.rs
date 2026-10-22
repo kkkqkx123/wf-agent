@@ -3,10 +3,11 @@
 //!
 //! The engine runs on the server and surfaces tool approvals as pending
 //! interaction records. The session spawns one [`MiniApprover`] per turn;
-//! it polls `by-status/pending`, prompts `Allow tool 'x'? [y/N]` on stderr
-//! for approvals concerning this turn, and posts the answer. Anything else
-//! (follow-ups, foreign turns) is left for the turn to finish: the server
-//! host default decides unanswered approvals.
+//! it watches the event stream and reads the pending list only after an
+//! approval announcement or a reconnect, prompts `Allow tool 'x'? [y/N]` on
+//! stderr for approvals concerning this turn, and posts the answer. Anything
+//! else (follow-ups, foreign turns) is left for the turn to finish: the
+//! server host default decides unanswered approvals.
 
 use std::io::{self, Write};
 use std::sync::Arc;
@@ -57,91 +58,36 @@ impl MiniApprover {
         self
     }
 
-    /// Poll pending interactions until `stop` flips, answering tool
-    /// approvals from stdin. Each record answers at most once. An
-    /// event-stream subscription wakes the loop early on approval
-    /// announcements; the periodic poll remains as fallback.
+    /// Watch pending interactions for one mini turn, answering tool
+    /// approvals from stdin. Each record answers at most once. The shared
+    /// event-driven watcher reads the pending list only after an approval
+    /// announcement or a reconnect, with backoff while the stream is down.
     pub async fn watch(&self, stop: Arc<tokio::sync::watch::Receiver<bool>>) {
-        use futures::StreamExt;
         // Owned receiver: `changed()` needs `&mut self`, which an `Arc`
         // cannot provide. Cloning keeps the same watch channel.
-        let mut stop = (*stop).clone();
-        let mut seen = std::collections::HashSet::new();
-        let mut events = self
-            .client
-            .get_stream(wf_client::endpoints::EVENTS_STREAM)
-            .await
-            .ok()
-            .map(Box::pin);
+        let stop = (*stop).clone();
+        let mut watcher =
+            wf_cli_shared::run_interaction::PendingWatcher::new(&self.client).await;
         loop {
-            if *stop.borrow() {
-                break;
-            }
-            if let Some(stream) = events.as_mut() {
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_millis(500)) => {}
-                    _ = stop.changed() => break,
-                    frame = stream.next() => {
-                        match frame {
-                            Some(Ok(frame)) => {
-                                if !wf_cli_shared::run_interaction::is_interaction_request_event(
-                                    &frame,
-                                ) {
-                                    if *stop.borrow() {
-                                        break;
-                                    }
-                                    continue;
-                                }
-                            }
-                            Some(Err(_)) | None => {
-                                events = None;
-                            }
+            use wf_cli_shared::run_interaction::PendingWatchStep;
+            match watcher.next_batch(|| *stop.borrow()).await {
+                PendingWatchStep::Stopped => break,
+                PendingWatchStep::Ready(items) => {
+                    for item in items {
+                        let id = item
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string();
+                        if item.get("interaction_type").and_then(|v| v.as_str())
+                            == Some("tool_approval")
+                        {
+                            self.answer_approval(&id, &item).await;
+                        }
+                        if *stop.borrow() {
+                            break;
                         }
                     }
-                }
-            } else {
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_millis(500)) => {}
-                    _ = stop.changed() => break,
-                }
-                if !*stop.borrow() {
-                    if let Ok(stream) = self
-                        .client
-                        .get_stream(wf_client::endpoints::EVENTS_STREAM)
-                        .await
-                    {
-                        events = Some(Box::pin(stream));
-                    }
-                }
-            }
-            let pending: serde_json::Value = match self
-                .client
-                .get_json("/api/v1/interactions/by-status/pending")
-                .await
-            {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
-            let items = pending
-                .get("items")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .or_else(|| pending.as_array().cloned())
-                .unwrap_or_default();
-            for item in items {
-                let id = item
-                    .get("id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default()
-                    .to_string();
-                if id.is_empty() || !seen.insert(id.clone()) {
-                    continue;
-                }
-                if item.get("interaction_type").and_then(|v| v.as_str()) == Some("tool_approval") {
-                    self.answer_approval(&id, &item).await;
-                }
-                if *stop.borrow() {
-                    break;
                 }
             }
         }

@@ -18,7 +18,7 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/agents/{id}/lock/release", post(handle_release_lock))
 }
 
-use crate::api::workflow::locks::{AcquireLockBody, OwnerBody};
+use crate::api::workflow::locks::{publish_lock_event, AcquireLockBody, OwnerBody};
 
 #[utoipa::path(
     get,
@@ -54,10 +54,25 @@ pub(crate) async fn handle_acquire_lock(
     if body.owner_id.is_empty() {
         return err(ApiError::validation("owner_id must not be empty")).into_response();
     }
-    ok(state
+    let before = state
         .locks
-        .acquire("agent", &path.id, &body.owner_id, &body.owner_name))
-    .into_response()
+        .current("agent", &path.id, now_ms())
+        .map(|view| view.owner_id);
+    let view = state
+        .locks
+        .acquire("agent", &path.id, &body.owner_id, &body.owner_name);
+    if before.as_deref() != Some(view.owner_id.as_str()) {
+        publish_lock_event(
+            &state.ctx,
+            "agent",
+            &path.id,
+            "acquired",
+            &view.owner_id,
+            &view.owner_name,
+        )
+        .await;
+    }
+    ok(view).into_response()
 }
 
 #[utoipa::path(
@@ -75,9 +90,23 @@ pub(crate) async fn handle_heartbeat_lock(
     Path(path): Path<IdPath>,
     Json(body): Json<OwnerBody>,
 ) -> impl IntoResponse {
+    let before = state.locks.current("agent", &path.id, now_ms());
     match state.locks.heartbeat("agent", &path.id, &body.owner_id) {
         Some(view) => ok(view).into_response(),
-        None => err(ApiError::validation("no active lease to renew")).into_response(),
+        None => {
+            if let Some(prev) = before {
+                publish_lock_event(
+                    &state.ctx,
+                    "agent",
+                    &path.id,
+                    "expired",
+                    &prev.owner_id,
+                    &prev.owner_name,
+                )
+                .await;
+            }
+            err(ApiError::validation("no active lease to renew")).into_response()
+        }
     }
 }
 
@@ -96,7 +125,23 @@ pub(crate) async fn handle_release_lock(
     Path(path): Path<IdPath>,
     Json(body): Json<OwnerBody>,
 ) -> impl IntoResponse {
-    ok(state.locks.release("agent", &path.id, &body.owner_id)).into_response()
+    let before = state.locks.current("agent", &path.id, now_ms());
+    let after = state.locks.release("agent", &path.id, &body.owner_id);
+    if let Some(prev) = before {
+        let changed = after.as_ref().is_none_or(|view| view.owner_id != prev.owner_id);
+        if changed {
+            publish_lock_event(
+                &state.ctx,
+                "agent",
+                &path.id,
+                "released",
+                &prev.owner_id,
+                &prev.owner_name,
+            )
+            .await;
+        }
+    }
+    ok(after).into_response()
 }
 
 fn now_ms() -> u64 {

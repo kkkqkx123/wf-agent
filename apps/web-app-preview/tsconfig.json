@@ -7,15 +7,6 @@
 			"#paraglide/*": ["./src/lib/paraglide/*"]
 		}
 	},
-	"include": [
-		"src",
-		"test",
-		"*",
-		".svelte-kit/ambient.d.ts",
-		".svelte-kit/non-ambient.d.ts",
-		".svelte-kit/env.d.ts"
-	],
-	"exclude": [
-		"src/service-worker"
-	]
+	"include": ["src", "test", "*"],
+	"exclude": ["src/service-worker"]
 }

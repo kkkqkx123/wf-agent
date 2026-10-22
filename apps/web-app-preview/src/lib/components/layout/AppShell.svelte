@@ -6,8 +6,8 @@
 	import HelpModal from './HelpModal.svelte';
 	import Sheet from '@wf-agent/ui/components/Sheet.svelte';
 	import { NAV_GROUPS, navItemFor } from '#lib/config/navigation';
+	import { resolveAppPath } from '#lib/utils/route';
 	import { page } from '$app/state';
-	import { resolve } from '$app/paths';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import { ui } from '#lib/stores/ui.svelte';
 	import { preferences } from '#lib/stores/preferences.svelte';
@@ -138,7 +138,7 @@
 				<div class="space-y-0.5">
 					{#each group.items as item (item.href)}
 						<a
-							href={resolve(item.href)}
+							href={resolveAppPath(item.href)}
 							onclick={() => ui.closeMobileNav()}
 							aria-current={isActive(item.href) ? 'page' : undefined}
 							class={cn(

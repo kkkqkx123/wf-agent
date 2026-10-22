@@ -42,6 +42,8 @@
 		isLiveStatus,
 		watchExecutionActivity,
 	} from '#lib/services/inspector-activity';
+	import { watchErrorAnalysis } from '#lib/services/error-analysis-live';
+	import type { ErrorRecord } from '#lib/utils/stream-parser';
 	import {
 		formatBytes,
 		formatDateTime,
@@ -125,6 +127,8 @@
 	let efficiency = $state<EfficiencyEntry | null>(null);
 	let analysisError = $state<string | null>(null);
 	let analysisLoading = $state(false);
+	let liveErrors = $state<ErrorRecord[]>([]);
+	let liveErrorNotice = $state<string | null>(null);
 
 	let context = $state<Array<{ key: string; value: string }>>([]);
 	let variables = $state<Array<{ key: string; value: string }>>([]);
@@ -718,6 +722,26 @@
 		}
 	});
 
+	// Error-analysis stream: progressive records while the analysis tab is
+	// visible. REST detail stays authoritative; the stream only appends.
+	$effect(() => {
+		const id = execution.id;
+		if (tab !== 'analysis' || !id) return;
+		liveErrors = [];
+		liveErrorNotice = null;
+		const stop = watchErrorAnalysis(id, {
+			onRecord: (record) => {
+				if (!liveErrors.some((item) => item.id === record.id)) {
+					liveErrors = [...liveErrors, record].slice(-50);
+				}
+			},
+			onError: (message) => {
+				liveErrorNotice = message;
+			},
+		});
+		return stop;
+	});
+
 	async function loadHierarchy(id: string): Promise<void> {
 		hierarchyError = null;
 		try {
@@ -1233,6 +1257,27 @@
 				/>
 			{:else}
 				<div class="space-y-3">
+					{#if liveErrors.length > 0}
+						<Card title="Live error stream">
+							<ul class="space-y-1.5">
+								{#each liveErrors as record (record.id)}
+									<li class="text-caption">
+										<span class="font-mono text-destructive">{record.errorType ?? 'error'}</span
+										>
+										<span class="text-muted-foreground"> · {record.error}</span>
+										{#if record.nodeId}
+											<span class="font-mono text-micro text-muted-foreground">
+												@{record.nodeId}</span
+											>
+										{/if}
+									</li>
+								{/each}
+							</ul>
+							{#if liveErrorNotice}
+								<p class="mt-2 text-micro text-muted-foreground">{liveErrorNotice}</p>
+							{/if}
+						</Card>
+					{/if}
 					{#if efficiency}
 						<Card title={t('domain.inspector.efficiency')}>
 							<p class="text-caption text-muted-foreground">

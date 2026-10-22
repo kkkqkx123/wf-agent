@@ -1,4 +1,5 @@
-import { openEventStream, type StreamState } from '#lib/api/sse';
+import { openRealtime } from '#lib/api/realtime';
+import type { StreamState } from '#lib/api/sse';
 import type { EventRecord } from '#lib/types/models';
 
 export type CheckpointTab = 'chain' | 'files' | 'approvals';
@@ -7,15 +8,24 @@ export type CheckpointDomain = 'chain' | 'files' | 'approvals';
 
 type CheckpointListener = (domain: CheckpointDomain) => void;
 
+/** Old servers without review events wrap submits in file changes. */
+function isReviewFilePayload(payload: string): boolean {
+	if (!payload) return false;
+	const needle = payload.toLowerCase();
+	return (
+		needle.includes('review') ||
+		needle.includes('submit') ||
+		needle.includes('approv')
+	);
+}
+
 /**
  * Map a wire event type to the refresh domain it invalidates.
  *
- * The backend publishes seven checkpoint types; submit-for-review emits
- * none, so file-workspace events also dirty the approvals tab (submit and
- * merge flow through the same file changes). The page only refetches a
- * tab when it becomes visible, so the coarse mapping costs one deferred
- * fetch at most. TODO (backend): emit a dedicated approval event so the
- * approvals tab can subscribe to its own type.
+ * Dedicated approval events (`REVIEW_SUBMITTED`, `APPROVAL_RESOLVED`,
+ * `TOOL_APPROVAL_*`, `FOLLOWUP_*`) map to approvals only. File changes map
+ * to files only; the old files-fan-out-to-approvals fallback stays for
+ * servers that still emit no review event on submit.
  */
 function domainForEvent(type: string): CheckpointDomain | 'all' {
 	switch (type) {
@@ -30,9 +40,14 @@ function domainForEvent(type: string): CheckpointDomain | 'all' {
 		case 'CHECKPOINT_FILE_CHANGED':
 		case 'CHECKPOINT_MERGE_CONFLICTED':
 			return 'files';
+		case 'CHECKPOINT_REVIEW_SUBMITTED':
+		case 'CHECKPOINT_APPROVAL_RESOLVED':
 		case 'TOOL_APPROVAL_REQUESTED':
 		case 'TOOL_APPROVAL_RESPONDED':
 		case 'TOOL_APPROVAL_FAILED':
+		case 'FOLLOWUP_QUESTION_REQUESTED':
+		case 'FOLLOWUP_QUESTION_RESPONDED':
+		case 'FOLLOWUP_QUESTION_FAILED':
 			return 'approvals';
 		default:
 			return 'all';
@@ -120,10 +135,9 @@ class CheckpointStore {
 			this.bumpAll();
 			return;
 		}
-		if (domain === 'files') {
-			// File changes may wrap a review submit or merge, which also
-			// invalidate the pending-approval list (no dedicated approval
-			// event exists yet; see `domainForEvent`).
+		if (domain === 'files' && isReviewFilePayload(event.payload)) {
+			// Compat fallback: old servers wrap a review submit in a plain
+			// file change with no dedicated approval event.
 			this.filesVersion += 1;
 			this.approvalsVersion += 1;
 			for (const notify of this.listeners) notify('files');
@@ -142,8 +156,8 @@ class CheckpointStore {
 	subscribeLive(listener: CheckpointListener): () => void {
 		this.listeners.add(listener);
 		if (!this.closeStream) {
-			this.closeStream = openEventStream({
-				checkpointOnly: true,
+			this.closeStream = openRealtime({
+				dimensions: [{ checkpoint: true }],
 				onEvent: (event) => {
 					this.handleEvent(event);
 				},

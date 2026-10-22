@@ -48,6 +48,11 @@ function storedOwner(): { ownerId: string; ownerName: string } {
  * store. The lease is keyed by the definition kind as well as its id, so a
  * workflow and an agent never contend for the same lease.
  *
+ * Transport: REST poll plus holder heartbeat. The WS protocol carries no
+ * lock events yet, so there is no push subscription here; `notifyRemoteHint`
+ * is the seam a future lock event will call, and it simply re-reads the
+ * holder through the same REST path.
+ *
  * When the lock endpoints are absent the store reports unsupported and
  * leaves editing unblocked with a notice.
  */
@@ -192,6 +197,31 @@ export class EditLockStore {
 	acknowledgeLockLoss(): void {
 		this.lockLost = false;
 		this.lockLostBy = '';
+	}
+
+	/**
+	 * Realtime seam for a future lock event. Until the backend dispatches
+	 * lock changes, push callers invoke this to re-read the holder; unknown
+	 * event types are ignored so the REST poll stays authoritative.
+	 */
+	notifyRemoteHint(eventType?: string): void {
+		if (!eventType) {
+			void this.refresh();
+			return;
+		}
+		const normalized = eventType.trim().toUpperCase();
+		if (
+			normalized.includes('LOCK') ||
+			normalized === 'NOTIFICATION_SENT' ||
+			normalized === 'ERROR'
+		) {
+			void this.refresh();
+		}
+	}
+
+	/** Force one holder re-read, used after local acquire/release and hints. */
+	refreshNow(): void {
+		void this.refresh();
 	}
 
 	private async refresh(): Promise<void> {

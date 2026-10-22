@@ -5,6 +5,7 @@
 	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
 	import Tooltip from '@wf-agent/ui/components/Tooltip.svelte';
 	import { NAV_GROUPS, navItemFor } from '#lib/config/navigation';
+	import { resolveAppPath } from '#lib/utils/route';
 	import { preferences } from '#lib/stores/preferences.svelte';
 	import { ui } from '#lib/stores/ui.svelte';
 	import { cn } from '@wf-agent/ui/cn';
@@ -49,7 +50,7 @@
 					{#each group.items as item (item.href)}
 						<Tooltip text={item.label()} class="w-full">
 							<a
-								href={resolve(item.href)}
+								href={resolveAppPath(item.href)}
 								onclick={navigate}
 								aria-current={isActive(item.href) ? 'page' : undefined}
 								class={cn(
@@ -78,7 +79,7 @@
 				</p>
 				{#each group.items as item (item.href)}
 					<a
-						href={resolve(item.href)}
+						href={resolveAppPath(item.href)}
 						onclick={navigate}
 						class={cn(
 							'flex items-center gap-2 rounded-md px-2 py-1.5 text-body transition-colors',
@@ -135,7 +136,7 @@
 					<div class="space-y-0.5">
 						{#each group.items as item (item.href)}
 							<a
-								href={resolve(item.href)}
+								href={resolveAppPath(item.href)}
 								onclick={navigate}
 								aria-current={isActive(item.href) ? 'page' : undefined}
 								class={cn(

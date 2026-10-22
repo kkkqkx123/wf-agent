@@ -111,7 +111,7 @@
 		{:else if lock.lockedByOther}
 			<Badge variant="danger"
 				>{t('domain.workflowEdit.lockedByOther', {
-					'lock.displayHolder': lock.displayHolder,
+					holder: lock.displayHolder,
 				})}</Badge
 			>
 		{:else}

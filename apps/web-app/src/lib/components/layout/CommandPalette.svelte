@@ -5,6 +5,7 @@
 	import type { IconName } from '@wf-agent/ui/icons/paths';
 	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
 	import { NAV_ITEMS } from '#lib/config/navigation';
+	import { resolveAppPath } from '#lib/utils/route';
 	import { listExecutions } from '#lib/services/executions';
 	import { listWorkflows } from '#lib/services/workflows';
 	import { listAgentLoops } from '#lib/services/agent-loops';
@@ -95,7 +96,7 @@
 			hint: item.description(),
 			run: () => {
 				ui.setCommandOpen(false);
-				void goto(resolve(item.href));
+				void goto(resolveAppPath(item.href));
 			},
 		}));
 

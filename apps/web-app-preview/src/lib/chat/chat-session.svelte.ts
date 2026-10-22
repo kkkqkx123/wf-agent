@@ -45,11 +45,14 @@ import {
 } from '#lib/stores/stream-run.svelte';
 import { NEW_SESSION, sessions } from '#lib/stores/sessions.svelte';
 import { toasts } from '#lib/stores/toast.svelte';
+import { isInteractionEventType, watchExecutionActivity } from '#lib/services/inspector-activity';
+import type { StreamState } from '#lib/api/sse';
 import { gotoWithParams } from '#lib/utils/route';
 import { isSessionTab, type SessionTab } from '#lib/config/session-tabs';
 
-/** Minimum gap between interaction polls; the 200ms projection beat drives it
- * but the network round trip is throttled to this cadence. */
+/** Burst throttle for event-driven interaction refreshes; pushes arrive
+ * sparsely, so this only coalesces approval/follow-up storms. The 5s
+ * disconnected fallback below bypasses it with force. */
 const INTERACTION_POLL_MS = 600;
 
 /** The executors the composer can hand a message to. */
@@ -77,9 +80,12 @@ export class ChatSessionController {
 
 	/** Interactions the running loop is blocked on, oldest first. */
 	pendingInteractions = $state<PendingInteraction[]>([]);
+	/** Last interaction-event transport state; drives the REST fallback. */
+	interactionLiveState = $state<StreamState>('closed');
 	private interactionFetchedAt = 0;
 	private interactionInFlight = false;
 	private interactionDirty = false;
+	private interactionEventAt = 0;
 
 	constructor(initialTab: string | undefined) {
 		this.tab = isSessionTab(initialTab) ?? 'overview';
@@ -101,14 +107,61 @@ export class ChatSessionController {
 			void this.loopGraph.reload();
 		});
 
+		// Projection beat only mirrors the live stream tail into the mini
+		// map. Interaction refresh is event-driven below; the beat never
+		// triggers network traffic on its own.
 		$effect(() => {
 			const id = window.setInterval(() => {
 				if (!chatStream.active) return;
 				this.projectedTools = [...chatStream.tools];
 				this.projectedSubAgents = [...chatStream.subAgents];
 				this.projectedIteration = chatStream.iteration;
-				this.refreshInteractions();
 			}, 200);
+			return () => window.clearInterval(id);
+		});
+
+		// Event-driven interaction refresh: one execution-activity stream per
+		// selected session. Relevant bus events refresh immediately; the
+		// reconnect transition reconciles through REST so no push is lost.
+		$effect(() => {
+			const id = this.selectedId;
+			if (!id) {
+				this.interactionLiveState = 'closed';
+				return;
+			}
+			const stop = watchExecutionActivity(id, {
+				onEvent: (event) => {
+					if (!isInteractionEventType(event.type)) return;
+					if (this.selectedId !== id) return;
+					const now = Date.now();
+					if (now - this.interactionEventAt < 150) {
+						this.interactionDirty = true;
+						return;
+					}
+					this.interactionEventAt = now;
+					this.refreshInteractions(true);
+				},
+				onState: (state) => {
+					const was = this.interactionLiveState;
+					this.interactionLiveState = state;
+					if (this.selectedId !== id) return;
+					if ((was === 'reconnecting' || was === 'connecting') && state === 'open') {
+						this.refreshInteractions(true);
+					}
+				},
+			});
+			return stop;
+		});
+
+		// Fallback while the event stream is not open (offline, auth error):
+		// poll at a slow cadence instead of the old 600ms hot loop.
+		$effect(() => {
+			const id = window.setInterval(() => {
+				if (!this.selectedId) return;
+				if (this.interactionLiveState === 'open') return;
+				if (!chatStream.active && this.pendingInteractions.length === 0) return;
+				this.refreshInteractions();
+			}, 5000);
 			return () => window.clearInterval(id);
 		});
 
@@ -378,10 +431,10 @@ export class ChatSessionController {
 	}
 
 	/**
-	 * Re-read the interactions blocking the current session. The 200ms
-	 * projection beat calls this, but the network round trip is throttled and
-	 * at most one request is in flight; a request made during an in-flight one
-	 * is coalesced and replayed once it settles.
+	 * Re-read the interactions blocking the current session. Push events are
+	 * the primary trigger; REST stays for session switch, run settle,
+	 * reconnect reconcile and user submit. At most one request is in flight
+	 * and bursts coalesce through the throttle plus the dirty flag.
 	 */
 	refreshInteractions(force = false): void {
 		const id = this.selectedId;

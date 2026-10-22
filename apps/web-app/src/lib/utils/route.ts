@@ -1,5 +1,6 @@
 import { goto } from '$app/navigation';
-import type { ResolvedPathname } from '$app/types';
+import { resolve } from '$app/paths';
+import type { Path, ResolvedPathname } from '$app/types';
 
 /**
  * Union of every pathname SvelteKit generated for this app.
@@ -15,6 +16,19 @@ export type AppPath = ResolvedPathname;
  */
 export function appPath(path: string): AppPath {
 	return path as AppPath;
+}
+
+/**
+ * Resolve an app path that is only known at runtime.
+ *
+ * SvelteKit picks the overload of `resolve()` from a literal route id, so a
+ * path kept in a variable cannot be handed to it directly. The pathname form
+ * of `resolve()` takes the path without its leading slash, which is what the
+ * replacement produces; the cast states that the result is one of the
+ * pathnames SvelteKit generated.
+ */
+export function resolveAppPath(path: AppPath): ResolvedPathname {
+	return resolve(path.replace(/^\//, '') as Path);
 }
 
 /** Query keys the app round-trips through the address bar. */

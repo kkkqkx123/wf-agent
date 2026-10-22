@@ -18,7 +18,7 @@
 	import CursorPager from '@wf-agent/ui/components/CursorPager.svelte';
 	import CreateTaskPanel from '#lib/components/domain/CreateTaskPanel.svelte';
 	import Select from '@wf-agent/ui/components/Select.svelte';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import {
@@ -32,6 +32,8 @@
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { formatDateTime } from '#lib/utils/format';
 	import { t } from '#lib/i18n';
+	import { watchListInvalidation } from '#lib/services/list-invalidation';
+	import type { StreamState } from '#lib/api/sse';
 
 	/** Wire values of the backend execution status enum; the list endpoint
 	 * matches them with exact equality, so aliasing them would filter to
@@ -66,16 +68,41 @@
 	let loading = $state(true);
 	let loadingMore = $state(false);
 	let error = $state<string | null>(null);
+	let hasUpdates = $state(false);
+	let listLiveState = $state<StreamState>('closed');
+	let stopListLive: (() => void) | null = null;
 
 	const EXECUTIONS_PAGE = 200;
 
 	onMount(() => {
 		void reload();
+		stopListLive = watchListInvalidation({
+			onDirty: () => {
+				if (loading || loadingMore) {
+					hasUpdates = true;
+					return;
+				}
+				if (typeof document !== 'undefined' && document.hidden) {
+					hasUpdates = true;
+					return;
+				}
+				void reload();
+			},
+			onState: (state) => {
+				listLiveState = state;
+			},
+		});
+	});
+
+	onDestroy(() => {
+		stopListLive?.();
+		stopListLive = null;
 	});
 
 	async function reload(): Promise<void> {
 		loading = true;
 		error = null;
+		hasUpdates = false;
 		try {
 			const [page, metrics] = await Promise.all([
 				engine === 'workflow'
@@ -329,6 +356,20 @@
 		</PageHeader>
 
 		<div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+			{#if hasUpdates}
+				<div
+					class="mb-3 flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2"
+				>
+					<span class="text-caption text-muted-foreground">
+						New execution activity arrived{listLiveState === 'reconnecting'
+							? ' (reconnecting)'
+							: ''}.
+					</span>
+					<Button size="sm" variant="outline" onclick={() => void reload()}>
+						Refresh
+					</Button>
+				</div>
+			{/if}
 			{#if showTaskPanel}
 				<div class="mb-3">
 					<CreateTaskPanel

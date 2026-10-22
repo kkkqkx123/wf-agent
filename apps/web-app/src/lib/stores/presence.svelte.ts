@@ -70,16 +70,56 @@ function isFrame(value: unknown): value is PresenceFrame {
  *
  * The channel is keyed by the definition kind as well as its id, so two
  * different kinds of definition never share a canvas.
+ *
+ * Future WS presence keeps this external interface (`join`/`move`/`leave`
+ * plus `peers`): `setTransport` swaps the tab-local broadcast for a
+ * server socket once the backend publishes presence frames with
+ * join/move/leave plus TTL cleanup.
  */
+
+export interface PresenceTransport {
+	post(frame: PresenceFrame): void;
+	close(): void;
+}
+
+class BroadcastTransport implements PresenceTransport {
+	private channel: BroadcastChannel;
+
+	constructor(channel: BroadcastChannel) {
+		this.channel = channel;
+	}
+
+	post(frame: PresenceFrame): void {
+		this.channel.postMessage(frame);
+	}
+
+	close(): void {
+		try {
+			this.channel.close();
+		} catch {
+			// Closing an already-closed channel is harmless.
+		}
+	}
+}
 export class PresenceStore {
 	peers = $state<PresenceCursor[]>([]);
 
 	private channel: BroadcastChannel | null = null;
+	private transport: PresenceTransport | null = null;
 	private frames: Record<string, PresenceFrame> = {};
 	private clientId = '';
 	private displayName = '';
 	private lastSent = 0;
 	private timer: ReturnType<typeof setInterval> | null = null;
+
+	/**
+	 * Swap the tab-local broadcast for a future server socket. Until WS
+	 * presence frames exist this is unused; it only proves the store never
+	 * depends on BroadcastChannel specifics.
+	 */
+	setTransport(transport: PresenceTransport | null): void {
+		this.transport = transport;
+	}
 
 	join(kind: DefinitionKind, definitionId: string, name = 'this browser'): void {
 		if (!browser) return;
@@ -92,6 +132,7 @@ export class PresenceStore {
 		} catch {
 			return;
 		}
+		if (!this.transport) this.transport = new BroadcastTransport(channel);
 		this.channel = channel;
 		this.channel.onmessage = (event: MessageEvent) => {
 			if (!isFrame(event.data)) return;
@@ -106,12 +147,12 @@ export class PresenceStore {
 	}
 
 	move(x: number, y: number): void {
-		if (!this.channel || !this.clientId) return;
+		if ((!this.channel && !this.transport) || !this.clientId) return;
 		const now = Date.now();
 		if (now - this.lastSent < SEND_GAP_MS) return;
 		this.lastSent = now;
 		try {
-			this.channel.postMessage({
+			this.transport?.post({
 				clientId: this.clientId,
 				name: this.displayName,
 				color: colorForClient(this.clientId),
@@ -130,10 +171,11 @@ export class PresenceStore {
 			this.timer = null;
 		}
 		try {
-			this.channel?.close();
+			this.transport?.close();
 		} catch {
 			// Closing an already-closed channel is harmless.
 		}
+		this.transport = null;
 		this.channel = null;
 		this.frames = {};
 		this.clientId = '';

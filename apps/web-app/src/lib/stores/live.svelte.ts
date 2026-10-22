@@ -1,4 +1,5 @@
-import { openEventStream, type StreamState } from '#lib/api/sse';
+import { openRealtime } from '#lib/api/realtime';
+import type { StreamState } from '#lib/api/sse';
 import type { EventRecord } from '#lib/types/models';
 
 type LiveListener = (event: EventRecord) => void;
@@ -21,7 +22,8 @@ class LiveStore {
 	subscribe(listener: LiveListener): () => void {
 		this.listeners.add(listener);
 		if (!this.closeStream) {
-			this.closeStream = openEventStream({
+			this.closeStream = openRealtime({
+				dimensions: [{ global: true }],
 				onEvent: (event) => this.dispatch(event),
 				onState: (state) => {
 					this.state = state;

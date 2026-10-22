@@ -15,6 +15,9 @@ export type GitPanel =
 
 type GitListener = () => void;
 
+const ACTIVE_POLL_MS = 5_000;
+const HIDDEN_POLL_MS = 15_000;
+
 class GitStore {
 	selectedFile = $state<string | null>(null);
 	selectedCommit = $state<string | null>(null);
@@ -30,8 +33,51 @@ class GitStore {
 	liveState = $state<'open' | 'closed'>('closed');
 
 	private listeners = new Set<GitListener>();
-	private timer: ReturnType<typeof setInterval> | null = null;
+	private timer: ReturnType<typeof setTimeout> | null = null;
 	private lastFingerprint = '';
+	private visibilityHandler: (() => void) | null = null;
+
+	/**
+	 * External invalidation seam for a future file-watch push. Until the
+	 * backend emits filesystem events, this is the only push entry; it
+	 * re-reads the fingerprint through the same REST path.
+	 */
+	notifyExternalChange(): void {
+		void this.pollOnce();
+	}
+
+	private async pollOnce(): Promise<void> {
+		try {
+			const fp = await getFingerprint();
+			const key = `${fp.statusHash}:${fp.head}:${fp.branchSummary}`;
+			if (!this.lastFingerprint) {
+				this.lastFingerprint = key;
+				return;
+			}
+			if (key !== this.lastFingerprint) {
+				this.lastFingerprint = key;
+				this.version += 1;
+				for (const notify of this.listeners) notify();
+			}
+		} catch {
+			// Fingerprint failures keep the last known version.
+		}
+	}
+
+	private pollIntervalMs(): number {
+		if (typeof document !== 'undefined' && document.hidden) return HIDDEN_POLL_MS;
+		return ACTIVE_POLL_MS;
+	}
+
+	private schedulePoll(): void {
+		if (this.timer !== null) clearTimeout(this.timer);
+		this.timer = setTimeout(() => {
+			if (this.listeners.size === 0) return;
+			void this.pollOnce().finally(() => {
+				if (this.listeners.size > 0) this.schedulePoll();
+			});
+		}, this.pollIntervalMs());
+	}
 
 	select(panel: GitPanel, id: string | null): void {
 		if (panel === 'files') this.selectedFile = id;
@@ -70,28 +116,28 @@ class GitStore {
 		this.listeners.add(listener);
 		if (!this.timer) {
 			this.liveState = 'open';
-			this.timer = setInterval(() => {
-				void getFingerprint()
-					.then((fp) => {
-						const key = `${fp.statusHash}:${fp.head}:${fp.branchSummary}`;
-						if (!this.lastFingerprint) {
-							this.lastFingerprint = key;
-							return;
-						}
-						if (key !== this.lastFingerprint) {
-							this.lastFingerprint = key;
-							this.version += 1;
-							for (const notify of this.listeners) notify();
-						}
-					})
-					.catch(() => {});
-			}, 5000);
+			void this.pollOnce();
+			this.schedulePoll();
+			if (typeof document !== 'undefined' && !this.visibilityHandler) {
+				this.visibilityHandler = () => {
+					if (this.listeners.size === 0) return;
+					this.schedulePoll();
+					if (!document.hidden) void this.pollOnce();
+				};
+				document.addEventListener('visibilitychange', this.visibilityHandler);
+			}
 		}
 		return () => {
 			this.listeners.delete(listener);
-			if (this.listeners.size === 0 && this.timer) {
-				clearInterval(this.timer);
-				this.timer = null;
+			if (this.listeners.size === 0) {
+				if (this.timer !== null) {
+					clearTimeout(this.timer);
+					this.timer = null;
+				}
+				if (typeof document !== 'undefined' && this.visibilityHandler) {
+					document.removeEventListener('visibilitychange', this.visibilityHandler);
+					this.visibilityHandler = null;
+				}
 				this.liveState = 'closed';
 			}
 		};

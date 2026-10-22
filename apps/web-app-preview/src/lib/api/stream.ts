@@ -119,6 +119,8 @@ async function handshakeFailure(response: Response): Promise<StreamFailure> {
 
 /**
  * POST a JSON body and consume the text/event-stream reply frame by frame.
+ * Supported frames mirror the server execution protocol: metadata preface,
+ * engine bus events and protocol events; unknown frames reach onFrame raw.
  * EventSource only supports GET, so cancellable runs use fetch plus a
  * manual reader. Resolves when the server closes the stream; transport
  * failures arrive via onError.

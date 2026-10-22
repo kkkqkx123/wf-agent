@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { page } from '$app/state';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import Button from '@wf-agent/ui/components/Button.svelte';
@@ -25,6 +25,7 @@
 	import { t, message } from '#lib/i18n';
 	import { formatDateTime, formatRelativeTime } from '#lib/utils/format';
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
+	import { watchListInvalidation } from '#lib/services/list-invalidation';
 
 	const TABS = [
 		{ id: 'records', label: message('page.triggers.recordsTab') },
@@ -65,9 +66,30 @@
 	/** Segment sources already pulled, so a tab loads once. */
 	let seenRecords = $state(false);
 	let seenHooks = $state(false);
+	let triggerUpdates = $state(false);
+	let stopTriggerLive: (() => void) | null = null;
 
 	onMount(() => {
 		void loadTab(tab);
+		stopTriggerLive = watchListInvalidation({
+			onDirty: () => {
+				if (recordsLoading || tab !== 'records') {
+					triggerUpdates = true;
+					return;
+				}
+				if (typeof document !== 'undefined' && document.hidden) {
+					triggerUpdates = true;
+					return;
+				}
+				seenRecords = false;
+				void loadTab('records');
+			},
+		});
+	});
+
+	onDestroy(() => {
+		stopTriggerLive?.();
+		stopTriggerLive = null;
 	});
 
 	$effect(() => {
@@ -116,6 +138,7 @@
 	async function reload(): Promise<void> {
 		seenRecords = false;
 		seenHooks = false;
+		triggerUpdates = false;
 		await loadTab(tab);
 	}
 
@@ -245,6 +268,26 @@
 		aria-label={t('page.triggers.sections')}
 		class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
 	>
+		{#if triggerUpdates && tab === 'records'}
+			<div
+				class="mb-3 flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2"
+			>
+				<span class="text-caption text-muted-foreground">
+					New trigger activity arrived.
+				</span>
+				<Button
+					size="sm"
+					variant="outline"
+					onclick={() => {
+						triggerUpdates = false;
+						seenRecords = false;
+						void loadTab('records');
+					}}
+				>
+					Refresh
+				</Button>
+			</div>
+		{/if}
 		{#if tab === 'records'}
 			<PageState
 				loading={recordsLoading}

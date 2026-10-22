@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
@@ -24,6 +24,7 @@
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { t } from '#lib/i18n';
 	import { resolve } from '$app/paths';
+	import { watchListInvalidation } from '#lib/services/list-invalidation';
 
 	interface Props {
 		/** The kind of definition the runs belong to. */
@@ -54,10 +55,13 @@
 	let query = $state('');
 	let status = $state('');
 	let rerunId = $state<string | null>(null);
+	let runsDirty = $state(false);
+	let stopRunsLive: (() => void) | null = null;
 
 	async function loadRuns(): Promise<void> {
 		runsLoading = true;
 		runsError = null;
+		runsDirty = false;
 		try {
 			const result = await listUnifiedExecutions({
 				limit: 50,
@@ -114,10 +118,38 @@
 
 	onMount(() => {
 		void loadRuns();
+		stopRunsLive = watchListInvalidation({
+			onDirty: () => {
+				if (runsLoading) {
+					runsDirty = true;
+					return;
+				}
+				if (typeof document !== 'undefined' && document.hidden) {
+					runsDirty = true;
+					return;
+				}
+				void loadRuns();
+			},
+		});
+	});
+
+	onDestroy(() => {
+		stopRunsLive?.();
+		stopRunsLive = null;
 	});
 </script>
 
 <div class="space-y-2.5">
+	{#if runsDirty}
+		<div
+			class="flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2"
+		>
+			<span class="text-caption text-muted-foreground">New runs arrived.</span>
+			<Button size="sm" variant="outline" onclick={() => void loadRuns()}>
+				Refresh
+			</Button>
+		</div>
+	{/if}
 	<FilterBar
 		bind:query
 		bind:status
@@ -217,7 +249,7 @@
 								class="shrink-0"
 								disabled={rerunId === run.id}
 								title={run.version
-									? t('domain.runs.rerunVersionTitle', { 'run.version': run.version })
+									? t('domain.runs.rerunVersionTitle', { version: run.version })
 									: t('domain.runs.rerunTitle')}
 								onclick={() => void rerun(run)}
 							>

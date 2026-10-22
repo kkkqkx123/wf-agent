@@ -58,19 +58,61 @@ impl MiniApprover {
     }
 
     /// Poll pending interactions until `stop` flips, answering tool
-    /// approvals from stdin. Each record answers at most once.
+    /// approvals from stdin. Each record answers at most once. An
+    /// event-stream subscription wakes the loop early on approval
+    /// announcements; the periodic poll remains as fallback.
     pub async fn watch(&self, stop: Arc<tokio::sync::watch::Receiver<bool>>) {
+        use futures::StreamExt;
         // Owned receiver: `changed()` needs `&mut self`, which an `Arc`
         // cannot provide. Cloning keeps the same watch channel.
         let mut stop = (*stop).clone();
         let mut seen = std::collections::HashSet::new();
+        let mut events = self
+            .client
+            .get_stream(wf_client::endpoints::EVENTS_STREAM)
+            .await
+            .ok()
+            .map(Box::pin);
         loop {
             if *stop.borrow() {
                 break;
             }
-            tokio::select! {
-                _ = tokio::time::sleep(Duration::from_millis(500)) => {}
-                _ = stop.changed() => break,
+            if let Some(stream) = events.as_mut() {
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_millis(500)) => {}
+                    _ = stop.changed() => break,
+                    frame = stream.next() => {
+                        match frame {
+                            Some(Ok(frame)) => {
+                                if !wf_cli_shared::run_interaction::is_interaction_request_event(
+                                    &frame,
+                                ) {
+                                    if *stop.borrow() {
+                                        break;
+                                    }
+                                    continue;
+                                }
+                            }
+                            Some(Err(_)) | None => {
+                                events = None;
+                            }
+                        }
+                    }
+                }
+            } else {
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_millis(500)) => {}
+                    _ = stop.changed() => break,
+                }
+                if !*stop.borrow() {
+                    if let Ok(stream) = self
+                        .client
+                        .get_stream(wf_client::endpoints::EVENTS_STREAM)
+                        .await
+                    {
+                        events = Some(Box::pin(stream));
+                    }
+                }
             }
             let pending: serde_json::Value = match self
                 .client
@@ -138,14 +180,19 @@ impl MiniApprover {
         } else {
             diag_line(&format!("denied {tool_name}"));
         }
-        let body = if approved {
-            serde_json::json!({"response_data": {"approved": true}})
+        let response = if approved {
+            serde_json::json!({"approved": true})
         } else {
-            serde_json::json!({"response_data": {"approved": false, "rejection_reason": "denied by user"}})
+            serde_json::json!({"approved": false, "rejection_reason": "denied by user"})
+        };
+        let body = wf_client::models::RespondBody {
+            response_data: Some(response),
+            result_data: None,
         };
         let _ = self
             .client
-            .post_json::<_, serde_json::Value>(&format!("/api/v1/interactions/{id}/respond"), &body)
+            .generated()
+            .post_interactions_id_respond(id, &body)
             .await;
     }
 

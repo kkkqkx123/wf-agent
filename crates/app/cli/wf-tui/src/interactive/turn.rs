@@ -162,15 +162,54 @@ impl InteractiveController {
 
     /// Poll pending server interactions for the active turn and forward
     /// approvals/questions into the session channel. Seen records answer at
-    /// most once; aborted with the turn.
+    /// most once; aborted with the turn. An event-stream subscription wakes
+    /// the loop early on approval announcements; the periodic poll remains
+    /// as fallback.
     fn spawn_interaction_poll(
         client: wf_client::WfClient,
         tx: tokio::sync::mpsc::UnboundedSender<InteractiveEvent>,
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
+            use futures::StreamExt;
             let mut seen = std::collections::HashSet::new();
+            let mut events = client
+                .get_stream(wf_client::endpoints::EVENTS_STREAM)
+                .await
+                .ok()
+                .map(Box::pin);
             loop {
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                if let Some(stream) = events.as_mut() {
+                    tokio::select! {
+                        _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => {}
+                        frame = stream.next() => {
+                            match frame {
+                                Some(Ok(frame)) => {
+                                    if !wf_cli_shared::run_interaction::is_interaction_request_event(
+                                        &frame,
+                                    ) {
+                                        if tx.is_closed() {
+                                            break;
+                                        }
+                                        continue;
+                                    }
+                                }
+                                Some(Err(_)) | None => {
+                                    events = None;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    if !tx.is_closed() {
+                        if let Ok(stream) = client
+                            .get_stream(wf_client::endpoints::EVENTS_STREAM)
+                            .await
+                        {
+                            events = Some(Box::pin(stream));
+                        }
+                    }
+                }
                 if tx.is_closed() {
                     break;
                 }

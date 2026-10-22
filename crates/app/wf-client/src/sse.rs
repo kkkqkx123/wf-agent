@@ -89,8 +89,9 @@ impl SystemFrame {
     }
 }
 
-/// Decode one execution-stream frame by its `event:` line, falling back to
-/// the raw frame when the payload does not match the expected shape.
+/// Decode one execution-stream frame by its `event:` line. Supported lines
+/// are `metadata` (preface), `engine` (bare bus event) and empty (protocol
+/// event); anything else falls back to the raw frame.
 pub fn decode_execution_frame(frame: &SseFrame) -> ExecutionFrame {
     match frame.event.as_str() {
         "metadata" => match serde_json::from_value::<StreamMetadata>(frame.data.clone()) {
@@ -109,10 +110,10 @@ pub fn decode_execution_frame(frame: &SseFrame) -> ExecutionFrame {
     }
 }
 
-/// Decode one system-event frame. The hello envelope is detected by its
-/// `type: connected` marker (either the event line or the payload field,
-/// since the server sends it as a bare data frame); the rest decode as bare
-/// bus events with raw fallback.
+/// Decode one system-event frame. Supported shapes are the `connected`
+/// hello envelope and bare bus events; anything else falls back to raw.
+/// The hello marker is accepted on either the event line or the payload
+/// field, since the server sends it as a bare data frame.
 pub fn decode_system_frame(frame: &SseFrame) -> SystemFrame {
     let payload_connected = frame
         .data

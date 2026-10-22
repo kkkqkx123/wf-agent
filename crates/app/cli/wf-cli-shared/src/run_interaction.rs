@@ -43,6 +43,21 @@ impl AnswerPolicy {
     }
 }
 
+/// True for bus events that announce a new approval or follow-up.
+/// Pollers use this to wake early on the event stream; other frames stay on
+/// the periodic fallback so noisy streams cannot cause poll storms.
+pub fn is_interaction_request_event(frame: &wf_client::SseFrame) -> bool {
+    let decoded = wf_client::sse::decode_system_frame(frame);
+    match decoded.into_base_event() {
+        Some(base) => matches!(
+            base.r#type,
+            wf_types::events::EventType::ToolApprovalRequested
+                | wf_types::events::EventType::FollowupQuestionRequested
+        ),
+        None => false,
+    }
+}
+
 /// Polls pending interactions and answers them per policy until stopped.
 pub(crate) struct InteractionPoller {
     client: WfClient,
@@ -73,9 +88,49 @@ impl InteractionPoller {
 
     /// Run until `stop` flips. Each unseen pending interaction is answered
     /// exactly once; already-answered races resolve as no-ops server-side.
+    /// An event-stream subscription wakes the loop early on approval and
+    /// follow-up announcements; the periodic poll remains as fallback when
+    /// the stream drops or carries unrelated events.
     pub(crate) async fn run_until(&mut self, stop: Arc<AtomicBool>) {
-        while !stop.load(Ordering::SeqCst) {
-            tokio::time::sleep(Duration::from_millis(500)).await;
+        use futures::StreamExt;
+        let mut events = self
+            .client
+            .get_stream(wf_client::endpoints::EVENTS_STREAM)
+            .await
+            .ok()
+            .map(Box::pin);
+        loop {
+            if let Some(stream) = events.as_mut() {
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_millis(500)) => {}
+                    frame = stream.next() => {
+                        match frame {
+                            Some(Ok(frame)) => {
+                                if !is_interaction_request_event(&frame) {
+                                    if stop.load(Ordering::SeqCst) {
+                                        break;
+                                    }
+                                    continue;
+                                }
+                            }
+                            Some(Err(_)) | None => {
+                                events = None;
+                            }
+                        }
+                    }
+                }
+            } else {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                if !stop.load(Ordering::SeqCst) {
+                    if let Ok(stream) = self
+                        .client
+                        .get_stream(wf_client::endpoints::EVENTS_STREAM)
+                        .await
+                    {
+                        events = Some(Box::pin(stream));
+                    }
+                }
+            }
             if stop.load(Ordering::SeqCst) {
                 break;
             }

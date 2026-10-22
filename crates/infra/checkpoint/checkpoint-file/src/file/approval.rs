@@ -15,6 +15,8 @@ mod reject;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::FileCheckpointManager;
+    use crate::storage::ReviewStatus;
 
     fn orphan_ref(manager: &FileCheckpointManager, entity: &str, tag: &str) -> String {
         let actor = manager.actor_id_for(entity);

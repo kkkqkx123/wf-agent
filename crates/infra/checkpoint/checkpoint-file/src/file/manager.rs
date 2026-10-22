@@ -3,6 +3,8 @@ mod lifecycle;
 mod queries;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_b;
 mod types;
 
 use std::path::PathBuf;

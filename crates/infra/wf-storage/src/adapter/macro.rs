@@ -7,7 +7,7 @@ macro_rules! make_base_adapter {
     ) => {
         #[derive(Clone)]
         pub struct $name<S: $crate::domain::Store> {
-            entity_store: $crate::store::EntityStore<S, $entity>,
+            pub entity_store: $crate::store::EntityStore<S, $entity>,
         }
 
         impl<S: $crate::domain::Store> $name<S> {

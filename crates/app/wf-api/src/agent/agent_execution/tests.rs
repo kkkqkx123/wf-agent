@@ -2,6 +2,7 @@
     use wf_llm::{LlmGateway, LlmResponseSpec, MockLlmClient};
     use wf_resource::registry::ResourceRegistries;
     use wf_storage::context::StorageContext;
+    use wf_storage::adapter::BaseStorageAdapter;
 
     fn gateway_with(mock: Arc<MockLlmClient>) -> Arc<LlmGateway> {
         let gateway = LlmGateway::new();

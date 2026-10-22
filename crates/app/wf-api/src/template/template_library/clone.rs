@@ -1,6 +1,5 @@
 
 
-use wf_core::registry::Registry;
 use wf_types::agent::AgentTemplate;
 use wf_types::workflow::WorkflowTemplate;
 

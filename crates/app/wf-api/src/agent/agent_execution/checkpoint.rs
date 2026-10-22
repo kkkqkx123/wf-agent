@@ -5,7 +5,6 @@ use wf_tools::callback::AgentLoopOutput;
 
 use crate::infra::context::ApiContext;
 use crate::infra::error::ApiError;
-use wf_execution_shared::types::execution_entity::ExecutionEntity;
 
 use super::*;
 

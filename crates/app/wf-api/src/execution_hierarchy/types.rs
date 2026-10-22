@@ -1,6 +1,5 @@
 use serde::Serialize;
 
-use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_types::execution::ExecutionType;
 use wf_types::ExecutionStatus;
 

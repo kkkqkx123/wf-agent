@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -114,6 +113,10 @@ mod tests {
     use super::io;
     use super::session;
     use super::decode;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+    use std::sync::atomic::{AtomicBool, AtomicI64};
+    use wf_common::now;
 
     fn stub_state() -> Arc<state::PtyState> {
         Arc::new(state::PtyState {

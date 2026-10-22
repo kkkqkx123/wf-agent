@@ -1,4 +1,6 @@
     use super::*;
+    use super::scoring::score;
+    use super::orchestrator::{decode_cursor, encode_cursor};
     use std::collections::BTreeMap;
     use std::sync::Arc;
     use crate::ApiContext;

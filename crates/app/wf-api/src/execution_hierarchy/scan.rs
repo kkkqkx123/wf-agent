@@ -1,4 +1,3 @@
-use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_storage::domain::store::QueryFilter;
 use wf_storage::domain::ExecutionIndexError;
 use wf_storage::domain::ExecutionIndexRow;

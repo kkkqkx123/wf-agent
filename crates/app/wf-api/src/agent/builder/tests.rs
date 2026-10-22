@@ -1,7 +1,11 @@
     use super::*;
+    use std::sync::Arc;
     use wf_core::registry::Registry;
     use wf_resource::registry::ResourceRegistries;
     use wf_storage::context::StorageContext;
+    use crate::ApiContext;
+    use wf_types::agent::AgentHookType;
+    use wf_types::llm::tool_call_protocol::ToolCallProtocolConfig;
 
     #[test]
     fn tool_config_requires_at_least_one_tool() {

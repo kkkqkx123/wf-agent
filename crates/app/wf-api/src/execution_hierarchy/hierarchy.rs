@@ -1,4 +1,3 @@
-use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_types::execution::ExecutionType;
 
 use crate::infra::context::ApiContext;

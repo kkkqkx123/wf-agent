@@ -1,6 +1,6 @@
 //! SSE streaming layer for endpoints the generator cannot express.
 //!
-//! The snapshot marks five operations as `text/event-stream`; progenitor
+//! The snapshot marks six operations as `text/event-stream`; progenitor
 //! only models JSON, so they are removed from codegen (see `normalize`) and
 //! streamed here with `reqwest` bytes + `eventsource-stream` parsing.
 
@@ -41,6 +41,9 @@ pub mod endpoints {
 
     /// `POST /api/v1/llm/generate-stream`
     pub const LLM_GENERATE_STREAM: &str = "/api/v1/llm/generate-stream";
+
+    /// `POST /api/v1/chat/stream`
+    pub const CHAT_STREAM: &str = "/api/v1/chat/stream";
 
     /// `GET /api/v1/events/stream`
     pub const EVENTS_STREAM: &str = "/api/v1/events/stream";
@@ -166,6 +169,7 @@ mod tests {
             "/api/v1/llm/generate-stream"
         );
         assert_eq!(endpoints::EVENTS_STREAM, "/api/v1/events/stream");
+        assert_eq!(endpoints::CHAT_STREAM, "/api/v1/chat/stream");
     }
 
     #[test]
@@ -222,16 +226,25 @@ mod tests {
         table.insert(endpoints::workflow_execute("w1"));
         table.insert(endpoints::agent_loop_stream("a1").replace("a1", "w1"));
         table.insert(endpoints::LLM_GENERATE_STREAM.to_string());
+        table.insert(endpoints::CHAT_STREAM.to_string());
         table.insert(endpoints::EVENTS_STREAM.to_string());
         table.insert(endpoints::error_chain_stream("e1").replace("e1", "w1"));
-        for path in &table {
-            assert!(
-                snapshot.iter().any(|s| s.replace("{id}", "w1") == *path
-                    || s.replace("{workflow}", "w1") == *path
-                    || s.clone() == *path),
-                "streaming table path missing from snapshot: {path}"
-            );
-        }
+        // Normalize templated ids in the snapshot the same way the table
+        // does, so the two sets are directly comparable.
+        let snapshot: BTreeSet<String> = snapshot
+            .into_iter()
+            .map(|path| {
+                path.replace("{id}", "w1")
+                    .replace("{workflow}", "w1")
+                    .replace("{nodeId}", "n1")
+                    .replace("{errorId}", "e1")
+            })
+            .collect();
+
         assert!(!snapshot.is_empty(), "snapshot SSE set must not be empty");
+        assert_eq!(
+            table, snapshot,
+            "streaming endpoint table must exactly mirror the snapshot SSE set"
+        );
     }
 }

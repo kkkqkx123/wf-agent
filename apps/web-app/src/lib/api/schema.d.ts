@@ -15585,7 +15585,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_String"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -21853,7 +21853,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_String"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -21928,7 +21928,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_String"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -28053,7 +28053,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_String"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */

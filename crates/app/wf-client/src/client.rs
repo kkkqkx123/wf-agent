@@ -280,7 +280,7 @@ impl WfClient {
     }
 
     /// Typed execution status (`GET /api/v1/executions/{id}/status`).
-    pub async fn execution_status(&self, id: &str) -> ClientResult<serde_json::Value> {
+    pub async fn execution_status(&self, id: &str) -> ClientResult<String> {
         let envelope = self
             .generated
             .handle_status(id)
@@ -320,7 +320,7 @@ impl WfClient {
     }
 
     /// Typed agent-loop status (`GET /api/v1/agent-loops/{id}/status`).
-    pub async fn agent_loop_status(&self, id: &str) -> ClientResult<serde_json::Value> {
+    pub async fn agent_loop_status(&self, id: &str) -> ClientResult<String> {
         let envelope = self
             .generated
             .handle_loop_status(id)

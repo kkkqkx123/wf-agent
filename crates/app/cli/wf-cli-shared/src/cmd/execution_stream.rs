@@ -21,15 +21,8 @@ pub(crate) fn is_terminal_status(status: &str) -> bool {
 /// detail record. Mirrors the `Status` arm so watch polling and status
 /// reporting never disagree.
 pub(crate) async fn fetch_execution_status(client: &WfClient, id: &str) -> CliResult<String> {
-    if let Ok(value) = client.execution_status(id).await {
-        if let Some(status) = value.as_str().map(str::to_string).or_else(|| {
-            value
-                .get("status")
-                .and_then(|s| s.as_str())
-                .map(str::to_string)
-        }) {
-            return Ok(status);
-        }
+    if let Ok(status) = client.execution_status(id).await {
+        return Ok(status);
     }
     let detail: serde_json::Value = client
         .execution_detail(id)

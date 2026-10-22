@@ -553,12 +553,7 @@ async fn show_execution(client: &WfClient, cli: &Cli, id: &str) -> CliResult<()>
 
 async fn status_execution(client: &WfClient, cli: &Cli, id: &str) -> CliResult<()> {
     if let Ok(status) = client.execution_status(id).await {
-        let text = status.as_str().unwrap_or(
-            status
-                .get("status")
-                .and_then(|s| s.as_str())
-                .unwrap_or("unknown"),
-        );
+        let text = status;
         let data = serde_json::json!({"executionId": id, "status": text, "source": "live"});
         return render_envelope(
             cli.output,

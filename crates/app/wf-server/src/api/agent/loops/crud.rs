@@ -183,7 +183,7 @@ pub(crate) async fn handle_update_loop_status(
     tag = "agent",
     params(IdPath),
     responses(
-        (status = 200, description = "Current loop status", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Current loop status", body = crate::envelope::ApiEnvelope<String>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),

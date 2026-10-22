@@ -11,6 +11,9 @@ mod normalize;
 fn main() {
     let src = "../wf-server/openapi.json";
     println!("cargo:rerun-if-changed={src}");
+    // normalize.rs is pulled in via #[path] below; once rerun-if-changed is
+    // declared Cargo stops tracking the rest of the package, so list it.
+    println!("cargo:rerun-if-changed=src/normalize.rs");
 
     let text = std::fs::read_to_string(src).expect("read wf-server openapi.json snapshot");
     let mut value: serde_json::Value =

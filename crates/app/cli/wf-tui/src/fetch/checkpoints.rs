@@ -5,50 +5,30 @@ use wf_client::WfClient;
 use crate::error::CliResult;
 use crate::screens::{CheckpointRow, ScreenData};
 
-use super::common::{format_ts, page_of};
+use super::common::format_ts;
 
 pub(super) async fn fetch_checkpoints(client: &WfClient) -> CliResult<(ScreenData, bool)> {
-    let data: serde_json::Value = client.get_json("/api/v1/checkpoints").await?;
-    let (items, has_more) = page_of(&data);
-    let rows = items
+    let envelope = client
+        .generated()
+        .get_checkpoints(None, None, None, None)
+        .await
+        .map_err(wf_client::error::map_typed_error)?;
+    let page: wf_client::models::ApiEnvelopePageViewCheckpointDocData =
+        wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
+    let rows = page
+        .items
         .into_iter()
-        .filter_map(|c| {
-            Some(CheckpointRow {
-                id: c.get("id")?.as_str()?.to_string(),
-                entity: c
-                    .get("entity_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                timestamp: format_ts(c.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0)),
-                entity_type: c
-                    .get("entity_type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                checkpoint_type: c
-                    .get("checkpoint_type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                status: c
-                    .get("status")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                tags: c
-                    .get("tags")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-            })
+        .map(|c| CheckpointRow {
+            id: c.id,
+            entity: c.entity_id,
+            timestamp: format_ts(c.timestamp),
+            entity_type: c.entity_type,
+            checkpoint_type: c.checkpoint_type,
+            status: c.status,
+            tags: c.tags.unwrap_or_default(),
         })
         .collect();
-    Ok((ScreenData::Checkpoints(rows), has_more))
+    Ok((ScreenData::Checkpoints(rows), page.has_more))
 }
 
 /// Render one execution checkpoint record as human-readable detail lines.

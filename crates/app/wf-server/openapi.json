@@ -5375,7 +5375,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_String"
                 }
               }
             }
@@ -11742,7 +11742,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_String"
                 }
               }
             }
@@ -11810,7 +11810,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_String"
                 }
               }
             }
@@ -17884,7 +17884,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_String"
                 }
               }
             }

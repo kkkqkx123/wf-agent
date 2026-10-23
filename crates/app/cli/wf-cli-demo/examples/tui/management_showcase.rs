@@ -23,9 +23,9 @@ use ratatui::Terminal;
 use wf_tui::screens::{
     catalog_tab_from_index, catalog_tab_index, catalog_tab_label, filter_catalog, ApprovalRow,
     CatalogKind, CatalogRow, CheckpointRow, ConflictRow, DashboardData, EditSessionRow, ExecRow,
-    ExecView, FileChangeRow, FileTimelineData, FileTimelineRow, GitRow, InsightTable, InsightsData,
-    LocalSettings, ProfileRow, ScreenContext, ScreenData, ScreenKind, Screens, SettingsData,
-    WorkflowRow, WorkflowView,
+    ExecView, FileChangeRow, FileSyncData, FileSyncRow, FileTimelineData, FileTimelineRow, GitRow,
+    InsightTable, InsightsData, LocalSettings, ProfileRow, ScreenContext, ScreenData, ScreenKind,
+    Screens, SettingsData, WorkflowRow, WorkflowView,
 };
 use wf_tui::theme::{probe_theme, Theme};
 
@@ -323,8 +323,33 @@ fn synthetic_file_timeline() -> ScreenData {
     })
 }
 
-fn synthetic_edit_sessions() -> ScreenData {
-    ScreenData::EditSessions(vec![EditSessionRow {
+fn synthetic_file_sync() -> ScreenData {
+    ScreenData::FileSync(FileSyncData {
+        auto_commit: true,
+        rows: vec![
+            FileSyncRow {
+                kind: "reconcile".into(),
+                title: "Reconcile point".into(),
+                summary: "aaaaaaaa <- bbbbbbbb".into(),
+                detail: "internal main: aaaaaaaa\nexternal commit: bbbbbbbb".into(),
+            },
+            FileSyncRow {
+                kind: "hint".into(),
+                title: "External update".into(),
+                summary: "external head aligned".into(),
+                detail: "external update: none".into(),
+            },
+            FileSyncRow {
+                kind: "defaults".into(),
+                title: "Sync defaults".into(),
+                summary: "auto commit on · auto import off".into(),
+                detail: "auto commit: on\nauto import: off".into(),
+            },
+        ],
+    })
+}
+
+fn synthetic_edit_sessions() -> ScreenData {    ScreenData::EditSessions(vec![EditSessionRow {
         id: "sess-1700000000-1-0".into(),
         label: "format file".into(),
         created_at: "2024-01-15 10:30:00".into(),
@@ -366,6 +391,7 @@ fn dashboard_entry_label(kind: ScreenKind) -> &'static str {
         ScreenKind::Git => "Git",
         ScreenKind::FileWorkspace => "Files",
         ScreenKind::FileTimeline => "Timeline",
+        ScreenKind::FileSync => "Sync",
         ScreenKind::EditSessions => "Edit sessions",
         ScreenKind::FileApprovals => "Approvals",
         ScreenKind::Conflicts => "Conflicts",
@@ -385,6 +411,7 @@ fn dashboard_entry_color(kind: ScreenKind) -> Color {
         ScreenKind::Git => Color::Blue,
         ScreenKind::FileWorkspace => Color::Magenta,
         ScreenKind::FileTimeline => Color::LightBlue,
+        ScreenKind::FileSync => Color::Cyan,
         ScreenKind::EditSessions => Color::Magenta,
         ScreenKind::FileApprovals => Color::Yellow,
         ScreenKind::Conflicts => Color::Red,
@@ -507,6 +534,7 @@ impl DemoState {
             ScreenKind::Git => synthetic_git(),
             ScreenKind::FileWorkspace => synthetic_file_workspace(),
             ScreenKind::FileTimeline => synthetic_file_timeline(),
+            ScreenKind::FileSync => synthetic_file_sync(),
             ScreenKind::EditSessions => synthetic_edit_sessions(),
             ScreenKind::FileApprovals => synthetic_file_approvals(),
             ScreenKind::Conflicts => synthetic_conflicts(),

@@ -608,7 +608,7 @@ pub fn draw_file_workspace(
         _ => Vec::new(),
     };
     let title = format!(
-        "File workspace ({}) (r refresh, Enter diff, t timeline, s submit, m merge, M main, R revert, u undo, ^r redo, g gc, i reindex, Esc back)",
+        "File workspace ({}) (r refresh, Enter diff, t timeline, Y sync, s submit, m merge, M main, R revert, u undo, ^r redo, g gc, i reindex, Esc back)",
         list_suffix(rows.len(), ctx)
     );
     let (list_area, detail_area) = split_list_detail(area);
@@ -859,6 +859,51 @@ pub fn draw_file_timeline(
         frame,
         detail_area,
         "Version (Enter full)".to_string(),
+        &detail,
+        ctx.detail_scroll,
+        theme,
+    );
+}
+
+/// Git sync of the file-checkpoint store, opened from the Files screen.
+/// Three fixed sections (reconcile point, external update, sync defaults)
+/// render from the cached fetch; writes run through the shell actions.
+pub fn draw_file_sync(
+    frame: &mut Frame,
+    area: Rect,
+    data: &ScreenData,
+    selected: usize,
+    theme: &Theme,
+    ctx: &ScreenContext,
+) {
+    let rows: Vec<String> = match data {
+        ScreenData::FileSync(d) => d
+            .rows
+            .iter()
+            .map(|r| format!("{} · {}", r.title, r.summary))
+            .collect(),
+        _ => Vec::new(),
+    };
+    let title = format!(
+        "Sync ({}) (r refresh, e export, p import, b rebase, Enter detail, Esc back)",
+        list_suffix(rows.len(), ctx)
+    );
+    let (list_area, detail_area) = split_list_detail(area);
+    let block = titled_block(&title, ColorRole::Highlight, theme);
+    render_rows(frame, list_area, block, &rows, selected, theme);
+
+    let detail = match data {
+        ScreenData::FileSync(d) => d
+            .rows
+            .get(selected.min(d.rows.len().saturating_sub(1)))
+            .map(|row| row.detail.lines().map(str::to_string).collect())
+            .unwrap_or_else(|| vec![EMPTY_TEXT.to_string()]),
+        _ => vec![LOADING_TEXT.to_string()],
+    };
+    draw_detail_pane(
+        frame,
+        detail_area,
+        "Section (Enter full)".to_string(),
         &detail,
         ctx.detail_scroll,
         theme,

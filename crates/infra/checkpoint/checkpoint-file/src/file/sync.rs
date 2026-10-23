@@ -480,13 +480,20 @@ impl FileCheckpointManager {
             return Ok(None);
         }
         let Ok(head) = crate::git_store::external::external_head_id(base_dir) else {
+            tracing::warn!("external HEAD unreadable; hint degraded to null");
             return Ok(None);
         };
         if head == reconcile.external_commit {
             return Ok(None);
         }
-        let file_count =
-            self.external_diff_size(&objects_dir, &reconcile.external_commit, &head)?;
+        let file_count = match self.external_diff_size(&objects_dir, &reconcile.external_commit, &head)
+        {
+            Ok(count) => count,
+            Err(err) => {
+                tracing::warn!(error = %err, "external diff unreadable; hint degraded to null");
+                return Ok(None);
+            }
+        };
         Ok(Some(ExternalUpdateHint {
             external_head: head,
             reconcile,

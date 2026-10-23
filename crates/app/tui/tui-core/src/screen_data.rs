@@ -19,6 +19,7 @@ pub enum ScreenKind {
     Git,
     FileWorkspace,
     FileTimeline,
+    FileSync,
     EditSessions,
     FileApprovals,
     Conflicts,
@@ -38,6 +39,7 @@ impl ScreenKind {
             Self::Git => "Git",
             Self::FileWorkspace => "Files",
             Self::FileTimeline => "Timeline",
+            Self::FileSync => "Sync",
             Self::EditSessions => "Edit sessions",
             Self::FileApprovals => "Approvals",
             Self::Conflicts => "Conflicts",
@@ -45,8 +47,9 @@ impl ScreenKind {
     }
 
     /// Screens listed on the dashboard and the sidebar overlay. The file
-    /// timeline is context-bound (it needs a selected workspace file), so it
-    /// is reached from the Files screen instead of this browse list.
+    /// timeline is context-bound (it needs a selected workspace file), and
+    /// the sync screen is entered from the Files screen, so neither appears
+    /// in this browse list.
     pub fn all() -> &'static [ScreenKind] {
         &[
             Self::Dashboard,
@@ -90,6 +93,7 @@ pub fn screen_digit(kind: ScreenKind) -> Option<char> {
         | ScreenKind::Git
         | ScreenKind::FileWorkspace
         | ScreenKind::FileTimeline
+        | ScreenKind::FileSync
         | ScreenKind::EditSessions
         | ScreenKind::FileApprovals
         | ScreenKind::Conflicts => None,
@@ -457,6 +461,30 @@ pub struct FileTimelineData {
     pub rows: Vec<FileTimelineRow>,
 }
 
+/// One git-sync section row rendered on the sync screen: the reconcile
+/// point, the external-update hint or the sync defaults, each carrying
+/// pre-rendered detail text so opening it needs no extra fetch.
+#[derive(Debug, Clone)]
+pub struct FileSyncRow {
+    /// Section key: `reconcile`, `hint` or `defaults`.
+    pub kind: String,
+    pub title: String,
+    pub summary: String,
+    /// Pre-rendered viewer text for the read-only viewer.
+    pub detail: String,
+}
+
+/// Git-sync screen state: the three sync sections as fixed navigation rows.
+/// Every section is always present; unconfigured or never-exported states
+/// render as empty text rather than missing rows.
+#[derive(Debug, Clone, Default)]
+pub struct FileSyncData {
+    /// Effective auto-commit default from the sync config (false when
+    /// unconfigured); the export action sends it through.
+    pub auto_commit: bool,
+    pub rows: Vec<FileSyncRow>,
+}
+
 /// One staged edit session rendered on the edit-sessions screen.
 #[derive(Debug, Clone)]
 pub struct EditSessionRow {
@@ -566,6 +594,7 @@ pub enum ScreenData {
     Git(Vec<GitRow>),
     FileWorkspace(Vec<FileChangeRow>),
     FileTimeline(FileTimelineData),
+    FileSync(FileSyncData),
     EditSessions(Vec<EditSessionRow>),
     FileApprovals(Vec<ApprovalRow>),
     Conflicts(Vec<ConflictRow>),
@@ -585,6 +614,7 @@ impl ScreenData {
             Self::Git(rows) => rows.len(),
             Self::FileWorkspace(rows) => rows.len(),
             Self::FileTimeline(data) => data.rows.len(),
+            Self::FileSync(data) => data.rows.len(),
             Self::EditSessions(rows) => rows.len(),
             Self::FileApprovals(rows) => rows.len(),
             Self::Conflicts(rows) => rows.len(),
@@ -656,6 +686,15 @@ pub fn apply_list_filter(data: &ScreenData, query: &str) -> ScreenData {
                 .rows
                 .iter()
                 .filter(|r| hits(&[&r.path, &r.source, r.moved_from.as_deref().unwrap_or("")]))
+                .cloned()
+                .collect(),
+        }),
+        ScreenData::FileSync(data) => ScreenData::FileSync(FileSyncData {
+            auto_commit: data.auto_commit,
+            rows: data
+                .rows
+                .iter()
+                .filter(|r| hits(&[&r.kind, &r.title, &r.summary]))
                 .cloned()
                 .collect(),
         }),

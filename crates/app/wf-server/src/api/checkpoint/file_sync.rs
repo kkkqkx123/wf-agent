@@ -190,9 +190,16 @@ pub(crate) async fn handle_rebase(
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_hint(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::checkpoint::sync::external_update_hint(&state.ctx) {
-        Ok(hint) => ok(hint).into_response(),
-        Err(err) => error_response(err),
+    let ctx = state.ctx.clone();
+    let result =
+        tokio::task::spawn_blocking(move || wf_api::checkpoint::sync::external_update_hint(&ctx))
+            .await;
+    match result {
+        Ok(Ok(hint)) => ok(hint).into_response(),
+        Ok(Err(err)) => error_response(err),
+        Err(err) => error_response(wf_api::ApiError::execution(format!(
+            "hint blocking task failed: {err}"
+        ))),
     }
 }
 

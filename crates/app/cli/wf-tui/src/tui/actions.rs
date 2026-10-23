@@ -250,6 +250,12 @@ impl TuiApp {
                     .get(idx)
                     .map(|row| (format!("Timeline {}", row.path), row.detail.clone()))
             }
+            ScreenData::FileSync(data) => {
+                let idx = selected.min(data.rows.len().saturating_sub(1));
+                data.rows
+                    .get(idx)
+                    .map(|row| (format!("Sync {}", row.title), row.detail.clone()))
+            }
             ScreenData::EditSessions(rows) => {
                 let idx = selected.min(rows.len().saturating_sub(1));
                 rows.get(idx)
@@ -298,6 +304,214 @@ impl TuiApp {
         self.app.screen.file_timeline_path = Some(path);
         self.invalidate(ScreenKind::FileTimeline);
         self.goto(ScreenKind::FileTimeline);
+    }
+
+    /// Open the git-sync screen from the Files screen. The screen fetches
+    /// its three read-only sections on mount; no file selection is needed.
+    pub(super) fn open_file_sync(&mut self) {
+        self.invalidate(ScreenKind::FileSync);
+        self.goto(ScreenKind::FileSync);
+    }
+
+    /// Effective auto-commit default behind the sync screen, for the export
+    /// request body. Off the sync screen there is nothing to export.
+    fn file_sync_auto_commit(&self) -> Option<bool> {
+        match self.display_data() {
+            ScreenData::FileSync(data) => Some(data.auto_commit),
+            _ => None,
+        }
+    }
+
+    /// Export the main tree into the user workspace after confirmation. The
+    /// confirmation is the overwrite guard; auto-commit rides the cached
+    /// sync default and the message is server-suggested.
+    pub(super) fn export_file_sync(&mut self) {
+        let Some(auto_commit) = self.file_sync_auto_commit() else {
+            self.app
+                .notice
+                .set("Open the sync screen before exporting.".to_string());
+            return;
+        };
+        let rx = self.modals.push_with_result(Box::new(ConfirmModal::new(
+            "Export to workspace",
+            format!(
+                "Export main to the workspace? This overwrites worktree changes. auto commit {auto}.",
+                auto = if auto_commit { "on" } else { "off" }
+            ),
+        )));
+        let tx = self.feedback_tx.clone();
+        let client = self.client.clone();
+        self.tasks.push(tokio::spawn(async move {
+            let outcome = match rx.await {
+                Ok(ModalResult::Confirmed) => {
+                    match client
+                        .post_json::<_, serde_json::Value>(
+                            "/api/v1/file-checkpoint/sync/export",
+                            &serde_json::json!({
+                                "confirm_overwrite": true,
+                                "auto_commit": auto_commit,
+                                "message": null,
+                            }),
+                        )
+                        .await
+                    {
+                        Ok(value) => {
+                            let _ = tx.send(Feedback::Refresh(ScreenKind::FileSync));
+                            let commit = value
+                                .get("reconcile")
+                                .and_then(|r| r.get("internal_main"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            let idempotent = value
+                                .get("idempotent")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false);
+                            match (commit.is_empty(), idempotent) {
+                                (true, _) => "Export completed".to_string(),
+                                (false, true) => format!(
+                                    "Export already up to date ({})",
+                                    short_id(commit)
+                                ),
+                                (false, false) => {
+                                    format!("Exported main ({})", short_id(commit))
+                                }
+                            }
+                        }
+                        Err(err) => sync_failure_notice("Export", &err),
+                    }
+                }
+                _ => "Export cancelled".to_string(),
+            };
+            let _ = tx.send(Feedback::Notice(outcome));
+        }));
+    }
+
+    /// Import the external head as human history. The endpoint is idempotent,
+    /// so this runs directly with no extra prompt.
+    pub(super) fn import_file_sync(&mut self) {
+        if self.file_sync_auto_commit().is_none() {
+            self.app
+                .notice
+                .set("Open the sync screen before importing.".to_string());
+            return;
+        }
+        let tx = self.feedback_tx.clone();
+        let client = self.client.clone();
+        self.tasks.push(tokio::spawn(async move {
+            let outcome = match client
+                .post_json::<_, serde_json::Value>(
+                    "/api/v1/file-checkpoint/sync/import",
+                    &serde_json::json!({}),
+                )
+                .await
+            {
+                Ok(value) => {
+                    let _ = tx.send(Feedback::Refresh(ScreenKind::FileSync));
+                    let advanced = value
+                        .get("advanced_to")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let files = value
+                        .get("file_count")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    let idempotent = value
+                        .get("idempotent")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    if idempotent {
+                        "Import already up to date".to_string()
+                    } else {
+                        format!("Imported {files} file(s) ({})", short_id(advanced))
+                    }
+                }
+                Err(err) => sync_failure_notice("Import", &err),
+            };
+            let _ = tx.send(Feedback::Notice(outcome));
+        }));
+    }
+
+    /// Prompt for the rebase baseline selector, then hand the parsed selector
+    /// to the main loop for its destructive confirmation. The prompt answer
+    /// arrives on a background task that cannot push modals, so the confirm
+    /// step travels back as feedback.
+    pub(super) fn rebase_file_sync(&mut self) {
+        if self.file_sync_auto_commit().is_none() {
+            self.app
+                .notice
+                .set("Open the sync screen before rebasing.".to_string());
+            return;
+        }
+        let rx =
+            self.modals
+                .push_with_result(Box::new(crate::prompt_modal::PromptModal::new(
+                    "Rebase baseline",
+                    "branch | prefix=<p> | behind=<n> | mode=<borrow|copy>",
+                )));
+        let tx = self.feedback_tx.clone();
+        self.tasks.push(tokio::spawn(async move {
+            match rx.await {
+                Ok(ModalResult::Value(selector)) => {
+                    let _ = tx.send(Feedback::RebaseConfirm(selector));
+                }
+                _ => {
+                    let _ = tx.send(Feedback::Notice("Rebase cancelled".to_string()));
+                }
+            }
+        }));
+    }
+
+    /// Destructive confirmation for the parsed rebase selector, pushed on
+    /// the main loop so the write still gates behind an explicit `[y]`.
+    pub(super) fn confirm_file_sync_rebase(&mut self, selector: &str) {
+        let params = match parse_rebase_selector(selector) {
+            Ok(params) => params,
+            Err(err) => {
+                self.app.notice.set(err);
+                return;
+            }
+        };
+        let rx = self.modals.push_with_result(Box::new(ConfirmModal::new(
+            "Rebase baseline",
+            format!(
+                "Move the baseline ({})? Irreversible: history is rewritten.",
+                params.describe()
+            ),
+        )));
+        let tx = self.feedback_tx.clone();
+        let client = self.client.clone();
+        self.tasks.push(tokio::spawn(async move {
+            let outcome = match rx.await {
+                Ok(ModalResult::Confirmed) => {
+                    match client
+                        .post_json::<_, serde_json::Value>(
+                            "/api/v1/file-checkpoint/sync/rebase",
+                            &serde_json::json!({
+                                "branch": params.branch,
+                                "commit_prefix": params.commit_prefix,
+                                "behind": params.behind,
+                                "mode": params.mode,
+                                "confirm": true,
+                            }),
+                        )
+                        .await
+                    {
+                        Ok(value) => {
+                            let _ = tx.send(Feedback::Refresh(ScreenKind::FileSync));
+                            let anchor = value
+                                .get("new_anchor")
+                                .and_then(|a| a.get("id"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            format!("Baseline rebased ({})", short_id(anchor))
+                        }
+                        Err(err) => sync_failure_notice("Rebase", &err),
+                    }
+                }
+                _ => "Rebase cancelled".to_string(),
+            };
+            let _ = tx.send(Feedback::Notice(outcome));
+        }));
     }
 
     /// Open the full-text viewer for the selected execution subview.
@@ -1564,6 +1778,89 @@ async fn cancel_execution(client: &WfClient, id: &str) -> Result<(), wf_client::
         .map(|_| ())
 }
 
+/// Parsed baseline selector for a sync rebase: every field is optional and
+/// serializes as null when absent, mirroring the CLI flags.
+struct RebaseParams {
+    branch: Option<String>,
+    commit_prefix: Option<String>,
+    behind: Option<u64>,
+    mode: String,
+}
+
+impl RebaseParams {
+    fn describe(&self) -> String {
+        format!(
+            "branch={} prefix={} behind={} mode={}",
+            self.branch.as_deref().unwrap_or("-"),
+            self.commit_prefix.as_deref().unwrap_or("-"),
+            self.behind
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            self.mode
+        )
+    }
+}
+
+/// Parse the single-line rebase selector the prompt collects: a bare token
+/// is the branch, `prefix=` / `behind=` / `mode=` set the named fields.
+/// Commit prefix and behind stay mutually exclusive, like the server rule.
+fn parse_rebase_selector(selector: &str) -> Result<RebaseParams, String> {
+    let mut branch: Option<String> = None;
+    let mut commit_prefix: Option<String> = None;
+    let mut behind: Option<u64> = None;
+    let mut mode = "borrow".to_string();
+    for token in selector.split_whitespace() {
+        if let Some(prefix) = token.strip_prefix("prefix=") {
+            if prefix.is_empty() {
+                return Err("Rebase prefix is empty.".to_string());
+            }
+            commit_prefix = Some(prefix.to_string());
+        } else if let Some(n) = token.strip_prefix("behind=") {
+            let parsed: u64 = n
+                .parse()
+                .map_err(|_| format!("Rebase behind is not a number: {n}"))?;
+            behind = Some(parsed);
+        } else if let Some(name) = token.strip_prefix("mode=") {
+            if name != "borrow" && name != "copy" {
+                return Err(format!("Rebase mode must be borrow or copy: {name}"));
+            }
+            mode = name.to_string();
+        } else {
+            if branch.is_some() {
+                return Err(format!("Rebase takes one branch: {token}"));
+            }
+            branch = Some(token.to_string());
+        }
+    }
+    if commit_prefix.is_some() && behind.is_some() {
+        return Err("Commit prefix and behind are mutually exclusive.".to_string());
+    }
+    Ok(RebaseParams {
+        branch,
+        commit_prefix,
+        behind,
+        mode,
+    })
+}
+
+/// Map a sync write failure onto a user notice: conflicts ask for a later
+/// retry without auto-retrying, missing state points at the file-checkpoint
+/// state, and validation failures keep the server reason verbatim.
+fn sync_failure_notice(label: &str, err: &wf_client::ClientError) -> String {
+    let text = err.to_string();
+    if text.contains("not found") || text.contains("NotFound") {
+        format!("{label}: not found — check the file-checkpoint state ({text})")
+    } else if text.contains("CONFLICT")
+        || text.contains("Conflict")
+        || text.contains("conflict")
+        || text.contains("already running")
+    {
+        format!("{label}: conflict — retry later ({text})")
+    } else {
+        format!("{label} failed: {text}")
+    }
+}
+
 /// Step `current` up or down the `steps` ladder, clamping at the ends.
 fn step_option(current: usize, steps: &[usize], up: bool) -> usize {
     if up {
@@ -1585,6 +1882,28 @@ fn step_option(current: usize, steps: &[usize], up: bool) -> usize {
 #[cfg(test)]
 mod tests {
     use super::rebuild_conflict_content;
+    use super::*;
+
+    #[test]
+    fn rebase_selector_parses_named_fields() {
+        let params = parse_rebase_selector("main prefix=abc mode=copy").expect("parses");
+        assert_eq!(params.branch.as_deref(), Some("main"));
+        assert_eq!(params.commit_prefix.as_deref(), Some("abc"));
+        assert_eq!(params.behind, None);
+        assert_eq!(params.mode, "copy");
+        let params = parse_rebase_selector("behind=3").expect("parses");
+        assert_eq!(params.branch, None);
+        assert_eq!(params.behind, Some(3));
+        assert_eq!(params.mode, "borrow");
+    }
+
+    #[test]
+    fn rebase_selector_rejects_bad_input() {
+        assert!(parse_rebase_selector("a b").is_err());
+        assert!(parse_rebase_selector("prefix=abc behind=3").is_err());
+        assert!(parse_rebase_selector("mode=fast").is_err());
+        assert!(parse_rebase_selector("behind=many").is_err());
+    }
 
     #[test]
     fn rebuild_accepts_ours_over_theirs() {

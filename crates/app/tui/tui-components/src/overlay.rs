@@ -17,6 +17,10 @@ pub enum Feedback {
     /// live event feeds send this alongside screen refreshes.
     RefreshSidebar,
     Filter(String),
+    /// Parsed rebase selector awaiting its destructive confirmation. The
+    /// prompt answer arrives on a background task that cannot push modals,
+    /// so the main loop pushes the confirm modal and runs the write.
+    RebaseConfirm(String),
 }
 
 /// Overlay mode for secondary views.

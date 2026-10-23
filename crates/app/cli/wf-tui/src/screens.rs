@@ -166,6 +166,9 @@ impl Screens {
             ScreenKind::FileTimeline => {
                 screen_draw::draw_file_timeline(frame, area, data, self.selected, theme, ctx)
             }
+            ScreenKind::FileSync => {
+                screen_draw::draw_file_sync(frame, area, data, self.selected, theme, ctx)
+            }
             ScreenKind::EditSessions => {
                 screen_draw::draw_edit_sessions(frame, area, data, self.selected, theme, ctx)
             }

@@ -26,6 +26,7 @@ pub(super) fn data_ttl(kind: ScreenKind) -> Duration {
         ScreenKind::Catalog | ScreenKind::Git => Duration::from_secs(60),
         ScreenKind::FileWorkspace
         | ScreenKind::FileTimeline
+        | ScreenKind::FileSync
         | ScreenKind::EditSessions
         | ScreenKind::FileApprovals
         | ScreenKind::Conflicts => Duration::from_secs(30),
@@ -403,6 +404,9 @@ impl TuiApp {
                     self.app.screen.list_filter = query;
                     self.app.screen.detail_scroll = 0;
                     self.request_detail_for_current();
+                }
+                Feedback::RebaseConfirm(selector) => {
+                    self.confirm_file_sync_rebase(&selector);
                 }
             }
             changed = true;

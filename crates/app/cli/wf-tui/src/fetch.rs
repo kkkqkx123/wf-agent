@@ -14,6 +14,7 @@ mod detail;
 mod file_workspace;
 mod sessions;
 mod sidebar;
+mod sync;
 
 pub use catalog::fetch_search_rows;
 pub use checkpoints::{format_checkpoint_chain, format_checkpoint_detail};
@@ -33,6 +34,7 @@ use conflicts::fetch_conflicts;
 use dashboard::{fetch_dashboard, fetch_executions, fetch_insights, fetch_workflows};
 use file_workspace::{fetch_file_timeline, fetch_file_workspace};
 use sessions::fetch_edit_sessions;
+use sync::fetch_file_sync;
 
 /// Fetch data for the given screen kind. The flag reports server-side
 /// truncation (`has_more`) so list titles stay honest about capped pages.
@@ -58,6 +60,7 @@ pub async fn fetch_for(
         ScreenKind::Git => fetch_git(client).await,
         ScreenKind::FileWorkspace => fetch_file_workspace(client, execution_id).await,
         ScreenKind::FileTimeline => fetch_file_timeline(client, file_timeline_path).await,
+        ScreenKind::FileSync => fetch_file_sync(client).await,
         ScreenKind::EditSessions => fetch_edit_sessions(client).await,
         ScreenKind::FileApprovals => fetch_file_approvals(client).await,
         ScreenKind::Conflicts => fetch_conflicts(client).await,

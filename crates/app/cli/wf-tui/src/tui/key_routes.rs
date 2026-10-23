@@ -360,6 +360,7 @@ impl TuiApp {
                 | ScreenKind::Git
                 | ScreenKind::FileWorkspace
                 | ScreenKind::FileTimeline
+                | ScreenKind::FileSync
                 | ScreenKind::EditSessions
                 | ScreenKind::FileApprovals
                 | ScreenKind::Conflicts => {
@@ -494,6 +495,26 @@ impl TuiApp {
                 if self.app.screen.navigation.current_kind() == ScreenKind::FileWorkspace =>
             {
                 self.open_selected_file_timeline();
+            }
+            CKey::Char('Y')
+                if self.app.screen.navigation.current_kind() == ScreenKind::FileWorkspace =>
+            {
+                self.open_file_sync();
+            }
+            CKey::Char('e')
+                if self.app.screen.navigation.current_kind() == ScreenKind::FileSync =>
+            {
+                self.export_file_sync();
+            }
+            CKey::Char('p')
+                if self.app.screen.navigation.current_kind() == ScreenKind::FileSync =>
+            {
+                self.import_file_sync();
+            }
+            CKey::Char('b')
+                if self.app.screen.navigation.current_kind() == ScreenKind::FileSync =>
+            {
+                self.rebase_file_sync();
             }
             CKey::Char('M')
                 if self.app.screen.navigation.current_kind() == ScreenKind::FileWorkspace =>

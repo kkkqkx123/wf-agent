@@ -220,7 +220,11 @@ impl GitStore {
     /// one packfile so the store stays self-contained without loose-object
     /// fan-out. The closure stays exact (commit plus reachable trees and
     /// blobs, no parent history). Pack failures fail directly so the store
-    /// shape stays predictable; half-installed packs are removed.
+    /// shape stays predictable; half-installed packs are removed. Post-copy
+    /// validation reads the anchor commit and its main tree so a corrupt
+    /// pack cannot seed a store. Concurrent seeds converge through
+    /// `compare_and_swap(REF_MAIN)`: same-content seeds are idempotent,
+    /// different-content seeds keep the winner.
     fn copy_closure_from_external(
         &self,
         objects_dir: &Path,
@@ -281,13 +285,29 @@ impl GitStore {
         std::fs::create_dir_all(&pack_dir)?;
         let dest_pack = pack_dir.join(&pack_name);
         let dest_idx = pack_dir.join(&idx_name);
-        std::fs::rename(staging.path().join(&pack_name), &dest_pack)?;
-        std::fs::rename(staging.path().join(&idx_name), &dest_idx)?;
-        if let Err(e) = self.read_commit(commit_id) {
+        std::fs::rename(staging.path().join(&pack_name), &dest_pack).map_err(|e| {
+            GitStoreError::Baseline(format!("pack install failed: {e}"))
+        })?;
+        if let Err(e) = std::fs::rename(staging.path().join(&idx_name), &dest_idx) {
+            let _ = std::fs::remove_file(&dest_pack);
+            return Err(GitStoreError::Baseline(format!("pack index install failed: {e}")));
+        }
+        let commit = match self.read_commit(commit_id) {
+            Ok(commit) => commit,
+            Err(e) => {
+                let _ = std::fs::remove_file(&dest_pack);
+                let _ = std::fs::remove_file(&dest_idx);
+                return Err(GitStoreError::Baseline(format!(
+                    "baseline commit {commit_id} not readable after pack copy: {e}"
+                )));
+            }
+        };
+        if let Err(e) = self.tree_to_files(&commit.tree) {
             let _ = std::fs::remove_file(&dest_pack);
             let _ = std::fs::remove_file(&dest_idx);
             return Err(GitStoreError::Baseline(format!(
-                "baseline commit {commit_id} not readable after pack copy: {e}"
+                "baseline tree {} not readable after pack copy: {e}",
+                commit.tree
             )));
         }
         Ok(())

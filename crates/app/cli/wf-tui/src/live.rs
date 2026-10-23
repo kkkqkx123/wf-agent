@@ -43,6 +43,7 @@ pub fn is_live_screen(kind: ScreenKind) -> bool {
         kind,
         ScreenKind::Checkpoints
             | ScreenKind::FileWorkspace
+            | ScreenKind::FileSync
             | ScreenKind::FileApprovals
             | ScreenKind::Conflicts
             | ScreenKind::Executions
@@ -164,6 +165,7 @@ fn impact_for_event(event: &wf_types::events::BaseEvent) -> FeedImpact {
             vec![
                 ScreenKind::FileApprovals,
                 ScreenKind::FileWorkspace,
+                ScreenKind::FileSync,
                 ScreenKind::Checkpoints,
                 ScreenKind::Conflicts,
                 ScreenKind::Dashboard,
@@ -228,6 +230,7 @@ mod tests {
             vec![
                 ScreenKind::FileApprovals,
                 ScreenKind::FileWorkspace,
+                ScreenKind::FileSync,
                 ScreenKind::Checkpoints,
                 ScreenKind::Conflicts,
                 ScreenKind::Dashboard,
@@ -327,6 +330,7 @@ mod tests {
     fn live_screens_cover_subscribed_surfaces() {
         assert!(is_live_screen(ScreenKind::Checkpoints));
         assert!(is_live_screen(ScreenKind::FileWorkspace));
+        assert!(is_live_screen(ScreenKind::FileSync));
         assert!(is_live_screen(ScreenKind::FileApprovals));
         assert!(is_live_screen(ScreenKind::Executions));
         assert!(is_live_screen(ScreenKind::Workflow));

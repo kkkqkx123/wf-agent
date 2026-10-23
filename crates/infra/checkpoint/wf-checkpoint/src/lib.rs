@@ -43,6 +43,10 @@ pub use checkpoint_file::script_capture::WorkspaceChangeCollector;
 pub use checkpoint_file::session::CheckpointSession;
 pub use checkpoint_file::sha256_hex;
 pub use checkpoint_file::MergeCommitResult;
+pub use checkpoint_file::{
+    BaselineRebaseOutcome, BaselineSeedOutcome, BaselineStatus, ExportOptions, ExportOutcome,
+    ExternalUpdateHint, ImportOutcome, ReconcilePoint, SYNC_RECONCILE_KEY,
+};
 pub use checkpoint_state::restore::{
     ChildDiscovery, ChildDiscoveryLoader, ChildDiscoverySummary, InMemoryChildResolver,
     RestoreStrategyRegistry,

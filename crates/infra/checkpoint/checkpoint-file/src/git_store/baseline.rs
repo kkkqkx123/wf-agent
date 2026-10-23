@@ -115,11 +115,6 @@ impl BaselineRequest {
                 "baseline needs a branch or a commit_prefix selector".to_string(),
             ));
         }
-        if self.mode == BaselineMode::Copy {
-            return Err(GitStoreError::Baseline(
-                "baseline copy mode is not implemented yet; use borrow mode".to_string(),
-            ));
-        }
         Ok(())
     }
 }
@@ -220,6 +215,23 @@ impl GitStore {
         Ok(())
     }
 
+    /// Copy a baseline commit closure into the local object directory so
+    /// the store stays self-contained. Loose-only; pack optimization is
+    /// deferred. Idempotent: existing local objects are left untouched.
+    fn copy_closure_from_external(
+        &self,
+        objects_dir: &Path,
+        commit_id: &str,
+    ) -> Result<(), GitStoreError> {
+        use super::external::{collect_baseline_closure, copy_object_raw};
+        let local_objects = self.git_dir().join("objects");
+        std::fs::create_dir_all(&local_objects)?;
+        for id in collect_baseline_closure(objects_dir, commit_id)? {
+            copy_object_raw(objects_dir, &local_objects, &id)?;
+        }
+        Ok(())
+    }
+
     /// Pinned anchor id for history traversal boundaries. Total: missing or
     /// corrupt anchors behave as no baseline so reads never fail on the hot
     /// path; staleness is reported by [`GitStore::validate_baseline`].
@@ -260,12 +272,22 @@ impl GitStore {
             req.commit_prefix.as_deref(),
             req.behind,
         )?;
-        self.write_alternates(&objects_dir)?;
-        self.read_commit(&commit).map_err(|e| {
-            GitStoreError::Baseline(format!(
-                "baseline commit {commit} not readable through alternates: {e}"
-            ))
-        })?;
+        if req.mode == BaselineMode::Copy {
+            self.copy_closure_from_external(&objects_dir, &commit)?;
+            self.read_commit(&commit).map_err(|e| {
+                GitStoreError::Baseline(format!(
+                    "baseline commit {commit} not readable after copy: {e}"
+                ))
+            })?;
+            let _ = fs::remove_file(self.git_dir().join(ALTERNATES_REL));
+        } else {
+            self.write_alternates(&objects_dir)?;
+            self.read_commit(&commit).map_err(|e| {
+                GitStoreError::Baseline(format!(
+                    "baseline commit {commit} not readable through alternates: {e}"
+                ))
+            })?;
+        }
         let anchor = BaselineAnchor {
             id: commit,
             mode: req.mode,
@@ -317,11 +339,22 @@ impl GitStore {
 
     /// Check a previously seeded baseline: alternates path still valid, anchor
     /// still resolvable. Repairs a stale alternates entry through repository
-    /// re-discovery when the anchor commit is found there.
+    /// re-discovery when the anchor commit is found there. Copy-mode stores
+    /// carry their own objects and never need an alternates entry.
     pub fn validate_baseline(&self) -> Result<BaselineStatus, GitStoreError> {
         let Some(mut anchor) = self.read_anchor()? else {
             return Ok(BaselineStatus::NoBaseline);
         };
+        if anchor.mode == BaselineMode::Copy {
+            let _ = fs::remove_file(self.git_dir().join(ALTERNATES_REL));
+            return match self.read_commit(&anchor.id) {
+                Ok(_) => Ok(BaselineStatus::Healthy(anchor)),
+                Err(e) => Ok(BaselineStatus::Degraded {
+                    reason: format!("copied anchor commit {} not resolvable: {e}", anchor.id),
+                    anchor,
+                }),
+            };
+        }
         let alternates_ok = self
             .read_alternates()
             .is_some_and(|entry| entry == anchor.objects_path)
@@ -397,12 +430,22 @@ impl GitStore {
             .parent()
             .map(Path::to_path_buf)
             .unwrap_or_else(|| objects_dir.clone());
-        self.write_alternates(&objects_dir)?;
-        self.read_commit(&commit).map_err(|e| {
-            GitStoreError::Baseline(format!(
-                "new baseline commit {commit} not readable through alternates: {e}"
-            ))
-        })?;
+        if req.mode == BaselineMode::Copy {
+            self.copy_closure_from_external(&objects_dir, &commit)?;
+            self.read_commit(&commit).map_err(|e| {
+                GitStoreError::Baseline(format!(
+                    "new baseline commit {commit} not readable after copy: {e}"
+                ))
+            })?;
+            let _ = fs::remove_file(self.git_dir().join(ALTERNATES_REL));
+        } else {
+            self.write_alternates(&objects_dir)?;
+            self.read_commit(&commit).map_err(|e| {
+                GitStoreError::Baseline(format!(
+                    "new baseline commit {commit} not readable through alternates: {e}"
+                ))
+            })?;
+        }
         let new_tree = self.read_commit(&commit)?.tree;
         let old_tree = self.read_commit(&old_main)?.tree;
         let transplant_tree = self.transplant_tree(&new_tree, &old_tree)?;

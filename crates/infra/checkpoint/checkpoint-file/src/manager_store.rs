@@ -83,6 +83,7 @@ pub(crate) struct ManagerPolicy {
     pub(crate) conflict_behavior: ConflictBehavior,
     pub(crate) gc_interval_secs: Option<u64>,
     pub(crate) gc_retention: Option<crate::gc::GcRetention>,
+    pub(crate) sync: Option<wf_types::config::file_checkpoint::SyncConfig>,
 }
 
 impl ManagerPolicy {}

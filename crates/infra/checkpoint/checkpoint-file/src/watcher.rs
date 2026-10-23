@@ -511,7 +511,26 @@ async fn run_manual_change_pump(
                 // One bounded status poll per interval. Failures only
                 // affect this round's timeliness: the next poll derives
                 // the same final state, so nothing is requeued.
-                if let Err(err) = tokio::task::spawn_blocking(move || manager.poll_human_edits(&root)).await {
+                let outcome = tokio::task::spawn_blocking(move || {
+                    let poll_result = manager.poll_human_edits(&root);
+                    if !manager.auto_import_enabled() {
+                        return poll_result.map(|_| ());
+                    }
+                    match manager.external_update_hint(&root) {
+                        Ok(Some(_)) => manager
+                            .import_from_external(&root)
+                            .map(|_| ())
+                            .map_err(|e| {
+                                checkpoint_base::error::CheckpointError::Internal(format!(
+                                    "auto import failed: {e}"
+                                ))
+                            }),
+                        Ok(None) => poll_result.map(|_| ()),
+                        Err(e) => Err(e),
+                    }
+                })
+                .await;
+                if let Err(err) = outcome {
                     tracing::warn!(error = %err, "human edit poll task failed");
                 }
             }

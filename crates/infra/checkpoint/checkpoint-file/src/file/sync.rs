@@ -13,6 +13,8 @@ use crate::scan::{is_hardcoded_ignored, ScanConfig, WorkspaceScanner};
 use crate::storage::MetadataStore;
 use checkpoint_base::error::CheckpointError;
 
+pub use crate::git_store::{BaselineRebaseOutcome, BaselineSeedOutcome, BaselineStatus};
+
 /// Metadata key for the latest reconcile point. The baseline anchor lives
 /// in its own file beside the store, so the two namespaces never overlap.
 pub const SYNC_RECONCILE_KEY: &str = "file_checkpoint.sync.reconcile";
@@ -804,6 +806,41 @@ impl FileCheckpointManager {
             }
         }
         Ok(true)
+    }
+
+    /// Configured sync behavior, when the manager was opened from a full
+    /// file-checkpoint config. `None` keeps manual export and explicit
+    /// import.
+    pub fn sync_config(&self) -> Option<wf_types::config::file_checkpoint::SyncConfig> {
+        self.policy.sync.clone()
+    }
+
+    /// Whether exports should commit to the user repository by default.
+    /// Explicit `ExportOptions.auto_commit` always wins; this only feeds
+    /// the default constructor below.
+    pub fn auto_commit_enabled(&self) -> bool {
+        self.policy.sync.as_ref().is_some_and(|s| s.auto_commit)
+    }
+
+    /// Whether background polling may capture external commits without an
+    /// explicit import call. Defaults to false.
+    pub fn auto_import_enabled(&self) -> bool {
+        self.policy.sync.as_ref().is_some_and(|s| s.auto_import)
+    }
+
+    /// Default export options honoring the configured sync section:
+    /// confirmation and message stay caller-provided, `auto_commit`
+    /// falls back to the configured default.
+    pub fn default_export_options(
+        &self,
+        confirm_overwrite: bool,
+        message: Option<String>,
+    ) -> ExportOptions {
+        ExportOptions {
+            confirm_overwrite,
+            auto_commit: self.auto_commit_enabled(),
+            message,
+        }
     }
 }
 

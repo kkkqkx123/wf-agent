@@ -120,6 +120,9 @@ fn baseline_request_validation_rejects_bad_selectors() {
         commit_prefix: None,
         behind: None,
     };
+    // Copy mode is a supported self-contained seed; without a user
+    // repository behind the temp store it fails as unavailable, not as
+    // unimplemented.
     assert!(matches!(
         store.ensure_baseline(&copy_mode),
         Err(GitStoreError::Baseline(_))
@@ -262,4 +265,38 @@ fn validate_repairs_stale_alternates_and_reports_a_lost_repo() {
         matches!(status, BaselineStatus::Degraded { .. }),
         "lost repository must degrade, got {status:?}"
     );
+}
+
+#[test]
+fn seed_copy_stays_self_contained_without_alternates() {
+    let (repo, _second, third) = make_user_repo();
+    let store_dir = tempfile::tempdir().expect("store dir");
+    let git_dir = store_dir.path().join("repo.git");
+    let store = GitStore::init(repo.path(), &git_dir).expect("store bound to fixture repo");
+    let req = BaselineRequest {
+        mode: BaselineMode::Copy,
+        branch: Some("main".to_string()),
+        commit_prefix: None,
+        behind: None,
+    };
+    let anchor = match store.ensure_baseline(&req).unwrap() {
+        BaselineSeedOutcome::Seeded(a) => a,
+        other => panic!("fresh store must seed copy, got {other:?}"),
+    };
+    assert_eq!(anchor.id, third);
+    assert!(
+        !git_dir.join("objects/info/alternates").is_file(),
+        "copy mode must not leave an alternates entry"
+    );
+    assert!(matches!(
+        store.validate_baseline().unwrap(),
+        BaselineStatus::Healthy(_)
+    ));
+    let head = store
+        .commit_on_ref(REF_MAIN, &change("g", b"local"), "t", "local work")
+        .unwrap()
+        .id;
+    let log = store.log(&head, 0).unwrap();
+    assert_eq!(log.len(), 2);
+    assert_eq!(log[1].id, third);
 }

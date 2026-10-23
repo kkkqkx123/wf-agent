@@ -383,3 +383,85 @@ pub fn probe_commit_in_dir(objects_dir: &Path, id: &str) -> bool {
         .map(|found| found.is_some())
         .unwrap_or(false)
 }
+
+/// Copy one object by id from an external object directory into a local
+/// objects directory, preserving the id exactly. Reads handle packed and
+/// loose sources transparently; writes are loose only. Existing local
+/// objects are left untouched, so the copy is idempotent.
+pub(crate) fn copy_object_raw(
+    objects_dir: &Path,
+    local_objects_dir: &Path,
+    id: &str,
+) -> Result<(), GitStoreError> {
+    if id.len() != 40 {
+        return Err(GitStoreError::InvalidInput(format!("bad object id '{id}'")));
+    }
+    let oid = gix_hash::ObjectId::from_hex(id.as_bytes())
+        .map_err(|e| GitStoreError::InvalidInput(format!("bad object id '{id}': {e}")))?;
+    let handle = external_odb(objects_dir)?;
+    let mut buf = Vec::new();
+    let found = handle
+        .try_find(&oid, &mut buf)
+        .map_err(|e| GitStoreError::Corrupt {
+            id: id.to_string(),
+            reason: e.to_string(),
+        })?
+        .ok_or_else(|| GitStoreError::ObjectNotFound(id.to_string()))?;
+    let kind_str = match found.kind {
+        gix_object::Kind::Blob => "blob",
+        gix_object::Kind::Tree => "tree",
+        gix_object::Kind::Commit => "commit",
+        gix_object::Kind::Tag => "tag",
+    };
+    let mut raw = Vec::with_capacity(found.data.len() + 32);
+    raw.extend_from_slice(kind_str.as_bytes());
+    raw.push(b' ');
+    raw.extend_from_slice(found.data.len().to_string().as_bytes());
+    raw.push(0);
+    raw.extend_from_slice(found.data);
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    use std::io::Write as _;
+    encoder
+        .write_all(&raw)
+        .map_err(|e| GitStoreError::Io(format!("cannot compress object {id}: {e}")))?;
+    let compressed = encoder
+        .finish()
+        .map_err(|e| GitStoreError::Io(format!("cannot compress object {id}: {e}")))?;
+    let dir = local_objects_dir.join(&id[..2]);
+    let dest = dir.join(&id[2..]);
+    if dest.is_file() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(&dir).map_err(GitStoreError::from)?;
+    let tmp = dest.with_extension("tmp");
+    std::fs::write(&tmp, &compressed).map_err(GitStoreError::from)?;
+    std::fs::rename(&tmp, &dest).map_err(GitStoreError::from)?;
+    Ok(())
+}
+
+/// Collect the full closure of a baseline commit inside an external object
+/// directory: the commit itself, every reachable tree, and every blob.
+/// Parents beyond the anchor are out of scope and not collected.
+pub(crate) fn collect_baseline_closure(
+    objects_dir: &Path,
+    commit_id: &str,
+) -> Result<Vec<String>, GitStoreError> {
+    let commit = read_external_commit(objects_dir, commit_id)?;
+    let mut ids = vec![commit_id.to_string()];
+    let mut stack = vec![commit.tree];
+    let mut seen_trees = std::collections::HashSet::new();
+    while let Some(tree_id) = stack.pop() {
+        if !seen_trees.insert(tree_id.clone()) {
+            continue;
+        }
+        ids.push(tree_id.clone());
+        for entry in read_external_tree(objects_dir, &tree_id)? {
+            if entry.mode == "40000" {
+                stack.push(entry.id);
+            } else {
+                ids.push(entry.id);
+            }
+        }
+    }
+    Ok(ids)
+}

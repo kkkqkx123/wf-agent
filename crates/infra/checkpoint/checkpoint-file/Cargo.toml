@@ -13,6 +13,7 @@ tracing.workspace = true
 async-trait.workspace = true
 
 dashmap = { workspace = true }
+flate2.workspace = true
 sha2 = { workspace = true }
 rusqlite.workspace = true
 parking_lot.workspace = true

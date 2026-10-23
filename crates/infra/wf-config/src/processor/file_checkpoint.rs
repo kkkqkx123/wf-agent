@@ -4,7 +4,7 @@ use crate::processor::file_scope::{
     validate_resolved_file_scope,
 };
 use wf_types::config::file_checkpoint::{
-    FileCheckpointConfig, FileCheckpointStorageConfig, FileCheckpointStorageType,
+    BaselineConfig, FileCheckpointConfig, FileCheckpointStorageConfig, FileCheckpointStorageType,
 };
 
 /// Treat blank optional paths as unset so empty-string placeholders in
@@ -125,6 +125,9 @@ pub fn validate_file_checkpoint_config(config: &FileCheckpointConfig) -> ConfigR
             ));
         }
     }
+    if let Some(baseline) = config.baseline.as_ref() {
+        validate_baseline_config(baseline)?;
+    }
     if let Some(scope) = config.default_scope.as_ref() {
         validate_file_scope(scope)?;
         let expanded = expand_file_scope(scope, None, config.workspace_root.as_deref());
@@ -147,6 +150,50 @@ pub fn validate_file_checkpoint_config(config: &FileCheckpointConfig) -> ConfigR
                     }
                 }
             }
+        }
+    }
+    Ok(())
+}
+
+/// Early validation for the baseline selector, mirroring the seed-time
+/// rules in the checkpoint object store so misconfiguration fails fast
+/// instead of at first workspace open.
+fn validate_baseline_config(baseline: &BaselineConfig) -> ConfigResult<()> {
+    if baseline.commit_prefix.is_some() && baseline.behind.is_some() {
+        return Err(ConfigError::Validation(
+            "file_checkpoint.baseline commit_prefix and behind are mutually exclusive".to_string(),
+        ));
+    }
+    if baseline.behind.is_some() && baseline.branch.is_none() {
+        return Err(ConfigError::Validation(
+            "file_checkpoint.baseline behind requires a branch".to_string(),
+        ));
+    }
+    if baseline.branch.is_none() && baseline.commit_prefix.is_none() {
+        return Err(ConfigError::Validation(
+            "file_checkpoint.baseline needs a branch or a commit_prefix selector".to_string(),
+        ));
+    }
+    if let Some(branch) = baseline.branch.as_deref() {
+        let trimmed = branch.trim();
+        if trimmed.is_empty() || trimmed != branch {
+            return Err(ConfigError::Validation(
+                "file_checkpoint.baseline.branch must not be empty or padded".to_string(),
+            ));
+        }
+        if branch.starts_with('-') || branch.chars().any(|c| c.is_whitespace() || c.is_control()) {
+            return Err(ConfigError::Validation(format!(
+                "file_checkpoint.baseline.branch is not a plain ref name: '{branch}'"
+            )));
+        }
+    }
+    if let Some(prefix) = baseline.commit_prefix.as_deref() {
+        let valid =
+            (4..=40).contains(&prefix.len()) && prefix.bytes().all(|b| b.is_ascii_hexdigit());
+        if !valid {
+            return Err(ConfigError::Validation(format!(
+                "file_checkpoint.baseline.commit_prefix must be 4-40 hex chars, got '{prefix}'"
+            )));
         }
     }
     Ok(())

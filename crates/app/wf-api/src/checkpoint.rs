@@ -6,6 +6,7 @@ pub mod approval;
 pub mod file;
 pub mod provenance;
 pub mod record;
+pub mod sync;
 
 pub use approval::{
     approve_changes, list_pending_approvals, reject_changes, review_pending_approval,
@@ -29,3 +30,33 @@ pub use record::{
     list_for_execution, save_checkpoint, set_checkpoint_entity_metadata,
     CheckpointChainAnalysisView, CheckpointTimeRangeView, CheckpointTransitionView,
 };
+pub use sync::{
+    export_to_workspace, external_update_hint, import_from_external, reconcile_point, rebase_baseline,
+    sync_config,
+};","oldString":"pub mod approval;
+pub mod file;
+pub mod provenance;
+pub mod record;
+
+pub use approval::{
+    approve_changes, list_pending_approvals, reject_changes, review_pending_approval,
+    ReviewOutcome, REVIEW_VERDICT_TOOL,
+};
+pub use file::{
+    create_file_checkpoint, diff_actors, diff_against_main, get_actor_workspace, list_conflicts,
+    list_file_changes, list_partitions, restore_workspace_from_checkpoint, scan_workspace,
+    FileCheckpointSummary, WorkspaceScanResult,
+};
+pub use provenance::{
+    create_workspace_checkpoint, get_actor_workspace as provenance_get_actor_workspace,
+    list_changes_by_actor, list_changes_by_path, list_partitions as provenance_list_partitions,
+    restore_workspace, run_gc,
+};
+pub use record::{
+    chain_for_execution, delete_checkpoint, delete_checkpoints_by_entity, delete_for_execution,
+    ensure_checkpoint_domain, entity_type_for_execution, gc_for_execution, get_checkpoint,
+    get_checkpoint_chain, get_checkpoint_entity_metadata, get_latest_checkpoint, list_checkpoints,
+    list_checkpoints_by_entities, list_checkpoints_by_entity, list_checkpoints_by_time_range,
+    list_for_execution, save_checkpoint, set_checkpoint_entity_metadata,
+    CheckpointChainAnalysisView, CheckpointTimeRangeView, CheckpointTransitionView,
+};","path":"/home/kkkqkx/code/wf-agent/crates/app/wf-api/src/checkpoint.rs

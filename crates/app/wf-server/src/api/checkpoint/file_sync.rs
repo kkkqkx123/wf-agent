@@ -77,6 +77,7 @@ fn rebase_baseline_config(
         branch: body.branch.clone(),
         commit_prefix: body.commit_prefix.clone(),
         behind: body.behind,
+        failure_behavior: None,
     })
 }
 

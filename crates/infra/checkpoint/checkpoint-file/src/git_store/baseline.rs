@@ -50,6 +50,7 @@ pub struct BaselineAnchor {
     pub objects_path: String,
     pub source_repo: String,
     pub source_spec: String,
+    pub repo_id: String,
     pub resolved_at_ms: i64,
 }
 
@@ -176,8 +177,8 @@ impl BaselineAnchor {
             BaselineMode::Copy => "copy",
         };
         format!(
-            "baseline-anchor {ANCHOR_VERSION}\nid {}\nmode {mode}\nobjects {}\nrepo {}\nspec {}\nresolved_at_ms {}\n",
-            self.id, self.objects_path, self.source_repo, self.source_spec, self.resolved_at_ms
+            "baseline-anchor {ANCHOR_VERSION}\nid {}\nmode {mode}\nobjects {}\nrepo {}\nspec {}\nrepo_id {}\nresolved_at_ms {}\n",
+            self.id, self.objects_path, self.source_repo, self.source_spec, self.repo_id, self.resolved_at_ms
         )
     }
 
@@ -193,6 +194,7 @@ impl BaselineAnchor {
         let mut objects_path = None;
         let mut source_repo = None;
         let mut source_spec = None;
+        let mut repo_id = None;
         let mut resolved_at_ms = None;
         for line in lines {
             let (key, value) = line
@@ -210,6 +212,7 @@ impl BaselineAnchor {
                 "objects" => objects_path = Some(value.to_string()),
                 "repo" => source_repo = Some(value.to_string()),
                 "spec" => source_spec = Some(value.to_string()),
+                "repo_id" => repo_id = Some(value.to_string()),
                 "resolved_at_ms" => {
                     resolved_at_ms =
                         Some(value.parse::<i64>().map_err(|_| invalid("bad timestamp"))?)
@@ -223,6 +226,7 @@ impl BaselineAnchor {
             objects_path: objects_path.ok_or_else(|| invalid("missing objects path"))?,
             source_repo: source_repo.ok_or_else(|| invalid("missing repo"))?,
             source_spec: source_spec.ok_or_else(|| invalid("missing spec"))?,
+            repo_id: repo_id.unwrap_or_default(),
             resolved_at_ms: resolved_at_ms.ok_or_else(|| invalid("missing timestamp"))?,
         })
     }
@@ -475,12 +479,15 @@ impl GitStore {
                 ))
             })?;
         }
+        let repo_id =
+            super::external::repository_stable_id(&workspace_root, &objects_dir);
         let anchor = BaselineAnchor {
             id: commit,
             mode: req.mode,
             objects_path: objects_dir.to_string_lossy().into_owned(),
             source_repo: source_repo.to_string_lossy().into_owned(),
             source_spec: spec,
+            repo_id,
             resolved_at_ms: super::commit::now_millis(),
         };
         // Anchor before ref: a crash here retries into the anchor-exists
@@ -549,6 +556,19 @@ impl GitStore {
                     anchor,
                 }),
             };
+        }
+        if !anchor.repo_id.is_empty() {
+            if let Ok(found) = discover_user_objects_dir(self.workspace_root()) {
+                let current_repo_id =
+                    super::external::repository_stable_id(self.workspace_root(), &found);
+                if current_repo_id != anchor.repo_id {
+                    return Ok(BaselineStatus::Degraded {
+                        reason: "repository identity changed; baseline may point at a different repository"
+                            .to_string(),
+                        anchor,
+                    });
+                }
+            }
         }
         let alternates_ok = self
             .read_alternates()
@@ -661,12 +681,15 @@ impl GitStore {
             super::commit::now_millis(),
             &message,
         )?;
+        let new_repo_id =
+            super::external::repository_stable_id(&workspace_root, &objects_dir);
         let new_anchor = BaselineAnchor {
             id: commit,
             mode: req.mode,
             objects_path: objects_dir.to_string_lossy().into_owned(),
             source_repo: source_repo.to_string_lossy().into_owned(),
             source_spec: spec,
+            repo_id: new_repo_id,
             resolved_at_ms: super::commit::now_millis(),
         };
         self.write_pending_anchor(&new_anchor)?;

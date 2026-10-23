@@ -247,6 +247,43 @@ pub fn discover_user_objects_dir(start: &Path) -> Result<PathBuf, GitStoreError>
     ))
 }
 
+/// Stable identity for an external repository, independent of its on-disk
+/// path when a remote origin is configured. Used to tell a moved repository
+/// from a replaced one. Falls back to the object-database path when no
+/// remote is configured.
+pub fn repository_stable_id(workspace_root: &Path, objects_dir: &Path) -> String {
+    let remote = Command::new("git")
+        .arg("-C")
+        .arg(workspace_root)
+        .arg("config")
+        .arg("--get")
+        .arg("remote.origin.url")
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .unwrap_or_default();
+    let object_format = if user_objects_use_sha1(workspace_root).unwrap_or(true) {
+        "sha1"
+    } else {
+        "other"
+    };
+    let shallow = if is_shallow_repo(workspace_root) {
+        "shallow"
+    } else {
+        "full"
+    };
+    if remote.is_empty() {
+        let common_dir = objects_dir
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| objects_dir.to_path_buf());
+        format!("path:{}|{}|{}", common_dir.display(), object_format, shallow)
+    } else {
+        format!("remote:{}|{}|{}", remote, object_format, shallow)
+    }
+}
+
 /// Canonical fingerprint identifying one external object database. Stored
 /// inside reconcile points so a moved repository is detected instead of
 /// silently mixing histories.

@@ -96,6 +96,27 @@ impl FileCheckpointManager {
         self.default_scope.as_ref()
     }
 
+    /// Whether this manager's checkpoint store is self-contained. Borrowed
+    /// baselines depend on an external repository and are never fully
+    /// self-contained.
+    pub fn self_contained(&self) -> bool {
+        !matches!(
+            self.policy.baseline_mode,
+            Some(wf_types::config::file_checkpoint::BaselineMode::Borrow)
+        )
+    }
+
+    /// Human-readable reason when the store is not self-contained.
+    pub fn self_contained_blocker(&self) -> Option<String> {
+        if self.self_contained() {
+            return None;
+        }
+        Some(
+            "baseline mode is borrow; checkpoint objects depend on the external repository"
+                .to_string(),
+        )
+    }
+
     /// Attach the unified checkpoint metrics collector. Creation, restore
     /// and cleanup paths record into it; absent collectors add zero
     /// overhead. Shared across clones, so late attachment still observes

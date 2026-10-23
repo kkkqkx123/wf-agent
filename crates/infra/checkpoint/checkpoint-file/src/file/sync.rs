@@ -30,6 +30,8 @@ pub struct ReconcilePoint {
     pub internal_main: String,
     pub external_commit: String,
     pub external_repo: String,
+    #[serde(default)]
+    pub external_repo_id: String,
     pub updated_at_ms: i64,
 }
 
@@ -299,6 +301,7 @@ impl FileCheckpointManager {
                 }
             })?;
         let fingerprint = crate::git_store::external::fingerprint_for_objects_dir(&objects_dir);
+        let repo_id = crate::git_store::external::repository_stable_id(base_dir, &objects_dir);
         let git = self.git_ref()?;
         let _lock = ExportLock::acquire(git.git_dir())?;
         let Some(main_head) = git.read_ref(REF_MAIN).map_err(map_git_error)? else {
@@ -318,7 +321,9 @@ impl FileCheckpointManager {
         }
         let previous = self.load_reconcile_point()?;
         if let Some(prev) = &previous {
-            if prev.external_repo != fingerprint {
+            if prev.external_repo != fingerprint
+                || (!prev.external_repo_id.is_empty() && prev.external_repo_id != repo_id)
+            {
                 // Repository moved: treat as a fresh export from the current
                 // main head instead of mixing histories.
             } else if !prev.external_commit.is_empty()
@@ -347,7 +352,10 @@ impl FileCheckpointManager {
         let external_before = crate::git_store::external::external_head_id(base_dir).ok();
         let base_for_message = previous
             .as_ref()
-            .filter(|p| p.external_repo == fingerprint)
+            .filter(|p| {
+                p.external_repo == fingerprint
+                    && (p.external_repo_id.is_empty() || p.external_repo_id == repo_id)
+            })
             .map(|p| p.internal_main.clone())
             .or_else(|| git.baseline_anchor_id());
         let suggested = opts
@@ -361,6 +369,7 @@ impl FileCheckpointManager {
         if dirty.is_empty() {
             if let (Some(prev), Some(head)) = (&previous, &external_before) {
                 if prev.external_repo == fingerprint
+                    && (prev.external_repo_id.is_empty() || prev.external_repo_id == repo_id)
                     && prev.internal_main == main_head
                     && prev.external_commit == *head
                 {
@@ -378,6 +387,7 @@ impl FileCheckpointManager {
                     internal_main: main_head.clone(),
                     external_commit: String::new(),
                     external_repo: fingerprint,
+                    external_repo_id: repo_id.clone(),
                     updated_at_ms: now_millis(),
                 };
                 self.store_reconcile_point(&point)?;
@@ -392,7 +402,7 @@ impl FileCheckpointManager {
         }
         let restore = self.materialize_commit(&main_head, base_dir, &file_opts)?;
         let external_commit = if opts.auto_commit {
-            Some(self.commit_external(base_dir, &suggested)?)
+            Some(self.commit_external(base_dir, &suggested, &dirty)?)
         } else {
             external_before.clone()
         };
@@ -400,6 +410,7 @@ impl FileCheckpointManager {
             internal_main: main_head.clone(),
             external_commit: external_commit.clone().unwrap_or_default(),
             external_repo: fingerprint,
+            external_repo_id: repo_id.clone(),
             updated_at_ms: now_millis(),
         };
         self.store_reconcile_point(&point)?;
@@ -412,16 +423,24 @@ impl FileCheckpointManager {
         })
     }
 
-    fn commit_external(&self, base_dir: &Path, message: &str) -> Result<String, CheckpointError> {
-        let status = std::process::Command::new("git")
-            .arg("-C")
-            .arg(base_dir)
-            .arg("add")
-            .arg("-A")
-            .status()
-            .map_err(|e| CheckpointError::Internal(format!("git add failed: {e}")))?;
-        if !status.success() {
-            return Err(CheckpointError::Internal("git add failed".to_string()));
+    fn commit_external(
+        &self,
+        base_dir: &Path,
+        message: &str,
+        paths: &[String],
+    ) -> Result<String, CheckpointError> {
+        if !paths.is_empty() {
+            let mut command = std::process::Command::new("git");
+            command.arg("-C").arg(base_dir).arg("add").arg("-A").arg("--");
+            for path in paths {
+                command.arg(path);
+            }
+            let status = command
+                .status()
+                .map_err(|e| CheckpointError::Internal(format!("git add failed: {e}")))?;
+            if !status.success() {
+                return Err(CheckpointError::Internal("git add failed".to_string()));
+            }
         }
         let staged_clean = std::process::Command::new("git")
             .arg("-C")
@@ -480,7 +499,13 @@ impl FileCheckpointManager {
                 }
             })?;
         let fingerprint = crate::git_store::external::fingerprint_for_objects_dir(&objects_dir);
+        let repo_id = crate::git_store::external::repository_stable_id(base_dir, &objects_dir);
         if reconcile.external_repo != fingerprint {
+            return Ok(None);
+        }
+        if !reconcile.external_repo_id.is_empty()
+            && reconcile.external_repo_id != repo_id
+        {
             return Ok(None);
         }
         let Ok(head) = crate::git_store::external::external_head_id(base_dir) else {
@@ -566,7 +591,15 @@ impl FileCheckpointManager {
                 reason: format!("import needs a git workspace: {e}"),
             })?;
         let fingerprint = ext::fingerprint_for_objects_dir(&objects_dir);
+        let repo_id = ext::repository_stable_id(base_dir, &objects_dir);
         if reconcile.external_repo != fingerprint {
+            return Err(CheckpointError::Validation {
+                reason: "reconcile points at a different repository; export again".to_string(),
+            });
+        }
+        if !reconcile.external_repo_id.is_empty()
+            && reconcile.external_repo_id != repo_id
+        {
             return Err(CheckpointError::Validation {
                 reason: "reconcile points at a different repository; export again".to_string(),
             });
@@ -611,6 +644,7 @@ impl FileCheckpointManager {
                 internal_main: main_head,
                 external_commit: head.clone(),
                 external_repo: fingerprint,
+                external_repo_id: repo_id.clone(),
                 updated_at_ms: now_millis(),
             };
             self.store_reconcile_point(&point)?;
@@ -674,6 +708,17 @@ impl FileCheckpointManager {
             let theirs = head_files.get(&key).cloned();
             if no_base {
                 if let Some(bytes) = theirs {
+                    // Skip files that already match the internal main tree:
+                    // they carry no net change and would only add noise to the
+                    // human commit. Deletions cannot be inferred without a
+                    // base, so only additions and updates are imported.
+                    if main_files
+                        .get(&key)
+                        .map(|existing| existing.as_slice())
+                        == Some(bytes.as_slice())
+                    {
+                        continue;
+                    }
                     let mode = head_modes
                         .get(&key)
                         .map(|(m, _)| m.clone())
@@ -736,6 +781,7 @@ impl FileCheckpointManager {
                 internal_main: main_head,
                 external_commit: head.clone(),
                 external_repo: fingerprint,
+                external_repo_id: repo_id.clone(),
                 updated_at_ms: now_millis(),
             };
             self.store_reconcile_point(&point)?;
@@ -788,6 +834,7 @@ impl FileCheckpointManager {
             internal_main: main_head,
             external_commit: head.clone(),
             external_repo: fingerprint,
+            external_repo_id: repo_id.clone(),
             updated_at_ms: now_millis(),
         };
         self.store_reconcile_point(&point)?;

@@ -84,6 +84,9 @@ pub(crate) struct ManagerPolicy {
     pub(crate) gc_interval_secs: Option<u64>,
     pub(crate) gc_retention: Option<crate::gc::GcRetention>,
     pub(crate) sync: Option<wf_types::config::file_checkpoint::SyncConfig>,
+    pub(crate) store_in_workspace: bool,
+    pub(crate) baseline_mode:
+        Option<wf_types::config::file_checkpoint::BaselineMode>,
 }
 
 impl ManagerPolicy {}

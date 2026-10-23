@@ -165,6 +165,11 @@ pub struct BaselineConfig {
     /// chain. Requires `branch`; mutually exclusive with `commit_prefix`.
     #[serde(default)]
     pub behind: Option<u64>,
+    /// Failure behavior for baseline seeding and validation. Defaults to
+    /// `Error` so a misconfigured baseline surfaces at open time instead
+    /// of degrading silently.
+    #[serde(default)]
+    pub failure_behavior: Option<FailureBehavior>,
 }
 
 /// Git synchronization behavior for file checkpoints. Both switches are

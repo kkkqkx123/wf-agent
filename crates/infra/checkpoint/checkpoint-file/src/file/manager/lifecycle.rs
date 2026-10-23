@@ -122,6 +122,11 @@ impl FileCheckpointManager {
             keep_recent_heads: r.keep_recent_heads,
         });
         manager.policy.sync = config.sync.clone();
+        manager.policy.store_in_workspace = config.store_in_workspace.unwrap_or(false);
+        manager.policy.baseline_mode = config
+            .baseline
+            .as_ref()
+            .map(|baseline| baseline.mode);
         manager
             .session_scopes
             .set_scope_serialization(config.scope_serialization.as_ref());
@@ -252,6 +257,9 @@ impl FileCheckpointManager {
                  use copy mode for a self-contained delivery"
             );
         }
+        let failure_behavior = baseline
+            .failure_behavior
+            .unwrap_or(wf_types::config::file_checkpoint::FailureBehavior::Error);
         let git = self.git_ref()?;
         let request = crate::git_store::BaselineRequest {
             mode: match baseline.mode {
@@ -280,7 +288,7 @@ impl FileCheckpointManager {
             }
             Err(e) => {
                 Self::apply_baseline_failure_policy(
-                    config.failure_behavior,
+                    failure_behavior,
                     format!("checkpoint baseline unavailable: {e}"),
                 )?;
             }
@@ -288,19 +296,25 @@ impl FileCheckpointManager {
         match git.validate_baseline() {
             Ok(crate::git_store::BaselineStatus::Degraded { reason, .. }) => {
                 Self::apply_baseline_failure_policy(
-                    config.failure_behavior,
+                    failure_behavior,
                     format!("checkpoint baseline degraded: {reason}"),
                 )?;
             }
             Ok(_) => {}
             Err(e) => {
                 Self::apply_baseline_failure_policy(
-                    config.failure_behavior,
+                    failure_behavior,
                     format!("checkpoint baseline validation failed: {e}"),
                 )?;
             }
         }
         Ok(())
+    }
+
+    /// Current baseline health, if a workspace git store is bound.
+    pub fn baseline_status(&self) -> Result<crate::git_store::BaselineStatus, CheckpointError> {
+        let git = self.git_ref()?;
+        git.validate_baseline().map_err(crate::file::git_write::map_git_error)
     }
 
     fn apply_baseline_failure_policy(

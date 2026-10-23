@@ -31,6 +31,7 @@ pub mod llm;
 pub mod message;
 pub mod metrics;
 pub mod query;
+pub mod remote;
 pub mod render;
 pub mod script;
 pub mod search;

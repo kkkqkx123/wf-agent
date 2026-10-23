@@ -6,6 +6,7 @@ pub mod checkpoint;
 pub mod definition;
 pub mod entity;
 pub mod execution_artifacts;
+pub mod execution_bundle;
 pub mod execution_hierarchy;
 pub mod execution_history;
 pub mod execution_listing;

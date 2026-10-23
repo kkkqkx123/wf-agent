@@ -142,12 +142,35 @@ pub struct SshConfigSchema {
     pub port: Option<u16>,
     pub username: String,
     pub key_path: Option<String>,
-    pub password: Option<String>,
+    pub jump_host: Option<String>,
+    pub remote_dir: Option<String>,
+    pub server_port: Option<u16>,
+    pub local_port: Option<u16>,
+}
+
+impl SshConfigSchema {
+    pub fn ssh_target(&self) -> String {
+        if self.username.trim().is_empty() {
+            self.host.clone()
+        } else {
+            format!("{}@{}", self.username, self.host)
+        }
+    }
+
+    pub fn ssh_port(&self) -> u16 {
+        self.port.unwrap_or(22)
+    }
+
+    pub fn remote_server_port(&self) -> u16 {
+        self.server_port.unwrap_or(3000)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RuntimeConfigSchema {
     pub docker: Option<DockerConfigSchema>,
+    /// SSH connection for reaching a remote `wf-server`.
+    /// Connection and tunnel setup only; never used to splice remote commands.
     pub ssh: Option<SshConfigSchema>,
     pub timeout_seconds: Option<u64>,
     pub max_retries: Option<u32>,

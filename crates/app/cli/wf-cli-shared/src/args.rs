@@ -12,6 +12,7 @@ pub use crate::args_entity::{MessageSub, SkillSub, TaskSub, VariableSub};
 pub use crate::args_execution::ExecutionSub;
 pub use crate::args_llm::{LlmProfileSub, LlmProviderSub, LlmTemplateSub};
 pub use crate::args_observe::{AnalysisSub, AuditSub, EventSub, MetricsSub};
+pub use crate::args_remote::RemoteSub;
 pub use crate::args_tooling::{ScriptSub, TemplateSub, ToolSub, TriggerSub};
 pub use crate::args_workflow::{WorkflowSub, WorkflowVersionSub};
 
@@ -404,6 +405,11 @@ pub enum Command {
     Config {
         #[command(subcommand)]
         sub: ConfigSub,
+    },
+    /// Remote host registry and execution bundle pull.
+    Remote {
+        #[command(subcommand)]
+        sub: RemoteSub,
     },
 }
 

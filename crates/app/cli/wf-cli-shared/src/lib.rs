@@ -14,6 +14,7 @@ pub mod args_entity;
 pub mod args_execution;
 pub mod args_llm;
 pub mod args_observe;
+pub mod args_remote;
 pub mod args_tooling;
 pub mod args_workflow;
 pub mod cmd;
@@ -148,6 +149,9 @@ pub async fn run(cli: Cli) -> CliResult<()> {
         }
         Some(Command::Config { sub }) => {
             return cmd::config::run(&cli, sub).await;
+        }
+        Some(Command::Remote { sub }) => {
+            return cmd::remote::run(&cli, sub).await;
         }
         Some(Command::Diagnostics) => {
             return cmd::diagnostics::run_diagnostics(&cli).await;

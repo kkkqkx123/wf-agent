@@ -5,7 +5,6 @@ pub mod builtin_handlers;
 pub mod circuit_breaker;
 pub mod cli;
 pub mod mcp;
-pub mod remote;
 pub mod rest;
 pub mod stateful;
 pub mod stateless;
@@ -25,10 +24,6 @@ pub use cli::{
     ExecutorInfo, ExecutorStatus, RipgrepExecutor,
 };
 pub use mcp::McpExecutor;
-pub use remote::{
-    ReconnectPolicy, RemoteConnectionConfig, RemoteErrorInfo, RemoteExecutionResult,
-    RemoteExecutor, RemoteExecutorStatus,
-};
 pub use rest::{
     build_full_url, classify_status, ErrorInterceptor, RequestInterceptor, ResponseInterceptor,
     RestErrorKind, RestExecutor, RestRequestSpec,

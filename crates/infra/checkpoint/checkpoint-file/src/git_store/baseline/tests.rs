@@ -170,11 +170,14 @@ fn seed_borrow_freezes_history_and_bounds_traversal() {
         panic!("fresh store must seed, got {outcome:?}");
     };
     assert_eq!(anchor.id, third);
-    assert_eq!(store.read_ref(REF_MAIN).unwrap().as_deref(), Some(third.as_str()));
+    assert_eq!(
+        store.read_ref(REF_MAIN).unwrap().as_deref(),
+        Some(third.as_str())
+    );
 
     // Anchor survives a reopen: it is pinned in the store, not re-resolved.
-    let reopened = GitStore::init(repo.path(), &store_dir.path().join("repo.git"))
-        .expect("reopen store");
+    let reopened =
+        GitStore::init(repo.path(), &store_dir.path().join("repo.git")).expect("reopen store");
     assert!(matches!(
         reopened.validate_baseline().unwrap(),
         BaselineStatus::Healthy(_)
@@ -222,7 +225,10 @@ fn seed_recovers_anchor_when_main_ref_is_missing() {
         matches!(outcome, BaselineSeedOutcome::AlreadySeeded(_)),
         "anchor without main ref must finish the seed"
     );
-    assert_eq!(store.read_ref(REF_MAIN).unwrap().as_deref(), Some(third.as_str()));
+    assert_eq!(
+        store.read_ref(REF_MAIN).unwrap().as_deref(),
+        Some(third.as_str())
+    );
 }
 
 #[test]
@@ -237,7 +243,11 @@ fn validate_repairs_stale_alternates_and_reports_a_lost_repo() {
     ));
 
     // Break the alternates entry: re-discovery must repair it.
-    fs::write(git_dir.join("objects/info/alternates"), "/nonexistent/objects\n").unwrap();
+    fs::write(
+        git_dir.join("objects/info/alternates"),
+        "/nonexistent/objects\n",
+    )
+    .unwrap();
     assert!(matches!(
         store.validate_baseline().unwrap(),
         BaselineStatus::Healthy(_)

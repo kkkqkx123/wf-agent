@@ -56,6 +56,9 @@ pub(crate) fn map_git_error(e: GitStoreError) -> CheckpointError {
         GitStoreError::Baseline(reason) => {
             CheckpointError::Internal(format!("checkpoint baseline unavailable: {reason}"))
         }
+        GitStoreError::Sync(reason) => {
+            CheckpointError::Internal(format!("checkpoint sync unavailable: {reason}"))
+        }
         GitStoreError::Io(reason) => CheckpointError::Internal(format!("git store io: {reason}")),
     }
 }

@@ -14,6 +14,8 @@ pub enum GitStoreError {
     RefConflict(String),
     #[error("baseline unavailable: {0}")]
     Baseline(String),
+    #[error("sync unavailable: {0}")]
+    Sync(String),
     #[error("io error: {0}")]
     Io(String),
 }

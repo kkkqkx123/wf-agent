@@ -188,6 +188,11 @@ impl FileCheckpointManager {
     /// retained commits. Unreachable objects younger than `grace` are kept:
     /// they may belong to an in-flight commit whose ref update has not
     /// landed yet. Returns pruned commit, tree and blob counts.
+    ///
+    /// Baseline safety: the pinned anchor is added to the root set so the
+    /// alternate chain is never treated as garbage; enumeration covers only
+    /// the local objects directory, never the borrowed database; packing
+    /// only folds locally listed ids, so borrowed objects stay out.
     pub(crate) fn prune_unreachable_objects(
         &self,
         retention: &crate::gc::GcRetention,
@@ -198,6 +203,12 @@ impl FileCheckpointManager {
         let mut reachable: HashSet<String> = HashSet::new();
         for commit in git.all_commits().map_err(map_git_error)? {
             Self::insert_commit_closure(git, &commit.id, &commit.tree, &mut reachable);
+        }
+        if let Some(anchor) = git.baseline_anchor_id() {
+            reachable.insert(anchor.clone());
+            if let Ok(commit) = git.read_commit(&anchor) {
+                Self::insert_commit_closure(git, &commit.id, &commit.tree, &mut reachable);
+            }
         }
         if retention.keep_recent_heads > 0 {
             let mut orphan_commits = Vec::new();
@@ -301,6 +312,9 @@ impl FileCheckpointManager {
     }
 
     pub(crate) fn list_object_ids(git: &crate::git_store::GitStore) -> Vec<String> {
+        // Local objects only: the loose store handle points at the local
+        // objects directory, never at the borrowed database behind the
+        // alternates entry, so borrowed history is invisible to the sweep.
         let objects = git.git_dir().join("objects");
         if !objects.is_dir() {
             return Vec::new();
@@ -381,9 +395,10 @@ impl FileCheckpointManager {
     /// Fold loose objects into one packfile to cut inode and directory
     /// pressure on long-running stores. Best effort via the `git` binary
     /// (`pack-objects`): the object store is read back through gix either
-    /// way, and any failure simply leaves the store unpacked. Only objects
-    /// still present at pack time are deleted, so a concurrent writer never
-    /// loses an object.
+    /// way, and any failure simply leaves the store unpacked. Only locally
+    /// listed loose ids are fed, so borrowed objects behind the alternates
+    /// entry are never pulled into the pack. Only objects still present at
+    /// pack time are deleted, so a concurrent writer never loses an object.
     fn pack_loose_objects(&self) -> Option<usize> {
         use std::io::Write as _;
         let git = self.git_ref().ok()?;
@@ -393,12 +408,13 @@ impl FileCheckpointManager {
         }
         let git_dir = git.git_dir();
         let staging = tempfile::tempdir().ok()?;
+        let pack_base = staging.path().join("pack");
         let mut child = std::process::Command::new("git")
             .arg("--git-dir")
             .arg(git_dir)
             .arg("pack-objects")
             .arg("-q")
-            .arg(staging.path())
+            .arg(&pack_base)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())

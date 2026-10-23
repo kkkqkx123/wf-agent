@@ -1,5 +1,5 @@
 use crate::git_store::{
-    GitStore, GitStoreError, REF_FEAT_PREFIX, REF_MAIN, REF_REVIEW_PREFIX,
+    GitStore, GitStoreError, REF_FEAT_PREFIX, REF_HUMAN, REF_MAIN, REF_REVIEW_PREFIX,
     STATE_CONFLICT_UNRESOLVED, TRAILER_CONFLICT_FILE, TRAILER_STATE,
 };
 use std::collections::{HashMap, HashSet};
@@ -119,8 +119,10 @@ pub fn merge_file_maps(
 }
 
 impl GitStore {
-    /// Head commits of review/feature refs whose message still carries the
-    /// unresolved marker. Each entry is `(refname, commit id, files)`.
+    /// Head commits of review/feature/main/human refs whose message still
+    /// carries the unresolved marker. Each entry is `(refname, commit id,
+    /// files)`. The human ref is included so imported external conflicts
+    /// surface through the same listing.
     pub fn list_unresolved_conflicts(
         &self,
     ) -> Result<Vec<(String, String, Vec<String>)>, GitStoreError> {
@@ -130,6 +132,7 @@ impl GitStore {
             .into_iter()
             .chain(self.list_refs(REF_FEAT_PREFIX)?)
             .chain(self.list_refs(REF_MAIN)?)
+            .chain(self.list_refs(REF_HUMAN)?)
         {
             let Ok(commit) = self.read_commit(&id) else {
                 continue;

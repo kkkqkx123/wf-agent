@@ -36,6 +36,10 @@ pub use approval::{ConflictView, MergeOutcome, PendingApproval};
 pub use event::{CheckpointEvent, CheckpointEventBus};
 pub use file::actor::{PreciseApplyStats, PreciseFileEvent, PreciseFileEventKind};
 pub use file::merge::MergeCommitResult;
+pub use file::sync::{
+    ExportOptions, ExportOutcome, ExternalUpdateHint, ImportOutcome, ReconcilePoint,
+    SYNC_RECONCILE_KEY,
+};
 pub use file::util::sha256_hex;
 pub use file::{
     FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata, FileCheckpointOptions,

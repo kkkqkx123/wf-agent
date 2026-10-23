@@ -9,6 +9,7 @@ pub mod merge;
 pub(crate) mod redo_store;
 pub mod restore;
 pub mod session;
+pub mod sync;
 pub mod util;
 pub mod workspace;
 

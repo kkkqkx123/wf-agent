@@ -14,10 +14,11 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
-use gix_object::Find as _;
-
+use super::external::{
+    check_branch_name, check_commit_prefix, discover_user_objects_dir, probe_commit_in_dir,
+    rev_parse_commit,
+};
 use super::{GitStore, GitStoreError, REF_MAIN};
 
 #[cfg(test)]
@@ -59,12 +60,27 @@ pub enum BaselineSeedOutcome {
     Skipped(String),
 }
 
+/// Outcome of an explicit baseline move. The transplant commit carries
+/// the old main tree on top of the new baseline so history stays
+/// continuous; the previous chain is left as unreachable orphans under the
+/// normal grace window for rollback.
+#[derive(Debug, Clone)]
+pub struct BaselineRebaseOutcome {
+    pub old_anchor: BaselineAnchor,
+    pub new_anchor: BaselineAnchor,
+    pub old_main: String,
+    pub transplant_id: String,
+}
+
 /// Health of a previously seeded baseline.
 #[derive(Debug, Clone)]
 pub enum BaselineStatus {
     NoBaseline,
     Healthy(BaselineAnchor),
-    Degraded { anchor: BaselineAnchor, reason: String },
+    Degraded {
+        anchor: BaselineAnchor,
+        reason: String,
+    },
 }
 
 /// Anchor file version. Bump when the on-disk layout changes.
@@ -106,46 +122,6 @@ impl BaselineRequest {
         }
         Ok(())
     }
-}
-
-/// Branch names are passed to `git rev-parse` as argv (never a shell), so
-/// the only injection vector is git parsing the value as a flag. Rejecting
-/// a leading dash plus whitespace and control characters closes it; anything
-/// else git rejects surfaces as a resolution error.
-fn check_branch_name(branch: &str) -> Result<(), GitStoreError> {
-    let trimmed = branch.trim();
-    if trimmed.is_empty() {
-        return Err(GitStoreError::InvalidInput(
-            "baseline branch must not be empty".to_string(),
-        ));
-    }
-    if trimmed != branch {
-        return Err(GitStoreError::InvalidInput(
-            "baseline branch must not have surrounding whitespace".to_string(),
-        ));
-    }
-    if branch.starts_with('-')
-        || branch
-            .chars()
-            .any(|c| c.is_whitespace() || c.is_control())
-    {
-        return Err(GitStoreError::InvalidInput(format!(
-            "baseline branch is not a plain ref name: '{branch}'"
-        )));
-    }
-    Ok(())
-}
-
-/// Prefixes must be unambiguous hex; git enforces length and uniqueness.
-fn check_commit_prefix(prefix: &str) -> Result<(), GitStoreError> {
-    let valid = (4..=40).contains(&prefix.len())
-        && prefix.bytes().all(|b| b.is_ascii_hexdigit());
-    if !valid {
-        return Err(GitStoreError::InvalidInput(format!(
-            "baseline commit_prefix must be 4-40 hex chars, got '{prefix}'"
-        )));
-    }
-    Ok(())
 }
 
 impl BaselineAnchor {
@@ -190,11 +166,8 @@ impl BaselineAnchor {
                 "repo" => source_repo = Some(value.to_string()),
                 "spec" => source_spec = Some(value.to_string()),
                 "resolved_at_ms" => {
-                    resolved_at_ms = Some(
-                        value
-                            .parse::<i64>()
-                            .map_err(|_| invalid("bad timestamp"))?,
-                    )
+                    resolved_at_ms =
+                        Some(value.parse::<i64>().map_err(|_| invalid("bad timestamp"))?)
                 }
                 _ => return Err(invalid("unknown field")),
             }
@@ -281,7 +254,12 @@ impl GitStore {
             .parent()
             .map(Path::to_path_buf)
             .unwrap_or_else(|| objects_dir.clone());
-        let (commit, spec) = resolve_baseline_commit(&workspace_root, req)?;
+        let (commit, spec) = rev_parse_commit(
+            &workspace_root,
+            req.branch.as_deref(),
+            req.commit_prefix.as_deref(),
+            req.behind,
+        )?;
         self.write_alternates(&objects_dir)?;
         self.read_commit(&commit).map_err(|e| {
             GitStoreError::Baseline(format!(
@@ -373,152 +351,128 @@ impl GitStore {
             }),
         }
     }
-}
 
-/// Whether `dir` looks like a git directory: carries a HEAD (plain, bare
-/// and worktree layouts all do) or a commondir pointer.
-fn is_git_dir(dir: &Path) -> bool {
-    dir.join("HEAD").is_file() || dir.join("commondir").is_file()
-}
-
-/// Resolve the true object-database directory for a git directory, following
-/// the commondir pointer that linked worktrees use.
-fn common_objects_dir(git_dir: &Path) -> Result<PathBuf, GitStoreError> {
-    let commondir_file = git_dir.join("commondir");
-    let base = if commondir_file.is_file() {
-        let target = fs::read_to_string(&commondir_file)?
-            .trim()
-            .to_string();
-        if target.is_empty() {
-            return Err(GitStoreError::Baseline(format!(
-                "empty commondir pointer in {}",
-                git_dir.display()
-            )));
-        }
-        let target_path = PathBuf::from(target);
-        if target_path.is_absolute() {
-            target_path
-        } else {
-            git_dir.join(target_path)
-        }
-    } else {
-        git_dir.to_path_buf()
-    };
-    let objects = base.join("objects");
-    if !objects.is_dir() {
-        return Err(GitStoreError::Baseline(format!(
-            "no object database under {}",
-            base.display()
-        )));
+    /// Read the pinned anchor without validation, if any.
+    pub fn baseline_anchor(&self) -> Result<Option<BaselineAnchor>, GitStoreError> {
+        self.read_anchor()
     }
-    fs::canonicalize(&objects).map_err(GitStoreError::from)
-}
 
-/// Locate the user repository's object-database directory starting from a
-/// workspace root: `.git` directory, `.git` worktree pointer file, or a bare
-/// layout at the start directory itself. Never reads refs or objects, only
-/// directory structure.
-fn discover_user_objects_dir(start: &Path) -> Result<PathBuf, GitStoreError> {
-    let start = fs::canonicalize(start).map_err(|e| {
-        GitStoreError::Baseline(format!("cannot resolve workspace root: {e}"))
-    })?;
-    if is_git_dir(&start) {
-        return common_objects_dir(&start);
+    /// Pinned anchor id for GC roots and sync start points.
+    pub fn baseline_anchor_id(&self) -> Option<String> {
+        self.read_anchor().ok()??.id.into()
     }
-    let mut dir = start.as_path();
-    loop {
-        let dotgit = dir.join(".git");
-        if dotgit.is_dir() {
-            return common_objects_dir(&dotgit);
+
+    /// Move the baseline to a newly resolved commit. The old main tree is
+    /// carried onto the new baseline in one transplant commit so history
+    /// stays continuous; the previous chain is left as unreachable orphans
+    /// under the normal grace window for rollback.
+    pub fn rebase_to(&self, req: &BaselineRequest) -> Result<BaselineRebaseOutcome, GitStoreError> {
+        req.validate()?;
+        let Some(old_anchor) = self.read_anchor()? else {
+            return Err(GitStoreError::Baseline(
+                "no baseline anchor to rebase; seed a baseline first".to_string(),
+            ));
+        };
+        let old_main = self.read_ref(REF_MAIN)?.ok_or_else(|| {
+            GitStoreError::Baseline("main ref missing; cannot rebase without a head".to_string())
+        })?;
+        let workspace_root = self.workspace_root().to_path_buf();
+        let objects_dir = discover_user_objects_dir(&workspace_root)?;
+        let (commit, spec) = rev_parse_commit(
+            &workspace_root,
+            req.branch.as_deref(),
+            req.commit_prefix.as_deref(),
+            req.behind,
+        )?;
+        if commit == old_anchor.id {
+            let transplant = old_main.clone();
+            return Ok(BaselineRebaseOutcome {
+                old_anchor: old_anchor.clone(),
+                new_anchor: old_anchor,
+                old_main,
+                transplant_id: transplant,
+            });
         }
-        if dotgit.is_file() {
-            if let Ok(content) = fs::read_to_string(&dotgit) {
-                if let Some(target) = content.strip_prefix("gitdir:").map(str::trim) {
-                    let target_path = PathBuf::from(target);
-                    let git_dir = if target_path.is_absolute() {
-                        target_path
-                    } else {
-                        dir.join(target_path)
-                    };
-                    if is_git_dir(&git_dir) {
-                        return common_objects_dir(&git_dir);
-                    }
+        let source_repo = objects_dir
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| objects_dir.clone());
+        self.write_alternates(&objects_dir)?;
+        self.read_commit(&commit).map_err(|e| {
+            GitStoreError::Baseline(format!(
+                "new baseline commit {commit} not readable through alternates: {e}"
+            ))
+        })?;
+        let new_tree = self.read_commit(&commit)?.tree;
+        let old_tree = self.read_commit(&old_main)?.tree;
+        let transplant_tree = self.transplant_tree(&new_tree, &old_tree)?;
+        let message = super::commit_message(
+            &format!("rebase baseline to {spec}"),
+            None,
+            None,
+            Some("baseline"),
+            &[],
+        );
+        let transplant_id = self.write_commit(
+            &transplant_tree,
+            std::slice::from_ref(&commit),
+            super::SYSTEM_COMMITTER,
+            super::SYSTEM_COMMITTER,
+            super::commit::now_millis(),
+            &message,
+        )?;
+        self.compare_and_swap(REF_MAIN, Some(&old_main), &transplant_id)?;
+        let new_anchor = BaselineAnchor {
+            id: commit,
+            mode: req.mode,
+            objects_path: objects_dir.to_string_lossy().into_owned(),
+            source_repo: source_repo.to_string_lossy().into_owned(),
+            source_spec: spec,
+            resolved_at_ms: super::commit::now_millis(),
+        };
+        self.write_anchor(&new_anchor)?;
+        Ok(BaselineRebaseOutcome {
+            old_anchor,
+            new_anchor,
+            old_main,
+            transplant_id,
+        })
+    }
+
+    /// Build the transplant tree: content of the old main tree expressed as
+    /// a delta on top of the new baseline tree. Identical subtrees are
+    /// reused by id; changed files are rewritten locally so the transplant
+    /// never depends on objects that only the old baseline provided.
+    fn transplant_tree(&self, new_tree: &str, old_tree: &str) -> Result<String, GitStoreError> {
+        if new_tree == old_tree {
+            return Ok(old_tree.to_string());
+        }
+        let new_files = self.tree_to_files(new_tree)?;
+        let old_files = self.tree_to_files(old_tree)?;
+        let mut new_blobs: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        for (path, (_, blob)) in &new_files {
+            new_blobs.insert(path.clone(), blob.clone());
+        }
+        let mut changes: std::collections::HashMap<String, Option<(String, Vec<u8>)>> =
+            std::collections::HashMap::new();
+        let mut paths: std::collections::HashSet<String> = std::collections::HashSet::new();
+        paths.extend(new_files.keys().cloned());
+        paths.extend(old_files.keys().cloned());
+        for path in paths {
+            let old_entry = old_files.get(&path);
+            let new_blob = new_blobs.get(&path);
+            match (old_entry, new_blob) {
+                (None, _) => {
+                    changes.insert(path, None);
+                }
+                (Some((mode, blob)), Some(new_blob)) if blob == new_blob => {}
+                (Some((mode, _)), _) => {
+                    let bytes = self.read_blob(&old_files[&path].1)?;
+                    changes.insert(path, Some((mode.clone(), bytes)));
                 }
             }
         }
-        match dir.parent() {
-            Some(parent) => dir = parent,
-            None => break,
-        }
+        self.build_tree_from_parent(Some(new_tree), &changes)
     }
-    Err(GitStoreError::Baseline(
-        "workspace is not inside a git repository".to_string(),
-    ))
-}
-
-/// Resolve the configured selector to a full commit id through the git
-/// executable (seed time only). Argv-based, never a shell. A non-sha1
-/// result (e.g. a sha256 repository) is rejected: the store cannot borrow
-/// across hash algorithms.
-fn resolve_baseline_commit(
-    workspace_root: &Path,
-    req: &BaselineRequest,
-) -> Result<(String, String), GitStoreError> {
-    let spec = match (&req.branch, &req.commit_prefix, req.behind) {
-        (Some(branch), _, Some(n)) => format!("{branch}~{n}"),
-        (Some(_), Some(prefix), None) => prefix.clone(),
-        (Some(branch), None, None) => branch.clone(),
-        (None, Some(prefix), None) => prefix.clone(),
-        _ => {
-            return Err(GitStoreError::InvalidInput(
-                "baseline needs a branch or a commit_prefix selector".to_string(),
-            ));
-        }
-    };
-    let description = match (&req.branch, &req.commit_prefix, req.behind) {
-        (Some(branch), Some(prefix), None) => format!("branch {branch} pinned to {prefix}"),
-        (Some(branch), _, Some(n)) => format!("branch {branch}~{n}"),
-        (Some(branch), None, None) => format!("branch {branch} tip"),
-        (None, Some(prefix), None) => format!("pinned {prefix}"),
-        _ => spec.clone(),
-    };
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(workspace_root)
-        .arg("rev-parse")
-        .arg("--verify")
-        .arg(format!("{spec}^{{commit}}"))
-        .output()
-        .map_err(|e| {
-            GitStoreError::Baseline(format!("git executable not available for baseline resolution: {e}"))
-        })?;
-    if !output.status.success() {
-        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(GitStoreError::Baseline(format!(
-            "cannot resolve baseline '{spec}' in user repository: {detail}"
-        )));
-    }
-    let id = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if id.len() != 40 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(GitStoreError::Baseline(format!(
-            "baseline commit id is not sha1 ({id}); cross-algorithm borrowing is not supported"
-        )));
-    }
-    Ok((id, description))
-}
-
-/// Check an object id resolves inside an external object directory without
-/// opening the checkpoint store.
-fn probe_commit_in_dir(objects_dir: &Path, id: &str) -> bool {
-    let Ok(oid) = gix_hash::ObjectId::from_hex(id.as_bytes()) else {
-        return false;
-    };
-    let Ok(handle) = gix_odb::at(objects_dir, gix_hash::Kind::Sha1) else {
-        return false;
-    };
-    let mut buf = Vec::new();
-    handle
-        .try_find(&oid, &mut buf)
-        .map(|found| found.is_some())
-        .unwrap_or(false)
 }

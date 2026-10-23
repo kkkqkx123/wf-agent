@@ -155,19 +155,22 @@ impl GitStore {
     }
 }
 
+pub mod baseline;
 mod commit;
 mod errors;
+pub mod external;
 mod merge;
 mod objects;
 mod refs;
-pub mod baseline;
 #[cfg(test)]
 mod tests;
 
+pub use baseline::{
+    BaselineMode, BaselineRebaseOutcome, BaselineRequest, BaselineSeedOutcome, BaselineStatus,
+};
 pub use commit::{commit_message, GitCommit};
 pub use errors::GitStoreError;
 pub use merge::{merge_file_contents, merge_file_maps};
 pub use objects::{is_hex_id, CommitOnRefOutcome};
-pub use baseline::{BaselineMode, BaselineRequest, BaselineSeedOutcome, BaselineStatus};
 pub(crate) use refs::sanitize_ref_component;
 pub use refs::{edit_ref_for_actor, feat_ref_for_name, review_ref_for_id};

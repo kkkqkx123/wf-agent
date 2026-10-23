@@ -59,10 +59,10 @@ pub fn parse_marker_conflicts(path: &str, bytes: &[u8]) -> Vec<ConflictView> {
     out
 }
 
-/// List files with unresolved merge conflicts across main and every
-/// feature ref, enumerated from unresolved merge commits (never by
-/// replaying history). Regions come from the standard markers stored in
-/// the conflicted files.
+/// List files with unresolved merge conflicts across main, every feature
+/// ref and the human ref, enumerated from unresolved merge commits (never
+/// by replaying history). Regions come from the standard markers stored
+/// in the conflicted files.
 pub fn list_conflicts(git: &GitStore) -> Result<Vec<ConflictFile>, CheckpointError> {
     let mut out = Vec::new();
     for (refname, commit_id, files) in git.list_unresolved_conflicts().map_err(map_git_error)? {

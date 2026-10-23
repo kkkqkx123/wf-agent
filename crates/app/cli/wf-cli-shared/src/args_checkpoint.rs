@@ -263,6 +263,41 @@ pub enum CheckpointSub {
     FileIndexRebuild,
     /// Show source-index health: indexed rows versus reachable commits.
     FileIndexStatus,
+    /// Export the main tree into the user workspace and record a reconcile point.
+    FileSyncExport {
+        /// Confirm overwriting worktree changes that differ from main.
+        #[arg(long)]
+        confirm_overwrite: bool,
+        /// Override the configured auto-commit default.
+        #[arg(long, value_name = "BOOL")]
+        auto_commit: Option<bool>,
+        /// Optional commit message; otherwise one is suggested.
+        #[arg(long, value_name = "MESSAGE")]
+        message: Option<String>,
+    },
+    /// Import the external head as human history and advance the reconcile point.
+    FileSyncImport,
+    /// Move the baseline to a newly resolved commit, transplanting the old main tree.
+    FileSyncRebase {
+        /// User-repository branch the new baseline is resolved from.
+        #[arg(long, value_name = "BRANCH")]
+        branch: Option<String>,
+        /// Commit hash prefix pinned inside the user repository.
+        #[arg(long, value_name = "PREFIX")]
+        commit_prefix: Option<String>,
+        /// Nth ancestor back from the branch tip along the first-parent chain.
+        #[arg(long, value_name = "N")]
+        behind: Option<u64>,
+        /// Baseline mode: borrow (default) or copy.
+        #[arg(long, value_name = "MODE", default_value = "borrow")]
+        mode: String,
+    },
+    /// Show the external update hint when the external head moved past reconcile.
+    FileSyncHint,
+    /// Show the current reconcile point, if an export has recorded one.
+    FileSyncReconcile,
+    /// Show the configured sync defaults.
+    FileSyncConfig,
     /// List checkpoints of an execution (domain auto-resolved).
     List {
         /// Execution id.

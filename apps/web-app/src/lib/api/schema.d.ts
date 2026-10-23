@@ -2461,6 +2461,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/executions/{id}/bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_executions_id_bundle"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/executions/{id}/call-stack": {
         parameters: {
             query?: never;
@@ -3972,6 +3988,102 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["handle_submit_review"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/file-checkpoint/sync/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_sync_config"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/file-checkpoint/sync/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_export"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/file-checkpoint/sync/hint": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_hint"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/file-checkpoint/sync/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/file-checkpoint/sync/rebase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_rebase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/file-checkpoint/sync/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_reconcile"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7595,6 +7707,17 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_BaselineRebaseOutcomeDoc: {
+            /** @description Baseline rebase outcome (`wf_checkpoint::BaselineRebaseOutcome` mirrored). */
+            data?: {
+                new_anchor: components["schemas"]["BaselineAnchorDoc"];
+                old_anchor: components["schemas"]["BaselineAnchorDoc"];
+                old_main: string;
+                transplant_id: string;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_CappedChainDoc: {
             /**
              * @description Capped chain analysis of one execution's checkpoints (the transport
@@ -7875,6 +7998,18 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_ExportOutcomeDoc: {
+            /** @description Export result (`wf_checkpoint::ExportOutcome` mirrored). */
+            data?: {
+                external_commit?: string | null;
+                idempotent: boolean;
+                reconcile: components["schemas"]["ReconcilePointDoc"];
+                restore: components["schemas"]["WorkspaceRestoreResultDoc"];
+                suggested_message: string;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_FileCheckpointSummaryDoc: {
             /**
              * @description Summary view of a created file checkpoint
@@ -8094,6 +8229,20 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_ImportOutcomeDoc: {
+            /** @description Import result (`wf_checkpoint::ImportOutcome` mirrored). */
+            data?: {
+                advanced_to: string;
+                created?: string | null;
+                fallback_poll: boolean;
+                file_count: number;
+                had_conflicts: boolean;
+                idempotent: boolean;
+                no_base: boolean;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_IndexStatusDoc: {
             /**
              * @description Source-index health (`wf_checkpoint::provenance::IndexStatus` mirrored):
@@ -8168,12 +8317,40 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_Option_ExternalUpdateHintDoc: {
+            data?: null | {
+                external_head: string;
+                file_count: number;
+                reconcile: components["schemas"]["ReconcilePointDoc"];
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_Option_LockView: {
             data?: null | {
                 /** Format: int64 */
                 expires_at: number;
                 owner_id: string;
                 owner_name: string;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_Option_ReconcilePointDoc: {
+            data?: null | {
+                external_commit: string;
+                external_repo: string;
+                internal_main: string;
+                /** Format: int64 */
+                updated_at_ms: number;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_Option_SyncConfigDoc: {
+            data?: null | {
+                auto_commit: boolean;
+                auto_import: boolean;
             };
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -8856,6 +9033,23 @@ export interface components {
             background: boolean;
             execution_id: string;
         };
+        /** @description Pinned baseline anchor (`wf_checkpoint::git_store::BaselineAnchor` mirrored). */
+        BaselineAnchorDoc: {
+            id: string;
+            mode: string;
+            objects_path: string;
+            /** Format: int64 */
+            resolved_at_ms: number;
+            source_repo: string;
+            source_spec: string;
+        };
+        /** @description Baseline rebase outcome (`wf_checkpoint::BaselineRebaseOutcome` mirrored). */
+        BaselineRebaseOutcomeDoc: {
+            new_anchor: components["schemas"]["BaselineAnchorDoc"];
+            old_anchor: components["schemas"]["BaselineAnchorDoc"];
+            old_main: string;
+            transplant_id: string;
+        };
         BatchRespondBody: {
             /**
              * @description Optional loop ownership guard; when present each id is validated
@@ -9259,6 +9453,34 @@ export interface components {
         ExportManyBody: {
             ids: string[];
         };
+        /** @description Export result (`wf_checkpoint::ExportOutcome` mirrored). */
+        ExportOutcomeDoc: {
+            external_commit?: string | null;
+            idempotent: boolean;
+            reconcile: components["schemas"]["ReconcilePointDoc"];
+            restore: components["schemas"]["WorkspaceRestoreResultDoc"];
+            suggested_message: string;
+        };
+        ExportRequest: {
+            /** @description When set, overrides the configured `sync.auto_commit` default. */
+            auto_commit?: boolean | null;
+            /**
+             * @description Must be true when the worktree differs from main; otherwise the
+             *     export is rejected instead of overwriting unexported changes.
+             */
+            confirm_overwrite: boolean;
+            /**
+             * @description Optional commit message; otherwise a message is suggested from the
+             *     commits since the last reconcile point.
+             */
+            message?: string | null;
+        };
+        /** @description External update hint (`wf_checkpoint::ExternalUpdateHint` mirrored). */
+        ExternalUpdateHintDoc: {
+            external_head: string;
+            file_count: number;
+            reconcile: components["schemas"]["ReconcilePointDoc"];
+        };
         /**
          * @description Summary view of a created file checkpoint
          *     (`wf_api::checkpoint::file::FileCheckpointSummary` mirrored).
@@ -9531,6 +9753,16 @@ export interface components {
         ImportBody: {
             json: string;
         };
+        /** @description Import result (`wf_checkpoint::ImportOutcome` mirrored). */
+        ImportOutcomeDoc: {
+            advanced_to: string;
+            created?: string | null;
+            fallback_poll: boolean;
+            file_count: number;
+            had_conflicts: boolean;
+            idempotent: boolean;
+            no_base: boolean;
+        };
         ImportProfileBody: {
             json: string;
         };
@@ -9795,9 +10027,32 @@ export interface components {
             reachable_to_end: string[];
             unreachable_nodes: string[];
         };
+        RebaseRequest: {
+            /**
+             * Format: int64
+             * @description Nth ancestor back from the branch tip along the first-parent chain.
+             */
+            behind?: number | null;
+            /** @description User-repository branch the new baseline is resolved from. */
+            branch?: string | null;
+            /** @description Commit hash prefix pinned inside the user repository. */
+            commit_prefix?: string | null;
+            /** @description Destructive operation guard: must be true. */
+            confirm: boolean;
+            /** @description `borrow` (default) or `copy`. */
+            mode?: string | null;
+        };
         /** @description Rebuild response: number of indexed commits. */
         RebuildIndexResponse: {
             indexed_commits: number;
+        };
+        /** @description One export/import link (`wf_checkpoint::ReconcilePoint` mirrored). */
+        ReconcilePointDoc: {
+            external_commit: string;
+            external_repo: string;
+            internal_main: string;
+            /** Format: int64 */
+            updated_at_ms: number;
         };
         RejectRequest: {
             /** @description Optional human-readable rejection reason */
@@ -10072,6 +10327,11 @@ export interface components {
             /** @description Absent only for a live execution whose record has not been written yet. */
             status?: string | null;
         };
+        /** @description Sync behavior defaults (`wf_types::config::file_checkpoint::SyncConfig` mirrored). */
+        SyncConfigDoc: {
+            auto_commit: boolean;
+            auto_import: boolean;
+        };
         /** @description Uniform template summary over workflow and agent templates. */
         TemplateSummaryDoc: {
             author?: string | null;
@@ -10224,6 +10484,14 @@ export interface components {
             path: string;
             /** Format: int64 */
             timestamp: number;
+        };
+        /** @description Workspace restore counts (`wf_checkpoint::WorkspaceRestoreResult` mirrored). */
+        WorkspaceRestoreResultDoc: {
+            deleted: number;
+            restored: number;
+            restored_gitlinks: number;
+            skipped: number;
+            skipped_nested: number;
         };
     };
     responses: never;
@@ -21011,6 +21279,11 @@ export interface operations {
                 checkpoint_only?: boolean;
                 /** @description Narrow checkpoint events to one file path. */
                 file_path?: string;
+                /**
+                 * @description Only these event types (comma-separated canonical SCREAMING names);
+                 *     unknown names are rejected so a typo never silently matches nothing.
+                 */
+                event_types?: string;
                 /** @description Narrow checkpoint events to one snapshot or commit id. */
                 snapshot_id?: string;
                 /**
@@ -23379,6 +23652,84 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_executions_id_bundle: {
+        parameters: {
+            query?: {
+                /** @description Mark the exported bundle as checkpoint-synced. */
+                checkpoint_synced?: boolean;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -30781,6 +31132,470 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_sync_config: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Configured sync defaults, or null when unconfigured */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Option_SyncConfigDoc"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportRequest"];
+            };
+        };
+        responses: {
+            /** @description Worktree materialized; reconcile point advanced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_ExportOutcomeDoc"];
+                };
+            };
+            /** @description Validation failed (dirty worktree without confirmation, no git workspace) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Main ref missing */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Export already running or unresolved conflicts */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_hint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description External head ahead of the reconcile point, or null */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Option_ExternalUpdateHintDoc"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description External head captured as human history; reconcile point advanced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_ImportOutcomeDoc"];
+                };
+            };
+            /** @description No reconcile point or repository mismatch */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Main ref missing */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_rebase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RebaseRequest"];
+            };
+        };
+        responses: {
+            /** @description Baseline moved; old main tree transplanted on top */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_BaselineRebaseOutcomeDoc"];
+                };
+            };
+            /** @description Missing confirm flag or invalid baseline selector */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No baseline anchor to rebase */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Ref conflict during transplant */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_reconcile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current reconcile point, or null before the first export */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Option_ReconcilePointDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */

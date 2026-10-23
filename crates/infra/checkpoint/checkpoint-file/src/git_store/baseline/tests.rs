@@ -300,3 +300,50 @@ fn seed_copy_stays_self_contained_without_alternates() {
     assert_eq!(log.len(), 2);
     assert_eq!(log[1].id, third);
 }
+
+#[test]
+fn seed_copy_uses_pack_and_survives_external_loss() {
+    let (repo, _second, third) = make_user_repo();
+    let store_dir = tempfile::tempdir().expect("store dir");
+    let git_dir = store_dir.path().join("repo.git");
+    let store = GitStore::init(repo.path(), &git_dir).expect("store bound to fixture repo");
+    let req = BaselineRequest {
+        mode: BaselineMode::Copy,
+        branch: Some("main".to_string()),
+        commit_prefix: None,
+        behind: None,
+    };
+    assert!(matches!(
+        store.ensure_baseline(&req).unwrap(),
+        BaselineSeedOutcome::Seeded(_)
+    ));
+    let packs: Vec<_> = std::fs::read_dir(git_dir.join("objects/pack"))
+        .expect("pack dir exists after copy seed")
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "pack"))
+        .collect();
+    assert!(
+        !packs.is_empty(),
+        "copy seed must install one packfile, not loose objects"
+    );
+    for pack in &packs {
+        let idx = pack.with_extension("idx");
+        assert!(idx.is_file(), "pack index must move with the pack");
+    }
+    assert!(
+        store.read_commit(&third).is_ok(),
+        "anchor commit must read through the pack"
+    );
+    let held = tempfile::tempdir().expect("hold dir");
+    let moved = held.path().join("repo-gone");
+    std::fs::rename(repo.path(), &moved).expect("remove external repo");
+    assert!(
+        store.read_commit(&third).is_ok(),
+        "anchor must stay readable after the external repo is gone"
+    );
+    assert!(matches!(
+        store.validate_baseline().unwrap(),
+        BaselineStatus::Healthy(_)
+    ));
+}

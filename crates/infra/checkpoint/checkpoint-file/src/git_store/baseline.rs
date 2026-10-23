@@ -26,7 +26,8 @@ mod tests;
 
 /// Baseline object mode: borrow reads through an alternates entry,
 /// copy duplicates the baseline closure into the local store.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum BaselineMode {
     Borrow,
     Copy,
@@ -42,7 +43,7 @@ pub struct BaselineRequest {
 }
 
 /// Pinned baseline anchor persisted beside the store.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct BaselineAnchor {
     pub id: String,
     pub mode: BaselineMode,
@@ -64,7 +65,7 @@ pub enum BaselineSeedOutcome {
 /// the old main tree on top of the new baseline so history stays
 /// continuous; the previous chain is left as unreachable orphans under the
 /// normal grace window for rollback.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct BaselineRebaseOutcome {
     pub old_anchor: BaselineAnchor,
     pub new_anchor: BaselineAnchor,
@@ -73,7 +74,7 @@ pub struct BaselineRebaseOutcome {
 }
 
 /// Health of a previously seeded baseline.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub enum BaselineStatus {
     NoBaseline,
     Healthy(BaselineAnchor),
@@ -215,19 +216,79 @@ impl GitStore {
         Ok(())
     }
 
-    /// Copy a baseline commit closure into the local object directory so
-    /// the store stays self-contained. Loose-only; pack optimization is
-    /// deferred. Idempotent: existing local objects are left untouched.
+    /// Copy a baseline commit closure into the local object directory as
+    /// one packfile so the store stays self-contained without loose-object
+    /// fan-out. The closure stays exact (commit plus reachable trees and
+    /// blobs, no parent history). Pack failures fail directly so the store
+    /// shape stays predictable; half-installed packs are removed.
     fn copy_closure_from_external(
         &self,
         objects_dir: &Path,
         commit_id: &str,
     ) -> Result<(), GitStoreError> {
-        use super::external::{collect_baseline_closure, copy_object_raw};
+        use super::external::collect_baseline_closure;
+        use std::io::Write as _;
+        let ids = collect_baseline_closure(objects_dir, commit_id)?;
         let local_objects = self.git_dir().join("objects");
         std::fs::create_dir_all(&local_objects)?;
-        for id in collect_baseline_closure(objects_dir, commit_id)? {
-            copy_object_raw(objects_dir, &local_objects, &id)?;
+        let workspace_root = self.workspace_root().to_path_buf();
+        let staging = tempfile::tempdir()?;
+        let pack_base = staging.path().join("pack");
+        let mut child = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&workspace_root)
+            .arg("pack-objects")
+            .arg("-q")
+            .arg(&pack_base)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| GitStoreError::Baseline(format!("git pack-objects unavailable: {e}")))?;
+        {
+            let stdin = child.stdin.as_mut().ok_or_else(|| {
+                GitStoreError::Baseline("pack-objects stdin unavailable".to_string())
+            })?;
+            for id in &ids {
+                writeln!(stdin, "{id}").map_err(|e| {
+                    GitStoreError::Baseline(format!("pack-objects stdin failed: {e}"))
+                })?;
+            }
+        }
+        let output = child
+            .wait_with_output()
+            .map_err(|e| GitStoreError::Baseline(format!("pack-objects wait failed: {e}")))?;
+        if !output.status.success() {
+            let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(GitStoreError::Baseline(format!(
+                "git pack-objects failed: {detail}"
+            )));
+        }
+        let pack_name = std::fs::read_dir(staging.path())?
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .find(|name| name.ends_with(".pack"))
+            .ok_or_else(|| {
+                GitStoreError::Baseline("pack-objects produced no packfile".to_string())
+            })?;
+        let idx_name = pack_name.replace(".pack", ".idx");
+        if !staging.path().join(&idx_name).is_file() {
+            return Err(GitStoreError::Baseline(
+                "pack-objects produced no index".to_string(),
+            ));
+        }
+        let pack_dir = self.git_dir().join("objects/pack");
+        std::fs::create_dir_all(&pack_dir)?;
+        let dest_pack = pack_dir.join(&pack_name);
+        let dest_idx = pack_dir.join(&idx_name);
+        std::fs::rename(staging.path().join(&pack_name), &dest_pack)?;
+        std::fs::rename(staging.path().join(&idx_name), &dest_idx)?;
+        if let Err(e) = self.read_commit(commit_id) {
+            let _ = std::fs::remove_file(&dest_pack);
+            let _ = std::fs::remove_file(&dest_idx);
+            return Err(GitStoreError::Baseline(format!(
+                "baseline commit {commit_id} not readable after pack copy: {e}"
+            )));
         }
         Ok(())
     }

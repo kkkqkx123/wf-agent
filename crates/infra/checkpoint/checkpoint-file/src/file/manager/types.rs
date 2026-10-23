@@ -135,7 +135,7 @@ impl Default for FileCheckpointOptions {
 }
 
 /// Result of a workspace-aligned restore.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
 pub struct WorkspaceRestoreResult {
     /// Files written back to disk.
     pub restored: usize,

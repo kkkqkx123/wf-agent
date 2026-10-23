@@ -76,6 +76,7 @@ pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddleware
         .merge(api::checkpoint::checkpoints::routes())
         .merge(api::checkpoint::file_provenance::routes())
         .merge(api::checkpoint::file_approvals::routes())
+        .merge(api::checkpoint::file_sync::routes())
         // user git domain (read-only queries + unified action)
         .merge(api::git::readonly::routes())
         .merge(api::git::actions::routes())

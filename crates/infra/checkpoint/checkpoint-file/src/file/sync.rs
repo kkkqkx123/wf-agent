@@ -44,7 +44,7 @@ pub struct ExportOptions {
 
 /// Export result: what was materialized, what message was suggested or
 /// committed, and where the reconcile point moved.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ExportOutcome {
     pub restore: WorkspaceRestoreResult,
     pub suggested_message: String,
@@ -55,7 +55,7 @@ pub struct ExportOutcome {
 
 /// Import result: the new human commit when external files changed, and
 /// where the reconcile point moved.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ImportOutcome {
     pub created: Option<String>,
     pub advanced_to: String,
@@ -68,7 +68,7 @@ pub struct ImportOutcome {
 
 /// Hint for polling loops: the external head moved past the reconcile
 /// point and waits for an explicit import.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ExternalUpdateHint {
     pub external_head: String,
     pub reconcile: ReconcilePoint,

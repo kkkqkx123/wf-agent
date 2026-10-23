@@ -1083,3 +1083,160 @@ export async function setEntityMetadata(
 		}),
 	);
 }
+
+type ExportOutcomeDoc = components['schemas']['ExportOutcomeDoc'];
+type ImportOutcomeDoc = components['schemas']['ImportOutcomeDoc'];
+type ExternalUpdateHintDoc =
+	components['schemas']['ExternalUpdateHintDoc'];
+type ReconcilePointDoc = components['schemas']['ReconcilePointDoc'];
+type SyncConfigDoc = components['schemas']['SyncConfigDoc'];
+type BaselineRebaseOutcomeDoc =
+	components['schemas']['BaselineRebaseOutcomeDoc'];
+
+export interface SyncExportResult {
+	suggestedMessage: string;
+	externalCommit: string | null;
+	internalMain: string;
+	idempotent: boolean;
+}
+
+export interface SyncImportResult {
+	created: string | null;
+	advancedTo: string;
+	fileCount: number;
+	hadConflicts: boolean;
+	idempotent: boolean;
+}
+
+export interface ExternalHint {
+	externalHead: string;
+	fileCount: number;
+	internalMain: string;
+	externalCommit: string;
+}
+
+export interface ReconcilePoint {
+	internalMain: string;
+	externalCommit: string;
+	externalRepo: string;
+	updatedAtMs: number;
+}
+
+/** Export the main tree into the user workspace; call only after explicit confirm. */
+export async function exportToWorkspace(
+	confirmOverwrite: boolean,
+	autoCommit?: boolean,
+	message?: string,
+): Promise<SyncExportResult> {
+	const d = requireData(
+		await call<ExportOutcomeDoc>(
+			client.POST('/api/v1/file-checkpoint/sync/export', {
+				body: {
+					confirm_overwrite: confirmOverwrite,
+					auto_commit: autoCommit ?? null,
+					message: message ?? null,
+				},
+			}),
+		),
+		'Sync export',
+	);
+	return {
+		suggestedMessage: d.suggested_message,
+		externalCommit: d.external_commit ?? null,
+		internalMain: d.reconcile.internal_main,
+		idempotent: d.idempotent,
+	};
+}
+
+/** Import the external head as human history. */
+export async function importFromExternal(): Promise<SyncImportResult> {
+	const d = requireData(
+		await call<ImportOutcomeDoc>(
+			client.POST('/api/v1/file-checkpoint/sync/import'),
+		),
+		'Sync import',
+	);
+	return {
+		created: d.created ?? null,
+		advancedTo: d.advanced_to,
+		fileCount: d.file_count,
+		hadConflicts: d.had_conflicts,
+		idempotent: d.idempotent,
+	};
+}
+
+export interface BaselineSelector {
+	mode?: string | null;
+	branch?: string | null;
+	commitPrefix?: string | null;
+	behind?: number | null;
+}
+
+/** Rebase the baseline; call only after explicit confirm. */
+export async function rebaseBaseline(
+	baseline: BaselineSelector,
+): Promise<{ transplantId: string; newAnchor: string }> {
+	const d = requireData(
+		await call<BaselineRebaseOutcomeDoc>(
+			client.POST('/api/v1/file-checkpoint/sync/rebase', {
+				body: {
+					mode: baseline.mode ?? null,
+					branch: baseline.branch ?? null,
+					commit_prefix: baseline.commitPrefix ?? null,
+					behind: baseline.behind ?? null,
+					confirm: true,
+				},
+			}),
+		),
+		'Baseline rebase',
+	);
+	return {
+		transplantId: d.transplant_id,
+		newAnchor: d.new_anchor.id,
+	};
+}
+
+/** External update hint, or null when the external head is aligned. */
+export async function getExternalUpdateHint(): Promise<ExternalHint | null> {
+	const d = await call<ExternalUpdateHintDoc | null>(
+		client.GET('/api/v1/file-checkpoint/sync/hint'),
+	);
+	if (!d) return null;
+	return {
+		externalHead: d.external_head,
+		fileCount: d.file_count,
+		internalMain: d.reconcile.internal_main,
+		externalCommit: d.reconcile.external_commit,
+	};
+}
+
+/** Current reconcile point, or null before the first export. */
+export async function getReconcilePoint(): Promise<ReconcilePoint | null> {
+	const d = await call<ReconcilePointDoc | null>(
+		client.GET('/api/v1/file-checkpoint/sync/reconcile'),
+	);
+	if (!d) return null;
+	return {
+		internalMain: d.internal_main,
+		externalCommit: d.external_commit,
+		externalRepo: d.external_repo,
+		updatedAtMs: d.updated_at_ms,
+	};
+}
+
+export interface SyncDefaults {
+	autoCommit: boolean;
+	autoImport: boolean;
+}
+
+/** Configured sync defaults, or null when unconfigured. */
+export async function getSyncConfig(): Promise<SyncDefaults | null> {
+	const d = await call<SyncConfigDoc | null>(
+		client.GET('/api/v1/file-checkpoint/sync/config'),
+	);
+	if (!d) return null;
+	return {
+		autoCommit: d.auto_commit,
+		autoImport: d.auto_import,
+	};
+}

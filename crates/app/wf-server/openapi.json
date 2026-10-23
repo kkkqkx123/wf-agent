@@ -20693,6 +20693,406 @@
         ]
       }
     },
+    "/api/v1/file-checkpoint/sync/config": {
+      "get": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_sync_config",
+        "responses": {
+          "200": {
+            "description": "Configured sync defaults, or null when unconfigured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Option_SyncConfigDoc"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/file-checkpoint/sync/export": {
+      "post": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_export",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Worktree materialized; reconcile point advanced",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ExportOutcomeDoc"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed (dirty worktree without confirmation, no git workspace)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Main ref missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Export already running or unresolved conflicts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/file-checkpoint/sync/hint": {
+      "get": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_hint",
+        "responses": {
+          "200": {
+            "description": "External head ahead of the reconcile point, or null",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Option_ExternalUpdateHintDoc"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/file-checkpoint/sync/import": {
+      "post": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_import",
+        "responses": {
+          "200": {
+            "description": "External head captured as human history; reconcile point advanced",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ImportOutcomeDoc"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No reconcile point or repository mismatch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Main ref missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/file-checkpoint/sync/rebase": {
+      "post": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_rebase",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RebaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Baseline moved; old main tree transplanted on top",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_BaselineRebaseOutcomeDoc"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing confirm flag or invalid baseline selector",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "No baseline anchor to rebase",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ref conflict during transplant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/file-checkpoint/sync/reconcile": {
+      "get": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_reconcile",
+        "responses": {
+          "200": {
+            "description": "Current reconcile point, or null before the first export",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Option_ReconcilePointDoc"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/file-checkpoint/timeline/{id}": {
       "get": {
         "tags": [
@@ -40253,6 +40653,51 @@
           }
         }
       },
+      "ApiEnvelope_BaselineRebaseOutcomeDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Baseline rebase outcome (`wf_checkpoint::BaselineRebaseOutcome` mirrored).",
+            "required": [
+              "old_anchor",
+              "new_anchor",
+              "old_main",
+              "transplant_id"
+            ],
+            "properties": {
+              "new_anchor": {
+                "$ref": "#/components/schemas/BaselineAnchorDoc"
+              },
+              "old_anchor": {
+                "$ref": "#/components/schemas/BaselineAnchorDoc"
+              },
+              "old_main": {
+                "type": "string"
+              },
+              "transplant_id": {
+                "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_CappedChainDoc": {
         "type": "object",
         "required": [
@@ -41230,6 +41675,57 @@
           }
         }
       },
+      "ApiEnvelope_ExportOutcomeDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Export result (`wf_checkpoint::ExportOutcome` mirrored).",
+            "required": [
+              "restore",
+              "suggested_message",
+              "reconcile",
+              "idempotent"
+            ],
+            "properties": {
+              "external_commit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "idempotent": {
+                "type": "boolean"
+              },
+              "reconcile": {
+                "$ref": "#/components/schemas/ReconcilePointDoc"
+              },
+              "restore": {
+                "$ref": "#/components/schemas/WorkspaceRestoreResultDoc"
+              },
+              "suggested_message": {
+                "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_FileCheckpointSummaryDoc": {
         "type": "object",
         "required": [
@@ -41956,6 +42452,66 @@
           }
         }
       },
+      "ApiEnvelope_ImportOutcomeDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Import result (`wf_checkpoint::ImportOutcome` mirrored).",
+            "required": [
+              "advanced_to",
+              "file_count",
+              "had_conflicts",
+              "no_base",
+              "fallback_poll",
+              "idempotent"
+            ],
+            "properties": {
+              "advanced_to": {
+                "type": "string"
+              },
+              "created": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fallback_poll": {
+                "type": "boolean"
+              },
+              "file_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "had_conflicts": {
+                "type": "boolean"
+              },
+              "idempotent": {
+                "type": "boolean"
+              },
+              "no_base": {
+                "type": "boolean"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_IndexStatusDoc": {
         "type": "object",
         "required": [
@@ -42186,6 +42742,55 @@
           }
         }
       },
+      "ApiEnvelope_Option_ExternalUpdateHintDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "description": "External update hint (`wf_checkpoint::ExternalUpdateHint` mirrored).",
+                "required": [
+                  "external_head",
+                  "reconcile",
+                  "file_count"
+                ],
+                "properties": {
+                  "external_head": {
+                    "type": "string"
+                  },
+                  "file_count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "reconcile": {
+                    "$ref": "#/components/schemas/ReconcilePointDoc"
+                  }
+                }
+              }
+            ]
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_Option_LockView": {
         "type": "object",
         "required": [
@@ -42215,6 +42820,103 @@
                   },
                   "owner_name": {
                     "type": "string"
+                  }
+                }
+              }
+            ]
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_Option_ReconcilePointDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "description": "One export/import link (`wf_checkpoint::ReconcilePoint` mirrored).",
+                "required": [
+                  "internal_main",
+                  "external_commit",
+                  "external_repo",
+                  "updated_at_ms"
+                ],
+                "properties": {
+                  "external_commit": {
+                    "type": "string"
+                  },
+                  "external_repo": {
+                    "type": "string"
+                  },
+                  "internal_main": {
+                    "type": "string"
+                  },
+                  "updated_at_ms": {
+                    "type": "integer",
+                    "format": "int64"
+                  }
+                }
+              }
+            ]
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_Option_SyncConfigDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "description": "Sync behavior defaults (`wf_types::config::file_checkpoint::SyncConfig` mirrored).",
+                "required": [
+                  "auto_commit",
+                  "auto_import"
+                ],
+                "properties": {
+                  "auto_commit": {
+                    "type": "boolean"
+                  },
+                  "auto_import": {
+                    "type": "boolean"
                   }
                 }
               }
@@ -44758,6 +45460,63 @@
           }
         }
       },
+      "BaselineAnchorDoc": {
+        "type": "object",
+        "description": "Pinned baseline anchor (`wf_checkpoint::git_store::BaselineAnchor` mirrored).",
+        "required": [
+          "id",
+          "mode",
+          "objects_path",
+          "source_repo",
+          "source_spec",
+          "resolved_at_ms"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "objects_path": {
+            "type": "string"
+          },
+          "resolved_at_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "source_repo": {
+            "type": "string"
+          },
+          "source_spec": {
+            "type": "string"
+          }
+        }
+      },
+      "BaselineRebaseOutcomeDoc": {
+        "type": "object",
+        "description": "Baseline rebase outcome (`wf_checkpoint::BaselineRebaseOutcome` mirrored).",
+        "required": [
+          "old_anchor",
+          "new_anchor",
+          "old_main",
+          "transplant_id"
+        ],
+        "properties": {
+          "new_anchor": {
+            "$ref": "#/components/schemas/BaselineAnchorDoc"
+          },
+          "old_anchor": {
+            "$ref": "#/components/schemas/BaselineAnchorDoc"
+          },
+          "old_main": {
+            "type": "string"
+          },
+          "transplant_id": {
+            "type": "string"
+          }
+        }
+      },
       "BatchRespondBody": {
         "type": "object",
         "required": [
@@ -45923,6 +46682,83 @@
           }
         }
       },
+      "ExportOutcomeDoc": {
+        "type": "object",
+        "description": "Export result (`wf_checkpoint::ExportOutcome` mirrored).",
+        "required": [
+          "restore",
+          "suggested_message",
+          "reconcile",
+          "idempotent"
+        ],
+        "properties": {
+          "external_commit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "idempotent": {
+            "type": "boolean"
+          },
+          "reconcile": {
+            "$ref": "#/components/schemas/ReconcilePointDoc"
+          },
+          "restore": {
+            "$ref": "#/components/schemas/WorkspaceRestoreResultDoc"
+          },
+          "suggested_message": {
+            "type": "string"
+          }
+        }
+      },
+      "ExportRequest": {
+        "type": "object",
+        "required": [
+          "confirm_overwrite"
+        ],
+        "properties": {
+          "auto_commit": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "When set, overrides the configured `sync.auto_commit` default."
+          },
+          "confirm_overwrite": {
+            "type": "boolean",
+            "description": "Must be true when the worktree differs from main; otherwise the\nexport is rejected instead of overwriting unexported changes."
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional commit message; otherwise a message is suggested from the\ncommits since the last reconcile point."
+          }
+        }
+      },
+      "ExternalUpdateHintDoc": {
+        "type": "object",
+        "description": "External update hint (`wf_checkpoint::ExternalUpdateHint` mirrored).",
+        "required": [
+          "external_head",
+          "reconcile",
+          "file_count"
+        ],
+        "properties": {
+          "external_head": {
+            "type": "string"
+          },
+          "file_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reconcile": {
+            "$ref": "#/components/schemas/ReconcilePointDoc"
+          }
+        }
+      },
       "FileCheckpointSummaryDoc": {
         "type": "object",
         "description": "Summary view of a created file checkpoint\n(`wf_api::checkpoint::file::FileCheckpointSummary` mirrored).",
@@ -46663,6 +47499,45 @@
         "properties": {
           "json": {
             "type": "string"
+          }
+        }
+      },
+      "ImportOutcomeDoc": {
+        "type": "object",
+        "description": "Import result (`wf_checkpoint::ImportOutcome` mirrored).",
+        "required": [
+          "advanced_to",
+          "file_count",
+          "had_conflicts",
+          "no_base",
+          "fallback_poll",
+          "idempotent"
+        ],
+        "properties": {
+          "advanced_to": {
+            "type": "string"
+          },
+          "created": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fallback_poll": {
+            "type": "boolean"
+          },
+          "file_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "had_conflicts": {
+            "type": "boolean"
+          },
+          "idempotent": {
+            "type": "boolean"
+          },
+          "no_base": {
+            "type": "boolean"
           }
         }
       },
@@ -47428,6 +48303,48 @@
           }
         }
       },
+      "RebaseRequest": {
+        "type": "object",
+        "required": [
+          "confirm"
+        ],
+        "properties": {
+          "behind": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Nth ancestor back from the branch tip along the first-parent chain.",
+            "minimum": 0
+          },
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "User-repository branch the new baseline is resolved from."
+          },
+          "commit_prefix": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Commit hash prefix pinned inside the user repository."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Destructive operation guard: must be true."
+          },
+          "mode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`borrow` (default) or `copy`."
+          }
+        }
+      },
       "RebuildIndexResponse": {
         "type": "object",
         "description": "Rebuild response: number of indexed commits.",
@@ -47438,6 +48355,31 @@
           "indexed_commits": {
             "type": "integer",
             "minimum": 0
+          }
+        }
+      },
+      "ReconcilePointDoc": {
+        "type": "object",
+        "description": "One export/import link (`wf_checkpoint::ReconcilePoint` mirrored).",
+        "required": [
+          "internal_main",
+          "external_commit",
+          "external_repo",
+          "updated_at_ms"
+        ],
+        "properties": {
+          "external_commit": {
+            "type": "string"
+          },
+          "external_repo": {
+            "type": "string"
+          },
+          "internal_main": {
+            "type": "string"
+          },
+          "updated_at_ms": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -48226,6 +49168,22 @@
           }
         }
       },
+      "SyncConfigDoc": {
+        "type": "object",
+        "description": "Sync behavior defaults (`wf_types::config::file_checkpoint::SyncConfig` mirrored).",
+        "required": [
+          "auto_commit",
+          "auto_import"
+        ],
+        "properties": {
+          "auto_commit": {
+            "type": "boolean"
+          },
+          "auto_import": {
+            "type": "boolean"
+          }
+        }
+      },
       "TemplateSummaryDoc": {
         "type": "object",
         "description": "Uniform template summary over workflow and agent templates.",
@@ -48718,6 +49676,39 @@
           "timestamp": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "WorkspaceRestoreResultDoc": {
+        "type": "object",
+        "description": "Workspace restore counts (`wf_checkpoint::WorkspaceRestoreResult` mirrored).",
+        "required": [
+          "restored",
+          "deleted",
+          "skipped",
+          "skipped_nested",
+          "restored_gitlinks"
+        ],
+        "properties": {
+          "deleted": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "restored": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "restored_gitlinks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "skipped": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "skipped_nested": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       }

@@ -492,3 +492,81 @@ pub(crate) struct StateFileLinkDoc {
     #[serde(skip_serializing_if = "Option::is_none")]
     file_commit_id: Option<String>,
 }
+
+/// One export/import link (`wf_checkpoint::ReconcilePoint` mirrored).
+#[derive(Serialize, ToSchema)]
+pub(crate) struct ReconcilePointDoc {
+    internal_main: String,
+    external_commit: String,
+    external_repo: String,
+    updated_at_ms: i64,
+}
+
+/// Workspace restore counts (`wf_checkpoint::WorkspaceRestoreResult` mirrored).
+#[derive(Serialize, ToSchema)]
+pub(crate) struct WorkspaceRestoreResultDoc {
+    restored: usize,
+    deleted: usize,
+    skipped: usize,
+    skipped_nested: usize,
+    restored_gitlinks: usize,
+}
+
+/// Export result (`wf_checkpoint::ExportOutcome` mirrored).
+#[derive(Serialize, ToSchema)]
+pub(crate) struct ExportOutcomeDoc {
+    restore: WorkspaceRestoreResultDoc,
+    suggested_message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    external_commit: Option<String>,
+    reconcile: ReconcilePointDoc,
+    idempotent: bool,
+}
+
+/// Import result (`wf_checkpoint::ImportOutcome` mirrored).
+#[derive(Serialize, ToSchema)]
+pub(crate) struct ImportOutcomeDoc {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    created: Option<String>,
+    advanced_to: String,
+    file_count: usize,
+    had_conflicts: bool,
+    no_base: bool,
+    fallback_poll: bool,
+    idempotent: bool,
+}
+
+/// External update hint (`wf_checkpoint::ExternalUpdateHint` mirrored).
+#[derive(Serialize, ToSchema)]
+pub(crate) struct ExternalUpdateHintDoc {
+    external_head: String,
+    reconcile: ReconcilePointDoc,
+    file_count: usize,
+}
+
+/// Pinned baseline anchor (`wf_checkpoint::git_store::BaselineAnchor` mirrored).
+#[derive(Serialize, ToSchema)]
+pub(crate) struct BaselineAnchorDoc {
+    id: String,
+    mode: String,
+    objects_path: String,
+    source_repo: String,
+    source_spec: String,
+    resolved_at_ms: i64,
+}
+
+/// Baseline rebase outcome (`wf_checkpoint::BaselineRebaseOutcome` mirrored).
+#[derive(Serialize, ToSchema)]
+pub(crate) struct BaselineRebaseOutcomeDoc {
+    old_anchor: BaselineAnchorDoc,
+    new_anchor: BaselineAnchorDoc,
+    old_main: String,
+    transplant_id: String,
+}
+
+/// Sync behavior defaults (`wf_types::config::file_checkpoint::SyncConfig` mirrored).
+#[derive(Serialize, ToSchema)]
+pub(crate) struct SyncConfigDoc {
+    auto_commit: bool,
+    auto_import: bool,
+}

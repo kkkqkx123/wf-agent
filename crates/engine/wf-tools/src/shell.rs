@@ -377,13 +377,26 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
             let input = parameters.get("input").and_then(|v| v.as_str());
 
             let execution_id = ctx.execution_id.to_string();
-            let read_only = !policy.effect(&command).needs_exclusive_window();
-            let window = if read_only {
+            let effect = policy.effect(&command);
+            let effect_label = if effect.is_read() {
+                "read"
+            } else if effect.is_write() {
+                "write"
+            } else {
+                "unknown"
+            };
+            let window = if effect.is_read() {
                 wf_checkpoint::ShellWindowOutcome::Disabled
-            } else if let (Some(scope), Some(session)) =
-                (scope_dir.as_ref(), ctx.checkpoint_session.as_ref())
-            {
-                session.acquire_scoped_write(&execution_id, scope).await
+            } else if effect.is_write() {
+                if let (Some(scope), Some(session)) =
+                    (scope_dir.as_ref(), ctx.checkpoint_session.as_ref())
+                {
+                    session.acquire_scoped_write(&execution_id, scope).await
+                } else {
+                    wf_checkpoint::ShellWindowOutcome::Disabled
+                }
+            } else if let Some(session) = ctx.checkpoint_session.as_ref() {
+                session.acquire_unknown(&execution_id).await
             } else {
                 wf_checkpoint::ShellWindowOutcome::Disabled
             };
@@ -397,9 +410,10 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                 tracing::warn!(
                     execution = %execution_id,
                     scope = ?scope_dir,
-                    "shell scoped write timed out; executing without sampling"
+                    effect = effect_label,
+                    "shell window timed out; executing without sampling"
                 );
-            } else if !read_only {
+            } else if !effect.is_read() {
                 if let (Some(scope), Some(session)) =
                     (scope_dir.as_ref(), ctx.checkpoint_session.as_ref())
                 {
@@ -447,7 +461,7 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
             {
                 Ok(output) => output,
                 Err(err) => {
-                    if !degraded && !read_only {
+                    if !degraded && !effect.is_read() {
                         if let (Some(scope), Some(_sess)) =
                             (scope_dir.as_ref(), ctx.checkpoint_session.as_ref())
                         {
@@ -496,7 +510,8 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
 
             if degraded {
                 result["sampling_degraded"] = Value::Bool(true);
-            } else if !read_only {
+                result["sampling_effect"] = Value::String(effect_label.to_string());
+            } else if !effect.is_read() {
                 if let (Some(scope), Some(_sess)) =
                     (scope_dir.as_ref(), ctx.checkpoint_session.as_ref())
                 {

@@ -119,7 +119,7 @@ impl SessionLifecycleForwarder {
                 tracing::warn!(
                     execution = %task_id,
                     session = %event.session_id,
-                    "background completion skipped: overlapping write busy; sampling marked degraded"
+                    "background completion skipped: sampling window busy; sampling marked degraded"
                 );
             }
         }
@@ -154,7 +154,7 @@ impl SessionLifecycleForwarder {
                 tracing::warn!(
                     execution = %task_id,
                     session = %event.session_id,
-                    "background termination skipped: overlapping write busy; sampling marked degraded"
+                    "background termination skipped: sampling window busy; sampling marked degraded"
                 );
             }
         }

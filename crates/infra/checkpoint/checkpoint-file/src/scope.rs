@@ -26,14 +26,17 @@ use crate::WorkspaceScanner;
 use checkpoint_base::ActorId;
 
 /// Lease held across one shell sampling window (before-capture, command
-/// execution, after-diff-commit). The lease tracks an overlapping write
+/// execution, after-diff-commit). Write leases track an overlapping write
 /// scope in the shared registry; overlapping write scopes never coexist,
 /// so their before/after scans cannot interleave and misattribute writes.
-/// Non-overlapping write scopes run in parallel. Read commands never take
+/// Non-overlapping write scopes run in parallel. Unknown-effect commands
+/// hold the registry-wide unknown lease instead, which excludes every
+/// scoped write and every other unknown lease. Read commands never take
 /// a lease and never sample.
 pub struct ShellWindowGuard {
     registry: Arc<SessionScopeRegistry>,
     id: u64,
+    unknown: bool,
 }
 
 impl std::fmt::Debug for ShellWindowGuard {
@@ -46,7 +49,11 @@ impl std::fmt::Debug for ShellWindowGuard {
 
 impl Drop for ShellWindowGuard {
     fn drop(&mut self) {
-        self.registry.release_scoped_write(self.id);
+        if self.unknown {
+            self.registry.release_unknown(self.id);
+        } else {
+            self.registry.release_scoped_write(self.id);
+        }
     }
 }
 
@@ -113,6 +120,12 @@ struct ActiveWriteScope {
     execution: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ActiveUnknownScope {
+    id: u64,
+    execution: String,
+}
+
 fn scopes_overlap(a: &Path, b: &Path) -> bool {
     a.starts_with(b) || b.starts_with(a)
 }
@@ -131,8 +144,13 @@ pub struct SessionScopeRegistry {
     /// Non-overlapping writes run in parallel; overlapping writes serialize.
     /// Guarded by a short critical section, never held across command
     /// execution. Per-manager: one manager per workspace per process is
-    /// required.
+    /// required; clone the manager to share the domain.
     active_writes: parking_lot::Mutex<Vec<ActiveWriteScope>>,
+    /// At most one active unknown-effect window. While present, no scoped
+    /// write may start, and no second unknown window may start. The slot
+    /// is empty most of the time; `Vec` stays linear because overlap
+    /// checks must compare every live scope anyway and the live set is tiny.
+    active_unknown: parking_lot::Mutex<Option<ActiveUnknownScope>>,
     next_window_id: AtomicU64,
     /// Master switch for scoped write leases (from
     /// `FileCheckpointConfig::scope_serialization`).
@@ -148,6 +166,7 @@ impl Default for SessionScopeRegistry {
             session_before: DashMap::new(),
             session_scope: DashMap::new(),
             active_writes: parking_lot::Mutex::new(Vec::new()),
+            active_unknown: parking_lot::Mutex::new(None),
             next_window_id: AtomicU64::new(1),
             serialization_enabled: AtomicBool::new(true),
             serialization_timeout_ms: AtomicU64::new(
@@ -182,6 +201,10 @@ impl SessionScopeRegistry {
         scope: &Path,
         execution: &str,
     ) -> Option<ShellWindowGuard> {
+        let unknown = self.active_unknown.lock();
+        if unknown.is_some() {
+            return None;
+        }
         let mut active = self.active_writes.lock();
         if active
             .iter()
@@ -195,9 +218,32 @@ impl SessionScopeRegistry {
             scope: scope.to_path_buf(),
             execution: execution.to_string(),
         });
+        drop(unknown);
         Some(ShellWindowGuard {
             registry: Arc::clone(self),
             id,
+            unknown: false,
+        })
+    }
+
+    fn try_insert_unknown(self: &Arc<Self>, execution: &str) -> Option<ShellWindowGuard> {
+        let mut unknown = self.active_unknown.lock();
+        if unknown.is_some() {
+            return None;
+        }
+        let active = self.active_writes.lock();
+        if !active.is_empty() {
+            return None;
+        }
+        let id = self.next_window_id.fetch_add(1, Ordering::SeqCst);
+        *unknown = Some(ActiveUnknownScope {
+            id,
+            execution: execution.to_string(),
+        });
+        Some(ShellWindowGuard {
+            registry: Arc::clone(self),
+            id,
+            unknown: true,
         })
     }
 
@@ -208,13 +254,31 @@ impl SessionScopeRegistry {
         }
     }
 
+    fn release_unknown(&self, id: u64) {
+        let mut unknown = self.active_unknown.lock();
+        if unknown.as_ref().is_some_and(|entry| entry.id == id) {
+            *unknown = None;
+        }
+    }
+
     fn scoped_write_timed_out(&self, entity: &str, execution: &str, scope: &Path) {
         tracing::warn!(
             entity = %entity,
             execution = %execution,
             scope = %scope.display(),
+            effect = "write",
             timeout_ms = self.serialization_timeout().as_millis() as u64,
             "shell scoped write wait expired; sampling skipped, command still runs"
+        );
+    }
+
+    fn unknown_wait_timed_out(&self, entity: &str, execution: &str) {
+        tracing::warn!(
+            entity = %entity,
+            execution = %execution,
+            effect = "unknown",
+            timeout_ms = self.serialization_timeout().as_millis() as u64,
+            "shell unknown wait expired; sampling skipped, command still runs"
         );
     }
 
@@ -273,6 +337,64 @@ impl SessionScopeRegistry {
             return ShellWindowOutcome::Disabled;
         }
         match self.try_insert_write(scope, "monitor") {
+            Some(guard) => ShellWindowOutcome::Acquired(guard),
+            None => ShellWindowOutcome::TimedOut,
+        }
+    }
+
+    pub async fn acquire_unknown(
+        self: &Arc<Self>,
+        entity: &str,
+        execution: &str,
+    ) -> ShellWindowOutcome {
+        if !self.serialization_enabled.load(Ordering::SeqCst) {
+            return ShellWindowOutcome::Disabled;
+        }
+        let timeout = self.serialization_timeout();
+        let deadline = Instant::now() + timeout;
+        let mut backoff = Duration::from_millis(1);
+        loop {
+            if let Some(guard) = self.try_insert_unknown(execution) {
+                return ShellWindowOutcome::Acquired(guard);
+            }
+            if Instant::now() >= deadline {
+                self.unknown_wait_timed_out(entity, execution);
+                return ShellWindowOutcome::TimedOut;
+            }
+            tokio::time::sleep(backoff).await;
+            backoff = (backoff * 2).min(Duration::from_millis(50));
+        }
+    }
+
+    pub fn blocking_acquire_unknown(
+        self: &Arc<Self>,
+        entity: &str,
+        execution: &str,
+    ) -> ShellWindowOutcome {
+        if !self.serialization_enabled.load(Ordering::SeqCst) {
+            return ShellWindowOutcome::Disabled;
+        }
+        let timeout = self.serialization_timeout();
+        let deadline = Instant::now() + timeout;
+        let mut backoff = Duration::from_millis(1);
+        loop {
+            if let Some(guard) = self.try_insert_unknown(execution) {
+                return ShellWindowOutcome::Acquired(guard);
+            }
+            if Instant::now() >= deadline {
+                self.unknown_wait_timed_out(entity, execution);
+                return ShellWindowOutcome::TimedOut;
+            }
+            std::thread::sleep(backoff);
+            backoff = (backoff * 2).min(Duration::from_millis(50));
+        }
+    }
+
+    pub fn try_acquire_unknown(self: &Arc<Self>) -> ShellWindowOutcome {
+        if !self.serialization_enabled.load(Ordering::SeqCst) {
+            return ShellWindowOutcome::Disabled;
+        }
+        match self.try_insert_unknown("monitor") {
             Some(guard) => ShellWindowOutcome::Acquired(guard),
             None => ShellWindowOutcome::TimedOut,
         }
@@ -407,6 +529,17 @@ impl ScopeCapture {
 
     pub fn try_acquire_scoped_write(&self, scope_dir: &Path) -> ShellWindowOutcome {
         self.scopes.try_acquire_scoped_write(scope_dir)
+    }
+
+    pub async fn acquire_unknown(&self, execution_id: &str) -> ShellWindowOutcome {
+        self.scopes
+            .acquire_unknown(&self.entity_id, execution_id)
+            .await
+    }
+
+    pub fn blocking_acquire_unknown(&self, execution_id: &str) -> ShellWindowOutcome {
+        self.scopes
+            .blocking_acquire_unknown(&self.entity_id, execution_id)
     }
 
     // ---- foreground scope helpers ----
@@ -839,6 +972,14 @@ mod tests {
             registry.blocking_acquire_scoped_write("e", "x", scope),
             ShellWindowOutcome::Disabled
         ));
+        assert!(matches!(
+            registry.try_acquire_unknown(),
+            ShellWindowOutcome::Disabled
+        ));
+        assert!(matches!(
+            registry.blocking_acquire_unknown("e", "x"),
+            ShellWindowOutcome::Disabled
+        ));
     }
 
     #[test]
@@ -881,6 +1022,63 @@ mod tests {
         assert!(matches!(
             registry.acquire_scoped_write("e", "x", &scope).await,
             ShellWindowOutcome::TimedOut
+        ));
+    }
+
+    #[test]
+    fn unknown_window_excludes_every_write_scope() {
+        let registry = std::sync::Arc::new(SessionScopeRegistry::default());
+        registry.set_scope_serialization(short_timeout_config().as_ref());
+        let disjoint = std::path::PathBuf::from("/ws/other");
+        let _unknown = match registry.try_acquire_unknown() {
+            ShellWindowOutcome::Acquired(guard) => guard,
+            ShellWindowOutcome::Disabled | ShellWindowOutcome::TimedOut => {
+                panic!("fresh registry must grant the unknown permit")
+            }
+        };
+        assert!(matches!(
+            registry.try_acquire_unknown(),
+            ShellWindowOutcome::TimedOut
+        ));
+        assert!(matches!(
+            registry.try_acquire_scoped_write(&disjoint),
+            ShellWindowOutcome::TimedOut
+        ));
+    }
+
+    #[test]
+    fn write_window_blocks_unknown() {
+        let registry = std::sync::Arc::new(SessionScopeRegistry::default());
+        registry.set_scope_serialization(short_timeout_config().as_ref());
+        let scope = std::path::PathBuf::from("/ws/a");
+        let _held = match registry.try_acquire_scoped_write(&scope) {
+            ShellWindowOutcome::Acquired(guard) => guard,
+            ShellWindowOutcome::Disabled | ShellWindowOutcome::TimedOut => {
+                panic!("fresh registry must grant the permit")
+            }
+        };
+        assert!(matches!(
+            registry.try_acquire_unknown(),
+            ShellWindowOutcome::TimedOut
+        ));
+    }
+
+    #[test]
+    fn unknown_release_unblocks_writes() {
+        let registry = std::sync::Arc::new(SessionScopeRegistry::default());
+        registry.set_scope_serialization(short_timeout_config().as_ref());
+        let scope = std::path::PathBuf::from("/ws/a");
+        {
+            let _unknown = match registry.try_acquire_unknown() {
+                ShellWindowOutcome::Acquired(guard) => guard,
+                ShellWindowOutcome::Disabled | ShellWindowOutcome::TimedOut => {
+                    panic!("fresh registry must grant the unknown permit")
+                }
+            };
+        }
+        assert!(matches!(
+            registry.try_acquire_scoped_write(&scope),
+            ShellWindowOutcome::Acquired(_)
         ));
     }
 }

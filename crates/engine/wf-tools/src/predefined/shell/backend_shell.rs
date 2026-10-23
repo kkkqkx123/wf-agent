@@ -121,14 +121,19 @@ impl StatefulInstance for BackendShellInstance {
         let session = self.store.get(&session_id).ok_or_else(|| {
             ToolError::Internal(format!("Session '{}' not found after spawn", session_id))
         })?;
-        let read_only = !self.store.policy().effect(command).needs_exclusive_window();
+        let effect = self.store.policy().effect(command);
         let scope = session.cwd();
-        let window = if read_only {
-            wf_checkpoint::ShellWindowOutcome::Disabled
-        } else if let Some(dir) = scope.as_ref() {
-            self.checkpoint.acquire_scoped_write_blocking(dir)
+        let (window, effect_label) = if effect.is_read() {
+            (wf_checkpoint::ShellWindowOutcome::Disabled, "read")
+        } else if effect.is_write() {
+            let window = if let Some(dir) = scope.as_ref() {
+                self.checkpoint.acquire_scoped_write_blocking(dir)
+            } else {
+                wf_checkpoint::ShellWindowOutcome::Disabled
+            };
+            (window, "write")
         } else {
-            wf_checkpoint::ShellWindowOutcome::Disabled
+            (self.checkpoint.acquire_unknown_blocking(), "unknown")
         };
         let degraded = match window {
             wf_checkpoint::ShellWindowOutcome::Acquired(_guard) => {
@@ -143,7 +148,8 @@ impl StatefulInstance for BackendShellInstance {
                 tracing::warn!(
                     execution = %self.execution_id,
                     session = %session_id,
-                    "session baseline skipped: overlapping write busy"
+                    effect = effect_label,
+                    "session baseline skipped: sampling window busy"
                 );
                 true
             }
@@ -159,6 +165,7 @@ impl StatefulInstance for BackendShellInstance {
             "interactive": interactive,
             "execution_id": self.execution_id,
             "sampling_degraded": degraded,
+            "sampling_effect": effect_label,
             "guidance": "Command moved to the background. Do not poll in a tight loop: use shell_wait to block until it finishes or shell_output to read output, or move on and watch for the shell completion event.",
         }))
     }

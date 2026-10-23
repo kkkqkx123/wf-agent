@@ -79,7 +79,7 @@ impl StatefulInstance for ShellKillInstance {
                 tracing::warn!(
                     execution = %self.checkpoint.execution_id(),
                     session = %session_id,
-                    "termination sampling skipped: overlapping write busy"
+                    "termination sampling skipped: sampling window busy"
                 );
             } else {
                 self.checkpoint

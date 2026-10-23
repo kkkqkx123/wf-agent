@@ -296,6 +296,14 @@ impl CheckpointSession {
         self.capture.try_acquire_scoped_write(scope_dir)
     }
 
+    pub async fn acquire_unknown(&self, execution_id: &str) -> crate::ShellWindowOutcome {
+        self.capture.acquire_unknown(execution_id).await
+    }
+
+    pub fn blocking_acquire_unknown(&self, execution_id: &str) -> crate::ShellWindowOutcome {
+        self.capture.blocking_acquire_unknown(execution_id)
+    }
+
     /// Async scope begin for async tool handlers: blocking scan runs on the
     /// blocking pool.
     pub async fn begin_scope_async(

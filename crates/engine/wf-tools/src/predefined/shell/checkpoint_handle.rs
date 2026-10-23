@@ -70,6 +70,20 @@ impl ShellCheckpointHandle {
         }
     }
 
+    pub async fn acquire_unknown_async(&self) -> ShellWindowOutcome {
+        match self.get() {
+            Some(cp) => cp.acquire_unknown(&self.execution_id).await,
+            None => ShellWindowOutcome::Disabled,
+        }
+    }
+
+    pub fn acquire_unknown_blocking(&self) -> ShellWindowOutcome {
+        match self.get() {
+            Some(cp) => cp.blocking_acquire_unknown(&self.execution_id),
+            None => ShellWindowOutcome::Disabled,
+        }
+    }
+
     /// Suspend forwarder sampling while a synchronous waiter holds its own
     /// permit and samples explicitly.
     pub fn suspend_forwarder(&self) -> SamplingSuspendGuard {
@@ -119,7 +133,7 @@ impl ShellCheckpointHandle {
                         tracing::warn!(
                             execution = %self.execution_id,
                             session = %session_id,
-                            "release skipped final sampling: overlapping write busy"
+                            "release skipped final sampling: sampling window busy"
                         );
                         continue;
                     }

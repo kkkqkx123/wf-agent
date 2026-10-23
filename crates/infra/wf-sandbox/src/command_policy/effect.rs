@@ -16,8 +16,12 @@ impl ShellEffect {
         matches!(self, ShellEffect::Read)
     }
 
-    pub fn needs_exclusive_window(self) -> bool {
-        !matches!(self, ShellEffect::Read)
+    pub fn is_write(self) -> bool {
+        matches!(self, ShellEffect::Write)
+    }
+
+    pub fn is_unknown(self) -> bool {
+        matches!(self, ShellEffect::Unknown)
     }
 }
 
@@ -49,6 +53,27 @@ const READ_GIT_SUBCOMMANDS: &[&str] = &[
     "ls-files",
     "rev-parse",
     "--version",
+];
+
+const WRITE_GIT_SUBCOMMANDS: &[&str] = &[
+    "add",
+    "commit",
+    "push",
+    "pull",
+    "fetch",
+    "merge",
+    "rebase",
+    "cherry-pick",
+    "revert",
+    "reset",
+    "rm",
+    "mv",
+    "clean",
+    "stash",
+    "checkout",
+    "switch",
+    "restore",
+    "clone",
 ];
 
 fn contains_dynamic_construct(sub: &str) -> bool {
@@ -92,6 +117,11 @@ fn classify_single(
             || READ_GIT_SUBCOMMANDS.contains(&second_trimmed.as_str())
         {
             return ShellEffect::Read;
+        }
+        if WRITE_GIT_SUBCOMMANDS.contains(&second.as_str())
+            || WRITE_GIT_SUBCOMMANDS.contains(&second_trimmed.as_str())
+        {
+            return ShellEffect::Write;
         }
         return ShellEffect::Unknown;
     }
@@ -216,6 +246,14 @@ mod tests {
         );
         assert_eq!(
             classify_shell_effect("git commit -m ok", bash(), None, None),
+            ShellEffect::Write
+        );
+        assert_eq!(
+            classify_shell_effect("git push origin main", bash(), None, None),
+            ShellEffect::Write
+        );
+        assert_eq!(
+            classify_shell_effect("git frobnicate", bash(), None, None),
             ShellEffect::Unknown
         );
     }

@@ -88,13 +88,24 @@ impl StatefulInstance for ExecuteInSessionInstance {
         let timeout = params.get("timeout").and_then(|v| v.as_u64());
 
         let scope_dir = self.store.get(session_id).and_then(|s| s.cwd());
-        let read_only = !self.store.policy().effect(command).needs_exclusive_window();
-        let window = if read_only {
-            wf_checkpoint::ShellWindowOutcome::Disabled
-        } else if let Some(scope) = scope_dir.as_ref() {
-            self.checkpoint.acquire_scoped_write_blocking(scope)
+        let effect = self.store.policy().effect(command);
+        let effect_label = if effect.is_read() {
+            "read"
+        } else if effect.is_write() {
+            "write"
         } else {
+            "unknown"
+        };
+        let window = if effect.is_read() {
             wf_checkpoint::ShellWindowOutcome::Disabled
+        } else if effect.is_write() {
+            if let Some(scope) = scope_dir.as_ref() {
+                self.checkpoint.acquire_scoped_write_blocking(scope)
+            } else {
+                wf_checkpoint::ShellWindowOutcome::Disabled
+            }
+        } else {
+            self.checkpoint.acquire_unknown_blocking()
         };
         let degraded = matches!(window, wf_checkpoint::ShellWindowOutcome::TimedOut);
         let _shell_window = match window {
@@ -107,6 +118,7 @@ impl StatefulInstance for ExecuteInSessionInstance {
             tracing::warn!(
                 execution = %self.checkpoint.execution_id(),
                 session = %session_id,
+                effect = effect_label,
                 "shell window timed out; executing without sampling"
             );
         }
@@ -133,7 +145,7 @@ impl StatefulInstance for ExecuteInSessionInstance {
             Err(_) => (None, false),
         };
         wf_shell::engine::background_task_registry().settle(session_id, settled.0, settled.1);
-        if result.is_ok() && !degraded && !read_only {
+        if result.is_ok() && !degraded && !effect.is_read() {
             let scope = scope_dir.or_else(|| self.store.get(session_id).and_then(|s| s.cwd()));
             self.checkpoint.command_finished(session_id, scope);
         }
@@ -141,6 +153,7 @@ impl StatefulInstance for ExecuteInSessionInstance {
             Ok(mut value) => {
                 if degraded {
                     value["sampling_degraded"] = serde_json::Value::Bool(true);
+                    value["sampling_effect"] = serde_json::Value::String(effect_label.to_string());
                 }
                 Ok(value)
             }

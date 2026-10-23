@@ -9,13 +9,42 @@ use super::{GitCommit, GitStoreError};
 use gix_object::Find as _;
 
 fn invalid_branch(branch: &str) -> Result<(), GitStoreError> {
-    let trimmed = branch.trim();
-    if trimmed.is_empty() || trimmed != branch {
+    if branch.is_empty() || branch.len() > 255 || branch.trim() != branch {
         return Err(GitStoreError::InvalidInput(
-            "external branch must not be empty or padded".to_string(),
+            "external branch must be 1-255 chars without padding".to_string(),
         ));
     }
-    if branch.starts_with('-') || branch.chars().any(|c| c.is_whitespace() || c.is_control()) {
+    if branch.starts_with('-')
+        || branch.starts_with('/')
+        || branch.starts_with('.')
+        || branch.ends_with('/')
+        || branch.ends_with(".lock")
+    {
+        return Err(GitStoreError::InvalidInput(format!(
+            "external branch is not a plain ref name: '{branch}'"
+        )));
+    }
+    if branch.contains("..") || branch.contains("@{") || branch.contains("//") {
+        return Err(GitStoreError::InvalidInput(format!(
+            "external branch is not a plain ref name: '{branch}'"
+        )));
+    }
+    // Revision operators must not leak into the selector: the caller builds
+    // `branch~n` itself, so any operator inside the branch would change the
+    // resolution semantics.
+    if branch.bytes().any(|b| {
+        matches!(b, b'~' | b'^' | b':' | b'?' | b'*' | b'[' | b'\\' | b'@')
+            || (b as char).is_whitespace()
+            || (b as char).is_control()
+    }) {
+        return Err(GitStoreError::InvalidInput(format!(
+            "external branch is not a plain ref name: '{branch}'"
+        )));
+    }
+    if !branch
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'/'))
+    {
         return Err(GitStoreError::InvalidInput(format!(
             "external branch is not a plain ref name: '{branch}'"
         )));
@@ -39,6 +68,109 @@ pub(crate) fn check_branch_name(branch: &str) -> Result<(), GitStoreError> {
 
 pub(crate) fn check_commit_prefix(prefix: &str) -> Result<(), GitStoreError> {
     invalid_prefix(prefix)
+}
+
+/// Whether a process id is still alive. Used to tell a live lock holder
+/// from a stale lock file left by a crashed process.
+pub(crate) fn pid_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    std::path::Path::new(&format!("/proc/{pid}")).exists()
+}
+
+/// Parse the `pid=<n>` payload written by lock files.
+pub(crate) fn parse_lock_pid(path: &Path) -> Option<u32> {
+    std::fs::read_to_string(path).ok().and_then(|text| {
+        text.split_whitespace()
+            .find_map(|token| token.strip_prefix("pid=")?.trim().parse::<u32>().ok())
+    })
+}
+
+/// Whether a lock file is stale: a live holder inside the grace window keeps
+/// the lock, anything else is reclaimable. Unreadable metadata leans stale
+/// so a broken lock never blocks progress forever.
+pub(crate) fn lock_file_is_stale(path: &Path, grace: std::time::Duration) -> bool {
+    let age = std::fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .map(|modified| {
+            modified
+                .elapsed()
+                .unwrap_or(grace + std::time::Duration::from_secs(1))
+        })
+        .unwrap_or(grace + std::time::Duration::from_secs(1));
+    match parse_lock_pid(path) {
+        Some(pid) if pid_alive(pid) => age > grace,
+        Some(_) => true,
+        None => age > grace,
+    }
+}
+
+/// Explicit object-format check for the user repository. Baseline borrowing
+/// only supports sha1; anything else fails with a clear error instead of a
+/// late length mismatch.
+pub fn user_objects_use_sha1(workspace_root: &Path) -> Result<bool, GitStoreError> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(workspace_root)
+        .arg("rev-parse")
+        .arg("--show-object-format")
+        .output();
+    match output {
+        Ok(out) if out.status.success() => {
+            Ok(String::from_utf8_lossy(&out.stdout).trim() == "sha1")
+        }
+        _ => {
+            let config = Command::new("git")
+                .arg("-C")
+                .arg(workspace_root)
+                .arg("config")
+                .arg("--get")
+                .arg("extensions.objectFormat")
+                .output()
+                .map_err(|e| GitStoreError::Baseline(format!("cannot query object format: {e}")))?;
+            if !config.status.success() {
+                return Ok(true);
+            }
+            Ok(String::from_utf8_lossy(&config.stdout).trim().is_empty()
+                || String::from_utf8_lossy(&config.stdout).trim() == "sha1")
+        }
+    }
+}
+
+/// Whether the user repository is shallow. Used to hint at `commit_prefix`
+/// when a `behind` walk crosses the shallow boundary.
+pub fn is_shallow_repo(workspace_root: &Path) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(workspace_root)
+        .arg("rev-parse")
+        .arg("--is-shallow-repository")
+        .output()
+        .map(|out| out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == "true")
+        .unwrap_or(false)
+}
+
+/// Advisory reachability probe for a `branch plus prefix` selector: warns
+/// when the pinned commit is not reachable from the branch tip. Never fails.
+pub fn warn_unless_reachable(workspace_root: &Path, branch: &str, commit: &str) {
+    let reachable = Command::new("git")
+        .arg("-C")
+        .arg(workspace_root)
+        .arg("merge-base")
+        .arg("--is-ancestor")
+        .arg(commit)
+        .arg(branch)
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(true);
+    if !reachable {
+        tracing::warn!(
+            branch = %branch,
+            commit = %commit,
+            "baseline commit is not reachable from the branch tip; anchoring anyway"
+        );
+    }
 }
 
 fn is_git_dir(dir: &Path) -> bool {
@@ -169,6 +301,12 @@ pub fn rev_parse_commit(
     if let Some(prefix) = commit_prefix {
         check_commit_prefix(prefix)?;
     }
+    if !user_objects_use_sha1(workspace_root)? {
+        return Err(GitStoreError::Baseline(
+            "user repository does not use sha1; cross-algorithm borrowing is not supported"
+                .to_string(),
+        ));
+    }
     let spec = match (branch, commit_prefix, behind) {
         (Some(branch), _, Some(n)) => format!("{branch}~{n}"),
         (Some(_), Some(prefix), None) => prefix.to_string(),
@@ -201,6 +339,12 @@ pub fn rev_parse_commit(
         })?;
     if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if behind.is_some() && is_shallow_repo(workspace_root) {
+            return Err(GitStoreError::Baseline(format!(
+                "cannot resolve baseline '{spec}' in user repository: {detail}; \
+                 shallow repository may not cover that ancestor, use commit_prefix instead"
+            )));
+        }
         return Err(GitStoreError::Baseline(format!(
             "cannot resolve baseline '{spec}' in user repository: {detail}"
         )));
@@ -210,6 +354,9 @@ pub fn rev_parse_commit(
         return Err(GitStoreError::Baseline(format!(
             "baseline commit id is not sha1 ({id}); cross-algorithm borrowing is not supported"
         )));
+    }
+    if let (Some(branch), Some(_), None) = (branch, commit_prefix, behind) {
+        warn_unless_reachable(workspace_root, branch, &id);
     }
     Ok((id, description))
 }

@@ -79,6 +79,11 @@ struct ExportLock {
     path: PathBuf,
 }
 
+/// How long a live export holder may keep the lock. Materializing a large
+/// worktree can take minutes; thirty minutes keeps genuine long exports
+/// safe while a dead holder is reclaimed through process liveness.
+const EXPORT_LOCK_GRACE: std::time::Duration = std::time::Duration::from_secs(1800);
+
 impl ExportLock {
     fn acquire(git_dir: &Path) -> Result<Self, CheckpointError> {
         let path = git_dir.join(EXPORT_LOCK_NAME);
@@ -93,7 +98,7 @@ impl ExportLock {
                 Ok(Self { path })
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                if Self::is_stale(&path) {
+                if crate::git_store::external::lock_file_is_stale(&path, EXPORT_LOCK_GRACE) {
                     let _ = std::fs::remove_file(&path);
                     return Self::acquire(git_dir);
                 }
@@ -105,19 +110,6 @@ impl ExportLock {
                 "cannot acquire export lock: {e}"
             ))),
         }
-    }
-
-    fn is_stale(path: &Path) -> bool {
-        let Ok(meta) = std::fs::metadata(path) else {
-            return true;
-        };
-        let Ok(modified) = meta.modified() else {
-            return true;
-        };
-        modified
-            .elapsed()
-            .map(|age| age > std::time::Duration::from_secs(60))
-            .unwrap_or(true)
     }
 }
 
@@ -329,6 +321,18 @@ impl FileCheckpointManager {
             if prev.external_repo != fingerprint {
                 // Repository moved: treat as a fresh export from the current
                 // main head instead of mixing histories.
+            } else if !prev.external_commit.is_empty()
+                && crate::git_store::external::read_external_commit(
+                    &objects_dir,
+                    &prev.external_commit,
+                )
+                .is_err()
+            {
+                tracing::warn!(
+                    commit = %prev.external_commit,
+                    "previous reconcile commit is not resolvable in the user repository; \
+                     continuing from a fresh baseline-anchored export"
+                );
             }
         }
         let dirty = self.export_dirty_paths(base_dir)?;
@@ -486,14 +490,14 @@ impl FileCheckpointManager {
         if head == reconcile.external_commit {
             return Ok(None);
         }
-        let file_count = match self.external_diff_size(&objects_dir, &reconcile.external_commit, &head)
-        {
-            Ok(count) => count,
-            Err(err) => {
-                tracing::warn!(error = %err, "external diff unreadable; hint degraded to null");
-                return Ok(None);
-            }
-        };
+        let file_count =
+            match self.external_diff_size(&objects_dir, &reconcile.external_commit, &head) {
+                Ok(count) => count,
+                Err(err) => {
+                    tracing::warn!(error = %err, "external diff unreadable; hint degraded to null");
+                    return Ok(None);
+                }
+            };
         Ok(Some(ExternalUpdateHint {
             external_head: head,
             reconcile,
@@ -620,25 +624,34 @@ impl FileCheckpointManager {
                 idempotent: true,
             });
         }
-        let base_files: HashMap<String, (String, Vec<u8>)> = if reconcile.external_commit.is_empty()
+        let (base_files, no_base): (HashMap<String, (String, Vec<u8>)>, bool) = if reconcile
+            .external_commit
+            .is_empty()
         {
-            HashMap::new()
+            (HashMap::new(), true)
         } else {
             match ext::read_external_commit(&objects_dir, &reconcile.external_commit) {
-                Ok(base_commit) => ext::external_tree_to_bytes(&objects_dir, &base_commit.tree)
-                    .map_err(|e| {
+                Ok(base_commit) => {
+                    let base_modes = ext::external_tree_to_files(&objects_dir, &base_commit.tree)
+                        .map_err(|e| {
                         CheckpointError::Internal(format!("cannot read external base: {e}"))
-                    })?
-                    .into_iter()
-                    .map(|(p, b)| (p, (crate::git_store::MODE_FILE.to_string(), b)))
-                    .collect(),
-                Err(_) => HashMap::new(),
+                    })?;
+                    let base_bytes = ext::external_tree_to_bytes(&objects_dir, &base_commit.tree)
+                        .map_err(|e| {
+                        CheckpointError::Internal(format!("cannot read external base: {e}"))
+                    })?;
+                    let mut joined = HashMap::with_capacity(base_bytes.len());
+                    for (path, bytes) in base_bytes {
+                        let mode = base_modes
+                            .get(&path)
+                            .map(|(m, _)| m.clone())
+                            .unwrap_or_else(|| crate::git_store::MODE_FILE.to_string());
+                        joined.insert(path, (mode, bytes));
+                    }
+                    (joined, false)
+                }
+                Err(_) => (HashMap::new(), true),
             }
-        };
-        let no_base = if reconcile.external_commit.is_empty() {
-            true
-        } else {
-            ext::read_external_commit(&objects_dir, &reconcile.external_commit).is_err()
         };
         let head_commit = ext::read_external_commit(&objects_dir, &head)
             .map_err(|e| CheckpointError::Internal(format!("cannot read external HEAD: {e}")))?;
@@ -698,7 +711,9 @@ impl FileCheckpointManager {
                 continue;
             }
             // Both sides changed relative to the base: standard three-way
-            // merge decides clean versus conflicted.
+            // merge decides clean versus conflicted. An empty outcome means
+            // deletion won (both sides deleted a base file), not a missing
+            // value.
             let outcome = crate::git_store::merge_file_contents(base, ours, theirs.as_deref());
             match outcome.bytes {
                 Some(bytes) => {
@@ -806,9 +821,10 @@ impl FileCheckpointManager {
         if external_files.len() != internal_files.len() {
             return Ok(false);
         }
-        for (path, (_, blob)) in &external_files {
+        for (path, (mode, blob)) in &external_files {
             match internal_files.get(path) {
-                Some((_, internal_blob)) if internal_blob == blob => {}
+                Some((internal_mode, internal_blob))
+                    if internal_mode == mode && internal_blob == blob => {}
                 _ => return Ok(false),
             }
         }

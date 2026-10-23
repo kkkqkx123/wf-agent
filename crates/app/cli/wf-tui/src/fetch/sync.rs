@@ -70,15 +70,11 @@ fn sync_rows(
     let (hint_summary, hint_detail) = if hint.is_null() {
         (
             "external head aligned".to_string(),
-            "external update: none (the external head matches the reconcile point)"
-                .to_string(),
+            "external update: none (the external head matches the reconcile point)".to_string(),
         )
     } else {
         let external_head = text(hint, "external_head");
-        let file_count = hint
-            .get("file_count")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
+        let file_count = hint.get("file_count").and_then(|v| v.as_u64()).unwrap_or(0);
         let inner = hint.get("reconcile").cloned().unwrap_or_default();
         let detail = [
             format!("external head: {external_head}"),

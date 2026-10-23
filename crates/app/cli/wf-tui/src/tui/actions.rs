@@ -368,10 +368,9 @@ impl TuiApp {
                                 .unwrap_or(false);
                             match (commit.is_empty(), idempotent) {
                                 (true, _) => "Export completed".to_string(),
-                                (false, true) => format!(
-                                    "Export already up to date ({})",
-                                    short_id(commit)
-                                ),
+                                (false, true) => {
+                                    format!("Export already up to date ({})", short_id(commit))
+                                }
                                 (false, false) => {
                                     format!("Exported main ({})", short_id(commit))
                                 }
@@ -442,12 +441,12 @@ impl TuiApp {
                 .set("Open the sync screen before rebasing.".to_string());
             return;
         }
-        let rx =
-            self.modals
-                .push_with_result(Box::new(crate::prompt_modal::PromptModal::new(
-                    "Rebase baseline",
-                    "branch | prefix=<p> | behind=<n> | mode=<borrow|copy>",
-                )));
+        let rx = self
+            .modals
+            .push_with_result(Box::new(crate::prompt_modal::PromptModal::new(
+                "Rebase baseline",
+                "branch | prefix=<p> | behind=<n> | mode=<borrow|copy>",
+            )));
         let tx = self.feedback_tx.clone();
         self.tasks.push(tokio::spawn(async move {
             match rx.await {

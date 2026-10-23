@@ -243,6 +243,15 @@ impl FileCheckpointManager {
         let Some(baseline) = &config.baseline else {
             return Ok(());
         };
+        if config.store_in_workspace.unwrap_or(false)
+            && baseline.mode == wf_types::config::file_checkpoint::BaselineMode::Borrow
+        {
+            tracing::warn!(
+                "checkpoint store lives inside the workspace but baseline mode is borrow: \
+                 the delivered directory still depends on the external repository; \
+                 use copy mode for a self-contained delivery"
+            );
+        }
         let git = self.git_ref()?;
         let request = crate::git_store::BaselineRequest {
             mode: match baseline.mode {

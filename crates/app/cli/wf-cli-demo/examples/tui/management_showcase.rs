@@ -349,7 +349,8 @@ fn synthetic_file_sync() -> ScreenData {
     })
 }
 
-fn synthetic_edit_sessions() -> ScreenData {    ScreenData::EditSessions(vec![EditSessionRow {
+fn synthetic_edit_sessions() -> ScreenData {
+    ScreenData::EditSessions(vec![EditSessionRow {
         id: "sess-1700000000-1-0".into(),
         label: "format file".into(),
         created_at: "2024-01-15 10:30:00".into(),

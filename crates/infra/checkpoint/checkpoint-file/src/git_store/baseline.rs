@@ -90,6 +90,55 @@ const ANCHOR_VERSION: &str = "v1";
 /// File holding the pinned anchor, next to the store's `HEAD` and `config`.
 const ANCHOR_FILE_NAME: &str = "baseline-anchor";
 
+/// Pending anchor staged before a rebase moves the main ref. Renamed to the
+/// anchor file only after the ref update lands, so a crash always resolves
+/// to either the old or the new anchor.
+const ANCHOR_PENDING_NAME: &str = "baseline-anchor.pending";
+
+/// Seed lock serializing concurrent baseline seeds and rebases on one store.
+const SEED_LOCK_NAME: &str = "baseline-seed.lock";
+
+/// How long a live seed holder may keep the lock before it is considered
+/// stuck. Seeds run a few git commands; five minutes is generous.
+const SEED_LOCK_GRACE: std::time::Duration = std::time::Duration::from_secs(300);
+
+struct SeedLock {
+    path: PathBuf,
+}
+
+impl SeedLock {
+    fn acquire(git_dir: &Path) -> Result<Self, GitStoreError> {
+        let path = git_dir.join(SEED_LOCK_NAME);
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(mut file) => {
+                use std::io::Write as _;
+                let _ = writeln!(file, "pid={}", std::process::id());
+                Ok(Self { path })
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                if super::external::lock_file_is_stale(&path, SEED_LOCK_GRACE) {
+                    let _ = std::fs::remove_file(&path);
+                    return Self::acquire(git_dir);
+                }
+                Err(GitStoreError::Baseline(
+                    "baseline seed busy: another session is seeding this workspace".to_string(),
+                ))
+            }
+            Err(e) => Err(GitStoreError::from(e)),
+        }
+    }
+}
+
+impl Drop for SeedLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
 /// Alternates declaration path relative to the store root.
 const ALTERNATES_REL: &str = "objects/info/alternates";
 
@@ -200,6 +249,61 @@ impl GitStore {
         Ok(())
     }
 
+    fn pending_anchor_path(&self) -> PathBuf {
+        self.git_dir().join(ANCHOR_PENDING_NAME)
+    }
+
+    fn read_pending_anchor(&self) -> Result<Option<BaselineAnchor>, GitStoreError> {
+        match fs::read_to_string(self.pending_anchor_path()) {
+            Ok(text) => Ok(Some(BaselineAnchor::parse(&text)?)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(GitStoreError::from(e)),
+        }
+    }
+
+    fn write_pending_anchor(&self, anchor: &BaselineAnchor) -> Result<(), GitStoreError> {
+        let path = self.pending_anchor_path();
+        let tmp = path.with_extension("tmp");
+        fs::write(&tmp, anchor.serialize())?;
+        fs::rename(&tmp, &path)?;
+        Ok(())
+    }
+
+    /// Resolve a pending rebase left by a crash: when the main head is a
+    /// transplant on top of the pending anchor, complete the rename; when
+    /// the main head never moved, drop the pending file and restore the
+    /// alternates entry for the settled anchor.
+    fn complete_pending_rebase(&self) -> Result<(), GitStoreError> {
+        let Some(pending) = self.read_pending_anchor()? else {
+            return Ok(());
+        };
+        let main_head = self.read_ref(REF_MAIN)?;
+        let completed = match &main_head {
+            Some(head) => self
+                .read_commit(head)
+                .map(|commit| commit.parents.first().is_some_and(|p| p == &pending.id))
+                .unwrap_or(false),
+            None => false,
+        };
+        if completed {
+            let tmp = self.anchor_path().with_extension("tmp");
+            fs::write(&tmp, pending.serialize())?;
+            fs::rename(&tmp, self.anchor_path())?;
+            let _ = fs::remove_file(self.pending_anchor_path());
+            return Ok(());
+        }
+        let still_old = matches!((&main_head, self.read_anchor()?), (Some(_), Some(_)));
+        if still_old {
+            if let Ok(Some(settled)) = self.read_anchor() {
+                if settled.mode == BaselineMode::Borrow {
+                    let _ = self.write_alternates(Path::new(&settled.objects_path));
+                }
+            }
+        }
+        let _ = fs::remove_file(self.pending_anchor_path());
+        Ok(())
+    }
+
     fn read_alternates(&self) -> Option<String> {
         fs::read_to_string(self.git_dir().join(ALTERNATES_REL))
             .ok()
@@ -222,9 +326,8 @@ impl GitStore {
     /// blobs, no parent history). Pack failures fail directly so the store
     /// shape stays predictable; half-installed packs are removed. Post-copy
     /// validation reads the anchor commit and its main tree so a corrupt
-    /// pack cannot seed a store. Concurrent seeds converge through
-    /// `compare_and_swap(REF_MAIN)`: same-content seeds are idempotent,
-    /// different-content seeds keep the winner.
+    /// pack cannot seed a store. Seeds are serialized by the seed lock;
+    /// the ref update still uses compare-and-swap as a second guard.
     fn copy_closure_from_external(
         &self,
         objects_dir: &Path,
@@ -285,12 +388,13 @@ impl GitStore {
         std::fs::create_dir_all(&pack_dir)?;
         let dest_pack = pack_dir.join(&pack_name);
         let dest_idx = pack_dir.join(&idx_name);
-        std::fs::rename(staging.path().join(&pack_name), &dest_pack).map_err(|e| {
-            GitStoreError::Baseline(format!("pack install failed: {e}"))
-        })?;
+        std::fs::rename(staging.path().join(&pack_name), &dest_pack)
+            .map_err(|e| GitStoreError::Baseline(format!("pack install failed: {e}")))?;
         if let Err(e) = std::fs::rename(staging.path().join(&idx_name), &dest_idx) {
             let _ = std::fs::remove_file(&dest_pack);
-            return Err(GitStoreError::Baseline(format!("pack index install failed: {e}")));
+            return Err(GitStoreError::Baseline(format!(
+                "pack index install failed: {e}"
+            )));
         }
         let commit = match self.read_commit(commit_id) {
             Ok(commit) => commit,
@@ -332,6 +436,8 @@ impl GitStore {
         req: &BaselineRequest,
     ) -> Result<BaselineSeedOutcome, GitStoreError> {
         req.validate()?;
+        let _seed_lock = SeedLock::acquire(self.git_dir())?;
+        self.complete_pending_rebase()?;
         if let Some(existing) = self.read_anchor()? {
             return self.finish_seed_from_anchor(existing);
         }
@@ -408,9 +514,16 @@ impl GitStore {
             Some(head) if head == anchor.id => Ok(BaselineSeedOutcome::AlreadySeeded(anchor)),
             Some(_) => {
                 // Another session seeded a different anchor (the branch moved
-                // between seeds). Keep the winner; drop ours so the anchor
-                // file never disagrees with the main ref.
-                let _ = fs::remove_file(self.anchor_path());
+                // between seeds). Keep the winner; only remove the anchor
+                // file when it still holds our own id, so a concurrent
+                // winner is never deleted.
+                let owned = self
+                    .read_anchor()
+                    .map(|current| current.is_some_and(|c| c.id == anchor.id))
+                    .unwrap_or(false);
+                if owned {
+                    let _ = fs::remove_file(self.anchor_path());
+                }
                 Ok(BaselineSeedOutcome::Skipped(
                     "another session seeded a different baseline; keeping it".to_string(),
                 ))
@@ -423,6 +536,7 @@ impl GitStore {
     /// re-discovery when the anchor commit is found there. Copy-mode stores
     /// carry their own objects and never need an alternates entry.
     pub fn validate_baseline(&self) -> Result<BaselineStatus, GitStoreError> {
+        self.complete_pending_rebase()?;
         let Some(mut anchor) = self.read_anchor()? else {
             return Ok(BaselineStatus::NoBaseline);
         };
@@ -482,6 +596,8 @@ impl GitStore {
     /// under the normal grace window for rollback.
     pub fn rebase_to(&self, req: &BaselineRequest) -> Result<BaselineRebaseOutcome, GitStoreError> {
         req.validate()?;
+        let _seed_lock = SeedLock::acquire(self.git_dir())?;
+        self.complete_pending_rebase()?;
         let Some(old_anchor) = self.read_anchor()? else {
             return Err(GitStoreError::Baseline(
                 "no baseline anchor to rebase; seed a baseline first".to_string(),
@@ -545,7 +661,6 @@ impl GitStore {
             super::commit::now_millis(),
             &message,
         )?;
-        self.compare_and_swap(REF_MAIN, Some(&old_main), &transplant_id)?;
         let new_anchor = BaselineAnchor {
             id: commit,
             mode: req.mode,
@@ -554,7 +669,19 @@ impl GitStore {
             source_spec: spec,
             resolved_at_ms: super::commit::now_millis(),
         };
-        self.write_anchor(&new_anchor)?;
+        self.write_pending_anchor(&new_anchor)?;
+        match self.compare_and_swap(REF_MAIN, Some(&old_main), &transplant_id) {
+            Ok(()) => {
+                let tmp = self.anchor_path().with_extension("tmp");
+                fs::write(&tmp, new_anchor.serialize())?;
+                fs::rename(&tmp, self.anchor_path())?;
+                let _ = fs::remove_file(self.pending_anchor_path());
+            }
+            Err(e) => {
+                let _ = fs::remove_file(self.pending_anchor_path());
+                return Err(e);
+            }
+        }
         Ok(BaselineRebaseOutcome {
             old_anchor,
             new_anchor,

@@ -76,8 +76,9 @@ pub(super) async fn fetch_dashboard(client: &WfClient) -> CliResult<ScreenData> 
 
 pub(super) async fn fetch_workflows(client: &WfClient) -> CliResult<(ScreenData, bool)> {
     // Escape hatch: workflow summaries stay dynamic for list display.
-    let data: serde_json::Value =
-        client.get_json(wf_cli_shared::paths::WORKFLOWS_SUMMARIES).await?;
+    let data: serde_json::Value = client
+        .get_json(wf_cli_shared::paths::WORKFLOWS_SUMMARIES)
+        .await?;
     let (items, has_more) = page_of(&data);
     let rows = items
         .into_iter()

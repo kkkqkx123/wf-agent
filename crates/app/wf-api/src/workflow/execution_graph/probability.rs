@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-
 use wf_types::workflow_execution::WorkflowGraphStructure;
 
 use crate::infra::context::ApiContext;
@@ -98,7 +97,6 @@ pub async fn get_path_probability_analysis(
         path_diversity,
     })
 }
-
 
 fn edge_probabilities(graph: &WorkflowGraphStructure) -> HashMap<(String, String), f64> {
     let mut probabilities = HashMap::new();

@@ -1,8 +1,8 @@
 //! Pending file-change approvals fetcher: the review lines awaiting a
 //! human decision, with the submitted file set pre-rendered for the viewer.
 
-use wf_client::WfClient;
 use wf_client::models;
+use wf_client::WfClient;
 
 use crate::error::CliResult;
 use crate::screens::{ApprovalRow, ScreenData};

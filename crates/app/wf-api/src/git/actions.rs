@@ -51,7 +51,11 @@ pub(crate) fn optional_param(request: &ActionRequest, key: &str) -> Option<Strin
         .filter(|s| !s.is_empty())
 }
 
-pub(crate) fn require_confirm(request: &ActionRequest, expected: &str, action: &str) -> GitResult<()> {
+pub(crate) fn require_confirm(
+    request: &ActionRequest,
+    expected: &str,
+    action: &str,
+) -> GitResult<()> {
     match request.confirm.as_deref().map(str::trim) {
         Some(confirm) if confirm == expected && !expected.is_empty() => Ok(()),
         _ => Err(GitError::ConfirmRequired(action.to_string())),

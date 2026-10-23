@@ -3,7 +3,6 @@ use serde::Serialize;
 use wf_types::execution::ExecutionType;
 use wf_types::ExecutionStatus;
 
-
 /// One execution as referenced from a hierarchy view.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ExecutionRef {
@@ -67,7 +66,6 @@ pub struct ExecutionSubtree {
 fn is_zero(value: &usize) -> bool {
     *value == 0
 }
-
 
 /// One persisted row that could not be interpreted.
 #[derive(Debug, Clone, PartialEq, Serialize)]

@@ -30,7 +30,9 @@ impl WasmPlugin {
     }
 }
 
-pub async fn fetch_declaration(inner: &WasmPluginInner) -> PluginResult<WasmContributionDecl> {
+pub(crate) async fn fetch_declaration(
+    inner: &WasmPluginInner,
+) -> PluginResult<WasmContributionDecl> {
     let mut session = inner.pool.acquire().await?;
     let negotiated = match abi::negotiate_abi_version(
         &mut session,

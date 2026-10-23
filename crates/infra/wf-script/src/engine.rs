@@ -2,9 +2,7 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use super::types::{
-    ScriptDefinition, ScriptExecutionOptions, ScriptExecutionResult,
-};
+use super::types::{ScriptDefinition, ScriptExecutionOptions, ScriptExecutionResult};
 use crate::error::ScriptError;
 
 pub struct ScriptEngine;
@@ -175,7 +173,6 @@ impl ScriptEngine {
         result
     }
 }
-
 
 #[cfg(test)]
 #[path = "engine/tests.rs"]

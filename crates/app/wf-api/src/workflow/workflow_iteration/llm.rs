@@ -119,4 +119,3 @@ fn extract_llm_content(output: &Value) -> String {
     }
     output.to_string()
 }
-

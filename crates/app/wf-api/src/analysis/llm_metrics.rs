@@ -244,9 +244,15 @@ mod tests {
     async fn llm_metrics_aggregate_by_model() {
         let ctx = make_ctx(true);
         let metrics = ctx.metrics.as_ref().expect("metrics wired");
-        metrics.token().record_token_usage(&record("gpt-4o", 100, 200, 0));
-        metrics.token().record_token_usage(&record("claude-4", 50, 50, 0));
-        metrics.token().record_token_usage(&record("gpt-4o", 10, 20, 0));
+        metrics
+            .token()
+            .record_token_usage(&record("gpt-4o", 100, 200, 0));
+        metrics
+            .token()
+            .record_token_usage(&record("claude-4", 50, 50, 0));
+        metrics
+            .token()
+            .record_token_usage(&record("gpt-4o", 10, 20, 0));
 
         let usage = agent_llm_metrics(&ctx).await.unwrap();
         assert_eq!(usage.total_tokens, 430);
@@ -268,7 +274,9 @@ mod tests {
     async fn llm_metrics_expose_the_cache_breakdown() {
         let ctx = make_ctx(true);
         let metrics = ctx.metrics.as_ref().expect("metrics wired");
-        metrics.token().record_token_usage(&record("gpt-4o", 200, 100, 800));
+        metrics
+            .token()
+            .record_token_usage(&record("gpt-4o", 200, 100, 800));
 
         let usage = agent_llm_metrics(&ctx).await.unwrap();
         assert_eq!(usage.cache_read_tokens, 800);
@@ -283,8 +291,12 @@ mod tests {
     async fn execution_usage_accumulates_the_rounds() {
         let ctx = make_ctx(true);
         let metrics = ctx.metrics.as_ref().expect("metrics wired");
-        metrics.token().record_token_usage(&record("gpt-4o", 100, 20, 0));
-        metrics.token().record_token_usage(&record("gpt-4o", 150, 30, 0));
+        metrics
+            .token()
+            .record_token_usage(&record("gpt-4o", 100, 20, 0));
+        metrics
+            .token()
+            .record_token_usage(&record("gpt-4o", 150, 30, 0));
 
         let execution = execution_token_usage(&ctx, "exec-1")
             .await
@@ -293,7 +305,10 @@ mod tests {
         assert_eq!(execution.rounds, 2);
         assert_eq!(execution.input_tokens, 250);
         assert_eq!(execution.output_tokens, 50);
-        assert!(execution_token_usage(&ctx, "unknown").await.unwrap().is_none());
+        assert!(execution_token_usage(&ctx, "unknown")
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]
@@ -302,6 +317,9 @@ mod tests {
         let usage = agent_llm_metrics(&ctx).await.unwrap();
         assert_eq!(usage.total_tokens, 0);
         assert!(usage.by_model.is_empty());
-        assert!(execution_token_usage(&ctx, "exec-1").await.unwrap().is_none());
+        assert!(execution_token_usage(&ctx, "exec-1")
+            .await
+            .unwrap()
+            .is_none());
     }
 }

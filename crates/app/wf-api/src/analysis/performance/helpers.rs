@@ -160,5 +160,3 @@ pub(super) fn build_profile(
         time_by_node_type,
     }
 }
-
-

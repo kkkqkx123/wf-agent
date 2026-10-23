@@ -28,10 +28,6 @@ impl ComponentPlugin {
             inner: Arc::new(inner),
         }
     }
-
-    pub fn stats(&self) -> super::super::stats::WasmStatsSnapshot {
-        self.inner.stats.snapshot()
-    }
 }
 
 /// Marker connecting the generated world bindings to [`ComponentHostState`].

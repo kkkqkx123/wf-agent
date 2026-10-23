@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-
 use wf_checkpoint::{ActorId, ActorKind, WorkspaceChangeCollector};
 use wf_script::{ScriptDefinition, ScriptEngine, ScriptEngineOptions, ScriptExecutionOptions};
 use wf_types::enums::ScriptLanguage;
@@ -521,4 +520,3 @@ fn to_script_result(result: ScriptExecutionResult) -> wf_script::ScriptExecution
         stderr_path: None,
     }
 }
-

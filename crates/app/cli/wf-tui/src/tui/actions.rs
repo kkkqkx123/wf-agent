@@ -78,8 +78,7 @@ impl TuiApp {
                     .await
                     .map(|view| {
                         crate::fetch::format_checkpoint_chain(
-                            &serde_json::to_value(&view)
-                                .unwrap_or(serde_json::Value::Null),
+                            &serde_json::to_value(&view).unwrap_or(serde_json::Value::Null),
                         )
                     })
                     .map_err(crate::error::CliError::from)
@@ -89,8 +88,7 @@ impl TuiApp {
                     .await
                     .map(|view| {
                         crate::fetch::format_checkpoint_chain(
-                            &serde_json::to_value(&view)
-                                .unwrap_or(serde_json::Value::Null),
+                            &serde_json::to_value(&view).unwrap_or(serde_json::Value::Null),
                         )
                     })
                     .map_err(crate::error::CliError::from)

@@ -108,14 +108,14 @@ pub fn write_pty_bytes(id: &str, data: &[u8]) -> PtyResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::state;
+    use super::decode;
     use super::io;
     use super::session;
-    use super::decode;
+    use super::state;
+    use super::*;
     use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
     use std::sync::atomic::{AtomicBool, AtomicI64};
+    use std::sync::{Arc, Mutex};
     use wf_common::now;
 
     fn stub_state() -> Arc<state::PtyState> {

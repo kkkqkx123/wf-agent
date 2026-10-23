@@ -234,4 +234,3 @@ pub fn sweep(inner: &Mutex<ManagerInner>) {
         }
     }
 }
-

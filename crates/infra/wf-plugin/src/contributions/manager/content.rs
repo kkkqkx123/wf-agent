@@ -65,4 +65,3 @@ impl ContributionManager {
         self.tool_registry.get(id)
     }
 }
-

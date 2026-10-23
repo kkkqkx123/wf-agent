@@ -1,9 +1,9 @@
-use wf_core::registry::Registry;
-use wf_storage::adapter::base::BaseStorageAdapter;
-use crate::ApiContext;
-use crate::ApiResult;
 use super::scoring::{matched_fields, score, sorted_truncated};
 use super::types::SearchResultItem;
+use crate::ApiContext;
+use crate::ApiResult;
+use wf_core::registry::Registry;
+use wf_storage::adapter::base::BaseStorageAdapter;
 
 pub(super) async fn search_executions(
     ctx: &ApiContext,
@@ -43,5 +43,3 @@ pub(super) async fn search_executions(
     }
     Ok(sorted_truncated(out, limit))
 }
-
-

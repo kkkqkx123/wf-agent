@@ -1,5 +1,3 @@
-
-
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::workflow_execution::WorkflowGraphStructure;
 
@@ -32,4 +30,3 @@ pub async fn clear_execution_data(ctx: &ApiContext, execution_id: &str) -> ApiRe
     }
     Ok(())
 }
-

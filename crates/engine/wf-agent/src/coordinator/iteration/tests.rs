@@ -29,7 +29,7 @@ fn tool_call_message(tool_call_id: &str) -> Message {
                 arguments: "{}".to_string(),
             },
             call_id: None,
-        thought_signature: None,
+            thought_signature: None,
         }]),
         thinking: None,
         thinking_signature: None,
@@ -421,7 +421,7 @@ async fn blocking_tool_call_executes_and_continues() {
             arguments: r#"{"text":"ping"}"#.to_string(),
         },
         call_id: None,
-    thought_signature: None,
+        thought_signature: None,
     }]));
 
     let entity = running_entity("agent-block-tool").await;
@@ -456,7 +456,7 @@ async fn blocking_attempt_completion_ends_the_loop() {
             arguments: r#"{"result":"all done"}"#.to_string(),
         },
         call_id: None,
-    thought_signature: None,
+        thought_signature: None,
     }]));
 
     let entity = running_entity("agent-block-done").await;

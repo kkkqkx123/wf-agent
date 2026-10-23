@@ -3,8 +3,6 @@ use wf_tools::callback::AgentLoopConfig;
 use wf_types::agent::AgentConfig;
 use wf_types::message::Message;
 
-
-
 pub fn seed_initial_messages(conversation: &mut Vec<Message>, cfg: &AgentConfig) {
     let Some(initial) = cfg.initial_messages.as_ref() else {
         return;
@@ -65,4 +63,3 @@ pub fn attach_prompt_assembly(
         DynamicTailBearing::SeparateUserMessage,
     );
 }
-

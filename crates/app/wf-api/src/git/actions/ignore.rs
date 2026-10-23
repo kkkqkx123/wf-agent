@@ -2,7 +2,7 @@ use crate::git::config::validate_repo_path;
 use crate::git::types::{GitError, GitResult};
 use crate::infra::context::ApiContext;
 
-use super::{ActionOutcome, ActionRequest, finish, param};
+use super::{finish, param, ActionOutcome, ActionRequest};
 
 pub fn handle(
     ctx: &ApiContext,

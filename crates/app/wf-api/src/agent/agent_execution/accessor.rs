@@ -6,7 +6,6 @@ use crate::infra::state_tracker::{ExecutionStateAccessor, StatePoint};
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_execution_shared::types::state_manager::StateManager;
 
-
 pub struct AgentStateAccessor {
     pub entity: Arc<AgentLoopEntity>,
 }
@@ -47,5 +46,3 @@ impl ExecutionStateAccessor for AgentStateAccessor {
         }
     }
 }
-
-

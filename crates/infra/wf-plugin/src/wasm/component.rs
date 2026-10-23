@@ -226,7 +226,6 @@ impl PluginTrait for ComponentPlugin {
     }
 }
 
-
 #[cfg(test)]
 #[path = "component/tests.rs"]
 mod tests;

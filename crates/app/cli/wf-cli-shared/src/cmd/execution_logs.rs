@@ -68,9 +68,7 @@ pub(crate) async fn show_execution_logs(
     // fresh entries. The fixed interval survives only as the degraded path
     // when the stream cannot be opened or drops.
     match client
-        .get_stream(&wf_client::endpoints::events_stream_for_execution(
-            id, None,
-        ))
+        .get_stream(&wf_client::endpoints::events_stream_for_execution(id, None))
         .await
     {
         Ok(stream) => {
@@ -86,9 +84,7 @@ pub(crate) async fn show_execution_logs(
             )
             .await
         }
-        Err(_) => {
-            follow_via_poll(cli, client, id, page_size, types, interval, last_seen).await
-        }
+        Err(_) => follow_via_poll(cli, client, id, page_size, types, interval, last_seen).await,
     }
 }
 
@@ -202,10 +198,7 @@ async fn follow_via_poll(
 }
 
 /// Whether a bus event can carry entries of the requested log types.
-fn frame_matches_types(
-    base: &wf_types::events::BaseEvent,
-    types: Option<&str>,
-) -> bool {
+fn frame_matches_types(base: &wf_types::events::BaseEvent, types: Option<&str>) -> bool {
     let Some(list) = types else {
         return true;
     };

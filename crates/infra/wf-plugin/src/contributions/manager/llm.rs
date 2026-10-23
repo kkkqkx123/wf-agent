@@ -22,4 +22,3 @@ impl ContributionManager {
         self.llm_provider_definitions.all()
     }
 }
-

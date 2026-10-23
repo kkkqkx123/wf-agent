@@ -88,6 +88,16 @@ impl StatefulInstance for ExecuteInSessionInstance {
         let timeout = params.get("timeout").and_then(|v| v.as_u64());
 
         let scope_dir = self.store.get(session_id).and_then(|s| s.cwd());
+        // Exclusive sampling window: held across command execution and
+        // completion sampling so concurrent shells cannot interleave their
+        // scans. `None` (disabled or timed out) proceeds without exclusivity.
+        let _shell_window = if scope_dir.is_some() {
+            self.checkpoint
+                .get()
+                .and_then(|cp| cp.blocking_acquire_shell_window(self.checkpoint.execution_id()))
+        } else {
+            None
+        };
         wf_shell::engine::background_task_registry().register(
             session_id,
             command,

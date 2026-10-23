@@ -128,7 +128,9 @@ pub(crate) async fn handle_release_lock(
     let before = state.locks.current("agent", &path.id, now_ms());
     let after = state.locks.release("agent", &path.id, &body.owner_id);
     if let Some(prev) = before {
-        let changed = after.as_ref().is_none_or(|view| view.owner_id != prev.owner_id);
+        let changed = after
+            .as_ref()
+            .is_none_or(|view| view.owner_id != prev.owner_id);
         if changed {
             publish_lock_event(
                 &state.ctx,

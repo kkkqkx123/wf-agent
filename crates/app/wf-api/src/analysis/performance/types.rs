@@ -134,4 +134,3 @@ pub struct WorkflowPerformanceProfile {
     pub bottlenecks: Vec<PerformanceBottleneckView>,
     pub summary: PerformanceSummaryView,
 }
-

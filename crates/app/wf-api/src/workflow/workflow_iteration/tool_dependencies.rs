@@ -1,5 +1,3 @@
-
-
 use crate::infra::context::ApiContext;
 use crate::infra::error::ApiResult;
 
@@ -20,4 +18,3 @@ pub(super) fn is_tool_node(node_type: &str) -> bool {
     let upper = node_type.to_uppercase();
     upper == "TOOL" || upper == "HTTP" || upper == "MCP" || upper == "SCRIPT"
 }
-

@@ -401,7 +401,9 @@ mod tests {
         );
     }
 
-    use super::{decode_execution_frame, decode_system_frame, ExecutionFrame, SseFrame, SystemFrame};
+    use super::{
+        decode_execution_frame, decode_system_frame, ExecutionFrame, SseFrame, SystemFrame,
+    };
     use wf_types::events::{BaseEvent, EventType, ExecutionStreamEvent};
 
     fn base_fixture(event_type: EventType) -> serde_json::Value {

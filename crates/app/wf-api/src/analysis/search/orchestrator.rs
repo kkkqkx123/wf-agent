@@ -142,13 +142,17 @@ async fn search_type(
 ) -> ApiResult<Vec<SearchResultItem>> {
     match resource_type {
         SearchResourceType::Workflow => super::workflows::search_workflows(ctx, query, limit).await,
-        SearchResourceType::Execution => super::executions::search_executions(ctx, query, limit).await,
+        SearchResourceType::Execution => {
+            super::executions::search_executions(ctx, query, limit).await
+        }
         SearchResourceType::Task => super::tasks::search_tasks(ctx, query, limit).await,
-        SearchResourceType::Checkpoint => super::checkpoints::search_checkpoints(ctx, query, limit).await,
+        SearchResourceType::Checkpoint => {
+            super::checkpoints::search_checkpoints(ctx, query, limit).await
+        }
         SearchResourceType::Event => Ok(super::events::search_events(ctx, query, limit).await),
-        SearchResourceType::AgentLoop => super::agent_loops::search_agent_loops(ctx, query, limit).await,
+        SearchResourceType::AgentLoop => {
+            super::agent_loops::search_agent_loops(ctx, query, limit).await
+        }
         SearchResourceType::Message => super::messages::search_messages(ctx, query, limit).await,
     }
 }
-
-

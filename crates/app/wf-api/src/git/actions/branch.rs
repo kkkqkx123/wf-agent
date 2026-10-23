@@ -3,7 +3,9 @@ use crate::git::runner::run_git;
 use crate::git::types::GitResult;
 use crate::infra::context::ApiContext;
 
-use super::{ActionOutcome, ActionRequest, echo_of, finish, param, require_confirm, validate_branch_name};
+use super::{
+    echo_of, finish, param, require_confirm, validate_branch_name, ActionOutcome, ActionRequest,
+};
 
 pub fn handle(
     ctx: &ApiContext,
@@ -25,7 +27,12 @@ pub fn handle(
     }
 }
 
-fn branch_checkout(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn branch_checkout(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let branch = param(request, "branch")?;
     validate_branch_name(&branch)?;
     let argv = vec!["checkout".to_string(), branch.clone()];
@@ -35,7 +42,12 @@ fn branch_checkout(ctx: &ApiContext, action: &str, request: &ActionRequest, root
     Ok(finish(action, format!("checked out {branch}"), echo))
 }
 
-fn branch_create(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn branch_create(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let branch = param(request, "branch")?;
     validate_branch_name(&branch)?;
     let argv = vec!["branch".to_string(), branch.clone()];
@@ -45,7 +57,12 @@ fn branch_create(ctx: &ApiContext, action: &str, request: &ActionRequest, root: 
     Ok(finish(action, format!("created {branch}"), echo))
 }
 
-fn branch_delete(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn branch_delete(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let branch = param(request, "branch")?;
     require_confirm(request, &branch, action)?;
     validate_branch_name(&branch)?;
@@ -56,7 +73,12 @@ fn branch_delete(ctx: &ApiContext, action: &str, request: &ActionRequest, root: 
     Ok(finish(action, format!("deleted {branch}"), echo))
 }
 
-fn branch_rename(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn branch_rename(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let from = param(request, "from")?;
     let to = param(request, "to")?;
     validate_branch_name(&from)?;
@@ -73,7 +95,12 @@ fn branch_rename(ctx: &ApiContext, action: &str, request: &ActionRequest, root: 
     Ok(finish(action, format!("renamed {from} to {to}"), echo))
 }
 
-fn branch_merge(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn branch_merge(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let branch = param(request, "branch")?;
     validate_branch_name(&branch)?;
     let argv = vec!["merge".to_string(), "--no-edit".to_string(), branch.clone()];
@@ -83,7 +110,12 @@ fn branch_merge(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &
     Ok(finish(action, format!("merged {branch}"), echo))
 }
 
-fn branch_rebase(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn branch_rebase(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let onto = param(request, "onto")?;
     require_confirm(request, &onto, action)?;
     validate_branch_name(&onto)?;
@@ -94,7 +126,12 @@ fn branch_rebase(ctx: &ApiContext, action: &str, request: &ActionRequest, root: 
     Ok(finish(action, format!("rebased onto {onto}"), echo))
 }
 
-fn branch_fast_forward(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn branch_fast_forward(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let branch = param(request, "branch")?;
     validate_branch_name(&branch)?;
     let argv = vec!["merge".to_string(), "--ff-only".to_string(), branch.clone()];
@@ -104,7 +141,12 @@ fn branch_fast_forward(ctx: &ApiContext, action: &str, request: &ActionRequest, 
     Ok(finish(action, format!("fast-forwarded {branch}"), echo))
 }
 
-fn branch_set_upstream(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn branch_set_upstream(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let branch = param(request, "branch")?;
     let remote = param(request, "remote")?;
     validate_branch_name(&branch)?;
@@ -117,10 +159,19 @@ fn branch_set_upstream(ctx: &ApiContext, action: &str, request: &ActionRequest, 
     let echo = echo_of(action, &argv);
     let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
     run_git(root, &refs, command_timeout_ms(ctx, false))?;
-    Ok(finish(action, format!("set upstream for {branch} to {upstream}"), echo))
+    Ok(finish(
+        action,
+        format!("set upstream for {branch} to {upstream}"),
+        echo,
+    ))
 }
 
-fn branch_unset_upstream(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn branch_unset_upstream(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let branch = param(request, "branch")?;
     validate_branch_name(&branch)?;
     let argv = vec![

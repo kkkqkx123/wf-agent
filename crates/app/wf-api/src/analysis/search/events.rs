@@ -1,8 +1,12 @@
-use crate::ApiContext;
 use super::scoring::{matched_fields, score, sorted_truncated};
 use super::types::SearchResultItem;
+use crate::ApiContext;
 
-pub(super) async fn search_events(ctx: &ApiContext, query: &str, limit: usize) -> Vec<SearchResultItem> {
+pub(super) async fn search_events(
+    ctx: &ApiContext,
+    query: &str,
+    limit: usize,
+) -> Vec<SearchResultItem> {
     let mut out = Vec::new();
     for event in ctx.event_bus.recent_events() {
         let type_name = event.r#type.as_str().to_lowercase();
@@ -33,5 +37,3 @@ pub(super) async fn search_events(ctx: &ApiContext, query: &str, limit: usize) -
     }
     sorted_truncated(out, limit)
 }
-
-

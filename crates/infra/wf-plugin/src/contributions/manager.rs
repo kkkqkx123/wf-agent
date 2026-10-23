@@ -16,21 +16,21 @@ use super::registries::{MultiRegistry, Registry};
 use super::types::*;
 use crate::error::{PluginError, PluginResult};
 
-#[path = "manager/registry.rs"]
-mod registry;
-#[path = "manager/node_tool.rs"]
-mod node_tool;
-#[path = "manager/llm.rs"]
-mod llm;
 #[path = "manager/content.rs"]
 mod content;
+#[path = "manager/llm.rs"]
+mod llm;
 #[path = "manager/middleware.rs"]
 mod middleware;
+#[path = "manager/node_tool.rs"]
+mod node_tool;
 #[path = "manager/registrar.rs"]
 mod registrar;
+#[path = "manager/registry.rs"]
+mod registry;
 
-pub use registry::*;
 pub use registrar::*;
+pub use registry::*;
 
 #[cfg(test)]
 mod tests {

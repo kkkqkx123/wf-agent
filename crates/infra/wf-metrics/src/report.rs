@@ -610,16 +610,16 @@ mod tests {
             ..Default::default()
         };
         for _ in 0..4 {
-            registry.token().record_token_usage(
-                &crate::collectors::TokenUsageRecord {
+            registry
+                .token()
+                .record_token_usage(&crate::collectors::TokenUsageRecord {
                     labels: call.clone(),
                     prompt_tokens: 10,
                     completion_tokens: 10,
                     total_tokens: 20,
                     reported_total_tokens: 20,
                     ..Default::default()
-                },
-            );
+                });
         }
         for _ in 0..4 {
             registry

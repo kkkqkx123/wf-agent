@@ -1,5 +1,3 @@
-
-
 use wf_core::registry::Registry;
 use wf_storage::adapter::agent_template::AgentTemplateStorageAdapter;
 
@@ -48,11 +46,7 @@ pub async fn save_agent_template_version(
         .map_err(crate::ApiError::from)
 }
 
-pub async fn rollback_agent_template(
-    ctx: &ApiContext,
-    id: &str,
-    version: &str,
-) -> ApiResult<()> {
+pub async fn rollback_agent_template(ctx: &ApiContext, id: &str, version: &str) -> ApiResult<()> {
     let template = get_agent_template_version(ctx, id, version).await?;
     if let Ok(current) = get_agent_template(ctx, id) {
         let base = current
@@ -74,4 +68,3 @@ pub async fn rollback_agent_template(
     update_agent_template(ctx, &template).await?;
     Ok(())
 }
-

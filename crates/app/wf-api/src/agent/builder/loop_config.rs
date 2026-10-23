@@ -4,7 +4,6 @@ use wf_tools::callback::{AgentLoopConfig, HookConfig};
 use wf_types::agent::AgentHookConfig;
 use wf_types::llm::tool_call_protocol::ToolCallProtocolConfig;
 
-
 use super::*;
 
 pub struct AgentLoopConfigBuilder<S> {
@@ -177,4 +176,3 @@ impl AgentLoopConfigBuilder<LoopConfigured> {
         }
     }
 }
-

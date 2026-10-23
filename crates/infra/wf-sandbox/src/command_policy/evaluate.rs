@@ -1,9 +1,6 @@
 use super::*;
 use crate::strategy::shell::vfs_paths::parse_command_chain;
 
-/// How a rule hit is handled once a severity is known.
-// DecisionMode lives in facade.
-
 /// Default severity → mode mapping. `warn` (downgrade) must be
 /// explicitly requested — the default keeps everything Deny (fail-closed).
 pub fn decision_mode_for(severity: Severity, allow_warn: bool) -> DecisionMode {
@@ -176,7 +173,8 @@ pub fn evaluate_command_verdict(
         let raw_tokens = shlex::split(raw_sub).unwrap_or_default();
         let raw_primary = primary_command(&raw_tokens, shell_type).unwrap_or_default();
 
-        let sub_norm = super::normalize::strip_fd_redirect(&normalize_command(norm_sub, shell_type));
+        let sub_norm =
+            super::normalize::strip_fd_redirect(&normalize_command(norm_sub, shell_type));
         if sub_norm.trim().is_empty() {
             continue;
         }

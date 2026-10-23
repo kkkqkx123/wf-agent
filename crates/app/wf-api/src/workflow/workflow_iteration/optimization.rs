@@ -1,5 +1,3 @@
-
-
 use crate::infra::context::ApiContext;
 use crate::infra::error::ApiResult;
 
@@ -62,4 +60,3 @@ pub async fn get_optimization_opportunities(
     opportunities.sort_by_key(|o| impact_order(&o.impact_level));
     Ok(opportunities)
 }
-

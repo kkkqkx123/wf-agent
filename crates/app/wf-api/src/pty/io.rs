@@ -4,7 +4,6 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::mpsc;
 
-
 use super::state::{lock, PtyState};
 use super::{PtyAttachment, PtyError, PtyFrame, PtyReceiver, PtyResult};
 
@@ -46,7 +45,8 @@ pub fn append_output(state: &PtyState, text: String) {
     let mut text_owned = Some(text);
     let single = out.subscribers.len() == 1;
     for (token, sub) in out.subscribers.iter() {
-        if sub.queued.load(Ordering::Relaxed) + text_len > super::state::SUBSCRIBER_MAX_QUEUED_BYTES {
+        if sub.queued.load(Ordering::Relaxed) + text_len > super::state::SUBSCRIBER_MAX_QUEUED_BYTES
+        {
             let _ = sub.tx.send(PtyFrame::Overflow);
             dead.push(*token);
             continue;
@@ -149,7 +149,11 @@ pub fn replay_slice(buffer: &str, start: usize, end: usize, cursor: Option<i64>)
     }
 }
 
-pub fn write_session(inner: &Mutex<super::state::ManagerInner>, id: &str, data: &[u8]) -> PtyResult<()> {
+pub fn write_session(
+    inner: &Mutex<super::state::ManagerInner>,
+    id: &str,
+    data: &[u8],
+) -> PtyResult<()> {
     let state = super::session::lookup(inner, id)?;
     if *lock(&state.status) != super::state::PtySessionStatus::Running {
         return Err(PtyError::Invalid("pty session has exited".to_string()));

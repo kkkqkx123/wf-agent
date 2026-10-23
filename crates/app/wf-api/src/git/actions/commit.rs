@@ -3,7 +3,9 @@ use crate::git::runner::{run_git, run_git_with_env};
 use crate::git::types::{GitError, GitResult};
 use crate::infra::context::ApiContext;
 
-use super::{ActionOutcome, ActionRequest, echo_of, finish, param, require_confirm, validate_branch_name};
+use super::{
+    echo_of, finish, param, require_confirm, validate_branch_name, ActionOutcome, ActionRequest,
+};
 
 pub fn handle(
     ctx: &ApiContext,

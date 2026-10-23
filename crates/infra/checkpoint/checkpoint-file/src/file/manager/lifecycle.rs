@@ -121,6 +121,9 @@ impl FileCheckpointManager {
         manager.policy.gc_retention = config.gc_retention.map(|r| crate::gc::GcRetention {
             keep_recent_heads: r.keep_recent_heads,
         });
+        manager
+            .session_scopes
+            .set_scope_serialization(config.scope_serialization.as_ref());
         manager.check_workspace_root_binding(config)?;
         if let Some(root) = &config.workspace_root {
             let in_workspace = config.store_in_workspace.unwrap_or(false);

@@ -2,7 +2,6 @@ use std::marker::PhantomData;
 
 use wf_types::tool::AvailableTools;
 
-
 use super::*;
 
 pub struct AgentToolConfigBuilder<S> {
@@ -114,4 +113,3 @@ impl AgentToolConfigBuilder<ToolBuilt> {
         }
     }
 }
-

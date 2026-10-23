@@ -4,7 +4,6 @@ pub struct RegistrarGuard<'a> {
     pub(crate) manager: &'a ContributionManager,
 }
 
-
 impl RegistrarGuard<'_> {
     /// Validate a contribution before registration (non-empty key). Invalid
     /// contributions are rejected with an error the caller must propagate,

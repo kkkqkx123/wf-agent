@@ -518,7 +518,6 @@ use crate::domain::store::Maintainable;
 
 impl Maintainable for MemoryStorage {}
 
-
 #[cfg(test)]
 #[path = "memory/tests.rs"]
 mod tests;

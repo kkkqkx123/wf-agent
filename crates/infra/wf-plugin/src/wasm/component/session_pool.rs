@@ -60,10 +60,6 @@ impl ComponentSessionPool {
         }
     }
 
-    pub fn enabled(&self) -> bool {
-        self.idle.is_some()
-    }
-
     /// Check out a session: reuse an idle one when available (fuel is
     /// replenished first so reuse never starves on leftovers), otherwise
     /// build a fresh session. Never blocks.

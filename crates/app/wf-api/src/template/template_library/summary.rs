@@ -1,12 +1,12 @@
-
-
 use wf_types::agent::AgentTemplate;
 use wf_types::workflow::WorkflowTemplate;
 
-
 use super::*;
 
-pub(super) fn summary_from_workflow(template: WorkflowTemplate, usage_count: u64) -> TemplateSummary {
+pub(super) fn summary_from_workflow(
+    template: WorkflowTemplate,
+    usage_count: u64,
+) -> TemplateSummary {
     let author = template
         .definition
         .metadata
@@ -93,4 +93,3 @@ pub(super) fn summary_from_trigger(
         updated_at: template.updated_at,
     }
 }
-

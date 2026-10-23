@@ -100,7 +100,6 @@ pub fn validate_all_node_configs(nodes: &[(&str, &str, Option<&Value>)]) -> Vec<
     issues
 }
 
-
 #[cfg(test)]
 #[path = "node_config/tests.rs"]
 mod tests;

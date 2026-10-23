@@ -3,7 +3,7 @@ use crate::git::runner::run_git;
 use crate::git::types::GitResult;
 use crate::infra::context::ApiContext;
 
-use super::{ActionOutcome, ActionRequest, echo_of, finish, param, require_confirm};
+use super::{echo_of, finish, param, require_confirm, ActionOutcome, ActionRequest};
 
 pub fn handle(
     ctx: &ApiContext,
@@ -22,17 +22,31 @@ pub fn handle(
     }
 }
 
-fn submodule_init(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn submodule_init(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let path = param(request, "path")?;
     validate_repo_path(root, &path)?;
     let argv = vec!["submodule".to_string(), "init".to_string(), path.clone()];
     let echo = echo_of(action, &argv);
     let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
     run_git(root, &refs, command_timeout_ms(ctx, false))?;
-    Ok(finish(action, format!("initialized submodule {path}"), echo))
+    Ok(finish(
+        action,
+        format!("initialized submodule {path}"),
+        echo,
+    ))
 }
 
-fn submodule_update(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn submodule_update(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let path = param(request, "path")?;
     validate_repo_path(root, &path)?;
     let argv = vec!["submodule".to_string(), "update".to_string(), path.clone()];
@@ -42,7 +56,12 @@ fn submodule_update(ctx: &ApiContext, action: &str, request: &ActionRequest, roo
     Ok(finish(action, format!("updated submodule {path}"), echo))
 }
 
-fn submodule_add(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn submodule_add(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let path = param(request, "path")?;
     let url = param(request, "url")?;
     validate_repo_path(root, &path)?;
@@ -58,7 +77,12 @@ fn submodule_add(ctx: &ApiContext, action: &str, request: &ActionRequest, root: 
     Ok(finish(action, format!("added submodule {path}"), echo))
 }
 
-fn submodule_set_url(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn submodule_set_url(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let path = param(request, "path")?;
     let url = param(request, "url")?;
     validate_repo_path(root, &path)?;
@@ -71,10 +95,19 @@ fn submodule_set_url(ctx: &ApiContext, action: &str, request: &ActionRequest, ro
     let echo = echo_of(action, &argv);
     let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
     run_git(root, &refs, command_timeout_ms(ctx, false))?;
-    Ok(finish(action, format!("set url for submodule {path}"), echo))
+    Ok(finish(
+        action,
+        format!("set url for submodule {path}"),
+        echo,
+    ))
 }
 
-fn submodule_remove(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn submodule_remove(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let path = param(request, "path")?;
     require_confirm(request, &path, action)?;
     validate_repo_path(root, &path)?;

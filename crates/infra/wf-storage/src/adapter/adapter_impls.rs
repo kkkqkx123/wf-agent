@@ -1,5 +1,5 @@
-pub mod macros;
 pub mod adapters;
+pub mod macros;
 
-pub use macros::*;
 pub use adapters::*;
+pub use macros::*;

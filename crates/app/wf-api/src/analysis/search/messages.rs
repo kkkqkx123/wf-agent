@@ -1,7 +1,7 @@
-use crate::ApiContext;
-use crate::ApiResult;
 use super::scoring::{matched_fields, score, sorted_truncated};
 use super::types::SearchResultItem;
+use crate::ApiContext;
+use crate::ApiResult;
 
 pub(super) async fn search_messages(
     ctx: &ApiContext,
@@ -29,4 +29,3 @@ pub(super) async fn search_messages(
     }
     Ok(sorted_truncated(out, limit))
 }
-

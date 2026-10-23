@@ -18,17 +18,17 @@ use wf_types::config::{
 
 use crate::error::{ConfigError, ConfigResult};
 
-mod registry;
+mod filter;
 mod load;
 mod metadata;
+mod registry;
 mod resolvers;
-mod filter;
 
-pub use registry::*;
+pub use filter::*;
 pub use load::*;
 pub use metadata::*;
+pub use registry::*;
 pub use resolvers::*;
-pub use filter::*;
 
 #[cfg(test)]
 mod tests {

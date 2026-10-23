@@ -5,12 +5,12 @@ use wf_common::lock::lock_ok;
 use async_trait::async_trait;
 use serde_json::Value;
 
+use crate::contributions::types::PluginEventData;
 use crate::contributions::types::{
     PluginEventHandler, PluginExecutionContext, PluginMiddlewareHandler, PluginNodeHandler,
     PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult,
 };
 use crate::contributions::NextFn;
-use crate::contributions::types::PluginEventData;
 use crate::error::{PluginError, PluginResult};
 
 pub struct LuaNodeHandler {
@@ -50,8 +50,16 @@ impl PluginNodeHandler for LuaNodeHandler {
                     .map_err(|e| PluginError::LuaError(e.to_string()))?;
                 let ctx_tbl = super::bridge::create_lua_handler_table(locked)?;
                 super::bridge::set_table_str(&ctx_tbl, "node_id", &ctx.node_id)?;
-                super::bridge::set_table_value(&ctx_tbl, "inputs", super::bridge::to_lua_value(locked, &ctx.inputs))?;
-                super::bridge::set_table_value(&ctx_tbl, "config", super::bridge::to_lua_value(locked, &ctx.config))?;
+                super::bridge::set_table_value(
+                    &ctx_tbl,
+                    "inputs",
+                    super::bridge::to_lua_value(locked, &ctx.inputs),
+                )?;
+                super::bridge::set_table_value(
+                    &ctx_tbl,
+                    "config",
+                    super::bridge::to_lua_value(locked, &ctx.config),
+                )?;
                 let result: mlua::Value = func
                     .call(ctx_tbl)
                     .map_err(|e| PluginError::LuaError(e.to_string()))?;
@@ -80,7 +88,11 @@ impl PluginToolExecutor for LuaToolExecutor {
                     .registry_value(&func_key)
                     .map_err(|e| PluginError::LuaError(e.to_string()))?;
                 let ctx_tbl = super::bridge::create_lua_handler_table(locked)?;
-                super::bridge::set_table_value(&ctx_tbl, "args", super::bridge::to_lua_value(locked, &ctx.args))?;
+                super::bridge::set_table_value(
+                    &ctx_tbl,
+                    "args",
+                    super::bridge::to_lua_value(locked, &ctx.args),
+                )?;
                 let result: mlua::Value = func
                     .call(ctx_tbl)
                     .map_err(|e| PluginError::LuaError(e.to_string()))?;
@@ -110,7 +122,11 @@ impl PluginEventHandler for LuaEventHandler {
                     .map_err(|e| PluginError::LuaError(e.to_string()))?;
                 let evt_tbl = super::bridge::create_lua_handler_table(locked)?;
                 super::bridge::set_table_str(&evt_tbl, "event_type", &event.event_type)?;
-                super::bridge::set_table_value(&evt_tbl, "data", super::bridge::to_lua_value(locked, &event.data))?;
+                super::bridge::set_table_value(
+                    &evt_tbl,
+                    "data",
+                    super::bridge::to_lua_value(locked, &event.data),
+                )?;
                 func.call(evt_tbl)
                     .map_err(|e| PluginError::LuaError(e.to_string()))
             })
@@ -142,10 +158,8 @@ impl PluginMiddlewareHandler for LuaMiddlewareHandler {
                     .map_err(|e| PluginError::LuaError(e.to_string()))?;
                 let ctx_val = super::bridge::to_lua_value(&lua, &context);
                 let incoming = context.clone();
-                let next_cell: Arc<Mutex<Option<NextFn>>> =
-                    Arc::new(Mutex::new(Some(next)));
-                let downstream: Arc<Mutex<Option<Value>>> =
-                    Arc::new(Mutex::new(None));
+                let next_cell: Arc<Mutex<Option<NextFn>>> = Arc::new(Mutex::new(Some(next)));
+                let downstream: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
                 let wrapper_incoming = incoming.clone();
                 let wrapper_next = next_cell.clone();
                 let wrapper_downstream = downstream.clone();
@@ -155,10 +169,11 @@ impl PluginMiddlewareHandler for LuaMiddlewareHandler {
                         let next = lock_ok(wrapper_next.lock())
                             .take()
                             .ok_or_else(|| mlua::Error::external("next already called"))?;
-                        let replacement = match args.into_iter().next().map(super::bridge::from_lua_value) {
-                            None | Some(Value::Null) => wrapper_incoming.clone(),
-                            Some(value) => value,
-                        };
+                        let replacement =
+                            match args.into_iter().next().map(super::bridge::from_lua_value) {
+                                None | Some(Value::Null) => wrapper_incoming.clone(),
+                                Some(value) => value,
+                            };
                         let out = match &wrapper_handle {
                             Some(wrapper_handle) => wrapper_handle.block_on(next(replacement)),
                             None => futures::executor::block_on(next(replacement)),
@@ -179,14 +194,18 @@ impl PluginMiddlewareHandler for LuaMiddlewareHandler {
                 match downstream {
                     Some(down) => {
                         if is_envelope {
-                            Ok(crate::contributions::parse_middleware_outcome(&ret_val, &down).context)
+                            Ok(
+                                crate::contributions::parse_middleware_outcome(&ret_val, &down)
+                                    .context,
+                            )
                         } else {
                             Ok(down)
                         }
                     }
                     None => {
                         if is_envelope {
-                            let outcome = crate::contributions::parse_middleware_outcome(&ret_val, &incoming);
+                            let outcome =
+                                crate::contributions::parse_middleware_outcome(&ret_val, &incoming);
                             if outcome.proceed {
                                 let next =
                                     lock_ok(next_cell.lock()).take().expect("next never taken");

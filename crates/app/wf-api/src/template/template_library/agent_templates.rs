@@ -1,12 +1,9 @@
-
-
 use wf_core::registry::{MutableRegistry, Registry};
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::agent::AgentTemplate;
 
 use crate::infra::context::ApiContext;
 use crate::infra::error::{not_found, ApiError, ApiResult};
-
 
 pub fn get_agent_template(ctx: &ApiContext, id: &str) -> ApiResult<AgentTemplate> {
     ctx.registries
@@ -82,4 +79,3 @@ pub async fn update_agent_template(ctx: &ApiContext, template: &AgentTemplate) -
     );
     Ok(())
 }
-

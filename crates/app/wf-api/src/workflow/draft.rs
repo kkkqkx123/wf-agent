@@ -130,11 +130,10 @@ pub async fn promote_all_drafts(
     };
     let mut out = Vec::new();
     for id in ids {
-        let result =
-            match crate::definition::draft::promote_draft(ctx, KIND, &id).await {
-                Ok(outcome) => Ok(outcome.impact),
-                Err(e) => Err(e),
-            };
+        let result = match crate::definition::draft::promote_draft(ctx, KIND, &id).await {
+            Ok(outcome) => Ok(outcome.impact),
+            Err(e) => Err(e),
+        };
         out.push((id, result));
     }
     out
@@ -291,15 +290,21 @@ mod tests {
     #[tokio::test]
     async fn list_drafts_of_narrows_to_one_definition() {
         let ctx = make_ctx();
-        save_draft(&ctx, &formal_workflow("wf-owned")).await.unwrap();
+        save_draft(&ctx, &formal_workflow("wf-owned"))
+            .await
+            .unwrap();
         save_draft(&ctx, &formal_workflow(&canvas_draft_id("wf-owned")))
             .await
             .unwrap();
-        save_draft(&ctx, &formal_workflow("wf-other")).await.unwrap();
+        save_draft(&ctx, &formal_workflow("wf-other"))
+            .await
+            .unwrap();
 
         let drafts = list_drafts_of(&ctx, "wf-owned").await.unwrap();
         assert_eq!(drafts.len(), 2);
-        assert!(drafts.iter().all(|d| d.id.to_string().starts_with("wf-owned")));
+        assert!(drafts
+            .iter()
+            .all(|d| d.id.to_string().starts_with("wf-owned")));
     }
 
     /// A canvas draft revises the workflow it was derived from; a draft filed
@@ -313,7 +318,9 @@ mod tests {
 
         assert_eq!(draft_owner_id(&ctx, "wf-owned").await.unwrap(), "wf-owned");
         assert_eq!(
-            draft_owner_id(&ctx, &canvas_draft_id("wf-owned")).await.unwrap(),
+            draft_owner_id(&ctx, &canvas_draft_id("wf-owned"))
+                .await
+                .unwrap(),
             "wf-owned"
         );
     }

@@ -1,9 +1,6 @@
 use std::marker::PhantomData;
 
-use wf_types::agent::{
-    AgentHookConfig, AgentHookType,
-};
-
+use wf_types::agent::{AgentHookConfig, AgentHookType};
 
 use super::*;
 
@@ -173,4 +170,3 @@ impl<S> AgentHookBuilder<S> {
         self
     }
 }
-

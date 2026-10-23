@@ -1,15 +1,12 @@
 //! Workflow node-level iteration analysis.
 
-
-
-
 mod llm;
 mod optimization;
 mod path;
 mod records;
+mod stats;
 #[cfg(test)]
 mod tests;
-mod stats;
 mod tool_dependencies;
 mod types;
 

@@ -1,8 +1,8 @@
 use crate::infra::context::ApiContext;
 use crate::infra::error::ApiResult;
 
-use super::profile::profile;
 use super::helpers::avg;
+use super::profile::profile;
 use wf_types::enums::PerformanceTrend;
 
 use super::types::*;
@@ -88,4 +88,3 @@ pub async fn get_iteration_comparison(
         trend,
     })
 }
-

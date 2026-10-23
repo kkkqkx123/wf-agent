@@ -1,4 +1,3 @@
-
 /// Collect every literal keyword that can trigger a deny decision from the
 /// effective dangerous patterns and deny rules. Missing a keyword here only
 /// means the command falls back to the full analysis — never a bypass.

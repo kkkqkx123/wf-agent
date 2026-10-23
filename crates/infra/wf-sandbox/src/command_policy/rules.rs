@@ -1,8 +1,5 @@
 use super::*;
 
-/// Severity grade for a rule hit (ordered Low → Critical).
-// Note: Severity enum lives in facade; re-exported.
-
 /// A named, severity-tagged dangerous rule — the building block of the Pack
 /// system. `pattern` is matched against the masked command string.
 #[derive(Debug, Clone, Copy)]

@@ -30,4 +30,3 @@ pub async fn hierarchy(ctx: &ApiContext, id: &str) -> ApiResult<ExecutionHierarc
         ancestors: placement.ancestors,
     })
 }
-

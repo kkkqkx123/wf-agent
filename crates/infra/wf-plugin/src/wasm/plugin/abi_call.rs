@@ -1,6 +1,6 @@
 use super::*;
 
-pub fn guest_call_error(
+pub(crate) fn guest_call_error(
     inner: &WasmPluginInner,
     export_name: &str,
     err: wasmtime::Error,
@@ -21,7 +21,7 @@ pub fn guest_call_error(
     pool::wasm_err(&format!("plugin '{id}' export '{export_name}' failed"), err)
 }
 
-pub async fn with_call_timeout<T, F>(inner: &WasmPluginInner, fut: F) -> PluginResult<T>
+pub(crate) async fn with_call_timeout<T, F>(inner: &WasmPluginInner, fut: F) -> PluginResult<T>
 where
     F: std::future::Future<Output = PluginResult<T>>,
 {
@@ -35,7 +35,11 @@ where
     }
 }
 
-pub fn observe<T>(inner: &WasmPluginInner, session: &PooledSession, result: &PluginResult<T>) {
+pub(crate) fn observe<T>(
+    inner: &WasmPluginInner,
+    session: &PooledSession,
+    result: &PluginResult<T>,
+) {
     let fuel_used = inner.limits.fuel_limit.and_then(|budget| {
         session
             .store
@@ -46,7 +50,7 @@ pub fn observe<T>(inner: &WasmPluginInner, session: &PooledSession, result: &Plu
     inner.stats.record(result, fuel_used);
 }
 
-pub async fn write_input(
+pub(crate) async fn write_input(
     inner: &WasmPluginInner,
     session: &mut PooledSession,
     input: &[u8],
@@ -69,7 +73,12 @@ pub async fn write_input(
     Ok(ptr)
 }
 
-pub async fn release_output(_inner: &WasmPluginInner, session: &mut PooledSession, ptr: u32, len: u32) {
+pub(crate) async fn release_output(
+    _inner: &WasmPluginInner,
+    session: &mut PooledSession,
+    ptr: u32,
+    len: u32,
+) {
     let Ok(dealloc) = session
         .instance
         .get_typed_func::<(u32, u32), ()>(&mut session.store, export::DEALLOC)
@@ -79,7 +88,7 @@ pub async fn release_output(_inner: &WasmPluginInner, session: &mut PooledSessio
     let _ = dealloc.call_async(&mut session.store, (ptr, len)).await;
 }
 
-pub async fn read_output(
+pub(crate) async fn read_output(
     inner: &WasmPluginInner,
     session: &mut PooledSession,
     packed: u64,
@@ -90,12 +99,16 @@ pub async fn read_output(
     Ok(bytes)
 }
 
-pub fn drain_stdio(inner: &WasmPluginInner, op: &str, session: &PooledSession) {
+pub(crate) fn drain_stdio(inner: &WasmPluginInner, op: &str, session: &PooledSession) {
     let state = session.store.data();
     super::super::stdio::drain_guest_stdio(&inner.manifest.id, op, &state.stdout, &state.stderr);
 }
 
-pub async fn invoke_hook(inner: &WasmPluginInner, export_name: &str, input: &[u8]) -> PluginResult<()> {
+pub(crate) async fn invoke_hook(
+    inner: &WasmPluginInner,
+    export_name: &str,
+    input: &[u8],
+) -> PluginResult<()> {
     let mut session = inner.pool.acquire().await?;
     let result = invoke_hook_inner(inner, &mut session, export_name, input).await;
     drain_stdio(inner, export_name, &session);
@@ -104,7 +117,7 @@ pub async fn invoke_hook(inner: &WasmPluginInner, export_name: &str, input: &[u8
     result
 }
 
-pub async fn invoke_hook_inner(
+pub(crate) async fn invoke_hook_inner(
     inner: &WasmPluginInner,
     session: &mut PooledSession,
     export_name: &str,
@@ -155,7 +168,10 @@ pub async fn invoke_hook_inner(
     abi::check_hook_status_with_detail(export_name, &inner.manifest.id, code, detail.as_deref())
 }
 
-pub async fn read_last_error(inner: &WasmPluginInner, session: &mut PooledSession) -> Option<String> {
+pub(crate) async fn read_last_error(
+    inner: &WasmPluginInner,
+    session: &mut PooledSession,
+) -> Option<String> {
     session
         .instance
         .get_func(&mut session.store, export::LAST_ERROR)?;
@@ -190,7 +206,7 @@ pub async fn read_last_error(inner: &WasmPluginInner, session: &mut PooledSessio
     Some(text)
 }
 
-pub async fn invoke_dispatch(
+pub(crate) async fn invoke_dispatch(
     inner: &WasmPluginInner,
     handler_type: &str,
     handler_name: &str,
@@ -205,7 +221,7 @@ pub async fn invoke_dispatch(
     result
 }
 
-pub async fn invoke_dispatch_inner(
+pub(crate) async fn invoke_dispatch_inner(
     inner: &WasmPluginInner,
     session: &mut PooledSession,
     handler_type: &str,
@@ -252,6 +268,6 @@ pub async fn invoke_dispatch_inner(
     Ok(out)
 }
 
-pub fn hook_input(inner: &WasmPluginInner, config: &Value) -> PluginResult<Vec<u8>> {
+pub(crate) fn hook_input(inner: &WasmPluginInner, config: &Value) -> PluginResult<Vec<u8>> {
     abi::encode_hook_input(&inner.manifest.id, config)
 }

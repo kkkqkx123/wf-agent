@@ -1,4 +1,3 @@
-
 use wf_execution_shared::agent_prompt::PromptEnvironment;
 use wf_resource::registry::ResourceRegistries;
 use wf_tools::callback::AgentLoopConfig;
@@ -194,4 +193,3 @@ pub fn resolve_workflow_context(
     }
     Ok(super::mentions::workflow_summary(template))
 }
-

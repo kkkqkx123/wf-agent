@@ -1,4 +1,3 @@
-
 use wf_execution_shared::types::state_manager::StateManager;
 use wf_storage::adapter::base::BaseStorageAdapter;
 
@@ -105,4 +104,3 @@ pub async fn profile(
         Vec::new(),
     ))
 }
-

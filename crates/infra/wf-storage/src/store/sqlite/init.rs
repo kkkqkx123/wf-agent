@@ -3,9 +3,7 @@ use sqlx::SqlitePool;
 
 use crate::domain::indexes::{index_name, EntityIndexes};
 use crate::domain::keys::{schema_version_key, SCHEMA_VERSION, SCHEMA_VERSION_EXCLUDE_PATTERN};
-use crate::domain::store::{
-    BatchItem, StoreOperation,
-};
+use crate::domain::store::{BatchItem, StoreOperation};
 use crate::error::StorageError;
 
 #[derive(Debug, Clone)]
@@ -275,7 +273,6 @@ impl SqliteStorage {
     }
 }
 
-
 /// Execute one upsert inside a transaction or pool executor. Shared by the
 /// single-table batch and the cross-table atomic batch so both paths write
 /// identical rows.
@@ -340,4 +337,3 @@ where
         })?;
     Ok(())
 }
-

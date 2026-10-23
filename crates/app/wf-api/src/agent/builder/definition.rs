@@ -1,8 +1,6 @@
 use std::marker::PhantomData;
 
-use wf_types::agent::{
-    AgentConfig, AgentDefinition, AgentHookConfig, AgentMetadata,
-};
+use wf_types::agent::{AgentConfig, AgentDefinition, AgentHookConfig, AgentMetadata};
 use wf_types::tool::AvailableTools;
 
 use crate::ApiContext;
@@ -169,4 +167,3 @@ impl AgentDefinitionBuilder<DefNamed> {
         Ok(())
     }
 }
-

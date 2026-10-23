@@ -63,9 +63,9 @@ impl std::fmt::Debug for RunAgentLoopParams {
 
 mod accessor;
 mod checkpoint;
+mod lifecycle;
 #[cfg(test)]
 mod tests;
-mod lifecycle;
 
 pub use accessor::AgentStateAccessor;
 pub use checkpoint::{auto_resume, resume_from_checkpoint};
@@ -134,7 +134,10 @@ pub(crate) fn live_entity(
         .ok_or_else(|| ApiError::execution_not_found(agent_loop_id))
 }
 
-pub(crate) fn gate_agent_config(ctx: &ApiContext, config: &AgentLoopConfig) -> crate::ApiResult<()> {
+pub(crate) fn gate_agent_config(
+    ctx: &ApiContext,
+    config: &AgentLoopConfig,
+) -> crate::ApiResult<()> {
     match wf_agent::validation::AgentLoopValidator::validate_or_fail(config, &ctx.tool_registry) {
         Ok(_) => Ok(()),
         Err(errors) => {

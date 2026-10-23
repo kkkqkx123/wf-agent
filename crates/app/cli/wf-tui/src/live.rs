@@ -22,8 +22,8 @@
 use futures::StreamExt;
 use tokio::sync::mpsc::UnboundedSender;
 
-use wf_client::WfClient;
 use wf_cli_shared::run_interaction::stream_reconnect_delay;
+use wf_client::WfClient;
 
 use crate::overlay::Feedback;
 use crate::screens::ScreenKind;
@@ -105,11 +105,7 @@ pub fn spawn(client: WfClient, tx: UnboundedSender<Feedback>) -> tokio::task::Jo
 
 /// Consume one filtered event stream until the process exits, forwarding
 /// coalesced invalidations and reconnecting with backoff on drop.
-async fn run_feed(
-    client: WfClient,
-    tx: UnboundedSender<Feedback>,
-    path: String,
-) {
+async fn run_feed(client: WfClient, tx: UnboundedSender<Feedback>, path: String) {
     let mut attempt = 0u32;
     loop {
         if let Ok(stream) = client.get_stream(&path).await {
@@ -191,10 +187,9 @@ fn impact_for_event(event: &wf_types::events::BaseEvent) -> FeedImpact {
             ],
             true,
         ),
-        T::NodeStarted | T::NodeCompleted | T::NodeFailed | T::NodeSkipped => FeedImpact::of(
-            vec![ScreenKind::Executions, ScreenKind::Workflow],
-            true,
-        ),
+        T::NodeStarted | T::NodeCompleted | T::NodeFailed | T::NodeSkipped => {
+            FeedImpact::of(vec![ScreenKind::Executions, ScreenKind::Workflow], true)
+        }
         T::ToolCallStarted | T::ToolCallCompleted | T::ToolCallFailed => {
             FeedImpact::of(vec![ScreenKind::Executions], true)
         }
@@ -250,8 +245,7 @@ mod tests {
 
     #[test]
     fn execution_events_invalidate_execution_screens() {
-        let impact =
-            impact_for_event(&base_fixture(EventType::WorkflowExecutionCompleted));
+        let impact = impact_for_event(&base_fixture(EventType::WorkflowExecutionCompleted));
         assert_eq!(
             impact.screens,
             vec![
@@ -282,8 +276,7 @@ mod tests {
         assert_eq!(impact.screens, vec![ScreenKind::Git]);
         assert!(impact.sidebar);
 
-        let impact =
-            impact_for_event(&base_fixture(EventType::DefinitionLockChanged));
+        let impact = impact_for_event(&base_fixture(EventType::DefinitionLockChanged));
         assert_eq!(impact.screens, vec![ScreenKind::EditSessions]);
         assert!(!impact.sidebar);
     }
@@ -301,20 +294,16 @@ mod tests {
             event: String::new(),
             data: serde_json::json!({"type": "connected", "data": {"executionId": "e1"}}),
         };
-        assert!(
-            wf_client::sse::decode_system_frame(&hello)
-                .into_base_event()
-                .is_none()
-        );
+        assert!(wf_client::sse::decode_system_frame(&hello)
+            .into_base_event()
+            .is_none());
         let unknown = wf_client::SseFrame {
             event: String::new(),
             data: serde_json::json!({"type": "future_unknown", "x": 1}),
         };
-        assert!(
-            wf_client::sse::decode_system_frame(&unknown)
-                .into_base_event()
-                .is_none()
-        );
+        assert!(wf_client::sse::decode_system_frame(&unknown)
+            .into_base_event()
+            .is_none());
     }
 
     #[test]

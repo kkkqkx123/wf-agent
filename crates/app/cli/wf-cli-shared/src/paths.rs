@@ -172,8 +172,13 @@ mod tests {
             without_query(&executions_id_most_changed(id, 5)),
             "/api/v1/executions/e1/state-records/most-changed"
         );
-        assert!(without_query(&executions_id_analysis_slow_nodes(id, 95.0)).ends_with("/slow-nodes"));
-        assert_eq!(agent_loops_id_timeline(id), "/api/v1/agent-loops/e1/timeline");
+        assert!(
+            without_query(&executions_id_analysis_slow_nodes(id, 95.0)).ends_with("/slow-nodes")
+        );
+        assert_eq!(
+            agent_loops_id_timeline(id),
+            "/api/v1/agent-loops/e1/timeline"
+        );
     }
 
     #[test]

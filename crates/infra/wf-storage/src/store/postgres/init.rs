@@ -3,9 +3,7 @@ use sqlx::PgPool;
 
 use crate::domain::indexes::{index_name, EntityIndexes};
 use crate::domain::keys::{schema_version_key, SCHEMA_VERSION, SCHEMA_VERSION_EXCLUDE_PATTERN};
-use crate::domain::store::{
-    BatchItem, StoreOperation,
-};
+use crate::domain::store::{BatchItem, StoreOperation};
 use crate::error::StorageError;
 use crate::util::pool::create_pg_pool;
 
@@ -266,7 +264,6 @@ impl PostgresStorage {
 /// The filter is first normalized through the shared compiled plan; only
 /// placeholder style and JSON operators are PostgreSQL-specific. Mirror any
 /// semantic change in the Sqlite renderer.
-
 pub async fn exec_save<'e, E>(
     executor: E,
     table: &str,
@@ -327,4 +324,3 @@ where
         })?;
     Ok(())
 }
-

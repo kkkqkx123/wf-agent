@@ -5,8 +5,8 @@ use crate::domain::keys::SCHEMA_VERSION_EXCLUDE_PATTERN;
 use crate::domain::store::{BatchItem, Maintainable, StoreExt, StoreOperation};
 use crate::error::StorageError;
 
-use super::init::PostgresStorage;
 use super::init;
+use super::init::PostgresStorage;
 #[async_trait]
 impl StoreExt for PostgresStorage {
     async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
@@ -177,7 +177,6 @@ impl StoreExt for PostgresStorage {
 }
 
 #[async_trait]
-
 #[async_trait]
 impl Maintainable for PostgresStorage {
     // PostgreSQL has no per-table checkpoint a regular user can trigger:
@@ -208,4 +207,3 @@ impl Maintainable for PostgresStorage {
         Ok(())
     }
 }
-

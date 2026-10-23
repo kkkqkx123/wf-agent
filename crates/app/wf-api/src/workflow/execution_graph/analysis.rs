@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
 
-
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::workflow_execution::WorkflowGraphStructure;
 
@@ -152,4 +151,3 @@ pub(super) async fn node_timings(ctx: &ApiContext, execution_id: &str) -> Vec<No
         })
         .collect()
 }
-

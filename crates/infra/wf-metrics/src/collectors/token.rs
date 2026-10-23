@@ -236,9 +236,7 @@ impl TokenMetricsCollector {
     pub fn collector(&self) -> &BaseMetricCollector {
         &self.inner
     }
-
 }
-
 
 #[cfg(test)]
 #[path = "token/tests.rs"]

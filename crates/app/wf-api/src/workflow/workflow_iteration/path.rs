@@ -1,5 +1,3 @@
-
-
 use crate::infra::context::ApiContext;
 use crate::infra::error::ApiResult;
 
@@ -34,4 +32,3 @@ pub async fn get_execution_path(
         is_optimal,
     }))
 }
-

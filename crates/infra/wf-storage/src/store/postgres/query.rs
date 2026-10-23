@@ -114,4 +114,3 @@ pub fn build_select_sql(
 
     (sql, params)
 }
-

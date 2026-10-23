@@ -88,22 +88,13 @@ pub async fn lifecycle_of(
 /// Whether a draft of this kind exists for the id.
 pub async fn draft_exists(ctx: &ApiContext, kind: DefinitionKind, id: &str) -> bool {
     match kind {
-        DefinitionKind::Workflow => ctx
-            .storage
-            .workflow_draft
-            .exists(id)
-            .await
-            .unwrap_or(false),
+        DefinitionKind::Workflow => ctx.storage.workflow_draft.exists(id).await.unwrap_or(false),
         DefinitionKind::Agent => ctx.storage.agent_draft.exists(id).await.unwrap_or(false),
     }
 }
 
 /// Delete a draft. Reports whether one was there.
-pub async fn delete_draft(
-    ctx: &ApiContext,
-    kind: DefinitionKind,
-    id: &str,
-) -> ApiResult<bool> {
+pub async fn delete_draft(ctx: &ApiContext, kind: DefinitionKind, id: &str) -> ApiResult<bool> {
     match kind {
         DefinitionKind::Workflow => Ok(ctx.storage.workflow_draft.delete(id).await?),
         DefinitionKind::Agent => Ok(ctx.storage.agent_draft.delete(id).await?),
@@ -153,7 +144,8 @@ pub async fn promote_draft(
             let owner = crate::workflow::draft::draft_owner_id(ctx, id).await?;
             draft.id = owner.clone();
             snapshot_workflow_version(ctx, &owner).await;
-            let impact = crate::workflow::definition::save_workflow_with_impact(ctx, &draft).await?;
+            let impact =
+                crate::workflow::definition::save_workflow_with_impact(ctx, &draft).await?;
             let _ = delete_draft(ctx, kind, id).await;
             Ok(PromotionOutcome {
                 warnings: Vec::new(),
@@ -224,8 +216,7 @@ async fn snapshot_agent_version(ctx: &ApiContext, id: &str) {
         .version
         .clone()
         .unwrap_or_else(|| format!("pre-promote-{}", wf_common::now()));
-    let _ = crate::template::template_library::save_agent_template_version(
-        ctx, id, &label, &current,
-    )
-    .await;
+    let _ =
+        crate::template::template_library::save_agent_template_version(ctx, id, &label, &current)
+            .await;
 }

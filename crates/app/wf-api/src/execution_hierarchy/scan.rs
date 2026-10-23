@@ -100,4 +100,3 @@ pub async fn read_row(
         .into_iter()
         .find(|row| row.id() == id))
 }
-

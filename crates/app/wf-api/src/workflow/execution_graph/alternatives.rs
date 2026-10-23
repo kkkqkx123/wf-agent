@@ -1,5 +1,3 @@
-
-
 use wf_types::workflow_execution::WorkflowGraphStructure;
 
 use crate::infra::context::ApiContext;
@@ -50,4 +48,3 @@ pub async fn get_alternative_paths(
     alternatives.sort_by(|a, b| a.node_id.cmp(&b.node_id));
     Ok(alternatives)
 }
-

@@ -5,8 +5,8 @@ use crate::domain::keys::SCHEMA_VERSION_EXCLUDE_PATTERN;
 use crate::domain::store::{BatchItem, Maintainable, StoreExt, StoreOperation};
 use crate::error::StorageError;
 
-use super::init::SqliteStorage;
 use super::init;
+use super::init::SqliteStorage;
 #[async_trait]
 impl StoreExt for SqliteStorage {
     async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
@@ -252,4 +252,3 @@ impl Maintainable for SqliteStorage {
         Ok(())
     }
 }
-

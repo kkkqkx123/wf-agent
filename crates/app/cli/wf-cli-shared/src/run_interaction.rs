@@ -124,8 +124,7 @@ impl PendingWatcher {
                 return PendingWatchStep::Stopped;
             }
             if self.stream.is_none() {
-                if sleep_backoff(stream_reconnect_delay(self.reconnect_attempt), &is_stopped)
-                    .await
+                if sleep_backoff(stream_reconnect_delay(self.reconnect_attempt), &is_stopped).await
                 {
                     return PendingWatchStep::Stopped;
                 }
@@ -169,7 +168,9 @@ impl PendingWatcher {
                 .get_json("/api/v1/interactions/by-status/pending")
                 .await
             {
-                Ok(pending) => return PendingWatchStep::Ready(unseen_items(&pending, &mut self.seen)),
+                Ok(pending) => {
+                    return PendingWatchStep::Ready(unseen_items(&pending, &mut self.seen))
+                }
                 Err(_) => continue,
             }
         }
@@ -201,10 +202,7 @@ fn unseen_items(pending: &Value, seen: &mut HashSet<String>) -> Vec<Value> {
         .unwrap_or_default()
         .into_iter()
         .filter(|item| {
-            let id = item
-                .get("id")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default();
+            let id = item.get("id").and_then(|v| v.as_str()).unwrap_or_default();
             !id.is_empty() && seen.insert(id.to_string())
         })
         .collect()

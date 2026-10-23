@@ -45,6 +45,7 @@ pub use provenance::{
 };
 pub use scan::{ScanConfig, WorkspaceScan, WorkspaceScanner};
 pub use scope::ScopeEndOutcome;
+pub use scope::ShellWindowGuard;
 pub use script_capture::{CollectedChange, CollectedChangeKind, WorkspaceChangeCollector};
 pub use session::CheckpointSession;
 pub use watcher::{normalize_absolute_path, FileChangeKind, FileChangeRecord, ManualChangeService};

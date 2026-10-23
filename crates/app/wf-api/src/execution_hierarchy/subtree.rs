@@ -20,7 +20,8 @@ pub async fn subtree(
         .await?
         .ok_or_else(|| ApiError::execution_not_found(root_id))?;
 
-    let (rows, rejected) = super::scan::scan_all_rows(ctx, &ExecutionIndexRow::path_filter(&root.path)).await?;
+    let (rows, rejected) =
+        super::scan::scan_all_rows(ctx, &ExecutionIndexRow::path_filter(&root.path)).await?;
     let persisted: Vec<ExecutionSubtreeNode> = rows
         .iter()
         .map(|row| ExecutionSubtreeNode {
@@ -50,7 +51,8 @@ pub async fn subtree(
         })
         .collect();
 
-    let mut nodes = super::placement::merge_persisted_then_live(persisted, live, |n| n.execution_id.clone());
+    let mut nodes =
+        super::placement::merge_persisted_then_live(persisted, live, |n| n.execution_id.clone());
     nodes.sort_by(|a, b| {
         a.depth
             .cmp(&b.depth)
@@ -83,4 +85,3 @@ pub async fn subtree(
 fn depth_within(row: &ExecutionIndexRow, root_depth: u32) -> u32 {
     row.depth().saturating_sub(root_depth)
 }
-

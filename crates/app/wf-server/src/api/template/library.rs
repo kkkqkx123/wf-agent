@@ -68,8 +68,7 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
         .route(
             "/templates/library/agents/{id}/versions",
-            get(handle_list_agent_template_versions)
-                .post(handle_save_agent_template_version),
+            get(handle_list_agent_template_versions).post(handle_save_agent_template_version),
         )
         .route(
             "/templates/library/agents/{id}/versions/{version}",
@@ -359,7 +358,8 @@ pub(crate) async fn handle_register_workflow_template(
     State(state): State<ApiState>,
     Json(template): Json<wf_api::WorkflowTemplate>,
 ) -> impl IntoResponse {
-    match wf_api::template::template_library::register_workflow_template(&state.ctx, &template).await
+    match wf_api::template::template_library::register_workflow_template(&state.ctx, &template)
+        .await
     {
         Ok(()) => ok(template.id.to_string()).into_response(),
         Err(e) => error_response(e),
@@ -381,7 +381,8 @@ pub(crate) async fn handle_update_workflow_template(
     Json(mut template): Json<wf_api::WorkflowTemplate>,
 ) -> impl IntoResponse {
     template.id = wf_api::Id::from(path.id.clone());
-    match wf_api::template::template_library::update_workflow_template(&state.ctx, &template).await {
+    match wf_api::template::template_library::update_workflow_template(&state.ctx, &template).await
+    {
         Ok(()) => ok(path.id).into_response(),
         Err(e) => error_response(e),
     }
@@ -417,7 +418,8 @@ pub(crate) async fn handle_publish_workflow_template(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::template::template_library::publish_workflow_template(&state.ctx, &path.id).await {
+    match wf_api::template::template_library::publish_workflow_template(&state.ctx, &path.id).await
+    {
         Ok(()) => ok(path.id).into_response(),
         Err(e) => error_response(e),
     }
@@ -435,7 +437,9 @@ pub(crate) async fn handle_unpublish_workflow_template(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::template::template_library::unpublish_workflow_template(&state.ctx, &path.id).await {
+    match wf_api::template::template_library::unpublish_workflow_template(&state.ctx, &path.id)
+        .await
+    {
         Ok(()) => ok(path.id).into_response(),
         Err(e) => error_response(e),
     }
@@ -562,7 +566,8 @@ pub(crate) async fn handle_import_workflow_template(
             Ok(template) => template,
             Err(e) => return error_response(e),
         };
-    match wf_api::template::template_library::register_workflow_template(&state.ctx, &template).await
+    match wf_api::template::template_library::register_workflow_template(&state.ctx, &template)
+        .await
     {
         Ok(()) => ok(template.id.to_string()).into_response(),
         Err(e) => error_response(e),
@@ -670,7 +675,9 @@ pub(crate) async fn handle_list_agent_template_versions(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::template::template_library::list_agent_template_versions(&state.ctx, &path.id).await {
+    match wf_api::template::template_library::list_agent_template_versions(&state.ctx, &path.id)
+        .await
+    {
         Ok(versions) => ok(versions).into_response(),
         Err(e) => error_response(e),
     }
@@ -688,7 +695,13 @@ pub(crate) async fn handle_get_agent_template_version(
     State(state): State<ApiState>,
     Path(path): Path<IdVersionPath>,
 ) -> impl IntoResponse {
-    match wf_api::template::template_library::get_agent_template_version(&state.ctx, &path.id, &path.version).await {
+    match wf_api::template::template_library::get_agent_template_version(
+        &state.ctx,
+        &path.id,
+        &path.version,
+    )
+    .await
+    {
         Ok(version) => ok(version).into_response(),
         Err(e) => error_response(e),
     }
@@ -715,7 +728,14 @@ pub(crate) async fn handle_save_agent_template_version(
     Path(path): Path<IdPath>,
     Json(body): Json<SaveAgentTemplateVersionBody>,
 ) -> impl IntoResponse {
-    match wf_api::template::template_library::save_agent_template_version(&state.ctx, &path.id, &body.version, &body.template).await {
+    match wf_api::template::template_library::save_agent_template_version(
+        &state.ctx,
+        &path.id,
+        &body.version,
+        &body.template,
+    )
+    .await
+    {
         Ok(()) => ok(body.version).into_response(),
         Err(e) => error_response(e),
     }
@@ -740,7 +760,13 @@ pub(crate) async fn handle_rollback_agent_template(
     Path(path): Path<IdPath>,
     Json(body): Json<RollbackAgentTemplateBody>,
 ) -> impl IntoResponse {
-    match wf_api::template::template_library::rollback_agent_template(&state.ctx, &path.id, &body.version).await {
+    match wf_api::template::template_library::rollback_agent_template(
+        &state.ctx,
+        &path.id,
+        &body.version,
+    )
+    .await
+    {
         Ok(()) => ok(()).into_response(),
         Err(e) => error_response(e),
     }

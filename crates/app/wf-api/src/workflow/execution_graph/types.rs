@@ -2,8 +2,6 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::Serialize;
 
-
-
 pub const MAX_ENUMERATED_PATHS: usize = 1000;
 
 /// One simple path from the start node to an end node.
@@ -162,4 +160,3 @@ pub struct NodeTiming {
     pub duration_ms: i64,
     pub success: bool,
 }
-

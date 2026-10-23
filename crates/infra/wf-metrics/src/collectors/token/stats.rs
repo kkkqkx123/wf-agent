@@ -27,9 +27,7 @@ impl TokenMetricsCollector {
             Some(d) if d.sum > 0.0 => generation_tokens / (d.sum / 1000.0),
             _ => 0.0,
         };
-        let total = |name: &str| {
-            crate::collectors::counter_total(&self.inner, name) as u64
-        };
+        let total = |name: &str| crate::collectors::counter_total(&self.inner, name) as u64;
         let input_tokens = total(token_metrics::INPUT_TOKENS);
         let output_tokens = total(token_metrics::OUTPUT_TOKENS);
         let reasoning_tokens = total(token_metrics::REASONING_TOKENS);
@@ -95,5 +93,4 @@ impl TokenMetricsCollector {
                 .collect(),
         }
     }
-
 }

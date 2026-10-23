@@ -726,10 +726,7 @@ mod tests {
         let parsed = parse_event_types("WORKFLOW_EXECUTION_COMPLETED, git_changed").unwrap();
         assert_eq!(
             parsed,
-            vec![
-                EventType::WorkflowExecutionCompleted,
-                EventType::GitChanged,
-            ]
+            vec![EventType::WorkflowExecutionCompleted, EventType::GitChanged,]
         );
         assert!(parse_event_types(" , ").unwrap().is_empty());
     }

@@ -609,7 +609,13 @@ mod tests {
             .await
             .unwrap();
 
-        let stored = ctx.storage.workflow.load("wf-published").await.unwrap().unwrap();
+        let stored = ctx
+            .storage
+            .workflow
+            .load("wf-published")
+            .await
+            .unwrap()
+            .unwrap();
         let metadata = stored.metadata.as_ref().unwrap();
         assert_eq!(metadata.published, Some(true));
         assert_eq!(metadata.author.as_deref(), Some("alice"));
@@ -636,7 +642,13 @@ mod tests {
         });
         save_workflow(&ctx, &replacement).await.unwrap();
 
-        let stored = ctx.storage.workflow.load("wf-unpublished").await.unwrap().unwrap();
+        let stored = ctx
+            .storage
+            .workflow
+            .load("wf-unpublished")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(
             stored.metadata.as_ref().and_then(|m| m.published),
             Some(false)

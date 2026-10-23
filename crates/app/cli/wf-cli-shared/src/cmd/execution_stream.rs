@@ -267,14 +267,10 @@ pub(crate) async fn watch_execution(
         );
     }
     match client
-        .get_stream(&wf_client::endpoints::events_stream_for_execution(
-            id, None,
-        ))
+        .get_stream(&wf_client::endpoints::events_stream_for_execution(id, None))
         .await
     {
-        Ok(stream) => {
-            watch_via_stream(cli, client, id, text, &mut last, Box::pin(stream)).await
-        }
+        Ok(stream) => watch_via_stream(cli, client, id, text, &mut last, Box::pin(stream)).await,
         Err(_) => watch_via_poll(cli, client, id, text, &mut last, interval).await,
     }
 }

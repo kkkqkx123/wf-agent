@@ -34,6 +34,7 @@ pub fn merge_file_checkpoint_with_defaults(user: &FileCheckpointConfig) -> FileC
         default_scope: user.default_scope.clone(),
         store_in_workspace: user.store_in_workspace,
         max_file_size: user.max_file_size,
+        scope_serialization: user.scope_serialization,
     }
 }
 
@@ -115,6 +116,13 @@ pub fn validate_file_checkpoint_config(config: &FileCheckpointConfig) -> ConfigR
             ));
         }
     }
+    if let Some(serialization) = config.scope_serialization.as_ref() {
+        if serialization.lock_timeout_ms == Some(0) {
+            return Err(ConfigError::Validation(
+                "file_checkpoint.scope_serialization.lock_timeout_ms must not be zero".to_string(),
+            ));
+        }
+    }
     if let Some(scope) = config.default_scope.as_ref() {
         validate_file_scope(scope)?;
         let expanded = expand_file_scope(scope, None, config.workspace_root.as_deref());
@@ -164,6 +172,7 @@ mod tests {
             default_scope: None,
             store_in_workspace: None,
             max_file_size: None,
+            scope_serialization: None,
         }
     }
 
@@ -232,6 +241,7 @@ mod tests {
             default_scope: None,
             store_in_workspace: None,
             max_file_size: None,
+            scope_serialization: None,
         };
         assert!(validate_file_checkpoint_config(&config).is_ok());
     }
@@ -252,6 +262,7 @@ mod tests {
             default_scope: None,
             store_in_workspace: None,
             max_file_size: None,
+            scope_serialization: None,
         }
     }
 
@@ -369,5 +380,32 @@ mod tests {
             workdir: None,
         });
         assert!(validate_file_checkpoint_config(&config).is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_zero_serialization_timeout() {
+        let mut config = enabled_config();
+        config.scope_serialization = Some(
+            wf_types::config::file_checkpoint::ScopeSerializationConfig {
+                enabled: true,
+                lock_timeout_ms: Some(0),
+            },
+        );
+        assert!(validate_file_checkpoint_config(&config).is_err());
+    }
+
+    #[test]
+    fn test_merge_passes_scope_serialization_through() {
+        let mut user = base_config();
+        user.scope_serialization = Some(
+            wf_types::config::file_checkpoint::ScopeSerializationConfig {
+                enabled: false,
+                lock_timeout_ms: Some(1000),
+            },
+        );
+        let merged = merge_file_checkpoint_with_defaults(&user);
+        let section = merged.scope_serialization.expect("section survives merge");
+        assert!(!section.enabled);
+        assert_eq!(section.lock_timeout_ms, Some(1000));
     }
 }

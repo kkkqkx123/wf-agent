@@ -18,6 +18,23 @@ use checkpoint_base::error::CheckpointError;
 /// scanned, committed or deleted by restore.
 pub const HARDCODED_IGNORE_DIRS: &[&str] = &[".git", "node_modules", ".wf-checkpoint-git"];
 
+/// Volatile subdirectories of the project `.wf` directory: synced project
+/// configuration lives directly under `.wf` and stays tracked, while
+/// machine-local metadata and spill output live here and must never enter
+/// scans, commits or restores.
+pub const VOLATILE_WF_SUBDIRS: &[&str] = &["meta", "tmp"];
+
+/// Whether a workspace-relative posix path falls inside a volatile `.wf`
+/// subdirectory (the directory itself or anything beneath it). Tracked
+/// `.wf` roots such as `.wf/config.toml` are not volatile.
+pub fn is_volatile_wf_path(relative_path: &str) -> bool {
+    let mut parts = relative_path.split('/');
+    if parts.next() != Some(".wf") {
+        return false;
+    }
+    matches!(parts.next(), Some(dir) if VOLATILE_WF_SUBDIRS.contains(&dir))
+}
+
 /// Files larger than this are not read into checkpoint content by default.
 /// They stay on disk untouched: never captured, never restored, never
 /// deleted. `0` disables the limit.
@@ -148,8 +165,12 @@ fn read_nested_head(git_dir: &Path) -> Option<String> {
 }
 
 /// Whether a workspace-relative path is protected by the hardcoded ignore
-/// rules: any path component equals a hardcoded name.
+/// rules: any path component equals a hardcoded name, or the path falls
+/// inside a volatile `.wf` subdirectory.
 pub fn is_hardcoded_ignored(relative_path: &str) -> bool {
+    if is_volatile_wf_path(relative_path) {
+        return true;
+    }
     relative_path
         .split('/')
         .any(|part| HARDCODED_IGNORE_DIRS.contains(&part))
@@ -269,6 +290,9 @@ fn collect_gitignore_files(root: &Path, current: &Path, search: &mut gix_ignore:
             .as_deref()
             .is_some_and(|rel| probe_nested_repo(root, rel).is_some())
         {
+            continue;
+        }
+        if relative.as_deref().is_some_and(is_volatile_wf_path) {
             continue;
         }
         collect_gitignore_files(root, &entry.path(), search);
@@ -428,6 +452,9 @@ impl WorkspaceScanner {
                 .as_deref()
                 .is_some_and(|rel| probe_nested_repo(root, rel).is_some())
             {
+                continue;
+            }
+            if relative.as_deref().is_some_and(is_volatile_wf_path) {
                 continue;
             }
             self.collect_gitignore(root, &entry.path(), search)?;
@@ -602,7 +629,6 @@ fn find_empty_dirs(dirs: &[String], files: &[FileState]) -> Vec<String> {
         .cloned()
         .collect()
 }
-
 
 #[cfg(test)]
 #[path = "scan/tests.rs"]

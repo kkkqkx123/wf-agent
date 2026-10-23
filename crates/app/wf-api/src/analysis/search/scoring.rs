@@ -16,7 +16,10 @@ pub(crate) fn workflow_tags(template: &wf_types::workflow::WorkflowTemplate) -> 
 }
 
 /// Sort by relevance (descending) then id (ascending) and truncate.
-pub(crate) fn sorted_truncated(mut items: Vec<SearchResultItem>, limit: usize) -> Vec<SearchResultItem> {
+pub(crate) fn sorted_truncated(
+    mut items: Vec<SearchResultItem>,
+    limit: usize,
+) -> Vec<SearchResultItem> {
     items.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.id.cmp(&b.id)));
     items.truncate(limit);
     items
@@ -44,5 +47,3 @@ pub(crate) fn score(query: &str, fields: &[String]) -> u32 {
     }
     total
 }
-
-

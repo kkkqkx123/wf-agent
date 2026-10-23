@@ -61,11 +61,8 @@ impl TokenMetricsCollector {
                 .increment_counter_by(token_metrics::PROMPT_COST, cost, labels.clone());
         }
         if let Some(cost) = record.completion_cost {
-            self.inner.increment_counter_by(
-                token_metrics::COMPLETION_COST,
-                cost,
-                labels.clone(),
-            );
+            self.inner
+                .increment_counter_by(token_metrics::COMPLETION_COST, cost, labels.clone());
         }
         if let Some(savings) = record.cache_savings {
             self.inner.increment_counter_by(
@@ -94,15 +91,11 @@ impl TokenMetricsCollector {
 
         // Cache outcome of this request.
         if record.cache_read_tokens > 0 {
-            self.inner.increment_counter(
-                token_metrics::CACHE_REQUEST_HIT_COUNT,
-                labels.clone(),
-            );
+            self.inner
+                .increment_counter(token_metrics::CACHE_REQUEST_HIT_COUNT, labels.clone());
         } else {
-            self.inner.increment_counter(
-                token_metrics::CACHE_REQUEST_MISS_COUNT,
-                labels.clone(),
-            );
+            self.inner
+                .increment_counter(token_metrics::CACHE_REQUEST_MISS_COUNT, labels.clone());
         }
         if record.cache_write_tokens > 0 {
             self.inner
@@ -127,10 +120,8 @@ impl TokenMetricsCollector {
         }
 
         if record.estimated {
-            self.inner.increment_counter(
-                token_metrics::ESTIMATED_REQUEST_COUNT,
-                labels.clone(),
-            );
+            self.inner
+                .increment_counter(token_metrics::ESTIMATED_REQUEST_COUNT, labels.clone());
             self.inner.increment_counter_by(
                 token_metrics::ESTIMATED_TOKENS,
                 record.total_tokens as f64,
@@ -158,9 +149,15 @@ impl TokenMetricsCollector {
         }
         entry.input_tokens = entry.input_tokens.saturating_add(record.input_tokens);
         entry.output_tokens = entry.output_tokens.saturating_add(record.output_tokens);
-        entry.reasoning_tokens = entry.reasoning_tokens.saturating_add(record.reasoning_tokens);
-        entry.cache_read_tokens = entry.cache_read_tokens.saturating_add(record.cache_read_tokens);
-        entry.cache_write_tokens = entry.cache_write_tokens.saturating_add(record.cache_write_tokens);
+        entry.reasoning_tokens = entry
+            .reasoning_tokens
+            .saturating_add(record.reasoning_tokens);
+        entry.cache_read_tokens = entry
+            .cache_read_tokens
+            .saturating_add(record.cache_read_tokens);
+        entry.cache_write_tokens = entry
+            .cache_write_tokens
+            .saturating_add(record.cache_write_tokens);
         entry.total_tokens = entry.total_tokens.saturating_add(record.total_tokens);
         entry.total_cost += record.total_cost.unwrap_or(0.0);
         entry.last_input_tokens = record.input_tokens;
@@ -208,13 +205,13 @@ impl TokenMetricsCollector {
     ) {
         let mut series = call.metric_labels();
         series.insert("success".to_string(), success.to_string());
-        self.inner.observe_histogram(
-            token_metrics::REQUEST_DURATION,
-            duration_ms,
-            series.clone(),
-        );
+        self.inner
+            .observe_histogram(token_metrics::REQUEST_DURATION, duration_ms, series.clone());
         if !success {
-            series.insert("error_type".to_string(), error_type.unwrap_or("unknown").to_string());
+            series.insert(
+                "error_type".to_string(),
+                error_type.unwrap_or("unknown").to_string(),
+            );
             self.inner
                 .increment_counter(token_metrics::ERROR_COUNT, series);
         }
@@ -272,12 +269,8 @@ impl TokenMetricsCollector {
             labels.clone(),
         );
         if let Some(reasoning_ms) = stats.time_to_first_reasoning_ms {
-            self.inner.observe_histogram(
-                token_metrics::REASONING_DURATION,
-                reasoning_ms,
-                labels,
-            );
+            self.inner
+                .observe_histogram(token_metrics::REASONING_DURATION, reasoning_ms, labels);
         }
     }
-
 }

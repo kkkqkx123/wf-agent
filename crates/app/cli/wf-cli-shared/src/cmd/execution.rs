@@ -240,9 +240,7 @@ pub(crate) async fn run_with_client(
             }
         }
         ExecutionSub::History { id, include } => {
-            let view = client
-                .execution_history(id, include.as_deref())
-                .await?;
+            let view = client.execution_history(id, include.as_deref()).await?;
             let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
             if cli.output == crate::output::OutputFormat::Text {
                 print_history(&data);
@@ -357,7 +355,9 @@ pub(crate) async fn run_with_client(
             let data: serde_json::Value = if let Some(name) = variable {
                 // Escape hatch: variable history is an entity payload.
                 client
-                    .get_json(&crate::paths::executions_id_state_record_variable_history(id, name))
+                    .get_json(&crate::paths::executions_id_state_record_variable_history(
+                        id, name,
+                    ))
                     .await?
             } else if *most_changed {
                 // Escape hatch: dynamic observation query with caller-chosen limit.
@@ -483,7 +483,11 @@ async fn list_loop_summaries(
     let path = if params.is_empty() {
         crate::paths::AGENT_LOOPS_SUMMARIES.to_string()
     } else {
-        format!("{}?{}", crate::paths::AGENT_LOOPS_SUMMARIES, params.join("&"))
+        format!(
+            "{}?{}",
+            crate::paths::AGENT_LOOPS_SUMMARIES,
+            params.join("&")
+        )
     };
     let data: serde_json::Value = client.get_json(&path).await?;
     Ok(paged_or_array(data, limit, offset, order))
@@ -658,7 +662,9 @@ async fn inspect_execution(
     if variable_history {
         if let Some(name) = var_name {
             let hist: serde_json::Value = client
-                .get_json(&crate::paths::executions_id_state_record_variable_history(id, name))
+                .get_json(&crate::paths::executions_id_state_record_variable_history(
+                    id, name,
+                ))
                 .await?;
             out.insert("variableHistory".into(), hist);
         } else {

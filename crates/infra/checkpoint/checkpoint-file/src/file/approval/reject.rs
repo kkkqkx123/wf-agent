@@ -3,7 +3,6 @@
 //! Write domain: submit, approve, reject and merge review refs into features.
 //! Read models live in the top-level approval module.
 
-
 use crate::event::{ApprovalDecision, CheckpointEventBus};
 use crate::file::git_write::map_git_error;
 use crate::file::FileCheckpointManager;

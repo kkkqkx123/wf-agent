@@ -1,8 +1,6 @@
-
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::context::StorageContext;
 use wf_types::node::StaticNodeType;
-
 
 pub struct ScriptReference {
     pub workflow_id: String,
@@ -46,5 +44,3 @@ pub async fn check_script_delete_references(
     }
     Ok(references)
 }
-
-

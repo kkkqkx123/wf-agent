@@ -2,22 +2,22 @@ use super::*;
 use async_trait::async_trait;
 
 pub struct WasmNodeHandler {
-    pub inner: Arc<WasmPluginInner>,
+    pub(crate) inner: Arc<WasmPluginInner>,
     pub type_name: String,
 }
 
 pub struct WasmToolExecutor {
-    pub inner: Arc<WasmPluginInner>,
+    pub(crate) inner: Arc<WasmPluginInner>,
     pub type_name: String,
 }
 
 pub struct WasmEventHandler {
-    pub inner: Arc<WasmPluginInner>,
+    pub(crate) inner: Arc<WasmPluginInner>,
     pub event_type: String,
 }
 
 pub struct WasmMiddlewareHandler {
-    pub inner: Arc<WasmPluginInner>,
+    pub(crate) inner: Arc<WasmPluginInner>,
     pub phase: String,
 }
 

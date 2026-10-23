@@ -3,7 +3,9 @@ use crate::git::runner::run_git;
 use crate::git::types::{GitError, GitResult};
 use crate::infra::context::ApiContext;
 
-use super::{ActionOutcome, ActionRequest, echo_of, finish, optional_param, param, require_confirm};
+use super::{
+    echo_of, finish, optional_param, param, require_confirm, ActionOutcome, ActionRequest,
+};
 
 pub fn handle(
     ctx: &ApiContext,
@@ -22,7 +24,12 @@ pub fn handle(
     }
 }
 
-fn push(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn push(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let remote = optional_param(request, "remote").unwrap_or_else(|| "origin".to_string());
     let branch = optional_param(request, "branch").unwrap_or_default();
     let target = if branch.is_empty() {
@@ -41,7 +48,12 @@ fn push(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::pat
     Ok(finish(action, format!("pushed {target}"), echo))
 }
 
-fn pull(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn pull(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let remote = optional_param(request, "remote").unwrap_or_else(|| "origin".to_string());
     let branch = optional_param(request, "branch").unwrap_or_default();
     let mut argv = vec!["pull".to_string(), "--ff-only".to_string(), remote.clone()];
@@ -54,7 +66,12 @@ fn pull(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::pat
     Ok(finish(action, "pulled".to_string(), echo))
 }
 
-fn fetch(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn fetch(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let remote = optional_param(request, "remote").unwrap_or_else(|| "origin".to_string());
     let argv = vec!["fetch".to_string(), remote.clone()];
     let echo = echo_of(action, &argv);
@@ -63,7 +80,12 @@ fn fetch(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::pa
     Ok(finish(action, format!("fetched {remote}"), echo))
 }
 
-fn remote_add(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn remote_add(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let name = param(request, "name")?;
     let url = param(request, "url")?;
     if name.is_empty() || name.contains(' ') || name.contains('\0') {
@@ -81,7 +103,12 @@ fn remote_add(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &st
     Ok(finish(action, format!("added remote {name}"), echo))
 }
 
-fn remote_remove(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn remote_remove(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let name = param(request, "name")?;
     require_confirm(request, &name, action)?;
     let argv = vec!["remote".to_string(), "remove".to_string(), name.clone()];
@@ -91,7 +118,12 @@ fn remote_remove(ctx: &ApiContext, action: &str, request: &ActionRequest, root: 
     Ok(finish(action, format!("removed remote {name}"), echo))
 }
 
-fn remote_set_url(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn remote_set_url(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let name = param(request, "name")?;
     let url = param(request, "url")?;
     let argv = vec![

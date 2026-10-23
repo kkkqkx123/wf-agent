@@ -19,7 +19,6 @@ pub use scopes::*;
 pub use template::*;
 pub use transform::*;
 
-
 #[cfg(test)]
 #[path = "trigger/tests.rs"]
 mod tests;

@@ -205,8 +205,7 @@ async fn drive_turn(
             // message by the accumulator; nothing to do per event.
             Ok(MessageStreamEvent::RedactedThinking(_))
             | Ok(MessageStreamEvent::Annotation(_))
-            | Ok(MessageStreamEvent::NativeBlock(_)) => {
-            }
+            | Ok(MessageStreamEvent::NativeBlock(_)) => {}
             Ok(MessageStreamEvent::Abort(abort)) => {
                 return TurnOutcome::Interrupted {
                     reason: abort.reason,

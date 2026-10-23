@@ -1,13 +1,11 @@
 use std::sync::Arc;
 
-
 use wf_core::registry::{MutableRegistry, Registry};
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::workflow::{WorkflowDefinition, WorkflowTemplate};
 
 use crate::infra::context::ApiContext;
 use crate::infra::error::{not_found, ApiError, ApiResult};
-
 
 pub fn get_workflow_template(ctx: &ApiContext, id: &str) -> ApiResult<WorkflowTemplate> {
     ctx.registries
@@ -211,4 +209,3 @@ async fn set_published(ctx: &ApiContext, id: &str, published: bool) -> ApiResult
         .register_or_replace(entry.id.to_string(), Arc::new(entry));
     Ok(())
 }
-

@@ -103,9 +103,7 @@ async fn follow_stream(
         .unwrap_or_default();
     if cli.output == crate::output::OutputFormat::Text {
         for ev in &history_items {
-            if let Ok(base) =
-                serde_json::from_value::<wf_types::events::BaseEvent>(ev.clone())
-            {
+            if let Ok(base) = serde_json::from_value::<wf_types::events::BaseEvent>(ev.clone()) {
                 println!(
                     "[{}] {} {}",
                     base.timestamp,

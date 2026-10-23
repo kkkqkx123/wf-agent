@@ -47,4 +47,3 @@ impl ContributionManager {
         next(context).await
     }
 }
-

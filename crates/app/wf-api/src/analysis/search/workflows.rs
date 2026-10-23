@@ -1,8 +1,8 @@
-use wf_core::registry::Registry;
-use crate::ApiContext;
-use crate::ApiResult;
 use super::scoring::{matched_fields, score, sorted_truncated, workflow_tags};
 use super::types::SearchResultItem;
+use crate::ApiContext;
+use crate::ApiResult;
+use wf_core::registry::Registry;
 
 pub(super) async fn search_workflows(
     ctx: &ApiContext,
@@ -47,5 +47,3 @@ pub(super) async fn search_workflows(
     }
     Ok(sorted_truncated(out, limit))
 }
-
-

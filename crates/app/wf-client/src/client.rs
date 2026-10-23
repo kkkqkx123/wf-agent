@@ -352,10 +352,7 @@ impl WfClient {
     }
 
     /// Typed execution hierarchy (`GET /api/v1/executions/{id}/hierarchy`).
-    pub async fn execution_hierarchy(
-        &self,
-        id: &str,
-    ) -> ClientResult<crate::models::HierarchyDoc> {
+    pub async fn execution_hierarchy(&self, id: &str) -> ClientResult<crate::models::HierarchyDoc> {
         let envelope = self
             .generated
             .get_executions_id_hierarchy(id)

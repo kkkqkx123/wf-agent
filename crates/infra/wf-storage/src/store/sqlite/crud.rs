@@ -2,9 +2,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::domain::keys::SCHEMA_VERSION_EXCLUDE_PATTERN;
-use crate::domain::store::{
-    FilterBindValue, QueryFilter, Store,
-};
+use crate::domain::store::{FilterBindValue, QueryFilter, Store};
 use crate::error::StorageError;
 
 use super::init::SqliteStorage;
@@ -123,7 +121,8 @@ impl Store for SqliteStorage {
         &self,
         filter: Option<&QueryFilter>,
     ) -> Result<Vec<(Vec<u8>, Value)>, StorageError> {
-        let (sql, params) = query::build_select_sql(filter, &self.table_name, "id, data, metadata, hash");
+        let (sql, params) =
+            query::build_select_sql(filter, &self.table_name, "id, data, metadata, hash");
         let mut query = sqlx::query_as::<_, (String, Vec<u8>, String, String)>(&sql);
         for param in &params {
             match param {
@@ -204,4 +203,3 @@ impl Store for SqliteStorage {
         Ok(())
     }
 }
-

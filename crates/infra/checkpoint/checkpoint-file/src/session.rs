@@ -270,6 +270,28 @@ impl CheckpointSession {
         }
     }
 
+    /// Acquire the exclusive shell-window permit for async callers. Hold
+    /// the returned guard across before-capture, command execution and
+    /// after-commit so concurrent shells cannot interleave their scans.
+    /// `None` means serialization is disabled or the wait budget expired:
+    /// proceed without exclusivity and treat sampling as degraded.
+    pub async fn acquire_shell_window(
+        &self,
+        execution_id: &str,
+    ) -> Option<crate::ShellWindowGuard> {
+        self.capture.acquire_shell_window(execution_id).await
+    }
+
+    /// Acquire the exclusive shell-window permit for synchronous callers
+    /// (blocking-pool tool handlers). Same degraded-`None` contract as the
+    /// async variant.
+    pub fn blocking_acquire_shell_window(
+        &self,
+        execution_id: &str,
+    ) -> Option<crate::ShellWindowGuard> {
+        self.capture.blocking_acquire_shell_window(execution_id)
+    }
+
     /// Async scope begin for async tool handlers: blocking scan runs on the
     /// blocking pool.
     pub async fn begin_scope_async(

@@ -3,8 +3,8 @@ use crate::git::runner::run_git;
 use crate::git::types::GitResult;
 use crate::infra::context::ApiContext;
 
+use super::{echo_of, finish, param, require_confirm, ActionOutcome, ActionRequest};
 use crate::git::config::validate_repo_path;
-use super::{ActionOutcome, ActionRequest, echo_of, finish, param, require_confirm};
 
 pub fn handle(
     ctx: &ApiContext,
@@ -14,7 +14,9 @@ pub fn handle(
 ) -> Option<GitResult<ActionOutcome>> {
     match action {
         "reset.soft" | "reset.mixed" | "reset.hard" => Some(reset(ctx, action, request, root)),
-        "conflict.accept-ours" | "conflict.accept-theirs" => Some(conflict_accept(ctx, action, request, root)),
+        "conflict.accept-ours" | "conflict.accept-theirs" => {
+            Some(conflict_accept(ctx, action, request, root))
+        }
         _ => None,
     }
 }

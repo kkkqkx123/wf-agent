@@ -451,7 +451,7 @@ mod tests {
                 arguments: "{}".to_string(),
             },
             call_id: None,
-        thought_signature: None,
+            thought_signature: None,
         };
         let result = execute_tool_call(&ctx, &call, None, None).await;
         assert_eq!(result.role, MessageRole::Tool);
@@ -526,7 +526,7 @@ mod tests {
                 arguments: "{\"x\": 1}".to_string(),
             },
             call_id: None,
-        thought_signature: None,
+            thought_signature: None,
         };
 
         let ok = execute_tool_call(&ctx, &call, None, None).await;
@@ -623,7 +623,7 @@ mod tests {
                 arguments: "{\"x\": 1}".to_string(),
             },
             call_id: None,
-        thought_signature: None,
+            thought_signature: None,
         };
 
         let ok = execute_tool_call(&ctx, &call, None, None).await;

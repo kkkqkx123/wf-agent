@@ -46,8 +46,89 @@ pub mod settings_file {
     pub const SKILL: &str = "skill-settings.json";
 }
 
+/// Volatile machine-local metadata under `{project_root}/.wf/meta`:
+/// session caches, diagnostics and other files that must never be
+/// version-controlled or enter checkpoint scans.
+pub const META_DIR: &str = "meta";
+
+/// Volatile spill output under `{project_root}/.wf/tmp`: oversized
+/// command output and other regenerable artifacts.
+pub const TMP_DIR: &str = "tmp";
+
+/// Content of the `.gitignore` maintained inside each volatile directory:
+/// ignore everything but keep the ignore file itself tracked-ignored.
+pub const VOLATILE_GITIGNORE_CONTENT: &str = "*\n!.gitignore\n";
+
+/// Name of the ignore file maintained inside volatile directories.
+pub const GITIGNORE_FILE: &str = ".gitignore";
+
+/// Ensure the volatile `.wf` subdirectories exist with their internal
+/// ignore files. Only `{project_root}/.wf/{meta,tmp}/.gitignore` are
+/// created or written; the outer workspace `.gitignore` is never touched
+/// so tracked `.wf` configuration keeps its sync behavior. A present
+/// ignore file with custom content is left alone (never force-overwritten).
+pub fn ensure_project_wf_volatile_dirs(project_root: &std::path::Path) -> std::io::Result<()> {
+    for subdir in [META_DIR, TMP_DIR] {
+        let dir = project_root.join(PROJECT_WF_DIR).join(subdir);
+        std::fs::create_dir_all(&dir)?;
+        let ignore = dir.join(GITIGNORE_FILE);
+        if std::fs::read(&ignore).is_err() {
+            std::fs::write(&ignore, VOLATILE_GITIGNORE_CONTENT)?;
+        }
+    }
+    Ok(())
+}
+
 /// Join a project root with a config family directory:
 /// `{project_root}/configs/{family}`.
 pub fn family_dir(project_root: &std::path::Path, family: &str) -> std::path::PathBuf {
     project_root.join(CONFIGS_DIR).join(family)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn volatile_dirs_are_created_with_internal_ignores() {
+        let dir = tempfile::tempdir().unwrap();
+        ensure_project_wf_volatile_dirs(dir.path()).unwrap();
+        for subdir in [META_DIR, TMP_DIR] {
+            let ignore = dir
+                .path()
+                .join(PROJECT_WF_DIR)
+                .join(subdir)
+                .join(GITIGNORE_FILE);
+            assert_eq!(
+                std::fs::read_to_string(&ignore).unwrap(),
+                VOLATILE_GITIGNORE_CONTENT
+            );
+        }
+        assert!(!dir.path().join(".gitignore").exists());
+        // Second run is idempotent.
+        ensure_project_wf_volatile_dirs(dir.path()).unwrap();
+    }
+
+    #[test]
+    fn existing_custom_ignore_is_preserved() {
+        let dir = tempfile::tempdir().unwrap();
+        let meta = dir.path().join(PROJECT_WF_DIR).join(META_DIR);
+        std::fs::create_dir_all(&meta).unwrap();
+        std::fs::write(meta.join(GITIGNORE_FILE), "custom\n").unwrap();
+        ensure_project_wf_volatile_dirs(dir.path()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(meta.join(GITIGNORE_FILE)).unwrap(),
+            "custom\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(
+                dir.path()
+                    .join(PROJECT_WF_DIR)
+                    .join(TMP_DIR)
+                    .join(GITIGNORE_FILE)
+            )
+            .unwrap(),
+            VOLATILE_GITIGNORE_CONTENT
+        );
+    }
 }

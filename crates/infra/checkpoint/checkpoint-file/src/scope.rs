@@ -14,7 +14,9 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
 
@@ -22,6 +24,12 @@ use crate::FileCheckpointManager;
 use crate::WorkspaceChangeCollector;
 use crate::WorkspaceScanner;
 use checkpoint_base::ActorId;
+
+/// Exclusive permit held across one shell sampling window
+/// (before-capture, command execution, after-diff-commit). While held, no
+/// other shell window runs, so overlapping before/after scans cannot
+/// interleave and misattribute each other's writes.
+pub type ShellWindowGuard = tokio::sync::OwnedMutexGuard<()>;
 
 /// Resolve the shell scope intersection: the requested directory intersected
 /// with the workspace root. Returns `None` for out-of-workspace execution
@@ -69,7 +77,7 @@ pub fn resolve_shell_scope(workspace_root: &Path, scope_dir: &Path) -> Option<Pa
 /// Entries are keyed by `execution_id|scope` / `session_id` and removed on
 /// scope/session end; handles dropped mid-scope leak one entry until the
 /// matching end call.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct SessionScopeRegistry {
     /// `execution_id|scope` -> before hashes for foreground scoped runs.
     scoped_before: DashMap<String, HashMap<PathBuf, String>>,
@@ -79,6 +87,111 @@ pub struct SessionScopeRegistry {
     session_before: DashMap<String, HashMap<PathBuf, String>>,
     /// `session_id|scope` -> resolved scope dir.
     session_scope: DashMap<String, PathBuf>,
+    /// Process-wide exclusive permit for shell sampling windows. The guard
+    /// spans the whole before-capture, command execution and after-commit
+    /// sequence so concurrent shells never interleave their scans. Coarse
+    /// by design: non-overlapping scopes serialize too, trading tail
+    /// latency for attribution correctness.
+    shell_serialization: Arc<tokio::sync::Mutex<()>>,
+    /// Master switch for the exclusive permit (from
+    /// `FileCheckpointConfig::scope_serialization`).
+    serialization_enabled: AtomicBool,
+    /// Wait budget for the exclusive permit in milliseconds.
+    serialization_timeout_ms: AtomicU64,
+}
+
+impl Default for SessionScopeRegistry {
+    fn default() -> Self {
+        Self {
+            scoped_before: DashMap::new(),
+            session_before: DashMap::new(),
+            session_scope: DashMap::new(),
+            shell_serialization: Arc::new(tokio::sync::Mutex::new(())),
+            serialization_enabled: AtomicBool::new(true),
+            serialization_timeout_ms: AtomicU64::new(
+                wf_types::config::file_checkpoint::ScopeSerializationConfig::DEFAULT_LOCK_TIMEOUT_MS,
+            ),
+        }
+    }
+}
+
+impl SessionScopeRegistry {
+    /// Apply the configured serialization policy. Missing sections keep
+    /// the default (enabled with the built-in wait budget).
+    pub fn set_scope_serialization(
+        &self,
+        config: Option<&wf_types::config::file_checkpoint::ScopeSerializationConfig>,
+    ) {
+        let (enabled, timeout_ms) =
+            wf_types::config::file_checkpoint::ScopeSerializationConfig::resolve(config);
+        self.serialization_enabled.store(enabled, Ordering::Relaxed);
+        self.serialization_timeout_ms
+            .store(timeout_ms, Ordering::Relaxed);
+    }
+
+    fn serialization_timeout(&self) -> Duration {
+        Duration::from_millis(self.serialization_timeout_ms.load(Ordering::Relaxed))
+    }
+
+    /// Acquire the exclusive shell-window permit for async callers. Returns
+    /// `None` when serialization is disabled or the wait budget expires:
+    /// callers proceed without the permit and treat sampling as degraded
+    /// instead of blocking the batch.
+    pub async fn acquire_shell_window(
+        &self,
+        entity: &str,
+        execution: &str,
+    ) -> Option<ShellWindowGuard> {
+        if !self.serialization_enabled.load(Ordering::Relaxed) {
+            return None;
+        }
+        let timeout = self.serialization_timeout();
+        match tokio::time::timeout(timeout, self.shell_serialization.clone().lock_owned()).await {
+            Ok(guard) => Some(guard),
+            Err(_) => {
+                tracing::warn!(
+                    entity = %entity,
+                    execution = %execution,
+                    timeout_ms = timeout.as_millis() as u64,
+                    "shell serialization wait expired; sampling proceeds without exclusivity"
+                );
+                None
+            }
+        }
+    }
+
+    /// Acquire the exclusive shell-window permit for synchronous callers
+    /// (blocking-pool tool handlers). Polls the permit without parking the
+    /// async runtime; returns `None` on the same degraded path as the
+    /// async variant.
+    pub fn blocking_acquire_shell_window(
+        &self,
+        entity: &str,
+        execution: &str,
+    ) -> Option<ShellWindowGuard> {
+        if !self.serialization_enabled.load(Ordering::Relaxed) {
+            return None;
+        }
+        let timeout = self.serialization_timeout();
+        let deadline = Instant::now() + timeout;
+        loop {
+            match self.shell_serialization.clone().try_lock_owned() {
+                Ok(guard) => return Some(guard),
+                Err(_) => {
+                    if Instant::now() >= deadline {
+                        tracing::warn!(
+                            entity = %entity,
+                            execution = %execution,
+                            timeout_ms = timeout.as_millis() as u64,
+                            "shell serialization wait expired; sampling proceeds without exclusivity"
+                        );
+                        return None;
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            }
+        }
+    }
 }
 
 /// Outcome of ending a scope: distinguishes applied changes from no-change
@@ -178,6 +291,23 @@ impl ScopeCapture {
         } else {
             Some(out)
         }
+    }
+
+    // ---- serialization (shell sampling windows) ----
+
+    /// Acquire the exclusive shell-window permit for async callers. Hold
+    /// the guard across before-capture, command execution and after-commit.
+    pub async fn acquire_shell_window(&self, execution_id: &str) -> Option<ShellWindowGuard> {
+        self.scopes
+            .acquire_shell_window(&self.entity_id, execution_id)
+            .await
+    }
+
+    /// Acquire the exclusive shell-window permit for synchronous callers.
+    /// Hold the guard across command execution and sampling completion.
+    pub fn blocking_acquire_shell_window(&self, execution_id: &str) -> Option<ShellWindowGuard> {
+        self.scopes
+            .blocking_acquire_shell_window(&self.entity_id, execution_id)
     }
 
     // ---- foreground scope helpers ----

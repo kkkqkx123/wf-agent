@@ -9,9 +9,7 @@ use wf_common::now;
 use crate::infra::context::ApiContext;
 use crate::{BaseEvent, EventType};
 
-use super::state::{
-    lock, lock_inner, PtySessionStatus, PtyState,
-};
+use super::state::{lock, lock_inner, PtySessionStatus, PtyState};
 use super::{PtyError, PtyResult, PtySession};
 
 pub fn create_with_context(
@@ -145,7 +143,11 @@ pub fn create_with_context(
         let mut child = child;
         let mut killing = false;
         let code = loop {
-            if !killing && state_e.kill_request.load(std::sync::atomic::Ordering::Acquire) {
+            if !killing
+                && state_e
+                    .kill_request
+                    .load(std::sync::atomic::Ordering::Acquire)
+            {
                 killing = true;
                 let _ = child.kill();
             }
@@ -167,7 +169,10 @@ pub fn create_with_context(
 }
 
 pub fn finalize_exit(state: &Arc<PtyState>, exit_code: Option<i32>, reason: &'static str) {
-    if state.exit_announced.swap(true, std::sync::atomic::Ordering::SeqCst) {
+    if state
+        .exit_announced
+        .swap(true, std::sync::atomic::Ordering::SeqCst)
+    {
         return;
     }
     *lock(&state.status) = PtySessionStatus::Exited;
@@ -204,7 +209,9 @@ pub fn publish_exited(state: &PtyState, exit_code: Option<i32>, reason: &'static
 
 pub fn request_kill(state: &PtyState, reason: &'static str) {
     *lock(&state.kill_reason) = Some(reason);
-    state.kill_request.store(true, std::sync::atomic::Ordering::Release);
+    state
+        .kill_request
+        .store(true, std::sync::atomic::Ordering::Release);
 }
 
 pub fn resolve_cwd(ctx: Option<&ApiContext>, cwd: Option<String>) -> PtyResult<PathBuf> {

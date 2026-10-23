@@ -28,4 +28,3 @@ pub async fn compare(
         improved: improvement_rate > 0.0,
     })
 }
-

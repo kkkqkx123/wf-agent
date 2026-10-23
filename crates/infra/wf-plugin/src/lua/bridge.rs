@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
-
 use serde_json::Value;
 
 use crate::error::{PluginError, PluginResult};
@@ -160,8 +159,11 @@ pub fn set_table_str<'lua>(t: &mlua::Table<'lua>, k: &str, v: &str) -> PluginRes
         .map_err(|e| PluginError::LuaError(format!("set {k}: {e}")))
 }
 
-pub fn set_table_value<'lua>(t: &mlua::Table<'lua>, k: &str, v: mlua::Value<'lua>) -> PluginResult<()> {
+pub fn set_table_value<'lua>(
+    t: &mlua::Table<'lua>,
+    k: &str,
+    v: mlua::Value<'lua>,
+) -> PluginResult<()> {
     t.set(k, v)
         .map_err(|e| PluginError::LuaError(format!("set {k}: {e}")))
 }
-

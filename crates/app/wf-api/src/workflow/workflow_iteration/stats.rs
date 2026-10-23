@@ -1,4 +1,3 @@
-
 use wf_storage::adapter::base::BaseStorageAdapter;
 
 use crate::infra::context::ApiContext;
@@ -79,7 +78,10 @@ pub async fn get_failed_nodes(
 
 /// Raw node attempts: live entity's node execution history first, then the
 /// persisted record's `node_results`.
-pub(super) async fn raw_attempts(ctx: &ApiContext, execution_id: &str) -> ApiResult<Vec<RawNodeAttempt>> {
+pub(super) async fn raw_attempts(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<Vec<RawNodeAttempt>> {
     if let Some(entity) = ctx.workflow_execution(execution_id) {
         let state = entity.state.read().await;
         let mut records: Vec<RawNodeAttempt> = state
@@ -121,4 +123,3 @@ pub(super) async fn raw_attempts(ctx: &ApiContext, execution_id: &str) -> ApiRes
     records.sort_by_key(|r| r.start_time);
     Ok(records)
 }
-

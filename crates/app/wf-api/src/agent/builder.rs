@@ -12,9 +12,6 @@
 //! execution builder drives a loop through
 //! [`crate::agent::agent_execution`].
 
-
-
-
 /// Marker: no model has been assigned to the agent loop config.
 #[derive(Debug)]
 pub struct LoopEmpty;
@@ -43,10 +40,10 @@ pub struct ToolBuilt;
 mod definition;
 mod execution;
 mod hook;
+mod loop_config;
 #[cfg(test)]
 mod tests;
 mod tool;
-mod loop_config;
 
 pub use definition::AgentDefinitionBuilder;
 pub use execution::AgentExecutionBuilder;

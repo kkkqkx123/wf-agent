@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-
 use wf_core::registry::Registry;
 use wf_storage::adapter::BaseStorageAdapter;
 
@@ -10,7 +9,7 @@ use crate::infra::error::ApiResult;
 use super::*;
 
 pub(super) async fn usage_map(ctx: &ApiContext) -> ApiResult<HashMap<String, u64>> {
-        let records = ctx.storage.template_usage.list(None).await?;
+    let records = ctx.storage.template_usage.list(None).await?;
     Ok(records
         .into_iter()
         .map(|record| (record.template_id, record.count))
@@ -25,7 +24,7 @@ pub(super) async fn resolve_usage_kind(ctx: &ApiContext, id: &str) -> String {
     if ctx.registries.agent_templates.has(id) {
         return TemplateKind::Agent.as_str().to_string();
     }
-        if ctx
+    if ctx
         .storage
         .node_template
         .load(id)
@@ -69,4 +68,3 @@ pub async fn usage_count(ctx: &ApiContext, id: &str) -> u64 {
     use wf_storage::adapter::template_usage::TemplateUsageStorageAdapter;
     ctx.storage.template_usage.get_count(id).await.unwrap_or(0)
 }
-

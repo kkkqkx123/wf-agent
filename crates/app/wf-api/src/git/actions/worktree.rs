@@ -3,7 +3,9 @@ use crate::git::runner::run_git;
 use crate::git::types::GitResult;
 use crate::infra::context::ApiContext;
 
-use super::{ActionOutcome, ActionRequest, echo_of, finish, param, require_confirm, validate_branch_name};
+use super::{
+    echo_of, finish, param, require_confirm, validate_branch_name, ActionOutcome, ActionRequest,
+};
 
 pub fn handle(
     ctx: &ApiContext,
@@ -20,7 +22,12 @@ pub fn handle(
     }
 }
 
-fn worktree_add(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn worktree_add(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let path = param(request, "path")?;
     let branch = param(request, "branch")?;
     validate_branch_name(&branch)?;
@@ -36,7 +43,12 @@ fn worktree_add(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &
     Ok(finish(action, format!("added worktree {path}"), echo))
 }
 
-fn worktree_remove(ctx: &ApiContext, action: &str, request: &ActionRequest, root: &std::path::Path) -> GitResult<ActionOutcome> {
+fn worktree_remove(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
     let path = param(request, "path")?;
     require_confirm(request, &path, action)?;
     let argv = vec!["worktree".to_string(), "remove".to_string(), path.clone()];

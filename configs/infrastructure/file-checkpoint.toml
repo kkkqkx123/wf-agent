@@ -54,3 +54,12 @@ manual_watch = false
 # write_prefixes = ["/workspace"]
 # checkpoint_prefixes = ["/workspace"]
 # workdir = "/workspace"
+
+# Shell sampling-window serialization (optional section, all fields optional).
+# Shell tools capture before/after file hashes around each command; the
+# exclusive permit serializes those windows process-wide so concurrent
+# shells cannot interleave scans and misattribute writes. Missing section
+# keeps the default (enabled with the built-in wait budget).
+# [scope_serialization]
+# enabled = true              # false restores fully parallel sampling
+# lock_timeout_ms = 300000    # wait budget; expiry proceeds degraded

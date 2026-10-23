@@ -2,10 +2,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::domain::keys::SCHEMA_VERSION_EXCLUDE_PATTERN;
-use crate::domain::store::{
-    FilterBindValue, QueryFilter,
-    Store,
-};
+use crate::domain::store::{FilterBindValue, QueryFilter, Store};
 use crate::error::StorageError;
 
 use super::init::PostgresStorage;
@@ -90,7 +87,8 @@ impl Store for PostgresStorage {
         &self,
         filter: Option<&QueryFilter>,
     ) -> Result<Vec<(String, Value)>, StorageError> {
-        let (sql, params) = super::query::build_select_sql(filter, &self.table_name, "id, metadata");
+        let (sql, params) =
+            super::query::build_select_sql(filter, &self.table_name, "id, metadata");
         let mut query = sqlx::query_as::<_, (String, Value)>(&sql);
         for param in &params {
             match param {
@@ -115,7 +113,8 @@ impl Store for PostgresStorage {
         &self,
         filter: Option<&QueryFilter>,
     ) -> Result<Vec<(Vec<u8>, Value)>, StorageError> {
-        let (sql, params) = super::query::build_select_sql(filter, &self.table_name, "id, data, metadata, hash");
+        let (sql, params) =
+            super::query::build_select_sql(filter, &self.table_name, "id, data, metadata, hash");
         let mut query = sqlx::query_as::<_, (String, Vec<u8>, Value, String)>(&sql);
         for param in &params {
             match param {
@@ -145,7 +144,8 @@ impl Store for PostgresStorage {
         // Counting reports total matches: ordering and pagination are
         // stripped so a page-sized filter still counts the whole set.
         let stripped = filter.map(|f| f.stripped_for_count());
-        let (sql, params) = super::query::build_select_sql(stripped.as_ref(), &self.table_name, "1");
+        let (sql, params) =
+            super::query::build_select_sql(stripped.as_ref(), &self.table_name, "1");
         let sql = format!("SELECT COUNT(*) FROM ({}) AS filtered", sql);
         let mut query = sqlx::query_scalar::<_, i64>(&sql);
         for param in &params {
@@ -195,4 +195,3 @@ impl Store for PostgresStorage {
         Ok(())
     }
 }
-

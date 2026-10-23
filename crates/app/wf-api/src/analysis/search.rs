@@ -20,7 +20,4 @@ mod types;
 mod workflows;
 
 pub use orchestrator::search;
-pub use types::{
-    SearchOptions, SearchResourceType, SearchResult, SearchResultItem,
-};
-
+pub use types::{SearchOptions, SearchResourceType, SearchResult, SearchResultItem};

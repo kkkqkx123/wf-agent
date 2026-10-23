@@ -377,6 +377,18 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
             let input = parameters.get("input").and_then(|v| v.as_str());
 
             let execution_id = ctx.execution_id.to_string();
+            // Exclusive sampling window: held across before-capture,
+            // command execution and after-commit so concurrent shells
+            // cannot interleave their scans and misattribute writes.
+            // `None` (disabled or timed out) proceeds without exclusivity.
+            let _shell_window = if scope_dir.is_some() {
+                match ctx.checkpoint_session.as_ref() {
+                    Some(session) => session.acquire_shell_window(&execution_id).await,
+                    None => None,
+                }
+            } else {
+                None
+            };
             if let Some(scope) = scope_dir.as_ref() {
                 if let Some(session) = ctx.checkpoint_session.as_ref() {
                     // Blocking scan offloaded to the blocking pool.

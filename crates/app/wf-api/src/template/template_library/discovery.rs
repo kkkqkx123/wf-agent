@@ -1,5 +1,3 @@
-
-
 use wf_storage::adapter::base::BaseStorageAdapter;
 
 use crate::infra::context::ApiContext;
@@ -184,4 +182,3 @@ pub async fn popular_in_category(
     all.truncate(limit.unwrap_or(DEFAULT_FEATURED_LIMIT));
     Ok(all)
 }
-

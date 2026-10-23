@@ -1,8 +1,8 @@
-use wf_storage::adapter::base::BaseStorageAdapter;
-use crate::ApiContext;
-use crate::ApiResult;
 use super::scoring::{matched_fields, score, sorted_truncated};
 use super::types::SearchResultItem;
+use crate::ApiContext;
+use crate::ApiResult;
+use wf_storage::adapter::base::BaseStorageAdapter;
 
 pub(super) async fn search_agent_loops(
     ctx: &ApiContext,
@@ -33,4 +33,3 @@ pub(super) async fn search_agent_loops(
     }
     Ok(sorted_truncated(out, limit))
 }
-

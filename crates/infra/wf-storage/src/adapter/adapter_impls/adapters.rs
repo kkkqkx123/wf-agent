@@ -28,7 +28,6 @@ use crate::domain::store::{QueryFilter, Store, StoreExt};
 use crate::error::StorageError;
 use crate::store::entity_store::EntityStore;
 
-
 // ─── WorkflowStorageAdapter ───
 
 impl<S: Store + StoreExt> WorkflowStorageAdapter for WorkflowStorage<S> {
@@ -709,4 +708,3 @@ impl<S: Store + StoreExt> MetricsStorageAdapter for MetricsStorage<S> {
 impl<S: Store + StoreExt> WorkflowDraftStorageAdapter for WorkflowDraftStorage<S> {}
 
 impl<S: Store + StoreExt> AgentDraftStorageAdapter for AgentDraftStorage<S> {}
-

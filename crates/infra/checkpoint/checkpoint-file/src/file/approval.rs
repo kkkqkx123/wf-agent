@@ -3,8 +3,6 @@
 //! Write domain: submit, approve, reject and merge review refs into features.
 //! Read models live in the top-level approval module.
 
-
-
 mod approve;
 mod conflict;
 mod list;
@@ -14,9 +12,8 @@ mod reject;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::FileCheckpointManager;
     use crate::storage::ReviewStatus;
+    use crate::FileCheckpointManager;
 
     fn orphan_ref(manager: &FileCheckpointManager, entity: &str, tag: &str) -> String {
         let actor = manager.actor_id_for(entity);

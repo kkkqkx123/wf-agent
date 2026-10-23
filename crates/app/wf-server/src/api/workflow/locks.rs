@@ -77,7 +77,13 @@ impl DefinitionLocks {
 
     /// Claim the lease when free (or renew own claim); an active claim by a
     /// different owner wins and is reported back untouched.
-    pub(crate) fn acquire(&self, kind: &str, id: &str, owner_id: &str, owner_name: &str) -> LockView {
+    pub(crate) fn acquire(
+        &self,
+        kind: &str,
+        id: &str,
+        owner_id: &str,
+        owner_name: &str,
+    ) -> LockView {
         let now = now_ms();
         let key = format!("{}:{}", kind, id);
         let mut leases = self.leases.lock().expect("lock map mutex");
@@ -299,7 +305,9 @@ pub(crate) async fn handle_release_lock(
     let before = state.locks.current("workflow", &path.id, now_ms());
     let after = state.locks.release("workflow", &path.id, &body.owner_id);
     if let Some(prev) = before {
-        let changed = after.as_ref().is_none_or(|view| view.owner_id != prev.owner_id);
+        let changed = after
+            .as_ref()
+            .is_none_or(|view| view.owner_id != prev.owner_id);
         if changed {
             publish_lock_event(
                 &state.ctx,
@@ -334,9 +342,13 @@ mod tests {
     fn heartbeat_renews_only_the_holders_lease() {
         let locks = DefinitionLocks::default();
         locks.acquire("workflow", "wf", "a", "Alice");
-        let by_owner = locks.heartbeat("workflow", "wf", "a").expect("active lease");
+        let by_owner = locks
+            .heartbeat("workflow", "wf", "a")
+            .expect("active lease");
         assert_eq!(by_owner.owner_id, "a");
-        let by_other = locks.heartbeat("workflow", "wf", "b").expect("active lease");
+        let by_other = locks
+            .heartbeat("workflow", "wf", "b")
+            .expect("active lease");
         assert_eq!(by_other.owner_id, "a");
         assert!(locks.heartbeat("workflow", "missing", "a").is_none());
     }

@@ -5,10 +5,10 @@ pub use wf_resource::predefined::agent_templates::MAIN_AGENT_TEMPLATE_ID;
 
 mod hooks;
 mod mentions;
-#[cfg(test)]
-mod tests;
 mod prompt;
 mod template_defaults;
+#[cfg(test)]
+mod tests;
 
 pub use hooks::{agent_hooks_to_loop, from_canonical, resolve_loop_hooks, resolve_run_params};
 pub use mentions::resolve_mentions;

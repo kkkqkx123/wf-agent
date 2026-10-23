@@ -1,8 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-
 use wf_types::workflow_execution::WorkflowGraphStructure;
-
 
 use super::*;
 
@@ -154,4 +152,3 @@ impl EmptyGraph for WorkflowGraphStructure {
         }
     }
 }
-

@@ -23,8 +23,8 @@ pub use collectors::{
     NodeMetricsCollector, NodeUsageStats, ResourceMetricsCollector, ResourceSample,
     RetryBudgetMetricsCollector, StreamStatsRecord, SubgraphMetricsCollector,
     TemplateMetricsCollector, TemplateUsageStats, TimeoutMetricsCollector, TimeoutStats,
-    TokenCallLabels, TokenMetricsCollector, TokenUsageRecord, TokenUsageStats, ToolMetricsCollector,
-    WorkflowMetricsCollector, WorkflowUsageStats,
+    TokenCallLabels, TokenMetricsCollector, TokenUsageRecord, TokenUsageStats,
+    ToolMetricsCollector, WorkflowMetricsCollector, WorkflowUsageStats,
 };
 pub use constants::*;
 pub use descriptions::metric_description;

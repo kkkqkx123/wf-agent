@@ -5,7 +5,6 @@ use wf_tools::callback::{AgentLoopConfig, AgentLoopInput};
 use crate::agent::agent_execution::RunAgentLoopParams;
 use crate::ApiContext;
 
-
 pub struct AgentExecutionBuilder {
     config: AgentLoopConfig,
     message: String,
@@ -68,4 +67,3 @@ impl AgentExecutionBuilder {
         Ok(output)
     }
 }
-

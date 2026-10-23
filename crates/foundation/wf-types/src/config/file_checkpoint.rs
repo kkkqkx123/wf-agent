@@ -68,6 +68,58 @@ pub struct FileCheckpointGcRetention {
     pub keep_recent_heads: usize,
 }
 
+/// Scope-window serialization for shell sampling.
+///
+/// Shell tools capture before/after file hashes around the command run. Two
+/// overlapping sampling windows interleave on the shared filesystem and
+/// misattribute each other's writes, so shell windows hold a process-wide
+/// exclusive permit across the whole capture-execute-commit span. `None`
+/// (missing section) keeps the default: enabled with the built-in timeout.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ScopeSerializationConfig {
+    /// Master switch. `false` disables the exclusive permit and restores
+    /// fully parallel sampling (with the interleaving risk).
+    #[serde(default = "default_scope_serialization_enabled")]
+    pub enabled: bool,
+    /// Maximum time to wait for the exclusive permit in milliseconds.
+    /// `None` uses the built-in default; expiry proceeds without the
+    /// permit and marks sampling degraded instead of blocking the batch.
+    #[serde(default)]
+    pub lock_timeout_ms: Option<u64>,
+}
+
+fn default_scope_serialization_enabled() -> bool {
+    true
+}
+
+impl Default for ScopeSerializationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            lock_timeout_ms: None,
+        }
+    }
+}
+
+impl ScopeSerializationConfig {
+    /// Built-in wait budget used when `lock_timeout_ms` is unset.
+    pub const DEFAULT_LOCK_TIMEOUT_MS: u64 = 300_000;
+
+    /// Resolve the effective (enabled, timeout) pair for a possibly
+    /// missing section: missing means enabled with the default timeout.
+    pub fn resolve(config: Option<&ScopeSerializationConfig>) -> (bool, u64) {
+        match config {
+            None => (true, Self::DEFAULT_LOCK_TIMEOUT_MS),
+            Some(section) => (
+                section.enabled,
+                section
+                    .lock_timeout_ms
+                    .unwrap_or(Self::DEFAULT_LOCK_TIMEOUT_MS),
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct FileCheckpointConfig {
     #[serde(default)]
@@ -119,4 +171,8 @@ pub struct FileCheckpointConfig {
     /// built-in 10 MiB default; `0` disables the cap.
     #[serde(default)]
     pub max_file_size: Option<u64>,
+    /// Shell sampling-window serialization. `None` keeps the default
+    /// (enabled with the built-in wait budget).
+    #[serde(default)]
+    pub scope_serialization: Option<ScopeSerializationConfig>,
 }

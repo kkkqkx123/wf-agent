@@ -1,13 +1,11 @@
 //! Parent/child queries over the unified execution handle.
 
-
-
 mod hierarchy;
 mod placement;
-#[cfg(test)]
-mod tests;
 mod scan;
 mod subtree;
+#[cfg(test)]
+mod tests;
 mod types;
 
 pub use types::*;

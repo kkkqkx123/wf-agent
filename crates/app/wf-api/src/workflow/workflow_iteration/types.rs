@@ -1,8 +1,6 @@
 use serde::Serialize;
 use serde_json::Value;
 
-
-
 #[derive(Debug, Clone, Serialize)]
 pub struct ToolDependencyView {
     pub tool_name: String,
@@ -119,4 +117,3 @@ pub struct RawNodeAttempt {
     pub input: Option<Value>,
     pub output: Option<Value>,
 }
-

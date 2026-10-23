@@ -1,4 +1,3 @@
-
 use crate::agent::agent_execution::RunAgentLoopParams;
 use wf_execution_shared::agent_prompt::PromptEnvironment;
 
@@ -45,4 +44,3 @@ pub fn resolve_run_params(
     params.input = input;
     Ok(params)
 }
-

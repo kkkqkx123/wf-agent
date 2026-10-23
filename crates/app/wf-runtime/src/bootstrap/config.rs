@@ -198,6 +198,16 @@ pub async fn resolve_infra_config(
 ) -> RuntimeResult<RuntimeConfig> {
     let project_root = infra.project_root.clone().unwrap_or_default();
 
+    // Volatile `.wf` subdirectories (meta/tmp with internal ignores) are
+    // ensured before any layer reads the project: only files inside
+    // `.wf/{meta,tmp}` are created, the outer workspace `.gitignore` is
+    // never touched. Best effort: a failure warns and bootstrap continues.
+    if !project_root.as_os_str().is_empty() {
+        if let Err(e) = wf_config::layout::ensure_project_wf_volatile_dirs(&project_root) {
+            warn!(error = %e, "failed to ensure volatile .wf directories; continuing");
+        }
+    }
+
     // User/project config-file layer fills unset fields first, so the
     // infrastructure preset below and any caller-supplied values
     // (CLI parameters) keep their higher priority. `WF_*` environment

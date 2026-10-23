@@ -12,11 +12,6 @@ fn entry(path: &str, content: &[u8]) -> FileContentEntry {
     FileContentEntry::new(path, content.to_vec())
 }
 
-fn state_map(states: &[FileState]) -> HashMap<&str, &FileState> {
-    states.iter().map(|f| (f.path.as_str(), f)).collect()
-}
-
-
 fn feature_texts(manager: &FileCheckpointManager, feature_name: &str) -> HashMap<String, String> {
     crate::provenance::get_feature_workspace(manager.git_ref().unwrap(), feature_name)
         .unwrap()

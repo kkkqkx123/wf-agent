@@ -3,7 +3,6 @@
 //! Write domain: submit, approve, reject and merge review refs into features.
 //! Read models live in the top-level approval module.
 
-
 use crate::file::merge::MergeCommitResult;
 use crate::file::FileCheckpointManager;
 use checkpoint_base::error::CheckpointError;

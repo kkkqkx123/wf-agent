@@ -1,7 +1,7 @@
 use super::*;
 
 pub struct WasmLlmCodec {
-    pub inner: Arc<WasmPluginInner>,
+    pub(crate) inner: Arc<WasmPluginInner>,
     pub name: String,
 }
 

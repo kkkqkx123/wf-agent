@@ -1,8 +1,8 @@
 use crate::infra::context::ApiContext;
 use crate::infra::error::ApiResult;
 
-use super::profile::profile;
 use super::helpers::{build_bottleneck_views, build_summary, classify_performance};
+use super::profile::profile;
 use super::types::*;
 
 pub async fn analyze_performance(
@@ -27,4 +27,3 @@ pub async fn analyze_performance(
         summary,
     })
 }
-

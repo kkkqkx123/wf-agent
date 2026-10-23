@@ -243,4 +243,3 @@ pub fn workflow_summary(template: &wf_types::workflow::WorkflowTemplate) -> Stri
     lines.push(format!("edges: {}", template.definition.edges.len()));
     lines.join("\n")
 }
-

@@ -14,9 +14,9 @@ use wf_types::script::sandbox::SandboxConfig;
 
 mod execution;
 mod references;
+mod storage;
 #[cfg(test)]
 mod tests;
-mod storage;
 
 /// Result of a script validation.
 #[derive(Debug, Clone, Serialize)]

@@ -66,8 +66,7 @@ impl MiniApprover {
         // Owned receiver: `changed()` needs `&mut self`, which an `Arc`
         // cannot provide. Cloning keeps the same watch channel.
         let stop = (*stop).clone();
-        let mut watcher =
-            wf_cli_shared::run_interaction::PendingWatcher::new(&self.client).await;
+        let mut watcher = wf_cli_shared::run_interaction::PendingWatcher::new(&self.client).await;
         loop {
             use wf_cli_shared::run_interaction::PendingWatchStep;
             match watcher.next_batch(|| *stop.borrow()).await {

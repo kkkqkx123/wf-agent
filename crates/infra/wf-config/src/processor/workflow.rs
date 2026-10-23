@@ -397,7 +397,6 @@ pub struct WorkflowEdgeConfig {
     pub error_route: Option<ErrorRouteConfig>,
 }
 
-
 #[cfg(test)]
 #[path = "workflow/tests.rs"]
 mod tests;

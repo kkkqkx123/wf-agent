@@ -283,7 +283,7 @@ mod tests {
                 arguments: arguments.to_string(),
             },
             call_id: None,
-        thought_signature: None,
+            thought_signature: None,
         }
     }
 

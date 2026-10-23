@@ -17,4 +17,3 @@ impl ContributionManager {
         self.tool_type_registry.all()
     }
 }
-

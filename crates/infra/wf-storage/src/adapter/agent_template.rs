@@ -37,16 +37,18 @@ pub trait AgentTemplateStorageAdapter:
     fn list_versions<'a>(
         &'a self,
         agent_id: &'a str,
-    ) -> impl std::future::Future<Output = Result<Vec<wf_types::agent::AgentTemplate>, crate::error::StorageError>>
-           + Send
+    ) -> impl std::future::Future<
+        Output = Result<Vec<wf_types::agent::AgentTemplate>, crate::error::StorageError>,
+    > + Send
            + 'a;
 
     fn load_version<'a>(
         &'a self,
         agent_id: &'a str,
         version: &'a str,
-    ) -> impl std::future::Future<Output = Result<Option<wf_types::agent::AgentTemplate>, crate::error::StorageError>>
-           + Send
+    ) -> impl std::future::Future<
+        Output = Result<Option<wf_types::agent::AgentTemplate>, crate::error::StorageError>,
+    > + Send
            + 'a;
 
     fn delete_version<'a>(

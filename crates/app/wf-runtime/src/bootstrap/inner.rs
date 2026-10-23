@@ -267,7 +267,9 @@ impl Runtime {
             // a published workflow stays in the template library.
             if let Ok(workflows) = storage_ctx
                 .workflow
-                .list(Some(wf_storage::adapter::workflow::WorkflowListOptions::default()))
+                .list(Some(
+                    wf_storage::adapter::workflow::WorkflowListOptions::default(),
+                ))
                 .await
             {
                 let mut restored = 0usize;
@@ -284,10 +286,7 @@ impl Runtime {
                     }
                 }
                 if restored > 0 {
-                    info!(
-                        "Restored {} persisted workflow(s) from storage",
-                        restored
-                    );
+                    info!("Restored {} persisted workflow(s) from storage", restored);
                 }
             }
         }

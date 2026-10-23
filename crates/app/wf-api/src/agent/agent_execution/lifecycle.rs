@@ -34,7 +34,12 @@ pub async fn run(
             // queryable through `message::save` (storage injected via the
             // shared context, mirroring the checkpoint wiring pattern).
             // Messages are scoped to the per-run agent loop id.
-            super::checkpoint::persist_conversation(ctx, &output.agent_loop_id, &output.conversation).await;
+            super::checkpoint::persist_conversation(
+                ctx,
+                &output.agent_loop_id,
+                &output.conversation,
+            )
+            .await;
             Ok(output)
         }
         Err(e) => {
@@ -131,4 +136,3 @@ pub async fn status(
     let status: wf_types::ExecutionStatus = entity.state.read().await.status().into();
     Ok(status)
 }
-

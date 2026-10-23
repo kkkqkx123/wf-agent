@@ -1,5 +1,3 @@
-
-
 use wf_types::agent::AgentTemplate;
 use wf_types::workflow::WorkflowTemplate;
 
@@ -52,4 +50,3 @@ pub async fn clone_agent_template(
     register_agent_template(ctx, &cloned).await?;
     Ok(cloned)
 }
-

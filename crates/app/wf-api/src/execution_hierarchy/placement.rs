@@ -110,4 +110,3 @@ pub(super) async fn placement(ctx: &ApiContext, id: &str) -> ApiResult<Option<Pl
     let live: Vec<Placement> = live_placement(ctx, id).into_iter().collect();
     Ok(merge_persisted_then_live(persisted, live, |p| p.id.clone()).pop())
 }
-

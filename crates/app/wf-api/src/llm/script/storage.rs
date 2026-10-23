@@ -101,4 +101,3 @@ pub async fn disable_script(ctx: &StorageContext, id: &str) -> crate::ApiResult<
 pub async fn is_script_enabled(ctx: &StorageContext, id: &str) -> crate::ApiResult<bool> {
     Ok(get_script(ctx, id).await?.enabled)
 }
-

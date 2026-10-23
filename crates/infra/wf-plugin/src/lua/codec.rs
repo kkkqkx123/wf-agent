@@ -2,9 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 
+use crate::contributions::types::CodecHttpRequest;
 use crate::contributions::types::PluginLlmCodec;
 use crate::error::{PluginError, PluginResult};
-use crate::contributions::types::CodecHttpRequest;
 
 pub struct LuaLlmCodec {
     pub lua: Arc<Mutex<mlua::Lua>>,
@@ -40,7 +40,9 @@ fn call_lua_codec_fn(
         })
     };
     match tokio::runtime::Handle::try_current() {
-        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(super::bridge::run_lua_blocking(invoke))),
+        Ok(handle) => {
+            tokio::task::block_in_place(|| handle.block_on(super::bridge::run_lua_blocking(invoke)))
+        }
         Err(_) => invoke(),
     }
 }

@@ -1,5 +1,3 @@
-
-
 use wf_types::workflow_execution::WorkflowGraphStructure;
 
 use crate::infra::context::ApiContext;
@@ -77,4 +75,3 @@ pub async fn analyze_efficiency(
         retry_count,
     })
 }
-

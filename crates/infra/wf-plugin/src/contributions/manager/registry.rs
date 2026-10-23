@@ -19,7 +19,8 @@ pub struct ContributionManager {
     /// Declarative provider definitions contributed by plugins (manifest
     /// `llm_providers` segment or `register_llm_provider_definition`).
     /// The runtime bridge writes them into the gateway provider registry.
-    pub(crate) llm_provider_definitions: Registry<String, Arc<wf_types::llm::LlmProviderDefinition>>,
+    pub(crate) llm_provider_definitions:
+        Registry<String, Arc<wf_types::llm::LlmProviderDefinition>>,
     pub(crate) event_handler_registry: MultiRegistry<String, Arc<dyn PluginEventHandler>>,
     pub(crate) middleware_registry: MultiRegistry<String, (i32, Arc<dyn PluginMiddlewareHandler>)>,
     // Declarative resource contribution registry (owner tracking + bridge placement)

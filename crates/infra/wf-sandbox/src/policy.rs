@@ -50,6 +50,8 @@ impl SandboxPolicyManager {
             dangerous_patterns: or(&overrides.dangerous_patterns, &base.dangerous_patterns),
             allow_pipe: or(&overrides.allow_pipe, &base.allow_pipe),
             allow_redirect: or(&overrides.allow_redirect, &base.allow_redirect),
+            read_commands: or(&overrides.read_commands, &base.read_commands),
+            write_commands: or(&overrides.write_commands, &base.write_commands),
         }
     }
 
@@ -166,6 +168,8 @@ mod tests {
             dangerous_patterns: Some(vec![]),
             allow_pipe: Some(false),
             allow_redirect: Some(false),
+            read_commands: None,
+            write_commands: None,
         };
         let overrides = SandboxPolicy {
             shell: Some(override_shell),

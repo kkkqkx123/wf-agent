@@ -492,6 +492,8 @@ mod tests {
             dangerous_patterns: None,
             allow_pipe: None,
             allow_redirect: None,
+            read_commands: None,
+            write_commands: None,
         });
         let options = make_options("sudo rm -rf /");
         let result = strategy.execute(options, &policy).await.unwrap();
@@ -554,6 +556,8 @@ mod tests {
             dangerous_patterns: Some(vec!["(unclosed".to_string()]),
             allow_pipe: None,
             allow_redirect: None,
+            read_commands: None,
+            write_commands: None,
         });
         let options = make_options("echo hello");
         let result = strategy.execute(options, &policy).await.unwrap();

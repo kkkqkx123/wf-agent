@@ -90,6 +90,25 @@ impl SandboxRuntime {
         &self.default_policy
     }
 
+    /// Effective shell policy for non-script execution paths (shell tool,
+    /// CLI executors): code defaults merged with the selected sandbox
+    /// profile (`language = "shell"` match, else `default_profile`).
+    /// Profile fields win when set; unset fields inherit the code defaults
+    /// (which leave read/write as `None` for the built-in fallback).
+    pub fn shell_policy(&self) -> SandboxPolicy {
+        let profile_policy = self
+            .profile_resolver
+            .as_ref()
+            .and_then(|r| r.resolve("shell", "").or_else(|| r.default_profile()))
+            .and_then(|p| p.policy.clone());
+        match profile_policy {
+            Some(overrides) => {
+                crate::policy::SandboxPolicyManager::merge(&self.default_policy, &overrides)
+            }
+            None => self.default_policy.clone(),
+        }
+    }
+
     pub fn get_audit_log(&self) -> Vec<AuditEvent> {
         self.audit_log
             .lock()

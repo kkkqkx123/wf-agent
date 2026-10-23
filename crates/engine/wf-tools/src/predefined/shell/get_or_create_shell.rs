@@ -96,10 +96,11 @@ impl StatefulInstance for GetOrCreateShellInstance {
             ..Default::default()
         };
         let result = self.store.get_or_create(&options, task_id.as_deref())?;
-        // Session baseline under the shell-window permit: a contended
-        // window skips the baseline (the domain stays disabled) instead of
-        // capturing an interleaved state.
-        let degraded = match self.checkpoint.acquire_shell_window_blocking() {
+        let window = match result.cwd.as_ref() {
+            Some(dir) => self.checkpoint.acquire_scoped_write_blocking(dir),
+            None => wf_checkpoint::ShellWindowOutcome::Disabled,
+        };
+        let degraded = match window {
             wf_checkpoint::ShellWindowOutcome::Acquired(_guard) => {
                 self.checkpoint
                     .begin_session(&result.session_id, result.cwd.clone());
@@ -114,7 +115,7 @@ impl StatefulInstance for GetOrCreateShellInstance {
                 tracing::warn!(
                     execution = %self.execution_id,
                     session = %result.session_id,
-                    "session baseline skipped: shell window busy"
+                    "session baseline skipped: overlapping write busy"
                 );
                 true
             }

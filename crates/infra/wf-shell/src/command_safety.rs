@@ -131,6 +131,8 @@ pub fn contains_dangerous_substitution(command: &str) -> bool {
 pub struct CommandPolicy {
     allowed_commands: Vec<String>,
     denied_commands: Option<Vec<String>>,
+    read_commands: Option<Vec<String>>,
+    write_commands: Option<Vec<String>>,
     shell_policy: Option<wf_types::script::sandbox::ShellPolicy>,
     shell_type: Option<wf_sandbox::strategy::shell::base::ShellType>,
 }
@@ -140,6 +142,8 @@ impl CommandPolicy {
         Self {
             allowed_commands,
             denied_commands,
+            read_commands: None,
+            write_commands: None,
             shell_policy: None,
             shell_type: None,
         }
@@ -164,6 +168,8 @@ impl CommandPolicy {
         Self {
             allowed_commands: config.allowed_commands.clone(),
             denied_commands: config.denied_commands.clone(),
+            read_commands: config.read_commands.clone(),
+            write_commands: config.write_commands.clone(),
             shell_policy: config.sandbox_policy.as_ref().and_then(|p| p.shell.clone()),
             shell_type: config
                 .shell_type
@@ -195,6 +201,35 @@ impl CommandPolicy {
     /// Whether the command is hard-rejected by the policy.
     pub fn is_denied(&self, command: &str) -> bool {
         self.decision(command) == CommandDecision::AutoDeny
+    }
+
+    fn resolved_shell_type(&self) -> wf_sandbox::strategy::shell::base::ShellType {
+        self.shell_type
+            .unwrap_or_else(wf_sandbox::strategy::shell::base::ShellType::default_for_platform)
+    }
+
+    fn effect_lists(&self) -> (Option<Vec<String>>, Option<Vec<String>>) {
+        let read = self.read_commands.clone().or_else(|| {
+            self.shell_policy
+                .as_ref()
+                .and_then(|p| p.read_commands.clone())
+        });
+        let write = self.write_commands.clone().or_else(|| {
+            self.shell_policy
+                .as_ref()
+                .and_then(|p| p.write_commands.clone())
+        });
+        (read, write)
+    }
+
+    pub fn effect(&self, command: &str) -> wf_sandbox::command_policy::ShellEffect {
+        let (read, write) = self.effect_lists();
+        wf_sandbox::command_policy::classify_shell_effect(
+            command,
+            self.resolved_shell_type(),
+            read.as_deref(),
+            write.as_deref(),
+        )
     }
 }
 

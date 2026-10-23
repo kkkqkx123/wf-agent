@@ -25,12 +25,14 @@ use wf_types::script::sandbox::ShellPolicy;
 
 use crate::strategy::shell::base::ShellType;
 
+mod effect;
 mod evaluate;
 mod inline_scripts;
 mod mask;
 mod normalize;
 mod rules;
 
+pub use effect::*;
 pub use evaluate::*;
 pub use inline_scripts::*;
 pub use mask::*;

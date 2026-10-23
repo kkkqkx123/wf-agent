@@ -25,3 +25,15 @@
 # workspace_dir = "./"
 # max_results = 1000                    # processor default
 # enable_ignore = true
+
+# Host-level shell defaults. These override the sandbox profile lists
+# (`sandbox.toml [profiles.policy.shell]`) for every shell spawn through
+# `CommandPolicy::effect_lists` (ShellToolConfig > profile > built-in).
+# Omit a key to inherit; an explicit empty list disables that fallback side.
+[shell]
+# workspace_dir = "./"
+# max_timeout_ms = 120000
+# allowed_commands = ["git", "ls", "cat"]
+# denied_commands = ["sudo", "su"]
+# read_commands = ["ls", "cat", "git"]
+# write_commands = ["cargo", "npm", "python3"]

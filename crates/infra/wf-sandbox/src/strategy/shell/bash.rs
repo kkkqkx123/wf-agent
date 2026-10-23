@@ -263,6 +263,8 @@ mod tests {
             dangerous_patterns: None,
             allow_pipe: None,
             allow_redirect: None,
+            read_commands: None,
+            write_commands: None,
         }
     }
 
@@ -367,6 +369,8 @@ mod tests {
             dangerous_patterns: None,
             allow_pipe: Some(false),
             allow_redirect: None,
+            read_commands: None,
+            write_commands: None,
         };
         let result = analyze("echo a | grep a", &policy);
         assert!(!result.allowed);
@@ -381,6 +385,8 @@ mod tests {
             dangerous_patterns: None,
             allow_pipe: None,
             allow_redirect: Some(false),
+            read_commands: None,
+            write_commands: None,
         };
         let result = analyze("echo hello > /tmp/file", &policy);
         assert!(!result.allowed);

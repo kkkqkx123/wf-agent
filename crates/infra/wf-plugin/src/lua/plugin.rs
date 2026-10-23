@@ -182,7 +182,11 @@ impl Plugin for LuaPlugin {
             phase: String,
             priority: i32,
         }
-        let entries: Vec<RegEntry> = {
+        let (entries, lua_tools, lua_tool_descriptions): (
+            Vec<RegEntry>,
+            Vec<wf_types::tool::Tool>,
+            Vec<wf_types::tool_description::ToolDescriptionData>,
+        ) = {
             let locked = match self.lua.lock() {
                 Ok(l) => l,
                 Err(_) => {
@@ -299,10 +303,72 @@ impl Plugin for LuaPlugin {
                 }
             }
 
+            let mut tools: Vec<wf_types::tool::Tool> = Vec::new();
+            if let Ok(Some(tbl)) = contribs_table.get::<_, Option<mlua::Table>>("tools") {
+                for tool_tbl in tbl.sequence_values::<mlua::Table>().flatten() {
+                    let id: String = tool_tbl.get("id").unwrap_or_default();
+                    if id.trim().is_empty() {
+                        continue;
+                    }
+                    let name: String = tool_tbl
+                        .get::<_, Option<String>>("name")
+                        .unwrap_or_default()
+                        .unwrap_or_default();
+                    let description: String = tool_tbl
+                        .get::<_, Option<String>>("description")
+                        .unwrap_or_default()
+                        .unwrap_or_default();
+                    tools.push(wf_types::tool::Tool {
+                        id: id.clone(),
+                        name: if name.is_empty() { id } else { name },
+                        description,
+                        tool_type: wf_types::tool::ToolType::Stateless,
+                        parameters: None,
+                        metadata: None,
+                        config: None,
+                        enabled: None,
+                        strict: None,
+                        default_timeout_ms: None,
+                    });
+                }
+            }
+            let mut tool_descriptions: Vec<wf_types::tool_description::ToolDescriptionData> =
+                Vec::new();
+            if let Ok(Some(tbl)) = contribs_table.get::<_, Option<mlua::Table>>("tool_descriptions")
+            {
+                for desc_tbl in tbl.sequence_values::<mlua::Table>().flatten() {
+                    let id: String = desc_tbl.get("id").unwrap_or_default();
+                    if id.trim().is_empty() {
+                        continue;
+                    }
+                    let description: String = desc_tbl
+                        .get::<_, Option<String>>("description")
+                        .unwrap_or_default()
+                        .unwrap_or_default();
+                    tool_descriptions.push(wf_types::tool_description::ToolDescriptionData {
+                        id,
+                        r#type: "tool".to_string(),
+                        category: None,
+                        description,
+                        parameters: Vec::new(),
+                        tips: None,
+                        examples: None,
+                    });
+                }
+            }
+
             locked.remove_hook();
-            out
+            (out, tools, tool_descriptions)
         };
 
+        for tool in lua_tools {
+            let id = tool.id.clone();
+            registrar.register_tool(&id, tool)?;
+        }
+        for desc in lua_tool_descriptions {
+            let id = desc.id.clone();
+            registrar.register_tool_description(&id, desc)?;
+        }
         for e in entries {
             match e.kind {
                 0 => registrar.register_node_type(
@@ -349,6 +415,7 @@ impl Plugin for LuaPlugin {
                 _ => {}
             }
         }
+        crate::manifest::register_manifest_tools(&self.manifest, registrar)?;
         Ok(())
     }
 }

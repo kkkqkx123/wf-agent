@@ -34,12 +34,16 @@ interface contributions {
     }
 
     /// Contribution declaration, mirroring `wf_register` JSON today.
+    /// `tools` / `tool-descriptions` carry `Tool` / `ToolDescriptionData`
+    /// JSON documents; older guests omit them (default empty).
     record declaration {
         node-types: list<string>,
         tool-types: list<string>,
         llm-providers: list<string>,
         event-handlers: list<string>,
         middleware: list<middleware-decl>,
+        tools: list<string>,
+        tool-descriptions: list<string>,
     }
 
     register: func() -> declaration;

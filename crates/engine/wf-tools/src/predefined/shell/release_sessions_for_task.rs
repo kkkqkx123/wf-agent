@@ -62,36 +62,33 @@ impl StatefulInstance for ReleaseSessionsForTaskInstance {
             .get("terminate")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        // Sample release-time boundaries before the sessions are released.
-        // The forwarder is suspended across the release so synchronous
-        // termination events do not sample ahead of the explicit ends; a
-        // busy window still releases but skips the final samples.
         let pending = self.store.sessions_for_task(task_id);
-        let window = self.checkpoint.acquire_shell_window_blocking();
-        let degraded = matches!(window, wf_checkpoint::ShellWindowOutcome::TimedOut);
-        let _shell_window = match window {
-            wf_checkpoint::ShellWindowOutcome::Acquired(guard) => Some(guard),
-            wf_checkpoint::ShellWindowOutcome::Disabled
-            | wf_checkpoint::ShellWindowOutcome::TimedOut => None,
-        };
         let _suspended = self.checkpoint.suspend_forwarder();
-        let released = self.store.release_sessions_for_task(task_id, terminate);
-        if degraded {
-            tracing::warn!(
-                execution = %task_id,
-                "release skipped final sampling: shell window busy"
-            );
-            for (session_id, _) in &pending {
-                if terminate {
-                    wf_shell::engine::background_task_registry().cancel(session_id);
+        let mut degraded = false;
+        for (session_id, cwd) in &pending {
+            let scope = match cwd {
+                Some(dir) => dir.clone(),
+                None => continue,
+            };
+            match self.checkpoint.try_acquire_scoped_write(&scope) {
+                wf_checkpoint::ShellWindowOutcome::TimedOut => {
+                    tracing::warn!(
+                        execution = %task_id,
+                        session = %session_id,
+                        "release skipped final sampling: overlapping write busy"
+                    );
+                    degraded = true;
+                }
+                wf_checkpoint::ShellWindowOutcome::Acquired(_)
+                | wf_checkpoint::ShellWindowOutcome::Disabled => {
+                    self.checkpoint.end_session(session_id.clone(), cwd.clone());
                 }
             }
-        } else {
-            for (session_id, cwd) in pending {
-                if terminate {
-                    wf_shell::engine::background_task_registry().cancel(&session_id);
-                }
-                self.checkpoint.end_session(session_id, cwd);
+        }
+        let released = self.store.release_sessions_for_task(task_id, terminate);
+        if terminate {
+            for (session_id, _) in &pending {
+                wf_shell::engine::background_task_registry().cancel(session_id);
             }
         }
         Ok(serde_json::json!({

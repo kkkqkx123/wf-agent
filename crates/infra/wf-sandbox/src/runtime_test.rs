@@ -70,6 +70,8 @@ async fn test_lenient_records_violation_but_executes_for_real() {
                 dangerous_patterns: Some(vec!["MARKER123".to_string()]),
                 allow_pipe: None,
                 allow_redirect: None,
+                read_commands: None,
+                write_commands: None,
             }),
             ..default_sandbox_policy().clone()
         }),

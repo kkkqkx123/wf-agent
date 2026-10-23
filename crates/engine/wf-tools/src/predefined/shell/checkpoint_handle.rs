@@ -46,29 +46,26 @@ impl ShellCheckpointHandle {
         &self.execution_id
     }
 
-    /// Async permit for foreground command windows. No session means no
-    /// sampling domain: `Disabled` (proceed, nothing to sample).
-    pub async fn acquire_shell_window_async(&self) -> ShellWindowOutcome {
+    pub async fn acquire_scoped_write_async(
+        &self,
+        scope_dir: &std::path::Path,
+    ) -> ShellWindowOutcome {
         match self.get() {
-            Some(cp) => cp.acquire_shell_window(&self.execution_id).await,
+            Some(cp) => cp.acquire_scoped_write(&self.execution_id, scope_dir).await,
             None => ShellWindowOutcome::Disabled,
         }
     }
 
-    /// Blocking permit for synchronous session tools. No session means
-    /// `Disabled`.
-    pub fn acquire_shell_window_blocking(&self) -> ShellWindowOutcome {
+    pub fn acquire_scoped_write_blocking(&self, scope_dir: &std::path::Path) -> ShellWindowOutcome {
         match self.get() {
-            Some(cp) => cp.blocking_acquire_shell_window(&self.execution_id),
+            Some(cp) => cp.blocking_acquire_scoped_write(&self.execution_id, scope_dir),
             None => ShellWindowOutcome::Disabled,
         }
     }
 
-    /// Non-blocking probe for teardown paths. Never waits: teardown must
-    /// not stall on a busy window.
-    pub fn try_acquire_shell_window(&self) -> ShellWindowOutcome {
+    pub fn try_acquire_scoped_write(&self, scope_dir: &std::path::Path) -> ShellWindowOutcome {
         match self.get() {
-            Some(cp) => cp.try_acquire_shell_window(),
+            Some(cp) => cp.try_acquire_scoped_write(scope_dir),
             None => ShellWindowOutcome::Disabled,
         }
     }
@@ -109,26 +106,24 @@ impl ShellCheckpointHandle {
         }
     }
 
-    /// End sampling for every session bound to this execution, then release
-    /// them from the store (running commands keep running; sampling is the
-    /// release-time boundary). Teardown never waits: a busy window skips
-    /// the final sample instead of stalling cleanup.
     pub fn end_all_and_release(&self, store: &BackgroundShellStore) {
         let sessions: Vec<(String, Option<PathBuf>)> = store.sessions_for_task(&self.execution_id);
         if let Some(cp) = self.get() {
-            match cp.try_acquire_shell_window() {
-                ShellWindowOutcome::TimedOut => {
-                    tracing::warn!(
-                        execution = %self.execution_id,
-                        "release skipped final sampling: shell window busy"
-                    );
-                }
-                outcome => {
-                    let _held = match outcome {
-                        ShellWindowOutcome::Acquired(guard) => Some(guard),
-                        ShellWindowOutcome::Disabled | ShellWindowOutcome::TimedOut => None,
-                    };
-                    for (session_id, cwd) in &sessions {
+            for (session_id, cwd) in &sessions {
+                let scope = match cwd {
+                    Some(dir) => dir.clone(),
+                    None => continue,
+                };
+                match cp.try_acquire_scoped_write(&scope) {
+                    ShellWindowOutcome::TimedOut => {
+                        tracing::warn!(
+                            execution = %self.execution_id,
+                            session = %session_id,
+                            "release skipped final sampling: overlapping write busy"
+                        );
+                        continue;
+                    }
+                    ShellWindowOutcome::Acquired(_) | ShellWindowOutcome::Disabled => {
                         cp.end_session(wf_types::effect::SessionBoundary {
                             execution_id: self.execution_id.clone(),
                             session_id: session_id.clone(),

@@ -61,11 +61,10 @@ impl StatefulInstance for ShellKillInstance {
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
         let scope_dir = self.store.get(session_id).and_then(|s| s.cwd());
-        // Termination sampling under the shell-window permit. The
-        // forwarder is suspended across the kill so its synchronous
-        // termination event does not sample ahead of the explicit end
-        // below; a busy window still kills but skips the final sample.
-        let window = self.checkpoint.acquire_shell_window_blocking();
+        let window = match scope_dir.as_ref() {
+            Some(dir) => self.checkpoint.acquire_scoped_write_blocking(dir),
+            None => wf_checkpoint::ShellWindowOutcome::Disabled,
+        };
         let degraded = matches!(window, wf_checkpoint::ShellWindowOutcome::TimedOut);
         let _shell_window = match window {
             wf_checkpoint::ShellWindowOutcome::Acquired(guard) => Some(guard),
@@ -80,7 +79,7 @@ impl StatefulInstance for ShellKillInstance {
                 tracing::warn!(
                     execution = %self.checkpoint.execution_id(),
                     session = %session_id,
-                    "termination sampling skipped: shell window busy"
+                    "termination sampling skipped: overlapping write busy"
                 );
             } else {
                 self.checkpoint

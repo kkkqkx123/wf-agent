@@ -102,6 +102,8 @@ impl Plugin for NativePlugin {
             register_llm_provider: Some(ffi_register_llm_provider),
             register_event_handler: Some(ffi_register_event_handler),
             register_middleware: Some(ffi_register_middleware),
+            register_tool: Some(ffi_register_tool),
+            register_tool_description: Some(ffi_register_tool_description),
         };
 
         let result =
@@ -118,6 +120,9 @@ impl Plugin for NativePlugin {
         if let Some(e) = first_error {
             return Err(e);
         }
+        // Manifest-declared tools land through the same registry path so
+        // guests without new FFI symbols still contribute definitions.
+        crate::manifest::register_manifest_tools(&self.manifest, registrar)?;
         Ok(())
     }
 }
@@ -383,6 +388,59 @@ extern "C" fn ffi_register_middleware(
             dispatch,
         }),
     );
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_tool(
+    ctx_ptr: *mut std::ffi::c_void,
+    tool_json: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || tool_json.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let raw = unsafe { ptr_to_string(tool_json) };
+    let parsed: Result<wf_types::tool::Tool, _> = serde_json::from_str(&raw);
+    let tool = match parsed {
+        Ok(t) => t,
+        Err(e) => {
+            let result = Err(PluginError::InvalidContribution {
+                plugin_id: String::new(),
+                message: format!("invalid tool JSON: {e}"),
+            });
+            return registrar_ctx.record(result);
+        }
+    };
+    let id = tool.id.clone();
+    let result = registrar_ctx.registrar.register_tool(&id, tool);
+    registrar_ctx.record(result)
+}
+
+extern "C" fn ffi_register_tool_description(
+    ctx_ptr: *mut std::ffi::c_void,
+    description_json: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || description_json.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let raw = unsafe { ptr_to_string(description_json) };
+    let parsed: Result<wf_types::tool_description::ToolDescriptionData, _> =
+        serde_json::from_str(&raw);
+    let description = match parsed {
+        Ok(d) => d,
+        Err(e) => {
+            let result = Err(PluginError::InvalidContribution {
+                plugin_id: String::new(),
+                message: format!("invalid tool-description JSON: {e}"),
+            });
+            return registrar_ctx.record(result);
+        }
+    };
+    let id = description.id.clone();
+    let result = registrar_ctx
+        .registrar
+        .register_tool_description(&id, description);
     registrar_ctx.record(result)
 }
 

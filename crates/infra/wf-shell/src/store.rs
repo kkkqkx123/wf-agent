@@ -232,6 +232,13 @@ impl BackgroundShellStore {
         store
     }
 
+    /// Command policy carrying the resolved read/write lists for checkpoint
+    /// classification. Session tools must use this instead of calling
+    /// `classify_shell_effect` with `None` so file configuration takes effect.
+    pub fn policy(&self) -> &CommandPolicy {
+        &self.policy
+    }
+
     /// Spawn a background shell command and return its session id.
     pub fn spawn(&self, command: &str, cwd: Option<&str>) -> ShellResult<String> {
         self.spawn_with_options(SpawnOptions {

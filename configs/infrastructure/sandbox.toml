@@ -37,6 +37,9 @@ lua_strategy = []
 [profiles.policy.shell]
 denied_commands = ["sudo", "su", "chroot", "mount", "umount", "dd", "mkfs", "reboot", "shutdown", "passwd"]
 dangerous_patterns = ['rm\s+(-rf|--recursive)', ':\\(\)\s*\{.*:\\(\)\s*\}.*\}']
+# Read/write classification for shell checkpoint sampling. Overrides the built-in defaults in wf-sandbox/src/command_policy/effect.rs; omit to inherit, empty list disables fallback.
+read_commands = ["ls", "cat", "pwd", "echo", "grep", "rg", "find", "head", "tail", "wc", "sort", "uniq", "diff", "file", "stat", "du", "df", "uname", "whoami", "hostname", "date", "env", "printenv", "which"]
+write_commands = ["cp", "mv", "rm", "mkdir", "touch", "ln", "chmod", "chown", "cargo", "rustc", "make", "npm", "npx", "pnpm", "yarn", "node", "python", "python3", "pip", "curl", "wget", "sh", "bash", "zsh", "tar", "unzip", "tee"]
 
 [profiles.policy.python]
 denied_modules = ["os", "subprocess", "ctypes", "socket", "pty"]

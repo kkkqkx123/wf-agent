@@ -9,6 +9,7 @@ use wf_types::enums::MiddlewarePhase;
 use wf_api::infra::handler_chain::{
     PluginHandlerSource, PluginMiddlewareBridge, PluginNodeExecutor,
 };
+use wf_core::Registry;
 use wf_plugin::{ContributionBridge, ContributionManager, PluginError, PluginResult};
 use wf_resource::registry::ResourceRegistries;
 use wf_tools::error::ToolResult;
@@ -134,6 +135,43 @@ impl ContributionBridge for WfPluginBridge {
         // plugin's tool-type executor serves the tools contributed by the
         // same plugin (handlers keyed by tool id, resolved by
         // `StatelessExecutor` through `tool.id`).
+        let owned_tools: Vec<String> = manager
+            .all_tools()
+            .into_iter()
+            .filter_map(|(id, owner)| (owner == plugin_id).then_some(id))
+            .collect();
+        let owned_types: Vec<String> = manager
+            .all_tool_types()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        if !owned_types.is_empty() && owned_tools.is_empty() {
+            tracing::warn!(
+                plugin_id,
+                tool_types = ?owned_types,
+                "plugin registers tool-type executors but no declarative tools; handlers will not install"
+            );
+        }
+        if !owned_tools.is_empty()
+            && manager
+                .all_tool_types()
+                .into_iter()
+                .all(|(_, owner)| owner != plugin_id)
+        {
+            tracing::warn!(
+                plugin_id,
+                tools = ?owned_tools,
+                "plugin contributes tools without a paired tool-type executor; calls will resolve to NotFound until an executor is registered"
+            );
+        }
+        if owned_types.len() > 1 && !owned_tools.is_empty() {
+            tracing::warn!(
+                plugin_id,
+                tool_types = ?owned_types,
+                tools = ?owned_tools,
+                "multiple tool-type executors share one plugin tool set; last registration wins per tool id"
+            );
+        }
         for (type_name, _) in manager.all_tool_types() {
             if let Some(executor) = manager.get_tool_executor(&type_name) {
                 let handler = make_plugin_tool_handler(executor.clone());
@@ -205,6 +243,13 @@ impl ContributionBridge for WfPluginBridge {
         for (id, owner) in manager.all_tools() {
             if owner == plugin_id {
                 if let Some(tool) = manager.get_tool(&id) {
+                    if self.tool_registry.has(&tool.id) {
+                        tracing::warn!(
+                            plugin_id,
+                            tool = %tool.id,
+                            "plugin tool id collides with a registered tool; install_bundle will skip it"
+                        );
+                    }
                     bundle.tools.push((*tool).clone());
                 }
             }

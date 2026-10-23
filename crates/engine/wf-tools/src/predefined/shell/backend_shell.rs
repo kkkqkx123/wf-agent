@@ -121,24 +121,29 @@ impl StatefulInstance for BackendShellInstance {
         let session = self.store.get(&session_id).ok_or_else(|| {
             ToolError::Internal(format!("Session '{}' not found after spawn", session_id))
         })?;
-        // Establish the scope baseline for the new session. The session may
-        // still be running, so this is explicitly not a completion signal.
-        // A contended window skips the baseline instead of capturing an
-        // interleaved state.
-        let degraded = match self.checkpoint.acquire_shell_window_blocking() {
+        let read_only = !self.store.policy().effect(command).needs_exclusive_window();
+        let scope = session.cwd();
+        let window = if read_only {
+            wf_checkpoint::ShellWindowOutcome::Disabled
+        } else if let Some(dir) = scope.as_ref() {
+            self.checkpoint.acquire_scoped_write_blocking(dir)
+        } else {
+            wf_checkpoint::ShellWindowOutcome::Disabled
+        };
+        let degraded = match window {
             wf_checkpoint::ShellWindowOutcome::Acquired(_guard) => {
-                self.checkpoint.begin_session(&session_id, session.cwd());
+                self.checkpoint.begin_session(&session_id, scope);
                 false
             }
             wf_checkpoint::ShellWindowOutcome::Disabled => {
-                self.checkpoint.begin_session(&session_id, session.cwd());
+                self.checkpoint.begin_session(&session_id, scope);
                 false
             }
             wf_checkpoint::ShellWindowOutcome::TimedOut => {
                 tracing::warn!(
                     execution = %self.execution_id,
                     session = %session_id,
-                    "session baseline skipped: shell window busy"
+                    "session baseline skipped: overlapping write busy"
                 );
                 true
             }

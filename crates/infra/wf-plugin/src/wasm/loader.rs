@@ -383,6 +383,8 @@ mod tests {
             config: None,
             hooks: None,
             llm_providers: vec![],
+            tools: vec![],
+            tool_descriptions: vec![],
             wasm: None,
             lua: None,
         }

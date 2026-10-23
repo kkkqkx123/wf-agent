@@ -258,6 +258,8 @@ mod tests {
             dangerous_patterns: None,
             allow_pipe: None,
             allow_redirect: None,
+            read_commands: None,
+            write_commands: None,
         }
     }
 

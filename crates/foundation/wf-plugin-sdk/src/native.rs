@@ -36,6 +36,12 @@ pub struct ContributionRegistrarC {
     pub register_middleware: Option<
         extern "C" fn(ctx: *mut std::ffi::c_void, phase: *const c_char, priority: i32) -> i32,
     >,
+    /// Declarative tool definition (`wf_types::tool::Tool` JSON, null-terminated).
+    pub register_tool:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, tool_json: *const c_char) -> i32>,
+    /// Declarative tool description (`ToolDescriptionData` JSON, null-terminated).
+    pub register_tool_description:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, description_json: *const c_char) -> i32>,
 }
 
 /// Host dispatch function: calls a registered handler by type and name.

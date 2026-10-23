@@ -27,6 +27,8 @@ pub struct ShellToolConfig {
     pub max_timeout_ms: u64,
     pub allowed_commands: Vec<String>,
     pub denied_commands: Option<Vec<String>>,
+    pub read_commands: Option<Vec<String>>,
+    pub write_commands: Option<Vec<String>>,
     /// Explicit shell override. When `None`, the platform default is detected
     /// via `$SHELL` / `which`.
     pub shell_type: Option<ShellType>,
@@ -81,6 +83,8 @@ impl Default for ShellToolConfig {
                 .map(|s| s.to_string())
                 .collect(),
             denied_commands: None,
+            read_commands: None,
+            write_commands: None,
             shell_type: None,
             pty_enabled: true,
             default_pty_size: DEFAULT_PTY_SIZE,
@@ -106,6 +110,8 @@ impl std::fmt::Debug for ShellToolConfig {
             .field("max_timeout_ms", &self.max_timeout_ms)
             .field("allowed_commands", &self.allowed_commands)
             .field("denied_commands", &self.denied_commands)
+            .field("read_commands", &self.read_commands)
+            .field("write_commands", &self.write_commands)
             .field("shell_type", &self.shell_type)
             .field("pty_enabled", &self.pty_enabled)
             .field("default_pty_size", &self.default_pty_size)

@@ -43,6 +43,10 @@ pub enum PluginPermission {
     /// provider (default models endpoint or custom endpoint). Subdivides
     /// `network` so discovery can be granted without general socket access.
     LlmDiscovery,
+    /// Contribute declarative tool definitions (`tool` contribution).
+    Tool,
+    /// Contribute tool descriptions (`tool-description` contribution).
+    ToolDescription,
     /// Implement the codec through the native dispatch channel (structured
     /// codec round-trip). Subdivides the native backend surface.
     NativeCodec,
@@ -89,6 +93,15 @@ pub struct PluginManifest {
     /// this crate keeps no dependency on `wf-types`.
     #[serde(default)]
     pub llm_providers: Vec<PluginLlmProviderDefinition>,
+    /// Declarative tool definitions (`wf_types::tool::Tool` JSON). Synced
+    /// into the tool registry on activation; paired with `tool_types`
+    /// executors from the same plugin via the bridge convention.
+    #[serde(default)]
+    pub tools: Vec<serde_json::Value>,
+    /// Declarative tool descriptions
+    /// (`wf_types::tool_description::ToolDescriptionData` JSON).
+    #[serde(default)]
+    pub tool_descriptions: Vec<serde_json::Value>,
     /// Wasm-only execution limits and WASI grants. Ignored for other types.
     #[serde(default)]
     pub wasm: Option<WasmConfig>,

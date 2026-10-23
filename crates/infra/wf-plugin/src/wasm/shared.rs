@@ -13,6 +13,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::contributions::registrar::ContributionRegistrar;
 use crate::contributions::NextFn;
 use crate::error::{PluginError, PluginResult};
 
@@ -26,6 +27,36 @@ pub fn encode_call_input<T: Serialize>(value: &T, what: &str) -> PluginResult<St
 pub fn decode_call_output<T: DeserializeOwned>(bytes: &[u8], what: &str) -> PluginResult<T> {
     serde_json::from_slice(bytes)
         .map_err(|e| PluginError::WasmError(format!("deserialize {what} failed: {e}")))
+}
+
+/// Register declarative `tools` / `tool_descriptions` from a wasm guest
+/// declaration. Entries are `Tool` / `ToolDescriptionData` JSON documents;
+/// malformed entries fail registration loudly instead of running with
+/// missing tools.
+pub fn register_decl_tools(
+    tools: &[Value],
+    tool_descriptions: &[Value],
+    registrar: &mut dyn ContributionRegistrar,
+) -> PluginResult<()> {
+    for raw in tools {
+        let tool: wf_types::tool::Tool =
+            serde_json::from_value(raw.clone()).map_err(|e| PluginError::InvalidContribution {
+                plugin_id: String::new(),
+                message: format!("invalid tool JSON: {e}"),
+            })?;
+        let id = tool.id.clone();
+        registrar.register_tool(&id, tool)?;
+    }
+    for raw in tool_descriptions {
+        let description: wf_types::tool_description::ToolDescriptionData =
+            serde_json::from_value(raw.clone()).map_err(|e| PluginError::InvalidContribution {
+                plugin_id: String::new(),
+                message: format!("invalid tool-description JSON: {e}"),
+            })?;
+        let id = description.id.clone();
+        registrar.register_tool_description(&id, description)?;
+    }
+    Ok(())
 }
 
 /// Resolve a middleware guest answer into the chain decision.

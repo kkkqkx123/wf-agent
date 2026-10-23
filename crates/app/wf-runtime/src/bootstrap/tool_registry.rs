@@ -23,9 +23,12 @@ pub async fn init_tool_registry_with_mcp(
     wf_tools::predefined::shell::session_observe::add_global_lifecycle_sink(Arc::new(
         crate::shell_event_bridge::ShellLifecycleBridge::new(event_bus.clone()),
     ));
-    shell_config.sandbox_policy = Some(sandbox_runtime.default_policy().clone());
+    shell_config.sandbox_policy = Some(sandbox_runtime.shell_policy());
     let tool_registry = Arc::new(wf_tools::registry::ToolRegistry::new());
-    let fs_scope_mode = sandbox_runtime.default_policy().mode.clone();
+    let fs_scope_mode = shell_config
+        .sandbox_policy
+        .as_ref()
+        .and_then(|p| p.mode.clone());
     wf_tools::register_builtin_handlers(
         &tool_registry,
         wf_tools::BuiltinHandlersConfig {

@@ -32,3 +32,35 @@ pub fn all_entry_points(manifest: &PluginManifest) -> Vec<String> {
     }
     entries
 }
+
+/// Register manifest-declared `tools` / `tool_descriptions` into the
+/// contribution manager. Entries are `Tool` / `ToolDescriptionData` JSON;
+/// malformed entries fail loudly. Called by every backend after guest
+/// declarations so manifest and guest surfaces share one registry path.
+pub fn register_manifest_tools(
+    manifest: &PluginManifest,
+    registrar: &mut dyn crate::contributions::registrar::ContributionRegistrar,
+) -> crate::error::PluginResult<()> {
+    for raw in &manifest.tools {
+        let tool: wf_types::tool::Tool = serde_json::from_value(raw.clone()).map_err(|e| {
+            crate::error::PluginError::InvalidContribution {
+                plugin_id: manifest.id.clone(),
+                message: format!("invalid manifest tool JSON: {e}"),
+            }
+        })?;
+        let id = tool.id.clone();
+        registrar.register_tool(&id, tool)?;
+    }
+    for raw in &manifest.tool_descriptions {
+        let description: wf_types::tool_description::ToolDescriptionData =
+            serde_json::from_value(raw.clone()).map_err(|e| {
+                crate::error::PluginError::InvalidContribution {
+                    plugin_id: manifest.id.clone(),
+                    message: format!("invalid manifest tool-description JSON: {e}"),
+                }
+            })?;
+        let id = description.id.clone();
+        registrar.register_tool_description(&id, description)?;
+    }
+    Ok(())
+}

@@ -29,10 +29,10 @@ use crate::processor::presets::{get_presets_environment_defaults, transform_pres
 use crate::processor::sandbox_global::{merge_sandbox_global_config, validate_sandbox_global};
 use crate::processor::tools::{
     transform_code_context_config, transform_glob_config, transform_list_files_config,
-    transform_read_file_config, CodeContextConfigInput, GlobConfig, GlobConfigInput,
-    ListFilesConfig, ListFilesConfigInput, ReadFileConfig, ReadFileConfigInput,
+    transform_read_file_config, transform_shell_tool_config, CodeContextConfigInput, GlobConfig,
+    GlobConfigInput, ListFilesConfig, ListFilesConfigInput, ReadFileConfig, ReadFileConfigInput,
 };
-
+pub use crate::processor::tools::{ShellToolConfig, ShellToolConfigInput};
 use wf_integration::CodeContextConfig;
 use wf_types::config::file_checkpoint::FileCheckpointConfig;
 use wf_types::config::limits::LimitsConfig;
@@ -82,13 +82,16 @@ pub fn default_infra_file_mapping() -> InfrastructurePresetFiles {
     InfrastructurePresetFiles::default_filenames()
 }
 
-/// Tool-specific configuration sections (read_file / glob / list_files and
-/// raw pass-through sections).
+/// Tool-specific configuration sections (read_file / glob / list_files /
+/// shell and raw pass-through sections).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ToolConfigs {
     pub glob: Option<GlobConfig>,
     pub list_files: Option<ListFilesConfig>,
     pub read_file: Option<ReadFileConfig>,
+    /// Host-level shell defaults (`tools.toml [shell]`). `None` inherits;
+    /// explicit lists override profile and built-in read/write lists.
+    pub shell: Option<ShellToolConfig>,
     /// Code-context service config backing file folding and the retrieval
     /// tools. `None` (the default) disables the service.
     pub code_context: Option<CodeContextConfig>,
@@ -730,6 +733,18 @@ pub fn load_tool_configs(
                         ))
                     })?;
                 tools.code_context = Some(config);
+            }
+            "shell" => {
+                let config = serde_json::from_value::<ShellToolConfigInput>(json)
+                    .map_err(ConfigError::from)
+                    .and_then(transform_shell_tool_config)
+                    .map_err(|e| {
+                        ConfigError::Validation(format!(
+                            "invalid [shell] section in {}: {e}",
+                            path.display()
+                        ))
+                    })?;
+                tools.shell = Some(config);
             }
             _ => {
                 if !json.is_object() {

@@ -71,6 +71,8 @@ impl ResourceAssemblerAdapter {
             config_schema: None,
             hooks: None,
             llm_providers: vec![],
+            tools: vec![],
+            tool_descriptions: vec![],
             wasm: None,
             lua: None,
         };

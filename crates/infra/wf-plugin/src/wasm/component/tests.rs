@@ -181,6 +181,8 @@ fn test_manifest(id: &str, wasm: wf_plugin_sdk::manifest::WasmConfig) -> PluginM
         config: None,
         hooks: None,
         llm_providers: vec![],
+        tools: vec![],
+        tool_descriptions: vec![],
         wasm: Some(wasm),
         lua: None,
     }

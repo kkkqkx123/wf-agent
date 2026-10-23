@@ -377,18 +377,13 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
             let input = parameters.get("input").and_then(|v| v.as_str());
 
             let execution_id = ctx.execution_id.to_string();
-            // Exclusive sampling window: held across before-capture,
-            // command execution and after-commit so concurrent shells
-            // cannot interleave their scans and misattribute writes.
-            // `Disabled` samples in parallel (explicit opt-out);
-            // `TimedOut` skips sampling for this window: the command still
-            // runs, but no diff is submitted and the result is marked
-            // degraded instead of attributing possibly foreign writes.
-            let window = if scope_dir.is_some() {
-                match ctx.checkpoint_session.as_ref() {
-                    Some(session) => session.acquire_shell_window(&execution_id).await,
-                    None => wf_checkpoint::ShellWindowOutcome::Disabled,
-                }
+            let read_only = !policy.effect(&command).needs_exclusive_window();
+            let window = if read_only {
+                wf_checkpoint::ShellWindowOutcome::Disabled
+            } else if let (Some(scope), Some(session)) =
+                (scope_dir.as_ref(), ctx.checkpoint_session.as_ref())
+            {
+                session.acquire_scoped_write(&execution_id, scope).await
             } else {
                 wf_checkpoint::ShellWindowOutcome::Disabled
             };
@@ -402,11 +397,12 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                 tracing::warn!(
                     execution = %execution_id,
                     scope = ?scope_dir,
-                    "shell window timed out; executing without sampling"
+                    "shell scoped write timed out; executing without sampling"
                 );
-            } else if let Some(scope) = scope_dir.as_ref() {
-                if let Some(session) = ctx.checkpoint_session.as_ref() {
-                    // Blocking scan offloaded to the blocking pool.
+            } else if !read_only {
+                if let (Some(scope), Some(session)) =
+                    (scope_dir.as_ref(), ctx.checkpoint_session.as_ref())
+                {
                     session
                         .begin_scope_async(execution_id.clone(), scope.clone())
                         .await;
@@ -451,27 +447,21 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
             {
                 Ok(output) => output,
                 Err(err) => {
-                    // `run_command` enforces the timeout with process
-                    // termination, so the sampling boundary is the confirmed
-                    // process end; startup failures also terminate (nothing
-                    // was started). Both end as terminated with success=false
-                    // so already-written files are still captured. A degraded
-                    // window captured nothing, so it ends nothing.
-                    if !degraded {
-                        if let Some(scope) = scope_dir.as_ref() {
-                            if let Some(_sess) = ctx.checkpoint_session.as_ref() {
-                                _sess
-                                    .end_scope_async(
-                                        scope.clone(),
-                                        wf_types::effect::ScopeOutcome {
-                                            execution_id: execution_id.clone(),
-                                            success: false,
-                                            terminated: true,
-                                            detail: Some(err.to_string()),
-                                        },
-                                    )
-                                    .await;
-                            }
+                    if !degraded && !read_only {
+                        if let (Some(scope), Some(_sess)) =
+                            (scope_dir.as_ref(), ctx.checkpoint_session.as_ref())
+                        {
+                            _sess
+                                .end_scope_async(
+                                    scope.clone(),
+                                    wf_types::effect::ScopeOutcome {
+                                        execution_id: execution_id.clone(),
+                                        success: false,
+                                        terminated: true,
+                                        detail: Some(err.to_string()),
+                                    },
+                                )
+                                .await;
                         }
                     }
                     return Err(err.into());
@@ -504,14 +494,12 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                 result["success"] = Value::Bool(true);
             }
 
-            // Sampling ends after the process terminated, even for failed
-            // commands: already-written files are still captured. A degraded
-            // window captured nothing, so it ends nothing; the result is
-            // marked instead.
             if degraded {
                 result["sampling_degraded"] = Value::Bool(true);
-            } else if let Some(scope) = scope_dir.as_ref() {
-                if let Some(_sess) = ctx.checkpoint_session.as_ref() {
+            } else if !read_only {
+                if let (Some(scope), Some(_sess)) =
+                    (scope_dir.as_ref(), ctx.checkpoint_session.as_ref())
+                {
                     _sess
                         .end_scope_async(
                             scope.clone(),

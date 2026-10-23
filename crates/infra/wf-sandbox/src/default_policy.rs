@@ -21,6 +21,11 @@ fn build_default_sandbox_policy() -> SandboxPolicy {
             ]),
             allow_pipe: Some(true),
             allow_redirect: Some(true),
+            // `None` inherits the built-in read/write lists in
+            // `command_policy::effect` so file profiles only override
+            // when they explicitly set these fields.
+            read_commands: None,
+            write_commands: None,
         }),
         python: Some(PythonPolicy {
             allowed_modules: Some(vec![]),

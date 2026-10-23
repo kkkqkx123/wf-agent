@@ -257,6 +257,16 @@ pub(crate) async fn fetch_component_declaration(
                 priority: m.priority,
             })
             .collect(),
+        tools: decl
+            .tools
+            .into_iter()
+            .filter_map(|s| serde_json::from_str(&s).ok())
+            .collect(),
+        tool_descriptions: decl
+            .tool_descriptions
+            .into_iter()
+            .filter_map(|s| serde_json::from_str(&s).ok())
+            .collect(),
     };
     inner.pool.release(session, healthy).await;
     Ok(mapped)

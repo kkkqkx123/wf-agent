@@ -96,6 +96,14 @@ pub struct WasmContributionDecl {
     pub event_handlers: Vec<String>,
     #[serde(default)]
     pub middleware: Vec<WasmMiddlewareDecl>,
+    /// Declarative tool definitions contributed by the guest. Each entry is
+    /// a `wf_types::tool::Tool` JSON document; unknown fields are ignored so
+    /// older hosts stay compatible. Requires the `tool` permission.
+    #[serde(default)]
+    pub tools: Vec<serde_json::Value>,
+    /// Declarative tool descriptions (`wf_types::tool_description::ToolDescriptionData`).
+    #[serde(default)]
+    pub tool_descriptions: Vec<serde_json::Value>,
 }
 
 /// One middleware registration declared by a wasm guest.

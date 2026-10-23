@@ -76,6 +76,13 @@ LuaPolicy         → 模块白名单/黑名单 + os.execute + io.open + 动态�
 
 SandboxPolicy     → 聚合以上所有子策略 + mode(Option)
 SandboxConfig     → 用户配置（mode + policy override + 策略链选择 + VFS + 遗留字段）
+
+ShellPolicy 读写分类：`allowed/denied_commands` 管审批门禁，
+`read/write_commands` 管 checkpoint 采样（`effect.rs:DEFAULT_*` 为唯一内置源，
+`None` 继承内置、`Some([])` 关闭该侧回退）。优先级
+`ShellToolConfig > profile.policy.shell > 内置`，`git` 仅查询子命令为读，
+重定向与写路径直接判写，未知从严。文件入口：`sandbox.toml [profiles.policy.shell]`
+与 `tools.toml [shell]`（主机覆盖，经 `CommandPolicy::effect_lists` 合并）。
 ```
 
 策略合并规则：`SandboxPolicyManager::merge(base, overrides)` — 覆盖字段优先，缺失字段从 base 继承。

@@ -71,6 +71,8 @@ pub struct ShellPolicy {
     pub dangerous_patterns: Option<Vec<String>>,
     pub allow_pipe: Option<bool>,
     pub allow_redirect: Option<bool>,
+    pub read_commands: Option<Vec<String>>,
+    pub write_commands: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

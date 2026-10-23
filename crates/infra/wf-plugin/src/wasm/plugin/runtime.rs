@@ -206,6 +206,8 @@ impl Plugin for WasmPlugin {
                 }),
             )?;
         }
+        super::super::shared::register_decl_tools(&decl.tools, &decl.tool_descriptions, registrar)?;
+        crate::manifest::register_manifest_tools(&self.inner.manifest, registrar)?;
         Ok(())
     }
 }

@@ -104,7 +104,11 @@ impl SessionLifecycleForwarder {
             session_id: event.session_id.clone(),
             scope_dir: event.cwd.clone(),
         };
-        match session.try_acquire_shell_window() {
+        let window = match event.cwd.as_ref() {
+            Some(dir) => session.try_acquire_scoped_write(dir),
+            None => wf_checkpoint::ShellWindowOutcome::Disabled,
+        };
+        match window {
             wf_checkpoint::ShellWindowOutcome::Acquired(_guard) => {
                 session.session_command_finished(boundary);
             }
@@ -115,14 +119,12 @@ impl SessionLifecycleForwarder {
                 tracing::warn!(
                     execution = %task_id,
                     session = %event.session_id,
-                    "background completion skipped: shell window busy; sampling marked degraded"
+                    "background completion skipped: overlapping write busy; sampling marked degraded"
                 );
             }
         }
     }
 
-    /// Safety-net sample for a naturally terminated session. Same
-    /// suspend/try-or-skip contract as command completion.
     fn sample_terminated(
         &self,
         session: &CheckpointSession,
@@ -137,7 +139,11 @@ impl SessionLifecycleForwarder {
             session_id: event.session_id.clone(),
             scope_dir: event.cwd.clone(),
         };
-        match session.try_acquire_shell_window() {
+        let window = match event.cwd.as_ref() {
+            Some(dir) => session.try_acquire_scoped_write(dir),
+            None => wf_checkpoint::ShellWindowOutcome::Disabled,
+        };
+        match window {
             wf_checkpoint::ShellWindowOutcome::Acquired(_guard) => {
                 session.end_session(boundary);
             }
@@ -148,7 +154,7 @@ impl SessionLifecycleForwarder {
                 tracing::warn!(
                     execution = %task_id,
                     session = %event.session_id,
-                    "background termination skipped: shell window busy; sampling marked degraded"
+                    "background termination skipped: overlapping write busy; sampling marked degraded"
                 );
             }
         }

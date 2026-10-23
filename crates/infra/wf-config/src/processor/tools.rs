@@ -163,6 +163,66 @@ pub fn transform_read_file_config(input: ReadFileConfigInput) -> ConfigResult<Re
     })
 }
 
+// ── shell ───────────────────────────────────────────────────────────
+//
+// Host-level shell defaults backing `ShellToolConfig` overrides
+// (`allowed/denied/read/write_commands`, workspace dir, timeout). All fields
+// are optional: `None` inherits (profile or built-in), `Some([])` explicitly
+// clears that side so the checkpoint classifier sees an empty list instead
+// of the built-in fallback.
+
+/// Raw shell tool config as loaded from a config file.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ShellToolConfigInput {
+    pub workspace_dir: Option<String>,
+    pub max_timeout_ms: Option<u64>,
+    pub allowed_commands: Option<Vec<String>>,
+    pub denied_commands: Option<Vec<String>>,
+    pub read_commands: Option<Vec<String>>,
+    pub write_commands: Option<Vec<String>>,
+}
+
+/// Validated shell tool config with no applied defaults (inheritance is
+/// resolved by the runtime mapping `ShellToolConfig > profile > built-in`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ShellToolConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_dir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_timeout_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_commands: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub denied_commands: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_commands: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub write_commands: Option<Vec<String>>,
+}
+
+pub fn validate_shell_tool_config(input: &ShellToolConfigInput) -> ConfigResult<()> {
+    if let Some(timeout) = input.max_timeout_ms {
+        if timeout < 1 {
+            return Err(ConfigError::Validation(
+                "shell max_timeout_ms must be at least 1".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub fn transform_shell_tool_config(input: ShellToolConfigInput) -> ConfigResult<ShellToolConfig> {
+    validate_shell_tool_config(&input)?;
+    Ok(ShellToolConfig {
+        workspace_dir: input.workspace_dir,
+        max_timeout_ms: input.max_timeout_ms,
+        allowed_commands: input.allowed_commands,
+        denied_commands: input.denied_commands,
+        read_commands: input.read_commands,
+        write_commands: input.write_commands,
+    })
+}
+
 // ── code-context ────────────────────────────────────────────────
 
 /// Raw code-context service config as loaded from a config file.
@@ -355,6 +415,25 @@ mod tests {
 
         let err = transform_read_file_config(ReadFileConfigInput {
             max_lines: Some(0),
+            ..Default::default()
+        })
+        .unwrap_err();
+        assert!(matches!(err, ConfigError::Validation(_)));
+    }
+
+    #[test]
+    fn shell_transform_passes_through_lists_and_validates_timeout() {
+        let config = transform_shell_tool_config(ShellToolConfigInput {
+            read_commands: Some(vec!["ls".to_string()]),
+            write_commands: Some(vec![]),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(config.read_commands, Some(vec!["ls".to_string()]));
+        assert_eq!(config.write_commands, Some(vec![]));
+
+        let err = transform_shell_tool_config(ShellToolConfigInput {
+            max_timeout_ms: Some(0),
             ..Default::default()
         })
         .unwrap_err();

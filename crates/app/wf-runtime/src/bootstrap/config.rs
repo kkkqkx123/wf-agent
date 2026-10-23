@@ -158,6 +158,45 @@ impl Default for PluginConfig {
     }
 }
 
+/// Map `tools.toml [shell]` onto `ShellToolConfig`: file values only fill
+/// programmatic defaults (programmatic wins). Precedence downstream stays
+/// `ShellToolConfig > sandbox profile > built-in` via `CommandPolicy`.
+fn apply_shell_tool_config(
+    shell: &mut wf_shell::config::ShellToolConfig,
+    file: Option<&wf_config::processor::tools::ShellToolConfig>,
+) {
+    let Some(file) = file else { return };
+    if let Some(dir) = file.workspace_dir.as_deref() {
+        if shell.workspace_dir.is_none() {
+            shell.workspace_dir = Some(std::path::PathBuf::from(dir));
+        }
+    }
+    if let Some(timeout) = file.max_timeout_ms {
+        if shell.max_timeout_ms == wf_shell::config::DEFAULT_MAX_TIMEOUT_MS {
+            shell.max_timeout_ms = timeout;
+        }
+    }
+    if let Some(allowed) = file.allowed_commands.clone() {
+        if shell.allowed_commands
+            == wf_shell::config::DEFAULT_ALLOWED_COMMANDS
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+        {
+            shell.allowed_commands = allowed;
+        }
+    }
+    if shell.denied_commands.is_none() {
+        shell.denied_commands = file.denied_commands.clone();
+    }
+    if shell.read_commands.is_none() {
+        shell.read_commands = file.read_commands.clone();
+    }
+    if shell.write_commands.is_none() {
+        shell.write_commands = file.write_commands.clone();
+    }
+}
+
 /// Apply the user file layer to fields the caller has not set explicitly:
 /// file values only fill in defaults, so programmatic parameters (already
 /// present in `config` when this runs) always win. Loading itself lives in
@@ -275,6 +314,7 @@ pub async fn resolve_infra_config(
     if config.tools == wf_config::orchestrator::ToolConfigs::default() {
         config.tools = assembled.tools;
     }
+    apply_shell_tool_config(&mut config.shell, config.tools.shell.as_ref());
     if config.tool_approval == wf_types::config::tool_approval::ToolApprovalConfig::default() {
         config.tool_approval = assembled.tool_approval;
     }

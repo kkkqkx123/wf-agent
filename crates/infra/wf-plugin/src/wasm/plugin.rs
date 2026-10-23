@@ -64,6 +64,8 @@ mod tests {
             config: None,
             hooks: None,
             llm_providers: vec![],
+            tools: vec![],
+            tool_descriptions: vec![],
             wasm: None,
             lua: None,
         };
@@ -152,6 +154,8 @@ mod tests {
             config: None,
             hooks: None,
             llm_providers: vec![],
+            tools: vec![],
+            tool_descriptions: vec![],
             wasm: Some(WasmConfig {
                 store_pool_size: Some(pool_size),
                 ..Default::default()
@@ -330,6 +334,8 @@ mod tests {
             config: None,
             hooks: None,
             llm_providers: vec![],
+            tools: vec![],
+            tool_descriptions: vec![],
             wasm: None,
             lua: None,
         };
@@ -689,6 +695,8 @@ mod tests {
             config: None,
             hooks: None,
             llm_providers: vec![],
+            tools: vec![],
+            tool_descriptions: vec![],
             wasm: None,
             lua: None,
         };

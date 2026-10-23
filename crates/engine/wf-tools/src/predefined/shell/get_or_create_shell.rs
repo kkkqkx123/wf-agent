@@ -96,8 +96,29 @@ impl StatefulInstance for GetOrCreateShellInstance {
             ..Default::default()
         };
         let result = self.store.get_or_create(&options, task_id.as_deref())?;
-        self.checkpoint
-            .begin_session(&result.session_id, result.cwd.clone());
+        // Session baseline under the shell-window permit: a contended
+        // window skips the baseline (the domain stays disabled) instead of
+        // capturing an interleaved state.
+        let degraded = match self.checkpoint.acquire_shell_window_blocking() {
+            wf_checkpoint::ShellWindowOutcome::Acquired(_guard) => {
+                self.checkpoint
+                    .begin_session(&result.session_id, result.cwd.clone());
+                false
+            }
+            wf_checkpoint::ShellWindowOutcome::Disabled => {
+                self.checkpoint
+                    .begin_session(&result.session_id, result.cwd.clone());
+                false
+            }
+            wf_checkpoint::ShellWindowOutcome::TimedOut => {
+                tracing::warn!(
+                    execution = %self.execution_id,
+                    session = %result.session_id,
+                    "session baseline skipped: shell window busy"
+                );
+                true
+            }
+        };
         Ok(serde_json::json!({
             "session_id": result.session_id.clone(),
             "reused": result.reused,
@@ -105,6 +126,7 @@ impl StatefulInstance for GetOrCreateShellInstance {
             "mode": result.mode.as_str(),
             "cwd": result.cwd.as_ref().map(|p| p.to_string_lossy().to_string()),
             "task_id": result.task_id.clone(),
+            "sampling_degraded": degraded,
         }))
     }
 

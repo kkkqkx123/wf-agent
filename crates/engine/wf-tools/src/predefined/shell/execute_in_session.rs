@@ -88,16 +88,32 @@ impl StatefulInstance for ExecuteInSessionInstance {
         let timeout = params.get("timeout").and_then(|v| v.as_u64());
 
         let scope_dir = self.store.get(session_id).and_then(|s| s.cwd());
-        // Exclusive sampling window: held across command execution and
+        // Exclusive sampling window, held across command execution and
         // completion sampling so concurrent shells cannot interleave their
-        // scans. `None` (disabled or timed out) proceeds without exclusivity.
-        let _shell_window = if scope_dir.is_some() {
-            self.checkpoint
-                .get()
-                .and_then(|cp| cp.blocking_acquire_shell_window(self.checkpoint.execution_id()))
+        // scans. The forwarder is suspended while the synchronous waiter
+        // runs: the store-finalize push still settles task state and fans
+        // out to extra sinks, but the checkpoint sample below is the
+        // single sampling path (no double diff/refresh). `TimedOut`
+        // executes without sampling and marks the result degraded.
+        let window = if scope_dir.is_some() {
+            self.checkpoint.acquire_shell_window_blocking()
         } else {
-            None
+            wf_checkpoint::ShellWindowOutcome::Disabled
         };
+        let degraded = matches!(window, wf_checkpoint::ShellWindowOutcome::TimedOut);
+        let _shell_window = match window {
+            wf_checkpoint::ShellWindowOutcome::Acquired(guard) => Some(guard),
+            wf_checkpoint::ShellWindowOutcome::Disabled
+            | wf_checkpoint::ShellWindowOutcome::TimedOut => None,
+        };
+        let _suspended = self.checkpoint.suspend_forwarder();
+        if degraded {
+            tracing::warn!(
+                execution = %self.checkpoint.execution_id(),
+                session = %session_id,
+                "shell window timed out; executing without sampling"
+            );
+        }
         wf_shell::engine::background_task_registry().register(
             session_id,
             command,
@@ -122,13 +138,22 @@ impl StatefulInstance for ExecuteInSessionInstance {
         };
         wf_shell::engine::background_task_registry().settle(session_id, settled.0, settled.1);
         // The command boundary ends here (the store blocks until the
-        // command exits or the timeout terminates it). Report completion
-        // with the session cwd so the observer can sample this command.
-        {
+        // command exits or the timeout terminates it). Only successful
+        // executions sample: a failed spawn ran nothing, so moving the
+        // baseline would swallow unrelated concurrent writes.
+        if result.is_ok() && !degraded {
             let scope = scope_dir.or_else(|| self.store.get(session_id).and_then(|s| s.cwd()));
             self.checkpoint.command_finished(session_id, scope);
         }
-        result
+        match result {
+            Ok(mut value) => {
+                if degraded {
+                    value["sampling_degraded"] = serde_json::Value::Bool(true);
+                }
+                Ok(value)
+            }
+            Err(err) => Err(err),
+        }
     }
 
     fn destroy(&self) -> ToolResult<()> {

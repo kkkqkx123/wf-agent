@@ -31,6 +31,17 @@ use checkpoint_base::ActorId;
 /// interleave and misattribute each other's writes.
 pub type ShellWindowGuard = tokio::sync::OwnedMutexGuard<()>;
 
+/// Outcome of acquiring the exclusive shell-window permit. `Disabled`
+/// means the user explicitly opted out of exclusivity (parallel
+/// best-effort sampling); `TimedOut` means contention forced a degraded
+/// path where the caller must skip sampling instead of submitting a
+/// possibly misattributed diff.
+pub enum ShellWindowOutcome {
+    Acquired(ShellWindowGuard),
+    Disabled,
+    TimedOut,
+}
+
 /// Resolve the shell scope intersection: the requested directory intersected
 /// with the workspace root. Returns `None` for out-of-workspace execution
 /// (explicit "no synchronous capture range", never a whole-workspace scan).
@@ -91,7 +102,8 @@ pub struct SessionScopeRegistry {
     /// spans the whole before-capture, command execution and after-commit
     /// sequence so concurrent shells never interleave their scans. Coarse
     /// by design: non-overlapping scopes serialize too, trading tail
-    /// latency for attribution correctness.
+    /// latency for attribution correctness. Per-manager, not
+    /// process-global: one manager per workspace per process is required.
     shell_serialization: Arc<tokio::sync::Mutex<()>>,
     /// Master switch for the exclusive permit (from
     /// `FileCheckpointConfig::scope_serialization`).
@@ -117,79 +129,92 @@ impl Default for SessionScopeRegistry {
 
 impl SessionScopeRegistry {
     /// Apply the configured serialization policy. Missing sections keep
-    /// the default (enabled with the built-in wait budget).
+    /// the default (enabled with the built-in wait budget). Intended to run
+    /// once at manager construction; later writes are sequentially
+    /// consistent but race with in-flight waiters.
     pub fn set_scope_serialization(
         &self,
         config: Option<&wf_types::config::file_checkpoint::ScopeSerializationConfig>,
     ) {
         let (enabled, timeout_ms) =
             wf_types::config::file_checkpoint::ScopeSerializationConfig::resolve(config);
-        self.serialization_enabled.store(enabled, Ordering::Relaxed);
+        self.serialization_enabled.store(enabled, Ordering::SeqCst);
         self.serialization_timeout_ms
-            .store(timeout_ms, Ordering::Relaxed);
+            .store(timeout_ms, Ordering::SeqCst);
     }
 
     fn serialization_timeout(&self) -> Duration {
-        Duration::from_millis(self.serialization_timeout_ms.load(Ordering::Relaxed))
+        Duration::from_millis(self.serialization_timeout_ms.load(Ordering::SeqCst))
     }
 
-    /// Acquire the exclusive shell-window permit for async callers. Returns
-    /// `None` when serialization is disabled or the wait budget expires:
-    /// callers proceed without the permit and treat sampling as degraded
-    /// instead of blocking the batch.
-    pub async fn acquire_shell_window(
-        &self,
-        entity: &str,
-        execution: &str,
-    ) -> Option<ShellWindowGuard> {
-        if !self.serialization_enabled.load(Ordering::Relaxed) {
-            return None;
+    /// Acquire the exclusive shell-window permit for async callers.
+    /// `Disabled` means exclusivity is off (sample in parallel,
+    /// best-effort); `TimedOut` means the caller must skip sampling
+    /// entirely instead of submitting a possibly misattributed diff.
+    pub async fn acquire_shell_window(&self, entity: &str, execution: &str) -> ShellWindowOutcome {
+        if !self.serialization_enabled.load(Ordering::SeqCst) {
+            return ShellWindowOutcome::Disabled;
         }
         let timeout = self.serialization_timeout();
         match tokio::time::timeout(timeout, self.shell_serialization.clone().lock_owned()).await {
-            Ok(guard) => Some(guard),
+            Ok(guard) => ShellWindowOutcome::Acquired(guard),
             Err(_) => {
                 tracing::warn!(
                     entity = %entity,
                     execution = %execution,
                     timeout_ms = timeout.as_millis() as u64,
-                    "shell serialization wait expired; sampling proceeds without exclusivity"
+                    "shell serialization wait expired; sampling skipped, command still runs"
                 );
-                None
+                ShellWindowOutcome::TimedOut
             }
         }
     }
 
     /// Acquire the exclusive shell-window permit for synchronous callers
-    /// (blocking-pool tool handlers). Polls the permit without parking the
-    /// async runtime; returns `None` on the same degraded path as the
-    /// async variant.
+    /// (blocking-pool tool handlers). Backs off exponentially (1ms to 50ms
+    /// cap) instead of busy-polling; same degraded-`TimedOut` contract as
+    /// the async variant.
     pub fn blocking_acquire_shell_window(
         &self,
         entity: &str,
         execution: &str,
-    ) -> Option<ShellWindowGuard> {
-        if !self.serialization_enabled.load(Ordering::Relaxed) {
-            return None;
+    ) -> ShellWindowOutcome {
+        if !self.serialization_enabled.load(Ordering::SeqCst) {
+            return ShellWindowOutcome::Disabled;
         }
         let timeout = self.serialization_timeout();
         let deadline = Instant::now() + timeout;
+        let mut backoff = Duration::from_millis(1);
         loop {
             match self.shell_serialization.clone().try_lock_owned() {
-                Ok(guard) => return Some(guard),
+                Ok(guard) => return ShellWindowOutcome::Acquired(guard),
                 Err(_) => {
                     if Instant::now() >= deadline {
                         tracing::warn!(
                             entity = %entity,
                             execution = %execution,
                             timeout_ms = timeout.as_millis() as u64,
-                            "shell serialization wait expired; sampling proceeds without exclusivity"
+                            "shell serialization wait expired; sampling skipped, command still runs"
                         );
-                        return None;
+                        return ShellWindowOutcome::TimedOut;
                     }
-                    std::thread::sleep(Duration::from_millis(1));
+                    std::thread::sleep(backoff);
+                    backoff = (backoff * 2).min(Duration::from_millis(50));
                 }
             }
+        }
+    }
+
+    /// Non-blocking permit probe for monitor-thread safety-net sampling.
+    /// Never waits: `TimedOut` here means "currently held", and the caller
+    /// must skip sampling rather than block the monitor.
+    pub fn try_acquire_shell_window(&self) -> ShellWindowOutcome {
+        if !self.serialization_enabled.load(Ordering::SeqCst) {
+            return ShellWindowOutcome::Disabled;
+        }
+        match self.shell_serialization.clone().try_lock_owned() {
+            Ok(guard) => ShellWindowOutcome::Acquired(guard),
+            Err(_) => ShellWindowOutcome::TimedOut,
         }
     }
 }
@@ -294,10 +319,15 @@ impl ScopeCapture {
     }
 
     // ---- serialization (shell sampling windows) ----
+    //
+    // Sync tool paths must hold the returned guard across their sampling
+    // boundaries (session baselines, command windows, final diffs). The
+    // monitor-thread safety net instead uses `try_acquire_shell_window`
+    // and skips on contention. `TimedOut` always means skip sampling.
 
     /// Acquire the exclusive shell-window permit for async callers. Hold
     /// the guard across before-capture, command execution and after-commit.
-    pub async fn acquire_shell_window(&self, execution_id: &str) -> Option<ShellWindowGuard> {
+    pub async fn acquire_shell_window(&self, execution_id: &str) -> ShellWindowOutcome {
         self.scopes
             .acquire_shell_window(&self.entity_id, execution_id)
             .await
@@ -305,9 +335,14 @@ impl ScopeCapture {
 
     /// Acquire the exclusive shell-window permit for synchronous callers.
     /// Hold the guard across command execution and sampling completion.
-    pub fn blocking_acquire_shell_window(&self, execution_id: &str) -> Option<ShellWindowGuard> {
+    pub fn blocking_acquire_shell_window(&self, execution_id: &str) -> ShellWindowOutcome {
         self.scopes
             .blocking_acquire_shell_window(&self.entity_id, execution_id)
+    }
+
+    /// Non-blocking probe for safety-net sampling. Never waits.
+    pub fn try_acquire_shell_window(&self) -> ShellWindowOutcome {
+        self.scopes.try_acquire_shell_window()
     }
 
     // ---- foreground scope helpers ----
@@ -706,5 +741,74 @@ mod tests {
         capture.end_session("s1", "exec-1");
         assert!(scopes.session_scope.is_empty());
         assert!(scopes.session_before.is_empty());
+    }
+
+    fn disabled_config() -> Option<wf_types::config::file_checkpoint::ScopeSerializationConfig> {
+        Some(
+            wf_types::config::file_checkpoint::ScopeSerializationConfig {
+                enabled: false,
+                lock_timeout_ms: None,
+            },
+        )
+    }
+
+    fn short_timeout_config() -> Option<wf_types::config::file_checkpoint::ScopeSerializationConfig>
+    {
+        Some(
+            wf_types::config::file_checkpoint::ScopeSerializationConfig {
+                enabled: true,
+                lock_timeout_ms: Some(5),
+            },
+        )
+    }
+
+    #[test]
+    fn disabled_serialization_reports_disabled_without_waiting() {
+        let registry = SessionScopeRegistry::default();
+        registry.set_scope_serialization(disabled_config().as_ref());
+        assert!(matches!(
+            registry.try_acquire_shell_window(),
+            ShellWindowOutcome::Disabled
+        ));
+        assert!(matches!(
+            registry.blocking_acquire_shell_window("e", "x"),
+            ShellWindowOutcome::Disabled
+        ));
+    }
+
+    #[test]
+    fn contended_window_reports_timeout_for_probe_and_short_wait() {
+        let registry = SessionScopeRegistry::default();
+        registry.set_scope_serialization(short_timeout_config().as_ref());
+        let _held = match registry.try_acquire_shell_window() {
+            ShellWindowOutcome::Acquired(guard) => guard,
+            ShellWindowOutcome::Disabled | ShellWindowOutcome::TimedOut => {
+                panic!("fresh registry must grant the permit")
+            }
+        };
+        assert!(matches!(
+            registry.try_acquire_shell_window(),
+            ShellWindowOutcome::TimedOut
+        ));
+        assert!(matches!(
+            registry.blocking_acquire_shell_window("e", "x"),
+            ShellWindowOutcome::TimedOut
+        ));
+    }
+
+    #[tokio::test]
+    async fn contended_async_acquire_reports_timeout() {
+        let registry = SessionScopeRegistry::default();
+        registry.set_scope_serialization(short_timeout_config().as_ref());
+        let _held = match registry.try_acquire_shell_window() {
+            ShellWindowOutcome::Acquired(guard) => guard,
+            ShellWindowOutcome::Disabled | ShellWindowOutcome::TimedOut => {
+                panic!("fresh registry must grant the permit")
+            }
+        };
+        assert!(matches!(
+            registry.acquire_shell_window("e", "x").await,
+            ShellWindowOutcome::TimedOut
+        ));
     }
 }

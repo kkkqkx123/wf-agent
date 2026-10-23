@@ -123,7 +123,26 @@ impl StatefulInstance for BackendShellInstance {
         })?;
         // Establish the scope baseline for the new session. The session may
         // still be running, so this is explicitly not a completion signal.
-        self.checkpoint.begin_session(&session_id, session.cwd());
+        // A contended window skips the baseline instead of capturing an
+        // interleaved state.
+        let degraded = match self.checkpoint.acquire_shell_window_blocking() {
+            wf_checkpoint::ShellWindowOutcome::Acquired(_guard) => {
+                self.checkpoint.begin_session(&session_id, session.cwd());
+                false
+            }
+            wf_checkpoint::ShellWindowOutcome::Disabled => {
+                self.checkpoint.begin_session(&session_id, session.cwd());
+                false
+            }
+            wf_checkpoint::ShellWindowOutcome::TimedOut => {
+                tracing::warn!(
+                    execution = %self.execution_id,
+                    session = %session_id,
+                    "session baseline skipped: shell window busy"
+                );
+                true
+            }
+        };
         Ok(serde_json::json!({
             "session_id": session_id,
             "status": "started",
@@ -134,6 +153,7 @@ impl StatefulInstance for BackendShellInstance {
             "cwd": cwd,
             "interactive": interactive,
             "execution_id": self.execution_id,
+            "sampling_degraded": degraded,
             "guidance": "Command moved to the background. Do not poll in a tight loop: use shell_wait to block until it finishes or shell_output to read output, or move on and watch for the shell completion event.",
         }))
     }

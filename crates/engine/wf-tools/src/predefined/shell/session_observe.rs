@@ -10,7 +10,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
 use wf_checkpoint::CheckpointSession;
 use wf_common::lock::lock_ok;
 use wf_shell::lifecycle::{SessionLifecycleEvent, SessionLifecycleKind, SessionLifecycleSink};
@@ -21,6 +21,12 @@ use wf_types::effect::SessionBoundary;
 /// (one forwarder per background store).
 pub struct SessionLifecycleForwarder {
     sessions: DashMap<String, CheckpointSession>,
+    /// Executions with a synchronous waiter in flight. While suspended,
+    /// completion events still settle the task registry and fan out to
+    /// extra sinks, but skip checkpoint sampling: the waiter holds the
+    /// shell-window permit and samples explicitly, so a second sample
+    /// would only rescan an already-refreshed baseline.
+    suspended: DashSet<String>,
     extra_sinks: Mutex<Vec<Arc<dyn SessionLifecycleSink>>>,
 }
 
@@ -28,6 +34,7 @@ impl SessionLifecycleForwarder {
     pub fn new() -> Self {
         Self {
             sessions: DashMap::new(),
+            suspended: DashSet::new(),
             extra_sinks: Mutex::new(Vec::new()),
         }
     }
@@ -54,10 +61,97 @@ impl SessionLifecycleForwarder {
     /// Drop the session for a finished execution to bound map growth.
     pub fn remove_session(&self, task_id: &str) {
         self.sessions.remove(task_id);
+        self.suspended.remove(task_id);
+    }
+
+    /// Suspend checkpoint sampling for an execution with a synchronous
+    /// waiter in flight. Task-registry settle and extra-sink fanout are
+    /// unaffected; only the duplicate checkpoint sample is skipped.
+    pub fn suspend_sampling(&self, task_id: &str) {
+        self.suspended.insert(task_id.to_string());
+    }
+
+    /// Resume checkpoint sampling after the synchronous waiter sampled
+    /// explicitly (or skipped as degraded).
+    pub fn resume_sampling(&self, task_id: &str) {
+        self.suspended.remove(task_id);
+    }
+
+    fn sampling_suspended(&self, task_id: &str) -> bool {
+        self.suspended.contains(task_id)
     }
 
     fn session_for(&self, task_id: &str) -> Option<CheckpointSession> {
         self.sessions.get(task_id).map(|entry| entry.clone())
+    }
+
+    /// Safety-net sample for a naturally completed command (no synchronous
+    /// waiter). Suspended executions are skipped: their waiter samples
+    /// explicitly under its own permit. Otherwise the permit is probed
+    /// without waiting; contention skips the sample to protect the active
+    /// window instead of misattributing its in-flight writes.
+    fn sample_command_finished(
+        &self,
+        session: &CheckpointSession,
+        task_id: &str,
+        event: &SessionLifecycleEvent,
+    ) {
+        if self.sampling_suspended(task_id) {
+            return;
+        }
+        let boundary = SessionBoundary {
+            execution_id: task_id.to_string(),
+            session_id: event.session_id.clone(),
+            scope_dir: event.cwd.clone(),
+        };
+        match session.try_acquire_shell_window() {
+            wf_checkpoint::ShellWindowOutcome::Acquired(_guard) => {
+                session.session_command_finished(boundary);
+            }
+            wf_checkpoint::ShellWindowOutcome::Disabled => {
+                session.session_command_finished(boundary);
+            }
+            wf_checkpoint::ShellWindowOutcome::TimedOut => {
+                tracing::warn!(
+                    execution = %task_id,
+                    session = %event.session_id,
+                    "background completion skipped: shell window busy; sampling marked degraded"
+                );
+            }
+        }
+    }
+
+    /// Safety-net sample for a naturally terminated session. Same
+    /// suspend/try-or-skip contract as command completion.
+    fn sample_terminated(
+        &self,
+        session: &CheckpointSession,
+        task_id: &str,
+        event: &SessionLifecycleEvent,
+    ) {
+        if self.sampling_suspended(task_id) {
+            return;
+        }
+        let boundary = SessionBoundary {
+            execution_id: task_id.to_string(),
+            session_id: event.session_id.clone(),
+            scope_dir: event.cwd.clone(),
+        };
+        match session.try_acquire_shell_window() {
+            wf_checkpoint::ShellWindowOutcome::Acquired(_guard) => {
+                session.end_session(boundary);
+            }
+            wf_checkpoint::ShellWindowOutcome::Disabled => {
+                session.end_session(boundary);
+            }
+            wf_checkpoint::ShellWindowOutcome::TimedOut => {
+                tracing::warn!(
+                    execution = %task_id,
+                    session = %event.session_id,
+                    "background termination skipped: shell window busy; sampling marked degraded"
+                );
+            }
+        }
     }
 }
 
@@ -99,11 +193,7 @@ impl SessionLifecycleSink for SessionLifecycleForwarder {
                     event.task_id.as_deref(),
                     event.task_id.as_deref().and_then(|id| self.session_for(id)),
                 ) {
-                    session.session_command_finished(SessionBoundary {
-                        execution_id: task_id.to_string(),
-                        session_id: event.session_id.clone(),
-                        scope_dir: event.cwd.clone(),
-                    });
+                    self.sample_command_finished(&session, task_id, event);
                 }
             }
             SessionLifecycleKind::Terminated => {
@@ -111,11 +201,7 @@ impl SessionLifecycleSink for SessionLifecycleForwarder {
                     event.task_id.as_deref(),
                     event.task_id.as_deref().and_then(|id| self.session_for(id)),
                 ) {
-                    session.end_session(SessionBoundary {
-                        execution_id: task_id.to_string(),
-                        session_id: event.session_id.clone(),
-                        scope_dir: event.cwd.clone(),
-                    });
+                    self.sample_terminated(&session, task_id, event);
                 }
             }
         }
@@ -127,6 +213,29 @@ impl SessionLifecycleSink for SessionLifecycleForwarder {
 
 /// Share a forwarder with `Arc` (signature helper for tool registration).
 pub type SharedSessionForwarder = Arc<SessionLifecycleForwarder>;
+
+/// Holds forwarder suspension for a synchronous waiter: suspends on
+/// creation, resumes on drop so early returns cannot leak the suspension.
+pub struct SamplingSuspendGuard {
+    forwarder: SharedSessionForwarder,
+    task_id: String,
+}
+
+impl SamplingSuspendGuard {
+    pub fn suspend(forwarder: &SharedSessionForwarder, task_id: &str) -> Self {
+        forwarder.suspend_sampling(task_id);
+        Self {
+            forwarder: forwarder.clone(),
+            task_id: task_id.to_string(),
+        }
+    }
+}
+
+impl Drop for SamplingSuspendGuard {
+    fn drop(&mut self) {
+        self.forwarder.resume_sampling(&self.task_id);
+    }
+}
 
 /// Process-wide extra lifecycle sinks, installed by upper layers (for
 /// example the runtime event-bus bridge) before tool registration. The
@@ -188,5 +297,71 @@ mod tests {
             None,
             Some(std::path::PathBuf::from("/ws")),
         ));
+    }
+
+    #[test]
+    fn suspend_guard_resumes_on_drop() {
+        let forwarder = Arc::new(SessionLifecycleForwarder::new());
+        assert!(!forwarder.sampling_suspended("exec-1"));
+        {
+            let _guard = SamplingSuspendGuard::suspend(&forwarder, "exec-1");
+            assert!(forwarder.sampling_suspended("exec-1"));
+        }
+        assert!(!forwarder.sampling_suspended("exec-1"));
+    }
+
+    #[test]
+    fn suspended_completion_skips_checkpoint_sample() {
+        use wf_checkpoint::file::FileCheckpointManager;
+
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dir.path().join("ws");
+        std::fs::create_dir_all(&ws).unwrap();
+        std::fs::write(ws.join("a.txt"), b"v1").unwrap();
+        let mut manager = FileCheckpointManager::new_in_memory().unwrap();
+        manager.set_workspace_root(Some(ws.clone()));
+        let session = CheckpointSession::new(manager.clone(), "agent-1", None).unwrap();
+        let actor = session.actor().as_str().to_string();
+        session.begin_session(SessionBoundary {
+            execution_id: "exec-1".to_string(),
+            session_id: "s-1".to_string(),
+            scope_dir: Some(ws.clone()),
+        });
+        std::fs::write(ws.join("b.txt"), b"new").unwrap();
+
+        let forwarder = Arc::new(SessionLifecycleForwarder::new());
+        forwarder.set_session("exec-1".to_string(), session);
+        let event = || {
+            SessionLifecycleEvent::command_completed(
+                "s-1".to_string(),
+                Some("exec-1".to_string()),
+                Some(ws.clone()),
+                "echo hi".to_string(),
+                Some(0),
+                true,
+            )
+        };
+        let workspace_paths = || {
+            manager
+                .get_actor_workspace(&actor)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|f| f.path)
+                .collect::<Vec<_>>()
+        };
+
+        forwarder.suspend_sampling("exec-1");
+        forwarder.on_lifecycle(&event());
+        assert!(
+            !workspace_paths().iter().any(|p| p.ends_with("b.txt")),
+            "suspended completion must not attribute writes"
+        );
+
+        forwarder.resume_sampling("exec-1");
+        forwarder.on_lifecycle(&event());
+        assert!(
+            workspace_paths().iter().any(|p| p.ends_with("b.txt")),
+            "resumed completion must attribute writes"
+        );
     }
 }

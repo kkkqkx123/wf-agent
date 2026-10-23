@@ -72,9 +72,18 @@ pub struct FileCheckpointGcRetention {
 ///
 /// Shell tools capture before/after file hashes around the command run. Two
 /// overlapping sampling windows interleave on the shared filesystem and
-/// misattribute each other's writes, so shell windows hold a process-wide
+/// misattribute each other's writes, so shell windows hold a manager-wide
 /// exclusive permit across the whole capture-execute-commit span. `None`
 /// (missing section) keeps the default: enabled with the built-in timeout.
+///
+/// One manager per workspace per process is required: the permit is
+/// per-manager, so two managers over the same workspace race past each
+/// other. The wait budget covers queuing only; the command still runs to
+/// completion after the budget expires, but its sampling is skipped and
+/// reported as degraded instead of submitting a possibly misattributed
+/// diff. Frequent degradation means the budget is too small for the
+/// workload (or long commands need splitting), not a signal to sample
+/// without the permit.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ScopeSerializationConfig {
     /// Master switch. `false` disables the exclusive permit and restores
@@ -82,8 +91,8 @@ pub struct ScopeSerializationConfig {
     #[serde(default = "default_scope_serialization_enabled")]
     pub enabled: bool,
     /// Maximum time to wait for the exclusive permit in milliseconds.
-    /// `None` uses the built-in default; expiry proceeds without the
-    /// permit and marks sampling degraded instead of blocking the batch.
+    /// `None` uses the built-in default. Expiry skips sampling for that
+    /// window (reported as degraded) instead of blocking the batch.
     #[serde(default)]
     pub lock_timeout_ms: Option<u64>,
 }
@@ -102,7 +111,10 @@ impl Default for ScopeSerializationConfig {
 }
 
 impl ScopeSerializationConfig {
-    /// Built-in wait budget used when `lock_timeout_ms` is unset.
+    /// Built-in wait budget used when `lock_timeout_ms` is unset. The
+    /// permit is held across command execution, so the budget must cover a
+    /// typical command duration plus queuing; expiry skips sampling for
+    /// that window rather than extending the wait.
     pub const DEFAULT_LOCK_TIMEOUT_MS: u64 = 300_000;
 
     /// Resolve the effective (enabled, timeout) pair for a possibly

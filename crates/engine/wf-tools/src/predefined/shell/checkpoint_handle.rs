@@ -6,11 +6,11 @@
 
 use std::path::PathBuf;
 
-use wf_checkpoint::CheckpointSession;
+use wf_checkpoint::{CheckpointSession, ShellWindowOutcome};
 use wf_common::lock::lock_ok;
 use wf_shell::engine::BackgroundShellStore;
 
-use super::session_observe::SharedSessionForwarder;
+use super::session_observe::{SamplingSuspendGuard, SharedSessionForwarder};
 
 /// Per-execution checkpoint wiring for one stateful shell instance.
 pub struct ShellCheckpointHandle {
@@ -46,6 +46,39 @@ impl ShellCheckpointHandle {
         &self.execution_id
     }
 
+    /// Async permit for foreground command windows. No session means no
+    /// sampling domain: `Disabled` (proceed, nothing to sample).
+    pub async fn acquire_shell_window_async(&self) -> ShellWindowOutcome {
+        match self.get() {
+            Some(cp) => cp.acquire_shell_window(&self.execution_id).await,
+            None => ShellWindowOutcome::Disabled,
+        }
+    }
+
+    /// Blocking permit for synchronous session tools. No session means
+    /// `Disabled`.
+    pub fn acquire_shell_window_blocking(&self) -> ShellWindowOutcome {
+        match self.get() {
+            Some(cp) => cp.blocking_acquire_shell_window(&self.execution_id),
+            None => ShellWindowOutcome::Disabled,
+        }
+    }
+
+    /// Non-blocking probe for teardown paths. Never waits: teardown must
+    /// not stall on a busy window.
+    pub fn try_acquire_shell_window(&self) -> ShellWindowOutcome {
+        match self.get() {
+            Some(cp) => cp.try_acquire_shell_window(),
+            None => ShellWindowOutcome::Disabled,
+        }
+    }
+
+    /// Suspend forwarder sampling while a synchronous waiter holds its own
+    /// permit and samples explicitly.
+    pub fn suspend_forwarder(&self) -> SamplingSuspendGuard {
+        SamplingSuspendGuard::suspend(&self.forwarder, &self.execution_id)
+    }
+
     pub fn begin_session(&self, session_id: &str, scope_dir: Option<PathBuf>) {
         if let Some(cp) = self.get() {
             cp.begin_session(wf_types::effect::SessionBoundary {
@@ -78,15 +111,31 @@ impl ShellCheckpointHandle {
 
     /// End sampling for every session bound to this execution, then release
     /// them from the store (running commands keep running; sampling is the
-    /// release-time boundary).
+    /// release-time boundary). Teardown never waits: a busy window skips
+    /// the final sample instead of stalling cleanup.
     pub fn end_all_and_release(&self, store: &BackgroundShellStore) {
+        let sessions: Vec<(String, Option<PathBuf>)> = store.sessions_for_task(&self.execution_id);
         if let Some(cp) = self.get() {
-            for (session_id, cwd) in store.sessions_for_task(&self.execution_id) {
-                cp.end_session(wf_types::effect::SessionBoundary {
-                    execution_id: self.execution_id.clone(),
-                    session_id,
-                    scope_dir: cwd,
-                });
+            match cp.try_acquire_shell_window() {
+                ShellWindowOutcome::TimedOut => {
+                    tracing::warn!(
+                        execution = %self.execution_id,
+                        "release skipped final sampling: shell window busy"
+                    );
+                }
+                outcome => {
+                    let _held = match outcome {
+                        ShellWindowOutcome::Acquired(guard) => Some(guard),
+                        ShellWindowOutcome::Disabled | ShellWindowOutcome::TimedOut => None,
+                    };
+                    for (session_id, cwd) in &sessions {
+                        cp.end_session(wf_types::effect::SessionBoundary {
+                            execution_id: self.execution_id.clone(),
+                            session_id: session_id.clone(),
+                            scope_dir: cwd.clone(),
+                        });
+                    }
+                }
             }
         }
         store.release_sessions_for_task(&self.execution_id, false);

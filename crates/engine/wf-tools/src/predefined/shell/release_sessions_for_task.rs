@@ -63,18 +63,42 @@ impl StatefulInstance for ReleaseSessionsForTaskInstance {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         // Sample release-time boundaries before the sessions are released.
+        // The forwarder is suspended across the release so synchronous
+        // termination events do not sample ahead of the explicit ends; a
+        // busy window still releases but skips the final samples.
         let pending = self.store.sessions_for_task(task_id);
+        let window = self.checkpoint.acquire_shell_window_blocking();
+        let degraded = matches!(window, wf_checkpoint::ShellWindowOutcome::TimedOut);
+        let _shell_window = match window {
+            wf_checkpoint::ShellWindowOutcome::Acquired(guard) => Some(guard),
+            wf_checkpoint::ShellWindowOutcome::Disabled
+            | wf_checkpoint::ShellWindowOutcome::TimedOut => None,
+        };
+        let _suspended = self.checkpoint.suspend_forwarder();
         let released = self.store.release_sessions_for_task(task_id, terminate);
-        for (session_id, cwd) in pending {
-            if terminate {
-                wf_shell::engine::background_task_registry().cancel(&session_id);
+        if degraded {
+            tracing::warn!(
+                execution = %task_id,
+                "release skipped final sampling: shell window busy"
+            );
+            for (session_id, _) in &pending {
+                if terminate {
+                    wf_shell::engine::background_task_registry().cancel(session_id);
+                }
             }
-            self.checkpoint.end_session(session_id, cwd);
+        } else {
+            for (session_id, cwd) in pending {
+                if terminate {
+                    wf_shell::engine::background_task_registry().cancel(&session_id);
+                }
+                self.checkpoint.end_session(session_id, cwd);
+            }
         }
         Ok(serde_json::json!({
             "task_id": task_id,
             "released": released,
             "terminated": terminate,
+            "sampling_degraded": degraded,
         }))
     }
 

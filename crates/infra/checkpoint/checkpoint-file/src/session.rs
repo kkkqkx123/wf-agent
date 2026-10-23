@@ -273,23 +273,24 @@ impl CheckpointSession {
     /// Acquire the exclusive shell-window permit for async callers. Hold
     /// the returned guard across before-capture, command execution and
     /// after-commit so concurrent shells cannot interleave their scans.
-    /// `None` means serialization is disabled or the wait budget expired:
-    /// proceed without exclusivity and treat sampling as degraded.
-    pub async fn acquire_shell_window(
-        &self,
-        execution_id: &str,
-    ) -> Option<crate::ShellWindowGuard> {
+    /// `TimedOut` means the caller must skip sampling, not sample without
+    /// exclusivity.
+    pub async fn acquire_shell_window(&self, execution_id: &str) -> crate::ShellWindowOutcome {
         self.capture.acquire_shell_window(execution_id).await
     }
 
     /// Acquire the exclusive shell-window permit for synchronous callers
-    /// (blocking-pool tool handlers). Same degraded-`None` contract as the
-    /// async variant.
-    pub fn blocking_acquire_shell_window(
-        &self,
-        execution_id: &str,
-    ) -> Option<crate::ShellWindowGuard> {
+    /// (blocking-pool tool handlers). Same skip-on-`TimedOut` contract as
+    /// the async variant.
+    pub fn blocking_acquire_shell_window(&self, execution_id: &str) -> crate::ShellWindowOutcome {
         self.capture.blocking_acquire_shell_window(execution_id)
+    }
+
+    /// Non-blocking probe for monitor-thread safety-net sampling. Never
+    /// waits; `TimedOut` means another window holds the permit and the
+    /// safety-net sample must be skipped.
+    pub fn try_acquire_shell_window(&self) -> crate::ShellWindowOutcome {
+        self.capture.try_acquire_shell_window()
     }
 
     /// Async scope begin for async tool handlers: blocking scan runs on the

@@ -38,6 +38,7 @@ pub use checkpoint_base::version_manager::{VersionManager, CURRENT_FORMAT_VERSIO
 pub use checkpoint_file::event::{CheckpointEvent, CheckpointEventBus as FileEventBus};
 pub use checkpoint_file::file::FileCheckpointManager;
 pub use checkpoint_file::scope::ScopeEndOutcome;
+pub use checkpoint_file::scope::ShellWindowOutcome;
 pub use checkpoint_file::script_capture::WorkspaceChangeCollector;
 pub use checkpoint_file::session::CheckpointSession;
 pub use checkpoint_file::sha256_hex;

@@ -49,11 +49,10 @@ impl ClientConfig {
     }
 
     /// Resolve from explicit flags first, then the environment.
+    /// Single resolution entry: explicit flag, active tunnel entry, generic
+    /// remote environment, then the local default.
     pub fn resolve(remote: Option<String>, api_key: Option<String>) -> Self {
-        let base_url = remote
-            .filter(|u| !u.trim().is_empty())
-            .or_else(env_remote_url)
-            .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
+        let base_url = crate::remote::resolve_base_url(remote.as_deref(), None, DEFAULT_BASE_URL);
         let key = api_key
             .filter(|k| !k.trim().is_empty())
             .or_else(env_api_key);
@@ -564,12 +563,6 @@ where
         Some(data) => serde_json::from_value(data.clone())
             .map_err(|e| ClientError::Invalid(format!("data decode: {e}"))),
     }
-}
-
-fn env_remote_url() -> Option<String> {
-    std::env::var("WF_REMOTE")
-        .ok()
-        .filter(|v| !v.trim().is_empty())
 }
 
 fn env_api_key() -> Option<String> {

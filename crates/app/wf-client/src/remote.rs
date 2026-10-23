@@ -86,8 +86,8 @@ impl SshTunnelConfig {
     ) -> Vec<String> {
         let port = server_port.unwrap_or(self.remote_port);
         let launch = match remote_dir.filter(|s| !s.trim().is_empty()) {
-            Some(dir) => format!("cd {dir} && wf-server --bind 127.0.0.1:{port}"),
-            None => format!("wf-server --bind 127.0.0.1:{port}"),
+            Some(dir) => format!("cd {dir} && wf-server --addr 127.0.0.1:{port}"),
+            None => format!("wf-server --addr 127.0.0.1:{port}"),
         };
         let mut argv = vec![
             "ssh".to_string(),
@@ -108,6 +108,27 @@ impl SshTunnelConfig {
         argv.push(launch);
         argv
     }
+
+    pub fn server_stop_argv(&self) -> Vec<String> {
+        let mut argv = vec![
+            "ssh".to_string(),
+            "-o".to_string(),
+            "BatchMode=yes".to_string(),
+            "-p".to_string(),
+            self.port.to_string(),
+        ];
+        if let Some(key) = self.key_path.as_deref().filter(|s| !s.trim().is_empty()) {
+            argv.push("-i".to_string());
+            argv.push(key.to_string());
+        }
+        if let Some(jump) = self.jump_host.as_deref().filter(|s| !s.trim().is_empty()) {
+            argv.push("-J".to_string());
+            argv.push(jump.to_string());
+        }
+        argv.push(self.ssh_target());
+        argv.push("pkill -f wf-server".to_string());
+        argv
+    }
 }
 
 /// Resolve the HTTP base URL with explicit flag first, then tunnel, then default.
@@ -122,14 +143,14 @@ pub fn resolve_base_url(
     if let Some(tunnel) = tunnel {
         return tunnel.local_base_url();
     }
+    if let Some(tunnel_base) = tunnel_base_url_from_env() {
+        return tunnel_base;
+    }
     if let Some(env) = std::env::var("WF_REMOTE")
         .ok()
         .filter(|v| !v.trim().is_empty())
     {
         return env.trim_end_matches('/').to_string();
-    }
-    if let Some(tunnel_base) = tunnel_base_url_from_env() {
-        return tunnel_base;
     }
     default.to_string()
 }
@@ -191,5 +212,26 @@ mod tests {
         let mut invalid = schema();
         invalid.host.clear();
         assert!(SshTunnelConfig::from_schema(&invalid, 18082).is_none());
+    }
+
+    #[test]
+    fn server_launch_uses_addr_flag() {
+        let tunnel = SshTunnelConfig::from_schema(&schema(), 18083).expect("tunnel");
+        let argv = tunnel.server_launch_argv(None, None);
+        let launch = argv.last().expect("launch command");
+        assert!(launch.contains("wf-server --addr 127.0.0.1:3000"));
+        assert!(!launch.contains("--bind"));
+    }
+
+    #[test]
+    fn server_stop_targets_remote_server() {
+        let tunnel = SshTunnelConfig::from_schema(&schema(), 18084).expect("tunnel");
+        let argv = tunnel.server_stop_argv();
+        assert_eq!(argv.first().expect("ssh").as_str(), "ssh");
+        assert_eq!(
+            argv.last().expect("stop command").as_str(),
+            "pkill -f wf-server"
+        );
+        assert!(argv.contains(&"dev@example".to_string()));
     }
 }

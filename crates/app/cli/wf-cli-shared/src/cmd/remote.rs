@@ -2,8 +2,10 @@
 //!
 //! Hosts live in `$XDG_CONFIG_HOME/wf/remotes.json` (or `$HOME/.config`).
 //! Only references are stored; private key material is never written.
-//! Pull reuses the existing history, artifact, checkpoint-chain and audit
-//! endpoints and writes one versioned JSON bundle for local review.
+//! Lifecycle commands only print the system `ssh` invocations for the user
+//! or an outer script to run. Pull reads the server-owned bundle export and
+//! merges the checkpoint chain, then writes one versioned JSON bundle for
+//! local review.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -157,6 +159,33 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
             });
             render_envelope(cli.output, OutputEnvelope::success("remote-tunnel", data))
         }
+        RemoteSub::Start { name } => {
+            let registry = load_registry();
+            let host = registry
+                .hosts
+                .get(name)
+                .ok_or_else(|| CliError::Configuration(format!("unknown remote host: {name}")))?;
+            let tunnel = to_tunnel(name, host);
+            let data = serde_json::json!({
+                "local_base_url": tunnel.local_base_url(),
+                "forward": tunnel.forward_spec(),
+                "launch_argv": tunnel.server_launch_argv(host.remote_dir.as_deref(), host.server_port),
+                "tunnel_argv": tunnel.tunnel_argv(),
+            });
+            render_envelope(cli.output, OutputEnvelope::success("remote-start", data))
+        }
+        RemoteSub::Stop { name } => {
+            let registry = load_registry();
+            let host = registry
+                .hosts
+                .get(name)
+                .ok_or_else(|| CliError::Configuration(format!("unknown remote host: {name}")))?;
+            let tunnel = to_tunnel(name, host);
+            let data = serde_json::json!({
+                "stop_argv": tunnel.server_stop_argv(),
+            });
+            render_envelope(cli.output, OutputEnvelope::success("remote-stop", data))
+        }
         RemoteSub::Pull {
             execution,
             dest,
@@ -164,30 +193,19 @@ pub async fn run(cli: &Cli, sub: &RemoteSub) -> CliResult<()> {
         } => {
             let handle = ClientHandle::from_cli(cli).await?;
             let client = handle.client();
-            let history: serde_json::Value = client
-                .get_json(&format!("/api/v1/executions/{execution}/history"))
-                .await?;
-            let artifacts: serde_json::Value = client
-                .get_json(&format!("/api/v1/executions/{execution}/artifacts"))
+            let mut bundle: serde_json::Value = client
+                .get_json(&format!(
+                    "/api/v1/executions/{execution}/bundle?checkpoint_synced={checkpoint_synced}"
+                ))
                 .await?;
             let checkpoints: serde_json::Value = client
                 .execution_checkpoints_chain(execution)
                 .await
                 .map(|chain| serde_json::to_value(chain).unwrap_or(serde_json::Value::Null))
                 .unwrap_or(serde_json::Value::Null);
-            let audit: serde_json::Value = client
-                .get_json(&format!("/api/v1/executions/{execution}/audit/summary"))
-                .await
-                .unwrap_or(serde_json::Value::Null);
-            let bundle = serde_json::json!({
-                "version": 1,
-                "execution_id": execution,
-                "checkpoint_synced": checkpoint_synced,
-                "history": history,
-                "artifacts": artifacts,
-                "checkpoints": checkpoints,
-                "audit": audit,
-            });
+            if let Some(object) = bundle.as_object_mut() {
+                object.insert("checkpoints".to_string(), checkpoints);
+            }
             if let Some(parent) = dest.parent() {
                 if !parent.as_os_str().is_empty() {
                     std::fs::create_dir_all(parent)?;

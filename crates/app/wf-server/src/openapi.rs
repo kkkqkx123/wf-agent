@@ -533,6 +533,7 @@ use utoipa::OpenApi;
         crate::api::observation::logs::handle_query_logs,
         crate::api::observation::artifacts::handle_execution_artifacts,
         crate::api::observation::artifacts::handle_query_artifacts,
+        crate::api::observation::bundle::handle_execution_bundle,
         // ── system ──
         crate::api::system::dependencies::handle_dependents,
         crate::api::system::dependencies::handle_impact,

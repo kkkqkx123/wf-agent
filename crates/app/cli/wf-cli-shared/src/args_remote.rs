@@ -43,6 +43,18 @@ pub enum RemoteSub {
         #[arg(value_name = "NAME")]
         name: String,
     },
+    /// Print the remote server launch and tunnel invocations for a host.
+    Start {
+        /// Registered host name.
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
+    /// Print the remote server stop invocation for a host.
+    Stop {
+        /// Registered host name.
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
     /// Pull an execution bundle from the current server to a local file.
     Pull {
         /// Execution id on the remote server.

@@ -1,11 +1,12 @@
 //! Server connection: the single place a CLI frontend resolves its client.
 //!
 //! Every CLI form talks to a running `wf-server` over HTTP. The address
-//! resolves from `--remote` (or the per-command `--remote`), then an active
-//! SSH tunnel entry (`WF_REMOTE_TUNNEL_PORT`), then `WF_REMOTE`, then the
-//! local default; the credential comes from `--api-key` or `WF_API_KEY`.
-//! Construction probes `GET /health` so a stopped server fails fast with an
-//! actionable message instead of surfacing as a later 404.
+//! resolves through the shared `wf-client` resolution entry (`--remote` or
+//! the per-command `--remote`, then an active SSH tunnel entry
+//! (`WF_REMOTE_TUNNEL_PORT`), then `WF_REMOTE`, then the local default); the
+//! credential comes from `--api-key` or `WF_API_KEY`. Construction probes
+//! `GET /health` so a stopped server fails fast with an actionable message
+//! instead of surfacing as a later 404.
 
 use wf_client::WfClient;
 
@@ -21,16 +22,13 @@ impl ClientHandle {
     /// Resolve connection settings from CLI flags / environment and verify
     /// the server is reachable.
     pub async fn from_cli(cli: &Cli) -> CliResult<Self> {
-        let mut remote = cli.remote.clone().or_else(|| {
+        let remote = cli.remote.clone().or_else(|| {
             if let Some(crate::args::Command::Run { remote, .. }) = &cli.command {
                 remote.clone()
             } else {
                 None
             }
         });
-        if remote.as_deref().is_none_or(|s| s.trim().is_empty()) {
-            remote = wf_client::tunnel_base_url_from_env().or(remote);
-        }
         let handle = Self {
             client: WfClient::from_remote(remote, cli.api_key.clone()),
         };

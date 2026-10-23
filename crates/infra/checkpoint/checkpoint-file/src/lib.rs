@@ -5,7 +5,9 @@
 //! the bare repository and are the only truth for content. SQLite keeps
 //! what Git cannot express cheaply: review states, empty-directory
 //! manifests, the source index cache, state-to-file links and key-value
-//! metadata. The user's own repository is never read or written.
+//! metadata. The user's own repository is never written to except through
+//! an explicit user-triggered export; reads are limited to object-database
+//! borrowing through a baseline alternates declaration.
 //!
 //! Write attribution has three paths: precise tool reports (primary),
 //! script before/after scans (one atomic commit per run) and periodic

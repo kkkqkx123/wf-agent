@@ -35,6 +35,8 @@ pub fn merge_file_checkpoint_with_defaults(user: &FileCheckpointConfig) -> FileC
         store_in_workspace: user.store_in_workspace,
         max_file_size: user.max_file_size,
         scope_serialization: user.scope_serialization,
+        baseline: user.baseline.clone(),
+        sync: user.sync.clone(),
     }
 }
 
@@ -173,6 +175,8 @@ mod tests {
             store_in_workspace: None,
             max_file_size: None,
             scope_serialization: None,
+            baseline: None,
+            sync: None,
         }
     }
 
@@ -242,6 +246,8 @@ mod tests {
             store_in_workspace: None,
             max_file_size: None,
             scope_serialization: None,
+            baseline: None,
+            sync: None,
         };
         assert!(validate_file_checkpoint_config(&config).is_ok());
     }
@@ -263,6 +269,8 @@ mod tests {
             store_in_workspace: None,
             max_file_size: None,
             scope_serialization: None,
+            baseline: None,
+            sync: None,
         }
     }
 

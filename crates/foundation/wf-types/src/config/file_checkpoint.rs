@@ -132,6 +132,56 @@ impl ScopeSerializationConfig {
     }
 }
 
+/// Baseline mode for the file-checkpoint object store: how the initial
+/// history is provided when the store is first created for a workspace
+/// inside a git repository.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum BaselineMode {
+    /// Point the main ref at the resolved external commit and borrow its
+    /// objects read-only through an alternates declaration. No copy.
+    #[default]
+    Borrow,
+    /// Copy the baseline commit closure into the local store so the
+    /// checkpoint directory stays self-contained.
+    Copy,
+}
+
+/// Baseline selector for the file-checkpoint object store. The whole
+/// section is optional; absent means no baseline (full local history).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct BaselineConfig {
+    /// Borrow (default) or copy the baseline objects.
+    #[serde(default)]
+    pub mode: BaselineMode,
+    /// User-repository branch the baseline is resolved from.
+    #[serde(default)]
+    pub branch: Option<String>,
+    /// Commit hash prefix pinned inside the user repository. Usable
+    /// without a branch; mutually exclusive with `behind`.
+    #[serde(default)]
+    pub commit_prefix: Option<String>,
+    /// Nth ancestor back from the branch tip along the first-parent
+    /// chain. Requires `branch`; mutually exclusive with `commit_prefix`.
+    #[serde(default)]
+    pub behind: Option<u64>,
+}
+
+/// Git synchronization behavior for file checkpoints. Both switches are
+/// explicit opt-ins; absent means manual export materialization and
+/// explicit import only.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct SyncConfig {
+    /// Run the external git commit as part of export instead of only
+    /// materializing the workspace and suggesting a message.
+    #[serde(default)]
+    pub auto_commit: bool,
+    /// Automatically capture externally observed commits instead of
+    /// only notifying and waiting for an explicit import.
+    #[serde(default)]
+    pub auto_import: bool,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct FileCheckpointConfig {
     #[serde(default)]
@@ -187,4 +237,12 @@ pub struct FileCheckpointConfig {
     /// (enabled with the built-in wait budget).
     #[serde(default)]
     pub scope_serialization: Option<ScopeSerializationConfig>,
+    /// Baseline selector borrowing a user-repository commit as the
+    /// initial history. `None` keeps full local history (no baseline).
+    #[serde(default)]
+    pub baseline: Option<BaselineConfig>,
+    /// Git synchronization behavior. `None` keeps manual export and
+    /// explicit import.
+    #[serde(default)]
+    pub sync: Option<SyncConfig>,
 }

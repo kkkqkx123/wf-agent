@@ -12,6 +12,8 @@ pub enum GitStoreError {
     InvalidInput(String),
     #[error("ref transaction conflict on '{0}'")]
     RefConflict(String),
+    #[error("baseline unavailable: {0}")]
+    Baseline(String),
     #[error("io error: {0}")]
     Io(String),
 }

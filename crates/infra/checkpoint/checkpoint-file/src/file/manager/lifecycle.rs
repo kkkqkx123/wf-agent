@@ -128,6 +128,7 @@ impl FileCheckpointManager {
         if let Some(root) = &config.workspace_root {
             let in_workspace = config.store_in_workspace.unwrap_or(false);
             manager.bind_git_for_workspace(Path::new(root), in_workspace)?;
+            manager.seed_baseline_from_config(config)?;
         }
         Ok(manager)
     }
@@ -228,6 +229,84 @@ impl FileCheckpointManager {
         })?;
         self.store.git = Some(Arc::new(git));
         Ok(())
+    }
+
+    /// Seed the baseline once for a fresh store when configured, then
+    /// validate the pinned anchor. Failures follow `failure_behavior`:
+    /// error blocks opening, warn logs and continues without a baseline,
+    /// ignore continues silently.
+    fn seed_baseline_from_config(
+        &self,
+        config: &wf_types::config::file_checkpoint::FileCheckpointConfig,
+    ) -> Result<(), CheckpointError> {
+        let Some(baseline) = &config.baseline else {
+            return Ok(());
+        };
+        let git = self.git_ref()?;
+        let request = crate::git_store::BaselineRequest {
+            mode: match baseline.mode {
+                wf_types::config::file_checkpoint::BaselineMode::Borrow => {
+                    crate::git_store::BaselineMode::Borrow
+                }
+                wf_types::config::file_checkpoint::BaselineMode::Copy => {
+                    crate::git_store::BaselineMode::Copy
+                }
+            },
+            branch: baseline.branch.clone(),
+            commit_prefix: baseline.commit_prefix.clone(),
+            behind: baseline.behind,
+        };
+        match git.ensure_baseline(&request) {
+            Ok(crate::git_store::BaselineSeedOutcome::Seeded(anchor)) => {
+                tracing::info!(
+                    anchor = %anchor.id,
+                    spec = %anchor.source_spec,
+                    "checkpoint baseline seeded"
+                );
+            }
+            Ok(crate::git_store::BaselineSeedOutcome::AlreadySeeded(_)) => {}
+            Ok(crate::git_store::BaselineSeedOutcome::Skipped(reason)) => {
+                tracing::debug!(reason = %reason, "checkpoint baseline seeding skipped");
+            }
+            Err(e) => {
+                Self::apply_baseline_failure_policy(
+                    config.failure_behavior,
+                    format!("checkpoint baseline unavailable: {e}"),
+                )?;
+            }
+        }
+        match git.validate_baseline() {
+            Ok(crate::git_store::BaselineStatus::Degraded { reason, .. }) => {
+                Self::apply_baseline_failure_policy(
+                    config.failure_behavior,
+                    format!("checkpoint baseline degraded: {reason}"),
+                )?;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                Self::apply_baseline_failure_policy(
+                    config.failure_behavior,
+                    format!("checkpoint baseline validation failed: {e}"),
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_baseline_failure_policy(
+        failure_behavior: wf_types::config::file_checkpoint::FailureBehavior,
+        context: String,
+    ) -> Result<(), CheckpointError> {
+        match failure_behavior {
+            wf_types::config::file_checkpoint::FailureBehavior::Error => {
+                Err(CheckpointError::Validation { reason: context })
+            }
+            wf_types::config::file_checkpoint::FailureBehavior::Warn => {
+                tracing::warn!("{context}");
+                Ok(())
+            }
+            wf_types::config::file_checkpoint::FailureBehavior::Ignore => Ok(()),
+        }
     }
 }
 

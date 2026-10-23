@@ -53,6 +53,9 @@ pub(crate) fn map_git_error(e: GitStoreError) -> CheckpointError {
         }
         GitStoreError::Corrupt { id, reason } => CheckpointError::Corrupted { id, reason },
         GitStoreError::InvalidInput(reason) => CheckpointError::Validation { reason },
+        GitStoreError::Baseline(reason) => {
+            CheckpointError::Internal(format!("checkpoint baseline unavailable: {reason}"))
+        }
         GitStoreError::Io(reason) => CheckpointError::Internal(format!("git store io: {reason}")),
     }
 }

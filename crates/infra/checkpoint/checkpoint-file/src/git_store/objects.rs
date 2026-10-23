@@ -417,29 +417,51 @@ impl GitStore {
         Err(GitStoreError::RefConflict(refname.to_string()))
     }
 
+    /// Depth-first history walk shared by every traversal. The baseline
+    /// anchor, when present, is visited but never descended past: external
+    /// history stays readable through the alternates entry yet invisible to
+    /// enumeration. `visit` returns false to stop the whole walk early.
+    fn walk_graph(&self, tips: &[gix_hash::ObjectId], mut visit: impl FnMut(&GitCommit) -> bool) {
+        let stop = self.baseline_anchor_oid();
+        let mut seen = HashSet::new();
+        let mut stack: Vec<gix_hash::ObjectId> = tips.iter().rev().copied().collect();
+        while let Some(id) = stack.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            let hex = id.to_hex().to_string();
+            let Ok(commit) = self.read_commit(&hex) else {
+                continue;
+            };
+            if !visit(&commit) {
+                return;
+            }
+            if stop == Some(id) {
+                continue;
+            }
+            for parent in commit.parents.iter().rev() {
+                if let Ok(oid) = parse_object_id(parent) {
+                    stack.push(oid);
+                }
+            }
+        }
+    }
+
     /// Walk the commit graph from `start` in topological order, up to `limit`
     /// commits (0 = unlimited). Traversal order is preserved so clock skew
     /// never reorders history; timestamps are only payload data.
     pub fn log(&self, start: &str, limit: usize) -> Result<Vec<GitCommit>, GitStoreError> {
         let tip = parse_object_id(start)?;
-        let odb = self.odb()?;
         let mut out = Vec::new();
-        let walk = gix_traverse::commit::Simple::new([tip], odb);
-        for next in walk {
-            if limit > 0 && out.len() >= limit {
-                break;
-            }
-            let Ok(info) = next else { continue };
-            let id = info.id.to_hex().to_string();
-            let Ok(commit) = self.read_commit(&id) else {
-                continue;
-            };
-            out.push(commit);
-        }
+        self.walk_graph(&[tip], |commit| {
+            out.push(commit.clone());
+            limit == 0 || out.len() < limit
+        });
         Ok(out)
     }
 
     /// All commits reachable from any ref (used for cold index rebuilds).
+    /// Stops at the baseline anchor: external history is not enumerated.
     pub fn all_commits(&self) -> Result<Vec<GitCommit>, GitStoreError> {
         let refs = self.list_refs("refs/wf/")?;
         let mut tips = Vec::with_capacity(refs.len());
@@ -450,44 +472,37 @@ impl GitStore {
         }
         let mut out = Vec::new();
         let mut seen = HashSet::new();
-        if tips.is_empty() {
-            return Ok(out);
-        }
-        let odb = self.odb()?;
-        let walk = gix_traverse::commit::Simple::new(tips, odb);
-        for next in walk {
-            let Ok(info) = next else { continue };
-            let id = info.id.to_hex().to_string();
-            if !seen.insert(id.clone()) {
-                continue;
+        self.walk_graph(&tips, |commit| {
+            if seen.insert(commit.id.clone()) {
+                out.push(commit.clone());
             }
-            let Ok(commit) = self.read_commit(&id) else {
-                continue;
-            };
-            out.push(commit);
-        }
+            true
+        });
         Ok(out)
     }
 
-    /// Whether `ancestor` is reachable from `descendant`.
+    /// Whether `ancestor` is reachable from `descendant`. Ancestors past the
+    /// baseline anchor are out of scope and report false.
     pub fn is_ancestor(&self, ancestor: &str, descendant: &str) -> Result<bool, GitStoreError> {
         let ancestor_oid = parse_object_id(ancestor)?;
         let descendant_oid = parse_object_id(descendant)?;
         if ancestor_oid == descendant_oid {
             return Ok(true);
         }
-        let odb = self.odb()?;
-        let walk = gix_traverse::commit::Simple::new([descendant_oid], odb);
-        for next in walk {
-            let Ok(info) = next else { continue };
-            if info.id == ancestor_oid {
-                return Ok(true);
+        let mut found = false;
+        self.walk_graph(&[descendant_oid], |commit| {
+            if commit.id == ancestor {
+                found = true;
+                false
+            } else {
+                true
             }
-        }
-        Ok(false)
+        });
+        Ok(found)
     }
 
-    /// Best common ancestor of two commits, if any.
+    /// Best common ancestor of two commits, if any. A common ancestor past
+    /// the baseline anchor is out of scope and reports none.
     pub fn merge_base(&self, a: &str, b: &str) -> Result<Option<String>, GitStoreError> {
         let a_oid = parse_object_id(a)?;
         let b_oid = parse_object_id(b)?;
@@ -495,25 +510,20 @@ impl GitStore {
             return Ok(Some(a.to_string()));
         }
         let mut ancestors = HashSet::new();
-        {
-            let odb = self.odb()?;
-            let walk = gix_traverse::commit::Simple::new([a_oid], odb);
-            for next in walk {
-                let Ok(info) = next else { continue };
-                ancestors.insert(info.id);
+        self.walk_graph(&[a_oid], |commit| {
+            ancestors.insert(commit.id.clone());
+            true
+        });
+        let mut hit = None;
+        self.walk_graph(&[b_oid], |commit| {
+            if ancestors.contains(&commit.id) {
+                hit = Some(commit.id.clone());
+                false
+            } else {
+                true
             }
-        }
-        {
-            let odb = self.odb()?;
-            let walk = gix_traverse::commit::Simple::new([b_oid], odb);
-            for next in walk {
-                let Ok(info) = next else { continue };
-                if ancestors.contains(&info.id) {
-                    return Ok(Some(info.id.to_hex().to_string()));
-                }
-            }
-        }
-        Ok(None)
+        });
+        Ok(hit)
     }
 }
 

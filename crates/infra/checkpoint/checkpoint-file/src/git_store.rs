@@ -3,7 +3,9 @@
 //! Frozen rules (no behavior beyond this module may redefine them):
 //! - one bare repository per workspace, stored at
 //!   `<workspace>/.wf-checkpoint-git`, fully separated from the user's own
-//!   repository (the user's `.git` is never read or written);
+//!   repository; the user's repository is never written to except through
+//!   an explicit user-triggered export, and reads are limited to
+//!   object-database borrowing through a baseline alternates declaration;
 //! - refs live only under `refs/wf/`: `refs/wf/main` is the mainline
 //!   truth, `refs/wf/edit/<actor>` is one actor's edit line,
 //!   `refs/wf/review/<id>` is one submission awaiting review,
@@ -158,6 +160,7 @@ mod errors;
 mod merge;
 mod objects;
 mod refs;
+pub mod baseline;
 #[cfg(test)]
 mod tests;
 
@@ -165,5 +168,6 @@ pub use commit::{commit_message, GitCommit};
 pub use errors::GitStoreError;
 pub use merge::{merge_file_contents, merge_file_maps};
 pub use objects::{is_hex_id, CommitOnRefOutcome};
+pub use baseline::{BaselineMode, BaselineRequest, BaselineSeedOutcome, BaselineStatus};
 pub(crate) use refs::sanitize_ref_component;
 pub use refs::{edit_ref_for_actor, feat_ref_for_name, review_ref_for_id};

@@ -8,9 +8,9 @@
 		ToolCallEntry,
 	} from '#lib/types/models';
 	import Card from '@wf-agent/ui/components/Card.svelte';
+	import ExecutionAnnotation from './ExecutionAnnotation.svelte';
 	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
-	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
-	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
+	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import KeyValueList from './KeyValueList.svelte';
 	import Progress from '@wf-agent/ui/components/Progress.svelte';
@@ -693,6 +693,20 @@
 		if (tab === 'trace' && seenTrace !== id) {
 			void loadNodeTraces(id);
 		}
+		if (tab === 'trace' && seenTimeline !== id) {
+			seenTimeline = id;
+			timelineError = null;
+			void getExecutionTimeline(id)
+				.then((rows) => {
+					timeline = rows;
+				})
+				.catch((e: unknown) => {
+					seenTimeline = '';
+					timeline = [];
+					timelineError =
+						e instanceof Error ? e.message : t('domain.inspector.timelineFailed');
+				});
+		}
 		// The overview live card reads the same trace snapshot; live runs
 		// pull it once so the current node output shows without visiting trace.
 		if (tab === 'overview' && seenTrace !== id && isLive) {
@@ -858,6 +872,7 @@
 	>
 		{#if tab === 'overview'}
 			<div class="space-y-3">
+				<ExecutionAnnotation executionId={execution.id} />
 				<Card title={t('domain.inspector.context')}>
 					<KeyValueList items={contextItems} dense />
 				</Card>
@@ -1108,17 +1123,19 @@
 			</module.default>
 		{/await}
 		{:else if tab === 'trace'}
-			{#await import('./NodeTracePanel.svelte') then module}
+			{#await import('./ExecutionLogTree.svelte') then module}
 				<module.default
-					executionId={execution.id}
 					traces={nodeTraces}
+					timeline={scopedTimeline}
 					skipped={nodeTracesSkipped}
 					loading={nodeTracesLoading}
-					error={nodeTracesError}
+					error={nodeTracesError ?? timelineError}
 					selectedNodeId={graphNodeId}
 					onretry={() => {
 						seenTrace = '';
+						seenTimeline = '';
 						nodeTracesError = null;
+						timelineError = null;
 					}}
 					onlocate={(nodeId) => focusGraphNode(nodeId)}
 				/>

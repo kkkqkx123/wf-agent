@@ -67,7 +67,13 @@
 		parseListParams(page.url as unknown as URL).id ?? null,
 	);
 	let compareMode = $state(false);
-	let showTaskPanel = $state(false);
+	let requestedDefinition = $state(
+		parseListParams(page.url as unknown as URL).definition ?? null,
+	);
+	let requestedVersion = $state(
+		parseListParams(page.url as unknown as URL).version ?? null,
+	);
+	let showTaskPanel = $state(requestedDefinition !== null);
 	let compareId = $state<string | null>(null);
 	let compareDetail = $state<ExecutionDetail | null>(null);
 	let rerunningId = $state<string | null>(null);
@@ -514,6 +520,8 @@
 			{#if showTaskPanel}
 				<div class="mb-3">
 					<CreateTaskPanel
+						initialDefinition={requestedDefinition}
+						initialVersion={requestedVersion}
 						onstarted={(executionId) => {
 							showTaskPanel = false;
 							void goto(resolve('/executions/[id]', { id: executionId }));

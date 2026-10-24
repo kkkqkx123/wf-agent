@@ -18,15 +18,19 @@
 	import CursorPager from '@wf-agent/ui/components/CursorPager.svelte';
 	import CreateTaskPanel from '#lib/components/domain/CreateTaskPanel.svelte';
 	import Select from '@wf-agent/ui/components/Select.svelte';
+	import Input from '@wf-agent/ui/components/Input.svelte';
 	import { onDestroy, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import {
 		listExecutions,
 		listUnifiedExecutions,
 		getExecutionDetail,
 		getExecutionStats,
 	} from '#lib/services/executions';
+	import { rerunWorkflowRun } from '#lib/services/run';
+	import { gotoWithParams, parseListParams } from '#lib/utils/route';
 	import SessionInspector from '#lib/components/domain/SessionInspector.svelte';
 	import type { Execution, ExecutionDetail, Metric } from '#lib/types/models';
 	import { toasts } from '#lib/stores/toast.svelte';
@@ -52,12 +56,27 @@
 	let query = $state('');
 	let status = $state('');
 	let engine = $state<'all' | 'workflow' | 'agent' | 'chat'>('all');
+	let versionFilter = $state('');
+	let timeRange = $state<'all' | 'today' | 'last7' | 'last30'>('all');
+	let autoInsert = $state(false);
+	let insertedIds = $state<Set<string>>(new Set());
 	let view = $state<'list' | 'table'>('list');
-	let selectedId = $state<string | null>(null);
+	// Deep links restore the selection; otherwise the first row is picked on
+	// load. The effect below writes the selection back to `?id=`.
+	let selectedId = $state<string | null>(
+		parseListParams(page.url as unknown as URL).id ?? null,
+	);
 	let compareMode = $state(false);
-	let showTaskPanel = $state(false);
+	let requestedDefinition = $state(
+		parseListParams(page.url as unknown as URL).definition ?? null,
+	);
+	let requestedVersion = $state(
+		parseListParams(page.url as unknown as URL).version ?? null,
+	);
+	let showTaskPanel = $state(requestedDefinition !== null);
 	let compareId = $state<string | null>(null);
 	let compareDetail = $state<ExecutionDetail | null>(null);
+	let rerunningId = $state<string | null>(null);
 	let allExecutions = $state<{ items: Execution[]; hasMore: boolean }>({
 		items: [],
 		hasMore: false,
@@ -84,6 +103,10 @@
 				}
 				if (typeof document !== 'undefined' && document.hidden) {
 					hasUpdates = true;
+					return;
+				}
+				if (autoInsert) {
+					void insertLatest();
 					return;
 				}
 				void reload();
@@ -120,8 +143,13 @@
 			allExecutions = { items: page.items, hasMore: page.hasMore };
 			nextCursor = 'nextCursor' in page ? page.nextCursor : null;
 			overviewMetrics = metrics;
-			if (page.items.length > 0 && !selectedId) {
-				selectedId = page.items[0].id;
+			if (page.items.length > 0) {
+				const ids = new Set(page.items.map((item) => item.id));
+				if (!selectedId || !ids.has(selectedId)) {
+					selectedId = page.items[0].id;
+				}
+			} else {
+				selectedId = null;
 			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
@@ -157,6 +185,33 @@
 			toasts.error(t('page.executions.moreUnavailable'));
 		} finally {
 			loadingMore = false;
+		}
+	}
+
+	/** Optional incremental insert: prepend only unseen rows with a flash. */
+	async function insertLatest(): Promise<void> {
+		try {
+			const page =
+				engine === 'workflow'
+					? await listExecutions({ limit: 50, status: status || undefined })
+					: await listUnifiedExecutions({
+							limit: 50,
+							status: status || undefined,
+							executionType: engine === 'all' ? undefined : engine,
+						});
+			const known = new Set(allExecutions.items.map((item) => item.id));
+			const fresh = page.items.filter((item) => !known.has(item.id));
+			if (fresh.length === 0) return;
+			allExecutions = {
+				items: [...fresh, ...allExecutions.items],
+				hasMore: allExecutions.hasMore,
+			};
+			insertedIds = new Set(fresh.map((item) => item.id));
+			setTimeout(() => {
+				insertedIds = new Set();
+			}, 3000);
+		} catch {
+			hasUpdates = true;
 		}
 	}
 
@@ -217,6 +272,8 @@
 	});
 	// The status travels to the server; the free-text query only narrows the
 	// page already fetched, which is why it filters names/ids instead of payloads.
+	// Version and time range narrow client-side: the list endpoint has no
+	// dedicated fields for them, so they refine what is already loaded.
 	const filtered = $derived(
 		allExecutions.items.filter((execution) => {
 			const needle = query.trim().toLowerCase();
@@ -224,9 +281,87 @@
 				!needle ||
 				execution.workflowName.toLowerCase().includes(needle) ||
 				execution.id.toLowerCase().includes(needle);
-			return matchesQuery;
+			const versionNeedle = versionFilter.trim().toLowerCase();
+			const matchesVersion =
+				!versionNeedle ||
+				(execution.version ?? '').toLowerCase().includes(versionNeedle);
+			const matchesTime = (() => {
+				if (timeRange === 'all') return true;
+				const at = Date.parse(execution.startedAt);
+				if (!Number.isFinite(at)) return true;
+				const ageMs = Date.now() - at;
+				const dayMs = 24 * 60 * 60 * 1000;
+				if (timeRange === 'today') return ageMs <= dayMs;
+				if (timeRange === 'last7') return ageMs <= 7 * dayMs;
+				return ageMs <= 30 * dayMs;
+			})();
+			return matchesQuery && matchesVersion && matchesTime;
 		}),
 	);
+
+	const activeFilterCount = $derived(
+		(status ? 1 : 0) +
+			(versionFilter.trim() ? 1 : 0) +
+			(timeRange !== 'all' ? 1 : 0) +
+			(engine !== 'all' ? 1 : 0) +
+			(query.trim() ? 1 : 0),
+	);
+
+	// Keep the selection linkable: list state survives reloads and shares.
+	$effect(() => {
+		void gotoWithParams(page.url as unknown as URL, { id: selectedId ?? '' });
+	});
+
+	function focusCard(id: string): void {
+		document
+			.querySelector(`[data-execution-id="${id}"]`)
+			?.scrollIntoView({ block: 'nearest' });
+	}
+
+	function moveSelection(delta: number): void {
+		if (filtered.length === 0) return;
+		const ids = filtered.map((execution) => execution.id);
+		const index = selectedId ? ids.indexOf(selectedId) : -1;
+		const next = ids[(index + delta + ids.length) % ids.length] ?? null;
+		if (next) {
+			selectedId = next;
+			focusCard(next);
+		}
+	}
+
+	function handleListKeys(event: KeyboardEvent): void {
+		if (event.key === 'ArrowDown') {
+			event.preventDefault();
+			moveSelection(1);
+		} else if (event.key === 'ArrowUp') {
+			event.preventDefault();
+			moveSelection(-1);
+		} else if (event.key === 'Enter' && selectedId) {
+			event.preventDefault();
+			void goto(resolve('/executions/[id]', { id: selectedId }));
+		}
+	}
+
+	function openExecution(execution: Execution): void {
+		void goto(resolve('/executions/[id]', { id: execution.id }));
+	}
+
+	async function rerunExecution(execution: Execution): Promise<void> {
+		if (rerunningId) return;
+		rerunningId = execution.id;
+		try {
+			const id = await rerunWorkflowRun(execution.id);
+			toasts.success(t('domain.runs.rerunStarted'), id);
+			await reload();
+		} catch (e) {
+			toasts.error(
+				t('domain.runs.rerunFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			rerunningId = null;
+		}
+	}
 
 	const selected = $derived(detail);
 	const compared = $derived(compareDetail);
@@ -355,7 +490,7 @@
 			{/snippet}
 		</PageHeader>
 
-		<div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+		<div class="page-container min-h-0 flex-1 overflow-y-auto px-4 pb-4">
 			{#if hasUpdates}
 				<div
 					class="mb-3 flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2"
@@ -365,14 +500,28 @@
 							? ' (reconnecting)'
 							: ''}.
 					</span>
-					<Button size="sm" variant="outline" onclick={() => void reload()}>
-						Refresh
-					</Button>
+					<span class="flex items-center gap-2">
+						<label
+							class="flex cursor-pointer items-center gap-1.5 text-caption text-muted-foreground"
+						>
+							<input
+								type="checkbox"
+								bind:checked={autoInsert}
+								class="h-3.5 w-3.5 accent-current"
+							/>
+							Auto-insert
+						</label>
+						<Button size="sm" variant="outline" onclick={() => void reload()}>
+							Refresh
+						</Button>
+					</span>
 				</div>
 			{/if}
 			{#if showTaskPanel}
 				<div class="mb-3">
 					<CreateTaskPanel
+						initialDefinition={requestedDefinition}
+						initialVersion={requestedVersion}
 						onstarted={(executionId) => {
 							showTaskPanel = false;
 							void goto(resolve('/executions/[id]', { id: executionId }));
@@ -391,6 +540,28 @@
 				onstatuschange={() => void reload()}
 			>
 				{#snippet trailing()}
+					<Input
+						bind:value={versionFilter}
+						placeholder="Version"
+						class="w-28"
+					/>
+					<Select
+						value={timeRange}
+						options={[
+							{ value: 'all', label: 'All time' },
+							{ value: 'today', label: 'Today' },
+							{ value: 'last7', label: 'Last 7 days' },
+							{ value: 'last30', label: 'Last 30 days' },
+						]}
+						size="sm"
+						class="w-36"
+						onchange={(value) => {
+							timeRange =
+								value === 'today' || value === 'last7' || value === 'last30'
+									? value
+									: 'all';
+						}}
+					/>
 					<Select
 						value={engine}
 						options={[
@@ -410,9 +581,22 @@
 							void reload();
 						}}
 					/>
-					<span class="text-caption text-muted-foreground"
-						>{filtered.length} shown</span
+					<span class="text-caption tabular-nums text-muted-foreground">
+						{activeFilterCount > 0
+							? `${activeFilterCount} filter${activeFilterCount > 1 ? 's' : ''} · ${filtered.length} shown`
+							: `${filtered.length} shown`}
+					</span>
+					<label
+						class="flex cursor-pointer items-center gap-1.5 text-caption text-muted-foreground"
+						title="Prepend new rows with a highlight instead of showing a refresh banner"
 					>
+						<input
+							type="checkbox"
+							bind:checked={autoInsert}
+							class="h-3.5 w-3.5 accent-current"
+						/>
+						Auto-insert
+					</label>
 				{/snippet}
 			</FilterBar>
 
@@ -465,14 +649,28 @@
 					class="rounded-lg border border-border bg-card"
 				/>
 			{:else if view === 'list'}
-				<div class="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+				<div
+					class="grid gap-2 md:grid-cols-2 xl:grid-cols-3"
+					onkeydown={handleListKeys}
+					role="presentation"
+				>
 					{#each filtered as execution (execution.id)}
 						<ExecutionCard
 							{execution}
 							selected={selectedId === execution.id}
+							class={insertedIds.has(execution.id)
+								? 'animate-row-in border-success/50'
+								: ''}
 							onselect={(item) => (selectedId = item.id)}
+							onopen={openExecution}
+							onrerun={(item) => void rerunExecution(item)}
+							rerunning={rerunningId === execution.id}
 						/>
 					{/each}
+					{#if loadingMore}
+						<Skeleton shape="block" height="72px" class="rounded-lg" />
+						<Skeleton shape="block" height="72px" class="rounded-lg" />
+					{/if}
 				</div>
 			{:else}
 				<Card bodyClass="p-0">

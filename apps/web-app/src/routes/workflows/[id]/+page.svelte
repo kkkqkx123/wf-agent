@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { beforeNavigate, goto } from '$app/navigation';
-	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import Button from '@wf-agent/ui/components/Button.svelte';
@@ -19,7 +18,6 @@
 	import DefinitionDraftsPanel from '#lib/components/domain/DefinitionDraftsPanel.svelte';
 	import RunsPanel from '#lib/components/domain/RunsPanel.svelte';
 	import {
-		executeWorkflow,
 		exportWorkflow,
 		getWorkflowDetail,
 	} from '#lib/services/workflows';
@@ -196,17 +194,9 @@
 		}
 	}
 
-	async function runExecute(id: string): Promise<void> {
-		try {
-			const executionId = await executeWorkflow(id);
-			toasts.success(t('page.workflowDetail.executionStarted'));
-			await goto(resolve('/executions/[id]', { id: executionId }));
-		} catch (e) {
-			toasts.error(
-				t('page.workflowDetail.executionFailedToStart'),
-				e instanceof Error ? e.message : undefined,
-			);
-		}
+	async function goToRunWorkbench(id: string): Promise<void> {
+		const target = `/executions?definition=${encodeURIComponent(`workflow:${id}`)}`;
+		await goto(target);
 	}
 
 	onMount(() => {
@@ -315,7 +305,7 @@
 				size="sm"
 				onclick={() => {
 					const id = page.params.id;
-					if (id) void runExecute(id);
+					if (id) void goToRunWorkbench(id);
 				}}
 			>
 				<Icon name="play" size={13} />

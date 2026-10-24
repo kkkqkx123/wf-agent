@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { resolve } from '$app/paths';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
@@ -12,7 +11,6 @@
 		rollbackDefinition,
 		type DefinitionDiff,
 	} from '#lib/services/definitions';
-	import { runDefinition } from '#lib/services/run';
 	import { buildVersionDiffView } from '#lib/graph/execution-projection';
 	import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
 	import type { DefinitionKind, DefinitionVersion } from '#lib/types/models';
@@ -43,7 +41,6 @@
 	let rollbackArmed = $state(false);
 	let rollbackBusy = $state(false);
 	let runTarget = $state('');
-	let runBusy = $state(false);
 	let diffExplorer = $state<{ focus: (id: string) => void } | null>(null);
 
 	// Only a workflow has a graph to diff; a definition without one is
@@ -123,26 +120,14 @@
 		}
 	}
 
-	async function runVersion(): Promise<void> {
-		if (!runTarget || runBusy || kind !== 'workflow') return;
-		runBusy = true;
-		try {
-			const executionId = await runDefinition('workflow', definitionId, {
-				version: runTarget,
-			});
-			toasts.success(
-				t('domain.versions.versionStarted', { runTarget }),
-				executionId,
-			);
-			await goto(resolve('/executions/[id]', { id: executionId }));
-		} catch (e) {
-			toasts.error(
-				t('domain.versions.startFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
-		} finally {
-			runBusy = false;
-		}
+	// Version runs are created in the execution workbench: this panel
+	// only deep-links there with the definition and version prefilled.
+	async function goToVersionRun(): Promise<void> {
+		if (!runTarget) return;
+		const target =
+			`/executions?definition=${encodeURIComponent(`workflow:${definitionId}`)}` +
+			`&version=${encodeURIComponent(runTarget)}`;
+		await goto(target);
 	}
 </script>
 
@@ -309,12 +294,12 @@
 				<Button
 					variant="outline"
 					size="sm"
-					disabled={!runTarget || runBusy}
+					disabled={!runTarget}
 					title={t('domain.versions.runTooltip')}
-					onclick={() => void runVersion()}
+					onclick={() => void goToVersionRun()}
 				>
-					<Icon name="refresh" size={13} />
-					{runBusy ? t('domain.versions.starting') : t('domain.versions.run', { runTarget })}
+					<Icon name="play" size={13} />
+					{t('domain.versions.run', { runTarget })}
 				</Button>
 			</div>
 		{:else}

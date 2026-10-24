@@ -5,6 +5,7 @@
  * topology; coordinates and visual encoding always live here.
  */
 
+import { browser } from '$app/env';
 import {
 	nodePorts,
 	parseStaticNodeType,
@@ -131,6 +132,7 @@ export function isDashedEdge(
 	taken: boolean = true,
 ): boolean {
 	if (!taken) return true;
+	if (isFailureBranch({ kind })) return true;
 	const normalized = (kind ?? '').trim().toLowerCase();
 	return (
 		normalized === 'conditional' ||
@@ -141,48 +143,154 @@ export function isDashedEdge(
 	);
 }
 
-const TONE_HEX: Record<string, string> = {
-	success: '#16a34a',
-	danger: '#dc2626',
-	running: '#2563eb',
-	warning: '#d97706',
-	info: '#0284c7',
-	neutral: '#71717a',
+/** Whether an edge is a failure branch: error routes and explicit fail labels. */
+export function isFailureBranch(edge: {
+	kind?: string;
+	label?: string;
+}): boolean {
+	const kind = (edge.kind ?? '').trim().toLowerCase();
+	if (kind === 'error' || kind === 'error_route') return true;
+	const label = (edge.label ?? '').trim().toLowerCase();
+	return (
+		label === 'fail' ||
+		label === 'failed' ||
+		label === 'failure' ||
+		label === 'error' ||
+		label === 'false' ||
+		label === 'no'
+	);
+}
+
+/** Whether an edge status reads as waiting and should fade. */
+export function isWaitingStatus(status: string | null | undefined): boolean {
+	if (!status) return false;
+	const normalized = status.trim().toLowerCase();
+	return (
+		normalized === 'pending' ||
+		normalized === 'queued' ||
+		normalized === 'waiting' ||
+		normalized === 'paused' ||
+		normalized === 'suspended'
+	);
+}
+
+export interface EdgeGradient {
+	from: string;
+	to: string;
+	waiting: boolean;
+}
+
+/** Source-target gradient colors for one edge; null when no blend applies. */
+export function edgeGradient(
+	edge: DisplayEdge,
+	statusById: Map<string, string | undefined>,
+): EdgeGradient | null {
+	const fromStatus = statusById.get(edge.source);
+	const toStatus = statusById.get(edge.target);
+	if (!fromStatus && !toStatus) return null;
+	const from = resolveStatusHex(fromStatus ?? edge.status);
+	const to = resolveStatusHex(toStatus ?? edge.status);
+	if (from === to) return null;
+	return {
+		from,
+		to,
+		waiting: isWaitingStatus(fromStatus) || isWaitingStatus(toStatus),
+	};
+}
+
+const TONE_FALLBACK: Record<string, string> = {
+	success: 'hsl(152 55% 38%)',
+	danger: 'hsl(0 72% 48%)',
+	running: 'hsl(252 56% 54%)',
+	warning: 'hsl(32 88% 44%)',
+	info: 'hsl(210 80% 48%)',
+	neutral: 'hsl(215 12% 46%)',
 };
 
-/** Hex color for a status value; unknown statuses map to neutral. */
+/** Hex-free color for a status value; unknown statuses map to neutral. */
 export function statusHex(status: string | null | undefined): string {
-	if (!status) return TONE_HEX.neutral;
+	if (!status) return TONE_FALLBACK.neutral;
 	const normalized = status.trim().toLowerCase();
-	if (normalized === 'cached' || normalized === 'info') return TONE_HEX.info;
+	if (normalized === 'cached' || normalized === 'info') return TONE_FALLBACK.info;
 	const tone = toneForStatus(status);
 	switch (tone) {
 		case 'success':
-			return TONE_HEX.success;
+			return TONE_FALLBACK.success;
 		case 'error':
-			return TONE_HEX.danger;
+			return TONE_FALLBACK.danger;
 		case 'running':
-			return TONE_HEX.running;
+			return TONE_FALLBACK.running;
 		case 'warning':
-			return TONE_HEX.warning;
+			return TONE_FALLBACK.warning;
 		default:
-			return TONE_HEX.neutral;
+			return TONE_FALLBACK.neutral;
 	}
 }
 
 /** Legend entries for a preset. */
 export function legendFor(preset: GraphPreset): LegendEntry[] {
+	const tone = (name: string, fallback: string): string => {
+		if (!browser || typeof document === 'undefined') return fallback;
+		const raw = getComputedStyle(document.documentElement)
+			.getPropertyValue(name)
+			.trim();
+		return raw ? `hsl(${raw})` : fallback;
+	};
+	const neutral = tone('--muted-foreground', TONE_FALLBACK.neutral);
 	const base: LegendEntry[] = [
-		{ label: 'Terminal', shape: 'ellipse', color: TONE_HEX.neutral },
-		{ label: 'Step', shape: 'rounded', color: TONE_HEX.neutral },
-		{ label: 'Tool / LLM', shape: 'hexagon', color: TONE_HEX.info },
-		{ label: 'Flow', shape: 'line-solid', color: TONE_HEX.neutral },
-		{ label: 'Conditional', shape: 'line-dashed', color: TONE_HEX.warning },
+		{ label: 'Terminal', shape: 'ellipse', color: neutral },
+		{ label: 'Step', shape: 'rounded', color: neutral },
+		{
+			label: 'Tool / LLM',
+			shape: 'hexagon',
+			color: tone('--info', TONE_FALLBACK.info),
+		},
+		{ label: 'Flow', shape: 'line-solid', color: neutral },
+		{
+			label: 'Conditional',
+			shape: 'line-dashed',
+			color: tone('--warning', TONE_FALLBACK.warning),
+		},
 	];
 	if (preset === 'decision') {
-		base.push({ label: 'Error', shape: 'diamond', color: TONE_HEX.danger });
+		base.push({
+			label: 'Error',
+			shape: 'diamond',
+			color: tone('--destructive', TONE_FALLBACK.danger),
+		});
 	}
 	return base;
+}
+
+/**
+ * Theme-aware status color for canvas element data. Reads the computed
+ * semantic tokens in the browser and falls back to the static hex map
+ * during server rendering and tests.
+ */
+export function resolveStatusHex(status: string | null | undefined): string {
+	if (!browser || typeof document === 'undefined') return statusHex(status);
+	const read = (name: string, fallback: string): string => {
+		const raw = getComputedStyle(document.documentElement)
+			.getPropertyValue(name)
+			.trim();
+		return raw ? `hsl(${raw})` : fallback;
+	};
+	if (!status) return read('--muted-foreground', TONE_FALLBACK.neutral);
+	const normalized = status.trim().toLowerCase();
+	if (normalized === 'cached' || normalized === 'info')
+		return read('--info', TONE_FALLBACK.info);
+	switch (toneForStatus(status)) {
+		case 'success':
+			return read('--success', TONE_FALLBACK.success);
+		case 'error':
+			return read('--destructive', TONE_FALLBACK.danger);
+		case 'running':
+			return read('--running', TONE_FALLBACK.running);
+		case 'warning':
+			return read('--warning', TONE_FALLBACK.warning);
+		default:
+			return read('--muted-foreground', TONE_FALLBACK.neutral);
+	}
 }
 
 /** Distinct node kinds present, for the filter panel. */
@@ -349,23 +457,44 @@ export function toneForStatus(
 	if (!status) return 'neutral';
 	const normalized = status.trim().toLowerCase();
 	if (
-		['running', 'in_progress', 'executing', 'streaming', 'started'].includes(
-			normalized,
-		)
+		[
+			'running',
+			'in_progress',
+			'executing',
+			'streaming',
+			'started',
+			'resumed',
+		].includes(normalized)
 	) {
 		return 'running';
 	}
 	if (
-		['failed', 'failure', 'error', 'errored', 'timeout', 'aborted'].includes(
-			normalized,
-		)
+		[
+			'failed',
+			'failure',
+			'error',
+			'errored',
+			'timeout',
+			'timed_out',
+			'aborted',
+			'crashed',
+			'rejected',
+			'unhealthy',
+		].includes(normalized)
 	) {
 		return 'error';
 	}
 	if (
-		['paused', 'pending', 'queued', 'waiting', 'retrying', 'cached'].includes(
-			normalized,
-		)
+		[
+			'paused',
+			'pending',
+			'queued',
+			'waiting',
+			'suspended',
+			'retrying',
+			'degraded',
+			'cached',
+		].includes(normalized)
 	) {
 		return 'warning';
 	}
@@ -377,8 +506,10 @@ export function toneForStatus(
 			'succeeded',
 			'done',
 			'ok',
+			'healthy',
 			'active',
 			'enabled',
+			'approved',
 		].includes(normalized)
 	) {
 		return 'success';

@@ -1,11 +1,13 @@
 <script lang="ts">
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import Badge from '@wf-agent/ui/components/Badge.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
-		import type { WorkflowDetail } from '#lib/types/models';
+	import type { WorkflowDetail } from '#lib/types/models';
 	import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
 	import type { WorkflowGraphState } from '#lib/workflows/graph-state.svelte';
+	import RunsPanel from '#lib/components/domain/RunsPanel.svelte';
 	import { t } from '#lib/i18n';
 
 	interface Props {
@@ -13,23 +15,33 @@
 		nodes: DisplayNode[];
 		edges: DisplayEdge[];
 		state: WorkflowGraphState;
+		/** Enter the edit tab with the current selection. */
+		onedit?: () => void;
 	}
 
 	// Selection, overlays and analysis live in the route-owned state object so
 	// leaving the tab and returning keeps them; the route reloads it with the
 	// detail (load/promotion), matching the pre-split page behavior.
-	let { detail, nodes, edges, state }: Props = $props();
+	let { detail, nodes, edges, state: graph, onedit }: Props = $props();
+
+	// The log strip shares the tab so graph context and recent runs stay
+	// visible together; collapsed by default to preserve canvas height.
+	let logsOpen = $state(false);
+
+	const selectedNode = $derived(
+		nodes.find((node) => node.id === graph.selection) ?? null,
+	);
 </script>
 
-{#if state.analysisError}
+{#if graph.analysisError}
 	<p class="mb-2 text-caption text-warning">
 		{t('domain.workflowGraphTab.analysisUnavailable', {
-			error: state.analysisError,
+			error: graph.analysisError,
 		})}
 		<button
 			type="button"
 			class="underline"
-			onclick={() => void state.loadAnalysis(detail.id)}
+			onclick={() => void graph.loadAnalysis(detail.id)}
 		>
 			{t('domain.hierarchyTree.retry')}
 		</button>.
@@ -41,15 +53,61 @@
 	{edges}
 	preset="workflow"
 	layoutId={detail.id}
-	selectedId={state.selection}
-	onselect={(id) => (state.selection = id)}
-	onexpand={(id) => void state.expandNeighborhood(detail.id, id)}
+	selectedId={graph.selection}
+	onselect={(id) => (graph.selection = id)}
+	onexpand={(id) => void graph.expandNeighborhood(detail.id, id)}
 	expandLabel={t('domain.inspector.revealNeighborhood')}
-	overlays={state.effectiveOverlays}
-	activeOverlay={state.activeOverlay}
-	onoverlay={(id) => (state.activeOverlay = id)}
-	onjumpparam={(id) => state.jumpToNodeRow(id)}
-/> {/await}
+	overlays={graph.effectiveOverlays}
+	activeOverlay={graph.activeOverlay}
+	onoverlay={(id) => (graph.activeOverlay = id)}
+	onjumpparam={(id) => graph.jumpToNodeRow(id)}
+	ontogglelogs={() => (logsOpen = !logsOpen)}
+>
+	{#snippet inspector()}
+		{#if selectedNode}
+			<dl class="space-y-1 text-caption">
+				<div class="flex justify-between gap-2">
+					<dt class="text-muted-foreground"
+						>{t('domain.workflowGraphTab.selectedNode')}</dt
+					>
+					<dd class="truncate font-mono">{selectedNode.id}</dd>
+				</div>
+			</dl>
+			{#if onedit}
+				<div class="mt-2">
+					<Button
+						variant="outline"
+						size="sm"
+						onclick={() => onedit?.()}
+					>
+						<Icon name="pencil" size={13} />
+						{t('domain.workflowGraphTab.openInEdit')}
+					</Button>
+				</div>
+			{/if}
+		{/if}
+	{/snippet}
+</module.default> {/await}
+
+<div class="mt-3">
+	<Card title={t('domain.workflowGraphTab.recentRuns')}>
+		{#snippet actions()}
+			<Button
+				variant="ghost"
+				size="sm"
+				onclick={() => (logsOpen = !logsOpen)}
+			>
+				{logsOpen
+					? t('domain.workflowGraphTab.hideRecentRuns')
+					: t('domain.workflowGraphTab.showRecentRuns')}
+			</Button>
+		{/snippet}
+		{#if logsOpen}
+			<RunsPanel kind="workflow" definitionId={detail.id} />
+		{/if}
+	</Card>
+</div>
+
 <div class="mt-3 grid gap-3 lg:grid-cols-2">
 	<Card title={t('domain.workflowGraphTab.nodes')}>
 		<ul class="space-y-1.5">
@@ -61,7 +119,7 @@
 					<button
 						type="button"
 						class="truncate font-mono underline-offset-2 hover:underline"
-						onclick={() => (state.selection = node.id)}
+						onclick={() => (graph.selection = node.id)}
 					>
 						{node.id}
 					</button>

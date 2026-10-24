@@ -9,6 +9,7 @@
 	import ReviewMergeCard from './files/ReviewMergeCard.svelte';
 	import SessionsCard from './files/SessionsCard.svelte';
 	import StorageCard from './files/StorageCard.svelte';
+	import SyncCard from './files/SyncCard.svelte';
 	import WorkspaceCard from './files/WorkspaceCard.svelte';
 	import { downloadFile } from '#lib/api/client';
 	import {
@@ -426,6 +427,7 @@
 	<WorkspaceCard />
 </div>
 
-<div class="mt-3">
+<div class="mt-3 grid gap-3 xl:grid-cols-2">
 	<StorageCard />
+	<SyncCard />
 </div>

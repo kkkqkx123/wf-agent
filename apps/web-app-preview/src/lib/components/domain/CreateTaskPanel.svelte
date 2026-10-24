@@ -7,6 +7,7 @@
 	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import Select from '@wf-agent/ui/components/Select.svelte';
+	import Input from '@wf-agent/ui/components/Input.svelte';
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
 	import { listWorkflows } from '#lib/services/workflows';
@@ -26,9 +27,13 @@
 	interface Props {
 		/** Called once a run has started, with the execution it produced. */
 		onstarted?: (executionId: string) => void;
+		/** Deep-link preselection from a definition page (`kind:id`). */
+		initialDefinition?: string | null;
+		/** Pinned workflow version carried by the deep link. */
+		initialVersion?: string | null;
 	}
 
-	let { onstarted }: Props = $props();
+	let { onstarted, initialDefinition = null, initialVersion = null }: Props = $props();
 
 	let definitions = $state<RunnableDefinition[]>([]);
 	let modelOptions = $state<{ value: string; label: string }[]>([]);
@@ -38,6 +43,7 @@
 	let message = $state('');
 	let model = $state('');
 	let input = $state('');
+	let version = $state('');
 	let starting = $state(false);
 
 	const options = $derived(
@@ -82,7 +88,15 @@
 				})),
 			];
 			if (!selected && definitions.length > 0) {
-				selected = `${definitions[0].kind}:${definitions[0].id}`;
+				const preselected =
+					initialDefinition &&
+					definitions.some(
+						(definition) =>
+							`${definition.kind}:${definition.id}` === initialDefinition,
+					)
+						? initialDefinition
+						: `${definitions[0].kind}:${definitions[0].id}`;
+				selected = preselected;
 			}
 		} catch (e) {
 			loadError = e instanceof Error ? e.message : t('page.executions.taskLoadFailed');
@@ -108,6 +122,7 @@
 				definition.kind === 'workflow'
 					? await runDefinition('workflow', definition.id, {
 							input: input.trim() === '' ? null : input,
+							version: version.trim() === '' ? null : version.trim(),
 						})
 					: await runDefinition('agent', definition.id, {
 							message: message.trim(),
@@ -130,6 +145,7 @@
 	}
 
 	onMount(() => {
+		if (initialVersion) version = initialVersion;
 		void loadDefinitions();
 	});
 </script>
@@ -156,6 +172,11 @@
 				onchange={() => undefined}
 			/>
 			{#if selectedDefinition?.kind === 'workflow'}
+				<Input
+					bind:value={version}
+					label="Version"
+					placeholder="Empty runs the current definition"
+				/>
 				<Textarea
 					bind:value={input}
 					label={t('page.executions.taskInput')}

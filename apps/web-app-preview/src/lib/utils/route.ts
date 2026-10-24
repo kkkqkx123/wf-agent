@@ -32,7 +32,7 @@ export function resolveAppPath(path: AppPath): ResolvedPathname {
 }
 
 /** Query keys the app round-trips through the address bar. */
-const LIST_KEYS = ['id', 'q', 'status', 'page', 'tab', 'panel'] as const;
+const LIST_KEYS = ['id', 'q', 'status', 'page', 'tab', 'panel', 'definition', 'version'] as const;
 
 export type ListParamKey = (typeof LIST_KEYS)[number];
 

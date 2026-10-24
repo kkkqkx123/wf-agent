@@ -10,7 +10,6 @@
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import { toneText } from '@wf-agent/ui/components/variants';
 	import { listUnifiedExecutions } from '#lib/services/executions';
-	import { rerunWorkflowRun } from '#lib/services/run';
 	import type { DefinitionKind, Execution } from '#lib/types/models';
 	import {
 		formatDateTime,
@@ -19,7 +18,6 @@
 	} from '#lib/utils/format';
 	import { statusTone, toneColorVar } from '@wf-agent/ui/status';
 	import { cn } from '@wf-agent/ui/cn';
-	import { toasts } from '#lib/stores/toast.svelte';
 	import { t } from '#lib/i18n';
 	import { resolve } from '$app/paths';
 	import { watchListInvalidation } from '#lib/services/list-invalidation';
@@ -52,7 +50,6 @@
 	let runsLoading = $state(false);
 	let query = $state('');
 	let status = $state('');
-	let rerunId = $state<string | null>(null);
 	let runsDirty = $state(false);
 	let stopRunsLive: (() => void) | null = null;
 
@@ -75,27 +72,9 @@
 		}
 	}
 
-	/**
-	 * Re-runs the definition behind a run. A workflow replays the recorded
-	 * input against the recorded version, so a run made against an older
-	 * version replays that version instead of the definition live now.
-	 */
-	async function rerun(run: Execution): Promise<void> {
-		if (kind !== 'workflow') return;
-		rerunId = run.id;
-		try {
-			const executionId = await rerunWorkflowRun(run.id);
-			toasts.success(t('domain.runs.rerunStarted'), executionId);
-			await loadRuns();
-		} catch (e) {
-			toasts.error(
-				t('domain.runs.rerunFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
-		} finally {
-			rerunId = null;
-		}
-	}
+	// Runs stay read-only here; creation lives in the execution workbench.
+	// Each row links to its execution detail, where re-run and live
+	// controls are available.
 
 	// The status travels to the server; the free-text query only narrows the
 	// page already fetched, which is why it filters ids instead of payloads.
@@ -181,6 +160,16 @@
 		/>
 	{:else}
 		<Card title={t('domain.runs.title')} bodyClass="p-0">
+			{#snippet actions()}
+				<Button
+					variant="ghost"
+					size="sm"
+					href={`/executions?definition=${encodeURIComponent(`${kind}:${definitionId}`)}`}
+				>
+					<Icon name="play" size={13} />
+					{t('page.executions.newTask')}
+				</Button>
+			{/snippet}
 			<ul class="divide-y divide-border" aria-busy={runsLoading}>
 				{#each visibleRuns as run (run.id)}
 					{@const tone = statusTone(run.status)}
@@ -234,23 +223,6 @@
 								</p>
 							{/if}
 						</div>
-						{#if kind === 'workflow'}
-							<Button
-								variant="ghost"
-								size="sm"
-								class="shrink-0"
-								disabled={rerunId === run.id}
-								title={run.version
-									? t('domain.runs.rerunVersionTitle', { version: run.version })
-									: t('domain.runs.rerunTitle')}
-								onclick={() => void rerun(run)}
-							>
-								<Icon name="refresh" size={13} />
-								{rerunId === run.id
-									? t('domain.runs.rerunning')
-									: t('domain.runs.rerun')}
-							</Button>
-						{/if}
 					</li>
 				{/each}
 				{#if runsLoading}

@@ -25,10 +25,12 @@
 		header?: Snippet;
 		sidebar?: Snippet;
 		aside?: Snippet;
+		footer?: Snippet;
+		banners?: Snippet;
 		overlays?: Snippet;
 	}
 
-	let { children, header, sidebar, aside, overlays }: Props = $props();
+	let { children, header, sidebar, aside, footer, banners, overlays }: Props = $props();
 
 	const pathname = $derived(page.url.pathname);
 
@@ -94,6 +96,11 @@
 	{/if}
 
 	<div class="flex min-w-0 flex-1 flex-col">
+		{#if banners}
+			<div role="region" aria-label="Banners">
+				{@render banners()}
+			</div>
+		{/if}
 		{#if header}
 			{@render header()}
 		{:else}
@@ -113,6 +120,13 @@
 				</aside>
 			{/if}
 		</div>
+		{#if footer}
+			<footer
+				class="flex min-h-0 shrink-0 flex-col overflow-hidden border-t border-border bg-card"
+			>
+				{@render footer()}
+			</footer>
+		{/if}
 	</div>
 </div>
 

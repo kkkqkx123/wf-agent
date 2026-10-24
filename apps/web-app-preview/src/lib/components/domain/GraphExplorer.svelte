@@ -36,7 +36,10 @@
 		rowPositions,
 		sortIdsByCanvasPosition,
 	} from '#lib/graph/layout';
-	import { registerCanvasShortcuts } from '#lib/graph/canvas-shortcuts';
+	import {
+		registerCanvasShortcuts,
+		shortcutTitle,
+	} from '#lib/graph/canvas-shortcuts';
 	import {
 		capGraph,
 		distinctKinds,
@@ -117,6 +120,8 @@
 		ondeletegroups?: (ids: string[]) => void;
 		/** Jump from the detail card to the node definition. */
 		onjumpparam?: (id: string) => void;
+		/** Toggle the host's recent-runs panel, if it renders one. */
+		ontogglelogs?: () => void;
 		/** Remote cursors rendered over the canvas; omitted for read-only views. */
 		presence?: PresenceCursor[];
 		/** Local pointer position in canvas-wrapper coordinates. */
@@ -171,6 +176,7 @@
 		ondeletenodes,
 		ondeletegroups,
 		onjumpparam,
+		ontogglelogs,
 		presence = [],
 		oncursormove,
 		class: className = '',
@@ -532,9 +538,14 @@
 
 	let addNodeOpen = $state(false);
 	let pendingAddPosition = $state<CanvasPosition | null>(null);
+	let addNodeAnchor = $state<{ x: number; y: number } | null>(null);
 
-	function openAddNode(position: CanvasPosition | null): void {
+	function openAddNode(
+		position: CanvasPosition | null,
+		client?: { x: number; y: number } | null,
+	): void {
 		pendingAddPosition = position;
+		addNodeAnchor = client ?? null;
 		addNodeOpen = true;
 	}
 
@@ -545,6 +556,7 @@
 			name,
 		);
 		pendingAddPosition = null;
+		addNodeAnchor = null;
 	}
 
 	function openContext(info: CanvasContext): void {
@@ -636,6 +648,12 @@
 			{ id: 'fit', label: t('domain.graph.fitView') },
 			{ id: 'relayout', label: t('domain.graph.rerunLayout') },
 			{
+				id: 'add-node',
+				label: t('domain.graph.addNodeHere'),
+				disabled: !write,
+				...(!write ? { reason: readOnlyReason } : {}),
+			},
+			{
 				id: 'edit-toggle',
 				label: editMode
 					? t('domain.graph.exitEditMode')
@@ -694,6 +712,9 @@
 			case 'relayout':
 				canvas?.relayout();
 				break;
+			case 'add-node':
+				openAddNode(null, { x: menu.x, y: menu.y });
+				break;
 			case 'edit-toggle':
 				if (editMode) onexitedit?.();
 				else onenteredit?.();
@@ -725,6 +746,12 @@
 				else onenteredit?.();
 			},
 			save: () => onsave?.(),
+			nextNode: () => stepSelection(1),
+			prevNode: () => stepSelection(-1),
+			toggleLogs: () => ontogglelogs?.(),
+			toggleFilters: () => {
+				showFilters = !showFilters;
+			},
 			canWrite: () => editMode,
 			onreadonlywrite: () =>
 				toasts.info(
@@ -742,6 +769,17 @@
 
 	function isolateKind(kind: string): void {
 		hiddenKinds = kinds.filter((entry) => entry !== kind);
+	}
+
+	/** Move the selection across the filtered node order. */
+	function stepSelection(delta: number): void {
+		const ids = filtered.nodes.map((node) => node.id);
+		if (ids.length === 0) return;
+		const current = selectedId ?? canvas?.selectedNodeIds()[0] ?? null;
+		const index = current ? ids.indexOf(current) : -1;
+		const next =
+			ids[(index + delta + ids.length) % ids.length] ?? ids[0] ?? null;
+		if (next) onselect?.(next);
 	}
 
 	const aggregatedCounts = $derived(kindCounts(nodes));
@@ -804,22 +842,22 @@
 	<div class="flex flex-wrap items-center gap-1.5">
 		<IconButton
 			icon="plus"
-			label={t('domain.graph.zoomIn')}
+			label={shortcutTitle('canvas.zoomIn', t('domain.graph.zoomIn'))}
 			onclick={() => canvas?.zoomIn()}
 		/>
 		<IconButton
 			icon="minus"
-			label={t('domain.graph.zoomOut')}
+			label={shortcutTitle('canvas.zoomOut', t('domain.graph.zoomOut'))}
 			onclick={() => canvas?.zoomOut()}
 		/>
 		<IconButton
 			icon="maximize"
-			label={t('domain.graph.fitToView')}
+			label={shortcutTitle('canvas.fit', t('domain.graph.fitView'))}
 			onclick={() => canvas?.fit()}
 		/>
 		<IconButton
 			icon="refresh"
-			label={t('domain.graph.rerunLayoutShortcut')}
+			label={shortcutTitle('canvas.relayout', t('domain.graph.rerunLayout'))}
 			onclick={() => canvas?.relayout()}
 		/>
 		{#if layoutId}
@@ -1112,7 +1150,8 @@
 					const visible = guardMoves(moves);
 					if (visible.length > 0) onmovenodes?.(visible);
 				}}
-				onbackgrounddoubleclick={(position) => openAddNode(position)}
+				onbackgrounddoubleclick={(position, client) =>
+					openAddNode(position, client)}
 				ondeleteedge={(id) => ondeleteedge?.(id)}
 				onconnect={(source, target) => {
 					if (guardConnect(source, target)) onconnect?.(source, target);
@@ -1373,7 +1412,11 @@
 	<AddNodeDrawer
 		bind:open={addNodeOpen}
 		position={pendingAddPosition}
+		anchor={addNodeAnchor}
 		onselect={handleAddNodeChoice}
-		onclose={() => (pendingAddPosition = null)}
+		onclose={() => {
+			pendingAddPosition = null;
+			addNodeAnchor = null;
+		}}
 	/>
 </div>

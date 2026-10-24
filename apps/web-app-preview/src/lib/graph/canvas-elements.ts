@@ -1,10 +1,13 @@
 import type { ElementDefinition } from 'cytoscape';
 import {
+	edgeGradient,
 	isDashedEdge,
+	isFailureBranch,
+	isWaitingStatus,
 	nodeShape,
+	resolveStatusHex,
 	scoreEdgeLabel,
 	shortLabel,
-	statusHex,
 	type DisplayEdge,
 	type DisplayNode,
 	type GraphPreset,
@@ -85,6 +88,21 @@ export function edgeLabelFor(
 	return rankedEdgeIds.has(edge.id) ? label : '';
 }
 
+/**
+ * Comma-form color for gradient stops: space-separated `hsl()` channels
+ * would split into extra stops, so channels join with commas instead.
+ */
+function gradientStop(color: string): string {
+	const match = /^hsl\(([^)]+)\)$/.exec(color.trim());
+	if (!match) return color;
+	const channels = match[1].split(/[\s,]+/).filter(Boolean);
+	if (channels.length < 3) return color;
+	const alpha = channels.slice(3).join(' ');
+	return alpha
+		? `hsl(${channels[0]},${channels[1]},${channels[2]} / ${alpha})`
+		: `hsl(${channels[0]},${channels[1]},${channels[2]})`;
+}
+
 function titleEmphasis(
 	id: string,
 	groupTitles: Record<string, GroupTitle>,
@@ -151,7 +169,7 @@ export function buildElementDefs(
 			fullLabel: node.label,
 			kind: node.kind,
 			shape: nodeShape(node.kind, preset),
-			color: statusHex(node.status),
+			color: resolveStatusHex(node.status),
 			...(node.groupId && boxIds.includes(node.groupId)
 				? { parent: `groupbox:${node.groupId}` }
 				: {}),
@@ -196,10 +214,16 @@ export function buildElementDefs(
 			classes: 'group-box',
 		});
 	}
+	const statusById = new Map(
+		nodes.map((node) => [node.id, node.status]),
+	);
 	for (const edge of edges) {
 		const touchesSelection =
 			selectedId !== null &&
 			(edge.source === selectedId || edge.target === selectedId);
+		const failBranch = isFailureBranch(edge);
+		const waiting = isWaitingStatus(edge.status);
+		const gradient = edgeGradient(edge, statusById);
 		defs.push({
 			group: 'edges' as const,
 			data: {
@@ -217,11 +241,21 @@ export function buildElementDefs(
 				lineStyle: isDashedEdge(edge.kind, edge.taken ?? true)
 					? 'dashed'
 					: 'solid',
-				color:
-					statusHex(edge.status) === '#71717a'
-						? '#71717a'
-						: statusHex(edge.status),
+				color: resolveStatusHex(edge.status),
+				...(gradient
+					? {
+							gradient: `${gradientStop(gradient.from)} ${gradientStop(gradient.to)}`,
+							targetColor: gradientStop(gradient.to),
+						}
+					: {}),
 			},
+			classes: [
+				failBranch ? 'fail-branch' : '',
+				gradient ? 'gradient' : '',
+				waiting || gradient?.waiting ? 'waiting' : '',
+			]
+				.filter(Boolean)
+				.join(' '),
 		});
 	}
 	return defs;

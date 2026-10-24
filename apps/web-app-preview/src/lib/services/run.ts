@@ -8,6 +8,7 @@
  */
 import { client } from '#lib/api/client';
 import { call, requireData } from '#lib/api/envelope';
+import { getUnifiedExecutionDetail } from '#lib/services/executions';
 
 /** The definition kinds that can be started as a run. */
 export type RunnableKind = 'workflow' | 'agent';
@@ -80,4 +81,25 @@ export async function runDefinition<K extends RunnableKind>(
 		throw new Error(`Agent run returned no execution id for ${id}`);
 	}
 	return executionId;
+}
+
+/**
+ * Re-run a workflow execution with the input recorded on it. A run made
+ * against an older version replays that version instead of the definition
+ * live now.
+ */
+export async function rerunWorkflowRun(runId: string): Promise<string> {
+	const detail = await getUnifiedExecutionDetail(runId);
+	const record =
+		typeof detail.record === 'object' && detail.record !== null
+			? (detail.record as Record<string, unknown>)
+			: {};
+	const definitionId = detail.definitionId;
+	if (!definitionId) {
+		throw new Error(`Run ${runId} carries no workflow definition id`);
+	}
+	return runDefinition('workflow', definitionId, {
+		input: record.input ?? null,
+		version: (record.workflow_version as string | null) ?? null,
+	});
 }

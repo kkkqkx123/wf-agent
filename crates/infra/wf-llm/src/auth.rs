@@ -207,10 +207,16 @@ impl OAuthAuth for DeclaredOAuth {
             .text()
             .await
             .map_err(|e| AuthError::Transport(e.to_string()))?;
-        let token: llm_auth::TokenResponse = serde_json::from_str(&body).map_err(|e| {
+        let mut token: llm_auth::TokenResponse = serde_json::from_str(&body).map_err(|e| {
             AuthError::Transport(format!("token response: {e} (HTTP {})", status.as_u16()))
         })?;
-        llm_auth::credential_from_token(&token, self.config.is_subscription, now_ms())
+        if token.refresh_token.is_none() {
+            token.refresh_token = Some(credential.refresh.clone());
+        }
+        let mut fresh =
+            llm_auth::credential_from_token(&token, self.config.is_subscription, now_ms())?;
+        fresh.extra = credential.extra.clone();
+        Ok(fresh)
     }
 
     async fn to_auth(&self, credential: &OAuthCredential) -> AuthResult<ModelAuth> {

@@ -226,14 +226,14 @@ async fn typed_generation_overrides_legacy_profile_parameters() {
     let body: serde_json::Value = serde_json::from_str(&server.requests()[0].body).unwrap();
     assert_eq!(body["temperature"], serde_json::json!(0.2));
     assert_eq!(
-        body["max_tokens"],
+        body["max_completion_tokens"],
         serde_json::json!(55),
         "typed request generation overrides the legacy profile parameters; \
-         without an explicit max_token_field openai chat emits max_tokens"
+         without an explicit max_token_field openai chat emits max_completion_tokens"
     );
     assert!(
-        body.get("max_completion_tokens").is_none(),
-        "the field name is never inferred from the model"
+        body.get("max_tokens").is_none(),
+        "the legacy field is opt-in via max_token_field only"
     );
 }
 

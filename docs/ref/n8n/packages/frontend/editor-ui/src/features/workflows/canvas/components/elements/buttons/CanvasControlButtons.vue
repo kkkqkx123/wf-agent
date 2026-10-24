@@ -1,0 +1,188 @@
+<script setup lang="ts">
+import KeyboardShortcutTooltip from '@/app/components/KeyboardShortcutTooltip.vue';
+import { useI18n } from '@n8n/i18n';
+import { Controls } from '@vue-flow/controls';
+import { computed } from 'vue';
+import { useExperimentalNdvStore } from '../../../experimental/experimentalNdv.store';
+import { N8nButtonList, N8nIconButton, N8nTooltip } from '@n8n/design-system';
+import { injectWorkflowDocumentStore } from '@/app/stores/workflowDocument.store';
+
+const props = withDefaults(
+	defineProps<{
+		zoom?: number;
+		readOnly?: boolean;
+	}>(),
+	{
+		zoom: 1,
+		readOnly: false,
+	},
+);
+
+const emit = defineEmits<{
+	'zoom-in': [];
+	'zoom-out': [];
+	'zoom-to-fit': [];
+	'tidy-up': [];
+	'toggle-zoom-mode': [];
+}>();
+
+const i18n = useI18n();
+
+const experimentalNdvStore = useExperimentalNdvStore();
+
+const workflowDocumentStore = injectWorkflowDocumentStore();
+
+const isExperimentalNdvActive = computed(() => experimentalNdvStore.isActive(props.zoom));
+
+const isToggleZoomVisible = computed(() => experimentalNdvStore.isZoomedViewEnabled);
+
+function onZoomIn() {
+	emit('zoom-in');
+}
+
+function onZoomOut() {
+	emit('zoom-out');
+}
+
+function onZoomToFit() {
+	emit('zoom-to-fit');
+}
+
+function onTidyUp() {
+	emit('tidy-up');
+}
+
+function handleClickCollapseAll() {
+	experimentalNdvStore.collapseAllNodes(workflowDocumentStore.value.allNodes);
+}
+</script>
+<template>
+	<Controls :show-zoom="false" :show-fit-view="false">
+		<N8nButtonList variant="toolbar" :class="$style.container">
+			<KeyboardShortcutTooltip
+				:label="i18n.baseText('nodeView.zoomToFit')"
+				:shortcut="{ keys: ['1'] }"
+			>
+				<N8nIconButton
+					variant="ghost"
+					size="large"
+					icon="corners"
+					:aria-label="i18n.baseText('nodeView.zoomToFit')"
+					data-test-id="zoom-to-fit"
+					@click="onZoomToFit"
+				/>
+			</KeyboardShortcutTooltip>
+			<KeyboardShortcutTooltip
+				:label="i18n.baseText('nodeView.zoomIn')"
+				:shortcut="{ keys: ['+'] }"
+			>
+				<N8nIconButton
+					variant="ghost"
+					size="large"
+					icon="zoom-in"
+					:aria-label="i18n.baseText('nodeView.zoomIn')"
+					data-test-id="zoom-in-button"
+					@click="onZoomIn"
+				/>
+			</KeyboardShortcutTooltip>
+			<KeyboardShortcutTooltip
+				:label="i18n.baseText('nodeView.zoomOut')"
+				:shortcut="{ keys: ['-'] }"
+			>
+				<N8nIconButton
+					variant="ghost"
+					size="large"
+					icon="zoom-out"
+					:aria-label="i18n.baseText('nodeView.zoomOut')"
+					data-test-id="zoom-out-button"
+					@click="onZoomOut"
+				/>
+			</KeyboardShortcutTooltip>
+			<KeyboardShortcutTooltip
+				v-if="isToggleZoomVisible"
+				:label="
+					i18n.baseText(
+						isExperimentalNdvActive ? 'nodeView.leaveZoomMode' : 'nodeView.enterZoomMode',
+					)
+				"
+				:shortcut="{ keys: ['Z'] }"
+			>
+				<N8nIconButton
+					variant="ghost"
+					iconOnly
+					size="large"
+					:class="$style.iconButton"
+					:icon="isExperimentalNdvActive ? 'undo-2' : 'crosshair'"
+					:aria-label="
+						i18n.baseText(
+							isExperimentalNdvActive ? 'nodeView.leaveZoomMode' : 'nodeView.enterZoomMode',
+						)
+					"
+					@click="emit('toggle-zoom-mode')"
+				/>
+			</KeyboardShortcutTooltip>
+			<KeyboardShortcutTooltip
+				v-if="!readOnly"
+				:label="i18n.baseText('nodeView.tidyUp')"
+				:shortcut="{ shiftKey: true, altKey: true, keys: ['T'] }"
+			>
+				<N8nIconButton
+					variant="ghost"
+					iconOnly
+					size="large"
+					:class="$style.iconButton"
+					icon="broom"
+					:aria-label="i18n.baseText('nodeView.tidyUp')"
+					data-test-id="tidy-up-button"
+					@click="onTidyUp"
+				/>
+			</KeyboardShortcutTooltip>
+			<N8nTooltip
+				v-if="isExperimentalNdvActive"
+				placement="top"
+				:content="i18n.baseText('nodeView.expandAllNodes')"
+			>
+				<N8nIconButton
+					variant="ghost"
+					size="large"
+					icon="maximize-2"
+					:aria-label="i18n.baseText('nodeView.expandAllNodes')"
+					@click="experimentalNdvStore.expandAllNodes"
+				/>
+			</N8nTooltip>
+			<N8nTooltip
+				v-if="isExperimentalNdvActive"
+				placement="top"
+				:content="i18n.baseText('nodeView.collapseAllNodes')"
+			>
+				<N8nIconButton
+					variant="ghost"
+					size="large"
+					icon="minimize-2"
+					:aria-label="i18n.baseText('nodeView.collapseAllNodes')"
+					@click="handleClickCollapseAll"
+				/>
+			</N8nTooltip>
+		</N8nButtonList>
+	</Controls>
+</template>
+
+<style module lang="scss">
+.iconButton {
+	padding-left: 0;
+	padding-right: 0;
+
+	svg {
+		width: 16px;
+		height: 16px;
+	}
+}
+.container {
+	background: var(--background--surface);
+	border: var(--border);
+	box-shadow: var(--shadow--xs);
+	border-radius: var(--radius--full);
+	padding: var(--spacing--5xs);
+	gap: var(--spacing--5xs);
+}
+</style>

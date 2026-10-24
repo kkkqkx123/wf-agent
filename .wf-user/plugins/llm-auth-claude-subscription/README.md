@@ -34,7 +34,7 @@ This directory is a standalone cargo workspace (it must not join the
 wf-agent workspace). It links `wf-plugin-sdk` via a relative path.
 
 ```bash
-cd plugins/llm-auth-claude-subscription
+cd .wf-user/plugins/llm-auth-claude-subscription
 cargo build --release          # produces target/release/libllm_auth_claude_subscription.so
 cargo test                     # 14 unit tests + TOML manifest snapshot check
 python3 scripts/ffi_smoke.py   # drives the C ABI end-to-end (needs the release .so)

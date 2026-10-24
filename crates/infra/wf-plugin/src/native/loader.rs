@@ -118,11 +118,6 @@ fn determine_native_base_path(manifest: &PluginManifest) -> PluginResult<std::pa
         }
     }
 
-    // Legacy development layout: repository-root `plugins/{id}`.
-    let candidate = std::path::PathBuf::from("plugins").join(&manifest.id);
-    if candidate.join(&manifest.entry_point).exists() {
-        return Ok(candidate);
-    }
     Err(PluginError::LoadFailed(format!(
         "cannot find entry point '{}' for plugin '{}'",
         manifest.entry_point, manifest.id

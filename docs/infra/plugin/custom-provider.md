@@ -32,7 +32,7 @@ provider 集成有两种形态，由 manifest 声明与运行时注册共同决�
   - 一个 `llm-auth` 实现（`PluginLlmAuth`：`describe` / `login_start` / `login_poll` / `login_submit` / `refresh` / `resolve`）；
   - 一个 `[[llm_providers]]` 条目，其 `[llm_providers.auth]` 的 `provider` 指向该 `llm-auth` 贡献名，`method = "oauth"`，`is_subscription = true`，并把 OAuth 公开参数放进 `[llm_providers.auth.params]`。
 - 宿主在插件激活时：先 `sync_llm`（注册 provider 定义），再 `sync_auth`（把 `llm-auth` 贡献适配为 `ProviderAuth` 注册进 gateway 的 auth registry，键 = **auth 贡献名**，而非 provider definition id），随后校验"声明了 `auth` 的 provider 必须引用一个已注册的同名 `llm_auth` 贡献，否则激活失败（大声报错）"。
-- 参考实现：`plugins/llm-auth-claude-subscription/`（native，PKCE 粘贴流），随仓库分发，是唯一官方样板。
+- 参考实现：`.wf-user/plugins/llm-auth-claude-subscription/`（native，PKCE 粘贴流），随仓库分发，是唯一官方样板。
 
 ## 3. 登录流程（llm-auth 契约）
 

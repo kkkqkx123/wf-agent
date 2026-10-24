@@ -26,6 +26,8 @@ pub mod family {
     pub const LLM_PROVIDERS: &str = "llm-providers";
     /// LLM profile definitions (`configs/llm-profiles`).
     pub const LLM_PROFILES: &str = "llm-profiles";
+    /// LLM authentication declarations (`configs/llm-auth` / user-level `llm-auth`).
+    pub const LLM_AUTH: &str = "llm-auth";
     /// Workflow definitions (`configs/workflows`).
     pub const WORKFLOWS: &str = "workflows";
     /// Agent loop definitions (`configs/agent-loops`).

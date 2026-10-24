@@ -56,14 +56,10 @@ function storedOwner(): { ownerId: string; ownerName: string } {
  * feed and re-reads the holder for its own kind and id. The interval below
  * only heals missed pushes while disconnected. The heartbeat stays a
  * periodic write: renewing our own lease cannot be a push.
- *
- * When the lock endpoints are absent the store reports unsupported and
- * leaves editing unblocked with a notice.
  */
 export class EditLockStore {
 	holderId = $state<string | null>(null);
 	holderName = $state('');
-	supported = $state(true);
 	refreshError = $state<string | null>(null);
 	/** A previously held lease changed hands or expired. Sticky until re-acquired or acknowledged. */
 	lockLost = $state(false);
@@ -81,7 +77,6 @@ export class EditLockStore {
 
 	get held(): boolean {
 		return (
-			this.supported &&
 			this.holderId !== null &&
 			this.ownerId !== '' &&
 			this.holderId === this.ownerId
@@ -89,24 +84,20 @@ export class EditLockStore {
 	}
 
 	get lockedByOther(): boolean {
-		return (
-			this.supported && this.holderId !== null && this.holderId !== this.ownerId
-		);
+		return this.holderId !== null && this.holderId !== this.ownerId;
 	}
 
 	/** Poll or heartbeat failed: holder is stale, writes must wait. */
 	get unknown(): boolean {
-		return this.supported && this.refreshError !== null;
+		return this.refreshError !== null;
 	}
 
 	get canWrite(): boolean {
-		if (!this.supported) return true;
 		if (this.refreshError !== null) return false;
 		return this.held;
 	}
 
 	get displayHolder(): string {
-		if (!this.supported) return 'No lock protection';
 		if (!this.holderId) return 'Unlocked';
 		if (this.held) return 'You hold the lock';
 		return this.holderName || this.holderId;
@@ -125,7 +116,7 @@ export class EditLockStore {
 		if (this.definitionId === definitionId && definitionId !== '') return;
 		// Switching definitions releases the previous lease without blocking;
 		// failures only surface as a notice.
-		if (this.definitionId && this.supported && this.held) {
+		if (this.definitionId && this.held) {
 			const previousId = this.definitionId;
 			const previousOwner = this.ownerId;
 			void releaseDefinitionLock(this.kind, previousId, previousOwner).catch(
@@ -169,7 +160,6 @@ export class EditLockStore {
 
 	async acquire(): Promise<boolean> {
 		if (!this.definitionId) return false;
-		if (!this.supported) return true;
 		try {
 			const lock = await acquireDefinitionLock(this.kind, this.definitionId, {
 				ownerId: this.ownerId,
@@ -182,10 +172,6 @@ export class EditLockStore {
 			this.startHeartbeat();
 			return lock.ownerId === this.ownerId;
 		} catch (e) {
-			if (this.isMissingEndpoint(e)) {
-				this.supported = false;
-				return true;
-			}
 			this.refreshError = e instanceof Error ? e.message : 'Lock failed.';
 			await this.refresh();
 			return false;
@@ -195,7 +181,7 @@ export class EditLockStore {
 	async release(): Promise<void> {
 		this.stopHeartbeat();
 		this.leaseActive = false;
-		if (!this.definitionId || !this.supported || !this.held) return;
+		if (!this.definitionId || !this.held) return;
 		try {
 			await releaseDefinitionLock(this.kind, this.definitionId, this.ownerId);
 			this.refreshError = null;
@@ -258,15 +244,9 @@ export class EditLockStore {
 		if (!this.definitionId) return;
 		try {
 			const lock = await getDefinitionLock(this.kind, this.definitionId);
-			this.supported = true;
 			this.applyHolder(lock?.ownerId ?? null, lock?.ownerName ?? '');
 			this.refreshError = null;
 		} catch (e) {
-			if (this.isMissingEndpoint(e)) {
-				this.supported = false;
-				this.refreshError = null;
-				return;
-			}
 			this.refreshError = e instanceof Error ? e.message : 'Lock query failed.';
 		}
 	}
@@ -301,10 +281,5 @@ export class EditLockStore {
 		}
 		this.holderId = ownerId;
 		this.holderName = ownerName;
-	}
-
-	private isMissingEndpoint(e: unknown): boolean {
-		const message = e instanceof Error ? e.message : String(e);
-		return /404|not found|no route|unknown endpoint/i.test(message);
 	}
 }

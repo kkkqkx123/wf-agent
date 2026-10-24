@@ -1,4 +1,11 @@
 import { getGraphAnalysis, getGraphNeighbors } from '#lib/services/graph';
+import {
+	getExecutionCallStack,
+	getExecutionDetail,
+	listUnifiedExecutions,
+} from '#lib/services/executions';
+import { loadAnalysisData } from '#lib/services/inspector-loaders';
+import type { DefinitionExecutionSignals } from '#lib/graph/execution-projection';
 import type { GraphAnalysisResult } from '#lib/types/models';
 import type { GraphOverlay } from '#lib/graph/display-model';
 import { toasts } from '#lib/stores/toast.svelte';
@@ -9,6 +16,10 @@ import { toasts } from '#lib/stores/toast.svelte';
  * the loaded analysis, exactly as the page-level state did before the split.
  * A detail reload (promotion, versions restore) calls reset() which clears
  * the selection and re-runs the analysis.
+ *
+ * The execution overlay is a read-only projection of the latest run onto
+ * the definition topology: the execution domain stays the only writer of
+ * run state, and this tab only reads one snapshot of it.
  */
 export class WorkflowGraphState {
 	selection = $state<string | null>(null);
@@ -16,13 +27,17 @@ export class WorkflowGraphState {
 	analysis = $state<GraphAnalysisResult | null>(null);
 	analysisError = $state<string | null>(null);
 	neighborhoodIds = $state<string[]>([]);
-
-	private loadedId = '';
+	executionOverlay = $state<DefinitionExecutionSignals | null>(null);
+	overlayRunId = $state<string | null>(null);
+	overlayLoading = $state(false);
+	overlayError = $state<string | null>(null);
 
 	async load(id: string): Promise<void> {
-		this.loadedId = id;
 		this.selection = null;
 		this.activeOverlay = null;
+		this.executionOverlay = null;
+		this.overlayRunId = null;
+		this.overlayError = null;
 		await this.loadAnalysis(id);
 	}
 
@@ -56,6 +71,76 @@ export class WorkflowGraphState {
 				e instanceof Error ? e.message : undefined,
 			);
 		}
+	}
+
+	/**
+	 * Project the latest run of one definition onto the definition graph.
+	 * Read-only: detail, call stack and analysis are merged into overlay
+	 * signals without writing back to the definition.
+	 */
+	async loadLatestRunOverlay(definitionId: string): Promise<void> {
+		if (!definitionId || this.overlayLoading) return;
+		this.overlayLoading = true;
+		this.overlayError = null;
+		try {
+			const page = await listUnifiedExecutions({
+				limit: 1,
+				definitionId,
+			});
+			const runId = page.items[0]?.id ?? null;
+			if (!runId) {
+				this.executionOverlay = null;
+				this.overlayRunId = null;
+				this.overlayError = 'No runs yet for this definition.';
+				return;
+			}
+			const [detail, callStack, analysis] = await Promise.all([
+				getExecutionDetail(runId),
+				getExecutionCallStack(runId),
+				loadAnalysisData(runId).catch(() => null),
+			]);
+			const failed = callStack
+				.filter((frame) =>
+					['failed', 'failure', 'error', 'errored', 'timeout'].includes(
+						frame.status.trim().toLowerCase(),
+					),
+				)
+				.map((frame) => frame.node);
+			const executed = callStack
+				.filter((frame) =>
+					['completed', 'complete', 'success', 'succeeded', 'done'].includes(
+						frame.status.trim().toLowerCase(),
+					),
+				)
+				.map((frame) => frame.node);
+			this.executionOverlay = {
+				runId,
+				currentNode: detail.currentNode,
+				failedNodes: [
+					...new Set([...failed, ...(analysis?.failedNodes ?? [])]),
+				],
+				criticalPath: analysis?.criticalPath ?? [],
+				slowNodes: (analysis?.slowNodes ?? []).map((entry) => ({
+					node: entry.node,
+					durationMs: entry.durationMs,
+				})),
+				decisionPoints: analysis?.decisionPoints ?? [],
+				executedNodes: executed,
+				liveStatuses: {},
+			};
+			this.overlayRunId = runId;
+		} catch (e) {
+			this.overlayError =
+				e instanceof Error ? e.message : 'Latest run failed to load.';
+		} finally {
+			this.overlayLoading = false;
+		}
+	}
+
+	clearExecutionOverlay(): void {
+		this.executionOverlay = null;
+		this.overlayRunId = null;
+		this.overlayError = null;
 	}
 
 	get overlays(): GraphOverlay[] {

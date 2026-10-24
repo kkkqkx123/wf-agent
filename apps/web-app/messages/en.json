@@ -1035,7 +1035,6 @@
 	"domain.workflowEdit.lockLostTitle": "Edit lock lost",
 	"domain.workflowEdit.lockQueryFailed": "Lock query failed; saving is disabled.",
 	"domain.workflowEdit.lockedByOther": "Read-only · held by {holder}",
-	"domain.workflowEdit.noLock": "No lock protection",
 	"domain.workflowEdit.reacquire": "Re-acquire lock",
 	"domain.workflowEdit.unlocked": "Unlocked",
 	"domain.workflowEdit.validationIssues": "Validation issues",

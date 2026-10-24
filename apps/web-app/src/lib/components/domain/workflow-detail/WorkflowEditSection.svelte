@@ -12,6 +12,11 @@
 	let { controller }: Props = $props();
 </script>
 
+<p class="mb-2 text-micro text-muted-foreground">
+	Shared definition editor · this canvas, lock, draft, validate and promote flow
+	is the same one workflow templates use; the workflow page is the runnable
+	instance view, not a second definition source.
+</p>
 <WorkflowEditPanel
 	store={controller.editStore}
 	lock={controller.lockStore}

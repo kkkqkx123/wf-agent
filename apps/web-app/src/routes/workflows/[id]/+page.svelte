@@ -50,6 +50,14 @@
 			: 'graph',
 	);
 
+	// A workflow is the runnable instance derived from a reusable template
+	// view. The origin id travels in `?fromTemplate=` when it was just
+	// created from the library, so this page can link back instead of
+	// forking a silent copy.
+	const fromTemplate = $derived(
+		(page.url as unknown as URL).searchParams.get('fromTemplate') ?? '',
+	);
+
 	$effect(() => {
 		gotoWithParams(page.url as unknown as URL, {
 			tab: tab === 'graph' ? '' : tab,
@@ -285,6 +293,7 @@
 					size="sm"
 					disabled={publishBusy}
 					onclick={() => void runTogglePublish()}
+					title="Publish the reusable template view of this definition"
 				>
 					<Icon name={workflow.published ? 'archive' : 'upload'} size={13} />
 					{workflow.published
@@ -306,6 +315,7 @@
 			<Button
 				variant="brand"
 				size="sm"
+				title="Start a run in the execution domain"
 				onclick={() => {
 					const id = page.params.id;
 					if (id) void goToRunWorkbench(id);
@@ -325,6 +335,20 @@
 	/>
 
 	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+		{#if fromTemplate}
+			<p
+				class="mb-2 rounded-lg border border-border bg-card px-3 py-2 text-caption text-muted-foreground"
+			>
+				Runnable instance derived from template
+				<a
+					class="font-mono underline-offset-2 hover:underline"
+					href={`/templates/workflow/${encodeURIComponent(fromTemplate)}`}
+				>
+					{fromTemplate}
+				</a>
+				· the template stays the reusable view, this workflow is the runnable instance.
+			</p>
+		{/if}
 		{#if detailLoading}
 			<Skeleton lines={6} class="rounded-lg border border-border bg-card p-4" />
 		{:else if detailError || !detail}
@@ -346,6 +370,13 @@
 				onedit={() => session.requestTab('edit')}
 			/>
 		{:else if tab === 'edit'}
+			<p class="mb-2 text-caption text-muted-foreground">
+				Definition editor · same draft → validate → promote flow as workflow
+				templates in the
+				<a class="underline-offset-2 hover:underline" href="/templates"
+					>template library</a
+				>. Runs stay in the execution domain (Runs tab, Run button).
+			</p>
 			<WorkflowEditSection controller={session} workflowId={detail.id} />
 		{:else if tab === 'versions'}
 			{#if detail}
@@ -369,6 +400,10 @@
 				onvalidate={(draftId) => void runValidate(draftId)}
 			/>
 		{:else}
+			<p class="mb-2 text-caption text-muted-foreground">
+				Execution domain · runs are read-only here; new runs start in the
+				execution workbench. Editing the definition happens in the Edit tab.
+			</p>
 			<RunsPanel kind="workflow" definitionId={detail.id} />
 		{/if}
 	</div>

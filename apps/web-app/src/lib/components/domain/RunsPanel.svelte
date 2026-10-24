@@ -107,6 +107,10 @@
 </script>
 
 <div class="space-y-2.5">
+	<p class="text-micro text-muted-foreground">
+		Execution domain · runs are read-only here; new runs start in the execution
+		workbench and re-runs live on the execution detail page.
+	</p>
 	{#if runsDirty}
 		<div
 			class="flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2"

@@ -12,6 +12,7 @@
 	import type { DisplayNode } from '#lib/graph/display-model';
 	import type { TemplateEditTab } from '#lib/types/models';
 	import {
+		describeValidationGate,
 		jsonErrorLine,
 		jsonFieldLine,
 		localTemplateIssues,
@@ -42,6 +43,10 @@
 		saveBusy: boolean;
 		openWorkflowBusy: boolean;
 		graphRequest: number;
+		/** Single-writer lock holder text; empty when the kind has no lock. */
+		lockHolder?: string;
+		/** Whether the current edit may write; lock-free kinds are writable. */
+		canWrite?: boolean;
 		ontabchange: (tab: TemplateEditTab) => void;
 		onvalidate: () => void;
 		onsave: () => void;
@@ -74,6 +79,8 @@
 		saveBusy,
 		openWorkflowBusy,
 		graphRequest,
+		lockHolder = '',
+		canWrite = true,
 		ontabchange,
 		onvalidate,
 		onsave,
@@ -299,6 +306,16 @@
 		<Badge variant="danger">{t('domain.templateEdit.invalid')}</Badge>
 	{/if}
 </div>
+{#if lockHolder}
+	<p class="text-micro text-muted-foreground">
+		Edit lock: {lockHolder}{canWrite
+			? ''
+			: ' · read-only until the lock is free.'}
+	</p>
+{/if}
+<p class="text-micro text-muted-foreground">
+	Validation gate: {describeValidationGate(kind)}
+</p>
 {#if tab === 'form'}
 	<div class="space-y-2">
 		{#each fields as field (field.key)}
@@ -518,7 +535,7 @@
 	<Button variant="outline" size="sm" onclick={() => onvalidate()}>
 		{t('domain.graph.validate')}
 	</Button>
-	<Button size="sm" disabled={saveBusy} onclick={() => onsave()}>
+	<Button size="sm" disabled={saveBusy || !canWrite} onclick={() => onsave()}>
 		{saveBusy
 			? t('domain.graph.saving')
 			: isNew

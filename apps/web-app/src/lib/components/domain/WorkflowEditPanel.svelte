@@ -74,9 +74,7 @@
 </script>
 
 <div class="mb-2 flex flex-wrap items-center gap-2 text-caption">
-	{#if !lock.supported}
-		<Badge variant="warning">{t('domain.workflowEdit.noLock')}</Badge>
-	{:else if lock.held}
+	{#if lock.held}
 		<Badge variant="success">{t('domain.workflowEdit.lockHeld')}</Badge>
 	{:else if lock.lockedByOther}
 		<Badge variant="danger"

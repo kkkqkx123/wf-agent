@@ -1035,7 +1035,6 @@
 	"domain.workflowEdit.lockLostTitle": "编辑锁丢失",
 	"domain.workflowEdit.lockQueryFailed": "锁状态查询失败；保存已禁用。",
 	"domain.workflowEdit.lockedByOther": "只读 · 由 {holder} 持有",
-	"domain.workflowEdit.noLock": "无锁保护",
 	"domain.workflowEdit.reacquire": "重新获取锁",
 	"domain.workflowEdit.unlocked": "未锁定",
 	"domain.workflowEdit.validationIssues": "校验问题",

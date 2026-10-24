@@ -18,12 +18,20 @@ export interface GraphMove {
 interface HistoryEntry {
 	nodes: DisplayNode[];
 	edges: DisplayEdge[];
+	positions: Record<string, GraphPosition>;
 }
 
-function snapshot(nodes: DisplayNode[], edges: DisplayEdge[]): HistoryEntry {
+function snapshot(
+	nodes: DisplayNode[],
+	edges: DisplayEdge[],
+	positions: Record<string, GraphPosition>,
+): HistoryEntry {
 	return {
 		nodes: nodes.map((node) => ({ ...node })),
 		edges: edges.map((edge) => ({ ...edge })),
+		positions: Object.fromEntries(
+			Object.entries(positions).map(([id, position]) => [id, { ...position }]),
+		),
 	};
 }
 
@@ -32,6 +40,11 @@ function snapshot(nodes: DisplayNode[], edges: DisplayEdge[]): HistoryEntry {
  * (move, add, delete); every mutation lands here, and the canvas re-renders
  * from this single source. Undo and redo replay whole snapshots so grouped
  * drag gestures collapse to one history entry.
+ *
+ * Topology (nodes/edges) is draft state: `dirty` compares it against the
+ * last draft save. Positions are layout state persisted through the layout
+ * endpoint, never the draft payload: moves commit history entries (so they
+ * undo/redo) and mark `layoutDirty`, but leave `dirty` untouched.
  */
 export class GraphEditStore {
 	nodes = $state<DisplayNode[]>([]);
@@ -40,11 +53,26 @@ export class GraphEditStore {
 	selectedId = $state<string | null>(null);
 
 	private baseline = $state('');
+	private layoutBaseline = $state('');
 	private past = $state<HistoryEntry[]>([]);
 	private future = $state<HistoryEntry[]>([]);
 
+	/**
+	 * Topology drift (nodes/edges) against the last draft save. Canvas
+	 * positions are layout state persisted through the layout endpoint, not
+	 * the draft payload, so they never mark the draft dirty.
+	 */
 	get dirty(): boolean {
 		return this.describe() !== this.baseline;
+	}
+
+	/**
+	 * Layout drift (canvas positions) against the last layout baseline.
+	 * Moves are undoable but do not dirty the draft; the canvas persists
+	 * them through the layout endpoint instead.
+	 */
+	get layoutDirty(): boolean {
+		return this.describePositions() !== this.layoutBaseline;
 	}
 
 	get canUndo(): boolean {
@@ -62,11 +90,18 @@ export class GraphEditStore {
 		this.past = [];
 		this.future = [];
 		this.baseline = this.describe();
+		this.layoutBaseline = this.describePositions();
 		this.selectedId = null;
 	}
 
+	/** Record the topology as draft-clean; layout drift is kept as-is. */
 	markClean(): void {
 		this.baseline = this.describe();
+	}
+
+	/** Record the positions as layout-clean after a layout save or reset. */
+	markLayoutClean(): void {
+		this.layoutBaseline = this.describePositions();
 	}
 
 	applyMove(
@@ -224,9 +259,13 @@ export class GraphEditStore {
 	undo(): void {
 		const previous = this.past.pop();
 		if (!previous) return;
-		this.future = [...this.future, snapshot(this.nodes, this.edges)];
+		this.future = [
+			...this.future,
+			snapshot(this.nodes, this.edges, this.positions),
+		];
 		this.nodes = previous.nodes;
 		this.edges = previous.edges;
+		this.positions = previous.positions;
 		this.prunePositions();
 		this.past = [...this.past];
 	}
@@ -234,9 +273,13 @@ export class GraphEditStore {
 	redo(): void {
 		const next = this.future.pop();
 		if (!next) return;
-		this.past = [...this.past, snapshot(this.nodes, this.edges)];
+		this.past = [
+			...this.past,
+			snapshot(this.nodes, this.edges, this.positions),
+		];
 		this.nodes = next.nodes;
 		this.edges = next.edges;
+		this.positions = next.positions;
 		this.prunePositions();
 		this.future = [...this.future];
 	}
@@ -286,12 +329,22 @@ export class GraphEditStore {
 	}
 
 	private commit(): void {
-		this.past = [...this.past.slice(-49), snapshot(this.nodes, this.edges)];
+		this.past = [
+			...this.past.slice(-49),
+			snapshot(this.nodes, this.edges, this.positions),
+		];
 		this.future = [];
 	}
 
 	private describe(): string {
 		return JSON.stringify({ nodes: this.nodes, edges: this.edges });
+	}
+
+	private describePositions(): string {
+		const ids = Object.keys(this.positions).sort();
+		return JSON.stringify(
+			Object.fromEntries(ids.map((id) => [id, this.positions[id]])),
+		);
 	}
 
 	private isPositionTarget(id: string): boolean {

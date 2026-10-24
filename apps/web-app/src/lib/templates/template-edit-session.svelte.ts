@@ -7,6 +7,7 @@ import {
 	validateDefinitionDraft,
 } from '#lib/services/definitions';
 import { GraphEditStore } from '#lib/graph/edit-store.svelte';
+import { EditLockStore } from '#lib/stores/edit-lock.svelte';
 import type { CanvasPosition } from '#lib/graph/canvas-model';
 import { createWorkflow } from '#lib/services/workflows';
 import {
@@ -16,8 +17,10 @@ import {
 	exportTemplate,
 	localTemplateIssues,
 	recordTemplateUsage,
+	requiresServerCompileGate,
 	saveTemplate,
 	serverTemplateIssues,
+	supportsDefinitionLock,
 	templateBackendDefinition,
 	templateFormFields,
 	TemplateEditSession,
@@ -63,6 +66,12 @@ export interface TemplateEditRouteContext {
  * concern (JSON/form/graph state, validation, save and lifecycle actions)
  * so the route stays a thin composition layer that only owns navigation
  * guards and detail loading.
+ *
+ * Editing follows the unified definition state machine (lock, draft,
+ * validate, promote) where the backend supports it: workflow and agent
+ * templates acquire the single-writer lock and pass the server compile
+ * gate before save; node and trigger entries keep local hints with
+ * save-time server validation and no lock.
  */
 export class TemplateEditController {
 	private context: TemplateEditRouteContext;
@@ -79,6 +88,10 @@ export class TemplateEditController {
 	saveBusy = $state(false);
 	deleteArmed = $state(false);
 	openWorkflowBusy = $state(false);
+
+	// Single-writer lock for kinds the backend guards. Null for node and
+	// trigger entries, which have no lock endpoint and stay unblocked.
+	lockStore = $state<EditLockStore | null>(null);
 
 	// Controlled graph edit state for workflow templates. The canvas only
 	// emits intents; every mutation lands here and re-renders from it.
@@ -171,6 +184,7 @@ export class TemplateEditController {
 		this.serverIssues = [];
 		this.validatedText = null;
 		if (tab === 'graph') this.graphRequest += 1;
+		void this.acquireEditLock();
 	}
 
 	exitEdit(): void {
@@ -179,6 +193,54 @@ export class TemplateEditController {
 		this.serverIssues = [];
 		this.validatedText = null;
 		this.syntaxError = null;
+		if (this.lockStore) {
+			this.lockStore.acknowledgeLockLoss();
+			void this.lockStore.release();
+		}
+	}
+
+	/** Whether the current edit may write: unlocked kinds always may. */
+	get canWrite(): boolean {
+		if (!this.lockStore) return true;
+		return this.lockStore.canWrite;
+	}
+
+	/** Human-readable holder for the lock badge; empty when lock-free. */
+	get lockHolder(): string {
+		return this.lockStore?.displayHolder ?? '';
+	}
+
+	private lockKind(): 'workflow' | 'agent' | null {
+		const kind = this.kind;
+		if (kind === 'workflow' || kind === 'agent') return kind;
+		return null;
+	}
+
+	private async acquireEditLock(): Promise<void> {
+		const kind = this.kind;
+		if (!kind || !supportsDefinitionLock(kind)) {
+			this.lockStore = null;
+			return;
+		}
+		if (this.isNew) {
+			this.lockStore = null;
+			return;
+		}
+		const lockKind = this.lockKind();
+		if (!lockKind) {
+			this.lockStore = null;
+			return;
+		}
+		const store = new EditLockStore(lockKind);
+		this.lockStore = store;
+		store.watch(this.routeIdParam);
+		const ok = await store.acquire();
+		if (!ok) {
+			toasts.warning(
+				'Template is being edited',
+				`Held by ${store.displayHolder}. Canvas is read-only until the lock is free.`,
+			);
+		}
 	}
 
 	/** Fold the active tab back into the session before validate or save. */
@@ -385,16 +447,28 @@ export class TemplateEditController {
 	async runSave(): Promise<void> {
 		const kind = this.kind;
 		if (!kind) return;
+		if (this.lockStore && !this.lockStore.canWrite) {
+			toasts.warning(
+				'Save blocked',
+				`Held by ${this.lockStore.displayHolder}.`,
+			);
+			return;
+		}
 		const valid = await this.runValidate();
 		if (!valid) {
 			toasts.error('Template invalid', 'Fix the reported issues first.');
 			return;
 		}
-		if (kind === 'workflow') {
-			const serverOk = await this.runTemplateServerGate();
-			if (!serverOk) {
-				this.editTab = 'graph';
-				return;
+		if (requiresServerCompileGate(kind)) {
+			// Agent kinds pass their compile gate inside runValidate
+			// (/agents/validate); workflow kinds additionally pass the draft
+			// compile gate below before the save lands.
+			if (kind === 'workflow') {
+				const serverOk = await this.runTemplateServerGate();
+				if (!serverOk) {
+					this.editTab = 'graph';
+					return;
+				}
 			}
 		}
 		const value = this.session.definition();
@@ -464,10 +538,16 @@ export class TemplateEditController {
 					: `template-${this.routeIdParam}`;
 			const created = await createWorkflow(name, definition);
 			void recordTemplateUsage(this.routeIdParam).catch(() => undefined);
+			// A workflow is the runnable instance derived from the reusable
+			// template view. The origin id travels in the address so the
+			// workflow page can link back instead of forking a silent copy.
 			toasts.success('Workflow created from template');
 			// The path is resolve()d; resolve() cannot append the query string.
 
-			await goto(resolve('/workflows/[id]', { id: created.id }) + '?tab=edit');
+			await goto(
+				resolve('/workflows/[id]', { id: created.id }) +
+					`?tab=edit&fromTemplate=${encodeURIComponent(this.routeIdParam)}`,
+			);
 		} catch (e) {
 			toasts.error(
 				'Open as workflow failed',

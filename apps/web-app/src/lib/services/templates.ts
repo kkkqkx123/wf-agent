@@ -339,6 +339,11 @@ export function serverTemplateIssues(
  * empty means the definition validates. Node and trigger templates have no
  * dry-run endpoint, so they run the client field gate here and validate
  * for real on save.
+ *
+ * Validation layers, shared by every definition kind:
+ * - instant hint: synchronous `localTemplateIssues` while typing;
+ * - compile gate: a server endpoint before save (`requiresServerCompileGate`);
+ * - save: the server owns the final check, failures surface without rollback.
  */
 export async function validateTemplateDefinition(
 	kind: TemplateKind,
@@ -379,6 +384,43 @@ export async function validateTemplateDefinition(
 		}
 	}
 	return localTemplateIssues(kind, definition);
+}
+
+/**
+ * Unified definition editing model, shared by the template library and the
+ * workflow detail page. A template is the reusable view of a definition; a
+ * workflow is the runnable instance of the same definition shape. Both go
+ * through lock, draft, validate and promote where the backend supports it:
+ * workflow and agent definitions carry all four, node and trigger entries
+ * only carry save-time server validation. The kind decides which endpoint
+ * answers; an unknown kind is an error and never guessed.
+ */
+export const COMPILE_GATE_KINDS: readonly TemplateKind[] = [
+	'workflow',
+	'agent',
+];
+
+/** Whether saving this kind must pass a server compile gate first. */
+export function requiresServerCompileGate(kind: TemplateKind): boolean {
+	return COMPILE_GATE_KINDS.includes(kind);
+}
+
+/** Whether this kind has a single-writer editing lock on the backend. */
+export function supportsDefinitionLock(kind: TemplateKind): boolean {
+	return kind === 'workflow' || kind === 'agent';
+}
+
+/**
+ * Where the server check for this kind happens: workflow and agent kinds
+ * validate through a dry-run endpoint before save, node and trigger kinds
+ * validate for real on save. Frontend field checks are instant hints only.
+ */
+export function describeValidationGate(kind: TemplateKind): string {
+	if (kind === 'workflow')
+		return 'local hint + /workflows/validate + draft compile gate, final check on save';
+	if (kind === 'agent')
+		return 'local hint + /agents/validate compile gate, final check on save';
+	return 'local field hint, server validates on save';
 }
 
 /**

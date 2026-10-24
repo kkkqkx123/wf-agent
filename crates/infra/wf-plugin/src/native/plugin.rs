@@ -100,6 +100,7 @@ impl Plugin for NativePlugin {
             register_node_type: Some(ffi_register_node_type),
             register_tool_type: Some(ffi_register_tool_type),
             register_llm_provider: Some(ffi_register_llm_provider),
+            register_llm_auth: Some(ffi_register_llm_auth),
             register_event_handler: Some(ffi_register_event_handler),
             register_middleware: Some(ffi_register_middleware),
             register_tool: Some(ffi_register_tool),
@@ -349,6 +350,26 @@ extern "C" fn ffi_register_llm_provider(
     registrar_ctx.record(result)
 }
 
+extern "C" fn ffi_register_llm_auth(
+    ctx_ptr: *mut std::ffi::c_void,
+    name: *const std::os::raw::c_char,
+) -> i32 {
+    if ctx_ptr.is_null() || name.is_null() {
+        return 1;
+    }
+    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
+    let name_str = unsafe { ptr_to_string(name) };
+    let dispatch = registrar_ctx.dispatch;
+    let result = registrar_ctx.registrar.register_llm_auth(
+        &name_str.clone(),
+        Arc::new(NativeLlmAuth {
+            name: name_str,
+            dispatch,
+        }),
+    );
+    registrar_ctx.record(result)
+}
+
 extern "C" fn ffi_register_event_handler(
     ctx_ptr: *mut std::ffi::c_void,
     event_type: *const std::os::raw::c_char,
@@ -525,6 +546,58 @@ impl PluginLlmCodec for NativeLlmCodec {
             "parse_count_tokens_response",
             serde_json::json!({"body": body}),
         )
+    }
+}
+
+pub struct NativeLlmAuth {
+    name: String,
+    dispatch: Option<DispatchFn>,
+}
+
+impl NativeLlmAuth {
+    /// Structured auth round-trip over the dispatch channel: the op
+    /// selects the auth function (`describe`, `login_start`, ...) and the
+    /// JSON input carries the structured arguments.
+    fn roundtrip<T: serde::de::DeserializeOwned>(&self, op: &str, input: Value) -> PluginResult<T> {
+        let input_json = serde_json::to_string(&input)
+            .map_err(|e| PluginError::NativeError(format!("serialize auth input: {e}")))?;
+        let output = dispatch_call(
+            self.dispatch,
+            "llm-auth",
+            &format!("{}/{op}", self.name),
+            &input_json,
+        )?;
+        serde_json::from_slice::<T>(&output)
+            .map_err(|e| PluginError::NativeError(format!("deserialize auth {op}: {e}")))
+    }
+}
+
+impl PluginLlmAuth for NativeLlmAuth {
+    fn describe(&self) -> PluginResult<AuthDescriptor> {
+        self.roundtrip("describe", serde_json::json!({}))
+    }
+
+    fn login_start(&self, config: Value) -> PluginResult<PluginLoginChallenge> {
+        self.roundtrip("login_start", serde_json::json!({"config": config}))
+    }
+
+    fn login_poll(&self, session: Value) -> PluginResult<PluginLoginStep> {
+        self.roundtrip("login_poll", serde_json::json!({"session": session}))
+    }
+
+    fn login_submit(&self, session: Value, input: String) -> PluginResult<PluginLoginStep> {
+        self.roundtrip(
+            "login_submit",
+            serde_json::json!({"session": session, "input": input}),
+        )
+    }
+
+    fn refresh(&self, credential: Value) -> PluginResult<Value> {
+        self.roundtrip("refresh", serde_json::json!({"credential": credential}))
+    }
+
+    fn resolve(&self, credential: Value) -> PluginResult<Value> {
+        self.roundtrip("resolve", serde_json::json!({"credential": credential}))
     }
 }
 

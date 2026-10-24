@@ -106,3 +106,24 @@ pub enum LlmTemplateSub {
         author: Option<String>,
     },
 }
+
+/// LLM authentication subcommands: login (device / PKCE / API-key entry),
+/// logout and status. Login drives the host-side session state machine over
+/// HTTP; secrets never appear in output.
+#[derive(Debug, Clone, Subcommand)]
+pub enum LlmAuthSub {
+    /// Start a login for a provider (lists options when omitted).
+    Login {
+        /// Provider id to authenticate; omit to list declared surfaces.
+        #[arg(value_name = "PROVIDER")]
+        provider: Option<String>,
+    },
+    /// Remove the stored credential for a provider.
+    Logout {
+        /// Provider id to log out.
+        #[arg(value_name = "PROVIDER")]
+        provider: String,
+    },
+    /// Show declared auth surfaces and stored-credential status.
+    Status,
+}

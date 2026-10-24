@@ -20,7 +20,7 @@ use crate::trigger_listener::TriggerExecutionRecorder;
 use super::code_context::resolve_code_context_transport;
 use super::config::{adjust_log_config, resolve_infra_config, InfraSourceConfig, RuntimeConfig};
 use super::file_checkpoint::init_file_checkpoint_stack;
-use super::llm::{create_llm_gateway, register_llm_config};
+use super::llm::{create_auth_registry, create_llm_gateway, register_llm_config};
 use super::mcp::init_mcp;
 use super::metrics::init_metrics_context;
 #[cfg(feature = "plugins")]
@@ -195,11 +195,20 @@ impl Runtime {
             tool_registry.set_tool_metrics(metrics.registry().tool());
         }
 
-        let pricing_resolver =
-            wf_pricing::build_composite_resolver(storage_manager.shared_context().as_deref()).await;
+        let pricing_resolver = wf_pricing::build_composite_resolver(
+            storage_manager.shared_context().as_deref(),
+        )
+        .await;
+        // Declarative auth surfaces attach to the gateway before plugin
+        // activation: plugin-provided surfaces register on the same registry
+        // (fixed startup order, no lazy backfill) and file-layer profiles can
+        // reference every surface by id.
+        let auth_registry =
+            create_auth_registry(&config.llm.auth, config.mcp.project_root.as_deref())?;
         let llm_gateway = create_llm_gateway(
             metrics.as_ref().map(|m| m.registry().as_ref()),
             Some(pricing_resolver),
+            Some(auth_registry),
         );
 
         #[cfg(feature = "plugins")]

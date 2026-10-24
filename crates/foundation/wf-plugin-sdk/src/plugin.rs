@@ -51,6 +51,13 @@ impl NativeRegistrar {
         self.record("llm-provider", name);
     }
 
+    /// Register a provider authentication implementation; dispatched on
+    /// the `llm-auth` handler type with ops `describe` / `login_start` /
+    /// `login_poll` / `login_submit` / `refresh` / `resolve`.
+    pub fn register_llm_auth(&self, name: &str) {
+        self.record("llm-auth", name);
+    }
+
     pub fn register_event_handler(&self, event_type: &str) {
         self.record("event-handler", event_type);
     }
@@ -284,6 +291,7 @@ pub mod __private {
                 "node-type" => host.register_node_type.map(|f| f(ctx, name_ptr)),
                 "tool-type" => host.register_tool_type.map(|f| f(ctx, name_ptr)),
                 "llm-provider" => host.register_llm_provider.map(|f| f(ctx, name_ptr)),
+                "llm-auth" => host.register_llm_auth.map(|f| f(ctx, name_ptr)),
                 "event-handler" => host.register_event_handler.map(|f| f(ctx, name_ptr)),
                 "middleware" => host.register_middleware.map(|f| f(ctx, name_ptr, 0)),
                 _ => None,
@@ -576,7 +584,6 @@ mod tests {
             registrar.register_node_type("demo_node");
         }
     }
-
     crate::export_plugin!(DemoPlugin);
 
     fn make_ctx(config: &serde_json::Value) -> (CString, CString, PluginContextC) {
@@ -698,6 +705,16 @@ mod tests {
                 ("tool-type".to_owned(), "demo_tool".to_owned()),
                 ("node-type".to_owned(), "demo_node".to_owned()),
             ]
+        );
+    }
+
+    #[test]
+    fn registrar_records_llm_auth_contribution() {
+        let registrar = NativeRegistrar::new();
+        registrar.register_llm_auth("claude-subscription");
+        assert_eq!(
+            registrar.recorded(),
+            vec![("llm-auth".to_owned(), "claude-subscription".to_owned())]
         );
     }
 

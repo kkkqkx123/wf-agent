@@ -93,12 +93,14 @@ mod runtime;
 mod session_pool;
 mod version;
 
+
 pub(crate) use codec::*;
 pub(crate) use handlers::*;
 pub(crate) use observe::*;
 pub(crate) use runtime::*;
 pub(crate) use session_pool::*;
 pub(crate) use version::*;
+
 
 #[async_trait]
 impl PluginTrait for ComponentPlugin {
@@ -201,6 +203,15 @@ impl PluginTrait for ComponentPlugin {
                 }),
             )?;
         }
+        for name in &decl.llm_auths {
+            registrar.register_llm_auth(
+                name,
+                Arc::new(ComponentLlmAuth {
+                    inner: self.inner.clone(),
+                    name: name.clone(),
+                }),
+            )?;
+        }
         for event_type in &decl.event_handlers {
             registrar.register_event_handler(
                 event_type,
@@ -227,6 +238,8 @@ impl PluginTrait for ComponentPlugin {
         Ok(())
     }
 }
+
+
 
 #[cfg(test)]
 #[path = "component/tests.rs"]

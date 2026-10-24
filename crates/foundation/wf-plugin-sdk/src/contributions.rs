@@ -169,6 +169,149 @@ pub trait PluginEventHandler: Send + Sync {
     async fn handle(&self, event: PluginEventData) -> PluginResult<()>;
 }
 
+// ── provider authentication ───────────────────────────────────────────
+// A plugin contributes the login / refresh / resolve contract for one
+// provider. The contract is synchronous and JSON-based so Lua tables,
+// native dispatch buffers and wasm guest calls share one shape. The host
+// owns the login session, the credential store and the request pipeline:
+// it calls the plugin on its own schedule and persists the produced
+// credential. Plugins stay stateless between calls; all flow state
+// travels through the opaque `session` value.
+/// Static metadata about a contributed auth implementation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AuthDescriptor {
+    /// Display name, e.g. "Claude (Pro/Max Subscription)".
+    pub name: String,
+    /// True when access is subscription-backed (non-metered).
+    #[serde(default)]
+    pub is_subscription: bool,
+    /// Selector label for the login option.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub login_label: Option<String>,
+}
+
+/// One event rendered to the user during login. Mirrors the host's
+/// auth-event vocabulary; the host maps it onto its own interaction type.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PluginAuthEvent {
+    /// Informational line.
+    Info { message: String },
+    /// Authorization URL to open, with optional instructions.
+    AuthUrl {
+        url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        instructions: Option<String>,
+    },
+    /// Device-code challenge (RFC 8628).
+    DeviceCode {
+        user_code: String,
+        verification_uri: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
+    /// Progress line.
+    Progress { message: String },
+}
+
+/// One option of a select prompt.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PluginAuthOption {
+    pub label: String,
+    pub value: String,
+}
+
+/// One input prompt the host must answer before the flow continues.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PluginAuthPrompt {
+    Text {
+        message: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        placeholder: Option<String>,
+    },
+    Secret {
+        message: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        placeholder: Option<String>,
+    },
+    Select {
+        message: String,
+        options: Vec<PluginAuthOption>,
+    },
+    ManualCode {
+        message: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        placeholder: Option<String>,
+    },
+}
+
+/// What a login step expects the host to do next.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "next", rename_all = "snake_case")]
+pub enum PluginAuthNext {
+    /// Waiting on an external event; the host polls.
+    Pending,
+    /// The host must collect one input, then call submit.
+    AwaitingInput { prompt: PluginAuthPrompt },
+    /// The flow produced a credential; the host persists it.
+    Completed { credential: Value },
+    /// The flow failed.
+    Failed { error: String },
+}
+
+/// The first step of a login flow.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PluginLoginChallenge {
+    /// Events to render immediately.
+    #[serde(default)]
+    pub events: Vec<PluginAuthEvent>,
+    /// Opaque session state the host passes back on poll / submit.
+    pub session: Value,
+    /// What the host should do next.
+    pub next: PluginAuthNext,
+}
+
+/// One transition after a poll or submit.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PluginLoginStep {
+    /// Events produced by this step.
+    #[serde(default)]
+    pub events: Vec<PluginAuthEvent>,
+    /// Opaque session state for the following step.
+    pub session: Value,
+    /// What the host should do next.
+    pub next: PluginAuthNext,
+}
+
+/// Plugin-contributed provider authentication.
+pub trait PluginLlmAuth: Send + Sync {
+    /// Static metadata for status UIs and login pickers.
+    fn describe(&self) -> PluginResult<AuthDescriptor>;
+
+    /// Begin the login flow: render the challenge and report what the host
+    /// should do next. `config` carries the provider's declared auth
+    /// parameters (endpoints, client id, scopes, flow) verbatim.
+    /// Implementations must not block on the user.
+    fn login_start(&self, config: Value) -> PluginResult<PluginLoginChallenge>;
+
+    /// Advance a polling step; the host calls this on an interval while
+    /// the flow is pending.
+    fn login_poll(&self, session: Value) -> PluginResult<PluginLoginStep>;
+
+    /// Accept user input for a step awaiting it.
+    fn login_submit(&self, session: Value, input: String) -> PluginResult<PluginLoginStep>;
+
+    /// Exchange a refresh token; returns the new credential JSON
+    /// (`{access, refresh, expires, is_subscription, extra?}`).
+    fn refresh(&self, credential: Value) -> PluginResult<Value>;
+
+    /// Derive request auth from a valid credential JSON. The result
+    /// carries `api_key` / `headers` / `base_url` / `is_subscription` /
+    /// `source`; a null result means not configured.
+    fn resolve(&self, credential: Value) -> PluginResult<Value>;
+}
+
 #[async_trait]
 pub trait PluginMiddlewareHandler: Send + Sync {
     /// Handle one middleware phase. Implementations may rewrite `context`

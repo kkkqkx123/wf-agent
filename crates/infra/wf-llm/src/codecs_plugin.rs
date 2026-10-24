@@ -225,6 +225,7 @@ mod tests {
             no_proxy: None,
             circuit_breaker: None,
             prompt_caching: None,
+            auth: None,
         };
         let http = adapter.build_request(&request, &profile).unwrap();
         assert_eq!(http.method(), reqwest::Method::POST);

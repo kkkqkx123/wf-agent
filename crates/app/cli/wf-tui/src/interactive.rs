@@ -77,6 +77,23 @@ pub enum PanelPayload {
         /// The candidates.
         entries: Vec<tui_components::panels::MentionEntry>,
     },
+    /// Declared LLM auth surfaces for the auth panel.
+    Auth(Vec<tui_components::panels::AuthSurfaceRow>),
+    /// One landed login-session state for the auth panel.
+    AuthSession {
+        /// The session the state belongs to.
+        session_id: String,
+        /// Rendered event lines (authorization URL, device code, progress).
+        lines: Vec<String>,
+        /// Prompt to answer, when the session awaits input.
+        awaiting_input: Option<String>,
+        /// Server-advertised poll interval in seconds, when present.
+        poll_secs: Option<u64>,
+        /// Terminal outcome: `completed`, `failed` or `cancelled`.
+        outcome: Option<String>,
+        /// Error message when the outcome is `failed`.
+        error: Option<String>,
+    },
 }
 
 /// Events from the server side into the interactive event loop.
@@ -346,6 +363,8 @@ pub struct InteractiveController {
     panel_skills: Vec<wf_types::skill::SkillMetadata>,
     /// Workflow summaries cached for the workflow panel.
     panel_workflows: Vec<tui_components::panels::WorkflowSummaryRow>,
+    /// Declared LLM auth surfaces cached for the auth panel.
+    panel_auth: Vec<tui_components::panels::AuthSurfaceRow>,
     /// Local file and directory candidates for the mention panel.
     panel_mention_files: Vec<tui_components::panels::MentionEntry>,
     /// Server-side mention entities for the current query.
@@ -566,6 +585,7 @@ impl InteractiveController {
             panel_profiles: Vec::new(),
             panel_skills: Vec::new(),
             panel_workflows: Vec::new(),
+            panel_auth: Vec::new(),
             panel_mention_files: Vec::new(),
             panel_mention_entities: Vec::new(),
             mention_query_pending: None,

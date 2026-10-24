@@ -59,6 +59,9 @@ pub struct McpRuntimeConfig {
 pub struct LlmConfig {
     pub profiles: Vec<LlmProfile>,
     pub provider_definitions: Vec<LlmProviderDefinition>,
+    /// Declarative authentication: credential store location plus the
+    /// provider auth surfaces. Empty keeps the static-key behavior.
+    pub auth: wf_types::config::llm_auth::AuthConfig,
 }
 
 /// File-layer infrastructure config sources resolved through the

@@ -263,6 +263,23 @@ impl Plugin for LuaPlugin {
                     }
                 }
             }
+            // Provider authentication implementations: each entry is a
+            // table of auth functions (`describe`, `login_start`,
+            // `login_poll`, `login_submit`, `refresh`, `resolve`). The
+            // host owns the login session and the credential store.
+            if let Ok(Some(t)) = contribs_table.get::<_, Option<mlua::Table>>("llm_auths") {
+                for (name, auth_tbl) in t.pairs::<String, mlua::Table>().flatten() {
+                    if let Ok(key) = locked.create_registry_value(&auth_tbl) {
+                        out.push(RegEntry {
+                            name,
+                            key,
+                            kind: 8,
+                            phase: String::new(),
+                            priority: 0,
+                        });
+                    }
+                }
+            }
             {
                 let mut extract = |type_key: &str, handler_key: &str, kind: u8| {
                     if let Ok(Some(t)) = contribs_table.get::<_, Option<mlua::Table>>(type_key) {
@@ -390,6 +407,14 @@ impl Plugin for LuaPlugin {
                 2 => registrar.register_llm_provider(
                     &e.name,
                     Arc::new(codec::LuaLlmCodec {
+                        lua: self.lua.clone(),
+                        table_key: Arc::new(e.key),
+                        limits: self.limits,
+                    }),
+                )?,
+                8 => registrar.register_llm_auth(
+                    &e.name,
+                    Arc::new(codec::LuaLlmAuth {
                         lua: self.lua.clone(),
                         table_key: Arc::new(e.key),
                         limits: self.limits,

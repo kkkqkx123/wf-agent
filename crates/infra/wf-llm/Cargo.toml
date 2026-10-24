@@ -26,6 +26,10 @@ llm-types = { package = "llm-suite-types", path = "../llm-suite/crates/llm-suite
 llm-client = { package = "llm-suite-client", path = "../llm-suite/crates/llm-suite-client", features = ["mock"] }
 llm-config = { package = "llm-suite-config", path = "../llm-suite/crates/llm-suite-config" }
 llm-gateway = { package = "llm-suite-gateway", path = "../llm-suite/crates/llm-suite-gateway", features = ["mock"] }
+# Credential storage, OAuth login/refresh primitives and provider-owned
+# authentication, re-exported by this facade. `file-store` gives hosts a
+# ready JSON store (0600, atomic replace) for `wf llm login`.
+llm-auth = { package = "llm-suite-auth", path = "../llm-suite/crates/llm-suite-auth", features = ["file-store"] }
 
 async-trait.workspace = true
 serde.workspace = true

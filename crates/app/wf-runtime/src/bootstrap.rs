@@ -24,7 +24,7 @@ pub use file_checkpoint::{
     init_file_checkpoint_manager, init_file_checkpoint_stack, init_gc_timer,
     init_manual_change_service, FileCheckpointStack,
 };
-pub use llm::{create_llm_gateway, init_llm_gateway, register_llm_config};
+pub use llm::{create_auth_registry, create_llm_gateway, init_llm_gateway, register_llm_config};
 pub use mcp::init_mcp;
 pub use metrics::init_metrics_context;
 #[cfg(feature = "plugins")]

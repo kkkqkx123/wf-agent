@@ -68,6 +68,16 @@ pub(crate) fn routes() -> Router<ApiState> {
             get(handle_get_provider).delete(handle_delete_provider),
         )
         .route("/llm/providers/{id}/models", get(handle_list_models))
+        // ── LLM auth ──
+        .route("/llm/auth", get(handle_list_auth_providers))
+        .route("/llm/auth/login", post(handle_auth_login_start))
+        .route("/llm/auth/login/{id}", get(handle_auth_login_poll))
+        .route("/llm/auth/login/{id}/submit", post(handle_auth_login_submit))
+        .route(
+            "/llm/auth/login/{id}/cancel",
+            post(handle_auth_login_cancel),
+        )
+        .route("/llm/auth/logout", post(handle_auth_logout))
 }
 
 // ── LLM generation ────────────────────────────────────────────────
@@ -540,6 +550,133 @@ pub(crate) async fn handle_create_from_template(
 pub(crate) async fn handle_list_providers(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::llm::llm_provider::list(&state.ctx).await {
         Ok(providers) => ok(providers).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+// ── LLM auth ──────────────────────────────────────────────────────
+
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct AuthLoginBody {
+    provider_id: String,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct AuthSubmitBody {
+    input: String,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct AuthLogoutBody {
+    provider_id: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/llm/auth",
+    tag = "llm",
+    responses((status = 200, description = "Declared auth surfaces with stored-credential flags (never secrets)", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Auth not configured on this host", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_list_auth_providers(State(state): State<ApiState>) -> impl IntoResponse {
+    match wf_api::llm::llm_auth::list_auth_providers(&state.ctx).await {
+        Ok(providers) => ok(providers).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/llm/auth/login",
+    tag = "llm",
+    request_body = AuthLoginBody,
+    responses((status = 200, description = "Session started; first state carries the challenge events or an input prompt", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 404, description = "Unknown provider", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_auth_login_start(
+    State(state): State<ApiState>,
+    Json(body): Json<AuthLoginBody>,
+) -> impl IntoResponse {
+    match wf_api::llm::llm_auth::login_start(&state.ctx, &body.provider_id).await {
+        Ok((session_id, login_state)) => ok(serde_json::json!({
+            "session_id": session_id,
+            "state": login_state,
+        }))
+        .into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/llm/auth/login/{id}",
+    tag = "llm",
+    params(IdPath),
+    responses((status = 200, description = "Current login session state", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Unknown session", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_auth_login_poll(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::llm::llm_auth::login_poll(&state.ctx, &path.id).await {
+        Ok(login_state) => ok(login_state).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/llm/auth/login/{id}/submit",
+    tag = "llm",
+    params(IdPath),
+    request_body = AuthSubmitBody,
+    responses((status = 200, description = "Session state after the submitted input", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Unknown session", body = crate::envelope::ErrorResponse), (status = 409, description = "Session is not awaiting input", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_auth_login_submit(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Json(body): Json<AuthSubmitBody>,
+) -> impl IntoResponse {
+    match wf_api::llm::llm_auth::login_submit(&state.ctx, &path.id, body.input).await {
+        Ok(login_state) => ok(login_state).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/llm/auth/login/{id}/cancel",
+    tag = "llm",
+    params(IdPath),
+    responses((status = 200, description = "Session cancelled", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_auth_login_cancel(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::llm::llm_auth::login_cancel(&state.ctx, &path.id).await {
+        Ok(()) => ok(serde_json::json!({"cancelled": path.id})).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/llm/auth/logout",
+    tag = "llm",
+    request_body = AuthLogoutBody,
+    responses((status = 200, description = "Stored credential removed", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Unknown provider", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_auth_logout(
+    State(state): State<ApiState>,
+    Json(body): Json<AuthLogoutBody>,
+) -> impl IntoResponse {
+    match wf_api::llm::llm_auth::logout(&state.ctx, &body.provider_id).await {
+        Ok(()) => ok(serde_json::json!({"logged_out": body.provider_id})).into_response(),
         Err(e) => error_response(e),
     }
 }

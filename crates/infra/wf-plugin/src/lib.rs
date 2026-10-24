@@ -39,11 +39,12 @@ pub mod wasm;
 
 pub use context::PluginContext;
 pub use contributions::{
-    parse_middleware_outcome, CodecHttpRequest, ContributionBridge, ContributionManager,
-    ContributionRegistrar, ContributionType, MiddlewareOutcome, NextFn, OverridePolicy,
-    PluginEventData, PluginEventHandler, PluginExecutionContext, PluginLlmCodec,
-    PluginMiddlewareHandler, PluginNodeHandler, PluginNodeResult, PluginToolContext,
-    PluginToolExecutor, PluginToolResult, RegistrarGuard,
+    parse_middleware_outcome, AuthDescriptor, CodecHttpRequest, ContributionBridge,
+    ContributionManager, ContributionRegistrar, ContributionType, MiddlewareOutcome, NextFn,
+    OverridePolicy, PluginAuthEvent, PluginAuthNext, PluginAuthOption, PluginAuthPrompt,
+    PluginEventData, PluginEventHandler, PluginExecutionContext, PluginLlmAuth, PluginLlmCodec,
+    PluginLoginChallenge, PluginLoginStep, PluginMiddlewareHandler, PluginNodeHandler,
+    PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult, RegistrarGuard,
 };
 pub use dependency::{resolve_dependencies, ResolvedGraph};
 pub use engine::{PluginEngine, PluginSystemConfig};

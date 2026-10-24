@@ -16,6 +16,7 @@ use super::registries::{MultiRegistry, Registry};
 use super::types::*;
 use crate::error::{PluginError, PluginResult};
 
+
 #[path = "manager/content.rs"]
 mod content;
 #[path = "manager/llm.rs"]
@@ -31,6 +32,7 @@ mod registry;
 
 pub use registrar::*;
 pub use registry::*;
+
 
 #[cfg(test)]
 mod tests {
@@ -386,6 +388,7 @@ mod tests {
                 proxy: None,
                 no_proxy: None,
                 rate_limit: None,
+                auth: None,
             })
             .unwrap();
         assert_eq!(

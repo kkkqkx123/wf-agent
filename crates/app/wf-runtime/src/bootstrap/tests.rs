@@ -972,12 +972,15 @@ fn test_llm_gateway_registers_and_rejects_invalid_profiles() {
         no_proxy: None,
         circuit_breaker: None,
         prompt_caching: None,
+        auth: None,
     }];
     let gateway = init_llm_gateway(
         &LlmConfig {
             profiles,
             provider_definitions: Vec::new(),
+            auth: Default::default(),
         },
+        None,
         None,
         None,
     )
@@ -1013,9 +1016,12 @@ fn test_llm_gateway_registers_and_rejects_invalid_profiles() {
                 no_proxy: None,
                 circuit_breaker: None,
                 prompt_caching: None,
+                auth: None,
             }],
             provider_definitions: Vec::new(),
+            auth: Default::default(),
         },
+        None,
         None,
         None,
     ) {

@@ -376,6 +376,7 @@ fn template_profile(
         no_proxy: None,
         circuit_breaker: None,
         prompt_caching: None,
+        auth: None,
     }
 }
 

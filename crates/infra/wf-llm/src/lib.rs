@@ -1,9 +1,12 @@
 // Transport facade and execution: gateway orchestration (with its request
 // assembly child), HTTP client and shared error type.
+pub mod auth;
+pub mod auth_plugin;
 pub mod codecs_plugin;
 // Generic-to-concrete metrics adapter wired by the facade layer.
 pub mod token_stream_adapter;
 
+pub use auth_plugin::PluginAuthAdapter;
 pub use codecs_plugin::PluginCodecAdapter;
 pub use llm_client::client::{LlmClient, LlmClientImpl};
 pub use llm_client::dead_loop_detector::{
@@ -28,6 +31,15 @@ pub use llm_config::profile::ProfileManager;
 pub use llm_config::provider::{apply_provider_defaults, ProviderDefinitionRegistry};
 pub use llm_config::{catalog, merge, profile, provider};
 pub use llm_gateway::LlmGateway;
+// Credential storage and provider-owned authentication: the gateway's
+// optional auth registry, the store contract and the OAuth/login
+// primitives hosts wire into it.
+pub use llm_auth;
+pub use llm_auth::{
+    ApiKeyAuth, AuthContext, AuthRegistry, AuthMethod, AuthSurfaceInfo, Credential,
+    CredentialInfo, CredentialStore, FileCredentialStore, MemoryCredentialStore, ModelAuth,
+    OAuthAuth, OAuthCredential, ProviderAuth, ResolvedAuth, StdAuthContext,
+};
 pub use llm_message::helper::extract_text_content;
 pub use llm_message::history_converter::{
     convert_assistant_message, convert_to_text_mode, convert_tool_result_message,

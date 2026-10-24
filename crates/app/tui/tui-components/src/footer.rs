@@ -35,7 +35,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::approval_overlay::ApprovalView;
 use crate::composer::Composer;
 use crate::panels::{
-    CommandPalette, MentionPanel, ModelPanel, QueuedPanel, SkillPanel, WorkflowPanel,
+    AuthPanel, CommandPalette, MentionPanel, ModelPanel, QueuedPanel, SkillPanel, WorkflowPanel,
 };
 use crate::question_overlay::QuestionView;
 use crate::transcript::Role;
@@ -107,6 +107,8 @@ pub enum FooterRoute {
     Workflow,
     /// `@` mention panel (files / directories / skills / workflows / resources).
     Mention,
+    /// LLM authentication panel (login / logout / status).
+    Auth,
 }
 
 impl FooterRoute {
@@ -132,6 +134,7 @@ impl FooterRoute {
             FooterRoute::Queued => 4,
             FooterRoute::Workflow => 5,
             FooterRoute::Mention => 6,
+            FooterRoute::Auth => 7,
         }
     }
 }
@@ -147,6 +150,7 @@ pub enum PanelState {
     Queued(QueuedPanel),
     Workflow(WorkflowPanel),
     Mention(MentionPanel),
+    Auth(AuthPanel),
 }
 
 /// The TUI footer prompt view component (inline form, unrelated to the
@@ -276,7 +280,8 @@ impl Footer {
                 | FooterRoute::Skill
                 | FooterRoute::Queued
                 | FooterRoute::Workflow
-                | FooterRoute::Mention => KeymapContext::Panel,
+                | FooterRoute::Mention
+                | FooterRoute::Auth => KeymapContext::Panel,
             },
         }
     }
@@ -331,6 +336,7 @@ impl Footer {
                     PanelState::Queued(p) => p.render_lines(area.width, area.height),
                     PanelState::Workflow(p) => p.render_lines(area.width, area.height),
                     PanelState::Mention(p) => p.render_lines(area.width, area.height),
+                    PanelState::Auth(p) => p.render_lines(area.width, area.height),
                 });
                 if let Some(lines) = lines {
                     render_rows(area, buf, &lines, theme, Role::Default);

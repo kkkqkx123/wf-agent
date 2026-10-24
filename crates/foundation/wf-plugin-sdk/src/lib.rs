@@ -16,14 +16,16 @@ pub mod wasm;
 
 pub use config::validate_config_for;
 pub use contributions::{
-    parse_middleware_outcome, CodecHttpRequest, MiddlewareOutcome, NextFn, PluginEventHandler,
-    PluginExecutionContext, PluginLlmCodec, PluginMiddlewareHandler, PluginNodeHandler,
-    PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult,
+    parse_middleware_outcome, AuthDescriptor, CodecHttpRequest, MiddlewareOutcome, NextFn,
+    PluginAuthEvent, PluginAuthNext, PluginAuthOption, PluginAuthPrompt, PluginEventHandler,
+    PluginExecutionContext, PluginLlmAuth, PluginLlmCodec, PluginLoginChallenge, PluginLoginStep,
+    PluginMiddlewareHandler, PluginNodeHandler, PluginNodeResult, PluginToolContext,
+    PluginToolExecutor, PluginToolResult,
 };
 pub use error::{PluginError, PluginResult};
 pub use manifest::{
     PluginLlmProviderDefinition, PluginManifest, PluginModelDiscovery, PluginModelInfo,
-    PluginPermission, PluginType, WasmConfig, WASM_DEFAULT_FUEL_LIMIT,
+    PluginPermission, PluginProviderAuthRef, PluginType, WasmConfig, WASM_DEFAULT_FUEL_LIMIT,
     WASM_DEFAULT_MAX_MODULE_BYTES, WASM_DEFAULT_MEMORY_MAX_MB,
 };
 pub use native::{

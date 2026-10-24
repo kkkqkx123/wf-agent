@@ -92,6 +92,10 @@ pub struct WasmContributionDecl {
     pub tool_types: Vec<String>,
     #[serde(default)]
     pub llm_providers: Vec<String>,
+    /// Contributed provider authentication implementations, dispatched on
+    /// the `llm-auth` handler type.
+    #[serde(default)]
+    pub llm_auths: Vec<String>,
     #[serde(default)]
     pub event_handlers: Vec<String>,
     #[serde(default)]

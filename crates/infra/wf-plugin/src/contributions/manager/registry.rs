@@ -16,6 +16,10 @@ pub struct ContributionManager {
     /// Codec registry backing `LlmFormat::Custom(name)` resolution. Each
     /// entry is a low-level wire-protocol codec contributed by a plugin.
     pub(crate) llm_registry: Registry<String, Arc<dyn PluginLlmCodec>>,
+    /// Auth registry backing `LlmProviderDefinition::auth` references. Each
+    /// entry is a provider authentication implementation contributed by a
+    /// plugin (login / refresh / resolve).
+    pub(crate) llm_auth_registry: Registry<String, Arc<dyn PluginLlmAuth>>,
     /// Declarative provider definitions contributed by plugins (manifest
     /// `llm_providers` segment or `register_llm_provider_definition`).
     /// The runtime bridge writes them into the gateway provider registry.
@@ -48,6 +52,7 @@ impl ContributionManager {
             node_type_registry: Registry::new(),
             tool_type_registry: Registry::new(),
             llm_registry: Registry::new(),
+            llm_auth_registry: Registry::new(),
             llm_provider_definitions: Registry::new(),
             event_handler_registry: MultiRegistry::new(),
             middleware_registry: MultiRegistry::new(),
@@ -78,6 +83,7 @@ impl ContributionManager {
         self.node_type_registry.unregister_by_plugin(plugin_id);
         self.tool_type_registry.unregister_by_plugin(plugin_id);
         self.llm_registry.unregister_by_plugin(plugin_id);
+        self.llm_auth_registry.unregister_by_plugin(plugin_id);
         self.llm_provider_definitions
             .unregister_by_plugin(plugin_id);
         self.event_handler_registry.unregister_by_plugin(plugin_id);
@@ -153,6 +159,11 @@ impl ContributionManager {
         for (key, owner) in self.all_llm_providers() {
             if owner == plugin_id {
                 records.push((ContributionType::LlmFormat.as_str().into(), key));
+            }
+        }
+        for (key, owner) in self.all_llm_auths() {
+            if owner == plugin_id {
+                records.push((ContributionType::LlmAuth.as_str().into(), key));
             }
         }
         for (key, owner) in self.all_llm_provider_definitions() {

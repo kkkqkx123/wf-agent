@@ -1,0 +1,57 @@
+# Reference plugin: Claude Pro/Max subscription login (provider bundle, form B).
+#
+# One plugin contributes everything a subscription provider needs:
+#   - an `llm-auth` contribution: the login / refresh / resolve
+#     implementation, registered from src/lib.rs through the FFI registrar
+#   - an `llm_providers` entry: the connection template (ANTHROPIC wire
+#     format), whose `auth` section binds the provider to the auth
+#     contribution above and carries the OAuth parameters.
+#
+# Build (see README.md):
+#   cargo build --release
+# then install the directory into the host's plugin directory so the
+# `entry_point` below resolves inside it.
+#
+# This file must stay in sync with the typed manifest in src/lib.rs; the
+# `manifest_snapshot_matches_toml_file` test asserts the two agree.
+
+id = "llm-auth-claude-subscription"
+version = "0.1.0"
+name = "Claude Subscription Auth"
+description = "Claude Pro/Max subscription login through the host's llm-auth contribution point (PKCE paste flow)."
+plugin_type = "native"
+entry_point = "target/release/libllm_auth_claude_subscription.so"
+versioned_entry_points = {}
+dependencies = {}
+optional_dependencies = {}
+contributions = ["claude-subscription"]
+
+# `llm_auth` implies network access to the provider's OAuth endpoints;
+# credentials are persisted by the host's credential store, never here.
+permissions = ["llm_auth", "network"]
+
+[[llm_providers]]
+id = "claude-subscription"
+name = "Claude (Pro/Max Subscription)"
+description = "Anthropic Messages API reached through a Claude Pro/Max subscription."
+format = "ANTHROPIC"
+base_url = "https://api.anthropic.com"
+auth_type = "bearer"
+
+[llm_providers.auth]
+# Points at the `llm-auth` contribution name registered by this plugin.
+provider = "claude-subscription"
+method = "oauth"
+is_subscription = true
+
+# OAuth parameters, forwarded verbatim to the auth implementation's
+# `login_start`. No secrets live here; the parameters are public client
+# data. NOTE: the values below follow the Claude Code client and must be
+# verified against a real subscription account before shipping.
+[llm_providers.auth.params]
+authorize_url = "https://claude.ai/oauth/authorize"
+token_url = "https://console.anthropic.com/v1/oauth/token"
+client_id = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+redirect_uri = "https://console.anthropic.com/oauth/code/callback"
+scopes = "user:inference"
+flow = "pkce_paste"

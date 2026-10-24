@@ -128,10 +128,18 @@ impl PluginEngine {
         let permissions = &info.manifest.permissions;
         let may_register_codec = permissions.contains(&PluginPermission::LlmCodec)
             || permissions.contains(&PluginPermission::Llm);
-        if !may_register_codec {
+        let may_register_auth = permissions.contains(&PluginPermission::LlmAuth);
+        if !may_register_codec
+            && !(may_register_auth
+                && info
+                    .manifest
+                    .llm_providers
+                    .iter()
+                    .any(|provider| provider.auth.is_some()))
+        {
             tracing::warn!(
                 plugin_id,
-                "manifest declares llm_providers but lacks the llm_codec permission; skipping"
+                "manifest declares llm_providers but lacks the llm_codec permission, or the llm_auth permission for auth-declaring entries; skipping"
             );
             return;
         }
@@ -147,6 +155,22 @@ impl PluginEngine {
             || permissions.contains(&PluginPermission::Network);
         for provider in &info.manifest.llm_providers {
             let mut definition = convert_provider_definition(provider);
+            if definition.auth.is_some() && !may_register_auth {
+                tracing::warn!(
+                    plugin_id,
+                    provider = %definition.id,
+                    "provider declares an auth section but lacks the llm_auth permission; dropping the auth reference"
+                );
+                definition.auth = None;
+            } else if definition.auth.is_some() && !may_register_codec {
+                // Auth-only entry: the plugin contributes the login
+                // implementation, the host owns the format codec.
+                tracing::debug!(
+                    plugin_id,
+                    provider = %definition.id,
+                    "manifest llm_provider rides on a contributed auth implementation"
+                );
+            }
             match definition.model_discovery {
                 Some(wf_types::llm::ModelDiscovery::ModelsEndpoint { .. })
                 | Some(wf_types::llm::ModelDiscovery::CustomEndpoint { .. })
@@ -189,6 +213,24 @@ pub(crate) fn convert_provider_definition(
         proxy: None,
         no_proxy: None,
         rate_limit: None,
+        auth: provider.auth.as_ref().map(convert_auth_ref),
+    }
+}
+
+/// Convert the manifest auth reference into the host type. The `method`
+/// string maps onto the host `AuthMethod`; an unrecognized value keeps
+/// `None` so the named auth implementation decides.
+pub(crate) fn convert_auth_ref(
+    auth: &wf_plugin_sdk::manifest::PluginProviderAuthRef,
+) -> wf_types::llm::ProviderAuthRef {
+    wf_types::llm::ProviderAuthRef {
+        provider: auth.provider.clone(),
+        method: auth
+            .method
+            .as_deref()
+            .and_then(|m| m.parse::<wf_types::llm::AuthMethod>().ok()),
+        is_subscription: auth.is_subscription,
+        params: auth.params.clone(),
     }
 }
 

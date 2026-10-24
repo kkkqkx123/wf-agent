@@ -30,6 +30,8 @@ pub enum CommandId {
     Executions,
     /// `/copy` — copy the last message or code block to the clipboard.
     Copy,
+    /// `/auth` — manage LLM provider logins (device / PKCE / API key).
+    Auth,
 }
 
 /// One command palette row.
@@ -155,6 +157,11 @@ impl CommandPalette {
                 id: CommandId::Copy,
                 label: "/copy",
                 description: "copy the last message or code block (message | code [N] | all | id)",
+            },
+            CommandEntry {
+                id: CommandId::Auth,
+                label: "/auth",
+                description: "log in / out of LLM providers (device, PKCE, API key)",
             },
         ]
     }

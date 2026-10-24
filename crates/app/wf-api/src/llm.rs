@@ -208,6 +208,7 @@ mod tests {
             no_proxy: None,
             circuit_breaker: None,
             prompt_caching: None,
+            auth: None,
         }
     }
 
@@ -305,6 +306,7 @@ mod tests {
         assert!(saw_final, "stream must end with a final message");
     }
 }
+pub mod llm_auth;
 pub mod llm_profile;
 pub mod llm_provider;
 pub mod script;

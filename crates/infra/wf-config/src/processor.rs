@@ -31,6 +31,7 @@ pub mod file_scope;
 pub mod hook;
 pub mod infrastructure;
 pub mod limits;
+pub mod llm_auth;
 pub mod llm_profile;
 pub mod node_config;
 pub mod node_template;

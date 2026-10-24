@@ -31,6 +31,10 @@ pub struct ContributionRegistrarC {
         Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
     pub register_llm_provider:
         Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
+    /// Register a provider authentication implementation under `name`;
+    /// dispatched on the `llm-auth` handler type.
+    pub register_llm_auth:
+        Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
     pub register_event_handler:
         Option<extern "C" fn(ctx: *mut std::ffi::c_void, event_type: *const c_char) -> i32>,
     pub register_middleware: Option<

@@ -75,6 +75,7 @@ fn profile(server: &MockServer, id: &str, format: Option<ToolCallProtocol>) -> L
         no_proxy: None,
         circuit_breaker: None,
         prompt_caching: None,
+        auth: None,
     }
 }
 
@@ -225,9 +226,14 @@ async fn typed_generation_overrides_legacy_profile_parameters() {
     let body: serde_json::Value = serde_json::from_str(&server.requests()[0].body).unwrap();
     assert_eq!(body["temperature"], serde_json::json!(0.2));
     assert_eq!(
-        body["max_completion_tokens"],
+        body["max_tokens"],
         serde_json::json!(55),
-        "openai chat emits max_tokens as max_completion_tokens"
+        "typed request generation overrides the legacy profile parameters; \
+         without an explicit max_token_field openai chat emits max_tokens"
+    );
+    assert!(
+        body.get("max_completion_tokens").is_none(),
+        "the field name is never inferred from the model"
     );
 }
 
@@ -281,6 +287,7 @@ async fn provider_definition_supplies_base_url() {
             proxy: None,
             no_proxy: None,
             rate_limit: None,
+            auth: None,
         })
         .expect("provider");
 

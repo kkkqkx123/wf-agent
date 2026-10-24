@@ -1,0 +1,26 @@
+# LLM Auth: subscription provider via OAuth authorization code + PKCE
+#
+# Schema: wf_types::config::llm_auth::AuthProviderConfig (method = "oauth")
+# PKCE (RFC 7636): the host opens the authorize URL, the user approves, and
+# the authorization code returns either through a loopback listener
+# (`loopback = true`, redirect_uri pointing at 127.0.0.1) or by the user
+# pasting the full callback URL back (`loopback = false`).
+#
+# This example uses the paste mode, matching the GitLab Duo extension
+# reference in the design doc.
+#
+# NOTE: endpoints and client id below are placeholder drafts for the example;
+# confirm against a real account before production use (open point Q5).
+
+id = "gitlab-duo-sub"
+method = "oauth"
+display_name = "GitLab Duo (subscription)"
+login_label = "Sign in with GitLab"
+flow = "pkce"
+is_subscription = true
+authorize_url = "https://gitlab.com/oauth/authorize"
+token_url = "https://gitlab.com/oauth/token"
+client_id = "GITLAB_DUO_CLIENT_ID_PLACEHOLDER"
+scope = "api read_user"
+redirect_uri = "http://127.0.0.1:8484/callback"
+loopback = false

@@ -184,6 +184,7 @@ mod tests {
             circuit_breaker: None,
             prompt_caching: None,
             metadata: None,
+            auth: None,
         }
     }
 

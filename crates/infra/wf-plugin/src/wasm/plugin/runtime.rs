@@ -185,6 +185,15 @@ impl Plugin for WasmPlugin {
                 }),
             )?;
         }
+        for name in &decl.llm_auths {
+            registrar.register_llm_auth(
+                name,
+                Arc::new(WasmLlmAuth {
+                    inner: self.inner.clone(),
+                    name: name.clone(),
+                }),
+            )?;
+        }
         for event_type in &decl.event_handlers {
             registrar.register_event_handler(
                 event_type,

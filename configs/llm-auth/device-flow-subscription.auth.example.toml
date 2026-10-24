@@ -1,0 +1,23 @@
+# LLM Auth: subscription provider via the OAuth device authorization grant
+#
+# Schema: wf_types::config::llm_auth::AuthProviderConfig (method = "oauth")
+# Device flow (RFC 8628): the user opens the verification URI on any device,
+# enters the user code, and the host polls the token endpoint. No local
+# listener, no paste step — the friendliest flow for headless hosts.
+#
+# `is_subscription = true` marks the access as subscription-backed, so the
+# host suppresses per-token cost accounting for profiles using this surface.
+#
+# NOTE: endpoints and client id below are placeholder drafts for the example;
+# confirm against a real account before production use (open point Q5).
+
+id = "claude-sub"
+method = "oauth"
+display_name = "Claude Pro/Max (subscription)"
+login_label = "Sign in with Claude Pro/Max"
+flow = "device"
+is_subscription = true
+device_authorization_url = "https://api.anthropic.com/oauth/device/code"
+token_url = "https://api.anthropic.com/oauth/token"
+client_id = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+scope = "user:profile"

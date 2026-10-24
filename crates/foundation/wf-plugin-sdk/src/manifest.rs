@@ -39,6 +39,11 @@ pub enum PluginPermission {
     /// contribution). Subdivides the coarse `llm` permission so a plugin
     /// that only contributes prompts cannot register formats.
     LlmCodec,
+    /// Contribute a provider authentication implementation (`llm-auth`
+    /// contribution: login / refresh / resolve). Implies network access to
+    /// the provider's OAuth endpoints; credentials are persisted by the
+    /// host's credential store, never by the plugin itself.
+    LlmAuth,
     /// Perform LLM model discovery over the network for a contributed
     /// provider (default models endpoint or custom endpoint). Subdivides
     /// `network` so discovery can be granted without general socket access.
@@ -134,6 +139,32 @@ pub struct PluginLlmProviderDefinition {
     pub model_discovery: Option<PluginModelDiscovery>,
     #[serde(default)]
     pub metadata: Option<HashMap<String, Value>>,
+    /// Authentication declaration binding this provider to a registered
+    /// auth implementation (built-in id or the plugin's own `llm-auth`
+    /// contribution). Absent means static key authentication.
+    #[serde(default)]
+    pub auth: Option<PluginProviderAuthRef>,
+}
+
+/// Manifest-side reference from a provider definition to a registered auth
+/// implementation. Mirrors `wf_types::llm::ProviderAuthRef`; maps stay
+/// generic JSON so this crate keeps no dependency on `wf-types`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PluginProviderAuthRef {
+    /// Name of the registered auth implementation (built-in id or plugin
+    /// contribution name).
+    pub provider: String,
+    /// Authentication method the declaration expects (`api_key` / `oauth`).
+    #[serde(default)]
+    pub method: Option<String>,
+    /// True when access through this provider is subscription-backed.
+    #[serde(default)]
+    pub is_subscription: Option<bool>,
+    /// Provider-specific auth parameters (endpoints, client id, scopes,
+    /// flow). Never carries secrets; passed to the named implementation
+    /// verbatim at login time.
+    #[serde(default)]
+    pub params: Option<HashMap<String, Value>>,
 }
 
 /// Model discovery description in the plugin manifest.
@@ -362,5 +393,48 @@ entry_point = "main.lua"
 bogus = true
 "#;
         assert!(toml::from_str::<PluginManifest>(raw).is_err());
+    }
+
+    #[test]
+    fn manifest_parses_llm_auth_permission_and_provider_auth_section() {
+        let raw = r#"
+id = "claude-sub"
+version = "1.0.0"
+entry_point = "main.lua"
+permissions = ["llm_codec", "llm_auth", "llm_discovery"]
+
+[[llm_providers]]
+id = "claude-subscription"
+format = "ANTHROPIC"
+base_url = "https://api.anthropic.com"
+auth_type = "bearer"
+
+[llm_providers.auth]
+provider = "claude-subscription"
+method = "oauth"
+is_subscription = true
+
+[llm_providers.auth.params]
+authorize_url = "https://claude.ai/oauth/authorize"
+token_url = "https://console.anthropic.com/v1/oauth/token"
+client_id = "cid"
+flow = "pkce_paste"
+"#;
+        let manifest: PluginManifest = toml::from_str(raw).expect("parse manifest");
+        assert!(manifest.permissions.contains(&PluginPermission::LlmAuth));
+        let provider = manifest.llm_providers.first().expect("provider");
+        let auth = provider.auth.as_ref().expect("auth section");
+        assert_eq!(auth.provider, "claude-subscription");
+        assert_eq!(auth.method.as_deref(), Some("oauth"));
+        assert_eq!(auth.is_subscription, Some(true));
+        let params = auth.params.as_ref().expect("params");
+        assert_eq!(
+            params.get("flow").and_then(Value::as_str),
+            Some("pkce_paste")
+        );
+        assert_eq!(
+            params.get("client_id").and_then(Value::as_str),
+            Some("cid")
+        );
     }
 }

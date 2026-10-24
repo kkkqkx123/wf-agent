@@ -3,9 +3,11 @@
 // valid. `ContributionType` stays host-side: it describes
 // registration/override semantics owned by the engine.
 pub use wf_plugin_sdk::contributions::{
-    parse_middleware_outcome, CodecHttpRequest, MiddlewareOutcome, NextFn, PluginEventData,
-    PluginEventHandler, PluginExecutionContext, PluginLlmCodec, PluginMiddlewareHandler,
-    PluginNodeHandler, PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult,
+    parse_middleware_outcome, AuthDescriptor, CodecHttpRequest, MiddlewareOutcome, NextFn,
+    PluginAuthEvent, PluginAuthNext, PluginAuthOption, PluginAuthPrompt, PluginEventData,
+    PluginEventHandler, PluginExecutionContext, PluginLlmAuth, PluginLlmCodec,
+    PluginLoginChallenge, PluginLoginStep, PluginMiddlewareHandler, PluginNodeHandler,
+    PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult,
 };
 
 // ============================================================
@@ -21,6 +23,9 @@ pub enum ContributionType {
     NodeType,
     ToolType,
     LlmFormat,
+    /// Provider authentication implementation (login / refresh / resolve),
+    /// referenced by a provider definition's `auth` segment.
+    LlmAuth,
     EventHandler,
     Middleware,
     // Declarative resource contributions (payloads from wf-types, no new dependencies)
@@ -41,6 +46,7 @@ impl ContributionType {
             Self::NodeType => "node-type",
             Self::ToolType => "tool-type",
             Self::LlmFormat => "llm-provider",
+            Self::LlmAuth => "llm-auth",
             Self::EventHandler => "event-handler",
             Self::Middleware => "middleware",
             Self::Workflow => "workflow",
@@ -60,6 +66,7 @@ impl ContributionType {
             Self::NodeType,
             Self::ToolType,
             Self::LlmFormat,
+            Self::LlmAuth,
             Self::EventHandler,
             Self::Middleware,
             Self::Workflow,

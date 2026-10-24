@@ -1,6 +1,9 @@
+use std::io::IsTerminal;
 use std::path::Path;
 
-use crate::args::{Cli, LlmProfileSub, LlmProviderSub, LlmTemplateSub};
+use wf_client::WfClient;
+
+use crate::args::{Cli, LlmAuthSub, LlmProfileSub, LlmProviderSub, LlmTemplateSub};
 use crate::cmd::render::render_envelope;
 use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
@@ -242,6 +245,256 @@ pub async fn run_provider(cli: &Cli, sub: &LlmProviderSub) -> CliResult<()> {
                 cli.output,
                 OutputEnvelope::success("llm-provider-models", data).with_entity(id.clone()),
             )
+        }
+    }
+}
+
+/// Run an `llm auth` subcommand: login (drives the host session state
+/// machine over HTTP), logout, or status.
+pub async fn run_auth(cli: &Cli, sub: &LlmAuthSub) -> CliResult<()> {
+    let handle = ClientHandle::from_cli(cli).await?;
+    let client = handle.client();
+
+    match sub {
+        LlmAuthSub::Login { provider } => match provider {
+            Some(provider_id) => drive_login(cli, client, provider_id).await,
+            None => {
+                let data: serde_json::Value = client.get_json("/api/v1/llm/auth").await?;
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("llm-auth-login-options", data),
+                )
+            }
+        },
+        LlmAuthSub::Logout { provider } => {
+            client
+                .post_json::<_, serde_json::Value>(
+                    "/api/v1/llm/auth/logout",
+                    &serde_json::json!({"provider_id": provider}),
+                )
+                .await?;
+            let data = serde_json::json!({"logged_out": provider});
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("llm-auth-logout", data).with_entity(provider.clone()),
+            )
+        }
+        LlmAuthSub::Status => {
+            let data: serde_json::Value = client.get_json("/api/v1/llm/auth").await?;
+            render_envelope(cli.output, OutputEnvelope::success("llm-auth-status", data))
+        }
+    }
+}
+
+/// Default seconds between login polls when the server does not advertise
+/// an interval (RFC 8628 default).
+const LOGIN_POLL_FALLBACK_SECS: u64 = 5;
+
+/// Drive one login session to completion: render challenge events, poll
+/// while the flow waits on an external event, and submit collected input.
+/// Text mode renders human-readable progress on stderr; JSON mode emits
+/// every state verbatim on stdout for headless callers.
+async fn drive_login(cli: &Cli, client: &WfClient, provider_id: &str) -> CliResult<()> {
+    let started: serde_json::Value = client
+        .post_json(
+            "/api/v1/llm/auth/login",
+            &serde_json::json!({"provider_id": provider_id}),
+        )
+        .await?;
+    let session_id = started
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            CliError::Configuration("login response missing session_id".to_string())
+        })?
+        .to_string();
+    let mut state = started
+        .get("state")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let mut poll_secs = LOGIN_POLL_FALLBACK_SECS;
+
+    loop {
+        emit_state(cli, &state);
+        let kind = state
+            .as_object()
+            .and_then(|obj| obj.keys().next().cloned())
+            .unwrap_or_default();
+        match kind.as_str() {
+            "Completed" => {
+                let data = serde_json::json!({
+                    "provider": provider_id,
+                    "session_id": session_id,
+                    "state": state,
+                });
+                return render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("llm-auth-login", data).with_entity(provider_id),
+                );
+            }
+            "Failed" => {
+                let error = state
+                    .get("Failed")
+                    .and_then(|f| f.get("error"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("login failed")
+                    .to_string();
+                return Err(CliError::Business(format!(
+                    "login for '{provider_id}' failed: {error}"
+                )));
+            }
+            "AwaitingInput" => {
+                let prompt = state
+                    .get("AwaitingInput")
+                    .and_then(|a| a.get("prompt"))
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                let input = collect_prompt(&prompt)?;
+                state = client
+                    .post_json(
+                        &format!("/api/v1/llm/auth/login/{session_id}/submit"),
+                        &serde_json::json!({"input": input}),
+                    )
+                    .await?;
+            }
+            // Challenge and Pending both wait on an external event; poll.
+            _ => {
+                if let Some(secs) = device_interval_secs(&state) {
+                    poll_secs = secs;
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(poll_secs)).await;
+                state = client
+                    .get_json(&format!("/api/v1/llm/auth/login/{session_id}"))
+                    .await?;
+            }
+        }
+    }
+}
+
+/// Emit one login state: raw JSON in JSON mode, rendered events on stderr
+/// in text mode (stdout stays reserved for the final envelope).
+fn emit_state(cli: &Cli, state: &serde_json::Value) {
+    if cli.output == crate::output::OutputFormat::Json {
+        println!("{}", serde_json::to_string(state).unwrap_or_default());
+        return;
+    }
+    let Some(events) = state
+        .get("Challenge")
+        .or_else(|| state.get("Pending"))
+        .or_else(|| state.get("AwaitingInput"))
+        .or_else(|| state.get("Failed"))
+        .and_then(|s| s.get("events"))
+        .and_then(|e| e.as_array())
+    else {
+        return;
+    };
+    for event in events {
+        let Some(kind) = event.as_object().and_then(|obj| obj.keys().next().cloned()) else {
+            continue;
+        };
+        let body = event.get(&kind).cloned().unwrap_or(serde_json::Value::Null);
+        match kind.as_str() {
+            "AuthUrl" => {
+                if let Some(url) = body.get("url").and_then(|v| v.as_str()) {
+                    eprintln!("open this URL to authorize: {url}");
+                }
+                if let Some(hint) = body.get("instructions").and_then(|v| v.as_str()) {
+                    eprintln!("{hint}");
+                }
+            }
+            "DeviceCode" => {
+                if let Some(uri) = body.get("verification_uri").and_then(|v| v.as_str()) {
+                    eprintln!("visit: {uri}");
+                }
+                if let Some(code) = body.get("user_code").and_then(|v| v.as_str()) {
+                    eprintln!("enter code: {code}");
+                }
+            }
+            "Info" | "Progress" => {
+                if let Some(message) = body.get("message").and_then(|v| v.as_str()) {
+                    eprintln!("{message}");
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The device-flow poll interval advertised by the latest DeviceCode event.
+fn device_interval_secs(state: &serde_json::Value) -> Option<u64> {
+    let events = state
+        .get("Challenge")
+        .or_else(|| state.get("Pending"))
+        .or_else(|| state.get("AwaitingInput"))
+        .and_then(|s| s.get("events"))
+        .and_then(|e| e.as_array())?;
+    events.iter().rev().find_map(|event| {
+        let body = event.get("DeviceCode")?;
+        body.get("interval_seconds")?.as_u64()
+    })
+}
+
+/// Read the answer to one prompt from stdin. Login is interactive by
+/// nature: without a TTY the caller is told to use ambient keys instead
+/// (headless contract).
+fn collect_prompt(prompt: &serde_json::Value) -> CliResult<String> {
+    if !std::io::stdin().is_terminal() {
+        return Err(CliError::Configuration(
+            "login needs interactive input but stdin is not a terminal; \
+             configure an ambient API key (env var) for non-interactive hosts"
+                .to_string(),
+        ));
+    }
+    let kind = prompt
+        .as_object()
+        .and_then(|obj| obj.keys().next().cloned())
+        .unwrap_or_else(|| "Text".to_string());
+    let body = prompt.get(&kind).cloned().unwrap_or(serde_json::Value::Null);
+    let message = body
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("input");
+    match kind.as_str() {
+        "Select" => {
+            let options = body
+                .get("options")
+                .and_then(|o| o.as_array())
+                .cloned()
+                .unwrap_or_default();
+            for (index, option) in options.iter().enumerate() {
+                let label = option
+                    .get("label")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("option");
+                eprintln!("  [{}] {label}", index + 1);
+            }
+            eprint!("? {message} (number) ");
+            let _ = std::io::Write::flush(&mut std::io::stderr());
+            let mut input = String::new();
+            std::io::stdin()
+                .read_line(&mut input)
+                .map_err(CliError::Io)?;
+            let choice: usize = input
+                .trim()
+                .parse()
+                .map_err(|_| CliError::Arguments("invalid selection".to_string()))?;
+            let option = options
+                .get(choice.saturating_sub(1))
+                .ok_or_else(|| CliError::Arguments("selection out of range".to_string()))?;
+            option
+                .get("id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .ok_or_else(|| CliError::Arguments("selected option has no id".to_string()))
+        }
+        _ => {
+            eprint!("? {message} ");
+            let _ = std::io::Write::flush(&mut std::io::stderr());
+            let mut input = String::new();
+            std::io::stdin()
+                .read_line(&mut input)
+                .map_err(CliError::Io)?;
+            Ok(input.trim_end_matches(['\n', '\r']).to_string())
         }
     }
 }

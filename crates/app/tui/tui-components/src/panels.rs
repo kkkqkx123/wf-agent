@@ -17,6 +17,7 @@
 //! - Model / skill / workflow / mention / queued panels
 //! - Shared render helper and [`tui_core::renderable::Renderable`] implementations
 
+pub mod auth;
 pub mod command;
 pub mod filter;
 pub mod mention;
@@ -26,6 +27,7 @@ pub mod render;
 pub mod skill;
 pub mod workflow;
 
+pub use auth::{AuthPanel, AuthSessionView, AuthSurfaceRow};
 pub use command::{CommandEntry, CommandId, CommandPalette};
 pub use filter::PanelFilter;
 pub use mention::{MentionEntry, MentionMode, MentionPanel};
@@ -72,6 +74,7 @@ mod tests {
             no_proxy: None,
             circuit_breaker: None,
             prompt_caching: None,
+            auth: None,
         }
     }
 

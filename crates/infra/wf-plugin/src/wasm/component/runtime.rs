@@ -248,6 +248,7 @@ pub(crate) async fn fetch_component_declaration(
         node_types: decl.node_types,
         tool_types: decl.tool_types,
         llm_providers: decl.llm_providers,
+        llm_auths: decl.llm_auths,
         event_handlers: decl.event_handlers,
         middleware: decl
             .middleware

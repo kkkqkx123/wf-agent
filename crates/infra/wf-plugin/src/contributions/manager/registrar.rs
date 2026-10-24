@@ -94,6 +94,23 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
         Ok(())
     }
 
+    fn register_llm_auth(
+        &mut self,
+        name: &str,
+        auth: Arc<dyn PluginLlmAuth>,
+    ) -> PluginResult<()> {
+        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
+        self.validate(&plugin_id, ContributionType::LlmAuth, name)?;
+        self.manager
+            .check_conflict(ContributionType::LlmAuth.as_str(), name, || {
+                self.manager.llm_auth_registry.get_owner(name)
+            })?;
+        self.manager
+            .llm_auth_registry
+            .register(name.into(), plugin_id, auth);
+        Ok(())
+    }
+
     fn register_llm_provider_definition(
         &mut self,
         definition: wf_types::llm::LlmProviderDefinition,

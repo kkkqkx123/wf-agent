@@ -610,6 +610,7 @@ mod tests {
             no_proxy: None,
             circuit_breaker: None,
             prompt_caching: None,
+            auth: None,
         };
         let _ = ctx.llm_gateway.profile_registry().register(profile);
         ctx

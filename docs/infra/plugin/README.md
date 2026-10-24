@@ -9,6 +9,7 @@
 | `architecture.md` | 版本域划分、模块归属、协商流程与初始化门控 |
 | `design.md` | 设计思想与关键决策依据 |
 | `terraform-reference.md` | Terraform 设计思想与本项目落地对照 |
+| `custom-provider.md` | 自定义 LLM provider 集成（含订阅套餐登录）：决策表、两种注册形态、llm-auth 契约、测试清单 |
 
 ## 开发阶段政策
 

@@ -16,23 +16,25 @@ use checkpoint_base::error::CheckpointError;
 /// the workspace's own `.gitignore` files, then custom patterns.
 /// `.wf-checkpoint-git` is the independent bare object store: it is never
 /// scanned, committed or deleted by restore.
-pub const HARDCODED_IGNORE_DIRS: &[&str] = &[".git", "node_modules", ".wf-checkpoint-git"];
+pub const HARDCODED_IGNORE_DIRS: &[&str] = &[".git", "node_modules", ".wf-checkpoint-git", ".wf-user"];
 
 /// Volatile subdirectories of the project `.wf` directory: synced project
 /// configuration lives directly under `.wf` and stays tracked, while
 /// machine-local metadata and spill output live here and must never enter
 /// scans, commits or restores.
 pub const VOLATILE_WF_SUBDIRS: &[&str] = &["meta", "tmp"];
-
 /// Whether a workspace-relative posix path falls inside a volatile `.wf`
 /// subdirectory (the directory itself or anything beneath it). Tracked
 /// `.wf` roots such as `.wf/config.toml` are not volatile.
 pub fn is_volatile_wf_path(relative_path: &str) -> bool {
     let mut parts = relative_path.split('/');
-    if parts.next() != Some(".wf") {
-        return false;
+    match parts.next() {
+        Some(".wf") => matches!(parts.next(), Some(dir) if VOLATILE_WF_SUBDIRS.contains(&dir)),
+        // Migrated user-level config lives under `.wf-user/` and must never
+        // be captured by checkpoint scans.
+        Some(".wf-user") => true,
+        _ => false,
     }
-    matches!(parts.next(), Some(dir) if VOLATILE_WF_SUBDIRS.contains(&dir))
 }
 
 /// Files larger than this are not read into checkpoint content by default.

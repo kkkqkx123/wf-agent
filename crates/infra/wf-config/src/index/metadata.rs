@@ -27,6 +27,27 @@ pub fn extract_llm_profile_metadata(
     )
 }
 
+/// Extract metadata from an LLM Auth declaration (`id` / `display_name` /
+/// `method`).
+pub fn extract_llm_auth_metadata(value: &serde_json::Value, file_path: &str) -> ResolvedIndexEntry {
+    let mut extra = serde_json::Map::new();
+    if let Some(m) = optional_string(value, "method") {
+        extra.insert("method".to_string(), serde_json::Value::String(m));
+    }
+    if let Some(d) = optional_string(value, "display_name") {
+        extra.insert("display_name".to_string(), serde_json::Value::String(d));
+    }
+    build_entry(
+        optional_string(value, "id").unwrap_or_default(),
+        optional_string(value, "display_name"),
+        None,
+        None,
+        None,
+        file_path,
+        serde_json::Value::Object(extra),
+    )
+}
+
 /// Extract metadata from an LLM Provider Definition config (`id` / `name` /
 /// `description` / `tags` / `format` / `base_url`).
 pub fn extract_llm_provider_metadata(

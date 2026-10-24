@@ -17,6 +17,7 @@ pub enum AuthMethodConfig {
     #[default]
     ApiKey,
     /// OAuth login with a refresh lifecycle.
+    #[serde(rename = "oauth")]
     OAuth,
 }
 

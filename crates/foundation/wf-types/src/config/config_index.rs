@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum IndexType {
     LlmProfiles,
     LlmProviders,
+    LlmAuth,
     Workflows,
     NodeTemplates,
     TriggerTemplates,
@@ -21,6 +22,7 @@ impl IndexType {
         match self {
             IndexType::LlmProfiles => "llm_profiles",
             IndexType::LlmProviders => "llm_providers",
+            IndexType::LlmAuth => "llm_auth",
             IndexType::Workflows => "workflows",
             IndexType::NodeTemplates => "node_templates",
             IndexType::TriggerTemplates => "trigger_templates",

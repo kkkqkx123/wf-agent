@@ -120,6 +120,14 @@ pub(crate) fn load_llm_provider_definition(path: &Path) -> ConfigResult<serde_js
     Ok(value)
 }
 
+pub(crate) fn load_llm_auth(path: &Path) -> ConfigResult<serde_json::Value> {
+    let value = crate::parser::parse_config_file::<serde_json::Value>(path)?;
+    let provider: wf_types::config::llm_auth::AuthProviderConfig = serde_json::from_value(value.clone())
+        .map_err(|e| ConfigError::Parse(format!("invalid LLM auth: {e}")))?;
+    crate::processor::llm_auth::validate_auth_provider(&provider)?;
+    Ok(value)
+}
+
 pub(crate) fn load_workflow(path: &Path) -> ConfigResult<serde_json::Value> {
     let value = crate::parser::parse_config_file::<serde_json::Value>(path)?;
     let workflow: wf_types::workflow::WorkflowDefinition = serde_json::from_value(value.clone())

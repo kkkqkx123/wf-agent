@@ -104,10 +104,10 @@ mod tests {
     fn test_register_all_index_resolvers() {
         let mut registry = IndexRegistry::new();
         register_all_index_resolvers(&mut registry).unwrap();
-        assert_eq!(registry.registered_types().len(), 10);
+        assert_eq!(registry.registered_types().len(), 11);
         // Idempotent: calling again keeps the same set.
         register_all_index_resolvers(&mut registry).unwrap();
-        assert_eq!(registry.registered_types().len(), 10);
+        assert_eq!(registry.registered_types().len(), 11);
         assert!(registry.has_resolver(&IndexType::McpPresets));
     }
 

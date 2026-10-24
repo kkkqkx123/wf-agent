@@ -5,7 +5,6 @@
 //! mis-declared provider surfaces as a config error, not a login failure.
 
 use crate::error::{ConfigError, ConfigResult};
-use crate::processor::substitute::substitute_in_struct;
 use crate::validator::validate_not_empty;
 
 use wf_types::config::llm_auth::{AuthMethodConfig, AuthProviderConfig, OAuthFlowConfig};
@@ -94,9 +93,42 @@ pub fn transform_auth_providers(
 ) -> ConfigResult<Vec<AuthProviderConfig>> {
     let mut cloned = providers.to_vec();
     for provider in &mut cloned {
-        substitute_in_struct(provider, parameters)?;
+        let mut value = serde_json::to_value(&*provider).map_err(|e| {
+            ConfigError::Serialization(format!("failed to serialize auth provider: {e}"))
+        })?;
+        substitute_auth_value(&mut value, parameters);
+        *provider = serde_json::from_value(value).map_err(|e| {
+            ConfigError::Validation(format!(
+                "substituted auth provider no longer matches its declared shape: {e}"
+            ))
+        })?;
     }
     Ok(cloned)
+}
+
+fn substitute_auth_value(
+    value: &mut serde_json::Value,
+    parameters: &std::collections::HashMap<String, String>,
+) {
+    match value {
+        serde_json::Value::String(s) => {
+            for (key, replacement) in parameters {
+                let placeholder = format!("${{{key}}}");
+                *s = s.replace(&placeholder, replacement);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                substitute_auth_value(item, parameters);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for (_, v) in map.iter_mut() {
+                substitute_auth_value(v, parameters);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]

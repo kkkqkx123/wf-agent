@@ -259,6 +259,7 @@ pub fn create_index_resolver_for_type(ty: &IndexType) -> ConfigResult<IndexResol
             Arc::new(load_llm_provider_definition),
             extract_llm_provider_metadata,
         ),
+        IndexType::LlmAuth => (Arc::new(load_llm_auth), extract_llm_auth_metadata),
         IndexType::Workflows => (Arc::new(load_workflow), extract_workflow_metadata),
         IndexType::NodeTemplates => (Arc::new(load_node_template), extract_node_template_metadata),
         IndexType::Scripts => (Arc::new(load_script), extract_script_metadata),
@@ -283,6 +284,7 @@ pub fn register_all_index_resolvers(registry: &mut IndexRegistry) -> ConfigResul
     for ty in [
         IndexType::LlmProfiles,
         IndexType::LlmProviders,
+        IndexType::LlmAuth,
         IndexType::Workflows,
         IndexType::NodeTemplates,
         IndexType::Scripts,

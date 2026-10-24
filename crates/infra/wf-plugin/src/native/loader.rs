@@ -89,6 +89,36 @@ fn determine_native_base_path(manifest: &PluginManifest) -> PluginResult<std::pa
     validate_plugin_id(&manifest.id)?;
     validate_entry_point(&manifest.entry_point)?;
 
+    // Environment override takes precedence: operators (and smoke tests) can
+    // point at a specific artifact or base directory without relying on the
+    // scan-path layout.
+    if let Some(override_path) = std::env::var_os("WF_PLUGIN_ARTIFACT_PATH")
+        .or_else(|| std::env::var_os("WF_PLUGIN_BASE_DIR"))
+        .or_else(|| std::env::var_os("WF_PLUGIN_DIR"))
+    {
+        let override_path = std::path::PathBuf::from(override_path);
+        if override_path.is_file() {
+            if let Some(parent) = override_path.parent() {
+                return Ok(parent.to_path_buf());
+            }
+        }
+        let candidate = override_path.join(&manifest.id);
+        if candidate.join(&manifest.entry_point).exists() {
+            return Ok(candidate);
+        }
+        if override_path.join(&manifest.entry_point).exists() {
+            return Ok(override_path);
+        }
+    }
+
+    for base in crate::engine::config::default_plugin_scan_paths() {
+        let candidate = base.join(&manifest.id);
+        if candidate.join(&manifest.entry_point).exists() {
+            return Ok(candidate);
+        }
+    }
+
+    // Legacy development layout: repository-root `plugins/{id}`.
     let candidate = std::path::PathBuf::from("plugins").join(&manifest.id);
     if candidate.join(&manifest.entry_point).exists() {
         return Ok(candidate);

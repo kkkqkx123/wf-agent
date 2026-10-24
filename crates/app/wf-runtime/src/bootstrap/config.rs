@@ -151,7 +151,7 @@ impl Default for PluginConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            paths: vec![std::path::PathBuf::from("./plugins")],
+            paths: wf_plugin::engine::config::default_plugin_scan_paths(),
             auto_activate: true,
             guard_timeout_ms: 10000,
             lua_enabled: true,
@@ -365,6 +365,23 @@ pub async fn resolve_infra_config(
     }
     if config.mcp.project_root.is_none() {
         config.mcp.project_root = infra.project_root.clone();
+    }
+
+    // Load declarative LLM auth surfaces from the user-level/project-level
+    // `llm-auth` family so `LlmConfig.auth` can be driven by config files
+    // instead of programmatic defaults. An explicitly populated auth config
+    // keeps its higher priority.
+    if config.llm.auth == wf_types::config::llm_auth::AuthConfig::default()
+        && !project_root.as_os_str().is_empty()
+    {
+        match wf_config::llm_auth::load_llm_auth_config(&project_root) {
+            Ok(auth) => {
+                if !auth.providers.is_empty() {
+                    config.llm.auth = auth;
+                }
+            }
+            Err(e) => warn!(error = %e, "failed to load llm-auth config; keeping defaults"),
+        }
     }
 
     Ok(config)

@@ -9,10 +9,19 @@ Run after `cargo build --release` in the plugin directory.
 
 import ctypes
 import json
+import os
 import sys
 import tomllib
 
-SO_PATH = sys.argv[1] if len(sys.argv) > 1 else "target/release/libllm_auth_claude_subscription.so"
+_DEFAULT_SO = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "target",
+    "release",
+    "libllm_auth_claude_subscription.so",
+)
+SO_PATH = os.environ.get("WF_PLUGIN_ARTIFACT_PATH") or (
+    sys.argv[1] if len(sys.argv) > 1 else _DEFAULT_SO
+)
 
 lib = ctypes.CDLL(SO_PATH)
 

@@ -2,6 +2,22 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
+/// Default runtime plugin scan paths: the user's global plugin directory
+/// followed by the project-level override directory. The repository-root
+/// `plugins/` directory is intentionally excluded so development samples are
+/// not mistaken for installed plugins.
+pub fn default_plugin_scan_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Some(home) = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .filter(|value| !value.is_empty())
+    {
+        paths.push(PathBuf::from(home).join(".wf").join("plugins"));
+    }
+    paths.push(PathBuf::from("./.wf/plugins"));
+    paths
+}
+
 use super::PluginEngine;
 use crate::contributions::OverridePolicy;
 use crate::error::{PluginError, PluginResult};
@@ -45,7 +61,7 @@ impl Default for PluginSystemConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            paths: vec![PathBuf::from("./plugins")],
+            paths: default_plugin_scan_paths(),
             auto_activate: true,
             guard_timeout_ms: 10000,
             override_policy: OverridePolicy::Forbid,

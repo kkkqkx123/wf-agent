@@ -93,14 +93,12 @@ mod runtime;
 mod session_pool;
 mod version;
 
-
 pub(crate) use codec::*;
 pub(crate) use handlers::*;
 pub(crate) use observe::*;
 pub(crate) use runtime::*;
 pub(crate) use session_pool::*;
 pub(crate) use version::*;
-
 
 #[async_trait]
 impl PluginTrait for ComponentPlugin {
@@ -238,8 +236,6 @@ impl PluginTrait for ComponentPlugin {
         Ok(())
     }
 }
-
-
 
 #[cfg(test)]
 #[path = "component/tests.rs"]

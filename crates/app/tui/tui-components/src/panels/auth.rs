@@ -124,7 +124,10 @@ impl AuthPanel {
     fn rebuild_surface_list(&mut self) {
         let mut group = Group::new(Some("llm auth"));
         for row in &self.rows {
-            let described = row.login_label.clone().unwrap_or_else(|| row.method.clone());
+            let described = row
+                .login_label
+                .clone()
+                .unwrap_or_else(|| row.method.clone());
             group = group.item(GroupItem::new(row.label(), row.id.clone()).described(described));
         }
         self.list = SelectList::groups(vec![group]);
@@ -241,7 +244,10 @@ mod tests {
             awaiting_input: None,
             poll_secs: Some(5),
         }));
-        assert_eq!(panel.session().map(|s| s.provider_id.as_str()), Some("acme"));
+        assert_eq!(
+            panel.session().map(|s| s.provider_id.as_str()),
+            Some("acme")
+        );
         assert_eq!(panel.selected_id().as_deref(), Some("login-1"));
         // Filtering is inert while a session owns the list.
         panel.filter_push('x');

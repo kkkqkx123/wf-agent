@@ -454,10 +454,9 @@ fn auth_params_for(
         };
         if let Some(auth_ref) = definition.auth.as_ref() {
             if auth_ref.provider == auth_name {
-                return auth_ref
-                    .params
-                    .as_ref()
-                    .map(|params| Value::Object(params.iter().map(|(k, v)| (k.clone(), v.clone())).collect()));
+                return auth_ref.params.as_ref().map(|params| {
+                    Value::Object(params.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                });
             }
         }
     }
@@ -796,14 +795,15 @@ mod tests {
 
     fn gateway_with_auth_registry() -> Arc<wf_llm::LlmGateway> {
         let store = Arc::new(wf_llm::llm_auth::MemoryCredentialStore::new());
-        let registry = wf_llm::llm_auth::AuthRegistry::new(
-            store,
-            Arc::new(wf_llm::llm_auth::StdAuthContext),
-        );
+        let registry =
+            wf_llm::llm_auth::AuthRegistry::new(store, Arc::new(wf_llm::llm_auth::StdAuthContext));
         Arc::new(wf_llm::LlmGateway::new().with_auth(Arc::new(registry)))
     }
 
-    fn provider_definition_with_auth(id: &str, auth_provider: &str) -> wf_types::llm::LlmProviderDefinition {
+    fn provider_definition_with_auth(
+        id: &str,
+        auth_provider: &str,
+    ) -> wf_types::llm::LlmProviderDefinition {
         wf_types::llm::LlmProviderDefinition {
             id: id.to_string(),
             name: None,

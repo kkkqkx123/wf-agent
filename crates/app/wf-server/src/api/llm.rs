@@ -72,7 +72,10 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/llm/auth", get(handle_list_auth_providers))
         .route("/llm/auth/login", post(handle_auth_login_start))
         .route("/llm/auth/login/{id}", get(handle_auth_login_poll))
-        .route("/llm/auth/login/{id}/submit", post(handle_auth_login_submit))
+        .route(
+            "/llm/auth/login/{id}/submit",
+            post(handle_auth_login_submit),
+        )
         .route(
             "/llm/auth/login/{id}/cancel",
             post(handle_auth_login_cancel),

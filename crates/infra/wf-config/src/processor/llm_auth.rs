@@ -43,12 +43,9 @@ pub fn validate_auth_provider(provider: &AuthProviderConfig) -> ConfigResult<()>
             validate_not_empty(client_id, "client_id")?;
             match flow {
                 OAuthFlowConfig::Device => {
-                    let url = provider
-                        .device_authorization_url
-                        .as_ref()
-                        .ok_or_else(|| {
-                            missing(&provider.id, "device_authorization_url", "flow \"device\"")
-                        })?;
+                    let url = provider.device_authorization_url.as_ref().ok_or_else(|| {
+                        missing(&provider.id, "device_authorization_url", "flow \"device\"")
+                    })?;
                     validate_not_empty(url, "device_authorization_url")?;
                 }
                 OAuthFlowConfig::Pkce => {
@@ -223,8 +220,8 @@ mod tests {
 
     #[test]
     fn duplicate_ids_are_rejected() {
-        let err = validate_auth_config(&[api_key_provider(), api_key_provider()])
-            .expect_err("must fail");
+        let err =
+            validate_auth_config(&[api_key_provider(), api_key_provider()]).expect_err("must fail");
         assert!(err.to_string().contains("duplicate"), "{err}");
     }
 

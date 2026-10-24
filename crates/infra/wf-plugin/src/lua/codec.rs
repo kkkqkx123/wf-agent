@@ -173,7 +173,9 @@ fn call_lua_auth_fn(
         })
     };
     match tokio::runtime::Handle::try_current() {
-        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(super::bridge::run_lua_blocking(invoke))),
+        Ok(handle) => {
+            tokio::task::block_in_place(|| handle.block_on(super::bridge::run_lua_blocking(invoke)))
+        }
         Err(_) => invoke(),
     }
 }

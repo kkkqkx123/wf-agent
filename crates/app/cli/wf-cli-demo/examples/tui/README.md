@@ -46,6 +46,7 @@
 | `tui_bench` | `bench.rs` | perf probe | `cargo run -p wf-cli-demo --example tui_bench` |
 | `tui_scenario` | `scenario.rs` | scenario record/replay | `cargo run -p wf-cli-demo --example tui_scenario` |
 | `tui_component_output` | `component_output.rs` | golden output | `cargo run -p wf-cli-demo --example tui_component_output` |
+| `tui_panel_select_showcase` | `panel_select_showcase.rs` | panel-scoped mouse selection | `cargo run -p wf-cli-demo --example tui_panel_select_showcase` |
 
 ## 4. Implementation checklist for new examples
 

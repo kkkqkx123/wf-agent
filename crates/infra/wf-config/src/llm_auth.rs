@@ -22,7 +22,11 @@ pub fn candidate_auth_dirs(project_root: &Path) -> Vec<PathBuf> {
     // In-repository user-level demo directory.
     dirs.push(project_root.join(".wf-user").join(layout::family::LLM_AUTH));
     // Project-level override (tracked config).
-    dirs.push(project_root.join(layout::PROJECT_WF_DIR).join(layout::family::LLM_AUTH));
+    dirs.push(
+        project_root
+            .join(layout::PROJECT_WF_DIR)
+            .join(layout::family::LLM_AUTH),
+    );
     // Legacy project-root configs directory.
     dirs.push(layout::family_dir(project_root, layout::family::LLM_AUTH));
     // Global user root.
@@ -30,7 +34,11 @@ pub fn candidate_auth_dirs(project_root: &Path) -> Vec<PathBuf> {
         .or_else(|| std::env::var_os("USERPROFILE"))
         .filter(|value| !value.is_empty())
     {
-        dirs.push(PathBuf::from(home).join(".wf").join(layout::family::LLM_AUTH));
+        dirs.push(
+            PathBuf::from(home)
+                .join(".wf")
+                .join(layout::family::LLM_AUTH),
+        );
     }
     dirs
 }
@@ -71,7 +79,9 @@ pub fn load_auth_config_from_dir(dir: &Path) -> ConfigResult<Option<AuthConfig>>
             }
             match load_auth_provider(path) {
                 Ok(provider) => providers.push(provider),
-                Err(e) => tracing::warn!(error = %e, path = %path.display(), "skipping llm-auth declaration"),
+                Err(e) => {
+                    tracing::warn!(error = %e, path = %path.display(), "skipping llm-auth declaration")
+                }
             }
         }
     } else {

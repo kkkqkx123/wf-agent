@@ -326,6 +326,9 @@ impl TuiApp {
             }
             return false;
         };
+        if let Some(session) = self.sessions.active_mut() {
+            session.clear_transcript_autoscroll();
+        }
         if press.is_right {
             if !mouse_is_right_button(mouse.kind) {
                 if let Some(session) = self.sessions.active_mut() {
@@ -641,6 +644,34 @@ impl TuiApp {
                 return false;
             }
             let Some((head_row, head_col)) = self.content_anchor_for(mouse) else {
+                // Drag head left the viewport vertically: arm auto-scroll,
+                // tick one viewport notch and keep the press armed so the
+                // release still lands the grown selection. Horizontal
+                // overflow alone stays native and drops the press.
+                let outside = self.sessions.active().and_then(|session| {
+                    session.last_scroll_area().and_then(|area| {
+                        crate::interactive::mouse_hit::autoscroll_dir_for_row(mouse.row, &area)
+                    })
+                });
+                if let Some(direction) = outside {
+                    if let Some(session) = self.sessions.active_mut() {
+                        if session.transcript_selection().is_none() {
+                            if let Some((anchor_row, anchor_col)) = press.transcript_anchor {
+                                session.set_transcript_selection(
+                                    crate::interactive::TranscriptSelection {
+                                        anchor_row,
+                                        anchor_col,
+                                        head_row: anchor_row,
+                                        head_col: anchor_col,
+                                    },
+                                );
+                            }
+                        }
+                        session.start_transcript_autoscroll(direction);
+                        session.tick_transcript_autoscroll();
+                    }
+                    return true;
+                }
                 self.mouse_press = None;
                 if let Some(session) = self.sessions.active_mut() {
                     session.clear_transcript_selection();

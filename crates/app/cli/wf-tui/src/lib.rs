@@ -22,16 +22,18 @@ pub use tui_components::{
     prompt_modal, question_overlay, queue, select, tab_bar, transcript,
 };
 pub use tui_core::{
-    anchor, copy, event_dispatch, events, frame_metrics, framer, keymap, perf, plugin, prep_keys,
-    redraw, reducer, render_model, renderable, screen_data, status_line, stream_pacer, tail,
-    tool_output, width,
+    anchor, copy, event_dispatch, events, frame_metrics, framer, keymap, panel_select, perf,
+    plugin, prep_keys, redraw, reducer, render_model, renderable, screen_data, status_line,
+    stream_pacer, tail, tool_output, width,
 };
 pub use tui_debug::tui_debug;
 pub use tui_markdown::markdown;
-pub use tui_render::{ansi, deferred, image_raster, layout, post_process, prep_cache, screen_draw};
+pub use tui_render::{
+    ansi, deferred, image_raster, layout, panel_wrap, post_process, prep_cache, screen_draw,
+};
 pub use tui_style::{anim_core, animation, motion, theme, theme_mode};
 pub use tui_terminal::{
-    capabilities, editor, image_emit, liveness, probe, sigint, stderr, terminal,
+    capabilities, clipboard, editor, image_emit, liveness, probe, sigint, stderr, terminal,
 };
 
 // Facade-only modules (application shell) remain in this crate.

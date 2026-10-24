@@ -64,6 +64,10 @@ name = "tui_component_output"
 path = "examples/tui/component_output.rs"
 
 [[example]]
+name = "tui_panel_select_showcase"
+path = "examples/tui/panel_select_showcase.rs"
+
+[[example]]
 name = "mini_markdown"
 path = "examples/mini/markdown.rs"
 

@@ -298,6 +298,9 @@ pub struct InteractiveController {
     /// Transcript drag selection in viewport display-row space. Set while a
     /// content drag is in progress, cleared on release, scroll or resize.
     transcript_selection: Option<TranscriptSelection>,
+    /// Pending drag auto-scroll direction (`-1` up, `+1` down) while the
+    /// drag head extends past the viewport edge.
+    transcript_autoscroll: Option<i8>,
     /// Last hovered terminal cell from motion events. Affordance only:
     /// never requests a frame, only read by full frames. Cleared on
     /// scroll, resize or button activity.
@@ -562,6 +565,7 @@ impl InteractiveController {
             last_scroll_area: None,
             last_input_area: None,
             transcript_selection: None,
+            transcript_autoscroll: None,
             hover_cell: None,
             gutter_drag: false,
             graceful: false,
@@ -797,7 +801,7 @@ impl InteractiveController {
         self.last_badge_rect = None;
         self.last_scroll_area = None;
         self.last_input_area = None;
-        self.transcript_selection = None;
+        self.clear_transcript_selection();
         self.hover_cell = None;
     }
 
@@ -841,6 +845,58 @@ impl InteractiveController {
     /// Clear the transcript drag selection on release, scroll or resize.
     pub fn clear_transcript_selection(&mut self) {
         self.transcript_selection = None;
+        self.transcript_autoscroll = None;
+    }
+
+    /// Pending drag auto-scroll direction: `-1` scrolls up, `+1` scrolls
+    /// down. Set while a content drag extends past the viewport edge.
+    pub fn transcript_autoscroll(&self) -> Option<i8> {
+        self.transcript_autoscroll
+    }
+
+    /// Arm drag auto-scroll in one direction.
+    pub fn start_transcript_autoscroll(&mut self, direction: i8) {
+        let direction = direction.signum();
+        if direction != 0 {
+            self.transcript_autoscroll = Some(direction);
+        }
+    }
+
+    /// Advance one auto-scroll step: move the viewport one notch in the
+    /// armed direction and pin the selection head to the newly exposed
+    /// edge row. Returns whether a step ran.
+    pub fn tick_transcript_autoscroll(&mut self) -> bool {
+        let Some(direction) = self.transcript_autoscroll else {
+            return false;
+        };
+        let Some(selection) = self.transcript_selection else {
+            self.transcript_autoscroll = None;
+            return false;
+        };
+        if direction < 0 {
+            self.scroll_history_up();
+        } else {
+            self.scroll_history_down();
+        }
+        let capacity = usize::from(self.last_layout_height.max(1));
+        let edge = if direction < 0 {
+            0
+        } else {
+            capacity.saturating_sub(1)
+        };
+        let head_col = if direction < 0 { 0 } else { usize::MAX };
+        self.transcript_selection = Some(TranscriptSelection {
+            anchor_row: selection.anchor_row,
+            anchor_col: selection.anchor_col,
+            head_row: edge,
+            head_col,
+        });
+        true
+    }
+
+    /// Disarm drag auto-scroll without touching the selection.
+    pub fn clear_transcript_autoscroll(&mut self) {
+        self.transcript_autoscroll = None;
     }
 
     /// Record one hover cell for affordance highlights. Never requests a

@@ -37,7 +37,10 @@ impl EnvApiKeyAuth {
     }
 
     /// The provider surface for one declaration.
-    pub fn provider_auth(env_name: impl Into<String>, display_name: impl Into<String>) -> ProviderAuth {
+    pub fn provider_auth(
+        env_name: impl Into<String>,
+        display_name: impl Into<String>,
+    ) -> ProviderAuth {
         ProviderAuth::api_key_only(Arc::new(Self::new(env_name, display_name)))
     }
 }
@@ -125,15 +128,13 @@ impl DeclaredOAuth {
 
     fn device_config(&self) -> AuthResult<DeviceFlowConfig> {
         Ok(DeviceFlowConfig {
-            device_authorization_url: self
-                .config
-                .device_authorization_url
-                .clone()
-                .ok_or_else(|| {
+            device_authorization_url: self.config.device_authorization_url.clone().ok_or_else(
+                || {
                     AuthError::MalformedCredential(
                         "device flow requires device_authorization_url".to_string(),
                     )
-                })?,
+                },
+            )?,
             token_url: self.config.token_url.clone(),
             client_id: self.config.client_id.clone(),
             scope: self.config.scope.clone(),
@@ -174,12 +175,9 @@ impl OAuthAuth for DeclaredOAuth {
 
     async fn begin_login(&self) -> AuthResult<LoginFlow> {
         match self.config.flow {
-            DeclaredFlow::Device => Ok(LoginFlow::Device(device_flow::start(
-                self.device_config()?,
-                reqwest::Client::new(),
-                now_ms(),
-            )
-            .await?)),
+            DeclaredFlow::Device => Ok(LoginFlow::Device(
+                device_flow::start(self.device_config()?, reqwest::Client::new(), now_ms()).await?,
+            )),
             DeclaredFlow::Pkce => {
                 let pending = pkce::start(self.pkce_config()?).await?;
                 if self.config.loopback {

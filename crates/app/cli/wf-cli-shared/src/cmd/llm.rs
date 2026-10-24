@@ -304,9 +304,7 @@ async fn drive_login(cli: &Cli, client: &WfClient, provider_id: &str) -> CliResu
     let session_id = started
         .get("session_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            CliError::Configuration("login response missing session_id".to_string())
-        })?
+        .ok_or_else(|| CliError::Configuration("login response missing session_id".to_string()))?
         .to_string();
     let mut state = started
         .get("state")
@@ -449,7 +447,10 @@ fn collect_prompt(prompt: &serde_json::Value) -> CliResult<String> {
         .as_object()
         .and_then(|obj| obj.keys().next().cloned())
         .unwrap_or_else(|| "Text".to_string());
-    let body = prompt.get(&kind).cloned().unwrap_or(serde_json::Value::Null);
+    let body = prompt
+        .get(&kind)
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
     let message = body
         .get("message")
         .and_then(|v| v.as_str())

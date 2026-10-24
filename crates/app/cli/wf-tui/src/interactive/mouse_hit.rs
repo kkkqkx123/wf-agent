@@ -98,6 +98,23 @@ pub(crate) enum ClickTarget {
     Subagent { seq: u64 },
 }
 
+/// Auto-scroll direction for a drag cell vertically outside the scroll
+/// viewport: `-1` above the top edge, `+1` below the bottom edge, `None`
+/// inside. The caller ticks the viewport one notch and pins the selection
+/// head to the newly exposed edge row.
+pub(crate) fn autoscroll_dir_for_row(row: u16, area: &Rect) -> Option<i8> {
+    if area.height == 0 {
+        return None;
+    }
+    if row < area.y {
+        Some(-1)
+    } else if row >= area.y.saturating_add(area.height) {
+        Some(1)
+    } else {
+        None
+    }
+}
+
 /// Word at a display column: whitespace-delimited token containing the
 /// column (columns count characters, best effort for wide glyphs).
 pub(crate) fn word_at_col(text: &str, col: usize) -> Option<String> {
@@ -428,5 +445,17 @@ mod tests {
         assert_eq!(word_at_col("hello world", 5), None);
         assert_eq!(word_at_col("   ", 1), None);
         assert_eq!(word_at_col("", 0), None);
+    }
+
+    #[test]
+    fn autoscroll_direction_follows_vertical_overflow() {
+        let area = Rect::new(0, 5, 40, 10);
+        assert_eq!(autoscroll_dir_for_row(4, &area), Some(-1));
+        assert_eq!(autoscroll_dir_for_row(5, &area), None);
+        assert_eq!(autoscroll_dir_for_row(14, &area), None);
+        assert_eq!(autoscroll_dir_for_row(15, &area), Some(1));
+        assert_eq!(autoscroll_dir_for_row(99, &area), Some(1));
+        let flat = Rect::new(0, 5, 40, 0);
+        assert_eq!(autoscroll_dir_for_row(4, &flat), None);
     }
 }

@@ -432,7 +432,12 @@ impl FileCheckpointManager {
     ) -> Result<String, CheckpointError> {
         if !paths.is_empty() {
             let mut command = std::process::Command::new("git");
-            command.arg("-C").arg(base_dir).arg("add").arg("-A").arg("--");
+            command
+                .arg("-C")
+                .arg(base_dir)
+                .arg("add")
+                .arg("-A")
+                .arg("--");
             for path in paths {
                 command.arg(path);
             }
@@ -504,9 +509,7 @@ impl FileCheckpointManager {
         if reconcile.external_repo != fingerprint {
             return Ok(None);
         }
-        if !reconcile.external_repo_id.is_empty()
-            && reconcile.external_repo_id != repo_id
-        {
+        if !reconcile.external_repo_id.is_empty() && reconcile.external_repo_id != repo_id {
             return Ok(None);
         }
         let Ok(head) = crate::git_store::external::external_head_id(base_dir) else {
@@ -598,9 +601,7 @@ impl FileCheckpointManager {
                 reason: "reconcile points at a different repository; export again".to_string(),
             });
         }
-        if !reconcile.external_repo_id.is_empty()
-            && reconcile.external_repo_id != repo_id
-        {
+        if !reconcile.external_repo_id.is_empty() && reconcile.external_repo_id != repo_id {
             return Err(CheckpointError::Validation {
                 reason: "reconcile points at a different repository; export again".to_string(),
             });
@@ -713,9 +714,7 @@ impl FileCheckpointManager {
                     // they carry no net change and would only add noise to the
                     // human commit. Deletions cannot be inferred without a
                     // base, so only additions and updates are imported.
-                    if main_files
-                        .get(&key)
-                        .map(|existing| existing.as_slice())
+                    if main_files.get(&key).map(|existing| existing.as_slice())
                         == Some(bytes.as_slice())
                     {
                         continue;

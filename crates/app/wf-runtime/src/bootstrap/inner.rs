@@ -195,10 +195,8 @@ impl Runtime {
             tool_registry.set_tool_metrics(metrics.registry().tool());
         }
 
-        let pricing_resolver = wf_pricing::build_composite_resolver(
-            storage_manager.shared_context().as_deref(),
-        )
-        .await;
+        let pricing_resolver =
+            wf_pricing::build_composite_resolver(storage_manager.shared_context().as_deref()).await;
         // Declarative auth surfaces attach to the gateway before plugin
         // activation: plugin-provided surfaces register on the same registry
         // (fixed startup order, no lazy backfill) and file-layer profiles can

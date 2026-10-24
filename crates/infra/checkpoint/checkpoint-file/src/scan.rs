@@ -16,7 +16,8 @@ use checkpoint_base::error::CheckpointError;
 /// the workspace's own `.gitignore` files, then custom patterns.
 /// `.wf-checkpoint-git` is the independent bare object store: it is never
 /// scanned, committed or deleted by restore.
-pub const HARDCODED_IGNORE_DIRS: &[&str] = &[".git", "node_modules", ".wf-checkpoint-git", ".wf-user"];
+pub const HARDCODED_IGNORE_DIRS: &[&str] =
+    &[".git", "node_modules", ".wf-checkpoint-git", ".wf-user"];
 
 /// Volatile subdirectories of the project `.wf` directory: synced project
 /// configuration lives directly under `.wf` and stays tracked, while

@@ -101,6 +101,7 @@ semver = "1"
 
 # General-purpose utilities
 anyhow = "1"
+base64 = "0.22"
 bytes = "1"
 parking_lot = "0.12"
 zstd = "0.13"

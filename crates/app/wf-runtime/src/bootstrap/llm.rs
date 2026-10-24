@@ -5,8 +5,8 @@ use wf_config::processor::llm_auth::{transform_auth_providers, validate_auth_con
 use wf_config::processor::llm_profile::{
     transform_llm_profile, validate_llm_profile, validate_provider_definition,
 };
-use wf_llm::LlmGateway;
 use wf_llm::auth::{DeclaredFlow, DeclaredOAuth, DeclaredOAuthConfig, EnvApiKeyAuth};
+use wf_llm::LlmGateway;
 use wf_pricing::PricingResolver;
 use wf_types::config::llm_auth::{AuthMethodConfig, AuthProviderConfig};
 
@@ -54,10 +54,10 @@ pub fn create_auth_registry(
     validate_auth_config(&config.providers).map_err(|e| {
         crate::error::RuntimeError::Config(format!("Invalid LLM auth declaration: {e}"))
     })?;
-    let providers =
-        transform_auth_providers(&config.providers, &std::collections::HashMap::new()).map_err(
-            |e| crate::error::RuntimeError::Config(format!("Invalid LLM auth declaration: {e}")),
-        )?;
+    let providers = transform_auth_providers(&config.providers, &std::collections::HashMap::new())
+        .map_err(|e| {
+            crate::error::RuntimeError::Config(format!("Invalid LLM auth declaration: {e}"))
+        })?;
 
     let store_path = resolve_store_path(config.store_path.as_deref(), project_root);
     let store = Arc::new(wf_llm::FileCredentialStore::new(&store_path));

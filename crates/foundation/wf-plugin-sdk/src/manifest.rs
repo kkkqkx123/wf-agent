@@ -432,9 +432,6 @@ flow = "pkce_paste"
             params.get("flow").and_then(Value::as_str),
             Some("pkce_paste")
         );
-        assert_eq!(
-            params.get("client_id").and_then(Value::as_str),
-            Some("cid")
-        );
+        assert_eq!(params.get("client_id").and_then(Value::as_str), Some("cid"));
     }
 }

@@ -45,9 +45,9 @@ fn auth_error(error: AuthError) -> ApiError {
     match error {
         AuthError::ProviderNotRegistered(id) => ApiError::not_found("llm_auth_provider", &id),
         AuthError::SessionNotFound(id) => ApiError::not_found("llm_auth_session", &id),
-        AuthError::SessionNotAwaitingInput(id) => ApiError::Conflict(format!(
-            "login session '{id}' is not awaiting input"
-        )),
+        AuthError::SessionNotAwaitingInput(id) => {
+            ApiError::Conflict(format!("login session '{id}' is not awaiting input"))
+        }
         AuthError::Store(message) => ApiError::execution_categorized(
             format!("credential store failure: {message}"),
             ApiErrorCategory::Internal,
@@ -55,9 +55,9 @@ fn auth_error(error: AuthError) -> ApiError {
         AuthError::MalformedCredential(message) => {
             ApiError::Validation(format!("malformed credential: {message}"))
         }
-        AuthError::CredentialTypeNotHandled(id) => ApiError::Conflict(format!(
-            "credential type not handled for provider '{id}'"
-        )),
+        AuthError::CredentialTypeNotHandled(id) => {
+            ApiError::Conflict(format!("credential type not handled for provider '{id}'"))
+        }
         AuthError::Refresh(message) => ApiError::execution_categorized(
             format!("oauth refresh failed: {message}"),
             ApiErrorCategory::ServiceUnavailable,
@@ -108,15 +108,9 @@ pub async fn list_auth_providers(ctx: &ApiContext) -> ApiResult<Vec<AuthProvider
 
 /// Start a login session for a provider. Returns the session id plus the
 /// first observable state (the challenge events or an input prompt).
-pub async fn login_start(
-    ctx: &ApiContext,
-    provider_id: &str,
-) -> ApiResult<(String, LoginState)> {
+pub async fn login_start(ctx: &ApiContext, provider_id: &str) -> ApiResult<(String, LoginState)> {
     let registry = auth_registry(ctx)?;
-    registry
-        .login_start(provider_id)
-        .await
-        .map_err(auth_error)
+    registry.login_start(provider_id).await.map_err(auth_error)
 }
 
 /// Advance a login session's polling step. A completed step evicts cached

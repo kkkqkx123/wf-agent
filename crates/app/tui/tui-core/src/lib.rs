@@ -9,6 +9,7 @@ pub mod framer;
 pub mod headless;
 pub mod keymap;
 pub mod observability;
+pub mod panel_select;
 pub mod perf;
 pub mod plugin;
 pub mod prep_keys;

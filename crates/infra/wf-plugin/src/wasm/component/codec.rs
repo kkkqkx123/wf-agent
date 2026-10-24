@@ -91,7 +91,12 @@ impl ComponentLlmAuth {
         let handler = format!("{}/{}", self.name, op);
         let output = match tokio::runtime::Handle::try_current() {
             Ok(handle) => tokio::task::block_in_place(|| {
-                handle.block_on(invoke_component_dispatch(&inner, "llm-auth", &handler, &input_json))
+                handle.block_on(invoke_component_dispatch(
+                    &inner,
+                    "llm-auth",
+                    &handler,
+                    &input_json,
+                ))
             })?,
             Err(_) => {
                 return Err(PluginError::WasmError(

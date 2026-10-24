@@ -10,9 +10,12 @@ use super::input_classify::{classify_paste, PasteTarget};
 use super::TuiApp;
 
 impl TuiApp {
-    /// Flush one queued copy request through the control plane. Runs after
-    /// `draw` returns so the OSC 52 bytes always follow a complete frame.
-    /// Denied or failed writes surface as notices and never touch state.
+    /// Flush one queued copy request. Local clipboard tools run first and
+    /// OSC 52 stays the fallback, so headless and remote sessions keep their
+    /// existing policy gate while local sessions stop depending on
+    /// emulator pass-through. Runs after `draw` returns so terminal bytes
+    /// always follow a complete frame. Denied or failed writes surface as
+    /// notices and never touch state.
     pub(super) fn flush_pending_copy(
         &mut self,
         guard: &mut TerminalGuard<CrosstermControl<io::Stdout>>,
@@ -20,6 +23,16 @@ impl TuiApp {
         let Some(request) = self.pending_copy.take() else {
             return;
         };
+        let Some(payload) = crate::terminal::sanitize_copy_text(&request.text) else {
+            return;
+        };
+        if crate::clipboard::try_external_clipboard(&payload) {
+            self.app
+                .notice
+                .set(crate::copy::success_notice(&request.label, &payload));
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            return;
+        }
         if !self.copy_policy.allowed {
             self.app
                 .notice
@@ -27,9 +40,6 @@ impl TuiApp {
             self.pending_scope.request(crate::redraw::RedrawScope::Full);
             return;
         }
-        let Some(payload) = crate::terminal::sanitize_copy_text(&request.text) else {
-            return;
-        };
         match guard.control().copy_to_clipboard(&payload) {
             Ok(()) => self
                 .app

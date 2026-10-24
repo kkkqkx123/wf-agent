@@ -650,8 +650,7 @@ impl InteractiveController {
                             panel.set_session(None);
                         }
                         self.fetch_panel_auth();
-                        self.footer
-                            .show_notice(format!("logged in: {session_id}"));
+                        self.footer.show_notice(format!("logged in: {session_id}"));
                     }
                     "failed" => {
                         if let Some(PanelState::Auth(panel)) = self.footer.panel.as_mut() {
@@ -795,7 +794,10 @@ impl InteractiveController {
         let client = self.client.clone();
         let tx = self.tx.clone();
         tokio::spawn(async move {
-            match client.get_json::<serde_json::Value>("/api/v1/llm/auth").await {
+            match client
+                .get_json::<serde_json::Value>("/api/v1/llm/auth")
+                .await
+            {
                 Ok(value) => {
                     let rows = items_of(&value)
                         .iter()
@@ -994,18 +996,17 @@ impl InteractiveController {
         self.fetch_mention_entities(&query);
     }
 
-/// Log out the surface under the cursor in the auth panel.
-fn logout_selected_auth(&mut self) {
-    let selected = match self.footer.panel.as_ref() {
-        Some(PanelState::Auth(panel)) if panel.session().is_none() => panel.selected_id(),
-        _ => None,
-    };
-    if let Some(provider_id) = selected {
-        self.logout_auth(&provider_id);
+    /// Log out the surface under the cursor in the auth panel.
+    fn logout_selected_auth(&mut self) {
+        let selected = match self.footer.panel.as_ref() {
+            Some(PanelState::Auth(panel)) if panel.session().is_none() => panel.selected_id(),
+            _ => None,
+        };
+        if let Some(provider_id) = selected {
+            self.logout_auth(&provider_id);
+        }
     }
 }
-}
-
 
 /// Sleep `delay_secs`, then poll one login-session state and forward it as
 /// an `AuthSession` payload. Terminal states stop the chain; waiting states
@@ -1022,7 +1023,10 @@ fn schedule_auth_poll(
             .get_json::<serde_json::Value>(&format!("/api/v1/llm/auth/login/{session_id}"))
             .await
         {
-            Ok(value) => value.get("state").cloned().unwrap_or(serde_json::Value::Null),
+            Ok(value) => value
+                .get("state")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
             Err(err) => serde_json::json!({"Failed": {"error": err.to_string(), "events": []}}),
         };
         let kind = state
@@ -1092,7 +1096,8 @@ fn auth_session_view(
     provider_id: &str,
     state: Option<&serde_json::Value>,
 ) -> AuthSessionView {
-    let (lines, awaiting_input, poll_secs) = auth_state_lines(state.unwrap_or(&serde_json::Value::Null));
+    let (lines, awaiting_input, poll_secs) =
+        auth_state_lines(state.unwrap_or(&serde_json::Value::Null));
     AuthSessionView {
         session_id: session_id.to_string(),
         provider_id: provider_id.to_string(),
@@ -1114,7 +1119,10 @@ fn auth_state_lines(state: &serde_json::Value) -> (Vec<String>, Option<String>, 
     let body = state.get(&kind).cloned().unwrap_or(serde_json::Value::Null);
     match kind.as_str() {
         "AwaitingInput" => {
-            let prompt = body.get("prompt").cloned().unwrap_or(serde_json::Value::Null);
+            let prompt = body
+                .get("prompt")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
             let prompt_kind = prompt
                 .as_object()
                 .and_then(|obj| obj.keys().next().cloned())
@@ -1178,7 +1186,8 @@ fn auth_state_lines(state: &serde_json::Value) -> (Vec<String>, Option<String>, 
                                 .or(poll_secs);
                         }
                         "Info" | "Progress" => {
-                            if let Some(message) = event_body.get("message").and_then(|v| v.as_str())
+                            if let Some(message) =
+                                event_body.get("message").and_then(|v| v.as_str())
                             {
                                 lines.push(message.to_string());
                             }

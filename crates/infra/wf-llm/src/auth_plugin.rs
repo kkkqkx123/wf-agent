@@ -231,10 +231,7 @@ fn event_from_plugin(event: PluginAuthEvent) -> AuthEvent {
             message,
             links: Vec::<AuthInfoLink>::new(),
         },
-        PluginAuthEvent::AuthUrl {
-            url,
-            instructions,
-        } => AuthEvent::AuthUrl { url, instructions },
+        PluginAuthEvent::AuthUrl { url, instructions } => AuthEvent::AuthUrl { url, instructions },
         PluginAuthEvent::DeviceCode {
             user_code,
             verification_uri,
@@ -395,7 +392,10 @@ mod tests {
         let auth = adapter();
         assert_eq!(auth.name(), "Example Sub");
         assert!(auth.is_subscription());
-        assert_eq!(auth.login_label().as_deref(), Some("Sign in with Example Sub"));
+        assert_eq!(
+            auth.login_label().as_deref(),
+            Some("Sign in with Example Sub")
+        );
     }
 
     #[tokio::test]
@@ -410,16 +410,18 @@ mod tests {
             .initial(pending.state())
             .await
             .expect("initial");
-        let ExternalStep::AwaitingInput { state, prompt, events } = step else {
+        let ExternalStep::AwaitingInput {
+            state,
+            prompt,
+            events,
+        } = step
+        else {
             panic!("expected awaiting input");
         };
         assert_eq!(state["config"]["flow"], "pkce_paste");
         assert_eq!(state["stage"], "authorize");
         assert!(matches!(prompt, AuthPrompt::ManualCode { .. }));
-        assert!(matches!(
-            events.as_slice(),
-            [AuthEvent::AuthUrl { .. }]
-        ));
+        assert!(matches!(events.as_slice(), [AuthEvent::AuthUrl { .. }]));
     }
 
     #[tokio::test]
@@ -463,9 +465,15 @@ mod tests {
 
         let resolved = auth.to_auth(&credential).await.expect("to_auth");
         assert_eq!(resolved.api_key.as_deref(), Some("at"));
-        assert_eq!(resolved.base_url.as_deref(), Some("https://example.test/v1"));
+        assert_eq!(
+            resolved.base_url.as_deref(),
+            Some("https://example.test/v1")
+        );
         assert!(resolved.is_subscription);
-        assert_eq!(resolved.headers.get("x-extra").map(String::as_str), Some("1"));
+        assert_eq!(
+            resolved.headers.get("x-extra").map(String::as_str),
+            Some("1")
+        );
     }
 
     #[tokio::test]

@@ -36,9 +36,9 @@ pub use llm_gateway::LlmGateway;
 // primitives hosts wire into it.
 pub use llm_auth;
 pub use llm_auth::{
-    ApiKeyAuth, AuthContext, AuthRegistry, AuthMethod, AuthSurfaceInfo, Credential,
-    CredentialInfo, CredentialStore, FileCredentialStore, MemoryCredentialStore, ModelAuth,
-    OAuthAuth, OAuthCredential, ProviderAuth, ResolvedAuth, StdAuthContext,
+    ApiKeyAuth, AuthContext, AuthMethod, AuthRegistry, AuthSurfaceInfo, Credential, CredentialInfo,
+    CredentialStore, FileCredentialStore, MemoryCredentialStore, ModelAuth, OAuthAuth,
+    OAuthCredential, ProviderAuth, ResolvedAuth, StdAuthContext,
 };
 pub use llm_message::helper::extract_text_content;
 pub use llm_message::history_converter::{

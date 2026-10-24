@@ -123,10 +123,7 @@ impl FileCheckpointManager {
         });
         manager.policy.sync = config.sync.clone();
         manager.policy.store_in_workspace = config.store_in_workspace.unwrap_or(false);
-        manager.policy.baseline_mode = config
-            .baseline
-            .as_ref()
-            .map(|baseline| baseline.mode);
+        manager.policy.baseline_mode = config.baseline.as_ref().map(|baseline| baseline.mode);
         manager
             .session_scopes
             .set_scope_serialization(config.scope_serialization.as_ref());
@@ -315,7 +312,8 @@ impl FileCheckpointManager {
     /// Current baseline health, if a workspace git store is bound.
     pub fn baseline_status(&self) -> Result<crate::git_store::BaselineStatus, CheckpointError> {
         let git = self.git_ref()?;
-        git.validate_baseline().map_err(crate::file::git_write::map_git_error)
+        git.validate_baseline()
+            .map_err(crate::file::git_write::map_git_error)
     }
 
     fn apply_baseline_failure_policy(

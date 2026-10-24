@@ -23,20 +23,16 @@ pub mod codec;
 pub mod handlers;
 pub mod runtime;
 
-
 pub use runtime::WasmPlugin;
-
 
 pub(crate) use abi_call::*;
 pub(crate) use codec::*;
 pub(crate) use handlers::*;
 pub(crate) use runtime::*;
 
-
 pub use super::policy;
 pub use super::stats;
 pub use super::stdio;
-
 
 #[cfg(test)]
 mod tests {

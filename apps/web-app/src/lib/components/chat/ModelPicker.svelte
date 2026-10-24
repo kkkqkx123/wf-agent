@@ -49,14 +49,16 @@
 			id: profile.id,
 			label: profile.name || profile.model,
 			detail: `${profile.id}${profile.provider ? ` · ${profile.provider}` : ''}`,
-			badge: profile.isDefault ? t('chat.instancePicker.defaultBadge') : undefined,
+			badge: profile.isDefault
+				? t('chat.instancePicker.defaultBadge')
+				: undefined,
 		})),
 	);
 </script>
 
 <InstancePicker
 	bind:value
-	options={options}
+	{options}
 	pinnedIds={pickerState.pinnedIds('model')}
 	recentIds={pickerState.recentIds('model')}
 	allowFreeform

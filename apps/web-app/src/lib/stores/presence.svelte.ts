@@ -121,14 +121,20 @@ export class PresenceStore {
 		this.transport = transport;
 	}
 
-	join(kind: DefinitionKind, definitionId: string, name = 'this browser'): void {
+	join(
+		kind: DefinitionKind,
+		definitionId: string,
+		name = 'this browser',
+	): void {
 		if (!browser) return;
 		this.leave();
 		this.clientId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 		this.displayName = `${name} · ${this.clientId.slice(-4)}`;
 		let channel: BroadcastChannel;
 		try {
-			channel = new BroadcastChannel(`${CHANNEL_PREFIX}${kind}-${definitionId}`);
+			channel = new BroadcastChannel(
+				`${CHANNEL_PREFIX}${kind}-${definitionId}`,
+			);
 		} catch {
 			return;
 		}

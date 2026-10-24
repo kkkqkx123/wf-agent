@@ -61,7 +61,8 @@
 		<Button
 			size="sm"
 			disabled={gitStore.busy || !workbench.dialogCanSubmit}
-			onclick={() => void workbench.confirmDialog()}>{t('common.confirm')}</Button
+			onclick={() => void workbench.confirmDialog()}
+			>{t('common.confirm')}</Button
 		>
 	{/snippet}
 </Dialog>

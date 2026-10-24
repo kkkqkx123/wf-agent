@@ -146,17 +146,6 @@ export async function getWorkflowGraph(id: string): Promise<WorkflowGraph> {
 	return toWorkflowGraph(nodes, edges);
 }
 
-interface DefinitionDto {
-	id?: unknown;
-	name?: unknown;
-	version?: unknown;
-	created_at?: unknown;
-	updated_at?: unknown;
-	metadata?: { author?: unknown } | null;
-	nodes?: unknown;
-	edges?: unknown;
-}
-
 /** Create a new workflow. */
 export async function createWorkflow(
 	name: string,

@@ -34,10 +34,26 @@
 	}
 
 	const variableColumns = $derived<Column<LoopVariable>[]>([
-		{ key: 'key', header: t('domain.loopVariables.key'), text: (row) => row.key },
-		{ key: 'type', header: t('domain.loopVariables.type'), text: (row) => row.type ?? '' },
-		{ key: 'value', header: t('domain.loopVariables.value'), text: (row) => row.value },
-		{ key: 'scope', header: t('domain.loopVariables.scope'), text: (row) => row.scope ?? '' },
+		{
+			key: 'key',
+			header: t('domain.loopVariables.key'),
+			text: (row) => row.key,
+		},
+		{
+			key: 'type',
+			header: t('domain.loopVariables.type'),
+			text: (row) => row.type ?? '',
+		},
+		{
+			key: 'value',
+			header: t('domain.loopVariables.value'),
+			text: (row) => row.value,
+		},
+		{
+			key: 'scope',
+			header: t('domain.loopVariables.scope'),
+			text: (row) => row.scope ?? '',
+		},
 		{
 			key: 'updated',
 			header: t('domain.loopVariables.updated'),

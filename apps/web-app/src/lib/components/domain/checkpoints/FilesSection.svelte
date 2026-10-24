@@ -176,27 +176,27 @@
 							</p>
 							<div class="mt-1 grid gap-2 sm:grid-cols-3">
 								<div>
-									<p class="text-micro text-muted-foreground"
-										>{t('domain.checkpoint.base')}</p
-									>
+									<p class="text-micro text-muted-foreground">
+										{t('domain.checkpoint.base')}
+									</p>
 									<pre
 										class="whitespace-pre-wrap font-mono text-micro">{region.base.join(
 											'\n',
 										) || '∅'}</pre>
 								</div>
 								<div>
-									<p class="text-micro text-muted-foreground"
-										>{t('domain.checkpoint.ours')}</p
-									>
+									<p class="text-micro text-muted-foreground">
+										{t('domain.checkpoint.ours')}
+									</p>
 									<pre
 										class="whitespace-pre-wrap font-mono text-micro">{region.ours.join(
 											'\n',
 										) || '∅'}</pre>
 								</div>
 								<div>
-									<p class="text-micro text-muted-foreground"
-										>{t('domain.checkpoint.theirs')}</p
-									>
+									<p class="text-micro text-muted-foreground">
+										{t('domain.checkpoint.theirs')}
+									</p>
 									<pre
 										class="whitespace-pre-wrap font-mono text-micro">{region.theirs.join(
 											'\n',

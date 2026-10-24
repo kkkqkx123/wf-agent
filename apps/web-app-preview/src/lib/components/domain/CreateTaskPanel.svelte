@@ -33,7 +33,11 @@
 		initialVersion?: string | null;
 	}
 
-	let { onstarted, initialDefinition = null, initialVersion = null }: Props = $props();
+	let {
+		onstarted,
+		initialDefinition = null,
+		initialVersion = null,
+	}: Props = $props();
 
 	let definitions = $state<RunnableDefinition[]>([]);
 	let modelOptions = $state<{ value: string; label: string }[]>([]);
@@ -99,7 +103,8 @@
 				selected = preselected;
 			}
 		} catch (e) {
-			loadError = e instanceof Error ? e.message : t('page.executions.taskLoadFailed');
+			loadError =
+				e instanceof Error ? e.message : t('page.executions.taskLoadFailed');
 		} finally {
 			loading = false;
 		}
@@ -197,7 +202,9 @@
 			{/if}
 			<Button size="sm" disabled={starting} onclick={() => void start()}>
 				<Icon name="play" size={13} />
-				{starting ? t('page.executions.taskStarting') : t('page.executions.taskStart')}
+				{starting
+					? t('page.executions.taskStarting')
+					: t('page.executions.taskStart')}
 			</Button>
 		</div>
 	{/if}

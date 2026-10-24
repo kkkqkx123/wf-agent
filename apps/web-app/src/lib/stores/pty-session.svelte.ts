@@ -1,5 +1,11 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-import { createPty, closePty, updatePty, getPty, listPtys } from '#lib/services/pty';
+import {
+	createPty,
+	closePty,
+	updatePty,
+	getPty,
+	listPtys,
+} from '#lib/services/pty';
 import type { PtySession } from '#lib/services/pty';
 
 /**
@@ -25,7 +31,10 @@ const STORAGE_PREFIX = 'wf.pty.v1';
 const MAX_TERMINAL_SESSIONS = 20;
 const MAX_PERSIST_BUFFER_CHARS = 200_000;
 
-function truncateBuffer(buffer: string): { buffer: string; truncated: boolean } {
+function truncateBuffer(buffer: string): {
+	buffer: string;
+	truncated: boolean;
+} {
 	if (buffer.length <= MAX_PERSIST_BUFFER_CHARS) {
 		return { buffer, truncated: false };
 	}
@@ -75,7 +84,8 @@ export class PtySessionStore {
 					for (const s of parsed) {
 						if (typeof s?.id !== 'string' || seen.has(s.id)) continue;
 						seen.add(s.id);
-						const title = typeof s.title === 'string' && s.title ? s.title : s.id;
+						const title =
+							typeof s.title === 'string' && s.title ? s.title : s.id;
 						const numbered =
 							typeof s.titleNumber === 'number' &&
 							Number.isSafeInteger(s.titleNumber) &&
@@ -118,7 +128,9 @@ export class PtySessionStore {
 						}
 					})();
 					this.activeId =
-						rawActive && seen.has(rawActive) ? rawActive : (cleaned[0]?.id ?? null);
+						rawActive && seen.has(rawActive)
+							? rawActive
+							: (cleaned[0]?.id ?? null);
 				}
 			}
 		} catch {
@@ -145,7 +157,8 @@ export class PtySessionStore {
 	private pickNextNumber(): number {
 		const used = new SvelteSet(
 			this.sessions.flatMap((s) => {
-				if (typeof s.titleNumber === 'number' && s.titleNumber > 0) return [s.titleNumber];
+				if (typeof s.titleNumber === 'number' && s.titleNumber > 0)
+					return [s.titleNumber];
 				const parsed = parseTitleNumber(s.title);
 				return parsed ? [parsed] : [];
 			}),
@@ -271,7 +284,12 @@ export class PtySessionStore {
 	}
 
 	/** Record the serialized buffer after a connection cycle completes. */
-	saveBuffer(id: string, buffer: string, scrollY: number, cursor: number): void {
+	saveBuffer(
+		id: string,
+		buffer: string,
+		scrollY: number,
+		cursor: number,
+	): void {
 		const cut = truncateBuffer(buffer);
 		this.patch(id, {
 			buffer: cut.buffer,
@@ -284,10 +302,10 @@ export class PtySessionStore {
 	/** Reconcile local sessions against the server list. */
 	async reconcile(): Promise<void> {
 		if (!this.repo || this.sessions.length === 0) return;
-		let serverIds: Set<string>;
+		let serverIds: SvelteSet<string>;
 		try {
 			const list = await listPtys();
-			serverIds = new Set(list.map((s) => s.id));
+			serverIds = new SvelteSet(list.map((s) => s.id));
 		} catch {
 			return;
 		}
@@ -371,7 +389,10 @@ export class PtySessionStore {
 	private persistNow(): void {
 		if (!this.repo) return;
 		try {
-			localStorage.setItem(storageKey(this.repo), JSON.stringify(this.sessions));
+			localStorage.setItem(
+				storageKey(this.repo),
+				JSON.stringify(this.sessions),
+			);
 			if (this.activeId) {
 				localStorage.setItem(`${storageKey(this.repo)}.active`, this.activeId);
 			} else {
@@ -407,5 +428,3 @@ export function ptyStoreFor(repo: string): PtySessionStore {
 	}
 	return store;
 }
-
-

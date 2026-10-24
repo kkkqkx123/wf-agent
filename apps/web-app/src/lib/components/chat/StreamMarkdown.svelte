@@ -18,7 +18,10 @@
 
 	/** The app paints fenced code blocks itself so they carry lexical
 	 * highlighting without pulling in an optional markstream peer. */
-	const components = { code_block: CodeBlock, text: MentionText } as CustomComponentMap;
+	const components = {
+		code_block: CodeBlock,
+		text: MentionText,
+	} as CustomComponentMap;
 </script>
 
 <div class={cn('text-body', className)}>

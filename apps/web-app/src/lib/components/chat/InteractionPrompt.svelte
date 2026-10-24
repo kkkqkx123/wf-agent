@@ -132,7 +132,9 @@
 		{@const approval = interaction.approval}
 		<div
 			role="group"
-			aria-label={t('chat.interactionPrompt.approvalFor', { tool: approval.toolName })}
+			aria-label={t('chat.interactionPrompt.approvalFor', {
+				tool: approval.toolName,
+			})}
 			class="rounded-lg border border-warning/40 bg-warning/5 px-3 py-2.5"
 		>
 			<div class="flex items-center gap-2">

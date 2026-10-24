@@ -120,7 +120,10 @@
 					outcome.conflictFiles.slice(0, 3).join(', '),
 				);
 			} else {
-				toasts.success(t('domain.files.mergedFeature'), outcome.commitId.slice(0, 10));
+				toasts.success(
+					t('domain.files.mergedFeature'),
+					outcome.commitId.slice(0, 10),
+				);
 			}
 			store.bump('files');
 		} catch (e) {
@@ -158,7 +161,10 @@
 					outcome.conflictFiles.slice(0, 3).join(', '),
 				);
 			} else {
-				toasts.success(t('domain.files.mergedMain'), outcome.checkpointId.slice(0, 10));
+				toasts.success(
+					t('domain.files.mergedMain'),
+					outcome.checkpointId.slice(0, 10),
+				);
 			}
 			store.bump('files');
 		} catch (e) {
@@ -187,7 +193,10 @@
 		try {
 			const { revertCommit } = await rollbackFeature(actor, head);
 			rollbackOpen = false;
-			toasts.success(t('domain.files.featureRolledBack'), revertCommit.slice(0, 10));
+			toasts.success(
+				t('domain.files.featureRolledBack'),
+				revertCommit.slice(0, 10),
+			);
 			store.bump('files');
 		} catch (e) {
 			console.error('Feature rollback failed:', e);

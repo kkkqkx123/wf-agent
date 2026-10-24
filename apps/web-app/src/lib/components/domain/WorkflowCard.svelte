@@ -4,7 +4,11 @@
 	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
 	import Badge from '@wf-agent/ui/components/Badge.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
-	import { formatPercent, formatRelativeTime, shortId } from '#lib/utils/format';
+	import {
+		formatPercent,
+		formatRelativeTime,
+		shortId,
+	} from '#lib/utils/format';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { cn } from '@wf-agent/ui/cn';
 	import { t } from '#lib/i18n';
@@ -87,7 +91,11 @@
 			</span>
 			<span class="flex items-center gap-2 tabular-nums">
 				{#if workflow.successRate !== null}
-					<span>{t('domain.workflowCard.ok', { rate: formatPercent(workflow.successRate, 0) })}</span>
+					<span
+						>{t('domain.workflowCard.ok', {
+							rate: formatPercent(workflow.successRate, 0),
+						})}</span
+					>
 				{/if}
 				<span>{formatRelativeTime(workflow.updatedAt)}</span>
 			</span>

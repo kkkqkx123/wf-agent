@@ -51,7 +51,9 @@
 			skillContent = await getSkillContent(next.name);
 		} catch (e) {
 			skillContentError =
-				e instanceof Error ? e.message : t('page.resources.skillContent.promptLoadFailed');
+				e instanceof Error
+					? e.message
+					: t('page.resources.skillContent.promptLoadFailed');
 		}
 	}
 
@@ -61,7 +63,10 @@
 			await navigator.clipboard.writeText(skillContent);
 			toasts.success(t('page.resources.skillContent.copied'));
 		} catch (e) {
-			toasts.error(t('page.resources.skillContent.copyFailed'), e instanceof Error ? e.message : undefined);
+			toasts.error(
+				t('page.resources.skillContent.copyFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
 		}
 	}
 </script>

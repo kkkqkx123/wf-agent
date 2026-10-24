@@ -56,7 +56,6 @@ export function connectedComponents(
 	nodes: DisplayNode[],
 	edges: Array<{ source: string; target: string }>,
 ): string[][] {
-	const known = new Set(nodes.map((node) => node.id));
 	const adjacency = new Map<string, string[]>();
 	for (const node of nodes) adjacency.set(node.id, []);
 	for (const edge of validEdges(nodes, edges)) {
@@ -84,9 +83,7 @@ export function connectedComponents(
 		component.sort();
 		components.push(component);
 	}
-	components.sort((a, b) =>
-		a[0]! < b[0]! ? -1 : a[0]! > b[0]! ? 1 : 0,
-	);
+	components.sort((a, b) => (a[0]! < b[0]! ? -1 : a[0]! > b[0]! ? 1 : 0));
 	return components;
 }
 
@@ -142,7 +139,6 @@ export function layeredPositions(
 				(membersInRank.length - 1) * NODE_SEP;
 			const startY = ORIGIN + (rankSpan - rankHeight) / 2;
 			membersInRank.forEach((id, index) => {
-				const node = flowById.get(id);
 				const x = cursorX + rank * (NODE_WIDTH + RANK_SEP);
 				const y = startY + index * (NODE_HEIGHT + NODE_SEP);
 				positions.set(id, {

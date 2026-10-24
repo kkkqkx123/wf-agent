@@ -1,5 +1,8 @@
 <script lang="ts">
-	import type { SvelteRenderableNode, SvelteRenderContext } from 'markstream-svelte';
+	import type {
+		SvelteRenderableNode,
+		SvelteRenderContext,
+	} from 'markstream-svelte';
 	import { resolveStreamingTextState } from 'markstream-core';
 	import { textRuns } from '#lib/utils/mentions';
 	import MentionBadge from './MentionBadge.svelte';
@@ -11,19 +14,20 @@
 		typewriter?: boolean;
 	}
 
-	let {
-		node,
-		context = undefined,
-		indexKey = undefined,
-		typewriter = undefined,
-	}: Props = $props();
+	let { node, context = undefined, indexKey = undefined }: Props = $props();
 
 	let previousKey = '';
 	let previousContent = '';
 	let deltaClass = 'markstream-svelte-text__stream-delta--a';
 
-	const content = $derived(String((node as any)?.content ?? (node as any)?.raw ?? ''));
-	const centered = $derived(Boolean((node as any)?.center));
+	const content = $derived(
+		String(
+			(node as Record<string, unknown>)?.content ??
+				(node as Record<string, unknown>)?.raw ??
+				'',
+		),
+	);
+	const centered = $derived(Boolean((node as Record<string, unknown>)?.center));
 	const streamKey = $derived(
 		String(context?.customId ?? 'global') +
 			':' +
@@ -35,7 +39,10 @@
 
 	const streamInfo = $derived.by(() => {
 		const state = context?.textStreamState;
-		const previous = streamKey === previousKey ? previousContent : (state?.get(streamKey) ?? '');
+		const previous =
+			streamKey === previousKey
+				? previousContent
+				: (state?.get(streamKey) ?? '');
 		const result = resolveStreamingTextState({
 			nextContent: content,
 			previousContent: previous,
@@ -75,7 +82,9 @@
 		{/if}
 	{/each}
 	{#if streamInfo.deltaContent}
-		<span class="markstream-svelte-text__stream-delta text-node-stream-delta {streamInfo.deltaClass}">
+		<span
+			class="markstream-svelte-text__stream-delta text-node-stream-delta {streamInfo.deltaClass}"
+		>
 			{#each renderRuns(streamInfo.deltaContent) as run, i (i)}
 				{#if run.kind}
 					<span class="mx-0.5 inline-flex">

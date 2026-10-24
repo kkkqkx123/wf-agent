@@ -92,9 +92,7 @@
 		} catch (e) {
 			console.error('Failed to load file workspace segment:', e);
 			loadError =
-				e instanceof Error
-					? e.message
-					: t('domain.files.requestFailed');
+				e instanceof Error ? e.message : t('domain.files.requestFailed');
 		} finally {
 			loading = false;
 		}
@@ -357,27 +355,27 @@
 <Dialog
 	bind:open={historyOpen}
 	title={t('domain.files.historyTitle')}
-		description={historyTarget
-			? t('domain.files.historyDescription', { name: historyTarget.name })
-			: t('domain.files.historyDescriptionFallback')}
-		onclose={() => (historyTarget = null)}
-	>
-		{#if historyTarget}
-			<p class="mb-2 font-mono text-micro text-muted-foreground">
-				{historyTarget.partitionId}
-			</p>
-		{/if}
-		{#if historyCommits.length === 0}
-			<p class="text-caption text-muted-foreground">
-				{historyLoading
-					? t('common.loading')
-					: t('domain.files.noCommits')}
-			</p>
-		{:else}
+	description={historyTarget
+		? t('domain.files.historyDescription', { name: historyTarget.name })
+		: t('domain.files.historyDescriptionFallback')}
+	onclose={() => (historyTarget = null)}
+>
+	{#if historyTarget}
+		<p class="mb-2 font-mono text-micro text-muted-foreground">
+			{historyTarget.partitionId}
+		</p>
+	{/if}
+	{#if historyCommits.length === 0}
+		<p class="text-caption text-muted-foreground">
+			{historyLoading ? t('common.loading') : t('domain.files.noCommits')}
+		</p>
+	{:else}
 		<ul class="max-h-96 space-y-2 overflow-y-auto">
 			{#each historyCommits as commit (commit.snapshotId)}
 				<li class="border-b border-border pb-2 last:border-b-0">
-					<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption">
+					<div
+						class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption"
+					>
 						<span class="font-mono">{commit.snapshotId.slice(0, 10)}</span>
 						<span class="min-w-0 flex-1 truncate">
 							{commit.message ?? t('domain.files.noMessage')}

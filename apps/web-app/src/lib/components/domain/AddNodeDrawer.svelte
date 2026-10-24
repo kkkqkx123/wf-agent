@@ -170,10 +170,7 @@
 		if (typeof window === 'undefined') return null;
 		if (!window.matchMedia('(min-width: 1024px)').matches) return null;
 		const width = 544;
-		const left = Math.max(
-			8,
-			Math.min(anchor.x, window.innerWidth - width - 8),
-		);
+		const left = Math.max(8, Math.min(anchor.x, window.innerWidth - width - 8));
 		const top = Math.max(8, Math.min(anchor.y + 8, window.innerHeight - 480));
 		return { left, top, width };
 	});

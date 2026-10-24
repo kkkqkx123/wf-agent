@@ -79,7 +79,9 @@
 			: controller.editTab === 'graph'
 				? 'graph'
 				: 'edit';
-		void gotoWithParams(page.url as unknown as URL, { tab: view === 'preview' ? '' : view });
+		void gotoWithParams(page.url as unknown as URL, {
+			tab: view === 'preview' ? '' : view,
+		});
 	});
 
 	// Keep the session document fresh while typing; failed parses retain
@@ -140,7 +142,8 @@
 				controller.editMode = false;
 			}
 		} catch (e) {
-			detailError = e instanceof Error ? e.message : t('page.templateDetail.loadFailed');
+			detailError =
+				e instanceof Error ? e.message : t('page.templateDetail.loadFailed');
 			detail = null;
 		} finally {
 			detailLoading = false;
@@ -208,7 +211,7 @@
 			? t('page.templates.createInLibrary')
 			: kind
 				? `${kind} template · ${routeIdParam}`
-				 : t('page.templateDetail.titleFallback')}
+				: t('page.templateDetail.titleFallback')}
 	>
 		{#snippet actions()}
 			{#if controller.insertNodeType !== null}

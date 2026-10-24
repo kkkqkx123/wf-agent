@@ -2,7 +2,7 @@
 	import Badge from '@wf-agent/ui/components/Badge.svelte';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
-		import IssueList from '#lib/components/domain/IssueList.svelte';
+	import IssueList from '#lib/components/domain/IssueList.svelte';
 	import type {
 		CanvasPosition,
 		PresenceCursor,
@@ -94,7 +94,10 @@
 	{/if}
 </div>
 {#if editMode && lock.lockLost}
-	<Card title={t('domain.workflowEdit.lockLostTitle')} class="mb-2 border-destructive/40">
+	<Card
+		title={t('domain.workflowEdit.lockLostTitle')}
+		class="mb-2 border-destructive/40"
+	>
 		<p class="text-caption text-muted-foreground">
 			{#if lock.lockLostBy}
 				{t('domain.workflowEdit.lockLostBy', { holder: lock.lockLostBy })}
@@ -126,35 +129,37 @@
 	</Card>
 {/if}
 {#await import('#lib/components/domain/GraphExplorer.svelte') then module}
-<module.default
-	bind:this={explorer}
-	nodes={store.nodes}
-	edges={store.edges}
-	preset="workflow"
-	selectedId={store.selectedId}
-	onselect={(id) => (store.selectedId = id)}
-	editable
-	editMode={editMode && lock.canWrite}
-	editDirty={store.dirty}
-	canUndo={store.canUndo}
-	canRedo={store.canRedo}
-	{editBusy}
-	positions={store.positions}
-	{issueIds}
-	onenteredit={() => onenteredit()}
-	onexitedit={() => onexitedit()}
-	onundo={() => store.undo()}
-	onredo={() => store.redo()}
-	onsave={() => onsave()}
-	onvalidate={() => onvalidate()}
-	onpromote={() => onpromote()}
-	onmovenode={(id, position) => onmovenode(id, position)}
-	onmovenodes={(moves) => onmovenodes(moves)}
-	onaddnode={(position, nodeType, name) => onaddnode(position, nodeType, name)}
-	ondeleteedge={(id) => ondeleteedge(id)}
-	onconnect={(source, target) => onconnect(source, target)}
-	ondeletenodes={(ids) => ondeletenodes(ids)}
-	ondeletegroups={(ids) => ondeletegroups(ids)}
-	{presence}
-	{oncursormove}
-/> {/await}
+	<module.default
+		bind:this={explorer}
+		nodes={store.nodes}
+		edges={store.edges}
+		preset="workflow"
+		selectedId={store.selectedId}
+		onselect={(id) => (store.selectedId = id)}
+		editable
+		editMode={editMode && lock.canWrite}
+		editDirty={store.dirty}
+		canUndo={store.canUndo}
+		canRedo={store.canRedo}
+		{editBusy}
+		positions={store.positions}
+		{issueIds}
+		onenteredit={() => onenteredit()}
+		onexitedit={() => onexitedit()}
+		onundo={() => store.undo()}
+		onredo={() => store.redo()}
+		onsave={() => onsave()}
+		onvalidate={() => onvalidate()}
+		onpromote={() => onpromote()}
+		onmovenode={(id, position) => onmovenode(id, position)}
+		onmovenodes={(moves) => onmovenodes(moves)}
+		onaddnode={(position, nodeType, name) =>
+			onaddnode(position, nodeType, name)}
+		ondeleteedge={(id) => ondeleteedge(id)}
+		onconnect={(source, target) => onconnect(source, target)}
+		ondeletenodes={(ids) => ondeletenodes(ids)}
+		ondeletegroups={(ids) => ondeletegroups(ids)}
+		{presence}
+		{oncursormove}
+	/>
+{/await}

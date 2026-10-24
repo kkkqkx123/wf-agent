@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-import { cn } from '@wf-agent/ui/cn';
+	import { cn } from '@wf-agent/ui/cn';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import {
 		commandLabel,
@@ -22,6 +22,7 @@ import { cn } from '@wf-agent/ui/cn';
 	import { entityMention, textRuns } from '#lib/utils/mentions';
 	import { mentionClass, mentionIcon } from '#lib/utils/mention-style';
 	import { t } from '#lib/i18n';
+	import { SvelteSet } from 'svelte/reactivity';
 
 	/** Largest inlined attachment per file; larger files are truncated. */
 	const ATTACHMENT_LIMIT = 64_000;
@@ -92,19 +93,26 @@ import { cn } from '@wf-agent/ui/cn';
 	let mentionSelectedIndex = $state(0);
 	let mentionDismissed = $state(false);
 	let mentionVisibleCount = $state(MENTION_VISIBLE_LIMIT);
-	let mentionMode = $state<'all' | 'files-and-dirs' | 'files' | 'directories' | 'resources'>('all');
+	let mentionMode = $state<
+		'all' | 'files-and-dirs' | 'files' | 'directories' | 'resources'
+	>('all');
 	let searching = $state(false);
 	let searchError = $state(false);
 	let activePicker = $state<string | null>(null);
 
 	$effect(() => {
+		// Touch `candidates` so this effect re-runs whenever the list changes.
+		// eslint-disable-next-line @typescript-eslint/no-unused-expressions
 		candidates;
 		mentionSelectedIndex = 0;
 		mentionVisibleCount = MENTION_VISIBLE_LIMIT;
 	});
 
 	$effect(() => {
-		if (mentionSelectedIndex >= filteredCandidates.length && filteredCandidates.length > 0) {
+		if (
+			mentionSelectedIndex >= filteredCandidates.length &&
+			filteredCandidates.length > 0
+		) {
 			mentionSelectedIndex = filteredCandidates.length - 1;
 		}
 	});
@@ -207,7 +215,12 @@ import { cn } from '@wf-agent/ui/cn';
 	}
 
 	function onKey(event: KeyboardEvent): void {
-		if (mentionVisible && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey) {
+		if (
+			mentionVisible &&
+			(event.ctrlKey || event.metaKey) &&
+			!event.altKey &&
+			!event.shiftKey
+		) {
 			if (event.key === '1') {
 				event.preventDefault();
 				mentionMode = 'all';
@@ -295,7 +308,12 @@ import { cn } from '@wf-agent/ui/cn';
 		}
 		// Delete an entire mention token when Backspace lands at its end,
 		// so a half-deleted reference cannot linger in the draft.
-		if (event.key === 'Backspace' && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+		if (
+			event.key === 'Backspace' &&
+			!event.shiftKey &&
+			!event.ctrlKey &&
+			!event.metaKey
+		) {
 			const cursor = box?.selectionStart ?? draft.length;
 			const selectionEnd = box?.selectionEnd ?? draft.length;
 			if (cursor === selectionEnd) {
@@ -404,7 +422,8 @@ import { cn } from '@wf-agent/ui/cn';
 	};
 
 	function modeMatches(hit: MentionCandidate): boolean {
-		const isDirectory = (hit.data as { kind?: string } | undefined)?.kind === 'directory';
+		const isDirectory =
+			(hit.data as { kind?: string } | undefined)?.kind === 'directory';
 		switch (mentionMode) {
 			case 'all':
 				return true;
@@ -423,10 +442,12 @@ import { cn } from '@wf-agent/ui/cn';
 
 	/** Candidates grouped by entity type, preserving search order within each group. */
 	const filteredCandidates = $derived(candidates.filter(modeMatches));
-	const visibleCandidates = $derived(filteredCandidates.slice(0, mentionVisibleCount));
+	const visibleCandidates = $derived(
+		filteredCandidates.slice(0, mentionVisibleCount),
+	);
 	const groupedCandidates = $derived.by(() => {
 		const groups: { type: string; items: MentionCandidate[] }[] = [];
-		const seen = new Set<string>();
+		const seen = new SvelteSet<string>();
 		for (const hit of visibleCandidates) {
 			if (!seen.has(hit.kind)) {
 				seen.add(hit.kind);
@@ -434,7 +455,9 @@ import { cn } from '@wf-agent/ui/cn';
 			}
 			groups[groups.length - 1].items.push(hit);
 		}
-		groups.sort((a, b) => (GROUP_PRIORITY[a.type] ?? 9) - (GROUP_PRIORITY[b.type] ?? 9));
+		groups.sort(
+			(a, b) => (GROUP_PRIORITY[a.type] ?? 9) - (GROUP_PRIORITY[b.type] ?? 9),
+		);
 		return groups;
 	});
 
@@ -459,7 +482,7 @@ import { cn } from '@wf-agent/ui/cn';
 		searching = true;
 		searchError = false;
 		timer = setTimeout(() => {
-			void mentionSearch({ q: term, kinds, limit: 30 })
+			void mentionSearch({ q: term, kinds, limit: MENTION_TOTAL_LIMIT })
 				.then((outcome) => {
 					if (request !== latestRequest) return;
 					candidates = outcome.items;
@@ -626,15 +649,13 @@ import { cn } from '@wf-agent/ui/cn';
 	{/if}
 
 	{#if mentionVisible}
-		<div class="mb-2 flex max-h-72 flex-col gap-1 overflow-y-auto" role="listbox" aria-label={t('chat.composer.mentions')}>
+		<div
+			class="mb-2 flex max-h-72 flex-col gap-1 overflow-y-auto"
+			role="listbox"
+			aria-label={t('chat.composer.mentions')}
+		>
 			<div class="flex flex-wrap gap-1 px-2 pb-1">
-				{#each [
-					{ value: 'all', label: t('chat.composer.modeAll') },
-					{ value: 'files-and-dirs', label: t('chat.composer.modeFilesAndDirs') },
-					{ value: 'files', label: t('chat.composer.modeFiles') },
-					{ value: 'directories', label: t('chat.composer.modeDirs') },
-					{ value: 'resources', label: t('chat.composer.modeResources') },
-				] as mode (mode.value)}
+				{#each [{ value: 'all', label: t('chat.composer.modeAll') }, { value: 'files-and-dirs', label: t('chat.composer.modeFilesAndDirs') }, { value: 'files', label: t('chat.composer.modeFiles') }, { value: 'directories', label: t('chat.composer.modeDirs') }, { value: 'resources', label: t('chat.composer.modeResources') }] as mode (mode.value)}
 					<button
 						type="button"
 						onclick={() => (mentionMode = mode.value as typeof mentionMode)}
@@ -649,13 +670,17 @@ import { cn } from '@wf-agent/ui/cn';
 			</div>
 			{#each groupedCandidates as group (group.type)}
 				<div class="flex flex-col gap-1">
-					<p class="px-2 text-micro font-semibold uppercase text-muted-foreground">
+					<p
+						class="px-2 text-micro font-semibold uppercase text-muted-foreground"
+					>
 						{group.type}
 					</p>
 					{#each group.items as hit (`${hit.kind}-${hit.id}`)}
 						<button
 							type="button"
-							aria-current={hit === filteredCandidates[mentionSelectedIndex] ? 'true' : undefined}
+							aria-current={hit === filteredCandidates[mentionSelectedIndex]
+								? 'true'
+								: undefined}
 							onclick={() => selectMention(hit)}
 							class={cn(
 								'flex flex-col items-start gap-0.5 rounded-md border border-border bg-card px-2 py-1 text-left text-caption transition-colors hover:bg-accent',
@@ -671,7 +696,8 @@ import { cn } from '@wf-agent/ui/cn';
 								<span class="min-w-0 flex-1 truncate text-foreground"
 									>{hit.label}</span
 								>
-								<span class="shrink-0 font-mono text-micro text-info">{hit.kind}</span
+								<span class="shrink-0 font-mono text-micro text-info"
+									>{hit.kind}</span
 								>
 							</span>
 							{#if hit.description}
@@ -679,7 +705,9 @@ import { cn } from '@wf-agent/ui/cn';
 									{hit.description}
 								</span>
 							{/if}
-							<span class="w-full truncate font-mono text-micro text-muted-foreground">
+							<span
+								class="w-full truncate font-mono text-micro text-muted-foreground"
+							>
 								{hit.id}
 							</span>
 						</button>
@@ -702,7 +730,9 @@ import { cn } from '@wf-agent/ui/cn';
 				</button>
 			{/if}
 			{#if searching}
-				<p class="px-2 text-micro text-muted-foreground">{t('chat.composer.searching')}</p>
+				<p class="px-2 text-micro text-muted-foreground">
+					{t('chat.composer.searching')}
+				</p>
 			{:else if kindHints.length > 0}
 				<div class="flex flex-wrap gap-1.5">
 					{#each kindHints as kind (kind)}
@@ -738,7 +768,11 @@ import { cn } from '@wf-agent/ui/cn';
 	{/if}
 
 	{#if commandHints.length > 0}
-		<div class="mb-2 flex flex-col gap-1" role="listbox" aria-label={t('chat.composer.commands')}>
+		<div
+			class="mb-2 flex flex-col gap-1"
+			role="listbox"
+			aria-label={t('chat.composer.commands')}
+		>
 			{#each commandHints as command (command.name)}
 				<button
 					type="button"
@@ -760,7 +794,10 @@ import { cn } from '@wf-agent/ui/cn';
 	{/if}
 
 	{#if mentionChips.length > 0}
-		<div class="mb-2 flex flex-wrap gap-1.5" aria-label={t('chat.composer.mentionsInDraft')}>
+		<div
+			class="mb-2 flex flex-wrap gap-1.5"
+			aria-label={t('chat.composer.mentionsInDraft')}
+		>
 			{#each mentionChips as chip (chip.text)}
 				<span
 					class={cn(
@@ -798,7 +835,7 @@ import { cn } from '@wf-agent/ui/cn';
 		<ExecutionTypePicker
 			bind:value={executionType}
 			class="shrink-0"
-			activePicker={activePicker}
+			{activePicker}
 			pickerKey="execution"
 			onActivate={(key) => (activePicker = key)}
 			onClose={() => {
@@ -810,7 +847,7 @@ import { cn } from '@wf-agent/ui/cn';
 			<AgentPicker
 				bind:value={agent}
 				class="shrink-0"
-				activePicker={activePicker}
+				{activePicker}
 				pickerKey="agent"
 				onActivate={(key) => (activePicker = key)}
 				onClose={() => {
@@ -822,7 +859,7 @@ import { cn } from '@wf-agent/ui/cn';
 			<WorkflowPicker
 				bind:value={workflow}
 				class="shrink-0"
-				activePicker={activePicker}
+				{activePicker}
 				pickerKey="workflow"
 				onActivate={(key) => (activePicker = key)}
 				onClose={() => {
@@ -834,7 +871,7 @@ import { cn } from '@wf-agent/ui/cn';
 		<ModelPicker
 			bind:value={model}
 			class="shrink-0"
-			activePicker={activePicker}
+			{activePicker}
 			pickerKey="model"
 			onActivate={(key) => (activePicker = key)}
 			onClose={() => {

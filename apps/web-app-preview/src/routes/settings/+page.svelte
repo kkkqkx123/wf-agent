@@ -33,16 +33,40 @@
 		type SettingsBackup,
 	} from '#lib/services/portability';
 	import { cn } from '@wf-agent/ui/cn';
-import { t, message } from '#lib/i18n';
+	import { t, message } from '#lib/i18n';
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
 
 	const SECTIONS = [
-		{ id: 'appearance', label: message('page.settings.appearance'), icon: 'sun' },
-		{ id: 'shortcuts', label: message('page.settings.shortcuts'), icon: 'command' },
-		{ id: 'execution', label: message('page.settings.executionDefaults'), icon: 'activity' },
-		{ id: 'notifications', label: message('page.settings.notifications'), icon: 'bell' },
-		{ id: 'workspace', label: message('page.settings.workspace'), icon: 'sliders' },
-		{ id: 'portability', label: message('page.settings.portability'), icon: 'archive' },
+		{
+			id: 'appearance',
+			label: message('page.settings.appearance'),
+			icon: 'sun',
+		},
+		{
+			id: 'shortcuts',
+			label: message('page.settings.shortcuts'),
+			icon: 'command',
+		},
+		{
+			id: 'execution',
+			label: message('page.settings.executionDefaults'),
+			icon: 'activity',
+		},
+		{
+			id: 'notifications',
+			label: message('page.settings.notifications'),
+			icon: 'bell',
+		},
+		{
+			id: 'workspace',
+			label: message('page.settings.workspace'),
+			icon: 'sliders',
+		},
+		{
+			id: 'portability',
+			label: message('page.settings.portability'),
+			icon: 'archive',
+		},
 	] as const;
 
 	const requestedSection = parseListParams(page.url as unknown as URL).tab;
@@ -57,7 +81,9 @@ import { t, message } from '#lib/i18n';
 	);
 
 	$effect(() => {
-		gotoWithParams(page.url as unknown as URL, { tab: section === 'appearance' ? '' : section });
+		gotoWithParams(page.url as unknown as URL, {
+			tab: section === 'appearance' ? '' : section,
+		});
 	});
 
 	const THEME_OPTIONS = [
@@ -69,7 +95,10 @@ import { t, message } from '#lib/i18n';
 	const DENSITY_OPTIONS = [
 		{ value: 'compact', label: message('page.settings.densityCompact') },
 		{ value: 'default', label: message('page.settings.densityDefault') },
-		{ value: 'comfortable', label: message('page.settings.densityComfortable') },
+		{
+			value: 'comfortable',
+			label: message('page.settings.densityComfortable'),
+		},
 	];
 
 	const TOOL_DETAIL_OPTIONS = [
@@ -146,7 +175,7 @@ import { t, message } from '#lib/i18n';
 		const target = pendingNavUrl;
 		pendingNavUrl = null;
 		// The target replays an intercepted navigation URL, which resolve() cannot rebuild.
-		// eslint-disable-next-line svelte/no-navigation-without-resolve
+
 		if (target) void goto(target);
 	}
 
@@ -228,7 +257,9 @@ import { t, message } from '#lib/i18n';
 			backupMessage = `Ready to restore: ${describeBackup(pendingBackup)}.`;
 		} catch (error) {
 			backupError =
-				error instanceof Error ? error.message : t('page.settings.invalidBackup');
+				error instanceof Error
+					? error.message
+					: t('page.settings.invalidBackup');
 		} finally {
 			event.currentTarget.value = '';
 		}
@@ -294,7 +325,9 @@ import { t, message } from '#lib/i18n';
 					onclick={() => void saveBehavior()}
 				>
 					<Icon name="check" size={13} />
-					{behavior.saving ? t('page.settings.saving') : t('page.settings.saveServerPrefs')}
+					{behavior.saving
+						? t('page.settings.saving')
+						: t('page.settings.saveServerPrefs')}
 				</Button>
 			{:else}
 				<span class="text-caption text-muted-foreground">
@@ -461,7 +494,9 @@ import { t, message } from '#lib/i18n';
 									onclick={() => void applyFullBackup()}
 								>
 									<Icon name="upload" size={13} />
-									{backupBusy ? t('page.settings.restoring') : t('page.settings.restoreAll')}
+									{backupBusy
+										? t('page.settings.restoring')
+										: t('page.settings.restoreAll')}
 								</Button>
 								<Button
 									size="sm"
@@ -496,7 +531,9 @@ import { t, message } from '#lib/i18n';
 							</p>
 							{#if behavior.loaded && behavior.error}
 								<p class="text-caption text-destructive">
-									{t('page.settings.serverUpdateFailed', { error: behavior.error ?? '' })}
+									{t('page.settings.serverUpdateFailed', {
+										error: behavior.error ?? '',
+									})}
 								</p>
 							{/if}
 							<Card
@@ -514,7 +551,10 @@ import { t, message } from '#lib/i18n';
 									}}
 								/>
 							</Card>
-							<Card title={t('page.settings.liveUpdates')} description={t('page.settings.storedServerSide')}>
+							<Card
+								title={t('page.settings.liveUpdates')}
+								description={t('page.settings.storedServerSide')}
+							>
 								<Switch
 									checked={behavior.streamFollow}
 									label={t('page.settings.followStream')}
@@ -537,7 +577,10 @@ import { t, message } from '#lib/i18n';
 										variant="outline"
 										size="sm"
 										onclick={() =>
-											toasts.success(t('page.settings.saved'), t('page.settings.preferenceApplied'))}
+											toasts.success(
+												t('page.settings.saved'),
+												t('page.settings.preferenceApplied'),
+											)}
 									>
 										{t('page.settings.testSuccessToast')}
 									</Button>
@@ -545,13 +588,19 @@ import { t, message } from '#lib/i18n';
 										variant="outline"
 										size="sm"
 										onclick={() =>
-											toasts.error(t('page.settings.blocked'), t('page.settings.retryMayBeRequired'))}
+											toasts.error(
+												t('page.settings.blocked'),
+												t('page.settings.retryMayBeRequired'),
+											)}
 									>
 										{t('page.settings.testErrorToast')}
 									</Button>
 								</div>
 							</Card>
-							<Card title={t('page.settings.accessibility')} description={t('page.settings.storedServerSide')}>
+							<Card
+								title={t('page.settings.accessibility')}
+								description={t('page.settings.storedServerSide')}
+							>
 								<Switch
 									checked={behavior.reduceMotion}
 									label={t('page.settings.reduceMotion')}
@@ -582,7 +631,10 @@ import { t, message } from '#lib/i18n';
 							onchange={() => preferences.toggleInspectorPinned()}
 						/>
 					</Card>
-					<Card title={t('page.settings.sidebarWidth')} description={t('page.settings.persistentNote')}>
+					<Card
+						title={t('page.settings.sidebarWidth')}
+						description={t('page.settings.persistentNote')}
+					>
 						<div class="flex items-center gap-3">
 							<input
 								type="range"

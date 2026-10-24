@@ -219,13 +219,9 @@ export async function getTemplateDetail(
 				enabled:
 					typeof record.enabled === 'boolean' ? record.enabled : undefined,
 				is_public:
-					typeof record.is_public === 'boolean'
-						? record.is_public
-						: undefined,
+					typeof record.is_public === 'boolean' ? record.is_public : undefined,
 				is_system:
-					typeof record.is_system === 'boolean'
-						? record.is_system
-						: undefined,
+					typeof record.is_system === 'boolean' ? record.is_system : undefined,
 				is_published:
 					typeof record.is_published === 'boolean'
 						? record.is_published

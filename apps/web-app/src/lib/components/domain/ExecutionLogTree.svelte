@@ -9,7 +9,11 @@
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import { SvelteSet, SvelteMap } from 'svelte/reactivity';
 	import { cn } from '@wf-agent/ui/cn';
-	import { formatDateTime, formatDuration, formatNumber } from '#lib/utils/format';
+	import {
+		formatDateTime,
+		formatDuration,
+		formatNumber,
+	} from '#lib/utils/format';
 	import { statusTone } from '@wf-agent/ui/status';
 	import { t } from '#lib/i18n';
 
@@ -200,10 +204,17 @@
 			/>
 		</div>
 		<p class="text-micro text-muted-foreground">
-			{formatNumber(filteredTraces.length)} nodes · {formatNumber(timeline.length)} events{#if skipped > 0}
+			{formatNumber(filteredTraces.length)} nodes · {formatNumber(
+				timeline.length,
+			)} events{#if skipped > 0}
 				· {formatNumber(skipped)} skipped{/if}
 		</p>
-		<div role="tree" aria-label={t('domain.inspector.sections')} tabindex="-1" onkeydown={onTreeKey}>
+		<div
+			role="tree"
+			aria-label={t('domain.inspector.sections')}
+			tabindex="-1"
+			onkeydown={onTreeKey}
+		>
 			{#each rows as row (row.id)}
 				{@const tone = statusTone(row.status)}
 				<div
@@ -214,7 +225,9 @@
 						? expanded.has(row.id)
 						: undefined}
 					aria-selected={selectedNodeId === row.nodeId}
-					tabindex={focusId === row.id || (!focusId && row === rows[0]) ? 0 : -1}
+					tabindex={focusId === row.id || (!focusId && row === rows[0])
+						? 0
+						: -1}
 					onfocus={() => (focusId = row.id)}
 					class={cn(
 						'overflow-hidden rounded-lg border bg-card transition-colors',
@@ -238,7 +251,9 @@
 							{expanded.has(row.id) ? '└─' : '├─'}
 						</span>
 						<span class="min-w-0 flex-1">
-							<span class="block truncate font-mono text-caption text-foreground">
+							<span
+								class="block truncate font-mono text-caption text-foreground"
+							>
 								{row.title}
 							</span>
 							<span class="block truncate text-micro text-muted-foreground">
@@ -252,7 +267,9 @@
 							</span>
 						</span>
 						{#if row.durationMs !== null}
-							<span class="shrink-0 text-micro tabular-nums text-muted-foreground">
+							<span
+								class="shrink-0 text-micro tabular-nums text-muted-foreground"
+							>
 								{formatDuration(row.durationMs)}
 							</span>
 						{/if}

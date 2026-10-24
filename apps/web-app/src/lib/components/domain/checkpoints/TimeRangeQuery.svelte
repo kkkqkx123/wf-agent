@@ -22,7 +22,11 @@
 			return;
 		}
 		try {
-			const page = await getCheckpointsByTimeRange({ workflowId: workflow, start, end });
+			const page = await getCheckpointsByTimeRange({
+				workflowId: workflow,
+				start,
+				end,
+			});
 			results = page.items;
 			note = t('domain.checkpoint.resultsNote', {
 				count: page.items.length,

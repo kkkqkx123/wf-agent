@@ -150,7 +150,10 @@ class GitStore {
 					this.unsubscribeLive = null;
 				}
 				if (typeof document !== 'undefined' && this.visibilityHandler) {
-					document.removeEventListener('visibilitychange', this.visibilityHandler);
+					document.removeEventListener(
+						'visibilitychange',
+						this.visibilityHandler,
+					);
 					this.visibilityHandler = null;
 				}
 				this.liveState = 'closed';

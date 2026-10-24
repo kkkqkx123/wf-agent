@@ -94,7 +94,9 @@ function toIso(value: number | null | undefined): string {
 }
 
 /** The executor of a session; an unknown value is rejected, not guessed. */
-function toSessionExecutorType(value: string | null | undefined): SessionExecutorType {
+function toSessionExecutorType(
+	value: string | null | undefined,
+): SessionExecutorType {
 	if (value === 'agent') return 'agent';
 	if (value === 'chat') return 'chat';
 	if (value === 'workflow') return 'workflow';

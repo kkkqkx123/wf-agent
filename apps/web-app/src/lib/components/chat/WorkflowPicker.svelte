@@ -54,7 +54,7 @@
 
 <InstancePicker
 	bind:value
-	options={options}
+	{options}
 	pinnedIds={pickerState.pinnedIds('workflow')}
 	recentIds={pickerState.recentIds('workflow')}
 	ariaLabel={t('chat.workflowPicker.ariaLabel')}

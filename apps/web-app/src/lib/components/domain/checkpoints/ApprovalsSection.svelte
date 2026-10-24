@@ -101,9 +101,12 @@
 			}
 			if (failures.length === 0) {
 				toasts.success(
-					t(granted
-						? 'domain.approvals.batchApproved'
-						: 'domain.approvals.batchRejected', { count: decided }),
+					t(
+						granted
+							? 'domain.approvals.batchApproved'
+							: 'domain.approvals.batchRejected',
+						{ count: decided },
+					),
 				);
 			} else {
 				toasts.warning(

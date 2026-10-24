@@ -71,7 +71,9 @@
 						id={`live-tool-${entry.id}`}
 						role="button"
 						tabindex={0}
-						aria-label={t('chat.chatTranscript.locateTool', { name: entry.name })}
+						aria-label={t('chat.chatTranscript.locateTool', {
+							name: entry.name,
+						})}
 						onclick={() => controller.focusNodeFromTool(entry.id, entry.name)}
 						onkeydown={(event) => {
 							if (event.key === 'Enter' || event.key === ' ') {
@@ -172,7 +174,9 @@
 						{t('chat.chatTranscript.runStopped')}
 					</p>
 				{:else if chatStream.done}
-					<p role="status" class="sr-only">{t('chat.chatTranscript.runCompleted')}</p>
+					<p role="status" class="sr-only">
+						{t('chat.chatTranscript.runCompleted')}
+					</p>
 				{/if}
 				{#if chatStream.active}
 					<div class="flex items-center gap-2">

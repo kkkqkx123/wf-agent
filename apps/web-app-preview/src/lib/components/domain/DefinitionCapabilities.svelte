@@ -16,7 +16,11 @@
 	} from '#lib/services/definitions';
 	import { EditLockStore } from '#lib/stores/edit-lock.svelte';
 	import { toasts } from '#lib/stores/toast.svelte';
-	import type { DefinitionDraft, DefinitionKind, DefinitionVersion } from '#lib/types/models';
+	import type {
+		DefinitionDraft,
+		DefinitionKind,
+		DefinitionVersion,
+	} from '#lib/types/models';
 	import { t } from '#lib/i18n';
 
 	interface Props {
@@ -48,7 +52,8 @@
 			drafts = loadedDrafts;
 			versions = loadedVersions;
 		} catch (e) {
-			loadError = e instanceof Error ? e.message : t('domain.definition.loadFailed');
+			loadError =
+				e instanceof Error ? e.message : t('domain.definition.loadFailed');
 		} finally {
 			loading = false;
 		}

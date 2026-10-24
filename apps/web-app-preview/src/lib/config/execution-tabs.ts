@@ -77,7 +77,7 @@ export const TAB_GROUPS: Record<ExecutionKind, ExecutionTab[]> = {
 };
 
 /** Default tab shown when no (or an invalid) `?tab=` value is present. */
-export function defaultTab(_kind: ExecutionKind): ExecutionTab {
+export function defaultTab(): ExecutionTab {
 	return 'overview';
 }
 

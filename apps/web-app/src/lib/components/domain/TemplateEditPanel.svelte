@@ -5,7 +5,7 @@
 	import Input from '@wf-agent/ui/components/Input.svelte';
 	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
 	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
-		import IssueList from '#lib/components/domain/IssueList.svelte';
+	import IssueList from '#lib/components/domain/IssueList.svelte';
 	import JsonEditor from '@wf-agent/ui/components/JsonEditor.svelte';
 	import type { CanvasPosition } from '#lib/components/domain/GraphCanvas.svelte';
 	import { GraphEditStore } from '#lib/graph/edit-store.svelte';
@@ -361,34 +361,35 @@
 			{t('domain.templateEdit.graphHint')}
 		</p>
 		{#await import('#lib/components/domain/GraphExplorer.svelte') then module}
-<module.default
-			bind:this={explorer}
-			nodes={store.nodes}
-			edges={store.edges}
-			preset="workflow"
-			selectedId={store.selectedId}
-			onselect={(id) => {
-				store.selectedId = id;
-			}}
-			editable
-			editMode
-			editDirty={store.dirty}
-			canUndo={store.canUndo}
-			canRedo={store.canRedo}
-			positions={store.positions}
-			issueIds={serverIssueIds}
-			onundo={() => store.undo()}
-			onredo={() => store.redo()}
-			onsave={() => onsave()}
-			onmovenode={(id, position) => onmovenode(id, position)}
-			onmovenodes={(moves) => onmovenodes(moves)}
-			onaddnode={(position) => onaddnode(position)}
-			ondeleteedge={(id) => store.removeEdge(id)}
-			onconnect={(source, target) => onconnect(source, target)}
-			ondeletenodes={(ids) => ondeletenodes(ids)}
-			ondeletegroups={(ids) => ondeletegroups(ids)}
-			onjumpparam={(id) => (store.selectedId = id)}
-		/> {/await}
+			<module.default
+				bind:this={explorer}
+				nodes={store.nodes}
+				edges={store.edges}
+				preset="workflow"
+				selectedId={store.selectedId}
+				onselect={(id) => {
+					store.selectedId = id;
+				}}
+				editable
+				editMode
+				editDirty={store.dirty}
+				canUndo={store.canUndo}
+				canRedo={store.canRedo}
+				positions={store.positions}
+				issueIds={serverIssueIds}
+				onundo={() => store.undo()}
+				onredo={() => store.redo()}
+				onsave={() => onsave()}
+				onmovenode={(id, position) => onmovenode(id, position)}
+				onmovenodes={(moves) => onmovenodes(moves)}
+				onaddnode={(position) => onaddnode(position)}
+				ondeleteedge={(id) => store.removeEdge(id)}
+				onconnect={(source, target) => onconnect(source, target)}
+				ondeletenodes={(ids) => ondeletenodes(ids)}
+				ondeletegroups={(ids) => ondeletegroups(ids)}
+				onjumpparam={(id) => (store.selectedId = id)}
+			/>
+		{/await}
 		{#if selectedNode}
 			{#key store.selectedId}
 				<div class="grid grid-cols-2 gap-2">

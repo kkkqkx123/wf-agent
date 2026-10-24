@@ -41,7 +41,9 @@
 	);
 
 	$effect(() => {
-		gotoWithParams(page.url as unknown as URL, { tab: tab === 'stream' ? '' : tab });
+		gotoWithParams(page.url as unknown as URL, {
+			tab: tab === 'stream' ? '' : tab,
+		});
 	});
 	let query = $state('');
 	let expandedId = $state<string | null>(null);
@@ -88,7 +90,8 @@
 			}
 		} catch (e) {
 			console.error('Failed to load events segment:', e);
-			loadError = e instanceof Error ? e.message : t('page.events.requestFailed');
+			loadError =
+				e instanceof Error ? e.message : t('page.events.requestFailed');
 		} finally {
 			loading = false;
 		}
@@ -130,19 +133,19 @@
 		if (current === 'dependencies') {
 			return {
 				title: t('page.events.noDependencies'),
-				description:
-					t('page.events.noDependenciesDesc'),
+				description: t('page.events.noDependenciesDesc'),
 			};
 		}
 		if (current === 'operations') {
 			return {
 				title: t('page.events.noDiagnostics'),
-				description:
-					t('page.events.noDiagnosticsDesc'),
+				description: t('page.events.noDiagnosticsDesc'),
 			};
 		}
 		return {
-			title: query.trim() ? t('page.events.noMatching') : t('page.events.noCaptured'),
+			title: query.trim()
+				? t('page.events.noMatching')
+				: t('page.events.noCaptured'),
 			description: query.trim()
 				? t('page.events.noMatchingDesc')
 				: t('page.events.noCapturedDesc'),
@@ -337,7 +340,8 @@
 						<Button
 							variant="outline"
 							size="sm"
-							onclick={() => toasts.info(t('page.events.storageDiagnosticsQueued'))}
+							onclick={() =>
+								toasts.info(t('page.events.storageDiagnosticsQueued'))}
 						>
 							<Icon name="database" size={13} />
 							{t('page.events.storageDiagnostics')}
@@ -345,7 +349,8 @@
 						<Button
 							variant="outline"
 							size="sm"
-							onclick={() => toasts.info(t('page.events.systemDiagnosticsQueued'))}
+							onclick={() =>
+								toasts.info(t('page.events.systemDiagnosticsQueued'))}
 						>
 							<Icon name="gauge" size={13} />
 							{t('page.events.systemDiagnostics')}
@@ -353,7 +358,8 @@
 						<Button
 							variant="outline"
 							size="sm"
-							onclick={() => toasts.info(t('page.events.metricsSnapshotQueued'))}
+							onclick={() =>
+								toasts.info(t('page.events.metricsSnapshotQueued'))}
 						>
 							<Icon name="chart" size={13} />
 							{t('page.events.metricsSnapshot')}

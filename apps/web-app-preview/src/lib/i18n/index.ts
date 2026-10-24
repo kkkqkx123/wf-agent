@@ -9,7 +9,11 @@
  * string key.
  */
 import { m } from '#paraglide/messages.js';
-import { getLocale, locales, setLocale as paraglideSetLocale } from '#paraglide/runtime.js';
+import {
+	getLocale,
+	locales,
+	setLocale as paraglideSetLocale,
+} from '#paraglide/runtime.js';
 
 export type Locale = (typeof locales)[number];
 
@@ -38,7 +42,7 @@ export function t<K extends MessageKey>(
  * entries and option lists.
  */
 export function message(key: MessageKey): () => string {
-	return () => (t as (key: MessageKey, ...args: any[]) => string)(key);
+	return () => (t as (key: MessageKey, ...args: unknown[]) => string)(key);
 }
 
 export function setLocale(

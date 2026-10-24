@@ -141,13 +141,16 @@ export class GitWorkbench {
 		this.branches.filter((b) => b.name.includes(this.filterQuery)),
 	);
 	visibleRemotes = $derived(
-		this.remotes.filter((r) =>
-			r.name.includes(this.filterQuery) || r.url.includes(this.filterQuery),
+		this.remotes.filter(
+			(r) =>
+				r.name.includes(this.filterQuery) || r.url.includes(this.filterQuery),
 		),
 	);
 	visibleTags = $derived(
-		this.tags.filter((t) =>
-			t.name.includes(this.filterQuery) || t.commit.includes(this.filterQuery),
+		this.tags.filter(
+			(t) =>
+				t.name.includes(this.filterQuery) ||
+				t.commit.includes(this.filterQuery),
 		),
 	);
 	visibleCommits = $derived(

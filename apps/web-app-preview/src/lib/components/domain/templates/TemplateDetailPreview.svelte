@@ -47,7 +47,9 @@
 	</div>
 {/if}
 <div>
-	<span class="text-caption font-medium">{t('domain.template.definitionPreview')}</span>
+	<span class="text-caption font-medium"
+		>{t('domain.template.definitionPreview')}</span
+	>
 	<pre
 		class="mt-1 max-h-72 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-micro">{detail.definitionJson}</pre>
 </div>

@@ -40,8 +40,12 @@
 	}: Props = $props();
 
 	// Defaults resolve at render time so they follow the active locale.
-	const resolvedEmptyTitle = $derived(emptyTitle || t('layout.pageState.nothingToShow'));
-	const resolvedErrorTitle = $derived(errorTitle || t('layout.pageState.failedToLoad'));
+	const resolvedEmptyTitle = $derived(
+		emptyTitle || t('layout.pageState.nothingToShow'),
+	);
+	const resolvedErrorTitle = $derived(
+		errorTitle || t('layout.pageState.failedToLoad'),
+	);
 </script>
 
 <!-- Loading wins over error so a retry keeps the skeleton until it settles. -->

@@ -60,7 +60,9 @@
 
 			<section class="mt-6">
 				<div class="flex items-center justify-between">
-					<h2 class="text-heading font-semibold">{t('page.dashboard.recentExecutions')}</h2>
+					<h2 class="text-heading font-semibold">
+						{t('page.dashboard.recentExecutions')}
+					</h2>
 					<button
 						type="button"
 						class="text-body text-muted-foreground hover:text-foreground"

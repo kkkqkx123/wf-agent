@@ -25,7 +25,6 @@
 		Search: 'layout.commandPalette.groupSearch',
 	};
 
-
 	interface CommandItem {
 		id: string;
 		label: string;

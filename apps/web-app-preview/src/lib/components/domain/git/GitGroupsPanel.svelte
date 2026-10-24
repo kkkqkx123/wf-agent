@@ -95,9 +95,9 @@
 			{/each}
 		</ul>
 		{#if workbench.visibleFiles.length === 0}
-				<p class="mt-2 text-caption text-muted-foreground">
-					{t('domain.git.noFilesMatch')}
-				</p>
+			<p class="mt-2 text-caption text-muted-foreground">
+				{t('domain.git.noFilesMatch')}
+			</p>
 		{/if}
 		{#if workbench.worktrees.length > 0 || workbench.submodules.length > 0}
 			<div class="mt-3 space-y-2 border-t border-border pt-2">
@@ -161,9 +161,9 @@
 			{/each}
 		</ul>
 		{#if workbench.visibleConflicts.length === 0}
-				<p class="mt-2 text-caption text-muted-foreground">
-					{t('domain.git.noConflicted')}
-				</p>
+			<p class="mt-2 text-caption text-muted-foreground">
+				{t('domain.git.noConflicted')}
+			</p>
 		{/if}
 	{:else if panel === 'worktrees'}
 		<ul class="mt-2 space-y-1">
@@ -172,8 +172,7 @@
 					<button
 						type="button"
 						onclick={() => gitStore.select('worktrees', worktree.path)}
-						aria-pressed={gitStore.selectionFor('worktrees') ===
-							worktree.path}
+						aria-pressed={gitStore.selectionFor('worktrees') === worktree.path}
 						class="block w-full px-2 py-1 text-left hover:bg-accent/50 {gitStore.selectionFor(
 							'worktrees',
 						) === worktree.path
@@ -184,18 +183,17 @@
 							{worktree.path}
 						</p>
 						<p class="text-micro text-muted-foreground">
-							{worktree.branch || '(detached)'}{worktree.bare
-								? ' · bare'
-								: ''} · {worktree.commit}
+							{worktree.branch || '(detached)'}{worktree.bare ? ' · bare' : ''} ·
+							{worktree.commit}
 						</p>
 					</button>
 				</li>
 			{/each}
 		</ul>
 		{#if workbench.visibleWorktrees.length === 0}
-				<p class="mt-2 text-caption text-muted-foreground">
-					{t('domain.git.noWorktreesMatch')}
-				</p>
+			<p class="mt-2 text-caption text-muted-foreground">
+				{t('domain.git.noWorktreesMatch')}
+			</p>
 		{/if}
 	{:else if panel === 'submodules'}
 		<ul class="mt-2 space-y-1">
@@ -203,8 +201,7 @@
 				<li>
 					<button
 						type="button"
-						onclick={() =>
-							gitStore.select('submodules', submodule.path)}
+						onclick={() => gitStore.select('submodules', submodule.path)}
 						aria-pressed={gitStore.selectionFor('submodules') ===
 							submodule.path}
 						class="block w-full px-2 py-1 text-left hover:bg-accent/50 {gitStore.selectionFor(
@@ -224,9 +221,9 @@
 			{/each}
 		</ul>
 		{#if workbench.visibleSubmodules.length === 0}
-				<p class="mt-2 text-caption text-muted-foreground">
-					{t('domain.git.noSubmodulesMatch')}
-				</p>
+			<p class="mt-2 text-caption text-muted-foreground">
+				{t('domain.git.noSubmodulesMatch')}
+			</p>
 		{/if}
 	{:else if panel === 'remotes'}
 		<ul class="mt-2 space-y-1">
@@ -243,9 +240,9 @@
 			{/each}
 		</ul>
 		{#if workbench.visibleRemotes.length === 0}
-				<p class="mt-2 text-caption text-muted-foreground">
-					{t('domain.git.noRemotesMatch')}
-				</p>
+			<p class="mt-2 text-caption text-muted-foreground">
+				{t('domain.git.noRemotesMatch')}
+			</p>
 		{/if}
 	{:else if panel === 'tags'}
 		<ul class="mt-2 space-y-1">
@@ -263,9 +260,9 @@
 			{/each}
 		</ul>
 		{#if workbench.visibleTags.length === 0}
-				<p class="mt-2 text-caption text-muted-foreground">
-					{t('domain.git.noTagsMatch')}
-				</p>
+			<p class="mt-2 text-caption text-muted-foreground">
+				{t('domain.git.noTagsMatch')}
+			</p>
 		{/if}
 	{:else if panel === 'branches'}
 		<ul class="mt-2 space-y-1">
@@ -298,16 +295,16 @@
 			{/each}
 		</ul>
 		{#if workbench.visibleBranches.length === 0}
-				<p class="mt-2 text-caption text-muted-foreground">
-					{t('domain.git.noBranchesMatch')}
-				</p>
+			<p class="mt-2 text-caption text-muted-foreground">
+				{t('domain.git.noBranchesMatch')}
+			</p>
 		{/if}
 		{#if workbench.remotes.length > 0 || workbench.tags.length > 0}
 			<div class="mt-3 space-y-2 border-t border-border pt-2">
 				{#if workbench.remotes.length > 0}
-					<p class="text-micro font-medium text-muted-foreground"
-						>{t('domain.git.remotes')}</p
-					>
+					<p class="text-micro font-medium text-muted-foreground">
+						{t('domain.git.remotes')}
+					</p>
 					<ul class="space-y-0.5">
 						{#each workbench.remotes as remote (remote.name)}
 							<li
@@ -320,9 +317,9 @@
 					</ul>
 				{/if}
 				{#if workbench.tags.length > 0}
-					<p class="text-micro font-medium text-muted-foreground"
-						>{t('domain.git.tags')}</p
-					>
+					<p class="text-micro font-medium text-muted-foreground">
+						{t('domain.git.tags')}
+					</p>
 					<ul class="space-y-0.5">
 						{#each workbench.tags as tag (tag.name)}
 							<li
@@ -376,7 +373,8 @@
 							: ''}"
 					>
 						<p class="truncate font-mono text-caption">
-							{entry.shortId} {entry.message}
+							{entry.shortId}
+							{entry.message}
 						</p>
 						<p class="text-micro text-muted-foreground">
 							{entry.selector}
@@ -386,9 +384,9 @@
 			{/each}
 		</ul>
 		{#if workbench.visibleReflogs.length === 0}
-				<p class="mt-2 text-caption text-muted-foreground">
-					{t('domain.git.noReflogsMatch')}
-				</p>
+			<p class="mt-2 text-caption text-muted-foreground">
+				{t('domain.git.noReflogsMatch')}
+			</p>
 		{/if}
 		{#if workbench.visibleCommits.length === 0}
 			<p class="mt-2 text-caption text-muted-foreground">
@@ -430,9 +428,9 @@
 			{/each}
 		</ul>
 		{#if workbench.visibleStash.length === 0}
-				<p class="mt-2 text-caption text-muted-foreground">
-					{t('domain.git.noStashMatch')}
-				</p>
+			<p class="mt-2 text-caption text-muted-foreground">
+				{t('domain.git.noStashMatch')}
+			</p>
 		{/if}
 	{/if}
 </Card>

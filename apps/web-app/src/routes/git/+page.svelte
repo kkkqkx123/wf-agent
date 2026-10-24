@@ -72,7 +72,9 @@
 				variant="outline"
 				onclick={() => void workbench.toggleTerminal()}
 			>
-				{workbench.terminalOpen ? t('page.git.hideTerminal') : t('page.git.terminal')}
+				{workbench.terminalOpen
+					? t('page.git.hideTerminal')
+					: t('page.git.terminal')}
 			</Button>
 		{/snippet}
 	</PageHeader>

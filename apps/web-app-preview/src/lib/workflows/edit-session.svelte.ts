@@ -178,7 +178,7 @@ export class WorkflowEditSession {
 			this.pendingNavUrl = null;
 			this.pendingTab = null;
 			// The target replays an intercepted navigation URL, which resolve() cannot rebuild.
-			// eslint-disable-next-line svelte/no-navigation-without-resolve
+
 			void goto(target);
 		} else if (this.pendingTab) {
 			this.applyTab(this.pendingTab);

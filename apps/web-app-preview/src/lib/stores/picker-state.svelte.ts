@@ -73,7 +73,11 @@ class PickerState {
 
 	/** Pin or unpin an entry; the server owns the pin, so the change waits
 	 * for its answer before the local view moves. */
-	async setPinned(kind: PickerKind, id: string, pinned: boolean): Promise<void> {
+	async setPinned(
+		kind: PickerKind,
+		id: string,
+		pinned: boolean,
+	): Promise<void> {
 		const current = this.pinnedIds(kind);
 		const next = pinned
 			? [id, ...current.filter((entry) => entry !== id)]

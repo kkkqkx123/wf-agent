@@ -15,11 +15,19 @@ import {
 	projectExecutionOverlay,
 } from '#lib/graph/execution-projection';
 import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
-import { streamLoopRun, streamChat, streamWorkflowExecution } from '#lib/services/streaming';
+import {
+	streamLoopRun,
+	streamChat,
+	streamWorkflowExecution,
+} from '#lib/services/streaming';
 import type { UsageSnapshot } from '#lib/utils/stream-parser';
 import type { StreamFailure } from '#lib/api/stream';
 import { listModelProfiles } from '#lib/services/resources';
-import { DEFAULT_AGENT_ID, isRunnableTemplate, listTemplates } from '#lib/services/templates';
+import {
+	DEFAULT_AGENT_ID,
+	isRunnableTemplate,
+	listTemplates,
+} from '#lib/services/templates';
 import { pickerState } from '#lib/stores/picker-state.svelte';
 import {
 	cancelInteraction as cancelInteractionRequest,
@@ -45,7 +53,10 @@ import {
 } from '#lib/stores/stream-run.svelte';
 import { NEW_SESSION, sessions } from '#lib/stores/sessions.svelte';
 import { toasts } from '#lib/stores/toast.svelte';
-import { isInteractionEventType, watchExecutionActivity } from '#lib/services/inspector-activity';
+import {
+	isInteractionEventType,
+	watchExecutionActivity,
+} from '#lib/services/inspector-activity';
 import type { StreamState } from '#lib/api/sse';
 import { gotoWithParams } from '#lib/utils/route';
 import { isSessionTab, type SessionTab } from '#lib/config/session-tabs';
@@ -145,7 +156,10 @@ export class ChatSessionController {
 					const was = this.interactionLiveState;
 					this.interactionLiveState = state;
 					if (this.selectedId !== id) return;
-					if ((was === 'reconnecting' || was === 'connecting') && state === 'open') {
+					if (
+						(was === 'reconnecting' || was === 'connecting') &&
+						state === 'open'
+					) {
 						this.refreshInteractions(true);
 					}
 				},
@@ -634,7 +648,10 @@ export class ChatSessionController {
 	 * Run the message through a workflow. The graph is resolved from the
 	 * template on the server; the composer only hands over the message.
 	 */
-	async runWorkflow(content: string, files: MessageAttachment[]): Promise<void> {
+	async runWorkflow(
+		content: string,
+		files: MessageAttachment[],
+	): Promise<void> {
 		const workflowId = this.workflowId.trim();
 		const signal = chatStream.start(this.selectedId ?? NEW_SESSION, {
 			executionType: 'workflow',
@@ -711,7 +728,8 @@ export class ChatSessionController {
 			.then((templates) => {
 				const runnable = templates.filter(isRunnableTemplate);
 				const preferred =
-					runnable.find((template) => template.id === DEFAULT_AGENT_ID) ?? runnable[0];
+					runnable.find((template) => template.id === DEFAULT_AGENT_ID) ??
+					runnable[0];
 				if (preferred) this.agentId = preferred.id;
 			})
 			.catch(() => {});

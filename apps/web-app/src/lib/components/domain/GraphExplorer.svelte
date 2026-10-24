@@ -892,7 +892,8 @@
 			onclick={cycleMinimap}
 			title={t('domain.graph.cycleMinimap')}
 		>
-			{t('domain.graph.minimap')} {preferences.minimapMode}
+			{t('domain.graph.minimap')}
+			{preferences.minimapMode}
 		</Button>
 		<Button
 			variant="outline"
@@ -1254,16 +1255,16 @@
 						{:else}
 							<dl class="space-y-1 text-caption">
 								<div class="flex justify-between gap-2">
-									<dt class="text-muted-foreground"
-										>{t('domain.graph.kind')}</dt
-									>
+									<dt class="text-muted-foreground">
+										{t('domain.graph.kind')}
+									</dt>
 									<dd class="font-mono">{selected.kind}</dd>
 								</div>
 								{#if selected.status}
 									<div class="flex justify-between gap-2">
-										<dt class="text-muted-foreground"
-											>{t('domain.graph.status')}</dt
-										>
+										<dt class="text-muted-foreground">
+											{t('domain.graph.status')}
+										</dt>
 										<dd>
 											<StatusBadge
 												status={selected.status}
@@ -1275,17 +1276,17 @@
 								{/if}
 								{#if selected.iteration !== undefined}
 									<div class="flex justify-between gap-2">
-										<dt class="text-muted-foreground"
-											>{t('domain.history.iterations')}</dt
-										>
+										<dt class="text-muted-foreground">
+											{t('domain.history.iterations')}
+										</dt>
 										<dd class="font-mono">{selected.iteration}</dd>
 									</div>
 								{/if}
 								{#if heatLabels[selected.id]}
 									<div class="flex justify-between gap-2">
-										<dt class="text-muted-foreground"
-											>{t('domain.inspector.duration')}</dt
-										>
+										<dt class="text-muted-foreground">
+											{t('domain.inspector.duration')}
+										</dt>
 										<dd class="font-mono tabular-nums">
 											{heatLabels[selected.id]}
 										</dd>
@@ -1293,18 +1294,18 @@
 								{/if}
 								{#if decisionLabels[selected.id]}
 									<div class="flex justify-between gap-2">
-										<dt class="text-muted-foreground"
-											>{t('domain.graph.branches')}</dt
-										>
+										<dt class="text-muted-foreground">
+											{t('domain.graph.branches')}
+										</dt>
 										<dd class="text-right font-mono">
 											{decisionLabels[selected.id]}
 										</dd>
 									</div>
 								{/if}
 								<div class="flex justify-between gap-2">
-									<dt class="text-muted-foreground"
-										>{t('domain.graph.links')}</dt
-									>
+									<dt class="text-muted-foreground">
+										{t('domain.graph.links')}
+									</dt>
 									<dd class="font-mono">
 										{t('domain.graph.inOut', {
 											in: selectedNeighbors.predecessors,
@@ -1335,7 +1336,8 @@
 									variant="outline"
 									size="sm"
 									onclick={() =>
-										selected && void copyText(selected.id, t('domain.graph.nodeId'))}
+										selected &&
+										void copyText(selected.id, t('domain.graph.nodeId'))}
 								>
 									{t('domain.graph.copyNodeId')}
 								</Button>

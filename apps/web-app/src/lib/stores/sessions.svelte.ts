@@ -83,7 +83,7 @@ class SessionStore {
 	open(id: string): Promise<void> {
 		this.touch(id);
 		// The rule cannot see that the path half of the target is resolved.
-		// eslint-disable-next-line svelte/no-navigation-without-resolve
+
 		return goto(`${resolve('/chat')}?id=${encodeURIComponent(id)}`);
 	}
 

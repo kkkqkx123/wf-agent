@@ -44,7 +44,9 @@ export interface ListInvalidationOptions {
  * REST for rows and pagination, debounce reloads and only auto-reload when
  * visible and idle.
  */
-export function watchListInvalidation(options: ListInvalidationOptions): () => void {
+export function watchListInvalidation(
+	options: ListInvalidationOptions,
+): () => void {
 	const { onDirty, onState } = options;
 	let pending: EventRecord | null = null;
 	let timer: ReturnType<typeof setTimeout> | null = null;

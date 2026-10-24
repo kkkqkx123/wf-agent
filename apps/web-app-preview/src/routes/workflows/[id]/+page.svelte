@@ -17,10 +17,7 @@
 	import DefinitionVersionsPanel from '#lib/components/domain/DefinitionVersionsPanel.svelte';
 	import DefinitionDraftsPanel from '#lib/components/domain/DefinitionDraftsPanel.svelte';
 	import RunsPanel from '#lib/components/domain/RunsPanel.svelte';
-	import {
-		exportWorkflow,
-		getWorkflowDetail,
-	} from '#lib/services/workflows';
+	import { exportWorkflow, getWorkflowDetail } from '#lib/services/workflows';
 	import {
 		publishWorkflowTemplate,
 		unpublishWorkflowTemplate,
@@ -54,7 +51,9 @@
 	);
 
 	$effect(() => {
-		gotoWithParams(page.url as unknown as URL, { tab: tab === 'graph' ? '' : tab });
+		gotoWithParams(page.url as unknown as URL, {
+			tab: tab === 'graph' ? '' : tab,
+		});
 	});
 
 	let detail = $state<WorkflowDetail | null>(null);
@@ -93,7 +92,8 @@
 			// detail load, as the page-level state did before the split.
 			void graphState.load(id);
 		} catch (e) {
-			detailError = e instanceof Error ? e.message : t('page.workflowDetail.loadFailed');
+			detailError =
+				e instanceof Error ? e.message : t('page.workflowDetail.loadFailed');
 			detail = null;
 		} finally {
 			detailLoading = false;
@@ -190,7 +190,10 @@
 			await exportWorkflow(id);
 			toasts.success(t('page.workflowDetail.exported'));
 		} catch (e) {
-			toasts.error(t('page.workflowDetail.exportFailed'), e instanceof Error ? e.message : undefined);
+			toasts.error(
+				t('page.workflowDetail.exportFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
 		}
 	}
 

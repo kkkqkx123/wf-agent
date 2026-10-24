@@ -88,7 +88,11 @@
 					{#each draft.issues as issue, index (index)}
 						<li class="flex items-start gap-1.5 text-caption text-destructive">
 							<Icon name="alert-circle" size={12} class="mt-0.5 shrink-0" />
-							<span>{issue.field ? `${issue.field}: ${issue.message}` : issue.message}</span>
+							<span
+								>{issue.field
+									? `${issue.field}: ${issue.message}`
+									: issue.message}</span
+							>
 						</li>
 					{/each}
 				</ul>
@@ -139,11 +143,12 @@
 						/>
 					{:else}
 						{#await import('#lib/components/domain/GraphExplorer.svelte') then module}
-<module.default
-							nodes={previewNodes}
-							edges={previewEdges}
-							preset="workflow"
-						/> {/await}
+							<module.default
+								nodes={previewNodes}
+								edges={previewEdges}
+								preset="workflow"
+							/>
+						{/await}
 					{/if}
 				</div>
 			{/if}

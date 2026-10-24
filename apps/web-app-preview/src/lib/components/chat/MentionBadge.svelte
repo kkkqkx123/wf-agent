@@ -11,12 +11,7 @@
 		size?: 'micro' | 'caption';
 	}
 
-	let {
-		text,
-		kind,
-		surface = 'card',
-		size = 'micro',
-	}: Props = $props();
+	let { text, kind, surface = 'card', size = 'micro' }: Props = $props();
 
 	const surfaceClass = $derived(
 		surface === 'primary'

@@ -40,7 +40,9 @@
 	);
 
 	$effect(() => {
-		gotoWithParams(page.url as unknown as URL, { tab: tab === 'records' ? '' : tab });
+		gotoWithParams(page.url as unknown as URL, {
+			tab: tab === 'records' ? '' : tab,
+		});
 	});
 	let triggerRecords = $state<TriggerRecord[]>([]);
 	let hooks = $state<Hook[]>([]);
@@ -128,7 +130,8 @@
 			} catch (e) {
 				seenHooks = false;
 				hooks = [];
-				hooksError = e instanceof Error ? e.message : t('page.triggers.hooksLoadFailed');
+				hooksError =
+					e instanceof Error ? e.message : t('page.triggers.hooksLoadFailed');
 			} finally {
 				hooksLoading = false;
 			}
@@ -167,13 +170,17 @@
 			parsed = JSON.parse(payload);
 			payloadError = null;
 		} catch (e) {
-			payloadError = e instanceof Error ? e.message : t('page.triggers.invalidJson');
+			payloadError =
+				e instanceof Error ? e.message : t('page.triggers.invalidJson');
 			return;
 		}
 		dispatchBusy = true;
 		try {
 			const result = await fireHook(hookName, parsed);
-			lastDispatch = t('page.triggers.dispatched', { hook: hookName, status: result.status });
+			lastDispatch = t('page.triggers.dispatched', {
+				hook: hookName,
+				status: result.status,
+			});
 			toasts.success(lastDispatch);
 		} catch (e) {
 			lastDispatch = null;
@@ -204,7 +211,11 @@
 			text: (record) => record.executionId,
 			cellClass: 'font-mono text-caption text-muted-foreground',
 		},
-		{ key: 'status', header: t('page.triggers.columnStatus'), cell: recordStatusCell },
+		{
+			key: 'status',
+			header: t('page.triggers.columnStatus'),
+			cell: recordStatusCell,
+		},
 		{
 			key: 'fired',
 			header: t('page.triggers.columnFired'),
@@ -338,7 +349,9 @@
 										<span class="mt-1 flex items-center gap-2">
 											<StatusBadge status={hook.lastStatus} size="sm" />
 											<span class="text-micro text-muted-foreground">
-												{t('page.triggers.deliveries', { count: hook.deliveries })}
+												{t('page.triggers.deliveries', {
+													count: hook.deliveries,
+												})}
 											</span>
 										</span>
 									</button>
@@ -353,7 +366,8 @@
 						<label class="block">
 							<span class="mb-1 block text-caption text-muted-foreground"
 								>{t('page.triggers.hookName')}{#if hooks.length === 0}
-									<span class="ml-1 text-micro">{t('page.triggers.manualMode')}</span
+									<span class="ml-1 text-micro"
+										>{t('page.triggers.manualMode')}</span
 									>{/if}</span
 							>
 							<Input
@@ -405,7 +419,9 @@
 								onclick={() => void dispatch()}
 							>
 								<Icon name="zap" size={13} />
-								{dispatchBusy ? t('page.triggers.sending') : t('page.triggers.sendTest')}
+								{dispatchBusy
+									? t('page.triggers.sending')
+									: t('page.triggers.sendTest')}
 							</Button>
 						</div>
 						{#if lastDispatch}
@@ -416,7 +432,8 @@
 							</p>
 						{/if}
 						<p class="text-micro text-muted-foreground">
-							{t('page.triggers.lastDelivery')} {formatDateTime(
+							{t('page.triggers.lastDelivery')}
+							{formatDateTime(
 								hooks.find((hook) => hook.name === hookName)?.lastDeliveredAt ??
 									null,
 							)}

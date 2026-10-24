@@ -46,7 +46,7 @@
 		} else {
 			// The installed Kit version does not export resolve(); href values
 			// here are already root-relative, so goto() is sufficient.
-			// eslint-disable-next-line svelte/no-navigation-without-resolve
+
 			goto(href);
 		}
 	}
@@ -65,7 +65,9 @@
 		<ul class="mt-1 divide-y divide-border rounded-md border border-border">
 			{#each globalShortcuts as shortcut (shortcut.keys)}
 				<li class="flex items-center justify-between px-3 py-2">
-					<span class="text-body">{shortcut.action ?? t(shortcut.actionKey!)}</span>
+					<span class="text-body"
+						>{shortcut.action ?? t(shortcut.actionKey!)}</span
+					>
 					<kbd
 						class="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-micro text-muted-foreground"
 					>

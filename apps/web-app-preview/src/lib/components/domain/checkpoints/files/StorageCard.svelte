@@ -25,9 +25,7 @@
 		} catch (e) {
 			console.error('Failed to load store stats:', e);
 			error =
-				e instanceof Error
-					? e.message
-					: t('domain.files.statsUnavailable');
+				e instanceof Error ? e.message : t('domain.files.statsUnavailable');
 		}
 	}
 
@@ -71,11 +69,15 @@
 		>
 			<span>{t('domain.files.commits', { count: stats.commits })}</span>
 			<span>{t('domain.files.refs', { count: stats.refs })}</span>
-			<span>{t('domain.files.looseObjects', { count: stats.looseObjects })}</span>
+			<span
+				>{t('domain.files.looseObjects', { count: stats.looseObjects })}</span
+			>
 			<span>{formatBytes(stats.storeBytes)}</span>
 			<span>
 				{stats.lastGcAt
-					? t('domain.files.lastGc', { time: formatRelativeTime(stats.lastGcAt) })
+					? t('domain.files.lastGc', {
+							time: formatRelativeTime(stats.lastGcAt),
+						})
 					: t('domain.files.noGc')}
 			</span>
 		</div>

@@ -214,9 +214,7 @@ export function buildElementDefs(
 			classes: 'group-box',
 		});
 	}
-	const statusById = new Map(
-		nodes.map((node) => [node.id, node.status]),
-	);
+	const statusById = new Map(nodes.map((node) => [node.id, node.status]));
 	for (const edge of edges) {
 		const touchesSelection =
 			selectedId !== null &&

@@ -87,10 +87,8 @@ export function openEventStream(options: EventStreamOptions): () => void {
 		void fetchStreamTicket().then((ticket) => {
 			if (closed) return;
 			const params = new URLSearchParams();
-			if (options.executionId)
-				params.set('execution_id', options.executionId);
-			if (options.agentLoopId)
-				params.set('agent_loop_id', options.agentLoopId);
+			if (options.executionId) params.set('execution_id', options.executionId);
+			if (options.agentLoopId) params.set('agent_loop_id', options.agentLoopId);
 			if (options.workflowId) params.set('workflow_id', options.workflowId);
 			if (options.checkpointOnly) params.set('checkpoint_only', 'true');
 			if (options.filePath) params.set('file_path', options.filePath);

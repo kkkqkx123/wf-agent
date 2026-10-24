@@ -14,7 +14,9 @@ const RECENT_CAP = 100;
 
 function summarize(event: EventRecord): string {
 	try {
-		const payload = event.payload ? (JSON.parse(event.payload) as Record<string, unknown>) : {};
+		const payload = event.payload
+			? (JSON.parse(event.payload) as Record<string, unknown>)
+			: {};
 		const message =
 			(typeof payload.message === 'string' && payload.message) ||
 			(typeof payload.error === 'string' && payload.error) ||

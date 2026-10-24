@@ -43,7 +43,9 @@
 	);
 
 	$effect(() => {
-		gotoWithParams(page.url as unknown as URL, { tab: kind === 'all' ? '' : kind });
+		gotoWithParams(page.url as unknown as URL, {
+			tab: kind === 'all' ? '' : kind,
+		});
 	});
 
 	let featuredOnly = $state(false);
@@ -72,7 +74,8 @@
 				featured: t.featured || featuredIds.has(t.id),
 			}));
 		} catch (e) {
-			listError = e instanceof Error ? e.message : t('page.templates.loadFailed');
+			listError =
+				e instanceof Error ? e.message : t('page.templates.loadFailed');
 			templates = [];
 		} finally {
 			listLoading = false;
@@ -90,12 +93,10 @@
 	}
 
 	function startCreate(): void {
-		/* eslint-disable svelte/no-navigation-without-resolve -- resolve() cannot append the query string */
 		void goto(
 			resolve('/templates/[kind]/[id]', { kind: 'node', id: 'new' }) +
 				'?tab=edit',
 		);
-		/* eslint-enable svelte/no-navigation-without-resolve */
 	}
 
 	async function runClone(row: Template): Promise<void> {
@@ -108,7 +109,10 @@
 				resolve('/templates/[kind]/[id]', { kind: row.kind, id: newId }),
 			);
 		} catch (e) {
-			toasts.error(t('page.templates.cloneFailed'), e instanceof Error ? e.message : undefined);
+			toasts.error(
+				t('page.templates.cloneFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
 		}
 	}
 

@@ -48,55 +48,48 @@
 	</p>
 {/if}
 {#await import('#lib/components/domain/GraphExplorer.svelte') then module}
-<module.default
-	{nodes}
-	{edges}
-	preset="workflow"
-	layoutId={detail.id}
-	selectedId={graph.selection}
-	onselect={(id) => (graph.selection = id)}
-	onexpand={(id) => void graph.expandNeighborhood(detail.id, id)}
-	expandLabel={t('domain.inspector.revealNeighborhood')}
-	overlays={graph.effectiveOverlays}
-	activeOverlay={graph.activeOverlay}
-	onoverlay={(id) => (graph.activeOverlay = id)}
-	onjumpparam={(id) => graph.jumpToNodeRow(id)}
-	ontogglelogs={() => (logsOpen = !logsOpen)}
->
-	{#snippet inspector()}
-		{#if selectedNode}
-			<dl class="space-y-1 text-caption">
-				<div class="flex justify-between gap-2">
-					<dt class="text-muted-foreground"
-						>{t('domain.workflowGraphTab.selectedNode')}</dt
-					>
-					<dd class="truncate font-mono">{selectedNode.id}</dd>
-				</div>
-			</dl>
-			{#if onedit}
-				<div class="mt-2">
-					<Button
-						variant="outline"
-						size="sm"
-						onclick={() => onedit?.()}
-					>
-						<Icon name="pencil" size={13} />
-						{t('domain.workflowGraphTab.openInEdit')}
-					</Button>
-				</div>
+	<module.default
+		{nodes}
+		{edges}
+		preset="workflow"
+		layoutId={detail.id}
+		selectedId={graph.selection}
+		onselect={(id) => (graph.selection = id)}
+		onexpand={(id) => void graph.expandNeighborhood(detail.id, id)}
+		expandLabel={t('domain.inspector.revealNeighborhood')}
+		overlays={graph.effectiveOverlays}
+		activeOverlay={graph.activeOverlay}
+		onoverlay={(id) => (graph.activeOverlay = id)}
+		onjumpparam={(id) => graph.jumpToNodeRow(id)}
+		ontogglelogs={() => (logsOpen = !logsOpen)}
+	>
+		{#snippet inspector()}
+			{#if selectedNode}
+				<dl class="space-y-1 text-caption">
+					<div class="flex justify-between gap-2">
+						<dt class="text-muted-foreground">
+							{t('domain.workflowGraphTab.selectedNode')}
+						</dt>
+						<dd class="truncate font-mono">{selectedNode.id}</dd>
+					</div>
+				</dl>
+				{#if onedit}
+					<div class="mt-2">
+						<Button variant="outline" size="sm" onclick={() => onedit?.()}>
+							<Icon name="pencil" size={13} />
+							{t('domain.workflowGraphTab.openInEdit')}
+						</Button>
+					</div>
+				{/if}
 			{/if}
-		{/if}
-	{/snippet}
-</module.default> {/await}
+		{/snippet}
+	</module.default>
+{/await}
 
 <div class="mt-3">
 	<Card title={t('domain.workflowGraphTab.recentRuns')}>
 		{#snippet actions()}
-			<Button
-				variant="ghost"
-				size="sm"
-				onclick={() => (logsOpen = !logsOpen)}
-			>
+			<Button variant="ghost" size="sm" onclick={() => (logsOpen = !logsOpen)}>
 				{logsOpen
 					? t('domain.workflowGraphTab.hideRecentRuns')
 					: t('domain.workflowGraphTab.showRecentRuns')}

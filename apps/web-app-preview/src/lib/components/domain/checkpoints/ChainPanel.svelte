@@ -43,8 +43,7 @@
 				</Badge>
 				{#if links.get(checkpoint.id)?.state === 'pending'}
 					<span title={t('domain.checkpoint.linkPendingTitle')}>
-						<Badge variant="warning"
-							>{t('domain.checkpoint.linkPending')}</Badge
+						<Badge variant="warning">{t('domain.checkpoint.linkPending')}</Badge
 						>
 					</span>
 				{:else if links.get(checkpoint.id)?.state === 'linked'}

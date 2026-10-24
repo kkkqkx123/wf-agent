@@ -10,7 +10,8 @@
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import ExecutionAnnotation from './ExecutionAnnotation.svelte';
 	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
-	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
+	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
+	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import KeyValueList from './KeyValueList.svelte';
 	import Progress from '@wf-agent/ui/components/Progress.svelte';
@@ -24,7 +25,7 @@
 	import ExecutionHierarchyTree from './ExecutionHierarchyTree.svelte';
 	import StreamMarkdown from '#lib/components/chat/LazyStreamMarkdown.svelte';
 	import { extractMarkdownText } from '#lib/utils/markdown';
-		import type { GraphOverlay } from '#lib/graph/display-model';
+	import type { GraphOverlay } from '#lib/graph/display-model';
 	import {
 		getExecutionTimeline,
 		getExecutionToolCalls,
@@ -98,7 +99,7 @@
 	// vice versa, e.g. after the redirect) falls back to the group default.
 	$effect(() => {
 		if (!TAB_GROUPS[kind].includes(tab)) {
-			tab = defaultTab(kind);
+			tab = defaultTab();
 		}
 	});
 
@@ -586,7 +587,8 @@
 			failedNodes = snapshot.failedNodes;
 			criticalPath = snapshot.criticalPath;
 		} catch (e) {
-			graphError = e instanceof Error ? e.message : t('domain.inspector.graphFailed');
+			graphError =
+				e instanceof Error ? e.message : t('domain.inspector.graphFailed');
 		} finally {
 			graphLoading = false;
 		}
@@ -603,7 +605,8 @@
 			criticalPath = snapshot.criticalPath;
 			efficiency = snapshot.efficiency;
 		} catch (e) {
-			analysisError = e instanceof Error ? e.message : t('domain.inspector.analysisFailed');
+			analysisError =
+				e instanceof Error ? e.message : t('domain.inspector.analysisFailed');
 		} finally {
 			analysisLoading = false;
 		}
@@ -619,7 +622,8 @@
 			callStack = snapshot.callStack;
 			memory = snapshot.memory;
 		} catch (e) {
-			stateError = e instanceof Error ? e.message : t('domain.inspector.stateFailed');
+			stateError =
+				e instanceof Error ? e.message : t('domain.inspector.stateFailed');
 		} finally {
 			stateLoading = false;
 		}
@@ -673,7 +677,8 @@
 				.catch((e: unknown) => {
 					seenTools = '';
 					toolCalls = [];
-					toolsError = e instanceof Error ? e.message : t('domain.inspector.toolsFailed');
+					toolsError =
+						e instanceof Error ? e.message : t('domain.inspector.toolsFailed');
 				});
 		}
 		if (tab === 'timeline' && seenTimeline !== id) {
@@ -687,7 +692,9 @@
 					seenTimeline = '';
 					timeline = [];
 					timelineError =
-						e instanceof Error ? e.message : t('domain.inspector.timelineFailed');
+						e instanceof Error
+							? e.message
+							: t('domain.inspector.timelineFailed');
 				});
 		}
 		if (tab === 'trace' && seenTrace !== id) {
@@ -704,7 +711,9 @@
 					seenTimeline = '';
 					timeline = [];
 					timelineError =
-						e instanceof Error ? e.message : t('domain.inspector.timelineFailed');
+						e instanceof Error
+							? e.message
+							: t('domain.inspector.timelineFailed');
 				});
 		}
 		// The overview live card reads the same trace snapshot; live runs
@@ -830,27 +839,33 @@
 
 		<dl class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2">
 			<div>
-				<dt class="text-micro text-muted-foreground">{t('domain.inspector.started')}</dt>
+				<dt class="text-micro text-muted-foreground">
+					{t('domain.inspector.started')}
+				</dt>
 				<dd class="text-caption tabular-nums">
 					{formatDateTime(execution.startedAt)}
 				</dd>
 			</div>
 			<div>
-				<dt class="text-micro text-muted-foreground">{t('domain.inspector.duration')}</dt>
+				<dt class="text-micro text-muted-foreground">
+					{t('domain.inspector.duration')}
+				</dt>
 				<dd class="text-caption tabular-nums">
 					{formatDuration(execution.durationMs)}
 				</dd>
 			</div>
 			<div>
-				<dt class="text-micro text-muted-foreground"
-					>{t('domain.inspector.memoryPeak')}</dt
-				>
+				<dt class="text-micro text-muted-foreground">
+					{t('domain.inspector.memoryPeak')}
+				</dt>
 				<dd class="text-caption tabular-nums">
 					{formatBytes(execution.memoryPeakBytes)}
 				</dd>
 			</div>
 			<div>
-				<dt class="text-micro text-muted-foreground">{t('domain.inspector.trigger')}</dt>
+				<dt class="text-micro text-muted-foreground">
+					{t('domain.inspector.trigger')}
+				</dt>
 				<dd class="truncate text-caption">{execution.trigger ?? '—'}</dd>
 			</div>
 		</dl>
@@ -1068,60 +1083,60 @@
 				{/if}
 			</div>
 			{#await import('#lib/components/domain/GraphExplorer.svelte') then module}
-<module.default
-				bind:this={explorer}
-				nodes={overlayNodes}
-				edges={overlayEdges}
-				preset="execution"
-				loading={graphLoading}
-				error={graphError}
-				onretry={() => void loadGraph(execution.id)}
-				selectedId={graphNodeId}
-				onselect={(id) => (graphNodeId = id)}
-				onexpand={(id) => void expandNeighborhood(id)}
-				expandLabel={t('domain.inspector.revealNeighborhood')}
-				{overlays}
-				{activeOverlay}
-				onoverlay={(id) => (activeOverlay = id)}
-				{pulseIds}
-				{criticalIds}
-				failedIds={failedAll}
-				{heatTierById}
-				{decisionIds}
-				{heatLabels}
-				{decisionLabels}
-			>
-				{#snippet inspector()}
-					{#if graphNodeId}
-						<button
-							type="button"
-							class="mt-1 text-micro text-foreground underline-offset-2 hover:underline"
-							onclick={() => graphNodeId && filterToolsByGraph(graphNodeId)}
-						>
-							{t('domain.inspector.showToolCalls')}
-						</button>
-						<button
-							type="button"
-							class="mt-1 text-micro text-foreground underline-offset-2 hover:underline"
-							onclick={() => graphNodeId && openNodeTrace(graphNodeId)}
-						>
-							{t('domain.inspector.showNodeTrace')}
-						</button>
-						{#if selectedAnalysisKind}
+				<module.default
+					bind:this={explorer}
+					nodes={overlayNodes}
+					edges={overlayEdges}
+					preset="execution"
+					loading={graphLoading}
+					error={graphError}
+					onretry={() => void loadGraph(execution.id)}
+					selectedId={graphNodeId}
+					onselect={(id) => (graphNodeId = id)}
+					onexpand={(id) => void expandNeighborhood(id)}
+					expandLabel={t('domain.inspector.revealNeighborhood')}
+					{overlays}
+					{activeOverlay}
+					onoverlay={(id) => (activeOverlay = id)}
+					{pulseIds}
+					{criticalIds}
+					failedIds={failedAll}
+					{heatTierById}
+					{decisionIds}
+					{heatLabels}
+					{decisionLabels}
+				>
+					{#snippet inspector()}
+						{#if graphNodeId}
 							<button
 								type="button"
 								class="mt-1 text-micro text-foreground underline-offset-2 hover:underline"
-								onclick={() =>
-									selectedAnalysisKind &&
-									revealInAnalysis(selectedAnalysisKind)}
+								onclick={() => graphNodeId && filterToolsByGraph(graphNodeId)}
 							>
-								{t('domain.inspector.showInAnalysis')}
+								{t('domain.inspector.showToolCalls')}
 							</button>
+							<button
+								type="button"
+								class="mt-1 text-micro text-foreground underline-offset-2 hover:underline"
+								onclick={() => graphNodeId && openNodeTrace(graphNodeId)}
+							>
+								{t('domain.inspector.showNodeTrace')}
+							</button>
+							{#if selectedAnalysisKind}
+								<button
+									type="button"
+									class="mt-1 text-micro text-foreground underline-offset-2 hover:underline"
+									onclick={() =>
+										selectedAnalysisKind &&
+										revealInAnalysis(selectedAnalysisKind)}
+								>
+									{t('domain.inspector.showInAnalysis')}
+								</button>
+							{/if}
 						{/if}
-					{/if}
-				{/snippet}
-			</module.default>
-		{/await}
+					{/snippet}
+				</module.default>
+			{/await}
 		{:else if tab === 'trace'}
 			{#await import('./ExecutionLogTree.svelte') then module}
 				<module.default
@@ -1211,7 +1226,9 @@
 						<div
 							role="button"
 							tabindex={0}
-							aria-label={t('domain.inspector.locateTool', { name: entry.name })}
+							aria-label={t('domain.inspector.locateTool', {
+								name: entry.name,
+							})}
 							title={t('domain.inspector.clickToLocate')}
 							onclick={() => focusToolOnGraph(entry.id, entry.name)}
 							onkeydown={(event) => {
@@ -1279,7 +1296,8 @@
 							<ul class="space-y-1.5">
 								{#each liveErrors as record (record.id)}
 									<li class="text-caption">
-										<span class="font-mono text-destructive">{record.errorType ?? 'error'}</span
+										<span class="font-mono text-destructive"
+											>{record.errorType ?? 'error'}</span
 										>
 										<span class="text-muted-foreground"> · {record.error}</span>
 										{#if record.nodeId}
@@ -1291,7 +1309,9 @@
 								{/each}
 							</ul>
 							{#if liveErrorNotice}
-								<p class="mt-2 text-micro text-muted-foreground">{liveErrorNotice}</p>
+								<p class="mt-2 text-micro text-muted-foreground">
+									{liveErrorNotice}
+								</p>
 							{/if}
 						</Card>
 					{/if}

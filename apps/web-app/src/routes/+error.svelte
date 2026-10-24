@@ -9,7 +9,9 @@
 	let { status = 500, message = '' }: { status?: number; message?: string } =
 		$props();
 
-	const errorTitle = $derived(t(status === 404 ? 'page.error.title404' : 'page.error.title500'));
+	const errorTitle = $derived(
+		t(status === 404 ? 'page.error.title404' : 'page.error.title500'),
+	);
 	const errorMessage = $derived(
 		status === 404
 			? t('page.error.desc404')
@@ -36,8 +38,12 @@
 			<h1 class="mt-2 text-xl font-semibold text-foreground">{errorTitle}</h1>
 			<p class="mt-2 text-caption text-muted-foreground">{errorMessage}</p>
 			<div class="mt-6 flex items-center justify-center gap-2">
-				<Button variant="outline" size="sm" onclick={reload}>{t('common.retry')}</Button>
-				<Button variant="outline" size="sm" onclick={goHome}>{t('page.error.goHome')}</Button>
+				<Button variant="outline" size="sm" onclick={reload}
+					>{t('common.retry')}</Button
+				>
+				<Button variant="outline" size="sm" onclick={goHome}
+					>{t('page.error.goHome')}</Button
+				>
 			</div>
 		</div>
 	</div>

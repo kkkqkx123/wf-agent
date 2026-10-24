@@ -34,7 +34,9 @@ const byLocale = Object.fromEntries(LOCALES.map((l) => [l, []]));
 for (const file of fragmentFiles) {
 	const match = file.match(/^(.*)\.(en|zh)\.json$/);
 	if (!match) {
-		console.error(`fragments/${file}: filename does not match <name>.<locale>.json`);
+		console.error(
+			`fragments/${file}: filename does not match <name>.<locale>.json`,
+		);
 		process.exit(1);
 	}
 	byLocale[match[2]].push(match);
@@ -44,15 +46,22 @@ const names = new Set(byLocale.en.map(([, name]) => name));
 for (const locale of LOCALES) {
 	for (const [, name] of byLocale[locale]) {
 		if (!names.has(name)) {
-			console.error(`fragments/${name}.${locale}.json: missing counterpart locale file`);
+			console.error(
+				`fragments/${name}.${locale}.json: missing counterpart locale file`,
+			);
 			process.exit(1);
 		}
 	}
 }
 
 for (const name of [...names].sort()) {
-	const keySets = LOCALES.map((locale) =>
-		new Set(Object.keys(readJson(path.join(fragmentsDir, `${name}.${locale}.json`)))),
+	const keySets = LOCALES.map(
+		(locale) =>
+			new Set(
+				Object.keys(
+					readJson(path.join(fragmentsDir, `${name}.${locale}.json`)),
+				),
+			),
 	);
 	const [enKeys, zhKeys] = keySets;
 	let failed = false;
@@ -78,9 +87,14 @@ for (const locale of LOCALES) {
 	const target = path.join(messagesDir, `${locale}.json`);
 	const merged = {};
 	for (const [, name] of byLocale[locale]) {
-		Object.assign(merged, readJson(path.join(fragmentsDir, `${name}.${locale}.json`)));
+		Object.assign(
+			merged,
+			readJson(path.join(fragmentsDir, `${name}.${locale}.json`)),
+		);
 	}
 	writeFileSync(target, render(merged));
 	console.log(`merged ${names.size} fragments into messages/${locale}.json`);
 }
-console.log(`i18n fragment merge OK: ${names.size} fragments, ${LOCALES.length} locales.`);
+console.log(
+	`i18n fragment merge OK: ${names.size} fragments, ${LOCALES.length} locales.`,
+);

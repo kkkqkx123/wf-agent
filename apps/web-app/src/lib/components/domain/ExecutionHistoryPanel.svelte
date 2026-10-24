@@ -134,9 +134,8 @@
 		} catch (e: unknown) {
 			failed = {
 				...failed,
-				[section]: e instanceof Error
-					? e.message
-					: t('domain.history.loadFailed'),
+				[section]:
+					e instanceof Error ? e.message : t('domain.history.loadFailed'),
 			};
 		} finally {
 			loading = null;

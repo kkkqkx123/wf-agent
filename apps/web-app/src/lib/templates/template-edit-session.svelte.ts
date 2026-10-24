@@ -466,7 +466,7 @@ export class TemplateEditController {
 			void recordTemplateUsage(this.routeIdParam).catch(() => undefined);
 			toasts.success('Workflow created from template');
 			// The path is resolve()d; resolve() cannot append the query string.
-			// eslint-disable-next-line svelte/no-navigation-without-resolve
+
 			await goto(resolve('/workflows/[id]', { id: created.id }) + '?tab=edit');
 		} catch (e) {
 			toasts.error(
@@ -509,7 +509,6 @@ export class TemplateEditController {
 	}
 
 	async backToLibrary(): Promise<void> {
-		// eslint-disable-next-line svelte/no-navigation-without-resolve
 		await goto('/templates');
 	}
 
@@ -593,7 +592,7 @@ export class TemplateEditController {
 		this.pendingNavUrl = null;
 		if (target) {
 			// The target replays an intercepted navigation URL, which resolve() cannot rebuild.
-			// eslint-disable-next-line svelte/no-navigation-without-resolve
+
 			void goto(target);
 		}
 	}

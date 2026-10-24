@@ -133,7 +133,9 @@
 				<div
 					class="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border px-3"
 				>
-					<h2 class="truncate text-title font-semibold">{resolvedInspectorTitle}</h2>
+					<h2 class="truncate text-title font-semibold">
+						{resolvedInspectorTitle}
+					</h2>
 					<IconButton
 						icon="chevron-right"
 						label={t('layout.splitView.hideDetails')}
@@ -162,7 +164,9 @@
 				<div
 					class="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border px-3"
 				>
-					<h2 class="truncate text-title font-semibold">{resolvedSecondaryTitle}</h2>
+					<h2 class="truncate text-title font-semibold">
+						{resolvedSecondaryTitle}
+					</h2>
 				</div>
 				<div class="min-h-0 flex-1 overflow-y-auto">
 					{@render secondary()}
@@ -188,7 +192,9 @@
 		{/if}
 		{#if secondary && secondaryVisible}
 			<div class="mt-4 border-t border-border pt-3">
-				<h3 class="mb-2 truncate text-title font-semibold">{resolvedSecondaryTitle}</h3>
+				<h3 class="mb-2 truncate text-title font-semibold">
+					{resolvedSecondaryTitle}
+				</h3>
 				{@render secondary()}
 			</div>
 		{/if}

@@ -70,7 +70,8 @@
 				selectedId = page.items[0].id;
 			}
 		} catch (e) {
-			listError = e instanceof Error ? e.message : t('page.workflows.loadFailed');
+			listError =
+				e instanceof Error ? e.message : t('page.workflows.loadFailed');
 			allWorkflows = [];
 		} finally {
 			listLoading = false;
@@ -94,7 +95,8 @@
 			await reload();
 			await goto(resolve('/workflows/[id]', { id }));
 		} catch (e) {
-			importError = e instanceof Error ? e.message : t('page.workflows.importFailed');
+			importError =
+				e instanceof Error ? e.message : t('page.workflows.importFailed');
 		} finally {
 			importBusy = false;
 		}
@@ -109,7 +111,10 @@
 			newName = '';
 			await goto(resolve('/workflows/[id]', { id: workflow.id }));
 		} catch (e) {
-			toasts.error(t('page.workflows.createFailed'), e instanceof Error ? e.message : undefined);
+			toasts.error(
+				t('page.workflows.createFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
 		} finally {
 			newBusy = false;
 		}
@@ -128,7 +133,8 @@
 			})
 			.catch((e) => {
 				selected = null;
-				detailError = e instanceof Error ? e.message : t('page.workflows.detailLoadFailed');
+				detailError =
+					e instanceof Error ? e.message : t('page.workflows.detailLoadFailed');
 			});
 	});
 
@@ -152,8 +158,7 @@
 				}
 			: {
 					title: t('page.workflows.noWorkflows'),
-					description:
-						t('page.workflows.noWorkflowsDesc'),
+					description: t('page.workflows.noWorkflowsDesc'),
 				},
 	);
 </script>
@@ -199,7 +204,7 @@
 			{/snippet}
 		</PageHeader>
 
-			<div class="page-container min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+		<div class="page-container min-h-0 flex-1 overflow-y-auto px-4 pb-4">
 			<FilterBar
 				bind:query
 				bind:status
@@ -241,7 +246,7 @@
 		</div>
 	</div>
 
-		{#snippet inspector()}
+	{#snippet inspector()}
 		{#if detailError && !selected}
 			<ErrorState
 				title={t('page.workflows.detailLoadFailed')}
@@ -254,7 +259,10 @@
 								selected = row;
 							})
 							.catch((e) => {
-								detailError = e instanceof Error ? e.message : t('page.workflows.detailLoadFailed');
+								detailError =
+									e instanceof Error
+										? e.message
+										: t('page.workflows.detailLoadFailed');
 							});
 					}
 				}}
@@ -348,10 +356,12 @@
 	{#snippet footer()}
 		<div class="flex items-center justify-end gap-2">
 			<Button variant="ghost" size="sm" onclick={() => (importOpen = false)}>
-			 {t('common.cancel')}
+				{t('common.cancel')}
 			</Button>
 			<Button size="sm" disabled={importBusy} onclick={() => void runImport()}>
-			 {importBusy ? t('page.workflows.importing') : t('page.workflows.import')}
+				{importBusy
+					? t('page.workflows.importing')
+					: t('page.workflows.import')}
 			</Button>
 		</div>
 	{/snippet}

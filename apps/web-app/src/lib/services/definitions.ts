@@ -123,7 +123,8 @@ export async function listDefinitionDrafts(
 	kind: DefinitionKind,
 	definitionId?: string,
 ): Promise<DefinitionDraft[]> {
-	const query = definitionId === undefined ? {} : { definition_id: definitionId };
+	const query =
+		definitionId === undefined ? {} : { definition_id: definitionId };
 	const data =
 		kind === 'workflow'
 			? await call<unknown>(
@@ -136,8 +137,8 @@ export async function listDefinitionDrafts(
 	const validated = await Promise.allSettled(
 		rows.map((row) => {
 			const id = isRecord(row) ? String(row.id ?? '') : '';
-			return validateDefinitionDraft(kind, id).then(
-				(issues): DefinitionDraft => toDraft(kind, row, issues),
+			return validateDefinitionDraft(kind, id).then((issues): DefinitionDraft =>
+				toDraft(kind, row, issues),
 			);
 		}),
 	);
@@ -328,9 +329,12 @@ export async function getDefinitionVersion(
 					}),
 				)
 			: await call<unknown>(
-					client.GET('/api/v1/templates/library/agents/{id}/versions/{version}', {
-						params: { path: { id, version } },
-					}),
+					client.GET(
+						'/api/v1/templates/library/agents/{id}/versions/{version}',
+						{
+							params: { path: { id, version } },
+						},
+					),
 				);
 	const row = requireData(data, `Version ${version} missing for ${id}`);
 	return isRecord(row) ? row : {};

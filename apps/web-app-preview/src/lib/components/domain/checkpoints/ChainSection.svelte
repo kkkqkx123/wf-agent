@@ -41,10 +41,7 @@
 		checkpointStore.beginAction('create');
 		try {
 			const checkpointId = await createExecutionCheckpoint(id);
-			toasts.success(
-				t('domain.checkpoint.created'),
-				checkpointId.slice(0, 10),
-			);
+			toasts.success(t('domain.checkpoint.created'), checkpointId.slice(0, 10));
 			checkpointStore.bump('chain');
 		} catch (e) {
 			console.error('Execution checkpoint creation failed:', e);
@@ -129,7 +126,9 @@
 	// ── dialogs ──
 	let restoreOpen = $state(false);
 	let restoreTarget = $state<Checkpoint | null>(null);
-	let restorePreview = $state<import('#lib/services/checkpoints').RestorePreview | null>(null);
+	let restorePreview = $state<
+		import('#lib/services/checkpoints').RestorePreview | null
+	>(null);
 	let restorePreviewLoading = $state(false);
 	let deleteOpen = $state(false);
 	let deleteTarget = $state<Checkpoint | null>(null);
@@ -204,7 +203,10 @@
 		}
 	}
 
-	async function runSetTags(checkpoint: Checkpoint, tags: string[]): Promise<void> {
+	async function runSetTags(
+		checkpoint: Checkpoint,
+		tags: string[],
+	): Promise<void> {
 		checkpointStore.beginAction('tag');
 		try {
 			await setCheckpointTags(checkpoint.id, tags);
@@ -289,7 +291,8 @@
 		purgeTarget = checkpoint;
 		purgeOpen = true;
 	}}
-	ontag={(checkpoint: Checkpoint, tags: string[]) => void runSetTags(checkpoint, tags)}
+	ontag={(checkpoint: Checkpoint, tags: string[]) =>
+		void runSetTags(checkpoint, tags)}
 />
 
 <Dialog
@@ -365,16 +368,28 @@
 		{:else if restorePreview}
 			<div class="mt-2 rounded border border-border p-2 text-caption">
 				<p class="font-medium">{t('domain.checkpoint.restorePreview')}</p>
-				<p>{t('domain.checkpoint.executionLabel')}: <span class="font-mono">{restorePreview.executionId}</span></p>
+				<p>
+					{t('domain.checkpoint.executionLabel')}:
+					<span class="font-mono">{restorePreview.executionId}</span>
+				</p>
 				<p>{t('domain.graph.status')}: {restorePreview.status}</p>
 				{#if restorePreview.currentNodeId}
-					<p>{t('domain.inspector.currentNode')}: <span class="font-mono">{restorePreview.currentNodeId}</span></p>
+					<p>
+						{t('domain.inspector.currentNode')}:
+						<span class="font-mono">{restorePreview.currentNodeId}</span>
+					</p>
 				{/if}
 				{#if restorePreview.variableKeys.length > 0}
-					<p>{t('domain.history.variables')} ({restorePreview.variableKeys.length}): {restorePreview.variableKeys.join(', ')}</p>
+					<p>
+						{t('domain.history.variables')} ({restorePreview.variableKeys
+							.length}): {restorePreview.variableKeys.join(', ')}
+					</p>
 				{/if}
 				{#if restorePreview.nodeResultKeys.length > 0}
-					<p>{t('domain.checkpoint.nodeResults')} ({restorePreview.nodeResultKeys.length}): {restorePreview.nodeResultKeys.join(', ')}</p>
+					<p>
+						{t('domain.checkpoint.nodeResults')} ({restorePreview.nodeResultKeys
+							.length}): {restorePreview.nodeResultKeys.join(', ')}
+					</p>
 				{/if}
 			</div>
 		{/if}

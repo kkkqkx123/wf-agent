@@ -7,10 +7,8 @@ import type {
 	ExecutionPathStat,
 	GraphAnalysisResult,
 	GraphSummary,
-	PromoteReport,
 	ReachabilityResult,
 	TopologyResult,
-	ValidationIssue,
 	WorkflowGraph,
 } from '#lib/types/models';
 

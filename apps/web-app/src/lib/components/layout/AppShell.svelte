@@ -30,7 +30,8 @@
 		overlays?: Snippet;
 	}
 
-	let { children, header, sidebar, aside, footer, banners, overlays }: Props = $props();
+	let { children, header, sidebar, aside, footer, banners, overlays }: Props =
+		$props();
 
 	const pathname = $derived(page.url.pathname);
 

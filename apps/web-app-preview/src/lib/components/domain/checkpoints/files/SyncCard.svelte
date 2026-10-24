@@ -104,10 +104,7 @@
 			error = null;
 		} catch (e) {
 			console.error('Failed to load git sync state:', e);
-			error =
-				e instanceof Error
-					? e.message
-					: t('domain.files.syncLoadFailed');
+			error = e instanceof Error ? e.message : t('domain.files.syncLoadFailed');
 		} finally {
 			loading = false;
 		}
@@ -189,10 +186,7 @@
 			toasts.error(failedTitle, e.message);
 			return;
 		}
-		toasts.error(
-			failedTitle,
-			e instanceof Error ? e.message : undefined,
-		);
+		toasts.error(failedTitle, e instanceof Error ? e.message : undefined);
 	}
 
 	function openExport(): void {
@@ -214,10 +208,7 @@
 			exportOpen = false;
 			exportConfirm = false;
 			exportMessage = '';
-			toasts.success(
-				t('domain.files.syncExported'),
-				outcome.suggestedMessage,
-			);
+			toasts.success(t('domain.files.syncExported'), outcome.suggestedMessage);
 			await loadSync();
 			store.bump('files');
 		} catch (e) {
@@ -305,32 +296,45 @@
 		{:else}
 			<div class="space-y-2">
 				<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption">
-					<span class="text-muted-foreground">{t('domain.files.syncReconcile')}</span>
+					<span class="text-muted-foreground"
+						>{t('domain.files.syncReconcile')}</span
+					>
 					{#if reconcile}
 						<span class="font-mono">{reconcile.internalMain.slice(0, 10)}</span>
 						<span class="text-micro text-muted-foreground">←</span>
-						<span class="font-mono">{reconcile.externalCommit.slice(0, 10)}</span>
+						<span class="font-mono"
+							>{reconcile.externalCommit.slice(0, 10)}</span
+						>
 						<span class="shrink-0 text-micro text-muted-foreground">
 							{formatRelativeTime(reconcile.updatedAtMs)}
 						</span>
 					{:else}
-						<span class="text-muted-foreground">{t('domain.files.syncNoReconcile')}</span>
+						<span class="text-muted-foreground"
+							>{t('domain.files.syncNoReconcile')}</span
+						>
 					{/if}
 				</div>
 				<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption">
-					<span class="text-muted-foreground">{t('domain.files.syncHint')}</span>
+					<span class="text-muted-foreground">{t('domain.files.syncHint')}</span
+					>
 					{#if hint}
-						<Badge variant="warning">{t('domain.files.syncExternalAhead')}</Badge>
+						<Badge variant="warning"
+							>{t('domain.files.syncExternalAhead')}</Badge
+						>
 						<span class="font-mono">{hint.externalHead.slice(0, 10)}</span>
 						<span class="text-micro text-muted-foreground">
 							{t('domain.files.showingFiles', { total: hint.fileCount })}
 						</span>
 					{:else}
-						<span class="text-muted-foreground">{t('domain.files.syncAligned')}</span>
+						<span class="text-muted-foreground"
+							>{t('domain.files.syncAligned')}</span
+						>
 					{/if}
 				</div>
 				<div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption">
-					<span class="text-muted-foreground">{t('domain.files.syncDefaults')}</span>
+					<span class="text-muted-foreground"
+						>{t('domain.files.syncDefaults')}</span
+					>
 					{#if defaults}
 						<Switch
 							label={t('domain.files.syncAutoCommit')}

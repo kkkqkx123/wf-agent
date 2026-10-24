@@ -14,7 +14,7 @@
 	import Timeline from '#lib/components/domain/Timeline.svelte';
 	import TimelineOutline from '#lib/components/domain/TimelineOutline.svelte';
 	import ToolCallCard from '#lib/components/domain/ToolCallCard.svelte';
-		import {
+	import {
 		applyExecutionOverlay,
 		matchDecisionNodeId,
 		projectExecutionOverlay,
@@ -184,8 +184,16 @@
 	const peakCalls = $derived(toolFrequency[0]?.count ?? 1);
 
 	const variableColumns = $derived<Column<LoopVariable>[]>([
-		{ key: 'key', header: t('domain.loopVariables.key'), text: (row) => row.key },
-		{ key: 'value', header: t('domain.loopVariables.value'), text: (row) => row.value },
+		{
+			key: 'key',
+			header: t('domain.loopVariables.key'),
+			text: (row) => row.key,
+		},
+		{
+			key: 'value',
+			header: t('domain.loopVariables.value'),
+			text: (row) => row.value,
+		},
 	]);
 
 	// Decision graph as display nodes, so history and live progress share
@@ -361,7 +369,10 @@
 				<Card title={t('domain.session.runFacts')}>
 					<KeyValueList
 						items={[
-							{ key: t('domain.session.factProfile'), value: loop.profileId ?? '—' },
+							{
+								key: t('domain.session.factProfile'),
+								value: loop.profileId ?? '—',
+							},
 							{
 								key: t('domain.history.iterations'),
 								value: formatNumber(loop.iteration),
@@ -414,17 +425,18 @@
 			{/if}
 		{:else if tab === 'graph'}
 			{#await import('#lib/components/domain/GraphExplorer.svelte') then module}
-<module.default
-				bind:this={graphExplorer}
-				nodes={decisionOverlayNodes}
-				edges={decisionEdges}
-				preset="decision"
-				loading={graph.loading && graph.data === null}
-				error={graph.error}
-				onretry={() => void graph.reload()}
-				selectedId={selectedGraphNode}
-				onselect={handleGraphSelect}
-			/> {/await}
+				<module.default
+					bind:this={graphExplorer}
+					nodes={decisionOverlayNodes}
+					edges={decisionEdges}
+					preset="decision"
+					loading={graph.loading && graph.data === null}
+					error={graph.error}
+					onretry={() => void graph.reload()}
+					selectedId={selectedGraphNode}
+					onselect={handleGraphSelect}
+				/>
+			{/await}
 		{:else if tab === 'iterations'}
 			{#if selectedGraphNode !== null}
 				<div class="mb-2 flex items-center gap-2">
@@ -618,7 +630,10 @@
 								key: t('domain.session.factToolCalls'),
 								value: formatNumber(toolCalls.length),
 							},
-							{ key: t('domain.session.factFailed'), value: formatNumber(failedCalls) },
+							{
+								key: t('domain.session.factFailed'),
+								value: formatNumber(failedCalls),
+							},
 						]}
 						dense
 					/>

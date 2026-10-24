@@ -26,7 +26,11 @@
 			text: (script) => script.runtime,
 			cellClass: 'text-caption text-muted-foreground',
 		},
-		{ key: 'state', header: t('page.resources.scripts.columnState'), cell: scriptStateCell },
+		{
+			key: 'state',
+			header: t('page.resources.scripts.columnState'),
+			cell: scriptStateCell,
+		},
 		{
 			key: 'runs',
 			header: t('page.resources.scripts.columnRuns'),

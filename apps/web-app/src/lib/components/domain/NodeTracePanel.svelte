@@ -155,7 +155,9 @@
 				retries: formatNumber(summary.retries),
 			})}
 			{#if visible.length !== traces.length}
-				· {t('domain.nodeTrace.showing', { count: formatNumber(visible.length) })}
+				· {t('domain.nodeTrace.showing', {
+					count: formatNumber(visible.length),
+				})}
 			{/if}
 			{#if skipped > 0}
 				· {t('domain.nodeTrace.skipped', { count: formatNumber(skipped) })}

@@ -633,10 +633,7 @@ describe('branch edges', () => {
 			['a', 'running'],
 			['b', 'completed'],
 		]);
-		const gradient = edgeGradient(
-			{ id: 'e', source: 'a', target: 'b' },
-			byId,
-		);
+		const gradient = edgeGradient({ id: 'e', source: 'a', target: 'b' }, byId);
 		expect(gradient).not.toBeNull();
 		expect(gradient?.from).not.toBe(gradient?.to);
 		const same = edgeGradient(

@@ -32,7 +32,16 @@ export function resolveAppPath(path: AppPath): ResolvedPathname {
 }
 
 /** Query keys the app round-trips through the address bar. */
-const LIST_KEYS = ['id', 'q', 'status', 'page', 'tab', 'panel', 'definition', 'version'] as const;
+const LIST_KEYS = [
+	'id',
+	'q',
+	'status',
+	'page',
+	'tab',
+	'panel',
+	'definition',
+	'version',
+] as const;
 
 export type ListParamKey = (typeof LIST_KEYS)[number];
 
@@ -77,7 +86,7 @@ export async function gotoWithParams(
 	// The pathname already comes from the live URL, so the base is baked in and
 	// resolve() (route literals only) cannot re-derive it.
 	const target = `${url.pathname}${next ? `?${next}` : ''}${url.hash}`;
-	// eslint-disable-next-line svelte/no-navigation-without-resolve
+
 	await goto(target, {
 		reset: false,
 		replaceState: true,

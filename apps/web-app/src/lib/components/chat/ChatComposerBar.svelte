@@ -33,7 +33,7 @@
 			bind:executionType={controller.executionType}
 			busy={chatStream.active}
 			draftKey={selectedId ?? NEW_SESSION}
-			suggestions={suggestions}
+			{suggestions}
 			showSuggestions={controller.bubbles.length === 0}
 			onsend={(message) => controller.sendText(message)}
 			onstop={() => chatStream.stop()}

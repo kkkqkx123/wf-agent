@@ -87,7 +87,10 @@
 			>
 			<span class="flex shrink-0 items-center gap-1.5">
 				{#if execution.kind}
-					<span class="rounded border border-border px-1 py-px font-mono text-micro text-muted-foreground">{execution.kind}</span>
+					<span
+						class="rounded border border-border px-1 py-px font-mono text-micro text-muted-foreground"
+						>{execution.kind}</span
+					>
 				{/if}
 				<StatusBadge status={execution.status} size="sm" />
 			</span>

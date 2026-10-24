@@ -211,7 +211,8 @@ const TONE_FALLBACK: Record<string, string> = {
 export function statusHex(status: string | null | undefined): string {
 	if (!status) return TONE_FALLBACK.neutral;
 	const normalized = status.trim().toLowerCase();
-	if (normalized === 'cached' || normalized === 'info') return TONE_FALLBACK.info;
+	if (normalized === 'cached' || normalized === 'info')
+		return TONE_FALLBACK.info;
 	const tone = toneForStatus(status);
 	switch (tone) {
 		case 'success':

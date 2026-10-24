@@ -107,7 +107,9 @@
 				>{t('common.cancel')}</Button
 			>
 			<Button size="sm" disabled={busy} onclick={() => onimport()}>
-				{busy ? t('domain.templateImport.importing') : t('domain.templateImport.import')}
+				{busy
+					? t('domain.templateImport.importing')
+					: t('domain.templateImport.import')}
 			</Button>
 		</div>
 	{/snippet}

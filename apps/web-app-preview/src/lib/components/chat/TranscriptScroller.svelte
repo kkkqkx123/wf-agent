@@ -414,7 +414,9 @@
 					class="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-caption text-card-foreground shadow-sm transition-colors hover:bg-accent"
 				>
 					<Icon name="chevron-up" size={13} />
-					<span class="hidden sm:inline">{t('chat.transcriptScroller.backToTop')}</span>
+					<span class="hidden sm:inline"
+						>{t('chat.transcriptScroller.backToTop')}</span
+					>
 				</button>
 			{/if}
 			{#if !following}
@@ -427,7 +429,9 @@
 					class="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-caption text-card-foreground shadow-sm transition-colors hover:bg-accent"
 				>
 					<Icon name="chevron-down" size={13} />
-					<span class="hidden sm:inline">{t('chat.transcriptScroller.backToTail')}</span>
+					<span class="hidden sm:inline"
+						>{t('chat.transcriptScroller.backToTail')}</span
+					>
 					{#if increments > 0}
 						<span class="font-mono text-micro text-muted-foreground">
 							+{increments}

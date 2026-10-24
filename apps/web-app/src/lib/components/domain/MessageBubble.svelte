@@ -170,7 +170,9 @@
 						class="mt-1 max-h-96 overflow-auto rounded-md border border-border bg-muted px-2 py-1.5 text-left font-mono text-micro break-words whitespace-pre-wrap text-foreground">{toolFull.text}</pre>
 					{#if toolFull.capped}
 						<p class="mt-1 font-mono text-micro text-muted-foreground">
-							{t('domain.messageBubble.moreLines', { count: toolFull.hiddenLines })}
+							{t('domain.messageBubble.moreLines', {
+								count: toolFull.hiddenLines,
+							})}
 						</p>
 					{/if}
 				{/if}

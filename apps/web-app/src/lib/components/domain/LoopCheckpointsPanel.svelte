@@ -35,7 +35,8 @@
 		} catch (e) {
 			seen = '';
 			checkpoints = [];
-			error = e instanceof Error ? e.message : t('domain.loopCheckpoints.failed');
+			error =
+				e instanceof Error ? e.message : t('domain.loopCheckpoints.failed');
 		}
 	}
 

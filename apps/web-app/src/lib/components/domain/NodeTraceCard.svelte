@@ -100,15 +100,17 @@
 		>
 			<dl class="grid grid-cols-2 gap-x-3 gap-y-1.5">
 				<div>
-					<dt class="text-micro text-muted-foreground"
-						>{t('domain.inspector.started')}</dt
-					>
+					<dt class="text-micro text-muted-foreground">
+						{t('domain.inspector.started')}
+					</dt>
 					<dd class="text-caption tabular-nums">
 						{trace.startedAt ? formatDateTime(trace.startedAt) : '—'}
 					</dd>
 				</div>
 				<div>
-					<dt class="text-micro text-muted-foreground">{t('domain.nodeTrace.ended')}</dt>
+					<dt class="text-micro text-muted-foreground">
+						{t('domain.nodeTrace.ended')}
+					</dt>
 					<dd class="text-caption tabular-nums">
 						{trace.endedAt ? formatDateTime(trace.endedAt) : '—'}
 					</dd>

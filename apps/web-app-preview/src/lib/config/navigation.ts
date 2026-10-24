@@ -106,10 +106,26 @@ export const NAV_GROUPS: NavGroup[] = [
 				icon: 'cpu',
 				description: message('config.navigation.modelsToolsDescription'),
 				segments: [
-					{ id: 'models', label: message('config.navigation.models'), icon: 'sparkles' },
-					{ id: 'tools', label: message('config.navigation.tools'), icon: 'blocks' },
-					{ id: 'scripts', label: message('config.navigation.scripts'), icon: 'code' },
-					{ id: 'skills', label: message('config.navigation.skills'), icon: 'star' },
+					{
+						id: 'models',
+						label: message('config.navigation.models'),
+						icon: 'sparkles',
+					},
+					{
+						id: 'tools',
+						label: message('config.navigation.tools'),
+						icon: 'blocks',
+					},
+					{
+						id: 'scripts',
+						label: message('config.navigation.scripts'),
+						icon: 'code',
+					},
+					{
+						id: 'skills',
+						label: message('config.navigation.skills'),
+						icon: 'star',
+					},
 				],
 			},
 		],
@@ -124,9 +140,21 @@ export const NAV_GROUPS: NavGroup[] = [
 				icon: 'chart',
 				description: message('config.navigation.queryAuditDescription'),
 				segments: [
-					{ id: 'query', label: message('config.navigation.query'), icon: 'search' },
-					{ id: 'audit', label: message('config.navigation.audit'), icon: 'file' },
-					{ id: 'errors', label: message('config.navigation.errors'), icon: 'alert-triangle' },
+					{
+						id: 'query',
+						label: message('config.navigation.query'),
+						icon: 'search',
+					},
+					{
+						id: 'audit',
+						label: message('config.navigation.audit'),
+						icon: 'file',
+					},
+					{
+						id: 'errors',
+						label: message('config.navigation.errors'),
+						icon: 'alert-triangle',
+					},
 					{
 						id: 'performance',
 						label: message('config.navigation.performance'),
@@ -140,7 +168,11 @@ export const NAV_GROUPS: NavGroup[] = [
 				icon: 'radio',
 				description: message('config.navigation.eventsSystemDescription'),
 				segments: [
-					{ id: 'stream', label: message('config.navigation.stream'), icon: 'radio' },
+					{
+						id: 'stream',
+						label: message('config.navigation.stream'),
+						icon: 'radio',
+					},
 					{
 						id: 'dependencies',
 						label: message('config.navigation.dependencies'),

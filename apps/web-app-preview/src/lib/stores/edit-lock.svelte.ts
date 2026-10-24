@@ -128,10 +128,12 @@ export class EditLockStore {
 		if (this.definitionId && this.supported && this.held) {
 			const previousId = this.definitionId;
 			const previousOwner = this.ownerId;
-			void releaseDefinitionLock(this.kind, previousId, previousOwner).catch((e) => {
-				this.refreshError =
-					e instanceof Error ? e.message : 'Lock release failed.';
-			});
+			void releaseDefinitionLock(this.kind, previousId, previousOwner).catch(
+				(e) => {
+					this.refreshError =
+						e instanceof Error ? e.message : 'Lock release failed.';
+				},
+			);
 		}
 		this.dispose();
 		this.definitionId = definitionId;
@@ -150,7 +152,10 @@ export class EditLockStore {
 					kind?: unknown;
 					definition_id?: unknown;
 				};
-				if (meta.kind === this.kind && meta.definition_id === this.definitionId) {
+				if (
+					meta.kind === this.kind &&
+					meta.definition_id === this.definitionId
+				) {
 					this.notifyRemoteHint(event.type);
 				}
 			} catch {

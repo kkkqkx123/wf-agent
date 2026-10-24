@@ -147,7 +147,10 @@
 		} catch (e) {
 			return {
 				value: null,
-				error: e instanceof Error ? e.message : t('page.resources.toolRun.invalidJson'),
+				error:
+					e instanceof Error
+						? e.message
+						: t('page.resources.toolRun.invalidJson'),
 			};
 		}
 	}
@@ -169,7 +172,11 @@
 			toolValidated = true;
 			toolValidatedSnapshot = toolParams;
 		} catch (e) {
-			toolIssues = [e instanceof Error ? e.message : t('page.resources.toolRun.validationFailed')];
+			toolIssues = [
+				e instanceof Error
+					? e.message
+					: t('page.resources.toolRun.validationFailed'),
+			];
 			toolValidated = false;
 			toolValidatedSnapshot = null;
 		} finally {
@@ -205,7 +212,9 @@
 
 <Dialog
 	bind:open
-	title={tool ? t('page.resources.toolRun.validateRun', { name: tool.name }) : t('page.resources.toolRun.tool')}
+	title={tool
+		? t('page.resources.toolRun.validateRun', { name: tool.name })
+		: t('page.resources.toolRun.tool')}
 	description={toolSchema
 		? t('page.resources.toolRun.structuredDesc')
 		: t('page.resources.toolRun.freeformDesc')}
@@ -328,7 +337,9 @@
 			<IssueList issues={toolTemplateIssues} />
 		</div>
 	{:else if toolShowValid}
-		<p class="mt-2 text-caption text-success">{t('page.resources.toolRun.parametersValid')}</p>
+		<p class="mt-2 text-caption text-success">
+			{t('page.resources.toolRun.parametersValid')}
+		</p>
 	{:else if toolValidationStale}
 		<p class="mt-2 text-caption text-muted-foreground">
 			{t('page.resources.toolRun.parametersStale')}
@@ -337,7 +348,9 @@
 	{#if toolRun}
 		<div class="mt-2 rounded-md border border-border bg-muted/40 p-2">
 			<p class="text-caption">
-				{toolRun.success ? t('page.resources.toolRun.succeeded') : t('page.resources.toolRun.failed', { error: toolRun.error ?? '' })}
+				{toolRun.success
+					? t('page.resources.toolRun.succeeded')
+					: t('page.resources.toolRun.failed', { error: toolRun.error ?? '' })}
 			</p>
 			{#if toolRun.output}
 				<pre
@@ -363,7 +376,9 @@
 				disabled={toolBusy}
 				onclick={() => void runToolExecute()}
 			>
-				{toolBusy ? t('page.resources.toolRun.running') : t('page.resources.toolRun.run')}
+				{toolBusy
+					? t('page.resources.toolRun.running')
+					: t('page.resources.toolRun.run')}
 			</Button>
 		</div>
 	{/snippet}

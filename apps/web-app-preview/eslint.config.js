@@ -32,6 +32,6 @@ export default defineConfig(
 		},
 	},
 	{
-		ignores: ['.svelte-kit/**', 'build/**'],
+		ignores: ['.svelte-kit/**', 'build/**', 'src/lib/paraglide/**'],
 	},
 );

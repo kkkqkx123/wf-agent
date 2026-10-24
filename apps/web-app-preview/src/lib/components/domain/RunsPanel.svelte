@@ -65,8 +65,7 @@
 			});
 			runs = result.items;
 		} catch (e) {
-			runsError =
-				e instanceof Error ? e.message : t('domain.runs.loadFailed');
+			runsError = e instanceof Error ? e.message : t('domain.runs.loadFailed');
 		} finally {
 			runsLoading = false;
 		}

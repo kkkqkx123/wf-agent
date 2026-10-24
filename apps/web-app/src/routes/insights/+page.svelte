@@ -52,7 +52,9 @@
 	);
 
 	$effect(() => {
-		gotoWithParams(page.url as unknown as URL, { tab: tab === 'query' ? '' : tab });
+		gotoWithParams(page.url as unknown as URL, {
+			tab: tab === 'query' ? '' : tab,
+		});
 	});
 	let statement = $state(
 		"SELECT execution_id, workflow, status, duration_ms\nFROM executions\nWHERE status != 'completed'\nORDER BY duration_ms DESC\nLIMIT 50;",
@@ -113,7 +115,8 @@
 			}
 		} catch (e) {
 			console.error('Failed to load insights segment:', e);
-			loadError = e instanceof Error ? e.message : t('page.insights.loadFailed');
+			loadError =
+				e instanceof Error ? e.message : t('page.insights.loadFailed');
 		} finally {
 			loading = false;
 		}
@@ -135,8 +138,12 @@
 			seenQuery = true;
 			toasts.success(t('page.insights.defaultScopeExecuted'));
 		} catch (e) {
-			queryError = e instanceof Error ? e.message : t('page.insights.queryFailed');
-			toasts.error(t('page.insights.queryFailedTitle'), e instanceof Error ? e.message : undefined);
+			queryError =
+				e instanceof Error ? e.message : t('page.insights.queryFailed');
+			toasts.error(
+				t('page.insights.queryFailedTitle'),
+				e instanceof Error ? e.message : undefined,
+			);
 		} finally {
 			queryBusy = false;
 		}
@@ -147,7 +154,10 @@
 			await exportQuery({ expressions: [], format: 'csv', limit: 50 });
 			toasts.success(t('page.insights.exportQueued'));
 		} catch (e) {
-			toasts.error(t('page.insights.exportFailed'), e instanceof Error ? e.message : undefined);
+			toasts.error(
+				t('page.insights.exportFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
 		}
 	}
 
@@ -160,8 +170,16 @@
 	);
 
 	const auditColumns: Column<AuditReport>[] = [
-		{ key: 'execution', header: t('page.insights.columnExecution'), text: (row) => row.executionId },
-		{ key: 'status', header: t('page.insights.columnStatus'), text: (row) => row.status },
+		{
+			key: 'execution',
+			header: t('page.insights.columnExecution'),
+			text: (row) => row.executionId,
+		},
+		{
+			key: 'status',
+			header: t('page.insights.columnStatus'),
+			text: (row) => row.status,
+		},
 		{
 			key: 'nodes',
 			header: t('page.insights.columnNodes'),
@@ -194,8 +212,16 @@
 	];
 
 	const errorColumns: Column<ErrorAnalysis>[] = [
-		{ key: 'category', header: t('page.insights.columnCategory'), text: (row) => row.category },
-		{ key: 'rootCause', header: t('page.insights.columnRootCause'), text: (row) => row.rootCause },
+		{
+			key: 'category',
+			header: t('page.insights.columnCategory'),
+			text: (row) => row.category,
+		},
+		{
+			key: 'rootCause',
+			header: t('page.insights.columnRootCause'),
+			text: (row) => row.rootCause,
+		},
 		{
 			key: 'count',
 			header: t('page.insights.columnCount'),
@@ -212,7 +238,11 @@
 			header: t('page.insights.columnLastSeen'),
 			text: (row) => formatRelativeTime(row.lastSeen),
 		},
-		{ key: 'status', header: t('page.insights.columnState'), text: (row) => row.status },
+		{
+			key: 'status',
+			header: t('page.insights.columnState'),
+			text: (row) => row.status,
+		},
 	];
 
 	function emptyCopyFor(current: string): {
@@ -222,21 +252,18 @@
 		if (current === 'audit') {
 			return {
 				title: t('page.insights.noAuditReports'),
-				description:
-					t('page.insights.noAuditReportsDesc'),
+				description: t('page.insights.noAuditReportsDesc'),
 			};
 		}
 		if (current === 'errors') {
 			return {
 				title: t('page.insights.noErrorAnalysis'),
-				description:
-					t('page.insights.noErrorAnalysisDesc'),
+				description: t('page.insights.noErrorAnalysisDesc'),
 			};
 		}
 		return {
 			title: t('page.insights.noPerformanceData'),
-			description:
-				t('page.insights.noPerformanceDataDesc'),
+			description: t('page.insights.noPerformanceDataDesc'),
 		};
 	}
 
@@ -305,7 +332,9 @@
 							onclick={() => void runAdhocQuery()}
 						>
 							<Icon name="play" size={13} />
-							{queryBusy ? t('page.insights.running') : t('page.insights.runQuery')}
+							{queryBusy
+								? t('page.insights.running')
+								: t('page.insights.runQuery')}
 						</Button>
 						<Button variant="ghost" size="sm" onclick={() => (statement = '')}
 							>{t('page.insights.clear')}</Button

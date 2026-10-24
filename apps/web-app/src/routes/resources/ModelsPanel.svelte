@@ -17,7 +17,11 @@
 	let { modelProfiles, providers }: Props = $props();
 
 	const profileColumns: Column<ModelProfile>[] = [
-		{ key: 'name', header: t('page.resources.models.columnProfile'), cell: profileNameCell },
+		{
+			key: 'name',
+			header: t('page.resources.models.columnProfile'),
+			cell: profileNameCell,
+		},
 		{
 			key: 'provider',
 			header: t('page.resources.models.columnProvider'),
@@ -30,7 +34,11 @@
 			text: (profile) => profile.model,
 			cellClass: 'font-mono text-caption',
 		},
-		{ key: 'status', header: t('page.resources.models.columnStatus'), cell: profileStatusCell },
+		{
+			key: 'status',
+			header: t('page.resources.models.columnStatus'),
+			cell: profileStatusCell,
+		},
 		{
 			key: 'requests',
 			header: t('page.resources.models.columnRequests'),

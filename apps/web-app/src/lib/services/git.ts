@@ -287,7 +287,9 @@ export async function listSubmodules(): Promise<SubmoduleEntry[]> {
 /** Reflog entries of the user repository. */
 export async function listReflog(): Promise<ReflogEntry[]> {
 	const data = await call<unknown>(client.GET('/api/v1/git/reflog'));
-	const rows = requireData(data, 'Git reflog') as Array<Record<string, unknown>>;
+	const rows = requireData(data, 'Git reflog') as Array<
+		Record<string, unknown>
+	>;
 	return (Array.isArray(rows) ? rows : []).map((r) => ({
 		id: String(r.id ?? ''),
 		shortId: String(r.short_id ?? String(r.id ?? '').slice(0, 7)),

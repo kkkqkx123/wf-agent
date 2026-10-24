@@ -603,7 +603,7 @@
 	}
 
 	function layoutOptions(): Record<string, unknown> {
-		return canvasLayoutOptions(layout);
+		return canvasLayoutOptions();
 	}
 
 	function syncElements(): void {
@@ -874,7 +874,10 @@
 						!isGroupTitleId(id) &&
 						!id.startsWith('groupbox:')
 					) {
-						viewMoveHandler(id, roundPosition(target.position() as CanvasPosition));
+						viewMoveHandler(
+							id,
+							roundPosition(target.position() as CanvasPosition),
+						);
 					}
 					return;
 				}
@@ -932,9 +935,7 @@
 						x: Math.round(position.x),
 						y: Math.round(position.y),
 					},
-					original
-						? { x: original.clientX, y: original.clientY }
-						: undefined,
+					original ? { x: original.clientX, y: original.clientY } : undefined,
 				);
 			});
 			instance.on('mouseover', 'node', (event) => {

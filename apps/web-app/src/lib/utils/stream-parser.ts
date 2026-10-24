@@ -129,8 +129,7 @@ export type SystemFrame =
 /** Decoded error-chain frame. Whole error records decode to `record`;
  * anything without an id falls back to `raw`. */
 export type ErrorChainFrame =
-	| { kind: 'record'; record: ErrorRecord }
-	| { kind: 'raw'; data: unknown };
+	{ kind: 'record'; record: ErrorRecord } | { kind: 'raw'; data: unknown };
 
 // Future payload families keep the same branch-then-fallback shape when a
 // caller appears. The LLM family branches on its `event_type` tag
@@ -194,10 +193,18 @@ export function decodeExecutionFrame(
 	data: unknown,
 ): ExecutionFrame {
 	if (event === 'metadata') {
-		if (isRecord(data) && typeof data.execution_id === 'string' && data.execution_id) {
+		if (
+			isRecord(data) &&
+			typeof data.execution_id === 'string' &&
+			data.execution_id
+		) {
 			return { kind: 'metadata', executionId: data.execution_id };
 		}
-		if (isRecord(data) && typeof data.executionId === 'string' && data.executionId) {
+		if (
+			isRecord(data) &&
+			typeof data.executionId === 'string' &&
+			data.executionId
+		) {
 			return { kind: 'metadata', executionId: data.executionId };
 		}
 		return { kind: 'raw', event, data };
@@ -213,7 +220,11 @@ export function decodeExecutionFrame(
 		return { kind: 'raw', event, data };
 	}
 	if (event === '') {
-		if (isRecord(data) && typeof data.type === 'string' && KNOWN_PROTOCOL_TYPES.has(data.type)) {
+		if (
+			isRecord(data) &&
+			typeof data.type === 'string' &&
+			KNOWN_PROTOCOL_TYPES.has(data.type)
+		) {
 			return { kind: 'protocol', eventType: data.type, data };
 		}
 		return { kind: 'raw', event, data };
@@ -226,9 +237,12 @@ function normalizeBaseEvent(record: Record<string, unknown>): BaseEventFrame {
 		id: typeof record.id === 'string' ? record.id : '',
 		type: record.type as string,
 		timestamp: typeof record.timestamp === 'number' ? record.timestamp : 0,
-		event_name: typeof record.event_name === 'string' ? record.event_name : null,
-		workflow_id: typeof record.workflow_id === 'string' ? record.workflow_id : null,
-		execution_id: typeof record.execution_id === 'string' ? record.execution_id : null,
+		event_name:
+			typeof record.event_name === 'string' ? record.event_name : null,
+		workflow_id:
+			typeof record.workflow_id === 'string' ? record.workflow_id : null,
+		execution_id:
+			typeof record.execution_id === 'string' ? record.execution_id : null,
 		agent_loop_id:
 			typeof record.agent_loop_id === 'string' ? record.agent_loop_id : null,
 		metadata: isRecord(record.metadata)

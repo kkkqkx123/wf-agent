@@ -38,7 +38,9 @@
 	);
 
 	$effect(() => {
-		gotoWithParams(page.url as unknown as URL, { tab: tab === 'chain' ? '' : tab });
+		gotoWithParams(page.url as unknown as URL, {
+			tab: tab === 'chain' ? '' : tab,
+		});
 	});
 
 	// ── chain tab ──
@@ -105,7 +107,8 @@
 			}
 		} catch (e) {
 			console.error('Failed to load checkpoints segment:', e);
-			loadError = e instanceof Error ? e.message : t('page.checkpoints.requestFailed');
+			loadError =
+				e instanceof Error ? e.message : t('page.checkpoints.requestFailed');
 		} finally {
 			loading = false;
 			if (chainDirty || approvalsDirty) {
@@ -189,14 +192,12 @@
 		if (current === 'approvals') {
 			return {
 				title: t('page.checkpoints.noApprovals'),
-				description:
-					t('page.checkpoints.noApprovalsDesc'),
+				description: t('page.checkpoints.noApprovalsDesc'),
 			};
 		}
 		return {
 			title: t('page.checkpoints.noCheckpoints'),
-			description:
-				t('page.checkpoints.noCheckpointsDesc'),
+			description: t('page.checkpoints.noCheckpointsDesc'),
 		};
 	}
 

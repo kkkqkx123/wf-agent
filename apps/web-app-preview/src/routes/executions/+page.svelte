@@ -370,7 +370,8 @@
 	// the session transcript, workflow runs render the run inspector. Rows
 	// from the workflow-only list carry no kind and read as workflow.
 	const selectedKind = $derived(
-		filtered.find((execution) => execution.id === selectedId)?.kind ?? 'workflow',
+		filtered.find((execution) => execution.id === selectedId)?.kind ??
+			'workflow',
 	);
 
 	// Compare candidates exclude the primary selection so A/B never render
@@ -422,7 +423,11 @@
 			header: t('page.executions.columnWorkflow'),
 			text: (execution) => execution.workflowName,
 		},
-		{ key: 'status', header: t('page.executions.columnStatus'), cell: executionStatusCell },
+		{
+			key: 'status',
+			header: t('page.executions.columnStatus'),
+			cell: executionStatusCell,
+		},
 		{
 			key: 'started',
 			header: t('page.executions.columnStarted'),
@@ -464,7 +469,9 @@
 					onclick={() => (view = view === 'list' ? 'table' : 'list')}
 				>
 					<Icon name={view === 'list' ? 'blocks' : 'menu'} size={13} />
-					{view === 'list' ? t('page.executions.table') : t('page.executions.cards')}
+					{view === 'list'
+						? t('page.executions.table')
+						: t('page.executions.cards')}
 				</Button>
 				<Button
 					variant="outline"

@@ -24,12 +24,11 @@
 		onchange={(value) => {
 			const next = value as TemplateKind;
 			if (next === controller.createKind) return;
-			/* eslint-disable svelte/no-navigation-without-resolve -- resolve() cannot append the query string */
+
 			void goto(
 				resolve('/templates/[kind]/[id]', { kind: next, id: 'new' }) +
 					'?tab=edit',
 			);
-			/* eslint-enable svelte/no-navigation-without-resolve */
 		}}
 	/>
 	<input

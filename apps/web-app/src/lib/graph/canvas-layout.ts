@@ -32,8 +32,6 @@ export function presetPositions(
 	return {};
 }
 
-export function canvasLayoutOptions(
-	layout: GraphLayoutKind,
-): Record<string, unknown> {
+export function canvasLayoutOptions(): Record<string, unknown> {
 	return { name: 'preset', padding: 30, fit: true };
 }

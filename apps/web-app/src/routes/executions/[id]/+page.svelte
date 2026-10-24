@@ -50,7 +50,9 @@
 	);
 
 	$effect(() => {
-		gotoWithParams(page.url as unknown as URL, { tab: tab === 'overview' ? '' : tab });
+		gotoWithParams(page.url as unknown as URL, {
+			tab: tab === 'overview' ? '' : tab,
+		});
 	});
 
 	async function load(id: string): Promise<void> {
@@ -62,9 +64,12 @@
 			// inspector below.
 			unified = await getUnifiedExecutionDetail(id);
 			execution =
-				unified.executionType === 'workflow' ? await getExecutionDetail(id) : null;
+				unified.executionType === 'workflow'
+					? await getExecutionDetail(id)
+					: null;
 		} catch (e) {
-			loadError = e instanceof Error ? e.message : t('page.executionDetail.errorTitle');
+			loadError =
+				e instanceof Error ? e.message : t('page.executionDetail.errorTitle');
 			execution = null;
 			unified = null;
 		} finally {
@@ -159,7 +164,9 @@
 
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
-		title={execution?.workflowName ?? unified?.definitionId ?? t('page.executionDetail.titleFallback')}
+		title={execution?.workflowName ??
+			unified?.definitionId ??
+			t('page.executionDetail.titleFallback')}
 		description={t('page.executionDetail.description')}
 	>
 		{#snippet meta()}
@@ -190,13 +197,15 @@
 					icon="pause"
 					label={t('page.executionDetail.pause')}
 					disabled={controlBusy}
-					onclick={() => void runControl(t('page.executionDetail.pause'), controls.pause)}
+					onclick={() =>
+						void runControl(t('page.executionDetail.pause'), controls.pause)}
 				/>
 				<IconButton
 					icon="play"
 					label={t('page.executionDetail.resume')}
 					disabled={controlBusy}
-					onclick={() => void runControl(t('page.executionDetail.resume'), controls.resume)}
+					onclick={() =>
+						void runControl(t('page.executionDetail.resume'), controls.resume)}
 				/>
 				{#if cancelArmed}
 					<Button
@@ -205,7 +214,10 @@
 						disabled={controlBusy}
 						onclick={() => {
 							cancelArmed = false;
-							void runControl(t('page.executionDetail.cancel'), controls.cancel);
+							void runControl(
+								t('page.executionDetail.cancel'),
+								controls.cancel,
+							);
 						}}
 					>
 						{t('page.executionDetail.cancelArmed')}

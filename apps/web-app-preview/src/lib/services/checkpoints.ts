@@ -441,7 +441,10 @@ export async function deleteCheckpoint(id: string): Promise<void> {
 }
 
 /** Replace the tags on a checkpoint. */
-export async function setCheckpointTags(id: string, tags: string[]): Promise<void> {
+export async function setCheckpointTags(
+	id: string,
+	tags: string[],
+): Promise<void> {
 	await call<unknown>(
 		client.PUT('/api/v1/checkpoints/{id}/tags', {
 			params: { path: { id } },
@@ -1086,8 +1089,7 @@ export async function setEntityMetadata(
 
 type ExportOutcomeDoc = components['schemas']['ExportOutcomeDoc'];
 type ImportOutcomeDoc = components['schemas']['ImportOutcomeDoc'];
-type ExternalUpdateHintDoc =
-	components['schemas']['ExternalUpdateHintDoc'];
+type ExternalUpdateHintDoc = components['schemas']['ExternalUpdateHintDoc'];
 type ReconcilePointDoc = components['schemas']['ReconcilePointDoc'];
 type SyncConfigDoc = components['schemas']['SyncConfigDoc'];
 type BaselineRebaseOutcomeDoc =

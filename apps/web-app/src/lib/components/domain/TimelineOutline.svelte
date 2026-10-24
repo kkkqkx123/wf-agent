@@ -42,7 +42,10 @@
 </script>
 
 {#if entries.length >= OUTLINE_MIN_ENTRIES}
-	<nav aria-label={t('domain.timelineOutline.title')} class={cn('shrink-0', className)}>
+	<nav
+		aria-label={t('domain.timelineOutline.title')}
+		class={cn('shrink-0', className)}
+	>
 		<p class="mb-1 text-micro uppercase tracking-wide text-muted-foreground">
 			{t('domain.timelineOutline.outline')}
 		</p>

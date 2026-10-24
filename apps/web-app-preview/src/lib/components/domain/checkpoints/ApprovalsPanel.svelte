@@ -57,7 +57,9 @@
 
 	function toggleAll(): void {
 		selected.clear();
-		if (!(selectable.length > 0 && selectedPending.length === selectable.length)) {
+		if (!(
+			selectable.length > 0 && selectedPending.length === selectable.length
+		)) {
 			for (const item of selectable) selected.add(item.id);
 		}
 	}
@@ -78,11 +80,13 @@
 		{#if selectedPending.length > 0}
 			<Button size="sm" onclick={() => batch(true)}>
 				<Icon name="check" size={13} />
-				{t('domain.toolCall.approve')} {selectedPending.length}
+				{t('domain.toolCall.approve')}
+				{selectedPending.length}
 			</Button>
 			<Button variant="outline" size="sm" onclick={() => batch(false)}>
 				<Icon name="x" size={13} />
-				{t('domain.toolCall.reject')} {selectedPending.length}
+				{t('domain.toolCall.reject')}
+				{selectedPending.length}
 			</Button>
 		{/if}
 	{/snippet}

@@ -33,7 +33,9 @@ export interface WorkflowLayout {
 }
 
 /** Load the persisted canvas layout of a workflow (null when never saved). */
-export async function getWorkflowLayout(id: string): Promise<WorkflowLayout | null> {
+export async function getWorkflowLayout(
+	id: string,
+): Promise<WorkflowLayout | null> {
 	return call<WorkflowLayout | null>(
 		client.GET('/api/v1/workflows/{id}/layout', { params: { path: { id } } }),
 	);
@@ -55,6 +57,8 @@ export async function saveWorkflowLayout(
 /** Remove the persisted canvas layout; the graph falls back to its default. */
 export async function resetWorkflowLayout(id: string): Promise<void> {
 	await call<unknown>(
-		client.DELETE('/api/v1/workflows/{id}/layout', { params: { path: { id } } }),
+		client.DELETE('/api/v1/workflows/{id}/layout', {
+			params: { path: { id } },
+		}),
 	);
 }

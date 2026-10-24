@@ -222,7 +222,9 @@
 		</ul>
 		{#if workspace.workspaceFiles.length > 20}
 			<p class="mt-1 text-micro text-muted-foreground">
-				{t('domain.files.showingFiles', { total: workspace.workspaceFiles.length })}
+				{t('domain.files.showingFiles', {
+					total: workspace.workspaceFiles.length,
+				})}
 			</p>
 		{/if}
 	{/if}
@@ -258,9 +260,7 @@
 		</Button>
 		<Button
 			size="sm"
-			disabled={workspace.busy ||
-				!renameFrom.trim() ||
-				!renameTo.trim()}
+			disabled={workspace.busy || !renameFrom.trim() || !renameTo.trim()}
 			onclick={() => void runRename()}
 		>
 			{t('domain.files.rename')}

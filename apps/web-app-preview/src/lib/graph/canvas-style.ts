@@ -255,8 +255,14 @@ function readFontToken(name: string, fallback: number): number {
 /** Node and edge font sizes follow the canvas type tokens. */
 export function canvasFontSizes(): { node: number; edge: number } {
 	return {
-		node: readFontToken('--canvas-node-font-size', readFontToken('--text-small', 12)),
-		edge: readFontToken('--canvas-edge-font-size', readFontToken('--text-micro', 11)),
+		node: readFontToken(
+			'--canvas-node-font-size',
+			readFontToken('--text-small', 12),
+		),
+		edge: readFontToken(
+			'--canvas-edge-font-size',
+			readFontToken('--text-micro', 11),
+		),
 	};
 }
 

@@ -1,8 +1,4 @@
-import {
-	API_BASE_URL,
-	client,
-	resolveApiKey,
-} from '#lib/api/client';
+import { API_BASE_URL, client, resolveApiKey } from '#lib/api/client';
 import { call, requireData } from '#lib/api/envelope';
 import type { components } from '#lib/api/schema';
 
@@ -205,13 +201,8 @@ export function connectPty(
 					if (meta.event === 'exited') {
 						options.onExit?.({
 							exitCode:
-								typeof meta.exit_code === 'number'
-									? meta.exit_code
-									: null,
-							reason:
-								typeof meta.reason === 'string'
-									? meta.reason
-									: 'process',
+								typeof meta.exit_code === 'number' ? meta.exit_code : null,
+							reason: typeof meta.reason === 'string' ? meta.reason : 'process',
 						});
 						return;
 					}

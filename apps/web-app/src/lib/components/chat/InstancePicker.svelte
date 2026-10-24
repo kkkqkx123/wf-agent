@@ -190,7 +190,9 @@
 				{/if}
 			</span>
 			{#if option.detail}
-				<span class="w-full truncate font-mono text-micro text-muted-foreground">
+				<span
+					class="w-full truncate font-mono text-micro text-muted-foreground"
+				>
 					{option.detail}
 				</span>
 			{/if}
@@ -309,7 +311,9 @@
 						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
 					>
 						<Icon name="pencil" size={13} class="text-muted-foreground" />
-						<span class="min-w-0 flex-1 truncate font-mono text-micro text-foreground">
+						<span
+							class="min-w-0 flex-1 truncate font-mono text-micro text-foreground"
+						>
 							{t('chat.instancePicker.useValue', { value: typed })}
 						</span>
 					</button>

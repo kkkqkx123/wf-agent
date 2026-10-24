@@ -29,7 +29,8 @@
 		onchanged: () => void;
 	}
 
-	let { kind, definitionId, versions, nodes, edges, onchanged }: Props = $props();
+	let { kind, definitionId, versions, nodes, edges, onchanged }: Props =
+		$props();
 
 	let selectedId = $state<string | null>(null);
 	let compareFrom = $state('');
@@ -48,9 +49,17 @@
 	const hasGraph = $derived(kind === 'workflow');
 
 	const versionColumns = $derived<Column<DefinitionVersion>[]>([
-		{ key: 'version', header: t('domain.versions.version'), text: (row) => row.version },
+		{
+			key: 'version',
+			header: t('domain.versions.version'),
+			text: (row) => row.version,
+		},
 		{ key: 'note', header: t('domain.versions.note'), text: (row) => row.note },
-		{ key: 'author', header: t('domain.versions.author'), text: (row) => row.author },
+		{
+			key: 'author',
+			header: t('domain.versions.author'),
+			text: (row) => row.author,
+		},
 		{
 			key: 'created',
 			header: t('domain.versions.created'),
@@ -60,7 +69,9 @@
 			key: 'current',
 			header: t('domain.versions.state'),
 			text: (row) =>
-				row.current ? t('domain.versions.current') : t('domain.versions.superseded'),
+				row.current
+					? t('domain.versions.current')
+					: t('domain.versions.superseded'),
 		},
 	]);
 
@@ -74,9 +85,7 @@
 	const diffGraphNodes = $derived<DisplayNode[]>(diffView.nodes);
 	const diffGraphEdges = $derived<DisplayEdge[]>(diffView.edges);
 	const diffIsEmpty = $derived(
-		diff !== null &&
-			diffView.empty &&
-			(diff.changedFields?.length ?? 0) === 0,
+		diff !== null && diffView.empty && (diff.changedFields?.length ?? 0) === 0,
 	);
 
 	$effect(() => {
@@ -93,9 +102,15 @@
 		diffLoading = true;
 		diffError = null;
 		try {
-			diff = await diffDefinitionVersions(kind, definitionId, compareFrom, compareTo);
+			diff = await diffDefinitionVersions(
+				kind,
+				definitionId,
+				compareFrom,
+				compareTo,
+			);
 		} catch (e) {
-			diffError = e instanceof Error ? e.message : t('domain.versions.compareFailed');
+			diffError =
+				e instanceof Error ? e.message : t('domain.versions.compareFailed');
 			diff = null;
 		} finally {
 			diffLoading = false;
@@ -317,25 +332,26 @@
 			</p>
 		{/if}
 		{#await import('#lib/components/domain/GraphExplorer.svelte') then module}
-<module.default
-			bind:this={diffExplorer}
-			nodes={diffGraphNodes}
-			edges={diffGraphEdges}
-			preset="workflow"
-			{selectedId}
-			onselect={(id) => (selectedId = id)}
-			overlays={[
-				{
-					id: 'added',
-					label: t('domain.versions.added'),
-					ids: diff.addedNodes,
-				},
-				{
-					id: 'removed',
-					label: t('domain.versions.removed'),
-					ids: diff.removedNodes,
-				},
-			]}
-		/> {/await}
+			<module.default
+				bind:this={diffExplorer}
+				nodes={diffGraphNodes}
+				edges={diffGraphEdges}
+				preset="workflow"
+				{selectedId}
+				onselect={(id) => (selectedId = id)}
+				overlays={[
+					{
+						id: 'added',
+						label: t('domain.versions.added'),
+						ids: diff.addedNodes,
+					},
+					{
+						id: 'removed',
+						label: t('domain.versions.removed'),
+						ids: diff.removedNodes,
+					},
+				]}
+			/>
+		{/await}
 	</div>
 {/if}

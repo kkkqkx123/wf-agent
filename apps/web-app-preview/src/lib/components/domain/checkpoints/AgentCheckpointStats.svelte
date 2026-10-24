@@ -40,9 +40,9 @@
 			<dd class="tabular-nums">{stats.total}</dd>
 			<dt class="text-muted-foreground">{t('domain.checkpoint.statActive')}</dt>
 			<dd class="tabular-nums">{stats.active}</dd>
-			<dt class="text-muted-foreground"
-				>{t('domain.checkpoint.statAvgBlob')}</dt
-			>
+			<dt class="text-muted-foreground">
+				{t('domain.checkpoint.statAvgBlob')}
+			</dt>
 			<dd class="tabular-nums">
 				{stats.avgBlobSize === null ? '—' : `${stats.avgBlobSize} B`}
 			</dd>

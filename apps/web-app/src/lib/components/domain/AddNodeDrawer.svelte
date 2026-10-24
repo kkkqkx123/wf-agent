@@ -20,6 +20,12 @@
 		/** Drop coordinates the chosen node will land on, if known. */
 		position?: CanvasPosition | null;
 		/**
+		 * Pointer location that opened the picker. On wide viewports the
+		 * picker anchors near it instead of opening a centered dialog;
+		 * narrow viewports always fall back to the dialog.
+		 */
+		anchor?: { x: number; y: number } | null;
+		/**
 		 * Node type plus label; a null label means the caller names the node.
 		 * The type is already normalised, so it is either a builtin name or a
 		 * plugin-contributed one.
@@ -39,6 +45,7 @@
 	let {
 		open = $bindable(false),
 		position = null,
+		anchor = null,
 		onselect,
 		onclose,
 	}: Props = $props();
@@ -155,16 +162,41 @@
 		onselect(choice.nodeType, choice.name);
 		open = false;
 	}
+
+	// Wide viewports anchor the picker near the pointer that opened it;
+	// narrow viewports and keyboard-only opens keep the centered dialog.
+	const anchored = $derived.by(() => {
+		if (!open || !anchor) return null;
+		if (typeof window === 'undefined') return null;
+		if (!window.matchMedia('(min-width: 1024px)').matches) return null;
+		const width = 544;
+		const left = Math.max(
+			8,
+			Math.min(anchor.x, window.innerWidth - width - 8),
+		);
+		const top = Math.max(8, Math.min(anchor.y + 8, window.innerHeight - 480));
+		return { left, top, width };
+	});
+
+	let searchInput: HTMLInputElement | null = $state(null);
+
+	$effect(() => {
+		if (open) searchInput?.focus();
+	});
 </script>
 
-<Dialog
-	bind:open
-	title={t('domain.addNode.title')}
-	description={t('domain.addNode.description')}
-	width="34rem"
-	{onclose}
->
-	<div {onkeydown} role="presentation">
+{#snippet picker()}
+	<div
+		onkeydown={(event) => {
+			onkeydown(event);
+			if (event.key === 'Escape') {
+				event.stopPropagation();
+				open = false;
+				onclose?.();
+			}
+		}}
+		role="presentation"
+	>
 		<div class="relative">
 			<Icon
 				name="search"
@@ -172,6 +204,7 @@
 				class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
 			/>
 			<input
+				bind:this={searchInput}
 				bind:value={query}
 				placeholder={t('domain.addNode.searchPlaceholder')}
 				aria-label={t('domain.addNode.searchPlaceholder')}
@@ -247,4 +280,47 @@
 			</p>
 		{/if}
 	</div>
-</Dialog>
+{/snippet}
+
+{#if open && anchored}
+	<div class="fixed inset-0 z-50" role="presentation">
+		<button
+			type="button"
+			aria-label={t('common.close')}
+			class="absolute inset-0 bg-[hsl(var(--overlay))]"
+			onclick={() => {
+				open = false;
+				onclose?.();
+			}}
+		></button>
+		<div
+			role="dialog"
+			aria-modal="true"
+			aria-label={t('domain.addNode.title')}
+			class="absolute overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-popover"
+			style:left={`${anchored.left}px`}
+			style:top={`${anchored.top}px`}
+			style:width={`${anchored.width}px`}
+		>
+			<div class="border-b border-border px-4 py-3">
+				<p class="text-title font-semibold">{t('domain.addNode.title')}</p>
+				<p class="mt-0.5 text-caption text-muted-foreground">
+					{t('domain.addNode.description')}
+				</p>
+			</div>
+			<div class="max-h-[60vh] overflow-y-auto px-4 py-3">
+				{@render picker()}
+			</div>
+		</div>
+	</div>
+{:else}
+	<Dialog
+		bind:open
+		title={t('domain.addNode.title')}
+		description={t('domain.addNode.description')}
+		width="34rem"
+		{onclose}
+	>
+		{@render picker()}
+	</Dialog>
+{/if}

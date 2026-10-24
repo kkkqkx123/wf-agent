@@ -120,6 +120,30 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
 		defaultKeys: 'Delete',
 		scope: 'canvas',
 	},
+	{
+		id: 'canvas.nextNode',
+		label: 'Select next node',
+		defaultKeys: 'n',
+		scope: 'canvas',
+	},
+	{
+		id: 'canvas.prevNode',
+		label: 'Select previous node',
+		defaultKeys: 'p',
+		scope: 'canvas',
+	},
+	{
+		id: 'canvas.toggleLogs',
+		label: 'Toggle recent runs panel',
+		defaultKeys: 'l',
+		scope: 'canvas',
+	},
+	{
+		id: 'canvas.toggleFilters',
+		label: 'Toggle graph filters',
+		defaultKeys: '/',
+		scope: 'canvas',
+	},
 ];
 
 export function shortcutActionById(id: string): ShortcutAction | undefined {

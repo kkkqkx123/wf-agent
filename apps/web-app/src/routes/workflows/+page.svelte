@@ -199,7 +199,7 @@
 			{/snippet}
 		</PageHeader>
 
-		<div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+			<div class="page-container min-h-0 flex-1 overflow-y-auto px-4 pb-4">
 			<FilterBar
 				bind:query
 				bind:status
@@ -232,6 +232,8 @@
 							{workflow}
 							selected={selectedId === workflow.id}
 							onselect={(item) => (selectedId = item.id)}
+							onopen={(item) =>
+								void goto(resolve('/workflows/[id]', { id: item.id }))}
 						/>
 					{/each}
 				</div>

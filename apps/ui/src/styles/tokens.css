@@ -97,6 +97,17 @@
 
 	--scrollbar-thumb: 215 14% 72%;
 	--scrollbar-thumb-hover: 215 14% 58%;
+
+	/* Canvas type and zoom. Node and edge sizes derive from the interface
+	 * type scale so density changes flow through; the zoom factor is set
+	 * from the live viewport and keeps selection rings legible. */
+	--canvas-node-font-size: 0.75rem;
+	--canvas-edge-font-size: 0.6875rem;
+	--canvas-zoom-compensation: 1;
+
+	/* Content width. Lists center within this bound instead of each page
+	 * choosing its own padding. */
+	--content-max-width: 88rem;
 }
 
 .dark {
@@ -188,6 +199,11 @@
 
 	--scrollbar-thumb: 217 12% 32%;
 	--scrollbar-thumb-hover: 217 12% 44%;
+
+	--canvas-node-font-size: 0.75rem;
+	--canvas-edge-font-size: 0.6875rem;
+	--canvas-zoom-compensation: 1;
+	--content-max-width: 88rem;
 }
 
 /* Font scale steps. Multiplied by --font-scale so the density preference can

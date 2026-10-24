@@ -79,6 +79,10 @@
 
 	--spacing-sidebar: 15rem;
 	--spacing-inspector: 22.5rem;
+	--spacing-content: var(--content-max-width);
+
+	--text-canvas-node: var(--canvas-node-font-size);
+	--text-canvas-edge: var(--canvas-edge-font-size);
 }
 
 @layer base {
@@ -142,6 +146,26 @@
 	background-color: hsl(var(--card));
 	border: 1px solid hsl(var(--border));
 	border-radius: var(--radius-lg);
+}
+
+/* Split views stay flat; only floating canvas layers use this treatment. */
+@utility surface-float {
+	background-color: hsl(var(--popover));
+	border: 0.5px solid hsl(var(--border));
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow-popover);
+}
+
+/* Centered list container; canvas routes stay full-bleed. */
+@utility page-container {
+	width: 100%;
+	max-width: var(--content-max-width);
+	margin-inline: auto;
+}
+
+/* Newly inserted rows flash once, then settle to the card surface. */
+@utility animate-row-in {
+	animation: panel-enter 300ms var(--ease-out-expo) both;
 }
 
 /* Low-intensity frosted glass. Reserved for fixed chrome and overlays only. */

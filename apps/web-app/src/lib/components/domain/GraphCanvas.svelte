@@ -33,6 +33,8 @@
 		projectToMini,
 	} from '#lib/graph/canvas-minimap';
 	import { HoverTip } from '#lib/graph/canvas-tooltip.svelte';
+	import { nodePorts } from '#lib/graph/node-kind';
+	import { renderKind } from '#lib/graph/display-model';
 	import type {
 		CanvasContext,
 		CanvasMove,
@@ -42,7 +44,10 @@
 		MiniOverview,
 		PresenceCursor,
 	} from '#lib/graph/canvas-model';
-	import { CANVAS_STYLESHEET } from '#lib/graph/canvas-style';
+	import {
+		canvasZoomCompensation,
+		resolveCanvasStylesheet,
+	} from '#lib/graph/canvas-style';
 	import { isGroupTitleId, type GroupTitle } from '#lib/graph/group-view';
 	import { cn } from '@wf-agent/ui/cn';
 	import { t } from '#lib/i18n';
@@ -101,7 +106,10 @@
 		ongroupmove?: (moves: CanvasMove[]) => void;
 		/** Right-click context, positioned in client coordinates. */
 		oncontext?: (info: CanvasContext) => void;
-		onbackgrounddoubleclick?: (position: CanvasPosition) => void;
+		onbackgrounddoubleclick?: (
+			position: CanvasPosition,
+			client?: { x: number; y: number },
+		) => void;
 		ondeleteedge?: (id: string) => void;
 		onconnect?: (source: string, target: string) => void;
 		/** Rejected connect attempt with a human-readable reason. */
@@ -150,10 +158,16 @@
 	let container: HTMLDivElement | null = $state(null);
 	let cy: Core | null = $state(null);
 	let ready = $state(false);
+	let themeTick = $state(0);
+	let themeObserver: MutationObserver | null = null;
 	let empty = $derived(nodes.length === 0);
 	// Zoomed-out canvases hide non-essential edge labels; the flag only
 	// flips when crossing the threshold so zoom gestures stay cheap.
 	let zoomedOut = $state(false);
+	// Live zoom level drives the compensation variable; ring widths are
+	// reapplied on settle so selection stays legible at any scale.
+	let zoomLevel = $state(1);
+	const zoomCompensation = $derived(canvasZoomCompensation(zoomLevel));
 	let hover = new HoverTip();
 	const hoverTip = $derived(hover.current);
 
@@ -354,13 +368,57 @@
 				return true;
 			})
 			.forEach((node) => {
+				const id = node.id() as string;
 				const rendered = node.renderedPosition();
 				if (!rendered) return;
-				spots.push({
-					id: node.id(),
-					x: rendered.x + (node.width() * zoom) / 2,
-					y: rendered.y,
-				});
+				const kind = kindById.get(id) ?? '';
+				const ports = nodePorts(kind);
+				const halfW = (node.width() * zoom) / 2;
+				const halfH = (node.height() * zoom) / 2;
+				const branch = renderKind(kind) === 'decision';
+				if (ports.acceptsInput) {
+					spots.push({
+						id,
+						x: rendered.x - halfW,
+						y: rendered.y,
+						port: 'input',
+						enabled: true,
+					});
+				}
+				if (ports.emitsOutput && !branch) {
+					spots.push({
+						id,
+						x: rendered.x + halfW,
+						y: rendered.y,
+						port: 'output',
+						enabled: true,
+					});
+				}
+				if (branch && ports.emitsOutput) {
+					spots.push({
+						id,
+						x: rendered.x + halfW,
+						y: rendered.y - halfH / 2,
+						port: 'output',
+						enabled: true,
+					});
+					spots.push({
+						id,
+						x: rendered.x + halfW,
+						y: rendered.y + halfH / 2,
+						port: 'branch',
+						enabled: true,
+					});
+				}
+				if (!ports.acceptsInput && !ports.emitsOutput) {
+					spots.push({
+						id,
+						x: rendered.x + halfW,
+						y: rendered.y,
+						port: 'output',
+						enabled: false,
+					});
+				}
 			});
 		hotspots = spots;
 	}
@@ -732,7 +790,7 @@
 				minZoom: 0.2,
 				maxZoom: 4,
 				boxSelectionEnabled: true,
-				style: CANVAS_STYLESHEET,
+				style: resolveCanvasStylesheet(1),
 			});
 			function livePositions(): Record<string, CanvasPosition> {
 				const core = cy;
@@ -867,10 +925,17 @@
 				if (event.target !== instance) return;
 				const position = (event as unknown as { position: CanvasPosition })
 					.position;
-				onbackgrounddoubleclick?.({
-					x: Math.round(position.x),
-					y: Math.round(position.y),
-				});
+				const original = (event as unknown as { originalEvent?: MouseEvent })
+					.originalEvent;
+				onbackgrounddoubleclick?.(
+					{
+						x: Math.round(position.x),
+						y: Math.round(position.y),
+					},
+					original
+						? { x: original.clientX, y: original.clientY }
+						: undefined,
+				);
 			});
 			instance.on('mouseover', 'node', (event) => {
 				const original = (event as unknown as { originalEvent?: MouseEvent })
@@ -887,8 +952,29 @@
 			const core = instance;
 			core.on('zoom', () => {
 				clearHoverTip();
-				const out = core.zoom() < 0.6;
+				const level = core.zoom();
+				zoomLevel = level;
+				wrapper?.style.setProperty(
+					'--canvas-zoom-compensation',
+					String(canvasZoomCompensation(level)),
+				);
+				const out = level < 0.6;
 				if (out !== zoomedOut) zoomedOut = out;
+				try {
+					core
+						.style()
+						.selector('node.selected')
+						.style({
+							'border-width': 3 * canvasZoomCompensation(level),
+						})
+						.selector('node.running')
+						.style({
+							'border-width': 3 * canvasZoomCompensation(level),
+						})
+						.update();
+				} catch {
+					// Style updates race instance teardown; safe to ignore.
+				}
 				requestMiniRefresh();
 				refreshHotspots();
 			});
@@ -947,10 +1033,27 @@
 			});
 			cy = instance;
 			ready = true;
+			// Theme changes swap semantic tokens under the canvas, so the
+			// resolved stylesheet and the themed element colors reapply.
+			themeObserver = new MutationObserver(() => {
+				if (cancelled) return;
+				themeTick += 1;
+				try {
+					cy?.style(resolveCanvasStylesheet(zoomLevel)).update();
+				} catch {
+					// A destroyed instance has no style to update.
+				}
+			});
+			themeObserver.observe(document.documentElement, {
+				attributes: true,
+				attributeFilter: ['class', 'style'],
+			});
 		})();
 		return () => {
 			cancelled = true;
 			clearHoverTip();
+			themeObserver?.disconnect();
+			themeObserver = null;
 			instance?.destroy();
 			cy = null;
 		};
@@ -976,6 +1079,7 @@
 		void edgeLabelLimit;
 		void zoomedOut;
 		void showMinimap;
+		void themeTick;
 		syncElements();
 		refreshOverview();
 		refreshHotspots();
@@ -1007,6 +1111,7 @@
 	bind:this={wrapper}
 	role="application"
 	aria-label={t('domain.canvas.workspace')}
+	style:--canvas-zoom-compensation={String(zoomCompensation)}
 	class={cn(
 		'relative overflow-hidden rounded-lg border border-border bg-muted/30',
 		className,
@@ -1021,14 +1126,27 @@
 		aria-label={t('domain.canvas.canvas')}
 	></div>
 	{#if editMode && !connectDrag}
-		{#each hotspots as spot (spot.id)}
+		{#each hotspots as spot (`${spot.id}:${spot.port}`)}
 			<button
 				type="button"
-				aria-label={t('domain.canvas.connectFrom', { id: spot.id })}
+				aria-label={spot.port === 'input'
+					? t('domain.canvas.connectFrom', { id: spot.id })
+					: spot.port === 'branch'
+						? t('domain.canvas.connectFrom', { id: spot.id })
+						: t('domain.canvas.connectFrom', { id: spot.id })}
 				title={t('domain.canvas.dragToConnect', { id: spot.id })}
-				class="absolute z-10 h-3 w-3 -translate-x-1/2 -translate-y-1/2 cursor-crosshair rounded-full border border-info bg-card hover:bg-info"
+				disabled={!spot.enabled}
+				class={cn(
+					'absolute z-10 h-3 w-3 -translate-x-1/2 -translate-y-1/2 cursor-crosshair rounded-full border bg-card',
+					spot.port === 'input' && 'border-info hover:bg-info',
+					spot.port === 'output' && 'border-success hover:bg-success',
+					spot.port === 'branch' &&
+						'rounded-sm border-warning hover:bg-warning',
+					!spot.enabled && 'cursor-not-allowed opacity-40',
+				)}
 				style:left={`${spot.x}px`}
 				style:top={`${spot.y}px`}
+				data-port={spot.port}
 				onpointerdown={(event) => startConnect(event, spot)}
 			></button>
 		{/each}
@@ -1067,7 +1185,7 @@
 	{/if}
 	{#if hoverTip}
 		<div
-			class="pointer-events-none absolute z-20 max-w-56 rounded-md border border-border bg-card px-2 py-1 text-micro text-foreground shadow-md"
+			class="surface-float pointer-events-none absolute z-20 max-w-56 px-2 py-1 text-micro text-foreground"
 			style:left={`${hoverTip.x}px`}
 			style:top={`${hoverTip.y}px`}
 			aria-hidden="true"
@@ -1101,7 +1219,7 @@
 		{t('domain.canvas.summary', {
 			nodes: nodes.length,
 			edges: edges.length,
-		})}
+		})}{presence.length > 0 ? ` · ${presence.length} viewing` : ''}
 	</div>
 	{#if showMinimap && overview}
 		{@const topLeft = miniXY(overview.view.x1, overview.view.y1)}

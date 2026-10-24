@@ -161,6 +161,36 @@ export function projectEdgeOverlay(
 	return tones;
 }
 
+export interface ProjectedEdgeGradient {
+	from: string;
+	to: string;
+	waiting: boolean;
+}
+
+/**
+ * Source-target gradients for execution edges: the from color follows the
+ * source mark, the to color follows the target mark, waiting edges fade.
+ * Neutral-neutral edges stay null so the canvas keeps default styling.
+ */
+export function projectEdgeGradients(
+	edges: DisplayEdge[],
+	overlay: ExecutionOverlay,
+	hexForTone: (tone: ExecutionTone) => string,
+): Map<string, ProjectedEdgeGradient> {
+	const gradients = new Map<string, ProjectedEdgeGradient>();
+	for (const edge of edges) {
+		const source = overlay.marks.get(edge.source)?.tone ?? 'neutral';
+		const target = overlay.marks.get(edge.target)?.tone ?? 'neutral';
+		if (source === 'neutral' && target === 'neutral') continue;
+		const waiting = source === 'warning' || target === 'warning';
+		const from = hexForTone(source === 'neutral' ? target : source);
+		const to = hexForTone(target === 'neutral' ? source : target);
+		if (from === to && !waiting) continue;
+		gradients.set(edge.id, { from, to, waiting });
+	}
+	return gradients;
+}
+
 /**
  * Apply edge tones to display edges. Neutral tones leave the edge
  * untouched so the canvas keeps its default styling.

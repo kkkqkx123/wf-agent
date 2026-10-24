@@ -411,6 +411,7 @@
 	"domain.git.worktreeHint": "Worktree and submodule actions are available via the key input and",
 	"domain.git.worktreesReadOnly": "Worktrees (read-only)",
 	"domain.graph.addNode": "Add node",
+	"domain.graph.addNodeHere": "Add node here",
 	"domain.graph.boxSelection": "Box selection",
 	"domain.graph.boxSelectionDetail": "{count} nodes in the box. Click a node to inspect it.",
 	"domain.graph.branches": "Branches",
@@ -849,9 +850,14 @@
 	"domain.workflowEdit.validationIssues": "Validation issues",
 	"domain.workflowGraphTab.analysisUnavailable": "Analysis unavailable",
 	"domain.workflowGraphTab.edges": "Edges",
+	"domain.workflowGraphTab.hideRecentRuns": "Hide recent runs",
 	"domain.workflowGraphTab.noEdges": "This definition has no edges yet.",
 	"domain.workflowGraphTab.noNodes": "This definition has no nodes yet.",
 	"domain.workflowGraphTab.nodes": "Nodes",
+	"domain.workflowGraphTab.openInEdit": "Open in edit",
+	"domain.workflowGraphTab.recentRuns": "Recent runs",
+	"domain.workflowGraphTab.selectedNode": "Selected node",
+	"domain.workflowGraphTab.showRecentRuns": "Show recent runs",
 	"domain.workflowUnsaved.description": "The edit canvas has unsaved draft changes. Leaving discards the canvas edits.",
 	"domain.workflowUnsaved.saveAndLeave": "Save draft & leave"
 }

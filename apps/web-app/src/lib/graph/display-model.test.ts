@@ -12,7 +12,10 @@ import {
 	capGraph,
 	connectByPort,
 	distinctKinds,
+	edgeGradient,
 	isDashedEdge,
+	isFailureBranch,
+	isWaitingStatus,
 	legendFor,
 	nodeShape,
 	rankTone,
@@ -32,6 +35,7 @@ import {
 	issueNodeIds,
 	matchDecisionNodeId,
 	nodesForIteration,
+	projectEdgeGradients,
 	projectEdgeOverlay,
 	projectEdgeTone,
 	projectExecutionOverlay,
@@ -83,10 +87,10 @@ describe('isDashedEdge', () => {
 
 describe('statusHex', () => {
 	it('maps known statuses and falls back to neutral', () => {
-		expect(statusHex('completed')).toBe('#16a34a');
-		expect(statusHex('failed')).toBe('#dc2626');
-		expect(statusHex('bogus-status')).toBe('#71717a');
-		expect(statusHex(null)).toBe('#71717a');
+		expect(statusHex('completed')).toBe('hsl(152 55% 38%)');
+		expect(statusHex('failed')).toBe('hsl(0 72% 48%)');
+		expect(statusHex('bogus-status')).toBe('hsl(215 12% 46%)');
+		expect(statusHex(null)).toBe('hsl(215 12% 46%)');
 	});
 });
 
@@ -605,5 +609,57 @@ describe('issueNodeIds', () => {
 		);
 		expect(matched.get('b')).toEqual(['unknown kind']);
 		expect(matched.has('a')).toBe(false);
+	});
+});
+
+describe('branch edges', () => {
+	it('treats error kinds and fail labels as failure branches', () => {
+		expect(isFailureBranch({ kind: 'error' })).toBe(true);
+		expect(isFailureBranch({ kind: 'error_route' })).toBe(true);
+		expect(isFailureBranch({ kind: 'default', label: 'fail' })).toBe(true);
+		expect(isFailureBranch({ kind: 'default', label: 'False' })).toBe(true);
+		expect(isFailureBranch({ kind: 'default', label: 'ok' })).toBe(false);
+		expect(isDashedEdge('default', true)).toBe(false);
+		expect(isDashedEdge('branch', true)).toBe(true);
+	});
+	it('fades waiting statuses only', () => {
+		expect(isWaitingStatus('waiting')).toBe(true);
+		expect(isWaitingStatus('paused')).toBe(true);
+		expect(isWaitingStatus('running')).toBe(false);
+		expect(isWaitingStatus('completed')).toBe(false);
+	});
+	it('blends source and target colors when they differ', () => {
+		const byId = new Map([
+			['a', 'running'],
+			['b', 'completed'],
+		]);
+		const gradient = edgeGradient(
+			{ id: 'e', source: 'a', target: 'b' },
+			byId,
+		);
+		expect(gradient).not.toBeNull();
+		expect(gradient?.from).not.toBe(gradient?.to);
+		const same = edgeGradient(
+			{ id: 'e', source: 'a', target: 'a' },
+			new Map([['a', 'running']]),
+		);
+		expect(same).toBeNull();
+	});
+	it('projects waiting gradients from execution marks', () => {
+		const nodes = [node('a'), node('b')];
+		const overlay = projectExecutionOverlay(nodes, {
+			currentNode: 'a',
+			executedNodes: ['b'],
+		});
+		const gradients = projectEdgeGradients(
+			[edge('e1', 'a', 'b')],
+			overlay,
+			(tone) => `tone:${tone}`,
+		);
+		expect(gradients.get('e1')).toEqual({
+			from: 'tone:running',
+			to: 'tone:success',
+			waiting: false,
+		});
 	});
 });

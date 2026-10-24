@@ -68,6 +68,10 @@ export const INPUT_BASE =
 export const SURFACE_PANEL =
 	'rounded-lg border border-border bg-card text-card-foreground shadow-sm';
 
+/** Floating canvas layers: half-pixel border with popover shadow. */
+export const SURFACE_FLOAT =
+	'rounded-lg border border-border bg-popover text-popover-foreground shadow-md';
+
 export const MUTED_TEXT = 'text-muted-foreground';
 
 /**

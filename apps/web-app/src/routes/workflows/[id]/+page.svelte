@@ -345,7 +345,13 @@
 				class="rounded-lg border border-border bg-card"
 			/>
 		{:else if tab === 'graph'}
-			<WorkflowGraphTab {detail} {nodes} {edges} state={graphState} />
+			<WorkflowGraphTab
+				{detail}
+				{nodes}
+				{edges}
+				state={graphState}
+				onedit={() => session.requestTab('edit')}
+			/>
 		{:else if tab === 'edit'}
 			<WorkflowEditSection controller={session} workflowId={detail.id} />
 		{:else if tab === 'versions'}

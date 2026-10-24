@@ -47,10 +47,14 @@ export interface MiniOverview {
 	view: { x1: number; y1: number; x2: number; y2: number };
 }
 
+export type ConnectPort = 'input' | 'output' | 'branch';
+
 export interface ConnectSpot {
 	id: string;
 	x: number;
 	y: number;
+	port: ConnectPort;
+	enabled: boolean;
 }
 
 export interface ConnectDrag {

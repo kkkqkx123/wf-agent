@@ -52,14 +52,14 @@
 
 <div
 	class={cn(
-		'flex items-center justify-between gap-2 border-b border-border',
+		'relative flex items-center justify-between gap-2 border-b border-border',
 		className,
 	)}
 >
 	<div
 		role="tablist"
 		aria-label="Sections"
-		class="flex items-center gap-1 overflow-x-auto scrollbar-none"
+		class="segmented-scroll flex items-center gap-1 overflow-x-auto scrollbar-none"
 	>
 		{#each items as item (item.id)}
 			<button
@@ -72,7 +72,7 @@
 				onclick={() => select(item.id)}
 				onkeydown={onKeyDown}
 				class={cn(
-					'relative inline-flex items-center gap-1.5 rounded-md px-2.5 font-medium transition-colors duration-150',
+					'relative inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 font-medium transition-colors duration-150',
 					size === 'sm' ? 'h-7 text-small' : 'h-8.5 text-body',
 					value === item.id
 						? 'bg-accent text-accent-foreground'
@@ -90,9 +90,52 @@
 			</button>
 		{/each}
 	</div>
+	<span
+		aria-hidden="true"
+		class="segmented-fade-left pointer-events-none absolute top-0 bottom-0 left-0 w-6"
+	></span>
+	<span
+		aria-hidden="true"
+		class="segmented-fade-right pointer-events-none absolute top-0 right-0 bottom-0 w-6"
+	></span>
 	{#if trailing}
-		<div class="flex shrink-0 items-center gap-1 pb-1">
+		<div class="flex shrink-0 items-center gap-1 pb-1 pl-6">
 			{@render trailing()}
 		</div>
 	{/if}
 </div>
+
+<style>
+	.segmented-scroll {
+		mask-image: linear-gradient(
+			to right,
+			transparent 0,
+			black 1.25rem,
+			black calc(100% - 1.25rem),
+			transparent 100%
+		);
+	}
+	.segmented-fade-left,
+	.segmented-fade-right {
+		opacity: 0.9;
+	}
+	.segmented-fade-left {
+		background: linear-gradient(
+			to right,
+			hsl(var(--background)),
+			hsl(var(--background) / 0)
+		);
+	}
+	.segmented-fade-right {
+		background: linear-gradient(
+			to left,
+			hsl(var(--background)),
+			hsl(var(--background) / 0)
+		);
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.segmented-scroll {
+			mask-image: none;
+		}
+	}
+</style>

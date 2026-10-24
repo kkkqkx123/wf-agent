@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import Button from '@wf-agent/ui/components/Button.svelte';
@@ -22,6 +24,7 @@
 		resumeExecution,
 		type UnifiedExecutionDetail,
 	} from '#lib/services/executions';
+	import { rerunWorkflowRun } from '#lib/services/run';
 	import {
 		cancelAgentLoop,
 		pauseAgentLoop,
@@ -39,6 +42,7 @@
 	let loading = $state(false);
 	let controlBusy = $state(false);
 	let cancelArmed = $state(false);
+	let rerunning = $state(false);
 
 	const requestedTab = parseListParams(page.url as unknown as URL).tab ?? null;
 	let tab = $state<ExecutionTab>(
@@ -119,6 +123,32 @@
 		void load(id);
 	});
 
+	async function copyExecutionId(id: string): Promise<void> {
+		try {
+			await navigator.clipboard.writeText(id);
+			toasts.success(t('common.copied'), id.slice(0, 12));
+		} catch {
+			toasts.error(t('page.executionDetail.copyFailed'));
+		}
+	}
+
+	async function rerunCurrent(id: string): Promise<void> {
+		if (rerunning) return;
+		rerunning = true;
+		try {
+			const nextId = await rerunWorkflowRun(id);
+			toasts.success(t('domain.runs.rerunStarted'), nextId);
+			await goto(resolve('/executions/[id]', { id: nextId }));
+		} catch (e) {
+			toasts.error(
+				t('domain.runs.rerunFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			rerunning = false;
+		}
+	}
+
 	$effect(() => {
 		const id = page.params.id;
 		if (!id) return;
@@ -154,6 +184,7 @@
 		{/snippet}
 		{#snippet actions()}
 			{@const controls = unified ? controlsFor(unified.executionType) : null}
+			{@const currentId = page.params.id}
 			{#if controls}
 				<IconButton
 					icon="pause"
@@ -196,6 +227,21 @@
 						{t('page.executionDetail.cancel')}
 					</Button>
 				{/if}
+			{/if}
+			{#if unified?.executionType === 'workflow' && currentId}
+				<IconButton
+					icon="refresh"
+					label={t('domain.runs.rerun')}
+					disabled={rerunning}
+					onclick={() => void rerunCurrent(currentId)}
+				/>
+			{/if}
+			{#if currentId}
+				<IconButton
+					icon="copy"
+					label={t('common.copy')}
+					onclick={() => void copyExecutionId(currentId)}
+				/>
 			{/if}
 			<Button variant="outline" size="sm" href="/executions">
 				<Icon name="arrow-left" size={13} />

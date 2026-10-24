@@ -9,11 +9,8 @@
 	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import { toneText } from '@wf-agent/ui/components/variants';
-	import {
-		getUnifiedExecutionDetail,
-		listUnifiedExecutions,
-	} from '#lib/services/executions';
-	import { runDefinition } from '#lib/services/run';
+	import { listUnifiedExecutions } from '#lib/services/executions';
+	import { rerunWorkflowRun } from '#lib/services/run';
 	import type { DefinitionKind, Execution } from '#lib/types/models';
 	import {
 		formatDateTime,
@@ -21,6 +18,7 @@
 		formatNumber,
 	} from '#lib/utils/format';
 	import { statusTone, toneColorVar } from '@wf-agent/ui/status';
+	import { cn } from '@wf-agent/ui/cn';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { t } from '#lib/i18n';
 	import { resolve } from '$app/paths';
@@ -78,24 +76,15 @@
 	}
 
 	/**
-	 * Re-runs the definition. A workflow replays the recorded input against
-	 * the recorded version, so a run made against an older version replays
-	 * that version instead of the definition live now. An agent run needs a
-	 * message to answer, so it is started from the create-task flow instead.
+	 * Re-runs the definition behind a run. A workflow replays the recorded
+	 * input against the recorded version, so a run made against an older
+	 * version replays that version instead of the definition live now.
 	 */
 	async function rerun(run: Execution): Promise<void> {
 		if (kind !== 'workflow') return;
 		rerunId = run.id;
 		try {
-			const detail = await getUnifiedExecutionDetail(run.id);
-			const record =
-				typeof detail.record === 'object' && detail.record !== null
-					? (detail.record as Record<string, unknown>)
-					: {};
-			const executionId = await runDefinition('workflow', definitionId, {
-				input: record.input ?? null,
-				version: (record.workflow_version as string | null) ?? null,
-			});
+			const executionId = await rerunWorkflowRun(run.id);
 			toasts.success(t('domain.runs.rerunStarted'), executionId);
 			await loadRuns();
 		} catch (e) {
@@ -170,9 +159,9 @@
 		{/snippet}
 	</FilterBar>
 
-	{#if runsLoading}
+	{#if runsLoading && runs.length === 0}
 		<Skeleton lines={4} class="rounded-lg border border-border bg-card p-4" />
-	{:else if runsError}
+	{:else if runsError && runs.length === 0}
 		<ErrorState
 			title={t('domain.runs.failedTitle')}
 			description={runsError}
@@ -192,11 +181,14 @@
 		/>
 	{:else}
 		<Card title={t('domain.runs.title')} bodyClass="p-0">
-			<ul class="divide-y divide-border">
+			<ul class="divide-y divide-border" aria-busy={runsLoading}>
 				{#each visibleRuns as run (run.id)}
 					{@const tone = statusTone(run.status)}
 					<li
-						class="flex items-start gap-2 border-l-2 px-3 py-2"
+						class={cn(
+							'flex items-start gap-2 border-l-2 px-3 py-2',
+							tone === 'danger' && 'bg-destructive/[0.05]',
+						)}
 						style:border-left-color={toneColorVar(tone)}
 					>
 						<div class="min-w-0 flex-1">
@@ -261,6 +253,11 @@
 						{/if}
 					</li>
 				{/each}
+				{#if runsLoading}
+					<li class="px-3 py-2" aria-label={t('common.loading')}>
+						<Skeleton lines={2} />
+					</li>
+				{/if}
 			</ul>
 		</Card>
 	{/if}

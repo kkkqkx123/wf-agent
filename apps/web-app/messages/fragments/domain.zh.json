@@ -411,6 +411,7 @@
 	"domain.git.worktreeHint": "Worktree 和子模块操作可通过按键输入使用，并且",
 	"domain.git.worktreesReadOnly": "Worktree（只读）",
 	"domain.graph.addNode": "添加节点",
+	"domain.graph.addNodeHere": "在此添加节点",
 	"domain.graph.boxSelection": "框选",
 	"domain.graph.boxSelectionDetail": "框中含 {count} 个节点。点击节点可查看详情。",
 	"domain.graph.branches": "分支",
@@ -849,9 +850,14 @@
 	"domain.workflowEdit.validationIssues": "校验问题",
 	"domain.workflowGraphTab.analysisUnavailable": "分析不可用",
 	"domain.workflowGraphTab.edges": "边",
+	"domain.workflowGraphTab.hideRecentRuns": "隐藏最近运行",
 	"domain.workflowGraphTab.noEdges": "此定义还没有边。",
 	"domain.workflowGraphTab.noNodes": "此定义还没有节点。",
 	"domain.workflowGraphTab.nodes": "节点",
+	"domain.workflowGraphTab.openInEdit": "在编辑中打开",
+	"domain.workflowGraphTab.recentRuns": "最近运行",
+	"domain.workflowGraphTab.selectedNode": "已选节点",
+	"domain.workflowGraphTab.showRecentRuns": "显示最近运行",
 	"domain.workflowUnsaved.description": "编辑画布存在未保存的草稿更改。离开将丢弃画布编辑。",
 	"domain.workflowUnsaved.saveAndLeave": "保存草稿并离开"
 }

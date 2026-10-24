@@ -19,6 +19,13 @@
 		setSkillEnabled,
 		setToolEnabled,
 	} from '#lib/services/resources';
+	import {
+		listAuthProviders,
+		logoutAuth,
+		type AuthProviderStatus,
+	} from '#lib/services/auth';
+	import AuthLoginDialog from './AuthLoginDialog.svelte';
+	import AuthProvidersPanel from './AuthProvidersPanel.svelte';
 	import type {
 		ModelProfile,
 		Provider,
@@ -47,13 +54,19 @@
 	);
 
 	$effect(() => {
-		gotoWithParams(page.url as unknown as URL, { tab: tab === 'models' ? '' : tab });
+		gotoWithParams(page.url as unknown as URL, {
+			tab: tab === 'models' ? '' : tab,
+		});
 	});
 	let modelProfiles = $state<ModelProfile[]>([]);
 	let providers = $state<Provider[]>([]);
 	let tools = $state<Tool[]>([]);
 	let scripts = $state<Script[]>([]);
 	let skills = $state<Skill[]>([]);
+	let authProviders = $state<AuthProviderStatus[]>([]);
+	let authBusyId = $state<string | null>(null);
+	let authDialogOpen = $state(false);
+	let activeAuthProvider = $state<AuthProviderStatus | null>(null);
 
 	let tabError = $state<string | null>(null);
 	let tabLoading = $state(false);
@@ -87,8 +100,14 @@
 		try {
 			if (current === 'models' && !seenModels) {
 				seenModels = true;
-				modelProfiles = await listModelProfiles();
-				providers = await listProviders();
+				const [profiles, providerList, authList] = await Promise.all([
+					listModelProfiles(),
+					listProviders().catch(() => [] as Provider[]),
+					listAuthProviders().catch(() => [] as AuthProviderStatus[]),
+				]);
+				modelProfiles = profiles;
+				providers = providerList;
+				authProviders = authList;
 			} else if (current === 'tools' && !seenTools) {
 				seenTools = true;
 				const toolPage = await listTools({ limit: 200 });
@@ -108,7 +127,8 @@
 				);
 			}
 		} catch (e) {
-			tabError = e instanceof Error ? e.message : t('page.resources.loadFailed');
+			tabError =
+				e instanceof Error ? e.message : t('page.resources.loadFailed');
 			if (current === 'models') seenModels = false;
 			if (current === 'tools') seenTools = false;
 			if (current === 'scripts') seenScripts = false;
@@ -165,6 +185,39 @@
 		activeSkill = skill;
 		skillDialogOpen = true;
 	}
+
+	function openAuthDialog(provider: AuthProviderStatus): void {
+		authBusyId = provider.id;
+		activeAuthProvider = provider;
+		authDialogOpen = true;
+		authBusyId = null;
+	}
+
+	async function logoutAuthProvider(
+		provider: AuthProviderStatus,
+	): Promise<void> {
+		authBusyId = provider.id;
+		try {
+			await logoutAuth(provider.id);
+			toasts.success(t('page.resources.auth.logoutSucceeded'));
+			authProviders = await listAuthProviders().catch(() => authProviders);
+		} catch (e) {
+			toasts.error(
+				t('page.resources.auth.logoutFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			authBusyId = null;
+		}
+	}
+
+	async function refreshAuthProviders(): Promise<void> {
+		try {
+			authProviders = await listAuthProviders();
+		} catch {
+			authProviders = [];
+		}
+	}
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -204,7 +257,15 @@
 				class="rounded-lg border border-border bg-card"
 			/>
 		{:else if tab === 'models'}
-			<ModelsPanel {modelProfiles} {providers} />
+			<div class="space-y-3">
+				<AuthProvidersPanel
+					providers={authProviders}
+					busyId={authBusyId}
+					onconnect={openAuthDialog}
+					onlogout={(provider) => void logoutAuthProvider(provider)}
+				/>
+				<ModelsPanel {modelProfiles} {providers} />
+			</div>
 		{:else if tab === 'tools'}
 			<ToolsPanel
 				{tools}
@@ -228,3 +289,9 @@
 <ToolRunDialog bind:open={toolDialogOpen} tool={activeTool} />
 
 <SkillContentDialog bind:open={skillDialogOpen} skill={activeSkill} />
+
+<AuthLoginDialog
+	bind:open={authDialogOpen}
+	provider={activeAuthProvider}
+	ondone={() => void refreshAuthProviders()}
+/>

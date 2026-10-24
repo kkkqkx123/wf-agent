@@ -165,6 +165,33 @@ pub async fn login_cancel(ctx: &ApiContext, session_id: &str) -> ApiResult<()> {
     registry.login_cancel(session_id).await.map_err(auth_error)
 }
 
+/// Take the loopback listener of a PKCE loopback session, if any. The caller
+/// owns the wait for the browser callback and submits the resulting code
+/// through `login_submit`; on failure it should call `login_fail`.
+pub async fn login_take_loopback(
+    ctx: &ApiContext,
+    session_id: &str,
+) -> ApiResult<Option<wf_llm::llm_auth::oauth::pkce::LoopbackListener>> {
+    let registry = auth_registry(ctx)?;
+    registry
+        .login_take_loopback(session_id)
+        .await
+        .map_err(auth_error)
+}
+
+/// Mark a login session as failed and surface the failure through polling.
+pub async fn login_fail(
+    ctx: &ApiContext,
+    session_id: &str,
+    error: String,
+) -> ApiResult<LoginState> {
+    let registry = auth_registry(ctx)?;
+    registry
+        .login_fail(session_id, error)
+        .await
+        .map_err(auth_error)
+}
+
 /// Remove a stored credential (logout). After logout the gateway drops any
 /// cached client for profiles resolving auth through this provider so the
 /// next request re-resolves from ambient sources.

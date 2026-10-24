@@ -89,6 +89,10 @@ pub enum PanelPayload {
         awaiting_input: Option<String>,
         /// Server-advertised poll interval in seconds, when present.
         poll_secs: Option<u64>,
+        /// True when the pending input is a secret and must be masked.
+        secret: bool,
+        /// Numbered select options backing the pending prompt.
+        options: Vec<tui_components::panels::AuthPromptOption>,
         /// Terminal outcome: `completed`, `failed` or `cancelled`.
         outcome: Option<String>,
         /// Error message when the outcome is `failed`.

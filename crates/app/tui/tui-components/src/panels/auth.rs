@@ -44,6 +44,25 @@ impl AuthSurfaceRow {
     }
 }
 
+/// One selectable login input option.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AuthPromptOption {
+    /// Option id submitted to the host.
+    pub id: String,
+    /// Human label rendered as `[N] label`.
+    pub label: String,
+}
+
+impl AuthPromptOption {
+    /// New prompt option.
+    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+        }
+    }
+}
+
 /// Live login-session view: rendered challenge lines plus the input prompt
 /// when the flow waits on the user.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -58,6 +77,10 @@ pub struct AuthSessionView {
     pub awaiting_input: Option<String>,
     /// Server-advertised poll interval in seconds, when the flow carries one.
     pub poll_secs: Option<u64>,
+    /// True when the pending input is a secret and must be masked.
+    pub secret: bool,
+    /// Select options backing a numbered choice prompt.
+    pub options: Vec<AuthPromptOption>,
 }
 
 /// The LLM authentication panel.
@@ -71,6 +94,8 @@ pub struct AuthPanel {
     rows: Vec<AuthSurfaceRow>,
     /// Active login session, when one is in flight.
     session: Option<AuthSessionView>,
+    /// Pending login input typed while the session awaits it.
+    pending_input: String,
 }
 
 impl AuthPanel {
@@ -81,6 +106,7 @@ impl AuthPanel {
             filter: PanelFilter::new(),
             rows: Vec::new(),
             session: None,
+            pending_input: String::new(),
         };
         panel.set_rows(rows);
         panel
@@ -91,7 +117,8 @@ impl AuthPanel {
     pub fn set_rows(&mut self, rows: &[AuthSurfaceRow]) {
         self.rows = rows.to_vec();
         if let Some(session) = self.session.as_ref() {
-            self.list = session_list(session);
+            let pending = self.pending_input.clone();
+            self.list = session_list(session, &pending);
             return;
         }
         self.rebuild_surface_list();
@@ -111,10 +138,17 @@ impl AuthPanel {
     /// Install or clear the live login-session view. Clearing the session
     /// rebuilds the surface-mode list from the stored rows.
     pub fn set_session(&mut self, session: Option<AuthSessionView>) {
+        let next_id = session.as_ref().map(|view| view.session_id.clone());
+        let current_id = self.session.as_ref().map(|view| view.session_id.clone());
+        if next_id != current_id {
+            self.pending_input.clear();
+        }
         self.session = session;
         if let Some(session) = self.session.as_ref() {
-            self.list = session_list(session);
+            let pending = self.pending_input.clone();
+            self.list = session_list(session, &pending);
         } else {
+            self.pending_input.clear();
             self.rebuild_surface_list();
         }
     }
@@ -177,6 +211,52 @@ impl AuthPanel {
         self.filter.text()
     }
 
+    /// Whether the active session waits for typed input.
+    pub fn is_awaiting_input(&self) -> bool {
+        self.session
+            .as_ref()
+            .is_some_and(|session| session.awaiting_input.is_some())
+    }
+
+    /// Pending login input typed for the active session.
+    pub fn auth_input_text(&self) -> &str {
+        &self.pending_input
+    }
+
+    /// Append a character to the pending login input and refresh the view.
+    pub fn auth_input_push(&mut self, c: char) {
+        let Some(session) = self.session.clone() else {
+            return;
+        };
+        if session.awaiting_input.is_none() {
+            return;
+        }
+        self.pending_input.push(c);
+        self.list = session_list(&session, &self.pending_input);
+    }
+
+    /// Remove the last character from the pending login input.
+    pub fn auth_input_backspace(&mut self) {
+        let Some(session) = self.session.clone() else {
+            return;
+        };
+        if session.awaiting_input.is_none() {
+            return;
+        }
+        self.pending_input.pop();
+        self.list = session_list(&session, &self.pending_input);
+    }
+
+    /// Take the pending login input, clearing the buffer and refreshing the
+    /// session view.
+    pub fn take_auth_input(&mut self) -> String {
+        let taken = std::mem::take(&mut self.pending_input);
+        if let Some(session) = self.session.clone() {
+            self.list = session_list(&session, self.pending_input.as_str());
+        }
+        taken
+    }
+
     /// Render the panel rows.
     pub fn render_lines(
         &self,
@@ -192,9 +272,17 @@ impl AuthPanel {
     }
 }
 
+/// Mask a secret login input for display, keeping its length visible.
+fn mask_input(input: &str) -> String {
+    if input.is_empty() {
+        return String::new();
+    }
+    "•".repeat(input.chars().count())
+}
+
 /// The list shown while a login session is in flight: the rendered event
 /// lines plus the input prompt when one is pending.
-fn session_list(session: &AuthSessionView) -> SelectList<String> {
+fn session_list(session: &AuthSessionView, pending_input: &str) -> SelectList<String> {
     let mut group = Group::new(Some(&format!("login · {}", session.provider_id)));
     for line in &session.lines {
         group = group.item(GroupItem::new(line.clone(), session.session_id.clone()));
@@ -204,11 +292,25 @@ fn session_list(session: &AuthSessionView) -> SelectList<String> {
             format!("input needed: {prompt}"),
             session.session_id.clone(),
         ));
+        let shown = if session.secret {
+            mask_input(pending_input)
+        } else {
+            pending_input.to_string()
+        };
+        group = group.item(GroupItem::new(
+            format!("input> {shown}"),
+            session.session_id.clone(),
+        ));
+        group = group.item(GroupItem::new(
+            "enter: submit · esc: cancel".to_string(),
+            session.session_id.clone(),
+        ));
+    } else {
+        group = group.item(GroupItem::new(
+            "enter: cancel login".to_string(),
+            session.session_id.clone(),
+        ));
     }
-    group = group.item(GroupItem::new(
-        "enter: cancel login".to_string(),
-        session.session_id.clone(),
-    ));
     SelectList::groups(vec![group])
 }
 
@@ -243,6 +345,8 @@ mod tests {
             lines: vec!["open: https://acme.test/authorize".to_string()],
             awaiting_input: None,
             poll_secs: Some(5),
+            secret: false,
+            options: Vec::new(),
         }));
         assert_eq!(
             panel.session().map(|s| s.provider_id.as_str()),
@@ -254,6 +358,28 @@ mod tests {
         assert!(panel.filter_text().is_empty());
         panel.set_session(None);
         assert_eq!(panel.selected_id().as_deref(), Some("acme"));
+    }
+
+    #[test]
+    fn awaiting_input_collects_masked_text() {
+        let mut panel = AuthPanel::new(&[row("acme", false)]);
+        panel.set_session(Some(AuthSessionView {
+            session_id: "login-1".to_string(),
+            provider_id: "acme".to_string(),
+            lines: Vec::new(),
+            awaiting_input: Some("API key:".to_string()),
+            poll_secs: None,
+            secret: true,
+            options: Vec::new(),
+        }));
+        assert!(panel.is_awaiting_input());
+        panel.auth_input_push('s');
+        panel.auth_input_push('k');
+        assert_eq!(panel.auth_input_text(), "sk");
+        panel.auth_input_backspace();
+        assert_eq!(panel.auth_input_text(), "s");
+        assert_eq!(panel.take_auth_input(), "s");
+        assert_eq!(panel.auth_input_text(), "");
     }
 
     #[test]

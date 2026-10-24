@@ -27,7 +27,7 @@ pub mod render;
 pub mod skill;
 pub mod workflow;
 
-pub use auth::{AuthPanel, AuthSessionView, AuthSurfaceRow};
+pub use auth::{AuthPanel, AuthPromptOption, AuthSessionView, AuthSurfaceRow};
 pub use command::{CommandEntry, CommandId, CommandPalette};
 pub use filter::PanelFilter;
 pub use mention::{MentionEntry, MentionMode, MentionPanel};

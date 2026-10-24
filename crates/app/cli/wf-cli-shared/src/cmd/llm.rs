@@ -432,17 +432,12 @@ fn device_interval_secs(state: &serde_json::Value) -> Option<u64> {
     })
 }
 
-/// Read the answer to one prompt from stdin. Login is interactive by
-/// nature: without a TTY the caller is told to use ambient keys instead
-/// (headless contract).
+/// Read the answer to one prompt from stdin. Interactive hosts use the
+/// terminal; non-interactive (piped) hosts read one line per prompt so
+/// headless login flows (API key paste, PKCE callback URL, selection) can
+/// be driven by upstream automation. Secrets should be piped, never passed
+/// on the command line.
 fn collect_prompt(prompt: &serde_json::Value) -> CliResult<String> {
-    if !std::io::stdin().is_terminal() {
-        return Err(CliError::Configuration(
-            "login needs interactive input but stdin is not a terminal; \
-             configure an ambient API key (env var) for non-interactive hosts"
-                .to_string(),
-        ));
-    }
     let kind = prompt
         .as_object()
         .and_then(|obj| obj.keys().next().cloned())
@@ -455,6 +450,41 @@ fn collect_prompt(prompt: &serde_json::Value) -> CliResult<String> {
         .get("message")
         .and_then(|v| v.as_str())
         .unwrap_or("input");
+    // Headless (non-TTY) hosts drive prompts through piped stdin instead of
+    // an interactive terminal. One input line is consumed per prompt.
+    if !std::io::stdin().is_terminal() {
+        let mut input = String::new();
+        let bytes = std::io::stdin()
+            .read_line(&mut input)
+            .map_err(CliError::Io)?;
+        if bytes == 0 {
+            return Err(CliError::Configuration(
+                "login needs input but stdin is closed; pipe one line per prompt".to_string(),
+            ));
+        }
+        let line = input.trim_end_matches(['\n', '\r']).to_string();
+        if kind == "Select" {
+            let options = body
+                .get("options")
+                .and_then(|o| o.as_array())
+                .cloned()
+                .unwrap_or_default();
+            if let Ok(choice) = line.trim().parse::<usize>() {
+                let option = options.get(choice.saturating_sub(1)).ok_or_else(|| {
+                    CliError::Arguments("selection out of range".to_string())
+                })?;
+                return option
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .ok_or_else(|| {
+                        CliError::Arguments("selected option has no id".to_string())
+                    });
+            }
+        }
+        let _ = message;
+        return Ok(line);
+    }
     match kind.as_str() {
         "Select" => {
             let options = body

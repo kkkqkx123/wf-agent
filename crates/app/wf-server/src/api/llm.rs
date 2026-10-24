@@ -601,11 +601,41 @@ pub(crate) async fn handle_auth_login_start(
     Json(body): Json<AuthLoginBody>,
 ) -> impl IntoResponse {
     match wf_api::llm::llm_auth::login_start(&state.ctx, &body.provider_id).await {
-        Ok((session_id, login_state)) => ok(serde_json::json!({
-            "session_id": session_id,
-            "state": login_state,
-        }))
-        .into_response(),
+        Ok((session_id, login_state)) => {
+            // PKCE loopback sessions bind a local listener inside the host.
+            // HTTP frontends cannot hold that listener, so the host waits for
+            // the browser callback here and completes (or fails) the session;
+            // frontends observe the result through the normal poll endpoint.
+            let ctx = state.ctx.clone();
+            let sid = session_id.clone();
+            tokio::spawn(async move {
+                match wf_api::llm::llm_auth::login_take_loopback(&ctx, &sid).await {
+                    Ok(Some(listener)) => match listener.wait_for_code().await {
+                        Ok(code) => {
+                            if let Err(err) =
+                                wf_api::llm::llm_auth::login_submit(&ctx, &sid, code).await
+                            {
+                                let _ = wf_api::llm::llm_auth::login_fail(&ctx, &sid, err.to_string())
+                                    .await;
+                            }
+                        }
+                        Err(err) => {
+                            let _ =
+                                wf_api::llm::llm_auth::login_fail(&ctx, &sid, err.to_string()).await;
+                        }
+                    },
+                    Ok(None) => {}
+                    Err(err) => {
+                        let _ = wf_api::llm::llm_auth::login_fail(&ctx, &sid, err.to_string()).await;
+                    }
+                }
+            });
+            ok(serde_json::json!({
+                "session_id": session_id,
+                "state": login_state,
+            }))
+            .into_response()
+        }
         Err(e) => error_response(e),
     }
 }

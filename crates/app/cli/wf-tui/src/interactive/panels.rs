@@ -19,8 +19,9 @@ use crate::interactive::{
 use crate::keymap::{CKey, Key};
 use tui_components::footer::PanelState;
 use tui_components::panels::{
-    AuthPanel, AuthSessionView, AuthSurfaceRow, CommandId, CommandPalette, MentionEntry,
-    MentionPanel, ModelPanel, QueuedPanel, SkillPanel, WorkflowPanel, WorkflowSummaryRow,
+    AuthPanel, AuthPromptOption, AuthSessionView, AuthSurfaceRow, CommandId, CommandPalette,
+    MentionEntry, MentionPanel, ModelPanel, QueuedPanel, SkillPanel, WorkflowPanel,
+    WorkflowSummaryRow,
 };
 use tui_core::keymap::KeyAction;
 
@@ -234,6 +235,24 @@ impl InteractiveController {
                 _ => {}
             }
         }
+        if route == FooterRoute::Auth && self.auth_is_awaiting_input() {
+            if key.code == CKey::Esc && !key.ctrl && !key.alt {
+                if let Some(session_id) = self.auth_session_id() {
+                    self.cancel_auth_login(&session_id);
+                }
+                return InteractiveAction::Continue;
+            }
+            if key.code == CKey::Backspace && !key.ctrl && !key.alt {
+                self.auth_input_backspace();
+                return InteractiveAction::Continue;
+            }
+            if let CKey::Char(c) = key.code {
+                if !key.ctrl && !key.alt && !c.is_control() {
+                    self.auth_input_push(c);
+                    return InteractiveAction::Continue;
+                }
+            }
+        }
         // Panel navigation and selection resolve through the panel keymap.
         // Anything else falls through to the text path so global bindings
         // (for example `/`) still reach the filter.
@@ -444,7 +463,20 @@ impl InteractiveController {
                 let session = panel.session().cloned();
                 let selected = panel.selected_id();
                 match (session, selected) {
-                    // A session is in flight: the selection cancels it.
+                    // A session awaiting input submits the typed text when
+                    // present; empty input cancels the session.
+                    (Some(session), Some(_)) if session.awaiting_input.is_some() => {
+                        let input = self.take_auth_input();
+                        let trimmed = input.trim();
+                        if trimmed.is_empty() {
+                            self.cancel_auth_login(&session.session_id);
+                        } else {
+                            let resolved = resolve_auth_option(&session, trimmed);
+                            self.submit_auth_login(&session.session_id, &resolved);
+                        }
+                        InteractiveAction::Continue
+                    }
+                    // A polling session is cancelled by selection.
                     (Some(session), Some(_)) => {
                         self.cancel_auth_login(&session.session_id);
                         InteractiveAction::Continue
@@ -636,6 +668,8 @@ impl InteractiveController {
                 lines,
                 awaiting_input,
                 poll_secs,
+                secret,
+                options,
                 outcome,
                 error,
             } => {
@@ -678,14 +712,15 @@ impl InteractiveController {
                             lines,
                             awaiting_input: awaiting_input.clone(),
                             poll_secs,
+                            secret,
+                            options,
                         };
                         if let Some(PanelState::Auth(panel)) = self.footer.panel.as_mut() {
                             panel.set_session(Some(view));
                         }
                         if awaiting_input.is_some() {
                             self.footer.show_notice(
-                                "input needed: run `wf llm login` in a terminal to enter it"
-                                    .to_string(),
+                                "type input + Enter to submit, Esc to cancel".to_string(),
                             );
                         } else {
                             let delay = poll_secs.unwrap_or(AUTH_POLL_FALLBACK_SECS);
@@ -855,6 +890,8 @@ impl InteractiveController {
                             lines: view.lines.clone(),
                             awaiting_input: view.awaiting_input.clone(),
                             poll_secs: view.poll_secs,
+                            secret: view.secret,
+                            options: view.options.clone(),
                             outcome: None,
                             error: None,
                         },
@@ -901,8 +938,61 @@ impl InteractiveController {
                     lines: Vec::new(),
                     awaiting_input: None,
                     poll_secs: None,
+                    secret: false,
+                    options: Vec::new(),
                     outcome: Some("cancelled".to_string()),
                     error: None,
+                },
+            });
+        });
+    }
+
+    /// Submit typed input for a session awaiting it. Terminal states clear
+    /// the session; waiting states keep polling or wait for more input.
+    pub(crate) fn submit_auth_login(&mut self, session_id: &str, input: &str) {
+        let client = self.client.clone();
+        let tx = self.tx.clone();
+        let session_id = session_id.to_string();
+        let input = input.to_string();
+        tokio::spawn(async move {
+            let state = match client
+                .post_json::<_, serde_json::Value>(
+                    &format!("/api/v1/llm/auth/login/{session_id}/submit"),
+                    &serde_json::json!({"input": input}),
+                )
+                .await
+            {
+                Ok(value) => value,
+                Err(err) => serde_json::json!({"Failed": {"error": err.to_string(), "events": []}}),
+            };
+            let kind = state
+                .as_object()
+                .and_then(|obj| obj.keys().next().cloned())
+                .unwrap_or_default();
+            let (lines, awaiting_input, poll_secs, secret, options) = auth_state_lines(&state);
+            let (outcome, error) = match kind.as_str() {
+                "Completed" => (Some("completed".to_string()), None),
+                "Failed" => (
+                    Some("failed".to_string()),
+                    state
+                        .get("Failed")
+                        .and_then(|f| f.get("error"))
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                ),
+                _ => (None, None),
+            };
+            let _ = tx.send(InteractiveEvent::PanelCandidates {
+                route: FooterRoute::Auth,
+                payload: PanelPayload::AuthSession {
+                    session_id,
+                    lines,
+                    awaiting_input,
+                    poll_secs,
+                    secret,
+                    options,
+                    outcome,
+                    error,
                 },
             });
         });
@@ -1006,6 +1096,46 @@ impl InteractiveController {
             self.logout_auth(&provider_id);
         }
     }
+
+    /// Whether the open auth panel waits for typed login input.
+    fn auth_is_awaiting_input(&self) -> bool {
+        matches!(
+            self.footer.panel.as_ref(),
+            Some(PanelState::Auth(panel)) if panel.is_awaiting_input()
+        )
+    }
+
+    /// Session id of the in-flight login, when one exists.
+    fn auth_session_id(&self) -> Option<String> {
+        match self.footer.panel.as_ref() {
+            Some(PanelState::Auth(panel)) => {
+                panel.session().map(|session| session.session_id.clone())
+            }
+            _ => None,
+        }
+    }
+
+    /// Push a character into the pending login input.
+    fn auth_input_push(&mut self, c: char) {
+        if let Some(PanelState::Auth(panel)) = self.footer.panel.as_mut() {
+            panel.auth_input_push(c);
+        }
+    }
+
+    /// Pop a character from the pending login input.
+    fn auth_input_backspace(&mut self) {
+        if let Some(PanelState::Auth(panel)) = self.footer.panel.as_mut() {
+            panel.auth_input_backspace();
+        }
+    }
+
+    /// Take the pending login input for submission.
+    fn take_auth_input(&mut self) -> String {
+        match self.footer.panel.as_mut() {
+            Some(PanelState::Auth(panel)) => panel.take_auth_input(),
+            _ => String::new(),
+        }
+    }
 }
 
 /// Sleep `delay_secs`, then poll one login-session state and forward it as
@@ -1033,7 +1163,7 @@ fn schedule_auth_poll(
             .as_object()
             .and_then(|obj| obj.keys().next().cloned())
             .unwrap_or_default();
-        let (lines, awaiting_input, poll_secs) = auth_state_lines(&state);
+        let (lines, awaiting_input, poll_secs, secret, options) = auth_state_lines(&state);
         let (outcome, error) = match kind.as_str() {
             "Completed" => (Some("completed".to_string()), None),
             "Failed" => (
@@ -1053,6 +1183,8 @@ fn schedule_auth_poll(
                 lines,
                 awaiting_input,
                 poll_secs,
+                secret,
+                options,
                 outcome,
                 error,
             },
@@ -1096,7 +1228,7 @@ fn auth_session_view(
     provider_id: &str,
     state: Option<&serde_json::Value>,
 ) -> AuthSessionView {
-    let (lines, awaiting_input, poll_secs) =
+    let (lines, awaiting_input, poll_secs, secret, options) =
         auth_state_lines(state.unwrap_or(&serde_json::Value::Null));
     AuthSessionView {
         session_id: session_id.to_string(),
@@ -1104,14 +1236,40 @@ fn auth_session_view(
         lines,
         awaiting_input,
         poll_secs,
+        secret,
+        options,
     }
 }
 
-/// `(rendered lines, input prompt, poll interval)` for one login state.
-fn auth_state_lines(state: &serde_json::Value) -> (Vec<String>, Option<String>, Option<u64>) {
+/// Map a typed select choice to its option id: `N` selects the Nth option.
+fn resolve_auth_option(session: &AuthSessionView, trimmed: &str) -> String {
+    if session.options.is_empty() {
+        return trimmed.to_string();
+    }
+    if let Ok(choice) = trimmed.parse::<usize>() {
+        if (1..=session.options.len()).contains(&choice) {
+            return session.options[choice - 1].id.clone();
+        }
+    }
+    trimmed.to_string()
+}
+
+/// `(rendered lines, input prompt, poll interval, secret, options)` for one
+/// login state.
+fn auth_state_lines(
+    state: &serde_json::Value,
+) -> (
+    Vec<String>,
+    Option<String>,
+    Option<u64>,
+    bool,
+    Vec<AuthPromptOption>,
+) {
     let mut lines = Vec::new();
     let mut awaiting = None;
     let mut poll_secs = None;
+    let mut secret = false;
+    let mut options = Vec::new();
     let kind = state
         .as_object()
         .and_then(|obj| obj.keys().next().cloned())
@@ -1136,13 +1294,38 @@ fn auth_state_lines(state: &serde_json::Value) -> (Vec<String>, Option<String>, 
                 .and_then(|v| v.as_str())
                 .unwrap_or("input")
                 .to_string();
-            if let Some(options) = prompt_body.get("options").and_then(|o| o.as_array()) {
-                for (index, option) in options.iter().enumerate() {
+            secret = matches!(prompt_kind.as_str(), "Secret");
+            if let Some(raw_options) = prompt_body.get("options").and_then(|o| o.as_array()) {
+                for (index, option) in raw_options.iter().enumerate() {
                     let label = option
                         .get("label")
                         .and_then(|v| v.as_str())
                         .unwrap_or("option");
+                    let id = option
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(label)
+                        .to_string();
                     lines.push(format!("  [{}] {label}", index + 1));
+                    options.push(AuthPromptOption::new(id, label.to_string()));
+                }
+            }
+            if let Some(events) = body.get("events").and_then(|e| e.as_array()) {
+                for event in events {
+                    let Some(event_kind) =
+                        event.as_object().and_then(|obj| obj.keys().next().cloned())
+                    else {
+                        continue;
+                    };
+                    if event_kind == "DeviceCode" {
+                        if let Some(interval) = event
+                            .get(&event_kind)
+                            .and_then(|b| b.get("interval_seconds"))
+                            .and_then(|v| v.as_u64())
+                        {
+                            poll_secs = Some(interval);
+                        }
+                    }
                 }
             }
             awaiting = Some(message);
@@ -1198,7 +1381,7 @@ fn auth_state_lines(state: &serde_json::Value) -> (Vec<String>, Option<String>, 
             }
         }
     }
-    (lines, awaiting, poll_secs)
+    (lines, awaiting, poll_secs, secret, options)
 }
 
 /// Items of a list response (bare array or page shell).

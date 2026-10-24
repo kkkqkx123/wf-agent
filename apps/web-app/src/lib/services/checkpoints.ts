@@ -1170,6 +1170,7 @@ export interface BaselineSelector {
 	branch?: string | null;
 	commitPrefix?: string | null;
 	behind?: number | null;
+	tag?: string | null;
 }
 
 /** Rebase the baseline; call only after explicit confirm. */
@@ -1184,6 +1185,7 @@ export async function rebaseBaseline(
 					branch: baseline.branch ?? null,
 					commit_prefix: baseline.commitPrefix ?? null,
 					behind: baseline.behind ?? null,
+					tag: baseline.tag ?? null,
 					confirm: true,
 				},
 			}),

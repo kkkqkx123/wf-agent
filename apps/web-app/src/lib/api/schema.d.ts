@@ -9037,7 +9037,9 @@ export interface components {
         BaselineAnchorDoc: {
             id: string;
             mode: string;
+            objects_fingerprint: string;
             objects_path: string;
+            remote_identity: string;
             /** Format: int64 */
             resolved_at_ms: number;
             source_repo: string;
@@ -10030,10 +10032,12 @@ export interface components {
         RebaseRequest: {
             /**
              * Format: int64
-             * @description Nth ancestor back from the branch tip along the first-parent chain.
+             * @description Nth first-parent ancestor back from the branch tip.
              */
             behind?: number | null;
-            /** @description User-repository branch the new baseline is resolved from. */
+            /**
+             * @description User-repository branch the new baseline is resolved from. With `commit_prefix` the branch is advisory for audit and reachability.
+             */
             branch?: string | null;
             /** @description Commit hash prefix pinned inside the user repository. */
             commit_prefix?: string | null;
@@ -10041,6 +10045,8 @@ export interface components {
             confirm: boolean;
             /** @description `borrow` (default) or `copy`. */
             mode?: string | null;
+            /** @description Tag name or a full `refs/tags/...` path. */
+            tag?: string | null;
         };
         /** @description Rebuild response: number of indexed commits. */
         RebuildIndexResponse: {

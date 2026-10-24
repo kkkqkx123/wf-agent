@@ -552,6 +552,8 @@ pub(crate) struct BaselineAnchorDoc {
     objects_path: String,
     source_repo: String,
     source_spec: String,
+    remote_identity: String,
+    objects_fingerprint: String,
     resolved_at_ms: i64,
 }
 

@@ -170,6 +170,7 @@ impl FileCheckpointManager {
             branch: baseline.branch.clone(),
             commit_prefix: baseline.commit_prefix.clone(),
             behind: baseline.behind,
+            tag: baseline.tag.clone(),
         };
         git.rebase_to(&request).map_err(map_git_error)
     }

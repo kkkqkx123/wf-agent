@@ -45469,6 +45469,8 @@
           "objects_path",
           "source_repo",
           "source_spec",
+          "remote_identity",
+          "objects_fingerprint",
           "resolved_at_ms"
         ],
         "properties": {
@@ -45478,7 +45480,13 @@
           "mode": {
             "type": "string"
           },
+          "objects_fingerprint": {
+            "type": "string"
+          },
           "objects_path": {
+            "type": "string"
+          },
+          "remote_identity": {
             "type": "string"
           },
           "resolved_at_ms": {
@@ -48315,7 +48323,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "Nth ancestor back from the branch tip along the first-parent chain.",
+            "description": "Nth first-parent ancestor back from the branch tip.",
             "minimum": 0
           },
           "branch": {
@@ -48323,7 +48331,7 @@
               "string",
               "null"
             ],
-            "description": "User-repository branch the new baseline is resolved from."
+            "description": "User-repository branch the new baseline is resolved from. With `commit_prefix` the branch is advisory for audit and reachability."
           },
           "commit_prefix": {
             "type": [
@@ -48342,6 +48350,13 @@
               "null"
             ],
             "description": "`borrow` (default) or `copy`."
+          },
+          "tag": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Tag name or a full `refs/tags/...` path."
           }
         }
       },

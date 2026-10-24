@@ -5,48 +5,49 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use super::baseline::BaselineLocator;
 use super::{GitCommit, GitStoreError};
 use gix_object::Find as _;
 
-fn invalid_branch(branch: &str) -> Result<(), GitStoreError> {
-    if branch.is_empty() || branch.len() > 255 || branch.trim() != branch {
+fn invalid_ref_name(name: &str) -> Result<(), GitStoreError> {
+    if name.is_empty() || name.len() > 255 || name.trim() != name {
         return Err(GitStoreError::InvalidInput(
-            "external branch must be 1-255 chars without padding".to_string(),
+            "external ref must be 1-255 chars without padding".to_string(),
         ));
     }
-    if branch.starts_with('-')
-        || branch.starts_with('/')
-        || branch.starts_with('.')
-        || branch.ends_with('/')
-        || branch.ends_with(".lock")
+    if name.starts_with('-')
+        || name.starts_with('/')
+        || name.starts_with('.')
+        || name.ends_with('/')
+        || name.ends_with(".lock")
     {
         return Err(GitStoreError::InvalidInput(format!(
-            "external branch is not a plain ref name: '{branch}'"
+            "external ref is not a plain ref name: '{name}'"
         )));
     }
-    if branch.contains("..") || branch.contains("@{") || branch.contains("//") {
+    if name.contains("..") || name.contains("@{") || name.contains("//") {
         return Err(GitStoreError::InvalidInput(format!(
-            "external branch is not a plain ref name: '{branch}'"
+            "external ref is not a plain ref name: '{name}'"
         )));
     }
     // Revision operators must not leak into the selector: the caller builds
-    // `branch~n` itself, so any operator inside the branch would change the
-    // resolution semantics.
-    if branch.bytes().any(|b| {
+    // the final revision itself, so any operator inside a ref would change
+    // the resolution semantics.
+    if name.bytes().any(|b| {
         matches!(b, b'~' | b'^' | b':' | b'?' | b'*' | b'[' | b'\\' | b'@')
             || (b as char).is_whitespace()
             || (b as char).is_control()
     }) {
         return Err(GitStoreError::InvalidInput(format!(
-            "external branch is not a plain ref name: '{branch}'"
+            "external ref is not a plain ref name: '{name}'"
         )));
     }
-    if !branch
+    if !name
         .bytes()
         .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'/'))
     {
         return Err(GitStoreError::InvalidInput(format!(
-            "external branch is not a plain ref name: '{branch}'"
+            "external ref is not a plain ref name: '{name}'"
         )));
     }
     Ok(())
@@ -62,12 +63,28 @@ fn invalid_prefix(prefix: &str) -> Result<(), GitStoreError> {
     Ok(())
 }
 
-pub(crate) fn check_branch_name(branch: &str) -> Result<(), GitStoreError> {
-    invalid_branch(branch)
+pub(crate) fn check_ref_name(name: &str) -> Result<(), GitStoreError> {
+    invalid_ref_name(name)
 }
 
 pub(crate) fn check_commit_prefix(prefix: &str) -> Result<(), GitStoreError> {
     invalid_prefix(prefix)
+}
+
+/// Fully qualified ref for a tag selector. Plain names resolve through
+/// `refs/tags/`; an explicit `refs/tags/` path passes through. Any other
+/// ref namespace is rejected so a `tag` selector never silently picks a
+/// branch or remote-tracking ref with the same short name.
+pub(crate) fn tag_ref_name(tag: &str) -> Result<String, GitStoreError> {
+    match tag.strip_prefix("refs/") {
+        Some(rest) if rest.starts_with("tags/") && rest.len() > "tags/".len() => {
+            Ok(tag.to_string())
+        }
+        Some(_) => Err(GitStoreError::InvalidInput(format!(
+            "baseline tag must be a tag name or a refs/tags/ path: '{tag}'"
+        ))),
+        None => Ok(format!("refs/tags/{tag}")),
+    }
 }
 
 /// Whether a process id is still alive. Used to tell a live lock holder
@@ -247,12 +264,11 @@ pub fn discover_user_objects_dir(start: &Path) -> Result<PathBuf, GitStoreError>
     ))
 }
 
-/// Stable identity for an external repository, independent of its on-disk
-/// path when a remote origin is configured. Used to tell a moved repository
-/// from a replaced one. Falls back to the object-database path when no
-/// remote is configured.
-pub fn repository_stable_id(workspace_root: &Path, objects_dir: &Path) -> String {
-    let remote = Command::new("git")
+/// Configured `remote.origin.url` of the user repository, or an empty
+/// string when no origin is configured. Used as the remote identity of a
+/// baseline anchor; it never triggers network access.
+pub fn remote_origin_identity(workspace_root: &Path) -> String {
+    Command::new("git")
         .arg("-C")
         .arg(workspace_root)
         .arg("config")
@@ -262,7 +278,36 @@ pub fn repository_stable_id(workspace_root: &Path, objects_dir: &Path) -> String
         .ok()
         .filter(|out| out.status.success())
         .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+/// Fingerprint of one external object database: canonical path, object
+/// format, and shallow state. Path changes are expected after a local
+/// repository move, so validation treats a fingerprint change as advisory
+/// as long as the anchor commit still resolves there.
+pub fn object_db_fingerprint(workspace_root: &Path, objects_dir: &Path) -> String {
+    let object_format = if user_objects_use_sha1(workspace_root).unwrap_or(true) {
+        "sha1"
+    } else {
+        "other"
+    };
+    let shallow = if is_shallow_repo(workspace_root) {
+        "shallow"
+    } else {
+        "full"
+    };
+    format!(
+        "path:{}|format:{object_format}|{shallow}",
+        fingerprint_for_objects_dir(objects_dir)
+    )
+}
+
+/// Stable identity for an external repository, independent of its on-disk
+/// path when a remote origin is configured. Used to tell a moved repository
+/// from a replaced one. Falls back to the object-database path when no
+/// remote is configured.
+pub fn repository_stable_id(workspace_root: &Path, objects_dir: &Path) -> String {
+    let remote = remote_origin_identity(workspace_root);
     let object_format = if user_objects_use_sha1(workspace_root).unwrap_or(true) {
         "sha1"
     } else {
@@ -278,7 +323,12 @@ pub fn repository_stable_id(workspace_root: &Path, objects_dir: &Path) -> String
             .parent()
             .map(Path::to_path_buf)
             .unwrap_or_else(|| objects_dir.to_path_buf());
-        format!("path:{}|{}|{}", common_dir.display(), object_format, shallow)
+        format!(
+            "path:{}|{}|{}",
+            common_dir.display(),
+            object_format,
+            shallow
+        )
     } else {
         format!("remote:{}|{}|{}", remote, object_format, shallow)
     }
@@ -323,50 +373,34 @@ pub fn external_head_id(workspace_root: &Path) -> Result<String, GitStoreError> 
     Ok(id)
 }
 
-/// Resolve a baseline-style selector to a full commit id through the git
-/// executable. `branch` plus optional `behind` follows the first-parent
-/// chain (`branch~n`); a lone `commit_prefix` is verified as a commit.
-pub fn rev_parse_commit(
+/// Resolve a baseline locator to a full commit id through the git
+/// executable. Branch selectors follow git's first-parent shorthand
+/// (`branch~n`); a pinned commit is verified as a commit; a tag resolves
+/// through its fully qualified tag ref. The returned description is the
+/// audit string stored in the anchor.
+pub(crate) fn rev_parse_commit(
     workspace_root: &Path,
-    branch: Option<&str>,
-    commit_prefix: Option<&str>,
-    behind: Option<u64>,
+    locator: &BaselineLocator,
 ) -> Result<(String, String), GitStoreError> {
-    if let Some(branch) = branch {
-        check_branch_name(branch)?;
-    }
-    if let Some(prefix) = commit_prefix {
-        check_commit_prefix(prefix)?;
-    }
     if !user_objects_use_sha1(workspace_root)? {
         return Err(GitStoreError::Baseline(
             "user repository does not use sha1; cross-algorithm borrowing is not supported"
                 .to_string(),
         ));
     }
-    let spec = match (branch, commit_prefix, behind) {
-        (Some(branch), _, Some(n)) => format!("{branch}~{n}"),
-        (Some(_), Some(prefix), None) => prefix.to_string(),
-        (Some(branch), None, None) => branch.to_string(),
-        (None, Some(prefix), None) => prefix.to_string(),
-        _ => {
-            return Err(GitStoreError::InvalidInput(
-                "external selector needs a branch or a commit_prefix".to_string(),
-            ));
-        }
-    };
-    let description = match (branch, commit_prefix, behind) {
-        (Some(branch), Some(_), None) => format!("branch {branch} pinned to {spec}"),
-        (Some(branch), _, Some(n)) => format!("branch {branch}~{n}"),
-        (Some(branch), None, None) => format!("branch {branch} tip"),
-        (None, Some(_), None) => format!("pinned {spec}"),
-        _ => spec.clone(),
+    let spec = match locator {
+        BaselineLocator::BranchTip(branch) => branch.clone(),
+        BaselineLocator::BranchPinned { commit, .. } => commit.clone(),
+        BaselineLocator::BranchAncestor { branch, behind } => format!("{branch}~{behind}"),
+        BaselineLocator::Commit(prefix) => prefix.clone(),
+        BaselineLocator::Tag { reference, .. } => reference.clone(),
     };
     let output = Command::new("git")
         .arg("-C")
         .arg(workspace_root)
         .arg("rev-parse")
         .arg("--verify")
+        .arg("--end-of-options")
         .arg(format!("{spec}^{{commit}}"))
         .output()
         .map_err(|e| {
@@ -376,14 +410,23 @@ pub fn rev_parse_commit(
         })?;
     if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        if behind.is_some() && is_shallow_repo(workspace_root) {
-            return Err(GitStoreError::Baseline(format!(
-                "cannot resolve baseline '{spec}' in user repository: {detail}; \
-                 shallow repository may not cover that ancestor, use commit_prefix instead"
-            )));
-        }
+        let hint = match locator {
+            BaselineLocator::BranchAncestor { .. } if is_shallow_repo(workspace_root) => {
+                "; the shallow repository may not cover that first-parent ancestor, \
+                 use commit_prefix or a tag instead"
+            }
+            BaselineLocator::BranchPinned { .. } => {
+                "; pin the commit with commit_prefix alone, use a tag, or re-select \
+                 the branch tip or ancestor offset"
+            }
+            BaselineLocator::Tag { .. } => {
+                "; verify the tag exists in the user repository, or pin the commit \
+                 with commit_prefix"
+            }
+            _ => "",
+        };
         return Err(GitStoreError::Baseline(format!(
-            "cannot resolve baseline '{spec}' in user repository: {detail}"
+            "cannot resolve baseline '{spec}' in user repository: {detail}{hint}"
         )));
     }
     let id = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -392,10 +435,10 @@ pub fn rev_parse_commit(
             "baseline commit id is not sha1 ({id}); cross-algorithm borrowing is not supported"
         )));
     }
-    if let (Some(branch), Some(_), None) = (branch, commit_prefix, behind) {
+    if let BaselineLocator::BranchPinned { branch, .. } = locator {
         warn_unless_reachable(workspace_root, branch, &id);
     }
-    Ok((id, description))
+    Ok((id.clone(), locator.describe(&id)))
 }
 
 fn external_odb(objects_dir: &Path) -> Result<gix_odb::Handle, GitStoreError> {

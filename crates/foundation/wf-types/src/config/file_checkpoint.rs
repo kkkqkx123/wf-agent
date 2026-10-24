@@ -154,17 +154,24 @@ pub struct BaselineConfig {
     /// Borrow (default) or copy the baseline objects.
     #[serde(default)]
     pub mode: BaselineMode,
-    /// User-repository branch the baseline is resolved from.
+    /// User-repository branch the baseline is resolved from. With
+    /// `commit_prefix` the branch is advisory: the commit prefix pins the
+    /// baseline and the branch only feeds reachability warnings and audit
+    /// metadata.
     #[serde(default)]
     pub branch: Option<String>,
     /// Commit hash prefix pinned inside the user repository. Usable
-    /// without a branch; mutually exclusive with `behind`.
+    /// without a branch; mutually exclusive with `behind` and `tag`.
     #[serde(default)]
     pub commit_prefix: Option<String>,
-    /// Nth ancestor back from the branch tip along the first-parent
-    /// chain. Requires `branch`; mutually exclusive with `commit_prefix`.
+    /// Nth first-parent ancestor back from the branch tip. Requires
+    /// `branch`; mutually exclusive with `commit_prefix` and `tag`.
     #[serde(default)]
     pub behind: Option<u64>,
+    /// Tag name, or a full `refs/tags/...` path, pinned into the baseline.
+    /// Mutually exclusive with `branch`, `commit_prefix`, and `behind`.
+    #[serde(default)]
+    pub tag: Option<String>,
     /// Failure behavior for baseline seeding and validation. Defaults to
     /// `Error` so a misconfigured baseline surfaces at open time instead
     /// of degrading silently.

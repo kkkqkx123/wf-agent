@@ -42,15 +42,19 @@ pub(crate) struct RebaseRequest {
     /// `borrow` (default) or `copy`.
     #[serde(default)]
     mode: Option<String>,
-    /// User-repository branch the new baseline is resolved from.
+    /// User-repository branch the new baseline is resolved from. With
+    /// `commit_prefix` the branch is advisory for audit and reachability.
     #[serde(default)]
     branch: Option<String>,
     /// Commit hash prefix pinned inside the user repository.
     #[serde(default)]
     commit_prefix: Option<String>,
-    /// Nth ancestor back from the branch tip along the first-parent chain.
+    /// Nth first-parent ancestor back from the branch tip.
     #[serde(default)]
     behind: Option<u64>,
+    /// Tag name or a full `refs/tags/...` path.
+    #[serde(default)]
+    tag: Option<String>,
     /// Destructive operation guard: must be true.
     confirm: bool,
 }
@@ -77,6 +81,7 @@ fn rebase_baseline_config(
         branch: body.branch.clone(),
         commit_prefix: body.commit_prefix.clone(),
         behind: body.behind,
+        tag: body.tag.clone(),
         failure_behavior: None,
     })
 }

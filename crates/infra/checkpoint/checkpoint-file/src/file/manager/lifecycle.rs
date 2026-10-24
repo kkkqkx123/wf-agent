@@ -273,6 +273,7 @@ impl FileCheckpointManager {
             branch: baseline.branch.clone(),
             commit_prefix: baseline.commit_prefix.clone(),
             behind: baseline.behind,
+            tag: baseline.tag.clone(),
         };
         match git.ensure_baseline(&request) {
             Ok(crate::git_store::BaselineSeedOutcome::Seeded(anchor)) => {

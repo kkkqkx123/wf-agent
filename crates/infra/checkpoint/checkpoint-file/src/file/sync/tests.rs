@@ -374,6 +374,7 @@ fn rebase_transplant_preserves_main_tree() {
         branch: Some("main".to_string()),
         commit_prefix: None,
         behind: Some(1),
+        tag: None,
     };
     let seeded = match store.ensure_baseline(&first_req).unwrap() {
         crate::git_store::BaselineSeedOutcome::Seeded(a) => a,
@@ -398,6 +399,7 @@ fn rebase_transplant_preserves_main_tree() {
         branch: Some("main".to_string()),
         commit_prefix: None,
         behind: None,
+        tag: None,
     };
     let outcome = store.rebase_to(&rebase_req).unwrap();
     assert_eq!(outcome.new_anchor.id, third);
@@ -438,6 +440,7 @@ fn gc_keeps_baseline_chain_and_local_work() {
         branch: Some("main".to_string()),
         commit_prefix: None,
         behind: None,
+        tag: None,
     };
     store.ensure_baseline(&req).unwrap();
     let anchor = store.baseline_anchor_id().expect("anchor pinned");
@@ -485,6 +488,7 @@ fn gc_enumeration_stays_local_and_pack_skips_borrowed_objects() {
         branch: Some("main".to_string()),
         commit_prefix: None,
         behind: None,
+        tag: None,
     };
     store.ensure_baseline(&req).unwrap();
     let anchor = store.baseline_anchor_id().unwrap();

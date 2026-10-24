@@ -16,8 +16,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::external::{
-    check_branch_name, check_commit_prefix, discover_user_objects_dir, probe_commit_in_dir,
-    rev_parse_commit,
+    check_commit_prefix, check_ref_name, discover_user_objects_dir, object_db_fingerprint,
+    probe_commit_in_dir, remote_origin_identity, rev_parse_commit, tag_ref_name,
 };
 use super::{GitStore, GitStoreError, REF_MAIN};
 
@@ -40,6 +40,44 @@ pub struct BaselineRequest {
     pub branch: Option<String>,
     pub commit_prefix: Option<String>,
     pub behind: Option<u64>,
+    pub tag: Option<String>,
+}
+
+/// Resolved selector intent. Exactly one variant is built from a
+/// [`BaselineRequest`] after mutual-exclusion and character-set checks, so
+/// resolution only has to apply the chosen rule.
+#[derive(Debug, Clone)]
+pub(crate) enum BaselineLocator {
+    /// Current tip of a branch.
+    BranchTip(String),
+    /// Commit pinned by prefix; the branch is advisory for audit and a
+    /// reachability warning, never part of the resolution.
+    BranchPinned { branch: String, commit: String },
+    /// Nth ancestor back from the branch tip along the first-parent chain.
+    BranchAncestor { branch: String, behind: u64 },
+    /// Commit pinned by prefix without any branch context.
+    Commit(String),
+    /// Tag resolved through its fully qualified tag ref.
+    Tag { name: String, reference: String },
+}
+
+impl BaselineLocator {
+    /// Audit description stored in the anchor. Uses the resolved commit id
+    /// so the anchor records exactly what was pinned, independent of how
+    /// the selector was written.
+    pub(crate) fn describe(&self, id: &str) -> String {
+        match self {
+            BaselineLocator::BranchTip(branch) => format!("branch {branch} tip"),
+            BaselineLocator::BranchPinned { branch, .. } => {
+                format!("branch {branch} pinned to commit {id}")
+            }
+            BaselineLocator::BranchAncestor { branch, behind } => {
+                format!("branch {branch} first-parent ancestor {behind}")
+            }
+            BaselineLocator::Commit(_) => format!("pinned commit {id}"),
+            BaselineLocator::Tag { name, .. } => format!("tag {name} -> {id}"),
+        }
+    }
 }
 
 /// Pinned baseline anchor persisted beside the store.
@@ -50,7 +88,10 @@ pub struct BaselineAnchor {
     pub objects_path: String,
     pub source_repo: String,
     pub source_spec: String,
-    pub repo_id: String,
+    /// Configured `remote.origin.url` at seed time, empty when none.
+    pub remote_identity: String,
+    /// Canonical objects path, object format, and shallow state.
+    pub objects_fingerprint: String,
     pub resolved_at_ms: i64,
 }
 
@@ -144,7 +185,22 @@ impl Drop for SeedLock {
 const ALTERNATES_REL: &str = "objects/info/alternates";
 
 impl BaselineRequest {
-    fn validate(&self) -> Result<(), GitStoreError> {
+    /// Validate selector exclusivity and character sets, then build the
+    /// single locator that resolution applies.
+    fn locator(&self) -> Result<BaselineLocator, GitStoreError> {
+        if let Some(tag) = &self.tag {
+            if self.branch.is_some() || self.commit_prefix.is_some() || self.behind.is_some() {
+                return Err(GitStoreError::InvalidInput(
+                    "baseline tag is mutually exclusive with branch, commit_prefix, and behind"
+                        .to_string(),
+                ));
+            }
+            check_ref_name(tag)?;
+            return Ok(BaselineLocator::Tag {
+                name: tag.clone(),
+                reference: tag_ref_name(tag)?,
+            });
+        }
         if self.commit_prefix.is_some() && self.behind.is_some() {
             return Err(GitStoreError::InvalidInput(
                 "baseline commit_prefix and behind are mutually exclusive".to_string(),
@@ -156,17 +212,26 @@ impl BaselineRequest {
             ));
         }
         if let Some(branch) = &self.branch {
-            check_branch_name(branch)?;
+            check_ref_name(branch)?;
         }
         if let Some(prefix) = &self.commit_prefix {
             check_commit_prefix(prefix)?;
         }
-        if self.branch.is_none() && self.commit_prefix.is_none() {
-            return Err(GitStoreError::InvalidInput(
-                "baseline needs a branch or a commit_prefix selector".to_string(),
-            ));
+        match (&self.branch, &self.commit_prefix, self.behind) {
+            (Some(branch), Some(commit), None) => Ok(BaselineLocator::BranchPinned {
+                branch: branch.clone(),
+                commit: commit.clone(),
+            }),
+            (Some(branch), None, Some(behind)) => Ok(BaselineLocator::BranchAncestor {
+                branch: branch.clone(),
+                behind,
+            }),
+            (Some(branch), None, None) => Ok(BaselineLocator::BranchTip(branch.clone())),
+            (None, Some(commit), None) => Ok(BaselineLocator::Commit(commit.clone())),
+            _ => Err(GitStoreError::InvalidInput(
+                "baseline needs a branch, commit_prefix, or tag selector".to_string(),
+            )),
         }
-        Ok(())
     }
 }
 
@@ -177,8 +242,14 @@ impl BaselineAnchor {
             BaselineMode::Copy => "copy",
         };
         format!(
-            "baseline-anchor {ANCHOR_VERSION}\nid {}\nmode {mode}\nobjects {}\nrepo {}\nspec {}\nrepo_id {}\nresolved_at_ms {}\n",
-            self.id, self.objects_path, self.source_repo, self.source_spec, self.repo_id, self.resolved_at_ms
+            "baseline-anchor {ANCHOR_VERSION}\nid {}\nmode {mode}\nobjects {}\nrepo {}\nspec {}\nremote_identity {}\nobjects_fingerprint {}\nresolved_at_ms {}\n",
+            self.id,
+            self.objects_path,
+            self.source_repo,
+            self.source_spec,
+            self.remote_identity,
+            self.objects_fingerprint,
+            self.resolved_at_ms
         )
     }
 
@@ -194,7 +265,8 @@ impl BaselineAnchor {
         let mut objects_path = None;
         let mut source_repo = None;
         let mut source_spec = None;
-        let mut repo_id = None;
+        let mut remote_identity = None;
+        let mut objects_fingerprint = None;
         let mut resolved_at_ms = None;
         for line in lines {
             let (key, value) = line
@@ -212,7 +284,8 @@ impl BaselineAnchor {
                 "objects" => objects_path = Some(value.to_string()),
                 "repo" => source_repo = Some(value.to_string()),
                 "spec" => source_spec = Some(value.to_string()),
-                "repo_id" => repo_id = Some(value.to_string()),
+                "remote_identity" => remote_identity = Some(value.to_string()),
+                "objects_fingerprint" => objects_fingerprint = Some(value.to_string()),
                 "resolved_at_ms" => {
                     resolved_at_ms =
                         Some(value.parse::<i64>().map_err(|_| invalid("bad timestamp"))?)
@@ -220,14 +293,28 @@ impl BaselineAnchor {
                 _ => return Err(invalid("unknown field")),
             }
         }
+        let id = id.ok_or_else(|| invalid("missing id"))?;
+        if id.len() != 40 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(invalid("id must be 40 hex chars"));
+        }
+        let non_empty = |value: Option<String>, field: &str| {
+            value
+                .filter(|text| !text.trim().is_empty())
+                .ok_or_else(|| invalid(&format!("missing or empty {field}")))
+        };
+        let resolved_at_ms = resolved_at_ms.ok_or_else(|| invalid("missing timestamp"))?;
+        if resolved_at_ms < 0 {
+            return Err(invalid("negative timestamp"));
+        }
         Ok(BaselineAnchor {
-            id: id.ok_or_else(|| invalid("missing id"))?,
+            id,
             mode: mode.ok_or_else(|| invalid("missing mode"))?,
-            objects_path: objects_path.ok_or_else(|| invalid("missing objects path"))?,
-            source_repo: source_repo.ok_or_else(|| invalid("missing repo"))?,
-            source_spec: source_spec.ok_or_else(|| invalid("missing spec"))?,
-            repo_id: repo_id.unwrap_or_default(),
-            resolved_at_ms: resolved_at_ms.ok_or_else(|| invalid("missing timestamp"))?,
+            objects_path: non_empty(objects_path, "objects path")?,
+            source_repo: non_empty(source_repo, "repo")?,
+            source_spec: non_empty(source_spec, "spec")?,
+            remote_identity: remote_identity.ok_or_else(|| invalid("missing remote identity"))?,
+            objects_fingerprint: non_empty(objects_fingerprint, "objects fingerprint")?,
+            resolved_at_ms,
         })
     }
 }
@@ -421,14 +508,24 @@ impl GitStore {
         Ok(())
     }
 
+    /// Anchor for read-only hot paths. A missing or corrupt anchor behaves
+    /// as no baseline so reads never fail there; corruption is logged so a
+    /// silently disabled traversal boundary is visible in diagnostics.
+    fn anchor_lossy(&self) -> Option<BaselineAnchor> {
+        match self.read_anchor() {
+            Ok(anchor) => anchor,
+            Err(e) => {
+                tracing::warn!(error = %e, "ignoring unreadable baseline anchor");
+                None
+            }
+        }
+    }
+
     /// Pinned anchor id for history traversal boundaries. Total: missing or
     /// corrupt anchors behave as no baseline so reads never fail on the hot
     /// path; staleness is reported by [`GitStore::validate_baseline`].
     pub(super) fn baseline_anchor_oid(&self) -> Option<gix_hash::ObjectId> {
-        let anchor = self.read_anchor().ok()??;
-        if anchor.id.len() != 40 {
-            return None;
-        }
+        let anchor = self.anchor_lossy()?;
         gix_hash::ObjectId::from_hex(anchor.id.as_bytes()).ok()
     }
 
@@ -439,7 +536,7 @@ impl GitStore {
         &self,
         req: &BaselineRequest,
     ) -> Result<BaselineSeedOutcome, GitStoreError> {
-        req.validate()?;
+        let locator = req.locator()?;
         let _seed_lock = SeedLock::acquire(self.git_dir())?;
         self.complete_pending_rebase()?;
         if let Some(existing) = self.read_anchor()? {
@@ -457,12 +554,7 @@ impl GitStore {
             .parent()
             .map(Path::to_path_buf)
             .unwrap_or_else(|| objects_dir.clone());
-        let (commit, spec) = rev_parse_commit(
-            &workspace_root,
-            req.branch.as_deref(),
-            req.commit_prefix.as_deref(),
-            req.behind,
-        )?;
+        let (commit, spec) = rev_parse_commit(&workspace_root, &locator)?;
         if req.mode == BaselineMode::Copy {
             self.copy_closure_from_external(&objects_dir, &commit)?;
             self.read_commit(&commit).map_err(|e| {
@@ -479,15 +571,14 @@ impl GitStore {
                 ))
             })?;
         }
-        let repo_id =
-            super::external::repository_stable_id(&workspace_root, &objects_dir);
         let anchor = BaselineAnchor {
             id: commit,
             mode: req.mode,
             objects_path: objects_dir.to_string_lossy().into_owned(),
             source_repo: source_repo.to_string_lossy().into_owned(),
             source_spec: spec,
-            repo_id,
+            remote_identity: remote_origin_identity(&workspace_root),
+            objects_fingerprint: object_db_fingerprint(&workspace_root, &objects_dir),
             resolved_at_ms: super::commit::now_millis(),
         };
         // Anchor before ref: a crash here retries into the anchor-exists
@@ -538,10 +629,11 @@ impl GitStore {
         }
     }
 
-    /// Check a previously seeded baseline: alternates path still valid, anchor
-    /// still resolvable. Repairs a stale alternates entry through repository
-    /// re-discovery when the anchor commit is found there. Copy-mode stores
-    /// carry their own objects and never need an alternates entry.
+    /// Check a previously seeded baseline: identity hints changed, alternates
+    /// path still valid, anchor still resolvable. The hard gate is anchor
+    /// commit resolvability; remote and fingerprint changes are advisory and
+    /// refreshed when the commit is still reachable. Copy-mode stores carry
+    /// their own objects and never need an alternates entry.
     pub fn validate_baseline(&self) -> Result<BaselineStatus, GitStoreError> {
         self.complete_pending_rebase()?;
         let Some(mut anchor) = self.read_anchor()? else {
@@ -557,39 +649,79 @@ impl GitStore {
                 }),
             };
         }
-        if !anchor.repo_id.is_empty() {
-            if let Ok(found) = discover_user_objects_dir(self.workspace_root()) {
-                let current_repo_id =
-                    super::external::repository_stable_id(self.workspace_root(), &found);
-                if current_repo_id != anchor.repo_id {
-                    return Ok(BaselineStatus::Degraded {
-                        reason: "repository identity changed; baseline may point at a different repository"
-                            .to_string(),
-                        anchor,
-                    });
-                }
+        let workspace_root = self.workspace_root();
+        if !super::external::user_objects_use_sha1(workspace_root)? {
+            return Ok(BaselineStatus::Degraded {
+                reason:
+                    "user repository object format is no longer sha1; borrowed history is unusable"
+                        .to_string(),
+                anchor,
+            });
+        }
+        let remote = remote_origin_identity(workspace_root);
+        if !anchor.remote_identity.is_empty()
+            && !remote.is_empty()
+            && remote != anchor.remote_identity
+        {
+            return Ok(BaselineStatus::Degraded {
+                reason: format!(
+                    "user repository remote changed from '{}' to '{remote}'; it may be a different repository, re-seed the baseline explicitly",
+                    anchor.remote_identity
+                ),
+                anchor,
+            });
+        }
+        let old_objects = PathBuf::from(&anchor.objects_path);
+        let objects = match discover_user_objects_dir(workspace_root) {
+            Ok(found) if probe_commit_in_dir(&found, &anchor.id) => found,
+            _ if probe_commit_in_dir(&old_objects, &anchor.id) => old_objects,
+            _ => {
+                return Ok(BaselineStatus::Degraded {
+                    reason: format!(
+                        "anchor commit {} is not resolvable in the current repository or the recorded objects path",
+                        anchor.id
+                    ),
+                    anchor,
+                });
             }
+        };
+        let fingerprint = object_db_fingerprint(workspace_root, &objects);
+        let objects_text = objects.to_string_lossy().into_owned();
+        let mut changed = false;
+        if anchor.objects_path != objects_text {
+            anchor.objects_path = objects_text;
+            changed = true;
+        }
+        if anchor.objects_fingerprint != fingerprint {
+            tracing::warn!(
+                anchor = %anchor.id,
+                previous = %anchor.objects_fingerprint,
+                current = %fingerprint,
+                "baseline object database fingerprint changed; anchor commit is still resolvable"
+            );
+            anchor.objects_fingerprint = fingerprint;
+            changed = true;
+        }
+        if anchor.remote_identity != remote {
+            tracing::warn!(
+                anchor = %anchor.id,
+                previous = %anchor.remote_identity,
+                current = %remote,
+                "baseline remote identity changed; anchor commit is still resolvable"
+            );
+            anchor.remote_identity = remote;
+            changed = true;
         }
         let alternates_ok = self
             .read_alternates()
             .is_some_and(|entry| entry == anchor.objects_path)
             && Path::new(&anchor.objects_path).is_dir();
         if !alternates_ok {
-            match discover_user_objects_dir(self.workspace_root()) {
-                Ok(found) if probe_commit_in_dir(&found, &anchor.id) => {
-                    anchor.objects_path = found.to_string_lossy().into_owned();
-                    self.write_alternates(&found)?;
-                    self.write_anchor(&anchor)?;
-                }
-                _ => {
-                    return Ok(BaselineStatus::Degraded {
-                        reason: "alternates target missing and anchor commit not \
-                                 found via repository discovery"
-                            .to_string(),
-                        anchor,
-                    });
-                }
-            }
+            self.write_alternates(&objects)?;
+            changed = true;
+        }
+        if changed {
+            self.write_anchor(&anchor)?;
         }
         match self.read_commit(&anchor.id) {
             Ok(_) => Ok(BaselineStatus::Healthy(anchor)),
@@ -607,7 +739,7 @@ impl GitStore {
 
     /// Pinned anchor id for GC roots and sync start points.
     pub fn baseline_anchor_id(&self) -> Option<String> {
-        self.read_anchor().ok()??.id.into()
+        self.anchor_lossy().map(|anchor| anchor.id)
     }
 
     /// Move the baseline to a newly resolved commit. The old main tree is
@@ -615,7 +747,7 @@ impl GitStore {
     /// stays continuous; the previous chain is left as unreachable orphans
     /// under the normal grace window for rollback.
     pub fn rebase_to(&self, req: &BaselineRequest) -> Result<BaselineRebaseOutcome, GitStoreError> {
-        req.validate()?;
+        let locator = req.locator()?;
         let _seed_lock = SeedLock::acquire(self.git_dir())?;
         self.complete_pending_rebase()?;
         let Some(old_anchor) = self.read_anchor()? else {
@@ -628,12 +760,7 @@ impl GitStore {
         })?;
         let workspace_root = self.workspace_root().to_path_buf();
         let objects_dir = discover_user_objects_dir(&workspace_root)?;
-        let (commit, spec) = rev_parse_commit(
-            &workspace_root,
-            req.branch.as_deref(),
-            req.commit_prefix.as_deref(),
-            req.behind,
-        )?;
+        let (commit, spec) = rev_parse_commit(&workspace_root, &locator)?;
         if commit == old_anchor.id {
             let transplant = old_main.clone();
             return Ok(BaselineRebaseOutcome {
@@ -681,15 +808,14 @@ impl GitStore {
             super::commit::now_millis(),
             &message,
         )?;
-        let new_repo_id =
-            super::external::repository_stable_id(&workspace_root, &objects_dir);
         let new_anchor = BaselineAnchor {
             id: commit,
             mode: req.mode,
             objects_path: objects_dir.to_string_lossy().into_owned(),
             source_repo: source_repo.to_string_lossy().into_owned(),
             source_spec: spec,
-            repo_id: new_repo_id,
+            remote_identity: remote_origin_identity(&workspace_root),
+            objects_fingerprint: object_db_fingerprint(&workspace_root, &objects_dir),
             resolved_at_ms: super::commit::now_millis(),
         };
         self.write_pending_anchor(&new_anchor)?;

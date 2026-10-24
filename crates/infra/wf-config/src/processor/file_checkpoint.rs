@@ -159,6 +159,24 @@ pub fn validate_file_checkpoint_config(config: &FileCheckpointConfig) -> ConfigR
 /// rules in the checkpoint object store so misconfiguration fails fast
 /// instead of at first workspace open.
 fn validate_baseline_config(baseline: &BaselineConfig) -> ConfigResult<()> {
+    if let Some(tag) = baseline.tag.as_deref() {
+        if baseline.branch.is_some()
+            || baseline.commit_prefix.is_some()
+            || baseline.behind.is_some()
+        {
+            return Err(ConfigError::Validation(
+                "file_checkpoint.baseline tag is mutually exclusive with branch, commit_prefix, and behind"
+                    .to_string(),
+            ));
+        }
+        validate_plain_ref("tag", tag)?;
+        if tag.starts_with("refs/") && !tag.starts_with("refs/tags/") {
+            return Err(ConfigError::Validation(format!(
+                "file_checkpoint.baseline.tag must be a tag name or a refs/tags/ path: '{tag}'"
+            )));
+        }
+        return Ok(());
+    }
     if baseline.commit_prefix.is_some() && baseline.behind.is_some() {
         return Err(ConfigError::Validation(
             "file_checkpoint.baseline commit_prefix and behind are mutually exclusive".to_string(),
@@ -171,21 +189,11 @@ fn validate_baseline_config(baseline: &BaselineConfig) -> ConfigResult<()> {
     }
     if baseline.branch.is_none() && baseline.commit_prefix.is_none() {
         return Err(ConfigError::Validation(
-            "file_checkpoint.baseline needs a branch or a commit_prefix selector".to_string(),
+            "file_checkpoint.baseline needs a branch, commit_prefix, or tag selector".to_string(),
         ));
     }
     if let Some(branch) = baseline.branch.as_deref() {
-        let trimmed = branch.trim();
-        if trimmed.is_empty() || trimmed != branch {
-            return Err(ConfigError::Validation(
-                "file_checkpoint.baseline.branch must not be empty or padded".to_string(),
-            ));
-        }
-        if branch.starts_with('-') || branch.chars().any(|c| c.is_whitespace() || c.is_control()) {
-            return Err(ConfigError::Validation(format!(
-                "file_checkpoint.baseline.branch is not a plain ref name: '{branch}'"
-            )));
-        }
+        validate_plain_ref("branch", branch)?;
     }
     if let Some(prefix) = baseline.commit_prefix.as_deref() {
         let valid =
@@ -195,6 +203,21 @@ fn validate_baseline_config(baseline: &BaselineConfig) -> ConfigResult<()> {
                 "file_checkpoint.baseline.commit_prefix must be 4-40 hex chars, got '{prefix}'"
             )));
         }
+    }
+    Ok(())
+}
+
+fn validate_plain_ref(field: &str, name: &str) -> ConfigResult<()> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed != name {
+        return Err(ConfigError::Validation(format!(
+            "file_checkpoint.baseline.{field} must not be empty or padded"
+        )));
+    }
+    if name.starts_with('-') || name.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err(ConfigError::Validation(format!(
+            "file_checkpoint.baseline.{field} is not a plain ref name: '{name}'"
+        )));
     }
     Ok(())
 }
@@ -462,5 +485,52 @@ mod tests {
         let section = merged.scope_serialization.expect("section survives merge");
         assert!(!section.enabled);
         assert_eq!(section.lock_timeout_ms, Some(1000));
+    }
+}
+
+#[cfg(test)]
+mod baseline_selector_tests {
+    use super::*;
+    use wf_types::config::file_checkpoint::BaselineConfig;
+
+    fn config_with(baseline: BaselineConfig) -> FileCheckpointConfig {
+        FileCheckpointConfig {
+            enabled: true,
+            baseline: Some(baseline),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn tag_selector_is_accepted_and_exclusive() {
+        let tag = BaselineConfig {
+            tag: Some("v1.2.3".to_string()),
+            ..Default::default()
+        };
+        assert!(validate_file_checkpoint_config(&config_with(tag)).is_ok());
+
+        let full_ref = BaselineConfig {
+            tag: Some("refs/tags/v1.2.3".to_string()),
+            ..Default::default()
+        };
+        assert!(validate_file_checkpoint_config(&config_with(full_ref)).is_ok());
+
+        let with_branch = BaselineConfig {
+            tag: Some("v1".to_string()),
+            branch: Some("main".to_string()),
+            ..Default::default()
+        };
+        assert!(validate_file_checkpoint_config(&config_with(with_branch)).is_err());
+
+        let wrong_namespace = BaselineConfig {
+            tag: Some("refs/heads/main".to_string()),
+            ..Default::default()
+        };
+        assert!(validate_file_checkpoint_config(&config_with(wrong_namespace)).is_err());
+    }
+
+    #[test]
+    fn empty_selector_is_rejected() {
+        assert!(validate_file_checkpoint_config(&config_with(BaselineConfig::default())).is_err());
     }
 }

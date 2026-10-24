@@ -348,4 +348,75 @@ mod tests {
             Some("https://${input.a}/token")
         );
     }
+
+    #[test]
+    fn transform_parameters_precede_environment_and_default() {
+        std::env::set_var("WF_TEST_PREC", "env-value");
+        let mut provider = device_provider();
+        provider.token_url = Some("https://${WF_TEST_PREC:default.test}/token".to_string());
+        let mut params = std::collections::HashMap::new();
+        params.insert("WF_TEST_PREC".to_string(), "param-value".to_string());
+        let transformed = transform_auth_providers(&[provider], &params).expect("transform");
+        assert_eq!(
+            transformed[0].token_url.as_deref(),
+            Some("https://param-value/token")
+        );
+        std::env::remove_var("WF_TEST_PREC");
+    }
+
+    #[test]
+    fn transform_falls_back_to_default_when_env_empty() {
+        std::env::set_var("WF_TEST_EMPTY", "");
+        let mut provider = device_provider();
+        provider.token_url = Some("https://${WF_TEST_EMPTY:-fallback.test}/token".to_string());
+        let transformed =
+            transform_auth_providers(&[provider], &std::collections::HashMap::new())
+                .expect("transform");
+        assert_eq!(
+            transformed[0].token_url.as_deref(),
+            Some("https://fallback.test/token")
+        );
+        std::env::remove_var("WF_TEST_EMPTY");
+    }
+
+    #[test]
+    fn transform_leaves_missing_placeholder_without_default() {
+        let mut provider = device_provider();
+        provider.token_url = Some("https://${WF_TEST_NOPE}/token".to_string());
+        let transformed =
+            transform_auth_providers(&[provider], &std::collections::HashMap::new())
+                .expect("transform");
+        assert_eq!(
+            transformed[0].token_url.as_deref(),
+            Some("https://${WF_TEST_NOPE}/token")
+        );
+    }
+
+    #[test]
+    fn transform_expands_multiple_placeholders() {
+        let mut provider = device_provider();
+        provider.token_url = Some("https://${H1}.${H2}/token".to_string());
+        let mut params = std::collections::HashMap::new();
+        params.insert("H1".to_string(), "a".to_string());
+        params.insert("H2".to_string(), "b".to_string());
+        let transformed = transform_auth_providers(&[provider], &params).expect("transform");
+        assert_eq!(
+            transformed[0].token_url.as_deref(),
+            Some("https://a.b/token")
+        );
+    }
+
+    #[test]
+    fn transform_supports_dash_default_variant() {
+        let mut provider = device_provider();
+        provider.token_url = Some("https://${WF_TEST_MISSING_DASH:-dash.test}/token".to_string());
+        std::env::remove_var("WF_TEST_MISSING_DASH");
+        let transformed =
+            transform_auth_providers(&[provider], &std::collections::HashMap::new())
+                .expect("transform");
+        assert_eq!(
+            transformed[0].token_url.as_deref(),
+            Some("https://dash.test/token")
+        );
+    }
 }

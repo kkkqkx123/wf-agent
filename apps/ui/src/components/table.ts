@@ -1,5 +1,8 @@
 import type { Snippet } from 'svelte';
 
+/** Row count above which a list switches to windowed rendering. */
+export const DEFAULT_VIRTUALIZE_THRESHOLD = 200;
+
 /**
  * Column descriptor for DataTable. Use `text` for plain values and `cell` when
  * a row needs richer markup; `cell` wins when both are provided.

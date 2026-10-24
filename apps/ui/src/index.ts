@@ -40,5 +40,4 @@ export * from './components/variants';
 export * from './cn';
 export * from './status';
 export * from './format';
-export * from './virtualization';
 export * from './link';

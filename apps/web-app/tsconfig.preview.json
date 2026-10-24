@@ -1,0 +1,10 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"paths": {
+			"#lib/*": ["./src/lib/*"],
+			"#lib/api/client": ["./src/lib/api/client.preview.ts"],
+			"#paraglide/*": ["./src/lib/paraglide/*"]
+		}
+	}
+}

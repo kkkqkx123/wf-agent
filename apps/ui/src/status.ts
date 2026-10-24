@@ -10,70 +10,6 @@ export interface StatusMeta {
 }
 
 /**
- * The transport contract types status fields as plain strings, so unknown
- * values are expected. Every lookup falls back to the neutral tone instead of
- * leaving a badge unstyled.
- */
-const TONE_BY_STATUS: Record<string, StatusTone> = {
-	completed: 'success',
-	complete: 'success',
-	success: 'success',
-	succeeded: 'success',
-	done: 'success',
-	ok: 'success',
-	healthy: 'success',
-	active: 'success',
-	enabled: 'success',
-	approved: 'success',
-
-	failed: 'danger',
-	failure: 'danger',
-	error: 'danger',
-	errored: 'danger',
-	timeout: 'danger',
-	timed_out: 'danger',
-	aborted: 'danger',
-	crashed: 'danger',
-	rejected: 'danger',
-	unhealthy: 'danger',
-
-	running: 'running',
-	in_progress: 'running',
-	executing: 'running',
-	streaming: 'running',
-	started: 'running',
-	resumed: 'running',
-
-	paused: 'warning',
-	pending: 'warning',
-	queued: 'warning',
-	waiting: 'warning',
-	suspended: 'warning',
-	retrying: 'warning',
-	degraded: 'warning',
-
-	cancelled: 'neutral',
-	canceled: 'neutral',
-	skipped: 'neutral',
-	draft: 'neutral',
-	archived: 'neutral',
-	disabled: 'neutral',
-	idle: 'neutral',
-	unknown: 'neutral',
-	stopped: 'neutral',
-
-	new: 'info',
-	created: 'info',
-	scheduled: 'info',
-	cached: 'info',
-};
-
-export function statusTone(status: string | null | undefined): StatusTone {
-	if (!status) return 'neutral';
-	return TONE_BY_STATUS[status.trim().toLowerCase()] ?? 'neutral';
-}
-
-/**
  * Explicit status dictionary. Color never stands alone: list rows pair the
  * icon below with the label so boundary states stay scannable.
  */
@@ -125,6 +61,12 @@ const STATUS_META: Record<string, StatusMeta> = {
 	stopped: { tone: 'neutral', icon: 'square', label: 'Stopped' },
 	cached: { tone: 'info', icon: 'zap', label: 'Cached' },
 };
+
+/** Resolves a raw status onto its semantic tone. */
+export function statusTone(status: string | null | undefined): StatusTone {
+	if (!status) return 'neutral';
+	return STATUS_META[status.trim().toLowerCase()]?.tone ?? 'neutral';
+}
 
 /** Dictionary entry for a raw status; unknown values keep their own text. */
 export function statusMeta(status: string | null | undefined): StatusMeta {

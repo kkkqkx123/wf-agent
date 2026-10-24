@@ -31,7 +31,6 @@
 		"./cn": "./src/cn.ts",
 		"./status": "./src/status.ts",
 		"./format": "./src/format.ts",
-		"./virtualization": "./src/virtualization.ts",
 		"./link": "./src/link.ts",
 		"./styles/*": "./src/styles/*"
 	},

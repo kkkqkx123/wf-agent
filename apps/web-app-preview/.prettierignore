@@ -1,7 +1,0 @@
-node_modules
-dist
-build
-coverage
-.svelte-kit
-src/lib/api/schema.d.ts
-pnpm-lock.yaml

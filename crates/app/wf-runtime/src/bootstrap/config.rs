@@ -370,17 +370,35 @@ pub async fn resolve_infra_config(
     // Load declarative LLM auth surfaces from the user-level/project-level
     // `llm-auth` family so `LlmConfig.auth` can be driven by config files
     // instead of programmatic defaults. An explicitly populated auth config
-    // keeps its higher priority.
-    if config.llm.auth == wf_types::config::llm_auth::AuthConfig::default()
-        && !project_root.as_os_str().is_empty()
-    {
-        match wf_config::llm_auth::load_llm_auth_config(&project_root) {
-            Ok(auth) => {
-                if !auth.providers.is_empty() {
-                    config.llm.auth = auth;
+    // keeps its higher priority. Project roots win; when they yield nothing
+    // the global settings dir is the fallback so global-only hosts still
+    // pick up declarations.
+    if config.llm.auth == wf_types::config::llm_auth::AuthConfig::default() {
+        if !project_root.as_os_str().is_empty() {
+            match wf_config::llm_auth::load_llm_auth_config(&project_root) {
+                Ok(auth) => {
+                    if !auth.providers.is_empty() {
+                        config.llm.auth = auth;
+                    }
+                }
+                Err(e) => warn!(error = %e, "failed to load llm-auth config; keeping defaults"),
+            }
+        }
+        if config.llm.auth == wf_types::config::llm_auth::AuthConfig::default() {
+            if let Some(settings_dir) = infra.settings_dir.as_deref() {
+                let dir = wf_config::llm_auth::get_global_llm_auth_path(settings_dir);
+                match wf_config::llm_auth::load_auth_config_from_dir(&dir) {
+                    Ok(Some(auth)) => {
+                        if !auth.providers.is_empty() {
+                            config.llm.auth = auth;
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        warn!(error = %e, "failed to load global llm-auth config; keeping defaults")
+                    }
                 }
             }
-            Err(e) => warn!(error = %e, "failed to load llm-auth config; keeping defaults"),
         }
     }
 

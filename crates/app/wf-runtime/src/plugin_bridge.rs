@@ -108,8 +108,11 @@ impl WfPluginBridge {
     /// wrap each owned `PluginLlmAuth` in a `PluginAuthAdapter` and register
     /// it under the auth name — the credential owner and login entry point
     /// profiles reference through their `auth` section. Declared parameters
-    /// come from the provider definition referencing the auth (the first
-    /// one wins when several do).
+    /// come from the provider definition referencing the auth (sorted
+    /// provider-id order wins when several do; sharing an auth requires
+    /// identical params). The adapter is OAuth-only: plugin login always
+    /// produces an OAuth credential, API-key paste stays on built-in
+    /// surfaces.
     ///
     /// Then verify every owned provider definition that declares an auth
     /// reference resolves to one of this plugin's registered auths: a
@@ -438,14 +441,20 @@ impl ContributionBridge for WfPluginBridge {
 }
 
 /// Declared auth parameters for one auth name as a JSON object: taken from
-/// the first provider definition owned by the same plugin that references
-/// it. When several definitions reference the same auth the first one wins.
+/// the provider definition owned by the same plugin that references it.
+/// Definitions are visited in sorted provider-id order so the winner is
+/// deterministic when several reference the same auth. Sharing an auth name
+/// means sharing one credential owner, so all referencing definitions must
+/// carry identical params; the first sorted winner is used and divergence
+/// is a declaration error the plugin author must fix.
 fn auth_params_for(
     plugin_id: &str,
     manager: &ContributionManager,
     auth_name: &str,
 ) -> Option<Value> {
-    for (id, owner) in manager.all_llm_provider_definitions() {
+    let mut definitions: Vec<_> = manager.all_llm_provider_definitions();
+    definitions.sort_by(|a, b| a.0.cmp(&b.0));
+    for (id, owner) in definitions {
         if owner != plugin_id {
             continue;
         }

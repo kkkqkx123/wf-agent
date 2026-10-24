@@ -457,6 +457,10 @@ mod tests {
         for uri in [
             "/api/v1/templates/node/missing",
             "/api/v1/templates/trigger/missing",
+            "/api/v1/templates/node/drafts/missing",
+            "/api/v1/templates/trigger/drafts/missing",
+            "/api/v1/templates/node/missing/versions/v1",
+            "/api/v1/templates/trigger/missing/versions/v1",
             "/api/v1/templates/library/workflows/missing",
             "/api/v1/templates/library/agents/missing",
         ] {
@@ -467,6 +471,14 @@ mod tests {
         for uri in [
             "/api/v1/templates/library/workflows",
             "/api/v1/templates/library/agents",
+            "/api/v1/templates/node/drafts",
+            "/api/v1/templates/trigger/drafts",
+            "/api/v1/templates/node/missing/versions",
+            "/api/v1/templates/trigger/missing/versions",
+            "/api/v1/templates/node/missing/lock",
+            "/api/v1/templates/trigger/missing/lock",
+            "/api/v1/templates/node/missing/lifecycle",
+            "/api/v1/templates/trigger/missing/lifecycle",
         ] {
             let response = send(ctx.clone(), uri).await;
             assert_eq!(response.status(), StatusCode::OK, "uri: {uri}");

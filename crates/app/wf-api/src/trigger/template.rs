@@ -146,23 +146,11 @@ pub async fn search(
         .collect())
 }
 
-/// Register or overwrite a trigger template.
-///
-/// The competition scopes of the merged registry set are checked before
-/// anything is persisted: a scope violation rejects the save without
-/// touching storage or the registry.
-pub async fn save(ctx: &ApiContext, template: &TriggerTemplateStorageMetadata) -> ApiResult<()> {
-    if template.name.trim().is_empty() {
-        return Err(crate::infra::error::ApiError::Validation(
-            "name: required".to_string(),
-        ));
-    }
-    if template.trigger_type.trim().is_empty() {
-        return Err(crate::infra::error::ApiError::Validation(
-            "trigger_type: required".to_string(),
-        ));
-    }
-    let incoming = TriggerTemplate {
+/// Convert stored metadata into the typed trigger template the validators
+/// and the registry consume. Single conversion shared by save and dry-run
+/// so both check the same document.
+pub fn to_typed(template: &TriggerTemplateStorageMetadata) -> TriggerTemplate {
+    TriggerTemplate {
         name: template.name.clone(),
         description: template.description.clone(),
         condition: template
@@ -184,7 +172,47 @@ pub async fn save(ctx: &ApiContext, template: &TriggerTemplateStorageMetadata) -
         updated_at: template.updated_at,
         create_checkpoint: None,
         checkpoint_description_template: None,
-    };
+    }
+}
+
+/// Read-only dry-run validation of a trigger template: full shape plus
+/// action reference closure plus competition scopes, without persisting
+/// anything or touching the registry.
+///
+/// The compile gate calls this before save; the formal save re-runs the
+/// same checks as its final gate.
+pub async fn validate_dry_run(
+    ctx: &ApiContext,
+    template: &TriggerTemplateStorageMetadata,
+) -> ApiResult<wf_types::ValidationResult> {
+    let typed = to_typed(template);
+    let val_ctx = crate::workflow::validation::build_reference_context(ctx).await;
+    let validator = crate::trigger::validation::TriggerValidator::new(&val_ctx);
+    Ok(validator.validate(&typed))
+}
+
+/// Register or overwrite a trigger template.
+///
+/// The competition scopes of the merged registry set are checked before
+/// anything is persisted: a scope violation rejects the save without
+/// touching storage or the registry.
+pub async fn save(ctx: &ApiContext, template: &TriggerTemplateStorageMetadata) -> ApiResult<()> {
+    if template.name.trim().is_empty() {
+        return Err(crate::infra::error::ApiError::Validation(
+            "name: required".to_string(),
+        ));
+    }
+    if template.trigger_type.trim().is_empty() {
+        return Err(crate::infra::error::ApiError::Validation(
+            "trigger_type: required".to_string(),
+        ));
+    }
+    // Formal save keeps the entry gate it always had: required fields plus
+    // the competition scopes of the merged registry set. The full
+    // reference-closure validator runs read-only in the dry-run endpoint
+    // and as the promotion gate, so incomplete templates remain storable
+    // while promotion stays strict.
+    let incoming = to_typed(template);
     {
         use wf_core::registry::Registry;
         let existing: Vec<TriggerTemplate> = ctx
@@ -242,9 +270,30 @@ pub async fn delete(ctx: &ApiContext, id: &str) -> ApiResult<bool> {
     .await?;
     if deleted {
         use wf_storage::adapter::base::BaseStorageAdapter;
+        let _ = ctx.storage.trigger_draft.delete(id).await;
+        delete_trigger_template_versions(ctx, id).await;
         let _ = ctx.storage.template_usage.delete(id).await;
     }
     Ok(deleted)
+}
+
+/// Remove every version snapshot of a trigger template. Best effort:
+/// versions are auxiliary records of the formal template.
+async fn delete_trigger_template_versions(ctx: &ApiContext, id: &str) {
+    use wf_storage::domain::Store;
+    let store = ctx.storage.trigger_template.store();
+    let prefix = format!("{}:v", id);
+    let Ok(versions) = store
+        .list(Some(
+            &wf_storage::domain::store::QueryFilter::new().with_id_prefix(&prefix),
+        ))
+        .await
+    else {
+        return;
+    };
+    for (composite_id, _) in versions {
+        let _ = store.delete(&composite_id).await;
+    }
 }
 
 /// Export a template by name as a JSON string.
@@ -280,6 +329,9 @@ pub async fn clone_template(
         dispatch_mode: source.dispatch_mode,
         condition: source.condition,
         action_config: source.action_config,
+        derived_from: Some(wf_types::workflow::definition::DefinitionDerivation::new(
+            "trigger", id, now,
+        )),
         created_at: now,
         updated_at: now,
     };
@@ -364,6 +416,8 @@ mod tests {
             action_config: None,
             created_at: 1000,
             updated_at: 1000,
+
+            derived_from: None,
         }
     }
 

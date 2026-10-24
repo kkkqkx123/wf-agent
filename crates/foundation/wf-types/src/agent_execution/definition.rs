@@ -18,6 +18,10 @@ pub struct AgentExecution {
     pub status: AgentExecutionStatus,
     pub current_iteration: u32,
     pub tool_call_count: u32,
+    /// The execution this run was rerun from, when created through the
+    /// server rerun path. Lets a new run point back at the run it replaced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rerun_of: Option<Id>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iteration_history: Option<Vec<IterationRecord>>,
     pub started_at: Timestamp,
@@ -50,6 +54,7 @@ impl From<AgentStateSnapshot> for AgentExecution {
             id: snapshot.agent_loop_id,
             definition_id: String::new(),
             execution_type: crate::execution::ExecutionType::Agent,
+            rerun_of: None,
             status,
             current_iteration: snapshot.current_iteration,
             tool_call_count: snapshot.tool_call_count,

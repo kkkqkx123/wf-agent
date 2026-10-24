@@ -58,6 +58,13 @@
 		(page.url as unknown as URL).searchParams.get('fromTemplate') ?? '',
 	);
 
+	// A run id travels in `?run=` when the user arrives from the execution
+	// domain. The graph tab projects that specific run instead of the latest
+	// one so history links stay precise.
+	const requestedRun = $derived(
+		(page.url as unknown as URL).searchParams.get('run') ?? '',
+	);
+
 	$effect(() => {
 		gotoWithParams(page.url as unknown as URL, {
 			tab: tab === 'graph' ? '' : tab,
@@ -256,6 +263,27 @@
 	$effect(() => session.notifyLockLoss());
 	$effect(() => session.syncLeaveEdit());
 	$effect(() => session.presenceEffect());
+
+	// Deep link from the execution domain: project the requested run onto
+	// the definition graph instead of the latest one. Runs once per run id;
+	// dismissing the overlay clears `?run=` so this does not reload.
+	$effect(() => {
+		if (tab !== 'graph') return;
+		if (!detail || !requestedRun) return;
+		if (graphState.overlayRunId === requestedRun) return;
+		if (graphState.overlayLoading) return;
+		if (graphState.executionOverlay?.runId === requestedRun) return;
+		void graphState.loadRunOverlay(requestedRun);
+	});
+
+	function clearRunOverlay(): void {
+		graphState.clearExecutionOverlay();
+		const url = page.url as unknown as URL;
+		if (!url.searchParams.get('run')) return;
+		url.searchParams.delete('run');
+		const next = `${url.pathname}${url.search ? `?${url.searchParams.toString()}` : ''}${url.hash}`;
+		void goto(next, { replaceState: true, reset: false });
+	}
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -368,6 +396,7 @@
 				{edges}
 				state={graphState}
 				onedit={() => session.requestTab('edit')}
+				onclearoverlay={() => clearRunOverlay()}
 			/>
 		{:else if tab === 'edit'}
 			<p class="mb-2 text-caption text-muted-foreground">

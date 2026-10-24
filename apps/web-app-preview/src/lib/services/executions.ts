@@ -163,11 +163,6 @@ export async function getExecutionDetail(id: string): Promise<ExecutionDetail> {
 	};
 }
 
-/** Compatibility alias for the detail route. */
-export async function getExecution(id: string): Promise<ExecutionDetail> {
-	return getExecutionDetail(id);
-}
-
 /** Pause a running execution. */
 export async function pauseExecution(id: string): Promise<void> {
 	await call<unknown>(

@@ -27,6 +27,15 @@ pub struct WorkflowMetadata {
     pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
+    /// Where this definition was derived from, when it was created from a
+    /// template or cloned from another definition.
+    ///
+    /// First-class lineage for template-to-workflow derivation and clones:
+    /// publish/unpublish only flips the published mark, derivation always
+    /// writes this field, and history without it is treated as sourceless
+    /// rather than backfilled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derived_from: Option<DefinitionDerivation>,
     /// Whether the workflow is published to the template library.
     ///
     /// The marker lives with the definition because the registry is in
@@ -62,6 +71,33 @@ pub enum CompressionFallbackMode {
     /// notice as a degraded `CONTEXT_COMPRESSION_COMPLETED`, so the emitting
     /// execution survives with a context whose gaps it can see.
     PartialSummary,
+}
+
+/// First-class derivation lineage shared by every definition body.
+///
+/// A definition created from a template or cloned from another definition
+/// records its source here: the source kind (`workflow`, `agent`, `node`,
+/// `trigger`), the source id, and when the derivation happened. History
+/// without a source is sourceless; it is never backfilled.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DefinitionDerivation {
+    pub source_kind: String,
+    pub source_id: Id,
+    pub derived_at: Timestamp,
+}
+
+impl DefinitionDerivation {
+    pub fn new(
+        source_kind: impl Into<String>,
+        source_id: impl Into<Id>,
+        derived_at: Timestamp,
+    ) -> Self {
+        Self {
+            source_kind: source_kind.into(),
+            source_id: source_id.into(),
+            derived_at,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

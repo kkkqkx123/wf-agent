@@ -94,6 +94,11 @@ pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddleware
         .merge(api::llm::tools::routes())
         // template domain
         .merge(api::template::templates::routes())
+        .merge(api::template::node_drafts::routes())
+        .merge(api::template::node_versions::routes())
+        .merge(api::template::trigger_drafts::routes())
+        .merge(api::template::trigger_versions::routes())
+        .merge(api::template::locks::routes())
         .merge(api::template::queries::routes())
         .merge(api::template::library::routes())
         // entity domain (low-level storage CRUD + interactions + skills)

@@ -72,6 +72,8 @@ fn workflow_record(id: &str, hierarchy: Option<ExecutionHierarchy>) -> wf_types:
         execution_type: None,
         fork_join_context: None,
         hierarchy,
+
+        rerun_of: None,
     }
 }
 
@@ -91,6 +93,8 @@ fn agent_record(id: &str, hierarchy: Option<ExecutionHierarchy>) -> wf_types::Ag
         loop_config: None,
         permanently_failed_tools: None,
         hierarchy,
+
+        rerun_of: None,
     }
 }
 

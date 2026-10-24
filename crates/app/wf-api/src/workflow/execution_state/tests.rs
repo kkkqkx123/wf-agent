@@ -66,6 +66,8 @@ async fn degrades_gracefully_without_live_state() {
         execution_type: None,
         fork_join_context: None,
         hierarchy: None,
+
+        rerun_of: None,
     };
     ctx.storage.workflow_execution.save(&record).await.unwrap();
 
@@ -340,6 +342,8 @@ async fn deep_analysis_degrades_to_persisted() {
         execution_type: None,
         fork_join_context: None,
         hierarchy: None,
+
+        rerun_of: None,
     };
     ctx.storage.workflow_execution.save(&record).await.unwrap();
 

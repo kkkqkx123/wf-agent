@@ -24,6 +24,15 @@ pub async fn clone_workflow_template(
     cloned.definition.name = new_name.to_string();
     cloned.definition.created_at = wf_common::now();
     cloned.definition.updated_at = wf_common::now();
+    cloned
+        .definition
+        .metadata
+        .get_or_insert_with(Default::default)
+        .derived_from = Some(wf_types::workflow::definition::DefinitionDerivation::new(
+        "workflow",
+        id,
+        wf_common::now(),
+    ));
     register_workflow_template(ctx, &cloned).await?;
     Ok(cloned)
 }

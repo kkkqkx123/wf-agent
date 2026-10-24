@@ -26,12 +26,16 @@
 		state: WorkflowGraphState;
 		/** Enter the edit tab with the current selection. */
 		onedit?: () => void;
+		/** Clear the execution overlay; the host also drops `?run=` so a
+		 * dismissed deep link does not reload on the next effect run. */
+		onclearoverlay?: () => void;
 	}
 
 	// Selection, overlays and analysis live in the route-owned state object so
 	// leaving the tab and returning keeps them; the route reloads it with the
 	// detail (load/promotion), matching the pre-split page behavior.
-	let { detail, nodes, edges, state: graph, onedit }: Props = $props();
+	let { detail, nodes, edges, state: graph, onedit, onclearoverlay }: Props =
+		$props();
 
 	// The log strip shares the tab so graph context and recent runs stay
 	// visible together; collapsed by default to preserve canvas height.
@@ -79,7 +83,7 @@
 {#await import('#lib/components/domain/GraphExplorer.svelte') then module}
 	<div class="mb-2 flex flex-wrap items-center gap-2">
 		{#if overlayActive && graph.overlayRunId}
-			<Badge variant="info">Latest run {graph.overlayRunId.slice(0, 8)}</Badge>
+			<Badge variant="info">Run {graph.overlayRunId.slice(0, 8)}</Badge>
 			<Button
 				variant="ghost"
 				size="sm"
@@ -90,7 +94,10 @@
 			<Button
 				variant="ghost"
 				size="sm"
-				onclick={() => graph.clearExecutionOverlay()}
+				onclick={() => {
+					if (onclearoverlay) onclearoverlay();
+					else graph.clearExecutionOverlay();
+				}}
 			>
 				Hide run overlay
 			</Button>

@@ -74,6 +74,7 @@
 	"page.executionDetail.pause": "Pause execution",
 	"page.executionDetail.resume": "Resume execution",
 	"page.executionDetail.titleFallback": "Execution detail",
+	"page.executionDetail.viewOnGraph": "View on graph",
 	"page.executions.cards": "Cards",
 	"page.executions.columnExecution": "Execution",
 	"page.executions.columnStarted": "Started",

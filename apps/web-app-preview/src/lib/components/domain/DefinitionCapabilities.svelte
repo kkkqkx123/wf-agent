@@ -109,9 +109,7 @@
 
 <div class="space-y-3">
 	<div class="flex flex-wrap items-center gap-2 text-caption">
-		{#if !lock.supported}
-			<Badge variant="warning">{t('domain.workflowEdit.noLock')}</Badge>
-		{:else if lock.held}
+		{#if lock.held}
 			<Badge variant="success">{t('domain.workflowEdit.lockHeld')}</Badge>
 		{:else if lock.lockedByOther}
 			<Badge variant="danger"
@@ -127,7 +125,7 @@
 				>{t('domain.workflowEdit.lockQueryFailed')}</span
 			>
 		{/if}
-		{#if lock.supported && !lock.held}
+		{#if !lock.held}
 			<Button size="sm" onclick={() => void lock.acquire()}>
 				{t('domain.definition.acquireLock')}
 			</Button>

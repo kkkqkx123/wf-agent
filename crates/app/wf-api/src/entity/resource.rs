@@ -272,6 +272,8 @@ mod tests {
             action_config: None,
             created_at: 1000,
             updated_at: 1000,
+
+            derived_from: None,
         };
         ctx.trigger_template.save(&template).await.unwrap();
         let loaded: wf_types::TriggerTemplateStorageMetadata =

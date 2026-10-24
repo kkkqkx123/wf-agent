@@ -19,11 +19,23 @@ fn validate_template(template: &NodeTemplateStorageMetadata) -> crate::ApiResult
 /// Save a node template to storage and upsert it into the shared registry.
 ///
 /// Single write entry so the HTTP surface never drifts from the runtime.
+/// The dry-run validator runs as the final gate: a template that fails it
+/// is rejected without touching storage or the registry.
 pub async fn save_node_template(
     ctx: &crate::infra::context::ApiContext,
     template: &NodeTemplateStorageMetadata,
 ) -> crate::ApiResult<()> {
     validate_template(template)?;
+    let dry_run = validate_node_template_dry_run(template);
+    if !dry_run.is_valid() {
+        let detail = dry_run
+            .errors
+            .iter()
+            .map(|e| format!("{}: {}", e.field, e.message))
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(ApiError::Validation(detail));
+    }
     ctx.storage.node_template.save(template).await?;
     ctx.registries
         .upsert_node_template(wf_types::workflow::node_template::NodeTemplate {
@@ -47,6 +59,9 @@ pub async fn get_node_template(
 }
 
 /// Delete a node template from storage and evict it from the registry.
+///
+/// Deleting the formal template cascades to its draft and its version
+/// snapshots; derived templates are independent instances and are kept.
 pub async fn delete_node_template(
     ctx: &crate::infra::context::ApiContext,
     id: &str,
@@ -54,9 +69,30 @@ pub async fn delete_node_template(
     let deleted = ctx.storage.node_template.delete(id).await?;
     if deleted {
         ctx.registries.remove_node_template(id);
+        let _ = ctx.storage.node_draft.delete(id).await;
+        delete_node_template_versions(ctx, id).await;
         let _ = ctx.storage.template_usage.delete(id).await;
     }
     Ok(deleted)
+}
+
+/// Remove every version snapshot of a node template. Best effort: versions
+/// are auxiliary records of the formal template.
+async fn delete_node_template_versions(ctx: &crate::infra::context::ApiContext, id: &str) {
+    use wf_storage::domain::Store;
+    let store = ctx.storage.node_template.store();
+    let prefix = format!("{}:v", id);
+    let Ok(versions) = store
+        .list(Some(
+            &wf_storage::domain::store::QueryFilter::new().with_id_prefix(&prefix),
+        ))
+        .await
+    else {
+        return;
+    };
+    for (composite_id, _) in versions {
+        let _ = store.delete(&composite_id).await;
+    }
 }
 
 pub async fn list_node_templates(
@@ -74,6 +110,28 @@ pub async fn list_node_templates_by_type(
         .list_by_node_type(node_type)
         .await
         .map_err(Into::into)
+}
+
+/// Read-only dry-run validation of a node template: the full builder
+/// validator runs without persisting anything or touching the registry.
+///
+/// The compile gate calls this before save; the formal save re-runs the
+/// same check as its final gate.
+pub fn validate_node_template_dry_run(
+    template: &NodeTemplateStorageMetadata,
+) -> wf_types::ValidationResult {
+    let mut result = wf_types::ValidationResult::default();
+    let typed = wf_types::workflow::node_template::NodeTemplate {
+        id: template.id.to_string(),
+        name: template.name.clone(),
+        description: template.description.clone().unwrap_or_default(),
+        node_type: template.node_type.clone(),
+        default_config: None,
+    };
+    if let Err(e) = wf_config::processor::node_template::validate_node_template(&typed) {
+        result.push_error(wf_types::ValidationError::new("template", e.to_string()));
+    }
+    result
 }
 
 /// Digest of a node template.
@@ -134,6 +192,9 @@ pub async fn clone_template(
         name: new_name.to_string(),
         node_type: source.node_type,
         description: source.description,
+        derived_from: Some(wf_types::workflow::definition::DefinitionDerivation::new(
+            "node", id, now,
+        )),
         created_at: now,
         updated_at: now,
     };
@@ -163,6 +224,8 @@ mod tests {
             description: None,
             created_at: 1000,
             updated_at: 1000,
+
+            derived_from: None,
         }
     }
 

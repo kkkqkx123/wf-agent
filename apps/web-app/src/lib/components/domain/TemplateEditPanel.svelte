@@ -374,6 +374,10 @@
 			{t('domain.templateEdit.noNodesArray')}
 		</p>
 	{:else}
+		<!-- Template graphs stay edit-only by design: the JSON, form and canvas
+			fold into an unsaved session document, so projecting a run onto a
+			draft topology would mislead. Execution overlay lives on the
+			workflow graph tab, which reads a stored definition. -->
 		<p class="text-micro text-muted-foreground">
 			{t('domain.templateEdit.graphHint')}
 		</p>

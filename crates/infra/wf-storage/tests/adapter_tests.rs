@@ -52,6 +52,8 @@ fn make_exec(i: u32) -> wf_types::WorkflowExecution {
         execution_type: None,
         fork_join_context: None,
         hierarchy: None,
+
+        rerun_of: None,
     }
 }
 
@@ -143,6 +145,8 @@ async fn test_node_template_adapter_list_by_node_type() {
             description: None,
             created_at: 1000,
             updated_at: 1000,
+
+            derived_from: None,
         })
         .await
         .unwrap();
@@ -154,6 +158,8 @@ async fn test_node_template_adapter_list_by_node_type() {
             description: None,
             created_at: 1001,
             updated_at: 1001,
+
+            derived_from: None,
         })
         .await
         .unwrap();

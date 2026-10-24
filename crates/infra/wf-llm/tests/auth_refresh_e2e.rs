@@ -42,7 +42,10 @@ async fn refresh_reuses_old_refresh_token_when_server_omits_it() {
     };
     let refreshed = auth.refresh(&credential).await.expect("refresh");
     assert_eq!(refreshed.access, "at2");
-    assert_eq!(refreshed.refresh, "rt-old", "old refresh token must be reused");
+    assert_eq!(
+        refreshed.refresh, "rt-old",
+        "old refresh token must be reused"
+    );
     assert_eq!(refreshed.extra, extra, "extra must be preserved");
 }
 

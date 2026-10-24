@@ -38,6 +38,9 @@ pub struct AgentExecutionSummary {
     pub end_time: Option<i64>,
     pub error: Option<String>,
     pub parent_execution_id: Option<String>,
+    /// The run this run was rerun from, when created through rerun.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rerun_of: Option<String>,
     /// Agent definition this run belongs to. Present for live runs and for
     /// persisted records that carry it, so definition filtering works
     /// without consulting the live registry.
@@ -95,6 +98,7 @@ pub async fn summaries(
             end_time: record.completed_at,
             error: record.error.clone(),
             parent_execution_id,
+            rerun_of: record.rerun_of.clone().map(|id| id.to_string()),
             definition_id,
         });
     }
@@ -231,6 +235,7 @@ async fn live_records(
                 end_time: state.end_time(),
                 error: state.error().map(String::from),
                 parent_execution_id: entity.parent_execution_id().map(|p| p.to_string()),
+                rerun_of: None,
                 definition_id: Some(entity.definition_id().to_string()),
             });
         }

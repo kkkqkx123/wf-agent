@@ -133,6 +133,8 @@ pub async fn build_workflow_execution(
         execution_type,
         fork_join_context: None,
         hierarchy,
+
+        rerun_of: None,
     }
 }
 

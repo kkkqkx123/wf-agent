@@ -68,10 +68,8 @@ export interface TemplateEditRouteContext {
  * guards and detail loading.
  *
  * Editing follows the unified definition state machine (lock, draft,
- * validate, promote) where the backend supports it: workflow and agent
- * templates acquire the single-writer lock and pass the server compile
- * gate before save; node and trigger entries keep local hints with
- * save-time server validation and no lock.
+ * validate, promote): every kind acquires the single-writer lock and
+ * passes the server compile gate before save.
  */
 export class TemplateEditController {
 	private context: TemplateEditRouteContext;
@@ -95,6 +93,9 @@ export class TemplateEditController {
 
 	// Controlled graph edit state for workflow templates. The canvas only
 	// emits intents; every mutation lands here and re-renders from it.
+	// Positions stay ephemeral here: templates have no layout endpoint, so
+	// `layoutDirty` is intentionally unwired and only the session document
+	// guards unsaved changes.
 	templateEditStore = new GraphEditStore();
 	session = new TemplateEditSession();
 	graphRequest = $state(0);
@@ -210,9 +211,15 @@ export class TemplateEditController {
 		return this.lockStore?.displayHolder ?? '';
 	}
 
-	private lockKind(): 'workflow' | 'agent' | null {
+	private lockKind(): 'workflow' | 'agent' | 'node' | 'trigger' | null {
 		const kind = this.kind;
-		if (kind === 'workflow' || kind === 'agent') return kind;
+		if (
+			kind === 'workflow' ||
+			kind === 'agent' ||
+			kind === 'node' ||
+			kind === 'trigger'
+		)
+			return kind;
 		return null;
 	}
 

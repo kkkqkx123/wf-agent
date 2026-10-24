@@ -773,3 +773,48 @@ async fn executes_pinned_version_instead_of_current_definition() {
         "broken current definition must fail validation"
     );
 }
+
+#[tokio::test]
+async fn rerun_links_new_execution_to_source() {
+    let ctx = make_ctx();
+    ctx.storage
+        .workflow
+        .save(&make_definition("wf-rerun"))
+        .await
+        .unwrap();
+    crate::workflow::version::save_workflow_version(
+        &ctx,
+        "wf-rerun",
+        "1.0.0",
+        &make_definition("wf-rerun"),
+    )
+    .await
+    .unwrap();
+
+    let first = execute(
+        &ctx,
+        ExecuteWorkflowParams {
+            workflow_id: "wf-rerun".into(),
+            version: Some("1.0.0".into()),
+            input: Some(serde_json::json!({"greeting": "again"})),
+            options: None,
+        },
+    )
+    .await
+    .expect("first run should complete");
+
+    let second = super::lifecycle::rerun(&ctx, &first.execution_id.to_string())
+        .await
+        .expect("rerun should complete");
+    assert_ne!(second.execution_id, first.execution_id);
+
+    let record = crate::workflow::execution::get_execution(&ctx, &second.execution_id.to_string())
+        .await
+        .expect("rerun record must be persisted");
+    assert_eq!(record.workflow_version.as_deref(), Some("1.0.0"));
+    assert_eq!(
+        record.rerun_of,
+        Some(first.execution_id.clone()),
+        "rerun record must point back at its source"
+    );
+}

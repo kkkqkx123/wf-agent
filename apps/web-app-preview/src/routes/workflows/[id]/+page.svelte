@@ -50,6 +50,21 @@
 			: 'graph',
 	);
 
+	// A workflow is the runnable instance derived from a reusable template
+	// view. The origin id travels in `?fromTemplate=` when it was just
+	// created from the library, so this page can link back instead of
+	// forking a silent copy.
+	const fromTemplate = $derived(
+		(page.url as unknown as URL).searchParams.get('fromTemplate') ?? '',
+	);
+
+	// A run id travels in `?run=` when the user arrives from the execution
+	// domain. The graph tab projects that specific run instead of the latest
+	// one so history links stay precise.
+	const requestedRun = $derived(
+		(page.url as unknown as URL).searchParams.get('run') ?? '',
+	);
+
 	$effect(() => {
 		gotoWithParams(page.url as unknown as URL, {
 			tab: tab === 'graph' ? '' : tab,
@@ -248,6 +263,27 @@
 	$effect(() => session.notifyLockLoss());
 	$effect(() => session.syncLeaveEdit());
 	$effect(() => session.presenceEffect());
+
+	// Deep link from the execution domain: project the requested run onto
+	// the definition graph instead of the latest one. Runs once per run id;
+	// dismissing the overlay clears `?run=` so this does not reload.
+	$effect(() => {
+		if (tab !== 'graph') return;
+		if (!detail || !requestedRun) return;
+		if (graphState.overlayRunId === requestedRun) return;
+		if (graphState.overlayLoading) return;
+		if (graphState.executionOverlay?.runId === requestedRun) return;
+		void graphState.loadRunOverlay(requestedRun);
+	});
+
+	function clearRunOverlay(): void {
+		graphState.clearExecutionOverlay();
+		const url = page.url as unknown as URL;
+		if (!url.searchParams.get('run')) return;
+		url.searchParams.delete('run');
+		const next = `${url.pathname}${url.search ? `?${url.searchParams.toString()}` : ''}${url.hash}`;
+		void goto(next, { replaceState: true, reset: false });
+	}
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -285,6 +321,7 @@
 					size="sm"
 					disabled={publishBusy}
 					onclick={() => void runTogglePublish()}
+					title="Publish the reusable template view of this definition"
 				>
 					<Icon name={workflow.published ? 'archive' : 'upload'} size={13} />
 					{workflow.published
@@ -306,6 +343,7 @@
 			<Button
 				variant="brand"
 				size="sm"
+				title="Start a run in the execution domain"
 				onclick={() => {
 					const id = page.params.id;
 					if (id) void goToRunWorkbench(id);
@@ -325,6 +363,20 @@
 	/>
 
 	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+		{#if fromTemplate}
+			<p
+				class="mb-2 rounded-lg border border-border bg-card px-3 py-2 text-caption text-muted-foreground"
+			>
+				Runnable instance derived from template
+				<a
+					class="font-mono underline-offset-2 hover:underline"
+					href={`/templates/workflow/${encodeURIComponent(fromTemplate)}`}
+				>
+					{fromTemplate}
+				</a>
+				· the template stays the reusable view, this workflow is the runnable instance.
+			</p>
+		{/if}
 		{#if detailLoading}
 			<Skeleton lines={6} class="rounded-lg border border-border bg-card p-4" />
 		{:else if detailError || !detail}
@@ -344,8 +396,16 @@
 				{edges}
 				state={graphState}
 				onedit={() => session.requestTab('edit')}
+				onclearoverlay={() => clearRunOverlay()}
 			/>
 		{:else if tab === 'edit'}
+			<p class="mb-2 text-caption text-muted-foreground">
+				Definition editor · same draft → validate → promote flow as workflow
+				templates in the
+				<a class="underline-offset-2 hover:underline" href="/templates"
+					>template library</a
+				>. Runs stay in the execution domain (Runs tab, Run button).
+			</p>
 			<WorkflowEditSection controller={session} workflowId={detail.id} />
 		{:else if tab === 'versions'}
 			{#if detail}
@@ -369,6 +429,10 @@
 				onvalidate={(draftId) => void runValidate(draftId)}
 			/>
 		{:else}
+			<p class="mb-2 text-caption text-muted-foreground">
+				Execution domain · runs are read-only here; new runs start in the
+				execution workbench. Editing the definition happens in the Edit tab.
+			</p>
 			<RunsPanel kind="workflow" definitionId={detail.id} />
 		{/if}
 	</div>

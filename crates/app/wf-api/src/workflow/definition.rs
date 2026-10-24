@@ -111,7 +111,8 @@ pub async fn workflow_exists(ctx: &ApiContext, id: &str) -> crate::ApiResult<boo
     ctx.storage.workflow.exists(id).await.map_err(Into::into)
 }
 
-/// Clone a workflow: saves a copy under a new id and records provenance.
+/// Clone a workflow: saves a copy under a new id and records derivation
+/// lineage on the copy.
 pub async fn clone_workflow(
     ctx: &ApiContext,
     id: &str,
@@ -132,27 +133,60 @@ pub async fn clone_workflow(
     let mut cloned = source.clone();
     cloned.id = cloned_id.clone();
     cloned.name = format!("{} (copy)", source.name);
+    cloned
+        .metadata
+        .get_or_insert_with(Default::default)
+        .derived_from = Some(wf_types::workflow::definition::DefinitionDerivation::new(
+        "workflow",
+        id,
+        wf_common::now(),
+    ));
 
     save_workflow(ctx, &cloned).await?;
 
-    let mut provenance = HashMap::new();
-    provenance.insert("cloned_from".into(), Value::String(id.to_string()));
-    provenance.insert(
-        "cloned_at".into(),
-        Value::Number(serde_json::Number::from(wf_common::now())),
-    );
-    if let Err(err) = ctx
-        .storage
-        .workflow
-        .update_metadata(&cloned_id, &provenance)
-        .await
-    {
-        ctx.registries.remove_workflow_template(&cloned_id);
-        let _ = ctx.storage.workflow.delete(&cloned_id).await;
-        return Err(err.into());
-    }
-
     Ok(cloned_id)
+}
+
+/// Derive a runnable workflow from a library template.
+///
+/// Publish state is not copied: derivation only flips the published mark
+/// on explicit publish. The new workflow records its template source so
+/// the detail view can link back without address-bar conventions.
+pub async fn derive_workflow_from_template(
+    ctx: &ApiContext,
+    source_kind: &str,
+    source_id: &str,
+    definition: &WorkflowDefinition,
+    new_id: Option<&str>,
+) -> crate::ApiResult<String> {
+    if get_workflow(ctx, source_id).await.is_err()
+        && crate::template::template_library::get_workflow_template(ctx, source_id).is_err()
+    {
+        return Err(crate::not_found("workflow_template", source_id));
+    }
+    let derived_id = match new_id {
+        Some(nid) if !nid.is_empty() => {
+            if workflow_exists(ctx, nid).await? {
+                return Err(crate::ApiError::already_exists("workflow", nid));
+            }
+            nid.to_string()
+        }
+        _ => wf_common::generate_id(),
+    };
+
+    let mut derived = definition.clone();
+    derived.id = derived_id.clone();
+    let metadata = derived.metadata.get_or_insert_with(Default::default);
+    metadata.published = Some(false);
+    metadata.derived_from = Some(wf_types::workflow::definition::DefinitionDerivation::new(
+        source_kind,
+        source_id,
+        wf_common::now(),
+    ));
+
+    save_workflow(ctx, &derived).await?;
+
+    Ok(derived_id)
 }
 
 /// Roll back a workflow to a saved version.
@@ -376,6 +410,9 @@ pub fn carry_metadata(stored: Option<&WorkflowDefinition>, incoming: &mut Workfl
     }
     if metadata.enabled.is_none() {
         metadata.enabled = stored.enabled;
+    }
+    if metadata.derived_from.is_none() {
+        metadata.derived_from = stored.derived_from.clone();
     }
 }
 
@@ -682,6 +719,8 @@ mod tests {
             execution_type: None,
             fork_join_context: None,
             hierarchy: None,
+
+            rerun_of: None,
         };
         super::super::execution::save_execution(&ctx, &execution)
             .await
@@ -797,5 +836,49 @@ mod tests {
             .get("wf-meta-sync")
             .expect("registry entry");
         assert_eq!(template.description, "updated description");
+    }
+
+    #[tokio::test]
+    async fn derive_records_template_source_and_unpublishes() {
+        let ctx = make_ctx();
+        let mut published = make_workflow("wf-template");
+        published.metadata = Some(WorkflowMetadata {
+            published: Some(true),
+            ..Default::default()
+        });
+        save_workflow(&ctx, &published).await.unwrap();
+
+        let stored = get_workflow(&ctx, "wf-template").await.unwrap();
+        let derived_id =
+            derive_workflow_from_template(&ctx, "workflow", "wf-template", &stored, None)
+                .await
+                .unwrap();
+
+        let derived = get_workflow(&ctx, &derived_id).await.unwrap();
+        let metadata = derived.metadata.as_ref().expect("metadata kept");
+        assert_eq!(metadata.published, Some(false));
+        let source = metadata.derived_from.as_ref().expect("derivation kept");
+        assert_eq!(source.source_kind, "workflow");
+        assert_eq!(source.source_id.as_str(), "wf-template");
+    }
+
+    #[tokio::test]
+    async fn clone_records_derivation_lineage() {
+        let ctx = make_ctx();
+        save_workflow(&ctx, &make_workflow("wf-orig-2"))
+            .await
+            .unwrap();
+
+        let cloned_id = clone_workflow(&ctx, "wf-orig-2", Some("wf-clone-2"))
+            .await
+            .unwrap();
+        let cloned = get_workflow(&ctx, &cloned_id).await.unwrap();
+        let source = cloned
+            .metadata
+            .as_ref()
+            .and_then(|m| m.derived_from.as_ref())
+            .expect("clone derivation kept");
+        assert_eq!(source.source_kind, "workflow");
+        assert_eq!(source.source_id.as_str(), "wf-orig-2");
     }
 }

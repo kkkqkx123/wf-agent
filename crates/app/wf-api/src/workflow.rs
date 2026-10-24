@@ -25,10 +25,10 @@ pub mod workflow_execution;
 pub mod workflow_iteration;
 
 pub use definition::{
-    carry_metadata, clone_workflow, delete_workflow, get_workflow, library_entry, library_facts,
-    list_workflows, reset_workflow_layout, rollback_workflow, save_workflow, save_workflow_layout,
-    save_workflow_with_impact, update_workflow_metadata, upsert_workflow_registry, workflow_exists,
-    LibraryFacts,
+    carry_metadata, clone_workflow, delete_workflow, derive_workflow_from_template, get_workflow,
+    library_entry, library_facts, list_workflows, reset_workflow_layout, rollback_workflow,
+    save_workflow, save_workflow_layout, save_workflow_with_impact, update_workflow_metadata,
+    upsert_workflow_registry, workflow_exists, LibraryFacts,
 };
 pub use execution::{
     delete_execution, get_execution, list_executions, save_execution, update_execution_status,

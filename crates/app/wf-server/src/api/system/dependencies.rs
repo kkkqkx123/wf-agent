@@ -37,6 +37,7 @@ fn parse_kind(raw: &str) -> Option<wf_api::DependencyKind> {
             Some(wf_api::DependencyKind::SubWorkflow)
         }
         "trigger" | "triggers" => Some(wf_api::DependencyKind::Trigger),
+        "node" | "nodes" => Some(wf_api::DependencyKind::Node),
         _ => None,
     }
 }
@@ -55,7 +56,7 @@ pub(crate) async fn handle_dependents(
 ) -> impl IntoResponse {
     let Some(kind) = parse_kind(&query.kind) else {
         return error_response(wf_api::ApiError::Validation(format!(
-            "unknown dependency kind '{}': expected tool|script|profile|sub_workflow|trigger",
+            "unknown dependency kind '{}': expected tool|script|profile|sub_workflow|trigger|node",
             query.kind
         )));
     };
@@ -79,7 +80,7 @@ pub(crate) async fn handle_impact(
 ) -> impl IntoResponse {
     let Some(kind) = parse_kind(&query.kind) else {
         return error_response(wf_api::ApiError::Validation(format!(
-            "unknown dependency kind '{}': expected tool|script|profile|sub_workflow|trigger",
+            "unknown dependency kind '{}': expected tool|script|profile|sub_workflow|trigger|node",
             query.kind
         )));
     };

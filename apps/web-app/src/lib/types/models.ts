@@ -298,7 +298,7 @@ export interface DecisionPathStep {
  * The definition kinds that can be edited and therefore carry drafts,
  * versions and editing locks.
  */
-export type DefinitionKind = 'workflow' | 'agent';
+export type DefinitionKind = 'workflow' | 'agent' | 'node' | 'trigger';
 
 /** One validation issue on a draft: the field it was raised on and why. */
 export interface DefinitionIssue {

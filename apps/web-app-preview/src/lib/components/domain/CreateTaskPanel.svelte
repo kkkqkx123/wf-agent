@@ -50,8 +50,22 @@
 	let version = $state('');
 	let starting = $state(false);
 
+	// Execution type and definition are two layers: the type picks the
+	// executor, the definition picks what it runs. Deep links preselect
+	// both so definition pages land on a ready-to-start workbench.
+	let executionType = $state('workflow');
+
+	const executionTypeOptions = $derived([
+		{ value: 'workflow', label: 'Workflow' },
+		{ value: 'agent', label: 'Agent' },
+	]);
+
+	const filteredDefinitions = $derived(
+		definitions.filter((definition) => definition.kind === executionType),
+	);
+
 	const options = $derived(
-		definitions.map((definition) => ({
+		filteredDefinitions.map((definition) => ({
 			value: `${definition.kind}:${definition.id}`,
 			label: `${definition.name} · ${definition.kind}`,
 		})),
@@ -101,6 +115,10 @@
 						? initialDefinition
 						: `${definitions[0].kind}:${definitions[0].id}`;
 				selected = preselected;
+				const preselectedKind = preselected.split(':')[0];
+				if (preselectedKind === 'agent' || preselectedKind === 'workflow') {
+					executionType = preselectedKind;
+				}
 			}
 		} catch (e) {
 			loadError =
@@ -171,12 +189,25 @@
 	{:else}
 		<div class="space-y-3">
 			<Select
+				bind:value={executionType}
+				options={executionTypeOptions}
+				label="Execution type"
+				onchange={() => {
+					const first = filteredDefinitions[0];
+					selected = first ? `${first.kind}:${first.id}` : '';
+				}}
+			/>
+			<Select
 				bind:value={selected}
 				{options}
 				label={t('page.executions.taskDefinition')}
 				onchange={() => undefined}
 			/>
-			{#if selectedDefinition?.kind === 'workflow'}
+			{#if filteredDefinitions.length === 0}
+				<p class="text-caption text-muted-foreground">
+					No {executionType} definitions available.
+				</p>
+			{:else if selectedDefinition?.kind === 'workflow'}
 				<Input
 					bind:value={version}
 					label="Version"

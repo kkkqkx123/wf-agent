@@ -993,6 +993,15 @@
 						>{t('domain.inspector.historicalRun')}</span
 					>
 				{/if}
+				{#if kind === 'workflow' && execution.workflowId}
+					<span class="mx-1 h-4 w-px bg-border"></span>
+					<a
+						href={`/workflows/${encodeURIComponent(execution.workflowId)}?tab=graph`}
+						class="text-micro text-foreground underline-offset-2 hover:underline"
+					>
+						View progress on the definition graph
+					</a>
+				{/if}
 				{#if callStack.length > 0}
 					<span class="mx-1 h-4 w-px bg-border"></span>
 					{#if replayIndex === null}

@@ -54,6 +54,9 @@ pub struct UnifiedExecutionSummary {
     /// The definition version the run was pinned to, when it was.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    /// The run this run was rerun from, when created through rerun.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rerun_of: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_execution_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -95,6 +98,7 @@ pub async fn list_unified(
                 end_time: record.completed_at,
                 definition_id: Some(record.workflow_id.to_string()),
                 version: record.workflow_version.clone(),
+                rerun_of: record.rerun_of.clone().map(|id| id.to_string()),
                 parent_execution_id: record
                     .hierarchy
                     .as_ref()
@@ -126,6 +130,7 @@ pub async fn list_unified(
                 end_time: summary.end_time,
                 definition_id: summary.definition_id,
                 version: None,
+                rerun_of: summary.rerun_of,
                 parent_execution_id: summary.parent_execution_id,
                 error: summary.error,
             });
@@ -204,6 +209,12 @@ pub struct UnifiedExecutionDetail {
     /// `@chat` for chat sessions.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub definition_id: Option<String>,
+    /// The definition version the run was pinned to, when it was.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// The run this run was rerun from, when created through rerun.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rerun_of: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_execution_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -228,6 +239,8 @@ pub async fn get_unified_detail(ctx: &ApiContext, id: &str) -> ApiResult<Unified
                 start_time: record.started_at,
                 end_time: record.completed_at,
                 definition_id: Some(record.workflow_id.to_string()),
+                version: record.workflow_version.clone(),
+                rerun_of: record.rerun_of.clone().map(|r| r.to_string()),
                 parent_execution_id: record
                     .hierarchy
                     .as_ref()
@@ -246,6 +259,8 @@ pub async fn get_unified_detail(ctx: &ApiContext, id: &str) -> ApiResult<Unified
                 start_time: record.started_at,
                 end_time: record.completed_at,
                 definition_id: Some(record.definition_id.to_string()),
+                version: None,
+                rerun_of: record.rerun_of.clone().map(|r| r.to_string()),
                 parent_execution_id: record
                     .hierarchy
                     .as_ref()
@@ -292,6 +307,8 @@ mod tests {
             execution_type: None,
             fork_join_context: None,
             hierarchy: None,
+
+            rerun_of: None,
         };
         ctx.storage.workflow_execution.save(&record).await.unwrap();
     }
@@ -327,6 +344,8 @@ mod tests {
             loop_config: None,
             permanently_failed_tools: None,
             hierarchy: None,
+
+            rerun_of: None,
         };
         ctx.storage.agent_execution.save(&record).await.unwrap();
     }

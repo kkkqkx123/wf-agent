@@ -112,6 +112,8 @@ mod tests {
             execution_type: None,
             fork_join_context: None,
             hierarchy: None,
+
+            rerun_of: None,
         }
     }
 

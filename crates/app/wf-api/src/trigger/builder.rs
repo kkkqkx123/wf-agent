@@ -219,6 +219,8 @@ impl TriggerTemplateBuilder {
                 .and_then(|a| serde_json::to_value(a).ok()),
             created_at: template.created_at,
             updated_at: template.updated_at,
+
+            derived_from: None,
         };
         ctx.storage.trigger_template.save(&metadata).await?;
         ctx.registries

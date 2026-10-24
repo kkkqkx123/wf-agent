@@ -54,6 +54,17 @@
 		class="mt-1 max-h-72 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-micro">{detail.definitionJson}</pre>
 </div>
 <div class="flex flex-wrap items-center gap-2">
+	{#if kind === 'workflow'}
+		<Button
+			variant="brand"
+			size="sm"
+			href={`/executions?definition=${encodeURIComponent(`workflow:${detail.template.id}`)}`}
+			title="Start a run of this definition in the execution domain"
+		>
+			<Icon name="play" size={13} />
+			Run
+		</Button>
+	{/if}
 	<Button
 		variant="outline"
 		size="sm"

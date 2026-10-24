@@ -22,6 +22,7 @@ pub enum DependencyKind {
     Profile,
     SubWorkflow,
     Trigger,
+    Node,
 }
 
 impl DependencyKind {
@@ -32,6 +33,7 @@ impl DependencyKind {
             DependencyKind::Profile => "profile",
             DependencyKind::SubWorkflow => "sub_workflow",
             DependencyKind::Trigger => "trigger",
+            DependencyKind::Node => "node",
         }
     }
 }
@@ -191,6 +193,9 @@ fn node_matches(
                 }
             }
         }
+        // Node templates are leaf definitions: workflow nodes carry no
+        // template-id reference, so no dependent locations are tracked.
+        DependencyKind::Node => {}
     }
     hits
 }
@@ -331,7 +336,7 @@ async fn resolve_candidates(
                 }
             }
         }
-        DependencyKind::Profile | DependencyKind::SubWorkflow => {}
+        DependencyKind::Profile | DependencyKind::SubWorkflow | DependencyKind::Node => {}
     }
     let mut seen = HashSet::new();
     candidates.retain(|c| seen.insert(c.clone()));
@@ -367,7 +372,10 @@ fn agent_matches(
                         .is_some_and(|v| v.iter().any(|n| n == id))
             })
             .unwrap_or(false),
-        DependencyKind::Script | DependencyKind::SubWorkflow | DependencyKind::Trigger => false,
+        DependencyKind::Script
+        | DependencyKind::SubWorkflow
+        | DependencyKind::Trigger
+        | DependencyKind::Node => false,
     }
 }
 

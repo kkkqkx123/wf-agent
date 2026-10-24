@@ -316,6 +316,8 @@ mod tests {
             execution_type: None,
             fork_join_context: None,
             hierarchy: None,
+
+            rerun_of: None,
         };
         ctx.storage.workflow_execution.save(&record).await.unwrap();
 

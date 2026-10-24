@@ -332,6 +332,8 @@ async fn finish_turn(
         loop_config: None,
         permanently_failed_tools: None,
         hierarchy: None,
+
+        rerun_of: None,
     };
     if let Err(err) = storage.agent_execution.save(&record).await {
         tracing::warn!(

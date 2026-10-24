@@ -6,6 +6,7 @@ use crate::adapter::agent_template::AgentTemplateListOptions;
 use crate::adapter::checkpoint::CheckpointListOptions;
 use crate::adapter::execution::WorkflowExecutionListOptions;
 use crate::adapter::message::MessageListOptions;
+use crate::adapter::node_draft::NodeDraftListOptions;
 use crate::adapter::node_template::NodeTemplateListOptions;
 use crate::adapter::pricing_rule::{PricingRule, PricingRuleListOptions};
 use crate::adapter::script::ScriptListOptions;
@@ -13,6 +14,7 @@ use crate::adapter::task::TaskListOptions;
 use crate::adapter::template_usage::TemplateUsageListOptions;
 use crate::adapter::tool::ToolListOptions;
 use crate::adapter::tool_definition::ToolDefinitionListOptions;
+use crate::adapter::trigger_draft::TriggerDraftListOptions;
 use crate::adapter::trigger_execution::TriggerExecutionListOptions;
 use crate::adapter::trigger_template::TriggerTemplateListOptions;
 use crate::adapter::user_interaction::UserInteractionListOptions;
@@ -81,6 +83,11 @@ make_base_adapter!(
     NodeTemplateListOptions
 );
 make_base_adapter!(
+    NodeDraftStorage,
+    wf_types::NodeTemplateStorageMetadata,
+    NodeDraftListOptions
+);
+make_base_adapter!(
     AgentProfileStorage,
     wf_types::AgentProfileStorageMetadata,
     AgentProfileListOptions
@@ -89,6 +96,11 @@ make_base_adapter!(
     TriggerTemplateStorage,
     wf_types::TriggerTemplateStorageMetadata,
     TriggerTemplateListOptions
+);
+make_base_adapter!(
+    TriggerDraftStorage,
+    wf_types::TriggerTemplateStorageMetadata,
+    TriggerDraftListOptions
 );
 make_base_adapter!(
     UserInteractionStorage,

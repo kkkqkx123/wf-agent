@@ -90,6 +90,11 @@ function toLock(value: LockView | null): DefinitionLock | null {
 	};
 }
 
+// ── endpoint shape ─────────────────────────────────────────────
+// Every editable kind answers the same lock/draft/validate/promote shape;
+// only the path prefix differs. Call sites branch on kind with literal
+// paths so the typed client keeps checking them.
+
 // ── drafts ───────────────────────────────────────────────────────
 
 function toDraft(
@@ -125,14 +130,26 @@ export async function listDefinitionDrafts(
 ): Promise<DefinitionDraft[]> {
 	const query =
 		definitionId === undefined ? {} : { definition_id: definitionId };
-	const data =
-		kind === 'workflow'
-			? await call<unknown>(
-					client.GET('/api/v1/workflows/drafts', { params: { query } }),
-				)
-			: await call<unknown>(
-					client.GET('/api/v1/agents/drafts', { params: { query } }),
-				);
+	let data: unknown;
+	if (kind === 'workflow') {
+		data = await call<unknown>(
+			client.GET('/api/v1/workflows/drafts', { params: { query } }),
+		);
+	} else if (kind === 'agent') {
+		data = await call<unknown>(
+			client.GET('/api/v1/agents/drafts', { params: { query } }),
+		);
+	} else if (kind === 'node') {
+		data = await call<unknown>(
+			client.GET('/api/v1/templates/node/drafts', { params: { query } }),
+		);
+	} else {
+		data = await call<unknown>(
+			client.GET('/api/v1/templates/trigger/drafts', {
+				params: { query },
+			}),
+		);
+	}
 	const rows = Array.isArray(data) ? data : [];
 	const validated = await Promise.allSettled(
 		rows.map((row) => {
@@ -150,23 +167,36 @@ export async function listDefinitionDrafts(
 		.map((result) => result.value);
 }
 
-/** One draft of one definition kind, with its validation attached. */
 export async function getDefinitionDraft(
 	kind: DefinitionKind,
 	id: string,
 ): Promise<DefinitionDraft> {
-	const data =
-		kind === 'workflow'
-			? await call<unknown>(
-					client.GET('/api/v1/workflows/drafts/{id}', {
-						params: { path: { id } },
-					}),
-				)
-			: await call<unknown>(
-					client.GET('/api/v1/agents/drafts/{id}', {
-						params: { path: { id } },
-					}),
-				);
+	let data: unknown;
+	if (kind === 'workflow') {
+		data = await call<unknown>(
+			client.GET('/api/v1/workflows/drafts/{id}', {
+				params: { path: { id } },
+			}),
+		);
+	} else if (kind === 'agent') {
+		data = await call<unknown>(
+			client.GET('/api/v1/agents/drafts/{id}', {
+				params: { path: { id } },
+			}),
+		);
+	} else if (kind === 'node') {
+		data = await call<unknown>(
+			client.GET('/api/v1/templates/node/drafts/{id}', {
+				params: { path: { id } },
+			}),
+		);
+	} else {
+		data = await call<unknown>(
+			client.GET('/api/v1/templates/trigger/drafts/{id}', {
+				params: { path: { id } },
+			}),
+		);
+	}
 	const issues = await validateDefinitionDraft(kind, id);
 	return toDraft(kind, requireData(data, `Draft ${id} missing`), issues);
 }
@@ -177,14 +207,26 @@ export async function saveDefinitionDraft(
 	definition: Record<string, unknown>,
 ): Promise<string> {
 	const id = String(definition.id ?? '');
-	const data =
-		kind === 'workflow'
-			? await call<string>(
-					client.POST('/api/v1/workflows/drafts', { body: definition }),
-				)
-			: await call<string>(
-					client.POST('/api/v1/agents/drafts', { body: definition }),
-				);
+	let data: string | null;
+	if (kind === 'workflow') {
+		data = await call<string>(
+			client.POST('/api/v1/workflows/drafts', { body: definition }),
+		);
+	} else if (kind === 'agent') {
+		data = await call<string>(
+			client.POST('/api/v1/agents/drafts', { body: definition }),
+		);
+	} else if (kind === 'node') {
+		data = await call<string>(
+			client.POST('/api/v1/templates/node/drafts', { body: definition }),
+		);
+	} else {
+		data = await call<string>(
+			client.POST('/api/v1/templates/trigger/drafts', {
+				body: definition,
+			}),
+		);
+	}
 	return data || id;
 }
 
@@ -201,8 +243,24 @@ export async function deleteDefinitionDraft(
 		);
 		return;
 	}
+	if (kind === 'agent') {
+		await call<boolean>(
+			client.DELETE('/api/v1/agents/drafts/{id}', {
+				params: { path: { id } },
+			}),
+		);
+		return;
+	}
+	if (kind === 'node') {
+		await call<boolean>(
+			client.DELETE('/api/v1/templates/node/drafts/{id}', {
+				params: { path: { id } },
+			}),
+		);
+		return;
+	}
 	await call<boolean>(
-		client.DELETE('/api/v1/agents/drafts/{id}', {
+		client.DELETE('/api/v1/templates/trigger/drafts/{id}', {
 			params: { path: { id } },
 		}),
 	);
@@ -213,18 +271,32 @@ export async function validateDefinitionDraft(
 	kind: DefinitionKind,
 	id: string,
 ): Promise<DefinitionIssue[]> {
-	const data =
-		kind === 'workflow'
-			? await call<unknown>(
-					client.GET('/api/v1/workflows/drafts/{id}/validate', {
-						params: { path: { id } },
-					}),
-				)
-			: await call<unknown>(
-					client.GET('/api/v1/agents/drafts/{id}/validate', {
-						params: { path: { id } },
-					}),
-				);
+	let data: unknown;
+	if (kind === 'workflow') {
+		data = await call<unknown>(
+			client.GET('/api/v1/workflows/drafts/{id}/validate', {
+				params: { path: { id } },
+			}),
+		);
+	} else if (kind === 'agent') {
+		data = await call<unknown>(
+			client.GET('/api/v1/agents/drafts/{id}/validate', {
+				params: { path: { id } },
+			}),
+		);
+	} else if (kind === 'node') {
+		data = await call<unknown>(
+			client.GET('/api/v1/templates/node/drafts/{id}/validate', {
+				params: { path: { id } },
+			}),
+		);
+	} else {
+		data = await call<unknown>(
+			client.GET('/api/v1/templates/trigger/drafts/{id}/validate', {
+				params: { path: { id } },
+			}),
+		);
+	}
 	const rows = Array.isArray(data) ? data : [];
 	return rows.map(toIssue);
 }
@@ -251,11 +323,26 @@ export async function promoteDefinitionDraft(
 			passCount: data.pass_count ?? 0,
 		};
 	}
-	const data = await call<unknown>(
-		client.POST('/api/v1/agents/drafts/{id}/promote', {
-			params: { path: { id } },
-		}),
-	);
+	let data: unknown;
+	if (kind === 'agent') {
+		data = await call<unknown>(
+			client.POST('/api/v1/agents/drafts/{id}/promote', {
+				params: { path: { id } },
+			}),
+		);
+	} else if (kind === 'node') {
+		data = await call<unknown>(
+			client.POST('/api/v1/templates/node/drafts/{id}/promote', {
+				params: { path: { id } },
+			}),
+		);
+	} else {
+		data = await call<unknown>(
+			client.POST('/api/v1/templates/trigger/drafts/{id}/promote', {
+				params: { path: { id } },
+			}),
+		);
+	}
 	const rows = Array.isArray(data) ? data : [];
 	return {
 		warnings: rows.map(toIssue),
@@ -299,18 +386,32 @@ export async function listDefinitionVersions(
 	kind: DefinitionKind,
 	id: string,
 ): Promise<DefinitionVersion[]> {
-	const data =
-		kind === 'workflow'
-			? await call<unknown>(
-					client.GET('/api/v1/workflows/{id}/versions', {
-						params: { path: { id } },
-					}),
-				)
-			: await call<unknown>(
-					client.GET('/api/v1/templates/library/agents/{id}/versions', {
-						params: { path: { id } },
-					}),
-				);
+	let data: unknown;
+	if (kind === 'workflow') {
+		data = await call<unknown>(
+			client.GET('/api/v1/workflows/{id}/versions', {
+				params: { path: { id } },
+			}),
+		);
+	} else if (kind === 'agent') {
+		data = await call<unknown>(
+			client.GET('/api/v1/templates/library/agents/{id}/versions', {
+				params: { path: { id } },
+			}),
+		);
+	} else if (kind === 'node') {
+		data = await call<unknown>(
+			client.GET('/api/v1/templates/node/{id}/versions', {
+				params: { path: { id } },
+			}),
+		);
+	} else {
+		data = await call<unknown>(
+			client.GET('/api/v1/templates/trigger/{id}/versions', {
+				params: { path: { id } },
+			}),
+		);
+	}
 	const rows = Array.isArray(data) ? data : [];
 	return rows.map((row, index) => toVersion(kind, row, index));
 }
@@ -321,21 +422,32 @@ export async function getDefinitionVersion(
 	id: string,
 	version: string,
 ): Promise<Record<string, unknown>> {
-	const data =
-		kind === 'workflow'
-			? await call<unknown>(
-					client.GET('/api/v1/workflows/{id}/versions/{version}', {
-						params: { path: { id, version } },
-					}),
-				)
-			: await call<unknown>(
-					client.GET(
-						'/api/v1/templates/library/agents/{id}/versions/{version}',
-						{
-							params: { path: { id, version } },
-						},
-					),
-				);
+	let data: unknown;
+	if (kind === 'workflow') {
+		data = await call<unknown>(
+			client.GET('/api/v1/workflows/{id}/versions/{version}', {
+				params: { path: { id, version } },
+			}),
+		);
+	} else if (kind === 'agent') {
+		data = await call<unknown>(
+			client.GET('/api/v1/templates/library/agents/{id}/versions/{version}', {
+				params: { path: { id, version } },
+			}),
+		);
+	} else if (kind === 'node') {
+		data = await call<unknown>(
+			client.GET('/api/v1/templates/node/{id}/versions/{version}', {
+				params: { path: { id, version } },
+			}),
+		);
+	} else {
+		data = await call<unknown>(
+			client.GET('/api/v1/templates/trigger/{id}/versions/{version}', {
+				params: { path: { id, version } },
+			}),
+		);
+	}
 	const row = requireData(data, `Version ${version} missing for ${id}`);
 	return isRecord(row) ? row : {};
 }
@@ -355,8 +467,26 @@ export async function rollbackDefinition(
 		);
 		return;
 	}
+	if (kind === 'agent') {
+		await call<unknown>(
+			client.POST('/api/v1/templates/library/agents/{id}/rollback', {
+				params: { path: { id } },
+				body: { version },
+			}),
+		);
+		return;
+	}
+	if (kind === 'node') {
+		await call<unknown>(
+			client.POST('/api/v1/templates/node/{id}/rollback', {
+				params: { path: { id } },
+				body: { version },
+			}),
+		);
+		return;
+	}
 	await call<unknown>(
-		client.POST('/api/v1/templates/library/agents/{id}/rollback', {
+		client.POST('/api/v1/templates/trigger/{id}/rollback', {
 			params: { path: { id } },
 			body: { version },
 		}),
@@ -471,18 +601,32 @@ export async function getDefinitionLock(
 	kind: DefinitionKind,
 	id: string,
 ): Promise<DefinitionLock | null> {
-	const data =
-		kind === 'workflow'
-			? await call<LockView | null>(
-					client.GET('/api/v1/workflows/{id}/lock', {
-						params: { path: { id } },
-					}),
-				)
-			: await call<LockView | null>(
-					client.GET('/api/v1/agents/{id}/lock', {
-						params: { path: { id } },
-					}),
-				);
+	let data: LockView | null;
+	if (kind === 'workflow') {
+		data = await call<LockView | null>(
+			client.GET('/api/v1/workflows/{id}/lock', {
+				params: { path: { id } },
+			}),
+		);
+	} else if (kind === 'agent') {
+		data = await call<LockView | null>(
+			client.GET('/api/v1/agents/{id}/lock', {
+				params: { path: { id } },
+			}),
+		);
+	} else if (kind === 'node') {
+		data = await call<LockView | null>(
+			client.GET('/api/v1/templates/node/{id}/lock', {
+				params: { path: { id } },
+			}),
+		);
+	} else {
+		data = await call<LockView | null>(
+			client.GET('/api/v1/templates/trigger/{id}/lock', {
+				params: { path: { id } },
+			}),
+		);
+	}
 	return toLock(data);
 }
 
@@ -492,20 +636,37 @@ export async function acquireDefinitionLock(
 	id: string,
 	owner: { ownerId: string; ownerName: string },
 ): Promise<DefinitionLock> {
-	const data =
-		kind === 'workflow'
-			? await call<LockView | null>(
-					client.POST('/api/v1/workflows/{id}/lock/acquire', {
-						params: { path: { id } },
-						body: { owner_id: owner.ownerId, owner_name: owner.ownerName },
-					}),
-				)
-			: await call<LockView | null>(
-					client.POST('/api/v1/agents/{id}/lock/acquire', {
-						params: { path: { id } },
-						body: { owner_id: owner.ownerId, owner_name: owner.ownerName },
-					}),
-				);
+	const body = { owner_id: owner.ownerId, owner_name: owner.ownerName };
+	let data: LockView | null;
+	if (kind === 'workflow') {
+		data = await call<LockView | null>(
+			client.POST('/api/v1/workflows/{id}/lock/acquire', {
+				params: { path: { id } },
+				body,
+			}),
+		);
+	} else if (kind === 'agent') {
+		data = await call<LockView | null>(
+			client.POST('/api/v1/agents/{id}/lock/acquire', {
+				params: { path: { id } },
+				body,
+			}),
+		);
+	} else if (kind === 'node') {
+		data = await call<LockView | null>(
+			client.POST('/api/v1/templates/node/{id}/lock/acquire', {
+				params: { path: { id } },
+				body,
+			}),
+		);
+	} else {
+		data = await call<LockView | null>(
+			client.POST('/api/v1/templates/trigger/{id}/lock/acquire', {
+				params: { path: { id } },
+				body,
+			}),
+		);
+	}
 	const lock = toLock(data);
 	if (!lock) throw new Error('Lock acquisition returned no holder');
 	return lock;
@@ -517,20 +678,37 @@ export async function heartbeatDefinitionLock(
 	id: string,
 	ownerId: string,
 ): Promise<DefinitionLock> {
-	const data =
-		kind === 'workflow'
-			? await call<LockView | null>(
-					client.POST('/api/v1/workflows/{id}/lock/heartbeat', {
-						params: { path: { id } },
-						body: { owner_id: ownerId },
-					}),
-				)
-			: await call<LockView | null>(
-					client.POST('/api/v1/agents/{id}/lock/heartbeat', {
-						params: { path: { id } },
-						body: { owner_id: ownerId },
-					}),
-				);
+	const body = { owner_id: ownerId };
+	let data: LockView | null;
+	if (kind === 'workflow') {
+		data = await call<LockView | null>(
+			client.POST('/api/v1/workflows/{id}/lock/heartbeat', {
+				params: { path: { id } },
+				body,
+			}),
+		);
+	} else if (kind === 'agent') {
+		data = await call<LockView | null>(
+			client.POST('/api/v1/agents/{id}/lock/heartbeat', {
+				params: { path: { id } },
+				body,
+			}),
+		);
+	} else if (kind === 'node') {
+		data = await call<LockView | null>(
+			client.POST('/api/v1/templates/node/{id}/lock/heartbeat', {
+				params: { path: { id } },
+				body,
+			}),
+		);
+	} else {
+		data = await call<LockView | null>(
+			client.POST('/api/v1/templates/trigger/{id}/lock/heartbeat', {
+				params: { path: { id } },
+				body,
+			}),
+		);
+	}
 	const lock = toLock(data);
 	if (!lock) throw new Error('Lock heartbeat returned no holder');
 	return lock;
@@ -542,19 +720,38 @@ export async function releaseDefinitionLock(
 	id: string,
 	ownerId: string,
 ): Promise<void> {
+	const body = { owner_id: ownerId };
 	if (kind === 'workflow') {
 		await call<LockView | null>(
 			client.POST('/api/v1/workflows/{id}/lock/release', {
 				params: { path: { id } },
-				body: { owner_id: ownerId },
+				body,
+			}),
+		);
+		return;
+	}
+	if (kind === 'agent') {
+		await call<LockView | null>(
+			client.POST('/api/v1/agents/{id}/lock/release', {
+				params: { path: { id } },
+				body,
+			}),
+		);
+		return;
+	}
+	if (kind === 'node') {
+		await call<LockView | null>(
+			client.POST('/api/v1/templates/node/{id}/lock/release', {
+				params: { path: { id } },
+				body,
 			}),
 		);
 		return;
 	}
 	await call<LockView | null>(
-		client.POST('/api/v1/agents/{id}/lock/release', {
+		client.POST('/api/v1/templates/trigger/{id}/lock/release', {
 			params: { path: { id } },
-			body: { owner_id: ownerId },
+			body,
 		}),
 	);
 }

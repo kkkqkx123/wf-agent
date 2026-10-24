@@ -184,6 +184,8 @@ async fn llm_reasoning_path_extracts_attempt_chain() {
         execution_type: None,
         fork_join_context: None,
         hierarchy: None,
+
+        rerun_of: None,
     };
     ctx.storage
         .workflow_execution

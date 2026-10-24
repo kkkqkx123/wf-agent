@@ -470,16 +470,14 @@ fn collect_prompt(prompt: &serde_json::Value) -> CliResult<String> {
                 .cloned()
                 .unwrap_or_default();
             if let Ok(choice) = line.trim().parse::<usize>() {
-                let option = options.get(choice.saturating_sub(1)).ok_or_else(|| {
-                    CliError::Arguments("selection out of range".to_string())
-                })?;
+                let option = options
+                    .get(choice.saturating_sub(1))
+                    .ok_or_else(|| CliError::Arguments("selection out of range".to_string()))?;
                 return option
                     .get("id")
                     .and_then(|v| v.as_str())
                     .map(str::to_string)
-                    .ok_or_else(|| {
-                        CliError::Arguments("selected option has no id".to_string())
-                    });
+                    .ok_or_else(|| CliError::Arguments("selected option has no id".to_string()));
             }
         }
         let _ = message;

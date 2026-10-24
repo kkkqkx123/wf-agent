@@ -615,18 +615,20 @@ pub(crate) async fn handle_auth_login_start(
                             if let Err(err) =
                                 wf_api::llm::llm_auth::login_submit(&ctx, &sid, code).await
                             {
-                                let _ = wf_api::llm::llm_auth::login_fail(&ctx, &sid, err.to_string())
-                                    .await;
+                                let _ =
+                                    wf_api::llm::llm_auth::login_fail(&ctx, &sid, err.to_string())
+                                        .await;
                             }
                         }
                         Err(err) => {
-                            let _ =
-                                wf_api::llm::llm_auth::login_fail(&ctx, &sid, err.to_string()).await;
+                            let _ = wf_api::llm::llm_auth::login_fail(&ctx, &sid, err.to_string())
+                                .await;
                         }
                     },
                     Ok(None) => {}
                     Err(err) => {
-                        let _ = wf_api::llm::llm_auth::login_fail(&ctx, &sid, err.to_string()).await;
+                        let _ =
+                            wf_api::llm::llm_auth::login_fail(&ctx, &sid, err.to_string()).await;
                     }
                 }
             });

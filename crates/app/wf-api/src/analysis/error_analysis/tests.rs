@@ -145,6 +145,8 @@ async fn degrades_to_persisted_plain_errors() {
         execution_type: None,
         fork_join_context: None,
         hierarchy: None,
+
+        rerun_of: None,
     };
     ctx.storage.workflow_execution.save(&record).await.unwrap();
 
@@ -173,6 +175,8 @@ async fn similar_errors_clusters_by_message() {
         execution_type: None,
         fork_join_context: None,
         hierarchy: None,
+
+        rerun_of: None,
     };
     let failed2 = wf_types::WorkflowExecution {
         id: "exec-b".into(),
@@ -192,6 +196,8 @@ async fn similar_errors_clusters_by_message() {
         execution_type: None,
         fork_join_context: None,
         hierarchy: None,
+
+        rerun_of: None,
     };
     ctx.storage.workflow_execution.save(&failed).await.unwrap();
     ctx.storage.workflow_execution.save(&failed2).await.unwrap();

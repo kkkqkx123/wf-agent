@@ -12,12 +12,14 @@ use crate::adapter::checkpoint::CheckpointStorageAdapter;
 use crate::adapter::execution::WorkflowExecutionStorageAdapter;
 use crate::adapter::message::{MessageListOptions, MessageStorageAdapter};
 use crate::adapter::metrics::{MetricRecord, MetricsDataPoint, MetricsStorageAdapter};
+use crate::adapter::node_draft::NodeDraftStorageAdapter;
 use crate::adapter::node_template::NodeTemplateStorageAdapter;
 use crate::adapter::script::ScriptStorageAdapter;
 use crate::adapter::task::TaskStorageAdapter;
 use crate::adapter::template_usage::TemplateUsageStorageAdapter;
 use crate::adapter::tool::ToolStorageAdapter;
 use crate::adapter::tool_definition::ToolDefinitionStorageAdapter;
+use crate::adapter::trigger_draft::TriggerDraftStorageAdapter;
 use crate::adapter::trigger_execution::TriggerExecutionStorageAdapter;
 use crate::adapter::trigger_template::TriggerTemplateStorageAdapter;
 use crate::adapter::user_interaction::UserInteractionStorageAdapter;
@@ -389,6 +391,49 @@ impl<S: Store + StoreExt> NodeTemplateStorageAdapter for NodeTemplateStorage<S> 
         let filter = QueryFilter::new().with_field("nodeType", node_type);
         self.entity_store.list(Some(&filter)).await
     }
+
+    async fn save_version(
+        &self,
+        node_id: &str,
+        version: &str,
+        template: &wf_types::NodeTemplateStorageMetadata,
+    ) -> Result<(), StorageError> {
+        let composite_id = format!("{}:v{}", node_id, version);
+        let data = serde_json::to_vec(template)?;
+        let metadata = serde_json::json!({
+            "entityType": <wf_types::NodeTemplateStorageMetadata as crate::domain::Entity>::entity_type(),
+            "nodeId": node_id,
+            "version": version,
+            "compressed": false,
+            "name": template.name,
+        });
+        self.store().save(&composite_id, &data, &metadata).await
+    }
+
+    async fn list_versions(
+        &self,
+        node_id: &str,
+    ) -> Result<Vec<wf_types::NodeTemplateStorageMetadata>, StorageError> {
+        let prefix = format!("{}:v", node_id);
+        let filter = QueryFilter::new().with_id_prefix(&prefix);
+        self.entity_store.list(Some(&filter)).await
+    }
+
+    async fn load_version(
+        &self,
+        node_id: &str,
+        version: &str,
+    ) -> Result<Option<wf_types::NodeTemplateStorageMetadata>, StorageError> {
+        let composite_id = format!("{}:v{}", node_id, version);
+        self.entity_store.load(&composite_id).await
+    }
+
+    async fn delete_version(&self, node_id: &str, version: &str) -> Result<bool, StorageError> {
+        let composite_id = format!("{}:v{}", node_id, version);
+        let existed = self.entity_store.exists(&composite_id).await?;
+        self.entity_store.delete(&composite_id).await?;
+        Ok(existed)
+    }
 }
 
 // ─── AgentProfileStorageAdapter ───
@@ -642,6 +687,49 @@ impl<S: Store + StoreExt> TriggerTemplateStorageAdapter for TriggerTemplateStora
         let filter = QueryFilter::new().with_field("category", category);
         self.entity_store.list(Some(&filter)).await
     }
+
+    async fn save_version(
+        &self,
+        trigger_id: &str,
+        version: &str,
+        template: &wf_types::TriggerTemplateStorageMetadata,
+    ) -> Result<(), StorageError> {
+        let composite_id = format!("{}:v{}", trigger_id, version);
+        let data = serde_json::to_vec(template)?;
+        let metadata = serde_json::json!({
+            "entityType": <wf_types::TriggerTemplateStorageMetadata as crate::domain::Entity>::entity_type(),
+            "triggerId": trigger_id,
+            "version": version,
+            "compressed": false,
+            "name": template.name,
+        });
+        self.store().save(&composite_id, &data, &metadata).await
+    }
+
+    async fn list_versions(
+        &self,
+        trigger_id: &str,
+    ) -> Result<Vec<wf_types::TriggerTemplateStorageMetadata>, StorageError> {
+        let prefix = format!("{}:v", trigger_id);
+        let filter = QueryFilter::new().with_id_prefix(&prefix);
+        self.entity_store.list(Some(&filter)).await
+    }
+
+    async fn load_version(
+        &self,
+        trigger_id: &str,
+        version: &str,
+    ) -> Result<Option<wf_types::TriggerTemplateStorageMetadata>, StorageError> {
+        let composite_id = format!("{}:v{}", trigger_id, version);
+        self.entity_store.load(&composite_id).await
+    }
+
+    async fn delete_version(&self, trigger_id: &str, version: &str) -> Result<bool, StorageError> {
+        let composite_id = format!("{}:v{}", trigger_id, version);
+        let existed = self.entity_store.exists(&composite_id).await?;
+        self.entity_store.delete(&composite_id).await?;
+        Ok(existed)
+    }
 }
 
 // ─── MetricsStorageAdapter (standalone, no BaseStorageAdapter) ───
@@ -708,3 +796,7 @@ impl<S: Store + StoreExt> MetricsStorageAdapter for MetricsStorage<S> {
 impl<S: Store + StoreExt> WorkflowDraftStorageAdapter for WorkflowDraftStorage<S> {}
 
 impl<S: Store + StoreExt> AgentDraftStorageAdapter for AgentDraftStorage<S> {}
+
+impl<S: Store + StoreExt> NodeDraftStorageAdapter for NodeDraftStorage<S> {}
+
+impl<S: Store + StoreExt> TriggerDraftStorageAdapter for TriggerDraftStorage<S> {}

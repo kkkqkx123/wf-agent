@@ -21,6 +21,10 @@ pub struct WorkflowExecution {
     pub status: WorkflowExecutionStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_node_id: Option<String>,
+    /// The execution this run was rerun from, when created through the
+    /// server rerun path. Lets a new run point back at the run it replaced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rerun_of: Option<Id>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graph: Option<WorkflowGraphStructure>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -82,6 +86,7 @@ impl From<WorkflowExecutionStateSnapshot> for WorkflowExecution {
             id: snapshot.execution_id,
             workflow_id: String::new(),
             workflow_version: None,
+            rerun_of: None,
             status,
             current_node_id: snapshot.current_node_id,
             graph: None,

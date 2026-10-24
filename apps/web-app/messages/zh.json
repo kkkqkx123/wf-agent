@@ -1178,6 +1178,7 @@
 	"page.executionDetail.pause": "暂停执行",
 	"page.executionDetail.resume": "恢复执行",
 	"page.executionDetail.titleFallback": "执行详情",
+	"page.executionDetail.viewOnGraph": "在图上查看",
 	"page.executions.cards": "卡片",
 	"page.executions.columnExecution": "执行",
 	"page.executions.columnStarted": "开始时间",

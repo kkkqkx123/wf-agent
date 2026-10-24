@@ -119,6 +119,36 @@ pub async fn execute(
     }
 }
 
+/// Rerun a recorded workflow execution as a server-side lineage link.
+///
+/// The old record supplies workflow id, pinned version and input; the new
+/// run executes through the normal path and its persisted record is then
+/// patched to point back at the rerun source. A failed new run still
+/// records the link when its record exists, so the attempt stays visible.
+pub async fn rerun(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> crate::infra::error::ApiResult<WorkflowOutput> {
+    let source = super::super::execution::get_execution(ctx, execution_id).await?;
+    let params = ExecuteWorkflowParams {
+        workflow_id: source.workflow_id.to_string(),
+        version: source.workflow_version.clone(),
+        input: source.input.clone(),
+        options: None,
+    };
+    let output = execute(ctx, params).await?;
+    if let Ok(Some(mut record)) = ctx
+        .storage
+        .workflow_execution
+        .load(&output.execution_id.to_string())
+        .await
+    {
+        record.rerun_of = Some(wf_types::Id::from(execution_id.to_string()));
+        let _ = ctx.storage.workflow_execution.save(&record).await;
+    }
+    Ok(output)
+}
+
 /// Execute a workflow and stream engine events (`WorkflowExecutionStarted`,
 /// `NodeStarted`, `NodeCompleted`, `WorkflowExecutionCompleted`, ...)
 /// emitted for the execution, ending with `Completed` / `Failed`.

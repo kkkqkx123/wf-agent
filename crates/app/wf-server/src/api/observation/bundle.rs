@@ -93,6 +93,8 @@ mod tests {
             loop_config: None,
             permanently_failed_tools: None,
             hierarchy: None,
+
+            rerun_of: None,
         };
         ctx.storage.agent_execution.save(&record).await.unwrap();
     }

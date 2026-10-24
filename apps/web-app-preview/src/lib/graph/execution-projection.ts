@@ -36,6 +36,74 @@ export interface ExecutionOverlay {
 }
 
 /**
+ * Execution signals of one run, in the shape the definition graph tabs
+ * consume. The execution domain owns the live run; the definition domain
+ * only projects a read-only snapshot of it onto the definition topology,
+ * never editing the definition from execution state.
+ */
+export interface DefinitionExecutionSignals {
+	runId?: string | null;
+	currentNode?: string | null;
+	failedNodes?: string[];
+	criticalPath?: string[];
+	slowNodes?: Array<string | SlowNodeRef>;
+	decisionPoints?: string[];
+	executedNodes?: string[];
+	liveStatuses?: Record<string, string>;
+}
+
+/** Overlay input for a definition graph from one run's signals. */
+export function executionInputFromSignals(
+	signals: DefinitionExecutionSignals | null | undefined,
+): ExecutionOverlayInput {
+	return {
+		currentNode: signals?.currentNode ?? null,
+		failedNodes: signals?.failedNodes ?? [],
+		criticalPath: signals?.criticalPath ?? [],
+		slowNodes: signals?.slowNodes ?? [],
+		decisionPoints: signals?.decisionPoints ?? [],
+		executedNodes: signals?.executedNodes ?? [],
+		liveStatuses: signals?.liveStatuses ?? {},
+	};
+}
+
+/** Canvas id sets derived from one projected overlay, shared by every graph tab. */
+export function canvasPropsFromOverlay(overlay: ExecutionOverlay): {
+	pulseIds: string[];
+	criticalIds: string[];
+	failedIds: string[];
+	heatTierById: Record<string, number>;
+	decisionIds: string[];
+} {
+	const pulseIds: string[] = [];
+	const criticalIds: string[] = [];
+	const failedIds: string[] = [];
+	const heatTierById: Record<string, number> = {};
+	const decisionIds: string[] = [];
+	for (const mark of overlay.marks.values()) {
+		if (mark.pulse) pulseIds.push(mark.id);
+		if (mark.critical) criticalIds.push(mark.id);
+		if (mark.tone === 'error') failedIds.push(mark.id);
+		if (mark.heatTier > 0) heatTierById[mark.id] = mark.heatTier;
+		if (mark.decision) decisionIds.push(mark.id);
+	}
+	return { pulseIds, criticalIds, failedIds, heatTierById, decisionIds };
+}
+
+/** Whether an overlay input carries any execution signal at all. */
+export function hasExecutionSignals(input: ExecutionOverlayInput): boolean {
+	return (
+		(input.currentNode ?? null) !== null ||
+		(input.failedNodes?.length ?? 0) > 0 ||
+		(input.criticalPath?.length ?? 0) > 0 ||
+		(input.slowNodes?.length ?? 0) > 0 ||
+		(input.decisionPoints?.length ?? 0) > 0 ||
+		(input.executedNodes?.length ?? 0) > 0 ||
+		Object.keys(input.liveStatuses ?? {}).length > 0
+	);
+}
+
+/**
  * Heat tier for a slow node duration relative to the slowest node.
  * Tertiles of the max keep small graphs stable; tiny samples collapse to
  * a single tier. Pure function for unit tests.

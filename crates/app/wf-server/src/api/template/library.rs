@@ -49,6 +49,10 @@ pub(crate) fn routes() -> Router<ApiState> {
             post(handle_unpublish_workflow_template),
         )
         .route(
+            "/templates/library/workflows/{id}/derive",
+            post(handle_derive_workflow_template),
+        )
+        .route(
             "/templates/library/agents",
             get(handle_list_agent_templates).post(handle_register_agent_template),
         )
@@ -441,6 +445,57 @@ pub(crate) async fn handle_unpublish_workflow_template(
         .await
     {
         Ok(()) => ok(path.id).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct DeriveWorkflowBody {
+    /// New workflow id. Absent generates one.
+    new_id: Option<String>,
+    /// New workflow name. Absent keeps the template name.
+    new_name: Option<String>,
+}
+
+/// Derive a runnable workflow from a library template.
+///
+/// The new workflow is unpublished and records the template as its
+/// derivation source, so the detail view can link back to it.
+#[utoipa::path(
+    post,
+    path = "/api/v1/templates/library/workflows/{id}/derive",
+    tag = "template",
+    params(IdPath),
+    request_body = DeriveWorkflowBody,
+    responses((status = 200, description = "Derived workflow id", body = crate::envelope::ApiEnvelope<String>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_derive_workflow_template(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Json(body): Json<DeriveWorkflowBody>,
+) -> impl IntoResponse {
+    let template =
+        match wf_api::template::template_library::get_workflow_template(&state.ctx, &path.id) {
+            Ok(template) => template,
+            Err(e) => return error_response(e),
+        };
+    let mut definition = template.definition.clone();
+    if let Some(new_name) = body.new_name {
+        if !new_name.trim().is_empty() {
+            definition.name = new_name;
+        }
+    }
+    match wf_api::workflow::derive_workflow_from_template(
+        &state.ctx,
+        "workflow",
+        &path.id,
+        &definition,
+        body.new_id.as_deref(),
+    )
+    .await
+    {
+        Ok(id) => ok(id).into_response(),
         Err(e) => error_response(e),
     }
 }

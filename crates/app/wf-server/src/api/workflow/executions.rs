@@ -44,6 +44,7 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/executions/{id}/pause", post(handle_pause))
         .route("/executions/{id}/resume", post(handle_resume))
         .route("/executions/{id}/cancel", post(handle_cancel))
+        .route("/executions/{id}/rerun", post(handle_rerun))
         .route("/executions/{id}/status", get(handle_status))
         // ── execution trigger history (ledger view) ──
         .route("/executions/{id}/triggers", get(handle_trigger_history))
@@ -437,6 +438,40 @@ pub(crate) async fn handle_cancel(
 ) -> impl IntoResponse {
     match wf_api::workflow::workflow_execution::cancel(&state.ctx, &path.id).await {
         Ok(()) => ok(()).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Server-side rerun: the old execution supplies workflow id, pinned
+/// version and input, and the new run's record points back at it.
+#[utoipa::path(
+    post,
+    path = "/api/v1/executions/{id}/rerun",
+    operation_id = "post_executions_id_rerun",
+    tag = "workflow",
+    params(IdPath),
+    responses((status = 200, description = "Rerun started from the recorded execution", body = crate::envelope::ApiEnvelope<crate::api::workflow::executions::ExecuteView>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_rerun(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::resolve_execution(&state.ctx, &path.id).await {
+        Ok(wf_api::ExecutionDomain::Workflow) => {}
+        Ok(wf_api::ExecutionDomain::AgentLoop) => {
+            return error_response(wf_api::ApiError::Validation(
+                "rerun is only supported for workflow executions".to_string(),
+            ));
+        }
+        Err(e) => return error_response(e),
+    }
+    match wf_api::workflow::workflow_execution::rerun(&state.ctx, &path.id).await {
+        Ok(output) => ok(ExecuteView {
+            execution_id: output.execution_id.to_string(),
+            result: output.result,
+        })
+        .into_response(),
         Err(e) => error_response(e),
     }
 }

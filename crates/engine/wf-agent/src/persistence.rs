@@ -116,6 +116,8 @@ pub async fn build_agent_execution(entity: &AgentLoopEntity) -> AgentExecution {
                 })
             }),
         }),
+
+        rerun_of: None,
     }
 }
 

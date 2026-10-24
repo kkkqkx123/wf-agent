@@ -429,8 +429,6 @@ export function capGraph(
 }
 
 /** Short label for canvas rendering; long names truncate with ellipsis. */
-
-/** Short label for canvas rendering; long names truncate with ellipsis. */
 export function shortLabel(label: string, max: number = 18): string {
 	const trimmed = (label ?? '').trim() || 'unnamed';
 	return trimmed.length > max ? `${trimmed.slice(0, max - 1)}…` : trimmed;

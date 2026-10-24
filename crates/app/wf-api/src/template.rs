@@ -4,7 +4,9 @@
 pub mod agent_template;
 pub mod builder;
 pub mod composition;
+pub mod node_draft;
 pub mod node_template;
+pub mod node_version;
 pub mod template_library;
 
 use wf_storage::adapter::base::BaseStorageAdapter;

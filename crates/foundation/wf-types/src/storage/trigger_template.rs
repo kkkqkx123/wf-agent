@@ -22,6 +22,10 @@ pub struct TriggerTemplateStorageMetadata {
     pub condition: Option<serde_json::Value>,
     /// Serialized trigger action config.
     pub action_config: Option<serde_json::Value>,
+    /// First-class derivation lineage: set when created from a template or
+    /// cloned. Absent means sourceless; never backfilled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derived_from: Option<super::super::workflow::definition::DefinitionDerivation>,
     pub created_at: super::super::Timestamp,
     pub updated_at: super::super::Timestamp,
 }

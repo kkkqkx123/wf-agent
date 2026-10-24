@@ -549,11 +549,14 @@ mod tests {
             execution_type: None,
             fork_join_context: None,
             hierarchy: None,
+
+            rerun_of: None,
         };
         ctx.workflow_execution.save(&execution).await.unwrap();
         let unrelated = WorkflowExecution {
             id: "ex-other".into(),
             workflow_id: "wf-other".into(),
+            rerun_of: None,
             ..execution
         };
         ctx.workflow_execution.save(&unrelated).await.unwrap();

@@ -22,11 +22,14 @@
 	lock={controller.lockStore}
 	editMode={controller.editMode}
 	editBusy={controller.editBusy}
+	layoutBusy={controller.layoutBusy}
 	issues={controller.editTemplateIssues}
 	onenteredit={() => void controller.enterEdit()}
 	onexitedit={() => controller.exitEdit()}
 	onrelock={() => void controller.enterEdit()}
 	onsave={() => void controller.saveEditDraft()}
+	onsavelayout={() => void controller.saveLayout()}
+	onresetlayout={() => void controller.resetLayout()}
 	onvalidate={() => void controller.validateEditDraft()}
 	onpromote={() => void controller.promoteEditDraft()}
 	onmovenode={(id, position) => controller.handleMoveNode(id, position)}

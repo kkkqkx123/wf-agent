@@ -17,11 +17,14 @@
 		lock: EditLockStore;
 		editMode: boolean;
 		editBusy: boolean;
+		layoutBusy?: boolean;
 		issues: TemplateIssue[];
 		onenteredit: () => void;
 		onexitedit: () => void;
 		onrelock: () => void;
 		onsave: () => void;
+		onsavelayout?: () => void;
+		onresetlayout?: () => void;
 		onvalidate: () => void;
 		onpromote: () => void;
 		onmovenode: (id: string, position: CanvasPosition) => void;
@@ -48,11 +51,14 @@
 		lock,
 		editMode,
 		editBusy,
+		layoutBusy = false,
 		issues,
 		onenteredit,
 		onexitedit,
 		onrelock,
 		onsave,
+		onsavelayout,
+		onresetlayout,
 		onvalidate,
 		onpromote,
 		onmovenode,
@@ -74,9 +80,7 @@
 </script>
 
 <div class="mb-2 flex flex-wrap items-center gap-2 text-caption">
-	{#if !lock.supported}
-		<Badge variant="warning">{t('domain.workflowEdit.noLock')}</Badge>
-	{:else if lock.held}
+	{#if lock.held}
 		<Badge variant="success">{t('domain.workflowEdit.lockHeld')}</Badge>
 	{:else if lock.lockedByOther}
 		<Badge variant="danger"
@@ -92,7 +96,34 @@
 			>{t('domain.workflowEdit.lockQueryFailed')}</span
 		>
 	{/if}
+	{#if editMode && store.layoutDirty}
+		<Badge variant="warning">Layout unsaved</Badge>
+	{/if}
 </div>
+{#if editMode}
+	<div class="mb-2 flex flex-wrap items-center gap-2">
+		<Button
+			variant="outline"
+			size="sm"
+			disabled={!store.layoutDirty || layoutBusy}
+			onclick={() => onsavelayout?.()}
+			title="Positions persist through the layout endpoint, not the draft payload"
+		>
+			{layoutBusy ? 'Saving layout…' : 'Save layout'}
+		</Button>
+		<Button
+			variant="ghost"
+			size="sm"
+			disabled={layoutBusy}
+			onclick={() => onresetlayout?.()}
+		>
+			Reset layout
+		</Button>
+		<span class="text-micro text-muted-foreground">
+			Topology saves to drafts; positions save to layout.
+		</span>
+	</div>
+{/if}
 {#if editMode && lock.lockLost}
 	<Card
 		title={t('domain.workflowEdit.lockLostTitle')}

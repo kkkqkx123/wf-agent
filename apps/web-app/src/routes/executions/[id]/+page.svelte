@@ -255,6 +255,17 @@
 					onclick={() => void copyExecutionId(currentId)}
 				/>
 			{/if}
+			{#if unified?.executionType === 'workflow' && currentId && (unified.definitionId ?? execution?.workflowId)}
+				<Button
+					variant="outline"
+					size="sm"
+					href={`/workflows/${encodeURIComponent((unified.definitionId ?? execution?.workflowId ?? '').replace(/^workflow:/, ''))}?tab=graph&run=${encodeURIComponent(currentId)}`}
+					title="Project this run onto the definition graph (read-only)"
+				>
+					<Icon name="workflow" size={13} />
+					{t('page.executionDetail.viewOnGraph')}
+				</Button>
+			{/if}
 			<Button variant="outline" size="sm" href="/executions">
 				<Icon name="arrow-left" size={13} />
 				{t('page.executionDetail.backToWorkbench')}

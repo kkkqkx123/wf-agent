@@ -20,7 +20,7 @@ pub use checkpoint::{
 };
 pub use graph::{definition_to_graph, resolve_graph};
 pub use lifecycle::{
-    cancel, execute, pause, resume, status, stream, ExecuteWorkflowParams,
+    cancel, execute, pause, rerun, resume, status, stream, ExecuteWorkflowParams,
     DEFAULT_EXECUTION_TIMEOUT_MS,
 };
 pub use summary::{execution_summaries, ExecutionSummary};

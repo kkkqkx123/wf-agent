@@ -55,4 +55,32 @@ pub trait TriggerTemplateStorageAdapter:
     ) -> impl Future<Output = Result<Vec<wf_types::TriggerTemplateStorageMetadata>, StorageError>>
            + Send
            + 'a;
+
+    fn save_version<'a>(
+        &'a self,
+        trigger_id: &'a str,
+        version: &'a str,
+        template: &'a wf_types::TriggerTemplateStorageMetadata,
+    ) -> impl Future<Output = Result<(), StorageError>> + Send + 'a;
+
+    fn list_versions<'a>(
+        &'a self,
+        trigger_id: &'a str,
+    ) -> impl Future<Output = Result<Vec<wf_types::TriggerTemplateStorageMetadata>, StorageError>>
+           + Send
+           + 'a;
+
+    fn load_version<'a>(
+        &'a self,
+        trigger_id: &'a str,
+        version: &'a str,
+    ) -> impl Future<Output = Result<Option<wf_types::TriggerTemplateStorageMetadata>, StorageError>>
+           + Send
+           + 'a;
+
+    fn delete_version<'a>(
+        &'a self,
+        trigger_id: &'a str,
+        version: &'a str,
+    ) -> impl Future<Output = Result<bool, StorageError>> + Send + 'a;
 }

@@ -33,4 +33,30 @@ pub trait NodeTemplateStorageAdapter:
         &'a self,
         node_type: &'a str,
     ) -> impl Future<Output = Result<Vec<wf_types::NodeTemplateStorageMetadata>, StorageError>> + Send + 'a;
+
+    fn save_version<'a>(
+        &'a self,
+        node_id: &'a str,
+        version: &'a str,
+        template: &'a wf_types::NodeTemplateStorageMetadata,
+    ) -> impl Future<Output = Result<(), StorageError>> + Send + 'a;
+
+    fn list_versions<'a>(
+        &'a self,
+        node_id: &'a str,
+    ) -> impl Future<Output = Result<Vec<wf_types::NodeTemplateStorageMetadata>, StorageError>> + Send + 'a;
+
+    fn load_version<'a>(
+        &'a self,
+        node_id: &'a str,
+        version: &'a str,
+    ) -> impl Future<Output = Result<Option<wf_types::NodeTemplateStorageMetadata>, StorageError>>
+           + Send
+           + 'a;
+
+    fn delete_version<'a>(
+        &'a self,
+        node_id: &'a str,
+        version: &'a str,
+    ) -> impl Future<Output = Result<bool, StorageError>> + Send + 'a;
 }

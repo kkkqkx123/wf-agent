@@ -157,6 +157,8 @@ mod tests {
             execution_type: None,
             fork_join_context: None,
             hierarchy: None,
+
+            rerun_of: None,
         }
     }
 
@@ -314,6 +316,8 @@ mod tests {
                 Some(wf_types::execution::ExecutionType::Workflow),
                 None,
             )),
+
+            rerun_of: None,
         };
         let root = make_execution("root-1", ExecutionStatus::Running);
         // Save child first so scan order alone would recover it first.

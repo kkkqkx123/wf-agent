@@ -7,6 +7,15 @@
 	import type { WorkflowDetail } from '#lib/types/models';
 	import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
 	import type { WorkflowGraphState } from '#lib/workflows/graph-state.svelte';
+	import {
+		applyEdgeOverlay,
+		applyExecutionOverlay,
+		canvasPropsFromOverlay,
+		executionInputFromSignals,
+		hasExecutionSignals,
+		projectEdgeOverlay,
+		projectExecutionOverlay,
+	} from '#lib/graph/execution-projection';
 	import RunsPanel from '#lib/components/domain/RunsPanel.svelte';
 	import { t } from '#lib/i18n';
 
@@ -17,16 +26,40 @@
 		state: WorkflowGraphState;
 		/** Enter the edit tab with the current selection. */
 		onedit?: () => void;
+		/** Clear the execution overlay; the host also drops `?run=` so a
+		 * dismissed deep link does not reload on the next effect run. */
+		onclearoverlay?: () => void;
 	}
 
 	// Selection, overlays and analysis live in the route-owned state object so
 	// leaving the tab and returning keeps them; the route reloads it with the
 	// detail (load/promotion), matching the pre-split page behavior.
-	let { detail, nodes, edges, state: graph, onedit }: Props = $props();
+	let { detail, nodes, edges, state: graph, onedit, onclearoverlay }: Props =
+		$props();
 
 	// The log strip shares the tab so graph context and recent runs stay
 	// visible together; collapsed by default to preserve canvas height.
 	let logsOpen = $state(false);
+
+	// Read-only execution projection: the latest run is painted onto the
+	// definition topology through the shared overlay helpers, never by
+	// mutating the definition itself.
+	const overlayInput = $derived(
+		executionInputFromSignals(graph.executionOverlay),
+	);
+	const definitionOverlay = $derived(
+		projectExecutionOverlay(nodes, overlayInput),
+	);
+	const overlayNodes = $derived(
+		applyExecutionOverlay(nodes, definitionOverlay),
+	);
+	const overlayEdges = $derived.by(() =>
+		applyEdgeOverlay(edges, projectEdgeOverlay(edges, definitionOverlay)),
+	);
+	const overlayProps = $derived(canvasPropsFromOverlay(definitionOverlay));
+	const overlayActive = $derived(
+		graph.executionOverlay !== null && hasExecutionSignals(overlayInput),
+	);
 
 	const selectedNode = $derived(
 		nodes.find((node) => node.id === graph.selection) ?? null,
@@ -48,9 +81,43 @@
 	</p>
 {/if}
 {#await import('#lib/components/domain/GraphExplorer.svelte') then module}
+	<div class="mb-2 flex flex-wrap items-center gap-2">
+		{#if overlayActive && graph.overlayRunId}
+			<Badge variant="info">Run {graph.overlayRunId.slice(0, 8)}</Badge>
+			<Button
+				variant="ghost"
+				size="sm"
+				href={`/executions/${graph.overlayRunId}`}
+			>
+				View execution
+			</Button>
+			<Button
+				variant="ghost"
+				size="sm"
+				onclick={() => {
+					if (onclearoverlay) onclearoverlay();
+					else graph.clearExecutionOverlay();
+				}}
+			>
+				Hide run overlay
+			</Button>
+		{:else}
+			<Button
+				variant="outline"
+				size="sm"
+				disabled={graph.overlayLoading}
+				onclick={() => void graph.loadLatestRunOverlay(detail.id)}
+			>
+				{graph.overlayLoading ? 'Loading latest run…' : 'Show latest run'}
+			</Button>
+		{/if}
+		{#if graph.overlayError}
+			<span class="text-micro text-muted-foreground">{graph.overlayError}</span>
+		{/if}
+	</div>
 	<module.default
-		{nodes}
-		{edges}
+		nodes={overlayActive ? overlayNodes : nodes}
+		edges={overlayActive ? overlayEdges : edges}
 		preset="workflow"
 		layoutId={detail.id}
 		selectedId={graph.selection}
@@ -62,6 +129,11 @@
 		onoverlay={(id) => (graph.activeOverlay = id)}
 		onjumpparam={(id) => graph.jumpToNodeRow(id)}
 		ontogglelogs={() => (logsOpen = !logsOpen)}
+		pulseIds={overlayProps.pulseIds}
+		criticalIds={overlayProps.criticalIds}
+		failedIds={overlayProps.failedIds}
+		heatTierById={overlayProps.heatTierById}
+		decisionIds={overlayProps.decisionIds}
 	>
 		{#snippet inspector()}
 			{#if selectedNode}

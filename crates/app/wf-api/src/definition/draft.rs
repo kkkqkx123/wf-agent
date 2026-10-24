@@ -25,6 +25,8 @@ use crate::infra::error::{ApiError, ApiResult};
 pub enum DefinitionKind {
     Workflow,
     Agent,
+    Node,
+    Trigger,
 }
 
 impl DefinitionKind {
@@ -33,6 +35,8 @@ impl DefinitionKind {
         match self {
             Self::Workflow => "workflow",
             Self::Agent => "agent",
+            Self::Node => "node",
+            Self::Trigger => "trigger",
         }
     }
 }
@@ -90,6 +94,8 @@ pub async fn draft_exists(ctx: &ApiContext, kind: DefinitionKind, id: &str) -> b
     match kind {
         DefinitionKind::Workflow => ctx.storage.workflow_draft.exists(id).await.unwrap_or(false),
         DefinitionKind::Agent => ctx.storage.agent_draft.exists(id).await.unwrap_or(false),
+        DefinitionKind::Node => ctx.storage.node_draft.exists(id).await.unwrap_or(false),
+        DefinitionKind::Trigger => ctx.storage.trigger_draft.exists(id).await.unwrap_or(false),
     }
 }
 
@@ -98,6 +104,8 @@ pub async fn delete_draft(ctx: &ApiContext, kind: DefinitionKind, id: &str) -> A
     match kind {
         DefinitionKind::Workflow => Ok(ctx.storage.workflow_draft.delete(id).await?),
         DefinitionKind::Agent => Ok(ctx.storage.agent_draft.delete(id).await?),
+        DefinitionKind::Node => Ok(ctx.storage.node_draft.delete(id).await?),
+        DefinitionKind::Trigger => Ok(ctx.storage.trigger_draft.delete(id).await?),
     }
 }
 
@@ -122,7 +130,41 @@ pub async fn validate_draft_complete(
             crate::agent::validate_agent_definition(ctx, &draft)
                 .map_err(|e| promotion_error(kind, id, e))
         }
+        DefinitionKind::Node => {
+            let draft = crate::template::node_draft::get_draft(ctx, id).await?;
+            let result = crate::template::node_template::validate_node_template_dry_run(&draft);
+            complete_dry_run(kind, id, result).map_err(|e| promotion_error(kind, id, e))
+        }
+        DefinitionKind::Trigger => {
+            let draft = crate::trigger::trigger_draft::get_draft(ctx, id).await?;
+            let result = crate::trigger::template::validate_dry_run(ctx, &draft).await?;
+            complete_dry_run(kind, id, result).map_err(|e| promotion_error(kind, id, e))
+        }
     }
+}
+
+/// Turn a dry-run validation result into promotion preview output.
+///
+/// An invalid draft cannot be promoted and is rejected with the reason;
+/// a valid one promotes with its warnings.
+fn complete_dry_run(
+    kind: DefinitionKind,
+    id: &str,
+    result: wf_types::ValidationResult,
+) -> ApiResult<Vec<ValidationError>> {
+    if result.is_valid() {
+        return Ok(result.warnings);
+    }
+    let detail = result
+        .errors
+        .iter()
+        .map(|e| format!("{}: {}", e.field, e.message))
+        .collect::<Vec<_>>()
+        .join("; ");
+    Err(ApiError::Validation(format!(
+        "draft {} '{id}' cannot be promoted: {detail}",
+        kind.as_str()
+    )))
 }
 
 /// Promote a draft to its formal definition.
@@ -165,6 +207,38 @@ pub async fn promote_draft(
             let _ = delete_draft(ctx, kind, id).await;
             Ok(PromotionOutcome { warnings, impact })
         }
+        DefinitionKind::Node => {
+            let draft = crate::template::node_draft::get_draft(ctx, id).await?;
+            snapshot_node_version(ctx, id).await;
+            crate::template::node_template::save_node_template(ctx, &draft).await?;
+            let impact = crate::infra::dependency::check_update_impact(
+                ctx,
+                crate::infra::dependency::DependencyKind::Node,
+                id,
+            )
+            .await?;
+            let _ = delete_draft(ctx, kind, id).await;
+            Ok(PromotionOutcome {
+                warnings: Vec::new(),
+                impact,
+            })
+        }
+        DefinitionKind::Trigger => {
+            let draft = crate::trigger::trigger_draft::get_draft(ctx, id).await?;
+            snapshot_trigger_version(ctx, id).await;
+            crate::trigger::template::save(ctx, &draft).await?;
+            let impact = crate::infra::dependency::check_update_impact(
+                ctx,
+                crate::infra::dependency::DependencyKind::Trigger,
+                id,
+            )
+            .await?;
+            let _ = delete_draft(ctx, kind, id).await;
+            Ok(PromotionOutcome {
+                warnings: Vec::new(),
+                impact,
+            })
+        }
     }
 }
 
@@ -184,9 +258,9 @@ fn promotion_error(kind: DefinitionKind, id: &str, error: ApiError) -> ApiError 
 fn is_stale(ctx: &ApiContext, kind: DefinitionKind, id: &str) -> bool {
     match kind {
         DefinitionKind::Workflow => ctx.is_stale(id),
-        // An agent definition has no graph whose shape can drift from its
-        // dependants, so it never goes stale on its own.
-        DefinitionKind::Agent => false,
+        // Only workflows carry a graph whose shape can drift from its
+        // dependants; every other kind never goes stale on its own.
+        DefinitionKind::Agent | DefinitionKind::Node | DefinitionKind::Trigger => false,
     }
 }
 
@@ -219,4 +293,26 @@ async fn snapshot_agent_version(ctx: &ApiContext, id: &str) {
     let _ =
         crate::template::template_library::save_agent_template_version(ctx, id, &label, &current)
             .await;
+}
+
+/// Snapshot the formal node template in place, so the promotion can be
+/// undone.
+async fn snapshot_node_version(ctx: &ApiContext, id: &str) {
+    let Ok(current) = crate::template::node_template::get_node_template(&ctx.storage, id).await
+    else {
+        return;
+    };
+    let label = format!("pre-promote-{}", wf_common::now());
+    let _ =
+        crate::template::node_version::save_node_template_version(ctx, id, &label, &current).await;
+}
+
+/// Snapshot the formal trigger template in place, so the promotion can be
+/// undone.
+async fn snapshot_trigger_version(ctx: &ApiContext, id: &str) {
+    let Ok(current) = crate::trigger::template::get(ctx, id).await else {
+        return;
+    };
+    let label = format!("pre-promote-{}", wf_common::now());
+    let _ = crate::trigger::version::save_trigger_template_version(ctx, id, &label, &current).await;
 }

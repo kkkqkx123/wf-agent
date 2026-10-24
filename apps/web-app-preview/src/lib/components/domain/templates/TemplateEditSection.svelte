@@ -30,6 +30,8 @@
 	saveBusy={controller.saveBusy}
 	openWorkflowBusy={controller.openWorkflowBusy}
 	graphRequest={controller.graphRequest}
+	lockHolder={controller.lockHolder}
+	canWrite={controller.canWrite}
 	ontabchange={(next) => (controller.editTab = next)}
 	onvalidate={() => void controller.runValidate()}
 	onsave={() => void controller.runSave()}

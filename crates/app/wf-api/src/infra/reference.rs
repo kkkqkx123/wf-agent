@@ -340,6 +340,8 @@ mod tests {
             action_config: None,
             created_at: 1000,
             updated_at: 1000,
+
+            derived_from: None,
         }
     }
 

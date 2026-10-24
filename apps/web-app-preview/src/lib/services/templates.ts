@@ -336,9 +336,14 @@ export function serverTemplateIssues(
 
 /**
  * Server-side validation for an edited definition. Returns unified issues;
- * empty means the definition validates. Node and trigger templates have no
- * dry-run endpoint, so they run the client field gate here and validate
- * for real on save.
+ * empty means the definition validates. Every kind validates through a
+ * server dry-run endpoint before save; the server owns the final check on
+ * save.
+ *
+ * Validation layers, shared by every definition kind:
+ * - instant hint: synchronous `localTemplateIssues` while typing;
+ * - compile gate: a server endpoint before save (`requiresServerCompileGate`);
+ * - save: the server owns the final check, failures surface without rollback.
  */
 export async function validateTemplateDefinition(
 	kind: TemplateKind,
@@ -378,7 +383,75 @@ export async function validateTemplateDefinition(
 			];
 		}
 	}
-	return localTemplateIssues(kind, definition);
+	if (kind === 'node') {
+		try {
+			await call<unknown>(
+				client.POST('/api/v1/templates/node/validate', {
+					body: definition,
+				}),
+			);
+			return [];
+		} catch (e) {
+			return [
+				{
+					source: 'server',
+					field: null,
+					message: e instanceof Error ? e.message : 'Node template invalid',
+					nodeId: null,
+				},
+			];
+		}
+	}
+	try {
+		await call<unknown>(
+			client.POST('/api/v1/templates/trigger/validate', {
+				body: definition,
+			}),
+		);
+		return [];
+	} catch (e) {
+		return [
+			{
+				source: 'server',
+				field: null,
+				message: e instanceof Error ? e.message : 'Trigger template invalid',
+				nodeId: null,
+			},
+		];
+	}
+}
+
+/**
+ * Unified definition editing model, shared by the template library and the
+ * workflow detail page. A template is the reusable view of a definition; a
+ * workflow is the runnable instance of the same definition shape. Every
+ * kind goes through lock, draft, validate and promote against the same
+ * endpoint shape; an unknown kind is an error and never guessed.
+ */
+
+/** Whether saving this kind must pass a server compile gate first. */
+export function requiresServerCompileGate(_kind: TemplateKind): boolean {
+	return true;
+}
+
+/** Whether this kind has a single-writer editing lock on the backend. */
+export function supportsDefinitionLock(_kind: TemplateKind): boolean {
+	return true;
+}
+
+/**
+ * Where the server check for this kind happens: every kind validates
+ * through a dry-run endpoint before save. Frontend field checks are
+ * instant hints only.
+ */
+export function describeValidationGate(kind: TemplateKind): string {
+	if (kind === 'workflow')
+		return 'local hint + /workflows/validate + draft compile gate, final check on save';
+	if (kind === 'agent')
+		return 'local hint + /agents/validate compile gate, final check on save';
+	if (kind === 'node')
+		return 'local hint + /templates/node/validate compile gate, final check on save';
+	return 'local hint + /templates/trigger/validate compile gate, final check on save';
 }
 
 /**

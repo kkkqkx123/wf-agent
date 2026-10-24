@@ -20,6 +20,8 @@ fn workflow_record(id: &str) -> WorkflowExecution {
         execution_type: None,
         fork_join_context: None,
         hierarchy: None,
+
+        rerun_of: None,
     }
 }
 
@@ -39,6 +41,8 @@ fn agent_record(id: &str) -> AgentExecution {
         loop_config: None,
         permanently_failed_tools: None,
         hierarchy: None,
+
+        rerun_of: None,
     }
 }
 

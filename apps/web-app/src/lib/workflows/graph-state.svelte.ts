@@ -82,18 +82,39 @@ export class WorkflowGraphState {
 		if (!definitionId || this.overlayLoading) return;
 		this.overlayLoading = true;
 		this.overlayError = null;
+		let runId: string | null = null;
 		try {
 			const page = await listUnifiedExecutions({
 				limit: 1,
 				definitionId,
 			});
-			const runId = page.items[0]?.id ?? null;
-			if (!runId) {
-				this.executionOverlay = null;
-				this.overlayRunId = null;
-				this.overlayError = 'No runs yet for this definition.';
-				return;
-			}
+			runId = page.items[0]?.id ?? null;
+		} catch (e) {
+			this.overlayError =
+				e instanceof Error ? e.message : 'Latest run failed to load.';
+			this.overlayLoading = false;
+			return;
+		}
+		this.overlayLoading = false;
+		if (!runId) {
+			this.executionOverlay = null;
+			this.overlayRunId = null;
+			this.overlayError = 'No runs yet for this definition.';
+			return;
+		}
+		await this.loadRunOverlay(runId);
+	}
+
+	/**
+	 * Project one specific run onto the definition graph. Used for deep links
+	 * from the execution domain (`?run=`), where the latest run may not be
+	 * the run the user came from. Read-only like the latest-run variant.
+	 */
+	async loadRunOverlay(runId: string): Promise<void> {
+		if (!runId || this.overlayLoading) return;
+		this.overlayLoading = true;
+		this.overlayError = null;
+		try {
 			const [detail, callStack, analysis] = await Promise.all([
 				getExecutionDetail(runId),
 				getExecutionCallStack(runId),
@@ -131,7 +152,7 @@ export class WorkflowGraphState {
 			this.overlayRunId = runId;
 		} catch (e) {
 			this.overlayError =
-				e instanceof Error ? e.message : 'Latest run failed to load.';
+				e instanceof Error ? e.message : 'Run overlay failed to load.';
 		} finally {
 			this.overlayLoading = false;
 		}

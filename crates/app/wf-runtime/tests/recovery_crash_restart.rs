@@ -261,6 +261,8 @@ async fn kill_restart_without_checkpoint_is_skipped() {
                 execution_type: None,
                 fork_join_context: None,
                 hierarchy: None,
+
+                rerun_of: None,
             })
             .await
             .unwrap();
@@ -370,6 +372,8 @@ async fn kill_restart_child_without_checkpoint_points_at_parent() {
                 Some(wf_types::execution::ExecutionType::Workflow),
                 None,
             )),
+
+            rerun_of: None,
         })
         .await
         .unwrap();

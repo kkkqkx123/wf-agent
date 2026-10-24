@@ -154,6 +154,8 @@ async fn persist(ctx: &ApiContext, execution_id: &str, workflow_id: &str) {
         execution_type: None,
         fork_join_context: None,
         hierarchy: None,
+
+        rerun_of: None,
     };
     ctx.storage.workflow_execution.save(&record).await.unwrap();
 }

@@ -75,6 +75,8 @@ impl NodeTemplateBuilder {
             description: (!template.description.is_empty()).then_some(template.description.clone()),
             created_at: wf_common::now(),
             updated_at: wf_common::now(),
+
+            derived_from: None,
         };
         ctx.storage.node_template.save(&metadata).await?;
         ctx.registries

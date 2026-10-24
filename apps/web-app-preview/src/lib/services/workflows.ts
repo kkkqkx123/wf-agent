@@ -129,11 +129,6 @@ export async function getWorkflowDetail(id: string): Promise<WorkflowDetail> {
 	return { ...base, id, graph, versions, drafts, definition: data };
 }
 
-/** Compatibility alias. */
-export async function getWorkflow(id: string): Promise<WorkflowDetail> {
-	return getWorkflowDetail(id);
-}
-
 /**
  * Workflow graph from the typed node/edge views. The backend supplies pure
  * topology; layout is computed by the canvas.

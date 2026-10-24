@@ -10,6 +10,10 @@ import {
 	validateDefinitionDraft,
 } from '#lib/services/definitions';
 import {
+	resetWorkflowLayout,
+	saveWorkflowLayout,
+} from '#lib/services/layout';
+import {
 	allocateGraphNodeId,
 	serverTemplateIssues,
 	type TemplateIssue,
@@ -40,6 +44,7 @@ export class WorkflowEditSession {
 	editSeededId = $state('');
 	editMode = $state(false);
 	editBusy = $state(false);
+	layoutBusy = $state(false);
 	editDraftId = $state<string | null>(null);
 	editIssues = $state<ValidationIssue[]>([]);
 
@@ -158,7 +163,13 @@ export class WorkflowEditSession {
 
 	/** Unsaved canvas edits block leaving the edit tab or the page. */
 	editDirty(): boolean {
-		return this.tab === 'edit' && this.editMode && this.editStore.dirty;
+		if (this.tab !== 'edit' || !this.editMode) return false;
+		return this.editStore.dirty || this.editStore.layoutDirty;
+	}
+
+	/** Layout drift against the last layout save; topology dirt stays separate. */
+	get layoutDirty(): boolean {
+		return this.editMode && this.editStore.layoutDirty;
 	}
 
 	requestTab(id: string): void {
@@ -189,6 +200,7 @@ export class WorkflowEditSession {
 	discardWorkflowEdits(): void {
 		this.unsavedOpen = false;
 		this.editStore.markClean();
+		this.editStore.markLayoutClean();
 		this.exitEdit();
 		this.proceedPending();
 	}
@@ -198,10 +210,56 @@ export class WorkflowEditSession {
 		try {
 			await this.saveEditDraft();
 			if (this.editStore.dirty) return;
+			await this.saveLayout();
+			if (this.editStore.layoutDirty) return;
 			this.unsavedOpen = false;
 			this.proceedPending();
 		} finally {
 			this.unsavedBusy = false;
+		}
+	}
+
+	/**
+	 * Persist canvas positions through the layout endpoint, separate from
+	 * the draft payload. Topology saves mark the draft clean; layout saves
+	 * mark the layout clean. Template graphs have no layout endpoint and
+	 * intentionally leave `layoutDirty` unwired.
+	 */
+	async saveLayout(): Promise<void> {
+		const id = this.detail?.id ?? page.params.id;
+		if (!id || !this.editStore.layoutDirty) return;
+		this.layoutBusy = true;
+		try {
+			await saveWorkflowLayout(id, { positions: this.editStore.positions });
+			this.editStore.markLayoutClean();
+			toasts.success('Layout saved');
+		} catch (e) {
+			toasts.error(
+				'Layout save failed',
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			this.layoutBusy = false;
+		}
+	}
+
+	/** Drop persisted positions; the canvas falls back to its default layout. */
+	async resetLayout(): Promise<void> {
+		const id = this.detail?.id ?? page.params.id;
+		if (!id) return;
+		this.layoutBusy = true;
+		try {
+			await resetWorkflowLayout(id);
+			this.editStore.positions = {};
+			this.editStore.markLayoutClean();
+			toasts.success('Layout reset');
+		} catch (e) {
+			toasts.error(
+				'Layout reset failed',
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			this.layoutBusy = false;
 		}
 	}
 

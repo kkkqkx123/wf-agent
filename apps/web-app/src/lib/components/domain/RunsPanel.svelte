@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
-	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
-	import FilterBar from '@wf-agent/ui/components/FilterBar.svelte';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
-	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
-	import { toneText } from '@wf-agent/ui/components/variants';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import EmptyState from '#lib/ui/components/EmptyState.svelte';
+	import ErrorState from '#lib/ui/components/ErrorState.svelte';
+	import FilterBar from '#lib/ui/components/FilterBar.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import Skeleton from '#lib/ui/components/Skeleton.svelte';
+	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
+	import { toneText } from '#lib/ui/components/variants';
 	import { listUnifiedExecutions } from '#lib/services/executions';
 	import type { DefinitionKind, Execution } from '#lib/types/models';
 	import {
@@ -16,8 +16,8 @@
 		formatDuration,
 		formatNumber,
 	} from '#lib/utils/format';
-	import { statusTone, toneColorVar } from '@wf-agent/ui/status';
-	import { cn } from '@wf-agent/ui/cn';
+	import { statusTone, toneColorVar } from '#lib/ui/status';
+	import { cn } from '#lib/ui/cn';
 	import { t } from '#lib/i18n';
 	import { resolve } from '$app/paths';
 	import { watchListInvalidation } from '#lib/services/list-invalidation';

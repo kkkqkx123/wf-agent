@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
 	import ToolCallCard from '#lib/components/domain/ToolCallCard.svelte';
 	import {
 		describeToolGroup,
@@ -8,7 +8,7 @@
 		type ToolCallGroup,
 	} from '#lib/utils/tool-output';
 	import type { ToolCallEntry } from '#lib/types/models';
-	import { cn } from '@wf-agent/ui/cn';
+	import { cn } from '#lib/ui/cn';
 
 	interface Props {
 		group: ToolCallGroup;

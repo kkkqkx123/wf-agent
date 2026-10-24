@@ -1,6 +1,6 @@
 <script lang="ts">
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
 	import {
 		getAgentCheckpointStats,
 		type AgentCheckpointStats,

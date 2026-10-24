@@ -1,14 +1,14 @@
 <script lang="ts">
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
-	import CursorPager from '@wf-agent/ui/components/CursorPager.svelte';
-	import { toneText } from '@wf-agent/ui/components/variants';
-	import type { StatusTone } from '@wf-agent/ui/status';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import Skeleton from '#lib/ui/components/Skeleton.svelte';
+	import CursorPager from '#lib/ui/components/CursorPager.svelte';
+	import { toneText } from '#lib/ui/components/variants';
+	import type { StatusTone } from '#lib/ui/status';
 	import { getFileChangesPage } from '#lib/services/checkpoints';
 	import type { FileChange } from '#lib/types/models';
 	import { checkpoints as store } from '#lib/stores/checkpoints.svelte';
-	import { cn } from '@wf-agent/ui/cn';
+	import { cn } from '#lib/ui/cn';
 	import { formatRelativeTime } from '#lib/utils/format';
 	import { t } from '#lib/i18n';
 

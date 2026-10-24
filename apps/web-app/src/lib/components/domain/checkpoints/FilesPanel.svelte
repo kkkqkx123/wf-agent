@@ -1,8 +1,8 @@
 <script lang="ts">
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
+	import Dialog from '#lib/ui/components/Dialog.svelte';
 	import PageState from '#lib/components/layout/PageState.svelte';
 	import FileChangesCard from './files/FileChangesCard.svelte';
 	import FilePreviewCard from './files/FilePreviewCard.svelte';

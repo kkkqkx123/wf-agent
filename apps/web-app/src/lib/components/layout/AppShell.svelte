@@ -4,14 +4,14 @@
 	import Sidebar from './Sidebar.svelte';
 	import TopBar from './TopBar.svelte';
 	import HelpModal from './HelpModal.svelte';
-	import Sheet from '@wf-agent/ui/components/Sheet.svelte';
+	import Sheet from '#lib/ui/components/Sheet.svelte';
 	import { NAV_GROUPS, navItemFor } from '#lib/config/navigation';
 	import { resolveAppPath } from '#lib/utils/route';
 	import { page } from '$app/state';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
 	import { ui } from '#lib/stores/ui.svelte';
 	import { preferences } from '#lib/stores/preferences.svelte';
-	import { cn } from '@wf-agent/ui/cn';
+	import { cn } from '#lib/ui/cn';
 	import { createHotkey } from '@tanstack/svelte-hotkeys';
 	import { effectiveHotkey, isShortcutDisabled } from '#lib/shortcuts/registry';
 	import { t } from '#lib/i18n';

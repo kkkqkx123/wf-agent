@@ -1,16 +1,16 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
-	import Input from '@wf-agent/ui/components/Input.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import IconButton from '#lib/ui/components/IconButton.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
+	import Segmented from '#lib/ui/components/Segmented.svelte';
+	import Input from '#lib/ui/components/Input.svelte';
 	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import PageState from '#lib/components/layout/PageState.svelte';
-	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import {
 		listEvents,
 		listDependencies,

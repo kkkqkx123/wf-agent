@@ -1,12 +1,12 @@
 <script lang="ts">
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
-	import Input from '@wf-agent/ui/components/Input.svelte';
-	import Select from '@wf-agent/ui/components/Select.svelte';
-	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
-	import Switch from '@wf-agent/ui/components/Switch.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
+	import Dialog from '#lib/ui/components/Dialog.svelte';
+	import Input from '#lib/ui/components/Input.svelte';
+	import Select from '#lib/ui/components/Select.svelte';
+	import Skeleton from '#lib/ui/components/Skeleton.svelte';
+	import Switch from '#lib/ui/components/Switch.svelte';
 	import {
 		exportToWorkspace,
 		getExternalUpdateHint,

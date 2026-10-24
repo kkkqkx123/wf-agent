@@ -1,10 +1,10 @@
 <script lang="ts">
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import type { IconName } from '@wf-agent/ui/icons/paths';
-	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
-	import { toneText } from '@wf-agent/ui/components/variants';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import type { IconName } from '#lib/ui/icons/paths';
+	import IconButton from '#lib/ui/components/IconButton.svelte';
+	import { toneText } from '#lib/ui/components/variants';
 	import { toasts } from '#lib/stores/toast.svelte';
-	import { cn } from '@wf-agent/ui/cn';
+	import { cn } from '#lib/ui/cn';
 	import { t } from '#lib/i18n';
 
 	const TONE_ICON: Record<string, IconName> = {

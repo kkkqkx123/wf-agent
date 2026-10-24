@@ -1,8 +1,8 @@
 <script lang="ts">
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import Input from '@wf-agent/ui/components/Input.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import Input from '#lib/ui/components/Input.svelte';
 	import type { Checkpoint } from '#lib/types/models';
 	import type { StateFileLink } from '#lib/services/checkpoints';
 	import { formatBytes, formatRelativeTime } from '#lib/utils/format';

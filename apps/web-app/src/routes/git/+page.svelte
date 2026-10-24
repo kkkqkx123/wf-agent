@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
-	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import IconButton from '#lib/ui/components/IconButton.svelte';
+	import Segmented from '#lib/ui/components/Segmented.svelte';
 	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import PageState from '#lib/components/layout/PageState.svelte';
 	import GitGroupsPanel from '#lib/components/domain/git/GitGroupsPanel.svelte';

@@ -4,8 +4,7 @@
   "private": true,
   "description": "Application modules for Modular Agent Framework",
   "workspaces": [
-    "web-app",
-    "ui"
+    "web-app"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

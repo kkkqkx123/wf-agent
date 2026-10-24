@@ -1,9 +1,9 @@
 <script lang="ts">
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import type { WorkflowDetail } from '#lib/types/models';
 	import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
 	import type { WorkflowGraphState } from '#lib/workflows/graph-state.svelte';

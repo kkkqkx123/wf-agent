@@ -1,16 +1,16 @@
 <script lang="ts">
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
-	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import DataTable from '#lib/ui/components/DataTable.svelte';
+	import ErrorState from '#lib/ui/components/ErrorState.svelte';
 	import KeyValueList from '#lib/components/domain/KeyValueList.svelte';
 	import MessageBubble from '#lib/components/domain/MessageBubble.svelte';
 	import TranscriptScroller from '#lib/components/chat/TranscriptScroller.svelte';
 	import { isTranscriptAnchor } from '#lib/chat/transcript-anchors';
-	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
-	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
-	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import Segmented from '#lib/ui/components/Segmented.svelte';
+	import Skeleton from '#lib/ui/components/Skeleton.svelte';
+	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import Timeline from '#lib/components/domain/Timeline.svelte';
 	import TimelineOutline from '#lib/components/domain/TimelineOutline.svelte';
 	import ToolCallCard from '#lib/components/domain/ToolCallCard.svelte';
@@ -20,7 +20,7 @@
 		projectExecutionOverlay,
 	} from '#lib/graph/execution-projection';
 	import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
-	import type { Column } from '@wf-agent/ui/components/table';
+	import type { Column } from '#lib/ui/components/table';
 	import {
 		getAgentLoop,
 		getLoopGraph,
@@ -55,7 +55,7 @@
 		formatNumber,
 	} from '#lib/utils/format';
 	import type { UsageSnapshot } from '#lib/utils/stream-parser';
-	import { cn } from '@wf-agent/ui/cn';
+	import { cn } from '#lib/ui/cn';
 	import { t } from '#lib/i18n';
 
 	interface TabState {

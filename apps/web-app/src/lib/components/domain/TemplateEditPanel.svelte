@@ -1,12 +1,12 @@
 <script lang="ts">
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
-	import Input from '@wf-agent/ui/components/Input.svelte';
-	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
-	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Dialog from '#lib/ui/components/Dialog.svelte';
+	import Input from '#lib/ui/components/Input.svelte';
+	import Segmented from '#lib/ui/components/Segmented.svelte';
+	import Textarea from '#lib/ui/components/Textarea.svelte';
 	import IssueList from '#lib/components/domain/IssueList.svelte';
-	import JsonEditor from '@wf-agent/ui/components/JsonEditor.svelte';
+	import JsonEditor from '#lib/ui/components/JsonEditor.svelte';
 	import type { CanvasPosition } from '#lib/components/domain/GraphCanvas.svelte';
 	import { GraphEditStore } from '#lib/graph/edit-store.svelte';
 	import type { DisplayNode } from '#lib/graph/display-model';

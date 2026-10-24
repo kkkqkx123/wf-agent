@@ -1,18 +1,18 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
-	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
-	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
-	import type { Column } from '@wf-agent/ui/components/table';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import IconButton from '#lib/ui/components/IconButton.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
+	import Segmented from '#lib/ui/components/Segmented.svelte';
+	import Textarea from '#lib/ui/components/Textarea.svelte';
+	import DataTable from '#lib/ui/components/DataTable.svelte';
+	import type { Column } from '#lib/ui/components/table';
 	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import PageState from '#lib/components/layout/PageState.svelte';
-	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import {
 		exportQuery,
 		getQueryResult,

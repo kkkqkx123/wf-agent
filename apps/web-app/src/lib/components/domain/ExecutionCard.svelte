@@ -1,18 +1,18 @@
 <script lang="ts">
 	import type { Execution } from '#lib/types/models';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
-	import Progress from '@wf-agent/ui/components/Progress.svelte';
-	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
-	import { statusTone } from '@wf-agent/ui/status';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import IconButton from '#lib/ui/components/IconButton.svelte';
+	import Progress from '#lib/ui/components/Progress.svelte';
+	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
+	import { statusTone } from '#lib/ui/status';
 	import {
 		formatDuration,
 		formatRelativeTime,
 		shortId,
 	} from '#lib/utils/format';
-	import { isErrorStatus } from '@wf-agent/ui/status';
+	import { isErrorStatus } from '#lib/ui/status';
 	import { toasts } from '#lib/stores/toast.svelte';
-	import { cn } from '@wf-agent/ui/cn';
+	import { cn } from '#lib/ui/cn';
 	import { t } from '#lib/i18n';
 
 	interface Props {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
 	import type { Checkpoint } from '#lib/types/models';
 
 	let { rows }: { rows: Checkpoint[] } = $props();

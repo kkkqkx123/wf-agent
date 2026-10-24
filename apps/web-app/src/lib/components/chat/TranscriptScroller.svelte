@@ -1,7 +1,7 @@
 <script lang="ts" generics="T">
 	import type { Snippet } from 'svelte';
 	import { tick } from 'svelte';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
 	import {
 		nextAnchorIndex,
 		prevAnchorIndex,
@@ -13,7 +13,7 @@
 		TRANSCRIPT_ROW_SIZE,
 		VIRTUALIZE_THRESHOLD,
 	} from '#lib/config/virtualization';
-	import { cn } from '@wf-agent/ui/cn';
+	import { cn } from '#lib/ui/cn';
 	import { t } from '#lib/i18n';
 	import { createHotkey } from '@tanstack/svelte-hotkeys';
 	import { effectiveHotkey, isShortcutDisabled } from '#lib/shortcuts/registry';

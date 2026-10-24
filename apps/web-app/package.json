@@ -63,7 +63,6 @@
 	"dependencies": {
 		"@tanstack/hotkeys": "^0.11.0",
 		"@tanstack/svelte-hotkeys": "^0.13.0",
-		"@wf-agent/ui": "file:../ui",
 		"cytoscape": "^3.34.3",
 		"markstream-svelte": "2.0.13",
 		"openapi-fetch": "^0.17.0",

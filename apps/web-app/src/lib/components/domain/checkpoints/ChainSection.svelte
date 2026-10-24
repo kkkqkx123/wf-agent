@@ -1,8 +1,8 @@
 <script lang="ts">
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
-	import Input from '@wf-agent/ui/components/Input.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import Dialog from '#lib/ui/components/Dialog.svelte';
+	import Input from '#lib/ui/components/Input.svelte';
 	import ChainPanel from '#lib/components/domain/checkpoints/ChainPanel.svelte';
 	import AdvancedCheckpointCard from '#lib/components/domain/checkpoints/AdvancedCheckpointCard.svelte';
 	import {

@@ -1,7 +1,7 @@
 <script lang="ts">
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import KeyValueList from '#lib/components/domain/KeyValueList.svelte';
 	import {
 		summarizeTemplate,

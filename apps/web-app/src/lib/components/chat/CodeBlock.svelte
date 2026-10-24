@@ -6,8 +6,8 @@
 	 * fenced language and source, and paints lexical tokens. Streaming
 	 * re-renders only re-tokenize the current text.
 	 */
-	import { cn } from '@wf-agent/ui/cn';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import { cn } from '#lib/ui/cn';
+	import Icon from '#lib/ui/icons/Icon.svelte';
 	import {
 		highlightCode,
 		normalizeLanguage,

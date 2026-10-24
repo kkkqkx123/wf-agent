@@ -1,7 +1,7 @@
 <script lang="ts">
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
 	import IssueList from '#lib/components/domain/IssueList.svelte';
 	import type {
 		CanvasPosition,

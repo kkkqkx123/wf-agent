@@ -7,14 +7,14 @@
 		TimelineEntry,
 		ToolCallEntry,
 	} from '#lib/types/models';
-	import Card from '@wf-agent/ui/components/Card.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
 	import ExecutionAnnotation from './ExecutionAnnotation.svelte';
-	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
-	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
-	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
-	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import Segmented from '#lib/ui/components/Segmented.svelte';
+	import ErrorState from '#lib/ui/components/ErrorState.svelte';
+	import Skeleton from '#lib/ui/components/Skeleton.svelte';
+	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import KeyValueList from './KeyValueList.svelte';
-	import Progress from '@wf-agent/ui/components/Progress.svelte';
+	import Progress from '#lib/ui/components/Progress.svelte';
 	import Timeline from './Timeline.svelte';
 	import TimelineOutline from './TimelineOutline.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
@@ -52,8 +52,8 @@
 		formatNumber,
 		shortId,
 	} from '#lib/utils/format';
-	import { statusTone } from '@wf-agent/ui/status';
-	import { cn } from '@wf-agent/ui/cn';
+	import { statusTone } from '#lib/ui/status';
+	import { cn } from '#lib/ui/cn';
 	import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
 	import {
 		applyEdgeOverlay,

@@ -1,8 +1,8 @@
 <script lang="ts">
 	import type { LoopMessage } from '#lib/types/models';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
-	import type { IconName } from '@wf-agent/ui/icons/paths';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import IconButton from '#lib/ui/components/IconButton.svelte';
+	import type { IconName } from '#lib/ui/icons/paths';
 	import StreamMarkdown from '#lib/components/chat/LazyStreamMarkdown.svelte';
 	import MentionBadge from '#lib/components/chat/MentionBadge.svelte';
 	import { splitAttachments } from '#lib/utils/attachments';
@@ -16,7 +16,7 @@
 		previewFor,
 	} from '#lib/utils/tool-output';
 	import { preferences } from '#lib/stores/preferences.svelte';
-	import { cn } from '@wf-agent/ui/cn';
+	import { cn } from '#lib/ui/cn';
 	import { t } from '#lib/i18n';
 
 	interface Props {

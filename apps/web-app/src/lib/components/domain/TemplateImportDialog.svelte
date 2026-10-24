@@ -1,9 +1,9 @@
 <script lang="ts">
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
-	import Select from '@wf-agent/ui/components/Select.svelte';
-	import JsonEditor from '@wf-agent/ui/components/JsonEditor.svelte';
-	import UnsavedChangesDialog from '@wf-agent/ui/components/UnsavedChangesDialog.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Dialog from '#lib/ui/components/Dialog.svelte';
+	import Select from '#lib/ui/components/Select.svelte';
+	import JsonEditor from '#lib/ui/components/JsonEditor.svelte';
+	import UnsavedChangesDialog from '#lib/ui/components/UnsavedChangesDialog.svelte';
 	import { jsonErrorLine } from '#lib/services/templates';
 	import type { TemplateKind } from '#lib/types/models';
 	import { t } from '#lib/i18n';

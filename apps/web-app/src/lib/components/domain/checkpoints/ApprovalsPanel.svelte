@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { SvelteSet } from 'svelte/reactivity';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import Input from '@wf-agent/ui/components/Input.svelte';
-	import Select from '@wf-agent/ui/components/Select.svelte';
-	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import Input from '#lib/ui/components/Input.svelte';
+	import Select from '#lib/ui/components/Select.svelte';
+	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import type { Approval } from '#lib/types/models';
 	import { formatDateTime } from '#lib/utils/format';
 	import { t } from '#lib/i18n';

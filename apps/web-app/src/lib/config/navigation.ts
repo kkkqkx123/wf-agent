@@ -1,5 +1,5 @@
 import { message } from '#lib/i18n';
-import type { IconName } from '@wf-agent/ui/icons/paths';
+import type { IconName } from '#lib/ui/icons/paths';
 import type { AppPath } from '#lib/utils/route';
 
 export interface NavItem {

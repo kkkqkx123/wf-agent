@@ -4,12 +4,12 @@
 		NodeInputContext,
 		NodeTrace,
 	} from '#lib/types/models';
-	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
-	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
-	import Input from '@wf-agent/ui/components/Input.svelte';
-	import Select from '@wf-agent/ui/components/Select.svelte';
-	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import EmptyState from '#lib/ui/components/EmptyState.svelte';
+	import ErrorState from '#lib/ui/components/ErrorState.svelte';
+	import Input from '#lib/ui/components/Input.svelte';
+	import Select from '#lib/ui/components/Select.svelte';
+	import Skeleton from '#lib/ui/components/Skeleton.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
 	import NodeTraceCard from './NodeTraceCard.svelte';
 	import {
 		NODE_TRACE_STATUS_FILTERS,
@@ -22,7 +22,7 @@
 	import { formatNumber } from '#lib/utils/format';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { SvelteSet } from 'svelte/reactivity';
-	import { cn } from '@wf-agent/ui/cn';
+	import { cn } from '#lib/ui/cn';
 	import { t } from '#lib/i18n';
 
 	interface Props {

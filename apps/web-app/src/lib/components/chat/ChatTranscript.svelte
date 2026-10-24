@@ -1,9 +1,9 @@
 <script lang="ts">
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
-	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
-	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import EmptyState from '#lib/ui/components/EmptyState.svelte';
+	import ErrorState from '#lib/ui/components/ErrorState.svelte';
+	import Skeleton from '#lib/ui/components/Skeleton.svelte';
 	import MessageBubble from '#lib/components/domain/MessageBubble.svelte';
 	import ReasoningBlock from '#lib/components/chat/ReasoningBlock.svelte';
 	import StreamMarkdown from '#lib/components/chat/LazyStreamMarkdown.svelte';

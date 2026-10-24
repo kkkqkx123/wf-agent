@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { getAgentLoopVariables } from '#lib/services/agent-loops';
 	import type { LoopVariable } from '#lib/types/models';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
-	import type { Column } from '@wf-agent/ui/components/table';
-	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import DataTable from '#lib/ui/components/DataTable.svelte';
+	import type { Column } from '#lib/ui/components/table';
+	import ErrorState from '#lib/ui/components/ErrorState.svelte';
 	import { formatDateTime } from '#lib/utils/format';
 	import { t } from '#lib/i18n';
 

@@ -2,17 +2,17 @@
 	import { tick } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
-	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
-	import Input from '@wf-agent/ui/components/Input.svelte';
-	import Select from '@wf-agent/ui/components/Select.svelte';
-	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
-	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import IconButton from '#lib/ui/components/IconButton.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import EmptyState from '#lib/ui/components/EmptyState.svelte';
+	import ErrorState from '#lib/ui/components/ErrorState.svelte';
+	import Input from '#lib/ui/components/Input.svelte';
+	import Select from '#lib/ui/components/Select.svelte';
+	import Skeleton from '#lib/ui/components/Skeleton.svelte';
+	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import GraphCanvas, {
 		type CanvasContext,
 		type CanvasMove,
@@ -22,7 +22,7 @@
 	import AddNodeDrawer from '#lib/components/domain/AddNodeDrawer.svelte';
 	import ContextMenu, {
 		type ContextMenuItem,
-	} from '@wf-agent/ui/components/ContextMenu.svelte';
+	} from '#lib/ui/components/ContextMenu.svelte';
 	import {
 		deriveGroups,
 		foldForCap,
@@ -60,7 +60,7 @@
 		resetWorkflowLayout,
 		saveWorkflowLayout,
 	} from '#lib/services/layout';
-	import { cn } from '@wf-agent/ui/cn';
+	import { cn } from '#lib/ui/cn';
 	import { t } from '#lib/i18n';
 
 	interface Props {

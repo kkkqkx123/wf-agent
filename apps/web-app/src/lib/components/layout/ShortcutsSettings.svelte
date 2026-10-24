@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { createHotkeyRecorder } from '@tanstack/svelte-hotkeys';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
 	import {
 		SHORTCUT_ACTIONS,
 		clearShortcutOverride,

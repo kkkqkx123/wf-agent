@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
-	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import ErrorState from '#lib/ui/components/ErrorState.svelte';
+	import Skeleton from '#lib/ui/components/Skeleton.svelte';
 	import DefinitionDraftsPanel from '#lib/components/domain/DefinitionDraftsPanel.svelte';
 	import DefinitionVersionsPanel from '#lib/components/domain/DefinitionVersionsPanel.svelte';
 	import RunsPanel from '#lib/components/domain/RunsPanel.svelte';

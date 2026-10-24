@@ -8,11 +8,11 @@
 		StatusTransition,
 		TimelineEntry,
 	} from '#lib/types/models';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
 	import KeyValueList from './KeyValueList.svelte';
-	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
-	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import Skeleton from '#lib/ui/components/Skeleton.svelte';
+	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import Timeline from './Timeline.svelte';
 	import TimelineOutline from './TimelineOutline.svelte';
 	import { getExecutionHistory } from '#lib/services/executions';
@@ -21,7 +21,7 @@
 		formatDuration,
 		formatNumber,
 	} from '#lib/utils/format';
-	import { cn } from '@wf-agent/ui/cn';
+	import { cn } from '#lib/ui/cn';
 	import { t } from '#lib/i18n';
 
 	interface Props {

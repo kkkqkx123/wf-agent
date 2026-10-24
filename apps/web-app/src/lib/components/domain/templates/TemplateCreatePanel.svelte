@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import Select from '@wf-agent/ui/components/Select.svelte';
+	import Select from '#lib/ui/components/Select.svelte';
 	import TemplateEditPanel from '#lib/components/domain/TemplateEditPanel.svelte';
 	import { templateFormFields } from '#lib/services/templates';
 	import type { TemplateKind } from '#lib/types/models';

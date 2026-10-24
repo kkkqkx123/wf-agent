@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import type { IconName } from '@wf-agent/ui/icons/paths';
-	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import type { IconName } from '#lib/ui/icons/paths';
+	import Dialog from '#lib/ui/components/Dialog.svelte';
 	import { NAV_ITEMS } from '#lib/config/navigation';
 	import { resolveAppPath } from '#lib/utils/route';
 	import { listExecutions } from '#lib/services/executions';
@@ -12,7 +12,7 @@
 	import { unifiedSearch, type SearchHit } from '#lib/services/search';
 	import type { AgentLoop, Execution, Workflow } from '#lib/types/models';
 	import { ui } from '#lib/stores/ui.svelte';
-	import { cn } from '@wf-agent/ui/cn';
+	import { cn } from '#lib/ui/cn';
 	import { t, type MessageKey } from '#lib/i18n';
 
 	// Group names double as filter tokens, so they stay internal ids and are

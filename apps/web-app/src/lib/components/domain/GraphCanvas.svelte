@@ -49,7 +49,7 @@
 		resolveCanvasStylesheet,
 	} from '#lib/graph/canvas-style';
 	import { isGroupTitleId, type GroupTitle } from '#lib/graph/group-view';
-	import { cn } from '@wf-agent/ui/cn';
+	import { cn } from '#lib/ui/cn';
 	import { t } from '#lib/i18n';
 
 	interface Props {

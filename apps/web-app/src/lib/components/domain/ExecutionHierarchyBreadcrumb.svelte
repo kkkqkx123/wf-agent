@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { ExecutionHierarchy } from '#lib/types/models';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import { cn } from '@wf-agent/ui/cn';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import { cn } from '#lib/ui/cn';
 	import { resolve } from '$app/paths';
 	import { t } from '#lib/i18n';
 

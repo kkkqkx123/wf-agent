@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Card from '@wf-agent/ui/components/Card.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
 	import TimeRangeQuery from '#lib/components/domain/checkpoints/TimeRangeQuery.svelte';
 	import EntityBatchQuery from '#lib/components/domain/checkpoints/EntityBatchQuery.svelte';
 	import EntityMetadata from '#lib/components/domain/checkpoints/EntityMetadata.svelte';

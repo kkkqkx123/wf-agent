@@ -4,9 +4,9 @@
 	 * layered: pinned entries first, then recently used ones, with the full
 	 * list behind a browse-all view so the trigger never grows long.
 	 */
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import { cn } from '@wf-agent/ui/cn';
-	import type { IconName } from '@wf-agent/ui/icons/paths';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import { cn } from '#lib/ui/cn';
+	import type { IconName } from '#lib/ui/icons/paths';
 	import { t } from '#lib/i18n';
 
 	/** One selectable entry. */

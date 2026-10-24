@@ -8,10 +8,10 @@
 	 * with an optional reason; single-choice questions with free-form input and
 	 * a cancel path); the shape is browser-native buttons and inputs.
 	 */
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import type { BadgeVariant } from '@wf-agent/ui/components/variants';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import type { BadgeVariant } from '#lib/ui/components/variants';
 	import type {
 		InteractionAnswer,
 		PendingInteraction,

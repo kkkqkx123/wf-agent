@@ -1,11 +1,11 @@
 <script lang="ts">
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
-	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
-	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
+	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
+	import EmptyState from '#lib/ui/components/EmptyState.svelte';
+	import DataTable from '#lib/ui/components/DataTable.svelte';
 	import { t } from '#lib/i18n';
-	import type { Column } from '@wf-agent/ui/components/table';
+	import type { Column } from '#lib/ui/components/table';
 	import type { ModelProfile, Provider } from '#lib/types/models';
 	import { formatNumber } from '#lib/utils/format';
 

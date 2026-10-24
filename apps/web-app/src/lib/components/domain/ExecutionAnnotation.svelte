@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { browser } from '$app/env';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
-	import { cn } from '@wf-agent/ui/cn';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import Textarea from '#lib/ui/components/Textarea.svelte';
+	import { cn } from '#lib/ui/cn';
 
 	interface Props {
 		executionId: string;

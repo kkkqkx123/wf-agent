@@ -1,9 +1,9 @@
 <script lang="ts">
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
-	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import EmptyState from '#lib/ui/components/EmptyState.svelte';
+	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import { t } from '#lib/i18n';
 	import type { AuthProviderStatus } from '#lib/services/auth';
 

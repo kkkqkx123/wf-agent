@@ -1,8 +1,8 @@
 <script lang="ts">
-	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
-	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
-	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
-	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
+	import IconButton from '#lib/ui/components/IconButton.svelte';
+	import Segmented from '#lib/ui/components/Segmented.svelte';
+	import ErrorState from '#lib/ui/components/ErrorState.svelte';
+	import Skeleton from '#lib/ui/components/Skeleton.svelte';
 	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import ModelsPanel from './ModelsPanel.svelte';
 	import ToolsPanel from './ToolsPanel.svelte';

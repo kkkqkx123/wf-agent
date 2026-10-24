@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Separator from '@wf-agent/ui/components/Separator.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import IconButton from '#lib/ui/components/IconButton.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Separator from '#lib/ui/components/Separator.svelte';
 	import TerminalInstance from './TerminalInstance.svelte';
 	import {
 		ptyStoreFor,

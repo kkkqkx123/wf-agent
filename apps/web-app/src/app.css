@@ -1,6 +1,6 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
-@import '@wf-agent/ui/styles/tokens.css';
+@import './lib/ui/styles/tokens.css';
 
 @custom-variant dark (&:where(.dark, .dark *));
 

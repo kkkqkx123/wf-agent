@@ -1,20 +1,20 @@
 <script lang="ts">
 	import type { NodeTrace, TimelineEntry } from '#lib/types/models';
-	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
-	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import Input from '@wf-agent/ui/components/Input.svelte';
-	import JsonViewer from '@wf-agent/ui/components/JsonViewer.svelte';
-	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
-	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import EmptyState from '#lib/ui/components/EmptyState.svelte';
+	import ErrorState from '#lib/ui/components/ErrorState.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import Input from '#lib/ui/components/Input.svelte';
+	import JsonViewer from '#lib/ui/components/JsonViewer.svelte';
+	import Skeleton from '#lib/ui/components/Skeleton.svelte';
+	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import { SvelteSet, SvelteMap } from 'svelte/reactivity';
-	import { cn } from '@wf-agent/ui/cn';
+	import { cn } from '#lib/ui/cn';
 	import {
 		formatDateTime,
 		formatDuration,
 		formatNumber,
 	} from '#lib/utils/format';
-	import { statusTone } from '@wf-agent/ui/status';
+	import { statusTone } from '#lib/ui/status';
 	import { t } from '#lib/i18n';
 
 	interface Props {

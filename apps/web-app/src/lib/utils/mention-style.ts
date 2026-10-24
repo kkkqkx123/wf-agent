@@ -1,4 +1,4 @@
-import type { IconName } from '@wf-agent/ui/icons/paths';
+import type { IconName } from '#lib/ui/icons/paths';
 
 export type MentionTone =
 	| 'file'

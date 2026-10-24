@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { page } from '$app/state';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
-	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
-	import Input from '@wf-agent/ui/components/Input.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import IconButton from '#lib/ui/components/IconButton.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
+	import Segmented from '#lib/ui/components/Segmented.svelte';
+	import Dialog from '#lib/ui/components/Dialog.svelte';
+	import Input from '#lib/ui/components/Input.svelte';
 	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import PageState from '#lib/components/layout/PageState.svelte';
 

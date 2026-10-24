@@ -1,7 +1,7 @@
 <script lang="ts">
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import { cn } from '@wf-agent/ui/cn';
-	import Button from '@wf-agent/ui/components/Button.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import { cn } from '#lib/ui/cn';
+	import Button from '#lib/ui/components/Button.svelte';
 	import {
 		commandLabel,
 		matchCommands,

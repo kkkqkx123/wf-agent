@@ -1,10 +1,10 @@
 <script lang="ts">
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
-	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
-	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Dialog from '#lib/ui/components/Dialog.svelte';
+	import ErrorState from '#lib/ui/components/ErrorState.svelte';
+	import Skeleton from '#lib/ui/components/Skeleton.svelte';
 	import { t } from '#lib/i18n';
-	import Input from '@wf-agent/ui/components/Input.svelte';
+	import Input from '#lib/ui/components/Input.svelte';
 	import { getSkillContent } from '#lib/services/resources';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import type { Skill } from '#lib/types/models';

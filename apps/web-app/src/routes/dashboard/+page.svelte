@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
 	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import MetricGrid from '#lib/components/domain/MetricGrid.svelte';
-	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
-	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
-	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
+	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
+	import EmptyState from '#lib/ui/components/EmptyState.svelte';
+	import ErrorState from '#lib/ui/components/ErrorState.svelte';
 	import {
 		loadDashboardStats,
 		type DashboardStats,

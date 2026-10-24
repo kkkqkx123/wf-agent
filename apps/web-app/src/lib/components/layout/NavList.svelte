@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import Tooltip from '@wf-agent/ui/components/Tooltip.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import Tooltip from '#lib/ui/components/Tooltip.svelte';
 	import { NAV_GROUPS, navItemFor } from '#lib/config/navigation';
 	import { resolveAppPath } from '#lib/utils/route';
-	import { cn } from '@wf-agent/ui/cn';
+	import { cn } from '#lib/ui/cn';
 
 	interface Props {
 		/** `labels` shows group headings and names, `icons` is the collapsed rail. */

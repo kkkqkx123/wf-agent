@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
+	import Skeleton from '#lib/ui/components/Skeleton.svelte';
 	import GraphCanvas from '#lib/components/domain/GraphCanvas.svelte';
 	import { chatStream } from '#lib/stores/stream-run.svelte';
 	import { t } from '#lib/i18n';

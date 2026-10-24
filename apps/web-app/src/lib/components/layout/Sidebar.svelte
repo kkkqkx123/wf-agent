@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
-	import Tooltip from '@wf-agent/ui/components/Tooltip.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import IconButton from '#lib/ui/components/IconButton.svelte';
+	import Tooltip from '#lib/ui/components/Tooltip.svelte';
 	import { NAV_GROUPS, navItemFor } from '#lib/config/navigation';
 	import { resolveAppPath } from '#lib/utils/route';
 	import { preferences } from '#lib/stores/preferences.svelte';
 	import { ui } from '#lib/stores/ui.svelte';
-	import { cn } from '@wf-agent/ui/cn';
+	import { cn } from '#lib/ui/cn';
 	import { t } from '#lib/i18n';
 
 	const RAIL_WIDTH = '3.5rem';

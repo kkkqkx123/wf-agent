@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import Select from '@wf-agent/ui/components/Select.svelte';
-	import type { Column } from '@wf-agent/ui/components/table';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import DataTable from '#lib/ui/components/DataTable.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import Select from '#lib/ui/components/Select.svelte';
+	import type { Column } from '#lib/ui/components/table';
 	import {
 		diffDefinitionVersions,
 		rollbackDefinition,

@@ -1,7 +1,7 @@
 <script lang="ts">
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Input from '@wf-agent/ui/components/Input.svelte';
-	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Input from '#lib/ui/components/Input.svelte';
+	import Textarea from '#lib/ui/components/Textarea.svelte';
 	import {
 		getEntityMetadata,
 		setEntityMetadata,

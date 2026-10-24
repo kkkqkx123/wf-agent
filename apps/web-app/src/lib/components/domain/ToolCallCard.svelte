@@ -3,18 +3,18 @@
 	import { resolve } from '$app/paths';
 	import type { ToolCallEntry } from '#lib/types/models';
 	import type { SubAgentNote } from '#lib/stores/stream-run.svelte';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import type { IconName } from '@wf-agent/ui/icons/paths';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
-	import { toneText } from '@wf-agent/ui/components/variants';
-	import type { StatusTone } from '@wf-agent/ui/status';
-	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
-	import JsonViewer from '@wf-agent/ui/components/JsonViewer.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import type { IconName } from '#lib/ui/icons/paths';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Dialog from '#lib/ui/components/Dialog.svelte';
+	import { toneText } from '#lib/ui/components/variants';
+	import type { StatusTone } from '#lib/ui/status';
+	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
+	import JsonViewer from '#lib/ui/components/JsonViewer.svelte';
 	import { approveApproval, rejectApproval } from '#lib/services/checkpoints';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { formatDuration } from '#lib/utils/format';
-	import { cn } from '@wf-agent/ui/cn';
+	import { cn } from '#lib/ui/cn';
 	import { resolveToolOutputBudgets } from '#lib/config/tool-output';
 	import {
 		countSummary,

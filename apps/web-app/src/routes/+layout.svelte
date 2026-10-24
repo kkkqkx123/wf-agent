@@ -1,7 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import type { Snippet } from 'svelte';
-	import { setHrefResolver } from '@wf-agent/ui/link';
+	import { setHrefResolver } from '#lib/ui/link';
 	import { appPath, resolveAppPath } from '#lib/utils/route';
 	import AppShell from '#lib/components/layout/AppShell.svelte';
 	import Toaster from '#lib/components/layout/Toaster.svelte';

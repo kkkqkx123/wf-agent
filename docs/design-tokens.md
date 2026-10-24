@@ -1,6 +1,6 @@
 # 设计令牌速查表
 
-> 来源：`apps/ui/src/styles/tokens.css`（语义令牌唯一来源）与
+> 来源：`apps/web-app/src/lib/ui/styles/tokens.css`（语义令牌唯一来源）与
 > `apps/web-app/src/app.css` 的 `@theme inline` 映射（Tailwind 类名入口）。
 > 本文档只做速查，新增令牌时以源码为准并同步此处。
 > 对应 `docs/ref/frontend-viz/06-可借鉴Dify与n8n的设计.md` §4.3 的建议。
@@ -52,6 +52,6 @@ Tailwind 侧（`app.css @theme inline`）：`--radius-sm/md/lg/xl` 由 `--radius
   `bg-brand text-brand-foreground`（仅主 CTA/Logo）、
   `rounded-lg`（即 `--radius-lg`）。
 - 透明度：`bg-destructive/10`、`border-destructive/25` 由映射自动支持。
-- 状态色：优先 `statusTone()`（`@wf-agent/ui/status`）而非手写色值。
+- 状态色：优先 `statusTone()`（`#lib/ui/status`）而非手写色值。
 - 阴影：`shadow-frost`（固定铬）/`shadow-popover`（浮层）；毛玻璃用
   `frost` / `frost-panel` 工具。

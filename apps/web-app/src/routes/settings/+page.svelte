@@ -2,15 +2,15 @@
 	import { onMount } from 'svelte';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import Switch from '@wf-agent/ui/components/Switch.svelte';
-	import Select from '@wf-agent/ui/components/Select.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import Switch from '#lib/ui/components/Switch.svelte';
+	import Select from '#lib/ui/components/Select.svelte';
 	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import PageState from '#lib/components/layout/PageState.svelte';
 	import ShortcutsSettings from '#lib/components/layout/ShortcutsSettings.svelte';
-	import UnsavedChangesDialog from '@wf-agent/ui/components/UnsavedChangesDialog.svelte';
+	import UnsavedChangesDialog from '#lib/ui/components/UnsavedChangesDialog.svelte';
 	import {
 		preferences,
 		type Density,
@@ -32,7 +32,7 @@
 		serializeBackupDocument,
 		type SettingsBackup,
 	} from '#lib/services/portability';
-	import { cn } from '@wf-agent/ui/cn';
+	import { cn } from '#lib/ui/cn';
 	import { t, message } from '#lib/i18n';
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
 

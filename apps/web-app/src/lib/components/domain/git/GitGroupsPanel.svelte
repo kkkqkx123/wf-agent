@@ -1,7 +1,7 @@
 <script lang="ts">
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import Input from '@wf-agent/ui/components/Input.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import Input from '#lib/ui/components/Input.svelte';
 	import { git as gitStore } from '#lib/stores/git.svelte';
 	import { PANELS } from '#lib/git/workbench.svelte';
 	import type { GitWorkbench, PanelId } from '#lib/git/workbench.svelte';

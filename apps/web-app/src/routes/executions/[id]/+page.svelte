@@ -3,10 +3,10 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import IconButton from '#lib/ui/components/IconButton.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
 	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import PageState from '#lib/components/layout/PageState.svelte';
 	import ExecutionInspector from '#lib/components/domain/ExecutionInspector.svelte';
@@ -15,7 +15,7 @@
 		isExecutionTab,
 		type ExecutionTab,
 	} from '#lib/config/execution-tabs';
-	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import {
 		cancelExecution,
 		getExecutionDetail,

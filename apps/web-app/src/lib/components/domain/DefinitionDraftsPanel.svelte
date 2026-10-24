@@ -1,12 +1,12 @@
 <script lang="ts">
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
-	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import JsonViewer from '@wf-agent/ui/components/JsonViewer.svelte';
-	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
-	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import EmptyState from '#lib/ui/components/EmptyState.svelte';
+	import ErrorState from '#lib/ui/components/ErrorState.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import JsonViewer from '#lib/ui/components/JsonViewer.svelte';
+	import Skeleton from '#lib/ui/components/Skeleton.svelte';
+	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import { getWorkflowDraftTopology } from '#lib/services/graph';
 	import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
 	import type { DefinitionDraft, DefinitionKind } from '#lib/types/models';

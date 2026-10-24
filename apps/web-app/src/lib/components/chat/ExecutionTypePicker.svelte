@@ -5,9 +5,9 @@
 	 * with tools, Chat answers tool-free multi-turn questions, and Workflow
 	 * hands the message to a graph run configured on the workflow surface.
 	 */
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import { cn } from '@wf-agent/ui/cn';
-	import type { IconName } from '@wf-agent/ui/icons/paths';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import { cn } from '#lib/ui/cn';
+	import type { IconName } from '#lib/ui/icons/paths';
 	import { t } from '#lib/i18n';
 
 	/** The executors the composer can hand a message to. */

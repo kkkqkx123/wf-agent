@@ -1,9 +1,9 @@
 <script lang="ts">
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
-	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import IconButton from '#lib/ui/components/IconButton.svelte';
+	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import { sessions } from '#lib/stores/sessions.svelte';
 	import { appPath } from '#lib/utils/route';
 	import type { SessionExecutorType } from '#lib/types/models';

@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
-	import Input from '@wf-agent/ui/components/Input.svelte';
-	import Select from '@wf-agent/ui/components/Select.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Dialog from '#lib/ui/components/Dialog.svelte';
+	import Input from '#lib/ui/components/Input.svelte';
+	import Select from '#lib/ui/components/Select.svelte';
 	import { t } from '#lib/i18n';
 	import {
 		cancelAuthLogin,

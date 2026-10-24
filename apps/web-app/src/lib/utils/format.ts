@@ -1,4 +1,4 @@
-import { formatNumber } from '@wf-agent/ui/format';
+import { formatNumber } from '#lib/ui/format';
 
 const TIME_UNITS: Array<[limit: number, divisor: number, suffix: string]> = [
 	[60_000, 1000, 's'],

@@ -1,7 +1,7 @@
 <script lang="ts">
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
-	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Dialog from '#lib/ui/components/Dialog.svelte';
+	import Textarea from '#lib/ui/components/Textarea.svelte';
 	import ApprovalsPanel from '#lib/components/domain/checkpoints/ApprovalsPanel.svelte';
 	import { approveApproval, rejectApproval } from '#lib/services/checkpoints';
 	import type { Approval } from '#lib/types/models';

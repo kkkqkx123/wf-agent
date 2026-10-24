@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import Button from '@wf-agent/ui/components/Button.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
 	import { t } from '#lib/i18n';
 
 	// SvelteKit passes { status, message } when an error bubbles up from load/endpoint.

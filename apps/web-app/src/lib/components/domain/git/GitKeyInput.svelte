@@ -1,8 +1,8 @@
 <script lang="ts">
-	import Badge from '@wf-agent/ui/components/Badge.svelte';
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Card from '@wf-agent/ui/components/Card.svelte';
-	import Input from '@wf-agent/ui/components/Input.svelte';
+	import Badge from '#lib/ui/components/Badge.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Card from '#lib/ui/components/Card.svelte';
+	import Input from '#lib/ui/components/Input.svelte';
 	import { git as gitStore } from '#lib/stores/git.svelte';
 	import type { GitWorkbench } from '#lib/git/workbench.svelte';
 	import { t } from '#lib/i18n';

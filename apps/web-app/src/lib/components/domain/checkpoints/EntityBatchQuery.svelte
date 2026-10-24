@@ -1,7 +1,7 @@
 <script lang="ts">
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Input from '@wf-agent/ui/components/Input.svelte';
-	import Select from '@wf-agent/ui/components/Select.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Input from '#lib/ui/components/Input.svelte';
+	import Select from '#lib/ui/components/Select.svelte';
 	import CheckpointHits from '#lib/components/domain/checkpoints/CheckpointHits.svelte';
 	import { getCheckpointsByEntities } from '#lib/services/checkpoints';
 	import type { Checkpoint } from '#lib/types/models';

@@ -1,9 +1,9 @@
 <script lang="ts">
-	import Button from '@wf-agent/ui/components/Button.svelte';
-	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
-	import Input from '@wf-agent/ui/components/Input.svelte';
-	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
-	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
+	import Button from '#lib/ui/components/Button.svelte';
+	import Dialog from '#lib/ui/components/Dialog.svelte';
+	import Input from '#lib/ui/components/Input.svelte';
+	import Textarea from '#lib/ui/components/Textarea.svelte';
+	import Skeleton from '#lib/ui/components/Skeleton.svelte';
 	import FilesPanel from '#lib/components/domain/checkpoints/FilesPanel.svelte';
 	import {
 		getFileContent,

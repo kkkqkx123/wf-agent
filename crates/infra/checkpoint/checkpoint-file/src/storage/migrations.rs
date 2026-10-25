@@ -64,6 +64,8 @@ CREATE TABLE IF NOT EXISTS redo_stacks (
     entries         BLOB NOT NULL,
     updated_at      INTEGER NOT NULL
 );
+
+DROP TABLE IF EXISTS input_snapshots;
 ";
 
 pub const PRAGMA_JOURNAL_MODE_WAL: &str = "PRAGMA journal_mode=WAL;";
@@ -131,6 +133,10 @@ mod tests {
                 "missing table {expected}"
             );
         }
+        assert!(
+            !tables.contains(&"input_snapshots".to_string()),
+            "input_snapshots table must be gone"
+        );
     }
 
     #[test]

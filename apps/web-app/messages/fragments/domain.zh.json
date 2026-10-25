@@ -858,5 +858,19 @@
 	"domain.workflowGraphTab.selectedNode": "已选节点",
 	"domain.workflowGraphTab.showRecentRuns": "显示最近运行",
 	"domain.workflowUnsaved.description": "编辑画布存在未保存的草稿更改。离开将丢弃画布编辑。",
-	"domain.workflowUnsaved.saveAndLeave": "保存草稿并离开"
+	"domain.workflowUnsaved.saveAndLeave": "保存草稿并离开",
+	"domain.files.undoLastInputTitle": "撤销上次输入",
+	"domain.files.undoLastInputDescription": "按上次输入检查点界定的文件变更，支持作用域撤销",
+	"domain.files.undoLastInputEmpty": "该执行暂无可撤销输入",
+	"domain.files.undoLastInputUnavailable": "撤销不可用",
+	"domain.files.undoLastInputPreviewTitle": "撤销预览",
+	"domain.files.undoLastInputPreviewDescription": "显示将被恢复的文件，不修改工作区",
+	"domain.files.undoLastInputFiles": "将变更 {count} 个文件",
+	"domain.files.undoLastInputDone": "已撤销",
+	"domain.files.undoLastInputDoneDetail": "已恢复 {count} 个文件",
+	"domain.files.undoLastInputFailed": "撤销失败",
+	"domain.files.undoLastInputPreviewFailed": "撤销预览失败",
+	"domain.files.undoLastInputConfirmTitle": "撤销上次输入",
+	"domain.files.undoLastInputConfirmDescription": "在工作区中物化作用域撤销",
+	"domain.files.undoLastInputConfirmBody": "执行 {id} 影响 {count} 个文件，不会移动引用。"
 }

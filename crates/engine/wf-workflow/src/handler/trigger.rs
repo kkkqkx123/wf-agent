@@ -5,7 +5,7 @@
 //! workflow node (message nodes consume trigger messages through this path).
 //! Rejected actions follow the shared `TriggerAction::supported_in` matrix:
 //! nested agent execution is refused because message nodes have no parent
-//! agent-loop session anchor for input snapshot or write-back, and
+//! agent-loop session anchor for conversation input or write-back, and
 //! cold-start actions (`ExecuteWorkflow` / `ExecuteAgent`) are refused because
 //! message nodes always run inside an execution and cannot start a fresh run.
 //!

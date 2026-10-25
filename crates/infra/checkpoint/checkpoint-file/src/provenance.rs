@@ -18,6 +18,7 @@ mod types;
 mod workspace;
 
 pub use conflicts::{list_conflicts, parse_marker_conflicts, unresolved_merges};
+pub(crate) use diff::file_view;
 pub use diff::{diff_actors, diff_against_main, diff_workspaces};
 pub use index::rebuild_source_index;
 pub(crate) use queries::tree_delta;

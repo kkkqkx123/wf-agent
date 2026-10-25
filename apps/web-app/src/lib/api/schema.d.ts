@@ -4142,6 +4142,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/file-checkpoint/undo/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_apply_undo_last_input"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/file-checkpoint/undo/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_preview_undo_last_input"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/file-checkpoint/undo/{id}": {
         parameters: {
             query?: never;
@@ -8260,6 +8292,13 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_ApplyUndoResponse: {
+            data?: {
+                restored: number;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_BackgroundExecuteView: {
             data?: {
                 background: boolean;
@@ -8663,6 +8702,11 @@ export interface components {
             data?: {
                 /**
                  * Format: int64
+                 * @description Loose objects folded into a packfile.
+                 */
+                packed_objects?: number;
+                /**
+                 * Format: int64
                  * @description Unreachable blobs dropped by the reclaim sweep.
                  */
                 reclaimed_snapshots: number;
@@ -8671,6 +8715,12 @@ export interface components {
                  * @description Unreachable commits dropped by the sweep.
                  */
                 removed_checkpoints: number;
+                /**
+                 * Format: int64
+                 * @description Edit refs removed because their history is already contained in the
+                 *     mainline (post-merge dead lines).
+                 */
+                removed_edit_refs?: number;
                 /**
                  * Format: int64
                  * @description Unreachable trees dropped with the removed commits.
@@ -9275,6 +9325,24 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_UndoPreviewDoc: {
+            /**
+             * @description Undo preview for the last input boundary (`wf_api::checkpoint::undo::UndoPreview`
+             *     mirrored): the start/end state checkpoints bounding the input, their
+             *     linked file commits, the touched file set and the workdir preview.
+             */
+            data?: {
+                end_checkpoint_id: string;
+                end_file_commit?: string | null;
+                execution_id: string;
+                files: string[];
+                preview: components["schemas"]["FileDiffDoc"][];
+                start_checkpoint_id: string;
+                start_file_commit?: string | null;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_UnifiedExecutionCountView: {
             data?: {
                 count: number;
@@ -9299,10 +9367,10 @@ export interface components {
                 parent_execution_id?: string | null;
                 record: unknown;
                 rerun_of?: string | null;
-                version?: string | null;
                 /** Format: int64 */
                 start_time: number;
                 status: string;
+                version?: string | null;
             };
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -9563,6 +9631,9 @@ export interface components {
             category?: string | null;
             code: string;
             message: string;
+        };
+        ApplyUndoResponse: {
+            restored: number;
         };
         ApprovalCheckBody: {
             execution_id: string;
@@ -10183,6 +10254,11 @@ export interface components {
         GcStatsDoc: {
             /**
              * Format: int64
+             * @description Loose objects folded into a packfile.
+             */
+            packed_objects?: number;
+            /**
+             * Format: int64
              * @description Unreachable blobs dropped by the reclaim sweep.
              */
             reclaimed_snapshots: number;
@@ -10191,6 +10267,12 @@ export interface components {
              * @description Unreachable commits dropped by the sweep.
              */
             removed_checkpoints: number;
+            /**
+             * Format: int64
+             * @description Edit refs removed because their history is already contained in the
+             *     mainline (post-merge dead lines).
+             */
+            removed_edit_refs?: number;
             /**
              * Format: int64
              * @description Unreachable trees dropped with the removed commits.
@@ -10979,6 +11061,24 @@ export interface components {
             edges: Record<string, never>;
             nodes: Record<string, never>;
         };
+        UndoLastInputRequest: {
+            checkpoint_prefixes?: string[] | null;
+            execution_id?: string;
+        };
+        /**
+         * @description Undo preview for the last input boundary (`wf_api::checkpoint::undo::UndoPreview`
+         *     mirrored): the start/end state checkpoints bounding the input, their
+         *     linked file commits, the touched file set and the workdir preview.
+         */
+        UndoPreviewDoc: {
+            end_checkpoint_id: string;
+            end_file_commit?: string | null;
+            execution_id: string;
+            files: string[];
+            preview: components["schemas"]["FileDiffDoc"][];
+            start_checkpoint_id: string;
+            start_file_commit?: string | null;
+        };
         UnifiedExecutionCountView: {
             count: number;
         };
@@ -10998,10 +11098,10 @@ export interface components {
             parent_execution_id?: string | null;
             record: unknown;
             rerun_of?: string | null;
-            version?: string | null;
             /** Format: int64 */
             start_time: number;
             status: string;
+            version?: string | null;
         };
         /** @description One run in the unified listing, regardless of owning engine. */
         UnifiedExecutionDoc: {
@@ -32434,6 +32534,142 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_apply_undo_last_input: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UndoLastInputRequest"];
+            };
+        };
+        responses: {
+            /** @description Undo of the last input boundary applied */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_ApplyUndoResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_preview_undo_last_input: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UndoLastInputRequest"];
+            };
+        };
+        responses: {
+            /** @description Undo preview for the last input boundary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_UndoPreviewDoc"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Too many requests: rate limit exceeded (see Retry-After) */
             429: {

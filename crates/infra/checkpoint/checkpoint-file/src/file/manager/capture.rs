@@ -37,7 +37,12 @@ impl FileCheckpointManager {
             custom_ignore_patterns: ignore_patterns,
             failure_behavior: opts.failure_behavior,
             max_file_size,
-        });
+        })
+        // Delegate the final ignore verdict to the user's own git so
+        // checkpoint ignore decisions match the user's git view. Restore
+        // paths never enable this: dropping user-ignored worktree files
+        // from a restore scan would misclassify them as deletions.
+        .with_user_repo_root(crate::git_store::external::discover_repo_root(base_dir));
         let scan = scanner.scan(base_dir)?;
         let actor = self.actor_id_for(entity_id);
         let git = self.git_ref()?;

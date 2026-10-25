@@ -452,7 +452,7 @@ pub fn draw_checkpoints(
         _ => Vec::new(),
     };
     let title = format!(
-        "Checkpoints ({}) (r refresh, R restore, c create, G purge, Enter detail, t chain, d delete, Esc back)",
+        "Checkpoints ({}) (r refresh, R restore, U undo-input, c create, G purge, Enter detail, t chain, d delete, Esc back)",
         list_suffix(rows.len(), ctx)
     );
     let block = titled_block(&title, ColorRole::Highlight, theme);

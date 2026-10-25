@@ -32,7 +32,7 @@
 	async function runGcSweep(): Promise<void> {
 		workspace.beginAction('gc');
 		try {
-			const result = await runGc();
+			const result = await runGc(0);
 			await loadStats();
 			gcNote = t('domain.files.gcNote', {
 				commits: result.removedCheckpoints,
@@ -94,7 +94,7 @@
 	{/if}
 	{#snippet footer()}
 		<div class="flex flex-wrap items-center gap-2">
-			<Button
+				<Button
 				variant="outline"
 				size="sm"
 				disabled={workspace.busy}

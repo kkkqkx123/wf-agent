@@ -1,6 +1,6 @@
 # wf-api checkpoint 与 trigger 域
 
-对应 `src/checkpoint/`（4 文件 + 根门面，约 1,350 行）与 `src/trigger/`（5 文件 + 根，约 1,170 行）。两者都是从旧结构升格的顶层域：checkpoint 能力原散在 workflow 模块（`workflow/checkpoint.rs`、`file_approval.rs`、`file_provenance.rs`），trigger 能力原在 entity/builder/template 三处（旧的 `entity/trigger.rs` per-loop 触发器实体模型已整体删除，被全局 TriggerTemplate 模型取代）。
+对应 `src/checkpoint/`（6 文件 + 根门面）与 `src/trigger/`（5 文件 + 根，约 1,170 行）。两者都是从旧结构升格的顶层域：checkpoint 能力原散在 workflow 模块（`workflow/checkpoint.rs`、`file_approval.rs`、`file_provenance.rs`），trigger 能力原在 entity/builder/template 三处（旧的 `entity/trigger.rs` per-loop 触发器实体模型已整体删除，被全局 TriggerTemplate 模型取代）。
 
 ## 1. checkpoint 模块 — 共享检查点面
 
@@ -33,7 +33,11 @@
 
 `list_partitions`（actor/approval/integrated/staged）、`list_changes_by_actor`（路径子串 + 闭区间时间过滤）、`list_changes_by_path`（跨分区）、`get_actor_workspace`、`diff_actors`/`diff_against_staged`、`file_timeline`（含 rename/move 历史，需 storage 已配置）、`rename_file`（记 move 链接、按 delete-old + edit-new 应用）、**编辑会话组**：`begin_edit_group(label)`/`list_sessions`/`rollback_session`/`undo_edit`/`redo_edit`（`EditSession` 由 manager 持久化，最新优先）、`run_gc(keep_recent_heads)`（`GcRetention` 在内置保护集【branch heads + ancestors + git anchors】之上额外保留的分区头数，返回 `GcStats`）。`EditSession/GcRetention/GcStats` 实为 facade 从 layertwine 直接再导出。
 
-### 1.5 与 agent/workflow 域的关系
+### 1.5 undo.rs — 撤销上次提问（基于检查点时序定位）
+
+详见 `docs/plan/checkpoint-undo-via-timing-design.md`。`preview_undo_last_input`/`apply_undo_last_input(execution_id, checkpoint_prefixes)`：同一执行按 timestamp 排序，终点取**最后一个已 settle 的边界**——终态（`ON_COMPLETE/ON_FAILURE/ON_CANCEL/ON_TIMEOUT/ON_STOPPED`，在途 `ON_ERROR` 不算）优先，仅当压缩写回（`AFTER_COMPRESSION`）落在最后一个终态之后时才以它为终点；起点取该终点之前上一个终点之后的首个 `MANUAL`（压缩尾部窗口则为首个 `MANUAL`/`BEFORE_COMPRESSION`，窗口内钩子 Manual 不干扰；无终态又无压缩尾即无已完成输入，直接 NotFound）。起止状态检查点经 `state_file_link_status` 解析关联文件提交（`pending` 视同缺失，不阻塞），再走文件层 `stage_undo`（`changed_paths_between_commits` 求触及集 + `preview_restore` 渲染差异）与 `apply_undo`（`restore_selected` 选择性物化：起点无历史视为空树、内容一致跳过、引用与 redo 栈不动）。`checkpoint_prefixes` 为空即不限域，空列表即空计划。
+
+### 1.6 与 agent/workflow 域的关系
 
 - **执行状态 checkpoint** 的创建/恢复在引擎侧与域模块：`agent/agent_checkpoint.rs`（手动 + live 集成）、`workflow/workflow_execution.rs`（create_checkpoint/restore_checkpoint + 引擎自动策略）；协调器/链式类型/delta 回放全在 `wf-checkpoint` 的 coordinator。
 - record/file/approval/provenance 是**跨执行、跨 workspace 的记录与文件面**，audit、entity/variable history、CLI 是它们的读方。

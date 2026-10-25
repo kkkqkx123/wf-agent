@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 /// conversation ledger (execution-shared `ConversationSession`):
 ///
 /// - `message_count`: the number of messages at the capture point — the
-///   boundary of the child input snapshot (prefix slice) and the reference
+///   boundary of the child conversation input (prefix slice) and the reference
 ///   position for result injection;
 /// - `array_version`: the strong-consistency ledger version at the capture
 ///   point — the write-back validation key: a result is applied to the
@@ -216,7 +216,7 @@ impl TriggerCondition {
     }
 }
 
-/// How the child agent's input snapshot is derived from the parent
+/// How the child agent's conversation input is derived from the parent
 /// conversation at the trigger anchor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]

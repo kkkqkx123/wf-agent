@@ -1,7 +1,8 @@
 //! Destructive / mutating actions dispatched from key routes: delete
 //! workflow, pause/resume and cancel executions, default model selection,
-//! checkpoint detail/chain/restore/delete/create/purge, file-workspace
-//! submit/merge/undo/redo/gc/reindex, edit-session begin/rollback.
+//! checkpoint detail/chain/restore/delete/create/purge/undo-last-input,
+//! file-workspace submit/merge/undo/redo/gc/reindex, edit-session
+//! begin/rollback.
 
 use crate::modal::{ConfirmModal, ModalResult, ModelPicker};
 use crate::overlay::Feedback;
@@ -1273,6 +1274,81 @@ impl TuiApp {
                     format!("{label} recorded ({})", short_id(snapshot))
                 }
                 Err(err) => format!("{label} failed: {err}"),
+            };
+            let _ = tx.send(Feedback::Notice(outcome));
+        }));
+    }
+
+    /// Undo the last input boundary of the selected checkpoint row's
+    /// execution after confirmation. Preview runs first so an empty touch
+    /// set reports "nothing to undo" without writing; otherwise the apply
+    /// result reports the restored count. History refs are untouched.
+    pub(super) fn undo_last_input_for_selected(&mut self) {
+        let Some(row) = self.selected_checkpoint_row() else {
+            self.app
+                .notice
+                .set("No checkpoint row selected.".to_string());
+            return;
+        };
+        let execution = row.entity.clone();
+        let rx = self.modals.push_with_result(Box::new(ConfirmModal::new(
+            "Undo last input",
+            format!(
+                "Undo the last input of {}? Preview runs first; files outside the touch set are never written.",
+                short_id(&execution)
+            ),
+        )));
+        let tx = self.feedback_tx.clone();
+        let client = self.client.clone();
+        self.tasks.push(tokio::spawn(async move {
+            let outcome = match rx.await {
+                Ok(ModalResult::Confirmed) => {
+                    let preview: Result<serde_json::Value, String> = client
+                        .post_json(
+                            "/api/v1/file-checkpoint/undo/preview",
+                            &serde_json::json!({ "execution_id": execution }),
+                        )
+                        .await
+                        .map_err(|err| err.to_string());
+                    match preview {
+                        Err(err) => format!("Undo preview failed: {err}"),
+                        Ok(value) => {
+                            let files = value
+                                .get("files")
+                                .and_then(|v| v.as_array())
+                                .map(|files| files.len())
+                                .unwrap_or(0);
+                            if files == 0 {
+                                "Nothing to undo for the last input.".to_string()
+                            } else {
+                                match client
+                                    .post_json::<_, serde_json::Value>(
+                                        "/api/v1/file-checkpoint/undo/apply",
+                                        &serde_json::json!({ "execution_id": execution }),
+                                    )
+                                    .await
+                                {
+                                    Ok(applied) => {
+                                        let _ = tx.send(Feedback::Refresh(ScreenKind::Checkpoints));
+                                        let _ =
+                                            tx.send(Feedback::Refresh(ScreenKind::FileWorkspace));
+                                        let _ = tx.send(Feedback::Refresh(ScreenKind::Dashboard));
+                                        let restored = applied
+                                            .get("restored")
+                                            .and_then(|v| v.as_u64())
+                                            .unwrap_or(0);
+                                        format!(
+                                            "Undone last input of {} ({restored} file(s))",
+                                            short_id(&execution)
+                                        )
+                                    }
+                                    Err(err) => format!("Undo failed: {err}"),
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => "Undo cancelled".to_string(),
             };
             let _ = tx.send(Feedback::Notice(outcome));
         }));

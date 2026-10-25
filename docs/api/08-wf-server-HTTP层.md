@@ -27,7 +27,7 @@
 
 **checkpoints.rs（329，14）**：执行级（先 `ensure_execution_domain(Workflow)`）：`POST /executions/{id}/checkpoints`；`GET /executions/{id}/checkpoints/chain`（ExecutionNotFound 降级空链 200）；`POST /executions/checkpoints/{cid}/restore|resume`（先 `ensure_checkpoint_domain`）。记录级（直用 `checkpoint::record`）：`GET|POST /checkpoints`；`GET|DELETE /checkpoints/{id}`；`GET|DELETE /checkpoints/entity/{entityId}`；`GET|PUT /checkpoints/entity/{entityId}/metadata`；`GET /checkpoints/entity/{entityId}/latest`；`GET /checkpoints/entities?entity_ids=`；`GET /checkpoints/time-range?workflowId=&start=&end=`。（旧版 `/file-checkpoints*` CRUD 端点已不存在，文件面改由下列两文件承载。）
 
-**file_provenance.rs（262，14，新）**：`GET /file-checkpoint/partitions`、`/sessions`、`/changes/actor/{id}`、`/changes/path/{id}`、`/diff/actors/{a}/{b}`、`/diff/staged/{id}`、`/workspace/{id}`、`/timeline/{id}`；`POST /file-checkpoint/sessions`、`/sessions/{id}/rollback/{actor}`、`/rename`、`/undo/{id}`、`/redo/{id}`、`/gc`。
+**file_provenance.rs（262，16）**：`GET /file-checkpoint/partitions`、`/sessions`、`/changes/actor/{id}`、`/changes/path/{id}`、`/diff/actors/{a}/{b}`、`/diff/staged/{id}`、`/workspace/{id}`、`/timeline/{id}`、`GET /file-checkpoint/state-links?ids=`（状态→文件链接健康度，撤销上次提问的依赖）；`POST /file-checkpoint/sessions`、`/sessions/{id}/rollback/{actor}`、`/rename`、`/undo/{id}`、`/redo/{id}`（actor 编辑级撤销/重做）、`/gc`；**撤销上次提问**：`POST /file-checkpoint/undo/preview`、`POST /file-checkpoint/undo/apply`（请求体 `{execution_id, checkpoint_prefixes?}`，见 `docs/plan/checkpoint-undo-via-timing-design.md`）。
 
 **file_approvals.rs（87，3，新）**：`GET /file-checkpoint/approvals/pending`；`POST /file-checkpoint/approvals/{id}/approve|reject`。
 

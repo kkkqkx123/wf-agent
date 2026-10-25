@@ -486,6 +486,11 @@ impl TuiApp {
             {
                 self.restore_selected_checkpoint();
             }
+            CKey::Char('U')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Checkpoints =>
+            {
+                self.undo_last_input_for_selected();
+            }
             CKey::Char('t')
                 if self.app.screen.navigation.current_kind() == ScreenKind::Checkpoints =>
             {

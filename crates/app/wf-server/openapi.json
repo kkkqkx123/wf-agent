@@ -21322,6 +21322,126 @@
         ]
       }
     },
+    "/api/v1/file-checkpoint/undo/apply": {
+      "post": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_apply_undo_last_input",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UndoLastInputRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Undo of the last input boundary applied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ApplyUndoResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/file-checkpoint/undo/preview": {
+      "post": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_preview_undo_last_input",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UndoLastInputRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Undo preview for the last input boundary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_UndoPreviewDoc"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/file-checkpoint/undo/{id}": {
       "post": {
         "tags": [
@@ -43480,6 +43600,39 @@
           }
         }
       },
+      "ApiEnvelope_ApplyUndoResponse": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "restored"
+            ],
+            "properties": {
+              "restored": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_BackgroundExecuteView": {
         "type": "object",
         "required": [
@@ -44857,6 +45010,12 @@
               "reclaimed_snapshots"
             ],
             "properties": {
+              "packed_objects": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Loose objects folded into a packfile.",
+                "minimum": 0
+              },
               "reclaimed_snapshots": {
                 "type": "integer",
                 "format": "int64",
@@ -44867,6 +45026,12 @@
                 "type": "integer",
                 "format": "int64",
                 "description": "Unreachable commits dropped by the sweep.",
+                "minimum": 0
+              },
+              "removed_edit_refs": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Edit refs removed because their history is already contained in the\nmainline (post-merge dead lines).",
                 "minimum": 0
               },
               "removed_snapshots": {
@@ -47071,6 +47236,73 @@
           }
         }
       },
+      "ApiEnvelope_UndoPreviewDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Undo preview for the last input boundary (`wf_api::checkpoint::undo::UndoPreview`\nmirrored): the start/end state checkpoints bounding the input, their\nlinked file commits, the touched file set and the workdir preview.",
+            "required": [
+              "execution_id",
+              "start_checkpoint_id",
+              "end_checkpoint_id",
+              "files",
+              "preview"
+            ],
+            "properties": {
+              "end_checkpoint_id": {
+                "type": "string"
+              },
+              "end_file_commit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "execution_id": {
+                "type": "string"
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "preview": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/FileDiffDoc"
+                }
+              },
+              "start_checkpoint_id": {
+                "type": "string"
+              },
+              "start_file_commit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_UnifiedExecutionCountView": {
         "type": "object",
         "required": [
@@ -47153,12 +47385,24 @@
                 ]
               },
               "record": {},
+              "rerun_of": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "start_time": {
                 "type": "integer",
                 "format": "int64"
               },
               "status": {
                 "type": "string"
+              },
+              "version": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             }
           },
@@ -48215,6 +48459,18 @@
           },
           "message": {
             "type": "string"
+          }
+        }
+      },
+      "ApplyUndoResponse": {
+        "type": "object",
+        "required": [
+          "restored"
+        ],
+        "properties": {
+          "restored": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },
@@ -49952,6 +50208,12 @@
           "reclaimed_snapshots"
         ],
         "properties": {
+          "packed_objects": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Loose objects folded into a packfile.",
+            "minimum": 0
+          },
           "reclaimed_snapshots": {
             "type": "integer",
             "format": "int64",
@@ -49962,6 +50224,12 @@
             "type": "integer",
             "format": "int64",
             "description": "Unreachable commits dropped by the sweep.",
+            "minimum": 0
+          },
+          "removed_edit_refs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Edit refs removed because their history is already contained in the\nmainline (post-merge dead lines).",
             "minimum": 0
           },
           "removed_snapshots": {
@@ -52319,6 +52587,69 @@
           }
         }
       },
+      "UndoLastInputRequest": {
+        "type": "object",
+        "properties": {
+          "checkpoint_prefixes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "execution_id": {
+            "type": "string"
+          }
+        }
+      },
+      "UndoPreviewDoc": {
+        "type": "object",
+        "description": "Undo preview for the last input boundary (`wf_api::checkpoint::undo::UndoPreview`\nmirrored): the start/end state checkpoints bounding the input, their\nlinked file commits, the touched file set and the workdir preview.",
+        "required": [
+          "execution_id",
+          "start_checkpoint_id",
+          "end_checkpoint_id",
+          "files",
+          "preview"
+        ],
+        "properties": {
+          "end_checkpoint_id": {
+            "type": "string"
+          },
+          "end_file_commit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "execution_id": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "preview": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileDiffDoc"
+            }
+          },
+          "start_checkpoint_id": {
+            "type": "string"
+          },
+          "start_file_commit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "UnifiedExecutionCountView": {
         "type": "object",
         "required": [
@@ -52374,12 +52705,24 @@
             ]
           },
           "record": {},
+          "rerun_of": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "start_time": {
             "type": "integer",
             "format": "int64"
           },
           "status": {
             "type": "string"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },

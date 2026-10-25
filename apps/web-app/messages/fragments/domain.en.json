@@ -858,5 +858,19 @@
 	"domain.workflowGraphTab.selectedNode": "Selected node",
 	"domain.workflowGraphTab.showRecentRuns": "Show recent runs",
 	"domain.workflowUnsaved.description": "The edit canvas has unsaved draft changes. Leaving discards the canvas edits.",
-	"domain.workflowUnsaved.saveAndLeave": "Save draft & leave"
+	"domain.workflowUnsaved.saveAndLeave": "Save draft & leave",
+	"domain.files.undoLastInputTitle": "Undo last input",
+	"domain.files.undoLastInputDescription": "File changes bounded by the last input checkpoints for scoped undo",
+	"domain.files.undoLastInputEmpty": "No undoable input for this execution",
+	"domain.files.undoLastInputUnavailable": "Undo unavailable",
+	"domain.files.undoLastInputPreviewTitle": "Undo preview",
+	"domain.files.undoLastInputPreviewDescription": "Files that would be restored, without mutating the workspace",
+	"domain.files.undoLastInputFiles": "{count} file(s) would change",
+	"domain.files.undoLastInputDone": "Undo applied",
+	"domain.files.undoLastInputDoneDetail": "Restored {count} file(s)",
+	"domain.files.undoLastInputFailed": "Undo failed",
+	"domain.files.undoLastInputPreviewFailed": "Undo preview failed",
+	"domain.files.undoLastInputConfirmTitle": "Undo last input",
+	"domain.files.undoLastInputConfirmDescription": "Materializes the scoped undo in the workspace",
+	"domain.files.undoLastInputConfirmBody": "Execution {id} affects {count} file(s). References are not moved."
 }

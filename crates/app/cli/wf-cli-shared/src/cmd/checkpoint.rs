@@ -390,6 +390,39 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                 )
             }
         }
+        CheckpointSub::FileUndoLastInputPreview {
+            execution,
+            checkpoint_prefixes,
+        } => {
+            let body = serde_json::json!({
+                "execution_id": execution,
+                "checkpoint_prefixes": if checkpoint_prefixes.is_empty() { None } else { Some(checkpoint_prefixes) }
+            });
+            let data: serde_json::Value = client
+                .post_json("/api/v1/file-checkpoint/undo/preview", &body)
+                .await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-undo-preview", data),
+            )
+        }
+        CheckpointSub::FileUndoLastInput {
+            execution,
+            checkpoint_prefixes,
+        } => {
+            confirm_destructive(cli, "undo last input", execution)?;
+            let body = serde_json::json!({
+                "execution_id": execution,
+                "checkpoint_prefixes": if checkpoint_prefixes.is_empty() { None } else { Some(checkpoint_prefixes) }
+            });
+            let data: serde_json::Value = client
+                .post_json("/api/v1/file-checkpoint/undo/apply", &body)
+                .await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-undo", data),
+            )
+        }
         CheckpointSub::FileRestore {
             entity,
             checkpoint,

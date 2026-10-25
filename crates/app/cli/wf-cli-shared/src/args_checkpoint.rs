@@ -191,6 +191,24 @@ pub enum CheckpointSub {
     },
     /// Show the object-store footprint of the file-checkpoint store.
     FileStats,
+    /// Preview undo of the last input boundary for an execution.
+    FileUndoLastInputPreview {
+        /// Execution id owning the input boundary.
+        #[arg(value_name = "EXECUTION")]
+        execution: String,
+        /// Optional scope prefix override (repeatable).
+        #[arg(long, value_name = "PREFIX")]
+        checkpoint_prefixes: Vec<String>,
+    },
+    /// Apply undo of the last input boundary for an execution.
+    FileUndoLastInput {
+        /// Execution id owning the input boundary.
+        #[arg(value_name = "EXECUTION")]
+        execution: String,
+        /// Optional scope prefix override (repeatable).
+        #[arg(long, value_name = "PREFIX")]
+        checkpoint_prefixes: Vec<String>,
+    },
     /// Restore the bound workspace from a file checkpoint as new content
     /// writes; commit history is not rewritten.
     FileRestore {
@@ -942,5 +960,65 @@ mod tests {
             vec!["src/main.rs=/tmp/resolved.rs".to_string()]
         );
         assert_eq!(session, None);
+    }
+
+    #[test]
+    fn checkpoint_file_undo_last_input_parses() {
+        let cli = parse(&["checkpoint", "file-undo-last-input-preview", "exec-1"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        let CheckpointSub::FileUndoLastInputPreview {
+            execution,
+            checkpoint_prefixes,
+        } = sub
+        else {
+            panic!("expected file-undo-last-input-preview");
+        };
+        assert_eq!(execution, "exec-1");
+        assert!(checkpoint_prefixes.is_empty());
+
+        let cli = parse(&[
+            "checkpoint",
+            "file-undo-last-input-preview",
+            "exec-1",
+            "--prefix",
+            "src/",
+            "--prefix",
+            "docs/",
+        ])
+        .unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        let CheckpointSub::FileUndoLastInputPreview {
+            checkpoint_prefixes,
+            ..
+        } = sub
+        else {
+            panic!("expected file-undo-last-input-preview");
+        };
+        assert_eq!(checkpoint_prefixes, vec!["src/", "docs/"]);
+
+        let cli = parse(&[
+            "checkpoint",
+            "file-undo-last-input",
+            "exec-1",
+            "--prefix",
+            "src/",
+        ])
+        .unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        let CheckpointSub::FileUndoLastInput {
+            execution,
+            checkpoint_prefixes,
+        } = sub
+        else {
+            panic!("expected file-undo-last-input");
+        };
+        assert_eq!(execution, "exec-1");
+        assert_eq!(checkpoint_prefixes, vec!["src/".to_string()]);
     }
 }

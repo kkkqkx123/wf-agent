@@ -56,7 +56,8 @@ Manager 的行为按文件拆分:
 | `file/actor.rs` | 分区生命周期与单文件编辑原语(`PreciseFileEvent` 应用) |
 | `file/git_write.rs` / `git_read.rs` | Git 写入与读取,错误映射 |
 | `file/git_merge.rs` / `merge.rs` | 合并执行与 `MergeCommitResult` |
-| `file/restore.rs` | 工作区恢复:`WorkspaceRestoreResult`,按状态→文件链接检出当时的树 |
+| `file/restore.rs` | 工作区恢复:`WorkspaceRestoreResult`,按状态→文件链接检出当时的树;`restore_selected` 只写给定路径集(缺席即删、内容一致跳过),是撤销上次提问的物化原语 |
+| `file/undo.rs` | 撤销上次提问的文件层:`undo_files_between`(起止提交树差集,零字节读)、`plan_undo_files`(触及集→起点提交映射,起点缺失视为空树)、`stage_undo`/`apply_undo`(前缀过滤 + 预览/物化),详见 `docs/plan/checkpoint-undo-via-timing-design.md` |
 | `file/workspace.rs` | 工作区绑定与条目枚举 |
 | `file/session.rs` | 会话相关内部逻辑 |
 | `file/approval.rs` | 审批编排(submit / approve / reject / 合并进 feature)——注意与 `approval.rs` 的读模型分离 |

@@ -77,6 +77,10 @@ pub struct WorkspaceScan {
     pub dirs: Vec<String>,
     /// Directories that contain no files (recreated on restore).
     pub empty_dirs: Vec<String>,
+    /// Paths that exceeded the content cap during the scan. Their bytes
+    /// were never read (`hash` is empty, `oversized` is set on the
+    /// matching `FileState`); capture and restore treat them as opaque.
+    pub oversized: Vec<String>,
     /// Nested Git boundaries found during the scan (submodule checkouts
     /// and independent embedded repositories), each with its resolved
     /// HEAD pointer. Their contents are opaque to the outer workspace.
@@ -321,6 +325,7 @@ fn ancestors(relative_path: &str) -> Vec<String> {
 struct ScanOutputs {
     files: Vec<FileState>,
     dirs: Vec<String>,
+    oversized: Vec<String>,
     nested_repos: Vec<NestedRepoState>,
 }
 
@@ -329,6 +334,7 @@ impl ScanOutputs {
         Self {
             files: Vec::new(),
             dirs: Vec::new(),
+            oversized: Vec::new(),
             nested_repos: Vec::new(),
         }
     }
@@ -340,12 +346,31 @@ impl ScanOutputs {
 pub struct WorkspaceScanner {
     config: ScanConfig,
     matcher: gix_ignore::Search,
+    /// User repository root for ignore delegation. When set, paths the
+    /// user's own git reports as ignored are removed from capture-side
+    /// scan results, keeping checkpoint ignore verdicts consistent with
+    /// the user's git view. Restore-side scans never set this: dropping
+    /// user-ignored worktree files from a restore scan would misclassify
+    /// them as deletion extras.
+    user_repo_root: Option<std::path::PathBuf>,
 }
 
 impl WorkspaceScanner {
     pub fn new(config: ScanConfig) -> Self {
         let matcher = custom_search(&config.custom_ignore_patterns);
-        Self { config, matcher }
+        Self {
+            config,
+            matcher,
+            user_repo_root: None,
+        }
+    }
+
+    /// Delegate the final ignore verdict to the user's own repository.
+    /// Best-effort: when the root is absent, not a repository, or git is
+    /// unavailable, scans behave as if no delegation was configured.
+    pub fn with_user_repo_root(mut self, root: Option<std::path::PathBuf>) -> Self {
+        self.user_repo_root = root;
+        self
     }
 
     pub fn config(&self) -> &ScanConfig {
@@ -391,13 +416,38 @@ impl WorkspaceScanner {
 
         let mut out = ScanOutputs::new();
         self.scan_dir(root, root, &search, baseline, &mut out)?;
-        let empty_dirs = find_empty_dirs(&out.dirs, &out.files);
-        Ok(WorkspaceScan {
+        let mut scan = WorkspaceScan {
             files: out.files,
             dirs: out.dirs,
-            empty_dirs,
+            empty_dirs: Vec::new(),
+            oversized: out.oversized,
             nested_repos: out.nested_repos,
-        })
+        };
+        scan.empty_dirs = find_empty_dirs(&scan.dirs, &scan.files);
+        self.apply_user_ignores(&mut scan);
+        scan.empty_dirs = find_empty_dirs(&scan.dirs, &scan.files);
+        Ok(scan)
+    }
+
+    /// Remove files the user's own git reports as ignored. Runs one
+    /// batched `check-ignore` call; any failure keeps the scan unchanged
+    /// so delegation can never hide files by accident.
+    fn apply_user_ignores(&self, scan: &mut WorkspaceScan) {
+        let Some(root) = self.user_repo_root.as_deref() else {
+            return;
+        };
+        if scan.files.is_empty() {
+            return;
+        }
+        let paths: Vec<String> = scan.files.iter().map(|f| f.path.clone()).collect();
+        let Some(ignored) = crate::git_store::external::user_ignored_paths(root, &paths) else {
+            return;
+        };
+        if ignored.is_empty() {
+            return;
+        }
+        scan.files.retain(|f| !ignored.contains(f.path.as_str()));
+        scan.oversized.retain(|p| !ignored.contains(p.as_str()));
     }
 
     /// Read every `.gitignore` under the workspace into the shared search,
@@ -524,7 +574,7 @@ impl WorkspaceScanner {
                 out.dirs.push(relative);
                 self.scan_dir(root, &entry.path(), search, baseline, out)?;
             } else if file_type.is_file() {
-                match self.hash_file_with_baseline(&relative, &entry.path(), baseline) {
+                match self.hash_file_with_baseline(&relative, &entry.path(), baseline, out) {
                     Ok(state) => out.files.push(state),
                     Err(CheckpointError::Io(err)) => {
                         self.handle_failure(&format!("failed to hash '{}'", relative), &err)?;
@@ -541,6 +591,7 @@ impl WorkspaceScanner {
         relative: &str,
         absolute: &Path,
         baseline: &HashMap<String, FileState>,
+        out: &mut ScanOutputs,
     ) -> Result<FileState, CheckpointError> {
         use std::io::Read;
         let metadata = fs::metadata(absolute)?;
@@ -551,6 +602,20 @@ impl WorkspaceScanner {
             .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
+        // Oversized files are recorded without reading their bytes: the
+        // content cap makes them opaque to capture and restore, and
+        // hashing them would page gigabytes through memory for nothing.
+        if self.config.max_file_size > 0 && size > self.config.max_file_size {
+            out.oversized.push(relative.to_string());
+            return Ok(FileState {
+                path: relative.to_string(),
+                hash: String::new(),
+                size,
+                last_modified,
+                deleted: false,
+                oversized: true,
+            });
+        }
         if let Some(previous) = baseline.get(relative) {
             if previous.size == size
                 && previous.last_modified == last_modified
@@ -562,6 +627,7 @@ impl WorkspaceScanner {
                     size,
                     last_modified,
                     deleted: false,
+                    oversized: previous.oversized,
                 });
             }
         }
@@ -588,6 +654,7 @@ impl WorkspaceScanner {
             size,
             last_modified,
             deleted: false,
+            oversized: false,
         })
     }
 

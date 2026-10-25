@@ -260,6 +260,22 @@ pub(crate) struct FileDiffDoc {
     truncated: bool,
 }
 
+/// Undo preview for the last input boundary (`wf_api::checkpoint::undo::UndoPreview`
+/// mirrored): the start/end state checkpoints bounding the input, their
+/// linked file commits, the touched file set and the workdir preview.
+#[derive(Serialize, ToSchema)]
+pub(crate) struct UndoPreviewDoc {
+    execution_id: String,
+    start_checkpoint_id: String,
+    end_checkpoint_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start_file_commit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    end_file_commit: Option<String>,
+    files: Vec<String>,
+    preview: Vec<FileDiffDoc>,
+}
+
 /// One unresolved conflict region inside a merged file
 /// (`wf_checkpoint::approval::ConflictView` mirrored).
 #[derive(Serialize, ToSchema)]
@@ -458,6 +474,13 @@ pub(crate) struct GcStatsDoc {
     removed_snapshots: u64,
     /// Unreachable blobs dropped by the reclaim sweep.
     reclaimed_snapshots: u64,
+    /// Edit refs removed because their history is already contained in the
+    /// mainline (post-merge dead lines).
+    #[serde(default)]
+    removed_edit_refs: u64,
+    /// Loose objects folded into a packfile.
+    #[serde(default)]
+    packed_objects: u64,
 }
 
 /// Read-only object-store statistics for the storage dashboard

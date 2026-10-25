@@ -122,6 +122,10 @@ impl AgentCheckpointIntegration {
         self
     }
 
+    pub fn file_checkpoint_manager(&self) -> Option<wf_checkpoint::FileCheckpointManager> {
+        self.inner.file_checkpoint_manager().cloned()
+    }
+
     pub fn with_strategy(
         mut self,
         strategy: crate::checkpoint::strategy::AgentCheckpointStrategy,

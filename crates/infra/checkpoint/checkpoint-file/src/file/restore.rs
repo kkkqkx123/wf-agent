@@ -1,9 +1,15 @@
+use std::collections::HashMap;
 use std::path::Path;
 
+use crate::file::git_read::{gitlink_commit, restore_gitlink};
 use crate::file::git_write::map_git_error;
+use crate::file::util::{
+    handle_restore_failure, resolve_restore_target_with_base, write_file_with_dirs,
+};
 use crate::file::{
     FileCheckpointManager, FileCheckpointOptions, FileState, WorkspaceRestoreResult,
 };
+use crate::scan::{is_hardcoded_ignored, ScanConfig, WorkspaceScanner};
 use checkpoint_base::error::CheckpointError;
 
 /// Whether a state checkpoint is associated with a file snapshot, and how.
@@ -209,6 +215,179 @@ impl FileCheckpointManager {
         self.materialize_commit_scoped(checkpoint_id, base_dir, opts, checkpoint_prefixes)
     }
 
+    /// Selective restore: expand exactly the paths in `files`, each from
+    /// its own commit (`path -> commit id`). Paths outside the map are
+    /// never touched; a path absent from its commit's tree is deleted
+    /// (protected ignore names are never deleted). Content-identical
+    /// files are skipped, oversized and over-cap files are skipped as
+    /// opaque, and nested-repository contents are never written.
+    /// This is the execution counterpart of `preview_restore`: confirm
+    /// the preview, then apply only the listed paths.
+    pub fn restore_selected(
+        &self,
+        files: &HashMap<String, String>,
+        base_dir: &Path,
+        opts: &FileCheckpointOptions,
+    ) -> Result<WorkspaceRestoreResult, CheckpointError> {
+        use wf_types::config::file_checkpoint::FailureBehavior;
+        let mut result = WorkspaceRestoreResult::default();
+        if files.is_empty() {
+            return Ok(result);
+        }
+        let mut paths: Vec<String> = Vec::with_capacity(files.len());
+        for path in files.keys() {
+            match crate::file::util::validate_workspace_relative_path(path) {
+                Ok(validated) => paths.push(validated),
+                Err(err) => match opts.failure_behavior {
+                    FailureBehavior::Error => return Err(err),
+                    FailureBehavior::Warn => {
+                        tracing::warn!(path = %path, error = %err, "selective restore skipped invalid path");
+                        result.skipped += 1;
+                    }
+                    FailureBehavior::Ignore => {
+                        result.skipped += 1;
+                    }
+                },
+            }
+        }
+        if paths.is_empty() {
+            return Ok(result);
+        }
+        for commit_id in files.values() {
+            if !crate::git_store::is_hex_id(commit_id) {
+                return Err(CheckpointError::NotFound {
+                    id: commit_id.clone(),
+                });
+            }
+        }
+        let git = self.git_ref()?;
+        let storage = self.storage_ref()?;
+        let cap = self.policy.scan_config.max_file_size;
+
+        let mut by_commit: HashMap<&str, Vec<&str>> = HashMap::new();
+        for path in &paths {
+            if let Some(commit_id) = files.get(path) {
+                by_commit
+                    .entry(commit_id.as_str())
+                    .or_default()
+                    .push(path.as_str());
+            }
+        }
+        let mut target: HashMap<String, Option<(String, String)>> = HashMap::new();
+        let mut oversized: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for (commit_id, commit_paths) in &by_commit {
+            let commit = git.read_commit(commit_id).map_err(map_git_error)?;
+            let tree_files = git.tree_to_files(&commit.tree).map_err(map_git_error)?;
+            for manifest_path in storage.load_oversized_files(commit_id)? {
+                oversized.insert(manifest_path);
+            }
+            for path in commit_paths {
+                match tree_files.get(*path) {
+                    Some((mode, blob)) => {
+                        target.insert((*path).to_string(), Some((mode.clone(), blob.clone())));
+                    }
+                    None => {
+                        target.insert((*path).to_string(), None);
+                    }
+                }
+            }
+        }
+
+        let mut ignore_patterns = opts.custom_ignore_patterns.clone();
+        ignore_patterns.extend(crate::scan::storage_exclude_patterns(
+            base_dir,
+            storage.db_path().as_deref(),
+        ));
+        let scanner = WorkspaceScanner::new(ScanConfig {
+            custom_ignore_patterns: ignore_patterns,
+            failure_behavior: opts.failure_behavior,
+            max_file_size: self.policy.scan_config.max_file_size,
+        });
+        let current = scanner.scan(base_dir)?;
+        let current_map: HashMap<&str, &FileState> =
+            current.files.iter().map(|f| (f.path.as_str(), f)).collect();
+        let nested_dirs: Vec<String> = current
+            .nested_repos
+            .iter()
+            .map(|nested| nested.path.clone())
+            .collect();
+        let under_nested = |relative: &str| -> bool {
+            nested_dirs.iter().any(|dir| {
+                relative == dir
+                    || relative
+                        .strip_prefix(dir)
+                        .is_some_and(|rest| rest.starts_with('/'))
+            })
+        };
+        let canonical_base = base_dir.canonicalize().map_err(CheckpointError::Io)?;
+
+        paths.sort();
+        for path in paths {
+            if under_nested(&path) {
+                result.skipped_nested += 1;
+                continue;
+            }
+            if oversized.contains(&path) {
+                result.skipped += 1;
+                continue;
+            }
+            let target_path = resolve_restore_target_with_base(&canonical_base, base_dir, &path)?;
+            match target.get(&path) {
+                Some(Some((_, blob))) => {
+                    match git.blob_size(blob).map_err(map_git_error)? {
+                        None => {
+                            return Err(CheckpointError::Corrupted {
+                                id: blob.clone(),
+                                reason: format!(
+                                    "selective restore target blob missing for '{path}'"
+                                ),
+                            });
+                        }
+                        Some(size) if cap > 0 && size > cap => {
+                            result.skipped += 1;
+                            continue;
+                        }
+                        Some(_) => {}
+                    }
+                    let bytes = git.read_blob(blob).map_err(map_git_error)?;
+                    if let Some(pointer) = gitlink_commit(&bytes) {
+                        if restore_gitlink(base_dir, &path, pointer) {
+                            result.restored_gitlinks += 1;
+                        } else {
+                            result.skipped_nested += 1;
+                        }
+                        continue;
+                    }
+                    if current_map
+                        .get(path.as_str())
+                        .is_some_and(|f| f.hash == crate::file::util::sha256_hex(&bytes))
+                    {
+                        result.skipped += 1;
+                        continue;
+                    }
+                    match write_file_with_dirs(&target_path, &bytes) {
+                        Ok(()) => result.restored += 1,
+                        Err(err) => handle_restore_failure(opts.failure_behavior, &path, &err)?,
+                    }
+                }
+                _ => {
+                    if is_hardcoded_ignored(&path) {
+                        result.skipped += 1;
+                        continue;
+                    }
+                    match std::fs::remove_file(&target_path) {
+                        Ok(()) => result.deleted += 1,
+                        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                            result.skipped += 1;
+                        }
+                        Err(err) => handle_restore_failure(opts.failure_behavior, &path, &err)?,
+                    }
+                }
+            }
+        }
+        Ok(result)
+    }
+
     /// Workspace-aligned restore to the latest checkpoint of an entity, if
     /// any.
     pub fn restore_latest_workspace(
@@ -339,5 +518,96 @@ mod tests {
             manager.restore_state_files("exec-1", "state-2"),
             Err(CheckpointError::Corrupted { .. })
         ));
+    }
+
+    #[test]
+    fn restore_selected_touches_only_listed_paths() {
+        use crate::file::FileContentEntry;
+        use std::collections::HashMap;
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let checkpoint = manager
+            .create_checkpoint(
+                "exec-1",
+                &[
+                    FileContentEntry::new("a.txt", b"v1\n".to_vec()),
+                    FileContentEntry::new("b.txt", b"v1\n".to_vec()),
+                ],
+            )
+            .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"dirty\n").unwrap();
+        std::fs::write(dir.path().join("b.txt"), b"dirty\n").unwrap();
+        std::fs::write(dir.path().join("c.txt"), b"keep\n").unwrap();
+
+        let outcome = manager
+            .restore_selected(
+                &HashMap::from([("a.txt".to_string(), checkpoint.id.clone())]),
+                dir.path(),
+                &FileCheckpointOptions::default(),
+            )
+            .unwrap();
+        assert_eq!(outcome.restored, 1);
+        assert_eq!(std::fs::read(dir.path().join("a.txt")).unwrap(), b"v1\n");
+        assert_eq!(std::fs::read(dir.path().join("b.txt")).unwrap(), b"dirty\n");
+        assert_eq!(std::fs::read(dir.path().join("c.txt")).unwrap(), b"keep\n");
+    }
+
+    #[test]
+    fn restore_selected_deletes_paths_missing_from_target() {
+        use crate::file::FileContentEntry;
+        use std::collections::HashMap;
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let full = manager
+            .create_checkpoint(
+                "exec-1",
+                &[
+                    FileContentEntry::new("a.txt", b"v1\n".to_vec()),
+                    FileContentEntry::new("gone.txt", b"bye\n".to_vec()),
+                ],
+            )
+            .unwrap();
+        let without_gone = manager
+            .create_checkpoint("exec-1", &[FileContentEntry::deleted("gone.txt")])
+            .unwrap();
+        assert_ne!(full.id, without_gone.id);
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("gone.txt"), b"bye\n").unwrap();
+
+        let outcome = manager
+            .restore_selected(
+                &HashMap::from([("gone.txt".to_string(), without_gone.id.clone())]),
+                dir.path(),
+                &FileCheckpointOptions::default(),
+            )
+            .unwrap();
+        assert_eq!(outcome.deleted, 1);
+        assert!(!dir.path().join("gone.txt").exists());
+    }
+
+    #[test]
+    fn restore_selected_never_deletes_protected_names() {
+        use crate::file::FileContentEntry;
+        use std::collections::HashMap;
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let checkpoint = manager
+            .create_checkpoint(
+                "exec-1",
+                &[FileContentEntry::new("a.txt", b"v1\n".to_vec())],
+            )
+            .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let protected = dir.path().join("node_modules").join("lib.js");
+        std::fs::create_dir_all(protected.parent().unwrap()).unwrap();
+        std::fs::write(&protected, b"third-party\n").unwrap();
+
+        let outcome = manager
+            .restore_selected(
+                &HashMap::from([("node_modules/lib.js".to_string(), checkpoint.id.clone())]),
+                dir.path(),
+                &FileCheckpointOptions::default(),
+            )
+            .unwrap();
+        assert_eq!(outcome.deleted, 0);
+        assert_eq!(std::fs::read(&protected).unwrap(), b"third-party\n");
     }
 }

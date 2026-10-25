@@ -73,6 +73,31 @@ impl GitStore {
         Ok(body)
     }
 
+    /// Byte size of a blob without loading its content. Returns `None`
+    /// when the object does not exist; errors when it exists but is not
+    /// a blob. Preview and selective restore use this as the load guard
+    /// so oversized objects never enter memory.
+    pub fn blob_size(&self, id: &str) -> Result<Option<u64>, GitStoreError> {
+        use gix_object::FindHeader as _;
+        let oid = parse_object_id(id)?;
+        let odb = self.odb()?;
+        match odb.try_header(&oid).map_err(|e| GitStoreError::Corrupt {
+            id: id.to_string(),
+            reason: e.to_string(),
+        })? {
+            None => Ok(None),
+            Some(header) => {
+                if header.kind != gix_object::Kind::Blob {
+                    return Err(GitStoreError::Corrupt {
+                        id: id.to_string(),
+                        reason: format!("expected blob, found {}", header.kind),
+                    });
+                }
+                Ok(Some(header.size))
+            }
+        }
+    }
+
     /// Store a sorted tree object from `(mode, name, id)` entries.
     pub fn write_tree(&self, entries: &[TreeEntry]) -> Result<String, GitStoreError> {
         let mut sorted = entries.to_vec();

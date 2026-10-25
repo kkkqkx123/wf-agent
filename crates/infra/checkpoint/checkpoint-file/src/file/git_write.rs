@@ -211,6 +211,7 @@ impl FileCheckpointManager {
                 size: bytes.len() as u64,
                 last_modified: commit.committer_ts,
                 deleted: false,
+                oversized: false,
             })
             .collect();
         files.sort_by(|a, b| a.path.cmp(&b.path));

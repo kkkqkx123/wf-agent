@@ -182,6 +182,16 @@ export function registerFileCheckpoint(router: MockRouter): void {
 	router.on('POST', '/api/v1/file-checkpoint/sessions/{id}/rollback/{actor}', () => 'preview-rollback-snap');
 	router.on('POST', '/api/v1/file-checkpoint/undo/{id}', () => 'preview-undo-snap');
 	router.on('POST', '/api/v1/file-checkpoint/redo/{id}', () => 'preview-redo-snap');
+	router.on('POST', '/api/v1/file-checkpoint/undo/preview', (_p, _q, body) => ({
+		execution_id: String(body?.execution_id ?? 'exec-preview'),
+		start_checkpoint_id: 'cp-preview-start',
+		end_checkpoint_id: 'cp-preview-end',
+		start_file_commit: 'preview-file-start',
+		end_file_commit: 'preview-file-end',
+		files: fileChanges.map((change) => change.path),
+		preview: [],
+	}));
+	router.on('POST', '/api/v1/file-checkpoint/undo/apply', () => ({ restored: 1 }));
 	router.on('GET', '/api/v1/file-checkpoint/workspace/{id}', () =>
 		fileChanges.map((change) => ({
 			path: change.path,

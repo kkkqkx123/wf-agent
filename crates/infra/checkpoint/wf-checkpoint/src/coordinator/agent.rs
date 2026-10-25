@@ -185,6 +185,10 @@ impl AgentCheckpointCoordinator {
         self
     }
 
+    pub fn file_checkpoint_manager(&self) -> Option<&FileCheckpointManager> {
+        self.file_checkpoint_manager.as_ref()
+    }
+
     pub fn state_manager(&self) -> &AgentCheckpointStateManager {
         &self.state_manager
     }

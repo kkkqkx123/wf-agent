@@ -21,6 +21,12 @@ pub struct FileState {
     /// workspace. Skipped when `false` to keep the historical JSON shape.
     #[serde(default, skip_serializing_if = "is_false")]
     pub deleted: bool,
+    /// Oversized-content marker: the file exceeded the content cap when
+    /// scanned, so its bytes were never read and `hash` is empty.
+    /// Capture and restore treat such files as opaque. Skipped when
+    /// `false` to keep the historical JSON shape.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub oversized: bool,
 }
 
 /// Lightweight projection of a file checkpoint.

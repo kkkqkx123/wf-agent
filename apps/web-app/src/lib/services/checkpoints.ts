@@ -8,7 +8,7 @@ import type {
 	FileChange,
 	FileChangeType,
 } from '#lib/types/models';
-import { toDiffFile } from '#lib/types/diff';
+import { fileDiffDocToDiffFile } from '#lib/types/diff';
 import type { DiffFile } from '#lib/types/diff';
 
 // Transport row types come from the generated OpenAPI snapshot; only the
@@ -17,6 +17,7 @@ type CheckpointDoc = components['schemas']['CheckpointDoc'];
 type DeltaSummaryDoc = components['schemas']['DeltaSummaryDoc'];
 type PendingApprovalDoc = components['schemas']['PendingApprovalDoc'];
 type FileDiffDoc = components['schemas']['FileDiffDoc'];
+type UndoPreviewDoc = components['schemas']['UndoPreviewDoc'];
 type FileContentDoc = components['schemas']['FileContentDoc'];
 type FileTreeDoc = components['schemas']['FileTreeDoc'];
 type FileTimelineDoc = components['schemas']['FileTimelineDoc'];
@@ -281,7 +282,7 @@ export async function getMainDiffs(actor: string): Promise<DiffFile[]> {
 			params: { path: { id: actor } },
 		}),
 	);
-	return data.map(toDiffFile);
+	return data.map(fileDiffDocToDiffFile);
 }
 
 /** Per-file diff between two actor workspaces. */
@@ -291,7 +292,7 @@ export async function getDiffActors(a: string, b: string): Promise<DiffFile[]> {
 			params: { path: { a, b } },
 		}),
 	);
-	return data.map(toDiffFile);
+	return data.map(fileDiffDocToDiffFile);
 }
 
 export interface FileContent {
@@ -816,6 +817,59 @@ export async function runGc(keepRecentHeads = 0): Promise<GcResult> {
 		removedSnapshots: d.removed_snapshots,
 		reclaimedSnapshots: d.reclaimed_snapshots,
 	};
+}
+
+export interface UndoPreview {
+	executionId: string;
+	startCheckpointId: string;
+	endCheckpointId: string;
+	startFileCommit: string | null;
+	endFileCommit: string | null;
+	files: string[];
+	preview: DiffFile[];
+}
+
+/** Preview undo of the last input boundary for an execution. */
+export async function previewUndoLastInput(
+	executionId: string,
+	checkpointPrefixes?: string[],
+): Promise<UndoPreview> {
+	const d = requireData(
+		await call<UndoPreviewDoc>(
+			client.POST('/api/v1/file-checkpoint/undo/preview', {
+				body: { execution_id: executionId, checkpoint_prefixes: checkpointPrefixes ?? null },
+			}),
+		),
+		'Undo preview',
+	);
+	return {
+		executionId: d.execution_id,
+		startCheckpointId: d.start_checkpoint_id,
+		endCheckpointId: d.end_checkpoint_id,
+		startFileCommit: d.start_file_commit ?? null,
+		endFileCommit: d.end_file_commit ?? null,
+		files: d.files,
+		preview: d.preview.map((p) => fileDiffDocToDiffFile(p)),
+	};
+}
+
+/** Apply undo of the last input boundary for an execution. */
+export async function applyUndoLastInput(
+	executionId: string,
+	checkpointPrefixes?: string[],
+): Promise<number> {
+	const d = requireData(
+		await call<{ restored: number }>(
+			client.POST('/api/v1/file-checkpoint/undo/apply', {
+				body: {
+					execution_id: executionId,
+					checkpoint_prefixes: checkpointPrefixes ?? null,
+				},
+			}),
+		),
+		'Undo apply',
+	);
+	return d.restored;
 }
 
 export type StateFileLinkState = 'linked' | 'pending' | 'missing';

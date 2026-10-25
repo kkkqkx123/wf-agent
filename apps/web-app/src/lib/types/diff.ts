@@ -67,6 +67,62 @@ interface UnifiedDiffDoc {
 	deletions?: number | null;
 }
 
+/** Adapt a `FileDiffDoc`-shaped hunk row set to the shared view model. */
+export function fileDiffDocToDiffFile(d: {
+	path: string;
+	kind: string;
+	hunks: { header: string; lines: string[] }[];
+	additions: number;
+	deletions: number;
+	binary: boolean;
+	truncated: boolean;
+}): DiffFile {
+	if (d.binary) {
+		return {
+			path: d.path,
+			kind: d.kind.toLowerCase(),
+			lines: [],
+			additions: d.additions,
+			deletions: d.deletions,
+			binary: true,
+			truncated: d.truncated,
+		};
+	}
+	const lines: DiffLine[] = [];
+	let truncated = d.truncated;
+	for (const hunk of d.hunks) {
+		if (lines.length >= DIFF_LINE_LIMIT) {
+			truncated = true;
+			break;
+		}
+		lines.push({ type: 'meta', text: hunk.header });
+		for (const raw of hunk.lines) {
+			if (lines.length >= DIFF_LINE_LIMIT) {
+				truncated = true;
+				break;
+			}
+			if (raw.startsWith('+'))
+				lines.push({ type: 'add', text: raw.slice(1) });
+			else if (raw.startsWith('-'))
+				lines.push({ type: 'del', text: raw.slice(1) });
+			else
+				lines.push({
+					type: 'context',
+					text: raw.startsWith(' ') ? raw.slice(1) : raw,
+				});
+		}
+	}
+	return {
+		path: d.path,
+		kind: d.kind.toLowerCase(),
+		lines,
+		additions: d.additions,
+		deletions: d.deletions,
+		binary: false,
+		truncated,
+	};
+}
+
 /** Adapt a `FileDiffDoc` (unified diff text) to the shared view model. */
 export function toDiffFile(d: UnifiedDiffDoc): DiffFile {
 	const text = d.diff ?? '';

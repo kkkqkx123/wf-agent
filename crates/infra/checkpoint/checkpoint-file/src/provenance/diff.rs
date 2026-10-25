@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use crate::git_store::GitStore;
-use checkpoint_base::common::diff::{diff_stats_for_text, unified_diff_text};
+use checkpoint_base::common::diff::{diff_stats_for_text, is_binary, unified_diff_text};
 use checkpoint_base::error::CheckpointError;
 
 use super::types::{DiffHunkView, FileDiffKind, FileDiffView, WorkspaceFile};
@@ -15,6 +15,12 @@ use crate::file::util::sha256_hex;
 /// `truncated: true`. The user-repo git diffs share the same cap, so
 /// both surfaces keep one contract.
 pub const MAX_DIFF_LINES: usize = 400;
+
+/// Maximum bytes per side fed into diff rendering. Larger inputs report
+/// the content-withheld marker without hunks: rendering cost stays
+/// bounded even for files below the commit content cap. Blob loading
+/// itself is governed by the content cap; this only bounds render CPU.
+pub const MAX_DIFF_BYTES: u64 = 1024 * 1024;
 
 fn empty_view(path: &str, kind: FileDiffKind) -> FileDiffView {
     FileDiffView {
@@ -93,9 +99,20 @@ pub fn diff_workspaces(a: &[WorkspaceFile], b: &[WorkspaceFile]) -> Vec<FileDiff
     views
 }
 
-/// Structured diff of two byte slices: hunk rows plus stats for text,
-/// a binary marker when either side is not valid UTF-8.
+/// Structured diff of two byte slices: hunk rows plus stats for text.
+/// Binary content (NUL probe or undecodable bytes) and over-cap inputs
+/// report the content-withheld marker without hunks.
 fn structured_view(path: &str, before: &[u8], after: &[u8]) -> FileDiffView {
+    if is_binary(before) || is_binary(after) {
+        let mut view = empty_view(path, FileDiffKind::Modified);
+        view.binary = true;
+        return view;
+    }
+    if before.len() as u64 > MAX_DIFF_BYTES || after.len() as u64 > MAX_DIFF_BYTES {
+        let mut view = empty_view(path, FileDiffKind::Modified);
+        view.binary = true;
+        return view;
+    }
     let (Ok(before), Ok(after)) = (std::str::from_utf8(before), std::str::from_utf8(after)) else {
         let mut view = empty_view(path, FileDiffKind::Modified);
         view.binary = true;
@@ -112,6 +129,49 @@ fn structured_view(path: &str, before: &[u8], after: &[u8]) -> FileDiffView {
         deletions: stats.removed_lines,
         binary: false,
         truncated,
+    }
+}
+
+/// Per-file view between an optional before and after state, shared by
+/// workspace diffs and restore previews. `before == None` marks an
+/// addition, `after == None` a deletion. Binary or oversized content
+/// reports the kind with the content-withheld marker and no hunks;
+/// additions and deletions carry counts but no hunks, matching the
+/// existing workspace view shape. Only text modifications render hunks.
+pub(crate) fn file_view(
+    path: &str,
+    before: Option<&[u8]>,
+    after: Option<&[u8]>,
+    content_withheld: bool,
+) -> FileDiffView {
+    let (kind, additions, deletions) = delta_counts(before, after);
+    if content_withheld || kind == FileDiffKind::Unchanged {
+        let binary = content_withheld
+            || [before, after]
+                .into_iter()
+                .flatten()
+                .any(|bytes| is_binary(bytes) || std::str::from_utf8(bytes).is_err());
+        return FileDiffView {
+            path: path.to_string(),
+            kind,
+            hunks: Vec::new(),
+            additions,
+            deletions,
+            binary,
+            truncated: false,
+        };
+    }
+    match (before, after) {
+        (Some(before), Some(after)) => structured_view(path, before, after),
+        _ => FileDiffView {
+            path: path.to_string(),
+            kind,
+            hunks: Vec::new(),
+            additions,
+            deletions,
+            binary: false,
+            truncated: false,
+        },
     }
 }
 
@@ -206,6 +266,18 @@ fn diff_ids(
                     views.push(empty_view(path, FileDiffKind::Unchanged));
                     continue;
                 }
+                // Render-size pre-check from object headers: over-cap blobs
+                // report the content-withheld marker without loading bytes.
+                // Header errors fall through to the blob read, which maps
+                // them to the same failure the old path produced.
+                let over_cap =
+                    |id: &str| matches!(git.blob_size(id), Ok(Some(size)) if size > MAX_DIFF_BYTES);
+                if over_cap(blob_a) || over_cap(blob_b) {
+                    let mut view = empty_view(path, FileDiffKind::Modified);
+                    view.binary = true;
+                    views.push(view);
+                    continue;
+                }
                 let bytes_a = git.read_blob(blob_a).map_err(map_git_error)?;
                 let bytes_b = git.read_blob(blob_b).map_err(map_git_error)?;
                 if sha256_hex(&bytes_a) == sha256_hex(&bytes_b) {
@@ -279,5 +351,33 @@ mod tests {
         let (kind, add, del) = delta_counts(None, Some(&[0xff, 0x00]));
         assert_eq!(kind, FileDiffKind::Added);
         assert_eq!((add, del), (0, 0));
+    }
+
+    #[test]
+    fn structured_view_withholds_nul_probe_binary() {
+        // Valid UTF-8 containing a NUL byte is still binary: the probe
+        // gate fires before decoding.
+        let view = structured_view("data.bin", b"ab\0cd", b"ab\0ce");
+        assert_eq!(view.kind, FileDiffKind::Modified);
+        assert!(view.binary);
+        assert!(view.hunks.is_empty());
+    }
+
+    #[test]
+    fn structured_view_withholds_over_cap_inputs() {
+        let pad = "x".repeat(MAX_DIFF_BYTES as usize + 1);
+        let view = structured_view("huge.txt", b"small\n", pad.as_bytes());
+        assert_eq!(view.kind, FileDiffKind::Modified);
+        assert!(view.binary);
+        assert!(view.hunks.is_empty());
+    }
+
+    #[test]
+    fn file_view_withholds_over_cap_text_without_hunks() {
+        let big = "y".repeat(MAX_DIFF_BYTES as usize + 1);
+        let view = file_view("huge.txt", Some(b"small\n"), Some(big.as_bytes()), false);
+        assert_eq!(view.kind, FileDiffKind::Modified);
+        assert!(view.binary);
+        assert!(view.hunks.is_empty());
     }
 }

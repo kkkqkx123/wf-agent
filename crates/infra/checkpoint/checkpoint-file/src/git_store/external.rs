@@ -2,8 +2,10 @@
 // and sync import/export. Only directory structure and object-database reads
 // are used here; user refs are resolved through the git executable at seed
 // time and pinned afterwards, never tracked live.
+use std::collections::HashSet;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use super::baseline::BaselineLocator;
 use super::{GitCommit, GitStoreError};
@@ -121,6 +123,64 @@ pub(crate) fn lock_file_is_stale(path: &Path, grace: std::time::Duration) -> boo
         Some(_) => true,
         None => age > grace,
     }
+}
+
+/// Locate the user repository worktree root starting from a workspace
+/// path: the directory holding `.git` (directory or worktree pointer
+/// file). Returns `None` outside any repository. Directory structure
+/// only, no git process involved.
+pub fn discover_repo_root(start: &Path) -> Option<PathBuf> {
+    let mut dir = std::fs::canonicalize(start).ok()?;
+    loop {
+        let dotgit = dir.join(".git");
+        if dotgit.is_dir() || dotgit.is_file() {
+            return Some(dir);
+        }
+        dir = dir.parent()?.to_path_buf();
+    }
+}
+
+/// Ask the user's own git which workspace-relative paths it ignores, in
+/// one batched `check-ignore` call. `paths` are posix workspace-relative
+/// paths; only matches are returned. Returns `None` (caller keeps its own
+/// verdicts) when git is unavailable, the root is not a repository, or
+/// the query fails. Used to delegate the final ignore verdict to the
+/// user's git on capture-side scans.
+pub fn user_ignored_paths(repo_root: &Path, paths: &[String]) -> Option<HashSet<String>> {
+    if paths.is_empty() {
+        return Some(HashSet::new());
+    }
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .args(["check-ignore", "--no-index", "--stdin", "-z"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut stdin = child.stdin.take()?;
+    let mut payload = paths.join("\0");
+    payload.push('\0');
+    if stdin.write_all(payload.as_bytes()).is_err() {
+        let _ = child.wait();
+        return None;
+    }
+    drop(stdin);
+    let output = child.wait_with_output().ok()?;
+    // Exit 0 means at least one match, 1 means no match; both carry the
+    // match list on stdout. Anything else is a failed query.
+    if !output.status.success() && output.status.code() != Some(1) {
+        return None;
+    }
+    Some(
+        output
+            .stdout
+            .split(|b| *b == 0)
+            .filter(|chunk| !chunk.is_empty())
+            .map(|chunk| String::from_utf8_lossy(chunk).into_owned())
+            .collect(),
+    )
 }
 
 /// Explicit object-format check for the user repository. Baseline borrowing

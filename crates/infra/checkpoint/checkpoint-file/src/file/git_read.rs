@@ -15,6 +15,8 @@ use crate::file::util::{
     handle_restore_failure, resolve_restore_target_with_base, write_file_with_dirs,
 };
 use crate::file::{FileCheckpointManager, FileCheckpointOptions, WorkspaceRestoreResult};
+use crate::provenance::file_view;
+use crate::provenance::{FileDiffKind, FileDiffView};
 use crate::scan::{is_hardcoded_ignored, ScanConfig, WorkspaceScanner};
 use checkpoint_base::error::CheckpointError;
 
@@ -24,19 +26,18 @@ const GITLINK_PREFIX: &str = "gitlink:";
 
 /// Extract the commit id from a `gitlink:` pseudo blob, if the bytes are
 /// one and the id is well-formed.
-fn gitlink_commit(bytes: &[u8]) -> Option<&str> {
+pub(crate) fn gitlink_commit(bytes: &[u8]) -> Option<&str> {
     let text = std::str::from_utf8(bytes).ok()?;
     let id = text.strip_prefix(GITLINK_PREFIX)?;
     crate::git_store::is_hex_id(id).then_some(id)
 }
 
-/// Best-effort checkout of a nested repository at its recorded commit.
-/// Only a local checkout happens — no fetch, no remote access, and the
+/// Best-effort checkout of a nested repository at its recorded commit./// Only a local checkout happens — no fetch, no remote access, and the
 /// nested repository's own branches are never moved. Failures (missing
 /// `git` binary, missing checkout, dirty state) are reported as `false`
 /// so the caller counts the path as skipped instead of failing the
 /// restore.
-fn restore_gitlink(base_dir: &Path, pointer_path: &str, commit: &str) -> bool {
+pub(crate) fn restore_gitlink(base_dir: &Path, pointer_path: &str, commit: &str) -> bool {
     let Some(dir_relative) = pointer_path.strip_suffix("/.git") else {
         return false;
     };
@@ -66,6 +67,27 @@ fn restore_gitlink(base_dir: &Path, pointer_path: &str, commit: &str) -> bool {
             tracing::warn!(path = %dir_relative, commit, error = %err, "gitlink restore failed to spawn git");
             false
         }
+    }
+}
+
+/// Opaque preview entry for content that must not enter memory:/// oversized, over-cap or nested-pointer files. Carries the kind derived
+/// from target/worktree presence with the content-withheld marker and no
+/// hunks, so callers can show the path without loading its bytes.
+pub(crate) fn opaque_view(path: &str, in_target: bool, in_workdir: bool) -> FileDiffView {
+    let kind = match (in_target, in_workdir) {
+        (true, true) => FileDiffKind::Modified,
+        (true, false) => FileDiffKind::Added,
+        (false, true) => FileDiffKind::Deleted,
+        (false, false) => FileDiffKind::Unchanged,
+    };
+    FileDiffView {
+        path: path.to_string(),
+        kind,
+        hunks: Vec::new(),
+        additions: 0,
+        deletions: 0,
+        binary: true,
+        truncated: false,
     }
 }
 
@@ -245,6 +267,213 @@ impl FileCheckpointManager {
         Ok(result)
     }
 
+    /// Names of files that differ between two commits, without loading
+    /// any blob content. The union of both trees is compared by object
+    /// id; identical trees report an empty set. Used for undo
+    /// impact sets and revert planning.
+    pub fn changed_paths_between_commits(
+        &self,
+        from_id: &str,
+        to_id: &str,
+    ) -> Result<Vec<String>, CheckpointError> {
+        for id in [from_id, to_id] {
+            if !crate::git_store::is_hex_id(id) {
+                return Err(CheckpointError::NotFound { id: id.to_string() });
+            }
+        }
+        if from_id == to_id {
+            return Ok(Vec::new());
+        }
+        let git = self.git_ref()?;
+        let from_commit = git.read_commit(from_id).map_err(map_git_error)?;
+        let to_commit = git.read_commit(to_id).map_err(map_git_error)?;
+        let from_files = git
+            .tree_to_files(&from_commit.tree)
+            .map_err(map_git_error)?;
+        let to_files = git.tree_to_files(&to_commit.tree).map_err(map_git_error)?;
+        let mut changed: Vec<String> = from_files
+            .iter()
+            .filter(|(path, (_, blob))| to_files.get(path.as_str()).map(|(_, b)| b) != Some(blob))
+            .map(|(path, _)| path.clone())
+            .chain(
+                to_files
+                    .keys()
+                    .filter(|path| !from_files.contains_key(*path))
+                    .cloned(),
+            )
+            .collect();
+        changed.sort();
+        Ok(changed)
+    }
+
+    /// Dry-run restoration preview: the per-file differences that
+    /// materializing `commit_id` would produce, without touching the
+    /// worktree. Unchanged files are omitted. Oversized, over-cap and
+    /// nested-pointer files are reported as opaque entries with the
+    /// content-withheld marker and no hunks, so preview never loads big
+    /// blobs into memory. Paths outside `checkpoint_prefixes` are
+    /// untouched and omitted, mirroring the scoped restore contract.
+    pub fn preview_restore(
+        &self,
+        commit_id: &str,
+        base_dir: &Path,
+        opts: &FileCheckpointOptions,
+        checkpoint_prefixes: Option<&[String]>,
+    ) -> Result<Vec<FileDiffView>, CheckpointError> {
+        if !crate::git_store::is_hex_id(commit_id) {
+            return Err(CheckpointError::NotFound {
+                id: commit_id.to_string(),
+            });
+        }
+        if let Some(prefixes) = checkpoint_prefixes {
+            if prefixes.is_empty() {
+                return Ok(Vec::new());
+            }
+        }
+        let git = self.git_ref()?;
+        let storage = self.storage_ref()?;
+        let commit = git.read_commit(commit_id).map_err(map_git_error)?;
+        let target_files = git.tree_to_files(&commit.tree).map_err(map_git_error)?;
+        let in_range = |relative: &str| -> bool {
+            let Some(prefixes) = checkpoint_prefixes else {
+                return true;
+            };
+            let absolute = base_dir.join(relative).to_string_lossy().to_string();
+            prefixes
+                .iter()
+                .any(|bound| wf_types::config::file_scope::scope_path_contains(bound, &absolute))
+        };
+        let oversized = storage.load_oversized_files(commit_id)?;
+        let is_oversized = |path: &str| oversized.iter().any(|p| p == path);
+
+        let mut ignore_patterns = opts.custom_ignore_patterns.clone();
+        ignore_patterns.extend(crate::scan::storage_exclude_patterns(
+            base_dir,
+            storage.db_path().as_deref(),
+        ));
+        let scanner = WorkspaceScanner::new(ScanConfig {
+            custom_ignore_patterns: ignore_patterns,
+            failure_behavior: opts.failure_behavior,
+            max_file_size: self.policy.scan_config.max_file_size,
+        });
+        let current = scanner.scan(base_dir)?;
+        let nested_dirs: Vec<String> = current
+            .nested_repos
+            .iter()
+            .map(|nested| nested.path.clone())
+            .collect();
+        let under_nested = |relative: &str| -> bool {
+            nested_dirs.iter().any(|dir| {
+                relative == dir
+                    || relative
+                        .strip_prefix(dir)
+                        .is_some_and(|rest| rest.starts_with('/'))
+            })
+        };
+        let cap = self.policy.scan_config.max_file_size;
+
+        let mut paths: Vec<&String> = target_files.keys().collect();
+        for file in &current.files {
+            if !target_files.contains_key(&file.path) {
+                paths.push(&file.path);
+            }
+        }
+        paths.sort();
+        paths.dedup();
+
+        let mut views = Vec::new();
+        for path in paths {
+            if !in_range(path) || is_hardcoded_ignored(path) || under_nested(path) {
+                continue;
+            }
+            let validated = match crate::file::util::validate_workspace_relative_path(path) {
+                Ok(validated) => validated,
+                Err(err) => match opts.failure_behavior {
+                    wf_types::config::file_checkpoint::FailureBehavior::Error => return Err(err),
+                    wf_types::config::file_checkpoint::FailureBehavior::Warn => {
+                        tracing::warn!(path = %path, error = %err, "preview skipped invalid path");
+                        continue;
+                    }
+                    wf_types::config::file_checkpoint::FailureBehavior::Ignore => continue,
+                },
+            };
+            if is_oversized(&validated) {
+                views.push(opaque_view(
+                    &validated,
+                    target_files.contains_key(validated.as_str()),
+                    current.files.iter().any(|f| f.path == validated),
+                ));
+                continue;
+            }
+            let disk_path = base_dir.join(&validated);
+            let workdir_bytes = match std::fs::read(&disk_path) {
+                Ok(bytes) => Some(bytes),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+                Err(err) => match opts.failure_behavior {
+                    wf_types::config::file_checkpoint::FailureBehavior::Error => {
+                        return Err(CheckpointError::Io(std::io::Error::other(format!(
+                            "failed to read '{validated}' for preview: {err}"
+                        ))));
+                    }
+                    wf_types::config::file_checkpoint::FailureBehavior::Warn => {
+                        tracing::warn!(path = %validated, error = %err, "preview skipped unreadable file");
+                        continue;
+                    }
+                    wf_types::config::file_checkpoint::FailureBehavior::Ignore => continue,
+                },
+            };
+            if let Some(bytes) = workdir_bytes.as_ref() {
+                if cap > 0 && bytes.len() as u64 > cap {
+                    views.push(opaque_view(
+                        &validated,
+                        target_files.contains_key(validated.as_str()),
+                        true,
+                    ));
+                    continue;
+                }
+            }
+            let target_blob = target_files
+                .get(validated.as_str())
+                .map(|(_, blob)| blob.as_str());
+            let target_bytes = match target_blob {
+                None => None,
+                Some(blob) => match git.blob_size(blob).map_err(map_git_error)? {
+                    None => {
+                        return Err(CheckpointError::Corrupted {
+                            id: commit_id.to_string(),
+                            reason: format!("preview target blob missing: '{blob}'"),
+                        });
+                    }
+                    Some(size) if cap > 0 && size > cap => {
+                        views.push(opaque_view(&validated, true, workdir_bytes.is_some()));
+                        continue;
+                    }
+                    Some(_) => Some(git.read_blob(blob).map_err(map_git_error)?),
+                },
+            };
+            if target_bytes.as_deref() == workdir_bytes.as_deref() {
+                continue;
+            }
+            if target_bytes
+                .as_deref()
+                .is_some_and(|bytes| gitlink_commit(bytes).is_some())
+            {
+                views.push(opaque_view(&validated, true, workdir_bytes.is_some()));
+                continue;
+            }
+            views.push(file_view(
+                &validated,
+                workdir_bytes.as_deref(),
+                target_bytes.as_deref(),
+                false,
+            ));
+        }
+        Ok(views
+            .into_iter()
+            .filter(|view| view.kind != FileDiffKind::Unchanged)
+            .collect())
+    }
+
     /// Committer timestamp of a commit (Unix milliseconds, `None` when the
     /// commit is absent). Used to timestamp version-anchored reads without
     /// expanding the tree.
@@ -301,5 +530,106 @@ impl FileCheckpointManager {
         let git = self.git_ref()?;
         let storage = self.storage_ref()?;
         crate::provenance::file_timeline(git, storage, path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::file::FileContentEntry;
+
+    fn entry(path: &str, content: &[u8]) -> FileContentEntry {
+        FileContentEntry::new(path, content.to_vec())
+    }
+
+    #[test]
+    fn changed_paths_between_commits_reports_add_modify_delete() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let first = manager
+            .create_checkpoint("exec-1", &[entry("a.txt", b"v1"), entry("b.txt", b"v1")])
+            .unwrap();
+        let second = manager
+            .create_checkpoint(
+                "exec-1",
+                &[
+                    entry("a.txt", b"v2"),
+                    entry("c.txt", b"new"),
+                    FileContentEntry::deleted("b.txt"),
+                ],
+            )
+            .unwrap();
+        let changed = manager
+            .changed_paths_between_commits(&first.id, &second.id)
+            .unwrap();
+        assert_eq!(changed, vec!["a.txt", "b.txt", "c.txt"]);
+        assert!(manager
+            .changed_paths_between_commits(&second.id, &second.id)
+            .unwrap()
+            .is_empty());
+        assert!(matches!(
+            manager.changed_paths_between_commits("zz", &second.id),
+            Err(CheckpointError::NotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn preview_restore_reports_diff_without_touching_disk() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let checkpoint = manager
+            .create_checkpoint("exec-1", &[entry("a.txt", b"hello\n")])
+            .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"hello world\n").unwrap();
+        std::fs::write(dir.path().join("extra.txt"), b"untracked\n").unwrap();
+
+        let views = manager
+            .preview_restore(
+                &checkpoint.id,
+                dir.path(),
+                &FileCheckpointOptions::default(),
+                None,
+            )
+            .unwrap();
+        let kinds: HashMap<&str, _> = views
+            .iter()
+            .map(|view| (view.path.as_str(), view.kind))
+            .collect();
+        assert_eq!(kinds.get("a.txt"), Some(&FileDiffKind::Modified));
+        assert_eq!(kinds.get("extra.txt"), Some(&FileDiffKind::Deleted));
+        let modified = views.iter().find(|view| view.path == "a.txt").unwrap();
+        assert!(!modified.hunks.is_empty());
+        assert_eq!(
+            std::fs::read(dir.path().join("a.txt")).unwrap(),
+            b"hello world\n"
+        );
+
+        assert!(manager
+            .preview_restore(
+                &checkpoint.id,
+                dir.path(),
+                &FileCheckpointOptions::default(),
+                Some(&[])
+            )
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn preview_restore_omits_identical_files() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let checkpoint = manager
+            .create_checkpoint("exec-1", &[entry("a.txt", b"same\n")])
+            .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"same\n").unwrap();
+        let views = manager
+            .preview_restore(
+                &checkpoint.id,
+                dir.path(),
+                &FileCheckpointOptions::default(),
+                None,
+            )
+            .unwrap();
+        assert!(views.is_empty());
     }
 }

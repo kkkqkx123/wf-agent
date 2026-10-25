@@ -140,6 +140,10 @@ impl WorkflowCheckpointIntegration {
         self
     }
 
+    pub fn file_checkpoint_manager(&self) -> Option<wf_checkpoint::FileCheckpointManager> {
+        self.inner.file_checkpoint_manager().cloned()
+    }
+
     pub fn store(&self) -> &Arc<StorageBackend> {
         &self.public_store
     }

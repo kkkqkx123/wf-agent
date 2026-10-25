@@ -73,6 +73,14 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/file-checkpoint/undo/{id}", post(handle_undo_edit))
         .route("/file-checkpoint/redo/{id}", post(handle_redo_edit))
         .route("/file-checkpoint/rename", post(handle_rename_file))
+        .route(
+            "/file-checkpoint/undo/preview",
+            post(handle_preview_undo_last_input),
+        )
+        .route(
+            "/file-checkpoint/undo/apply",
+            post(handle_apply_undo_last_input),
+        )
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -853,6 +861,67 @@ pub(crate) async fn handle_resolve_conflicts(
         body.session.as_deref(),
     ) {
         Ok(remaining) => ok(ResolveConflictsResponse { remaining }).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub(crate) struct UndoLastInputRequest {
+    #[serde(default)]
+    pub execution_id: String,
+    #[serde(default)]
+    pub checkpoint_prefixes: Option<Vec<String>>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/file-checkpoint/undo/preview",
+    tag = "checkpoint",
+    request_body = UndoLastInputRequest,
+    responses((status = 200, description = "Undo preview for the last input boundary", body = crate::envelope::ApiEnvelope<crate::api::checkpoint::views::UndoPreviewDoc>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_preview_undo_last_input(
+    State(state): State<ApiState>,
+    axum::Json(body): axum::Json<UndoLastInputRequest>,
+) -> impl IntoResponse {
+    match wf_api::checkpoint::undo::preview_undo_last_input(
+        &state.ctx,
+        &body.execution_id,
+        body.checkpoint_prefixes,
+    )
+    .await
+    {
+        Ok(preview) => ok(preview).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub(crate) struct ApplyUndoResponse {
+    restored: usize,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/file-checkpoint/undo/apply",
+    tag = "checkpoint",
+    request_body = UndoLastInputRequest,
+    responses((status = 200, description = "Undo of the last input boundary applied", body = crate::envelope::ApiEnvelope<crate::api::checkpoint::file_provenance::ApplyUndoResponse>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_apply_undo_last_input(
+    State(state): State<ApiState>,
+    axum::Json(body): axum::Json<UndoLastInputRequest>,
+) -> impl IntoResponse {
+    match wf_api::checkpoint::undo::apply_undo_last_input(
+        &state.ctx,
+        &body.execution_id,
+        body.checkpoint_prefixes,
+    )
+    .await
+    {
+        Ok(restored) => ok(ApplyUndoResponse { restored }).into_response(),
         Err(err) => error_response(err),
     }
 }

@@ -302,3 +302,94 @@ fn scan_detached_nested_head_resolves_directly() {
         Some(NESTED_SHA)
     );
 }
+
+#[test]
+fn scan_records_oversized_without_hashing() {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "small.txt", b"tiny");
+    write(dir.path(), "big.bin", &[b'x'; 100]);
+
+    let scanner = WorkspaceScanner::new(ScanConfig {
+        custom_ignore_patterns: Vec::new(),
+        failure_behavior: FailureBehavior::Warn,
+        max_file_size: 10,
+    });
+    let scan = scanner.scan(dir.path()).unwrap();
+    let big = scan.files.iter().find(|f| f.path == "big.bin").unwrap();
+    assert!(big.oversized);
+    assert!(big.hash.is_empty());
+    assert_eq!(big.size, 100);
+    assert_eq!(scan.oversized, vec!["big.bin".to_string()]);
+    let small = scan.files.iter().find(|f| f.path == "small.txt").unwrap();
+    assert!(!small.oversized);
+    assert!(!small.hash.is_empty());
+
+    // A second incremental scan keeps the marker without reading bytes.
+    let baseline: HashMap<String, FileState> = scan
+        .files
+        .iter()
+        .map(|f| (f.path.clone(), f.clone()))
+        .collect();
+    let rescan = scanner.scan_with_baseline(dir.path(), &baseline).unwrap();
+    let big_again = rescan.files.iter().find(|f| f.path == "big.bin").unwrap();
+    assert!(big_again.oversized);
+    assert!(big_again.hash.is_empty());
+}
+
+#[test]
+fn filestate_deserializes_without_oversized_flag() {
+    let legacy = r#"{"path":"a.txt","hash":"ab","size":2,"last_modified":0}"#;
+    let state: FileState = serde_json::from_str(legacy).unwrap();
+    assert!(!state.oversized);
+    assert!(!state.deleted);
+}
+
+fn init_git_repo(dir: &Path) {
+    let status = std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(dir)
+        .status()
+        .expect("git executable must exist for ignore-delegation tests");
+    assert!(status.success());
+}
+
+#[test]
+fn user_ignored_paths_delegates_to_user_git() {
+    let dir = tempfile::tempdir().unwrap();
+    init_git_repo(dir.path());
+    write(dir.path(), ".gitignore", b"*.log\n");
+    let ignored = crate::git_store::external::user_ignored_paths(
+        dir.path(),
+        &["keep.txt".to_string(), "skip.log".to_string()],
+    )
+    .expect("check-ignore answers in a fresh repo");
+    assert!(!ignored.contains("keep.txt"));
+    assert!(ignored.contains("skip.log"));
+}
+
+#[test]
+fn scanner_user_repo_root_filters_delegated_ignores() {
+    let dir = tempfile::tempdir().unwrap();
+    init_git_repo(dir.path());
+    write(dir.path(), ".gitignore", b"*.log\n");
+    write(dir.path(), "keep.txt", b"keep");
+    write(dir.path(), "skip.log", b"log");
+
+    let scanner = make_scanner(vec![], FailureBehavior::Warn)
+        .with_user_repo_root(crate::git_store::external::discover_repo_root(dir.path()));
+    let scan = scanner.scan(dir.path()).unwrap();
+    let paths: Vec<_> = scan.files.iter().map(|f| f.path.as_str()).collect();
+    assert!(paths.contains(&"keep.txt"));
+    assert!(!paths.contains(&"skip.log"));
+}
+
+#[test]
+fn user_ignore_delegation_is_best_effort_outside_repos() {
+    assert!(crate::git_store::external::discover_repo_root(Path::new("/proc")).is_none());
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "a.txt", b"a");
+    let scanner = make_scanner(vec![], FailureBehavior::Warn)
+        .with_user_repo_root(Some(dir.path().join("missing")));
+    let scan = scanner.scan(dir.path()).unwrap();
+    assert_eq!(scan.files.len(), 1);
+}

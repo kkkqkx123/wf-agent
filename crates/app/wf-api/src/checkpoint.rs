@@ -7,6 +7,7 @@ pub mod file;
 pub mod provenance;
 pub mod record;
 pub mod sync;
+pub mod undo;
 
 pub use approval::{
     approve_changes, list_pending_approvals, reject_changes, review_pending_approval,
@@ -34,3 +35,4 @@ pub use sync::{
     export_to_workspace, external_update_hint, import_from_external, rebase_baseline,
     reconcile_point, sync_config,
 };
+pub use undo::{apply_undo_last_input, preview_undo_last_input, UndoPreview};

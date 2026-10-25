@@ -12,10 +12,13 @@
 		gcExecutionCheckpoints,
 		getStateFileLinks,
 		previewRestoreCheckpoint,
+		previewUndoLastInput,
+		applyUndoLastInput,
 		restoreCheckpoint,
 		resumeFromCheckpoint,
 		setCheckpointTags,
 		type StateFileLink,
+		type UndoPreview,
 	} from '#lib/services/checkpoints';
 	import type { Checkpoint } from '#lib/types/models';
 	import { toasts } from '#lib/stores/toast.svelte';
@@ -120,6 +123,55 @@
 			links = await getStateFileLinks(ids);
 		} catch (e) {
 			console.error('Failed to load state-file links:', e);
+		}
+	}
+
+	// ── undo last input ──
+	let undoOpen = $state(false);
+	let undoPreview = $state<UndoPreview | null>(null);
+	let undoPreviewLoading = $state(false);
+
+	async function runUndoPreview(): Promise<void> {
+		const id = execId.trim();
+		if (!id) {
+			toasts.error(t('domain.checkpoint.executionIdRequired'));
+			return;
+		}
+		checkpointStore.beginAction('undo-preview');
+		undoPreviewLoading = true;
+		try {
+			undoPreview = await previewUndoLastInput(id);
+			undoOpen = true;
+		} catch (e) {
+			console.error('Undo preview failed:', e);
+			toasts.error(
+				'Undo preview failed',
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			undoPreviewLoading = false;
+			checkpointStore.endAction();
+		}
+	}
+
+	async function runUndoApply(): Promise<void> {
+		const preview = undoPreview;
+		if (!preview) return;
+		checkpointStore.beginAction('undo');
+		try {
+			const restored = await applyUndoLastInput(preview.executionId);
+			undoOpen = false;
+			undoPreview = null;
+			toasts.success('Undone last input', `${restored} file(s) restored`);
+			checkpointStore.bump('chain');
+		} catch (e) {
+			console.error('Undo failed:', e);
+			toasts.error(
+				'Undo failed',
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			checkpointStore.endAction();
 		}
 	}
 
@@ -254,6 +306,14 @@
 			onclick={() => (gcOpen = true)}
 		>
 			{t('domain.checkpoint.gc')}
+		</Button>
+		<Button
+			variant="outline"
+			size="sm"
+			disabled={checkpointStore.busy || !execId.trim() || undoPreviewLoading}
+			onclick={() => void runUndoPreview()}
+		>
+			Undo last input
 		</Button>
 	</div>
 </Card>
@@ -458,6 +518,55 @@
 			onclick={() => void runResume()}
 		>
 			{t('domain.checkpoint.resume')}
+		</Button>
+	{/snippet}
+</Dialog>
+
+<Dialog
+	bind:open={undoOpen}
+	title="Undo last input"
+	description="Restore the workspace to the file state at the start of the last completed input."
+	onclose={() => {
+		undoPreview = null;
+	}}
+>
+	{#if undoPreviewLoading}
+		<p class="text-caption text-muted-foreground">{t('common.loading')}</p>
+	{:else if undoPreview}
+		<div class="mt-2 space-y-1 rounded border border-border p-2 text-caption">
+			<p>
+				Input boundary:
+				<span class="font-mono">{undoPreview.startCheckpointId.slice(0, 10)}</span>
+				→
+				<span class="font-mono">{undoPreview.endCheckpointId.slice(0, 10)}</span>
+			</p>
+			<p>{undoPreview.files.length} file(s) touched</p>
+			{#if undoPreview.files.length > 0}
+				<ul class="mt-1 space-y-1">
+					{#each undoPreview.files.slice(0, 20) as file (file)}
+						<li class="truncate font-mono">{file}</li>
+					{/each}
+				</ul>
+				{#if undoPreview.files.length > 20}
+					<p class="text-micro text-muted-foreground">
+						Showing 20 of {undoPreview.files.length}
+					</p>
+				{/if}
+			{:else}
+				<p class="text-muted-foreground">Nothing to undo for the last input.</p>
+			{/if}
+		</div>
+	{/if}
+	{#snippet footer()}
+		<Button variant="ghost" size="sm" onclick={() => (undoOpen = false)}>
+			{t('common.cancel')}
+		</Button>
+		<Button
+			size="sm"
+			disabled={checkpointStore.busy || !undoPreview || undoPreview.files.length === 0}
+			onclick={() => void runUndoApply()}
+		>
+			Apply undo
 		</Button>
 	{/snippet}
 </Dialog>

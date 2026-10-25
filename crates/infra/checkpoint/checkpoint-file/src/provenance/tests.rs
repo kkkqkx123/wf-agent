@@ -367,6 +367,33 @@ fn diff_actors_classifies_all_kinds() {
 }
 
 #[test]
+fn diff_actors_withholds_over_cap_blobs_without_loading() {
+    use super::diff::MAX_DIFF_BYTES;
+    let git = standalone_store();
+    let big_a = "a\n".repeat(MAX_DIFF_BYTES as usize / 2 + 1);
+    let big_b = "b\n".repeat(MAX_DIFF_BYTES as usize / 2 + 1);
+    git.commit_on_ref(
+        &edit_ref_for_actor("agent:x"),
+        &changes(&[("huge.txt", big_a.as_bytes())]),
+        "agent:x",
+        &commit_message("edit x", Some("agent:x"), None, Some("tool"), &[]),
+    )
+    .unwrap();
+    git.commit_on_ref(
+        &edit_ref_for_actor("agent:y"),
+        &changes(&[("huge.txt", big_b.as_bytes())]),
+        "agent:y",
+        &commit_message("edit y", Some("agent:y"), None, Some("tool"), &[]),
+    )
+    .unwrap();
+    let views = diff_actors(&git, "agent:x", "agent:y").unwrap();
+    let huge = views.iter().find(|v| v.path == "huge.txt").unwrap();
+    assert_eq!(huge.kind, FileDiffKind::Modified);
+    assert!(huge.binary);
+    assert!(huge.hunks.is_empty());
+}
+
+#[test]
 fn diff_against_main_uses_main_ref() {
     let git = standalone_store();
     // Main holds the shared baseline.

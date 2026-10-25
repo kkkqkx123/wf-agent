@@ -40,6 +40,7 @@ pub use file::sync::{
     BaselineRebaseOutcome, BaselineSeedOutcome, BaselineStatus, ExportOptions, ExportOutcome,
     ExternalUpdateHint, ImportOutcome, ReconcilePoint, SYNC_RECONCILE_KEY,
 };
+pub use file::undo::UndoPlan;
 pub use file::util::sha256_hex;
 pub use file::{
     FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata, FileCheckpointOptions,

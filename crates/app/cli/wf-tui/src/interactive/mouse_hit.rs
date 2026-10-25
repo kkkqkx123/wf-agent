@@ -58,6 +58,7 @@ pub(crate) fn badge_contains(rect: &Rect, col: u16, row: u16) -> bool {
 
 /// Slice a display row text by character columns `[start, end)`.
 /// Columns count characters, matching `word_at_col`.
+#[cfg(test)]
 pub(crate) fn slice_row_chars(text: &str, start: usize, end: usize) -> String {
     let chars: Vec<char> = text.chars().collect();
     let end = end.min(chars.len());
@@ -144,54 +145,23 @@ pub(crate) fn word_at_col(text: &str, col: usize) -> Option<String> {
 
 use super::anchors::AnchorKind;
 use super::InteractiveController;
-use tui_components::scrollbar;
 
 impl InteractiveController {
     /// Sequence number and scrollback position for a viewport-relative row.
-    /// Returns `None` for streaming tail rows and outside rows.
+    /// Returns `None` for streaming tail rows and outside rows. Uses the
+    /// prepared scrollback row index, so no reflow runs here.
     fn seq_at_display_row(&self, display_row: usize) -> Option<(u64, usize)> {
-        let width = self.last_layout_width.max(1);
         let capacity = usize::from(self.last_layout_height.max(1));
-        if capacity == 0 {
+        if display_row >= capacity {
             return None;
         }
-        let mut cached_total = 0usize;
-        let mut heights: Vec<usize> = Vec::with_capacity(self.scrollback.len());
-        for line in &self.scrollback {
-            let height = line.display_lines(width).len().max(1);
-            heights.push(height);
-            cached_total = cached_total.saturating_add(height);
-        }
-        let streaming_len = self
-            .streaming
-            .as_ref()
-            .map(|line| line.display_lines(width).len())
-            .unwrap_or(0);
-        let total = cached_total.saturating_add(streaming_len);
-        if total == 0 {
+        let target = self.viewport_top_row().saturating_add(display_row);
+        if target >= self.prep.total_rows() {
             return None;
         }
-        let start = scrollbar::top_for_tail(total, capacity, self.view_scroll);
-        let target = start.saturating_add(display_row);
-        if target >= total || display_row >= capacity {
-            return None;
-        }
-        if target >= cached_total {
-            return None;
-        }
-        let mut consumed = 0usize;
-        for (index, line) in self.scrollback.iter().enumerate() {
-            let height = heights[index];
-            if target < consumed.saturating_add(height) {
-                let seq = line.seq_no();
-                if seq == 0 {
-                    return None;
-                }
-                return Some((seq, index));
-            }
-            consumed = consumed.saturating_add(height);
-        }
-        None
+        let (index, _) = self.message_at_display_row(target)?;
+        let seq = self.scrollback.get(index)?.seq_no();
+        (seq != 0).then_some((seq, index))
     }
 
     /// Tool hit for a sequence number: an expandable summary row only.
@@ -252,116 +222,41 @@ impl InteractiveController {
         }
     }
 
-    /// Text covered by a transcript drag between anchor and head cells
-    /// (display rows plus in-row character columns). Joins partial edge
-    /// rows with full middle rows; returns `None` when nothing readable
-    /// is covered.
-    pub(crate) fn transcript_text_in(
-        &self,
-        anchor_row: usize,
-        anchor_col: usize,
-        head_row: usize,
-        head_col: usize,
-    ) -> Option<String> {
-        let (lo_row, hi_row) = if anchor_row <= head_row {
-            (anchor_row, head_row)
-        } else {
-            (head_row, anchor_row)
-        };
-        let (lo_col, hi_col) = if anchor_row <= head_row {
-            (anchor_col, head_col)
-        } else {
-            (head_col, anchor_col)
-        };
-        if lo_row == hi_row {
-            let text = self.plain_text_for_display_row(lo_row)?;
-            let (start, end) = if lo_col <= hi_col {
-                (lo_col, hi_col)
-            } else {
-                (hi_col, lo_col)
-            };
-            let sliced = slice_row_chars(&text, start, end);
-            return (!sliced.trim().is_empty()).then_some(sliced);
-        }
-        let mut parts = Vec::new();
-        for row in lo_row..=hi_row {
-            let text = self.plain_text_for_display_row(row)?;
-            if row == lo_row {
-                parts.push(slice_row_chars(&text, lo_col, usize::MAX));
-            } else if row == hi_row {
-                parts.push(slice_row_chars(&text, 0, hi_col));
-            } else {
-                parts.push(text);
-            }
-        }
-        let joined = parts.join("\n");
-        (!joined.trim().is_empty()).then_some(joined)
-    }
-
-    /// Plain text of one visible display row for word selection. Returns
-    /// `None` for streaming rows and outside rows.
+    /// Plain text of one visible display row for word selection. Reads the
+    /// prepared scrollback rows directly. Returns `None` for streaming rows
+    /// and outside rows.
     pub(crate) fn plain_text_for_display_row(&self, display_row: usize) -> Option<String> {
-        let width = self.last_layout_width.max(1);
         let capacity = usize::from(self.last_layout_height.max(1));
-        if capacity == 0 {
+        if display_row >= capacity {
             return None;
         }
-        let mut cached: Vec<Vec<String>> = Vec::with_capacity(self.scrollback.len());
-        let mut cached_total = 0usize;
-        for line in &self.scrollback {
-            let rows = line.display_lines(width);
-            cached_total = cached_total.saturating_add(rows.len().max(1));
-            cached.push(
-                rows.iter()
-                    .map(|row| {
-                        row.spans
-                            .iter()
-                            .map(|span| span.content.as_ref())
-                            .collect::<String>()
-                    })
-                    .collect(),
-            );
-        }
-        let streaming_rows: Vec<String> = self
-            .streaming
-            .as_ref()
-            .map(|line| {
-                line.display_lines(width)
-                    .iter()
-                    .map(|row| {
-                        row.spans
-                            .iter()
-                            .map(|span| span.content.as_ref())
-                            .collect::<String>()
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let total = cached_total.saturating_add(streaming_rows.len());
-        let start = scrollbar::top_for_tail(total, capacity, self.view_scroll);
-        let target = start.saturating_add(display_row);
-        if target >= total || display_row >= capacity || target >= cached_total {
+        let target = self.viewport_top_row().saturating_add(display_row);
+        if target >= self.prep.total_rows() {
             return None;
         }
-        let mut consumed = 0usize;
-        for rows in cached {
-            if target < consumed.saturating_add(rows.len()) {
-                return rows.get(target.saturating_sub(consumed)).cloned();
-            }
-            consumed = consumed.saturating_add(rows.len());
-        }
-        None
+        let row = self.prep.rows().get(target)?;
+        Some(
+            row.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>(),
+        )
     }
 
     /// Full logical source text behind one visible display row for line
     /// selection. Returns `None` for streaming rows and outside rows.
     pub(crate) fn source_text_for_display_row(&self, display_row: usize) -> Option<String> {
-        let (seq, _) = self.seq_at_display_row(display_row)?;
-        self.scrollback
-            .iter()
-            .find(|row| row.seq_no() == seq)
-            .map(|row| row.source_text())
-            .filter(|text| !text.trim().is_empty())
+        let capacity = usize::from(self.last_layout_height.max(1));
+        if display_row >= capacity {
+            return None;
+        }
+        let target = self.viewport_top_row().saturating_add(display_row);
+        if target >= self.prep.total_rows() {
+            return None;
+        }
+        let (index, _) = self.message_at_display_row(target)?;
+        let text = self.scrollback.get(index)?.source_text();
+        (!text.trim().is_empty()).then_some(text)
     }
 }
 

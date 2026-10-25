@@ -8,6 +8,8 @@
 
 use serde_json::Value;
 
+use tui_core::panel_select::Motion;
+
 use crate::approval_overlay::ApprovalChoice;
 use crate::footer::{FooterRoute, FooterView};
 use crate::interactive::anchors::{first_line_label, AnchorKind};
@@ -32,6 +34,17 @@ impl InteractiveController {
                     InteractiveAction::Continue
                 }
             };
+        }
+
+        // Keyboard selection works without mouse capture: shift chords move
+        // a logical selection cursor over the transcript, Ctrl+A selects the
+        // whole transcript and Esc drops an existing selection. These run
+        // before the scroll and view dispatch so Shift+PageUp/PageDown grow
+        // the selection instead of paging the viewport alone.
+        if self.transcript_selection_keys_active() {
+            if let Some(action) = self.handle_transcript_selection_key(key) {
+                return action;
+            }
         }
 
         // Scrolling belongs to the scrollback regardless of the active footer
@@ -137,6 +150,43 @@ impl InteractiveController {
             FooterView::Question => self.handle_question_key(key),
             FooterView::Prompt => self.handle_prompt_key(key),
         }
+    }
+
+    /// Route one key to transcript selection when it uses a selection chord.
+    /// Returns `None` for every other key so ordinary scrolling, prompt
+    /// editing and panel navigation stay untouched.
+    fn handle_transcript_selection_key(&mut self, key: Key) -> Option<InteractiveAction> {
+        if key.ctrl && !key.alt && matches!(key.code, CKey::Char('a') | CKey::Char('A')) {
+            self.select_all_transcript();
+            return Some(InteractiveAction::Continue);
+        }
+        if key.ctrl && !key.alt && matches!(key.code, CKey::Char('y') | CKey::Char('Y')) {
+            if self.has_transcript_selection() {
+                self.copy_transcript_selection();
+                return Some(InteractiveAction::Continue);
+            }
+            return None;
+        }
+        if key.shift && !key.ctrl && !key.alt {
+            let motion = match key.code {
+                CKey::Left => Motion::Left,
+                CKey::Right => Motion::Right,
+                CKey::Up => Motion::Up,
+                CKey::Down => Motion::Down,
+                CKey::Home => Motion::LineStart,
+                CKey::End => Motion::LineEnd,
+                CKey::PageUp => Motion::PageUp(self.transcript_page_rows()),
+                CKey::PageDown => Motion::PageDown(self.transcript_page_rows()),
+                _ => return None,
+            };
+            self.extend_transcript_selection(motion);
+            return Some(InteractiveAction::Continue);
+        }
+        if key.code == CKey::Esc && self.has_transcript_selection() {
+            self.clear_transcript_selection();
+            return Some(InteractiveAction::Continue);
+        }
+        None
     }
 
     /// Scroll the scrollback viewport up by one page. When the viewport is

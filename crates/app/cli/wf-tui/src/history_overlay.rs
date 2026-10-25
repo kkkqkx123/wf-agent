@@ -8,6 +8,10 @@
 //!
 //! Timeline and node segments join this view once their contract exists.
 
+use ratatui::layout::Rect;
+use tui_core::panel_select::Motion;
+use tui_core::selectable_panel::SelectablePanel;
+
 use crate::pager::ReplayPager;
 use crate::replay::ReplayPage;
 use crate::screen_draw::HistoryOverlayView;
@@ -26,6 +30,12 @@ pub struct HistoryOverlay {
     at_top: bool,
     loading: bool,
     error: Option<String>,
+    /// Logical selection over the laid-out rows.
+    panel: SelectablePanel,
+    /// Text rectangle and top wrapped row of the last draw, used to map
+    /// terminal cells back to logical positions.
+    content: Option<Rect>,
+    top_row: usize,
 }
 
 impl HistoryOverlay {
@@ -39,6 +49,9 @@ impl HistoryOverlay {
         self.at_top = false;
         self.loading = true;
         self.error = None;
+        self.panel.clear();
+        self.content = None;
+        self.top_row = 0;
     }
 
     /// Session whose scrollback the window holds.
@@ -65,6 +78,9 @@ impl HistoryOverlay {
     pub fn land(&mut self, page: ReplayPage, earlier: bool) {
         self.loading = false;
         self.error = None;
+        // Prepending or replacing rows renumbers the laid-out lines, so the
+        // logical selection no longer names the same characters: drop it.
+        self.panel.clear_selection();
         if earlier {
             self.pager.land_earlier(page.has_more, page.next_before);
             let ReplayPage { lines, .. } = page;
@@ -114,6 +130,82 @@ impl HistoryOverlay {
     pub fn set_viewport(&mut self, scroll: usize, at_top: bool) {
         self.scroll = scroll;
         self.at_top = at_top;
+    }
+
+    /// Remember the text rectangle and top wrapped row of the last draw.
+    pub fn set_layout(&mut self, content: Rect, top_row: usize) {
+        self.content = Some(content);
+        self.top_row = top_row;
+    }
+
+    /// Extract the current selection without freezing it.
+    pub fn selection_text(&self) -> Option<String> {
+        self.panel.selected_text()
+    }
+
+    /// Start a drag selection at a terminal cell inside the overlay content.
+    pub fn begin_selection(&mut self, col: u16, row: u16) -> bool {
+        let Some(area) = self.content else {
+            return false;
+        };
+        if col < area.x
+            || col >= area.x.saturating_add(area.width)
+            || row < area.y
+            || row >= area.y.saturating_add(area.height)
+        {
+            return false;
+        }
+        self.panel.begin((col, row), area, self.top_row as u16)
+    }
+
+    /// Move the drag cursor. Cells outside the content clamp to its edges so
+    /// a drag never selects the border or the scrollbar gutter.
+    pub fn extend_selection(&mut self, col: u16, row: u16) -> bool {
+        let Some(area) = self.content else {
+            return false;
+        };
+        self.panel.extend((col, row), area, self.top_row as u16)
+    }
+
+    /// Extract the dragged text and freeze the region.
+    pub fn finish_selection(&mut self) -> Option<String> {
+        let text = self.panel.selected_text();
+        self.panel.commit();
+        text
+    }
+
+    /// Whether the overlay holds any selection.
+    pub fn has_selection(&self) -> bool {
+        self.panel.has_selection()
+    }
+
+    /// Drop the selection but keep the loaded rows.
+    pub fn clear_selection(&mut self) {
+        self.panel.clear_selection();
+    }
+
+    /// Select every loaded row.
+    pub fn select_all(&mut self) {
+        self.panel.select_all();
+    }
+
+    /// Apply one keyboard motion to the selection cursor.
+    pub fn extend_motion(&mut self, motion: Motion) -> bool {
+        self.panel.extend_motion(motion)
+    }
+
+    /// Borrowed snapshot plus the panel that owns the selection.
+    pub fn split(&mut self) -> (HistoryOverlayView<'_>, &mut SelectablePanel) {
+        let panel = &mut self.panel;
+        let view = HistoryOverlayView {
+            session_id: self.session_id.as_deref(),
+            lines: &self.lines,
+            scroll: self.scroll,
+            has_more: self.pager.is_partial(),
+            loading: self.loading,
+            error: self.error.as_deref(),
+        };
+        (view, panel)
     }
 
     /// Borrowed snapshot handed to the renderer.

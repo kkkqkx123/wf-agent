@@ -144,10 +144,10 @@ Redraw：
 
 - Search palette：`draw_search_palette`，`modal::centered_rect(70, 60)`；input + result list；score 显示；truncated/running/error 状态。
 - Sidebar：`draw_sidebar_overlay`，左侧 30% screen list + `Clear`；导航 overlay，不是上下文 sidebar。
-- History overlay：`draw_transcript_overlay`，全屏 transcript，tail anchored，reflow + scrollbar + jump badge + loading/has_more/error status。
+- History overlay：`draw_transcript_overlay`，全屏 transcript，tail anchored，reflow + scrollbar + jump badge + loading/has_more/error status；拖选复制与 `Shift` 键盘扩展选择接入 `SelectablePanel`。
 - Help modal / approval / question / model picker：`help_modal.rs`, `approval_overlay.rs`, `question_overlay.rs`, `model_picker.rs`。
 - Confirm/password/prompt modal：`confirm_modal.rs`, `password_modal.rs`, `prompt_modal.rs`。
-- FileViewer/DiffViewer：`file_viewer.rs`，支持 scroll、copy（Ctrl+Y）；DiffViewer 有 Add/Remove/Context/Hunk coloring。
+- FileViewer/DiffViewer：`file_viewer.rs`，支持 scroll、copy（Ctrl+Y）；DiffViewer 有 Add/Remove/Context/Hunk coloring；拖选复制、`Alt+Click` 多区域、`Esc` 先清选区，均基于 `SelectablePanel` 的逻辑坐标。
 - Checkpoint chain/detail 通过 `FileViewer` 展示 text。
 
 ## 11. 全局视觉系统

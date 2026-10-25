@@ -509,14 +509,15 @@ impl InteractiveController {
         }
     }
 
-    /// Paint the transcript drag selection as reversed cells over the
-    /// scrollback viewport. Runs after the scrollback paragraph so it only
-    /// restyles; middle rows cover the text width, edge rows are sliced by
-    /// column. The gutter column never highlights.
+    /// Paint the transcript selection as reversed cells over the scrollback
+    /// viewport. Runs after the scrollback paragraph so it only restyles.
+    /// Cell ranges come from the logical selection geometry, so the paint
+    /// follows a rewrapped or scrolled viewport without re-deriving rows
+    /// here. The gutter column never highlights.
     fn paint_transcript_selection(&self, frame: &mut Frame, area: Rect, show_bar: bool) {
-        let Some(sel) = self.transcript_selection else {
+        if self.transcript_selection.is_none() {
             return;
-        };
+        }
         if area.width == 0 || area.height == 0 {
             return;
         }
@@ -525,40 +526,18 @@ impl InteractiveController {
         if text_width == 0 {
             return;
         }
-        let (lo_row, hi_row) = sel.row_span();
-        let (lo_col, hi_col) = sel.edge_cols();
+        let right = area.x.saturating_add(text_width);
         let buf = frame.buffer_mut();
-        for row in lo_row..=hi_row {
-            let y = area.y.saturating_add(row as u16);
-            if y >= area.y.saturating_add(area.height) {
+        let style = Style::default().add_modifier(Modifier::REVERSED);
+        for (row, from, to) in self.transcript_highlight_cells(area) {
+            if row < area.y || row >= area.y.saturating_add(area.height) {
                 continue;
             }
-            let (start, end) = if lo_row == hi_row {
-                let (a, b) = if lo_col <= hi_col {
-                    (lo_col, hi_col)
-                } else {
-                    (hi_col, lo_col)
-                };
-                (a, b)
-            } else if row == lo_row {
-                (lo_col, usize::MAX)
-            } else if row == hi_row {
-                (0, hi_col)
-            } else {
-                (0, usize::MAX)
-            };
-            let width_cells = usize::from(text_width);
-            let start = start.min(width_cells);
-            let end = end.min(width_cells);
-            if start >= end {
+            let end = to.min(right);
+            if from >= end {
                 continue;
             }
-            let x = area.x.saturating_add(start as u16);
-            let w = (end - start) as u16;
-            buf.set_style(
-                Rect::new(x, y, w, 1),
-                Style::default().add_modifier(Modifier::REVERSED),
-            );
+            buf.set_style(Rect::new(from, row, end - from, 1), style);
         }
     }
 

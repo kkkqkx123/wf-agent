@@ -22,6 +22,7 @@ use ratatui::Frame;
 use tokio::sync::oneshot;
 
 use tui_core::keymap::{CKey, Key};
+use tui_core::selectable_panel::SelectablePanel;
 use tui_style::theme::{Rgb, Theme};
 
 use crate::scrollbar;
@@ -41,11 +42,46 @@ pub enum ModalResult {
     Value(String),
 }
 
+/// Mouse gesture kinds a modal can receive. Modals expose primitives instead
+/// of a terminal event type so this crate stays independent of the backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModalMouseKind {
+    /// Button pressed.
+    Press,
+    /// Button pressed with the add modifier: keep the existing selection and
+    /// start another region.
+    PressAdd,
+    /// Button held while moving.
+    Drag,
+    /// Button released.
+    Release,
+    /// Wheel up.
+    ScrollUp,
+    /// Wheel down.
+    ScrollDown,
+}
+
+/// Result of one mouse gesture inside a modal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModalMouse {
+    /// The modal does not use this gesture.
+    Ignored,
+    /// Selection or viewport changed: a repaint is due.
+    Changed,
+    /// A drag release produced text for the shell clipboard pipeline.
+    Copy(String),
+}
+
 /// Behavior of a modal component.
 pub trait Modal {
     fn title(&self) -> &str;
-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme);
+    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme);
     fn handle_key(&mut self, key: Key) -> ModalAction;
+    /// Handle one mouse gesture in terminal cell coordinates. Read-only
+    /// viewers use it for drag selection; other modals ignore it.
+    fn handle_mouse(&mut self, _kind: ModalMouseKind, _col: u16, _row: u16) -> ModalMouse {
+        ModalMouse::Ignored
+    }
     /// Transparent modals skip the `Clear` pass so the underlying screen keeps
     /// showing through the overlay. Overlays that must fully hide the screen
     /// (confirmations, pickers) stay opaque.
@@ -138,14 +174,22 @@ impl ModalStack {
         self.stack.last()?.modal.copy_source()
     }
 
-    pub fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let Some(top) = self.stack.last() else {
+    pub fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        let Some(top) = self.stack.last_mut() else {
             return;
         };
         if !top.modal.is_transparent() {
             frame.render_widget(Clear, area);
         }
         top.modal.draw(frame, area, theme);
+    }
+
+    /// Route one mouse gesture to the top modal.
+    pub fn handle_mouse(&mut self, kind: ModalMouseKind, col: u16, row: u16) -> ModalMouse {
+        match self.stack.last_mut() {
+            Some(entry) => entry.modal.handle_mouse(kind, col, row),
+            None => ModalMouse::Ignored,
+        }
     }
 
     pub fn handle_key(&mut self, key: Key) -> Option<ModalResult> {
@@ -174,6 +218,10 @@ pub(crate) struct Scroll {
 }
 
 impl Scroll {
+    pub(crate) fn offset(&self) -> usize {
+        self.offset
+    }
+
     pub(crate) fn up(&mut self, step: usize) {
         self.offset = self.offset.saturating_sub(step);
     }
@@ -226,16 +274,21 @@ pub(crate) fn scroll_key(scroll: &mut Scroll, key: Key, total: usize, view: usiz
     }
 }
 
-/// Render a windowed list of styled rows inside a bordered block.
+/// Render a windowed list of styled rows inside a bordered block. `header`
+/// carries the title and the hint line. Returns the content rectangle so
+/// callers can hit-test the same cells they painted. When `panel` holds a
+/// selection, its styled content is refreshed at the painted width and its
+/// selection is restyled after the rows land.
 pub(crate) fn render_viewer(
     frame: &mut Frame,
     area: Rect,
-    title: &str,
-    hint: &str,
+    header: (&str, &str),
     rows: &[Line<'static>],
     scroll: &Scroll,
+    panel: Option<&mut SelectablePanel>,
     theme: &Theme,
-) {
+) -> Rect {
+    let (title, hint) = header;
     let outer = Block::default()
         .title(format!(" {title} "))
         .borders(Borders::ALL)
@@ -252,12 +305,30 @@ pub(crate) fn render_viewer(
     let total = rows.len();
     let top = scrollbar::clamp_top(scroll.offset, total, view);
     let visible: Vec<Line<'static>> = rows.iter().skip(top).take(view).cloned().collect();
-    if scrollbar::visible_in(chunks[0], total, view) {
+    let content = if scrollbar::visible_in(chunks[0], total, view) {
         let (content, gutter) = scrollbar::split_content_gutter(chunks[0]);
         frame.render_widget(Paragraph::new(visible), content);
         scrollbar::render(frame, gutter, total, view, top, theme);
+        content
     } else {
         frame.render_widget(Paragraph::new(visible), chunks[0]);
+        chunks[0]
+    };
+
+    if let Some(panel) = panel {
+        panel.set_styled(rows, usize::from(content.width));
+        let style = Style::default().add_modifier(ratatui::style::Modifier::REVERSED);
+        let buf = frame.buffer_mut();
+        for (row, from, to) in panel.highlight_cells(content, top as u16) {
+            if row < content.y || row >= content.y.saturating_add(content.height) {
+                continue;
+            }
+            let end = to.min(content.x.saturating_add(content.width));
+            if from >= end {
+                continue;
+            }
+            buf.set_style(Rect::new(from, row, end - from, 1), style);
+        }
     }
 
     let position = if rows.is_empty() {
@@ -270,6 +341,7 @@ pub(crate) fn render_viewer(
             .style(Style::default().fg(to_color(theme.muted))),
         chunks[1],
     );
+    content
 }
 
 /// Conservative viewport height used when the real area is unknown.

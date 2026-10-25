@@ -70,7 +70,7 @@ impl Modal for PromptModal {
         &self.title
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let block = Block::default()
             .title(format!(" {} ", self.title))
             .borders(Borders::ALL)

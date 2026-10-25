@@ -376,6 +376,45 @@ export type WorkflowDefinitionDoc = Record<string, unknown>;
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 
+/** One JSON value allowed inside a workflow input object. */
+export type WorkflowInputValue =
+	| string
+	| number
+	| boolean
+	| null
+	| WorkflowInputValue[]
+	| { [key: string]: WorkflowInputValue };
+
+/**
+ * Top-level workflow run input: a parameter object, never a free
+ * string/array/scalar. This is a shape gate, not a per-workflow input
+ * contract; required fields arrive with the second-stage input schema.
+ */
+export type WorkflowInput = Readonly<Record<string, WorkflowInputValue>>;
+
+/** Per-run filesystem scope; mirrors backend `ExecutionFileScope`. */
+export interface ExecutionFileScope {
+	enabled?: boolean | null;
+	read_prefixes?: string[] | null;
+	write_prefixes?: string[] | null;
+	checkpoint_prefixes?: string[] | null;
+	workdir?: string | null;
+}
+
+/**
+ * Conversation message accepted by the run endpoints, compatible with the
+ * backend `Message` wire shape (`id/role/content/timestamp` required).
+ */
+export interface RunConversationMessage {
+	id: string;
+	role: string;
+	content: string;
+	timestamp: number;
+	tool_call_id?: string | null;
+	tool_name?: string | null;
+	thinking?: string | null;
+}
+
 export interface LoopMessage {
 	id: string;
 	role: MessageRole;

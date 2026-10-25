@@ -107,6 +107,36 @@ async fn run_body_forwards_checkpoint_message_interval() {
 }
 
 #[tokio::test]
+async fn run_body_rejects_empty_message_and_defaults_empty_model() {
+    // Rule A1: an empty message is a hard error on every entry path.
+    let empty = serde_json::from_value::<RunAgentLoopBody>(serde_json::json!({
+        "agent_id": MAIN_AGENT_ID,
+        "model": "mock",
+        "message": "   ",
+    }))
+    .unwrap();
+    assert!(params_from_body(&test_state(), empty).await.is_err());
+
+    // Rule A2: an empty or sentinel model normalizes to the server default.
+    for model in ["", "default"] {
+        let body = serde_json::from_value::<RunAgentLoopBody>(serde_json::json!({
+            "agent_id": MAIN_AGENT_ID,
+            "model": model,
+            "message": "hi",
+        }))
+        .unwrap();
+        assert_eq!(
+            params_from_body(&test_state(), body)
+                .await
+                .expect("resolve params")
+                .config
+                .model,
+            wf_api::DEFAULT_MODEL
+        );
+    }
+}
+
+#[tokio::test]
 async fn loop_registry_summaries_and_stats_are_reachable() {
     let ctx = make_ctx();
     for uri in [

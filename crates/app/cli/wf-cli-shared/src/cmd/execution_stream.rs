@@ -144,12 +144,9 @@ pub(crate) async fn run_workflow_streaming(
     input: Option<serde_json::Value>,
     background: bool,
 ) -> CliResult<()> {
+    crate::turn::validate_workflow_input_value(input.as_ref()).map_err(CliError::Arguments)?;
     if background {
-        let typed = wf_client::models::ExecuteBody {
-            input,
-            file_scope: None,
-            version: None,
-        };
+        let typed = crate::turn::TurnParams::workflow_typed_body(input.as_ref());
         let view = client.execute_workflow_background(workflow, &typed).await?;
         let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
         return render_envelope(
@@ -168,11 +165,8 @@ pub(crate) async fn run_stream(
     input: Option<serde_json::Value>,
 ) -> CliResult<()> {
     let text = cli.output == OutputFormat::Text;
-    let typed = wf_client::models::ExecuteBody {
-        input,
-        file_scope: None,
-        version: None,
-    };
+    crate::turn::validate_workflow_input_value(input.as_ref()).map_err(CliError::Arguments)?;
+    let typed = crate::turn::TurnParams::workflow_typed_body(input.as_ref());
     let body = serde_json::to_value(&typed).unwrap_or(serde_json::Value::Null);
     let stream = client
         .post_stream(&wf_client::endpoints::workflow_execute(workflow), &body)

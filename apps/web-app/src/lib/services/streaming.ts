@@ -1,6 +1,8 @@
 import { openGetStream, openPostStream } from '#lib/api/stream';
 import type { StreamFailure } from '#lib/api/stream';
-import type { RunLoopMessage } from '#lib/services/agent-loops';
+import type { RunConversationMessage } from '#lib/types/models';
+import { assertAgentMessage, assertAgentModel, assertFileScope } from '#lib/services/run';
+import type { ExecutionFileScope } from '#lib/types/models';
 import { decodeErrorChainFrame, handleExecutionFrame } from '#lib/utils/stream-parser';
 import type { ErrorRecord, StreamCallbacks } from '#lib/utils/stream-parser';
 
@@ -20,11 +22,11 @@ export type {
 export interface LoopStreamBody {
 	model: string;
 	message: string;
-	conversation?: RunLoopMessage[];
+	conversation?: RunConversationMessage[];
 	/** Optional agent template id; empty falls back to the default main agent. */
 	agentId?: string;
 	/** Optional per-run filesystem scope; absent inherits the global default. */
-	fileScope?: unknown;
+	fileScope?: ExecutionFileScope | null;
 }
 
 /**
@@ -37,15 +39,18 @@ export function streamLoopRun(
 	callbacks: StreamCallbacks,
 	signal: AbortSignal,
 ): Promise<void> {
+	const message = assertAgentMessage(body.message);
+	const model = assertAgentModel(body.model);
+	const fileScope = assertFileScope(body.fileScope ?? null);
 	return openPostStream({
 		path: `/api/v1/agent-loops/${id}/stream`,
 		body: {
-			model: body.model,
-			message: body.message,
+			model,
+			message,
 			agent_id: body.agentId ?? '',
 			tool_call_protocol: { format: 'json' },
 			conversation: body.conversation ?? [],
-			file_scope: body.fileScope ?? null,
+			file_scope: fileScope,
 		},
 		signal,
 		onFrame: (event, data) => handleExecutionFrame(event, data, callbacks),

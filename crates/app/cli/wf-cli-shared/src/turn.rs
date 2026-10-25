@@ -113,14 +113,47 @@ impl TurnParams {
     }
 }
 
+/// Validate an already-parsed workflow input value against the shared
+/// shape rules (W1-W3): null/missing is no input, an object passes
+/// through, anything else (array, string, number, bool) is a hard error.
+pub fn validate_workflow_input_value(input: Option<&Value>) -> Result<(), String> {
+    match input {
+        None | Some(Value::Null) => Ok(()),
+        Some(Value::Object(_)) => Ok(()),
+        Some(other) => Err(format!(
+            "invalid --input: must be a JSON object or empty, got {}",
+            input_kind(other)
+        )),
+    }
+}
+
+fn input_kind(value: &Value) -> &'static str {
+    if value.is_array() {
+        "array"
+    } else if value.is_string() {
+        "string"
+    } else if value.is_number() {
+        "number"
+    } else {
+        "boolean"
+    }
+}
+
 /// Helper to parse workflow input JSON string.
 pub fn parse_workflow_input(input: Option<&str>) -> Result<Option<Value>, String> {
     match input {
         None => Ok(None),
         Some(s) if s.trim().is_empty() => Ok(None),
-        Some(s) => serde_json::from_str(s)
-            .map(Some)
-            .map_err(|e| format!("invalid --input JSON: {e}")),
+        Some(s) => {
+            let value: Value = serde_json::from_str(s)
+                .map_err(|e| format!("invalid --input JSON: {e}"))?;
+            validate_workflow_input_value(Some(&value))?;
+            if value.is_null() {
+                Ok(None)
+            } else {
+                Ok(Some(value))
+            }
+        }
     }
 }
 
@@ -144,6 +177,25 @@ mod tests {
     #[test]
     fn parse_workflow_input_invalid_json_errors() {
         assert!(parse_workflow_input(Some("{bad")).is_err());
+    }
+
+    #[test]
+    fn parse_workflow_input_rejects_non_objects() {
+        assert!(parse_workflow_input(Some(r#"[1,2]"#)).is_err());
+        assert!(parse_workflow_input(Some(r#""text""#)).is_err());
+        assert!(parse_workflow_input(Some("42")).is_err());
+        assert!(parse_workflow_input(Some("true")).is_err());
+        assert_eq!(parse_workflow_input(Some("{}")).unwrap().unwrap(), Value::Object(Default::default()));
+        assert_eq!(parse_workflow_input(Some("null")).unwrap(), None);
+    }
+
+    #[test]
+    fn validate_workflow_input_value_gates_shapes() {
+        assert!(validate_workflow_input_value(None).is_ok());
+        assert!(validate_workflow_input_value(Some(&Value::Null)).is_ok());
+        assert!(validate_workflow_input_value(Some(&serde_json::json!({"a": 1}))).is_ok());
+        assert!(validate_workflow_input_value(Some(&serde_json::json!([1]))).is_err());
+        assert!(validate_workflow_input_value(Some(&serde_json::json!("x"))).is_err());
     }
 
     #[test]

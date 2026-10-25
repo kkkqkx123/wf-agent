@@ -6,8 +6,8 @@ use serde_json::Value;
 use super::checkpoint::{create_checkpoint, restore_and_resume, restore_checkpoint};
 use super::graph::definition_to_graph;
 use super::lifecycle::{
-    default_options, entry_timeout_ms, execute, resume, status, ExecuteWorkflowParams,
-    DEFAULT_EXECUTION_TIMEOUT_MS,
+    default_options, entry_timeout_ms, execute, resume, status, validate_workflow_input,
+    ExecuteWorkflowParams, DEFAULT_EXECUTION_TIMEOUT_MS,
 };
 use super::summary::execution_summaries;
 use crate::infra::context::ApiContext;
@@ -275,6 +275,17 @@ fn entry_timeout_raised_to_configured_engine_budget() {
         entry_timeout_ms(&options_with(None, Some(60_000))),
         DEFAULT_EXECUTION_TIMEOUT_MS
     );
+}
+
+#[test]
+fn workflow_input_shape_gate() {
+    assert!(validate_workflow_input(None).is_ok());
+    assert!(validate_workflow_input(Some(&Value::Null)).is_ok());
+    assert!(validate_workflow_input(Some(&serde_json::json!({}))).is_ok());
+    assert!(validate_workflow_input(Some(&serde_json::json!({"a": 1}))).is_ok());
+    assert!(validate_workflow_input(Some(&serde_json::json!([1]))).is_err());
+    assert!(validate_workflow_input(Some(&serde_json::json!("x"))).is_err());
+    assert!(validate_workflow_input(Some(&serde_json::json!(1))).is_err());
 }
 
 #[tokio::test]

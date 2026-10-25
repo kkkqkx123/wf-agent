@@ -149,15 +149,12 @@ pub(crate) async fn run_with_client(
             stream,
         } => {
             let input_value: Option<serde_json::Value> =
-                input.as_deref().and_then(|s| serde_json::from_str(s).ok());
+                crate::turn::parse_workflow_input(input.as_deref())
+                    .map_err(CliError::Arguments)?;
             if *background || *stream {
                 run_workflow_streaming(cli, client, workflow, input_value, *background).await
             } else {
-                let typed = wf_client::models::ExecuteBody {
-                    input: input_value,
-                    file_scope: None,
-                    version: None,
-                };
+                let typed = crate::turn::TurnParams::workflow_typed_body(input_value.as_ref());
                 let view = client.execute_workflow(workflow, &typed).await?;
                 let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
                 render_envelope(

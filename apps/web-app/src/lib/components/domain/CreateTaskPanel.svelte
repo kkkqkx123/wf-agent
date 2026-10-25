@@ -15,7 +15,13 @@
 	import { listTemplates } from '#lib/services/templates';
 	import { listModelProfiles } from '#lib/services/resources';
 	import { listDefinitionVersions } from '#lib/services/definitions';
-	import { runDefinition, type RunnableKind } from '#lib/services/run';
+	import {
+		assertConversationSeed,
+		parseFileScopeText,
+		parseWorkflowInputText,
+		runDefinition,
+		type RunnableKind,
+	} from '#lib/services/run';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { t } from '#lib/i18n';
 
@@ -50,6 +56,7 @@
 	let versionsLoading = $state(false);
 	let fileScope = $state('');
 	let fileScopeError = $state<string | null>(null);
+	let inputError = $state<string | null>(null);
 	let debugRun = $state(false);
 	let maxIterations = $state('');
 	let tokenLimit = $state('');
@@ -82,22 +89,23 @@
 		definitions.find((definition) => `${definition.kind}:${definition.id}` === selected) ?? null,
 	);
 
-	/** Parsed workflow input: JSON when it parses, raw text otherwise. */
-	const parsedInput = $derived.by((): unknown => {
+	/** Parsed workflow input preview: a JSON object when the text parses, otherwise the shape error. */
+	const parsedInputPreview = $derived.by((): { value: unknown; error: string | null } => {
 		const trimmed = input.trim();
-		if (trimmed === '') return null;
+		if (trimmed === '') return { value: null, error: null };
 		try {
-			return JSON.parse(trimmed) as unknown;
-		} catch {
-			return trimmed;
+			return { value: parseWorkflowInputText(input), error: null };
+		} catch (e) {
+			return {
+				value: trimmed,
+				error: e instanceof Error ? e.message : 'Workflow input must be a JSON object or empty.',
+			};
 		}
 	});
 
-	const parsedFileScope = $derived.by((): unknown => {
-		const trimmed = fileScope.trim();
-		if (trimmed === '') return null;
+	const parsedFileScope = $derived.by(() => {
 		try {
-			return JSON.parse(trimmed) as unknown;
+			return parseFileScopeText(fileScope);
 		} catch {
 			return null;
 		}
@@ -106,30 +114,28 @@
 	function validateJsonFields(): boolean {
 		fileScopeError = null;
 		conversationSeedError = null;
-		if (input.trim() !== '') {
-			try {
-				JSON.parse(input);
-			} catch {
-				// Invalid JSON is tolerated here; no inline error state is shown.
-			}
+		inputError = null;
+		try {
+			parseWorkflowInputText(input);
+		} catch (e) {
+			inputError = e instanceof Error ? e.message : 'Workflow input must be a JSON object or empty.';
+			return false;
 		}
 		if (fileScope.trim() !== '') {
 			try {
-				JSON.parse(fileScope);
-			} catch {
-				fileScopeError = 'File scope must be valid JSON or empty.';
+				parseFileScopeText(fileScope);
+			} catch (e) {
+				fileScopeError =
+					e instanceof Error ? e.message : 'File scope must be a JSON object or empty.';
 				return false;
 			}
 		}
 		if (conversationSeed.trim() !== '') {
 			try {
-				const parsed = JSON.parse(conversationSeed) as unknown;
-				if (!Array.isArray(parsed)) {
-					conversationSeedError = 'Conversation seed must be a JSON array or empty.';
-					return false;
-				}
-			} catch {
-				conversationSeedError = 'Conversation seed must be a JSON array or empty.';
+				assertConversationSeed(JSON.parse(conversationSeed) as unknown);
+			} catch (e) {
+				conversationSeedError =
+					e instanceof Error ? e.message : 'Conversation seed must be a JSON array or empty.';
 				return false;
 			}
 		}
@@ -213,7 +219,9 @@
 		const definition = selectedDefinition;
 		if (!definition || starting) return;
 		if (!validateJsonFields()) {
+			if (inputError) toasts.error(inputError);
 			if (fileScopeError) toasts.error(fileScopeError);
+			if (conversationSeedError) toasts.error(conversationSeedError);
 			return;
 		}
 		if (definition.kind === 'agent' && message.trim() === '') {
@@ -229,7 +237,9 @@
 			const parsedMaxIterations = maxIterations.trim() === '' ? null : Number(maxIterations);
 			const parsedTokenLimit = tokenLimit.trim() === '' ? null : Number(tokenLimit);
 			const parsedConversation =
-				conversationSeed.trim() === '' ? [] : (JSON.parse(conversationSeed) as unknown[]);
+				conversationSeed.trim() === ''
+					? []
+					: assertConversationSeed(JSON.parse(conversationSeed) as unknown);
 			if (
 				(parsedMaxIterations !== null && !Number.isFinite(parsedMaxIterations)) ||
 				(parsedTokenLimit !== null && !Number.isFinite(parsedTokenLimit))
@@ -241,7 +251,7 @@
 			const executionId =
 				definition.kind === 'workflow'
 					? await runDefinition('workflow', definition.id, {
-							input: parsedInput,
+							input: parseWorkflowInputText(input),
 							version: version.trim() === '' ? null : version.trim(),
 							fileScope: parsedFileScope,
 						})
@@ -328,11 +338,18 @@
 					label={t('page.executions.taskInput')}
 					placeholder={t('page.executions.taskInputPlaceholder')}
 				/>
+				{#if inputError}
+					<p class="text-micro text-destructive">{inputError}</p>
+				{/if}
 				{#if input.trim() !== ''}
-					<div class="rounded-md border border-border bg-muted/40 p-2">
-						<p class="mb-1 text-micro text-muted-foreground">Input preview</p>
-						<JsonViewer value={parsedInput} collapsed />
-					</div>
+					{#if parsedInputPreview.error}
+						<p class="text-micro text-destructive">{parsedInputPreview.error}</p>
+					{:else}
+						<div class="rounded-md border border-border bg-muted/40 p-2">
+							<p class="mb-1 text-micro text-muted-foreground">Input preview</p>
+							<JsonViewer value={parsedInputPreview.value} collapsed />
+						</div>
+					{/if}
 				{/if}
 				<Textarea
 					bind:value={fileScope}

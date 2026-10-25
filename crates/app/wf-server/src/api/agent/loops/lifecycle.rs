@@ -57,6 +57,21 @@ pub(crate) async fn params_from_body(
     state: &ApiState,
     body: RunAgentLoopBody,
 ) -> Result<wf_api::agent::agent_execution::RunAgentLoopParams, wf_api::ApiError> {
+    // Rule A1: an empty message is a hard error on every entry path; the
+    // CLI/TUI forms and the web panel all converge here.
+    if body.message.trim().is_empty() {
+        return Err(wf_api::ApiError::Validation(
+            "agent message must not be empty".to_string(),
+        ));
+    }
+    // Rule A2: an empty model means the server default template. The CLI
+    // encodes `None` as the "default" sentinel on the wire; both spellings
+    // normalize here so templates stay the single source of the default.
+    let model = if body.model.trim().is_empty() || body.model.trim() == wf_api::DEFAULT_MODEL {
+        wf_api::DEFAULT_MODEL.to_string()
+    } else {
+        body.model
+    };
     // Empty ids fall back to the built-in main agent, matching the CLI
     // composition path (`build_agent_loop_config` defaults `None` the same
     // way); the template resolver still rejects unregistered built-ins.
@@ -68,7 +83,7 @@ pub(crate) async fn params_from_body(
     let config = wf_api::AgentLoopConfig {
         file_scope: body.file_scope,
         agent_id: wf_api::Id::from(agent_id),
-        model: body.model,
+        model,
         max_iterations: body.max_iterations,
         max_execution_time: body.max_execution_time,
         hooks: body

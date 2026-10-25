@@ -166,8 +166,8 @@ impl Cli {
                 }
             }
             if let Some(input_str) = input {
-                if serde_json::from_str::<serde_json::Value>(input_str).is_err() {
-                    return Err(format!("invalid --input JSON: {input_str}"));
+                if let Err(e) = crate::turn::parse_workflow_input(Some(input_str)) {
+                    return Err(e);
                 }
             }
         }
@@ -659,6 +659,9 @@ mod tests {
         assert!(cli.validate().is_err());
 
         let cli = parse(&["run", "--workflow", "wf-1", "--input", "bad-json"]).unwrap();
+        assert!(cli.validate().is_err());
+
+        let cli = parse(&["run", "--workflow", "wf-1", "--input", "[1,2]"]).unwrap();
         assert!(cli.validate().is_err());
     }
 

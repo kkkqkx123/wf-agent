@@ -75,26 +75,27 @@ impl Default for RunOptions {
 impl RunOptions {
     /// Single conversion into the shared [`TurnParams`] abstraction so the
     /// headless driver and the interactive forms assemble request bodies in
-    /// exactly one place.
-    pub fn as_turn_params(&self) -> TurnParams {
+    /// exactly one place. Invalid workflow input is a hard [`CliError`]:
+    /// it never degrades to `None`.
+    pub fn try_as_turn_params(&self) -> CliResult<TurnParams> {
         let kind = match self.workflow.clone() {
             Some(workflow_id) => {
                 let input = crate::turn::parse_workflow_input(self.workflow_input.as_deref())
-                    .unwrap_or(None);
+                    .map_err(CliError::Arguments)?;
                 TurnKind::Workflow { workflow_id, input }
             }
             None => TurnKind::Agent {
                 prompt: self.prompt.clone(),
             },
         };
-        TurnParams {
+        Ok(TurnParams {
             agent: self.agent_id.clone(),
             model: self.model.clone(),
             approve_prefixes: self.approve_prefixes.clone(),
             timeout_ms: self.timeout_ms,
             conversation: Vec::new(),
             kind,
-        }
+        })
     }
 
     fn answer_policy(&self, json: bool) -> AnswerPolicy {
@@ -219,7 +220,7 @@ async fn run_agent(
     let stop = Arc::new(AtomicBool::new(false));
     let followup_requested = Arc::new(AtomicBool::new(false));
     let poller = spawn_poller(&client, &opts, io, stop.clone(), followup_requested.clone());
-    let body = opts.as_turn_params().agent_request_body();
+    let body = opts.try_as_turn_params()?.agent_request_body();
     let outcome = if let Ok(stream) = client
         .post_stream(&wf_client::endpoints::agent_cli_stream(), &body)
         .await
@@ -245,7 +246,7 @@ async fn run_agent(
         // generated client: the `cli` id reuses the `{id}` slot (see
         // `wf_client::endpoints::agent_cli_run`), so the path template,
         // request body and response view are all type-checked.
-        let typed = opts.as_turn_params().agent_typed_body();
+        let typed = opts.try_as_turn_params()?.agent_typed_body();
         let view = client.run_agent_loop("cli", &typed).await?;
         let iterations = view.iterations.max(0) as u32;
         blocking_outcome(

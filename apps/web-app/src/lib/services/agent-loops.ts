@@ -4,14 +4,17 @@ import type { CursorPageResult, PageResult } from '#lib/api/envelope';
 import type {
 	AgentLoop,
 	AgentLoopDetail,
+	ExecutionFileScope,
 	LoopIteration,
 	LoopMessage,
 	LoopVariable,
+	RunConversationMessage,
 	SessionExecutorType,
 	TimelineEntry,
 	ToolCallEntry,
 	WorkflowGraph,
 } from '#lib/types/models';
+import { assertAgentMessage, assertAgentModel, assertFileScope } from '#lib/services/run';
 import {
 	getDecisionGraph,
 	getDecisionSteps,
@@ -453,13 +456,12 @@ export interface RunLoopMessage {
 export interface RunLoopInput {
 	model: string;
 	message: string;
-	conversation?: RunLoopMessage[];
+	conversation?: RunConversationMessage[];
 	/**
 	 * Optional per-run filesystem scope (`ExecutionFileScope` on the
-	 * backend: `{ read, write }` path lists). Absent inherits the global
-	 * default; the generated schema types it as unknown.
+	 * backend). Absent inherits the global default.
 	 */
-	fileScope?: unknown;
+	fileScope?: ExecutionFileScope | null;
 }
 
 export interface AgentRunResult {
@@ -480,16 +482,19 @@ interface AgentRunViewDto {
  * loop id as its session.
  */
 export async function runAgentLoop(id: string, input: RunLoopInput): Promise<AgentRunResult> {
+	const message = assertAgentMessage(input.message);
+	const model = assertAgentModel(input.model);
+	const fileScope = assertFileScope(input.fileScope ?? null);
 	const data = requireData(
 		await call<AgentRunViewDto>(
 			client.POST('/api/v1/agent-loops/{id}/run', {
 				params: { path: { id } },
 				body: {
-					model: input.model,
-					message: input.message,
+					model,
+					message,
 					tool_call_protocol: { format: 'json' },
 					conversation: input.conversation ?? [],
-					file_scope: input.fileScope ?? null,
+					file_scope: fileScope,
 				},
 			}),
 		),

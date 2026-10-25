@@ -3,11 +3,14 @@ import { call, extractPage, requireData } from '#lib/api/envelope';
 import type { PageResult } from '#lib/api/envelope';
 import type {
 	DefinitionDerivation,
+	ExecutionFileScope,
 	Workflow,
 	WorkflowDefinitionDoc,
 	WorkflowDetail,
 	WorkflowGraph,
+	WorkflowInput,
 } from '#lib/types/models';
+import { assertFileScope, assertWorkflowInput } from '#lib/services/run';
 import { getGraphEdges, getGraphNodes, toWorkflowGraph } from '#lib/services/graph';
 import { listDefinitionDrafts, listDefinitionVersions } from '#lib/services/definitions';
 
@@ -236,24 +239,26 @@ export async function deleteWorkflow(id: string): Promise<boolean> {
 /** Execute a workflow, returning the new execution id. */
 export async function executeWorkflow(
 	id: string,
-	input?: unknown,
+	input?: WorkflowInput | null,
 	/**
 	 * Optional per-run filesystem scope (`ExecutionFileScope` on the
 	 * backend). Absent inherits the global default.
 	 */
-	fileScope?: unknown,
+	fileScope?: ExecutionFileScope | null,
 	/**
 	 * Pinned workflow version to run. Absent executes the stored
 	 * definition as it stands.
 	 */
 	version?: string | null,
 ): Promise<string> {
+	const checkedInput = assertWorkflowInput(input ?? null);
+	const checkedScope = assertFileScope(fileScope ?? null);
 	const data = await call<{ execution_id?: string }>(
 		client.POST('/api/v1/workflows/{id}/execute', {
 			params: { path: { id } },
 			body: {
-				input: input ?? null,
-				file_scope: fileScope ?? null,
+				input: checkedInput,
+				file_scope: checkedScope,
 				version: version ?? null,
 			},
 		}),

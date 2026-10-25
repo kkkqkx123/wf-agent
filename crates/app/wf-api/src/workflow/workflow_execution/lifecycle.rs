@@ -80,6 +80,34 @@ async fn resolve_definition(
     }
 }
 
+/// Shared workflow input shape gate (rules W1-W3): missing or null is no
+/// input, a JSON object passes through, anything else (array, string,
+/// number, boolean) is a validation error. Per-workflow input contracts
+/// (`input_schema`) are a later stage; this gate only enforces the top-level
+/// shape so free-form strings can never reach the engine as `input`.
+pub fn validate_workflow_input(input: Option<&Value>) -> Result<(), crate::infra::error::ApiError> {
+    match input {
+        None | Some(Value::Null) => Ok(()),
+        Some(Value::Object(_)) => Ok(()),
+        Some(other) => Err(crate::infra::error::ApiError::Validation(format!(
+            "workflow input must be a JSON object or empty, got {}",
+            input_shape_kind(other)
+        ))),
+    }
+}
+
+fn input_shape_kind(value: &Value) -> &'static str {
+    if value.is_array() {
+        "array"
+    } else if value.is_string() {
+        "string"
+    } else if value.is_number() {
+        "number"
+    } else {
+        "boolean"
+    }
+}
+
 /// Execute a workflow to completion and await its output.
 ///
 /// Bounded by a wall-clock timeout resolved by `entry_timeout_ms`: an
@@ -89,6 +117,7 @@ pub async fn execute(
     ctx: &ApiContext,
     params: ExecuteWorkflowParams,
 ) -> crate::infra::error::ApiResult<WorkflowOutput> {
+    validate_workflow_input(params.input.as_ref())?;
     let mut definition =
         resolve_definition(ctx, &params.workflow_id, params.version.as_deref()).await?;
     let graph =
@@ -159,6 +188,7 @@ pub async fn stream(
     ctx: Arc<ApiContext>,
     params: ExecuteWorkflowParams,
 ) -> crate::infra::error::ApiResult<(Id, ExecutionEventStream)> {
+    validate_workflow_input(params.input.as_ref())?;
     let mut definition =
         resolve_definition(&ctx, &params.workflow_id, params.version.as_deref()).await?;
     let graph =

@@ -64,20 +64,27 @@ pub struct ExecuteBody {
     pub(crate) version: Option<String>,
     /// Runtime budget overrides. Missing leaves the stored default in place.
     #[serde(default)]
+    #[schema(minimum = 1)]
     pub(crate) max_steps: Option<u32>,
     #[serde(default)]
+    #[schema(minimum = 1)]
     pub(crate) timeout: Option<u64>,
     #[serde(default)]
+    #[schema(minimum = 1)]
     pub(crate) max_execution_time: Option<u64>,
     #[serde(default)]
     pub(crate) enable_checkpoints: Option<bool>,
     #[serde(default)]
+    #[schema(minimum = 1)]
     pub(crate) node_timeout: Option<u64>,
     #[serde(default)]
+    #[schema(minimum = 1)]
     pub(crate) max_pause_duration: Option<u64>,
     #[serde(default)]
+    #[schema(minimum = 1)]
     pub(crate) max_navigation_multiplier: Option<u32>,
     #[serde(default)]
+    #[schema(minimum = 1)]
     pub(crate) loop_max_iterations_cap: Option<u32>,
     /// Debug marker for direct subworkflow runs. Metadata only; the engine
     /// never reads it for budgets or scheduling.

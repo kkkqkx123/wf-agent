@@ -3,15 +3,11 @@ import { call, extractPage, requireData } from '#lib/api/envelope';
 import type { PageResult } from '#lib/api/envelope';
 import type {
 	DefinitionDerivation,
-	ExecutionFileScope,
 	Workflow,
 	WorkflowDefinitionDoc,
 	WorkflowDetail,
 	WorkflowGraph,
-	WorkflowInput,
-	WorkflowRuntimeOptions,
 } from '#lib/types/models';
-import { assertFileScope, assertWorkflowInput } from '#lib/services/run';
 import { getGraphEdges, getGraphNodes, toWorkflowGraph } from '#lib/services/graph';
 import { listDefinitionDrafts, listDefinitionVersions } from '#lib/services/definitions';
 
@@ -235,52 +231,6 @@ export async function deleteWorkflow(id: string): Promise<boolean> {
 		params: { path: { id } },
 	});
 	return response.ok;
-}
-
-/** Execute a workflow, returning the new execution id. */
-export async function executeWorkflow(
-	id: string,
-	input?: WorkflowInput | null,
-	/**
-	 * Optional per-run filesystem scope (`ExecutionFileScope` on the
-	 * backend). Absent inherits the global default.
-	 */
-	fileScope?: ExecutionFileScope | null,
-	/**
-	 * Pinned workflow version to run. Absent executes the stored
-	 * definition as it stands.
-	 */
-	version?: string | null,
-	options?: {
-		runtime?: WorkflowRuntimeOptions | null;
-		debug?: boolean | null;
-	} | null,
-): Promise<string> {
-	const checkedInput = assertWorkflowInput(input ?? null);
-	const checkedScope = assertFileScope(fileScope ?? null);
-	const runtime = options?.runtime ?? null;
-	const data = await call<{ execution_id?: string }>(
-		client.POST('/api/v1/workflows/{id}/execute', {
-			params: { path: { id } },
-			body: {
-				input: checkedInput,
-				file_scope: checkedScope,
-				version: version ?? null,
-				max_steps: runtime?.maxSteps ?? null,
-				timeout: runtime?.timeoutMs ?? null,
-				max_execution_time: runtime?.maxExecutionTimeMs ?? null,
-				enable_checkpoints: runtime?.enableCheckpoints ?? null,
-				node_timeout: runtime?.nodeTimeoutMs ?? null,
-				max_pause_duration: runtime?.maxPauseDurationMs ?? null,
-				max_navigation_multiplier: runtime?.maxNavigationMultiplier ?? null,
-				loop_max_iterations_cap: runtime?.loopMaxIterationsCap ?? null,
-				debug: options?.debug ?? null,
-			},
-		}),
-	);
-	const executionId = data?.execution_id ?? '';
-	if (!executionId) throw new Error('Execute returned no execution id');
-	return executionId;
 }
 
 /** Download the workflow definition as a JSON file. */

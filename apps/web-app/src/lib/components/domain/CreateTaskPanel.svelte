@@ -136,7 +136,15 @@
 			timeoutMs: parseRuntimeNumber(timeoutMs),
 			maxExecutionTimeMs: parseRuntimeNumber(maxExecutionTimeMs),
 			enableCheckpoints:
-				enableCheckpoints === '' ? null : enableCheckpoints === 'true' ? true : enableCheckpoints === 'false' ? false : null,
+				enableCheckpoints === ''
+					? null
+					: enableCheckpoints === 'true'
+						? true
+						: enableCheckpoints === 'false'
+							? false
+							: (() => {
+									throw new Error('Checkpoints must be on, off, or empty.');
+								})(),
 			nodeTimeoutMs: parseRuntimeNumber(nodeTimeoutMs),
 			maxPauseDurationMs: parseRuntimeNumber(maxPauseDurationMs),
 			maxNavigationMultiplier: parseRuntimeNumber(maxNavigationMultiplier),

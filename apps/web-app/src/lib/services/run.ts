@@ -52,13 +52,6 @@ export interface AgentRunParams {
 
 export type RunParams = WorkflowRunParams | AgentRunParams;
 
-/** Shared workflow input shape gate (rules W1-W3): null/missing is no input, a plain object passes, anything else fails. */
-export function isWorkflowInput(value: unknown): value is WorkflowInput {
-	if (value === null || value === undefined) return true;
-	if (typeof value !== 'object' || Array.isArray(value)) return false;
-	return true;
-}
-
 /** Assert a recorded or parsed value carries workflow input shape; null/missing means no input. */
 export function assertWorkflowInput(value: unknown): WorkflowInput | null {
 	if (value === null || value === undefined) return null;

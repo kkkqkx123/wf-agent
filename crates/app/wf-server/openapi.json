@@ -49672,7 +49672,7 @@
               "null"
             ],
             "format": "int32",
-            "minimum": 0
+            "minimum": 1
           },
           "max_execution_time": {
             "type": [
@@ -49680,7 +49680,7 @@
               "null"
             ],
             "format": "int64",
-            "minimum": 0
+            "minimum": 1
           },
           "max_navigation_multiplier": {
             "type": [
@@ -49688,7 +49688,7 @@
               "null"
             ],
             "format": "int32",
-            "minimum": 0
+            "minimum": 1
           },
           "max_pause_duration": {
             "type": [
@@ -49696,7 +49696,7 @@
               "null"
             ],
             "format": "int64",
-            "minimum": 0
+            "minimum": 1
           },
           "max_steps": {
             "type": [
@@ -49705,7 +49705,7 @@
             ],
             "format": "int32",
             "description": "Runtime budget overrides. Missing leaves the stored default in place.",
-            "minimum": 0
+            "minimum": 1
           },
           "node_timeout": {
             "type": [
@@ -49713,7 +49713,7 @@
               "null"
             ],
             "format": "int64",
-            "minimum": 0
+            "minimum": 1
           },
           "timeout": {
             "type": [
@@ -49721,7 +49721,7 @@
               "null"
             ],
             "format": "int64",
-            "minimum": 0
+            "minimum": 1
           },
           "version": {
             "type": [

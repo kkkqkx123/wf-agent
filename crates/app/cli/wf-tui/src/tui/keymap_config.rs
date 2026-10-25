@@ -3,12 +3,13 @@
 //! Settings live in the global XDG config dir (`$XDG_CONFIG_HOME/wf/` or
 //! `$HOME/.config/wf/`) and are overridden by the project file
 //! (`.wf/keymap-settings.toml`). Bindings are strings (`context` →
-//! `action` → `chord`); unknown contexts or actions are skipped with a
-//! warning so a stale settings file never breaks startup.
+//! `command id` → `chord`); the command id is the registry id, so a
+//! settings file can only rebind commands that actually exist. Unknown
+//! contexts or ids are skipped with a warning.
 
 use std::path::PathBuf;
 
-use tui_core::keymap::{builtin_keymap, CKey, Key, KeyAction, Keymap, KeymapContext};
+use tui_core::keymap::{CKey, Key, Keymap, KeymapContext};
 use wf_config::keymap as config_keymap;
 
 /// Resolve the global settings directory following the XDG conventions the
@@ -42,61 +43,6 @@ fn parse_context(name: &str) -> Option<KeymapContext> {
     })
 }
 
-fn parse_action(name: &str) -> Option<KeyAction> {
-    Some(match name {
-        "quit" => KeyAction::Quit,
-        "redraw" => KeyAction::Redraw,
-        "help" => KeyAction::Help,
-        "palette" => KeyAction::Palette,
-        "interrupt" => KeyAction::Interrupt,
-        "cancel" => KeyAction::Cancel,
-        "back" => KeyAction::Back,
-        "select" => KeyAction::Select,
-        "submit" => KeyAction::Submit,
-        "refresh" => KeyAction::Refresh,
-        "delete" => KeyAction::Delete,
-        "new" => KeyAction::New,
-        "edit" => KeyAction::Edit,
-        "move_prev" => KeyAction::MovePrev,
-        "move_next" => KeyAction::MoveNext,
-        "history_prev" => KeyAction::HistoryPrev,
-        "history_next" => KeyAction::HistoryNext,
-        "clear" => KeyAction::Clear,
-        "home" => KeyAction::Home,
-        "end" => KeyAction::End,
-        "scan" => KeyAction::Scan,
-        "reload" => KeyAction::Reload,
-        "cache_clear" => KeyAction::CacheClear,
-        "cycle_mode" => KeyAction::CycleMode,
-        "approve" => KeyAction::Approve,
-        "approve_all" => KeyAction::ApproveAll,
-        "deny_once" => KeyAction::DenyOnce,
-        "deny" => KeyAction::Deny,
-        "tab_new" => KeyAction::TabNew,
-        "tab_close" => KeyAction::TabClose,
-        "tab_next" => KeyAction::TabNext,
-        "tab_prev" => KeyAction::TabPrev,
-        "tab_pin" => KeyAction::TabPin,
-        "tab_move_prev" => KeyAction::TabMovePrev,
-        "tab_move_next" => KeyAction::TabMoveNext,
-        "tab_parent" => KeyAction::TabParent,
-        "tab_child" => KeyAction::TabChild,
-        "tab_child_next" => KeyAction::TabChildNext,
-        "tab_child_prev" => KeyAction::TabChildPrev,
-        "session_list" => KeyAction::SessionList,
-        _ => {
-            if let Some(slot) = name
-                .strip_prefix("tab_pick_")
-                .and_then(|rest| rest.parse::<u8>().ok())
-                .filter(|slot| (1..=9).contains(slot))
-            {
-                return Some(KeyAction::TabPick(slot));
-            }
-            return None;
-        }
-    })
-}
-
 fn chord_to_key(chord: &config_keymap::Chord) -> Key {
     let code = match chord.code.as_str() {
         "enter" => CKey::Enter,
@@ -126,47 +72,42 @@ fn chord_to_key(chord: &config_keymap::Chord) -> Key {
     }
 }
 
-/// Build the runtime keymap: builtin defaults plus user overrides from
-/// keymap settings. Returns the keymap and the applied overrides as
-/// `(binding, key description)` rows for the help display.
-pub fn load_user_keymap() -> (Keymap, Vec<(String, String)>) {
-    let mut keymap = builtin_keymap();
-    let mut overrides = Vec::new();
+/// Build the runtime keymap from user overrides; builtin bindings resolve
+/// from the command registry on demand.
+pub fn load_user_keymap() -> Keymap {
+    let mut keymap = Keymap::new();
     let Some(settings_dir) = config_settings_dir() else {
-        return (keymap, overrides);
+        return keymap;
     };
     let project_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let Ok(settings) = config_keymap::load_and_merge_keymap_settings(&settings_dir, &project_root)
     else {
-        return (keymap, overrides);
+        return keymap;
     };
-    for (ctx_name, actions) in &settings.bindings {
+    for (ctx_name, commands) in &settings.bindings {
         let Some(ctx) = parse_context(ctx_name) else {
             tracing::warn!(context = %ctx_name, "unknown keymap context in keymap settings");
             continue;
         };
-        for (action_name, description) in actions {
-            let (Ok(chord), Some(action)) = (
-                config_keymap::parse_chord(description),
-                parse_action(action_name),
-            ) else {
+        for (command_id, description) in commands {
+            let Ok(chord) = config_keymap::parse_chord(description) else {
                 tracing::warn!(
-                    action = %action_name,
+                    command = %command_id,
                     chord = %description,
                     "ignoring invalid keymap binding"
                 );
                 continue;
             };
             let key = chord_to_key(&chord);
-            if ctx == KeymapContext::Global {
-                keymap.set_global(key, action);
-            } else {
-                keymap.bind(ctx, key, action);
+            if !keymap.bind_id(ctx, key, command_id) {
+                tracing::warn!(
+                    command = %command_id,
+                    "unknown command id in keymap settings"
+                );
             }
-            overrides.push((format!("{ctx_name}.{action_name}"), key.describe()));
         }
     }
-    (keymap, overrides)
+    keymap
 }
 
 #[cfg(test)]
@@ -175,23 +116,31 @@ mod tests {
     use tui_core::keymap::CKey;
 
     #[test]
-    fn parses_known_contexts_and_actions() {
+    fn parses_known_contexts() {
         assert_eq!(parse_context("global"), Some(KeymapContext::Global));
         assert_eq!(parse_context("approval"), Some(KeymapContext::Approval));
         assert_eq!(parse_context("nope"), None);
-        assert_eq!(parse_action("quit"), Some(KeyAction::Quit));
-        assert_eq!(parse_action("deny_once"), Some(KeyAction::DenyOnce));
-        assert_eq!(parse_action("tab_new"), Some(KeyAction::TabNew));
-        assert_eq!(parse_action("tab_pin"), Some(KeyAction::TabPin));
-        assert_eq!(parse_action("tab_move_prev"), Some(KeyAction::TabMovePrev));
-        assert_eq!(parse_action("tab_parent"), Some(KeyAction::TabParent));
-        assert_eq!(parse_action("tab_child"), Some(KeyAction::TabChild));
-        assert_eq!(parse_action("session_list"), Some(KeyAction::SessionList));
-        assert_eq!(parse_action("cycle_mode"), Some(KeyAction::CycleMode));
-        assert_eq!(parse_action("tab_pick_1"), Some(KeyAction::TabPick(1)));
-        assert_eq!(parse_action("tab_pick_9"), Some(KeyAction::TabPick(9)));
-        assert_eq!(parse_action("tab_pick_0"), None);
-        assert_eq!(parse_action("nope"), None);
+    }
+
+    #[test]
+    fn binds_registry_command_ids_only() {
+        let mut keymap = Keymap::new();
+        assert!(keymap.bind_id(
+            KeymapContext::List,
+            Key::plain(CKey::Char('k')),
+            "ui.move_prev"
+        ));
+        assert!(!keymap.bind_id(
+            KeymapContext::List,
+            Key::plain(CKey::Char('k')),
+            "legacy.move_prev"
+        ));
+        assert_eq!(
+            keymap
+                .resolve(KeymapContext::List, Key::plain(CKey::Char('k')))
+                .map(|command| command.id),
+            Some("ui.move_prev")
+        );
     }
 
     #[test]
@@ -204,14 +153,16 @@ mod tests {
     }
 
     #[test]
-    fn missing_settings_dir_yields_builtin_keymap() {
+    fn missing_settings_dir_yields_empty_overrides() {
         // No env manipulation: the function must tolerate a missing XDG
-        // setup and return the builtin keymap unchanged.
-        let (keymap, overrides) = load_user_keymap();
-        assert!(overrides.is_empty());
+        // setup and return an override-free keymap that still resolves
+        // builtin chords from the registry.
+        let keymap = load_user_keymap();
         assert_eq!(
-            keymap.resolve(KeymapContext::List, Key::plain(CKey::Char('k'))),
-            Some(KeyAction::MovePrev)
+            keymap
+                .resolve(KeymapContext::List, Key::plain(CKey::Char('k')))
+                .map(|command| command.id),
+            Some("ui.move_prev")
         );
     }
 }

@@ -105,7 +105,7 @@ fn main() -> io::Result<()> {
 
     let result = (|| -> io::Result<()> {
         loop {
-            terminal.draw(|frame| draw(frame, &stack, &palette, palette_open, &last_result))?;
+            terminal.draw(|frame| draw(frame, &mut stack, &palette, palette_open, &last_result))?;
 
             if let Event::Key(k) = event::read()? {
                 if k.kind != KeyEventKind::Press {
@@ -244,7 +244,7 @@ fn crossterm_to_ckey(code: &KeyCode) -> CKey {
 
 fn draw(
     f: &mut ratatui::Frame,
-    stack: &ModalStack,
+    stack: &mut ModalStack,
     palette: &CommandPalette,
     palette_open: bool,
     last_result: &Option<String>,

@@ -201,10 +201,13 @@ impl QuestionView {
         }
     }
 
-    /// Key hints line.
+    /// Key hints line, derived from the command registry.
     pub fn hints(&self) -> String {
         let mode = if self.multi { "multi-select" } else { "select" };
-        format!("1-9 pick ({mode}) · Enter confirm · Esc cancel")
+        format!(
+            "{} ({mode})",
+            tui_core::command::hint_line(tui_core::keymap::KeymapContext::Question)
+        )
     }
 
     /// Render the view rows for the given width (window height bounded by
@@ -395,7 +398,7 @@ mod tests {
         assert!(lines[0].to_string().contains("? p"));
         assert!(lines[1].to_string().contains("1. ( ) a"));
         assert!(lines[2].to_string().contains("2. (x) b"));
-        assert!(lines.last().unwrap().to_string().contains("Esc cancel"));
+        assert!(lines.last().unwrap().to_string().contains("Esc Cancel"));
     }
 
     #[test]

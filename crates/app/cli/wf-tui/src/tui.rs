@@ -41,6 +41,7 @@ use crate::size::{ResizeDebouncer, Size};
 use crate::state::AppState;
 use crate::terminal::{CrosstermControl, TerminalGuard};
 use crate::theme::{self, Theme};
+use tui_core::command::{PendingSequence, SequenceMap};
 use tui_core::keymap::Keymap;
 use tui_core::plugin::{PluginHost, Slot};
 use wf_client::WfClient;
@@ -181,11 +182,13 @@ pub struct TuiApp {
     finish_cleanups: usize,
     /// Orphan probe for detached clients.
     liveness: crate::liveness::LivenessProbe,
-    /// Key resolution table: builtin defaults merged with user overrides.
+    /// Key resolution table: user overrides; builtin chords resolve from
+    /// the command registry.
     keymap: Keymap,
-    /// Applied user overrides as `(binding, key description)` rows for the
-    /// help display.
-    keymap_overrides: Vec<(String, String)>,
+    /// Leader chord map derived from the command registry.
+    sequence: SequenceMap,
+    /// Keys typed after the leader, cleared on resolve, timeout or a miss.
+    pending_sequence: Option<PendingSequence>,
     /// External editor handoff state.
     editor: crate::editor::EditorHandoff,
     /// Production frame budget accounting: per-frame metrics plus
@@ -219,8 +222,8 @@ pub struct TuiApp {
 impl TuiApp {
     pub fn new(client: WfClient) -> Self {
         // User keymap overrides resolve once at startup; failures fall back
-        // to the builtin keymap and never block the session.
-        let (keymap, keymap_overrides) = keymap_config::load_user_keymap();
+        // to registry bindings and never block the session.
+        let keymap = keymap_config::load_user_keymap();
         let (data_tx, data_rx) = mpsc::unbounded_channel();
         let (feedback_tx, feedback_rx) = mpsc::unbounded_channel();
         // Capability-driven policy, built once: components render the
@@ -341,7 +344,8 @@ impl TuiApp {
             finish_cleanups: 0,
             liveness: crate::liveness::LivenessProbe::new(),
             keymap,
-            keymap_overrides,
+            sequence: SequenceMap::builtin(),
+            pending_sequence: None,
             editor: crate::editor::EditorHandoff::Idle,
             prod_metrics: crate::frame_metrics::FrameMetrics::new(),
             prod_frame_no: 0,

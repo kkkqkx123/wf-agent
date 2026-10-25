@@ -607,7 +607,7 @@ impl InteractiveController {
             dismissed_mention: None,
             prompt_queue: tui_components::queue::PromptQueue::new(),
             model_override: None,
-            keymap: tui_core::keymap::builtin_keymap(),
+            keymap: tui_core::keymap::Keymap::new(),
             pending_editor: false,
         }
     }

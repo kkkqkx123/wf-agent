@@ -14,7 +14,7 @@ use crate::approval_overlay::ApprovalChoice;
 use crate::footer::{FooterRoute, FooterView};
 use crate::interactive::anchors::{first_line_label, AnchorKind};
 use crate::interactive::{InteractiveAction, InteractiveController};
-use crate::keymap::{CKey, Key};
+use crate::keymap::{CKey, Key, KeyAction, KeymapContext};
 use crate::question_overlay::QuestionOutcome;
 use crate::terminal::PressOutcome;
 use crate::transcript::{HistoryLine, Role};
@@ -256,27 +256,24 @@ impl InteractiveController {
     }
 
     fn handle_approval_key(&mut self, key: Key) -> InteractiveAction {
-        let choice = match key.code {
-            CKey::Char('y') => Some(ApprovalChoice::Approve),
-            CKey::Char('a') => Some(ApprovalChoice::ApproveAll),
-            CKey::Char('d') => Some(ApprovalChoice::DenyOnce),
-            CKey::Char('n') => Some(ApprovalChoice::Deny),
-            CKey::Char('c') | CKey::Esc => Some(ApprovalChoice::Cancel),
-            _ => None,
+        let Some(choice) = self
+            .keymap
+            .resolve_action(KeymapContext::Approval, key)
+            .and_then(ApprovalChoice::from_action)
+        else {
+            return InteractiveAction::Continue;
         };
-        if let Some(choice) = choice {
-            let answer = self.resolve_approval(choice);
-            if let Some(id) = self.pending_approval.take() {
-                self.post_approval_answer(&id, answer);
-            }
-            if let Some(remembered) = choice.remembered() {
-                if let Some(view) = self.footer.approval.take() {
-                    self.remembered
-                        .remember(&view.request().tool_name, remembered);
-                }
-            }
-            self.footer.present(FooterView::Prompt);
+        let answer = self.resolve_approval(choice);
+        if let Some(id) = self.pending_approval.take() {
+            self.post_approval_answer(&id, answer);
         }
+        if let Some(remembered) = choice.remembered() {
+            if let Some(view) = self.footer.approval.take() {
+                self.remembered
+                    .remember(&view.request().tool_name, remembered);
+            }
+        }
+        self.footer.present(FooterView::Prompt);
         InteractiveAction::Continue
     }
 
@@ -291,21 +288,26 @@ impl InteractiveController {
     }
 
     fn handle_question_key(&mut self, key: Key) -> InteractiveAction {
-        let Some(question) = self.footer.question.as_mut() else {
+        let Some(question) = self.footer.question.as_ref() else {
             self.footer.present(FooterView::Prompt);
             return InteractiveAction::Continue;
         };
-        match key.code {
-            CKey::Esc => {
+        let Some(action) = self.keymap.resolve_action(KeymapContext::Question, key) else {
+            return InteractiveAction::Continue;
+        };
+        match action {
+            KeyAction::Cancel | KeyAction::Back => {
                 let outcome = question.cancel();
                 self.finish_question(&outcome);
             }
-            CKey::Enter => {
+            KeyAction::Select | KeyAction::Submit => {
                 let outcome = question.submit();
                 self.finish_question(&outcome);
             }
-            CKey::Char(c) if c.is_ascii_digit() && !key.ctrl && !key.alt => {
-                let _ = question.pick(c.to_digit(10).unwrap_or(0) as u8);
+            KeyAction::Pick(index) => {
+                if let Some(question) = self.footer.question.as_mut() {
+                    let _ = question.pick(index);
+                }
             }
             _ => {}
         }

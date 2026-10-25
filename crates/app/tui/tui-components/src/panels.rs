@@ -12,8 +12,7 @@
 //! into the panel and interprets the selected item's `data`.
 //!
 //! This module re-exports from focused sub-modules:
-//! - Command palette data types and panel (`CommandId`, `CommandEntry`,
-//!   `CommandPalette`)
+//! - The command palette (`CommandPalette`) over the command registry
 //! - Model / skill / workflow / mention / queued panels
 //! - Shared render helper and [`tui_core::renderable::Renderable`] implementations
 
@@ -28,7 +27,7 @@ pub mod skill;
 pub mod workflow;
 
 pub use auth::{AuthPanel, AuthPromptOption, AuthSessionView, AuthSurfaceRow};
-pub use command::{CommandEntry, CommandId, CommandPalette};
+pub use command::CommandPalette;
 pub use filter::PanelFilter;
 pub use mention::{MentionEntry, MentionMode, MentionPanel};
 pub use model::ModelPanel;
@@ -94,22 +93,46 @@ mod tests {
     fn palette_lists_builtin_commands_and_navigates() {
         let mut palette = CommandPalette::new();
         assert!(palette.visible_len() >= 7);
-        assert_eq!(palette.selected_command(), Some(CommandId::New));
+        assert_eq!(
+            palette.selected_command().map(|command| command.id),
+            Some("app.quit")
+        );
         palette.handle(KeyAction::MoveNext);
-        assert_eq!(palette.selected_command(), Some(CommandId::Model));
+        assert_eq!(
+            palette.selected_command().map(|command| command.id),
+            Some("app.help")
+        );
         palette.handle(KeyAction::MovePrev);
-        assert_eq!(palette.selected_command(), Some(CommandId::New));
+        assert_eq!(
+            palette.selected_command().map(|command| command.id),
+            Some("app.quit")
+        );
     }
 
     #[test]
     fn palette_finds_commands_by_typed_label() {
         let palette = CommandPalette::new();
-        assert_eq!(palette.find("/model"), Some(CommandId::Model));
-        assert_eq!(palette.find("quit"), Some(CommandId::Quit));
-        assert_eq!(palette.find("help"), Some(CommandId::Help));
-        assert_eq!(palette.find("/copy"), Some(CommandId::Copy));
-        assert_eq!(palette.find("copy"), Some(CommandId::Copy));
-        assert_eq!(palette.find("nope"), None);
+        assert_eq!(
+            palette.find("/model").map(|command| command.id),
+            Some("session.model")
+        );
+        assert_eq!(
+            palette.find("quit").map(|command| command.id),
+            Some("app.quit")
+        );
+        assert_eq!(
+            palette.find("help").map(|command| command.id),
+            Some("app.help")
+        );
+        assert_eq!(
+            palette.find("/copy").map(|command| command.id),
+            Some("session.copy")
+        );
+        assert_eq!(
+            palette.find("copy").map(|command| command.id),
+            Some("session.copy")
+        );
+        assert!(palette.find("nope").is_none());
     }
 
     #[test]
@@ -118,7 +141,10 @@ mod tests {
         palette.filter_push('m');
         palette.filter_push('o');
         assert!(palette.visible_len() < 7, "filter narrows the list");
-        assert_eq!(palette.selected_command(), Some(CommandId::Model));
+        assert_eq!(
+            palette.selected_command().map(|command| command.id),
+            Some("session.model")
+        );
         palette.handle(KeyAction::Clear);
         assert!(palette.visible_len() >= 7);
         // Backspace on an empty filter is a no-op.
@@ -133,7 +159,10 @@ mod tests {
             palette.filter_push(c);
         }
         assert_eq!(palette.argument(), "all");
-        assert_eq!(palette.selected_command(), Some(CommandId::Copy));
+        assert_eq!(
+            palette.selected_command().map(|command| command.id),
+            Some("session.copy")
+        );
         assert_eq!(palette.visible_len(), 1);
     }
 

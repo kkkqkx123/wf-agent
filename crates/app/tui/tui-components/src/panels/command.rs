@@ -1,52 +1,15 @@
-//! The `/` command palette: built-in command set, typed filter and
-//! keymap-driven navigation.
+//! The `/` command palette: a view over the command registry with typed
+//! filtering and keymap-driven navigation.
 
 use crate::panels::filter::{apply, PanelFilter};
 use crate::select::{Group, GroupItem, NavigateDir, SelectList};
+use tui_core::command::{self, CommandSpec};
 use tui_core::keymap::KeyAction;
-
-/// Identifies a command palette entry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CommandId {
-    /// `/new` — clear the conversation and start a fresh session.
-    New,
-    /// `/model` — open the model panel.
-    Model,
-    /// `/skills` — open the skill panel.
-    Skill,
-    /// `/queued` — open the queued prompt panel.
-    Queued,
-    /// `/editor` — edit the composer draft in `$EDITOR`.
-    Editor,
-    /// `/quit` — leave the TUI inline session.
-    Quit,
-    /// `/help` — show the keymap and command help.
-    Help,
-    /// `/workflows` — list and run a workflow.
-    Workflows,
-    /// `/resume` — resume the most recent session.
-    Resume,
-    /// `/executions` — list recent executions.
-    Executions,
-    /// `/copy` — copy the last message or code block to the clipboard.
-    Copy,
-    /// `/auth` — manage LLM provider logins (device / PKCE / API key).
-    Auth,
-}
-
-/// One command palette row.
-#[derive(Debug, Clone)]
-pub struct CommandEntry {
-    pub id: CommandId,
-    pub label: &'static str,
-    pub description: &'static str,
-}
 
 /// The `/` command palette.
 #[derive(Debug, Clone)]
 pub struct CommandPalette {
-    list: SelectList<CommandId>,
-    entries: Vec<CommandEntry>,
+    list: SelectList<&'static CommandSpec>,
     /// Filter text typed while the palette is open.
     filter: PanelFilter,
 }
@@ -58,18 +21,15 @@ impl Default for CommandPalette {
 }
 
 impl CommandPalette {
-    /// Built-in command set.
     pub fn new() -> Self {
         Self::with_filter("")
     }
 
-    /// Built-in command set narrowed by `filter`.
+    /// Palette commands narrowed by `filter`.
     pub fn with_filter(filter: &str) -> Self {
-        let entries = Self::builtin_entries();
-        let list = Self::build_list(&entries, "");
+        let list = Self::build_list();
         let mut panel = Self {
             list,
-            entries,
             filter: PanelFilter::new(),
         };
         panel.filter.set(filter);
@@ -101,88 +61,38 @@ impl CommandPalette {
         apply(&mut self.list, &command);
     }
 
-    fn builtin_entries() -> Vec<CommandEntry> {
-        vec![
-            CommandEntry {
-                id: CommandId::New,
-                label: "/new",
-                description: "start a new session (clears the conversation)",
-            },
-            CommandEntry {
-                id: CommandId::Model,
-                label: "/model",
-                description: "pick the model profile for the next turns",
-            },
-            CommandEntry {
-                id: CommandId::Skill,
-                label: "/skills",
-                description: "list and run a skill",
-            },
-            CommandEntry {
-                id: CommandId::Queued,
-                label: "/queued",
-                description: "manage queued prompts",
-            },
-            CommandEntry {
-                id: CommandId::Editor,
-                label: "/editor",
-                description: "edit the draft in $EDITOR",
-            },
-            CommandEntry {
-                id: CommandId::Quit,
-                label: "/quit",
-                description: "exit the TUI inline session",
-            },
-            CommandEntry {
-                id: CommandId::Help,
-                label: "/help",
-                description: "show the inline keymap and command help",
-            },
-            CommandEntry {
-                id: CommandId::Workflows,
-                label: "/workflows",
-                description: "list and run a workflow",
-            },
-            CommandEntry {
-                id: CommandId::Resume,
-                label: "/resume",
-                description: "resume the most recent session",
-            },
-            CommandEntry {
-                id: CommandId::Executions,
-                label: "/executions",
-                description: "list recent executions",
-            },
-            CommandEntry {
-                id: CommandId::Copy,
-                label: "/copy",
-                description: "copy the last message or code block (message | code [N] | all | id)",
-            },
-            CommandEntry {
-                id: CommandId::Auth,
-                label: "/auth",
-                description: "log in / out of LLM providers (device, PKCE, API key)",
-            },
-        ]
-    }
-
-    fn build_list(entries: &[CommandEntry], filter: &str) -> SelectList<CommandId> {
-        let group = Group::new(Some("commands"));
-        let mut group = group;
-        for entry in entries {
-            group = group.item(GroupItem::new(entry.label, entry.id).described(entry.description));
+    /// Registry order grouped by command group.
+    fn build_list() -> SelectList<&'static CommandSpec> {
+        let mut groups: Vec<Group<&'static CommandSpec>> = Vec::new();
+        for spec in command::palette_commands() {
+            let position = groups
+                .iter()
+                .position(|group| group.title.as_deref() == Some(spec.group));
+            let index = if let Some(index) = position {
+                index
+            } else {
+                groups.push(Group::new(Some(spec.group)));
+                groups.len() - 1
+            };
+            let mut label = match &spec.slash {
+                Some(slash) => format!("/{}", slash.name),
+                None => format!("/{}", spec.id),
+            };
+            if let Some(slash) = &spec.slash {
+                if !slash.argument.is_empty() {
+                    label.push(' ');
+                    label.push_str(slash.argument);
+                }
+            }
+            groups[index]
+                .items
+                .push(GroupItem::new(label, spec).described(spec.description));
         }
-        let mut list = SelectList::groups(vec![group]);
-        list.set_filter(if filter.is_empty() {
-            None
-        } else {
-            Some(filter)
-        });
-        list
+        SelectList::groups(groups).with_group_titles(true)
     }
 
     /// The command highlighted by the cursor.
-    pub fn selected_command(&self) -> Option<CommandId> {
+    pub fn selected_command(&self) -> Option<&'static CommandSpec> {
         self.list.selected().map(|item| item.data)
     }
 
@@ -231,15 +141,10 @@ impl CommandPalette {
         self.filter.text()
     }
 
-    /// Look a command up by its typed label (`"/model"`, leading `/`
+    /// Look a command up by its typed slash name (`"/model"`, leading `/`
     /// optional). Used by direct `/command` submits.
-    pub fn find(&self, typed: &str) -> Option<CommandId> {
-        let needle = typed.trim();
-        let needle = needle.strip_prefix('/').unwrap_or(needle);
-        self.entries
-            .iter()
-            .find(|e| e.label.strip_prefix('/').unwrap_or(e.label) == needle)
-            .map(|e| e.id)
+    pub fn find(&self, typed: &str) -> Option<&'static CommandSpec> {
+        command::lookup_slash(typed)
     }
 
     /// Number of visible (filter-passing) commands.

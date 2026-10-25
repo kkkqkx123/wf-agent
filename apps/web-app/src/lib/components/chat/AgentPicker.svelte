@@ -3,14 +3,8 @@
 	 * Agent selector for the composer. Lists runnable agent templates for
 	 * one-click selection and keeps free-form entry as a fallback.
 	 */
-	import InstancePicker, {
-		type PickerOption,
-	} from '#lib/components/chat/InstancePicker.svelte';
-	import {
-		isRunnableTemplate,
-		listTemplates,
-		DEFAULT_AGENT_ID,
-	} from '#lib/services/templates';
+	import InstancePicker, { type PickerOption } from '#lib/components/chat/InstancePicker.svelte';
+	import { isRunnableTemplate, listTemplates, DEFAULT_AGENT_ID } from '#lib/services/templates';
 	import { pickerState } from '#lib/stores/picker-state.svelte';
 	import { t } from '#lib/i18n';
 	import type { Template } from '#lib/types/models';
@@ -51,10 +45,7 @@
 			id: template.id,
 			label: template.name || template.id,
 			detail: `${template.id}${template.category ? ` · ${template.category}` : ''}`,
-			badge:
-				template.id === DEFAULT_AGENT_ID
-					? t('chat.instancePicker.defaultBadge')
-					: undefined,
+			badge: template.id === DEFAULT_AGENT_ID ? t('chat.instancePicker.defaultBadge') : undefined,
 		})),
 	);
 </script>

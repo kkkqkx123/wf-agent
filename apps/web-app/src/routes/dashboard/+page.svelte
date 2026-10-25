@@ -7,10 +7,7 @@
 	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import EmptyState from '#lib/ui/components/EmptyState.svelte';
 	import ErrorState from '#lib/ui/components/ErrorState.svelte';
-	import {
-		loadDashboardStats,
-		type DashboardStats,
-	} from '#lib/services/dashboard';
+	import { loadDashboardStats, type DashboardStats } from '#lib/services/dashboard';
 	import { t } from '#lib/i18n';
 
 	let stats = $state<DashboardStats | null>(null);
@@ -37,22 +34,15 @@
 </script>
 
 <div class="h-full overflow-y-auto">
-	<PageHeader
-		title={t('page.dashboard.title')}
-		description={t('page.dashboard.description')}
-	/>
+	<PageHeader title={t('page.dashboard.title')} description={t('page.dashboard.description')} />
 
 	<div class="p-4 pt-0">
 		{#if error}
 			<ErrorState title={t('page.dashboard.loadFailed')} description={error} />
 		{:else if !stats}
-			<div
-				class="grid gap-2 grid-cols-[repeat(auto-fit,minmax(min(100%,9rem),1fr))]"
-			>
+			<div class="grid gap-2 grid-cols-[repeat(auto-fit,minmax(min(100%,9rem),1fr))]">
 				{#each Array.from({ length: 4 }, (_, idx) => idx) as idx (idx)}
-					<div
-						class="h-20 animate-pulse rounded-lg border border-border bg-muted"
-					></div>
+					<div class="h-20 animate-pulse rounded-lg border border-border bg-muted"></div>
 				{/each}
 			</div>
 		{:else}
@@ -77,31 +67,20 @@
 						description={t('page.dashboard.noExecutionsDesc')}
 					/>
 				{:else}
-					<ul
-						class="mt-2 divide-y divide-border rounded-lg border border-border bg-card"
-					>
+					<ul class="mt-2 divide-y divide-border rounded-lg border border-border bg-card">
 						{#each stats.recentExecutions as execution (execution.id)}
 							<li>
 								<button
 									type="button"
 									class="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-accent/60"
-									onclick={() =>
-										goto(resolve('/executions/[id]', { id: execution.id }))}
+									onclick={() => goto(resolve('/executions/[id]', { id: execution.id }))}
 								>
-									<Icon
-										name="activity"
-										size={15}
-										class="shrink-0 text-muted-foreground"
-									/>
+									<Icon name="activity" size={15} class="shrink-0 text-muted-foreground" />
 									<span class="min-w-0 flex-1 truncate text-body">
-										{execution.workflowName ||
-											execution.workflowId ||
-											execution.id}
+										{execution.workflowName || execution.workflowId || execution.id}
 									</span>
 									<StatusBadge status={execution.status} />
-									<span
-										class="hidden shrink-0 text-micro text-muted-foreground sm:block"
-									>
+									<span class="hidden shrink-0 text-micro text-muted-foreground sm:block">
 										{execution.id.slice(0, 8)}
 									</span>
 								</button>

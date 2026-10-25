@@ -1,18 +1,12 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { onDestroy, tick } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
-	import Icon from '#lib/ui/icons/Icon.svelte';
-	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import Button from '#lib/ui/components/Button.svelte';
 	import Badge from '#lib/ui/components/Badge.svelte';
-	import Card from '#lib/ui/components/Card.svelte';
-	import EmptyState from '#lib/ui/components/EmptyState.svelte';
 	import ErrorState from '#lib/ui/components/ErrorState.svelte';
-	import Input from '#lib/ui/components/Input.svelte';
-	import Select from '#lib/ui/components/Select.svelte';
+	import EmptyState from '#lib/ui/components/EmptyState.svelte';
 	import Skeleton from '#lib/ui/components/Skeleton.svelte';
-	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import GraphCanvas, {
 		type CanvasContext,
 		type CanvasMove,
@@ -20,9 +14,13 @@
 		type PresenceCursor,
 	} from '#lib/components/domain/GraphCanvas.svelte';
 	import AddNodeDrawer from '#lib/components/domain/AddNodeDrawer.svelte';
-	import ContextMenu, {
-		type ContextMenuItem,
-	} from '#lib/ui/components/ContextMenu.svelte';
+	import GraphExplorerToolbar from '#lib/components/domain/GraphExplorerToolbar.svelte';
+	import GraphExplorerFilterPanel from '#lib/components/domain/GraphExplorerFilterPanel.svelte';
+	import GraphExplorerSidePanel, {
+		type ExplorerGroupInfo,
+		type ExplorerLargeGraphInfo,
+	} from '#lib/components/domain/GraphExplorerSidePanel.svelte';
+	import ContextMenu, { type ContextMenuItem } from '#lib/ui/components/ContextMenu.svelte';
 	import {
 		deriveGroups,
 		foldForCap,
@@ -36,17 +34,13 @@
 		rowPositions,
 		sortIdsByCanvasPosition,
 	} from '#lib/graph/layout';
-	import {
-		registerCanvasShortcuts,
-		shortcutTitle,
-	} from '#lib/graph/canvas-shortcuts';
+	import { registerCanvasShortcuts } from '#lib/graph/canvas-shortcuts';
 	import {
 		capGraph,
 		distinctKinds,
 		EDGE_LABEL_LIMIT,
 		GRAPH_NODE_CAP,
 		kindCounts,
-		legendFor,
 		type DisplayEdge,
 		type DisplayNode,
 		type GraphLayoutKind,
@@ -55,12 +49,8 @@
 	} from '#lib/graph/display-model';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { GraphFilterState } from '#lib/graph/use-graph-filter.svelte';
+	import { ExplorerLayoutState } from '#lib/graph/use-explorer-layout.svelte';
 	import { preferences } from '#lib/stores/preferences.svelte';
-	import {
-		getWorkflowLayout,
-		resetWorkflowLayout,
-		saveWorkflowLayout,
-	} from '#lib/services/layout';
 	import { cn } from '#lib/ui/cn';
 	import { t } from '#lib/i18n';
 
@@ -109,11 +99,7 @@
 		/** Batched move for group drags; undoes in a single step. */
 		onmovenodes?: (moves: CanvasMove[]) => void;
 		/** `nodeType` is normalised: a builtin name or a plugin-contributed one. */
-		onaddnode?: (
-			position: CanvasPosition,
-			nodeType: string,
-			name: string | null,
-		) => void;
+		onaddnode?: (position: CanvasPosition, nodeType: string, name: string | null) => void;
 		ondeleteedge?: (id: string) => void;
 		onconnect?: (source: string, target: string) => void;
 		ondeletenodes?: (ids: string[]) => void;
@@ -193,90 +179,23 @@
 	let layout = $state<GraphLayoutKind>(initialLayout());
 	let showFilters = $state(false);
 	const filter = new GraphFilterState();
+	const layoutState = new ExplorerLayoutState();
 	let collapsedIds = $state<string[]>([]);
 	let matchIndex = $state(0);
 
 	// Persisted layout (positions saved on the backend). Loaded once per
 	// workflow id; view-mode drags update it and debounce a save.
-	let savedPositions = $state<Record<string, CanvasPosition>>({});
-	let layoutLoadedId: string | null = null;
-	let layoutSaveTimer: ReturnType<typeof setTimeout> | null = null;
-
 	$effect(() => {
-		const id = layoutId;
-		if (!id || layoutLoadedId === id) return;
-		layoutLoadedId = id;
-		void getWorkflowLayout(id)
-			.then((saved) => {
-				if (!saved) return;
-				const positions: Record<string, CanvasPosition> = {};
-				for (const [nodeId, point] of Object.entries(saved.positions ?? {})) {
-					positions[nodeId] = { x: point.x, y: point.y };
-				}
-				savedPositions = positions;
-				const kind = saved.settings?.kind;
-				if (
-					kind === 'layered' ||
-					kind === 'columns' ||
-					kind === 'rows' ||
-					kind === 'compact'
-				) {
-					layout = kind;
-				}
-			})
-			.catch(() => {
-				// Layout persistence is optional; the preset layout still renders.
-			});
+		layoutState.ensureLoaded(layoutId, (kind) => {
+			layout = kind;
+		});
 	});
 
-	function handleViewMove(id: string, position: CanvasPosition): void {
-		if (!layoutId || editMode) return;
-		savedPositions = { ...savedPositions, [id]: position };
-		if (layoutSaveTimer) clearTimeout(layoutSaveTimer);
-		layoutSaveTimer = setTimeout(() => {
-			layoutSaveTimer = null;
-			void saveWorkflowLayout(layoutId, {
-				positions: savedPositions,
-				settings: { kind: layout },
-			}).catch(() => {
-				toasts.error(
-					t('domain.graph.layoutSaveFailed'),
-					t('domain.graph.layoutSaveFailedDetail'),
-				);
-			});
-		}, 800);
-	}
-
-	async function handleResetLayout(): Promise<void> {
-		if (!layoutId) return;
-		if (layoutSaveTimer) {
-			clearTimeout(layoutSaveTimer);
-			layoutSaveTimer = null;
-		}
-		savedPositions = {};
-		canvas?.relayout();
-		try {
-			await resetWorkflowLayout(layoutId);
-		} catch {
-			toasts.error(
-				t('domain.graph.layoutResetFailed'),
-				t('domain.graph.layoutResetFailedDetail'),
-			);
-		}
-	}
-
-	function cycleMinimap(): void {
-		const current = preferences.minimapMode;
-		preferences.setMinimapMode(
-			current === 'auto' ? 'on' : current === 'on' ? 'off' : 'auto',
-		);
-	}
+	onDestroy(() => layoutState.dispose());
 
 	const kinds = $derived(distinctKinds(nodes));
 	const activeIds = $derived(
-		new Set(
-			overlays.find((overlay) => overlay.id === activeOverlay)?.ids ?? [],
-		),
+		new Set(overlays.find((overlay) => overlay.id === activeOverlay)?.ids ?? []),
 	);
 
 	const filtered = $derived(filter.filter(nodes, edges));
@@ -380,9 +299,7 @@
 			void focus(titleId);
 			return;
 		}
-		const visible = title.memberIds.filter((id) =>
-			capped.nodes.some((node) => node.id === id),
-		);
+		const visible = title.memberIds.filter((id) => capped.nodes.some((node) => node.id === id));
 		if (visible.length === 0) {
 			void focus(titleId);
 			return;
@@ -395,10 +312,7 @@
 			await navigator.clipboard.writeText(text);
 			toasts.success(t('domain.graph.copied', { name: label }));
 		} catch {
-			toasts.error(
-				t('domain.graph.copyFailed'),
-				t('domain.graph.copyFailedDetail'),
-			);
+			toasts.error(t('domain.graph.copyFailed'), t('domain.graph.copyFailedDetail'));
 		}
 	}
 
@@ -408,10 +322,7 @@
 
 	function guardConnect(source: string, target: string): boolean {
 		if (isHiddenNode(source) || isHiddenNode(target)) {
-			toasts.info(
-				t('domain.graph.hiddenMember'),
-				t('domain.graph.hiddenMemberConnect'),
-			);
+			toasts.info(t('domain.graph.hiddenMember'), t('domain.graph.hiddenMemberConnect'));
 			return false;
 		}
 		if (isGroupTitleId(source) || isGroupTitleId(target)) {
@@ -427,10 +338,7 @@
 	function guardMoves(moves: CanvasMove[]): CanvasMove[] {
 		const visible = moves.filter((move) => !isHiddenNode(move.id));
 		if (visible.length !== moves.length) {
-			toasts.info(
-				t('domain.graph.hiddenMember'),
-				t('domain.graph.hiddenMemberMove'),
-			);
+			toasts.info(t('domain.graph.hiddenMember'), t('domain.graph.hiddenMemberMove'));
 		}
 		return visible;
 	}
@@ -528,20 +436,13 @@
 	}
 
 	function handleAddNodeChoice(nodeType: string, name: string | null): void {
-		onaddnode?.(
-			pendingAddPosition ?? canvas?.viewportCenter() ?? { x: 0, y: 0 },
-			nodeType,
-			name,
-		);
+		onaddnode?.(pendingAddPosition ?? canvas?.viewportCenter() ?? { x: 0, y: 0 }, nodeType, name);
 		pendingAddPosition = null;
 		addNodeAnchor = null;
 	}
 
 	function openContext(info: CanvasContext): void {
-		const kind =
-			info.kind === 'node' && isGroupTitleId(info.id ?? '')
-				? 'group'
-				: info.kind;
+		const kind = info.kind === 'node' && isGroupTitleId(info.id ?? '') ? 'group' : info.kind;
 		contextMenu = { kind, id: info.id, x: info.x, y: info.y };
 	}
 
@@ -588,17 +489,13 @@
 			];
 		}
 		if (contextMenu.kind === 'group') {
-			const title = contextMenu.id
-				? foldedView.titles[contextMenu.id]
-				: undefined;
+			const title = contextMenu.id ? foldedView.titles[contextMenu.id] : undefined;
 			const collapsedNow = title ? folded.collapsed.has(title.groupId) : false;
 			return [
 				{ id: 'focus-group', label: t('domain.graph.focusWholeGroup') },
 				{
 					id: 'toggle-group',
-					label: collapsedNow
-						? t('domain.graph.expandGroup')
-						: t('domain.graph.collapseGroup'),
+					label: collapsedNow ? t('domain.graph.expandGroup') : t('domain.graph.collapseGroup'),
 				},
 				{
 					id: 'delete-group',
@@ -633,9 +530,7 @@
 			},
 			{
 				id: 'edit-toggle',
-				label: editMode
-					? t('domain.graph.exitEditMode')
-					: t('domain.graph.enterEditMode'),
+				label: editMode ? t('domain.graph.exitEditMode') : t('domain.graph.enterEditMode'),
 				disabled: !editable,
 				...(!editable ? { reason: t('domain.graph.notEditable') } : {}),
 			},
@@ -679,8 +574,7 @@
 			case 'focus-source':
 			case 'focus-target': {
 				const edge = foldedView.edges.find((entry) => entry.id === id);
-				const endpoint =
-					action === 'focus-source' ? edge?.source : edge?.target;
+				const endpoint = action === 'focus-source' ? edge?.source : edge?.target;
 				if (endpoint) void focus(endpoint);
 				break;
 			}
@@ -732,10 +626,7 @@
 			},
 			canWrite: () => editMode,
 			onreadonlywrite: () =>
-				toasts.info(
-					t('domain.graph.readOnlyCanvas'),
-					t('domain.graph.enterEditToChange'),
-				),
+				toasts.info(t('domain.graph.readOnlyCanvas'), t('domain.graph.enterEditToChange')),
 		}));
 	});
 
@@ -753,12 +644,41 @@
 		if (ids.length === 0) return;
 		const current = selectedId ?? canvas?.selectedNodeIds()[0] ?? null;
 		const index = current ? ids.indexOf(current) : -1;
-		const next =
-			ids[(index + delta + ids.length) % ids.length] ?? ids[0] ?? null;
+		const next = ids[(index + delta + ids.length) % ids.length] ?? ids[0] ?? null;
 		if (next) onselect?.(next);
 	}
 
 	const aggregatedCounts = $derived(kindCounts(nodes));
+
+	// Right-column data for the side panel: the collapsed-group summary for
+	// group-title selections and the large-graph notice, if either applies.
+	const sideGroup = $derived.by((): ExplorerGroupInfo | null => {
+		if (!selected || !isGroupTitleId(selected.id)) return null;
+		const title = foldedView.titles[selected.id];
+		if (!title) return null;
+		return {
+			label: title.label,
+			memberCount: title.memberIds.length,
+			collapsed: folded.collapsed.has(title.groupId),
+		};
+	});
+
+	const largeGraphInfo = $derived.by((): ExplorerLargeGraphInfo | null => {
+		if (!capped.truncated && folded.auto.length === 0) return null;
+		return {
+			auto: folded.auto,
+			truncated: capped.truncated,
+			shown: capped.nodes.length,
+			total: capped.total,
+			counts: aggregatedCounts,
+			hiddenKindsCount: filter.hiddenKinds.length,
+		};
+	});
+
+	function toggleGroupFor(id: string): void {
+		const title = foldedView.titles[id];
+		if (title) toggleGroup(title.groupId);
+	}
 
 	function toggleOverlay(id: string): void {
 		onoverlay?.(activeOverlay === id ? null : id);
@@ -769,10 +689,7 @@
 		if (done) {
 			toasts.success(t('domain.graph.exported'));
 		} else {
-			toasts.error(
-				t('domain.graph.exportFailed'),
-				t('domain.graph.exportFailedDetail'),
-			);
+			toasts.error(t('domain.graph.exportFailed'), t('domain.graph.exportFailedDetail'));
 		}
 	}
 
@@ -802,175 +719,51 @@
 			t('domain.graph.boxSelectionDetail', { count: ids.length }),
 		);
 	}
-
-	const layoutOptions = $derived([
-		{ value: 'layered', label: t('domain.graph.layoutLayered') },
-		{ value: 'columns', label: t('domain.graph.layoutColumns') },
-		{ value: 'rows', label: t('domain.graph.layoutRows') },
-		{ value: 'compact', label: t('domain.graph.layoutCompact') },
-	]);
 </script>
 
-<div
-	bind:this={explorerRoot}
-	class={cn('flex min-h-0 flex-col gap-2', className)}
->
-	<div class="flex flex-wrap items-center gap-1.5">
-		<IconButton
-			icon="plus"
-			label={shortcutTitle('canvas.zoomIn', t('domain.graph.zoomIn'))}
-			onclick={() => canvas?.zoomIn()}
-		/>
-		<IconButton
-			icon="minus"
-			label={shortcutTitle('canvas.zoomOut', t('domain.graph.zoomOut'))}
-			onclick={() => canvas?.zoomOut()}
-		/>
-		<IconButton
-			icon="maximize"
-			label={shortcutTitle('canvas.fit', t('domain.graph.fitView'))}
-			onclick={() => canvas?.fit()}
-		/>
-		<IconButton
-			icon="refresh"
-			label={shortcutTitle('canvas.relayout', t('domain.graph.rerunLayout'))}
-			onclick={() => canvas?.relayout()}
-		/>
-		{#if layoutId}
-			<IconButton
-				icon="undo"
-				label={t('domain.graph.resetLayout')}
-				onclick={() => void handleResetLayout()}
-			/>
-		{/if}
-		<Select
-			bind:value={layout}
-			options={layoutOptions}
-			size="sm"
-			placeholder=""
-			class="w-28"
-		/>
-		<IconButton
-			icon="download"
-			label={t('domain.graph.exportPng')}
-			onclick={handleExport}
-		/>
-		<IconButton
-			icon="filter"
-			label={showFilters
-				? t('domain.graph.hideFilters')
-				: t('domain.graph.showFilters')}
-			onclick={() => (showFilters = !showFilters)}
-		/>
-		<Button
-			variant={preferences.minimapMode === 'off' ? 'outline' : 'default'}
-			size="sm"
-			onclick={cycleMinimap}
-			title={t('domain.graph.cycleMinimap')}
-		>
-			{t('domain.graph.minimap')}
-			{preferences.minimapMode}
-		</Button>
-		<Button
-			variant="outline"
-			size="sm"
-			disabled={!selectedId}
-			onclick={() => selectedId && canvas?.zoomTo(selectedId)}
-		>
-			{t('domain.graph.zoomToSelection')}
-		</Button>
-		<Button
-			variant="outline"
-			size="sm"
-			disabled={activeIds.size === 0}
-			onclick={() => canvas?.fitTo([...activeIds])}
-		>
-			{t('domain.graph.fitHighlight')}
-		</Button>
-		{#if actions}
-			<span class="mx-1 h-5 w-px bg-border"></span>
-			{@render actions()}
-		{/if}
-		{#if editable}
-			<span class="mx-1 h-5 w-px bg-border"></span>
-			{#if !editMode}
-				<Button variant="outline" size="sm" onclick={() => onenteredit?.()}>
-					{t('domain.graph.enterEditMode')}
-				</Button>
-			{:else}
-				<Badge variant="warning"
-					>{editDirty
-						? t('domain.graph.editingUnsaved')
-						: t('domain.graph.editing')}</Badge
-				>
-				<Button
-					variant="outline"
-					size="sm"
-					disabled={!canUndo}
-					onclick={() => onundo?.()}
-				>
-					{t('domain.graph.undo')}
-				</Button>
-				<Button
-					variant="outline"
-					size="sm"
-					disabled={!canRedo}
-					onclick={() => onredo?.()}
-				>
-					{t('domain.graph.redo')}
-				</Button>
-				<Button variant="outline" size="sm" onclick={() => openAddNode(null)}>
-					{t('domain.graph.addNode')}
-				</Button>
-				<Button variant="outline" size="sm" onclick={handleDeleteSelected}>
-					{t('domain.graph.deleteSelected')}
-				</Button>
-				<Button
-					size="sm"
-					disabled={!editDirty || editBusy}
-					onclick={() => onsave?.()}
-				>
-					{editBusy ? t('domain.graph.saving') : t('domain.graph.saveDraft')}
-				</Button>
-				<Button variant="ghost" size="sm" onclick={() => onvalidate?.()}>
-					{t('domain.graph.validate')}
-				</Button>
-				<Button variant="ghost" size="sm" onclick={() => onpromote?.()}>
-					{t('domain.graph.promote')}
-				</Button>
-				<Button variant="ghost" size="sm" onclick={() => onexitedit?.()}>
-					{t('domain.graph.exit')}
-				</Button>
-			{/if}
-		{/if}
-		<span class="ml-auto text-micro text-muted-foreground">
-			{#if folded.auto.length > 0}
-				{t('domain.graph.foldedGroups', { count: folded.auto.length })} ·
-			{/if}
-			{#if capped.truncated}
-				{t('domain.graph.showingOf', {
-					shown: capped.nodes.length,
-					total: capped.total,
-				})}
-				· {t('domain.graph.retentionOrder')} ·
-			{/if}
-			{t('domain.canvas.summary', {
-				nodes: filtered.nodes.length,
-				edges: filtered.edges.length,
-			})}
-		</span>
-	</div>
+<div bind:this={explorerRoot} class={cn('flex min-h-0 flex-col gap-2', className)}>
+	<GraphExplorerToolbar
+		bind:layout
+		{showFilters}
+		{editable}
+		{editMode}
+		{editDirty}
+		{canUndo}
+		{canRedo}
+		{editBusy}
+		canZoomSelection={selectedId !== null}
+		canFitHighlight={activeIds.size > 0}
+		{layoutId}
+		foldedCount={folded.auto.length}
+		truncated={capped.truncated}
+		shownCount={capped.nodes.length}
+		totalCount={capped.total}
+		nodeCount={filtered.nodes.length}
+		edgeCount={filtered.edges.length}
+		{actions}
+		onzoom={() => canvas?.zoomIn()}
+		onzoomout={() => canvas?.zoomOut()}
+		onfit={() => canvas?.fit()}
+		onrelayout={() => canvas?.relayout()}
+		onresetlayout={() => void layoutState.resetLayout(layoutId, () => canvas?.relayout())}
+		onexport={handleExport}
+		ontogglefilters={() => (showFilters = !showFilters)}
+		onzoomselection={() => selectedId && canvas?.zoomTo(selectedId)}
+		onfithighlight={() => canvas?.fitTo([...activeIds])}
+		onenteredit={() => onenteredit?.()}
+		onexitedit={() => onexitedit?.()}
+		onundo={() => onundo?.()}
+		onredo={() => onredo?.()}
+		onaddnode={() => openAddNode(null)}
+		ondeleteselected={handleDeleteSelected}
+		onsave={() => onsave?.()}
+		onvalidate={() => onvalidate?.()}
+		onpromote={() => onpromote?.()}
+	/>
 
-	{#if editMode}
-		<p class="text-micro text-muted-foreground">
-			{t('domain.graph.editHint')}
-		</p>
-	{/if}
 	{#if overlays.length > 0}
 		<div class="flex flex-wrap items-center gap-1.5">
-			<span class="text-micro text-muted-foreground"
-				>{t('domain.graph.highlight')}</span
-			>
+			<span class="text-micro text-muted-foreground">{t('domain.graph.highlight')}</span>
 			{#each overlays as overlay (overlay.id)}
 				<Button
 					variant={activeOverlay === overlay.id ? 'default' : 'outline'}
@@ -985,9 +778,7 @@
 	{/if}
 	{#if groups.length > 0}
 		<div class="flex flex-wrap items-center gap-1.5">
-			<span class="text-micro text-muted-foreground"
-				>{t('domain.graph.groups')}</span
-			>
+			<span class="text-micro text-muted-foreground">{t('domain.graph.groups')}</span>
 			{#each groups as group (group.id)}
 				<Button
 					variant={folded.collapsed.has(group.id) ? 'default' : 'outline'}
@@ -995,9 +786,7 @@
 					onclick={() => toggleGroup(group.id)}
 				>
 					{group.label}
-					<Badge variant="neutral" class="ml-1"
-						>{groupMemberCounts[group.id] ?? 0}</Badge
-					>
+					<Badge variant="neutral" class="ml-1">{groupMemberCounts[group.id] ?? 0}</Badge>
 				</Button>
 			{/each}
 			<Button variant="ghost" size="sm" onclick={collapseAllGroups}>
@@ -1010,60 +799,14 @@
 	{/if}
 
 	{#if showFilters}
-		<Card title={t('domain.graph.filters')} class="shrink-0">
-			<div class="flex flex-wrap items-center gap-2">
-				<Input
-					bind:value={filter.query}
-					placeholder={t('domain.graph.searchPlaceholder')}
-					onkeydown={(event) => {
-						if (event.key === 'Enter') {
-							event.preventDefault();
-							stepMatch(event.shiftKey ? -1 : 1);
-						}
-					}}
-					class="h-7 w-44"
-				/>
-				{#if filter.query.trim()}
-					<span class="text-micro text-muted-foreground">{matchLabel}</span>
-					<IconButton
-						icon="chevron-left"
-						label={t('domain.graph.previousMatch')}
-						disabled={matchIds.length === 0}
-						onclick={() => stepMatch(-1)}
-					/>
-					<IconButton
-						icon="chevron-right"
-						label={t('domain.graph.nextMatch')}
-						disabled={matchIds.length === 0}
-						onclick={() => stepMatch(1)}
-					/>
-				{/if}
-				{#each kinds as kind (kind)}
-					<label
-						class="flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2 py-1 text-caption"
-					>
-						<input
-							type="checkbox"
-							checked={!filter.hiddenKinds.includes(kind)}
-							onchange={() => toggleKind(kind)}
-							class="accent-current"
-						/>
-						<span class="font-mono">{kind}</span>
-					</label>
-				{/each}
-				{#if filter.hiddenKinds.length > 0 || filter.query}
-					<Button
-						variant="ghost"
-						size="sm"
-						onclick={() => {
-							filter.clear();
-						}}
-					>
-						{t('domain.inspector.clearFilter')}
-					</Button>
-				{/if}
-			</div>
-		</Card>
+		<GraphExplorerFilterPanel
+			{filter}
+			{kinds}
+			{matchLabel}
+			matchCount={matchIds.length}
+			ontogglekind={toggleKind}
+			onstepmatch={stepMatch}
+		/>
 	{/if}
 
 	{#if loading}
@@ -1099,8 +842,9 @@
 				{heatTierById}
 				{decisionIds}
 				tooltipLabels={mergedTooltipLabels}
-				positions={{ ...savedPositions, ...(positions ?? {}) }}
-				onviewmove={handleViewMove}
+				positions={{ ...layoutState.savedPositions, ...(positions ?? {}) }}
+				onviewmove={(id, position) =>
+					layoutState.handleViewMove(layoutId, editMode, layout, id, position)}
 				{editMode}
 				{edgeLabelLimit}
 				minimap={preferences.minimapMode}
@@ -1114,10 +858,7 @@
 				onboxselect={handleBoxSelect}
 				onmovenode={(id, position) => {
 					if (isHiddenNode(id)) {
-						toasts.info(
-							t('domain.graph.hiddenMember'),
-							t('domain.graph.hiddenMemberMove'),
-						);
+						toasts.info(t('domain.graph.hiddenMember'), t('domain.graph.hiddenMemberMove'));
 						return;
 					}
 					onmovenode?.(id, position);
@@ -1126,252 +867,39 @@
 					const visible = guardMoves(moves);
 					if (visible.length > 0) onmovenodes?.(visible);
 				}}
-				onbackgrounddoubleclick={(position, client) =>
-					openAddNode(position, client)}
+				onbackgrounddoubleclick={(position, client) => openAddNode(position, client)}
 				ondeleteedge={(id) => ondeleteedge?.(id)}
 				onconnect={(source, target) => {
 					if (guardConnect(source, target)) onconnect?.(source, target);
 				}}
-				onconnectreject={(reason) =>
-					toasts.info(t('domain.graph.cannotConnect'), reason)}
+				onconnectreject={(reason) => toasts.info(t('domain.graph.cannotConnect'), reason)}
 				oncontext={openContext}
 				class="min-h-0"
 			/>
-			<div class="flex min-h-0 flex-col gap-2">
-				{#if capped.truncated || folded.auto.length > 0}
-					<Card title={t('domain.graph.largeGraph')}>
-						<p class="text-caption text-muted-foreground">
-							{t('domain.graph.retentionOrderDetail')}
-							{#if folded.auto.length > 0}
-								{t('domain.graph.foldedNonCritical', {
-									count: folded.auto.length,
-									kinds: folded.auto.join(', '),
-								})}
-							{/if}
-							{#if capped.truncated}
-								{t('domain.graph.sampledAcrossKinds', {
-									shown: capped.nodes.length,
-									total: capped.total,
-									counts: aggregatedCounts
-										.map((entry) => `${entry.kind} ${entry.count}`)
-										.join(' · '),
-								})}
-							{/if}
-						</p>
-						<div class="mt-2 flex flex-wrap gap-1.5">
-							{#each aggregatedCounts.slice(0, 4) as entry (entry.kind)}
-								<Button
-									variant="outline"
-									size="sm"
-									onclick={() => isolateKind(entry.kind)}
-								>
-									{t('domain.graph.foldTo', { kind: entry.kind })}
-								</Button>
-							{/each}
-							{#if filter.hiddenKinds.length > 0}
-								<Button
-									variant="ghost"
-									size="sm"
-									onclick={() => {
-										filter.hiddenKinds = [];
-									}}
-								>
-									{t('domain.graph.showAllKinds')}
-								</Button>
-							{/if}
-						</div>
-					</Card>
-				{/if}
-				{#if selected}
-					<Card title={selected.label}>
-						{#snippet actions()}
-							<IconButton
-								icon="x"
-								label={t('domain.graph.clearSelection')}
-								onclick={() => onselect?.(null)}
-							/>
-						{/snippet}
-						{#if isGroupTitleId(selected.id)}
-							{@const title = foldedView.titles[selected.id]}
-							<p class="text-caption text-muted-foreground">
-								{t('domain.graph.groupSummary', {
-									label: title?.label ?? selected.id,
-									members: title?.memberIds.length ?? 0,
-									in: selectedNeighbors.predecessors,
-									out: selectedNeighbors.successors,
-								})}
-							</p>
-							{#if title}
-								<div class="mt-2 flex flex-wrap gap-1.5">
-									<Button
-										variant="outline"
-										size="sm"
-										onclick={() => toggleGroup(title.groupId)}
-									>
-										{folded.collapsed.has(title.groupId)
-											? t('domain.graph.expandGroup')
-											: t('domain.graph.collapseGroup')}
-									</Button>
-									<Button
-										variant="outline"
-										size="sm"
-										onclick={() => focusGroup(selected.id)}
-									>
-										{t('domain.graph.focusWholeGroup')}
-									</Button>
-								</div>
-								<p
-									class="mt-1 text-micro text-muted-foreground"
-									title={t('domain.graph.groupsNoDefinition')}
-								>
-									{t('domain.graph.locateUnavailableForGroups')}
-								</p>
-							{/if}
-						{:else}
-							<dl class="space-y-1 text-caption">
-								<div class="flex justify-between gap-2">
-									<dt class="text-muted-foreground">
-										{t('domain.graph.kind')}
-									</dt>
-									<dd class="font-mono">{selected.kind}</dd>
-								</div>
-								{#if selected.status}
-									<div class="flex justify-between gap-2">
-										<dt class="text-muted-foreground">
-											{t('domain.graph.status')}
-										</dt>
-										<dd>
-											<StatusBadge
-												status={selected.status}
-												size="sm"
-												dot={false}
-											/>
-										</dd>
-									</div>
-								{/if}
-								{#if selected.iteration !== undefined}
-									<div class="flex justify-between gap-2">
-										<dt class="text-muted-foreground">
-											{t('domain.history.iterations')}
-										</dt>
-										<dd class="font-mono">{selected.iteration}</dd>
-									</div>
-								{/if}
-								{#if heatLabels[selected.id]}
-									<div class="flex justify-between gap-2">
-										<dt class="text-muted-foreground">
-											{t('domain.inspector.duration')}
-										</dt>
-										<dd class="font-mono tabular-nums">
-											{heatLabels[selected.id]}
-										</dd>
-									</div>
-								{/if}
-								{#if decisionLabels[selected.id]}
-									<div class="flex justify-between gap-2">
-										<dt class="text-muted-foreground">
-											{t('domain.graph.branches')}
-										</dt>
-										<dd class="text-right font-mono">
-											{decisionLabels[selected.id]}
-										</dd>
-									</div>
-								{/if}
-								<div class="flex justify-between gap-2">
-									<dt class="text-muted-foreground">
-										{t('domain.graph.links')}
-									</dt>
-									<dd class="font-mono">
-										{t('domain.graph.inOut', {
-											in: selectedNeighbors.predecessors,
-											out: selectedNeighbors.successors,
-										})}
-									</dd>
-								</div>
-							</dl>
-							{#if inspector}
-								<div class="mt-2 border-t border-border pt-2">
-									{@render inspector()}
-								</div>
-							{/if}
-							{#if onexpand}
-								<div class="mt-2">
-									<Button
-										variant="outline"
-										size="sm"
-										onclick={() => selected && onexpand?.(selected.id)}
-									>
-										<Icon name="git-commit" size={13} />
-										{expandLabel}
-									</Button>
-								</div>
-							{/if}
-							<div class="mt-2 flex flex-wrap gap-1.5">
-								<Button
-									variant="outline"
-									size="sm"
-									onclick={() =>
-										selected &&
-										void copyText(selected.id, t('domain.graph.nodeId'))}
-								>
-									{t('domain.graph.copyNodeId')}
-								</Button>
-								{#if onjumpparam}
-									<Button
-										variant="outline"
-										size="sm"
-										onclick={() => selected && onjumpparam?.(selected.id)}
-									>
-										{t('domain.graph.locateInDefinition')}
-									</Button>
-								{:else}
-									<Button
-										variant="outline"
-										size="sm"
-										disabled
-										title={t('domain.graph.noDefinitionPanel')}
-									>
-										{t('domain.graph.locateInDefinition')}
-									</Button>
-								{/if}
-							</div>
-							{#if !onjumpparam}
-								<p class="mt-1 text-micro text-muted-foreground">
-									{t('domain.graph.noDefinitionPanel')}
-								</p>
-							{/if}
-						{/if}
-					</Card>
-				{/if}
-				<Card title={t('domain.graph.legend')}>
-					<ul class="space-y-1">
-						{#each legendFor(preset) as entry (entry.label)}
-							<li
-								class="flex items-center gap-2 text-caption text-muted-foreground"
-							>
-								<span
-									class="inline-block h-2.5 w-2.5"
-									style:background={entry.shape.startsWith('line')
-										? 'transparent'
-										: entry.color}
-									style:border-radius={entry.shape === 'ellipse'
-										? '9999px'
-										: entry.shape === 'diamond'
-											? '2px'
-											: '4px'}
-									style:transform={entry.shape === 'diamond'
-										? 'rotate(45deg)'
-										: 'none'}
-									style:border={entry.shape.startsWith('line')
-										? `2px ${entry.shape === 'line-dashed' ? 'dashed' : 'solid'} ${entry.color}`
-										: 'none'}
-								></span>
-								{entry.label}
-							</li>
-						{/each}
-					</ul>
-				</Card>
-			</div>
+			<GraphExplorerSidePanel
+				largeGraph={largeGraphInfo}
+				{selected}
+				selectedIsGroup={selected ? isGroupTitleId(selected.id) : false}
+				group={sideGroup}
+				neighbors={selectedNeighbors}
+				heatLabel={selected ? (heatLabels[selected.id] ?? null) : null}
+				decisionLabel={selected ? (decisionLabels[selected.id] ?? null) : null}
+				{inspector}
+				canExpand={onexpand !== undefined}
+				{expandLabel}
+				canJumpParams={onjumpparam !== undefined}
+				{preset}
+				onclearselection={() => onselect?.(null)}
+				ontogglegroup={() => selected && toggleGroupFor(selected.id)}
+				onfocusgroup={() => selected && focusGroup(selected.id)}
+				onexpand={() => selected && onexpand?.(selected.id)}
+				oncopyid={() => selected && void copyText(selected.id, t('domain.graph.nodeId'))}
+				onjumpparam={() => selected && onjumpparam?.(selected.id)}
+				onisolatekind={isolateKind}
+				onshowallkinds={() => {
+					filter.hiddenKinds = [];
+				}}
+			/>
 		</div>
 	{/if}
 	{#if contextMenu}

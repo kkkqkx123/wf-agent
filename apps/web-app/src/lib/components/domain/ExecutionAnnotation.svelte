@@ -26,8 +26,7 @@
 			if (!raw) return { vote: 'none', note: '' };
 			const parsed = JSON.parse(raw) as { vote?: unknown; note?: unknown };
 			return {
-				vote:
-					parsed.vote === 'up' || parsed.vote === 'down' ? parsed.vote : 'none',
+				vote: parsed.vote === 'up' || parsed.vote === 'down' ? parsed.vote : 'none',
 				note: typeof parsed.note === 'string' ? parsed.note : '',
 			};
 		} catch {

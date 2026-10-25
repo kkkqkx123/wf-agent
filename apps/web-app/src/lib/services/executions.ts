@@ -1,11 +1,6 @@
 import { client } from '#lib/api/client';
 import type { components } from '#lib/api/schema';
-import {
-	call,
-	extractCursorPage,
-	extractPage,
-	requireData,
-} from '#lib/api/envelope';
+import { call, extractCursorPage, extractPage, requireData } from '#lib/api/envelope';
 import type { CursorPageResult } from '#lib/api/envelope';
 import type {
 	Execution,
@@ -94,21 +89,16 @@ interface ToolCallDto {
 function toToolCall(d: ToolCallDto, index: number): ToolCallEntry {
 	const name = d.name ?? d.tool ?? '';
 	const kind = d.kind ?? inferToolKind(name);
-	const input =
-		typeof d.input === 'string' ? d.input : stringify(d.input ?? d.arguments);
+	const input = typeof d.input === 'string' ? d.input : stringify(d.input ?? d.arguments);
 	const output =
-		typeof d.output === 'string'
-			? d.output
-			: (d.error ?? stringify(d.output ?? d.result));
+		typeof d.output === 'string' ? d.output : (d.error ?? stringify(d.output ?? d.result));
 	return {
 		id: d.id ?? `tc-${index}`,
 		name,
 		kind,
 		nodeId: d.node_id ?? undefined,
 		iteration: typeof d.iteration === 'number' ? d.iteration : undefined,
-		status:
-			d.status ??
-			(d.success === false ? 'failed' : d.success === true ? 'completed' : ''),
+		status: d.status ?? (d.success === false ? 'failed' : d.success === true ? 'completed' : ''),
 		startedAt: toIso(d.started_at),
 		durationMs: d.duration_ms ?? 0,
 		input,
@@ -122,9 +112,7 @@ function toToolCall(d: ToolCallDto, index: number): ToolCallEntry {
 }
 
 /** Tool calls for an execution from the unified audit view. */
-export async function getExecutionToolCalls(
-	executionId: string,
-): Promise<ToolCallEntry[]> {
+export async function getExecutionToolCalls(executionId: string): Promise<ToolCallEntry[]> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/executions/{id}/audit/tool-calls', {
 			params: { path: { id: executionId } },
@@ -150,8 +138,7 @@ interface UnifiedExecutionDto {
 
 function toUnifiedExecution(d: UnifiedExecutionDto): Execution {
 	const status = String(d.status ?? 'running').toLowerCase();
-	const completed =
-		status === 'completed' || status === 'succeeded' || status === 'success';
+	const completed = status === 'completed' || status === 'succeeded' || status === 'success';
 	const kind = toExecutionKind(d.execution_type ?? 'workflow');
 	return {
 		id: d.execution_id ?? '',
@@ -197,9 +184,7 @@ export async function listUnifiedExecutions(params?: {
 			},
 		}),
 	);
-	const page = extractCursorPage<UnifiedExecutionDto>(
-		requireData(data, 'Unified execution list'),
-	);
+	const page = extractCursorPage<UnifiedExecutionDto>(requireData(data, 'Unified execution list'));
 	return { ...page, items: page.items.map(toUnifiedExecution) };
 }
 
@@ -257,14 +242,8 @@ export async function getUnifiedExecutionDetail(
 		startTime: toIso(data.start_time),
 		endTime: toIsoOrNull(data.end_time),
 		definitionId: data.definition_id ?? null,
-		version:
-			typeof data.version === 'string' && data.version !== ''
-				? data.version
-				: null,
-		rerunOf:
-			typeof data.rerun_of === 'string' && data.rerun_of !== ''
-				? data.rerun_of
-				: null,
+		version: typeof data.version === 'string' && data.version !== '' ? data.version : null,
+		rerunOf: typeof data.rerun_of === 'string' && data.rerun_of !== '' ? data.rerun_of : null,
 		parentExecutionId: data.parent_execution_id ?? null,
 		error: data.error ?? null,
 		record: data.record ?? null,
@@ -292,9 +271,7 @@ export async function getUnifiedExecutionStats(): Promise<Metric[]> {
  * through `rerunWorkflowRun`; agent and chat runs have no rerun endpoint,
  * so callers render an explicit disabled state instead of hiding the action.
  */
-export function isRerunnableExecutionType(
-	kind: ExecutionKind | undefined,
-): boolean {
+export function isRerunnableExecutionType(kind: ExecutionKind | undefined): boolean {
 	return kind === undefined || kind === 'workflow';
 }
 
@@ -325,9 +302,7 @@ export async function getExecutionLogs(
 			params: { path: { id }, query: params ?? {} },
 		}),
 	);
-	return extractCursorPage<LogEntryDto>(
-		requireData(data, `Logs missing for execution ${id}`),
-	);
+	return extractCursorPage<LogEntryDto>(requireData(data, `Logs missing for execution ${id}`));
 }
 
 interface ArtifactEntryDto {
@@ -400,9 +375,7 @@ function toExecutionRef(ref: ExecutionRefDoc): ExecutionRef {
 }
 
 /** Where an execution sits in the parent/child tree of nested runs. */
-export async function getExecutionHierarchy(
-	executionId: string,
-): Promise<ExecutionHierarchy> {
+export async function getExecutionHierarchy(executionId: string): Promise<ExecutionHierarchy> {
 	const id = requireExecutionId(executionId);
 	const data = requireData(
 		await call<HierarchyDoc>(
@@ -440,9 +413,7 @@ function toSubtreeNode(node: SubtreeNodeDoc): ExecutionSubtreeNode {
 
 /** Every execution below a root, breadth-first, following every cursor
  * page so wide trees arrive whole instead of clipped. */
-export async function getExecutionSubtree(
-	executionId: string,
-): Promise<ExecutionSubtree> {
+export async function getExecutionSubtree(executionId: string): Promise<ExecutionSubtree> {
 	const id = requireExecutionId(executionId);
 	const nodes: ExecutionSubtreeNode[] = [];
 	let cursor: string | undefined = undefined;
@@ -461,9 +432,7 @@ export async function getExecutionSubtree(
 			nodes.push(toSubtreeNode(node));
 		}
 		const next: string | null =
-			typeof data.next_cursor === 'string' && data.next_cursor !== ''
-				? data.next_cursor
-				: null;
+			typeof data.next_cursor === 'string' && data.next_cursor !== '' ? data.next_cursor : null;
 		if (next === null || !data.truncated) break;
 		cursor = next;
 	}
@@ -497,9 +466,7 @@ function sectionRows<T>(rows: T[] | undefined): T[] {
 }
 
 /** Owning graph node id carried in event metadata, if any. */
-function metadataNodeId(
-	metadata: Record<string, unknown> | undefined,
-): string | undefined {
+function metadataNodeId(metadata: Record<string, unknown> | undefined): string | undefined {
 	if (!metadata) return undefined;
 	const value = metadata.node_id;
 	if (typeof value === 'string' && value !== '') return value;

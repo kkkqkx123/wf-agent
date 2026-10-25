@@ -15,10 +15,7 @@
 	let { workbench, panel = $bindable('status') }: Props = $props();
 </script>
 
-<Card
-	title={t('domain.git.groupsTitle')}
-	description={t('domain.git.groupsDescription')}
->
+<Card title={t('domain.git.groupsTitle')} description={t('domain.git.groupsDescription')}>
 	<div class="flex flex-col gap-1">
 		{#each PANELS as item (item.id)}
 			<button
@@ -28,8 +25,7 @@
 					workbench.focusKeyInput();
 				}}
 				aria-pressed={panel === item.id}
-				class="rounded-md px-2 py-1.5 text-left text-caption hover:bg-accent/50 {panel ===
-				item.id
+				class="rounded-md px-2 py-1.5 text-left text-caption hover:bg-accent/50 {panel === item.id
 					? 'bg-accent/70'
 					: ''}"
 			>
@@ -49,8 +45,7 @@
 	{#if panel === 'status' && workbench.status}
 		<ul class="mt-2 space-y-1 text-caption">
 			<li class="flex justify-between">
-				<span>{t('domain.git.staged')}</span><span class="font-mono"
-					>{workbench.status.staged}</span
+				<span>{t('domain.git.staged')}</span><span class="font-mono">{workbench.status.staged}</span
 				>
 			</li>
 			<li class="flex justify-between">
@@ -65,10 +60,8 @@
 			</li>
 			<li class="flex justify-between">
 				<span>{t('domain.git.conflicted')}</span>
-				<span
-					class="font-mono {workbench.status.conflicted > 0
-						? 'text-destructive'
-						: ''}">{workbench.status.conflicted}</span
+				<span class="font-mono {workbench.status.conflicted > 0 ? 'text-destructive' : ''}"
+					>{workbench.status.conflicted}</span
 				>
 			</li>
 		</ul>
@@ -107,13 +100,10 @@
 					</p>
 					<ul class="space-y-0.5">
 						{#each workbench.worktrees as worktree (worktree.path)}
-							<li
-								class="truncate font-mono text-micro text-muted-foreground"
-								title={worktree.path}
-							>
-								{worktree.path}{worktree.branch
-									? ` · ${worktree.branch}`
-									: ''}{worktree.bare ? ' · bare' : ''}
+							<li class="truncate font-mono text-micro text-muted-foreground" title={worktree.path}>
+								{worktree.path}{worktree.branch ? ` · ${worktree.branch}` : ''}{worktree.bare
+									? ' · bare'
+									: ''}
 							</li>
 						{/each}
 					</ul>
@@ -202,8 +192,7 @@
 					<button
 						type="button"
 						onclick={() => gitStore.select('submodules', submodule.path)}
-						aria-pressed={gitStore.selectionFor('submodules') ===
-							submodule.path}
+						aria-pressed={gitStore.selectionFor('submodules') === submodule.path}
 						class="block w-full px-2 py-1 text-left hover:bg-accent/50 {gitStore.selectionFor(
 							'submodules',
 						) === submodule.path
@@ -278,9 +267,7 @@
 							? 'bg-accent/70'
 							: ''}"
 					>
-						<span class="truncate font-mono"
-							>{branch.current ? '*' : ' '} {branch.name}</span
-						>
+						<span class="truncate font-mono">{branch.current ? '*' : ' '} {branch.name}</span>
 						{#if branch.upstream}
 							<span class="font-mono text-micro text-muted-foreground"
 								>{branch.upstream} +{branch.ahead}/-{branch.behind}</span
@@ -307,10 +294,7 @@
 					</p>
 					<ul class="space-y-0.5">
 						{#each workbench.remotes as remote (remote.name)}
-							<li
-								class="truncate font-mono text-micro text-muted-foreground"
-								title={remote.url}
-							>
+							<li class="truncate font-mono text-micro text-muted-foreground" title={remote.url}>
 								{remote.name} → {remote.url}
 							</li>
 						{/each}
@@ -322,10 +306,7 @@
 					</p>
 					<ul class="space-y-0.5">
 						{#each workbench.tags as tag (tag.name)}
-							<li
-								class="truncate font-mono text-micro text-muted-foreground"
-								title={tag.message}
-							>
+							<li class="truncate font-mono text-micro text-muted-foreground" title={tag.message}>
 								{tag.name}
 							</li>
 						{/each}

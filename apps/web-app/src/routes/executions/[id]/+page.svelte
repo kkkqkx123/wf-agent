@@ -11,10 +11,7 @@
 	import PageState from '#lib/components/layout/PageState.svelte';
 	import ExecutionInspector from '#lib/components/domain/ExecutionInspector.svelte';
 	import SessionInspector from '#lib/components/domain/SessionInspector.svelte';
-	import {
-		isExecutionTab,
-		type ExecutionTab,
-	} from '#lib/config/execution-tabs';
+	import { isExecutionTab, type ExecutionTab } from '#lib/config/execution-tabs';
 	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import {
 		cancelExecution,
@@ -24,11 +21,7 @@
 		type UnifiedExecutionDetail,
 	} from '#lib/services/executions';
 	import { rerunWorkflowRun } from '#lib/services/run';
-	import {
-		cancelAgentLoop,
-		pauseAgentLoop,
-		resumeAgentLoop,
-	} from '#lib/services/agent-loops';
+	import { cancelAgentLoop, pauseAgentLoop, resumeAgentLoop } from '#lib/services/agent-loops';
 	import type { Execution } from '#lib/types/models';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
@@ -43,9 +36,7 @@
 	let rerunning = $state(false);
 
 	const requestedTab = parseListParams(page.url as unknown as URL).tab ?? null;
-	let tab = $state<ExecutionTab>(
-		isExecutionTab(requestedTab) ? requestedTab : 'overview',
-	);
+	let tab = $state<ExecutionTab>(isExecutionTab(requestedTab) ? requestedTab : 'overview');
 
 	$effect(() => {
 		gotoWithParams(page.url as unknown as URL, {
@@ -76,10 +67,7 @@
 				endedAt: unified.endTime,
 				durationMs: null,
 				progress: completed ? 1 : 0,
-				currentNode:
-					typeof record.current_node_id === 'string'
-						? record.current_node_id
-						: null,
+				currentNode: typeof record.current_node_id === 'string' ? record.current_node_id : null,
 				trigger: null,
 				tasksTotal: 0,
 				tasksDone: completed ? 1 : 0,
@@ -89,8 +77,7 @@
 				error: unified.error,
 			};
 		} catch (e) {
-			loadError =
-				e instanceof Error ? e.message : t('page.executionDetail.errorTitle');
+			loadError = e instanceof Error ? e.message : t('page.executionDetail.errorTitle');
 			execution = null;
 			unified = null;
 		} finally {
@@ -122,10 +109,7 @@
 		return null;
 	}
 
-	async function runControl(
-		label: string,
-		action: (id: string) => Promise<void>,
-	): Promise<void> {
+	async function runControl(label: string, action: (id: string) => Promise<void>): Promise<void> {
 		const id = page.params.id;
 		if (!id) return;
 		controlBusy = true;
@@ -166,10 +150,7 @@
 			toasts.success(t('domain.runs.rerunStarted'), nextId);
 			await goto(resolve('/executions/[id]', { id: nextId }));
 		} catch (e) {
-			toasts.error(
-				t('domain.runs.rerunFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.runs.rerunFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			rerunning = false;
 		}
@@ -185,8 +166,7 @@
 
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
-		title={execution?.workflowName ??
-			t('page.executionDetail.titleFallback')}
+		title={execution?.workflowName ?? t('page.executionDetail.titleFallback')}
 		description={t('page.executionDetail.description')}
 	>
 		{#snippet meta()}
@@ -196,9 +176,7 @@
 				{#if unified.version}
 					<Badge variant="outline">v{unified.version}</Badge>
 				{/if}
-				<span class="font-mono text-caption text-muted-foreground"
-					>{execution.id}</span
-				>
+				<span class="font-mono text-caption text-muted-foreground">{execution.id}</span>
 				{#if unified.rerunOf}
 					<a
 						class="font-mono text-caption text-muted-foreground underline-offset-2 hover:underline"
@@ -227,15 +205,13 @@
 					icon="pause"
 					label={t('page.executionDetail.pause')}
 					disabled={controlBusy}
-					onclick={() =>
-						void runControl(t('page.executionDetail.pause'), controls.pause)}
+					onclick={() => void runControl(t('page.executionDetail.pause'), controls.pause)}
 				/>
 				<IconButton
 					icon="play"
 					label={t('page.executionDetail.resume')}
 					disabled={controlBusy}
-					onclick={() =>
-						void runControl(t('page.executionDetail.resume'), controls.resume)}
+					onclick={() => void runControl(t('page.executionDetail.resume'), controls.resume)}
 				/>
 				{#if cancelArmed}
 					<Button
@@ -244,27 +220,16 @@
 						disabled={controlBusy}
 						onclick={() => {
 							cancelArmed = false;
-							void runControl(
-								t('page.executionDetail.cancel'),
-								controls.cancel,
-							);
+							void runControl(t('page.executionDetail.cancel'), controls.cancel);
 						}}
 					>
 						{t('page.executionDetail.cancelArmed')}
 					</Button>
-					<Button
-						variant="ghost"
-						size="sm"
-						onclick={() => (cancelArmed = false)}
-					>
+					<Button variant="ghost" size="sm" onclick={() => (cancelArmed = false)}>
 						{t('page.executionDetail.keep')}
 					</Button>
 				{:else}
-					<Button
-						variant="outline"
-						size="sm"
-						onclick={() => (cancelArmed = true)}
-					>
+					<Button variant="outline" size="sm" onclick={() => (cancelArmed = true)}>
 						<Icon name="square" size={13} />
 						{t('page.executionDetail.cancel')}
 					</Button>
@@ -328,9 +293,7 @@
 			}}
 			class="h-full rounded-lg border border-border bg-card"
 		>
-			<div
-				class="h-full overflow-hidden rounded-lg border border-border bg-card"
-			>
+			<div class="h-full overflow-hidden rounded-lg border border-border bg-card">
 				{#if unified && (unified.executionType === 'agent' || unified.executionType === 'chat')}
 					<SessionInspector sessionId={unified.executionId} />
 				{:else if execution}

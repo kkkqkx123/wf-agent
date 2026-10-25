@@ -40,24 +40,17 @@
 
 	const OVERSCAN = 8;
 
-	const active = $derived(
-		virtualize ?? rows.length > DEFAULT_VIRTUALIZE_THRESHOLD,
-	);
+	const active = $derived(virtualize ?? rows.length > DEFAULT_VIRTUALIZE_THRESHOLD);
 	const height = $derived(rowHeight ?? (dense ? 36 : 44));
 
 	let viewport: HTMLDivElement | null = $state(null);
 	let scrollTop = $state(0);
 	let viewHeight = $state(0);
 
-	const start = $derived(
-		active ? Math.max(0, Math.floor(scrollTop / height) - OVERSCAN) : 0,
-	);
+	const start = $derived(active ? Math.max(0, Math.floor(scrollTop / height) - OVERSCAN) : 0);
 	const end = $derived(
 		active
-			? Math.min(
-					rows.length,
-					start + Math.ceil(viewHeight / height) + OVERSCAN * 2,
-				)
+			? Math.min(rows.length, start + Math.ceil(viewHeight / height) + OVERSCAN * 2)
 			: rows.length,
 	);
 	const window = $derived(active ? rows.slice(start, end) : rows);
@@ -70,14 +63,9 @@
 			? columns.filter((column) => column.card === 'title')
 			: columns.slice(0, 1),
 	);
-	const actionColumns = $derived(
-		columns.filter((column) => column.card === 'actions'),
-	);
+	const actionColumns = $derived(columns.filter((column) => column.card === 'actions'));
 	const detailColumns = $derived(
-		columns.filter(
-			(column) =>
-				!titleColumns.includes(column) && !actionColumns.includes(column),
-		),
+		columns.filter((column) => !titleColumns.includes(column) && !actionColumns.includes(column)),
 	);
 
 	function selectRow(row: T): void {
@@ -96,11 +84,7 @@
 	bind:this={viewport}
 	bind:clientHeight={viewHeight}
 	onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
-	class={cn(
-		'w-full overflow-x-auto',
-		active && 'max-h-[32rem] overflow-y-auto',
-		className,
-	)}
+	class={cn('w-full overflow-x-auto', active && 'max-h-[32rem] overflow-y-auto', className)}
 >
 	<div class="hidden sm:block">
 		<table class="w-full border-collapse text-body">
@@ -124,10 +108,7 @@
 			<tbody>
 				{#if active && start > 0}
 					<tr aria-hidden="true">
-						<td
-							colspan={columns.length}
-							style:height="{start * height}px"
-							class="border-0 p-0"
+						<td colspan={columns.length} style:height="{start * height}px" class="border-0 p-0"
 						></td>
 					</tr>
 				{/if}
@@ -136,9 +117,7 @@
 						class={cn(
 							'border-b border-border/60 transition-colors last:border-0',
 							onrowclick && 'cursor-pointer',
-							selectedKey === rowKey(row)
-								? 'bg-accent/70'
-								: 'hover:bg-accent/40',
+							selectedKey === rowKey(row) ? 'bg-accent/70' : 'hover:bg-accent/40',
 						)}
 						tabindex={onrowclick ? 0 : undefined}
 						aria-selected={onrowclick && selectedKey !== null
@@ -207,19 +186,11 @@
 			{/if}
 		{/each}
 		{#if active && end < rows.length}
-			<div
-				aria-hidden="true"
-				style:height="{(rows.length - end) * height}px"
-			></div>
+			<div aria-hidden="true" style:height="{(rows.length - end) * height}px"></div>
 		{/if}
 	</div>
 	{#if rows.length === 0}
-		<EmptyState
-			title={emptyTitle}
-			description={emptyDescription}
-			icon="file"
-			class="py-8"
-		/>
+		<EmptyState title={emptyTitle} description={emptyDescription} icon="file" class="py-8" />
 	{/if}
 </div>
 
@@ -254,9 +225,7 @@
 		</dl>
 	{/if}
 	{#if actionColumns.length > 0}
-		<div
-			class="mt-2 flex flex-wrap items-center gap-2 border-t border-border pt-2"
-		>
+		<div class="mt-2 flex flex-wrap items-center gap-2 border-t border-border pt-2">
 			{#each actionColumns as column (column.key)}
 				{@render cellContent(column, row)}
 			{/each}

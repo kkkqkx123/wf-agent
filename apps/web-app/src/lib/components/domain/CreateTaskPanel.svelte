@@ -35,11 +35,7 @@
 		initialVersion?: string | null;
 	}
 
-	let {
-		onstarted,
-		initialDefinition = null,
-		initialVersion = null,
-	}: Props = $props();
+	let { onstarted, initialDefinition = null, initialVersion = null }: Props = $props();
 
 	let definitions = $state<RunnableDefinition[]>([]);
 	let modelOptions = $state<{ value: string; label: string }[]>([]);
@@ -54,10 +50,11 @@
 	let versionsLoading = $state(false);
 	let fileScope = $state('');
 	let fileScopeError = $state<string | null>(null);
-	let inputError = $state<string | null>(null);
 	let debugRun = $state(false);
 	let maxIterations = $state('');
 	let tokenLimit = $state('');
+	let conversationSeed = $state('');
+	let conversationSeedError = $state<string | null>(null);
 	let starting = $state(false);
 
 	// Execution type and definition are two layers: the type picks the
@@ -82,9 +79,7 @@
 	);
 
 	const selectedDefinition = $derived(
-		definitions.find(
-			(definition) => `${definition.kind}:${definition.id}` === selected,
-		) ?? null,
+		definitions.find((definition) => `${definition.kind}:${definition.id}` === selected) ?? null,
 	);
 
 	/** Parsed workflow input: JSON when it parses, raw text otherwise. */
@@ -109,13 +104,13 @@
 	});
 
 	function validateJsonFields(): boolean {
-		inputError = null;
 		fileScopeError = null;
+		conversationSeedError = null;
 		if (input.trim() !== '') {
 			try {
 				JSON.parse(input);
 			} catch {
-				inputError = null;
+				// Invalid JSON is tolerated here; no inline error state is shown.
 			}
 		}
 		if (fileScope.trim() !== '') {
@@ -123,6 +118,18 @@
 				JSON.parse(fileScope);
 			} catch {
 				fileScopeError = 'File scope must be valid JSON or empty.';
+				return false;
+			}
+		}
+		if (conversationSeed.trim() !== '') {
+			try {
+				const parsed = JSON.parse(conversationSeed) as unknown;
+				if (!Array.isArray(parsed)) {
+					conversationSeedError = 'Conversation seed must be a JSON array or empty.';
+					return false;
+				}
+			} catch {
+				conversationSeedError = 'Conversation seed must be a JSON array or empty.';
 				return false;
 			}
 		}
@@ -142,8 +149,7 @@
 				value: profile.model,
 				label: profile.name || profile.model,
 			}));
-			const preferred =
-				profiles.find((profile) => profile.isDefault) ?? profiles[0];
+			const preferred = profiles.find((profile) => profile.isDefault) ?? profiles[0];
 			if (!model && preferred) model = preferred.model;
 			definitions = [
 				...workflows.items.map((workflow) => ({
@@ -161,8 +167,7 @@
 				const preselected =
 					initialDefinition &&
 					definitions.some(
-						(definition) =>
-							`${definition.kind}:${definition.id}` === initialDefinition,
+						(definition) => `${definition.kind}:${definition.id}` === initialDefinition,
 					)
 						? initialDefinition
 						: `${definitions[0].kind}:${definitions[0].id}`;
@@ -173,8 +178,7 @@
 				}
 			}
 		} catch (e) {
-			loadError =
-				e instanceof Error ? e.message : t('page.executions.taskLoadFailed');
+			loadError = e instanceof Error ? e.message : t('page.executions.taskLoadFailed');
 		} finally {
 			loading = false;
 		}
@@ -222,18 +226,18 @@
 		}
 		starting = true;
 		try {
-			const parsedMaxIterations =
-				maxIterations.trim() === '' ? null : Number(maxIterations);
-			const parsedTokenLimit =
-				tokenLimit.trim() === '' ? null : Number(tokenLimit);
+			const parsedMaxIterations = maxIterations.trim() === '' ? null : Number(maxIterations);
+			const parsedTokenLimit = tokenLimit.trim() === '' ? null : Number(tokenLimit);
+			const parsedConversation =
+				conversationSeed.trim() === '' ? [] : (JSON.parse(conversationSeed) as unknown[]);
 			if (
-				(parsedMaxIterations !== null &&
-					!Number.isFinite(parsedMaxIterations)) ||
+				(parsedMaxIterations !== null && !Number.isFinite(parsedMaxIterations)) ||
 				(parsedTokenLimit !== null && !Number.isFinite(parsedTokenLimit))
 			) {
 				toasts.error('Budget fields must be numbers or empty.');
 				return;
 			}
+			const debugWorkflow = definition.kind === 'workflow' && debugRun;
 			const executionId =
 				definition.kind === 'workflow'
 					? await runDefinition('workflow', definition.id, {
@@ -245,10 +249,16 @@
 							message: message.trim(),
 							model,
 							fileScope: parsedFileScope,
+							conversation: parsedConversation,
 							maxIterations: parsedMaxIterations,
 							tokenLimit: parsedTokenLimit,
 						});
-			toasts.success(t('page.executions.taskStarted'), executionId);
+			toasts.success(
+				debugWorkflow
+					? `${t('page.executions.taskStarted')} (debug run)`
+					: t('page.executions.taskStarted'),
+				executionId,
+			);
 			if (onstarted) {
 				onstarted(executionId);
 				return;
@@ -307,9 +317,7 @@
 			{:else if selectedDefinition?.kind === 'workflow'}
 				<Select
 					bind:value={version}
-					options={versions.length > 0
-						? versions
-						: [{ value: '', label: 'Latest' }]}
+					options={versions.length > 0 ? versions : [{ value: '', label: 'Latest' }]}
 					label="Version"
 					placeholder={versionsLoading ? 'Loading versions…' : 'Empty runs the current definition'}
 					disabled={versionsLoading}
@@ -335,23 +343,20 @@
 					<p class="text-micro text-destructive">{fileScopeError}</p>
 				{/if}
 				<label class="flex cursor-pointer items-start gap-2 text-caption">
-					<input
-						type="checkbox"
-						bind:checked={debugRun}
-						class="mt-1 h-3.5 w-3.5 accent-current"
-					/>
+					<input type="checkbox" bind:checked={debugRun} class="mt-1 h-3.5 w-3.5 accent-current" />
 					<span>
 						Debug run of a subworkflow
 						<span class="block text-micro text-muted-foreground">
-							Subworkflows normally run via their parent; direct runs are
-							for debugging only.
+							Subworkflows normally run via their parent; direct runs are for debugging only.
 						</span>
 					</span>
 				</label>
 				{#if debugRun}
-					<p class="rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-caption text-muted-foreground">
-						This direct run is a debug run. Prefer triggering the parent
-						workflow so lineage stays intact.
+					<p
+						class="rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-caption text-muted-foreground"
+					>
+						This direct run is a debug run. Prefer triggering the parent workflow so lineage stays
+						intact.
 					</p>
 				{/if}
 			{:else}
@@ -374,6 +379,14 @@
 				{#if fileScopeError}
 					<p class="text-micro text-destructive">{fileScopeError}</p>
 				{/if}
+				<Textarea
+					bind:value={conversationSeed}
+					label="Conversation seed (JSON array, optional)"
+					placeholder="Optional prior turns as a JSON array"
+				/>
+				{#if conversationSeedError}
+					<p class="text-micro text-destructive">{conversationSeedError}</p>
+				{/if}
 				<div class="grid grid-cols-2 gap-2">
 					<Input
 						bind:value={maxIterations}
@@ -389,9 +402,7 @@
 			{/if}
 			<Button size="sm" disabled={starting} onclick={() => void start()}>
 				<Icon name="play" size={13} />
-				{starting
-					? t('page.executions.taskStarting')
-					: t('page.executions.taskStart')}
+				{starting ? t('page.executions.taskStarting') : t('page.executions.taskStart')}
 			</Button>
 		</div>
 	{/if}

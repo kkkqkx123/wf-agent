@@ -32,35 +32,17 @@
 	}
 </script>
 
-<Dialog
-	bind:open
-	{title}
-	{description}
-	width="26rem"
-	onclose={() => onstay?.()}
->
+<Dialog bind:open {title} {description} width="26rem" onclose={() => onstay?.()}>
 	<p class="text-caption text-muted-foreground">{description}</p>
 	{#snippet footer()}
 		<div class="flex items-center justify-end gap-2">
-			<Button variant="ghost" size="sm" disabled={busy} onclick={stay}>
-				Keep editing
-			</Button>
+			<Button variant="ghost" size="sm" disabled={busy} onclick={stay}>Keep editing</Button>
 			{#if saveLabel}
-				<Button
-					variant="outline"
-					size="sm"
-					disabled={busy}
-					onclick={() => onsave?.()}
-				>
+				<Button variant="outline" size="sm" disabled={busy} onclick={() => onsave?.()}>
 					{busy ? 'Saving…' : saveLabel}
 				</Button>
 			{/if}
-			<Button
-				variant="destructive"
-				size="sm"
-				disabled={busy}
-				onclick={() => ondiscard()}
-			>
+			<Button variant="destructive" size="sm" disabled={busy} onclick={() => ondiscard()}>
 				{discardLabel}
 			</Button>
 		</div>

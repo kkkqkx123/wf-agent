@@ -649,8 +649,7 @@ export interface Diagnostic {
 	detail: string;
 }
 
-export type MetricTone =
-	'success' | 'danger' | 'warning' | 'info' | 'running' | 'neutral';
+export type MetricTone = 'success' | 'danger' | 'warning' | 'info' | 'running' | 'neutral';
 
 export interface Metric {
 	label: string;

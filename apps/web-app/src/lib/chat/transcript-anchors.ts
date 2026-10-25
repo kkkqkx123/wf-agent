@@ -9,15 +9,10 @@ import type { LoopMessage } from '#lib/types/models';
 export type TranscriptAnchorKind = 'prompt' | 'todo';
 
 /** Anchor kinds enabled when the caller passes no explicit selection. */
-export const TRANSCRIPT_ANCHOR_KINDS: readonly TranscriptAnchorKind[] = [
-	'prompt',
-	'todo',
-];
+export const TRANSCRIPT_ANCHOR_KINDS: readonly TranscriptAnchorKind[] = ['prompt', 'todo'];
 
 /** Kind of anchor behind one message, or null when it jumps nowhere. */
-export function resolveTranscriptAnchorKind(
-	message: LoopMessage,
-): TranscriptAnchorKind | null {
+export function resolveTranscriptAnchorKind(message: LoopMessage): TranscriptAnchorKind | null {
 	if (message.role === 'user') return 'prompt';
 	if (message.toolName === 'update_todo_list') return 'todo';
 	return null;

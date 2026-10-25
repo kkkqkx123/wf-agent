@@ -22,10 +22,7 @@ interface FieldCheck {
 	message: string;
 }
 
-function missingFieldChecks(
-	kind: TemplateKind,
-	record: Record<string, unknown>,
-): FieldCheck[] {
+function missingFieldChecks(kind: TemplateKind, record: Record<string, unknown>): FieldCheck[] {
 	const checks: FieldCheck[] = [];
 	if (typeof record.name !== 'string' || !record.name.trim()) {
 		checks.push({ field: 'name', message: 'name: required' });
@@ -36,10 +33,7 @@ function missingFieldChecks(
 	) {
 		checks.push({ field: 'trigger_type', message: 'trigger_type: required' });
 	}
-	if (
-		kind === 'node' &&
-		(typeof record.node_type !== 'string' || !record.node_type.trim())
-	) {
+	if (kind === 'node' && (typeof record.node_type !== 'string' || !record.node_type.trim())) {
 		checks.push({ field: 'node_type', message: 'node_type: required' });
 	}
 	return checks;
@@ -58,15 +52,10 @@ function asLocalIssues(checks: FieldCheck[]): TemplateIssue[] {
  * Synchronous local checks for live editor hints. Workflow and agent kinds
  * only validate through the server gate, so they report nothing here.
  */
-export function localTemplateIssues(
-	kind: TemplateKind,
-	definition: unknown,
-): TemplateIssue[] {
+export function localTemplateIssues(kind: TemplateKind, definition: unknown): TemplateIssue[] {
 	if (kind === 'workflow' || kind === 'agent') return [];
 	const record =
-		definition && typeof definition === 'object'
-			? (definition as Record<string, unknown>)
-			: null;
+		definition && typeof definition === 'object' ? (definition as Record<string, unknown>) : null;
 	if (!record) {
 		return [
 			{
@@ -93,8 +82,7 @@ export function serverTemplateIssues(
 		source: 'server' as const,
 		field: issue.field,
 		message: issue.message,
-		nodeId:
-			nodes.find((node) => issueTargetsNode(issue.field, node.id))?.id ?? null,
+		nodeId: nodes.find((node) => issueTargetsNode(issue.field, node.id))?.id ?? null,
 	}));
 }
 
@@ -115,9 +103,7 @@ export async function validateTemplateDefinition(
 ): Promise<TemplateIssue[]> {
 	if (kind === 'workflow') {
 		try {
-			await call<unknown>(
-				client.POST('/api/v1/workflows/validate', { body: definition }),
-			);
+			await call<unknown>(client.POST('/api/v1/workflows/validate', { body: definition }));
 			return [];
 		} catch (e) {
 			return [
@@ -132,9 +118,7 @@ export async function validateTemplateDefinition(
 	}
 	if (kind === 'agent') {
 		try {
-			await call<unknown>(
-				client.POST('/api/v1/agents/validate', { body: definition }),
-			);
+			await call<unknown>(client.POST('/api/v1/agents/validate', { body: definition }));
 			return [];
 		} catch (e) {
 			return [
@@ -213,8 +197,7 @@ export function supportsDefinitionLock(kind: TemplateKind): boolean {
 export function describeValidationGate(kind: TemplateKind): string {
 	if (kind === 'workflow')
 		return 'local hint + /workflows/validate + draft compile gate, final check on save';
-	if (kind === 'agent')
-		return 'local hint + /agents/validate compile gate, final check on save';
+	if (kind === 'agent') return 'local hint + /agents/validate compile gate, final check on save';
 	if (kind === 'node')
 		return 'local hint + /templates/node/validate compile gate, final check on save';
 	return 'local hint + /templates/trigger/validate compile gate, final check on save';

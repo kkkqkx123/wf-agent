@@ -44,18 +44,13 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	<PageHeader
-		title={t('page.git.title')}
-		description={t('page.git.description')}
-	>
+	<PageHeader title={t('page.git.title')} description={t('page.git.description')}>
 		{#snippet actions()}
 			{#if workbench.meta}
-				<Badge variant="neutral">{workbench.meta.branch || '(no branch)'}</Badge
-				>
+				<Badge variant="neutral">{workbench.meta.branch || '(no branch)'}</Badge>
 				{#if workbench.meta.upstream}
 					<Badge variant="neutral"
-						>{workbench.meta.upstream} +{workbench.meta.ahead}/-{workbench.meta
-							.behind}</Badge
+						>{workbench.meta.upstream} +{workbench.meta.ahead}/-{workbench.meta.behind}</Badge
 					>
 				{/if}
 				{#if workbench.meta.mergeHead || workbench.meta.rebaseHead || workbench.meta.cherryPickHead}
@@ -67,14 +62,8 @@
 				label={t('common.refresh')}
 				onclick={() => void workbench.reload()}
 			/>
-			<Button
-				size="sm"
-				variant="outline"
-				onclick={() => void workbench.toggleTerminal()}
-			>
-				{workbench.terminalOpen
-					? t('page.git.hideTerminal')
-					: t('page.git.terminal')}
+			<Button size="sm" variant="outline" onclick={() => void workbench.toggleTerminal()}>
+				{workbench.terminalOpen ? t('page.git.hideTerminal') : t('page.git.terminal')}
 			</Button>
 		{/snippet}
 	</PageHeader>

@@ -43,8 +43,7 @@
 
 	$effect(() => {
 		if (!ui.commandOpen) return;
-		if (executions.length > 0 && workflows.length > 0 && agentLoops.length > 0)
-			return;
+		if (executions.length > 0 && workflows.length > 0 && agentLoops.length > 0) return;
 		void Promise.all([
 			listUnifiedExecutions({ limit: 50 })
 				.then((page) => {
@@ -158,8 +157,7 @@
 		if (!needle) return all.filter((item) => item.group === 'Navigate');
 		return all.filter(
 			(item) =>
-				item.label.toLowerCase().includes(needle) ||
-				item.hint.toLowerCase().includes(needle),
+				item.label.toLowerCase().includes(needle) || item.hint.toLowerCase().includes(needle),
 		);
 	});
 
@@ -179,9 +177,7 @@
 	const flat = $derived(grouped.flatMap((group) => group.entries));
 
 	// Keeps the highlight inside range when the result set shrinks.
-	const activeIndex = $derived(
-		Math.min(rawIndex, Math.max(0, flat.length - 1)),
-	);
+	const activeIndex = $derived(Math.min(rawIndex, Math.max(0, flat.length - 1)));
 
 	function onkeydown(event: KeyboardEvent): void {
 		if (!ui.commandOpen) return;
@@ -233,9 +229,7 @@
 				</p>
 			{:else}
 				{#each grouped as group (group.name)}
-					<p
-						class="px-2 py-1 text-micro uppercase tracking-wide text-muted-foreground"
-					>
+					<p class="px-2 py-1 text-micro uppercase tracking-wide text-muted-foreground">
 						{t(GROUP_LABEL[group.name] ?? group.name)}
 					</p>
 					{#each group.entries as item (item.id)}
@@ -246,21 +240,12 @@
 							onmouseenter={() => (rawIndex = index)}
 							class={cn(
 								'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
-								index === activeIndex
-									? 'bg-accent text-accent-foreground'
-									: 'hover:bg-accent/60',
+								index === activeIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/60',
 							)}
 						>
-							<Icon
-								name={item.icon}
-								size={14}
-								class="shrink-0 text-muted-foreground"
-							/>
-							<span class="min-w-0 flex-1 truncate text-body">{item.label}</span
-							>
-							<span class="shrink-0 truncate text-micro text-muted-foreground"
-								>{item.hint}</span
-							>
+							<Icon name={item.icon} size={14} class="shrink-0 text-muted-foreground" />
+							<span class="min-w-0 flex-1 truncate text-body">{item.label}</span>
+							<span class="shrink-0 truncate text-micro text-muted-foreground">{item.hint}</span>
 						</button>
 					{/each}
 				{/each}

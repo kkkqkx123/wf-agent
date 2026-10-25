@@ -1,11 +1,7 @@
 import { client, downloadFile } from '#lib/api/client';
 import { call, requireData } from '#lib/api/envelope';
 import { ApiHttpError } from '#lib/api/envelope';
-import type {
-	GovernanceFlag,
-	Template,
-	TemplateKind,
-} from '#lib/types/models';
+import type { GovernanceFlag, Template, TemplateKind } from '#lib/types/models';
 import { describeCoordinate } from '#lib/services/template-coordinate';
 
 interface TemplateDto {
@@ -71,9 +67,7 @@ function toTemplate(d: TemplateDto, fallbackKind: TemplateKind): Template {
  * Browse the template library. The unified library surface covers all four
  * kinds, so every browse goes through one request.
  */
-export async function listTemplates(params: {
-	kind: 'all' | TemplateKind;
-}): Promise<Template[]> {
+export async function listTemplates(params: { kind: 'all' | TemplateKind }): Promise<Template[]> {
 	const { kind } = params;
 	const data = await call<unknown>(
 		client.GET('/api/v1/templates/library', {
@@ -82,22 +76,15 @@ export async function listTemplates(params: {
 	);
 	requireData(data, `Template library (${kind})`);
 	return (Array.isArray(data) ? (data as TemplateDto[]) : []).map((d) =>
-		toTemplate(
-			d,
-			normalizeKind(d.kind) ?? (kind === 'all' ? 'workflow' : kind),
-		),
+		toTemplate(d, normalizeKind(d.kind) ?? (kind === 'all' ? 'workflow' : kind)),
 	);
 }
 
 /** Public and enabled templates, most used first. */
 export async function listFeaturedTemplates(): Promise<Template[]> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/templates/library/featured'),
-	);
+	const data = await call<unknown>(client.GET('/api/v1/templates/library/featured'));
 	requireData(data, 'Featured templates');
-	return (Array.isArray(data) ? (data as TemplateDto[]) : []).map((d) =>
-		toTemplate(d, 'workflow'),
-	);
+	return (Array.isArray(data) ? (data as TemplateDto[]) : []).map((d) => toTemplate(d, 'workflow'));
 }
 
 /**
@@ -196,10 +183,7 @@ export interface TemplateDetail {
 }
 
 /** Full template entry plus a pretty-printed definition for preview/edit. */
-export async function getTemplateDetail(
-	id: string,
-	kind: TemplateKind,
-): Promise<TemplateDetail> {
+export async function getTemplateDetail(id: string, kind: TemplateKind): Promise<TemplateDetail> {
 	let raw: unknown;
 	if (kind === 'node') {
 		raw = await call<unknown>(
@@ -225,8 +209,7 @@ export async function getTemplateDetail(
 		);
 	}
 	requireData(raw, `Template ${describeCoordinate({ kind, id })}`);
-	const record =
-		raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+	const record = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
 	const definition = record.definition ?? raw;
 	return {
 		template: toTemplate(
@@ -234,21 +217,13 @@ export async function getTemplateDetail(
 				id: typeof record.id === 'string' ? record.id : id,
 				name: typeof record.name === 'string' ? record.name : id,
 				kind,
-				category:
-					typeof record.category === 'string' ? record.category : null,
-				description:
-					typeof record.description === 'string' ? record.description : null,
+				category: typeof record.category === 'string' ? record.category : null,
+				description: typeof record.description === 'string' ? record.description : null,
 				tags: Array.isArray(record.tags) ? (record.tags as string[]) : null,
-				enabled:
-					typeof record.enabled === 'boolean' ? record.enabled : undefined,
-				is_public:
-					typeof record.is_public === 'boolean' ? record.is_public : undefined,
-				is_system:
-					typeof record.is_system === 'boolean' ? record.is_system : undefined,
-				is_published:
-					typeof record.is_published === 'boolean'
-						? record.is_published
-						: undefined,
+				enabled: typeof record.enabled === 'boolean' ? record.enabled : undefined,
+				is_public: typeof record.is_public === 'boolean' ? record.is_public : undefined,
+				is_system: typeof record.is_system === 'boolean' ? record.is_system : undefined,
+				is_published: typeof record.is_published === 'boolean' ? record.is_published : undefined,
 			},
 			kind,
 		),
@@ -328,21 +303,13 @@ async function registerLibraryTemplate(
 ): Promise<string> {
 	const saved =
 		kind === 'agent'
-			? await call<string>(
-					client.POST('/api/v1/templates/library/agents', { body }),
-				)
-			: await call<string>(
-					client.POST('/api/v1/templates/library/workflows', { body }),
-				);
-	if (!saved)
-		throw new Error(`Template registration returned no id for ${kind}`);
+			? await call<string>(client.POST('/api/v1/templates/library/agents', { body }))
+			: await call<string>(client.POST('/api/v1/templates/library/workflows', { body }));
+	if (!saved) throw new Error(`Template registration returned no id for ${kind}`);
 	return saved;
 }
 
-async function deleteLibraryTemplate(
-	kind: 'agent' | 'workflow',
-	id: string,
-): Promise<void> {
+async function deleteLibraryTemplate(kind: 'agent' | 'workflow', id: string): Promise<void> {
 	if (kind === 'agent') {
 		await call<unknown>(
 			client.DELETE('/api/v1/templates/library/agents/{id}', {
@@ -359,10 +326,7 @@ async function deleteLibraryTemplate(
 }
 
 /** Delete a template entry. */
-export async function deleteTemplate(
-	kind: TemplateKind,
-	id: string,
-): Promise<void> {
+export async function deleteTemplate(kind: TemplateKind, id: string): Promise<void> {
 	if (kind === 'node') {
 		await call<unknown>(
 			client.DELETE('/api/v1/templates/node/{id}', {
@@ -387,10 +351,7 @@ export async function deleteTemplate(
  * through a dedicated server import endpoint so validation and id
  * assignment stay server owned.
  */
-export async function importTemplate(
-	kind: TemplateKind,
-	json: string,
-): Promise<string> {
+export async function importTemplate(kind: TemplateKind, json: string): Promise<string> {
 	if (kind === 'node' || kind === 'trigger') {
 		const saved =
 			kind === 'node'
@@ -421,10 +382,7 @@ export async function importTemplate(
 }
 
 /** Export a template entry as a JSON file download. */
-export async function exportTemplate(
-	kind: TemplateKind,
-	id: string,
-): Promise<void> {
+export async function exportTemplate(kind: TemplateKind, id: string): Promise<void> {
 	if (kind === 'node' || kind === 'trigger') {
 		await downloadFile(
 			`/api/v1/templates/${kind}/${encodeURIComponent(id)}/export?download=true`,

@@ -4,11 +4,7 @@
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import Badge from '#lib/ui/components/Badge.svelte';
 	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
-	import {
-		formatPercent,
-		formatRelativeTime,
-		shortId,
-	} from '#lib/utils/format';
+	import { formatPercent, formatRelativeTime, shortId } from '#lib/utils/format';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { cn } from '#lib/ui/cn';
 	import { t } from '#lib/i18n';
@@ -21,23 +17,14 @@
 		onopen?: (workflow: Workflow) => void;
 	}
 
-	let {
-		workflow,
-		selected = false,
-		class: className = '',
-		onselect,
-		onopen,
-	}: Props = $props();
+	let { workflow, selected = false, class: className = '', onselect, onopen }: Props = $props();
 
 	async function copyId(): Promise<void> {
 		try {
 			await navigator.clipboard.writeText(workflow.id);
 			toasts.success(t('common.copied'), shortId(workflow.id, 12));
 		} catch {
-			toasts.error(
-				t('domain.graph.copyFailed'),
-				t('domain.graph.copyFailedDetail'),
-			);
+			toasts.error(t('domain.graph.copyFailed'), t('domain.graph.copyFailedDetail'));
 		}
 	}
 </script>
@@ -73,9 +60,7 @@
 				<Badge variant="outline" class="text-[0.625rem]">{tag}</Badge>
 			{/each}
 			{#if workflow.tags.length > 3}
-				<span class="text-micro text-muted-foreground"
-					>+{workflow.tags.length - 3}</span
-				>
+				<span class="text-micro text-muted-foreground">+{workflow.tags.length - 3}</span>
 			{/if}
 		</div>
 
@@ -113,11 +98,6 @@
 				onclick={() => onopen?.(workflow)}
 			/>
 		{/if}
-		<IconButton
-			icon="copy"
-			label={t('common.copy')}
-			compact
-			onclick={() => void copyId()}
-		/>
+		<IconButton icon="copy" label={t('common.copy')} compact onclick={() => void copyId()} />
 	</div>
 </div>

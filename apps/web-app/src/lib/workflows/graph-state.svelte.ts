@@ -47,8 +47,7 @@ export class WorkflowGraphState {
 		try {
 			this.analysis = await getGraphAnalysis(id);
 		} catch (e) {
-			this.analysisError =
-				e instanceof Error ? e.message : 'Analysis failed to load.';
+			this.analysisError = e instanceof Error ? e.message : 'Analysis failed to load.';
 		}
 	}
 
@@ -56,20 +55,13 @@ export class WorkflowGraphState {
 		if (!workflowId) return;
 		try {
 			const neighbors = await getGraphNeighbors(workflowId, id);
-			this.neighborhoodIds = [
-				id,
-				...neighbors.predecessors,
-				...neighbors.successors,
-			];
+			this.neighborhoodIds = [id, ...neighbors.predecessors, ...neighbors.successors];
 			this.activeOverlay = '__neighborhood';
 			toasts.success(
 				`Neighborhood: ${neighbors.predecessors.length} in · ${neighbors.successors.length} out`,
 			);
 		} catch (e) {
-			toasts.error(
-				'Neighborhood failed to load',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Neighborhood failed to load', e instanceof Error ? e.message : undefined);
 		}
 	}
 
@@ -90,8 +82,7 @@ export class WorkflowGraphState {
 			});
 			runId = page.items[0]?.id ?? null;
 		} catch (e) {
-			this.overlayError =
-				e instanceof Error ? e.message : 'Latest run failed to load.';
+			this.overlayError = e instanceof Error ? e.message : 'Latest run failed to load.';
 			this.overlayLoading = false;
 			return;
 		}
@@ -125,13 +116,9 @@ export class WorkflowGraphState {
 					? (unified.record as Record<string, unknown>)
 					: {};
 			const currentNode =
-				typeof record.current_node_id === 'string'
-					? record.current_node_id
-					: null;
+				typeof record.current_node_id === 'string' ? record.current_node_id : null;
 			const historyNodes = history?.nodes ?? [];
-			const failed = historyNodes
-				.filter((node) => node.error)
-				.map((node) => node.nodeId);
+			const failed = historyNodes.filter((node) => node.error).map((node) => node.nodeId);
 			const executed = historyNodes.map((node) => node.nodeId);
 			this.executionOverlay = {
 				runId,
@@ -150,8 +137,7 @@ export class WorkflowGraphState {
 			};
 			this.overlayRunId = runId;
 		} catch (e) {
-			this.overlayError =
-				e instanceof Error ? e.message : 'Run overlay failed to load.';
+			this.overlayError = e instanceof Error ? e.message : 'Run overlay failed to load.';
 		} finally {
 			this.overlayLoading = false;
 		}

@@ -32,12 +32,7 @@
 	import Select from '#lib/ui/components/Select.svelte';
 	import { listWorkflows } from '#lib/services/workflows';
 
-	const KINDS: readonly TemplateKind[] = [
-		'node',
-		'trigger',
-		'agent',
-		'workflow',
-	];
+	const KINDS: readonly TemplateKind[] = ['node', 'trigger', 'agent', 'workflow'];
 
 	function isKind(raw: string): raw is TemplateKind {
 		return (KINDS as readonly string[]).includes(raw);
@@ -49,9 +44,7 @@
 
 	const routeKindParam = $derived(page.params.kind ?? '');
 	const routeIdParam = $derived(page.params.id ?? '');
-	const kind = $derived<TemplateKind | null>(
-		isKind(routeKindParam) ? routeKindParam : null,
-	);
+	const kind = $derived<TemplateKind | null>(isKind(routeKindParam) ? routeKindParam : null);
 	const isNew = $derived(routeIdParam === 'new');
 
 	let detail = $state<TemplateDetail | null>(null);
@@ -85,8 +78,7 @@
 
 	$effect(() => {
 		if (controller.insertNodeType === null) return;
-		const requested =
-			(page.url as unknown as URL).searchParams.get('target') ?? '';
+		const requested = (page.url as unknown as URL).searchParams.get('target') ?? '';
 		if (requested && requested !== insertTarget) insertTarget = requested;
 		void loadTargets();
 	});
@@ -139,11 +131,7 @@
 			return;
 		}
 		const viewParam = parseListParams(page.url as unknown as URL).tab;
-		const view: DetailView = isView(viewParam)
-			? viewParam
-			: isNew
-				? 'edit'
-				: 'preview';
+		const view: DetailView = isView(viewParam) ? viewParam : isNew ? 'edit' : 'preview';
 		if (isNew) {
 			controller.startNewTemplate(activeKind);
 			detail = null;
@@ -160,11 +148,7 @@
 		void loadDetail(activeKind, routeIdParam, view);
 	});
 
-	async function loadDetail(
-		activeKind: TemplateKind,
-		id: string,
-		view: DetailView,
-	): Promise<void> {
+	async function loadDetail(activeKind: TemplateKind, id: string, view: DetailView): Promise<void> {
 		detailLoading = true;
 		detailError = null;
 		try {
@@ -175,8 +159,7 @@
 				controller.editMode = false;
 			}
 		} catch (e) {
-			detailError =
-				e instanceof Error ? e.message : t('page.templateDetail.loadFailed');
+			detailError = e instanceof Error ? e.message : t('page.templateDetail.loadFailed');
 			detail = null;
 		} finally {
 			detailLoading = false;
@@ -211,11 +194,7 @@
 			// The address carries the view the user is on; re-reading it
 			// keeps that view instead of dropping back to the preview.
 			const viewParam = parseListParams(page.url as unknown as URL).tab;
-			await loadDetail(
-				'workflow',
-				id,
-				isView(viewParam) ? viewParam : 'preview',
-			);
+			await loadDetail('workflow', id, isView(viewParam) ? viewParam : 'preview');
 		} catch (e) {
 			toasts.error(
 				t('page.templateDetail.publishFailed'),
@@ -273,9 +252,7 @@
 					onclick={() => void runTogglePublish()}
 				>
 					<Icon name={published ? 'archive' : 'upload'} size={13} />
-					{published
-						? t('page.templateDetail.unpublish')
-						: t('page.templateDetail.publish')}
+					{published ? t('page.templateDetail.unpublish') : t('page.templateDetail.publish')}
 				</Button>
 			{/if}
 			<Button variant="ghost" size="sm" href="/templates">
@@ -311,11 +288,7 @@
 		{#if !isNew}
 			<Segmented
 				items={controller.viewItems}
-				value={!controller.editMode
-					? 'preview'
-					: controller.editTab === 'graph'
-						? 'graph'
-						: 'edit'}
+				value={!controller.editMode ? 'preview' : controller.editTab === 'graph' ? 'graph' : 'edit'}
 				class="px-4"
 				onchange={(id) => controller.requestView(id as DetailView)}
 			/>

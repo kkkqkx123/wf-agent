@@ -13,9 +13,11 @@ function url(search: string): URL {
 
 describe('parseListParams', () => {
 	it('keeps only the list keys that carry a value', () => {
-		expect(
-			parseListParams(url('?q=node&status=running&other=3&page=2#frag')),
-		).toEqual({ q: 'node', status: 'running', page: '2' });
+		expect(parseListParams(url('?q=node&status=running&other=3&page=2#frag'))).toEqual({
+			q: 'node',
+			status: 'running',
+			page: '2',
+		});
 	});
 
 	it('treats an empty value as absent', () => {
@@ -35,9 +37,7 @@ describe('buildListQuery', () => {
 	});
 
 	it('ignores keys it does not own', () => {
-		expect(buildListQuery(url('?q=abc'), { other: 'x' } as never)).toBe(
-			'q=abc',
-		);
+		expect(buildListQuery(url('?q=abc'), { other: 'x' } as never)).toBe('q=abc');
 	});
 
 	it('is stable when re-applied, which is what stops write-back loops', () => {

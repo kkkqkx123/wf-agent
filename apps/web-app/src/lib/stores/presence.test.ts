@@ -7,9 +7,7 @@ describe('colorForClient', () => {
 	});
 
 	it('stays inside the palette', () => {
-		const palette = new Set(
-			['a', 'b', 'c', 'tab-1', 'tab-2', 'owner-xyz'].map(colorForClient),
-		);
+		const palette = new Set(['a', 'b', 'c', 'tab-1', 'tab-2', 'owner-xyz'].map(colorForClient));
 		for (const color of palette) {
 			expect(color).toMatch(/^#[0-9a-f]{6}$/);
 		}
@@ -49,8 +47,6 @@ describe('livePeers', () => {
 			'self',
 			now,
 		);
-		expect(peers).toEqual([
-			{ clientId: 'other', name: 'peer', color: '#8b5cf6', x: 3, y: 4 },
-		]);
+		expect(peers).toEqual([{ clientId: 'other', name: 'peer', color: '#8b5cf6', x: 3, y: 4 }]);
 	});
 });

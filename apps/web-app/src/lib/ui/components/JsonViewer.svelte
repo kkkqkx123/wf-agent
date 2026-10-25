@@ -9,12 +9,7 @@
 		class?: string;
 	}
 
-	let {
-		value,
-		collapsed = false,
-		maxLength = 8000,
-		class: className = '',
-	}: Props = $props();
+	let { value, collapsed = false, maxLength = 8000, class: className = '' }: Props = $props();
 
 	let userToggled = $state(false);
 	const open = $derived(collapsed ? userToggled : !userToggled);

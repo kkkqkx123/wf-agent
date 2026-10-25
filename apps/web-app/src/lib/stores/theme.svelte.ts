@@ -19,9 +19,7 @@ export function applyTheme(theme: 'light' | 'dark'): void {
 	const root = document.documentElement;
 	root.classList.toggle('dark', theme === 'dark');
 	root.style.colorScheme = theme;
-	document
-		.querySelector('meta[name="theme-color"]')
-		?.setAttribute('content', DARK_META[theme]);
+	document.querySelector('meta[name="theme-color"]')?.setAttribute('content', DARK_META[theme]);
 }
 
 export function applyFontScale(scale: number): void {

@@ -29,8 +29,7 @@
 		onchanged: () => void;
 	}
 
-	let { kind, definitionId, versions, nodes, edges, onchanged }: Props =
-		$props();
+	let { kind, definitionId, versions, nodes, edges, onchanged }: Props = $props();
 
 	let selectedId = $state<string | null>(null);
 	let compareFrom = $state('');
@@ -68,10 +67,7 @@
 		{
 			key: 'current',
 			header: t('domain.versions.state'),
-			text: (row) =>
-				row.current
-					? t('domain.versions.current')
-					: t('domain.versions.superseded'),
+			text: (row) => (row.current ? t('domain.versions.current') : t('domain.versions.superseded')),
 		},
 	]);
 
@@ -102,15 +98,9 @@
 		diffLoading = true;
 		diffError = null;
 		try {
-			diff = await diffDefinitionVersions(
-				kind,
-				definitionId,
-				compareFrom,
-				compareTo,
-			);
+			diff = await diffDefinitionVersions(kind, definitionId, compareFrom, compareTo);
 		} catch (e) {
-			diffError =
-				e instanceof Error ? e.message : t('domain.versions.compareFailed');
+			diffError = e instanceof Error ? e.message : t('domain.versions.compareFailed');
 			diff = null;
 		} finally {
 			diffLoading = false;
@@ -126,10 +116,7 @@
 			toasts.success(t('domain.versions.rolledBack', { rollbackTarget }));
 			onchanged();
 		} catch (e) {
-			toasts.error(
-				t('domain.versions.rollbackFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.versions.rollbackFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			rollbackBusy = false;
 		}
@@ -147,11 +134,7 @@
 </script>
 
 <Card title={t('domain.versions.historyTitle')} bodyClass="p-0">
-	<DataTable
-		columns={versionColumns}
-		rows={versions}
-		rowKey={(row) => row.version}
-	/>
+	<DataTable columns={versionColumns} rows={versions} rowKey={(row) => row.version} />
 </Card>
 <div class="mt-3 grid gap-3 lg:grid-cols-2">
 	<Card title={t('domain.versions.compareTitle')}>
@@ -221,8 +204,7 @@
 							{#each diff.addedEdges as edge (`${edge.source}->${edge.target}`)}
 								<button
 									type="button"
-									aria-current={selectedId === edge.source ||
-										selectedId === edge.target}
+									aria-current={selectedId === edge.source || selectedId === edge.target}
 									class="mr-1 font-mono text-success underline-offset-2 hover:underline aria-[current=true]:rounded aria-[current=true]:bg-success/15 aria-[current=true]:ring-1 aria-[current=true]:ring-success"
 									onclick={() => diffExplorer?.focus(edge.source)}
 								>
@@ -235,8 +217,7 @@
 							{#each diff.removedEdges as edge (`${edge.source}->${edge.target}`)}
 								<button
 									type="button"
-									aria-current={selectedId === edge.source ||
-										selectedId === edge.target}
+									aria-current={selectedId === edge.source || selectedId === edge.target}
 									class="mr-1 font-mono text-destructive underline-offset-2 hover:underline aria-[current=true]:rounded aria-[current=true]:bg-success/15 aria-[current=true]:ring-1 aria-[current=true]:ring-destructive"
 									onclick={() => diffExplorer?.focus(edge.source)}
 								>
@@ -276,11 +257,7 @@
 				>
 					{t('domain.versions.confirmRollback', { version: rollbackTarget })}
 				</Button>
-				<Button
-					variant="ghost"
-					size="sm"
-					onclick={() => (rollbackArmed = false)}
-				>
+				<Button variant="ghost" size="sm" onclick={() => (rollbackArmed = false)}>
 					{t('common.cancel')}
 				</Button>
 			{:else}

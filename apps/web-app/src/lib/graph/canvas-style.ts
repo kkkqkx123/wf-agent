@@ -223,17 +223,13 @@ export const CANVAS_STYLESHEET = [
  */
 function readToken(name: string): string | null {
 	if (!browser || typeof document === 'undefined') return null;
-	const raw = getComputedStyle(document.documentElement)
-		.getPropertyValue(name)
-		.trim();
+	const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 	return raw ? `hsl(${raw})` : null;
 }
 
 function readFontToken(name: string, fallback: number): number {
 	if (!browser || typeof document === 'undefined') return fallback;
-	const raw = getComputedStyle(document.documentElement)
-		.getPropertyValue(name)
-		.trim();
+	const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 	if (!raw) return fallback;
 	// Custom properties are returned as specified, so rem/calc values need
 	// resolving through a probe element to obtain concrete pixels.
@@ -255,14 +251,8 @@ function readFontToken(name: string, fallback: number): number {
 /** Node and edge font sizes follow the canvas type tokens. */
 export function canvasFontSizes(): { node: number; edge: number } {
 	return {
-		node: readFontToken(
-			'--canvas-node-font-size',
-			readFontToken('--text-small', 12),
-		),
-		edge: readFontToken(
-			'--canvas-edge-font-size',
-			readFontToken('--text-micro', 11),
-		),
+		node: readFontToken('--canvas-node-font-size', readFontToken('--text-small', 12)),
+		edge: readFontToken('--canvas-edge-font-size', readFontToken('--text-micro', 11)),
 	};
 }
 
@@ -302,8 +292,7 @@ export function zoomRingWidth(selector: string, zoom: number): number {
 
 /** Active canvas palette: semantic tokens with static fallbacks. */
 export function canvasPalette(): Record<string, string> {
-	const token = (name: string, fallback: string): string =>
-		readToken(name) ?? fallback;
+	const token = (name: string, fallback: string): string => readToken(name) ?? fallback;
 	return {
 		nodeBg: token('--card', 'hsl(0 0% 100%)'),
 		nodeFg: token('--card-foreground', 'hsl(220 20% 12%)'),

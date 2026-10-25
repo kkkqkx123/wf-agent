@@ -256,10 +256,7 @@
 				behind: /^\d+$/.test(behindText) ? Number(behindText) : null,
 			});
 			rebaseOpen = false;
-			toasts.success(
-				t('domain.files.syncRebased'),
-				outcome.newAnchor.slice(0, 10),
-			);
+			toasts.success(t('domain.files.syncRebased'), outcome.newAnchor.slice(0, 10));
 			await loadSync();
 			store.bump('files');
 		} catch (e) {
@@ -272,10 +269,7 @@
 </script>
 
 {#if configured}
-	<Card
-		title={t('domain.files.syncTitle')}
-		description={t('domain.files.syncDescription')}
-	>
+	<Card title={t('domain.files.syncTitle')} description={t('domain.files.syncDescription')}>
 		{#snippet actions()}
 			<Button
 				variant="ghost"
@@ -296,45 +290,32 @@
 		{:else}
 			<div class="space-y-2">
 				<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption">
-					<span class="text-muted-foreground"
-						>{t('domain.files.syncReconcile')}</span
-					>
+					<span class="text-muted-foreground">{t('domain.files.syncReconcile')}</span>
 					{#if reconcile}
 						<span class="font-mono">{reconcile.internalMain.slice(0, 10)}</span>
 						<span class="text-micro text-muted-foreground">←</span>
-						<span class="font-mono"
-							>{reconcile.externalCommit.slice(0, 10)}</span
-						>
+						<span class="font-mono">{reconcile.externalCommit.slice(0, 10)}</span>
 						<span class="shrink-0 text-micro text-muted-foreground">
 							{formatRelativeTime(reconcile.updatedAtMs)}
 						</span>
 					{:else}
-						<span class="text-muted-foreground"
-							>{t('domain.files.syncNoReconcile')}</span
-						>
+						<span class="text-muted-foreground">{t('domain.files.syncNoReconcile')}</span>
 					{/if}
 				</div>
 				<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption">
-					<span class="text-muted-foreground">{t('domain.files.syncHint')}</span
-					>
+					<span class="text-muted-foreground">{t('domain.files.syncHint')}</span>
 					{#if hint}
-						<Badge variant="warning"
-							>{t('domain.files.syncExternalAhead')}</Badge
-						>
+						<Badge variant="warning">{t('domain.files.syncExternalAhead')}</Badge>
 						<span class="font-mono">{hint.externalHead.slice(0, 10)}</span>
 						<span class="text-micro text-muted-foreground">
 							{t('domain.files.showingFiles', { total: hint.fileCount })}
 						</span>
 					{:else}
-						<span class="text-muted-foreground"
-							>{t('domain.files.syncAligned')}</span
-						>
+						<span class="text-muted-foreground">{t('domain.files.syncAligned')}</span>
 					{/if}
 				</div>
 				<div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption">
-					<span class="text-muted-foreground"
-						>{t('domain.files.syncDefaults')}</span
-					>
+					<span class="text-muted-foreground">{t('domain.files.syncDefaults')}</span>
 					{#if defaults}
 						<Switch
 							label={t('domain.files.syncAutoCommit')}
@@ -396,16 +377,12 @@
 				/>
 				<span>{t('domain.files.syncExportConfirmLabel')}</span>
 			</label>
-			<Switch
-				label={t('domain.files.syncAutoCommit')}
-				bind:checked={exportAutoCommit}
-			/>
+			<Switch label={t('domain.files.syncAutoCommit')} bind:checked={exportAutoCommit} />
 			<Input
 				label={t('domain.files.syncExportMessage')}
 				size="sm"
 				value={exportMessage}
-				oninput={(event: Event) =>
-					(exportMessage = (event.target as HTMLInputElement).value)}
+				oninput={(event: Event) => (exportMessage = (event.target as HTMLInputElement).value)}
 			/>
 		</div>
 		{#snippet footer()}
@@ -436,22 +413,19 @@
 				label={t('domain.files.syncBranch')}
 				size="sm"
 				value={rebaseBranch}
-				oninput={(event: Event) =>
-					(rebaseBranch = (event.target as HTMLInputElement).value)}
+				oninput={(event: Event) => (rebaseBranch = (event.target as HTMLInputElement).value)}
 			/>
 			<Input
 				label={t('domain.files.syncPrefix')}
 				size="sm"
 				value={rebasePrefix}
-				oninput={(event: Event) =>
-					(rebasePrefix = (event.target as HTMLInputElement).value)}
+				oninput={(event: Event) => (rebasePrefix = (event.target as HTMLInputElement).value)}
 			/>
 			<Input
 				label={t('domain.files.syncBehind')}
 				size="sm"
 				value={rebaseBehind}
-				oninput={(event: Event) =>
-					(rebaseBehind = (event.target as HTMLInputElement).value)}
+				oninput={(event: Event) => (rebaseBehind = (event.target as HTMLInputElement).value)}
 			/>
 			<Select
 				label={t('domain.files.syncMode')}
@@ -465,11 +439,7 @@
 			<Button variant="ghost" size="sm" onclick={() => (rebaseOpen = false)}>
 				{t('common.cancel')}
 			</Button>
-			<Button
-				size="sm"
-				disabled={workspace.busy}
-				onclick={() => void runRebase()}
-			>
+			<Button size="sm" disabled={workspace.busy} onclick={() => void runRebase()}>
 				{t('domain.files.syncRebase')}
 			</Button>
 		{/snippet}

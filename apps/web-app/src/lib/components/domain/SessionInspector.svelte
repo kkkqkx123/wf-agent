@@ -30,12 +30,7 @@
 		listLoopVariables,
 	} from '#lib/services/agent-loops';
 	import { listLoopCheckpoints } from '#lib/services/checkpoints';
-	import type {
-		Checkpoint,
-		LoopMessage,
-		LoopVariable,
-		ToolCallEntry,
-	} from '#lib/types/models';
+	import type { Checkpoint, LoopMessage, LoopVariable, ToolCallEntry } from '#lib/types/models';
 	import {
 		INSPECTOR_TABS,
 		TAB_DATA,
@@ -48,12 +43,7 @@
 	import { groupToolCalls } from '#lib/utils/tool-output';
 	import { preferences } from '#lib/stores/preferences.svelte';
 	import { SvelteSet } from 'svelte/reactivity';
-	import {
-		formatBytes,
-		formatDateTime,
-		formatDuration,
-		formatNumber,
-	} from '#lib/utils/format';
+	import { formatBytes, formatDateTime, formatDuration, formatNumber } from '#lib/utils/format';
 	import type { UsageSnapshot } from '#lib/utils/stream-parser';
 	import { cn } from '#lib/ui/cn';
 	import { t } from '#lib/i18n';
@@ -105,9 +95,7 @@
 
 	const summary = createResource(() => getAgentLoop(sessionId));
 	const graph = createResource(() => getLoopGraph(sessionId));
-	const iterations = createResource(() =>
-		listLoopIterations(sessionId, { limit: 200 }),
-	);
+	const iterations = createResource(() => listLoopIterations(sessionId, { limit: 200 }));
 	const variables = createResource(() => listLoopVariables(sessionId));
 	const checkpoints = createResource(() => listLoopCheckpoints(sessionId));
 	const timeline = createResource(() => listLoopTimeline(sessionId));
@@ -161,14 +149,10 @@
 
 	const loop = $derived(summary.data);
 	/** Total tokens of the live run; zero when no usage frame arrived yet. */
-	const usageTotal = $derived(
-		usage ? usage.promptTokens + usage.completionTokens : 0,
-	);
+	const usageTotal = $derived(usage ? usage.promptTokens + usage.completionTokens : 0);
 	const iterationList = $derived(iterations.data?.items ?? []);
 	const toolCalls = $derived(iterationList.flatMap((row) => row.toolCalls));
-	const failedCalls = $derived(
-		toolCalls.filter((call) => call.status !== 'completed').length,
-	);
+	const failedCalls = $derived(toolCalls.filter((call) => call.status !== 'completed').length);
 	const toolFrequency = $derived.by(() => {
 		const counts: Record<string, { count: number; failed: number }> = {};
 		for (const call of toolCalls) {
@@ -287,24 +271,19 @@
 	}
 
 	const selectedGraphIteration = $derived(
-		decisionNodes.find((node) => node.id === selectedGraphNode)?.iteration ??
-			null,
+		decisionNodes.find((node) => node.id === selectedGraphNode)?.iteration ?? null,
 	);
 
 	const visibleIterations = $derived(
 		selectedGraphIteration === null
 			? iterationList
-			: iterationList.filter(
-					(iteration) => iteration.index === selectedGraphIteration,
-				),
+			: iterationList.filter((iteration) => iteration.index === selectedGraphIteration),
 	);
 
 	const visibleTools = $derived(
 		selectedGraphNode === null
 			? toolCalls
-			: toolCalls.filter(
-					(call) => matchDecisionNode(call.name) === selectedGraphNode,
-				),
+			: toolCalls.filter((call) => matchDecisionNode(call.name) === selectedGraphNode),
 	);
 
 	/** History tool rows group like live tool rows. Expansion is local
@@ -326,22 +305,13 @@
 </script>
 
 <div class={cn('flex min-h-0 flex-col', className)}>
-	<Segmented
-		{items}
-		bind:value={tab}
-		size="sm"
-		class="shrink-0 px-1"
-		panelId="session-panel"
-	/>
+	<Segmented {items} bind:value={tab} size="sm" class="shrink-0 px-1" panelId="session-panel" />
 
 	<div
 		id="session-panel"
 		role="tabpanel"
 		aria-label={t('domain.session.sections')}
-		class={cn(
-			'min-h-0 flex-1',
-			showTranscript ? 'flex flex-col' : 'overflow-y-auto px-3 py-3',
-		)}
+		class={cn('min-h-0 flex-1', showTranscript ? 'flex flex-col' : 'overflow-y-auto px-3 py-3')}
 	>
 		{#if !sessionId}
 			<p class="text-caption text-muted-foreground">
@@ -362,9 +332,7 @@
 			{#if loop}
 				<div class="mb-3 flex items-center gap-2">
 					<StatusBadge status={loop.status} size="sm" />
-					<span class="font-mono text-micro text-muted-foreground"
-						>{loop.id}</span
-					>
+					<span class="font-mono text-micro text-muted-foreground">{loop.id}</span>
 				</div>
 				<Card title={t('domain.session.runFacts')}>
 					<KeyValueList
@@ -414,8 +382,7 @@
 								},
 								{
 									key: t('domain.session.usageCost'),
-									value:
-										usage.cost === null ? '—' : `$${usage.cost.toFixed(4)}`,
+									value: usage.cost === null ? '—' : `$${usage.cost.toFixed(4)}`,
 								},
 							]}
 							dense
@@ -465,9 +432,7 @@
 							class="flex items-start justify-between gap-3 border-b border-border/60 pb-2 last:border-0 last:pb-0"
 						>
 							<p class="min-w-0 text-caption">
-								<span class="font-mono text-muted-foreground"
-									>#{iteration.index}</span
-								>
+								<span class="font-mono text-muted-foreground">#{iteration.index}</span>
 								<span class="ml-2 text-foreground">
 									{iteration.summary || t('domain.session.noResponseText')}
 								</span>
@@ -500,9 +465,7 @@
 			{:else}
 				<div class="space-y-2">
 					{#each checkpoints.data ?? [] as checkpoint (checkpoint.id)}
-						<Card
-							title="{checkpoint.kind} · #{checkpoint.chainPosition ?? '—'}"
-						>
+						<Card title="{checkpoint.kind} · #{checkpoint.chainPosition ?? '—'}">
 							{#snippet actions()}
 								<StatusBadge status={checkpoint.status} size="sm" dot={false} />
 							{/snippet}
@@ -573,9 +536,7 @@
 							class={cn(
 								'rounded-lg',
 								toolNodeId && 'cursor-pointer',
-								toolNodeId &&
-									selectedGraphNode === toolNodeId &&
-									'ring-2 ring-warning',
+								toolNodeId && selectedGraphNode === toolNodeId && 'ring-2 ring-warning',
 							)}
 						>
 							<ToolCallCard {entry} />
@@ -611,10 +572,7 @@
 			{:else}
 				<div class="flex items-start gap-3">
 					<Timeline entries={timeline.data ?? []} class="min-w-0 flex-1" />
-					<TimelineOutline
-						entries={timeline.data ?? []}
-						class="hidden w-44 xl:block"
-					/>
+					<TimelineOutline entries={timeline.data ?? []} class="hidden w-44 xl:block" />
 				</div>
 			{/if}
 		{:else if tab === 'analysis'}
@@ -647,12 +605,8 @@
 						<ul class="space-y-2">
 							{#each toolFrequency as item (item.tool)}
 								<li class="flex items-center gap-3">
-									<span class="w-28 shrink-0 truncate font-mono text-caption"
-										>{item.tool}</span
-									>
-									<span
-										class="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
-									>
+									<span class="w-28 shrink-0 truncate font-mono text-caption">{item.tool}</span>
+									<span class="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
 										<span
 											class="block h-full rounded-full bg-info"
 											style:width="{(item.count / peakCalls) * 100}%"
@@ -663,9 +617,7 @@
 									>
 										{formatNumber(item.count)}
 										{#if item.failed > 0}
-											<span class="text-destructive">
-												· {formatNumber(item.failed)}</span
-											>
+											<span class="text-destructive"> · {formatNumber(item.failed)}</span>
 										{/if}
 									</span>
 								</li>

@@ -2,10 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import { tick } from 'svelte';
 	import Icon from '#lib/ui/icons/Icon.svelte';
-	import {
-		nextAnchorIndex,
-		prevAnchorIndex,
-	} from '#lib/chat/transcript-anchors';
+	import { nextAnchorIndex, prevAnchorIndex } from '#lib/chat/transcript-anchors';
 	import {
 		FOLLOW_TAIL_SLACK_PX,
 		TRANSCRIPT_OVERSCAN_ROWS,
@@ -74,9 +71,7 @@
 	const offsets = $derived.by(() => {
 		const out: number[] = [0];
 		for (const row of rows) {
-			out.push(
-				out[out.length - 1] + (heights[row.key] ?? TRANSCRIPT_ROW_ESTIMATE_PX),
-			);
+			out.push(out[out.length - 1] + (heights[row.key] ?? TRANSCRIPT_ROW_ESTIMATE_PX));
 		}
 		return out;
 	});
@@ -92,22 +87,15 @@
 		return low;
 	}
 
-	const first = $derived(
-		windowed ? Math.max(0, rowAt(scrollTop) - TRANSCRIPT_OVERSCAN_ROWS) : 0,
-	);
+	const first = $derived(windowed ? Math.max(0, rowAt(scrollTop) - TRANSCRIPT_OVERSCAN_ROWS) : 0);
 	const last = $derived(
 		windowed
-			? Math.min(
-					rows.length,
-					rowAt(scrollTop + viewHeight) + 1 + TRANSCRIPT_OVERSCAN_ROWS,
-				)
+			? Math.min(rows.length, rowAt(scrollTop + viewHeight) + 1 + TRANSCRIPT_OVERSCAN_ROWS)
 			: rows.length,
 	);
 	const visible = $derived(rows.slice(first, last));
 	const padTop = $derived(windowed ? offsets[first] : 0);
-	const padBottom = $derived(
-		windowed ? offsets[rows.length] - offsets[last] : 0,
-	);
+	const padBottom = $derived(windowed ? offsets[rows.length] - offsets[last] : 0);
 	const increments = $derived(Math.max(0, activity - baseline));
 	const awayFromTop = $derived(scrollTop > FOLLOW_TAIL_SLACK_PX);
 	const canScroll = $derived(contentHeight - viewHeight > FOLLOW_TAIL_SLACK_PX);
@@ -232,11 +220,7 @@
 		if (target === null) {
 			resume();
 			try {
-				history.replaceState(
-					null,
-					'',
-					window.location.pathname + window.location.search,
-				);
+				history.replaceState(null, '', window.location.pathname + window.location.search);
 			} catch {
 				// Hash cleanup is best-effort.
 			}
@@ -248,8 +232,7 @@
 	/** Jump to the previous anchor toward the head. */
 	export function scrollToPrevAnchor(): void {
 		if (anchorIndexes.length === 0) return;
-		const target =
-			prevAnchorIndex(anchorIndexes, currentIndex()) ?? anchorIndexes[0];
+		const target = prevAnchorIndex(anchorIndexes, currentIndex()) ?? anchorIndexes[0];
 		if (target === undefined) return;
 		void scrollToMessage(itemKey(items[target]));
 	}
@@ -278,8 +261,7 @@
 			if ((window.getSelection()?.toString() ?? '') !== '') following = false;
 		};
 		document.addEventListener('selectionchange', onSelectionChange);
-		return () =>
-			document.removeEventListener('selectionchange', onSelectionChange);
+		return () => document.removeEventListener('selectionchange', onSelectionChange);
 	});
 
 	$effect(() => {
@@ -403,9 +385,7 @@
 	</div>
 
 	{#if !following || showTop}
-		<div
-			class="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2"
-		>
+		<div class="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2">
 			{#if showTop}
 				<button
 					type="button"
@@ -414,9 +394,7 @@
 					class="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-caption text-card-foreground shadow-sm transition-colors hover:bg-accent"
 				>
 					<Icon name="chevron-up" size={13} />
-					<span class="hidden sm:inline"
-						>{t('chat.transcriptScroller.backToTop')}</span
-					>
+					<span class="hidden sm:inline">{t('chat.transcriptScroller.backToTop')}</span>
 				</button>
 			{/if}
 			{#if !following}
@@ -429,9 +407,7 @@
 					class="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-caption text-card-foreground shadow-sm transition-colors hover:bg-accent"
 				>
 					<Icon name="chevron-down" size={13} />
-					<span class="hidden sm:inline"
-						>{t('chat.transcriptScroller.backToTail')}</span
-					>
+					<span class="hidden sm:inline">{t('chat.transcriptScroller.backToTail')}</span>
 					{#if increments > 0}
 						<span class="font-mono text-micro text-muted-foreground">
 							+{increments}

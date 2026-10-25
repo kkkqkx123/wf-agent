@@ -57,8 +57,7 @@
 			key: 'cost',
 			header: t('page.resources.models.columnCost'),
 			align: 'right',
-			text: (profile) =>
-				profile.cost === null ? '—' : `$${profile.cost.toFixed(2)}`,
+			text: (profile) => (profile.cost === null ? '—' : `$${profile.cost.toFixed(2)}`),
 			cellClass: 'tabular-nums text-caption',
 		},
 	];
@@ -87,9 +86,7 @@
 		{:else}
 			<ul class="divide-y divide-border">
 				{#each providers as provider (provider.id)}
-					<li
-						class="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0"
-					>
+					<li class="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0">
 						<div class="min-w-0">
 							<p class="truncate text-body">{provider.name}</p>
 							<p class="truncate font-mono text-micro text-muted-foreground">
@@ -97,9 +94,7 @@
 							</p>
 						</div>
 						<div class="flex shrink-0 items-center gap-2">
-							<span class="text-caption text-muted-foreground"
-								>{provider.models} models</span
-							>
+							<span class="text-caption text-muted-foreground">{provider.models} models</span>
 							<StatusBadge status={provider.status} size="sm" />
 						</div>
 					</li>

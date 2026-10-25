@@ -2,11 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import Icon from '#lib/ui/icons/Icon.svelte';
 	import ToolCallCard from '#lib/components/domain/ToolCallCard.svelte';
-	import {
-		describeToolGroup,
-		groupToolNames,
-		type ToolCallGroup,
-	} from '#lib/utils/tool-output';
+	import { describeToolGroup, groupToolNames, type ToolCallGroup } from '#lib/utils/tool-output';
 	import type { ToolCallEntry } from '#lib/types/models';
 	import { cn } from '#lib/ui/cn';
 
@@ -20,24 +16,13 @@
 		class?: string;
 	}
 
-	let {
-		group,
-		open,
-		ontoggle,
-		member,
-		class: className = '',
-	}: Props = $props();
+	let { group, open, ontoggle, member, class: className = '' }: Props = $props();
 
 	const title = $derived(describeToolGroup(group));
 	const subtitle = $derived(groupToolNames(group));
 </script>
 
-<section
-	class={cn(
-		'overflow-hidden rounded-lg border border-border bg-card',
-		className,
-	)}
->
+<section class={cn('overflow-hidden rounded-lg border border-border bg-card', className)}>
 	<button
 		type="button"
 		onclick={ontoggle}

@@ -26,11 +26,7 @@
 	<input
 		{id}
 		bind:value
-		class={cn(
-			INPUT_BASE,
-			size === 'sm' ? 'h-7 text-small' : 'h-8.5',
-			className,
-		)}
+		class={cn(INPUT_BASE, size === 'sm' ? 'h-7 text-small' : 'h-8.5', className)}
 		{...rest}
 	/>
 {/snippet}

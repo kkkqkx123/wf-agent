@@ -28,9 +28,7 @@
 	}
 </script>
 
-<header
-	class="frost flex h-12 shrink-0 items-center gap-2 border-b border-border px-3"
->
+<header class="frost flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
 	<IconButton
 		icon="menu"
 		label={t('layout.topbar.toggleNavigation')}
@@ -42,19 +40,10 @@
 		aria-label={t('layout.topbar.breadcrumb')}
 		class="flex min-w-0 items-center gap-1.5 text-body"
 	>
-		<a
-			href={resolve('/')}
-			class="truncate text-muted-foreground hover:text-foreground">wf-agent</a
-		>
+		<a href={resolve('/')} class="truncate text-muted-foreground hover:text-foreground">wf-agent</a>
 		{#if activeItem}
-			<Icon
-				name="chevron-right"
-				size={13}
-				class="shrink-0 text-muted-foreground/60"
-			/>
-			<span class="truncate font-medium text-foreground"
-				>{activeItem.label()}</span
-			>
+			<Icon name="chevron-right" size={13} class="shrink-0 text-muted-foreground/60" />
+			<span class="truncate font-medium text-foreground">{activeItem.label()}</span>
 		{/if}
 	</nav>
 

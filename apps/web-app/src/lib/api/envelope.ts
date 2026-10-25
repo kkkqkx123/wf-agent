@@ -8,12 +8,7 @@ export class ApiHttpError extends Error {
 	public readonly code: string;
 	public readonly envelopeError?: ApiErrorBody;
 
-	constructor(
-		status: number,
-		code: string,
-		message: string,
-		envelopeError?: ApiErrorBody,
-	) {
+	constructor(status: number, code: string, message: string, envelopeError?: ApiErrorBody) {
 		super(message);
 		this.name = 'ApiHttpError';
 		this.status = status;
@@ -115,9 +110,7 @@ export function extractCursorPage<T>(data: unknown): CursorPageResult<T> {
 	const d = data as Record<string, unknown>;
 	const items = (Array.isArray(d.items) ? d.items : []) as T[];
 	const nextCursor =
-		typeof d.next_cursor === 'string' && d.next_cursor !== ''
-			? d.next_cursor
-			: null;
+		typeof d.next_cursor === 'string' && d.next_cursor !== '' ? d.next_cursor : null;
 	return {
 		items,
 		hasMore: (d.has_more as boolean | undefined) ?? nextCursor !== null,

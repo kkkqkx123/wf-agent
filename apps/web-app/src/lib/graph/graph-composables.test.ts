@@ -23,10 +23,7 @@ describe('GraphFilterState', () => {
 	it('hides whole kinds and drops dangling edges', () => {
 		const state = new GraphFilterState();
 		state.toggleKind('LLM');
-		const result = state.filter(
-			[node('a', 'LLM'), node('b', 'SCRIPT')],
-			[edge('e', 'a', 'b')],
-		);
+		const result = state.filter([node('a', 'LLM'), node('b', 'SCRIPT')], [edge('e', 'a', 'b')]);
 		expect(result.nodes.map((entry) => entry.id)).toEqual(['b']);
 		expect(result.edges).toEqual([]);
 		expect(state.active).toBe(true);

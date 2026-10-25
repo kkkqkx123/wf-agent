@@ -148,10 +148,7 @@ export class TemplateEditSession {
 	}
 
 	formSnapshot(): Record<string, string> {
-		const form = formFromDefinition(
-			this.kind,
-			templateEditTarget(this.kind, this.full),
-		);
+		const form = formFromDefinition(this.kind, templateEditTarget(this.kind, this.full));
 		if (isLibraryKind(this.kind)) {
 			const outer = asRecord(this.full);
 			form.category = fieldText(outer.category);
@@ -184,11 +181,7 @@ export class TemplateEditSession {
 			}
 			this.full = { ...outer, definition: merged };
 		} else {
-			this.full = formToDefinition(
-				this.kind,
-				form,
-				templateEditTarget(this.kind, this.full) ?? {},
-			);
+			this.full = formToDefinition(this.kind, form, templateEditTarget(this.kind, this.full) ?? {});
 		}
 		this.revision += 1;
 		this.textValue = sessionTextFor(this.kind, this.full);
@@ -204,11 +197,7 @@ export class TemplateEditSession {
 	}
 
 	hasGraphConflict(graphDirty: boolean): boolean {
-		return (
-			graphDirty &&
-			this.graphLoadedAt >= 0 &&
-			this.graphLoadedAt !== this.revision
-		);
+		return graphDirty && this.graphLoadedAt >= 0 && this.graphLoadedAt !== this.revision;
 	}
 
 	mergeGraph(nodes: DisplayNode[], edges: DisplayEdge[]): void {

@@ -5,8 +5,9 @@
 		"paths": {
 			"#lib/*": ["./src/lib/*"],
 			"#paraglide/*": ["./src/lib/paraglide/*"]
-		}
+		},
+		"skipLibCheck": true
 	},
-	"include": ["src", "test", "*"],
+	"include": ["src", "tests", "*"],
 	"exclude": ["src/service-worker"]
 }

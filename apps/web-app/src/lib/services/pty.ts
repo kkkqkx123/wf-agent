@@ -38,9 +38,7 @@ export async function listPtys(): Promise<PtySession[]> {
 }
 
 export async function getPty(id: string): Promise<PtySession> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/pty/{id}', { params: { path: { id } } }),
-	);
+	const data = await call<unknown>(client.GET('/api/v1/pty/{id}', { params: { path: { id } } }));
 	return requireData(data, 'PTY session') as PtySession;
 }
 
@@ -62,9 +60,7 @@ export async function updatePty(
 }
 
 export async function closePty(id: string): Promise<void> {
-	await call<unknown>(
-		client.DELETE('/api/v1/pty/{id}', { params: { path: { id } } }),
-	);
+	await call<unknown>(client.DELETE('/api/v1/pty/{id}', { params: { path: { id } } }));
 }
 
 export interface PtySocket {
@@ -113,11 +109,7 @@ async function fetchConnectTicket(id: string): Promise<string | undefined> {
  * replay). Reconnect policy is the caller's decision, driven by `onClose`;
  * every (re)connect mints a fresh ticket because tickets are one-time.
  */
-export function connectPty(
-	id: string,
-	cursor: number,
-	options: PtySocketOptions = {},
-): PtySocket {
+export function connectPty(id: string, cursor: number, options: PtySocketOptions = {}): PtySocket {
 	let ws: WebSocket | null = null;
 	let disposed = false;
 	let pending: Array<string | ArrayBuffer | Uint8Array> = [];
@@ -190,9 +182,7 @@ export function connectPty(
 				const bytes = new Uint8Array(event.data);
 				if (bytes.length === 0 || bytes[0] !== 0x00) return;
 				try {
-					const meta = JSON.parse(
-						new TextDecoder().decode(bytes.subarray(1)),
-					) as {
+					const meta = JSON.parse(new TextDecoder().decode(bytes.subarray(1))) as {
 						cursor?: unknown;
 						event?: unknown;
 						exit_code?: unknown;
@@ -200,18 +190,13 @@ export function connectPty(
 					};
 					if (meta.event === 'exited') {
 						options.onExit?.({
-							exitCode:
-								typeof meta.exit_code === 'number' ? meta.exit_code : null,
+							exitCode: typeof meta.exit_code === 'number' ? meta.exit_code : null,
 							reason: typeof meta.reason === 'string' ? meta.reason : 'process',
 						});
 						return;
 					}
 					const next = meta?.cursor;
-					if (
-						typeof next === 'number' &&
-						Number.isSafeInteger(next) &&
-						next >= 0
-					) {
+					if (typeof next === 'number' && Number.isSafeInteger(next) && next >= 0) {
 						options.onMeta?.(next);
 					}
 				} catch {

@@ -14,10 +14,7 @@
 	let { workbench }: Props = $props();
 </script>
 
-<Card
-	title={t('domain.git.keyInputTitle')}
-	description={t('domain.git.keyInputDescription')}
->
+<Card title={t('domain.git.keyInputTitle')} description={t('domain.git.keyInputDescription')}>
 	<div class="flex gap-2">
 		<Input
 			id="git-input"
@@ -29,10 +26,8 @@
 				if (event.key === 'Enter') void workbench.submitToken();
 			}}
 		/>
-		<Button
-			size="sm"
-			disabled={gitStore.busy}
-			onclick={() => void workbench.submitToken()}>{t('domain.git.run')}</Button
+		<Button size="sm" disabled={gitStore.busy} onclick={() => void workbench.submitToken()}
+			>{t('domain.git.run')}</Button
 		>
 	</div>
 	{#if workbench.tokenResult.kind === 'action'}

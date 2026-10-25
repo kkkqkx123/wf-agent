@@ -89,8 +89,7 @@
 	--font-scale: 1;
 	--density-scale: 1;
 
-	--shadow-frost:
-		0 1px 0 hsl(0 0% 100% / 0.6) inset, 0 8px 28px -18px hsl(220 20% 10% / 0.18);
+	--shadow-frost: 0 1px 0 hsl(0 0% 100% / 0.6) inset, 0 8px 28px -18px hsl(220 20% 10% / 0.18);
 	--shadow-popover: 0 12px 32px -12px hsl(220 20% 12% / 0.24);
 
 	--overlay: 220 20% 10% / 0.55;
@@ -191,8 +190,7 @@
 	--code-function: 215 72% 74%;
 	--code-type: 32 82% 68%;
 
-	--shadow-frost:
-		0 1px 0 hsl(0 0% 100% / 0.05) inset, 0 8px 28px -18px hsl(0 0% 0% / 0.6);
+	--shadow-frost: 0 1px 0 hsl(0 0% 100% / 0.05) inset, 0 8px 28px -18px hsl(0 0% 0% / 0.6);
 	--shadow-popover: 0 12px 32px -12px hsl(0 0% 0% / 0.6);
 
 	--overlay: 0 0% 0% / 0.68;

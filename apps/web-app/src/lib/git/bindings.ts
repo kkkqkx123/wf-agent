@@ -1,5 +1,4 @@
-export type DangerLevel =
-	'readonly' | 'recoverable' | 'destructive' | 'history_rewrite';
+export type DangerLevel = 'readonly' | 'recoverable' | 'destructive' | 'history_rewrite';
 
 export interface BindingItem {
 	id: string;
@@ -688,9 +687,9 @@ const BINDINGS: BindingItem[] = [
 export const GIT_BINDINGS: BindingItem[] = BINDINGS;
 
 export function bindingsFor(context: string): BindingItem[] {
-	return BINDINGS.filter(
-		(b) => b.contexts.includes(context) || b.contexts.includes('global'),
-	).sort((a, b) => b.weight - a.weight);
+	return BINDINGS.filter((b) => b.contexts.includes(context) || b.contexts.includes('global')).sort(
+		(a, b) => b.weight - a.weight,
+	);
 }
 
 export function visibleControls(context: string, limit = 6): BindingItem[] {

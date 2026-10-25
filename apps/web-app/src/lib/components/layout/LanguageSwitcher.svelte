@@ -1,11 +1,5 @@
 <script lang="ts">
-	import {
-		getLocale,
-		setLocale,
-		SUPPORTED_LOCALES,
-		type Locale,
-		t,
-	} from '#lib/i18n';
+	import { getLocale, setLocale, SUPPORTED_LOCALES, type Locale, t } from '#lib/i18n';
 
 	// Endonyms: a language is named in itself, so these are never translated.
 	const LABELS: Record<Locale, string> = { en: 'English', zh: '中文' };
@@ -13,11 +7,7 @@
 	let current = $state(getLocale());
 </script>
 
-<div
-	class="flex items-center gap-1 text-micro"
-	role="group"
-	aria-label={t('common.language')}
->
+<div class="flex items-center gap-1 text-micro" role="group" aria-label={t('common.language')}>
 	{#each SUPPORTED_LOCALES as code (code)}
 		<button
 			type="button"

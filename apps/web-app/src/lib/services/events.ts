@@ -50,11 +50,7 @@ interface StorageDiagnoseDto {
 function toEvent(d: EventDto): EventRecord {
 	const payloadRaw = d.payload;
 	const payloadStr =
-		typeof payloadRaw === 'string'
-			? payloadRaw
-			: payloadRaw
-				? JSON.stringify(payloadRaw)
-				: '';
+		typeof payloadRaw === 'string' ? payloadRaw : payloadRaw ? JSON.stringify(payloadRaw) : '';
 	return {
 		id: d.id ?? '',
 		type: d.type ?? '',

@@ -11,13 +11,7 @@
 		actions?: Snippet;
 	}
 
-	let {
-		title,
-		description,
-		class: className = '',
-		onretry,
-		actions: extra,
-	}: Props = $props();
+	let { title, description, class: className = '', onretry, actions: extra }: Props = $props();
 </script>
 
 <EmptyState icon="alert-triangle" {title} {description} class={className}>

@@ -16,9 +16,7 @@ import {
 } from '#lib/utils/tool-output';
 import type { ToolCallEntry } from '#lib/types/models';
 
-function toolCall(
-	overrides: Partial<ToolCallEntry> & { id: string; name: string },
-): ToolCallEntry {
+function toolCall(overrides: Partial<ToolCallEntry> & { id: string; name: string }): ToolCallEntry {
 	return {
 		kind: '',
 		status: 'completed',
@@ -131,9 +129,7 @@ describe('parseDisplayPayload', () => {
 
 describe('previewSource', () => {
 	it('prefers the error on failure', () => {
-		expect(
-			previewSource({ output: 'full', error: 'denied', success: false }),
-		).toBe('denied');
+		expect(previewSource({ output: 'full', error: 'denied', success: false })).toBe('denied');
 	});
 
 	it('prefers the display preview otherwise', () => {
@@ -179,23 +175,15 @@ describe('previewFor', () => {
 
 describe('hidesBody', () => {
 	it('hides successful retrieval bodies', () => {
-		expect(hidesBody('read_file', { output: 'a\nb', success: true })).toBe(
-			true,
-		);
-		expect(hidesBody('read_file', { output: 'a\nb', success: false })).toBe(
-			false,
-		);
-		expect(
-			hidesBody('execute_command', { output: 'a\nb', success: true }),
-		).toBe(false);
+		expect(hidesBody('read_file', { output: 'a\nb', success: true })).toBe(true);
+		expect(hidesBody('read_file', { output: 'a\nb', success: false })).toBe(false);
+		expect(hidesBody('execute_command', { output: 'a\nb', success: true })).toBe(false);
 	});
 });
 
 describe('countSummary', () => {
 	it('counts lines and keeps server previews', () => {
-		const body = Array.from({ length: 50 }, (_, i) => `file line ${i}`).join(
-			'\n',
-		);
+		const body = Array.from({ length: 50 }, (_, i) => `file line ${i}`).join('\n');
 		expect(countSummary(body)).toBe('50 lines');
 		expect(countSummary('single')).toBe('1 line');
 		expect(countSummary('')).toBe('empty');
@@ -226,11 +214,7 @@ describe('groupToolCalls', () => {
 		expect(groups).toHaveLength(1);
 		expect(groups[0].kind).toBe('read');
 		expect(groups[0].key).toBe('a');
-		expect(groups[0].members.map((member) => member.id)).toEqual([
-			'a',
-			'b',
-			'c',
-		]);
+		expect(groups[0].members.map((member) => member.id)).toEqual(['a', 'b', 'c']);
 	});
 
 	it('merges consecutive successful edits', () => {
@@ -256,11 +240,7 @@ describe('groupToolCalls', () => {
 			toolCall({ id: 'b', name: 'execute_command' }),
 			toolCall({ id: 'c', name: 'read_file' }),
 		]);
-		expect(groups.map((group) => group.kind)).toEqual([
-			'read',
-			'single',
-			'read',
-		]);
+		expect(groups.map((group) => group.kind)).toEqual(['read', 'single', 'read']);
 	});
 
 	it('keeps failures as visible singles', () => {
@@ -269,11 +249,7 @@ describe('groupToolCalls', () => {
 			toolCall({ id: 'b', name: 'read_file', status: 'failed' }),
 			toolCall({ id: 'c', name: 'read_file' }),
 		]);
-		expect(groups.map((group) => group.kind)).toEqual([
-			'read',
-			'single',
-			'read',
-		]);
+		expect(groups.map((group) => group.kind)).toEqual(['read', 'single', 'read']);
 		expect(groups[1].members[0].status).toBe('failed');
 	});
 

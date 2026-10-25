@@ -34,9 +34,7 @@
 
 	const requestedTab = parseListParams(page.url as unknown as URL).tab;
 	let tab = $state(
-		requestedTab && TABS.some((item) => item.id === requestedTab)
-			? requestedTab
-			: 'records',
+		requestedTab && TABS.some((item) => item.id === requestedTab) ? requestedTab : 'records',
 	);
 
 	$effect(() => {
@@ -49,9 +47,7 @@
 	let hookName = $state('');
 	let payload = $state('{\n  "repo": "wf-agent",\n  "branch": "main"\n}');
 	let payloadError = $state<string | null>(null);
-	let payloadEditor = $state<{ scrollToLine: (line: number) => void } | null>(
-		null,
-	);
+	let payloadEditor = $state<{ scrollToLine: (line: number) => void } | null>(null);
 	let dispatchBusy = $state(false);
 	let lastDispatch = $state<string | null>(null);
 	let recordsError = $state<string | null>(null);
@@ -61,9 +57,7 @@
 	let cleanupArmed = $state(false);
 	let cleanupBusy = $state(false);
 
-	const payloadErrorLine = $derived(
-		payloadError ? jsonErrorLine(payload, payloadError) : null,
-	);
+	const payloadErrorLine = $derived(payloadError ? jsonErrorLine(payload, payloadError) : null);
 
 	/** Segment sources already pulled, so a tab loads once. */
 	let seenRecords = $state(false);
@@ -115,8 +109,7 @@
 			} catch (e) {
 				seenRecords = false;
 				triggerRecords = [];
-				recordsError =
-					e instanceof Error ? e.message : t('page.triggers.recordsLoadFailed');
+				recordsError = e instanceof Error ? e.message : t('page.triggers.recordsLoadFailed');
 			} finally {
 				recordsLoading = false;
 			}
@@ -130,8 +123,7 @@
 			} catch (e) {
 				seenHooks = false;
 				hooks = [];
-				hooksError =
-					e instanceof Error ? e.message : t('page.triggers.hooksLoadFailed');
+				hooksError = e instanceof Error ? e.message : t('page.triggers.hooksLoadFailed');
 			} finally {
 				hooksLoading = false;
 			}
@@ -154,10 +146,7 @@
 			seenRecords = false;
 			await loadTab('records');
 		} catch (e) {
-			toasts.error(
-				t('page.triggers.cleanupFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('page.triggers.cleanupFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			cleanupBusy = false;
 		}
@@ -170,8 +159,7 @@
 			parsed = JSON.parse(payload);
 			payloadError = null;
 		} catch (e) {
-			payloadError =
-				e instanceof Error ? e.message : t('page.triggers.invalidJson');
+			payloadError = e instanceof Error ? e.message : t('page.triggers.invalidJson');
 			return;
 		}
 		dispatchBusy = true;
@@ -184,10 +172,7 @@
 			toasts.success(lastDispatch);
 		} catch (e) {
 			lastDispatch = null;
-			toasts.error(
-				t('page.triggers.dispatchFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('page.triggers.dispatchFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			dispatchBusy = false;
 		}
@@ -227,16 +212,9 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	<PageHeader
-		title={t('page.triggers.title')}
-		description={t('page.triggers.description')}
-	>
+	<PageHeader title={t('page.triggers.title')} description={t('page.triggers.description')}>
 		{#snippet actions()}
-			<IconButton
-				icon="refresh"
-				label={t('common.refresh')}
-				onclick={() => void reload()}
-			/>
+			<IconButton icon="refresh" label={t('common.refresh')} onclick={() => void reload()} />
 			{#if cleanupArmed}
 				<Button
 					variant="outline"
@@ -246,19 +224,11 @@
 				>
 					{t('page.triggers.cleanupConfirm')}
 				</Button>
-				<Button
-					variant="ghost"
-					size="sm"
-					onclick={() => (cleanupArmed = false)}
-				>
+				<Button variant="ghost" size="sm" onclick={() => (cleanupArmed = false)}>
 					{t('page.executionDetail.keep')}
 				</Button>
 			{:else}
-				<Button
-					variant="outline"
-					size="sm"
-					onclick={() => (cleanupArmed = true)}
-				>
+				<Button variant="outline" size="sm" onclick={() => (cleanupArmed = true)}>
 					<Icon name="trash" size={13} />
 					{t('page.triggers.cleanup')}
 				</Button>
@@ -266,12 +236,7 @@
 		{/snippet}
 	</PageHeader>
 
-	<Segmented
-		items={TABS}
-		bind:value={tab}
-		class="px-4"
-		panelId="triggers-panel"
-	/>
+	<Segmented items={TABS} bind:value={tab} class="px-4" panelId="triggers-panel" />
 
 	<div
 		id="triggers-panel"
@@ -283,9 +248,7 @@
 			<div
 				class="mb-3 flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2"
 			>
-				<span class="text-caption text-muted-foreground">
-					New trigger activity arrived.
-				</span>
+				<span class="text-caption text-muted-foreground"> New trigger activity arrived. </span>
 				<Button
 					size="sm"
 					variant="outline"
@@ -341,11 +304,8 @@
 											? 'border-[hsl(var(--ring))] bg-accent'
 											: 'border-transparent hover:bg-accent/60'}"
 									>
-										<span class="block font-mono text-caption">{hook.name}</span
-										>
-										<span class="block text-micro text-muted-foreground"
-											>{hook.description}</span
-										>
+										<span class="block font-mono text-caption">{hook.name}</span>
+										<span class="block text-micro text-muted-foreground">{hook.description}</span>
 										<span class="mt-1 flex items-center gap-2">
 											<StatusBadge status={hook.lastStatus} size="sm" />
 											<span class="text-micro text-muted-foreground">
@@ -366,9 +326,7 @@
 						<label class="block">
 							<span class="mb-1 block text-caption text-muted-foreground"
 								>{t('page.triggers.hookName')}{#if hooks.length === 0}
-									<span class="ml-1 text-micro"
-										>{t('page.triggers.manualMode')}</span
-									>{/if}</span
+									<span class="ml-1 text-micro">{t('page.triggers.manualMode')}</span>{/if}</span
 							>
 							<Input
 								bind:value={hookName}
@@ -404,8 +362,7 @@
 									<Button
 										variant="ghost"
 										size="sm"
-										onclick={() =>
-											payloadEditor?.scrollToLine(payloadErrorLine ?? 1)}
+										onclick={() => payloadEditor?.scrollToLine(payloadErrorLine ?? 1)}
 									>
 										{t('page.resources.toolRun.goToLine')}
 									</Button>
@@ -419,23 +376,18 @@
 								onclick={() => void dispatch()}
 							>
 								<Icon name="zap" size={13} />
-								{dispatchBusy
-									? t('page.triggers.sending')
-									: t('page.triggers.sendTest')}
+								{dispatchBusy ? t('page.triggers.sending') : t('page.triggers.sendTest')}
 							</Button>
 						</div>
 						{#if lastDispatch}
-							<p
-								class="rounded-md border border-border bg-muted/40 px-2 py-1.5 text-caption"
-							>
+							<p class="rounded-md border border-border bg-muted/40 px-2 py-1.5 text-caption">
 								{lastDispatch}
 							</p>
 						{/if}
 						<p class="text-micro text-muted-foreground">
 							{t('page.triggers.lastDelivery')}
 							{formatDateTime(
-								hooks.find((hook) => hook.name === hookName)?.lastDeliveredAt ??
-									null,
+								hooks.find((hook) => hook.name === hookName)?.lastDeliveredAt ?? null,
 							)}
 						</p>
 					</div>

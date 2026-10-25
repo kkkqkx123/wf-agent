@@ -8,16 +8,9 @@
 		class?: string;
 	}
 
-	let {
-		value,
-		tone = 'default',
-		showLabel = false,
-		class: className = '',
-	}: Props = $props();
+	let { value, tone = 'default', showLabel = false, class: className = '' }: Props = $props();
 
-	const clamped = $derived(
-		Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0)),
-	);
+	const clamped = $derived(Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0)));
 	const percent = $derived(Math.round(clamped * 100));
 
 	const TONE_BAR = {
@@ -38,16 +31,12 @@
 		aria-valuemax={100}
 	>
 		<div
-			class={cn(
-				'h-full rounded-full transition-[width] duration-300',
-				TONE_BAR[tone],
-			)}
+			class={cn('h-full rounded-full transition-[width] duration-300', TONE_BAR[tone])}
 			style:width="{percent}%"
 		></div>
 	</div>
 	{#if showLabel}
-		<span
-			class="w-9 shrink-0 text-right text-micro tabular-nums text-muted-foreground"
+		<span class="w-9 shrink-0 text-right text-micro tabular-nums text-muted-foreground"
 			>{percent}%</span
 		>
 	{/if}

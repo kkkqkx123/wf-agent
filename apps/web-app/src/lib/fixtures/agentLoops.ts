@@ -1,9 +1,4 @@
-import type {
-	AgentLoop,
-	AgentLoopDetail,
-	LoopMessage,
-	LoopVariable,
-} from '#lib/types/models';
+import type { AgentLoop, AgentLoopDetail, LoopMessage, LoopVariable } from '#lib/types/models';
 import { minutesAgo } from './clock';
 
 export const agentLoops: AgentLoop[] = [
@@ -141,8 +136,7 @@ export const loopMessages: LoopMessage[] = [
 	{
 		id: 'msg-01',
 		role: 'user',
-		content:
-			'Make checkpoint restore idempotent when the branch already exists.',
+		content: 'Make checkpoint restore idempotent when the branch already exists.',
 		createdAt: minutesAgo(38),
 		tokens: 24,
 	},
@@ -157,8 +151,7 @@ export const loopMessages: LoopMessage[] = [
 	{
 		id: 'msg-03',
 		role: 'tool',
-		content:
-			'restore_coordinator.rs:141 — branch_exists returns Err(BranchConflict)',
+		content: 'restore_coordinator.rs:141 — branch_exists returns Err(BranchConflict)',
 		createdAt: minutesAgo(35),
 		tokens: 18,
 		toolName: 'fs.read',
@@ -182,8 +175,7 @@ export const loopMessages: LoopMessage[] = [
 	{
 		id: 'msg-06',
 		role: 'assistant',
-		content:
-			'Running the checkpoint test suite to confirm the restore path is now idempotent.',
+		content: 'Running the checkpoint test suite to confirm the restore path is now idempotent.',
 		createdAt: minutesAgo(24),
 		tokens: 41,
 	},

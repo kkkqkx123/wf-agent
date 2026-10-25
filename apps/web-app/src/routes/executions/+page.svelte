@@ -23,10 +23,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import {
-		getUnifiedExecutionStats,
-		listUnifiedExecutions,
-	} from '#lib/services/executions';
+	import { getUnifiedExecutionStats, listUnifiedExecutions } from '#lib/services/executions';
 	import { rerunWorkflowRun } from '#lib/services/run';
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
 	import SessionInspector from '#lib/components/domain/SessionInspector.svelte';
@@ -62,16 +59,10 @@
 	let view = $state<'list' | 'table'>('list');
 	// Deep links restore the selection; otherwise the first row is picked on
 	// load. The effect below writes the selection back to `?id=`.
-	let selectedId = $state<string | null>(
-		parseListParams(page.url as unknown as URL).id ?? null,
-	);
+	let selectedId = $state<string | null>(parseListParams(page.url as unknown as URL).id ?? null);
 	let compareMode = $state(false);
-	let requestedDefinition = $state(
-		parseListParams(page.url as unknown as URL).definition ?? null,
-	);
-	let requestedVersion = $state(
-		parseListParams(page.url as unknown as URL).version ?? null,
-	);
+	let requestedDefinition = $state(parseListParams(page.url as unknown as URL).definition ?? null);
+	let requestedVersion = $state(parseListParams(page.url as unknown as URL).version ?? null);
 	let showTaskPanel = $state(requestedDefinition !== null);
 	let compareId = $state<string | null>(null);
 	let compareDetail = $state<Execution | null>(null);
@@ -249,8 +240,7 @@
 				execution.id.toLowerCase().includes(needle);
 			const versionNeedle = versionFilter.trim().toLowerCase();
 			const matchesVersion =
-				!versionNeedle ||
-				(execution.version ?? '').toLowerCase().includes(versionNeedle);
+				!versionNeedle || (execution.version ?? '').toLowerCase().includes(versionNeedle);
 			const matchesTime = (() => {
 				if (timeRange === 'all') return true;
 				const at = Date.parse(execution.startedAt);
@@ -284,9 +274,7 @@
 	});
 
 	function focusCard(id: string): void {
-		document
-			.querySelector(`[data-execution-id="${id}"]`)
-			?.scrollIntoView({ block: 'nearest' });
+		document.querySelector(`[data-execution-id="${id}"]`)?.scrollIntoView({ block: 'nearest' });
 	}
 
 	function moveSelection(delta: number): void {
@@ -325,10 +313,7 @@
 			toasts.success(t('domain.runs.rerunStarted'), id);
 			await reload();
 		} catch (e) {
-			toasts.error(
-				t('domain.runs.rerunFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.runs.rerunFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			rerunningId = null;
 		}
@@ -340,8 +325,7 @@
 	// The inspector switches by executor kind: agent and chat runs render
 	// the session transcript, workflow runs render the run inspector.
 	const selectedKind = $derived(
-		filtered.find((execution) => execution.id === selectedId)?.kind ??
-			'workflow',
+		filtered.find((execution) => execution.id === selectedId)?.kind ?? 'workflow',
 	);
 
 	// Compare candidates exclude the primary selection so A/B never render
@@ -350,10 +334,7 @@
 	// inspector, while agent and chat runs render the session transcript.
 	const compareOptions = $derived(
 		filtered
-			.filter(
-				(execution) =>
-					execution.id !== selectedId && execution.kind === 'workflow',
-			)
+			.filter((execution) => execution.id !== selectedId && execution.kind === 'workflow')
 			.map((execution) => ({
 				value: execution.id,
 				label: `${execution.workflowName} · ${execution.id.slice(0, 8)}`,
@@ -410,6 +391,26 @@
 			text: (execution) => `${execution.tasksDone}/${execution.tasksTotal}`,
 			cellClass: 'tabular-nums text-caption text-muted-foreground',
 		},
+		{
+			key: 'failed',
+			header: 'Failed',
+			align: 'right',
+			text: (execution) => (execution.failedNodes > 0 ? `${execution.failedNodes}` : '—'),
+			cellClass: 'tabular-nums text-caption text-muted-foreground',
+		},
+		{
+			key: 'version',
+			header: 'Version',
+			text: (execution) => (execution.version ? `v${execution.version}` : '—'),
+			cellClass: 'font-mono text-caption text-muted-foreground',
+		},
+		{
+			key: 'lineage',
+			header: 'Lineage',
+			text: (execution) =>
+				execution.parentExecutionId ? 'child' : execution.rerunOf ? 'rerun' : 'root',
+			cellClass: 'text-caption text-muted-foreground',
+		},
 	];
 </script>
 
@@ -422,40 +423,22 @@
 	class="h-full"
 >
 	<div class="flex h-full min-h-0 flex-col">
-		<PageHeader
-			title={t('page.executions.title')}
-			description={t('page.executions.description')}
-		>
+		<PageHeader title={t('page.executions.title')} description={t('page.executions.description')}>
 			{#snippet actions()}
-				<IconButton
-					icon="refresh"
-					label={t('common.refresh')}
-					onclick={() => void reload()}
-				/>
+				<IconButton icon="refresh" label={t('common.refresh')} onclick={() => void reload()} />
 				<Button
 					variant="outline"
 					size="sm"
 					onclick={() => (view = view === 'list' ? 'table' : 'list')}
 				>
 					<Icon name={view === 'list' ? 'blocks' : 'menu'} size={13} />
-					{view === 'list'
-						? t('page.executions.table')
-						: t('page.executions.cards')}
+					{view === 'list' ? t('page.executions.table') : t('page.executions.cards')}
 				</Button>
-				<Button
-					variant="outline"
-					size="sm"
-					active={compareMode}
-					onclick={toggleCompare}
-				>
+				<Button variant="outline" size="sm" active={compareMode} onclick={toggleCompare}>
 					<Icon name="copy" size={13} />
 					{t('page.executions.compare')}
 				</Button>
-				<Button
-					size="sm"
-					active={showTaskPanel}
-					onclick={() => (showTaskPanel = !showTaskPanel)}
-				>
+				<Button size="sm" active={showTaskPanel} onclick={() => (showTaskPanel = !showTaskPanel)}>
 					<Icon name="play" size={13} />
 					{t('page.executions.newTask')}
 				</Button>
@@ -480,16 +463,10 @@
 						<label
 							class="flex cursor-pointer items-center gap-1.5 text-caption text-muted-foreground"
 						>
-							<input
-								type="checkbox"
-								bind:checked={autoInsert}
-								class="h-3.5 w-3.5 accent-current"
-							/>
+							<input type="checkbox" bind:checked={autoInsert} class="h-3.5 w-3.5 accent-current" />
 							Auto-insert
 						</label>
-						<Button size="sm" variant="outline" onclick={() => void reload()}>
-							Refresh
-						</Button>
+						<Button size="sm" variant="outline" onclick={() => void reload()}>Refresh</Button>
 					</span>
 				</div>
 			{/if}
@@ -516,11 +493,7 @@
 				onstatuschange={() => void reload()}
 			>
 				{#snippet trailing()}
-					<Input
-						bind:value={versionFilter}
-						placeholder="Version"
-						class="w-28"
-					/>
+					<Input bind:value={versionFilter} placeholder="Version" class="w-28" />
 					<Select
 						value={timeRange}
 						options={[
@@ -533,9 +506,7 @@
 						class="w-36"
 						onchange={(value) => {
 							timeRange =
-								value === 'today' || value === 'last7' || value === 'last30'
-									? value
-									: 'all';
+								value === 'today' || value === 'last7' || value === 'last30' ? value : 'all';
 						}}
 					/>
 					<Select
@@ -550,9 +521,7 @@
 						class="w-36"
 						onchange={(value) => {
 							engine =
-								value === 'agent' || value === 'workflow' || value === 'chat'
-									? value
-									: 'all';
+								value === 'agent' || value === 'workflow' || value === 'chat' ? value : 'all';
 							selectedId = null;
 							void reload();
 						}}
@@ -567,8 +536,7 @@
 						size="sm"
 						class="w-32"
 						onchange={(value) => {
-							lineage =
-								value === 'root' || value === 'child' ? value : 'all';
+							lineage = value === 'root' || value === 'child' ? value : 'all';
 						}}
 					/>
 					<span class="text-caption tabular-nums text-muted-foreground">
@@ -580,11 +548,7 @@
 						class="flex cursor-pointer items-center gap-1.5 text-caption text-muted-foreground"
 						title="Prepend new rows with a highlight instead of showing a refresh banner"
 					>
-						<input
-							type="checkbox"
-							bind:checked={autoInsert}
-							class="h-3.5 w-3.5 accent-current"
-						/>
+						<input type="checkbox" bind:checked={autoInsert} class="h-3.5 w-3.5 accent-current" />
 						Auto-insert
 					</label>
 				{/snippet}
@@ -648,9 +612,7 @@
 						<ExecutionCard
 							{execution}
 							selected={selectedId === execution.id}
-							class={insertedIds.has(execution.id)
-								? 'animate-row-in border-success/50'
-								: ''}
+							class={insertedIds.has(execution.id) ? 'animate-row-in border-success/50' : ''}
 							onselect={(item) => (selectedId = item.id)}
 							onopen={openExecution}
 							onrerun={(item) => void rerunExecution(item)}
@@ -692,19 +654,13 @@
 				<SessionInspector sessionId={selectedId} />
 			{/if}
 		{:else if selected}
-			<ExecutionInspector
-				execution={selected}
-				onrefresh={() => void reload()}
-			/>
+			<ExecutionInspector execution={selected} onrefresh={() => void reload()} />
 		{/if}
 	{/snippet}
 
 	{#snippet secondary()}
 		{#if compared}
-			<ExecutionInspector
-				execution={compared}
-				onrefresh={() => void reload()}
-			/>
+			<ExecutionInspector execution={compared} onrefresh={() => void reload()} />
 		{:else}
 			<EmptyState
 				icon="copy"

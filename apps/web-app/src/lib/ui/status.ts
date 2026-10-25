@@ -1,7 +1,6 @@
 import type { IconName } from './icons/paths';
 
-export type StatusTone =
-	'success' | 'danger' | 'running' | 'warning' | 'info' | 'neutral';
+export type StatusTone = 'success' | 'danger' | 'running' | 'warning' | 'info' | 'neutral';
 
 export interface StatusMeta {
 	tone: StatusTone;
@@ -75,8 +74,7 @@ export function statusMeta(status: string | null | undefined): StatusMeta {
 	const hit = STATUS_META[key];
 	if (hit) return hit;
 	const normalized = status.replace(/[_-]+/g, ' ').trim();
-	const label =
-		normalized.charAt(0).toUpperCase() + normalized.slice(1);
+	const label = normalized.charAt(0).toUpperCase() + normalized.slice(1);
 	return { tone: statusTone(status), icon: 'info', label };
 }
 

@@ -35,17 +35,11 @@
 			renameOpen = false;
 			renameFrom = '';
 			renameTo = '';
-			toasts.success(
-				t('domain.files.renamed'),
-				`${from} → ${to} (${snapshot.slice(0, 10)})`,
-			);
+			toasts.success(t('domain.files.renamed'), `${from} → ${to} (${snapshot.slice(0, 10)})`);
 			store.bump('files');
 		} catch (e) {
 			console.error('Rename failed:', e);
-			toasts.error(
-				t('domain.files.renameFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.files.renameFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			workspace.endAction();
 		}
@@ -57,15 +51,10 @@
 			return;
 		}
 		try {
-			workspace.workspaceFiles = await getActorWorkspace(
-				workspace.actor.trim(),
-			);
+			workspace.workspaceFiles = await getActorWorkspace(workspace.actor.trim());
 		} catch (e) {
 			console.error('Failed to load actor workspace:', e);
-			toasts.error(
-				'Workspace unavailable',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Workspace unavailable', e instanceof Error ? e.message : undefined);
 		}
 	}
 
@@ -85,10 +74,7 @@
 			store.bump('files');
 		} catch (e) {
 			console.error('Undo failed:', e);
-			toasts.error(
-				t('domain.files.undoFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.files.undoFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			workspace.endAction();
 		}
@@ -110,10 +96,7 @@
 			store.bump('files');
 		} catch (e) {
 			console.error('Redo failed:', e);
-			toasts.error(
-				t('domain.files.redoFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.files.redoFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			workspace.endAction();
 		}
@@ -124,52 +107,32 @@
 		try {
 			const { indexedCommits } = await rebuildIndex();
 			workspace.indexStatus = await getIndexStatus().catch(() => null);
-			toasts.success(
-				'Source index rebuilt',
-				`${indexedCommits} commits indexed`,
-			);
+			toasts.success('Source index rebuilt', `${indexedCommits} commits indexed`);
 		} catch (e) {
 			console.error('Index rebuild failed:', e);
-			toasts.error(
-				'Index rebuild failed',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Index rebuild failed', e instanceof Error ? e.message : undefined);
 		} finally {
 			workspace.endAction();
 		}
 	}
 </script>
 
-<Card
-	title={t('domain.files.workspaceTitle')}
-	description={t('domain.files.workspaceDescription')}
->
+<Card title={t('domain.files.workspaceTitle')} description={t('domain.files.workspaceDescription')}>
 	<div class="mb-2">
 		<Input
 			label={t('domain.files.actor')}
 			size="sm"
 			value={workspace.actor}
-			oninput={(event: Event) =>
-				workspace.setActor((event.target as HTMLInputElement).value)}
+			oninput={(event: Event) => workspace.setActor((event.target as HTMLInputElement).value)}
 			placeholder={t('domain.files.actorPartition')}
 		/>
 	</div>
 	<div class="flex flex-wrap gap-2">
-		<Button
-			variant="outline"
-			size="sm"
-			disabled={workspace.busy}
-			onclick={() => void runUndo()}
-		>
+		<Button variant="outline" size="sm" disabled={workspace.busy} onclick={() => void runUndo()}>
 			<Icon name="arrow-left" size={13} />
 			{t('domain.graph.undo')}
 		</Button>
-		<Button
-			variant="outline"
-			size="sm"
-			disabled={workspace.busy}
-			onclick={() => void runRedo()}
-		>
+		<Button variant="outline" size="sm" disabled={workspace.busy} onclick={() => void runRedo()}>
 			{t('domain.graph.redo')}
 		</Button>
 		<Button
@@ -241,16 +204,14 @@
 			label={t('domain.files.fromPath')}
 			size="sm"
 			value={renameFrom}
-			oninput={(event: Event) =>
-				(renameFrom = (event.target as HTMLInputElement).value)}
+			oninput={(event: Event) => (renameFrom = (event.target as HTMLInputElement).value)}
 			placeholder="src/old.rs"
 		/>
 		<Input
 			label={t('domain.files.toPath')}
 			size="sm"
 			value={renameTo}
-			oninput={(event: Event) =>
-				(renameTo = (event.target as HTMLInputElement).value)}
+			oninput={(event: Event) => (renameTo = (event.target as HTMLInputElement).value)}
 			placeholder="src/new.rs"
 		/>
 	</div>

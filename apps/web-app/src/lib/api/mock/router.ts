@@ -60,9 +60,7 @@ export function cursorPageView<T>(items: T[], limit = 50, cursor?: unknown) {
 
 /** Best-effort extract of a query param from params.query. openapi-fetch
  *  passes `{ query: { limit, offset } }` for list calls. */
-export function queryOf(
-	params?: Record<string, unknown>,
-): Record<string, unknown> {
+export function queryOf(params?: Record<string, unknown>): Record<string, unknown> {
 	const q = params?.query;
 	return q && typeof q === 'object' ? (q as Record<string, unknown>) : {};
 }
@@ -95,13 +93,8 @@ export function missingRoute(method: string, path: string): any {
  * Match `pathTemplate` (e.g. `/api/v1/workflows/{id}`) against a concrete
  * request path, returning captured params or null on miss.
  */
-function matchPath(
-	pathTemplate: string,
-	actual: string,
-): Record<string, string> | null {
-	const regex = new RegExp(
-		'^' + pathTemplate.replace(/\{[^}]+\}/g, '([^/]+)') + '$',
-	);
+function matchPath(pathTemplate: string, actual: string): Record<string, string> | null {
+	const regex = new RegExp('^' + pathTemplate.replace(/\{[^}]+\}/g, '([^/]+)') + '$');
 	const names = [...pathTemplate.matchAll(/\{([^}]+)\}/g)].map((m) => m[1]);
 	const m = regex.exec(actual);
 	if (!m) return null;

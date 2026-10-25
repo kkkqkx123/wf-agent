@@ -21,8 +21,7 @@ export const workflows: Workflow[] = [
 	{
 		id: 'wf-incident-triage',
 		name: 'Incident Triage',
-		description:
-			'Collect signals, correlate alerts and open a remediation task.',
+		description: 'Collect signals, correlate alerts and open a remediation task.',
 		category: 'reliability',
 		tags: ['incident', 'on-call'],
 		author: 'sre',
@@ -118,8 +117,7 @@ export const workflows: Workflow[] = [
 	{
 		id: 'wf-feedback-loop',
 		name: 'Feedback Loop',
-		description:
-			'Collect operator feedback and file structured improvement issues.',
+		description: 'Collect operator feedback and file structured improvement issues.',
 		category: 'product',
 		tags: ['feedback'],
 		author: 'product',

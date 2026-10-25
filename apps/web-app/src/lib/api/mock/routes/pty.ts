@@ -19,7 +19,7 @@ export function registerPty(router: MockRouter): void {
 			cols: b.cols ?? 80,
 		};
 	});
-	router.on('GET', '/api/v1/pty', () => ([]));
+	router.on('GET', '/api/v1/pty', () => []);
 	router.on('GET', '/api/v1/pty/{id}', (params) => ({
 		id: params.id,
 		cwd: '/preview/wf-agent',

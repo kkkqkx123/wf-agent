@@ -15,12 +15,7 @@
 		onnavigate?: () => void;
 	}
 
-	let {
-		variant = 'labels',
-		tone = 'sidebar',
-		class: className = '',
-		onnavigate,
-	}: Props = $props();
+	let { variant = 'labels', tone = 'sidebar', class: className = '', onnavigate }: Props = $props();
 
 	const ITEM_BASE = 'flex items-center gap-2 rounded-md transition-colors';
 	const LABEL_ITEM = 'px-2 py-1.5 text-body';
@@ -70,9 +65,7 @@
 			</div>
 		{:else}
 			<div>
-				<p
-					class="px-2 pb-1 text-micro uppercase tracking-wide text-muted-foreground"
-				>
+				<p class="px-2 pb-1 text-micro uppercase tracking-wide text-muted-foreground">
 					{group.label()}
 				</p>
 				<div class="space-y-0.5">

@@ -119,9 +119,7 @@ export interface Fingerprint {
 }
 
 export async function getMeta(): Promise<RepoMeta> {
-	const data = await call<Record<string, unknown>>(
-		client.GET('/api/v1/git/meta'),
-	);
+	const data = await call<Record<string, unknown>>(client.GET('/api/v1/git/meta'));
 	const v = requireData(data, 'Git meta') as Record<string, unknown>;
 	return {
 		name: String(v.name ?? ''),
@@ -147,9 +145,7 @@ export interface StatusCounts {
 }
 
 export async function getStatus(): Promise<StatusCounts> {
-	const data = await call<Record<string, unknown>>(
-		client.GET('/api/v1/git/status'),
-	);
+	const data = await call<Record<string, unknown>>(client.GET('/api/v1/git/status'));
 	const v = requireData(data, 'Git status') as Record<string, unknown>;
 	return {
 		branch: String(v.branch ?? ''),
@@ -173,9 +169,7 @@ export async function listFiles(): Promise<GitFile[]> {
 }
 
 export async function getDiff(path?: string): Promise<DiffFile[]> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/git/diff', { params: { query: { path } } }),
-	);
+	const data = await call<unknown>(client.GET('/api/v1/git/diff', { params: { query: { path } } }));
 	const rows = requireData(data, 'Git diff') as DiffFileWire[];
 	return (Array.isArray(rows) ? rows : []).map((f) =>
 		gitHunksToDiffFile(f.path, f.hunks, f.additions, f.deletions),
@@ -198,9 +192,7 @@ export async function listCommits(params?: {
 			},
 		}),
 	);
-	const rows = requireData(data, 'Git commits') as Array<
-		Record<string, unknown>
-	>;
+	const rows = requireData(data, 'Git commits') as Array<Record<string, unknown>>;
 	return (Array.isArray(rows) ? rows : []).map((c) => ({
 		id: String(c.id ?? ''),
 		shortId: String(c.short_id ?? String(c.id ?? '').slice(0, 7)),
@@ -226,15 +218,11 @@ export async function listStash(): Promise<StashEntry[]> {
 	return Array.isArray(rows) ? rows : [];
 }
 
-export async function getCommitFiles(
-	commit: string,
-): Promise<CommitFileEntry[]> {
+export async function getCommitFiles(commit: string): Promise<CommitFileEntry[]> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/git/commits/files', { params: { query: { commit } } }),
 	);
-	const rows = requireData(data, 'Git commit files') as Array<
-		Record<string, unknown>
-	>;
+	const rows = requireData(data, 'Git commit files') as Array<Record<string, unknown>>;
 	return (Array.isArray(rows) ? rows : []).map((f) => ({
 		path: String(f.path ?? ''),
 		status: String(f.status ?? ''),
@@ -242,11 +230,7 @@ export async function getCommitFiles(
 	}));
 }
 
-export async function getDiffRange(
-	from: string,
-	to: string,
-	path?: string,
-): Promise<DiffFile[]> {
+export async function getDiffRange(from: string, to: string, path?: string): Promise<DiffFile[]> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/git/diff/range', {
 			params: { query: { from, to, path } },
@@ -287,9 +271,7 @@ export async function listSubmodules(): Promise<SubmoduleEntry[]> {
 /** Reflog entries of the user repository. */
 export async function listReflog(): Promise<ReflogEntry[]> {
 	const data = await call<unknown>(client.GET('/api/v1/git/reflog'));
-	const rows = requireData(data, 'Git reflog') as Array<
-		Record<string, unknown>
-	>;
+	const rows = requireData(data, 'Git reflog') as Array<Record<string, unknown>>;
 	return (Array.isArray(rows) ? rows : []).map((r) => ({
 		id: String(r.id ?? ''),
 		shortId: String(r.short_id ?? String(r.id ?? '').slice(0, 7)),
@@ -306,9 +288,7 @@ export async function getRegistry(): Promise<RegistryEntry[]> {
 }
 
 export async function getFingerprint(): Promise<Fingerprint> {
-	const data = await call<Record<string, unknown>>(
-		client.GET('/api/v1/git/fingerprint'),
-	);
+	const data = await call<Record<string, unknown>>(client.GET('/api/v1/git/fingerprint'));
 	const v = requireData(data, 'Git fingerprint') as Record<string, unknown>;
 	return {
 		statusHash: String(v.status_hash ?? ''),

@@ -24,8 +24,7 @@ describe('highlightCode', () => {
 
 	it('classifies keywords, strings and numbers', () => {
 		const result = highlightCode('let x = "hi";', 'rust').flat();
-		const kindOf = (text: string) =>
-			result.find((token) => token.text === text)?.kind;
+		const kindOf = (text: string) => result.find((token) => token.text === text)?.kind;
 		expect(kindOf('let')).toBe('keyword');
 		expect(kindOf('"hi"')).toBe('string');
 		expect(kindOf('x')).toBe('plain');

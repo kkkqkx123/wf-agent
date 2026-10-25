@@ -27,9 +27,7 @@
 </script>
 
 {#if label && !hideLabel}
-	<label
-		class={cn('flex items-center justify-between gap-3 text-body', className)}
-	>
+	<label class={cn('flex items-center justify-between gap-3 text-body', className)}>
 		<span class="text-foreground">{label}</span>
 		<button
 			type="button"

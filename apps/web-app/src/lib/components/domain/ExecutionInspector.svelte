@@ -28,10 +28,7 @@
 	import StreamMarkdown from '#lib/components/chat/LazyStreamMarkdown.svelte';
 	import { extractMarkdownText } from '#lib/utils/markdown';
 	import type { GraphOverlay } from '#lib/graph/display-model';
-	import {
-		getExecutionHistory,
-		getExecutionToolCalls,
-	} from '#lib/services/executions';
+	import { getExecutionHistory, getExecutionToolCalls } from '#lib/services/executions';
 	import { getExecutionGraphNeighbors } from '#lib/services/graph';
 	import type { EfficiencyEntry, SlowNodeEntry } from '#lib/services/graph';
 	import {
@@ -41,18 +38,10 @@
 		loadStateData,
 		loadTraceData,
 	} from '#lib/services/inspector-loaders';
-	import {
-		isLiveStatus,
-		watchExecutionActivity,
-	} from '#lib/services/inspector-activity';
+	import { isLiveStatus, watchExecutionActivity } from '#lib/services/inspector-activity';
 	import { watchErrorAnalysis } from '#lib/services/error-analysis-live';
 	import type { ErrorRecord } from '#lib/utils/stream-parser';
-	import {
-		formatBytes,
-		formatDateTime,
-		formatDuration,
-		formatNumber,
-	} from '#lib/utils/format';
+	import { formatBytes, formatDateTime, formatDuration, formatNumber } from '#lib/utils/format';
 	import { statusTone } from '#lib/ui/status';
 	import { cn } from '#lib/ui/cn';
 	import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
@@ -93,9 +82,7 @@
 	// Which engine owns this execution decides the tab strip and the extra
 	// loop-specific panels below.
 	const kind = $derived(execution.kind);
-	const kindTabs = $derived(
-		EXECUTION_TABS.filter((entry) => TAB_GROUPS[kind].includes(entry.id)),
-	);
+	const kindTabs = $derived(EXECUTION_TABS.filter((entry) => TAB_GROUPS[kind].includes(entry.id)));
 
 	// Keep `?tab=` honest across kinds: a workflow tab on a loop detail (or
 	// vice versa, e.g. after the redirect) falls back to the group default.
@@ -189,20 +176,15 @@
 
 	const decisionAll = $derived([...decisionPoints]);
 
-	const completedFrames = $derived(
-		historyNodes.filter((node) => !node.error),
-	);
+	const completedFrames = $derived(historyNodes.filter((node) => !node.error));
 
 	const replayView = $derived.by(() => {
 		if (replayIndex === null || historyNodes.length === 0) return null;
 		const upto = historyNodes.slice(0, replayIndex + 1);
 		return {
 			executedNodes: upto.map((frame) => frame.nodeId),
-			currentNode:
-				upto.length > 0 ? (upto[upto.length - 1].nodeId ?? null) : null,
-			failedNodes: upto
-				.filter((frame) => frame.error)
-				.map((frame) => frame.nodeId),
+			currentNode: upto.length > 0 ? (upto[upto.length - 1].nodeId ?? null) : null,
+			failedNodes: upto.filter((frame) => frame.error).map((frame) => frame.nodeId),
 		};
 	});
 
@@ -213,15 +195,12 @@
 			criticalPath: criticalAll,
 			slowNodes: slowAll,
 			decisionPoints: decisionAll,
-			executedNodes:
-				replayView?.executedNodes ?? completedFrames.map((frame) => frame.nodeId),
+			executedNodes: replayView?.executedNodes ?? completedFrames.map((frame) => frame.nodeId),
 			liveStatuses: replayView ? {} : liveStatuses,
 		}),
 	);
 
-	const overlayNodes = $derived(
-		applyExecutionOverlay(graphNodes, executionOverlay),
-	);
+	const overlayNodes = $derived(applyExecutionOverlay(graphNodes, executionOverlay));
 
 	const overlayEdges = $derived.by(() => {
 		const tones = projectEdgeOverlay(graphEdges, executionOverlay);
@@ -229,15 +208,11 @@
 	});
 
 	const pulseIds = $derived(
-		[...executionOverlay.marks.values()]
-			.filter((mark) => mark.pulse)
-			.map((mark) => mark.id),
+		[...executionOverlay.marks.values()].filter((mark) => mark.pulse).map((mark) => mark.id),
 	);
 
 	const criticalIds = $derived(
-		[...executionOverlay.marks.values()]
-			.filter((mark) => mark.critical)
-			.map((mark) => mark.id),
+		[...executionOverlay.marks.values()].filter((mark) => mark.critical).map((mark) => mark.id),
 	);
 
 	const heatTierById = $derived(
@@ -249,15 +224,11 @@
 	);
 
 	const decisionIds = $derived(
-		[...executionOverlay.marks.values()]
-			.filter((mark) => mark.decision)
-			.map((mark) => mark.id),
+		[...executionOverlay.marks.values()].filter((mark) => mark.decision).map((mark) => mark.id),
 	);
 
 	const heatLabels = $derived.by(() => {
-		const durations = new Map(
-			slowEntries.map((entry) => [entry.node, entry.durationMs]),
-		);
+		const durations = new Map(slowEntries.map((entry) => [entry.node, entry.durationMs]));
 		return Object.fromEntries(
 			[...executionOverlay.marks.values()]
 				.filter((mark) => mark.slow)
@@ -280,9 +251,7 @@
 				.filter((edge) => edge.source === nodeId && (edge.label ?? '').trim())
 				.map((edge) => edge.label as string);
 			labels[nodeId] =
-				branches.length > 0
-					? branches.slice(0, 3).join(' / ')
-					: t('domain.inspector.branchNode');
+				branches.length > 0 ? branches.slice(0, 3).join(' / ') : t('domain.inspector.branchNode');
 		}
 		return labels;
 	});
@@ -315,9 +284,7 @@
 					);
 		if (!needle) return scoped;
 		return scoped.filter(
-			(tool) =>
-				tool.name.toLowerCase().includes(needle) ||
-				tool.id.toLowerCase().includes(needle),
+			(tool) => tool.name.toLowerCase().includes(needle) || tool.id.toLowerCase().includes(needle),
 		);
 	});
 
@@ -353,15 +320,9 @@
 		if (byName) return byName;
 		const normalizedToolId = toolId.trim().toLowerCase();
 		if (!normalizedToolId) return null;
-		const exact = graphNodes.find(
-			(node) => node.id.toLowerCase() === normalizedToolId,
-		);
+		const exact = graphNodes.find((node) => node.id.toLowerCase() === normalizedToolId);
 		if (exact) return exact.id;
-		return (
-			graphNodes.find((node) =>
-				normalizedToolId.includes(node.id.toLowerCase()),
-			)?.id ?? null
-		);
+		return graphNodes.find((node) => normalizedToolId.includes(node.id.toLowerCase()))?.id ?? null;
 	}
 
 	function focusGraphNode(nodeId: string): void {
@@ -400,22 +361,17 @@
 	function revealInAnalysis(kind: 'slow' | 'critical' | 'decision'): void {
 		tab = 'analysis';
 		queueMicrotask(() =>
-			document
-				.getElementById(`analysis-${kind}`)
-				?.scrollIntoView({ block: 'nearest' }),
+			document.getElementById(`analysis-${kind}`)?.scrollIntoView({ block: 'nearest' }),
 		);
 	}
 
-	const selectedAnalysisKind = $derived.by(
-		(): 'slow' | 'critical' | 'decision' | null => {
-			if (!graphNodeId) return null;
-			if (slowEntries.some((entry) => entry.node === graphNodeId))
-				return 'slow';
-			if (criticalAll.includes(graphNodeId)) return 'critical';
-			if (decisionAll.includes(graphNodeId)) return 'decision';
-			return null;
-		},
-	);
+	const selectedAnalysisKind = $derived.by((): 'slow' | 'critical' | 'decision' | null => {
+		if (!graphNodeId) return null;
+		if (slowEntries.some((entry) => entry.node === graphNodeId)) return 'slow';
+		if (criticalAll.includes(graphNodeId)) return 'critical';
+		if (decisionAll.includes(graphNodeId)) return 'decision';
+		return null;
+	});
 
 	function noteLiveEvent(event: EventRecord): void {
 		let meta: Record<string, unknown>;
@@ -426,14 +382,10 @@
 		}
 		const node = ['node_id', 'nodeId', 'node']
 			.map((key) => meta[key])
-			.find(
-				(value): value is string => typeof value === 'string' && value !== '',
-			);
+			.find((value): value is string => typeof value === 'string' && value !== '');
 		const status = ['status', 'state']
 			.map((key) => meta[key])
-			.find(
-				(value): value is string => typeof value === 'string' && value !== '',
-			);
+			.find((value): value is string => typeof value === 'string' && value !== '');
 		if (node && status) pendingLive.set(node, status);
 	}
 
@@ -559,8 +511,7 @@
 			failedNodes = snapshot.failedNodes;
 			criticalPath = snapshot.criticalPath;
 		} catch (e) {
-			graphError =
-				e instanceof Error ? e.message : t('domain.inspector.graphFailed');
+			graphError = e instanceof Error ? e.message : t('domain.inspector.graphFailed');
 		} finally {
 			graphLoading = false;
 		}
@@ -577,8 +528,7 @@
 			criticalPath = snapshot.criticalPath;
 			efficiency = snapshot.efficiency;
 		} catch (e) {
-			analysisError =
-				e instanceof Error ? e.message : t('domain.inspector.analysisFailed');
+			analysisError = e instanceof Error ? e.message : t('domain.inspector.analysisFailed');
 		} finally {
 			analysisLoading = false;
 		}
@@ -592,8 +542,7 @@
 			variables = snapshot.variables;
 			historyNodes = snapshot.nodes;
 		} catch (e) {
-			stateError =
-				e instanceof Error ? e.message : t('domain.inspector.stateFailed');
+			stateError = e instanceof Error ? e.message : t('domain.inspector.stateFailed');
 		} finally {
 			stateLoading = false;
 		}
@@ -610,8 +559,7 @@
 		} catch (e) {
 			seenTrace = '';
 			nodeTraces = [];
-			nodeTracesError =
-				e instanceof Error ? e.message : t('domain.inspector.tracesFailed');
+			nodeTracesError = e instanceof Error ? e.message : t('domain.inspector.tracesFailed');
 		} finally {
 			nodeTracesLoading = false;
 		}
@@ -620,11 +568,7 @@
 	async function expandNeighborhood(id: string): Promise<void> {
 		try {
 			const neighbors = await getExecutionGraphNeighbors(execution.id, id);
-			neighborhoodIds = [
-				id,
-				...neighbors.predecessors,
-				...neighbors.successors,
-			];
+			neighborhoodIds = [id, ...neighbors.predecessors, ...neighbors.successors];
 			activeOverlay = '__neighborhood';
 		} catch (e) {
 			toasts.error(
@@ -647,8 +591,7 @@
 				.catch((e: unknown) => {
 					seenTools = '';
 					toolCalls = [];
-					toolsError =
-						e instanceof Error ? e.message : t('domain.inspector.toolsFailed');
+					toolsError = e instanceof Error ? e.message : t('domain.inspector.toolsFailed');
 				});
 		}
 		if (tab === 'timeline' && seenTimeline !== id) {
@@ -661,10 +604,7 @@
 				.catch((e: unknown) => {
 					seenTimeline = '';
 					timeline = [];
-					timelineError =
-						e instanceof Error
-							? e.message
-							: t('domain.inspector.timelineFailed');
+					timelineError = e instanceof Error ? e.message : t('domain.inspector.timelineFailed');
 				});
 		}
 		if (tab === 'trace' && seenTrace !== id) {
@@ -729,8 +669,7 @@
 			seenHierarchy = null;
 			hierarchy = null;
 			subtree = null;
-			hierarchyError =
-				e instanceof Error ? e.message : t('domain.inspector.hierarchyFailed');
+			hierarchyError = e instanceof Error ? e.message : t('domain.inspector.hierarchyFailed');
 		}
 	}
 
@@ -751,13 +690,10 @@
 	 * of the current node, not a true per-node stream. */
 	const liveTrace = $derived(
 		execution.currentNode
-			? (nodeTraces.find((trace) => trace.nodeId === execution.currentNode) ??
-					null)
+			? (nodeTraces.find((trace) => trace.nodeId === execution.currentNode) ?? null)
 			: null,
 	);
-	const liveMarkdown = $derived(
-		liveTrace ? extractMarkdownText(liveTrace.output) : null,
-	);
+	const liveMarkdown = $derived(liveTrace ? extractMarkdownText(liveTrace.output) : null);
 </script>
 
 <div class={cn('flex h-full min-h-0 flex-col', className)}>
@@ -775,9 +711,7 @@
 		</div>
 
 		<div class="mt-3 space-y-1.5">
-			<div
-				class="flex items-center justify-between text-micro text-muted-foreground"
-			>
+			<div class="flex items-center justify-between text-micro text-muted-foreground">
 				<span>{t('domain.inspector.progress')}</span>
 				<span class="tabular-nums"
 					>{t('domain.executionCard.tasks', {
@@ -823,13 +757,7 @@
 		</dl>
 	</div>
 
-	<Segmented
-		items={kindTabs}
-		bind:value={tab}
-		size="sm"
-		class="px-2"
-		panelId="execution-panel"
-	/>
+	<Segmented items={kindTabs} bind:value={tab} size="sm" class="px-2" panelId="execution-panel" />
 
 	<div
 		id="execution-panel"
@@ -861,12 +789,8 @@
 								{liveTrace.nodeName || liveTrace.nodeId}
 							</p>
 							{#if isLive}
-								<span
-									class="flex shrink-0 items-center gap-1.5 text-micro text-muted-foreground"
-								>
-									<span
-										class="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-running"
-									></span>
+								<span class="flex shrink-0 items-center gap-1.5 text-micro text-muted-foreground">
+									<span class="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-running"></span>
 									{t('domain.inspector.live')}
 								</span>
 							{/if}
@@ -875,9 +799,7 @@
 							{#if liveMarkdown !== null}
 								<StreamMarkdown content={liveMarkdown} done={!isLive} />
 							{:else}
-								<p
-									class="text-caption break-words whitespace-pre-wrap text-foreground"
-								>
+								<p class="text-caption break-words whitespace-pre-wrap text-foreground">
 									{typeof liveTrace.output === 'string'
 										? liveTrace.output
 										: JSON.stringify(liveTrace.output ?? null)}
@@ -888,8 +810,7 @@
 							<button
 								type="button"
 								class="mt-1.5 text-micro text-foreground underline-offset-2 hover:underline"
-								onclick={() =>
-									execution.currentNode && openNodeTrace(execution.currentNode)}
+								onclick={() => execution.currentNode && openNodeTrace(execution.currentNode)}
 							>
 								{t('domain.inspector.openTrace')}
 							</button>
@@ -900,9 +821,7 @@
 						</p>
 					{:else}
 						<p class="text-caption text-muted-foreground">
-							{isLive
-								? t('domain.inspector.liveOutputEmpty')
-								: t('domain.inspector.openTraceHint')}
+							{isLive ? t('domain.inspector.liveOutputEmpty') : t('domain.inspector.openTraceHint')}
 						</p>
 					{/if}
 				</Card>
@@ -912,18 +831,14 @@
 				{#if isLive}
 					<span class="text-micro text-muted-foreground">
 						{t('domain.inspector.liveColon', {
-							state:
-								streamState === 'open'
-									? t('domain.inspector.connected')
-									: streamState,
+							state: streamState === 'open' ? t('domain.inspector.connected') : streamState,
 						})}
 						{Object.keys(liveStatuses).length > 0
 							? `· ${t('domain.inspector.liveNodes', { count: Object.keys(liveStatuses).length })}`
 							: ''}
 					</span>
 				{:else}
-					<span class="text-micro text-muted-foreground"
-						>{t('domain.inspector.historicalRun')}</span
+					<span class="text-micro text-muted-foreground">{t('domain.inspector.historicalRun')}</span
 					>
 				{/if}
 				{#if kind === 'workflow' && execution.workflowId}
@@ -954,9 +869,7 @@
 							class="text-micro text-foreground underline-offset-2 hover:underline"
 							onclick={() => (replayPlaying = !replayPlaying)}
 						>
-							{replayPlaying
-								? t('domain.inspector.pause')
-								: t('domain.inspector.play')}
+							{replayPlaying ? t('domain.inspector.pause') : t('domain.inspector.play')}
 						</button>
 						<label class="text-micro text-muted-foreground">
 							{t('domain.inspector.speed')}
@@ -988,10 +901,7 @@
 							disabled={replayIndex >= historyNodes.length - 1}
 							onclick={() => {
 								replayPlaying = false;
-								replayIndex = Math.min(
-									historyNodes.length - 1,
-									(replayIndex ?? -1) + 1,
-								);
+								replayIndex = Math.min(historyNodes.length - 1, (replayIndex ?? -1) + 1);
 							}}
 						>
 							{t('domain.inspector.stepForward')}
@@ -1068,9 +978,7 @@
 								<button
 									type="button"
 									class="mt-1 text-micro text-foreground underline-offset-2 hover:underline"
-									onclick={() =>
-										selectedAnalysisKind &&
-										revealInAnalysis(selectedAnalysisKind)}
+									onclick={() => selectedAnalysisKind && revealInAnalysis(selectedAnalysisKind)}
 								>
 									{t('domain.inspector.showInAnalysis')}
 								</button>
@@ -1115,10 +1023,7 @@
 				{/if}
 				<div class="flex items-start gap-3">
 					<Timeline entries={scopedTimeline} class="min-w-0 flex-1" />
-					<TimelineOutline
-						entries={scopedTimeline}
-						class="hidden w-44 xl:block"
-					/>
+					<TimelineOutline entries={scopedTimeline} class="hidden w-44 xl:block" />
 				</div>
 			{/if}
 		{:else if tab === 'tools'}
@@ -1216,10 +1121,7 @@
 			{/if}
 		{:else if tab === 'analysis'}
 			{#if analysisLoading}
-				<Skeleton
-					lines={5}
-					class="rounded-lg border border-border bg-card p-4"
-				/>
+				<Skeleton lines={5} class="rounded-lg border border-border bg-card p-4" />
 			{:else if analysisError}
 				<ErrorState
 					title={t('domain.inspector.analysisFailedTitle')}
@@ -1234,9 +1136,7 @@
 							<ul class="space-y-1.5">
 								{#each liveErrors as record (record.id)}
 									<li class="text-caption">
-										<span class="font-mono text-destructive"
-											>{record.errorType ?? 'error'}</span
-										>
+										<span class="font-mono text-destructive">{record.errorType ?? 'error'}</span>
 										<span class="text-muted-foreground"> · {record.error}</span>
 										{#if record.nodeId}
 											<span class="font-mono text-micro text-muted-foreground">
@@ -1269,9 +1169,7 @@
 					<Card title={t('domain.inspector.slowNodes')}>
 						<ul class="space-y-1.5" id="analysis-slow">
 							{#each slowDisplay as node (node.node)}
-								<li
-									class="flex items-center justify-between gap-2 text-caption"
-								>
+								<li class="flex items-center justify-between gap-2 text-caption">
 									<button
 										type="button"
 										class="truncate font-mono underline-offset-2 hover:underline"
@@ -1292,10 +1190,7 @@
 						</ul>
 					</Card>
 					<Card title={t('domain.inspector.criticalPath')}>
-						<ol
-							class="flex flex-wrap items-center gap-1.5"
-							id="analysis-critical"
-						>
+						<ol class="flex flex-wrap items-center gap-1.5" id="analysis-critical">
 							{#each criticalAll as node (node)}
 								<li class="flex items-center gap-1.5">
 									<button
@@ -1364,10 +1259,7 @@
 					<ExecutionHierarchyTree {subtree} currentId={execution.id} />
 				</div>
 			{:else}
-				<Skeleton
-					lines={6}
-					class="rounded-lg border border-border bg-card p-4"
-				/>
+				<Skeleton lines={6} class="rounded-lg border border-border bg-card p-4" />
 			{/if}
 		{:else if tab === 'history'}
 			{#key execution.id}
@@ -1377,10 +1269,7 @@
 			{/key}
 		{:else}
 			{#if stateLoading}
-				<Skeleton
-					lines={5}
-					class="rounded-lg border border-border bg-card p-4"
-				/>
+				<Skeleton lines={5} class="rounded-lg border border-border bg-card p-4" />
 			{:else if stateError}
 				<ErrorState
 					title={t('domain.inspector.stateFailedTitle')}
@@ -1400,18 +1289,12 @@
 									class="flex items-start justify-between gap-2 border-b border-border/60 pb-2 last:border-0 last:pb-0"
 								>
 									<span class="min-w-0">
-										<span class="block truncate font-mono text-caption"
-											>{node.nodeId}</span
-										>
+										<span class="block truncate font-mono text-caption">{node.nodeId}</span>
 										<span class="text-micro text-muted-foreground">
 											{node.nodeType} · {formatDuration(node.durationMs)}
 										</span>
 									</span>
-									<StatusBadge
-										status={node.error ? 'failed' : 'completed'}
-										size="sm"
-										dot={false}
-									/>
+									<StatusBadge status={node.error ? 'failed' : 'completed'} size="sm" dot={false} />
 								</li>
 							{:else}
 								<li class="text-caption text-muted-foreground">

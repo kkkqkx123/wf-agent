@@ -1,18 +1,15 @@
 import { getHotkeyManager } from '@tanstack/hotkeys';
-import {
-	effectiveHotkey,
-	isShortcutDisabled,
-	resolvedShortcutRows,
-} from '#lib/shortcuts/registry';
+import { effectiveHotkey, isShortcutDisabled, resolvedShortcutRows } from '#lib/shortcuts/registry';
 
 /**
  * Shared vocabulary for canvas shortcuts. The global help overlay renders
  * these rows, so renaming a shortcut only happens in the shortcut catalog.
  */
-export const CANVAS_SHORTCUT_HELP: Array<{ keys: string; action: string }> =
-	resolvedShortcutRows('canvas')
-		.filter((row) => !row.disabled)
-		.map((row) => ({ keys: row.keys, action: row.action.label }));
+export const CANVAS_SHORTCUT_HELP: Array<{ keys: string; action: string }> = resolvedShortcutRows(
+	'canvas',
+)
+	.filter((row) => !row.disabled)
+	.map((row) => ({ keys: row.keys, action: row.action.label }));
 
 /**
  * Button label with its shortcut appended from the same catalog the help
@@ -73,10 +70,7 @@ export function registerCanvasShortcuts(
 		fn(handlers);
 	}
 
-	function bindWrite(
-		actionId: string,
-		run: (handlers: CanvasShortcutHandlers) => void,
-	): void {
+	function bindWrite(actionId: string, run: (handlers: CanvasShortcutHandlers) => void): void {
 		if (isShortcutDisabled(actionId)) return;
 		const hotkey = effectiveHotkey(actionId);
 		if (!hotkey) return;
@@ -92,10 +86,7 @@ export function registerCanvasShortcuts(
 		);
 	}
 
-	function bindView(
-		actionId: string,
-		run: (handlers: CanvasShortcutHandlers) => void,
-	): void {
+	function bindView(actionId: string, run: (handlers: CanvasShortcutHandlers) => void): void {
 		if (isShortcutDisabled(actionId)) return;
 		const hotkey = effectiveHotkey(actionId);
 		if (!hotkey) return;

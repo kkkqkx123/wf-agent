@@ -101,10 +101,8 @@ export function fileDiffDocToDiffFile(d: {
 				truncated = true;
 				break;
 			}
-			if (raw.startsWith('+'))
-				lines.push({ type: 'add', text: raw.slice(1) });
-			else if (raw.startsWith('-'))
-				lines.push({ type: 'del', text: raw.slice(1) });
+			if (raw.startsWith('+')) lines.push({ type: 'add', text: raw.slice(1) });
+			else if (raw.startsWith('-')) lines.push({ type: 'del', text: raw.slice(1) });
 			else
 				lines.push({
 					type: 'context',
@@ -164,8 +162,7 @@ export function gitHunksToDiffFile(
 				break;
 			}
 			if (raw.startsWith('+')) lines.push({ type: 'add', text: raw.slice(1) });
-			else if (raw.startsWith('-'))
-				lines.push({ type: 'del', text: raw.slice(1) });
+			else if (raw.startsWith('-')) lines.push({ type: 'del', text: raw.slice(1) });
 			else
 				lines.push({
 					type: 'context',
@@ -186,9 +183,5 @@ export function gitHunksToDiffFile(
 
 /** Whether resolved text still carries diff3 conflict markers. */
 export function hasConflictMarkers(text: string): boolean {
-	return (
-		text.includes('<<<<<<<') ||
-		text.includes('=======') ||
-		text.includes('>>>>>>>')
-	);
+	return text.includes('<<<<<<<') || text.includes('=======') || text.includes('>>>>>>>');
 }

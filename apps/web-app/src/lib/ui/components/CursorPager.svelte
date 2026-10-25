@@ -44,10 +44,7 @@
 </script>
 
 <div
-	class={cn(
-		'flex items-center justify-between gap-3 border-t border-border px-3 py-2',
-		className,
-	)}
+	class={cn('flex items-center justify-between gap-3 border-t border-border px-3 py-2', className)}
 >
 	<p class="text-caption text-muted-foreground">
 		<!-- The contract exposes `has_more` instead of a total, so no page count is rendered. -->
@@ -55,11 +52,7 @@
 	</p>
 	<div class="flex items-center gap-2">
 		{#if loading}
-			<Icon
-				name="loader"
-				size={14}
-				class="animate-spin text-muted-foreground"
-			/>
+			<Icon name="loader" size={14} class="animate-spin text-muted-foreground" />
 		{/if}
 		<Button
 			variant="outline"

@@ -6,11 +6,7 @@
  */
 
 import { browser } from '$app/env';
-import {
-	nodePorts,
-	parseStaticNodeType,
-	type StaticNodeType,
-} from './node-kind';
+import { nodePorts, parseStaticNodeType, type StaticNodeType } from './node-kind';
 
 export type GraphPreset = 'workflow' | 'decision' | 'execution';
 
@@ -88,13 +84,7 @@ export function renderKind(kind: string): NodeRenderKind {
 
 export interface LegendEntry {
 	label: string;
-	shape:
-		| 'ellipse'
-		| 'diamond'
-		| 'rounded'
-		| 'hexagon'
-		| 'line-solid'
-		| 'line-dashed';
+	shape: 'ellipse' | 'diamond' | 'rounded' | 'hexagon' | 'line-solid' | 'line-dashed';
 	color: string;
 }
 
@@ -115,11 +105,7 @@ export function nodeShape(kind: string, preset: GraphPreset): string {
 /** Backend edge type for a display edge kind; conditional and error routes survive round-trips. */
 export function backendEdgeType(kind: string | undefined): string {
 	const normalized = (kind ?? '').trim().toLowerCase();
-	if (
-		normalized === 'conditional' ||
-		normalized === 'condition' ||
-		normalized === 'branch'
-	) {
+	if (normalized === 'conditional' || normalized === 'condition' || normalized === 'branch') {
 		return 'CONDITIONAL';
 	}
 	if (normalized === 'error' || normalized === 'error_route') return 'ERROR';
@@ -127,10 +113,7 @@ export function backendEdgeType(kind: string | undefined): string {
 }
 
 /** Whether an edge renders dashed (conditional, error-route, untaken). */
-export function isDashedEdge(
-	kind: string | undefined,
-	taken: boolean = true,
-): boolean {
+export function isDashedEdge(kind: string | undefined, taken: boolean = true): boolean {
 	if (!taken) return true;
 	if (isFailureBranch({ kind })) return true;
 	const normalized = (kind ?? '').trim().toLowerCase();
@@ -144,10 +127,7 @@ export function isDashedEdge(
 }
 
 /** Whether an edge is a failure branch: error routes and explicit fail labels. */
-export function isFailureBranch(edge: {
-	kind?: string;
-	label?: string;
-}): boolean {
+export function isFailureBranch(edge: { kind?: string; label?: string }): boolean {
 	const kind = (edge.kind ?? '').trim().toLowerCase();
 	if (kind === 'error' || kind === 'error_route') return true;
 	const label = (edge.label ?? '').trim().toLowerCase();
@@ -211,8 +191,7 @@ const TONE_FALLBACK: Record<string, string> = {
 export function statusHex(status: string | null | undefined): string {
 	if (!status) return TONE_FALLBACK.neutral;
 	const normalized = status.trim().toLowerCase();
-	if (normalized === 'cached' || normalized === 'info')
-		return TONE_FALLBACK.info;
+	if (normalized === 'cached' || normalized === 'info') return TONE_FALLBACK.info;
 	const tone = toneForStatus(status);
 	switch (tone) {
 		case 'success':
@@ -232,9 +211,7 @@ export function statusHex(status: string | null | undefined): string {
 export function legendFor(preset: GraphPreset): LegendEntry[] {
 	const tone = (name: string, fallback: string): string => {
 		if (!browser || typeof document === 'undefined') return fallback;
-		const raw = getComputedStyle(document.documentElement)
-			.getPropertyValue(name)
-			.trim();
+		const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 		return raw ? `hsl(${raw})` : fallback;
 	};
 	const neutral = tone('--muted-foreground', TONE_FALLBACK.neutral);
@@ -271,15 +248,12 @@ export function legendFor(preset: GraphPreset): LegendEntry[] {
 export function resolveStatusHex(status: string | null | undefined): string {
 	if (!browser || typeof document === 'undefined') return statusHex(status);
 	const read = (name: string, fallback: string): string => {
-		const raw = getComputedStyle(document.documentElement)
-			.getPropertyValue(name)
-			.trim();
+		const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 		return raw ? `hsl(${raw})` : fallback;
 	};
 	if (!status) return read('--muted-foreground', TONE_FALLBACK.neutral);
 	const normalized = status.trim().toLowerCase();
-	if (normalized === 'cached' || normalized === 'info')
-		return read('--info', TONE_FALLBACK.info);
+	if (normalized === 'cached' || normalized === 'info') return read('--info', TONE_FALLBACK.info);
 	switch (toneForStatus(status)) {
 		case 'success':
 			return read('--success', TONE_FALLBACK.success);
@@ -300,9 +274,7 @@ export function distinctKinds(nodes: DisplayNode[]): string[] {
 }
 
 /** Per-kind node counts, for the large-graph aggregation notice. */
-export function kindCounts(
-	nodes: DisplayNode[],
-): Array<{ kind: string; count: number }> {
+export function kindCounts(nodes: DisplayNode[]): Array<{ kind: string; count: number }> {
 	const counts = new Map<string, number>();
 	for (const node of nodes) {
 		const kind = node.kind || 'unknown';
@@ -339,11 +311,7 @@ export function scoreEdgeLabel(edge: DisplayEdge): number {
 	let score = Math.max(0, 12 - label.length);
 	if (kind === 'error' || kind === 'error_route') {
 		score += 8;
-	} else if (
-		kind === 'conditional' ||
-		kind === 'condition' ||
-		kind === 'branch'
-	) {
+	} else if (kind === 'conditional' || kind === 'condition' || kind === 'branch') {
 		score += 5;
 	}
 	return score;
@@ -387,9 +355,7 @@ export function capGraph(
 		const keptIds = new Set(retained.map((node) => node.id));
 		return {
 			nodes: retained,
-			edges: edges.filter(
-				(edge) => keptIds.has(edge.source) && keptIds.has(edge.target),
-			),
+			edges: edges.filter((edge) => keptIds.has(edge.source) && keptIds.has(edge.target)),
 			truncated: true,
 			total: nodes.length,
 		};
@@ -420,9 +386,7 @@ export function capGraph(
 	const keptIds = new Set(kept.map((node) => node.id));
 	return {
 		nodes: kept,
-		edges: edges.filter(
-			(edge) => keptIds.has(edge.source) && keptIds.has(edge.target),
-		),
+		edges: edges.filter((edge) => keptIds.has(edge.source) && keptIds.has(edge.target)),
 		truncated: true,
 		total: nodes.length,
 	};
@@ -438,8 +402,7 @@ export function shortLabel(label: string, max: number = 18): string {
  * Canonical execution tone. When several signals apply to one node the
  * highest-ranked tone wins, so colors never depend on update order.
  */
-export type ExecutionTone =
-	'running' | 'error' | 'warning' | 'success' | 'neutral';
+export type ExecutionTone = 'running' | 'error' | 'warning' | 'success' | 'neutral';
 
 const TONE_RANK: Record<ExecutionTone, number> = {
 	running: 4,
@@ -450,20 +413,11 @@ const TONE_RANK: Record<ExecutionTone, number> = {
 };
 
 /** Normalize any backend status string to a canonical execution tone. */
-export function toneForStatus(
-	status: string | null | undefined,
-): ExecutionTone {
+export function toneForStatus(status: string | null | undefined): ExecutionTone {
 	if (!status) return 'neutral';
 	const normalized = status.trim().toLowerCase();
 	if (
-		[
-			'running',
-			'in_progress',
-			'executing',
-			'streaming',
-			'started',
-			'resumed',
-		].includes(normalized)
+		['running', 'in_progress', 'executing', 'streaming', 'started', 'resumed'].includes(normalized)
 	) {
 		return 'running';
 	}
@@ -517,10 +471,7 @@ export function toneForStatus(
 }
 
 /** Higher-ranked tone wins; used to merge execution, validation and edit signals. */
-export function rankTone(
-	current: ExecutionTone,
-	next: ExecutionTone,
-): ExecutionTone {
+export function rankTone(current: ExecutionTone, next: ExecutionTone): ExecutionTone {
 	return TONE_RANK[next] > TONE_RANK[current] ? next : current;
 }
 

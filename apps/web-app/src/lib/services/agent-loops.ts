@@ -1,10 +1,5 @@
 import { client } from '#lib/api/client';
-import {
-	call,
-	extractCursorPage,
-	extractPage,
-	requireData,
-} from '#lib/api/envelope';
+import { call, extractCursorPage, extractPage, requireData } from '#lib/api/envelope';
 import type { CursorPageResult, PageResult } from '#lib/api/envelope';
 import type {
 	AgentLoop,
@@ -88,15 +83,11 @@ interface TimelineDto {
 }
 
 function toIso(value: number | null | undefined): string {
-	return value === null || value === undefined
-		? ''
-		: new Date(value).toISOString();
+	return value === null || value === undefined ? '' : new Date(value).toISOString();
 }
 
 /** The executor of a session; an unknown value is rejected, not guessed. */
-function toSessionExecutorType(
-	value: string | null | undefined,
-): SessionExecutorType {
+function toSessionExecutorType(value: string | null | undefined): SessionExecutorType {
 	if (value === 'agent') return 'agent';
 	if (value === 'chat') return 'chat';
 	if (value === 'workflow') return 'workflow';
@@ -128,9 +119,7 @@ function toLoop(d: SummaryDto): AgentLoop {
 }
 
 /** Rich content parts collapse to the text the transcript can show. */
-function flattenContent(
-	content: string | MessageContentPartDto[] | undefined,
-): string {
+function flattenContent(content: string | MessageContentPartDto[] | undefined): string {
 	if (typeof content === 'string') return content;
 	if (!Array.isArray(content)) return '';
 	return content
@@ -197,15 +186,8 @@ function toIteration(d: IterationDto): LoopIteration {
  * The timeline enum carries the outcome in the entry type, so the badge reads
  * off that rather than off a status field the payload never has.
  */
-function timelineStatus(
-	type: string,
-	severity: string | null | undefined,
-): string {
-	if (
-		type.endsWith('_failed') ||
-		type === 'error' ||
-		type === 'execution_timeout'
-	) {
+function timelineStatus(type: string, severity: string | null | undefined): string {
+	if (type.endsWith('_failed') || type === 'error' || type === 'execution_timeout') {
 		return severity ?? 'failed';
 	}
 	if (type === 'execution_completed') return 'completed';
@@ -304,8 +286,7 @@ export async function listLoopTimeline(id: string): Promise<TimelineEntry[]> {
 			}),
 		);
 		requireData(data, `Timeline missing for loop ${id}`);
-		const page: CursorPageResult<TimelineDto> =
-			extractCursorPage<TimelineDto>(data);
+		const page: CursorPageResult<TimelineDto> = extractCursorPage<TimelineDto>(data);
 		for (const item of page.items) {
 			rows.push(toTimelineEntry(item));
 		}
@@ -333,9 +314,7 @@ export async function listLoopVariables(id: string): Promise<LoopVariable[]> {
 }
 
 export async function pauseAgentLoop(id: string): Promise<void> {
-	await call<unknown>(
-		client.POST('/api/v1/agent-loops/{id}/pause', { params: { path: { id } } }),
-	);
+	await call<unknown>(client.POST('/api/v1/agent-loops/{id}/pause', { params: { path: { id } } }));
 }
 
 export async function resumeAgentLoop(id: string): Promise<void> {
@@ -384,20 +363,15 @@ function toErrorRecord(d: ErrorRecordDto): LoopErrorRecord {
 		timestamp: typeof d.timestamp === 'number' ? d.timestamp : 0,
 		nodeId: typeof d.node_id === 'string' ? d.node_id : null,
 		chain: Array.isArray(d.error_chain)
-			? d.error_chain.filter(
-					(entry): entry is string => typeof entry === 'string',
-				)
+			? d.error_chain.filter((entry): entry is string => typeof entry === 'string')
 			: [],
 		recoverable: d.is_recoverable === true,
-		recoveryAction:
-			typeof d.recovery_action === 'string' ? d.recovery_action : null,
+		recoveryAction: typeof d.recovery_action === 'string' ? d.recovery_action : null,
 	};
 }
 
 /** Error chain of an agent loop execution, oldest first. */
-export async function getLoopErrorChain(
-	id: string,
-): Promise<LoopErrorRecord[]> {
+export async function getLoopErrorChain(id: string): Promise<LoopErrorRecord[]> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/agent-executions/{id}/errors/chain', {
 			params: { path: { id } },
@@ -429,12 +403,10 @@ export async function getLoopRootCause(id: string): Promise<LoopRootCause> {
 	);
 	requireData(data, `Root cause missing for loop ${id}`);
 	return {
-		rootCauseId:
-			typeof data?.root_cause_id === 'string' ? data.root_cause_id : '',
+		rootCauseId: typeof data?.root_cause_id === 'string' ? data.root_cause_id : '',
 		error: typeof data?.error === 'string' ? data.error : '',
 		chainLength: typeof data?.chain_length === 'number' ? data.chain_length : 0,
-		suggestedAction:
-			typeof data?.suggested_action === 'string' ? data.suggested_action : null,
+		suggestedAction: typeof data?.suggested_action === 'string' ? data.suggested_action : null,
 	};
 }
 
@@ -454,10 +426,7 @@ export async function getLoopDecisionSteps(id: string) {
  * Untyped request: the generated types conflate the agent and workflow
  * checkpoint routes under one operation name.
  */
-export async function createAgentLoopCheckpoint(
-	id: string,
-	description?: string,
-): Promise<void> {
+export async function createAgentLoopCheckpoint(id: string, description?: string): Promise<void> {
 	await call<unknown>(
 		client.POST('/api/v1/agent-loops/{id}/checkpoints', {
 			params: { path: { id } },
@@ -466,10 +435,7 @@ export async function createAgentLoopCheckpoint(
 	);
 }
 
-export async function restoreAgentLoopCheckpoint(
-	id: string,
-	checkpointId: string,
-): Promise<void> {
+export async function restoreAgentLoopCheckpoint(id: string, checkpointId: string): Promise<void> {
 	await call<unknown>(
 		client.POST('/api/v1/agent-loops/{id}/checkpoints/{cid}/restore', {
 			params: { path: { id, cid: checkpointId } },
@@ -513,10 +479,7 @@ interface AgentRunViewDto {
  * from the body, so a draft composer passes `new` and adopts the returned
  * loop id as its session.
  */
-export async function runAgentLoop(
-	id: string,
-	input: RunLoopInput,
-): Promise<AgentRunResult> {
+export async function runAgentLoop(id: string, input: RunLoopInput): Promise<AgentRunResult> {
 	const data = requireData(
 		await call<AgentRunViewDto>(
 			client.POST('/api/v1/agent-loops/{id}/run', {
@@ -583,9 +546,7 @@ export interface AgentLoopAnalysis {
 }
 
 /** Error analysis for the analysis tab: chain, root cause, hints. */
-export async function getAgentLoopAnalysis(
-	id: string,
-): Promise<AgentLoopAnalysis> {
+export async function getAgentLoopAnalysis(id: string): Promise<AgentLoopAnalysis> {
 	const [chain, rootCause, toolFrequency] = await Promise.all([
 		getLoopErrorChain(id),
 		getLoopRootCause(id),
@@ -593,9 +554,7 @@ export async function getAgentLoopAnalysis(
 	]);
 	const hints = [
 		...new Set(
-			chain
-				.map((record) => record.recoveryAction)
-				.filter((hint): hint is string => !!hint),
+			chain.map((record) => record.recoveryAction).filter((hint): hint is string => !!hint),
 		),
 	];
 	if (rootCause.suggestedAction && !hints.includes(rootCause.suggestedAction)) {
@@ -614,16 +573,12 @@ export async function getAgentLoopAnalysis(
  * this same mapping so both views interpret message payloads identically.
  * Each view still fetches on demand; there is no shared request cache.
  */
-export async function getAgentLoopMessages(
-	loopId: string,
-): Promise<LoopMessage[]> {
+export async function getAgentLoopMessages(loopId: string): Promise<LoopMessage[]> {
 	const page = await listLoopMessages(loopId);
 	return page.items;
 }
 
 /** Variables snapshot for an agent loop. */
-export async function getAgentLoopVariables(
-	loopId: string,
-): Promise<LoopVariable[]> {
+export async function getAgentLoopVariables(loopId: string): Promise<LoopVariable[]> {
 	return listLoopVariables(loopId);
 }

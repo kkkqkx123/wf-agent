@@ -1,14 +1,5 @@
-import type {
-	DisplayEdge,
-	DisplayNode,
-	GraphLayoutKind,
-} from './display-model';
-import {
-	columnPositions,
-	compactPositions,
-	layeredPositions,
-	rowPositions,
-} from './layout';
+import type { DisplayEdge, DisplayNode, GraphLayoutKind } from './display-model';
+import { columnPositions, compactPositions, layeredPositions, rowPositions } from './layout';
 import type { CanvasPosition } from './canvas-model';
 
 /** Starting positions for the preset layouts; other kinds let Cytoscape decide. */

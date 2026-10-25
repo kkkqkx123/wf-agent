@@ -91,11 +91,7 @@
 				})}
 			</p>
 			{#if errorLine}
-				<Button
-					variant="ghost"
-					size="sm"
-					onclick={() => editor?.scrollToLine(errorLine ?? 1)}
-				>
+				<Button variant="ghost" size="sm" onclick={() => editor?.scrollToLine(errorLine ?? 1)}>
 					{t('domain.templateEdit.goToLine')}
 				</Button>
 			{/if}
@@ -103,13 +99,9 @@
 	{/if}
 	{#snippet footer()}
 		<div class="flex items-center justify-end gap-2">
-			<Button variant="ghost" size="sm" onclick={requestClose}
-				>{t('common.cancel')}</Button
-			>
+			<Button variant="ghost" size="sm" onclick={requestClose}>{t('common.cancel')}</Button>
 			<Button size="sm" disabled={busy} onclick={() => onimport()}>
-				{busy
-					? t('domain.templateImport.importing')
-					: t('domain.templateImport.import')}
+				{busy ? t('domain.templateImport.importing') : t('domain.templateImport.import')}
 			</Button>
 		</div>
 	{/snippet}

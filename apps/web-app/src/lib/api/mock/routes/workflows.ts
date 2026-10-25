@@ -32,24 +32,44 @@ export function registerWorkflows(router: MockRouter): void {
 		return pageView(camelToSnakeDeep(workflows), +(query.limit ?? 50), +(query.offset ?? 0));
 	});
 	router.on('GET', '/api/v1/workflows/{id}', (params) => {
-		const found = workflowDetail.id === params.id
-			? workflowDetail
-			: workflows.find((w) => w.id === params.id) ?? workflows[0];
+		const found =
+			workflowDetail.id === params.id
+				? workflowDetail
+				: (workflows.find((w) => w.id === params.id) ?? workflows[0]);
 		return camelToSnakeDeep(workflowDocument(found));
 	});
 	router.on('GET', '/api/v1/workflows/{id}/graph', (params) => {
-		const detail = workflowDetail.id === params.id
-			? workflowDetail
-			: workflows.find((w) => w.id === params.id)
+		const detail =
+			workflowDetail.id === params.id
+				? workflowDetail
+				: workflows.find((w) => w.id === params.id)
 					? workflowDetail
 					: workflowDetail;
 		return camelToSnakeDeep(detail.graph);
 	});
 	router.on('GET', '/api/v1/workflows/{id}/versions', () => {
 		return camelToSnakeDeep([
-			{ version: 12, created_at: '', author: 'platform', note: 'Nightly build bump', current: true },
-			{ version: 11, created_at: '', author: 'platform', note: 'Reorganise test matrix', current: false },
-			{ version: 10, created_at: '', author: 'sre', note: 'Tighten sandbox defaults', current: false },
+			{
+				version: 12,
+				created_at: '',
+				author: 'platform',
+				note: 'Nightly build bump',
+				current: true,
+			},
+			{
+				version: 11,
+				created_at: '',
+				author: 'platform',
+				note: 'Reorganise test matrix',
+				current: false,
+			},
+			{
+				version: 10,
+				created_at: '',
+				author: 'sre',
+				note: 'Tighten sandbox defaults',
+				current: false,
+			},
 		]);
 	});
 	router.on('GET', '/api/v1/workflows/{id}/graph/nodes', () => {
@@ -106,19 +126,15 @@ export function registerWorkflows(router: MockRouter): void {
 	// Preview has no concurrent editors, so the workflow lock is always free.
 	router.on('GET', '/api/v1/workflows/{id}/lock', () => null);
 	router.on('POST', '/api/v1/workflows/{id}/lock/acquire', (_p, _q, body) => ({
-		owner_id:
-			typeof body?.owner_id === 'string' && body.owner_id ? body.owner_id : 'preview-owner',
+		owner_id: typeof body?.owner_id === 'string' && body.owner_id ? body.owner_id : 'preview-owner',
 		owner_name:
-			typeof body?.owner_name === 'string' && body.owner_name
-				? body.owner_name
-				: 'Preview Owner',
-		expires_at: FIXTURE_EPOCH
+			typeof body?.owner_name === 'string' && body.owner_name ? body.owner_name : 'Preview Owner',
+		expires_at: FIXTURE_EPOCH,
 	}));
 	router.on('POST', '/api/v1/workflows/{id}/lock/heartbeat', (_p, _q, body) => ({
-		owner_id:
-			typeof body?.owner_id === 'string' && body.owner_id ? body.owner_id : 'preview-owner',
+		owner_id: typeof body?.owner_id === 'string' && body.owner_id ? body.owner_id : 'preview-owner',
 		owner_name: 'Preview Owner',
-		expires_at: FIXTURE_EPOCH
+		expires_at: FIXTURE_EPOCH,
 	}));
 	router.on('POST', '/api/v1/workflows/{id}/lock/release', () => null);
 }

@@ -35,7 +35,9 @@ export function registerInsights(router: MockRouter): void {
 		version: '1.0.0',
 		name: 'wf-agent',
 	}));
-	router.on('GET', '/api/v1/favorites', (_p, query) => pageView([], +(query.limit ?? 50), +(query.offset ?? 0)));
+	router.on('GET', '/api/v1/favorites', (_p, query) =>
+		pageView([], +(query.limit ?? 50), +(query.offset ?? 0)),
+	);
 	router.on('PUT', '/api/v1/favorites/{kind}/{id}', () => ({ ok: true }));
 	router.on('DELETE', '/api/v1/favorites/{kind}/{id}', () => ({ ok: true }));
 	router.on('GET', '/api/v1/storage/diagnose', () => camelToSnakeDeep(diagnostics));

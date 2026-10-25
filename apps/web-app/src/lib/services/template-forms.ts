@@ -73,13 +73,7 @@ export function templateFormFields(kind: TemplateKind): TemplateFormField[] {
 			TAGS_FIELD,
 		];
 	}
-	return [
-		NAME_FIELD,
-		DESCRIPTION_FIELD,
-		VERSION_FIELD,
-		CATEGORY_FIELD,
-		TAGS_FIELD,
-	];
+	return [NAME_FIELD, DESCRIPTION_FIELD, VERSION_FIELD, CATEGORY_FIELD, TAGS_FIELD];
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

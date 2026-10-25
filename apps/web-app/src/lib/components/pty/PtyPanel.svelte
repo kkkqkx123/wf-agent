@@ -5,10 +5,7 @@
 	import Button from '#lib/ui/components/Button.svelte';
 	import Separator from '#lib/ui/components/Separator.svelte';
 	import TerminalInstance from './TerminalInstance.svelte';
-	import {
-		ptyStoreFor,
-		type PtySessionStore,
-	} from '#lib/stores/pty-session.svelte';
+	import { ptyStoreFor, type PtySessionStore } from '#lib/stores/pty-session.svelte';
 	import { getPty } from '#lib/services/pty';
 	import { t } from '#lib/i18n';
 
@@ -92,10 +89,7 @@
 </script>
 
 {#if open && store.sessions.length > 0}
-	<Card
-		title={t('pty.ptyPanel.title')}
-		description={t('pty.ptyPanel.description')}
-	>
+	<Card title={t('pty.ptyPanel.title')} description={t('pty.ptyPanel.description')}>
 		<div class="mb-2 flex flex-wrap items-center gap-1">
 			{#each store.sessions as session (session.id)}
 				<div
@@ -128,9 +122,7 @@
 						>
 							{session.title}
 							{#if session.status === 'exited'}
-								<span class="text-muted-foreground"
-									>({t('pty.ptyPanel.exited')})</span
-								>
+								<span class="text-muted-foreground">({t('pty.ptyPanel.exited')})</span>
 							{/if}
 						</button>
 					{/if}
@@ -175,11 +167,7 @@
 				class="mb-2 flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1 text-micro"
 			>
 				<span>{t('pty.ptyPanel.disconnected')}</span>
-				<Button
-					size="sm"
-					variant="outline"
-					onclick={() => void restartExited(failedId!)}
-				>
+				<Button size="sm" variant="outline" onclick={() => void restartExited(failedId!)}>
 					{t('pty.ptyPanel.restart')}
 				</Button>
 				<Button size="sm" variant="ghost" onclick={clearFailure}>
@@ -188,9 +176,7 @@
 			</div>
 		{/if}
 
-		<div
-			class="h-72 overflow-hidden rounded-md border border-border bg-background"
-		>
+		<div class="h-72 overflow-hidden rounded-md border border-border bg-background">
 			{#key store.activeId}
 				{#if store.active()}
 					<TerminalInstance

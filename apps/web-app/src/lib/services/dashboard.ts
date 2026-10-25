@@ -25,9 +25,7 @@ export async function loadDashboardStats(): Promise<DashboardStats> {
 		listCheckpoints({ limit: 200 }).catch(() => null),
 	]);
 
-	const runningCount = executions.items.filter(
-		(e) => e.status === 'running',
-	).length;
+	const runningCount = executions.items.filter((e) => e.status === 'running').length;
 	const workflowCount = workflows.items.length;
 	const executionCount = executions.items.length;
 	const checkpointCount = checkpoints?.items.length ?? 0;

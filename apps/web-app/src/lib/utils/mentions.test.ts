@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-	entityMention,
-	fileMentionRef,
-	parseMentionValue,
-	textRuns,
-} from './mentions';
+import { entityMention, fileMentionRef, parseMentionValue, textRuns } from './mentions';
 
 describe('entityMention', () => {
 	it('keeps the canonical id unchanged', () => {
@@ -76,9 +71,7 @@ describe('textRuns', () => {
 	});
 
 	it('returns the whole text when there is no reference', () => {
-		expect(textRuns('plain sentence')).toEqual([
-			{ text: 'plain sentence', kind: null },
-		]);
+		expect(textRuns('plain sentence')).toEqual([{ text: 'plain sentence', kind: null }]);
 	});
 
 	it('classifies file path shorthand as a file mention', () => {

@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-	describeConnectRejection,
-	isConnectValid,
-	type ConnectCheck,
-} from './canvas-connect';
+import { describeConnectRejection, isConnectValid, type ConnectCheck } from './canvas-connect';
 import type { DisplayEdge } from './display-model';
 
 function check(extra: Partial<ConnectCheck> = {}): ConnectCheck {
@@ -26,18 +22,14 @@ describe('describeConnectRejection', () => {
 		expect(describeConnectRejection(check({ editMode: false }))).toBe(
 			'Read-only canvas. Enter edit mode to connect.',
 		);
-		expect(describeConnectRejection(check({ target: '' }))).toBe(
-			'Choose another node to connect.',
-		);
-		expect(describeConnectRejection(check({ target: 'a' }))).toBe(
-			'Cannot self-connect.',
-		);
+		expect(describeConnectRejection(check({ target: '' }))).toBe('Choose another node to connect.');
+		expect(describeConnectRejection(check({ target: 'a' }))).toBe('Cannot self-connect.');
 	});
 
 	it('rejects duplicate edges', () => {
-		expect(
-			describeConnectRejection(check({ edges: [edge('e1', 'a', 'b')] })),
-		).toBe('Edge already exists.');
+		expect(describeConnectRejection(check({ edges: [edge('e1', 'a', 'b')] }))).toBe(
+			'Edge already exists.',
+		);
 	});
 
 	it('rejects hidden members and group endpoints', () => {
@@ -55,20 +47,14 @@ describe('describeConnectRejection', () => {
 	});
 
 	it('rejects edges that break the backend boundary rules', () => {
+		expect(describeConnectRejection(check({ sourceKind: 'LLM', targetKind: 'START' }))).toBe(
+			'START node cannot have incoming edges',
+		);
+		expect(describeConnectRejection(check({ sourceKind: 'END', targetKind: 'SCRIPT' }))).toBe(
+			'END node cannot have outgoing edges',
+		);
 		expect(
-			describeConnectRejection(
-				check({ sourceKind: 'LLM', targetKind: 'START' }),
-			),
-		).toBe('START node cannot have incoming edges');
-		expect(
-			describeConnectRejection(
-				check({ sourceKind: 'END', targetKind: 'SCRIPT' }),
-			),
-		).toBe('END node cannot have outgoing edges');
-		expect(
-			describeConnectRejection(
-				check({ sourceKind: 'llm', targetKind: 'start_from_message' }),
-			),
+			describeConnectRejection(check({ sourceKind: 'llm', targetKind: 'start_from_message' })),
 		).toBe('START_FROM_MESSAGE node cannot have incoming edges');
 		expect(
 			describeConnectRejection(
@@ -78,15 +64,9 @@ describe('describeConnectRejection', () => {
 	});
 
 	it('allows edges between ordinary node kinds', () => {
-		expect(
-			isConnectValid(check({ sourceKind: 'LLM', targetKind: 'SCRIPT' })),
-		).toBe(true);
-		expect(
-			isConnectValid(check({ sourceKind: 'SCRIPT', targetKind: 'END' })),
-		).toBe(true);
-		expect(
-			isConnectValid(check({ sourceKind: 'START', targetKind: 'LLM' })),
-		).toBe(true);
+		expect(isConnectValid(check({ sourceKind: 'LLM', targetKind: 'SCRIPT' }))).toBe(true);
+		expect(isConnectValid(check({ sourceKind: 'SCRIPT', targetKind: 'END' }))).toBe(true);
+		expect(isConnectValid(check({ sourceKind: 'START', targetKind: 'LLM' }))).toBe(true);
 	});
 
 	it('keeps topology checks ahead of port checks', () => {
@@ -104,18 +84,62 @@ describe('describeConnectRejection', () => {
 
 describe('port direction', () => {
 	it('rejects links dragged from an input hotspot', () => {
-		expect(
-			describeConnectRejection(check({ sourcePort: 'input' })),
-		).toBe('Connections start from an output port');
+		expect(describeConnectRejection(check({ sourcePort: 'input' }))).toBe(
+			'Connections start from an output port',
+		);
 	});
 	it('rejects links dropped on an output hotspot', () => {
-		expect(
-			describeConnectRejection(check({ targetPort: 'branch' })),
-		).toBe('Connections land on an input port');
+		expect(describeConnectRejection(check({ targetPort: 'branch' }))).toBe(
+			'Connections land on an input port',
+		);
 	});
 	it('keeps topology checks ahead of port checks', () => {
+		expect(describeConnectRejection(check({ target: 'a', sourcePort: 'input' }))).toBe(
+			'Cannot self-connect.',
+		);
+	});
+	it('carries hotspot ports end to end', () => {
 		expect(
-			describeConnectRejection(check({ target: 'a', sourcePort: 'input' })),
-		).toBe('Cannot self-connect.');
+			describeConnectRejection(
+				check({
+					sourceKind: 'SCRIPT',
+					targetKind: 'LLM',
+					sourcePort: 'output',
+					targetPort: 'input',
+				}),
+			),
+		).toBeNull();
+		expect(
+			describeConnectRejection(
+				check({
+					sourceKind: 'ROUTE',
+					targetKind: 'SCRIPT',
+					sourcePort: 'branch',
+					targetPort: 'input',
+				}),
+			),
+		).toBeNull();
+	});
+	it('rejects boundary kinds even with valid hotspot ports', () => {
+		expect(
+			describeConnectRejection(
+				check({
+					sourceKind: 'END',
+					targetKind: 'SCRIPT',
+					sourcePort: 'output',
+					targetPort: 'input',
+				}),
+			),
+		).toBe('END node cannot have outgoing edges');
+		expect(
+			describeConnectRejection(
+				check({
+					sourceKind: 'SCRIPT',
+					targetKind: 'START',
+					sourcePort: 'output',
+					targetPort: 'input',
+				}),
+			),
+		).toBe('START node cannot have incoming edges');
 	});
 });

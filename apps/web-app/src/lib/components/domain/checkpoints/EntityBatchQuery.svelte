@@ -42,10 +42,7 @@
 			});
 		} catch (e) {
 			console.error('Entity checkpoint query failed:', e);
-			toasts.error(
-				t('domain.checkpoint.entityFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.checkpoint.entityFailed'), e instanceof Error ? e.message : undefined);
 		}
 	}
 </script>
@@ -58,8 +55,7 @@
 		label={t('domain.checkpoint.entityIds')}
 		size="sm"
 		value={entityIds}
-		oninput={(event: Event) =>
-			(entityIds = (event.target as HTMLInputElement).value)}
+		oninput={(event: Event) => (entityIds = (event.target as HTMLInputElement).value)}
 		placeholder="id-1, id-2, id-3"
 	/>
 	<Select

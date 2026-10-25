@@ -1,8 +1,5 @@
 <script lang="ts">
-	import type {
-		ExecutionSubtree,
-		ExecutionSubtreeNode,
-	} from '#lib/types/models';
+	import type { ExecutionSubtree, ExecutionSubtreeNode } from '#lib/types/models';
 	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import EmptyState from '#lib/ui/components/EmptyState.svelte';
 	import IconButton from '#lib/ui/components/IconButton.svelte';
@@ -36,10 +33,7 @@
 	let collapsed = new SvelteSet<string>();
 
 	const visible = $derived(
-		rows.filter(
-			(row) =>
-				!ancestorCollapsed(row.node) && !collapsed.has(row.node.executionId),
-		),
+		rows.filter((row) => !ancestorCollapsed(row.node) && !collapsed.has(row.node.executionId)),
 	);
 
 	/** A node is hidden when any displayed ancestor is collapsed. */
@@ -48,17 +42,14 @@
 		while (cursor) {
 			if (collapsed.has(cursor)) return true;
 			cursor =
-				subtree.nodes.find((candidate) => candidate.executionId === cursor)
-					?.parentExecutionId ?? null;
+				subtree.nodes.find((candidate) => candidate.executionId === cursor)?.parentExecutionId ??
+				null;
 		}
 		return false;
 	}
 
 	/** Whether a node is the last sibling at its own depth. */
-	function isLastAtDepth(
-		nodes: ExecutionSubtreeNode[],
-		index: number,
-	): boolean {
+	function isLastAtDepth(nodes: ExecutionSubtreeNode[], index: number): boolean {
 		const depth = nodes[index].depth;
 		return index === nodes.length - 1 || nodes[index + 1].depth <= depth;
 	}
@@ -94,9 +85,7 @@
 				})}
 			</p>
 			{#if subtree.truncated}
-				<span
-					class="rounded border border-warning/40 bg-warning/10 px-1.5 text-micro text-warning"
-				>
+				<span class="rounded border border-warning/40 bg-warning/10 px-1.5 text-micro text-warning">
 					{t('domain.hierarchyTree.truncated', {
 						count: formatNumber(subtree.omitted),
 					})}
@@ -108,10 +97,7 @@
 			{#each visible as row (row.node.executionId)}
 				{@const selected = row.node.executionId === currentId}
 				<li
-					class={cn(
-						'flex items-center gap-2 px-3 py-2',
-						selected && 'bg-accent/40',
-					)}
+					class={cn('flex items-center gap-2 px-3 py-2', selected && 'bg-accent/40')}
 					style={`padding-left: ${0.75 + row.node.depth * 1.1}rem`}
 				>
 					{#if row.hasChildren}
@@ -119,9 +105,7 @@
 							label={collapsed.has(row.node.executionId)
 								? t('domain.hierarchyTree.expand')
 								: t('domain.hierarchyTree.collapse')}
-							icon={collapsed.has(row.node.executionId)
-								? 'chevron-right'
-								: 'chevron-down'}
+							icon={collapsed.has(row.node.executionId) ? 'chevron-right' : 'chevron-down'}
 							iconSize={14}
 							compact
 							onclick={() => toggle(row.node.executionId)}
@@ -130,10 +114,7 @@
 						<span class="inline-block w-6" aria-hidden="true"></span>
 					{/if}
 
-					<span
-						aria-hidden="true"
-						class="font-mono text-micro text-muted-foreground/70"
-					>
+					<span aria-hidden="true" class="font-mono text-micro text-muted-foreground/70">
 						{branchGlyphs(row)}
 					</span>
 
@@ -144,9 +125,7 @@
 						{row.node.executionId}
 					</a>
 
-					<span
-						class="rounded border border-border px-1.5 text-micro text-muted-foreground"
-					>
+					<span class="rounded border border-border px-1.5 text-micro text-muted-foreground">
 						{row.node.executionType}
 					</span>
 

@@ -25,10 +25,7 @@
 			const next = value as TemplateKind;
 			if (next === controller.createKind) return;
 
-			void goto(
-				resolve('/templates/[kind]/[id]', { kind: next, id: 'new' }) +
-					'?tab=edit',
-			);
+			void goto(resolve('/templates/[kind]/[id]', { kind: next, id: 'new' }) + '?tab=edit');
 		}}
 	/>
 	<input
@@ -67,8 +64,7 @@
 	onmovenode={(id, position) => controller.handleTemplateMoveNode(id, position)}
 	onmovenodes={(moves) => controller.handleTemplateMoveNodes(moves)}
 	onaddnode={(position) => controller.handleTemplateAddNode(position)}
-	onconnect={(source, target) =>
-		controller.handleTemplateConnect(source, target)}
+	onconnect={(source, target) => controller.handleTemplateConnect(source, target)}
 	ondeletenodes={(ids) => controller.handleTemplateDeleteNodes(ids)}
 	ondeletegroups={(ids) => controller.handleTemplateDeleteGroups(ids)}
 />

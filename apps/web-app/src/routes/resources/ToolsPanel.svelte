@@ -39,24 +39,16 @@
 				<p class="text-caption text-muted-foreground">
 					{tool.description}
 				</p>
-				<div
-					class="mt-2 flex items-center justify-between text-micro text-muted-foreground"
-				>
-					<span class="rounded border border-border px-1.5 py-0.5"
-						>{tool.kind}</span
-					>
+				<div class="mt-2 flex items-center justify-between text-micro text-muted-foreground">
+					<span class="rounded border border-border px-1.5 py-0.5">{tool.kind}</span>
 					<span class="tabular-nums">
 						{formatNumber(tool.calls)} calls ·
-						{tool.successRate === null
-							? '—'
-							: formatPercent(tool.successRate, 0)} ok
+						{tool.successRate === null ? '—' : formatPercent(tool.successRate, 0)} ok
 					</span>
 				</div>
 				{#snippet footer()}
 					<div class="flex items-center gap-2">
-						<Button variant="ghost" size="sm" onclick={() => onrun(tool)}>
-							Validate / Run
-						</Button>
+						<Button variant="ghost" size="sm" onclick={() => onrun(tool)}>Validate / Run</Button>
 					</div>
 				{/snippet}
 			</Card>

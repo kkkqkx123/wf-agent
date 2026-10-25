@@ -70,11 +70,7 @@
 		onclick={() => controller.refresh()}
 	/>
 	{#if selectedId}
-		<Button
-			variant="outline"
-			size="sm"
-			href={appPath(`/executions/${selectedId}`)}
-		>
+		<Button variant="outline" size="sm" href={appPath(`/executions/${selectedId}`)}>
 			<Icon name="arrow-right" size={13} />
 			{t('chat.chatSessionHeader.fullDetail')}
 		</Button>

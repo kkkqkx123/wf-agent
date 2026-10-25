@@ -15,11 +15,7 @@
 	} from '#lib/services/definitions';
 	import { EditLockStore } from '#lib/stores/edit-lock.svelte';
 	import { toasts } from '#lib/stores/toast.svelte';
-	import type {
-		DefinitionDraft,
-		DefinitionKind,
-		DefinitionVersion,
-	} from '#lib/types/models';
+	import type { DefinitionDraft, DefinitionKind, DefinitionVersion } from '#lib/types/models';
 	import { t } from '#lib/i18n';
 
 	interface Props {
@@ -51,8 +47,7 @@
 			drafts = loadedDrafts;
 			versions = loadedVersions;
 		} catch (e) {
-			loadError =
-				e instanceof Error ? e.message : t('domain.definition.loadFailed');
+			loadError = e instanceof Error ? e.message : t('domain.definition.loadFailed');
 		} finally {
 			loading = false;
 		}
@@ -80,9 +75,7 @@
 		try {
 			const issues = await validateDefinitionDraft(kind, draftId);
 			drafts = drafts.map((draft) =>
-				draft.id === draftId
-					? { ...draft, valid: issues.length === 0, issues }
-					: draft,
+				draft.id === draftId ? { ...draft, valid: issues.length === 0, issues } : draft,
 			);
 			toasts.success(
 				issues.length === 0
@@ -166,8 +159,8 @@
 
 		<Card title="Runs in execution domain">
 			<p class="text-caption text-muted-foreground">
-				Runs are read-only here. The execution domain is the single center
-				for listing, filtering, re-running and inspecting runs.
+				Runs are read-only here. The execution domain is the single center for listing, filtering,
+				re-running and inspecting runs.
 			</p>
 			<div class="mt-2">
 				<Button

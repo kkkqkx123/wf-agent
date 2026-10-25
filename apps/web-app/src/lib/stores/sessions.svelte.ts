@@ -36,9 +36,7 @@ class SessionStore {
 	/** Rows the sidebar lists, in the order the local state puts them in. */
 	private rowsFor(ids: string[]): AgentLoop[] {
 		const byId = new Map(this.list.items.map((item) => [item.id, item]));
-		return ids
-			.map((id) => byId.get(id))
-			.filter((item): item is AgentLoop => item !== undefined);
+		return ids.map((id) => byId.get(id)).filter((item): item is AgentLoop => item !== undefined);
 	}
 
 	get starred(): AgentLoop[] {

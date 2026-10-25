@@ -32,16 +32,7 @@ export function resolveAppPath(path: AppPath): ResolvedPathname {
 }
 
 /** Query keys the app round-trips through the address bar. */
-const LIST_KEYS = [
-	'id',
-	'q',
-	'status',
-	'page',
-	'tab',
-	'panel',
-	'definition',
-	'version',
-] as const;
+const LIST_KEYS = ['id', 'q', 'status', 'page', 'tab', 'panel', 'definition', 'version'] as const;
 
 export type ListParamKey = (typeof LIST_KEYS)[number];
 
@@ -77,10 +68,7 @@ export function buildListQuery(url: URL, patch: ListParams): string {
  * unchanged, which is what keeps a selection effect from looping on its own
  * navigation.
  */
-export async function gotoWithParams(
-	url: URL,
-	patch: ListParams,
-): Promise<void> {
+export async function gotoWithParams(url: URL, patch: ListParams): Promise<void> {
 	const next = buildListQuery(url, patch);
 	if (next === url.searchParams.toString()) return;
 	// The pathname already comes from the live URL, so the base is baked in and

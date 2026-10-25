@@ -1,8 +1,5 @@
 <script lang="ts">
-	import type {
-		SvelteRenderableNode,
-		SvelteRenderContext,
-	} from 'markstream-svelte';
+	import type { SvelteRenderableNode, SvelteRenderContext } from 'markstream-svelte';
 	import { resolveStreamingTextState } from 'markstream-core';
 	import { textRuns } from '#lib/utils/mentions';
 	import MentionBadge from './MentionBadge.svelte';
@@ -22,9 +19,7 @@
 
 	const content = $derived(
 		String(
-			(node as Record<string, unknown>)?.content ??
-				(node as Record<string, unknown>)?.raw ??
-				'',
+			(node as Record<string, unknown>)?.content ?? (node as Record<string, unknown>)?.raw ?? '',
 		),
 	);
 	const centered = $derived(Boolean((node as Record<string, unknown>)?.center));
@@ -39,10 +34,7 @@
 
 	const streamInfo = $derived.by(() => {
 		const state = context?.textStreamState;
-		const previous =
-			streamKey === previousKey
-				? previousContent
-				: (state?.get(streamKey) ?? '');
+		const previous = streamKey === previousKey ? previousContent : (state?.get(streamKey) ?? '');
 		const result = resolveStreamingTextState({
 			nextContent: content,
 			previousContent: previous,

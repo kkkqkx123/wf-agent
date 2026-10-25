@@ -19,10 +19,7 @@
 		canvasLayoutOptions,
 		presetPositions as presetPositionsFor,
 	} from '#lib/graph/canvas-layout';
-	import {
-		describeConnectRejection,
-		isConnectValid,
-	} from '#lib/graph/canvas-connect';
+	import { describeConnectRejection, isConnectValid } from '#lib/graph/canvas-connect';
 	import { roundPosition, titleDragMoves } from '#lib/graph/canvas-drag';
 	import {
 		computeMiniOverview,
@@ -44,10 +41,7 @@
 		MiniOverview,
 		PresenceCursor,
 	} from '#lib/graph/canvas-model';
-	import {
-		canvasZoomCompensation,
-		resolveCanvasStylesheet,
-	} from '#lib/graph/canvas-style';
+	import { canvasZoomCompensation, resolveCanvasStylesheet } from '#lib/graph/canvas-style';
 	import { isGroupTitleId, type GroupTitle } from '#lib/graph/group-view';
 	import { cn } from '#lib/ui/cn';
 	import { t } from '#lib/i18n';
@@ -106,10 +100,7 @@
 		ongroupmove?: (moves: CanvasMove[]) => void;
 		/** Right-click context, positioned in client coordinates. */
 		oncontext?: (info: CanvasContext) => void;
-		onbackgrounddoubleclick?: (
-			position: CanvasPosition,
-			client?: { x: number; y: number },
-		) => void;
+		onbackgrounddoubleclick?: (position: CanvasPosition, client?: { x: number; y: number }) => void;
 		ondeleteedge?: (id: string) => void;
 		onconnect?: (source: string, target: string) => void;
 		/** Rejected connect attempt with a human-readable reason. */
@@ -176,13 +167,7 @@
 	}
 
 	function requestHoverTip(id: string, clientX: number, clientY: number): void {
-		hover.request(
-			id,
-			clientX,
-			clientY,
-			tooltipLabels,
-			wrapper?.getBoundingClientRect() ?? null,
-		);
+		hover.request(id, clientX, clientY, tooltipLabels, wrapper?.getBoundingClientRect() ?? null);
 	}
 
 	function reportCursorMove(event: PointerEvent): void {
@@ -227,8 +212,7 @@
 	let lastMiniRefresh = 0;
 
 	const showMinimap = $derived(
-		minimap === 'on' ||
-			(minimap === 'auto' && nodes.length >= MINIMAP_AUTO_THRESHOLD),
+		minimap === 'on' || (minimap === 'auto' && nodes.length >= MINIMAP_AUTO_THRESHOLD),
 	);
 
 	/**
@@ -286,10 +270,7 @@
 			});
 		core
 			.nodes()
-			.filter(
-				(node) =>
-					!node.isParent() && (node.id() as string).startsWith('group:'),
-			)
+			.filter((node) => !node.isParent() && (node.id() as string).startsWith('group:'))
 			.forEach((title) => {
 				const position = title.position();
 				boxes.push({
@@ -320,12 +301,7 @@
 	function miniPoint(event: PointerEvent): { x: number; y: number } {
 		const svg = event.currentTarget as SVGSVGElement;
 		const rect = svg.getBoundingClientRect();
-		return miniPointerToWorld(
-			event.clientX,
-			event.clientY,
-			rect,
-			overview?.bounds,
-		);
+		return miniPointerToWorld(event.clientX, event.clientY, rect, overview?.bounds);
 	}
 
 	function onMiniDown(event: PointerEvent): void {
@@ -427,6 +403,7 @@
 		source: string,
 		target: string,
 		sourcePort?: string | null,
+		targetPort: string | null = 'input',
 	): string | null {
 		return describeConnectRejection({
 			editMode: editSnapshot,
@@ -437,6 +414,9 @@
 			sourceKind: kindById.get(source) ?? '',
 			targetKind: kindById.get(target) ?? '',
 			sourcePort: sourcePort ?? null,
+			// Drags land on the node body, which is the input port; the
+			// hotspot model only starts links from output/branch ports.
+			targetPort,
 		});
 	}
 
@@ -444,6 +424,7 @@
 		source: string,
 		target: string,
 		sourcePort?: string | null,
+		targetPort: string | null = 'input',
 	): boolean {
 		return isConnectValid({
 			editMode: editSnapshot,
@@ -454,6 +435,7 @@
 			sourceKind: kindById.get(source) ?? '',
 			targetKind: kindById.get(target) ?? '',
 			sourcePort: sourcePort ?? null,
+			targetPort,
 		});
 	}
 
@@ -469,19 +451,13 @@
 				if (!rendered) return false;
 				const halfW = (node.width() * zoom) / 2 + 8;
 				const halfH = (node.height() * zoom) / 2 + 8;
-				return (
-					Math.abs(px - rendered.x) <= halfW &&
-					Math.abs(py - rendered.y) <= halfH
-				);
+				return Math.abs(px - rendered.x) <= halfW && Math.abs(py - rendered.y) <= halfH;
 			})
 			.first();
 		return hit.empty() ? null : (hit.id() as string);
 	}
 
-	function paintConnectTarget(
-		previous: string | null,
-		next: string | null,
-	): void {
+	function paintConnectTarget(previous: string | null, next: string | null): void {
 		const core = cy;
 		if (!core || previous === next) return;
 		if (previous) {
@@ -521,11 +497,7 @@
 		setNodesGrabbable(true);
 		refreshHotspots();
 		if (!commit || !drag || !drag.target) return;
-		const reason = connectRejectReason(
-			drag.source,
-			drag.target,
-			drag.sourcePort,
-		);
+		const reason = connectRejectReason(drag.source, drag.target, drag.sourcePort);
 		if (reason === null) {
 			connectHandler?.(drag.source, drag.target);
 		} else if (reason !== 'Edge already exists.') {
@@ -630,9 +602,7 @@
 	function syncElements(): void {
 		if (!cy) return;
 		const defs = elementDefs();
-		const wanted = new SvelteMap(
-			defs.map((def) => [def.data.id as string, def]),
-		);
+		const wanted = new SvelteMap(defs.map((def) => [def.data.id as string, def]));
 		cy.batch(() => {
 			if (!cy) return;
 			cy.elements().forEach((element) => {
@@ -821,9 +791,7 @@
 						.nodes()
 						.filter((node) => !node.isParent())
 						.forEach((node) => {
-							table[node.id() as string] = roundPosition(
-								node.position() as CanvasPosition,
-							);
+							table[node.id() as string] = roundPosition(node.position() as CanvasPosition);
 						});
 				}
 				return { ...(positionsSnapshot ?? {}), ...table };
@@ -843,8 +811,7 @@
 				const id = event.target.id() as string;
 				if (connectDrag) return;
 				if (editSnapshot) {
-					const original = (event as unknown as { originalEvent?: MouseEvent })
-						.originalEvent;
+					const original = (event as unknown as { originalEvent?: MouseEvent }).originalEvent;
 					const from = selectedSnapshot;
 					if (original?.shiftKey && from && from !== id) {
 						const reason = connectRejectReason(from, id);
@@ -877,10 +844,7 @@
 			instance.on('grab', 'node', (event) => {
 				clearHoverTip();
 				const target = event.target;
-				grabStart.set(
-					target.id() as string,
-					roundPosition(target.position() as CanvasPosition),
-				);
+				grabStart.set(target.id() as string, roundPosition(target.position() as CanvasPosition));
 			});
 			instance.on('dragfree', 'node', (event) => {
 				requestMiniRefresh();
@@ -890,15 +854,8 @@
 					// canvas stays a pure renderer.
 					const target = event.target;
 					const id = target.id() as string;
-					if (
-						viewMoveHandler &&
-						!isGroupTitleId(id) &&
-						!id.startsWith('groupbox:')
-					) {
-						viewMoveHandler(
-							id,
-							roundPosition(target.position() as CanvasPosition),
-						);
+					if (viewMoveHandler && !isGroupTitleId(id) && !id.startsWith('groupbox:')) {
+						viewMoveHandler(id, roundPosition(target.position() as CanvasPosition));
 					}
 					return;
 				}
@@ -908,13 +865,7 @@
 				if (isGroupTitleId(id)) {
 					groupMoveHandler?.(
 						withPushes(
-							titleDragMoves(
-								id,
-								position,
-								grabStart,
-								positionsSnapshot,
-								groupTitlesSnapshot,
-							),
+							titleDragMoves(id, position, grabStart, positionsSnapshot, groupTitlesSnapshot),
 						),
 					);
 					return;
@@ -947,10 +898,8 @@
 			instance.on('dblclick', (event) => {
 				if (!editMode) return;
 				if (event.target !== instance) return;
-				const position = (event as unknown as { position: CanvasPosition })
-					.position;
-				const original = (event as unknown as { originalEvent?: MouseEvent })
-					.originalEvent;
+				const position = (event as unknown as { position: CanvasPosition }).position;
+				const original = (event as unknown as { originalEvent?: MouseEvent }).originalEvent;
 				onbackgrounddoubleclick?.(
 					{
 						x: Math.round(position.x),
@@ -960,8 +909,7 @@
 				);
 			});
 			instance.on('mouseover', 'node', (event) => {
-				const original = (event as unknown as { originalEvent?: MouseEvent })
-					.originalEvent;
+				const original = (event as unknown as { originalEvent?: MouseEvent }).originalEvent;
 				requestHoverTip(
 					event.target.id() as string,
 					original?.clientX ?? 0,
@@ -1024,8 +972,7 @@
 				}
 			});
 			core.on('cxttap', (event) => {
-				const original = (event as unknown as { originalEvent?: MouseEvent })
-					.originalEvent;
+				const original = (event as unknown as { originalEvent?: MouseEvent }).originalEvent;
 				const info = {
 					x: original?.clientX ?? 0,
 					y: original?.clientY ?? 0,
@@ -1134,10 +1081,7 @@
 	role="application"
 	aria-label={t('domain.canvas.workspace')}
 	style:--canvas-zoom-compensation={String(zoomCompensation)}
-	class={cn(
-		'relative overflow-hidden rounded-lg border border-border bg-muted/30',
-		className,
-	)}
+	class={cn('relative overflow-hidden rounded-lg border border-border bg-muted/30', className)}
 	oncontextmenu={(event) => event.preventDefault()}
 	onpointermove={reportCursorMove}
 >
@@ -1162,8 +1106,7 @@
 					'absolute z-10 h-3 w-3 -translate-x-1/2 -translate-y-1/2 cursor-crosshair rounded-full border bg-card',
 					spot.port === 'input' && 'border-info hover:bg-info',
 					spot.port === 'output' && 'border-success hover:bg-success',
-					spot.port === 'branch' &&
-						'rounded-sm border-warning hover:bg-warning',
+					spot.port === 'branch' && 'rounded-sm border-warning hover:bg-warning',
 					!spot.enabled && 'cursor-not-allowed opacity-40',
 				)}
 				style:left={`${spot.x}px`}
@@ -1174,10 +1117,7 @@
 		{/each}
 	{/if}
 	{#if connectDrag}
-		<svg
-			class="pointer-events-none absolute inset-0 z-10 h-full w-full"
-			role="presentation"
-		>
+		<svg class="pointer-events-none absolute inset-0 z-10 h-full w-full" role="presentation">
 			<line
 				x1={connectDrag.sx}
 				y1={connectDrag.sy}
@@ -1246,9 +1186,7 @@
 	{#if showMinimap && overview}
 		{@const topLeft = miniXY(overview.view.x1, overview.view.y1)}
 		{@const bottomRight = miniXY(overview.view.x2, overview.view.y2)}
-		<div
-			class="absolute bottom-2 left-2 rounded-md border border-border bg-card/90 p-1"
-		>
+		<div class="absolute bottom-2 left-2 rounded-md border border-border bg-card/90 p-1">
 			<svg
 				width={MINI_W}
 				height={MINI_H}

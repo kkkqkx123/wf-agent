@@ -9,11 +9,7 @@
 		children: Snippet;
 	}
 
-	let {
-		variant = 'neutral',
-		class: className = '',
-		children,
-	}: Props = $props();
+	let { variant = 'neutral', class: className = '', children }: Props = $props();
 </script>
 
 <span class={cn(badgeClass(variant), className)}>

@@ -3,11 +3,7 @@
 	import Button from '#lib/ui/components/Button.svelte';
 	import Card from '#lib/ui/components/Card.svelte';
 	import Skeleton from '#lib/ui/components/Skeleton.svelte';
-	import {
-		getStoreStats,
-		runGc,
-		type StoreStats,
-	} from '#lib/services/checkpoints';
+	import { getStoreStats, runGc, type StoreStats } from '#lib/services/checkpoints';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { checkpoints as store } from '#lib/stores/checkpoints.svelte';
 	import { fileWorkspace as workspace } from '#lib/stores/fileWorkspace.svelte';
@@ -24,8 +20,7 @@
 			error = null;
 		} catch (e) {
 			console.error('Failed to load store stats:', e);
-			error =
-				e instanceof Error ? e.message : t('domain.files.statsUnavailable');
+			error = e instanceof Error ? e.message : t('domain.files.statsUnavailable');
 		}
 	}
 
@@ -42,10 +37,7 @@
 			store.bump('files');
 		} catch (e) {
 			console.error('GC failed:', e);
-			toasts.error(
-				t('domain.files.gcFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.files.gcFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			workspace.endAction();
 		}
@@ -59,19 +51,14 @@
 	});
 </script>
 
-<Card
-	title={t('domain.files.storeTitle')}
-	description={t('domain.files.storeDescription')}
->
+<Card title={t('domain.files.storeTitle')} description={t('domain.files.storeDescription')}>
 	{#if stats}
 		<div
 			class="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption tabular-nums text-muted-foreground"
 		>
 			<span>{t('domain.files.commits', { count: stats.commits })}</span>
 			<span>{t('domain.files.refs', { count: stats.refs })}</span>
-			<span
-				>{t('domain.files.looseObjects', { count: stats.looseObjects })}</span
-			>
+			<span>{t('domain.files.looseObjects', { count: stats.looseObjects })}</span>
 			<span>{formatBytes(stats.storeBytes)}</span>
 			<span>
 				{stats.lastGcAt
@@ -94,7 +81,7 @@
 	{/if}
 	{#snippet footer()}
 		<div class="flex flex-wrap items-center gap-2">
-				<Button
+			<Button
 				variant="outline"
 				size="sm"
 				disabled={workspace.busy}
@@ -103,12 +90,7 @@
 				<Icon name="database" size={13} />
 				{t('domain.files.runGc')}
 			</Button>
-			<Button
-				variant="ghost"
-				size="sm"
-				disabled={workspace.busy}
-				onclick={() => void loadStats()}
-			>
+			<Button variant="ghost" size="sm" disabled={workspace.busy} onclick={() => void loadStats()}>
 				{t('common.refresh')}
 			</Button>
 		</div>

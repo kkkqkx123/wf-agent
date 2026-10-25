@@ -27,13 +27,7 @@
 		onfeedback?: (kind: 'up' | 'down') => void;
 	}
 
-	let {
-		message,
-		class: className = '',
-		onretry,
-		oncontinue,
-		onfeedback,
-	}: Props = $props();
+	let { message, class: className = '', onretry, oncontinue, onfeedback }: Props = $props();
 
 	const ROLE_ICON: Record<LoopMessage['role'], IconName> = {
 		user: 'user',
@@ -52,24 +46,16 @@
 			: 'rounded border border-border/70 bg-muted/60 px-1.5 text-micro text-muted-foreground',
 	);
 	const isAssistant = $derived(message.role === 'assistant');
-	const showActions = $derived(
-		isAssistant && (onretry || oncontinue || onfeedback),
-	);
+	const showActions = $derived(isAssistant && (onretry || oncontinue || onfeedback));
 	const body = $derived(
-		isUser
-			? splitAttachments(message.content)
-			: { text: message.content, attachments: [] },
+		isUser ? splitAttachments(message.content) : { text: message.content, attachments: [] },
 	);
 	const runs = $derived(textRuns(body.text));
-	const expanded = $derived(
-		expandedIndex === null ? null : body.attachments[expandedIndex],
-	);
+	const expanded = $derived(expandedIndex === null ? null : body.attachments[expandedIndex]);
 
 	const isTool = $derived(message.role === 'tool');
 	const previews = $derived(preferences.toolOutputPreviews);
-	const budgets = $derived(
-		resolveToolOutputBudgets(preferences.toolOutputDetail),
-	);
+	const budgets = $derived(resolveToolOutputBudgets(preferences.toolOutputDetail));
 	const toolKind = $derived(inferDisplayKind(message.toolName ?? ''));
 	// Persisted messages carry no success signal, so retrieval bodies stay
 	// hidden until the user expands them; failures surface via the same
@@ -108,9 +94,7 @@
 	<div
 		class={cn(
 			'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border',
-			isUser
-				? 'bg-primary text-primary-foreground'
-				: 'bg-muted text-muted-foreground',
+			isUser ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
 		)}
 	>
 		<Icon name={ROLE_ICON[message.role]} size={13} />
@@ -149,10 +133,7 @@
 					<Icon
 						name="chevron-down"
 						size={12}
-						class={cn(
-							'transition-transform duration-150',
-							toolExpanded && 'rotate-180',
-						)}
+						class={cn('transition-transform duration-150', toolExpanded && 'rotate-180')}
 					/>
 					{toolExpanded
 						? t('domain.messageBubble.hideFullOutput')
@@ -200,8 +181,7 @@
 				{#each body.attachments as file, index (`${file.name}-${index}`)}
 					<button
 						type="button"
-						onclick={() =>
-							(expandedIndex = expandedIndex === index ? null : index)}
+						onclick={() => (expandedIndex = expandedIndex === index ? null : index)}
 						class={cn(
 							TAG,
 							'flex items-center gap-1 font-mono transition-colors hover:bg-accent hover:text-foreground',

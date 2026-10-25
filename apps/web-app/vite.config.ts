@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import tailwindcss from '@tailwindcss/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { visualizer } from 'rollup-plugin-visualizer';
@@ -14,10 +14,7 @@ export default defineConfig(({ mode }) => {
 	const isPreview = mode === 'preview';
 	const alias: Record<string, string> = isPreview
 		? {
-				'#lib/api/client': path.resolve(
-					rootDir,
-					'src/lib/api/client.preview.ts',
-				),
+				'#lib/api/client': path.resolve(rootDir, 'src/lib/api/client.preview.ts'),
 			}
 		: {};
 	return {
@@ -40,7 +37,7 @@ export default defineConfig(({ mode }) => {
 				brotliSize: true,
 			}),
 		],
-	resolve: {
+		resolve: {
 			alias,
 		},
 		server: {
@@ -52,6 +49,14 @@ export default defineConfig(({ mode }) => {
 					changeOrigin: true,
 				},
 			},
+		},
+		test: {
+			// Unit tests co-locate with sources; integration tests live in
+			// tests/. Explicit scope so a package-level runner never sweeps
+			// unrelated directories (build output, scripts, message fragments).
+			include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
+			environment: 'node',
+			fsModuleCache: true,
 		},
 	};
 });

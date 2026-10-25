@@ -29,10 +29,7 @@ function validEdges(
 	const known = new Set(nodes.map((node) => node.id));
 	return edges
 		.filter(
-			(edge) =>
-				edge.source !== edge.target &&
-				known.has(edge.source) &&
-				known.has(edge.target),
+			(edge) => edge.source !== edge.target && known.has(edge.source) && known.has(edge.target),
 		)
 		.map((edge) => ({ source: edge.source, target: edge.target }))
 		.sort((a, b) =>
@@ -64,9 +61,7 @@ export function connectedComponents(
 	}
 	const visited = new Set<string>();
 	const components: string[][] = [];
-	const sortedNodes = [...nodes].sort((a, b) =>
-		a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
-	);
+	const sortedNodes = [...nodes].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 	for (const node of sortedNodes) {
 		if (visited.has(node.id)) continue;
 		const stack = [node.id];
@@ -134,9 +129,7 @@ export function layeredPositions(
 		let maxY = Number.NEGATIVE_INFINITY;
 		for (const rank of sortedRanks) {
 			const membersInRank = [...(byRank.get(rank) ?? [])].sort();
-			const rankHeight =
-				membersInRank.length * NODE_HEIGHT +
-				(membersInRank.length - 1) * NODE_SEP;
+			const rankHeight = membersInRank.length * NODE_HEIGHT + (membersInRank.length - 1) * NODE_SEP;
 			const startY = ORIGIN + (rankSpan - rankHeight) / 2;
 			membersInRank.forEach((id, index) => {
 				const x = cursorX + rank * (NODE_WIDTH + RANK_SEP);
@@ -265,10 +258,7 @@ function nodeRanks(
 	for (const node of nodes) ranks.set(node.id, 0);
 	const known = new Set(nodes.map((node) => node.id));
 	const filtered = edges.filter(
-		(edge) =>
-			known.has(edge.source) &&
-			known.has(edge.target) &&
-			edge.source !== edge.target,
+		(edge) => known.has(edge.source) && known.has(edge.target) && edge.source !== edge.target,
 	);
 	for (let i = 0; i < nodes.length; i += 1) {
 		let changed = false;

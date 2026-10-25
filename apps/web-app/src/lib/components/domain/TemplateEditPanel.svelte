@@ -53,9 +53,7 @@
 		onservercheck: () => void;
 		onopenworkflow: () => void;
 		onmovenode: (id: string, position: CanvasPosition) => void;
-		onmovenodes: (
-			moves: Array<{ id: string; position: CanvasPosition }>,
-		) => void;
+		onmovenodes: (moves: Array<{ id: string; position: CanvasPosition }>) => void;
 		onaddnode: (position: CanvasPosition) => void;
 		onconnect: (source: string, target: string) => void;
 		ondeletenodes: (ids: string[]) => void;
@@ -113,9 +111,7 @@
 		loadStore();
 	});
 
-	const errorLine = $derived(
-		syntaxError ? jsonErrorLine(editText, syntaxError) : null,
-	);
+	const errorLine = $derived(syntaxError ? jsonErrorLine(editText, syntaxError) : null);
 
 	/** Single safe parse of the JSON projection shared by hints, topology and snippet. */
 	const parsedProjection = $derived.by<{
@@ -163,15 +159,11 @@
 	);
 
 	const skeletonHints = $derived(
-		tab === 'graph' && kind === 'workflow'
-			? skeletonNodeHints(store.nodes)
-			: [],
+		tab === 'graph' && kind === 'workflow' ? skeletonNodeHints(store.nodes) : [],
 	);
 
 	const selectedNode = $derived(
-		store.selectedId
-			? (store.nodes.find((node) => node.id === store.selectedId) ?? null)
-			: null,
+		store.selectedId ? (store.nodes.find((node) => node.id === store.selectedId) ?? null) : null,
 	);
 
 	const nodeSnippet = $derived.by(() => {
@@ -179,9 +171,7 @@
 		// Graph tab only renders for workflow templates; node/trigger kinds
 		// never reach this branch, so no synthesis for their shapes here.
 		const parsed: unknown =
-			parsedProjection.value === undefined
-				? session.fullValue()
-				: parsedProjection.value;
+			parsedProjection.value === undefined ? session.fullValue() : parsedProjection.value;
 		const parsedTopology = parseTemplateTopology(parsed);
 		const match = [...parsedTopology.nodes, ...parsedTopology.edges].find(
 			(entry) => entry.id === store.selectedId,
@@ -304,9 +294,7 @@
 </div>
 {#if lockHolder}
 	<p class="text-micro text-muted-foreground">
-		Edit lock: {lockHolder}{canWrite
-			? ''
-			: ' · read-only until the lock is free.'}
+		Edit lock: {lockHolder}{canWrite ? '' : ' · read-only until the lock is free.'}
 	</p>
 {/if}
 <p class="text-micro text-muted-foreground">
@@ -321,9 +309,7 @@
 						? 'mb-1 block rounded bg-warning/10 px-1 text-caption text-muted-foreground ring-1 ring-warning'
 						: 'mb-1 block text-caption text-muted-foreground'}
 				>
-					{field.label}{#if field.required}<span class="text-destructive">
-							*</span
-						>{/if}
+					{field.label}{#if field.required}<span class="text-destructive"> *</span>{/if}
 				</span>
 				{#if field.multiline}
 					<Textarea
@@ -462,24 +448,15 @@
 			</p>
 		{/if}
 		{#if skeletonHints.length > 0}
-			<ul
-				class="space-y-1 rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5"
-			>
+			<ul class="space-y-1 rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5">
 				{#each skeletonHints as hint, index (index)}
 					<li class="text-caption text-warning">{hint}</li>
 				{/each}
 			</ul>
 		{/if}
 		<div class="flex flex-wrap items-center gap-2">
-			<Button
-				variant="outline"
-				size="sm"
-				disabled={draftBusy}
-				onclick={() => onservercheck()}
-			>
-				{draftBusy
-					? t('domain.templateEdit.checking')
-					: t('domain.templateEdit.checkWithServer')}
+			<Button variant="outline" size="sm" disabled={draftBusy} onclick={() => onservercheck()}>
+				{draftBusy ? t('domain.templateEdit.checking') : t('domain.templateEdit.checkWithServer')}
 			</Button>
 			<Button
 				variant="outline"
@@ -516,11 +493,7 @@
 			})}
 		</p>
 		{#if errorLine}
-			<Button
-				variant="ghost"
-				size="sm"
-				onclick={() => editor?.scrollToLine(errorLine ?? 1)}
-			>
+			<Button variant="ghost" size="sm" onclick={() => editor?.scrollToLine(errorLine ?? 1)}>
 				{t('domain.templateEdit.goToLine')}
 			</Button>
 		{/if}
@@ -536,16 +509,10 @@
 		{t('domain.graph.validate')}
 	</Button>
 	<Button size="sm" disabled={saveBusy || !canWrite} onclick={() => onsave()}>
-		{saveBusy
-			? t('domain.graph.saving')
-			: isNew
-				? t('common.create')
-				: t('common.save')}
+		{saveBusy ? t('domain.graph.saving') : isNew ? t('common.create') : t('common.save')}
 	</Button>
 	{#if !isNew}
-		<Button variant="ghost" size="sm" onclick={() => oncancel()}
-			>{t('common.cancel')}</Button
-		>
+		<Button variant="ghost" size="sm" onclick={() => oncancel()}>{t('common.cancel')}</Button>
 	{/if}
 </div>
 
@@ -559,9 +526,7 @@
 	</p>
 	{#snippet footer()}
 		<div class="flex items-center justify-end gap-2">
-			<Button size="sm" onclick={discardGraphChanges}
-				>{t('domain.templateEdit.gotIt')}</Button
-			>
+			<Button size="sm" onclick={discardGraphChanges}>{t('domain.templateEdit.gotIt')}</Button>
 		</div>
 	{/snippet}
 </Dialog>

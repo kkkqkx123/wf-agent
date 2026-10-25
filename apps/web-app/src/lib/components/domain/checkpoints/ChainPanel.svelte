@@ -43,8 +43,7 @@
 				</Badge>
 				{#if links.get(checkpoint.id)?.state === 'pending'}
 					<span title={t('domain.checkpoint.linkPendingTitle')}>
-						<Badge variant="warning">{t('domain.checkpoint.linkPending')}</Badge
-						>
+						<Badge variant="warning">{t('domain.checkpoint.linkPending')}</Badge>
 					</span>
 				{:else if links.get(checkpoint.id)?.state === 'linked'}
 					<span title={t('domain.checkpoint.linkedTitle')}>
@@ -52,9 +51,7 @@
 					</span>
 				{/if}
 			{/snippet}
-			<div
-				class="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted-foreground"
-			>
+			<div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted-foreground">
 				<span class="font-mono">{checkpoint.id}</span>
 				<span>{checkpoint.actor}</span>
 				<span class="tabular-nums">{formatBytes(checkpoint.sizeBytes)}</span>
@@ -99,8 +96,7 @@
 					<Input
 						size="sm"
 						value={tagDraft}
-						oninput={(event: Event) =>
-							(tagDraft = (event.target as HTMLInputElement).value)}
+						oninput={(event: Event) => (tagDraft = (event.target as HTMLInputElement).value)}
 						placeholder={t('domain.checkpoint.tagsPlaceholder')}
 					/>
 					<Button
@@ -117,11 +113,7 @@
 					>
 						{t('common.save')}
 					</Button>
-					<Button
-						variant="ghost"
-						size="sm"
-						onclick={() => (editingTagsFor = null)}
-					>
+					<Button variant="ghost" size="sm" onclick={() => (editingTagsFor = null)}>
 						{t('common.cancel')}
 					</Button>
 				</div>
@@ -150,12 +142,7 @@
 					>
 						{t('domain.checkpoint.resume')}
 					</Button>
-					<Button
-						variant="ghost"
-						size="sm"
-						disabled={busy}
-						onclick={() => ondelete(checkpoint)}
-					>
+					<Button variant="ghost" size="sm" disabled={busy} onclick={() => ondelete(checkpoint)}>
 						{t('common.delete')}
 					</Button>
 					<Button

@@ -34,11 +34,7 @@ export function entityMention(kind: string, id: string): string {
  * Build a file reference from a path and an optional inclusive line range.
  * Leading `./` and stray `#` are dropped so the reference re-parses cleanly.
  */
-export function fileMentionRef(
-	path: string,
-	lineStart?: number,
-	lineEnd?: number,
-): string {
+export function fileMentionRef(path: string, lineStart?: number, lineEnd?: number): string {
 	const clean = path
 		.trim()
 		.replace(/^\.?\/+/, '')
@@ -46,9 +42,7 @@ export function fileMentionRef(
 	if (!clean) return '@file';
 	if (lineStart === undefined) return `@file:${clean}`;
 	const end = lineEnd ?? lineStart;
-	return end === lineStart
-		? `@file:${clean}#${lineStart}`
-		: `@file:${clean}#${lineStart}-${end}`;
+	return end === lineStart ? `@file:${clean}#${lineStart}` : `@file:${clean}#${lineStart}-${end}`;
 }
 
 /** Split a reference value into its target and line segment. */

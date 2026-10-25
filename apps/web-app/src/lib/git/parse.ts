@@ -9,37 +9,23 @@ export interface TokenResult {
 }
 
 /** Actions that only touch client view state; they never reach the server. */
-export const CLIENT_ONLY_ACTIONS: ReadonlySet<string> = new Set([
-	'focus',
-	'filter',
-]);
+export const CLIENT_ONLY_ACTIONS: ReadonlySet<string> = new Set(['focus', 'filter']);
 
 /**
  * Confirmation token the server expects for guarded actions: the client must
  * echo the exact target the backend will compare against.
  */
-export function confirmTarget(
-	action: string,
-	params: Record<string, string>,
-): string {
+export function confirmTarget(action: string, params: Record<string, string>): string {
 	const value = (key: string): string => (params[key] ?? '').trim();
 	switch (action) {
 		case 'push':
-			return [value('remote') || 'origin', value('branch')]
-				.filter(Boolean)
-				.join(' ');
+			return [value('remote') || 'origin', value('branch')].filter(Boolean).join(' ');
 		case 'stash.drop':
 			return `stash@{${value('index') || '0'}}`;
 		case 'commit.amend':
 			return 'amend';
 		default:
-			return (
-				value('branch') ||
-				value('path') ||
-				value('commit') ||
-				value('base') ||
-				value('onto')
-			);
+			return value('branch') || value('path') || value('commit') || value('base') || value('onto');
 	}
 }
 
@@ -65,8 +51,7 @@ export function parseToken(input: string, context: string): TokenResult {
 	if (text.length === 1) {
 		const hit = GIT_BINDINGS.find(
 			(b) =>
-				(b.contexts.includes(context) || b.contexts.includes('global')) &&
-				b.aliases.includes(text),
+				(b.contexts.includes(context) || b.contexts.includes('global')) && b.aliases.includes(text),
 		);
 		if (hit) {
 			return {
@@ -76,18 +61,14 @@ export function parseToken(input: string, context: string): TokenResult {
 				preview: `${hit.name} (${hit.id})`,
 			};
 		}
-		const candidates = GIT_BINDINGS.filter((b) => b.id.startsWith(text)).map(
-			(b) => b.id,
-		);
+		const candidates = GIT_BINDINGS.filter((b) => b.id.startsWith(text)).map((b) => b.id);
 		return { kind: 'prefix', candidates };
 	}
-	const scored = GIT_BINDINGS.filter((b) => b.id.startsWith(text)).sort(
-		(a, b) => {
-			const aLocal = a.contexts.includes(context) ? 0 : 1;
-			const bLocal = b.contexts.includes(context) ? 0 : 1;
-			return aLocal - bLocal || b.weight - a.weight;
-		},
-	);
+	const scored = GIT_BINDINGS.filter((b) => b.id.startsWith(text)).sort((a, b) => {
+		const aLocal = a.contexts.includes(context) ? 0 : 1;
+		const bLocal = b.contexts.includes(context) ? 0 : 1;
+		return aLocal - bLocal || b.weight - a.weight;
+	});
 	if (scored.length === 1) {
 		return {
 			kind: 'action',

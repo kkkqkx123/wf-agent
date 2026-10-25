@@ -120,26 +120,18 @@ describe('filterNodeTraces', () => {
 	];
 
 	it('matches every status vocabulary the backend uses for failures', () => {
-		expect(filterNodeTraces(rows, 'failed', '').map((r) => r.nodeId)).toEqual([
-			'b',
-		]);
+		expect(filterNodeTraces(rows, 'failed', '').map((r) => r.nodeId)).toEqual(['b']);
 		expect(isFailedNodeTrace(trace({ status: 'Errored' }))).toBe(true);
 		expect(isFailedNodeTrace(trace({ status: 'completed' }))).toBe(false);
 	});
 
 	it('filters on exact status for non-failure buckets', () => {
-		expect(filterNodeTraces(rows, 'skipped', '').map((r) => r.nodeId)).toEqual([
-			'c',
-		]);
+		expect(filterNodeTraces(rows, 'skipped', '').map((r) => r.nodeId)).toEqual(['c']);
 	});
 
 	it('searches id, name and type case-insensitively', () => {
-		expect(
-			filterNodeTraces(rows, 'all', 'SUMMAR').map((r) => r.nodeId),
-		).toEqual(['b']);
-		expect(
-			filterNodeTraces(rows, 'all', 'script').map((r) => r.nodeId),
-		).toHaveLength(3);
+		expect(filterNodeTraces(rows, 'all', 'SUMMAR').map((r) => r.nodeId)).toEqual(['b']);
+		expect(filterNodeTraces(rows, 'all', 'script').map((r) => r.nodeId)).toHaveLength(3);
 	});
 });
 

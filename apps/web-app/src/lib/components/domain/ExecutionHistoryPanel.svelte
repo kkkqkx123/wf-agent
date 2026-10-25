@@ -16,11 +16,7 @@
 	import Timeline from './Timeline.svelte';
 	import TimelineOutline from './TimelineOutline.svelte';
 	import { getExecutionHistory } from '#lib/services/executions';
-	import {
-		formatDateTime,
-		formatDuration,
-		formatNumber,
-	} from '#lib/utils/format';
+	import { formatDateTime, formatDuration, formatNumber } from '#lib/utils/format';
 	import { cn } from '#lib/ui/cn';
 	import { t } from '#lib/i18n';
 
@@ -36,8 +32,7 @@
 	let { executionId, class: className = '' }: Props = $props();
 
 	/** Sections this panel renders. Node records live on the Trace tab. */
-	type PanelSection =
-		'timeline' | 'iterations' | 'context' | 'transitions' | 'variables';
+	type PanelSection = 'timeline' | 'iterations' | 'context' | 'transitions' | 'variables';
 
 	/** Section copy resolves through `t` inside `$derived`, so labels follow
 	 * the active locale reactively. */
@@ -134,8 +129,7 @@
 		} catch (e: unknown) {
 			failed = {
 				...failed,
-				[section]:
-					e instanceof Error ? e.message : t('domain.history.loadFailed'),
+				[section]: e instanceof Error ? e.message : t('domain.history.loadFailed'),
 			};
 		} finally {
 			loading = null;
@@ -192,11 +186,7 @@
 							<p class="text-caption text-destructive">
 								{failed[section.id]}
 							</p>
-							<Button
-								variant="outline"
-								size="sm"
-								onclick={() => void ensureLoaded(section.id)}
-							>
+							<Button variant="outline" size="sm" onclick={() => void ensureLoaded(section.id)}>
 								{t('common.retry')}
 							</Button>
 						</div>
@@ -223,9 +213,7 @@
 							<TimelineOutline entries={timeline} />
 						</div>
 					{:else if section.id === 'iterations'}
-						<ul
-							class="divide-y divide-border rounded-lg border border-border bg-card"
-						>
+						<ul class="divide-y divide-border rounded-lg border border-border bg-card">
 							{#each iterations as iteration (iteration.iteration)}
 								<li class="space-y-1 px-3 py-2">
 									<div class="flex flex-wrap items-center gap-2">
@@ -284,12 +272,7 @@
 										{formatDateTime(transition.timestamp)}
 									</span>
 									<StatusBadge status={transition.from} size="sm" />
-									<span
-										aria-hidden="true"
-										class="text-micro text-muted-foreground"
-									>
-										→
-									</span>
+									<span aria-hidden="true" class="text-micro text-muted-foreground"> → </span>
 									<StatusBadge status={transition.to} size="sm" />
 								</li>
 							{/each}

@@ -25,10 +25,5 @@
 </script>
 
 <div class={cn('text-body', className)}>
-	<MarkdownRender
-		{content}
-		final={done}
-		{isDark}
-		customComponents={components}
-	/>
+	<MarkdownRender {content} final={done} {isDark} customComponents={components} />
 </div>

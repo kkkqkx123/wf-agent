@@ -5,9 +5,7 @@
 	 * profiles the list does not cover: the filter box doubles as a manual
 	 * value, and Enter commits whatever is typed.
 	 */
-	import InstancePicker, {
-		type PickerOption,
-	} from '#lib/components/chat/InstancePicker.svelte';
+	import InstancePicker, { type PickerOption } from '#lib/components/chat/InstancePicker.svelte';
 	import { listModelProfiles } from '#lib/services/resources';
 	import { pickerState } from '#lib/stores/picker-state.svelte';
 	import { t } from '#lib/i18n';
@@ -49,9 +47,7 @@
 			id: profile.id,
 			label: profile.name || profile.model,
 			detail: `${profile.id}${profile.provider ? ` · ${profile.provider}` : ''}`,
-			badge: profile.isDefault
-				? t('chat.instancePicker.defaultBadge')
-				: undefined,
+			badge: profile.isDefault ? t('chat.instancePicker.defaultBadge') : undefined,
 		})),
 	);
 </script>

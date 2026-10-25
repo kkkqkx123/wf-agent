@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-	EXECUTION_TABS,
-	isExecutionTab,
-	type ExecutionTab,
-} from './execution-tabs';
+import { EXECUTION_TABS, isExecutionTab, type ExecutionTab } from './execution-tabs';
 
 describe('execution tabs', () => {
 	it('gives every tab a unique id', () => {

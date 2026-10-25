@@ -151,13 +151,9 @@ export function shortcutActionById(id: string): ShortcutAction | undefined {
 }
 
 /** Help rows for one scope, derived from the catalog. */
-export function shortcutHelpRows(
-	scope: ShortcutScope,
-): Array<{ keys: string; action: string }> {
-	return SHORTCUT_ACTIONS.filter((action) => action.scope === scope).map(
-		(action) => ({
-			keys: action.defaultKeys,
-			action: action.label,
-		}),
-	);
+export function shortcutHelpRows(scope: ShortcutScope): Array<{ keys: string; action: string }> {
+	return SHORTCUT_ACTIONS.filter((action) => action.scope === scope).map((action) => ({
+		keys: action.defaultKeys,
+		action: action.label,
+	}));
 }

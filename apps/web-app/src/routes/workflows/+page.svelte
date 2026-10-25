@@ -27,11 +27,7 @@
 	import type { Workflow, WorkflowDetail } from '#lib/types/models';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { t } from '#lib/i18n';
-	import {
-		formatNumber,
-		formatPercent,
-		formatRelativeTime,
-	} from '#lib/utils/format';
+	import { formatNumber, formatPercent, formatRelativeTime } from '#lib/utils/format';
 	import { page } from '$app/state';
 	import { nodeInsertStore } from '#lib/stores/node-insert.svelte';
 
@@ -82,8 +78,7 @@
 				selectedId = page.items[0].id;
 			}
 		} catch (e) {
-			listError =
-				e instanceof Error ? e.message : t('page.workflows.loadFailed');
+			listError = e instanceof Error ? e.message : t('page.workflows.loadFailed');
 			allWorkflows = [];
 		} finally {
 			listLoading = false;
@@ -107,8 +102,7 @@
 			await reload();
 			await goto(resolve('/workflows/[id]', { id }));
 		} catch (e) {
-			importError =
-				e instanceof Error ? e.message : t('page.workflows.importFailed');
+			importError = e instanceof Error ? e.message : t('page.workflows.importFailed');
 		} finally {
 			importBusy = false;
 		}
@@ -123,10 +117,7 @@
 			newName = '';
 			await goto(resolve('/workflows/[id]', { id: workflow.id }));
 		} catch (e) {
-			toasts.error(
-				t('page.workflows.createFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('page.workflows.createFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			newBusy = false;
 		}
@@ -145,8 +136,7 @@
 			})
 			.catch((e) => {
 				selected = null;
-				detailError =
-					e instanceof Error ? e.message : t('page.workflows.detailLoadFailed');
+				detailError = e instanceof Error ? e.message : t('page.workflows.detailLoadFailed');
 			});
 	});
 
@@ -181,16 +171,9 @@
 	class="h-full"
 >
 	<div class="flex h-full min-h-0 flex-col">
-		<PageHeader
-			title={t('page.workflows.title')}
-			description={t('page.workflows.description')}
-		>
+		<PageHeader title={t('page.workflows.title')} description={t('page.workflows.description')}>
 			{#snippet actions()}
-				<IconButton
-					icon="refresh"
-					label={t('common.refresh')}
-					onclick={() => void reload()}
-				/>
+				<IconButton icon="refresh" label={t('common.refresh')} onclick={() => void reload()} />
 				<Button
 					variant="outline"
 					size="sm"
@@ -226,21 +209,17 @@
 							from template <span class="font-mono">{pendingInsert.sourceTemplateId}</span>{/if}
 						· pick a workflow below, then enter edit mode to place it.
 					</span>
-					<Button
-						variant="ghost"
-						size="sm"
-						onclick={() => nodeInsertStore.clear()}
-					>
-						Dismiss
-					</Button>
+					<Button variant="ghost" size="sm" onclick={() => nodeInsertStore.clear()}>Dismiss</Button>
 				</div>
 			{:else if pendingFlag}
 				<div
 					class="mb-3 flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2"
 				>
 					<span class="text-caption text-muted-foreground">
-						The queued insertion was lost (reload cleared staging). Return to
-						the <a class="underline-offset-2 hover:underline" href="/templates">template library</a>
+						The queued insertion was lost (reload cleared staging). Return to the <a
+							class="underline-offset-2 hover:underline"
+							href="/templates">template library</a
+						>
 						to re-queue it.
 					</span>
 				</div>
@@ -277,8 +256,7 @@
 							{workflow}
 							selected={selectedId === workflow.id}
 							onselect={(item) => (selectedId = item.id)}
-							onopen={(item) =>
-								void goto(resolve('/workflows/[id]', { id: item.id }))}
+							onopen={(item) => void goto(resolve('/workflows/[id]', { id: item.id }))}
 						/>
 					{/each}
 				</div>
@@ -299,10 +277,7 @@
 								selected = row;
 							})
 							.catch((e) => {
-								detailError =
-									e instanceof Error
-										? e.message
-										: t('page.workflows.detailLoadFailed');
+								detailError = e instanceof Error ? e.message : t('page.workflows.detailLoadFailed');
 							});
 					}
 				}}
@@ -342,10 +317,7 @@
 								{ key: 'runs', value: formatNumber(selected.runs) },
 								{
 									key: 'success',
-									value:
-										selected.successRate === null
-											? '—'
-											: formatPercent(selected.successRate),
+									value: selected.successRate === null ? '—' : formatPercent(selected.successRate),
 								},
 								{
 									key: 'updated',
@@ -357,16 +329,10 @@
 					</Card>
 
 					<p class="text-caption text-muted-foreground">
-						Open full detail to inspect the graph, neighborhood and editing
-						tools.
+						Open full detail to inspect the graph, neighborhood and editing tools.
 					</p>
 
-					<Button
-						variant="outline"
-						size="sm"
-						href="/workflows/{selected.id}"
-						class="w-full"
-					>
+					<Button variant="outline" size="sm" href="/workflows/{selected.id}" class="w-full">
 						<Icon name="arrow-right" size={13} />
 						Open full detail
 					</Button>
@@ -399,9 +365,7 @@
 				{t('common.cancel')}
 			</Button>
 			<Button size="sm" disabled={importBusy} onclick={() => void runImport()}>
-				{importBusy
-					? t('page.workflows.importing')
-					: t('page.workflows.import')}
+				{importBusy ? t('page.workflows.importing') : t('page.workflows.import')}
 			</Button>
 		</div>
 	{/snippet}

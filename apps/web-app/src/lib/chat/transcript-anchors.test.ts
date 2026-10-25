@@ -21,25 +21,19 @@ function message(overrides: Partial<LoopMessage>): LoopMessage {
 
 describe('resolveTranscriptAnchorKind', () => {
 	it('treats user messages as prompts', () => {
-		expect(resolveTranscriptAnchorKind(message({ role: 'user' }))).toBe(
-			'prompt',
-		);
+		expect(resolveTranscriptAnchorKind(message({ role: 'user' }))).toBe('prompt');
 	});
 
 	it('treats todo tool messages as todo anchors', () => {
 		expect(
-			resolveTranscriptAnchorKind(
-				message({ role: 'tool', toolName: 'update_todo_list' }),
-			),
+			resolveTranscriptAnchorKind(message({ role: 'tool', toolName: 'update_todo_list' })),
 		).toBe('todo');
 	});
 
 	it('ignores ordinary assistant and tool messages', () => {
 		expect(resolveTranscriptAnchorKind(message({}))).toBeNull();
 		expect(
-			resolveTranscriptAnchorKind(
-				message({ role: 'tool', toolName: 'shell.exec' }),
-			),
+			resolveTranscriptAnchorKind(message({ role: 'tool', toolName: 'shell.exec' })),
 		).toBeNull();
 	});
 });
@@ -48,17 +42,13 @@ describe('isTranscriptAnchor', () => {
 	it('enables prompts and todos by default', () => {
 		expect(TRANSCRIPT_ANCHOR_KINDS).toEqual(['prompt', 'todo']);
 		expect(isTranscriptAnchor(message({ role: 'user' }))).toBe(true);
-		expect(isTranscriptAnchor(message({ toolName: 'update_todo_list' }))).toBe(
-			true,
-		);
+		expect(isTranscriptAnchor(message({ toolName: 'update_todo_list' }))).toBe(true);
 		expect(isTranscriptAnchor(message({}))).toBe(false);
 	});
 
 	it('honours an explicit kind selection', () => {
 		expect(isTranscriptAnchor(message({ role: 'user' }), ['todo'])).toBe(false);
-		expect(
-			isTranscriptAnchor(message({ toolName: 'update_todo_list' }), ['todo']),
-		).toBe(true);
+		expect(isTranscriptAnchor(message({ toolName: 'update_todo_list' }), ['todo'])).toBe(true);
 		expect(isTranscriptAnchor(message({ role: 'user' }), [])).toBe(false);
 	});
 });

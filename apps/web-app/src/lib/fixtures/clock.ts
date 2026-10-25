@@ -14,9 +14,6 @@ export function minutesAfter(minutes: number): string {
 	return new Date(FIXTURE_EPOCH + minutes * MINUTE).toISOString();
 }
 
-export function durationOf(
-	startMinutesAgo: number,
-	endMinutesAgo: number,
-): number {
+export function durationOf(startMinutesAgo: number, endMinutesAgo: number): number {
 	return Math.max(0, (startMinutesAgo - endMinutesAgo) * MINUTE);
 }

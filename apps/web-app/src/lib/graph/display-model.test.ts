@@ -43,11 +43,7 @@ import {
 	slowHeatTier,
 } from './execution-projection';
 
-function node(
-	id: string,
-	kind = 'llm',
-	extra?: Partial<DisplayNode>,
-): DisplayNode {
+function node(id: string, kind = 'llm', extra?: Partial<DisplayNode>): DisplayNode {
 	return { id, label: id, kind, ...extra };
 }
 
@@ -111,23 +107,13 @@ describe('capGraph', () => {
 		expect(result.edges).toEqual([edges[0]]);
 	});
 	it('samples across kinds instead of cutting the tail', () => {
-		const nodes = [
-			node('a0', 'a'),
-			node('a1', 'a'),
-			node('a2', 'a'),
-			node('b0', 'b'),
-		];
+		const nodes = [node('a0', 'a'), node('a1', 'a'), node('a2', 'a'), node('b0', 'b')];
 		const result = capGraph(nodes, [], 3);
 		expect(result.truncated).toBe(true);
 		expect(result.nodes.map((entry) => entry.id)).toEqual(['a0', 'b0', 'a1']);
 	});
 	it('retains priority ids before sampling leftovers', () => {
-		const nodes = [
-			node('a0', 'a'),
-			node('a1', 'a'),
-			node('a2', 'a'),
-			node('b0', 'b'),
-		];
+		const nodes = [node('a0', 'a'), node('a1', 'a'), node('a2', 'a'), node('b0', 'b')];
 		const result = capGraph(nodes, [], 3, ['b0', 'a2']);
 		expect(result.truncated).toBe(true);
 		expect(result.nodes.map((entry) => entry.id)).toEqual(['b0', 'a2', 'a0']);
@@ -158,12 +144,8 @@ describe('distinctKinds and legend', () => {
 		expect(distinctKinds([node('a', 'b'), node('b', 'a')])).toEqual(['a', 'b']);
 	});
 	it('adds error legend entries for decision graphs', () => {
-		expect(legendFor('decision').some((entry) => entry.label === 'Error')).toBe(
-			true,
-		);
-		expect(legendFor('workflow').some((entry) => entry.label === 'Error')).toBe(
-			false,
-		);
+		expect(legendFor('decision').some((entry) => entry.label === 'Error')).toBe(true);
+		expect(legendFor('workflow').some((entry) => entry.label === 'Error')).toBe(false);
 	});
 });
 
@@ -235,10 +217,7 @@ describe('execution tones', () => {
 describe('layeredPositions', () => {
 	it('flows chains left to right on the grid', () => {
 		const nodes = [node('a'), node('b'), node('c')];
-		const positions = layeredPositions(nodes, [
-			edge('e1', 'a', 'b'),
-			edge('e2', 'b', 'c'),
-		]);
+		const positions = layeredPositions(nodes, [edge('e1', 'a', 'b'), edge('e2', 'b', 'c')]);
 		expect(positions.size).toBe(3);
 		const ax = positions.get('a')?.x ?? 0;
 		const bx = positions.get('b')?.x ?? 0;
@@ -252,10 +231,7 @@ describe('layeredPositions', () => {
 	});
 	it('places cyclic leftovers instead of dropping them', () => {
 		const nodes = [node('a'), node('b')];
-		const positions = layeredPositions(nodes, [
-			edge('e1', 'a', 'b'),
-			edge('e2', 'b', 'a'),
-		]);
+		const positions = layeredPositions(nodes, [edge('e1', 'a', 'b'), edge('e2', 'b', 'a')]);
 		expect(positions.size).toBe(2);
 	});
 	it('lays disconnected components side by side', () => {
@@ -309,19 +285,14 @@ describe('layeredPositions', () => {
 
 describe('connectedComponents', () => {
 	it('splits isolated nodes into their own components', () => {
-		expect(
-			connectedComponents(
-				[node('b'), node('a'), node('c')],
-				[edge('e', 'a', 'b')],
-			),
-		).toEqual([['a', 'b'], ['c']]);
+		expect(connectedComponents([node('b'), node('a'), node('c')], [edge('e', 'a', 'b')])).toEqual([
+			['a', 'b'],
+			['c'],
+		]);
 	});
 	it('ignores dangling and self edges', () => {
 		expect(
-			connectedComponents(
-				[node('a')],
-				[edge('e1', 'a', 'a'), edge('e2', 'a', 'ghost')],
-			),
+			connectedComponents([node('a')], [edge('e1', 'a', 'a'), edge('e2', 'a', 'ghost')]),
 		).toEqual([['a']]);
 	});
 });
@@ -371,14 +342,8 @@ describe('groupAwareLayeredPositions', () => {
 	});
 	it('falls back to layered layout without groups', () => {
 		const nodes = [node('a'), node('b')];
-		const positions = groupAwareLayeredPositions(
-			nodes,
-			[edge('e1', 'a', 'b')],
-			{},
-		);
-		expect(positions.get('b')?.x ?? 0).toBeGreaterThan(
-			positions.get('a')?.x ?? 0,
-		);
+		const positions = groupAwareLayeredPositions(nodes, [edge('e1', 'a', 'b')], {});
+		expect(positions.get('b')?.x ?? 0).toBeGreaterThan(positions.get('a')?.x ?? 0);
 	});
 });
 
@@ -394,9 +359,7 @@ describe('sortIdsByCanvasPosition', () => {
 	});
 	it('keeps input order for missing positions', () => {
 		const ids = ['b', 'a', 'c'];
-		expect(
-			sortIdsByCanvasPosition(ids, new Map([['a', { x: 0, y: 0 }]])),
-		).toEqual(['b', 'a', 'c']);
+		expect(sortIdsByCanvasPosition(ids, new Map([['a', { x: 0, y: 0 }]]))).toEqual(['b', 'a', 'c']);
 	});
 	it('accepts record positions and passes through without positions', () => {
 		const ids = ['b', 'a'];
@@ -448,10 +411,7 @@ describe('projectExecutionOverlay', () => {
 		expect(tones.get('e1')).toBe('running');
 		expect(tones.get('e2')).toBe('error');
 		expect(tones.get('e3')).toBe('success');
-		const applied = applyEdgeOverlay(
-			[edge('e1', 'a', 'c'), edge('e2', 'b', 'c')],
-			tones,
-		);
+		const applied = applyEdgeOverlay([edge('e1', 'a', 'c'), edge('e2', 'b', 'c')], tones);
 		expect(applied.find((entry) => entry.id === 'e1')?.status).toBe('running');
 		expect(applied.find((entry) => entry.id === 'e2')?.status).toBe('failed');
 	});
@@ -563,9 +523,9 @@ describe('connectByPort', () => {
 		expect(connectByPort({ sourceKind: 'LLM', targetKind: 'START' })).toBe(
 			'START node cannot have incoming edges',
 		);
-		expect(
-			connectByPort({ sourceKind: 'SCRIPT', targetKind: 'start_from_message' }),
-		).toBe('START_FROM_MESSAGE node cannot have incoming edges');
+		expect(connectByPort({ sourceKind: 'SCRIPT', targetKind: 'start_from_message' })).toBe(
+			'START_FROM_MESSAGE node cannot have incoming edges',
+		);
 	});
 	it('rejects outgoing edges from graph exits', () => {
 		expect(connectByPort({ sourceKind: 'END', targetKind: 'SCRIPT' })).toBe(
@@ -579,20 +539,12 @@ describe('connectByPort', () => {
 		).toBe('CONTINUE_FROM_MESSAGE node cannot have outgoing edges');
 	});
 	it('allows edges between ordinary kinds', () => {
-		expect(
-			connectByPort({ sourceKind: 'LLM', targetKind: 'SCRIPT' }),
-		).toBeNull();
-		expect(
-			connectByPort({ sourceKind: 'SCRIPT', targetKind: 'END' }),
-		).toBeNull();
-		expect(
-			connectByPort({ sourceKind: 'START', targetKind: 'LLM' }),
-		).toBeNull();
+		expect(connectByPort({ sourceKind: 'LLM', targetKind: 'SCRIPT' })).toBeNull();
+		expect(connectByPort({ sourceKind: 'SCRIPT', targetKind: 'END' })).toBeNull();
+		expect(connectByPort({ sourceKind: 'START', targetKind: 'LLM' })).toBeNull();
 	});
 	it('treats unrecognised kinds as ordinary nodes', () => {
-		expect(
-			connectByPort({ sourceKind: 'plugin-step', targetKind: 'SCRIPT' }),
-		).toBeNull();
+		expect(connectByPort({ sourceKind: 'plugin-step', targetKind: 'SCRIPT' })).toBeNull();
 		expect(connectByPort({ sourceKind: '', targetKind: 'START' })).toBe(
 			'START node cannot have incoming edges',
 		);
@@ -637,10 +589,7 @@ describe('branch edges', () => {
 		const gradient = edgeGradient({ id: 'e', source: 'a', target: 'b' }, byId);
 		expect(gradient).not.toBeNull();
 		expect(gradient?.from).not.toBe(gradient?.to);
-		const same = edgeGradient(
-			{ id: 'e', source: 'a', target: 'a' },
-			new Map([['a', 'running']]),
-		);
+		const same = edgeGradient({ id: 'e', source: 'a', target: 'a' }, new Map([['a', 'running']]));
 		expect(same).toBeNull();
 	});
 	it('projects waiting gradients from execution marks', () => {
@@ -677,17 +626,17 @@ describe('portType', () => {
 
 describe('connectByPort direction', () => {
 	it('rejects links starting at an input port', () => {
-		expect(
-			connectByPort({ sourceKind: 'SCRIPT', targetKind: 'LLM', sourcePort: 'input' }),
-		).toBe('Connections start from an output port');
+		expect(connectByPort({ sourceKind: 'SCRIPT', targetKind: 'LLM', sourcePort: 'input' })).toBe(
+			'Connections start from an output port',
+		);
 	});
 	it('rejects links landing on an output or branch port', () => {
-		expect(
-			connectByPort({ sourceKind: 'SCRIPT', targetKind: 'LLM', targetPort: 'output' }),
-		).toBe('Connections land on an input port');
-		expect(
-			connectByPort({ sourceKind: 'SCRIPT', targetKind: 'ROUTE', targetPort: 'branch' }),
-		).toBe('Connections land on an input port');
+		expect(connectByPort({ sourceKind: 'SCRIPT', targetKind: 'LLM', targetPort: 'output' })).toBe(
+			'Connections land on an input port',
+		);
+		expect(connectByPort({ sourceKind: 'SCRIPT', targetKind: 'ROUTE', targetPort: 'branch' })).toBe(
+			'Connections land on an input port',
+		);
 	});
 	it('allows output and branch sources to input targets', () => {
 		expect(

@@ -9,10 +9,7 @@
 		disabled?: boolean;
 	}
 
-	interface Props extends Omit<
-		HTMLSelectAttributes,
-		'size' | 'children' | 'value' | 'onchange'
-	> {
+	interface Props extends Omit<HTMLSelectAttributes, 'size' | 'children' | 'value' | 'onchange'> {
 		value: string;
 		options: Option[];
 		size?: 'sm' | 'md';

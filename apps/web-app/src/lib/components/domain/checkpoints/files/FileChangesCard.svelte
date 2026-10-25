@@ -53,8 +53,7 @@
 			changesHasMore = page.hasMore;
 		} catch (e) {
 			console.error('Failed to load file changes:', e);
-			loadError =
-				e instanceof Error ? e.message : t('domain.files.changesUnavailable');
+			loadError = e instanceof Error ? e.message : t('domain.files.changesUnavailable');
 		} finally {
 			loading = false;
 		}
@@ -79,10 +78,7 @@
 	}
 </script>
 
-<Card
-	title={t('domain.files.changesTitle')}
-	description={t('domain.files.changesDescription')}
->
+<Card title={t('domain.files.changesTitle')} description={t('domain.files.changesDescription')}>
 	{#if loading && changes.length === 0}
 		<Skeleton lines={5} />
 	{:else if loadError && changes.length === 0}
@@ -108,19 +104,12 @@
 								{change.path}
 							</p>
 							<p class="mt-0.5 text-micro text-muted-foreground">
-								{change.actor} · {change.session} · {formatRelativeTime(
-									change.at,
-								)}
+								{change.actor} · {change.session} · {formatRelativeTime(change.at)}
 							</p>
 						</div>
 						<div class="flex shrink-0 items-center gap-2">
 							{#if change.changeType}
-								<span
-									class={cn(
-										'text-micro',
-										toneText(CHANGE_TONE[change.changeType]),
-									)}
-								>
+								<span class={cn('text-micro', toneText(CHANGE_TONE[change.changeType]))}>
 									{change.changeType}
 								</span>
 							{/if}

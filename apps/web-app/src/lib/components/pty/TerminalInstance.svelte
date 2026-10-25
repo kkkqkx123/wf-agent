@@ -24,8 +24,7 @@
 		onConnectFailed?: (id: string) => void;
 	}
 
-	let { session, store, onConnect, onSessionExited, onConnectFailed }: Props =
-		$props();
+	let { session, store, onConnect, onSessionExited, onConnectFailed }: Props = $props();
 
 	let container: HTMLDivElement;
 
@@ -201,8 +200,7 @@
 
 	function handlePaste(event: ClipboardEvent): void {
 		const clipboard = event.clipboardData;
-		const text =
-			clipboard?.getData('text/plain') ?? clipboard?.getData('text') ?? '';
+		const text = clipboard?.getData('text/plain') ?? clipboard?.getData('text') ?? '';
 		if (!text) return;
 		event.preventDefault();
 		event.stopPropagation();
@@ -212,11 +210,7 @@
 
 	function handlePointerDown(): void {
 		const active = document.activeElement;
-		if (
-			active instanceof HTMLElement &&
-			active !== container &&
-			!container.contains(active)
-		) {
+		if (active instanceof HTMLElement && active !== container && !container.contains(active)) {
 			active.blur();
 		}
 		focus();
@@ -293,11 +287,9 @@
 		const handleWindowResize = () => scheduleFit();
 		window.addEventListener('resize', handleWindowResize);
 
-		const onTermResize = term.onResize(
-			(size: { rows: number; cols: number }) => {
-				scheduleResize(size.rows, size.cols);
-			},
-		);
+		const onTermResize = term.onResize((size: { rows: number; cols: number }) => {
+			scheduleResize(size.rows, size.cols);
+		});
 		const onTermData = term.onData((data: string) => {
 			if (disposed || exitHandled) return;
 			socket?.send(data);
@@ -370,12 +362,7 @@
 			try {
 				const buffer = serializeAddon?.serialize();
 				if (buffer && buffer.length > 0 && term) {
-					store.saveBuffer(
-						session.id,
-						buffer,
-						term.buffer.active.viewportY,
-						cursor,
-					);
+					store.saveBuffer(session.id, buffer, term.buffer.active.viewportY, cursor);
 				}
 			} catch {
 				// Serialization may fail after dispose; skip persistence.

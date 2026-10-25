@@ -44,10 +44,8 @@ export function registerExecutions(router: MockRouter): void {
 			})),
 		].sort((a, b) => b.start_time - a.start_time);
 		const status = typeof query.status === 'string' ? query.status : null;
-		const executionType =
-			typeof query.execution_type === 'string' ? query.execution_type : null;
-		const definitionId =
-			typeof query.definition_id === 'string' ? query.definition_id : null;
+		const executionType = typeof query.execution_type === 'string' ? query.execution_type : null;
+		const definitionId = typeof query.definition_id === 'string' ? query.definition_id : null;
 		const filtered = unified.filter(
 			(e) =>
 				(!status || e.status === status) &&
@@ -122,6 +120,6 @@ export function registerExecutions(router: MockRouter): void {
 	router.on('GET', '/api/v1/executions/{id}/graph/overview', () => ({
 		graph: { nodes: [], edges: [] },
 		failed_nodes: [],
-		critical_path: []
+		critical_path: [],
 	}));
 }

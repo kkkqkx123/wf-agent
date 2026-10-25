@@ -25,9 +25,7 @@
 		skillFilter.trim()
 			? skillContent
 					.split('\n')
-					.filter((line) =>
-						line.toLowerCase().includes(skillFilter.trim().toLowerCase()),
-					)
+					.filter((line) => line.toLowerCase().includes(skillFilter.trim().toLowerCase()))
 					.join('\n') || t('page.resources.skillContent.noLinesMatch')
 			: skillContent,
 	);
@@ -51,9 +49,7 @@
 			skillContent = await getSkillContent(next.name);
 		} catch (e) {
 			skillContentError =
-				e instanceof Error
-					? e.message
-					: t('page.resources.skillContent.promptLoadFailed');
+				e instanceof Error ? e.message : t('page.resources.skillContent.promptLoadFailed');
 		}
 	}
 
@@ -95,22 +91,14 @@
 				size="sm"
 				class="w-full"
 			/>
-			<Button
-				variant="outline"
-				size="sm"
-				onclick={() => void copySkillContent()}
-			>
-				Copy
-			</Button>
+			<Button variant="outline" size="sm" onclick={() => void copySkillContent()}>Copy</Button>
 		</div>
 		<pre
 			class="max-h-96 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-small">{skillFilteredContent}</pre>
 	{/if}
 	{#snippet footer()}
 		<div class="flex items-center justify-end">
-			<Button variant="ghost" size="sm" onclick={() => (open = false)}>
-				Close
-			</Button>
+			<Button variant="ghost" size="sm" onclick={() => (open = false)}>Close</Button>
 		</div>
 	{/snippet}
 </Dialog>

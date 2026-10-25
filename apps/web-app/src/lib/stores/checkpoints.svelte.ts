@@ -12,11 +12,7 @@ type CheckpointListener = (domain: CheckpointDomain) => void;
 function isReviewFilePayload(payload: string): boolean {
 	if (!payload) return false;
 	const needle = payload.toLowerCase();
-	return (
-		needle.includes('review') ||
-		needle.includes('submit') ||
-		needle.includes('approv')
-	);
+	return needle.includes('review') || needle.includes('submit') || needle.includes('approv');
 }
 
 /**

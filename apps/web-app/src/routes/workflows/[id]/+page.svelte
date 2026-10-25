@@ -19,14 +19,8 @@
 	import RunsPanel from '#lib/components/domain/RunsPanel.svelte';
 	import { exportWorkflow, getWorkflowDetail } from '#lib/services/workflows';
 	import { cloneWorkflow } from '#lib/services/workflows';
-	import {
-		publishWorkflowTemplate,
-		unpublishWorkflowTemplate,
-	} from '#lib/services/templates';
-	import {
-		promoteDefinitionDraft,
-		validateDefinitionDraft,
-	} from '#lib/services/definitions';
+	import { publishWorkflowTemplate, unpublishWorkflowTemplate } from '#lib/services/templates';
+	import { promoteDefinitionDraft, validateDefinitionDraft } from '#lib/services/definitions';
 	import type { WorkflowDetail } from '#lib/types/models';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { formatNumber } from '#lib/utils/format';
@@ -46,9 +40,7 @@
 
 	const requestedTab = parseListParams(page.url as unknown as URL).tab;
 	let tab = $state(
-		requestedTab && TABS.some((item) => item.id === requestedTab)
-			? requestedTab
-			: 'graph',
+		requestedTab && TABS.some((item) => item.id === requestedTab) ? requestedTab : 'graph',
 	);
 
 	let detail = $state<WorkflowDetail | null>(null);
@@ -67,9 +59,7 @@
 	// A run id travels in `?run=` when the user arrives from the execution
 	// domain. The graph tab projects that specific run instead of the latest
 	// one so history links stay precise.
-	const requestedRun = $derived(
-		(page.url as unknown as URL).searchParams.get('run') ?? '',
-	);
+	const requestedRun = $derived((page.url as unknown as URL).searchParams.get('run') ?? '');
 
 	$effect(() => {
 		gotoWithParams(page.url as unknown as URL, {
@@ -106,8 +96,7 @@
 			// detail load, as the page-level state did before the split.
 			void graphState.load(id);
 		} catch (e) {
-			detailError =
-				e instanceof Error ? e.message : t('page.workflowDetail.loadFailed');
+			detailError = e instanceof Error ? e.message : t('page.workflowDetail.loadFailed');
 			detail = null;
 		} finally {
 			detailLoading = false;
@@ -316,13 +305,9 @@
 			{#if workflow}
 				<StatusBadge status={workflow.status} />
 				<Badge variant="outline">v{workflow.version}</Badge>
-				<span class="font-mono text-caption text-muted-foreground"
-					>{workflow.id}</span
-				>
+				<span class="font-mono text-caption text-muted-foreground">{workflow.id}</span>
 				<span class="text-caption text-muted-foreground">
-					{formatNumber(workflow.nodeCount)} nodes · {formatNumber(
-						workflow.edgeCount,
-					)} edges
+					{formatNumber(workflow.nodeCount)} nodes · {formatNumber(workflow.edgeCount)} edges
 				</span>
 			{/if}
 		{/snippet}
@@ -389,12 +374,7 @@
 		{/snippet}
 	</PageHeader>
 
-	<Segmented
-		items={TABS}
-		value={tab}
-		onchange={(id) => session.requestTab(id)}
-		class="px-4"
-	/>
+	<Segmented items={TABS} value={tab} onchange={(id) => session.requestTab(id)} class="px-4" />
 
 	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
 		{#if derivedFrom}
@@ -409,7 +389,9 @@
 					{derivedFrom.sourceId}
 				</a>
 				· the template stays the reusable view, this workflow is the runnable instance.
-					<span class="font-mono"> · {derivedFrom.sourceKind} · {new Date(derivedFrom.derivedAt).toISOString()}</span>
+				<span class="font-mono">
+					· {derivedFrom.sourceKind} · {new Date(derivedFrom.derivedAt).toISOString()}</span
+				>
 			</p>
 		{/if}
 		{#if detailLoading}
@@ -435,11 +417,9 @@
 			/>
 		{:else if tab === 'edit'}
 			<p class="mb-2 text-caption text-muted-foreground">
-				Definition editor · same draft → validate → promote flow as workflow
-				templates in the
-				<a class="underline-offset-2 hover:underline" href="/templates"
-					>template library</a
-				>. Runs stay in the execution domain (Runs tab, Run button).
+				Definition editor · same draft → validate → promote flow as workflow templates in the
+				<a class="underline-offset-2 hover:underline" href="/templates">template library</a>. Runs
+				stay in the execution domain (Runs tab, Run button).
 			</p>
 			<WorkflowEditSection controller={session} />
 		{:else if tab === 'versions'}
@@ -465,10 +445,10 @@
 			/>
 		{:else}
 			<p class="mb-2 text-caption text-muted-foreground">
-				Execution domain · runs are read-only here; new runs start in the
-				execution workbench. Editing the definition happens in the Edit tab.
+				Execution domain · runs are read-only here; new runs start in the execution workbench.
+				Editing the definition happens in the Edit tab.
 			</p>
-			<RunsPanel kind="workflow" definitionId={detail.id} compact />
+			<RunsPanel kind="workflow" definitionId={detail.id} compact limit={5} />
 		{/if}
 	</div>
 </div>

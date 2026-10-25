@@ -53,9 +53,7 @@ export function toDecisionGraph(
 			id: node.node_id,
 			label: node.description || node.node_id,
 			kind: node.type,
-			status:
-				statusById?.get(node.node_id) ??
-				(errorIds.has(node.node_id) ? 'failed' : undefined),
+			status: statusById?.get(node.node_id) ?? (errorIds.has(node.node_id) ? 'failed' : undefined),
 			iteration: node.iteration,
 		})),
 		edges: (view.edges ?? []).map((edge) => ({
@@ -73,10 +71,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** Workflow definition graph endpoints (typed view layer). */
-export async function getGraphNodes(
-	id: string,
-	nodeType?: string,
-): Promise<NodeDoc[]> {
+export async function getGraphNodes(id: string, nodeType?: string): Promise<NodeDoc[]> {
 	const data = await call<NodeDoc[] | null>(
 		client.GET('/api/v1/workflows/{id}/graph/nodes', {
 			params: { path: { id }, query: nodeType ? { node_type: nodeType } : {} },
@@ -120,19 +115,14 @@ export async function getGraphNeighbors(
 			params: { path: { id, nodeId } },
 		}),
 	);
-	const neighbors = requireData(
-		data,
-		`Graph neighbors missing for node ${nodeId}`,
-	);
+	const neighbors = requireData(data, `Graph neighbors missing for node ${nodeId}`);
 	return {
 		predecessors: neighbors.predecessors ?? [],
 		successors: neighbors.successors ?? [],
 	};
 }
 
-export async function getGraphAnalysis(
-	id: string,
-): Promise<GraphAnalysisResult> {
+export async function getGraphAnalysis(id: string): Promise<GraphAnalysisResult> {
 	const data = await call<components['schemas']['GraphAnalysisDoc'] | null>(
 		client.GET('/api/v1/workflows/{id}/graph/analysis', {
 			params: { path: { id } },
@@ -190,18 +180,13 @@ export async function getGraphTopology(id: string): Promise<TopologyResult> {
 	};
 }
 
-export async function getGraphReachability(
-	id: string,
-): Promise<ReachabilityResult> {
+export async function getGraphReachability(id: string): Promise<ReachabilityResult> {
 	const data = await call<components['schemas']['ReachabilityDoc'] | null>(
 		client.GET('/api/v1/workflows/{id}/graph/reachability', {
 			params: { path: { id } },
 		}),
 	);
-	const reachability = requireData(
-		data,
-		`Reachability report missing for workflow ${id}`,
-	);
+	const reachability = requireData(data, `Reachability report missing for workflow ${id}`);
 	return {
 		reachableFromStart: reachability.reachable_from_start ?? [],
 		reachableToEnd: reachability.reachable_to_end ?? [],
@@ -211,9 +196,7 @@ export async function getGraphReachability(
 }
 
 /** Execution graph endpoints (same view layer, execution scope). */
-export async function getExecutionGraphNodes(
-	executionId: string,
-): Promise<NodeDoc[]> {
+export async function getExecutionGraphNodes(executionId: string): Promise<NodeDoc[]> {
 	const data = await call<NodeDoc[] | null>(
 		client.GET('/api/v1/executions/{id}/graph/nodes', {
 			params: { path: { id: executionId } },
@@ -222,9 +205,7 @@ export async function getExecutionGraphNodes(
 	return requireData(data, `Graph nodes missing for execution ${executionId}`);
 }
 
-export async function getExecutionGraphEdges(
-	executionId: string,
-): Promise<EdgeDoc[]> {
+export async function getExecutionGraphEdges(executionId: string): Promise<EdgeDoc[]> {
 	const data = await call<EdgeDoc[] | null>(
 		client.GET('/api/v1/executions/{id}/graph/edges', {
 			params: { path: { id: executionId } },
@@ -242,30 +223,20 @@ export async function getExecutionGraphNeighbors(
 			params: { path: { id: executionId, nodeId } },
 		}),
 	);
-	const neighbors = requireData(
-		data,
-		`Graph neighbors missing for node ${nodeId}`,
-	);
+	const neighbors = requireData(data, `Graph neighbors missing for node ${nodeId}`);
 	return {
 		predecessors: neighbors.predecessors ?? [],
 		successors: neighbors.successors ?? [],
 	};
 }
 
-export async function getExecutionPathStats(
-	executionId: string,
-): Promise<ExecutionPathStat[]> {
-	const data = await call<
-		components['schemas']['ExecutionPathStatsDoc'][] | null
-	>(
+export async function getExecutionPathStats(executionId: string): Promise<ExecutionPathStat[]> {
+	const data = await call<components['schemas']['ExecutionPathStatsDoc'][] | null>(
 		client.GET('/api/v1/executions/{id}/graph/path-stats', {
 			params: { path: { id: executionId } },
 		}),
 	);
-	const stats = requireData(
-		data,
-		`Path stats missing for execution ${executionId}`,
-	);
+	const stats = requireData(data, `Path stats missing for execution ${executionId}`);
 	return stats.map((stat) => ({
 		nodeCount: stat.node_count,
 		edgeCount: stat.edge_count,
@@ -302,9 +273,7 @@ export async function getDecisionEdges(id: string): Promise<DecisionEdgeDoc[]> {
 	return requireData(data, `Decision edges missing for loop ${id}`);
 }
 
-export async function getDecisionSteps(
-	id: string,
-): Promise<DecisionPathStep[]> {
+export async function getDecisionSteps(id: string): Promise<DecisionPathStep[]> {
 	const data = await call<StepDoc[] | null>(
 		client.GET('/api/v1/agent-loops/{id}/graph/paths/steps', {
 			params: { path: { id } },
@@ -349,18 +318,13 @@ export interface SlowNodeEntry {
 }
 
 /** Slowest nodes of an execution. */
-export async function getExecutionSlowNodes(
-	executionId: string,
-): Promise<SlowNodeEntry[]> {
+export async function getExecutionSlowNodes(executionId: string): Promise<SlowNodeEntry[]> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/executions/{id}/analysis/slow-nodes', {
 			params: { path: { id: executionId } },
 		}),
 	);
-	const rows = requireData(
-		data,
-		`Slow nodes missing for execution ${executionId}`,
-	);
+	const rows = requireData(data, `Slow nodes missing for execution ${executionId}`);
 	if (!Array.isArray(rows)) return [];
 	return rows
 		.filter(isRecord)
@@ -383,23 +347,16 @@ export async function getExecutionSlowNodes(
 }
 
 /** Branching node ids of an execution. */
-export async function getExecutionDecisionPoints(
-	executionId: string,
-): Promise<string[]> {
+export async function getExecutionDecisionPoints(executionId: string): Promise<string[]> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/executions/{id}/analysis/decision-points', {
 			params: { path: { id: executionId } },
 		}),
 	);
-	const rows = requireData(
-		data,
-		`Decision points missing for execution ${executionId}`,
-	);
+	const rows = requireData(data, `Decision points missing for execution ${executionId}`);
 	if (!Array.isArray(rows)) return [];
 	return rows
-		.map((row) =>
-			isRecord(row) && typeof row.node_id === 'string' ? row.node_id : null,
-		)
+		.map((row) => (isRecord(row) && typeof row.node_id === 'string' ? row.node_id : null))
 		.filter((id): id is string => !!id);
 }
 
@@ -412,9 +369,7 @@ export interface EfficiencyEntry {
 }
 
 /** Step efficiency of an execution against the shortest structural path. */
-export async function getExecutionEfficiency(
-	executionId: string,
-): Promise<EfficiencyEntry | null> {
+export async function getExecutionEfficiency(executionId: string): Promise<EfficiencyEntry | null> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/executions/{id}/analysis/efficiency', {
 			params: { path: { id: executionId } },
@@ -434,9 +389,7 @@ export async function getExecutionEfficiency(
 }
 
 /** Failed node ids of an execution. */
-export async function getExecutionFailedNodes(
-	executionId: string,
-): Promise<string[]> {
+export async function getExecutionFailedNodes(executionId: string): Promise<string[]> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/executions/{id}/failed-nodes', {
 			params: { path: { id: executionId } },
@@ -454,9 +407,7 @@ export async function getExecutionFailedNodes(
 }
 
 /** Longest structural path of an execution graph. */
-export async function getExecutionCriticalPath(
-	executionId: string,
-): Promise<string[]> {
+export async function getExecutionCriticalPath(executionId: string): Promise<string[]> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/executions/{id}/analysis/paths', {
 			params: { path: { id: executionId } },
@@ -466,9 +417,7 @@ export async function getExecutionCriticalPath(
 	if (!isRecord(data)) return [];
 	const critical = data.critical_path;
 	if (!isRecord(critical) || !Array.isArray(critical.nodes)) return [];
-	return critical.nodes.filter(
-		(node): node is string => typeof node === 'string',
-	);
+	return critical.nodes.filter((node): node is string => typeof node === 'string');
 }
 
 export function graphField(
@@ -497,42 +446,26 @@ export function asRecordList(value: unknown): Record<string, unknown>[] {
  * endpoints re-resolve the same structure server-side, so prefer this for
  * the graph tab and keep the split calls for filtered (by-type) views.
  */
-export async function getExecutionGraph(
-	executionId: string,
-): Promise<WorkflowGraph> {
+export async function getExecutionGraph(executionId: string): Promise<WorkflowGraph> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/executions/{id}/graph', {
 			params: { path: { id: executionId } },
 		}),
 	);
-	const structure = requireData(
-		data,
-		`Graph missing for execution ${executionId}`,
-	);
+	const structure = requireData(data, `Graph missing for execution ${executionId}`);
 	const view = isRecord(structure) ? structure : {};
 	return {
 		nodes: asRecordList(view.nodes).map((node, index) => ({
 			id: graphField(node, ['id', 'node_id'], `node-${index}`),
-			label: graphField(
-				node,
-				['name', 'label', 'id', 'node_id'],
-				`node-${index}`,
-			),
+			label: graphField(node, ['name', 'label', 'id', 'node_id'], `node-${index}`),
 			kind: graphField(node, ['node_type', 'kind', 'type'], 'unknown'),
 		})),
 		edges: asRecordList(view.edges).map((edge, index) => ({
 			id: graphField(edge, ['id', 'edge_id'], `edge-${index}`),
 			from: graphField(edge, ['source_node_id', 'from', 'source'], ''),
 			to: graphField(edge, ['target_node_id', 'to', 'target'], ''),
-			label:
-				typeof edge.condition === 'string' && edge.condition
-					? edge.condition
-					: undefined,
-			kind: graphField(
-				edge,
-				['edge_type', 'type', 'kind'],
-				'default',
-			).toLowerCase(),
+			label: typeof edge.condition === 'string' && edge.condition ? edge.condition : undefined,
+			kind: graphField(edge, ['edge_type', 'type', 'kind'], 'default').toLowerCase(),
 		})),
 	};
 }
@@ -552,10 +485,7 @@ export async function getExecutionGraphOverview(executionId: string): Promise<{
 			params: { path: { id: executionId } },
 		}),
 	);
-	const overview = requireData(
-		data,
-		`Graph overview missing for execution ${executionId}`,
-	);
+	const overview = requireData(data, `Graph overview missing for execution ${executionId}`);
 	const view = isRecord(overview) ? overview : {};
 	const graphValue = isRecord(view.graph) ? view.graph : {};
 	const failedValue = Array.isArray(view.failed_nodes)
@@ -572,34 +502,19 @@ export async function getExecutionGraphOverview(executionId: string): Promise<{
 		graph: {
 			nodes: asRecordList(graphValue.nodes).map((node, index) => ({
 				id: graphField(node, ['id', 'node_id'], `node-${index}`),
-				label: graphField(
-					node,
-					['name', 'label', 'id', 'node_id'],
-					`node-${index}`,
-				),
+				label: graphField(node, ['name', 'label', 'id', 'node_id'], `node-${index}`),
 				kind: graphField(node, ['node_type', 'kind', 'type'], 'unknown'),
 			})),
 			edges: asRecordList(graphValue.edges).map((edge, index) => ({
 				id: graphField(edge, ['id', 'edge_id'], `edge-${index}`),
 				from: graphField(edge, ['source_node_id', 'from', 'source'], ''),
 				to: graphField(edge, ['target_node_id', 'to', 'target'], ''),
-				label:
-					typeof edge.condition === 'string' && edge.condition
-						? edge.condition
-						: undefined,
-				kind: graphField(
-					edge,
-					['edge_type', 'type', 'kind'],
-					'default',
-				).toLowerCase(),
+				label: typeof edge.condition === 'string' && edge.condition ? edge.condition : undefined,
+				kind: graphField(edge, ['edge_type', 'type', 'kind'], 'default').toLowerCase(),
 			})),
 		},
-		failedNodes: failedValue.filter(
-			(entry): entry is string => typeof entry === 'string',
-		),
-		criticalPath: criticalValue.filter(
-			(entry): entry is string => typeof entry === 'string',
-		),
+		failedNodes: failedValue.filter((entry): entry is string => typeof entry === 'string'),
+		criticalPath: criticalValue.filter((entry): entry is string => typeof entry === 'string'),
 	};
 }
 
@@ -617,9 +532,7 @@ function unwrapDraftDefinition(record: unknown): Record<string, unknown> {
  * Read-only topology of a workflow draft. Drafts are free-form and may be
  * incomplete, so every field degrades to a placeholder instead of failing.
  */
-export async function getWorkflowDraftTopology(
-	draftId: string,
-): Promise<WorkflowGraph> {
+export async function getWorkflowDraftTopology(draftId: string): Promise<WorkflowGraph> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/workflows/drafts/{id}', {
 			params: { path: { id: draftId } },
@@ -630,26 +543,15 @@ export async function getWorkflowDraftTopology(
 	return {
 		nodes: asRecordList(definition.nodes).map((node, index) => ({
 			id: graphField(node, ['id', 'node_id'], `node-${index}`),
-			label: graphField(
-				node,
-				['name', 'label', 'id', 'node_id'],
-				`node-${index}`,
-			),
+			label: graphField(node, ['name', 'label', 'id', 'node_id'], `node-${index}`),
 			kind: graphField(node, ['node_type', 'kind', 'type'], 'unknown'),
 		})),
 		edges: asRecordList(definition.edges).map((edge, index) => ({
 			id: graphField(edge, ['id', 'edge_id'], `edge-${index}`),
 			from: graphField(edge, ['source_node_id', 'from', 'source'], ''),
 			to: graphField(edge, ['target_node_id', 'to', 'target'], ''),
-			label:
-				typeof edge.condition === 'string' && edge.condition
-					? edge.condition
-					: undefined,
-			kind: graphField(
-				edge,
-				['edge_type', 'type', 'kind'],
-				'default',
-			).toLowerCase(),
+			label: typeof edge.condition === 'string' && edge.condition ? edge.condition : undefined,
+			kind: graphField(edge, ['edge_type', 'type', 'kind'], 'default').toLowerCase(),
 		})),
 	};
 }

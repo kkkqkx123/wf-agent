@@ -71,10 +71,6 @@
 	/>
 {:else}
 	<Card title={t('domain.history.variables')} bodyClass="p-0">
-		<DataTable
-			columns={variableColumns}
-			rows={variables}
-			rowKey={(row) => row.key}
-		/>
+		<DataTable columns={variableColumns} rows={variables} rowKey={(row) => row.key} />
 	</Card>
 {/if}

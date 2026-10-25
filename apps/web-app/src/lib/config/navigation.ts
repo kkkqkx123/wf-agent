@@ -204,9 +204,7 @@ export const NAV_GROUPS: NavGroup[] = [
 export const NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((group) => group.items);
 
 export function findNavItem(href: string): NavItem | undefined {
-	return NAV_ITEMS.find(
-		(item) => href === item.href || href.startsWith(`${item.href}/`),
-	);
+	return NAV_ITEMS.find((item) => href === item.href || href.startsWith(`${item.href}/`));
 }
 
 export function navItemFor(pathname: string): NavItem | undefined {

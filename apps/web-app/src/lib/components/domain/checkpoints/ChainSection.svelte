@@ -48,10 +48,7 @@
 			checkpointStore.bump('chain');
 		} catch (e) {
 			console.error('Execution checkpoint creation failed:', e);
-			toasts.error(
-				t('domain.checkpoint.createFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.checkpoint.createFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			checkpointStore.endAction();
 		}
@@ -74,10 +71,7 @@
 			checkpointStore.bump('chain');
 		} catch (e) {
 			console.error('Execution checkpoint GC failed:', e);
-			toasts.error(
-				t('domain.checkpoint.gcFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.checkpoint.gcFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			checkpointStore.endAction();
 		}
@@ -101,10 +95,7 @@
 			checkpointStore.bump('chain');
 		} catch (e) {
 			console.error('Entity checkpoint delete failed:', e);
-			toasts.error(
-				t('domain.checkpoint.deleteFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.checkpoint.deleteFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			checkpointStore.endAction();
 		}
@@ -144,10 +135,7 @@
 			undoOpen = true;
 		} catch (e) {
 			console.error('Undo preview failed:', e);
-			toasts.error(
-				'Undo preview failed',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Undo preview failed', e instanceof Error ? e.message : undefined);
 		} finally {
 			undoPreviewLoading = false;
 			checkpointStore.endAction();
@@ -166,10 +154,7 @@
 			checkpointStore.bump('chain');
 		} catch (e) {
 			console.error('Undo failed:', e);
-			toasts.error(
-				'Undo failed',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Undo failed', e instanceof Error ? e.message : undefined);
 		} finally {
 			checkpointStore.endAction();
 		}
@@ -178,9 +163,7 @@
 	// ── dialogs ──
 	let restoreOpen = $state(false);
 	let restoreTarget = $state<Checkpoint | null>(null);
-	let restorePreview = $state<
-		import('#lib/services/checkpoints').RestorePreview | null
-	>(null);
+	let restorePreview = $state<import('#lib/services/checkpoints').RestorePreview | null>(null);
 	let restorePreviewLoading = $state(false);
 	let deleteOpen = $state(false);
 	let deleteTarget = $state<Checkpoint | null>(null);
@@ -195,10 +178,7 @@
 			await restoreCheckpoint(target);
 			restoreOpen = false;
 			restoreTarget = null;
-			toasts.success(
-				t('domain.loopCheckpoints.restored'),
-				t('domain.checkpoint.restoreNote'),
-			);
+			toasts.success(t('domain.loopCheckpoints.restored'), t('domain.checkpoint.restoreNote'));
 			checkpointStore.bump('chain');
 		} catch (e) {
 			console.error('Restore failed:', e);
@@ -225,10 +205,7 @@
 			);
 		} catch (e) {
 			console.error('Resume failed:', e);
-			toasts.error(
-				t('domain.checkpoint.resumeFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.checkpoint.resumeFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			checkpointStore.endAction();
 		}
@@ -246,19 +223,13 @@
 			checkpointStore.bump('chain');
 		} catch (e) {
 			console.error('Delete failed:', e);
-			toasts.error(
-				t('domain.checkpoint.deleteFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.checkpoint.deleteFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			checkpointStore.endAction();
 		}
 	}
 
-	async function runSetTags(
-		checkpoint: Checkpoint,
-		tags: string[],
-	): Promise<void> {
+	async function runSetTags(checkpoint: Checkpoint, tags: string[]): Promise<void> {
 		checkpointStore.beginAction('tag');
 		try {
 			await setCheckpointTags(checkpoint.id, tags);
@@ -286,8 +257,7 @@
 				label={t('domain.checkpoint.executionId')}
 				size="sm"
 				value={execId}
-				oninput={(event: Event) =>
-					(execId = (event.target as HTMLInputElement).value)}
+				oninput={(event: Event) => (execId = (event.target as HTMLInputElement).value)}
 				placeholder="workflow execution id"
 			/>
 		</div>
@@ -351,8 +321,7 @@
 		purgeTarget = checkpoint;
 		purgeOpen = true;
 	}}
-	ontag={(checkpoint: Checkpoint, tags: string[]) =>
-		void runSetTags(checkpoint, tags)}
+	ontag={(checkpoint: Checkpoint, tags: string[]) => void runSetTags(checkpoint, tags)}
 />
 
 <Dialog
@@ -368,11 +337,7 @@
 		<Button variant="ghost" size="sm" onclick={() => (gcOpen = false)}>
 			{t('common.cancel')}
 		</Button>
-		<Button
-			size="sm"
-			disabled={checkpointStore.busy}
-			onclick={() => void runGcExecution()}
-		>
+		<Button size="sm" disabled={checkpointStore.busy} onclick={() => void runGcExecution()}>
 			{t('domain.checkpoint.collect')}
 		</Button>
 	{/snippet}
@@ -396,11 +361,7 @@
 		<Button variant="ghost" size="sm" onclick={() => (purgeOpen = false)}>
 			{t('common.cancel')}
 		</Button>
-		<Button
-			size="sm"
-			disabled={checkpointStore.busy}
-			onclick={() => void runPurge()}
-		>
+		<Button size="sm" disabled={checkpointStore.busy} onclick={() => void runPurge()}>
 			{t('domain.checkpoint.deleteAll')}
 		</Button>
 	{/snippet}
@@ -441,14 +402,16 @@
 				{/if}
 				{#if restorePreview.variableKeys.length > 0}
 					<p>
-						{t('domain.history.variables')} ({restorePreview.variableKeys
-							.length}): {restorePreview.variableKeys.join(', ')}
+						{t('domain.history.variables')} ({restorePreview.variableKeys.length}): {restorePreview.variableKeys.join(
+							', ',
+						)}
 					</p>
 				{/if}
 				{#if restorePreview.nodeResultKeys.length > 0}
 					<p>
-						{t('domain.checkpoint.nodeResults')} ({restorePreview.nodeResultKeys
-							.length}): {restorePreview.nodeResultKeys.join(', ')}
+						{t('domain.checkpoint.nodeResults')} ({restorePreview.nodeResultKeys.length}): {restorePreview.nodeResultKeys.join(
+							', ',
+						)}
 					</p>
 				{/if}
 			</div>
@@ -458,11 +421,7 @@
 		<Button variant="ghost" size="sm" onclick={() => (restoreOpen = false)}>
 			{t('common.cancel')}
 		</Button>
-		<Button
-			size="sm"
-			disabled={checkpointStore.busy}
-			onclick={() => void runRestore()}
-		>
+		<Button size="sm" disabled={checkpointStore.busy} onclick={() => void runRestore()}>
 			{t('domain.checkpoint.restoreAsCommit')}
 		</Button>
 	{/snippet}
@@ -483,11 +442,7 @@
 		<Button variant="ghost" size="sm" onclick={() => (deleteOpen = false)}>
 			{t('common.cancel')}
 		</Button>
-		<Button
-			size="sm"
-			disabled={checkpointStore.busy}
-			onclick={() => void runDelete()}
-		>
+		<Button size="sm" disabled={checkpointStore.busy} onclick={() => void runDelete()}>
 			{t('common.delete')}
 		</Button>
 	{/snippet}
@@ -512,11 +467,7 @@
 		<Button variant="ghost" size="sm" onclick={() => (resumeOpen = false)}>
 			{t('common.cancel')}
 		</Button>
-		<Button
-			size="sm"
-			disabled={checkpointStore.busy}
-			onclick={() => void runResume()}
-		>
+		<Button size="sm" disabled={checkpointStore.busy} onclick={() => void runResume()}>
 			{t('domain.checkpoint.resume')}
 		</Button>
 	{/snippet}

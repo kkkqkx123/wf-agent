@@ -25,10 +25,7 @@
 </script>
 
 <div
-	class={cn(
-		'flex flex-col items-center justify-center gap-2 px-6 py-10 text-center',
-		className,
-	)}
+	class={cn('flex flex-col items-center justify-center gap-2 px-6 py-10 text-center', className)}
 >
 	<div
 		class={cn(

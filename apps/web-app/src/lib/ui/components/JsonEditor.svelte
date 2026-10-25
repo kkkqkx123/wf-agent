@@ -40,11 +40,7 @@
 		const tokens: Token[] = [];
 		let cursor = 0;
 		TOKEN_PATTERN.lastIndex = 0;
-		for (
-			let match = TOKEN_PATTERN.exec(text);
-			match !== null;
-			match = TOKEN_PATTERN.exec(text)
-		) {
+		for (let match = TOKEN_PATTERN.exec(text); match !== null; match = TOKEN_PATTERN.exec(text)) {
 			if (match.index > cursor) {
 				tokens.push({ text: text.slice(cursor, match.index), tone: 'plain' });
 			}
@@ -108,10 +104,7 @@
 </script>
 
 <div
-	class={cn(
-		'flex overflow-hidden rounded-md border border-input bg-card',
-		className,
-	)}
+	class={cn('flex overflow-hidden rounded-md border border-input bg-card', className)}
 	style:min-height={minHeight}
 >
 	<div class="w-11 shrink-0 overflow-hidden bg-muted/40 select-none">
@@ -130,11 +123,7 @@
 			{/each}
 		</div>
 	</div>
-	<div
-		bind:this={scroller}
-		onscroll={syncScroll}
-		class="min-w-0 flex-1 overflow-auto"
-	>
+	<div bind:this={scroller} onscroll={syncScroll} class="min-w-0 flex-1 overflow-auto">
 		<div class="grid w-max min-w-full">
 			<pre
 				aria-hidden="true"

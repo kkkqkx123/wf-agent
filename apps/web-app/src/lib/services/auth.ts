@@ -22,11 +22,9 @@ function toAuthProviderStatus(value: unknown): AuthProviderStatus | null {
 	if (!id) return null;
 	return {
 		id,
-		display_name:
-			typeof record.display_name === 'string' ? record.display_name : '',
+		display_name: typeof record.display_name === 'string' ? record.display_name : '',
 		method: typeof record.method === 'string' ? record.method : 'api_key',
-		login_label:
-			typeof record.login_label === 'string' ? record.login_label : null,
+		login_label: typeof record.login_label === 'string' ? record.login_label : null,
 		is_subscription: record.is_subscription === true,
 		has_credential: record.has_credential === true,
 	};
@@ -41,9 +39,7 @@ export async function listAuthProviders(): Promise<AuthProviderStatus[]> {
 		.filter((item): item is AuthProviderStatus => item !== null);
 }
 
-export async function startAuthLogin(
-	provider_id: string,
-): Promise<AuthLoginStart> {
+export async function startAuthLogin(provider_id: string): Promise<AuthLoginStart> {
 	const data = await call<unknown>(
 		client.POST('/api/v1/llm/auth/login', {
 			body: { provider_id },
@@ -91,8 +87,7 @@ export type AuthEvent =
 	  }
 	| { kind: 'Progress'; message: string };
 
-export type LoginStateKind =
-	'Challenge' | 'Pending' | 'AwaitingInput' | 'Completed' | 'Failed';
+export type LoginStateKind = 'Challenge' | 'Pending' | 'AwaitingInput' | 'Completed' | 'Failed';
 
 export interface ParsedLoginState {
 	kind: LoginStateKind;
@@ -277,10 +272,7 @@ export async function pollAuthLogin(session_id: string): Promise<unknown> {
 	return requireData(data, `Login state missing for ${session_id}`);
 }
 
-export async function submitAuthLogin(
-	session_id: string,
-	input: string,
-): Promise<unknown> {
+export async function submitAuthLogin(session_id: string, input: string): Promise<unknown> {
 	const data = await call<unknown>(
 		client.POST('/api/v1/llm/auth/login/{id}/submit', {
 			params: { path: { id: session_id } },

@@ -24,9 +24,7 @@ describe('parseAnsi', () => {
 	});
 
 	it('maps bright and 256-color indexes', () => {
-		expect(parseAnsi(`${ESC}[91mx`)[0].style.fg).toBe(
-			'hsl(var(--ansi-bright-red))',
-		);
+		expect(parseAnsi(`${ESC}[91mx`)[0].style.fg).toBe('hsl(var(--ansi-bright-red))');
 		expect(parseAnsi(`${ESC}[38;5;196mx`)[0].style.fg).toBe('rgb(255, 0, 0)');
 		expect(parseAnsi(`${ESC}[38;5;232mx`)[0].style.fg).toBe('rgb(8, 8, 8)');
 	});

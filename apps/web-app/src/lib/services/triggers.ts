@@ -65,10 +65,7 @@ export interface WebhookFireResult {
 	detail: string;
 }
 
-export async function fireHook(
-	name: string,
-	payload: unknown,
-): Promise<WebhookFireResult> {
+export async function fireHook(name: string, payload: unknown): Promise<WebhookFireResult> {
 	const data = requireData(
 		await call<unknown>(
 			client.POST('/api/v1/hooks/{name}', {
@@ -86,9 +83,7 @@ export async function fireHook(
 }
 
 /** Delete old trigger execution records, returning the removed count. */
-export async function cleanupTriggerExecutions(
-	olderThanDays = 30,
-): Promise<number> {
+export async function cleanupTriggerExecutions(olderThanDays = 30): Promise<number> {
 	const data = requireData(
 		await call<unknown>(
 			client.POST('/api/v1/trigger-executions/cleanup', {

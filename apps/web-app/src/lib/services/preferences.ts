@@ -27,11 +27,7 @@ const PAGE_SIZE_OPTION = 'execution.page-size';
 const STREAM_FOLLOW_OPTION = 'execution.stream-follow';
 const REDUCE_MOTION_OPTION = 'appearance.reduce-motion';
 
-function booleanOption(
-	doc: PreferenceDocument,
-	key: string,
-	fallback: boolean,
-): boolean {
+function booleanOption(doc: PreferenceDocument, key: string, fallback: boolean): boolean {
 	const value = doc[key];
 	return typeof value === 'boolean' ? value : fallback;
 }
@@ -43,16 +39,8 @@ function fromDocument(doc: PreferenceDocument): Behavior {
 			typeof pageSize === 'number' && Number.isFinite(pageSize)
 				? pageSize
 				: DEFAULT_BEHAVIOR.pageSize,
-		streamFollow: booleanOption(
-			doc,
-			STREAM_FOLLOW_OPTION,
-			DEFAULT_BEHAVIOR.streamFollow,
-		),
-		reduceMotion: booleanOption(
-			doc,
-			REDUCE_MOTION_OPTION,
-			DEFAULT_BEHAVIOR.reduceMotion,
-		),
+		streamFollow: booleanOption(doc, STREAM_FOLLOW_OPTION, DEFAULT_BEHAVIOR.streamFollow),
+		reduceMotion: booleanOption(doc, REDUCE_MOTION_OPTION, DEFAULT_BEHAVIOR.reduceMotion),
 	};
 }
 

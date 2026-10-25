@@ -61,10 +61,7 @@
 			{#if showLive}
 				<BackgroundTasksBar />
 				{#if chatStream.reasoning}
-					<ReasoningBlock
-						content={chatStream.reasoning}
-						streaming={chatStream.active}
-					/>
+					<ReasoningBlock content={chatStream.reasoning} streaming={chatStream.active} />
 				{/if}
 				{#snippet liveMember(entry: ToolCallEntry)}
 					<div
@@ -85,10 +82,7 @@
 							? 'cursor-pointer rounded-lg ring-2 ring-warning'
 							: 'cursor-pointer rounded-lg'}
 					>
-						<ToolCallCard
-							{entry}
-							subagents={chatStream.subAgentsOf(entry.id)}
-						/>
+						<ToolCallCard {entry} subagents={chatStream.subAgentsOf(entry.id)} />
 					</div>
 				{/snippet}
 				{#if groupTools}
@@ -132,10 +126,7 @@
 									{/if}
 								</p>
 							{/if}
-							<StreamMarkdown
-								content={chatStream.answer}
-								done={!chatStream.active}
-							/>
+							<StreamMarkdown content={chatStream.answer} done={!chatStream.active} />
 							{#if chatStream.usage}
 								<p
 									class="mt-1.5 border-t border-border/60 pt-1 text-micro tabular-nums text-muted-foreground"
@@ -180,9 +171,7 @@
 				{/if}
 				{#if chatStream.active}
 					<div class="flex items-center gap-2">
-						<p
-							class="flex items-center gap-2 text-caption text-muted-foreground"
-						>
+						<p class="flex items-center gap-2 text-caption text-muted-foreground">
 							<Icon name="loader" size={13} class="animate-spin" />
 							{chatStream.iteration !== null
 								? t('chat.chatTranscript.runningIteration', {
@@ -190,11 +179,7 @@
 									})
 								: t('chat.chatTranscript.running')}
 						</p>
-						<Button
-							variant="outline"
-							size="sm"
-							onclick={() => chatStream.stop()}
-						>
+						<Button variant="outline" size="sm" onclick={() => chatStream.stop()}>
 							<Icon name="square" size={12} />
 							{t('chat.chatTranscript.stop')}
 						</Button>

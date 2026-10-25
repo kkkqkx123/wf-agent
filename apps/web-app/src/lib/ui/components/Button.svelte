@@ -1,9 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import type {
-		HTMLAnchorAttributes,
-		HTMLButtonAttributes,
-	} from 'svelte/elements';
+	import type { HTMLAnchorAttributes, HTMLButtonAttributes } from 'svelte/elements';
 	import { resolveHref } from '../link';
 	import { buttonClass, type ButtonSize, type ButtonVariant } from './variants';
 	import { cn } from '../cn';
@@ -35,11 +32,7 @@
 {#if href}
 	<a
 		href={resolveHref(href)}
-		class={cn(
-			buttonClass(variant, size),
-			active && 'ring-1 ring-[hsl(var(--ring))]',
-			className,
-		)}
+		class={cn(buttonClass(variant, size), active && 'ring-1 ring-[hsl(var(--ring))]', className)}
 		{...anchorRest}
 	>
 		{@render children()}
@@ -47,11 +40,7 @@
 {:else}
 	<button
 		type="button"
-		class={cn(
-			buttonClass(variant, size),
-			active && 'ring-1 ring-[hsl(var(--ring))]',
-			className,
-		)}
+		class={cn(buttonClass(variant, size), active && 'ring-1 ring-[hsl(var(--ring))]', className)}
 		{...rest}
 	>
 		{@render children()}

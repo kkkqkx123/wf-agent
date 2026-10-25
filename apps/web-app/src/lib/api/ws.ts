@@ -32,10 +32,7 @@ interface WsWireEvent {
 	cursor?: string;
 }
 
-function subscriptionMessage(
-	sub: WsSubscription,
-	since: string | null,
-): Record<string, unknown> {
+function subscriptionMessage(sub: WsSubscription, since: string | null): Record<string, unknown> {
 	const base: Record<string, unknown> = { type: 'subscribe' };
 	if ('executionId' in sub) base.executionId = sub.executionId;
 	else if ('agentLoopId' in sub) base.agentLoopId = sub.agentLoopId;
@@ -47,8 +44,7 @@ function subscriptionMessage(
 		if (sub.filePath) base.filePath = sub.filePath;
 		if (sub.snapshotId) base.snapshotId = sub.snapshotId;
 	}
-	const explicit =
-		'since' in sub ? (sub as { since?: string | null }).since : undefined;
+	const explicit = 'since' in sub ? (sub as { since?: string | null }).since : undefined;
 	const effective = explicit ?? since;
 	if (effective) base.since = effective;
 	return base;
@@ -70,10 +66,7 @@ function toEventRecord(wire: WsWireEvent): EventRecord | null {
 						: typeof raw.agent_loop_id === 'string'
 							? raw.agent_loop_id
 							: null;
-	const at =
-		typeof wire.timestamp === 'number'
-			? new Date(wire.timestamp).toISOString()
-			: '';
+	const at = typeof wire.timestamp === 'number' ? new Date(wire.timestamp).toISOString() : '';
 	return {
 		id: typeof wire.cursor === 'string' ? wire.cursor : '',
 		type: wire.eventType,
@@ -169,8 +162,7 @@ export function openWebSocket(options: WsEventOptions): () => void {
 			if (wire.type === 'error') return;
 			const record = toEventRecord(wire);
 			if (!record) return;
-			if (typeof wire.cursor === 'string' && wire.cursor)
-				lastCursor = wire.cursor;
+			if (typeof wire.cursor === 'string' && wire.cursor) lastCursor = wire.cursor;
 			if (typeof wire.timestamp === 'number') lastTimestamp = wire.timestamp;
 			void lastTimestamp;
 			onEvent(record);

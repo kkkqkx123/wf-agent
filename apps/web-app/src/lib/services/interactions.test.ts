@@ -88,10 +88,7 @@ describe('parsePendingInteractions', () => {
 							{
 								index: 0,
 								text: 'Which target?',
-								options: [
-									'local',
-									{ label: 'Remote', value: 'remote', description: 'over ssh' },
-								],
+								options: ['local', { label: 'Remote', value: 'remote', description: 'over ssh' }],
 							},
 						],
 					},

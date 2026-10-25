@@ -51,10 +51,7 @@
 </script>
 
 <div
-	class={cn(
-		'relative flex items-center justify-between gap-2 border-b border-border',
-		className,
-	)}
+	class={cn('relative flex items-center justify-between gap-2 border-b border-border', className)}
 >
 	<div
 		role="tablist"
@@ -81,9 +78,7 @@
 			>
 				<span>{typeof item.label === 'function' ? item.label() : item.label}</span>
 				{#if item.count !== undefined}
-					<span
-						class="rounded-full bg-muted px-1.5 text-micro tabular-nums text-muted-foreground"
-					>
+					<span class="rounded-full bg-muted px-1.5 text-micro tabular-nums text-muted-foreground">
 						{item.count}
 					</span>
 				{/if}
@@ -120,18 +115,10 @@
 		opacity: 0.9;
 	}
 	.segmented-fade-left {
-		background: linear-gradient(
-			to right,
-			hsl(var(--background)),
-			hsl(var(--background) / 0)
-		);
+		background: linear-gradient(to right, hsl(var(--background)), hsl(var(--background) / 0));
 	}
 	.segmented-fade-right {
-		background: linear-gradient(
-			to left,
-			hsl(var(--background)),
-			hsl(var(--background) / 0)
-		);
+		background: linear-gradient(to left, hsl(var(--background)), hsl(var(--background) / 0));
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.segmented-scroll {

@@ -3,10 +3,7 @@
 	import Button from '#lib/ui/components/Button.svelte';
 	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import KeyValueList from '#lib/components/domain/KeyValueList.svelte';
-	import {
-		summarizeTemplate,
-		type TemplateDetail,
-	} from '#lib/services/templates';
+	import { summarizeTemplate, type TemplateDetail } from '#lib/services/templates';
 	import type { TemplateKind } from '#lib/types/models';
 	import type { TemplateEditController } from '#lib/templates/template-edit-session.svelte';
 	import { formatNumber } from '#lib/utils/format';
@@ -47,9 +44,7 @@
 	</div>
 {/if}
 <div>
-	<span class="text-caption font-medium"
-		>{t('domain.template.definitionPreview')}</span
-	>
+	<span class="text-caption font-medium">{t('domain.template.definitionPreview')}</span>
 	<pre
 		class="mt-1 max-h-72 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-micro">{detail.definitionJson}</pre>
 </div>
@@ -65,35 +60,19 @@
 			Run
 		</Button>
 	{/if}
-	<Button
-		variant="outline"
-		size="sm"
-		onclick={() => controller.requestView('edit')}
-	>
+	<Button variant="outline" size="sm" onclick={() => controller.requestView('edit')}>
 		<Icon name="pencil" size={13} />
 		{t('common.edit')}
 	</Button>
-	<Button
-		variant="outline"
-		size="sm"
-		onclick={() => void controller.runExport()}
-	>
+	<Button variant="outline" size="sm" onclick={() => void controller.runExport()}>
 		<Icon name="download" size={13} />
 		{t('domain.template.export')}
 	</Button>
-	<Button
-		variant="outline"
-		size="sm"
-		onclick={() => void controller.runClone()}
-	>
+	<Button variant="outline" size="sm" onclick={() => void controller.runClone()}>
 		{t('domain.template.cloneAsNew')}
 	</Button>
 	{#if kind === 'workflow'}
-		<Button
-			variant="outline"
-			size="sm"
-			onclick={() => controller.requestView('graph')}
-		>
+		<Button variant="outline" size="sm" onclick={() => controller.requestView('graph')}>
 			{t('domain.template.editGraph')}
 		</Button>
 	{/if}
@@ -103,22 +82,12 @@
 				? t('domain.template.confirmRemoveFromLibrary')
 				: t('domain.template.confirmDelete')}
 		</Button>
-		<Button
-			variant="ghost"
-			size="sm"
-			onclick={() => (controller.deleteArmed = false)}
-		>
+		<Button variant="ghost" size="sm" onclick={() => (controller.deleteArmed = false)}>
 			{t('domain.template.keep')}
 		</Button>
 	{:else}
-		<Button
-			variant="ghost"
-			size="sm"
-			onclick={() => (controller.deleteArmed = true)}
-		>
-			{kind === 'workflow'
-				? t('domain.template.removeFromLibrary')
-				: t('common.delete')}
+		<Button variant="ghost" size="sm" onclick={() => (controller.deleteArmed = true)}>
+			{kind === 'workflow' ? t('domain.template.removeFromLibrary') : t('common.delete')}
 		</Button>
 	{/if}
 </div>

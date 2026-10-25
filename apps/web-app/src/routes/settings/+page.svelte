@@ -11,11 +11,7 @@
 	import PageState from '#lib/components/layout/PageState.svelte';
 	import ShortcutsSettings from '#lib/components/layout/ShortcutsSettings.svelte';
 	import UnsavedChangesDialog from '#lib/ui/components/UnsavedChangesDialog.svelte';
-	import {
-		preferences,
-		type Density,
-		type ThemeMode,
-	} from '#lib/stores/preferences.svelte';
+	import { preferences, type Density, type ThemeMode } from '#lib/stores/preferences.svelte';
 	import {
 		describeToolOutputBudgets,
 		resolveToolOutputBudgets,
@@ -108,9 +104,7 @@
 	];
 
 	const toolBudgetsHint = $derived(
-		describeToolOutputBudgets(
-			resolveToolOutputBudgets(preferences.toolOutputDetail),
-		),
+		describeToolOutputBudgets(resolveToolOutputBudgets(preferences.toolOutputDetail)),
 	);
 
 	const PAGE_SIZE_OPTIONS = [
@@ -124,13 +118,9 @@
 	// Only the execution and notification sections persist in the server
 	// cross-device behavior track; appearance and workspace are the local
 	// first-paint track and apply instantly in this browser.
-	const serverSection = $derived(
-		section === 'execution' || section === 'notifications',
-	);
+	const serverSection = $derived(section === 'execution' || section === 'notifications');
 	// Server controls stay disabled until the backend document arrives.
-	const serverUnreachable = $derived(
-		!behavior.loaded && behavior.error !== null,
-	);
+	const serverUnreachable = $derived(!behavior.loaded && behavior.error !== null);
 
 	let unsavedOpen = $state(false);
 	let unsavedBusy = $state(false);
@@ -256,10 +246,7 @@
 			pendingBackup = parseBackupDocument(text);
 			backupMessage = `Ready to restore: ${describeBackup(pendingBackup)}.`;
 		} catch (error) {
-			backupError =
-				error instanceof Error
-					? error.message
-					: t('page.settings.invalidBackup');
+			backupError = error instanceof Error ? error.message : t('page.settings.invalidBackup');
 		} finally {
 			event.currentTarget.value = '';
 		}
@@ -298,10 +285,7 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	<PageHeader
-		title={t('page.settings.title')}
-		description={t('page.settings.description')}
-	>
+	<PageHeader title={t('page.settings.title')} description={t('page.settings.description')}>
 		{#snippet actions()}
 			{#if serverSection}
 				{#if behavior.dirty}
@@ -325,14 +309,10 @@
 					onclick={() => void saveBehavior()}
 				>
 					<Icon name="check" size={13} />
-					{behavior.saving
-						? t('page.settings.saving')
-						: t('page.settings.saveServerPrefs')}
+					{behavior.saving ? t('page.settings.saving') : t('page.settings.saveServerPrefs')}
 				</Button>
 			{:else}
-				<span class="text-caption text-muted-foreground">
-					Local preferences apply instantly.
-				</span>
+				<span class="text-caption text-muted-foreground"> Local preferences apply instantly. </span>
 			{/if}
 		{/snippet}
 	</PageHeader>
@@ -361,10 +341,7 @@
 		<div class="min-h-0 overflow-y-auto pb-2">
 			{#if section === 'appearance'}
 				<div class="space-y-3">
-					<Card
-						title={t('page.settings.theme')}
-						description={t('page.settings.themeDesc')}
-					>
+					<Card title={t('page.settings.theme')} description={t('page.settings.themeDesc')}>
 						<Select
 							value={preferences.theme}
 							options={THEME_OPTIONS}
@@ -375,12 +352,9 @@
 						<div class="mt-3 flex flex-wrap gap-2">
 							{#each THEME_OPTIONS as option (option.value)}
 								<Button
-									variant={preferences.theme === option.value
-										? 'secondary'
-										: 'outline'}
+									variant={preferences.theme === option.value ? 'secondary' : 'outline'}
 									size="sm"
-									onclick={() =>
-										preferences.setTheme(option.value as ThemeMode)}
+									onclick={() => preferences.setTheme(option.value as ThemeMode)}
 								>
 									<Icon
 										name={option.value === 'light'
@@ -420,10 +394,7 @@
 						<Switch
 							checked={preferences.toolOutputPreviews}
 							label={t('page.settings.summarizeToolOutputs')}
-							onchange={() =>
-								preferences.setToolOutputPreviews(
-									!preferences.toolOutputPreviews,
-								)}
+							onchange={() => preferences.setToolOutputPreviews(!preferences.toolOutputPreviews)}
 						/>
 						<div class="mt-3">
 							<Select
@@ -432,8 +403,7 @@
 								placeholder={t('page.settings.detail')}
 								class="w-56"
 								disabled={!preferences.toolOutputPreviews}
-								onchange={(value) =>
-									preferences.setToolOutputDetail(value as ToolOutputDetail)}
+								onchange={(value) => preferences.setToolOutputDetail(value as ToolOutputDetail)}
 							/>
 							<p class="mt-2 text-caption text-muted-foreground">
 								Preview {toolBudgetsHint}
@@ -447,10 +417,7 @@
 				</div>
 			{:else if section === 'portability'}
 				<div class="space-y-3">
-					<Card
-						title={t('page.settings.backup')}
-						description={t('page.settings.backupDesc')}
-					>
+					<Card title={t('page.settings.backup')} description={t('page.settings.backupDesc')}>
 						<Button size="sm" variant="outline" onclick={exportBackup}>
 							<Icon name="download" size={13} />
 							{t('page.settings.exportSettings')}
@@ -461,10 +428,7 @@
 							</p>
 						{/if}
 					</Card>
-					<Card
-						title={t('page.settings.restore')}
-						description={t('page.settings.restoreDesc')}
-					>
+					<Card title={t('page.settings.restore')} description={t('page.settings.restoreDesc')}>
 						<input
 							type="file"
 							accept="application/json,.json"
@@ -480,8 +444,8 @@
 							</p>
 							{#if serverUnreachable}
 								<p class="mt-2 text-caption text-warning">
-									Server is unreachable, so only the local part can be restored
-									now. Retry the server part later.
+									Server is unreachable, so only the local part can be restored now. Retry the
+									server part later.
 								</p>
 							{/if}
 							<div class="mt-3 flex flex-wrap gap-2">
@@ -494,9 +458,7 @@
 									onclick={() => void applyFullBackup()}
 								>
 									<Icon name="upload" size={13} />
-									{backupBusy
-										? t('page.settings.restoring')
-										: t('page.settings.restoreAll')}
+									{backupBusy ? t('page.settings.restoring') : t('page.settings.restoreAll')}
 								</Button>
 								<Button
 									size="sm"
@@ -526,8 +488,7 @@
 					{#if section === 'execution'}
 						<div class="space-y-3">
 							<p class="text-caption text-muted-foreground">
-								Server-side section. Changes only take effect after Save in the
-								header.
+								Server-side section. Changes only take effect after Save in the header.
 							</p>
 							{#if behavior.loaded && behavior.error}
 								<p class="text-caption text-destructive">
@@ -536,10 +497,7 @@
 									})}
 								</p>
 							{/if}
-							<Card
-								title={t('page.settings.paging')}
-								description={t('page.settings.pagingDesc')}
-							>
+							<Card title={t('page.settings.paging')} description={t('page.settings.pagingDesc')}>
 								<Select
 									value={pageSize}
 									options={PAGE_SIZE_OPTIONS}

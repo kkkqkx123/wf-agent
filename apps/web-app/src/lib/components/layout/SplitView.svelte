@@ -41,16 +41,10 @@
 	}: Props = $props();
 
 	// Defaults resolve at render time so they follow the active locale.
-	const resolvedInspectorTitle = $derived(
-		inspectorTitle || t('layout.splitView.details'),
-	);
-	const resolvedSecondaryTitle = $derived(
-		secondaryTitle || t('layout.splitView.compare'),
-	);
+	const resolvedInspectorTitle = $derived(inspectorTitle || t('layout.splitView.details'));
+	const resolvedSecondaryTitle = $derived(secondaryTitle || t('layout.splitView.compare'));
 
-	const widthCss = $derived(
-		`${inspectorWidth ?? preferences.inspectorWidth}px`,
-	);
+	const widthCss = $derived(`${inspectorWidth ?? preferences.inspectorWidth}px`);
 
 	let collapsed = $state(false);
 

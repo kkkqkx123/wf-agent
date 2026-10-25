@@ -8,15 +8,8 @@ import type {
 	WorkflowDetail,
 	WorkflowGraph,
 } from '#lib/types/models';
-import {
-	getGraphEdges,
-	getGraphNodes,
-	toWorkflowGraph,
-} from '#lib/services/graph';
-import {
-	listDefinitionDrafts,
-	listDefinitionVersions,
-} from '#lib/services/definitions';
+import { getGraphEdges, getGraphNodes, toWorkflowGraph } from '#lib/services/graph';
+import { listDefinitionDrafts, listDefinitionVersions } from '#lib/services/definitions';
 
 interface WorkflowDto {
 	id?: string;
@@ -60,10 +53,7 @@ interface WorkflowDto {
  * fields the list view reads from it. */
 type WorkflowDetailDoc = WorkflowDto & WorkflowDefinitionDoc;
 
-function parseVersion(
-	value: string | number | undefined,
-	fallback: number,
-): number {
+function parseVersion(value: string | number | undefined, fallback: number): number {
 	if (typeof value === 'number') return value;
 	if (typeof value === 'string') {
 		const parsed = parseInt(value, 10);
@@ -78,25 +68,19 @@ function toIso(value: number | string | null | undefined): string {
 	return '';
 }
 
-function toDerivation(
-	value: unknown,
-): DefinitionDerivation | null {
+function toDerivation(value: unknown): DefinitionDerivation | null {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
 	const record = value as Record<string, unknown>;
-	const sourceId =
-		typeof record.source_id === 'string' ? record.source_id : '';
-	const sourceKind =
-		typeof record.source_kind === 'string' ? record.source_kind : '';
+	const sourceId = typeof record.source_id === 'string' ? record.source_id : '';
+	const sourceKind = typeof record.source_kind === 'string' ? record.source_kind : '';
 	if (!sourceId || !sourceKind) return null;
-	const derivedAt =
-		typeof record.derived_at === 'number' ? record.derived_at : 0;
+	const derivedAt = typeof record.derived_at === 'number' ? record.derived_at : 0;
 	return { sourceKind, sourceId, derivedAt };
 }
 
 function toWorkflow(d: WorkflowDto): Workflow {
 	const metadata = d.metadata ?? {};
-	const rawDerivation =
-		d.derived_from ?? metadata.derived_from ?? null;
+	const rawDerivation = d.derived_from ?? metadata.derived_from ?? null;
 	return {
 		id: d.id ?? '',
 		name: d.name ?? d.id ?? '',
@@ -157,9 +141,8 @@ export async function getWorkflowDetail(id: string): Promise<WorkflowDetail> {
 	// present. Absent means sourceless history, never backfilled.
 	const fromDefinition = toDerivation(
 		(data as Record<string, unknown>).derived_from ??
-			((data as Record<string, unknown>).metadata as
-				| Record<string, unknown>
-				| undefined)?.derived_from ??
+			((data as Record<string, unknown>).metadata as Record<string, unknown> | undefined)
+				?.derived_from ??
 			null,
 	);
 	return {
@@ -178,22 +161,14 @@ export async function getWorkflowDetail(id: string): Promise<WorkflowDetail> {
  * topology; layout is computed by the canvas.
  */
 export async function getWorkflowGraph(id: string): Promise<WorkflowGraph> {
-	const [nodes, edges] = await Promise.all([
-		getGraphNodes(id),
-		getGraphEdges(id),
-	]);
+	const [nodes, edges] = await Promise.all([getGraphNodes(id), getGraphEdges(id)]);
 	return toWorkflowGraph(nodes, edges);
 }
 
 /** Create a new workflow. */
-export async function createWorkflow(
-	name: string,
-	definition: object,
-): Promise<Workflow> {
+export async function createWorkflow(name: string, definition: object): Promise<Workflow> {
 	const data = requireData(
-		await call<WorkflowDto>(
-			client.POST('/api/v1/workflows', { body: { name, definition } }),
-		),
+		await call<WorkflowDto>(client.POST('/api/v1/workflows', { body: { name, definition } })),
 		'Workflow creation',
 	);
 	return toWorkflow(data);
@@ -204,10 +179,7 @@ export async function createWorkflow(
  * the new id and records the source workflow as the persisted derivation
  * source, so the clone links back without remark-style lineage.
  */
-export async function cloneWorkflow(
-	id: string,
-	newId?: string,
-): Promise<string> {
+export async function cloneWorkflow(id: string, newId?: string): Promise<string> {
 	const data = await call<string>(
 		client.POST('/api/v1/workflows/{id}/clone', {
 			params: { path: { id } },
@@ -220,14 +192,10 @@ export async function cloneWorkflow(
 }
 
 /** Partial update goes through the metadata sub-resource, never the item route. */
-export async function updateWorkflow(
-	id: string,
-	updates: Partial<Workflow>,
-): Promise<Workflow> {
+export async function updateWorkflow(id: string, updates: Partial<Workflow>): Promise<Workflow> {
 	const metadata: Record<string, unknown> = {};
 	if (updates.name !== undefined) metadata.name = updates.name;
-	if (updates.description !== undefined)
-		metadata.description = updates.description;
+	if (updates.description !== undefined) metadata.description = updates.description;
 	if (updates.category !== undefined) metadata.category = updates.category;
 	if (updates.tags !== undefined) metadata.tags = updates.tags;
 	if (updates.author !== undefined) metadata.author = updates.author;
@@ -247,10 +215,7 @@ export async function updateWorkflow(
  * definition. The backend overwrites the stored document and echoes the id,
  * so callers must pass nodes, edges and config — never a partial patch.
  */
-export async function replaceWorkflow(
-	id: string,
-	definition: object,
-): Promise<Workflow> {
+export async function replaceWorkflow(id: string, definition: object): Promise<Workflow> {
 	const savedId = await call<string>(
 		client.PUT('/api/v1/workflows/{id}', {
 			params: { path: { id } },
@@ -308,9 +273,7 @@ export async function exportWorkflow(id: string): Promise<void> {
 
 /** Import a workflow definition from JSON text, returning the new id. */
 export async function importWorkflow(json: string): Promise<string> {
-	const data = await call<string>(
-		client.POST('/api/v1/workflows/import', { body: { json } }),
-	);
+	const data = await call<string>(client.POST('/api/v1/workflows/import', { body: { json } }));
 	if (!data) throw new Error('Import returned no id');
 	return data;
 }

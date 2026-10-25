@@ -50,16 +50,12 @@ export function rankEdgeIds(
 		.filter(
 			(edge) =>
 				(edge.label ?? '').trim() &&
-				!(
-					selectedId !== null &&
-					(edge.source === selectedId || edge.target === selectedId)
-				),
+				!(selectedId !== null && (edge.source === selectedId || edge.target === selectedId)),
 		)
 		.map((edge) => ({
 			id: edge.id,
 			score:
-				scoreEdgeLabel(edge) +
-				(highlight.has(edge.source) || highlight.has(edge.target) ? 50 : 0),
+				scoreEdgeLabel(edge) + (highlight.has(edge.source) || highlight.has(edge.target) ? 50 : 0),
 		}))
 		.sort((a, b) => b.score - a.score)
 		.slice(0, edgeLabelLimit)
@@ -123,9 +119,7 @@ function titleEmphasis(
 }
 
 /** Cytoscape element definitions for the current graph revision. */
-export function buildElementDefs(
-	input: ElementBuildInput,
-): ElementDefinition[] {
+export function buildElementDefs(input: ElementBuildInput): ElementDefinition[] {
 	const {
 		nodes,
 		edges,
@@ -178,14 +172,7 @@ export function buildElementDefs(
 		classes: [
 			selectedId === node.id ? 'selected' : '',
 			isGroupTitleId(node.id) ? 'group-title' : '',
-			...titleEmphasis(
-				node.id,
-				groupTitles,
-				pulses,
-				failed,
-				problems,
-				criticals,
-			),
+			...titleEmphasis(node.id, groupTitles, pulses, failed, problems, criticals),
 			problems.has(node.id) ? 'problem' : '',
 			pulses.has(node.id) ? 'running' : '',
 			failed.has(node.id) ? 'failed' : '',
@@ -198,11 +185,7 @@ export function buildElementDefs(
 					: heatTierById[node.id] === 1
 						? 'heat-1'
 						: '',
-			highlight.size > 0
-				? highlight.has(node.id)
-					? 'highlighted'
-					: 'dimmed'
-				: '',
+			highlight.size > 0 ? (highlight.has(node.id) ? 'highlighted' : 'dimmed') : '',
 		]
 			.filter(Boolean)
 			.join(' '),
@@ -217,8 +200,7 @@ export function buildElementDefs(
 	const statusById = new Map(nodes.map((node) => [node.id, node.status]));
 	for (const edge of edges) {
 		const touchesSelection =
-			selectedId !== null &&
-			(edge.source === selectedId || edge.target === selectedId);
+			selectedId !== null && (edge.source === selectedId || edge.target === selectedId);
 		const failBranch = isFailureBranch(edge);
 		const waiting = isWaitingStatus(edge.status);
 		const gradient = edgeGradient(edge, statusById);
@@ -236,9 +218,7 @@ export function buildElementDefs(
 					edgeLabelLimit,
 					rankedEdgeIds,
 				),
-				lineStyle: isDashedEdge(edge.kind, edge.taken ?? true)
-					? 'dashed'
-					: 'solid',
+				lineStyle: isDashedEdge(edge.kind, edge.taken ?? true) ? 'dashed' : 'solid',
 				color: resolveStatusHex(edge.status),
 				...(gradient
 					? {

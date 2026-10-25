@@ -7,8 +7,7 @@ import type { paths } from './schema';
  * already carry the `/api/v1` segment, so the base must stop at the origin.
  * In dev mode the Vite proxy forwards /api/* to the backend.
  */
-const _origin =
-	typeof location !== 'undefined' ? location.origin : 'http://localhost';
+const _origin = typeof location !== 'undefined' ? location.origin : 'http://localhost';
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? _origin;
 
 /**
@@ -45,9 +44,7 @@ export async function downloadFile(
 	const response = await fetch(`${API_BASE_URL}${path}`, {
 		method: init?.method ?? 'GET',
 		headers: {
-			...(init?.body === undefined
-				? {}
-				: { 'Content-Type': 'application/json' }),
+			...(init?.body === undefined ? {} : { 'Content-Type': 'application/json' }),
 			...(key ? { 'x-api-key': key } : {}),
 		},
 		body: init?.body === undefined ? undefined : JSON.stringify(init.body),

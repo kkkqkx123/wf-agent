@@ -46,9 +46,7 @@
 		toolSyntaxError ? jsonErrorLine(toolParams, toolSyntaxError) : null,
 	);
 	const toolValidationStale = $derived(
-		toolValidated &&
-			toolValidatedSnapshot !== null &&
-			toolValidatedSnapshot !== toolParams,
+		toolValidated && toolValidatedSnapshot !== null && toolValidatedSnapshot !== toolParams,
 	);
 	const toolShowValid = $derived(toolValidated && !toolValidationStale);
 	const toolTemplateIssues = $derived<TemplateIssue[]>(
@@ -100,10 +98,7 @@
 		if (!toolSchema) return;
 		try {
 			const parsed = JSON.parse(toolParams) as Record<string, unknown>;
-			toolForm = formFromToolParams(
-				toolSchema,
-				parsed && typeof parsed === 'object' ? parsed : {},
-			);
+			toolForm = formFromToolParams(toolSchema, parsed && typeof parsed === 'object' ? parsed : {});
 		} catch {
 			toolForm = formFromToolParams(toolSchema, {});
 		}
@@ -121,11 +116,7 @@
 		} catch {
 			base = {};
 		}
-		toolParams = JSON.stringify(
-			formToToolParams(toolSchema, toolForm, base),
-			null,
-			2,
-		);
+		toolParams = JSON.stringify(formToToolParams(toolSchema, toolForm, base), null, 2);
 	}
 
 	function switchToolTab(next: 'form' | 'json'): void {
@@ -147,10 +138,7 @@
 		} catch (e) {
 			return {
 				value: null,
-				error:
-					e instanceof Error
-						? e.message
-						: t('page.resources.toolRun.invalidJson'),
+				error: e instanceof Error ? e.message : t('page.resources.toolRun.invalidJson'),
 			};
 		}
 	}
@@ -172,11 +160,7 @@
 			toolValidated = true;
 			toolValidatedSnapshot = toolParams;
 		} catch (e) {
-			toolIssues = [
-				e instanceof Error
-					? e.message
-					: t('page.resources.toolRun.validationFailed'),
-			];
+			toolIssues = [e instanceof Error ? e.message : t('page.resources.toolRun.validationFailed')];
 			toolValidated = false;
 			toolValidatedSnapshot = null;
 		} finally {
@@ -353,8 +337,7 @@
 					: t('page.resources.toolRun.failed', { error: toolRun.error ?? '' })}
 			</p>
 			{#if toolRun.output}
-				<pre
-					class="mt-1 max-h-48 overflow-auto font-mono text-micro">{toolRun.output}</pre>
+				<pre class="mt-1 max-h-48 overflow-auto font-mono text-micro">{toolRun.output}</pre>
 			{/if}
 			<p class="mt-1 text-micro text-muted-foreground">
 				{toolRun.durationMs}ms · {toolRun.retries} retries
@@ -371,14 +354,8 @@
 			>
 				{t('page.resources.toolRun.validate')}
 			</Button>
-			<Button
-				size="sm"
-				disabled={toolBusy}
-				onclick={() => void runToolExecute()}
-			>
-				{toolBusy
-					? t('page.resources.toolRun.running')
-					: t('page.resources.toolRun.run')}
+			<Button size="sm" disabled={toolBusy} onclick={() => void runToolExecute()}>
+				{toolBusy ? t('page.resources.toolRun.running') : t('page.resources.toolRun.run')}
 			</Button>
 		</div>
 	{/snippet}

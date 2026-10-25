@@ -84,8 +84,7 @@
 				error = loginState.error ?? t('page.resources.auth.loginFailed');
 			}
 		} catch (e) {
-			error =
-				e instanceof Error ? e.message : t('page.resources.auth.loginFailed');
+			error = e instanceof Error ? e.message : t('page.resources.auth.loginFailed');
 		} finally {
 			busy = false;
 		}
@@ -115,8 +114,7 @@
 			}
 			schedulePoll();
 		} catch (e) {
-			error =
-				e instanceof Error ? e.message : t('page.resources.auth.loginFailed');
+			error = e instanceof Error ? e.message : t('page.resources.auth.loginFailed');
 		}
 	}
 
@@ -131,8 +129,7 @@
 	async function submitInput(): Promise<void> {
 		if (!sessionId || !loginState?.prompt) return;
 		const prompt = loginState.prompt;
-		const value =
-			prompt.kind === 'Select' ? selectedOption.trim() : input.trim();
+		const value = prompt.kind === 'Select' ? selectedOption.trim() : input.trim();
 		if (!value) {
 			error = t('page.resources.auth.inputRequired');
 			return;
@@ -154,8 +151,7 @@
 			}
 			schedulePoll();
 		} catch (e) {
-			error =
-				e instanceof Error ? e.message : t('page.resources.auth.loginFailed');
+			error = e instanceof Error ? e.message : t('page.resources.auth.loginFailed');
 		} finally {
 			busy = false;
 		}
@@ -173,9 +169,7 @@
 	onDestroy(() => clearTimer());
 
 	const prompt = $derived(loginState?.prompt ?? null);
-	const isSecret = $derived(
-		prompt?.kind === 'Secret' || prompt?.kind === 'ManualCode',
-	);
+	const isSecret = $derived(prompt?.kind === 'Secret' || prompt?.kind === 'ManualCode');
 </script>
 
 <Dialog
@@ -198,9 +192,7 @@
 
 	{#if !loginState}
 		<p class="text-caption text-muted-foreground">
-			{busy
-				? t('page.resources.auth.starting')
-				: t('page.resources.auth.emptyDesc')}
+			{busy ? t('page.resources.auth.starting') : t('page.resources.auth.emptyDesc')}
 		</p>
 	{:else}
 		<div class="space-y-2">
@@ -322,9 +314,7 @@
 				</Button>
 			{:else if prompt}
 				<Button size="sm" disabled={busy} onclick={() => void submitInput()}>
-					{busy
-						? t('page.resources.auth.submitting')
-						: t('page.resources.auth.submit')}
+					{busy ? t('page.resources.auth.submitting') : t('page.resources.auth.submit')}
 				</Button>
 			{/if}
 		</div>

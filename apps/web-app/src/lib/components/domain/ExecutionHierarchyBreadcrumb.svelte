@@ -42,9 +42,7 @@
 			</a>
 		{/if}
 	{/each}
-	<span
-		class="rounded border border-border px-1.5 text-micro text-muted-foreground"
-	>
+	<span class="rounded border border-border px-1.5 text-micro text-muted-foreground">
 		{hierarchy.depth === 0
 			? t('domain.hierarchyBreadcrumb.root')
 			: t('domain.hierarchyBreadcrumb.depth', { depth: hierarchy.depth })}

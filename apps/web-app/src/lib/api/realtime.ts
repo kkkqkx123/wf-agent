@@ -50,8 +50,7 @@ export function openRealtime(options: RealtimeOptions): () => void {
 		onState('closed');
 		return () => {};
 	}
-	const singleSse =
-		dimensions.length === 1 && isSseOnlyDimension(dimensions[0]);
+	const singleSse = dimensions.length === 1 && isSseOnlyDimension(dimensions[0]);
 	if (singleSse) {
 		const sse = toSseOptions(dimensions[0]);
 		if (sse) {

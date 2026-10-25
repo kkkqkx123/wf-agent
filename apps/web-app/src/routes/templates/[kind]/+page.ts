@@ -8,8 +8,5 @@ import type { PageLoad } from './$types';
  * page, which keeps the selected kind in its `tab` parameter.
  */
 export const load: PageLoad = ({ params }) => {
-	redirect(
-		307,
-		`${resolve('/templates')}?tab=${encodeURIComponent(params.kind)}`,
-	);
+	redirect(307, `${resolve('/templates')}?tab=${encodeURIComponent(params.kind)}`);
 };

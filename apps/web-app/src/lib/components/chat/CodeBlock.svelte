@@ -8,11 +8,7 @@
 	 */
 	import { cn } from '#lib/ui/cn';
 	import Icon from '#lib/ui/icons/Icon.svelte';
-	import {
-		highlightCode,
-		normalizeLanguage,
-		type TokenKind,
-	} from '#lib/utils/highlight';
+	import { highlightCode, normalizeLanguage, type TokenKind } from '#lib/utils/highlight';
 	import { t } from '#lib/i18n';
 
 	interface Props {
@@ -27,9 +23,7 @@
 
 	let { node = undefined, class: className = '' }: Props = $props();
 
-	const rawLanguage = $derived(
-		typeof node?.language === 'string' ? node.language.trim() : '',
-	);
+	const rawLanguage = $derived(typeof node?.language === 'string' ? node.language.trim() : '');
 	const code = $derived(
 		typeof node?.code === 'string'
 			? node.code
@@ -51,9 +45,7 @@
 		});
 		return out;
 	});
-	const label = $derived(
-		(rawLanguage || normalizeLanguage(rawLanguage) || 'text').toUpperCase(),
-	);
+	const label = $derived((rawLanguage || normalizeLanguage(rawLanguage) || 'text').toUpperCase());
 	// Fence languages whose dedicated renderer is not bundled: the source is
 	// still shown highlighted, and the header states why it is not drawn.
 	const DEGRADED_LANGUAGES = new Set([
@@ -66,9 +58,7 @@
 		'latex',
 		'katex',
 	]);
-	const degraded = $derived(
-		DEGRADED_LANGUAGES.has(normalizeLanguage(rawLanguage)),
-	);
+	const degraded = $derived(DEGRADED_LANGUAGES.has(normalizeLanguage(rawLanguage)));
 
 	const TOKEN_CLASS: Record<TokenKind | 'newline', string> = {
 		plain: '',
@@ -96,19 +86,10 @@
 	}
 </script>
 
-<div
-	class={cn(
-		'my-2 overflow-hidden rounded-md border border-border bg-muted/40',
-		className,
-	)}
->
-	<div
-		class="flex items-center justify-between gap-2 border-b border-border/60 px-2.5 py-1"
-	>
+<div class={cn('my-2 overflow-hidden rounded-md border border-border bg-muted/40', className)}>
+	<div class="flex items-center justify-between gap-2 border-b border-border/60 px-2.5 py-1">
 		<span class="flex items-center gap-2">
-			<span
-				class="font-mono text-micro uppercase tracking-wide text-muted-foreground"
-				>{label}</span
+			<span class="font-mono text-micro uppercase tracking-wide text-muted-foreground">{label}</span
 			>
 			{#if degraded}
 				<span class="text-micro text-muted-foreground/70">

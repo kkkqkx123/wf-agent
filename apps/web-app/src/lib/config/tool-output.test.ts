@@ -10,11 +10,7 @@ import { previewFor } from '#lib/utils/tool-output';
 
 describe('tool output presets', () => {
 	it('covers compact, balanced and verbose', () => {
-		expect(TOOL_OUTPUT_DETAIL_ORDER).toEqual([
-			'compact',
-			'balanced',
-			'verbose',
-		]);
+		expect(TOOL_OUTPUT_DETAIL_ORDER).toEqual(['compact', 'balanced', 'verbose']);
 		for (const detail of TOOL_OUTPUT_DETAIL_ORDER) {
 			const budgets = resolveToolOutputBudgets(detail);
 			expect(budgets).toBe(TOOL_OUTPUT_PRESETS[detail]);
@@ -23,16 +19,12 @@ describe('tool output presets', () => {
 
 	it('keeps the error floor on every preset', () => {
 		for (const detail of TOOL_OUTPUT_DETAIL_ORDER) {
-			expect(
-				resolveToolOutputBudgets(detail).errorPreviewLines,
-			).toBeGreaterThanOrEqual(2);
+			expect(resolveToolOutputBudgets(detail).errorPreviewLines).toBeGreaterThanOrEqual(2);
 		}
 	});
 
 	it('orders presets by preview size', () => {
-		const [compact, balanced, verbose] = TOOL_OUTPUT_DETAIL_ORDER.map(
-			resolveToolOutputBudgets,
-		);
+		const [compact, balanced, verbose] = TOOL_OUTPUT_DETAIL_ORDER.map(resolveToolOutputBudgets);
 		expect(compact.previewMaxLines).toBeLessThan(balanced.previewMaxLines);
 		expect(balanced.previewMaxLines).toBeLessThan(verbose.previewMaxLines);
 		expect(compact.bodyMaxLines).toBeLessThan(verbose.bodyMaxLines);
@@ -51,9 +43,7 @@ describe('parseToolOutputDetail', () => {
 
 describe('describeToolOutputBudgets', () => {
 	it('summarizes the active preset', () => {
-		expect(
-			describeToolOutputBudgets(resolveToolOutputBudgets('balanced')),
-		).toContain('10 lines');
+		expect(describeToolOutputBudgets(resolveToolOutputBudgets('balanced'))).toContain('10 lines');
 	});
 });
 

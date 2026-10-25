@@ -1,8 +1,5 @@
 <script lang="ts">
-	import {
-		createAgentLoopCheckpoint,
-		restoreAgentLoopCheckpoint,
-	} from '#lib/services/agent-loops';
+	import { createAgentLoopCheckpoint, restoreAgentLoopCheckpoint } from '#lib/services/agent-loops';
 	import { listLoopCheckpoints } from '#lib/services/checkpoints';
 	import type { Checkpoint } from '#lib/types/models';
 	import Badge from '#lib/ui/components/Badge.svelte';
@@ -35,8 +32,7 @@
 		} catch (e) {
 			seen = '';
 			checkpoints = [];
-			error =
-				e instanceof Error ? e.message : t('domain.loopCheckpoints.failed');
+			error = e instanceof Error ? e.message : t('domain.loopCheckpoints.failed');
 		}
 	}
 
@@ -82,12 +78,7 @@
 	/>
 {:else}
 	<div class="mb-2 flex justify-end">
-		<Button
-			variant="outline"
-			size="sm"
-			disabled={busy}
-			onclick={() => void createCheckpoint()}
-		>
+		<Button variant="outline" size="sm" disabled={busy} onclick={() => void createCheckpoint()}>
 			{t('domain.loopCheckpoints.new')}
 		</Button>
 	</div>

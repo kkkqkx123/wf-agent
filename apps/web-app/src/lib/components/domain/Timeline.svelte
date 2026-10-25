@@ -23,10 +23,7 @@
 </script>
 
 <ol class={cn('relative space-y-3 pl-5', className)}>
-	<span
-		class="absolute bottom-2 left-1.5 top-2 w-px bg-border"
-		aria-hidden="true"
-	></span>
+	<span class="absolute bottom-2 left-1.5 top-2 w-px bg-border" aria-hidden="true"></span>
 	{#each entries as entry (entry.id)}
 		{@const tone = statusTone(entry.status)}
 		<li id={`timeline-${entry.id}`} class="relative">
@@ -40,16 +37,13 @@
 			></span>
 			<div class="flex flex-wrap items-center gap-2">
 				<span class="text-body font-medium text-foreground">{entry.title}</span>
-				<span
-					class="rounded border border-border px-1.5 text-micro text-muted-foreground"
+				<span class="rounded border border-border px-1.5 text-micro text-muted-foreground"
 					>{entry.kind}</span
 				>
 				<StatusBadge status={entry.status} size="sm" />
 			</div>
 			<p class="mt-0.5 text-caption text-muted-foreground">{entry.detail}</p>
-			<time
-				class="mt-0.5 block text-micro tabular-nums text-muted-foreground/80"
-			>
+			<time class="mt-0.5 block text-micro tabular-nums text-muted-foreground/80">
 				{formatDateTime(entry.at)}
 			</time>
 		</li>

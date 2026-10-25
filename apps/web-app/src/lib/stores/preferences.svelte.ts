@@ -78,11 +78,7 @@ class PreferencesStore {
 
 	constructor() {
 		const stored = read();
-		if (
-			stored.theme === 'light' ||
-			stored.theme === 'dark' ||
-			stored.theme === 'system'
-		) {
+		if (stored.theme === 'light' || stored.theme === 'dark' || stored.theme === 'system') {
 			this.theme = stored.theme;
 		}
 		if (
@@ -95,16 +91,10 @@ class PreferencesStore {
 		if (typeof stored.sidebarCollapsed === 'boolean') {
 			this.sidebarCollapsed = stored.sidebarCollapsed;
 		}
-		if (
-			typeof stored.sidebarWidth === 'number' &&
-			Number.isFinite(stored.sidebarWidth)
-		) {
+		if (typeof stored.sidebarWidth === 'number' && Number.isFinite(stored.sidebarWidth)) {
 			this.sidebarWidth = clampSidebarWidth(stored.sidebarWidth);
 		}
-		if (
-			typeof stored.inspectorWidth === 'number' &&
-			Number.isFinite(stored.inspectorWidth)
-		) {
+		if (typeof stored.inspectorWidth === 'number' && Number.isFinite(stored.inspectorWidth)) {
 			this.inspectorWidth = clampInspectorWidth(stored.inspectorWidth);
 		}
 		if (typeof stored.inspectorPinned === 'boolean') {
@@ -156,8 +146,8 @@ class PreferencesStore {
 	/** Preset name for the current inspector width, used for the button label. */
 	get inspectorWidthLabel(): string {
 		return (
-			INSPECTOR_WIDTH_STEPS.find((step) => step.width === this.inspectorWidth)
-				?.label ?? `${Math.round(this.inspectorWidth)}px`
+			INSPECTOR_WIDTH_STEPS.find((step) => step.width === this.inspectorWidth)?.label ??
+			`${Math.round(this.inspectorWidth)}px`
 		);
 	}
 
@@ -168,9 +158,7 @@ class PreferencesStore {
 
 	/** Steps through the width presets, wrapping back to the first one. */
 	cycleInspectorWidth(): void {
-		const current = INSPECTOR_WIDTH_STEPS.findIndex(
-			(step) => step.width === this.inspectorWidth,
-		);
+		const current = INSPECTOR_WIDTH_STEPS.findIndex((step) => step.width === this.inspectorWidth);
 		const next =
 			INSPECTOR_WIDTH_STEPS[(current + 1) % INSPECTOR_WIDTH_STEPS.length] ??
 			INSPECTOR_WIDTH_STEPS[1];
@@ -242,17 +230,11 @@ class PreferencesStore {
 }
 
 function clampSidebarWidth(width: number): number {
-	return Math.min(
-		SIDEBAR_WIDTH_MAX,
-		Math.max(SIDEBAR_WIDTH_MIN, Math.round(width)),
-	);
+	return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(width)));
 }
 
 function clampInspectorWidth(width: number): number {
-	return Math.min(
-		INSPECTOR_WIDTH_MAX,
-		Math.max(INSPECTOR_WIDTH_MIN, Math.round(width)),
-	);
+	return Math.min(INSPECTOR_WIDTH_MAX, Math.max(INSPECTOR_WIDTH_MIN, Math.round(width)));
 }
 
 export const preferences = new PreferencesStore();

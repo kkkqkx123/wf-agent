@@ -8,12 +8,7 @@
 		class?: string;
 	}
 
-	let {
-		name,
-		size = 16,
-		strokeWidth = 1.5,
-		class: className = '',
-	}: Props = $props();
+	let { name, size = 16, strokeWidth = 1.5, class: className = '' }: Props = $props();
 
 	const paths = $derived(ICON_PATHS[name] ?? []);
 </script>

@@ -34,10 +34,7 @@
 			});
 		} catch (e) {
 			console.error('Time-range query failed:', e);
-			toasts.error(
-				t('domain.checkpoint.rangeFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.checkpoint.rangeFailed'), e instanceof Error ? e.message : undefined);
 		}
 	}
 </script>
@@ -50,8 +47,7 @@
 		label={t('domain.checkpoint.workflowId')}
 		size="sm"
 		value={workflowId}
-		oninput={(event: Event) =>
-			(workflowId = (event.target as HTMLInputElement).value)}
+		oninput={(event: Event) => (workflowId = (event.target as HTMLInputElement).value)}
 		placeholder="workflow id"
 	/>
 	<div class="grid grid-cols-2 gap-2">
@@ -59,16 +55,14 @@
 			label={t('domain.checkpoint.startMs')}
 			size="sm"
 			value={rangeStart}
-			oninput={(event: Event) =>
-				(rangeStart = (event.target as HTMLInputElement).value)}
+			oninput={(event: Event) => (rangeStart = (event.target as HTMLInputElement).value)}
 			placeholder="0"
 		/>
 		<Input
 			label={t('domain.checkpoint.endMs')}
 			size="sm"
 			value={rangeEnd}
-			oninput={(event: Event) =>
-				(rangeEnd = (event.target as HTMLInputElement).value)}
+			oninput={(event: Event) => (rangeEnd = (event.target as HTMLInputElement).value)}
 			placeholder="0"
 		/>
 	</div>

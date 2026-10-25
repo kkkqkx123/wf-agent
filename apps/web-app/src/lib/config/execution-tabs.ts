@@ -66,14 +66,7 @@ export const TAB_GROUPS: Record<ExecutionKind, ExecutionTab[]> = {
 		'hierarchy',
 		'history',
 	],
-	chat: [
-		'overview',
-		'messages',
-		'variables',
-		'timeline',
-		'hierarchy',
-		'history',
-	],
+	chat: ['overview', 'messages', 'variables', 'timeline', 'hierarchy', 'history'],
 };
 
 /** Default tab shown when no (or an invalid) `?tab=` value is present. */
@@ -87,9 +80,6 @@ export function isExecutionTab(value: string | null): value is ExecutionTab {
 }
 
 /** Whether the value names a tab the given execution kind actually renders. */
-export function isTabForKind(
-	value: string | null,
-	kind: ExecutionKind,
-): value is ExecutionTab {
+export function isTabForKind(value: string | null, kind: ExecutionKind): value is ExecutionTab {
 	return isExecutionTab(value) && TAB_GROUPS[kind].includes(value);
 }

@@ -9,10 +9,7 @@ import {
 	saveDefinitionDraft,
 	validateDefinitionDraft,
 } from '#lib/services/definitions';
-import {
-	resetWorkflowLayout,
-	saveWorkflowLayout,
-} from '#lib/services/layout';
+import { resetWorkflowLayout, saveWorkflowLayout } from '#lib/services/layout';
 import {
 	allocateGraphNodeId,
 	serverTemplateIssues,
@@ -53,10 +50,7 @@ export class WorkflowEditSession {
 	pendingTab = $state<string | null>(null);
 	pendingNavUrl = $state<string | null>(null);
 
-	constructor(options: {
-		reload: (id: string) => Promise<void>;
-		applyTab: (id: string) => void;
-	}) {
+	constructor(options: { reload: (id: string) => Promise<void>; applyTab: (id: string) => void }) {
 		this.reload = options.reload;
 		this.applyTab = options.applyTab;
 	}
@@ -80,11 +74,7 @@ export class WorkflowEditSession {
 		this.seed(detail, nodes, edges);
 	}
 
-	seed(
-		detail: WorkflowDetail,
-		nodes: DisplayNode[],
-		edges: DisplayEdge[],
-	): void {
+	seed(detail: WorkflowDetail, nodes: DisplayNode[], edges: DisplayEdge[]): void {
 		this.editStore.load(nodes, edges);
 		this.editSeededId = detail.id;
 		this.editDraftId = null;
@@ -96,10 +86,7 @@ export class WorkflowEditSession {
 		// the queue and points back instead of dropping on the wrong canvas.
 		const pendingInsert = nodeInsertStore.peek();
 		if (pendingInsert) {
-			if (
-				pendingInsert.targetWorkflowId &&
-				pendingInsert.targetWorkflowId !== detail.id
-			) {
+			if (pendingInsert.targetWorkflowId && pendingInsert.targetWorkflowId !== detail.id) {
 				toasts.info(
 					`Node queued for ${pendingInsert.targetWorkflowId}`,
 					'Open the target workflow to place it.',
@@ -107,11 +94,7 @@ export class WorkflowEditSession {
 				return;
 			}
 			nodeInsertStore.consume();
-			this.handleAddNode(
-				{ x: 0, y: 0 },
-				pendingInsert.nodeType,
-				pendingInsert.name,
-			);
+			this.handleAddNode({ x: 0, y: 0 }, pendingInsert.nodeType, pendingInsert.name);
 		}
 	}
 
@@ -159,10 +142,7 @@ export class WorkflowEditSession {
 	async enterEdit(): Promise<void> {
 		const ok = await this.lockStore.acquire();
 		if (!ok) {
-			toasts.warning(
-				'Workflow is being edited',
-				`Held by ${this.lockStore.displayHolder}.`,
-			);
+			toasts.warning('Workflow is being edited', `Held by ${this.lockStore.displayHolder}.`);
 			return;
 		}
 		this.editMode = true;
@@ -247,10 +227,7 @@ export class WorkflowEditSession {
 			this.editStore.markLayoutClean();
 			toasts.success('Layout saved');
 		} catch (e) {
-			toasts.error(
-				'Layout save failed',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Layout save failed', e instanceof Error ? e.message : undefined);
 		} finally {
 			this.layoutBusy = false;
 		}
@@ -267,10 +244,7 @@ export class WorkflowEditSession {
 			this.editStore.markLayoutClean();
 			toasts.success('Layout reset');
 		} catch (e) {
-			toasts.error(
-				'Layout reset failed',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Layout reset failed', e instanceof Error ? e.message : undefined);
 		} finally {
 			this.layoutBusy = false;
 		}
@@ -280,34 +254,22 @@ export class WorkflowEditSession {
 		this.editStore.applyMove(id, position);
 	}
 
-	handleMoveNodes(
-		moves: Array<{ id: string; position: CanvasPosition }>,
-	): void {
+	handleMoveNodes(moves: Array<{ id: string; position: CanvasPosition }>): void {
 		this.editStore.applyMoves(moves);
 	}
 
 	handleDeleteGroups(ids: string[]): void {
 		for (const id of ids) this.editStore.removeGroup(id);
-		toasts.info(
-			'Groups deleted',
-			`${ids.length} group(s) removed from the canvas.`,
-		);
+		toasts.info('Groups deleted', `${ids.length} group(s) removed from the canvas.`);
 	}
 
-	handleAddNode(
-		position: CanvasPosition,
-		nodeType: string,
-		name: string | null,
-	): void {
+	handleAddNode(position: CanvasPosition, nodeType: string, name: string | null): void {
 		const existing = new SvelteSet(this.editStore.nodes.map((node) => node.id));
 		const id = allocateGraphNodeId(existing);
 		const label = name?.trim() || id;
 		this.editStore.addNode({ id, label, kind: nodeType }, position);
 		this.editStore.selectedId = id;
-		toasts.success(
-			`Node ${id} added`,
-			`${nodeType}. Save the draft to keep it.`,
-		);
+		toasts.success(`Node ${id} added`, `${nodeType}. Save the draft to keep it.`);
 	}
 
 	handleDeleteEdge(id: string): void {
@@ -315,11 +277,7 @@ export class WorkflowEditSession {
 	}
 
 	handleConnect(source: string, target: string): void {
-		if (
-			this.editStore.edges.some(
-				(edge) => edge.source === source && edge.target === target,
-			)
-		) {
+		if (this.editStore.edges.some((edge) => edge.source === source && edge.target === target)) {
 			return;
 		}
 		const reason = this.editStore.connect(source, target);
@@ -328,39 +286,26 @@ export class WorkflowEditSession {
 			return;
 		}
 		this.editStore.selectedId = target;
-		toasts.success(
-			`Edge ${source} → ${target} added`,
-			'Save the draft to keep it.',
-		);
+		toasts.success(`Edge ${source} → ${target} added`, 'Save the draft to keep it.');
 	}
 
 	handleDeleteNodes(ids: string[]): void {
 		this.editStore.removeNodes(ids);
-		toasts.info(
-			'Nodes deleted',
-			`${ids.length} node(s) removed from the canvas.`,
-		);
+		toasts.info('Nodes deleted', `${ids.length} node(s) removed from the canvas.`);
 	}
 
 	async saveEditDraft(): Promise<void> {
 		const id = page.params.id;
 		if (!id || !this.detail) return;
 		if (!this.lockStore.canWrite) {
-			toasts.warning(
-				'Save blocked',
-				`Held by ${this.lockStore.displayHolder}.`,
-			);
+			toasts.warning('Save blocked', `Held by ${this.lockStore.displayHolder}.`);
 			return;
 		}
 		this.editBusy = true;
 		try {
 			const savedId = await saveDefinitionDraft(
 				'workflow',
-				this.editStore.toDraftDefinition(
-					id,
-					this.detail.name,
-					this.detail.definition,
-				),
+				this.editStore.toDraftDefinition(id, this.detail.name, this.detail.definition),
 			);
 			this.editDraftId = savedId;
 			this.editStore.markClean();
@@ -387,19 +332,13 @@ export class WorkflowEditSession {
 				toasts.warning(`Draft has ${this.editIssues.length} issue(s)`);
 			}
 		} catch (e) {
-			toasts.error(
-				'Validation failed',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Validation failed', e instanceof Error ? e.message : undefined);
 		}
 	}
 
 	async promoteEditDraft(): Promise<void> {
 		if (!this.lockStore.canWrite) {
-			toasts.warning(
-				'Promotion blocked',
-				`Held by ${this.lockStore.displayHolder}.`,
-			);
+			toasts.warning('Promotion blocked', `Held by ${this.lockStore.displayHolder}.`);
 			return;
 		}
 		if (!this.editDraftId) {
@@ -419,10 +358,7 @@ export class WorkflowEditSession {
 			this.editSeededId = '';
 			if (id) await this.reload(id);
 		} catch (e) {
-			toasts.error(
-				'Promotion failed',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Promotion failed', e instanceof Error ? e.message : undefined);
 		}
 	}
 }

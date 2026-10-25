@@ -49,12 +49,8 @@
 
 	const failed = $derived(entry.status === 'failed');
 	const previews = $derived(preferences.toolOutputPreviews);
-	const budgets = $derived(
-		resolveToolOutputBudgets(preferences.toolOutputDetail),
-	);
-	const displayKind = $derived(
-		entry.displayKind ?? inferDisplayKind(entry.name),
-	);
+	const budgets = $derived(resolveToolOutputBudgets(preferences.toolOutputDetail));
+	const displayKind = $derived(entry.displayKind ?? inferDisplayKind(entry.name));
 	const display = $derived<DisplayPayload | null>(
 		entry.displayKind
 			? {
@@ -77,13 +73,9 @@
 	const countText = $derived(countSummary(entry.output, entry.displayPreview));
 	const fullBody = $derived(limitBodyLines(entry.output, budgets.bodyMaxLines));
 	const previewAnsi = $derived(
-		displayKind !== 'diff' && hasAnsi(preview.text)
-			? parseAnsi(preview.text)
-			: null,
+		displayKind !== 'diff' && hasAnsi(preview.text) ? parseAnsi(preview.text) : null,
 	);
-	const fullBodyAnsi = $derived(
-		hasAnsi(fullBody.text) ? parseAnsi(fullBody.text) : null,
-	);
+	const fullBodyAnsi = $derived(hasAnsi(fullBody.text) ? parseAnsi(fullBody.text) : null);
 	const expandable = $derived(hiddenBody || preview.overflow);
 	const headerHint = $derived(
 		!previews
@@ -121,13 +113,9 @@
 	const isScript = $derived(entry.kind === 'bash' || entry.kind === 'script');
 	const hasLargeOutput = $derived(entry.output.length > INLINE_OUTPUT_LIMIT);
 	/** Dispatch tools host their live children inline below the header. */
-	const isDispatch = $derived(
-		entry.name === 'call_agent' || entry.name === 'execute_workflow',
-	);
+	const isDispatch = $derived(entry.name === 'call_agent' || entry.name === 'execute_workflow');
 	const liveSubagents = $derived(isDispatch ? subagents : []);
-	const runningSubagents = $derived(
-		liveSubagents.filter((note) => note.success === null),
-	);
+	const runningSubagents = $derived(liveSubagents.filter((note) => note.success === null));
 	const subagentHint = $derived(
 		runningSubagents.length > 0
 			? `· ◔ ${runningSubagents[0].name}${runningSubagents.length > 1 ? ` +${runningSubagents.length - 1}` : ''}`
@@ -137,9 +125,7 @@
 	);
 	/** Structured background linkage from the live stream marker. History
 	 * records and older servers carry no marker and show no badge. */
-	const backgroundHint = $derived(
-		entry.backgroundSessionId ? '· ◐ background' : null,
-	);
+	const backgroundHint = $derived(entry.backgroundSessionId ? '· ◐ background' : null);
 
 	function subagentStatus(note: SubAgentNote): string {
 		if (note.success === null) return 'running';
@@ -209,12 +195,7 @@
 	const tone = $derived(toneText(KIND_TONE[entry.kind]));
 </script>
 
-<article
-	class={cn(
-		'overflow-hidden rounded-lg border border-border bg-card',
-		className,
-	)}
->
+<article class={cn('overflow-hidden rounded-lg border border-border bg-card', className)}>
 	<button
 		type="button"
 		onclick={() => (open = !open)}
@@ -222,20 +203,14 @@
 		class="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/50"
 	>
 		<Icon name={icon} size={14} class={cn('shrink-0', tone)} />
-		<span class="min-w-0 flex-1 truncate font-mono text-caption text-foreground"
-			>{entry.name}</span
-		>
+		<span class="min-w-0 flex-1 truncate font-mono text-caption text-foreground">{entry.name}</span>
 		{#if headerHint}
-			<span
-				class="shrink-0 font-mono text-micro tabular-nums text-muted-foreground"
-			>
+			<span class="shrink-0 font-mono text-micro tabular-nums text-muted-foreground">
 				{headerHint}
 			</span>
 		{/if}
 		{#if subagentHint}
-			<span
-				class="shrink-0 font-mono text-micro tabular-nums text-muted-foreground"
-			>
+			<span class="shrink-0 font-mono text-micro tabular-nums text-muted-foreground">
 				{subagentHint}
 			</span>
 		{/if}
@@ -265,30 +240,22 @@
 		<div class="animate-panel-in space-y-2 border-t border-border px-3 py-2.5">
 			{#if liveSubagents.length > 0}
 				<div>
-					<p
-						class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
-					>
+					<p class="mb-1 text-micro uppercase tracking-wide text-muted-foreground">
 						{t('domain.toolCall.subagents')}
 					</p>
 					<ul class="space-y-1">
 						{#each liveSubagents as note (note.id)}
 							<li class="flex items-center gap-2">
 								<StatusBadge status={subagentStatus(note)} size="sm" />
-								<span
-									class="min-w-0 flex-1 truncate font-mono text-micro text-foreground"
-								>
+								<span class="min-w-0 flex-1 truncate font-mono text-micro text-foreground">
 									{note.name}
 								</span>
 								{#if note.success === null && note.activity}
-									<span
-										class="shrink-0 truncate text-micro text-muted-foreground"
-									>
+									<span class="shrink-0 truncate text-micro text-muted-foreground">
 										{note.activity}
 									</span>
 								{:else if note.preview}
-									<span
-										class="shrink-0 truncate text-micro text-muted-foreground"
-									>
+									<span class="shrink-0 truncate text-micro text-muted-foreground">
 										{note.preview}
 									</span>
 								{/if}
@@ -308,17 +275,13 @@
 				</p>
 			{/if}
 			<div>
-				<p
-					class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
-				>
+				<p class="mb-1 text-micro uppercase tracking-wide text-muted-foreground">
 					{t('domain.nodeTrace.input')}
 				</p>
 				<JsonViewer value={entry.input} collapsed />
 			</div>
 			<div>
-				<p
-					class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
-				>
+				<p class="mb-1 text-micro uppercase tracking-wide text-muted-foreground">
 					{t('domain.nodeTrace.output')}
 					{#if previews && !hiddenBody && preview.overflow}
 						<span class="ml-1 font-mono normal-case tabular-nums">
@@ -343,10 +306,7 @@
 						<Icon
 							name="chevron-down"
 							size={12}
-							class={cn(
-								'transition-transform duration-150',
-								showFullOutput && 'rotate-180',
-							)}
+							class={cn('transition-transform duration-150', showFullOutput && 'rotate-180')}
 						/>
 						{showFullOutput
 							? t('domain.messageBubble.hideFullOutput')
@@ -392,10 +352,7 @@
 							<Icon
 								name="chevron-down"
 								size={12}
-								class={cn(
-									'transition-transform duration-150',
-									showFullOutput && 'rotate-180',
-								)}
+								class={cn('transition-transform duration-150', showFullOutput && 'rotate-180')}
 							/>
 							{showFullOutput
 								? t('domain.messageBubble.hideFullOutput')
@@ -414,9 +371,7 @@
 				{/if}
 			</div>
 			{#if isApproval}
-				<div
-					class="flex items-center justify-between gap-2 rounded-md bg-muted px-2 py-1.5"
-				>
+				<div class="flex items-center justify-between gap-2 rounded-md bg-muted px-2 py-1.5">
 					<p class="text-micro text-muted-foreground">
 						{t('domain.toolCall.approvalsQueue')}
 					</p>

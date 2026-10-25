@@ -9,11 +9,7 @@
 	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import { SvelteSet, SvelteMap } from 'svelte/reactivity';
 	import { cn } from '#lib/ui/cn';
-	import {
-		formatDateTime,
-		formatDuration,
-		formatNumber,
-	} from '#lib/utils/format';
+	import { formatDateTime, formatDuration, formatNumber } from '#lib/utils/format';
 	import { statusTone } from '#lib/ui/status';
 	import { t } from '#lib/i18n';
 
@@ -129,8 +125,7 @@
 	function moveFocus(delta: number): void {
 		if (flatIds.length === 0) return;
 		const index = focusId ? flatIds.indexOf(focusId) : -1;
-		const next =
-			flatIds[(index + delta + flatIds.length) % flatIds.length] ?? null;
+		const next = flatIds[(index + delta + flatIds.length) % flatIds.length] ?? null;
 		focusId = next;
 		if (next) {
 			document.getElementById(next)?.focus({ preventScroll: false });
@@ -166,9 +161,7 @@
 		if (rows.some((row) => row.id === id)) {
 			expanded.add(id);
 			focusId = id;
-			queueMicrotask(() =>
-				document.getElementById(id)?.scrollIntoView({ block: 'nearest' }),
-			);
+			queueMicrotask(() => document.getElementById(id)?.scrollIntoView({ block: 'nearest' }));
 		}
 	});
 </script>
@@ -204,9 +197,7 @@
 			/>
 		</div>
 		<p class="text-micro text-muted-foreground">
-			{formatNumber(filteredTraces.length)} nodes · {formatNumber(
-				timeline.length,
-			)} events{#if skipped > 0}
+			{formatNumber(filteredTraces.length)} nodes · {formatNumber(timeline.length)} events{#if skipped > 0}
 				· {formatNumber(skipped)} skipped{/if}
 		</p>
 		<div
@@ -221,13 +212,9 @@
 					id={row.id}
 					role="treeitem"
 					aria-level={row.depth + 1}
-					aria-expanded={row.children.length > 0 || row.trace
-						? expanded.has(row.id)
-						: undefined}
+					aria-expanded={row.children.length > 0 || row.trace ? expanded.has(row.id) : undefined}
 					aria-selected={selectedNodeId === row.nodeId}
-					tabindex={focusId === row.id || (!focusId && row === rows[0])
-						? 0
-						: -1}
+					tabindex={focusId === row.id || (!focusId && row === rows[0]) ? 0 : -1}
 					onfocus={() => (focusId = row.id)}
 					class={cn(
 						'overflow-hidden rounded-lg border bg-card transition-colors',
@@ -244,16 +231,11 @@
 						aria-expanded={expanded.has(row.id)}
 						class="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/50"
 					>
-						<span
-							aria-hidden="true"
-							class="font-mono text-micro text-muted-foreground"
-						>
+						<span aria-hidden="true" class="font-mono text-micro text-muted-foreground">
 							{expanded.has(row.id) ? '└─' : '├─'}
 						</span>
 						<span class="min-w-0 flex-1">
-							<span
-								class="block truncate font-mono text-caption text-foreground"
-							>
+							<span class="block truncate font-mono text-caption text-foreground">
 								{row.title}
 							</span>
 							<span class="block truncate text-micro text-muted-foreground">
@@ -267,9 +249,7 @@
 							</span>
 						</span>
 						{#if row.durationMs !== null}
-							<span
-								class="shrink-0 text-micro tabular-nums text-muted-foreground"
-							>
+							<span class="shrink-0 text-micro tabular-nums text-muted-foreground">
 								{formatDuration(row.durationMs)}
 							</span>
 						{/if}
@@ -284,10 +264,7 @@
 						/>
 					</button>
 					{#if expanded.has(row.id)}
-						<div
-							role="group"
-							class="animate-panel-in space-y-2 border-t border-border px-3 py-2.5"
-						>
+						<div role="group" class="animate-panel-in space-y-2 border-t border-border px-3 py-2.5">
 							{#if row.trace}
 								{#if row.trace.error}
 									<p
@@ -297,9 +274,7 @@
 									</p>
 								{/if}
 								<details>
-									<summary
-										class="cursor-pointer text-micro text-muted-foreground"
-									>
+									<summary class="cursor-pointer text-micro text-muted-foreground">
 										Input / Output
 									</summary>
 									<div class="mt-1.5 space-y-2">
@@ -311,9 +286,7 @@
 									<ol class="relative space-y-2 border-l border-border pl-3">
 										{#each row.children as child (child.id)}
 											<li class="text-caption">
-												<span class="font-medium text-foreground"
-													>{child.title}</span
-												>
+												<span class="font-medium text-foreground">{child.title}</span>
 												<span class="ml-1.5 text-micro text-muted-foreground">
 													{child.kind} ·
 													{child.at ? formatDateTime(child.at) : '—'}
@@ -335,9 +308,7 @@
 									</button>
 								{/if}
 							{:else if row.entry}
-								<p
-									class="text-caption break-words whitespace-pre-wrap text-foreground"
-								>
+								<p class="text-caption break-words whitespace-pre-wrap text-foreground">
 									{row.entry.detail}
 								</p>
 								{#if row.nodeId && onlocate}

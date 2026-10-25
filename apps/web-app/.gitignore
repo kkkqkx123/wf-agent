@@ -26,3 +26,7 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Vitest filesystem module cache
+.vitest-cache/
+node_modules/.vitest-cache/

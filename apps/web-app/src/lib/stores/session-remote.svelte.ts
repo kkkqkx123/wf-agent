@@ -1,9 +1,5 @@
 import { listAgentLoops } from '#lib/services/agent-loops';
-import {
-	listFavorites,
-	removeFavorite,
-	setFavorite,
-} from '#lib/services/favorites';
+import { listFavorites, removeFavorite, setFavorite } from '#lib/services/favorites';
 import { createCollection } from './collection.svelte';
 import { toasts } from './toast.svelte';
 

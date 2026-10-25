@@ -59,9 +59,7 @@
 		{ value: NEW_FEATURE, label: t('domain.files.newFeature') },
 	]);
 	const targetSelectValue = $derived(
-		reviewFeature && !featureNames.includes(reviewFeature)
-			? NEW_FEATURE
-			: reviewFeature,
+		reviewFeature && !featureNames.includes(reviewFeature) ? NEW_FEATURE : reviewFeature,
 	);
 	const rollbackOptions = $derived(
 		featurePartitions.map((part) => ({
@@ -91,10 +89,7 @@
 			store.bump('approvals');
 		} catch (e) {
 			console.error('Submit for review failed:', e);
-			toasts.error(
-				t('domain.files.submitFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.files.submitFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			workspace.endAction();
 		}
@@ -120,18 +115,12 @@
 					outcome.conflictFiles.slice(0, 3).join(', '),
 				);
 			} else {
-				toasts.success(
-					t('domain.files.mergedFeature'),
-					outcome.commitId.slice(0, 10),
-				);
+				toasts.success(t('domain.files.mergedFeature'), outcome.commitId.slice(0, 10));
 			}
 			store.bump('files');
 		} catch (e) {
 			console.error('Merge to feature failed:', e);
-			toasts.error(
-				t('domain.files.mergeFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.files.mergeFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			workspace.endAction();
 		}
@@ -139,10 +128,7 @@
 
 	async function runMergeToMain(): Promise<void> {
 		const actor = workspace.actor.trim();
-		const features = [
-			...mergeTargets,
-			...parseExtraFeatures(reviewFeaturesText),
-		];
+		const features = [...mergeTargets, ...parseExtraFeatures(reviewFeaturesText)];
 		if (!actor) {
 			toasts.error(t('domain.files.actorRequiredMerge'));
 			return;
@@ -161,18 +147,12 @@
 					outcome.conflictFiles.slice(0, 3).join(', '),
 				);
 			} else {
-				toasts.success(
-					t('domain.files.mergedMain'),
-					outcome.checkpointId.slice(0, 10),
-				);
+				toasts.success(t('domain.files.mergedMain'), outcome.checkpointId.slice(0, 10));
 			}
 			store.bump('files');
 		} catch (e) {
 			console.error('Merge to main failed:', e);
-			toasts.error(
-				t('domain.files.mergeMainFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.files.mergeMainFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			workspace.endAction();
 		}
@@ -193,17 +173,11 @@
 		try {
 			const { revertCommit } = await rollbackFeature(actor, head);
 			rollbackOpen = false;
-			toasts.success(
-				t('domain.files.featureRolledBack'),
-				revertCommit.slice(0, 10),
-			);
+			toasts.success(t('domain.files.featureRolledBack'), revertCommit.slice(0, 10));
 			store.bump('files');
 		} catch (e) {
 			console.error('Feature rollback failed:', e);
-			toasts.error(
-				t('domain.files.rollbackFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.files.rollbackFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			workspace.endAction();
 		}
@@ -220,8 +194,7 @@
 				label={t('domain.files.actor')}
 				size="sm"
 				value={workspace.actor}
-				oninput={(event: Event) =>
-					workspace.setActor((event.target as HTMLInputElement).value)}
+				oninput={(event: Event) => workspace.setActor((event.target as HTMLInputElement).value)}
 				placeholder={t('domain.files.actorPartition')}
 			/>
 			{#if featureNames.length > 0}
@@ -245,8 +218,7 @@
 						: t('domain.files.newFeatureName')}
 					size="sm"
 					value={reviewFeature}
-					oninput={(event: Event) =>
-						(reviewFeature = (event.target as HTMLInputElement).value)}
+					oninput={(event: Event) => (reviewFeature = (event.target as HTMLInputElement).value)}
 					placeholder={t('domain.files.featureNamePlaceholder')}
 				/>
 			</div>
@@ -284,8 +256,7 @@
 					: t('domain.files.featuresForMainInput')}
 				size="sm"
 				value={reviewFeaturesText}
-				oninput={(event: Event) =>
-					(reviewFeaturesText = (event.target as HTMLInputElement).value)}
+				oninput={(event: Event) => (reviewFeaturesText = (event.target as HTMLInputElement).value)}
 				placeholder="demo, next"
 			/>
 		</div>
@@ -338,8 +309,7 @@
 					: t('domain.files.headCommit')}
 				size="sm"
 				value={rollbackHead}
-				oninput={(event: Event) =>
-					(rollbackHead = (event.target as HTMLInputElement).value)}
+				oninput={(event: Event) => (rollbackHead = (event.target as HTMLInputElement).value)}
 				placeholder="Merge commit id to revert"
 			/>
 		</div>

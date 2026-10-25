@@ -4,9 +4,7 @@
 	 * workflow execution type runs: the graph itself is resolved from the
 	 * template on the server, so nothing about the graph is assembled here.
 	 */
-	import InstancePicker, {
-		type PickerOption,
-	} from '#lib/components/chat/InstancePicker.svelte';
+	import InstancePicker, { type PickerOption } from '#lib/components/chat/InstancePicker.svelte';
 	import { isRunnableTemplate, listTemplates } from '#lib/services/templates';
 	import { pickerState } from '#lib/stores/picker-state.svelte';
 	import { t } from '#lib/i18n';

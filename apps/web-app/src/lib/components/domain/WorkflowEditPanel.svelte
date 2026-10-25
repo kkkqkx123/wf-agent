@@ -3,10 +3,7 @@
 	import Button from '#lib/ui/components/Button.svelte';
 	import Card from '#lib/ui/components/Card.svelte';
 	import IssueList from '#lib/components/domain/IssueList.svelte';
-	import type {
-		CanvasPosition,
-		PresenceCursor,
-	} from '#lib/components/domain/GraphCanvas.svelte';
+	import type { CanvasPosition, PresenceCursor } from '#lib/components/domain/GraphCanvas.svelte';
 	import { GraphEditStore } from '#lib/graph/edit-store.svelte';
 	import { EditLockStore } from '#lib/stores/edit-lock.svelte';
 	import { t } from '#lib/i18n';
@@ -28,14 +25,8 @@
 		onvalidate: () => void;
 		onpromote: () => void;
 		onmovenode: (id: string, position: CanvasPosition) => void;
-		onmovenodes: (
-			moves: Array<{ id: string; position: CanvasPosition }>,
-		) => void;
-		onaddnode: (
-			position: CanvasPosition,
-			nodeType: string,
-			name: string | null,
-		) => void;
+		onmovenodes: (moves: Array<{ id: string; position: CanvasPosition }>) => void;
+		onaddnode: (position: CanvasPosition, nodeType: string, name: string | null) => void;
 		ondeleteedge: (id: string) => void;
 		onconnect: (source: string, target: string) => void;
 		ondeletenodes: (ids: string[]) => void;
@@ -74,9 +65,7 @@
 
 	let explorer = $state<{ focus: (id: string) => void } | null>(null);
 
-	const issueIds = $derived(
-		issues.map((issue) => issue.nodeId).filter((id) => id !== null),
-	);
+	const issueIds = $derived(issues.map((issue) => issue.nodeId).filter((id) => id !== null));
 </script>
 
 <div class="mb-2 flex flex-wrap items-center gap-2 text-caption">
@@ -92,9 +81,7 @@
 		<Badge variant="outline">{t('domain.workflowEdit.unlocked')}</Badge>
 	{/if}
 	{#if lock.refreshError}
-		<span class="text-micro text-muted-foreground"
-			>{t('domain.workflowEdit.lockQueryFailed')}</span
-		>
+		<span class="text-micro text-muted-foreground">{t('domain.workflowEdit.lockQueryFailed')}</span>
 	{/if}
 	{#if editMode && store.layoutDirty}
 		<Badge variant="warning">Layout unsaved</Badge>
@@ -111,12 +98,7 @@
 		>
 			{layoutBusy ? 'Saving layout…' : 'Save layout'}
 		</Button>
-		<Button
-			variant="ghost"
-			size="sm"
-			disabled={layoutBusy}
-			onclick={() => onresetlayout?.()}
-		>
+		<Button variant="ghost" size="sm" disabled={layoutBusy} onclick={() => onresetlayout?.()}>
 			Reset layout
 		</Button>
 		<span class="text-micro text-muted-foreground">
@@ -125,10 +107,7 @@
 	</div>
 {/if}
 {#if editMode && lock.lockLost}
-	<Card
-		title={t('domain.workflowEdit.lockLostTitle')}
-		class="mb-2 border-destructive/40"
-	>
+	<Card title={t('domain.workflowEdit.lockLostTitle')} class="mb-2 border-destructive/40">
 		<p class="text-caption text-muted-foreground">
 			{#if lock.lockLostBy}
 				{t('domain.workflowEdit.lockLostBy', { holder: lock.lockLostBy })}
@@ -139,9 +118,7 @@
 		</p>
 		{#snippet footer()}
 			<div class="flex items-center gap-2">
-				<Button size="sm" onclick={() => onrelock()}
-					>{t('domain.workflowEdit.reacquire')}</Button
-				>
+				<Button size="sm" onclick={() => onrelock()}>{t('domain.workflowEdit.reacquire')}</Button>
 				<Button variant="ghost" size="sm" onclick={() => onexitedit()}>
 					{t('domain.graph.exitEditMode')}
 				</Button>
@@ -184,8 +161,7 @@
 		onpromote={() => onpromote()}
 		onmovenode={(id, position) => onmovenode(id, position)}
 		onmovenodes={(moves) => onmovenodes(moves)}
-		onaddnode={(position, nodeType, name) =>
-			onaddnode(position, nodeType, name)}
+		onaddnode={(position, nodeType, name) => onaddnode(position, nodeType, name)}
 		ondeleteedge={(id) => ondeleteedge(id)}
 		onconnect={(source, target) => onconnect(source, target)}
 		ondeletenodes={(ids) => ondeletenodes(ids)}

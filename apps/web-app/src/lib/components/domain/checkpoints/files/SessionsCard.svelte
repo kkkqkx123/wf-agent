@@ -73,10 +73,7 @@
 	}
 </script>
 
-<Card
-	title={t('domain.files.sessionsTitle')}
-	description={t('domain.files.sessionsDescription')}
->
+<Card title={t('domain.files.sessionsTitle')} description={t('domain.files.sessionsDescription')}>
 	{#snippet actions()}
 		<Button
 			variant="outline"
@@ -93,8 +90,7 @@
 			label={t('domain.files.rollbackActor')}
 			size="sm"
 			value={workspace.actor}
-			oninput={(event: Event) =>
-				workspace.setActor((event.target as HTMLInputElement).value)}
+			oninput={(event: Event) => workspace.setActor((event.target as HTMLInputElement).value)}
 			placeholder={t('domain.files.actorPartitionOwner')}
 		/>
 	</div>
@@ -108,8 +104,7 @@
 				<li class="flex flex-wrap items-center gap-x-2 gap-y-1 text-caption">
 					<span class="min-w-0 flex-1 truncate font-mono">{session.id}</span>
 					{#if session.label}
-						<span class="text-micro text-muted-foreground">{session.label}</span
-						>
+						<span class="text-micro text-muted-foreground">{session.label}</span>
 					{/if}
 					<Button
 						variant="outline"

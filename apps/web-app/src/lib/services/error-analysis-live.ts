@@ -12,10 +12,7 @@ export interface ErrorStreamOptions {
  * fetches and use this only to append error records progressively while
  * the analysis tab is visible. Abort the returned cleanup to stop.
  */
-export function watchErrorAnalysis(
-	executionId: string,
-	options: ErrorStreamOptions,
-): () => void {
+export function watchErrorAnalysis(executionId: string, options: ErrorStreamOptions): () => void {
 	const controller = new AbortController();
 	let stopped = false;
 	void streamErrorAnalysis(

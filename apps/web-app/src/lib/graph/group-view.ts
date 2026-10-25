@@ -74,9 +74,7 @@ export function deriveGroups(nodes: DisplayNode[]): GroupDef[] {
 }
 
 /** Aggregated display status for a member set using the shared tone order. */
-export function aggregateGroupStatus(
-	statuses: Array<string | undefined>,
-): string | undefined {
+export function aggregateGroupStatus(statuses: Array<string | undefined>): string | undefined {
 	let tone: ExecutionTone = 'neutral';
 	for (const status of statuses) {
 		tone = rankTone(tone, toneForStatus(status));
@@ -126,16 +124,13 @@ export function buildGroupView(
 			visible.push(node);
 		}
 	}
-	for (const [groupId, list] of [...members.entries()].sort(([a], [b]) =>
-		a < b ? -1 : 1,
-	)) {
+	for (const [groupId, list] of [...members.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
 		const titleId = groupTitleId(groupId);
 		titleIds.add(titleId);
 		const memberLabel = list
 			.map((node) => (node.groupLabel ?? '').trim())
 			.find((label) => label.length > 0);
-		const label =
-			(options?.labels?.[groupId] ?? '').trim() || memberLabel || groupId;
+		const label = (options?.labels?.[groupId] ?? '').trim() || memberLabel || groupId;
 		const status = aggregateGroupStatus(
 			list.map((node) => options?.statusById?.[node.id] ?? node.status),
 		);
@@ -153,8 +148,7 @@ export function buildGroupView(
 			groupId,
 		});
 	}
-	const redirect = (id: string, groups: Map<string, string>): string =>
-		groups.get(id) ?? id;
+	const redirect = (id: string, groups: Map<string, string>): string => groups.get(id) ?? id;
 	const endpointGroup = new Map<string, string>();
 	for (const [groupId, list] of members) {
 		for (const node of list) endpointGroup.set(node.id, groupTitleId(groupId));
@@ -201,10 +195,7 @@ export function buildGroupView(
 		}
 	}
 	const outEdges: DisplayEdge[] = [];
-	const canonicals = new Map<
-		string,
-		Array<{ source: string; target: string }>
-	>();
+	const canonicals = new Map<string, Array<{ source: string; target: string }>>();
 	let suffix = 2;
 	for (const { edge: mergedEdge, canonicals: endpoints } of merged.values()) {
 		let id = mergedEdge.id;

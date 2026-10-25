@@ -19,9 +19,9 @@ export function trapFocus(container: HTMLElement): FocusTrap {
 	const previous = document.activeElement as HTMLElement | null;
 
 	const focusable = (): HTMLElement[] =>
-		Array.from(
-			container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-		).filter((element) => element.offsetParent !== null);
+		Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+			(element) => element.offsetParent !== null,
+		);
 
 	const initial = focusable()[0] ?? container;
 	initial.focus();

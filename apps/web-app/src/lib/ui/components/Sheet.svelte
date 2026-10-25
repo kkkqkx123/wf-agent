@@ -76,18 +76,12 @@
 			style={panelGeometry}
 			class={cn(
 				'animate-panel-in absolute flex flex-col border-border bg-popover text-popover-foreground shadow-popover',
-				side === 'bottom'
-					? 'border-t'
-					: side === 'left'
-						? 'border-r'
-						: 'border-l',
+				side === 'bottom' ? 'border-t' : side === 'left' ? 'border-r' : 'border-l',
 				className,
 			)}
 		>
 			{#if title}
-				<header
-					class="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5"
-				>
+				<header class="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
 					<h2 id={`${titleId}-title`} class="truncate text-title font-semibold">
 						{title}
 					</h2>
@@ -98,9 +92,7 @@
 				{@render children()}
 			</div>
 			{#if footer}
-				<footer
-					class="flex items-center justify-end gap-2 border-t border-border px-4 py-2.5"
-				>
+				<footer class="flex items-center justify-end gap-2 border-t border-border px-4 py-2.5">
 					{@render footer()}
 				</footer>
 			{/if}

@@ -61,8 +61,7 @@
 		<Button
 			size="sm"
 			disabled={gitStore.busy || !workbench.dialogCanSubmit}
-			onclick={() => void workbench.confirmDialog()}
-			>{t('common.confirm')}</Button
+			onclick={() => void workbench.confirmDialog()}>{t('common.confirm')}</Button
 		>
 	{/snippet}
 </Dialog>
@@ -84,9 +83,7 @@
 			>
 				<span
 					>{binding.name}
-					<span class="font-mono text-micro text-muted-foreground"
-						>{binding.id}</span
-					></span
+					<span class="font-mono text-micro text-muted-foreground">{binding.id}</span></span
 				>
 				<span class="flex items-center gap-2">
 					{#if GUARDED_DANGERS.has(binding.danger)}
@@ -94,9 +91,7 @@
 					{:else}
 						<Badge variant="neutral">{binding.danger}</Badge>
 					{/if}
-					<span class="font-mono text-micro text-muted-foreground"
-						>{binding.hint}</span
-					>
+					<span class="font-mono text-micro text-muted-foreground">{binding.hint}</span>
 				</span>
 			</button>
 		{/each}

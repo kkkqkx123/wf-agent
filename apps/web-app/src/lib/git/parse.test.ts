@@ -52,18 +52,12 @@ describe('confirmTarget', () => {
 	});
 
 	it('uses the branch name for branch deletion', () => {
-		expect(confirmTarget('branch.delete', { branch: 'feature' })).toBe(
-			'feature',
-		);
+		expect(confirmTarget('branch.delete', { branch: 'feature' })).toBe('feature');
 	});
 
 	it('joins remote and branch for pushes', () => {
-		expect(confirmTarget('push', { remote: 'origin', branch: 'main' })).toBe(
-			'origin main',
-		);
-		expect(confirmTarget('push', { remote: 'origin', branch: '' })).toBe(
-			'origin',
-		);
+		expect(confirmTarget('push', { remote: 'origin', branch: 'main' })).toBe('origin main');
+		expect(confirmTarget('push', { remote: 'origin', branch: '' })).toBe('origin');
 		expect(confirmTarget('push', {})).toBe('origin');
 	});
 

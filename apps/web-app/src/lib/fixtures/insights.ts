@@ -159,13 +159,7 @@ export const templates: Template[] = [
 ];
 
 export const queryResult: QueryResult = {
-	columns: [
-		'execution_id',
-		'workflow',
-		'status',
-		'duration_ms',
-		'failed_nodes',
-	],
+	columns: ['execution_id', 'workflow', 'status', 'duration_ms', 'failed_nodes'],
 	rows: [
 		{
 			execution_id: 'exec-7f31c2a9',

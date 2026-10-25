@@ -27,16 +27,11 @@
 						type="button"
 						onclick={() =>
 							workbench.selection &&
-							void workbench.showCommitFileDiff(
-								workbench.selection as string,
-								file.path,
-							)}
+							void workbench.showCommitFileDiff(workbench.selection as string, file.path)}
 						class="flex w-full items-center justify-between gap-2 px-1 py-1 text-left hover:bg-accent/50"
 					>
 						<span class="truncate font-mono text-caption">{file.path}</span>
-						<span class="font-mono text-micro text-muted-foreground"
-							>{file.status}</span
-						>
+						<span class="font-mono text-micro text-muted-foreground">{file.status}</span>
 					</button>
 				</li>
 			{/each}
@@ -44,9 +39,7 @@
 	{/if}
 	{#if workbench.diff.length === 0}
 		<p class="text-caption text-muted-foreground">
-			{workbench.panel === 'commits'
-				? t('domain.git.pickCommitFile')
-				: t('domain.git.pickFile')}
+			{workbench.panel === 'commits' ? t('domain.git.pickCommitFile') : t('domain.git.pickFile')}
 		</p>
 	{:else}
 		<p class="mb-1 text-micro text-muted-foreground">
@@ -57,9 +50,7 @@
 		{#each workbench.diff as file (file.path)}
 			<div class="mb-2">
 				{#if workbench.diffSource === 'unstaged'}
-					{@const hunkCount = file.lines.filter(
-						(l) => l.type === 'meta',
-					).length}
+					{@const hunkCount = file.lines.filter((l) => l.type === 'meta').length}
 					{#if hunkCount > 0}
 						<div class="mb-1 flex flex-wrap gap-1">
 							{#each Array.from({ length: hunkCount }, (_, i) => i) as i (i)}

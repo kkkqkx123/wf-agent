@@ -51,33 +51,15 @@ const DISPLAY_TOKENS = new Set([
 	'hidden',
 ]);
 
-const POSITION_TOKENS = new Set([
-	'static',
-	'fixed',
-	'absolute',
-	'relative',
-	'sticky',
-]);
+const POSITION_TOKENS = new Set(['static', 'fixed', 'absolute', 'relative', 'sticky']);
 
-const FLEX_DIRECTION_TOKENS = new Set([
-	'row',
-	'row-reverse',
-	'col',
-	'col-reverse',
-]);
+const FLEX_DIRECTION_TOKENS = new Set(['row', 'row-reverse', 'col', 'col-reverse']);
 
 const FLEX_WRAP_TOKENS = new Set(['wrap', 'wrap-reverse', 'nowrap']);
 
 const FLEX_SHORTHAND_TOKENS = new Set(['1', 'auto', 'initial', 'none']);
 
-const OUTLINE_STYLE_TOKENS = new Set([
-	'none',
-	'solid',
-	'dashed',
-	'dotted',
-	'double',
-	'hidden',
-]);
+const OUTLINE_STYLE_TOKENS = new Set(['none', 'solid', 'dashed', 'dotted', 'double', 'hidden']);
 
 function isArbitraryColor(inner: string): boolean {
 	const v = inner.trim();
@@ -172,8 +154,7 @@ function tailGroup(tail: string): string {
 	if (tail === 'border' || tail.startsWith('border-')) return borderGroup(tail);
 	if (tail === 'divide' || tail.startsWith('divide-')) return divideGroup(tail);
 	if (tail === 'ring' || tail.startsWith('ring-')) return ringGroup(tail);
-	if (tail === 'outline' || tail.startsWith('outline-'))
-		return outlineGroup(tail);
+	if (tail === 'outline' || tail.startsWith('outline-')) return outlineGroup(tail);
 	if (tail.startsWith('font-')) return fontGroup(tail);
 	if (DISPLAY_TOKENS.has(tail)) return 'display';
 	if (POSITION_TOKENS.has(tail)) return 'position';

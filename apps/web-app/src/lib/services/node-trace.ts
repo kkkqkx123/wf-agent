@@ -74,9 +74,7 @@ function stringify(value: unknown): string {
  */
 export function toNodeTrace(row: NodeTraceDto): NodeTrace | null {
 	if (typeof row.node_id !== 'string' || row.node_id.trim() === '') return null;
-	const dependencies: NodeTraceToolDependency[] = Array.isArray(
-		row.tool_dependencies,
-	)
+	const dependencies: NodeTraceToolDependency[] = Array.isArray(row.tool_dependencies)
 		? row.tool_dependencies.map((entry) => ({
 				toolName: entry.tool_name ?? '',
 				callCount: entry.call_count ?? 0,
@@ -99,9 +97,7 @@ export function toNodeTrace(row: NodeTraceDto): NodeTrace | null {
 	};
 }
 
-export function toNodeInputContext(
-	row: NodeInputContextDto,
-): NodeInputContext | null {
+export function toNodeInputContext(row: NodeInputContextDto): NodeInputContext | null {
 	if (typeof row.node_id !== 'string' || row.node_id.trim() === '') return null;
 	const parameters = row.input_parameters ?? {};
 	const variables: NodeInputVariable[] = Array.isArray(row.available_variables)
@@ -125,10 +121,7 @@ export function toNodeInputContext(
 	};
 }
 
-export function toLlmReasoningStep(
-	row: LlmReasoningDto,
-	index: number,
-): LlmReasoningStep {
+export function toLlmReasoningStep(row: LlmReasoningDto, index: number): LlmReasoningStep {
 	return {
 		stepId: row.step_id ?? `reasoning-${index}`,
 		type: row.reasoning_type ?? '',
@@ -139,9 +132,7 @@ export function toLlmReasoningStep(
 }
 
 /** Per-node execution records of an execution, in start-time order. */
-export async function getExecutionNodeTraces(
-	executionId: string,
-): Promise<NodeTracePage> {
+export async function getExecutionNodeTraces(executionId: string): Promise<NodeTracePage> {
 	const data = requireData(
 		await call<unknown>(
 			client.GET('/api/v1/executions/{id}/nodes', {
@@ -197,8 +188,7 @@ export const NODE_TRACE_STATUS_FILTERS = [
 	{ value: 'skipped', label: 'Skipped' },
 ] as const;
 
-export type NodeTraceStatusFilter =
-	(typeof NODE_TRACE_STATUS_FILTERS)[number]['value'];
+export type NodeTraceStatusFilter = (typeof NODE_TRACE_STATUS_FILTERS)[number]['value'];
 
 /** Statuses that count as a failed node across the backend vocabularies. */
 const FAILED_STATUSES = ['failed', 'failure', 'error', 'errored', 'timeout'];

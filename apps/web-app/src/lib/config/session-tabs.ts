@@ -44,20 +44,12 @@ export const INSPECTOR_TABS: SessionTab[] = [
 export const DETAIL_TABS: SessionTab[] = ['messages', ...INSPECTOR_TABS];
 
 export function isSessionTab(value: string | undefined): SessionTab | null {
-	return value && (DETAIL_TABS as string[]).includes(value)
-		? (value as SessionTab)
-		: null;
+	return value && (DETAIL_TABS as string[]).includes(value) ? (value as SessionTab) : null;
 }
 
 /** Every tab reads one named source; several tabs share a source. */
 export type TabDataKey =
-	| 'summary'
-	| 'graph'
-	| 'iterations'
-	| 'variables'
-	| 'checkpoints'
-	| 'timeline'
-	| 'messages';
+	'summary' | 'graph' | 'iterations' | 'variables' | 'checkpoints' | 'timeline' | 'messages';
 
 export const TAB_DATA: Record<SessionTab, TabDataKey[]> = {
 	overview: ['summary'],

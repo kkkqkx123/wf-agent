@@ -74,9 +74,7 @@
 	}: Props = $props();
 
 	let internalOpen = $state(false);
-	const open = $derived(
-		activePicker === undefined ? internalOpen : activePicker === pickerKey,
-	);
+	const open = $derived(activePicker === undefined ? internalOpen : activePicker === pickerKey);
 	let query = $state('');
 	/** Whether the full list is shown instead of the pinned/recent layers. */
 	let browseAll = $state(false);
@@ -86,10 +84,7 @@
 		const term = query.trim().toLowerCase();
 		if (!term) return options;
 		return options.filter((option) =>
-			[option.label, option.id, option.detail ?? '']
-				.join(' ')
-				.toLowerCase()
-				.includes(term),
+			[option.label, option.id, option.detail ?? ''].join(' ').toLowerCase().includes(term),
 		);
 	});
 
@@ -105,8 +100,7 @@
 		recentIds
 			.map((id) => filtered.find((option) => option.id === id))
 			.filter(
-				(option): option is PickerOption =>
-					option !== undefined && !pinnedIds.includes(option.id),
+				(option): option is PickerOption => option !== undefined && !pinnedIds.includes(option.id),
 			),
 	);
 
@@ -190,9 +184,7 @@
 				{/if}
 			</span>
 			{#if option.detail}
-				<span
-					class="w-full truncate font-mono text-micro text-muted-foreground"
-				>
+				<span class="w-full truncate font-mono text-micro text-muted-foreground">
 					{option.detail}
 				</span>
 			{/if}
@@ -223,19 +215,10 @@
 		class="flex h-9 w-full items-center gap-1.5 rounded-md border border-input bg-card px-2 text-caption text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 	>
 		<Icon name={icon} size={13} class="shrink-0 text-muted-foreground" />
-		<span
-			class={cn(
-				'min-w-0 flex-1 truncate text-left',
-				!value && 'text-muted-foreground',
-			)}
-		>
+		<span class={cn('min-w-0 flex-1 truncate text-left', !value && 'text-muted-foreground')}>
 			{selected?.label ?? (value || placeholder)}
 		</span>
-		<Icon
-			name="chevrons-up-down"
-			size={12}
-			class="shrink-0 text-muted-foreground"
-		/>
+		<Icon name="chevrons-up-down" size={12} class="shrink-0 text-muted-foreground" />
 	</button>
 
 	{#if open}
@@ -277,9 +260,7 @@
 					{/if}
 				{:else}
 					{#if pinned.length > 0}
-						<p
-							class="px-2 py-1 text-micro uppercase tracking-wide text-muted-foreground"
-						>
+						<p class="px-2 py-1 text-micro uppercase tracking-wide text-muted-foreground">
 							{t('chat.instancePicker.pinned')}
 						</p>
 						{#each pinned as option (option.id)}
@@ -287,9 +268,7 @@
 						{/each}
 					{/if}
 					{#if recent.length > 0}
-						<p
-							class="px-2 py-1 text-micro uppercase tracking-wide text-muted-foreground"
-						>
+						<p class="px-2 py-1 text-micro uppercase tracking-wide text-muted-foreground">
 							{t('chat.instancePicker.recent')}
 						</p>
 						{#each recent as option (option.id)}
@@ -311,9 +290,7 @@
 						class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
 					>
 						<Icon name="pencil" size={13} class="text-muted-foreground" />
-						<span
-							class="min-w-0 flex-1 truncate font-mono text-micro text-foreground"
-						>
+						<span class="min-w-0 flex-1 truncate font-mono text-micro text-foreground">
 							{t('chat.instancePicker.useValue', { value: typed })}
 						</span>
 					</button>

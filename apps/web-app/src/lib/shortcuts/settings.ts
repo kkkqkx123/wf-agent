@@ -17,9 +17,7 @@ export function loadShortcutOverrides(): ShortcutOverrides {
 		const parsed: unknown = JSON.parse(raw);
 		if (typeof parsed !== 'object' || parsed === null) return {};
 		const overrides: ShortcutOverrides = {};
-		for (const [id, value] of Object.entries(
-			parsed as Record<string, unknown>,
-		)) {
+		for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
 			if (typeof value === 'string' && value.length > 0) {
 				overrides[id] = value;
 			} else if (value === null) {

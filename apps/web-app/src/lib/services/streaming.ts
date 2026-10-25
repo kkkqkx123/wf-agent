@@ -1,10 +1,7 @@
 import { openGetStream, openPostStream } from '#lib/api/stream';
 import type { StreamFailure } from '#lib/api/stream';
 import type { RunLoopMessage } from '#lib/services/agent-loops';
-import {
-	decodeErrorChainFrame,
-	handleExecutionFrame,
-} from '#lib/utils/stream-parser';
+import { decodeErrorChainFrame, handleExecutionFrame } from '#lib/utils/stream-parser';
 import type { ErrorRecord, StreamCallbacks } from '#lib/utils/stream-parser';
 
 export type {

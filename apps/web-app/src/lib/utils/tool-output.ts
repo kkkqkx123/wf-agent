@@ -57,10 +57,7 @@ export function parseDisplayPayload(value: unknown): DisplayPayload | null {
 	if (!value || typeof value !== 'object') return null;
 	const record = value as Record<string, unknown>;
 	const kind = record.kind;
-	if (
-		typeof kind !== 'string' ||
-		!DISPLAY_KINDS.includes(kind as DisplayKind)
-	) {
+	if (typeof kind !== 'string' || !DISPLAY_KINDS.includes(kind as DisplayKind)) {
 		return null;
 	}
 	const preview = record.preview;
@@ -71,9 +68,7 @@ export function parseDisplayPayload(value: unknown): DisplayPayload | null {
 		preview: typeof preview === 'string' ? preview : '',
 		truncated: truncated === true,
 		hiddenLines:
-			typeof hidden === 'number' && Number.isFinite(hidden)
-				? Math.max(0, Math.trunc(hidden))
-				: 0,
+			typeof hidden === 'number' && Number.isFinite(hidden) ? Math.max(0, Math.trunc(hidden)) : 0,
 	};
 }
 
@@ -108,12 +103,7 @@ const EXPLORATION_TOOL_NAMES = new Set([
 	'web_search',
 ]);
 
-const EDIT_TOOL_NAMES = new Set([
-	'write_file',
-	'edit_file',
-	'apply_diff',
-	'apply_patch',
-]);
+const EDIT_TOOL_NAMES = new Set(['write_file', 'edit_file', 'apply_diff', 'apply_patch']);
 
 /** Infer the presentation kind from a tool name. Used when no protocol
  * display payload is available. */
@@ -126,10 +116,7 @@ export function inferDisplayKind(toolName: string): DisplayKind {
 
 function splitGraphemes(text: string): string[] {
 	try {
-		return Array.from(
-			new Intl.Segmenter().segment(text),
-			(segment) => segment.segment,
-		);
+		return Array.from(new Intl.Segmenter().segment(text), (segment) => segment.segment);
 	} catch {
 		return Array.from(text);
 	}
@@ -181,9 +168,7 @@ export function collapseShellTail(
 	const hiddenLines = Math.max(0, lines.length - cappedLines);
 	const tail = lines.slice(lines.length - cappedLines);
 	const composed =
-		hiddenLines > 0
-			? `(${hiddenLines} earlier lines)\n${tail.join('\n')}`
-			: tail.join('\n');
+		hiddenLines > 0 ? `(${hiddenLines} earlier lines)\n${tail.join('\n')}` : tail.join('\n');
 	return {
 		text: clampChars(composed, maxChars),
 		overflow: true,
@@ -193,10 +178,7 @@ export function collapseShellTail(
 
 /** Cap one expanded inline body to `maxLines` head lines. Returns the body
  * and whether the cap was hit. */
-export function limitBodyLines(
-	text: string,
-	maxLines: number = TOOL_BODY_MAX_LINES,
-): LimitedBody {
+export function limitBodyLines(text: string, maxLines: number = TOOL_BODY_MAX_LINES): LimitedBody {
 	const lines = text.split('\n');
 	if (lines.length <= Math.max(1, maxLines)) {
 		return { text, capped: false, hiddenLines: 0 };
@@ -240,18 +222,10 @@ export function previewFor(
 	const kind = input.display?.kind ?? inferDisplayKind(toolName);
 	const source = previewSource(input);
 	if (input.success === false && (input.error ?? '').trim()) {
-		return collapseText(
-			source,
-			budgets.errorPreviewLines,
-			budgets.previewMaxChars,
-		);
+		return collapseText(source, budgets.errorPreviewLines, budgets.previewMaxChars);
 	}
 	if (kind === 'shell_tail') {
-		return collapseShellTail(
-			source,
-			budgets.shellPreviewLines,
-			budgets.previewMaxChars,
-		);
+		return collapseShellTail(source, budgets.shellPreviewLines, budgets.previewMaxChars);
 	}
 	return collapseText(source, budgets.previewMaxLines, budgets.previewMaxChars);
 }

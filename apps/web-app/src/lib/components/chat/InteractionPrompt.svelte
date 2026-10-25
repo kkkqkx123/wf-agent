@@ -12,10 +12,7 @@
 	import Badge from '#lib/ui/components/Badge.svelte';
 	import Button from '#lib/ui/components/Button.svelte';
 	import type { BadgeVariant } from '#lib/ui/components/variants';
-	import type {
-		InteractionAnswer,
-		PendingInteraction,
-	} from '#lib/services/interactions';
+	import type { InteractionAnswer, PendingInteraction } from '#lib/services/interactions';
 	import type { ChatSessionController } from '#lib/chat/chat-session.svelte';
 	import { t } from '#lib/i18n';
 
@@ -95,20 +92,16 @@
 		}
 	}
 
-	async function submitQuestions(
-		interaction: PendingInteraction,
-	): Promise<void> {
-		const payload: InteractionAnswer[] = interaction.questions.map(
-			(question) => {
-				const typed = customText(interaction.id, question.index).trim();
-				const picked = selected(interaction.id, question.index);
-				return {
-					questionIndex: question.index,
-					selectedValue: typed ? null : picked || null,
-					customInput: typed ? typed : null,
-				};
-			},
-		);
+	async function submitQuestions(interaction: PendingInteraction): Promise<void> {
+		const payload: InteractionAnswer[] = interaction.questions.map((question) => {
+			const typed = customText(interaction.id, question.index).trim();
+			const picked = selected(interaction.id, question.index);
+			return {
+				questionIndex: question.index,
+				selectedValue: typed ? null : picked || null,
+				customInput: typed ? typed : null,
+			};
+		});
 		submitting = interaction.id;
 		try {
 			await controller.respondQuestions(interaction, payload);
@@ -235,10 +228,8 @@
 							<button
 								type="button"
 								role="radio"
-								aria-checked={selected(interaction.id, question.index) ===
-									option.value}
-								onclick={() =>
-									pick(interaction.id, question.index, option.value)}
+								aria-checked={selected(interaction.id, question.index) === option.value}
+								onclick={() => pick(interaction.id, question.index, option.value)}
 								class="flex items-center gap-2 rounded-md border px-2 py-1 text-left text-caption transition-colors {selected(
 									interaction.id,
 									question.index,

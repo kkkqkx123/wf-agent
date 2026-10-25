@@ -27,16 +27,10 @@
 </script>
 
 <section
-	class={cn(
-		SURFACE_PANEL,
-		interactive && 'transition-colors hover:border-ring/40',
-		className,
-	)}
+	class={cn(SURFACE_PANEL, interactive && 'transition-colors hover:border-ring/40', className)}
 >
 	{#if title || actions}
-		<header
-			class="flex items-start justify-between gap-3 border-b border-border px-4 py-2.5"
-		>
+		<header class="flex items-start justify-between gap-3 border-b border-border px-4 py-2.5">
 			<div class="min-w-0">
 				{#if title}
 					<h3 class="truncate text-title font-semibold text-foreground">
@@ -56,9 +50,7 @@
 		{@render children()}
 	</div>
 	{#if footer}
-		<footer
-			class="border-t border-border px-4 py-2.5 text-caption text-muted-foreground"
-		>
+		<footer class="border-t border-border px-4 py-2.5 text-caption text-muted-foreground">
 			{@render footer()}
 		</footer>
 	{/if}

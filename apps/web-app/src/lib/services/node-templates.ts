@@ -41,8 +41,7 @@ function toSummary(row: unknown): NodeTemplateSummary | null {
 		id,
 		name,
 		nodeType: node_type,
-		description:
-			typeof record.description === 'string' ? record.description : '',
+		description: typeof record.description === 'string' ? record.description : '',
 	};
 }
 
@@ -50,9 +49,7 @@ function toSummary(row: unknown): NodeTemplateSummary | null {
  * Browse the node template library for the add-node drawer. The endpoint is
  * paginated; a generous limit keeps the drawer's local filter meaningful.
  */
-export async function listNodeTemplates(params?: {
-	limit?: number;
-}): Promise<NodeTemplatePage> {
+export async function listNodeTemplates(params?: { limit?: number }): Promise<NodeTemplatePage> {
 	const limit = params?.limit ?? 200;
 	const data = await call<unknown>(
 		client.GET('/api/v1/templates/node', {

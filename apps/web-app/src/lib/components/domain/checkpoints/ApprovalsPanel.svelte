@@ -35,20 +35,16 @@
 
 	const visible = $derived(
 		approvals.filter((approval) => {
-			if (statusFilter !== 'all' && approval.status !== statusFilter)
-				return false;
+			if (statusFilter !== 'all' && approval.status !== statusFilter) return false;
 			const needle = actorFilter.trim().toLowerCase();
-			if (needle && !approval.requester.toLowerCase().includes(needle))
-				return false;
+			if (needle && !approval.requester.toLowerCase().includes(needle)) return false;
 			return true;
 		}),
 	);
 
 	// Only pending approvals are decidable, so only they can be selected.
 	const selectable = $derived(visible.filter((a) => a.status === 'pending'));
-	const selectedPending = $derived(
-		selectable.filter((a) => selected.has(a.id)),
-	);
+	const selectedPending = $derived(selectable.filter((a) => selected.has(a.id)));
 
 	function toggle(id: string): void {
 		if (selected.has(id)) selected.delete(id);
@@ -57,9 +53,7 @@
 
 	function toggleAll(): void {
 		selected.clear();
-		if (!(
-			selectable.length > 0 && selectedPending.length === selectable.length
-		)) {
+		if (!(selectable.length > 0 && selectedPending.length === selectable.length)) {
 			for (const item of selectable) selected.add(item.id);
 		}
 	}
@@ -72,10 +66,7 @@
 	}
 </script>
 
-<Card
-	title={t('domain.approvals.title')}
-	description={t('domain.approvals.description')}
->
+<Card title={t('domain.approvals.title')} description={t('domain.approvals.description')}>
 	{#snippet actions()}
 		{#if selectedPending.length > 0}
 			<Button size="sm" onclick={() => batch(true)}>
@@ -112,9 +103,7 @@
 	{/if}
 
 	{#if selectable.length > 0}
-		<label
-			class="mb-2 flex items-center gap-2 text-caption text-muted-foreground"
-		>
+		<label class="mb-2 flex items-center gap-2 text-caption text-muted-foreground">
 			<input
 				type="checkbox"
 				checked={selectedPending.length === selectable.length}
@@ -154,11 +143,7 @@
 								<Icon name="check" size={13} />
 								{t('domain.toolCall.approve')}
 							</Button>
-							<Button
-								variant="outline"
-								size="sm"
-								onclick={() => ondecide(approval, false)}
-							>
+							<Button variant="outline" size="sm" onclick={() => ondecide(approval, false)}>
 								<Icon name="x" size={13} />
 								{t('domain.toolCall.reject')}
 							</Button>

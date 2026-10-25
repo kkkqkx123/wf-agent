@@ -93,11 +93,7 @@ function validatePreferences(raw: unknown): LocalPreferencesBackup {
 	if (theme !== 'light' && theme !== 'dark' && theme !== 'system') {
 		reject('Invalid preferences.theme');
 	}
-	if (
-		density !== 'compact' &&
-		density !== 'default' &&
-		density !== 'comfortable'
-	) {
+	if (density !== 'compact' && density !== 'default' && density !== 'comfortable') {
 		reject('Invalid preferences.density');
 	}
 	if (minimapMode !== 'auto' && minimapMode !== 'on' && minimapMode !== 'off') {
@@ -131,21 +127,12 @@ function validatePreferences(raw: unknown): LocalPreferencesBackup {
 	return {
 		theme: theme as BackupTheme,
 		density: density as BackupDensity,
-		sidebarCollapsed: checkBoolean(
-			raw.sidebarCollapsed,
-			'preferences.sidebarCollapsed',
-		),
+		sidebarCollapsed: checkBoolean(raw.sidebarCollapsed, 'preferences.sidebarCollapsed'),
 		sidebarWidth: sidebarWidth as number,
 		inspectorWidth: inspectorWidth as number,
-		inspectorPinned: checkBoolean(
-			raw.inspectorPinned,
-			'preferences.inspectorPinned',
-		),
+		inspectorPinned: checkBoolean(raw.inspectorPinned, 'preferences.inspectorPinned'),
 		minimapMode: minimapMode as BackupMinimap,
-		toolOutputPreviews: checkBoolean(
-			raw.toolOutputPreviews,
-			'preferences.toolOutputPreviews',
-		),
+		toolOutputPreviews: checkBoolean(raw.toolOutputPreviews, 'preferences.toolOutputPreviews'),
 		toolOutputDetail: toolOutputDetail as BackupToolDetail,
 	};
 }
@@ -157,11 +144,7 @@ function validateShortcuts(raw: unknown): ShortcutBackup {
 		if (!KNOWN_ACTION_IDS.has(id)) reject(`Unknown shortcut action: ${id}`);
 		if (value === null) {
 			out[id] = null;
-		} else if (
-			typeof value === 'string' &&
-			value.length > 0 &&
-			value.length <= 64
-		) {
+		} else if (typeof value === 'string' && value.length > 0 && value.length <= 64) {
 			out[id] = value;
 		} else {
 			reject(`Invalid shortcut binding for ${id}`);
@@ -188,12 +171,7 @@ export function validateBackupDocument(raw: unknown): SettingsBackup {
 	if (!isObject(raw)) reject('Invalid backup: expected object');
 	const keys = Object.keys(raw);
 	for (const key of keys) {
-		if (
-			key !== 'version' &&
-			key !== 'preferences' &&
-			key !== 'shortcuts' &&
-			key !== 'behavior'
-		) {
+		if (key !== 'version' && key !== 'preferences' && key !== 'shortcuts' && key !== 'behavior') {
 			reject(`Unknown backup key: ${key}`);
 		}
 	}

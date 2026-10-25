@@ -7,11 +7,7 @@
 	import DiffView from '#lib/ui/components/DiffView.svelte';
 	import JsonViewer from '#lib/ui/components/JsonViewer.svelte';
 	import StreamMarkdown from '#lib/components/chat/LazyStreamMarkdown.svelte';
-	import type {
-		FileContent,
-		FileTimeline,
-		FileTree,
-	} from '#lib/services/checkpoints';
+	import type { FileContent, FileTimeline, FileTree } from '#lib/services/checkpoints';
 	import type { DiffFile } from '#lib/types/diff';
 	import type { FileChange } from '#lib/types/models';
 	import { fileWorkspace as workspace } from '#lib/stores/fileWorkspace.svelte';
@@ -111,9 +107,7 @@
 			<p class="mt-1.5 text-micro tabular-nums text-muted-foreground">
 				{t('domain.files.sizeTruncated', {
 					size: formatBytes(previewContent.size),
-					truncated: previewContent.truncated
-						? t('domain.files.truncated')
-						: '',
+					truncated: previewContent.truncated ? t('domain.files.truncated') : '',
 				})}
 			</p>
 		</Card>
@@ -129,17 +123,13 @@
 			title={t('domain.versions.historyTitle')}
 			description={t('domain.files.timelineDescription', {
 				total: previewTimeline.total,
-				truncated: previewTimeline.truncated
-					? t('domain.files.truncatedAt', { limit: 5000 })
-					: '',
+				truncated: previewTimeline.truncated ? t('domain.files.truncatedAt', { limit: 5000 }) : '',
 				path: selectedChange?.path ?? '',
 			})}
 		>
 			<ul class="space-y-1.5">
 				{#each timelineVisible as entry (entry.snapshotId)}
-					<li
-						class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption"
-					>
+					<li class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption">
 						<span class="font-mono text-micro text-muted-foreground"
 							>{entry.snapshotId.slice(0, 10)}</span
 						>
@@ -150,9 +140,7 @@
 							</span>
 						{/if}
 						<span class="shrink-0 text-micro tabular-nums text-muted-foreground"
-							>{formatRelativeTime(
-								new Date(entry.timestamp).toISOString(),
-							)}</span
+							>{formatRelativeTime(new Date(entry.timestamp).toISOString())}</span
 						>
 					</li>
 				{/each}
@@ -173,9 +161,7 @@
 		description={previewTree
 			? t('domain.files.treeDescription', {
 					total: previewTree.total,
-					truncated: previewTree.truncated
-						? t('domain.files.truncatedAt', { limit: 2000 })
-						: '',
+					truncated: previewTree.truncated ? t('domain.files.truncatedAt', { limit: 2000 }) : '',
 				})
 			: t('domain.files.treeHint')}
 	>
@@ -185,17 +171,11 @@
 					label={t('domain.files.pathPrefix')}
 					size="sm"
 					value={treePrefix}
-					oninput={(event: Event) =>
-						ontreeprefix((event.target as HTMLInputElement).value)}
+					oninput={(event: Event) => ontreeprefix((event.target as HTMLInputElement).value)}
 					placeholder={t('domain.files.pathPrefixPlaceholder')}
 				/>
 			</div>
-			<Button
-				variant="outline"
-				size="sm"
-				disabled={!workspace.actor.trim()}
-				onclick={onreloadtree}
-			>
+			<Button variant="outline" size="sm" disabled={!workspace.actor.trim()} onclick={onreloadtree}>
 				{t('domain.files.applyFilter')}
 			</Button>
 		</div>

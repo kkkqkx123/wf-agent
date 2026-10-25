@@ -1,11 +1,6 @@
 /** Mock routes: agent loops, their analysis and loop-scoped checkpoints. */
 
-import {
-	agentLoops,
-	loopMessages,
-	loopVariables,
-	loopDetail,
-} from '#lib/fixtures/agentLoops';
+import { agentLoops, loopMessages, loopVariables, loopDetail } from '#lib/fixtures/agentLoops';
 import { checkpoints } from '#lib/fixtures/checkpoints';
 import { FIXTURE_EPOCH } from '#lib/fixtures/clock';
 import { camelToSnakeDeep, pageView, type MockRouter } from '../router';
@@ -27,25 +22,23 @@ export function registerAgentLoops(router: MockRouter): void {
 		};
 	}
 	router.on('GET', '/api/v1/agent-loops/summaries', (_p, query) => {
-		return pageView(
-			agentLoops.map(loopSummary),
-			+(query.limit ?? 50),
-			+(query.offset ?? 0),
-		);
+		return pageView(agentLoops.map(loopSummary), +(query.limit ?? 50), +(query.offset ?? 0));
 	});
 	router.on('GET', '/api/v1/agent-loops', (_p, query) => {
 		return pageView(camelToSnakeDeep(agentLoops), +(query.limit ?? 50), +(query.offset ?? 0));
 	});
 	router.on('GET', '/api/v1/agent-loops/{id}', (params) => {
-		const found = loopDetail.id === params.id
-			? loopDetail
-			: agentLoops.find((a) => a.id === params.id) ?? agentLoops[0];
+		const found =
+			loopDetail.id === params.id
+				? loopDetail
+				: (agentLoops.find((a) => a.id === params.id) ?? agentLoops[0]);
 		return camelToSnakeDeep(found);
 	});
 	router.on('GET', '/api/v1/agent-loops/{id}/summary', (params) => {
-		const found = loopDetail.id === params.id
-			? loopDetail
-			: agentLoops.find((a) => a.id === params.id) ?? agentLoops[0];
+		const found =
+			loopDetail.id === params.id
+				? loopDetail
+				: (agentLoops.find((a) => a.id === params.id) ?? agentLoops[0]);
 		return loopSummary(found);
 	});
 	router.on('GET', '/api/v1/agent-loops/{id}/conversation', () => {

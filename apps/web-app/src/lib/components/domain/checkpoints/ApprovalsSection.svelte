@@ -25,10 +25,7 @@
 	let rejectTarget = $state<Approval | null>(null);
 	let rejectReason = $state('');
 
-	async function decideApproval(
-		approval: Approval,
-		granted: boolean,
-	): Promise<void> {
+	async function decideApproval(approval: Approval, granted: boolean): Promise<void> {
 		if (!granted) {
 			rejectTarget = approval;
 			rejectOpen = true;
@@ -76,10 +73,7 @@
 		}
 	}
 
-	async function decideBatch(
-		targets: Approval[],
-		granted: boolean,
-	): Promise<void> {
+	async function decideBatch(targets: Approval[], granted: boolean): Promise<void> {
 		checkpointStore.beginAction(granted ? 'batch-approve' : 'batch-reject');
 		onremove(targets.map((approval) => approval.id));
 		let decided = 0;
@@ -101,12 +95,9 @@
 			}
 			if (failures.length === 0) {
 				toasts.success(
-					t(
-						granted
-							? 'domain.approvals.batchApproved'
-							: 'domain.approvals.batchRejected',
-						{ count: decided },
-					),
+					t(granted ? 'domain.approvals.batchApproved' : 'domain.approvals.batchRejected', {
+						count: decided,
+					}),
 				);
 			} else {
 				toasts.warning(
@@ -128,10 +119,8 @@
 <ApprovalsPanel
 	{approvals}
 	progress={checkpointStore.action}
-	ondecide={(approval: Approval, granted: boolean) =>
-		void decideApproval(approval, granted)}
-	onbatch={(targets: Approval[], granted: boolean) =>
-		void decideBatch(targets, granted)}
+	ondecide={(approval: Approval, granted: boolean) => void decideApproval(approval, granted)}
+	onbatch={(targets: Approval[], granted: boolean) => void decideBatch(targets, granted)}
 />
 
 <Dialog
@@ -150,8 +139,6 @@
 		<Button variant="ghost" size="sm" onclick={() => (rejectOpen = false)}>
 			{t('common.cancel')}
 		</Button>
-		<Button size="sm" onclick={() => void runReject()}
-			>{t('domain.toolCall.reject')}</Button
-		>
+		<Button size="sm" onclick={() => void runReject()}>{t('domain.toolCall.reject')}</Button>
 	{/snippet}
 </Dialog>

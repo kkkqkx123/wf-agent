@@ -81,9 +81,7 @@ export async function getOverviewMetrics(): Promise<Metric[]> {
 	const data = await call<unknown>(client.GET('/api/v1/analysis/stats'));
 	const rows: Metric[] = [];
 	if (data && typeof data === 'object' && !Array.isArray(data)) {
-		for (const [label, value] of Object.entries(
-			data as Record<string, unknown>,
-		)) {
+		for (const [label, value] of Object.entries(data as Record<string, unknown>)) {
 			if (typeof value === 'number' || typeof value === 'string') {
 				rows.push({ label, value: String(value), tone: 'info' });
 			}
@@ -133,9 +131,7 @@ export async function listInsightAuditReports(): Promise<AuditReport[]> {
  * Fetch performance node list via the top-node aggregator.
  */
 export async function listPerformanceNodes(): Promise<PerfNode[]> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/analysis/stats/top-node-types'),
-	);
+	const data = await call<unknown>(client.GET('/api/v1/analysis/stats/top-node-types'));
 	if (Array.isArray(data)) {
 		return (data as PerfNodeDto[]).map(toPerfNode);
 	}
@@ -178,12 +174,7 @@ function toInsightEvent(d: InsightEventDto): EventRecord {
 		source: d.source ?? '',
 		at: d.at ?? d.timestamp ?? '',
 		executionId: d.execution_id ?? d.executionId ?? null,
-		payload:
-			typeof payload === 'string'
-				? payload
-				: payload
-					? JSON.stringify(payload)
-					: '',
+		payload: typeof payload === 'string' ? payload : payload ? JSON.stringify(payload) : '',
 	};
 }
 
@@ -279,16 +270,12 @@ export async function exportQuery(params: {
 	limit?: number;
 }): Promise<void> {
 	const format = params.format ?? 'csv';
-	await downloadFile(
-		'/api/v1/query/export?download=true',
-		`query-export.${format}`,
-		{
-			method: 'POST',
-			body: {
-				expressions: params.expressions,
-				format,
-				limit: params.limit,
-			},
+	await downloadFile('/api/v1/query/export?download=true', `query-export.${format}`, {
+		method: 'POST',
+		body: {
+			expressions: params.expressions,
+			format,
+			limit: params.limit,
 		},
-	);
+	});
 }

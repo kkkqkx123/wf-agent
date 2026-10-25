@@ -29,9 +29,7 @@ export function formatDuration(ms: number | null | undefined): string {
 }
 
 /** Human readable distance from now, tolerant of numeric or ISO input. */
-export function formatRelativeTime(
-	input: string | number | null | undefined,
-): string {
+export function formatRelativeTime(input: string | number | null | undefined): string {
 	if (input === null || input === undefined) return '—';
 	const value = typeof input === 'number' ? input : Date.parse(input);
 	if (Number.isNaN(value)) return '—';
@@ -50,9 +48,7 @@ const DATE_FORMAT = new Intl.DateTimeFormat('en-CA', {
 });
 
 /** Stable `YYYY-MM-DD HH:mm` rendering, independent of host locale. */
-export function formatDateTime(
-	input: string | number | null | undefined,
-): string {
+export function formatDateTime(input: string | number | null | undefined): string {
 	if (input === null || input === undefined) return '—';
 	const value = typeof input === 'number' ? input : Date.parse(input);
 	if (Number.isNaN(value)) return '—';
@@ -77,10 +73,7 @@ export function formatBytes(bytes: number | null | undefined): string {
  * into the application, and the rest of the app keeps one implementation. */
 export { formatNumber };
 
-export function formatPercent(
-	value: number | null | undefined,
-	digits = 1,
-): string {
+export function formatPercent(value: number | null | undefined, digits = 1): string {
 	if (value === null || value === undefined || Number.isNaN(value)) return '—';
 	return `${(value * 100).toFixed(digits)}%`;
 }
@@ -96,10 +89,6 @@ export function shortId(value: string | null | undefined, size = 8): string {
 	return value.length <= size ? value : value.slice(0, size);
 }
 
-export function pluralize(
-	count: number,
-	singular: string,
-	plural = `${singular}s`,
-): string {
+export function pluralize(count: number, singular: string, plural = `${singular}s`): string {
 	return `${formatNumber(count)} ${count === 1 ? singular : plural}`;
 }

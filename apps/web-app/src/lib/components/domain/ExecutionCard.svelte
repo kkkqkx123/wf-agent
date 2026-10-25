@@ -5,19 +5,12 @@
 	import Progress from '#lib/ui/components/Progress.svelte';
 	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import { statusTone } from '#lib/ui/status';
-	import {
-		formatDuration,
-		formatRelativeTime,
-		shortId,
-	} from '#lib/utils/format';
+	import { formatDuration, formatRelativeTime, shortId } from '#lib/utils/format';
 	import { isErrorStatus } from '#lib/ui/status';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { cn } from '#lib/ui/cn';
 	import { t } from '#lib/i18n';
-	import {
-		describeRerunUnsupported,
-		isRerunnableExecutionType,
-	} from '#lib/services/executions';
+	import { describeRerunUnsupported, isRerunnableExecutionType } from '#lib/services/executions';
 
 	interface Props {
 		execution: Execution;
@@ -51,9 +44,7 @@
 	);
 	const canRerun = $derived(isRerunnableExecutionType(execution.kind));
 	const rerunDisabledReason = $derived(
-		execution.kind && !canRerun
-			? describeRerunUnsupported(execution.kind)
-			: '',
+		execution.kind && !canRerun ? describeRerunUnsupported(execution.kind) : '',
 	);
 	const rowError = $derived(isErrorStatus(execution.status));
 
@@ -62,10 +53,7 @@
 			await navigator.clipboard.writeText(execution.id);
 			toasts.success(t('common.copied'), shortId(execution.id, 12));
 		} catch {
-			toasts.error(
-				t('domain.graph.copyFailed'),
-				t('domain.graph.copyFailedDetail'),
-			);
+			toasts.error(t('domain.graph.copyFailed'), t('domain.graph.copyFailedDetail'));
 		}
 	}
 </script>
@@ -89,9 +77,7 @@
 		aria-pressed={selected}
 	>
 		<div class="flex items-center justify-between gap-2">
-			<span class="truncate text-body font-medium text-foreground"
-				>{execution.workflowName}</span
-			>
+			<span class="truncate text-body font-medium text-foreground">{execution.workflowName}</span>
 			<span class="flex shrink-0 items-center gap-1.5">
 				{#if execution.kind}
 					<span
@@ -112,10 +98,7 @@
 				<span class="tabular-nums">{formatDuration(execution.durationMs)}</span>
 			{/if}
 			{#if execution.version}
-				<span
-					class="rounded border border-border px-1 font-mono"
-					title="Pinned workflow version"
-				>
+				<span class="rounded border border-border px-1 font-mono" title="Pinned workflow version">
 					v{execution.version}
 				</span>
 			{/if}
@@ -145,9 +128,7 @@
 			<Progress value={execution.progress} tone={progressTone} />
 		</div>
 
-		<div
-			class="mt-1.5 flex items-center justify-between gap-2 text-micro text-muted-foreground"
-		>
+		<div class="mt-1.5 flex items-center justify-between gap-2 text-micro text-muted-foreground">
 			<span class="tabular-nums">
 				{t('domain.executionCard.tasks', {
 					done: execution.tasksDone,
@@ -199,11 +180,6 @@
 				/>
 			{/if}
 		{/if}
-		<IconButton
-			icon="copy"
-			label={t('common.copy')}
-			compact
-			onclick={() => void copyId()}
-		/>
+		<IconButton icon="copy" label={t('common.copy')} compact onclick={() => void copyId()} />
 	</div>
 </div>

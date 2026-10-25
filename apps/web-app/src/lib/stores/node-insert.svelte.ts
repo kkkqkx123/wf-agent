@@ -66,15 +66,10 @@ class NodeInsertStore {
 				nodeType: parsed.nodeType,
 				name: typeof parsed.name === 'string' ? parsed.name : '',
 				targetWorkflowId:
-					typeof parsed.targetWorkflowId === 'string'
-						? parsed.targetWorkflowId
-						: null,
+					typeof parsed.targetWorkflowId === 'string' ? parsed.targetWorkflowId : null,
 				sourceTemplateId:
-					typeof parsed.sourceTemplateId === 'string'
-						? parsed.sourceTemplateId
-						: null,
-				queuedAt:
-					typeof parsed.queuedAt === 'number' ? parsed.queuedAt : Date.now(),
+					typeof parsed.sourceTemplateId === 'string' ? parsed.sourceTemplateId : null,
+				queuedAt: typeof parsed.queuedAt === 'number' ? parsed.queuedAt : Date.now(),
 			};
 			return this.pending;
 		} catch {

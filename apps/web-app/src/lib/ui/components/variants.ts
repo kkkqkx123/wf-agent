@@ -13,8 +13,7 @@ const BUTTON_VARIANT = {
 	outline:
 		'border border-border bg-card text-foreground hover:bg-accent hover:text-accent-foreground',
 	ghost: 'text-foreground hover:bg-accent hover:text-accent-foreground',
-	destructive:
-		'bg-destructive text-destructive-foreground hover:bg-destructive/90',
+	destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
 	link: 'text-info underline-offset-4 hover:underline',
 } as const;
 
@@ -51,10 +50,7 @@ const BADGE_VARIANT = {
 
 export type BadgeVariant = keyof typeof BADGE_VARIANT;
 
-export function badgeClass(
-	variant: BadgeVariant = 'neutral',
-	extra?: string,
-): string {
+export function badgeClass(variant: BadgeVariant = 'neutral', extra?: string): string {
 	return cn(
 		'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-micro font-medium leading-5',
 		BADGE_VARIANT[variant],

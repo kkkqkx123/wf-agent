@@ -2,10 +2,7 @@
 	import Button from '#lib/ui/components/Button.svelte';
 	import Input from '#lib/ui/components/Input.svelte';
 	import Textarea from '#lib/ui/components/Textarea.svelte';
-	import {
-		getEntityMetadata,
-		setEntityMetadata,
-	} from '#lib/services/checkpoints';
+	import { getEntityMetadata, setEntityMetadata } from '#lib/services/checkpoints';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { checkpoints as checkpointStore } from '#lib/stores/checkpoints.svelte';
 	import { t } from '#lib/i18n';
@@ -51,11 +48,7 @@
 			);
 			return;
 		}
-		if (
-			parsed === null ||
-			typeof parsed !== 'object' ||
-			Array.isArray(parsed)
-		) {
+		if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
 			toasts.error(t('domain.checkpoint.metadataMustBeObject'));
 			return;
 		}
@@ -86,8 +79,7 @@
 				label={t('domain.checkpoint.entityId')}
 				size="sm"
 				value={metadataEntityId}
-				oninput={(event: Event) =>
-					(metadataEntityId = (event.target as HTMLInputElement).value)}
+				oninput={(event: Event) => (metadataEntityId = (event.target as HTMLInputElement).value)}
 				placeholder="execution id"
 			/>
 		</div>
@@ -102,11 +94,7 @@
 		placeholder="metadata JSON"
 	/>
 	<div class="flex items-center gap-2">
-		<Button
-			size="sm"
-			disabled={checkpointStore.busy}
-			onclick={() => void save()}
-		>
+		<Button size="sm" disabled={checkpointStore.busy} onclick={() => void save()}>
 			{t('domain.checkpoint.saveMetadata')}
 		</Button>
 		{#if note}

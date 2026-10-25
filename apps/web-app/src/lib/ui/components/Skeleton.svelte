@@ -9,13 +9,7 @@
 		class?: string;
 	}
 
-	let {
-		shape = 'line',
-		width,
-		height,
-		lines = 1,
-		class: className = '',
-	}: Props = $props();
+	let { shape = 'line', width, height, lines = 1, class: className = '' }: Props = $props();
 </script>
 
 {#if shape === 'line' && lines > 1}
@@ -31,11 +25,7 @@
 	<div
 		class={cn(
 			'skeleton-shimmer',
-			shape === 'circle'
-				? 'rounded-full'
-				: shape === 'block'
-					? 'rounded-lg'
-					: 'h-3 rounded-sm',
+			shape === 'circle' ? 'rounded-full' : shape === 'block' ? 'rounded-lg' : 'h-3 rounded-sm',
 			className,
 		)}
 		style:width={width ?? (shape === 'line' ? '100%' : undefined)}

@@ -73,14 +73,10 @@
 	}: Props = $props();
 
 	let internalOpen = $state(false);
-	const open = $derived(
-		activePicker === undefined ? internalOpen : activePicker === pickerKey,
-	);
+	const open = $derived(activePicker === undefined ? internalOpen : activePicker === pickerKey);
 	let root: HTMLDivElement | undefined = $state();
 
-	const selected = $derived(
-		OPTIONS.find((option) => option.id === value) ?? OPTIONS[0],
-	);
+	const selected = $derived(OPTIONS.find((option) => option.id === value) ?? OPTIONS[0]);
 
 	function choose(id: ExecutionType): void {
 		value = id;
@@ -125,17 +121,9 @@
 		onclick={() => (open ? close() : openPanel())}
 		class="flex h-9 w-36 items-center gap-1.5 rounded-md border border-input bg-card px-2 text-caption text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 	>
-		<Icon
-			name={selected.icon}
-			size={13}
-			class="shrink-0 text-muted-foreground"
-		/>
+		<Icon name={selected.icon} size={13} class="shrink-0 text-muted-foreground" />
 		<span class="min-w-0 flex-1 truncate text-left">{selected.label}</span>
-		<Icon
-			name="chevrons-up-down"
-			size={12}
-			class="shrink-0 text-muted-foreground"
-		/>
+		<Icon name="chevrons-up-down" size={12} class="shrink-0 text-muted-foreground" />
 	</button>
 
 	{#if open}
@@ -156,11 +144,7 @@
 					)}
 				>
 					<span class="flex w-full items-center gap-2">
-						<Icon
-							name={option.icon}
-							size={13}
-							class="shrink-0 text-muted-foreground"
-						/>
+						<Icon name={option.icon} size={13} class="shrink-0 text-muted-foreground" />
 						<span class="min-w-0 flex-1 truncate text-caption text-foreground">
 							{option.label}
 						</span>

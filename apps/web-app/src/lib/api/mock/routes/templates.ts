@@ -9,9 +9,7 @@ export function registerTemplates(router: MockRouter): void {
 		void query;
 		// The real endpoint answers with a bare array; usage counts use the
 		// backend field name so the shared service maps them directly.
-		return camelToSnakeDeep(
-			templates.map((t) => ({ ...t, usage_count: t.usage })),
-		);
+		return camelToSnakeDeep(templates.map((t) => ({ ...t, usage_count: t.usage })));
 	});
 	router.on('GET', '/api/v1/templates/library/featured', () => {
 		return camelToSnakeDeep(templates.filter((t) => t.featured));

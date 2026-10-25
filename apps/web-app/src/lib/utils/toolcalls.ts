@@ -47,14 +47,10 @@ function pickString(record: Record<string, unknown>, keys: string[]): string {
 	return '';
 }
 
-function pickInt(
-	record: Record<string, unknown>,
-	keys: string[],
-): number | null {
+function pickInt(record: Record<string, unknown>, keys: string[]): number | null {
 	for (const key of keys) {
 		const value = record[key];
-		if (typeof value === 'number' && Number.isFinite(value))
-			return Math.trunc(value);
+		if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
 	}
 	const details = record.details;
 	if (details && typeof details === 'object') {
@@ -78,11 +74,7 @@ export function parseToolEndpoint(input: string): string {
 	if (direct) return direct;
 	const params = record.parameters;
 	if (params && typeof params === 'object' && !Array.isArray(params)) {
-		return pickString(params as Record<string, unknown>, [
-			'endpoint',
-			'url',
-			'uri',
-		]);
+		return pickString(params as Record<string, unknown>, ['endpoint', 'url', 'uri']);
 	}
 	return '';
 }
@@ -90,21 +82,15 @@ export function parseToolEndpoint(input: string): string {
 /** Script exit code from tool results, including nested details. */
 export function parseToolExitCode(output: string): number | null {
 	const parsed = parseJson(output);
-	if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
-		return null;
-	return pickInt(parsed as Record<string, unknown>, [
-		'exit_code',
-		'exitCode',
-		'code',
-	]);
+	if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+	return pickInt(parsed as Record<string, unknown>, ['exit_code', 'exitCode', 'code']);
 }
 
 /** Approval request id from tool arguments or results when present. */
 export function parseApprovalId(input: string, output: string): string {
 	for (const text of [input, output]) {
 		const parsed = parseJson(text);
-		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-			continue;
+		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
 		const found = pickString(parsed as Record<string, unknown>, [
 			'approval_id',
 			'approvalId',

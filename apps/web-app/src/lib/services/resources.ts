@@ -1,14 +1,7 @@
 import { client } from '#lib/api/client';
 import { call, extractPage, requireData } from '#lib/api/envelope';
 import type { PageResult } from '#lib/api/envelope';
-import type {
-	ModelProfile,
-	Provider,
-	Tool,
-	ToolRun,
-	Script,
-	Skill,
-} from '#lib/types/models';
+import type { ModelProfile, Provider, Tool, ToolRun, Script, Skill } from '#lib/types/models';
 
 /**
  * DTO shapes are local interfaces — the backend schemas in schema.d.ts
@@ -161,8 +154,7 @@ export async function getToolDetail(toolId: string): Promise<ToolDetail> {
 		for (const [key, prop] of Object.entries(rawSchema.properties)) {
 			properties[key] = {
 				type: typeof prop?.type === 'string' ? prop.type : 'string',
-				description:
-					typeof prop?.description === 'string' ? prop.description : undefined,
+				description: typeof prop?.description === 'string' ? prop.description : undefined,
 				enum: Array.isArray(prop?.enum) ? prop.enum : undefined,
 				default: prop?.default,
 			};
@@ -173,12 +165,9 @@ export async function getToolDetail(toolId: string): Promise<ToolDetail> {
 		parameters:
 			rawSchema && typeof rawSchema === 'object'
 				? {
-						type:
-							typeof rawSchema.type === 'string' ? rawSchema.type : 'object',
+						type: typeof rawSchema.type === 'string' ? rawSchema.type : 'object',
 						properties,
-						required: Array.isArray(rawSchema.required)
-							? rawSchema.required.map(String)
-							: [],
+						required: Array.isArray(rawSchema.required) ? rawSchema.required.map(String) : [],
 					}
 				: null,
 	};
@@ -186,8 +175,7 @@ export async function getToolDetail(toolId: string): Promise<ToolDetail> {
 
 function fieldText(value: unknown): string {
 	if (typeof value === 'string') return value;
-	if (typeof value === 'number' || typeof value === 'boolean')
-		return String(value);
+	if (typeof value === 'number' || typeof value === 'boolean') return String(value);
 	if (value === undefined || value === null) return '';
 	return JSON.stringify(value);
 }
@@ -223,12 +211,7 @@ function coerceField(type: string, text: string): unknown {
 		if (trimmed === 'false') return false;
 		return trimmed;
 	}
-	if (
-		type === 'object' ||
-		type === 'array' ||
-		trimmed.startsWith('{') ||
-		trimmed.startsWith('[')
-	) {
+	if (type === 'object' || type === 'array' || trimmed.startsWith('{') || trimmed.startsWith('[')) {
 		try {
 			return JSON.parse(trimmed) as unknown;
 		} catch {
@@ -336,10 +319,7 @@ export async function listSkills(): Promise<Skill[]> {
 	return [];
 }
 
-export async function setSkillEnabled(
-	name: string,
-	enabled: boolean,
-): Promise<void> {
+export async function setSkillEnabled(name: string, enabled: boolean): Promise<void> {
 	const init = { params: { path: { name } } };
 	await call<unknown>(
 		enabled
@@ -348,10 +328,7 @@ export async function setSkillEnabled(
 	);
 }
 
-export async function setToolEnabled(
-	toolId: string,
-	enabled: boolean,
-): Promise<void> {
+export async function setToolEnabled(toolId: string, enabled: boolean): Promise<void> {
 	const init = { params: { path: { id: toolId } } };
 	await call<unknown>(
 		enabled
@@ -371,10 +348,7 @@ interface ToolRunDto {
 function toToolRun(d: ToolRunDto): ToolRun {
 	return {
 		success: d.success ?? false,
-		output:
-			d.result === undefined || d.result === null
-				? ''
-				: JSON.stringify(d.result, null, 2),
+		output: d.result === undefined || d.result === null ? '' : JSON.stringify(d.result, null, 2),
 		error: d.error ?? '',
 		durationMs: d.execution_time ?? 0,
 		retries: d.retry_count ?? 0,

@@ -82,9 +82,7 @@
 	}: Props = $props();
 
 	let draft = $state('');
-	const mentionChips = $derived(
-		textRuns(draft).filter((run) => run.kind !== null),
-	);
+	const mentionChips = $derived(textRuns(draft).filter((run) => run.kind !== null));
 	let attachments = $state<MessageAttachment[]>([]);
 	let queue = $state<OutgoingMessage[]>([]);
 	let box: HTMLTextAreaElement | null = $state(null);
@@ -93,9 +91,7 @@
 	let mentionSelectedIndex = $state(0);
 	let mentionDismissed = $state(false);
 	let mentionVisibleCount = $state(MENTION_VISIBLE_LIMIT);
-	let mentionMode = $state<
-		'all' | 'files-and-dirs' | 'files' | 'directories' | 'resources'
-	>('all');
+	let mentionMode = $state<'all' | 'files-and-dirs' | 'files' | 'directories' | 'resources'>('all');
 	let searching = $state(false);
 	let searchError = $state(false);
 	let activePicker = $state<string | null>(null);
@@ -109,10 +105,7 @@
 	});
 
 	$effect(() => {
-		if (
-			mentionSelectedIndex >= filteredCandidates.length &&
-			filteredCandidates.length > 0
-		) {
+		if (mentionSelectedIndex >= filteredCandidates.length && filteredCandidates.length > 0) {
 			mentionSelectedIndex = filteredCandidates.length - 1;
 		}
 	});
@@ -205,22 +198,14 @@
 	}
 
 	function selectMention(hit: MentionCandidate): void {
-		const reference =
-			hit.kind === FILE_KIND
-				? `@file:${hit.id}`
-				: entityMention(hit.kind, hit.id);
+		const reference = hit.kind === FILE_KIND ? `@file:${hit.id}` : entityMention(hit.kind, hit.id);
 		insertReference(reference, hit.kind === FILE_KIND ? '' : ' ');
 		mentionDismissed = true;
 		candidates = [];
 	}
 
 	function onKey(event: KeyboardEvent): void {
-		if (
-			mentionVisible &&
-			(event.ctrlKey || event.metaKey) &&
-			!event.altKey &&
-			!event.shiftKey
-		) {
+		if (mentionVisible && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey) {
 			if (event.key === '1') {
 				event.preventDefault();
 				mentionMode = 'all';
@@ -246,23 +231,19 @@
 			const pageSize = 5;
 			const scrollSelected = () => {
 				requestAnimationFrame(() => {
-					document
-						.querySelector('[aria-current="true"]')
-						?.scrollIntoView({ block: 'nearest' });
+					document.querySelector('[aria-current="true"]')?.scrollIntoView({ block: 'nearest' });
 				});
 			};
 			if (event.key === 'ArrowDown') {
 				event.preventDefault();
-				mentionSelectedIndex =
-					(mentionSelectedIndex + 1) % filteredCandidates.length;
+				mentionSelectedIndex = (mentionSelectedIndex + 1) % filteredCandidates.length;
 				scrollSelected();
 				return;
 			}
 			if (event.key === 'ArrowUp') {
 				event.preventDefault();
 				mentionSelectedIndex =
-					(mentionSelectedIndex - 1 + filteredCandidates.length) %
-					filteredCandidates.length;
+					(mentionSelectedIndex - 1 + filteredCandidates.length) % filteredCandidates.length;
 				scrollSelected();
 				return;
 			}
@@ -308,18 +289,11 @@
 		}
 		// Delete an entire mention token when Backspace lands at its end,
 		// so a half-deleted reference cannot linger in the draft.
-		if (
-			event.key === 'Backspace' &&
-			!event.shiftKey &&
-			!event.ctrlKey &&
-			!event.metaKey
-		) {
+		if (event.key === 'Backspace' && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
 			const cursor = box?.selectionStart ?? draft.length;
 			const selectionEnd = box?.selectionEnd ?? draft.length;
 			if (cursor === selectionEnd) {
-				const hit = mentionChips.find((chip) =>
-					draft.slice(0, cursor).endsWith(chip.text),
-				);
+				const hit = mentionChips.find((chip) => draft.slice(0, cursor).endsWith(chip.text));
 				if (hit) {
 					event.preventDefault();
 					removeMentionAt(cursor - hit.text.length, hit.text.length);
@@ -392,17 +366,13 @@
 
 	/** A typed kind narrows the search to that entity kind. */
 	const mentionTypes = $derived(
-		mention?.kind
-			? MENTION_KINDS.filter((kind) => kind === mention.kind)
-			: MENTION_KINDS,
+		mention?.kind ? MENTION_KINDS.filter((kind) => kind === mention.kind) : MENTION_KINDS,
 	);
 
 	/** Category chips help before a term exists; they never stand in for hits.
 	 * File references are not searchable, so they get their own chip. */
 	const kindHints = $derived(
-		mention && mention.term === '' && mention.kind === ''
-			? [...MENTION_KINDS, FILE_KIND]
-			: [],
+		mention && mention.term === '' && mention.kind === '' ? [...MENTION_KINDS, FILE_KIND] : [],
 	);
 
 	const commandHints = $derived(
@@ -422,8 +392,7 @@
 	};
 
 	function modeMatches(hit: MentionCandidate): boolean {
-		const isDirectory =
-			(hit.data as { kind?: string } | undefined)?.kind === 'directory';
+		const isDirectory = (hit.data as { kind?: string } | undefined)?.kind === 'directory';
 		switch (mentionMode) {
 			case 'all':
 				return true;
@@ -442,9 +411,7 @@
 
 	/** Candidates grouped by entity type, preserving search order within each group. */
 	const filteredCandidates = $derived(candidates.filter(modeMatches));
-	const visibleCandidates = $derived(
-		filteredCandidates.slice(0, mentionVisibleCount),
-	);
+	const visibleCandidates = $derived(filteredCandidates.slice(0, mentionVisibleCount));
 	const groupedCandidates = $derived.by(() => {
 		const groups: { type: string; items: MentionCandidate[] }[] = [];
 		const seen = new SvelteSet<string>();
@@ -455,9 +422,7 @@
 			}
 			groups[groups.length - 1].items.push(hit);
 		}
-		groups.sort(
-			(a, b) => (GROUP_PRIORITY[a.type] ?? 9) - (GROUP_PRIORITY[b.type] ?? 9),
-		);
+		groups.sort((a, b) => (GROUP_PRIORITY[a.type] ?? 9) - (GROUP_PRIORITY[b.type] ?? 9));
 		return groups;
 	});
 
@@ -638,8 +603,7 @@
 						type="button"
 						aria-label={t('chat.composer.removeAttachment')}
 						class="hover:text-foreground"
-						onclick={() =>
-							(attachments = attachments.filter((_, i) => i !== index))}
+						onclick={() => (attachments = attachments.filter((_, i) => i !== index))}
 					>
 						<Icon name="x" size={12} />
 					</button>
@@ -670,17 +634,13 @@
 			</div>
 			{#each groupedCandidates as group (group.type)}
 				<div class="flex flex-col gap-1">
-					<p
-						class="px-2 text-micro font-semibold uppercase text-muted-foreground"
-					>
+					<p class="px-2 text-micro font-semibold uppercase text-muted-foreground">
 						{group.type}
 					</p>
 					{#each group.items as hit (`${hit.kind}-${hit.id}`)}
 						<button
 							type="button"
-							aria-current={hit === filteredCandidates[mentionSelectedIndex]
-								? 'true'
-								: undefined}
+							aria-current={hit === filteredCandidates[mentionSelectedIndex] ? 'true' : undefined}
 							onclick={() => selectMention(hit)}
 							class={cn(
 								'flex flex-col items-start gap-0.5 rounded-md border border-border bg-card px-2 py-1 text-left text-caption transition-colors hover:bg-accent',
@@ -693,21 +653,15 @@
 									size={12}
 									class={cn('shrink-0', mentionClass(hit.kind, hit.id))}
 								/>
-								<span class="min-w-0 flex-1 truncate text-foreground"
-									>{hit.label}</span
-								>
-								<span class="shrink-0 font-mono text-micro text-info"
-									>{hit.kind}</span
-								>
+								<span class="min-w-0 flex-1 truncate text-foreground">{hit.label}</span>
+								<span class="shrink-0 font-mono text-micro text-info">{hit.kind}</span>
 							</span>
 							{#if hit.description}
 								<span class="w-full truncate text-micro text-muted-foreground">
 									{hit.description}
 								</span>
 							{/if}
-							<span
-								class="w-full truncate font-mono text-micro text-muted-foreground"
-							>
+							<span class="w-full truncate font-mono text-micro text-muted-foreground">
 								{hit.id}
 							</span>
 						</button>
@@ -768,11 +722,7 @@
 	{/if}
 
 	{#if commandHints.length > 0}
-		<div
-			class="mb-2 flex flex-col gap-1"
-			role="listbox"
-			aria-label={t('chat.composer.commands')}
-		>
+		<div class="mb-2 flex flex-col gap-1" role="listbox" aria-label={t('chat.composer.commands')}>
 			{#each commandHints as command (command.name)}
 				<button
 					type="button"
@@ -794,10 +744,7 @@
 	{/if}
 
 	{#if mentionChips.length > 0}
-		<div
-			class="mb-2 flex flex-wrap gap-1.5"
-			aria-label={t('chat.composer.mentionsInDraft')}
-		>
+		<div class="mb-2 flex flex-wrap gap-1.5" aria-label={t('chat.composer.mentionsInDraft')}>
 			{#each mentionChips as chip (chip.text)}
 				<span
 					class={cn(
@@ -917,8 +864,6 @@
 		{t('chat.composer.hintsEnter')}{#if busy}
 			· {t('chat.composer.hintsQueue')}{/if} · {SLASH_COMMANDS.map(
 			(command) => `/${command.name}`,
-		).join(' ')} · {t('chat.composer.hintsMentions')} · {t(
-			'chat.composer.hintsAttach',
-		)}
+		).join(' ')} · {t('chat.composer.hintsMentions')} · {t('chat.composer.hintsAttach')}
 	</p>
 </div>

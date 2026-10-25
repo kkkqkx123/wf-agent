@@ -14,12 +14,7 @@
 	let open = $state(true);
 </script>
 
-<div
-	class={cn(
-		'overflow-hidden rounded-lg border border-border bg-muted/40',
-		className,
-	)}
->
+<div class={cn('overflow-hidden rounded-lg border border-border bg-muted/40', className)}>
 	<button
 		type="button"
 		onclick={() => (open = !open)}
@@ -32,9 +27,7 @@
 			class={cn('shrink-0 text-info', streaming && 'animate-pulse-dot')}
 		/>
 		<span class="flex-1 text-caption font-medium text-muted-foreground">
-			{streaming
-				? t('chat.reasoningBlock.thinkingStreaming')
-				: t('chat.reasoningBlock.thinking')}
+			{streaming ? t('chat.reasoningBlock.thinkingStreaming') : t('chat.reasoningBlock.thinking')}
 		</span>
 		<Icon
 			name="chevron-down"

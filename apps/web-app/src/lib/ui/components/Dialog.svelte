@@ -72,9 +72,7 @@
 				className,
 			)}
 		>
-			<header
-				class="flex items-start justify-between gap-3 border-b border-border px-4 py-3"
-			>
+			<header class="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
 				<div class="min-w-0">
 					<h2 id={`${titleId}-title`} class="text-title font-semibold">
 						{title}
@@ -91,9 +89,7 @@
 				{@render children()}
 			</div>
 			{#if footer}
-				<footer
-					class="flex items-center justify-end gap-2 border-t border-border px-4 py-3"
-				>
+				<footer class="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
 					{@render footer()}
 				</footer>
 			{/if}

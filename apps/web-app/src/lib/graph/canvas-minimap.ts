@@ -71,11 +71,7 @@ export function computeMiniOverview(
 }
 
 /** World coordinates projected onto the minimap surface. */
-export function projectToMini(
-	x: number,
-	y: number,
-	bounds: MiniBounds,
-): { x: number; y: number } {
+export function projectToMini(x: number, y: number, bounds: MiniBounds): { x: number; y: number } {
 	return {
 		x: ((x - bounds.minX) / bounds.w) * MINI_W,
 		y: ((y - bounds.minY) / bounds.h) * MINI_H,

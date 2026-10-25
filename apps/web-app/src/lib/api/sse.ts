@@ -23,10 +23,7 @@ function toEventRecord(frame: BaseEventFrame | StreamFrame): EventRecord {
 		id: frame.id ?? '',
 		type: frame.type ?? '',
 		source: 'stream',
-		at:
-			typeof frame.timestamp === 'number'
-				? new Date(frame.timestamp).toISOString()
-				: '',
+		at: typeof frame.timestamp === 'number' ? new Date(frame.timestamp).toISOString() : '',
 		executionId: frame.execution_id ?? frame.agent_loop_id ?? null,
 		payload: frame.metadata ? JSON.stringify(frame.metadata) : '',
 	};
@@ -101,9 +98,7 @@ export function openEventStream(options: EventStreamOptions): () => void {
 				if (key) params.set('api_key', key);
 			}
 
-			source = new EventSource(
-				`${API_BASE_URL}/api/v1/events/stream?${params.toString()}`,
-			);
+			source = new EventSource(`${API_BASE_URL}/api/v1/events/stream?${params.toString()}`);
 			source.onmessage = (message) => {
 				let raw: unknown;
 				try {

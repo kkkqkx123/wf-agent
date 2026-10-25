@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-	GIT_BINDINGS,
-	bindingsFor,
-	checkDrift,
-	findBinding,
-	visibleControls,
-} from './bindings';
+import { GIT_BINDINGS, bindingsFor, checkDrift, findBinding, visibleControls } from './bindings';
 
 describe('git bindings', () => {
 	it('keeps action ids unique', () => {
@@ -20,21 +14,16 @@ describe('git bindings', () => {
 				(b) => b.contexts.includes(context) || b.contexts.includes('global'),
 			);
 			const aliases = scoped.flatMap((b) => b.aliases);
-			const duplicates = aliases.filter(
-				(alias, index) => aliases.indexOf(alias) !== index,
-			);
+			const duplicates = aliases.filter((alias, index) => aliases.indexOf(alias) !== index);
 			expect(duplicates, `duplicate aliases in ${context}`).toEqual([]);
 		}
 	});
 
 	it('declares a known danger level for every binding', () => {
 		for (const binding of GIT_BINDINGS) {
-			expect([
-				'readonly',
-				'recoverable',
-				'destructive',
-				'history_rewrite',
-			]).toContain(binding.danger);
+			expect(['readonly', 'recoverable', 'destructive', 'history_rewrite']).toContain(
+				binding.danger,
+			);
 		}
 	});
 

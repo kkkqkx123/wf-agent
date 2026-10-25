@@ -30,8 +30,7 @@
 		overlays?: Snippet;
 	}
 
-	let { children, header, sidebar, aside, footer, banners, overlays }: Props =
-		$props();
+	let { children, header, sidebar, aside, footer, banners, overlays }: Props = $props();
 
 	const pathname = $derived(page.url.pathname);
 
@@ -122,9 +121,7 @@
 			{/if}
 		</div>
 		{#if footer}
-			<footer
-				class="flex min-h-0 shrink-0 flex-col overflow-hidden border-t border-border bg-card"
-			>
+			<footer class="flex min-h-0 shrink-0 flex-col overflow-hidden border-t border-border bg-card">
 				{@render footer()}
 			</footer>
 		{/if}
@@ -145,9 +142,7 @@
 	<nav class="space-y-3">
 		{#each NAV_GROUPS as group (group.id)}
 			<div>
-				<p
-					class="px-2 pb-1 text-micro uppercase tracking-wide text-muted-foreground"
-				>
+				<p class="px-2 pb-1 text-micro uppercase tracking-wide text-muted-foreground">
 					{group.label()}
 				</p>
 				<div class="space-y-0.5">

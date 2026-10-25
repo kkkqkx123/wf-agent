@@ -11,9 +11,9 @@
 </script>
 
 <p class="mb-2 text-micro text-muted-foreground">
-	Shared definition editor · this canvas, lock, draft, validate and promote flow
-	is the same one workflow templates use; the workflow page is the runnable
-	instance view, not a second definition source.
+	Shared definition editor · this canvas, lock, draft, validate and promote flow is the same one
+	workflow templates use; the workflow page is the runnable instance view, not a second definition
+	source.
 </p>
 <WorkflowEditPanel
 	store={controller.editStore}
@@ -32,8 +32,7 @@
 	onpromote={() => void controller.promoteEditDraft()}
 	onmovenode={(id, position) => controller.handleMoveNode(id, position)}
 	onmovenodes={(moves) => controller.handleMoveNodes(moves)}
-	onaddnode={(position, nodeType, name) =>
-		controller.handleAddNode(position, nodeType, name)}
+	onaddnode={(position, nodeType, name) => controller.handleAddNode(position, nodeType, name)}
 	ondeleteedge={(id) => controller.handleDeleteEdge(id)}
 	onconnect={(source, target) => controller.handleConnect(source, target)}
 	ondeletenodes={(ids) => controller.handleDeleteNodes(ids)}

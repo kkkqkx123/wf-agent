@@ -38,8 +38,7 @@ describe('Collection', () => {
 		const offsets: number[] = [];
 		const list = createCollection<Row>((params) => {
 			offsets.push(params.offset);
-			if (params.offset === 0)
-				return Promise.resolve(page([{ id: 'a' }], true));
+			if (params.offset === 0) return Promise.resolve(page([{ id: 'a' }], true));
 			return Promise.resolve(page([{ id: 'a' }, { id: 'b' }], false));
 		});
 
@@ -55,19 +54,13 @@ describe('Collection', () => {
 		const offsets: number[] = [];
 		const list = createCollection<Row>((params) => {
 			offsets.push(params.offset);
-			return Promise.resolve(
-				page([{ id: `row-${params.offset}` }], params.offset < 3),
-			);
+			return Promise.resolve(page([{ id: `row-${params.offset}` }], params.offset < 3));
 		});
 
 		await list.loadPages(3);
 
 		expect(offsets).toEqual([0, 1, 2]);
-		expect(list.items.map((item) => item.id)).toEqual([
-			'row-0',
-			'row-1',
-			'row-2',
-		]);
+		expect(list.items.map((item) => item.id)).toEqual(['row-0', 'row-1', 'row-2']);
 	});
 
 	it('surfaces fetch failures and clears them on the next reload', async () => {

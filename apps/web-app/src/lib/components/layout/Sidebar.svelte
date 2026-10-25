@@ -31,9 +31,7 @@
 		class="group/rail relative z-30 flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar"
 		style:width={RAIL_WIDTH}
 	>
-		<div
-			class="flex h-12 items-center justify-center border-b border-sidebar-border"
-		>
+		<div class="flex h-12 items-center justify-center border-b border-sidebar-border">
 			<IconButton
 				icon="panel-left"
 				label={t('layout.sidebar.expand')}
@@ -41,9 +39,7 @@
 			/>
 		</div>
 
-		<nav
-			class="flex flex-1 flex-col items-center gap-1 overflow-y-auto py-2 scrollbar-none"
-		>
+		<nav class="flex flex-1 flex-col items-center gap-1 overflow-y-auto py-2 scrollbar-none">
 			{#each NAV_GROUPS as group (group.id)}
 				<div class="mb-1 w-full px-1.5">
 					<div class="mb-1 h-px bg-sidebar-border"></div>
@@ -72,9 +68,7 @@
 			class="invisible absolute left-full top-0 z-40 ml-1 hidden h-full w-60 rounded-r-lg border border-border bg-popover p-2 shadow-popover group-hover/rail:visible lg:group-hover/rail:block"
 		>
 			{#each NAV_GROUPS as group (group.id)}
-				<p
-					class="px-2 py-1 text-micro uppercase tracking-wide text-muted-foreground"
-				>
+				<p class="px-2 py-1 text-micro uppercase tracking-wide text-muted-foreground">
 					{group.label()}
 				</p>
 				{#each group.items as item (item.href)}
@@ -100,22 +94,14 @@
 		class="flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar"
 		style:width="{preferences.sidebarWidth}px"
 	>
-		<div
-			class="flex h-12 items-center justify-between gap-2 border-b border-sidebar-border px-3"
-		>
-			<a
-				href={resolve('/')}
-				class="flex min-w-0 items-center gap-2"
-				onclick={navigate}
-			>
+		<div class="flex h-12 items-center justify-between gap-2 border-b border-sidebar-border px-3">
+			<a href={resolve('/')} class="flex min-w-0 items-center gap-2" onclick={navigate}>
 				<span
 					class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-brand text-brand-foreground"
 				>
 					<Icon name="workflow" size={14} />
 				</span>
-				<span class="truncate text-title font-semibold text-sidebar-foreground"
-					>wf-agent</span
-				>
+				<span class="truncate text-title font-semibold text-sidebar-foreground">wf-agent</span>
 			</a>
 			<IconButton
 				icon="panel-left"
@@ -128,9 +114,7 @@
 		<nav class="flex-1 overflow-y-auto px-2 py-2">
 			{#each NAV_GROUPS as group (group.id)}
 				<div class="mb-3">
-					<p
-						class="px-2 pb-1 text-micro uppercase tracking-wide text-muted-foreground"
-					>
+					<p class="px-2 pb-1 text-micro uppercase tracking-wide text-muted-foreground">
 						{group.label()}
 					</p>
 					<div class="space-y-0.5">

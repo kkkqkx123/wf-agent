@@ -1,4 +1,5 @@
 import type { DisplayEdge, DisplayNode } from './display-model';
+import { SvelteSet } from 'svelte/reactivity';
 
 /** Filtered graph view for one node/edge set. */
 export interface FilteredGraph {
@@ -16,7 +17,7 @@ export class GraphFilterState {
 	hiddenKinds = $state<string[]>([]);
 
 	filter(nodes: DisplayNode[], edges: DisplayEdge[]): FilteredGraph {
-		const hidden = new Set(this.hiddenKinds);
+		const hidden = new SvelteSet(this.hiddenKinds);
 		const needle = this.query.trim().toLowerCase();
 		const keptNodes = nodes.filter((node) => {
 			if (hidden.has(node.kind || 'unknown')) return false;
@@ -30,12 +31,10 @@ export class GraphFilterState {
 			}
 			return true;
 		});
-		const kept = new Set(keptNodes.map((node) => node.id));
+		const kept = new SvelteSet(keptNodes.map((node) => node.id));
 		return {
 			nodes: keptNodes,
-			edges: edges.filter(
-				(edge) => kept.has(edge.source) && kept.has(edge.target),
-			),
+			edges: edges.filter((edge) => kept.has(edge.source) && kept.has(edge.target)),
 		};
 	}
 

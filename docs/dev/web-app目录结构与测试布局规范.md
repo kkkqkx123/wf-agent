@@ -75,4 +75,5 @@ apps/web-app/tests/
 - 测试文件命名：`*.test.ts`（Vitest 惯例），与被测文件同名对应。
 - 类型检查：`tsconfig.test.json` 覆盖测试代码，`pnpm typecheck` 同时检查源码与测试。
 - 运行：`pnpm test`（一次性）/ `pnpm test:watch`。
+- 运行目录：必须在 `apps/web-app/`（或经由 `apps/` 聚合脚本）内执行，禁止在仓库根目录直接运行 `vitest`——根目录无 JS 工程配置（根 `vitest.config.ts` 会直接报错指引），全树默认扫描只会浪费编译且因缺少别名而失败。
 - 每个测试目录内可按需再加子目录，但保持"目录名描述被测领域"而非"描述测试层级"（如 `tests/flows/`，而非 `tests/integration/unit/`）。

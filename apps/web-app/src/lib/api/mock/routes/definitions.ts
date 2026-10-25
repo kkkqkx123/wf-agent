@@ -68,12 +68,9 @@ function lockHolder(body: unknown): {
 } {
 	const row = (body ?? {}) as { owner_id?: unknown; owner_name?: unknown };
 	return {
-		owner_id:
-			typeof row.owner_id === 'string' && row.owner_id ? row.owner_id : 'preview-owner',
+		owner_id: typeof row.owner_id === 'string' && row.owner_id ? row.owner_id : 'preview-owner',
 		owner_name:
-			typeof row.owner_name === 'string' && row.owner_name
-				? row.owner_name
-				: 'Preview Owner',
+			typeof row.owner_name === 'string' && row.owner_name ? row.owner_name : 'Preview Owner',
 		expires_at: FIXTURE_EPOCH,
 	};
 }
@@ -89,9 +86,7 @@ export function registerDefinitions(router: MockRouter): void {
 			return [WORKFLOW_DRAFT];
 		}
 		return [WORKFLOW_DRAFT].filter(
-			(draft) =>
-				draft.id === definitionId ||
-				draft.id === `${definitionId}-canvas`,
+			(draft) => draft.id === definitionId || draft.id === `${definitionId}-canvas`,
 		);
 	});
 	router.on('GET', '/api/v1/workflows/drafts/{id}', () => WORKFLOW_DRAFT);

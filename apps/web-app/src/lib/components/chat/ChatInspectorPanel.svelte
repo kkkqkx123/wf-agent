@@ -18,17 +18,11 @@
 	revision={controller.revision}
 	busy={chatStream.active}
 	liveStatuses={{
-		...Object.fromEntries(
-			controller.projectedTools.map((tool) => [tool.name, tool.status]),
-		),
+		...Object.fromEntries(controller.projectedTools.map((tool) => [tool.name, tool.status])),
 		...Object.fromEntries(
 			controller.projectedSubAgents.map((agent) => [
 				agent.name,
-				agent.success === null
-					? 'running'
-					: agent.success
-						? 'completed'
-						: 'failed',
+				agent.success === null ? 'running' : agent.success ? 'completed' : 'failed',
 			]),
 		),
 	}}

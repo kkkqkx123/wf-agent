@@ -72,7 +72,7 @@ export function registerFileCheckpoint(router: MockRouter): void {
 			timestamp: FIXTURE_EPOCH,
 		};
 	});
-	router.on('GET', '/api/v1/file-checkpoint/diff/actors/{a}/{b}', () => ([
+	router.on('GET', '/api/v1/file-checkpoint/diff/actors/{a}/{b}', () => [
 		{
 			path: 'crates/checkpoint/src/restore_coordinator.rs',
 			kind: 'Modified',
@@ -93,8 +93,8 @@ export function registerFileCheckpoint(router: MockRouter): void {
 			additions: 3,
 			deletions: 3,
 		},
-	]));
-	router.on('GET', '/api/v1/file-checkpoint/diff/staged/{id}', () => ([
+	]);
+	router.on('GET', '/api/v1/file-checkpoint/diff/staged/{id}', () => [
 		{
 			path: 'crates/checkpoint/src/restore_coordinator.rs',
 			kind: 'Modified',
@@ -131,7 +131,7 @@ export function registerFileCheckpoint(router: MockRouter): void {
 			additions: 1,
 			deletions: 0,
 		},
-	]));
+	]);
 	router.on('GET', '/api/v1/file-checkpoint/tree/{id}', () => ({
 		entries: fileChanges.map((change) => ({
 			path: change.path,
@@ -179,7 +179,11 @@ export function registerFileCheckpoint(router: MockRouter): void {
 	});
 	router.on('GET', '/api/v1/file-checkpoint/sessions', () => editSessions);
 	router.on('POST', '/api/v1/file-checkpoint/sessions', () => 'sess-preview-1');
-	router.on('POST', '/api/v1/file-checkpoint/sessions/{id}/rollback/{actor}', () => 'preview-rollback-snap');
+	router.on(
+		'POST',
+		'/api/v1/file-checkpoint/sessions/{id}/rollback/{actor}',
+		() => 'preview-rollback-snap',
+	);
 	router.on('POST', '/api/v1/file-checkpoint/undo/{id}', () => 'preview-undo-snap');
 	router.on('POST', '/api/v1/file-checkpoint/redo/{id}', () => 'preview-redo-snap');
 	router.on('POST', '/api/v1/file-checkpoint/undo/preview', (_p, _q, body) => ({
@@ -216,8 +220,10 @@ export function registerFileCheckpoint(router: MockRouter): void {
 		return { id: row.id, timestamp: Date.parse(row.createdAt), file_count: fileChanges.length };
 	});
 	router.on('POST', '/api/v1/file-checkpoint/restore', () => ({ restored: 3 }));
-	router.on('POST', '/api/v1/file-checkpoint/submit', () => ({ review_commit: 'preview-review-commit' }));
-	router.on('GET', '/api/v1/file-checkpoint/diff/main/{id}', () => ([
+	router.on('POST', '/api/v1/file-checkpoint/submit', () => ({
+		review_commit: 'preview-review-commit',
+	}));
+	router.on('GET', '/api/v1/file-checkpoint/diff/main/{id}', () => [
 		{
 			path: 'crates/checkpoint/src/restore_coordinator.rs',
 			kind: 'Modified',
@@ -252,7 +258,7 @@ export function registerFileCheckpoint(router: MockRouter): void {
 			additions: 3,
 			deletions: 0,
 		},
-	]));
+	]);
 	router.on('POST', '/api/v1/file-checkpoint/merge-to-feature', (params, _q, body) => {
 		// Mirror the real merge driver: unresolved conflict rows keep the merge
 		// conflicted until they are resolved through the conflicts endpoint.
@@ -267,9 +273,10 @@ export function registerFileCheckpoint(router: MockRouter): void {
 				theirs_lines: [],
 			})),
 		}));
-		const commitId = details.length > 0
-			? `preview-feature-conflict-${Date.now().toString(36)}`
-			: `preview-feature-merge-${Date.now().toString(36)}`;
+		const commitId =
+			details.length > 0
+				? `preview-feature-conflict-${Date.now().toString(36)}`
+				: `preview-feature-merge-${Date.now().toString(36)}`;
 		void params;
 		return {
 			commit_id: commitId,
@@ -312,7 +319,11 @@ export function registerFileCheckpoint(router: MockRouter): void {
 			file_commit_id: `preview-file-${id.slice(0, 8)}`,
 		}));
 	});
-	router.on('POST', '/api/v1/file-checkpoint/rename', () => `preview-rename-${Date.now().toString(36)}`);
+	router.on(
+		'POST',
+		'/api/v1/file-checkpoint/rename',
+		() => `preview-rename-${Date.now().toString(36)}`,
+	);
 	router.on('GET', '/api/v1/file-checkpoint/partitions/{id}/history', (params, query) => {
 		const partition = partitions.find((p) => p.partition_id === params.id) ?? partitions[0];
 		const limit = Math.min(+(query.limit ?? 50), partition.history_len);

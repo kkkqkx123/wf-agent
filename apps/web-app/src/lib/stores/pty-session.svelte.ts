@@ -1,11 +1,5 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-import {
-	createPty,
-	closePty,
-	updatePty,
-	getPty,
-	listPtys,
-} from '#lib/services/pty';
+import { createPty, closePty, updatePty, getPty, listPtys } from '#lib/services/pty';
 import type { PtySession } from '#lib/services/pty';
 
 /**
@@ -84,8 +78,7 @@ export class PtySessionStore {
 					for (const s of parsed) {
 						if (typeof s?.id !== 'string' || seen.has(s.id)) continue;
 						seen.add(s.id);
-						const title =
-							typeof s.title === 'string' && s.title ? s.title : s.id;
+						const title = typeof s.title === 'string' && s.title ? s.title : s.id;
 						const numbered =
 							typeof s.titleNumber === 'number' &&
 							Number.isSafeInteger(s.titleNumber) &&
@@ -127,10 +120,7 @@ export class PtySessionStore {
 							return null;
 						}
 					})();
-					this.activeId =
-						rawActive && seen.has(rawActive)
-							? rawActive
-							: (cleaned[0]?.id ?? null);
+					this.activeId = rawActive && seen.has(rawActive) ? rawActive : (cleaned[0]?.id ?? null);
 				}
 			}
 		} catch {
@@ -157,8 +147,7 @@ export class PtySessionStore {
 	private pickNextNumber(): number {
 		const used = new SvelteSet(
 			this.sessions.flatMap((s) => {
-				if (typeof s.titleNumber === 'number' && s.titleNumber > 0)
-					return [s.titleNumber];
+				if (typeof s.titleNumber === 'number' && s.titleNumber > 0) return [s.titleNumber];
 				const parsed = parseTitleNumber(s.title);
 				return parsed ? [parsed] : [];
 			}),
@@ -278,18 +267,11 @@ export class PtySessionStore {
 	}
 
 	patch(id: string, update: Partial<LocalPtySession>): void {
-		this.sessions = this.sessions.map((s) =>
-			s.id === id ? { ...s, ...update } : s,
-		);
+		this.sessions = this.sessions.map((s) => (s.id === id ? { ...s, ...update } : s));
 	}
 
 	/** Record the serialized buffer after a connection cycle completes. */
-	saveBuffer(
-		id: string,
-		buffer: string,
-		scrollY: number,
-		cursor: number,
-	): void {
+	saveBuffer(id: string, buffer: string, scrollY: number, cursor: number): void {
 		const cut = truncateBuffer(buffer);
 		this.patch(id, {
 			buffer: cut.buffer,
@@ -389,10 +371,7 @@ export class PtySessionStore {
 	private persistNow(): void {
 		if (!this.repo) return;
 		try {
-			localStorage.setItem(
-				storageKey(this.repo),
-				JSON.stringify(this.sessions),
-			);
+			localStorage.setItem(storageKey(this.repo), JSON.stringify(this.sessions));
 			if (this.activeId) {
 				localStorage.setItem(`${storageKey(this.repo)}.active`, this.activeId);
 			} else {

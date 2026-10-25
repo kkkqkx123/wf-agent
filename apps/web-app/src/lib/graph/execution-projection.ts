@@ -108,10 +108,7 @@ export function hasExecutionSignals(input: ExecutionOverlayInput): boolean {
  * Tertiles of the max keep small graphs stable; tiny samples collapse to
  * a single tier. Pure function for unit tests.
  */
-export function slowHeatTier(
-	durationMs: number,
-	maxDurationMs: number,
-): 0 | 1 | 2 | 3 {
+export function slowHeatTier(durationMs: number, maxDurationMs: number): 0 | 1 | 2 | 3 {
 	if (!Number.isFinite(durationMs) || durationMs <= 0) return 0;
 	if (!Number.isFinite(maxDurationMs) || maxDurationMs <= 0) return 1;
 	const ratio = durationMs / maxDurationMs;
@@ -161,12 +158,7 @@ export function projectExecutionOverlay(
 			pulse: input.currentNode === node.id,
 			critical: critical.has(node.id),
 			slow: slow.has(node.id),
-			heatTier:
-				duration === undefined
-					? 0
-					: duration <= 0
-						? 1
-						: slowHeatTier(duration, maxSlow),
+			heatTier: duration === undefined ? 0 : duration <= 0 ? 1 : slowHeatTier(duration, maxSlow),
 			decision: decisions.has(node.id),
 		});
 	}
@@ -175,8 +167,7 @@ export function projectExecutionOverlay(
 
 function toneForLive(status: string): ExecutionTone {
 	const normalized = status.trim().toLowerCase();
-	if (['running', 'pending'].includes(normalized))
-		return normalized as ExecutionTone;
+	if (['running', 'pending'].includes(normalized)) return normalized as ExecutionTone;
 	if (normalized === 'failed') return 'error';
 	if (normalized === 'completed') return 'success';
 	return 'neutral';
@@ -201,10 +192,7 @@ export function applyExecutionOverlay(
  * Edge tone derives from its source node: failed sources paint the edge
  * failed, completed sources with an executed target paint it completed.
  */
-export function projectEdgeTone(
-	sourceTone: ExecutionTone,
-	targetExecuted: boolean,
-): ExecutionTone {
+export function projectEdgeTone(sourceTone: ExecutionTone, targetExecuted: boolean): ExecutionTone {
 	if (sourceTone === 'error') return 'error';
 	if (sourceTone === 'running') return 'running';
 	if (sourceTone === 'success' && targetExecuted) return 'success';
@@ -310,12 +298,8 @@ export function diffTopology(
 	return {
 		addedNodes: [...afterNodeIds].filter((id) => !beforeNodeIds.has(id)),
 		removedNodes: [...beforeNodeIds].filter((id) => !afterNodeIds.has(id)),
-		addedEdges: afterEdges
-			.filter((edge) => !beforeEdgeKeys.has(key(edge)))
-			.map(ref),
-		removedEdges: beforeEdges
-			.filter((edge) => !afterEdgeKeys.has(key(edge)))
-			.map(ref),
+		addedEdges: afterEdges.filter((edge) => !beforeEdgeKeys.has(key(edge))).map(ref),
+		removedEdges: beforeEdges.filter((edge) => !afterEdgeKeys.has(key(edge))).map(ref),
 	};
 }
 
@@ -332,15 +316,12 @@ export function matchDecisionNodeId(
 	const needle = name.trim().toLowerCase();
 	if (!needle) return null;
 	const exact = nodes.find(
-		(node) =>
-			node.id.toLowerCase() === needle || node.label.toLowerCase() === needle,
+		(node) => node.id.toLowerCase() === needle || node.label.toLowerCase() === needle,
 	);
 	if (exact) return exact.id;
 	return (
 		nodes.find(
-			(node) =>
-				node.label.toLowerCase().includes(needle) ||
-				needle.includes(node.id.toLowerCase()),
+			(node) => node.label.toLowerCase().includes(needle) || needle.includes(node.id.toLowerCase()),
 		)?.id ?? null
 	);
 }
@@ -355,9 +336,7 @@ export function nodesForIteration(
 	iteration: number | null | undefined,
 ): string[] {
 	if (iteration === null || iteration === undefined) return [];
-	return nodes
-		.filter((node) => node.iteration === iteration)
-		.map((node) => node.id);
+	return nodes.filter((node) => node.iteration === iteration).map((node) => node.id);
 }
 
 export interface VersionDiffView {
@@ -395,9 +374,7 @@ export function buildVersionDiffView(
 			empty: true,
 		};
 	}
-	const addedKeys = new Set(
-		diff.addedEdges.map((edge) => `${edge.source}->${edge.target}`),
-	);
+	const addedKeys = new Set(diff.addedEdges.map((edge) => `${edge.source}->${edge.target}`));
 	const addedGroupSizes = new Map<string, number>();
 	for (const edge of diff.addedEdges) {
 		const key = `${edge.source}->${edge.target}`;
@@ -439,10 +416,7 @@ export function buildVersionDiffView(
 				target,
 				kind: 'default',
 				status: 'failed',
-				label:
-					count > 1
-						? `− ${source} → ${target} (${count} links)`
-						: `− ${source} → ${target}`,
+				label: count > 1 ? `− ${source} → ${target} (${count} links)` : `− ${source} → ${target}`,
 			};
 		}),
 	];

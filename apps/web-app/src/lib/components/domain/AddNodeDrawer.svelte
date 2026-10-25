@@ -2,15 +2,8 @@
 	import Dialog from '#lib/ui/components/Dialog.svelte';
 	import Icon from '#lib/ui/icons/Icon.svelte';
 	import type { CanvasPosition } from '#lib/components/domain/GraphCanvas.svelte';
-	import {
-		DEFAULT_NODE_TYPE,
-		isBuiltinNodeType,
-		normalizeNodeType,
-	} from '#lib/graph/node-kind';
-	import {
-		listNodeTemplates,
-		type NodeTemplateSummary,
-	} from '#lib/services/node-templates';
+	import { DEFAULT_NODE_TYPE, isBuiltinNodeType, normalizeNodeType } from '#lib/graph/node-kind';
+	import { listNodeTemplates, type NodeTemplateSummary } from '#lib/services/node-templates';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { t } from '#lib/i18n';
 	import { cn } from '#lib/ui/cn';
@@ -68,16 +61,11 @@
 			const page = await listNodeTemplates();
 			// Every non-blank node_type is insertable: builtin names resolve to
 			// their variant, anything else is kept as a plugin-contributed type.
-			templates = page.items.filter(
-				(template) => normalizeNodeType(template.nodeType) !== null,
-			);
+			templates = page.items.filter((template) => normalizeNodeType(template.nodeType) !== null);
 			skippedCount = page.skipped;
 			hasMore = page.hasMore;
 		} catch (e) {
-			toasts.error(
-				t('domain.addNode.loadError'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.addNode.loadError'), e instanceof Error ? e.message : undefined);
 		} finally {
 			loading = false;
 		}
@@ -132,9 +120,7 @@
 	});
 
 	const flat = $derived(grouped.flatMap((group) => group.entries));
-	const activeIndex = $derived(
-		Math.min(rawIndex, Math.max(0, flat.length - 1)),
-	);
+	const activeIndex = $derived(Math.min(rawIndex, Math.max(0, flat.length - 1)));
 
 	$effect(() => {
 		if (!open) {
@@ -225,9 +211,7 @@
 							{group.name}
 						</p>
 						{#if group.plugin}
-							<span
-								class="rounded border border-border px-1 text-micro text-muted-foreground"
-							>
+							<span class="rounded border border-border px-1 text-micro text-muted-foreground">
 								{t('domain.addNode.plugin')}
 							</span>
 						{/if}
@@ -240,16 +224,10 @@
 							onmouseenter={() => (rawIndex = index)}
 							class={cn(
 								'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
-								index === activeIndex
-									? 'bg-accent text-accent-foreground'
-									: 'hover:bg-accent/60',
+								index === activeIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/60',
 							)}
 						>
-							<Icon
-								name="blocks"
-								size={14}
-								class="shrink-0 text-muted-foreground"
-							/>
+							<Icon name="blocks" size={14} class="shrink-0 text-muted-foreground" />
 							<span class="min-w-0 flex-1 truncate text-body">
 								{choice.name ?? t('domain.addNode.blankStep')}
 							</span>

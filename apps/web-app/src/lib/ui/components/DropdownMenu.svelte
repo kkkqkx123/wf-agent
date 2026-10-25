@@ -69,8 +69,7 @@
 
 	function onmenukeydown(event: KeyboardEvent): void {
 		const buttons = Array.from(
-			menu?.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]') ??
-				[],
+			menu?.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]') ?? [],
 		).filter((button) => !button.disabled);
 		if (buttons.length === 0) return;
 		const index = buttons.indexOf(document.activeElement as HTMLButtonElement);

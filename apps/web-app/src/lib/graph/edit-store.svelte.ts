@@ -1,5 +1,5 @@
 import type { DisplayEdge, DisplayNode } from './display-model';
-import { backendEdgeType } from './display-model';
+import { backendEdgeType, connectByPort } from './display-model';
 import { canvasDraftId } from './canvas-model';
 import type { WorkflowDefinitionDoc } from '#lib/types/models';
 import { groupTitleId } from './group-view';
@@ -141,10 +141,7 @@ export class GraphEditStore {
 	 * Hidden members are rejected and reported for a prompt. Pushed nodes
 	 * belong in the same call so overlap resolution undoes atomically.
 	 */
-	applyMoves(
-		moves: GraphMove[],
-		options?: { hiddenIds?: Iterable<string> },
-	): string[] {
+	applyMoves(moves: GraphMove[], options?: { hiddenIds?: Iterable<string> }): string[] {
 		const hidden = options?.hiddenIds ? new SvelteSet(options.hiddenIds) : null;
 		const rejected: string[] = [];
 		const targets = moves.filter((move) => {
@@ -187,9 +184,7 @@ export class GraphEditStore {
 		if (doomed.size === 0) return;
 		this.commit();
 		this.nodes = this.nodes.filter((node) => !doomed.has(node.id));
-		this.edges = this.edges.filter(
-			(edge) => !doomed.has(edge.source) && !doomed.has(edge.target),
-		);
+		this.edges = this.edges.filter((edge) => !doomed.has(edge.source) && !doomed.has(edge.target));
 		this.prunePositions();
 		if (this.selectedId !== null && doomed.has(this.selectedId)) {
 			this.selectedId = null;
@@ -232,13 +227,22 @@ export class GraphEditStore {
 		) {
 			return 'Unknown node.';
 		}
-		if (
-			this.edges.some(
-				(edge) => edge.source === source && edge.target === target,
-			)
-		) {
+		if (this.edges.some((edge) => edge.source === source && edge.target === target)) {
 			return null;
 		}
+		// Port-type validation mirrors the canvas pre-check and the backend
+		// boundary rules: entry nodes accept no input, exit nodes emit no
+		// output. The store enforces it so programmatic connects cannot
+		// bypass the canvas hotspot checks.
+		const sourceNode = this.nodes.find((node) => node.id === source);
+		const targetNode = this.nodes.find((node) => node.id === target);
+		const portReason = connectByPort({
+			sourceKind: sourceNode?.kind ?? '',
+			targetKind: targetNode?.kind ?? '',
+			sourcePort: null,
+			targetPort: 'input',
+		});
+		if (portReason) return portReason;
 		let id = `${source}->${target}`;
 		let suffix = 2;
 		while (this.edges.some((edge) => edge.id === id)) {
@@ -259,10 +263,7 @@ export class GraphEditStore {
 	undo(): void {
 		const previous = this.past.pop();
 		if (!previous) return;
-		this.future = [
-			...this.future,
-			snapshot(this.nodes, this.edges, this.positions),
-		];
+		this.future = [...this.future, snapshot(this.nodes, this.edges, this.positions)];
 		this.nodes = previous.nodes;
 		this.edges = previous.edges;
 		this.positions = previous.positions;
@@ -273,10 +274,7 @@ export class GraphEditStore {
 	redo(): void {
 		const next = this.future.pop();
 		if (!next) return;
-		this.past = [
-			...this.past,
-			snapshot(this.nodes, this.edges, this.positions),
-		];
+		this.past = [...this.past, snapshot(this.nodes, this.edges, this.positions)];
 		this.nodes = next.nodes;
 		this.edges = next.edges;
 		this.positions = next.positions;
@@ -285,15 +283,10 @@ export class GraphEditStore {
 	}
 
 	/** Update topology attributes of one node with undo support. */
-	updateNode(
-		id: string,
-		patch: Partial<Pick<DisplayNode, 'label' | 'kind'>>,
-	): void {
+	updateNode(id: string, patch: Partial<Pick<DisplayNode, 'label' | 'kind'>>): void {
 		if (!this.nodes.some((node) => node.id === id)) return;
 		this.commit();
-		this.nodes = this.nodes.map((node) =>
-			node.id === id ? { ...node, ...patch } : node,
-		);
+		this.nodes = this.nodes.map((node) => (node.id === id ? { ...node, ...patch } : node));
 	}
 
 	/**
@@ -329,10 +322,7 @@ export class GraphEditStore {
 	}
 
 	private commit(): void {
-		this.past = [
-			...this.past.slice(-49),
-			snapshot(this.nodes, this.edges, this.positions),
-		];
+		this.past = [...this.past.slice(-49), snapshot(this.nodes, this.edges, this.positions)];
 		this.future = [];
 	}
 
@@ -342,9 +332,7 @@ export class GraphEditStore {
 
 	private describePositions(): string {
 		const ids = Object.keys(this.positions).sort();
-		return JSON.stringify(
-			Object.fromEntries(ids.map((id) => [id, this.positions[id]])),
-		);
+		return JSON.stringify(Object.fromEntries(ids.map((id) => [id, this.positions[id]])));
 	}
 
 	private isPositionTarget(id: string): boolean {

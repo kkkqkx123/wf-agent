@@ -19,11 +19,7 @@
 	} from '#lib/services/events';
 	import type { Dependency, Diagnostic, EventRecord } from '#lib/types/models';
 	import { toasts } from '#lib/stores/toast.svelte';
-	import {
-		formatDateTime,
-		formatNumber,
-		formatRelativeTime,
-	} from '#lib/utils/format';
+	import { formatDateTime, formatNumber, formatRelativeTime } from '#lib/utils/format';
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
 	import { t } from '#lib/i18n';
 
@@ -35,9 +31,7 @@
 
 	const requestedTab = parseListParams(page.url as unknown as URL).tab;
 	let tab = $state(
-		requestedTab && TABS.some((item) => item.id === requestedTab)
-			? requestedTab
-			: 'stream',
+		requestedTab && TABS.some((item) => item.id === requestedTab) ? requestedTab : 'stream',
 	);
 
 	$effect(() => {
@@ -68,11 +62,7 @@
 
 	async function loadTab(current: string): Promise<void> {
 		const pending =
-			current === 'stream'
-				? !seenStream
-				: current === 'dependencies'
-					? !seenDeps
-					: !seenOps;
+			current === 'stream' ? !seenStream : current === 'dependencies' ? !seenDeps : !seenOps;
 		if (!pending) return;
 		loading = true;
 		loadError = null;
@@ -90,8 +80,7 @@
 			}
 		} catch (e) {
 			console.error('Failed to load events segment:', e);
-			loadError =
-				e instanceof Error ? e.message : t('page.events.requestFailed');
+			loadError = e instanceof Error ? e.message : t('page.events.requestFailed');
 		} finally {
 			loading = false;
 		}
@@ -143,12 +132,8 @@
 			};
 		}
 		return {
-			title: query.trim()
-				? t('page.events.noMatching')
-				: t('page.events.noCaptured'),
-			description: query.trim()
-				? t('page.events.noMatchingDesc')
-				: t('page.events.noCapturedDesc'),
+			title: query.trim() ? t('page.events.noMatching') : t('page.events.noCaptured'),
+			description: query.trim() ? t('page.events.noMatchingDesc') : t('page.events.noCapturedDesc'),
 		};
 	}
 
@@ -164,27 +149,16 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	<PageHeader
-		title={t('page.events.title')}
-		description={t('page.events.description')}
-	>
+	<PageHeader title={t('page.events.title')} description={t('page.events.description')}>
 		{#snippet meta()}
-			<span
-				class="flex items-center gap-1.5 text-caption text-muted-foreground"
-			>
-				<span
-					class="h-1.5 w-1.5 rounded-full bg-running animate-pulse-dot"
-					aria-hidden="true"
+			<span class="flex items-center gap-1.5 text-caption text-muted-foreground">
+				<span class="h-1.5 w-1.5 rounded-full bg-running animate-pulse-dot" aria-hidden="true"
 				></span>
 				stream subscribed
 			</span>
 		{/snippet}
 		{#snippet actions()}
-			<IconButton
-				icon="refresh"
-				label={t('common.refresh')}
-				onclick={() => void reload()}
-			/>
+			<IconButton icon="refresh" label={t('common.refresh')} onclick={() => void reload()} />
 			<Button variant="outline" size="sm" onclick={() => void clearEvents()}>
 				<Icon name="trash" size={13} />
 				Delete filtered
@@ -192,12 +166,7 @@
 		{/snippet}
 	</PageHeader>
 
-	<Segmented
-		items={TABS}
-		bind:value={tab}
-		class="px-4"
-		panelId="events-panel"
-	/>
+	<Segmented items={TABS} bind:value={tab} class="px-4" panelId="events-panel" />
 
 	<div
 		id="events-panel"
@@ -213,15 +182,9 @@
 						size={14}
 						class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
 					/>
-					<Input
-						bind:value={query}
-						placeholder={t('page.events.filterPlaceholder')}
-						class="pl-8"
-					/>
+					<Input bind:value={query} placeholder={t('page.events.filterPlaceholder')} class="pl-8" />
 				</div>
-				<span class="shrink-0 text-caption text-muted-foreground"
-					>{filtered.length} events</span
-				>
+				<span class="shrink-0 text-caption text-muted-foreground">{filtered.length} events</span>
 			</div>
 		{/if}
 
@@ -240,16 +203,11 @@
 							<li>
 								<button
 									type="button"
-									onclick={() =>
-										(expandedId = expandedId === event.id ? null : event.id)}
+									onclick={() => (expandedId = expandedId === event.id ? null : event.id)}
 									class="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-accent/40"
 								>
-									<span class="w-40 shrink-0 truncate font-mono text-caption"
-										>{event.type}</span
-									>
-									<span
-										class="min-w-0 flex-1 truncate text-caption text-muted-foreground"
-									>
+									<span class="w-40 shrink-0 truncate font-mono text-caption">{event.type}</span>
+									<span class="min-w-0 flex-1 truncate text-caption text-muted-foreground">
 										{event.source}
 									</span>
 									{#if event.executionId}
@@ -272,11 +230,8 @@
 									/>
 								</button>
 								{#if expandedId === event.id}
-									<div
-										class="animate-panel-in border-t border-border bg-muted/40 px-3 py-2"
-									>
-										<pre
-											class="overflow-x-auto font-mono text-micro">{event.payload}</pre>
+									<div class="animate-panel-in border-t border-border bg-muted/40 px-3 py-2">
+										<pre class="overflow-x-auto font-mono text-micro">{event.payload}</pre>
 										<p class="mt-1 text-micro text-muted-foreground">
 											{formatDateTime(event.at)}
 										</p>
@@ -290,28 +245,18 @@
 				<Card title={t('page.events.callersImpact')}>
 					<ul class="divide-y divide-border">
 						{#each dependencies as dependency (dependency.id)}
-							<li
-								class="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0"
-							>
+							<li class="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0">
 								<div class="min-w-0">
 									<p class="truncate text-caption">
 										<span class="font-mono">{dependency.caller}</span>
-										<Icon
-											name="arrow-right"
-											size={12}
-											class="mx-1 inline text-muted-foreground"
-										/>
+										<Icon name="arrow-right" size={12} class="mx-1 inline text-muted-foreground" />
 										<span class="font-mono">{dependency.callee}</span>
 									</p>
 									<p class="mt-0.5 text-micro text-muted-foreground">
-										{dependency.kind} · {formatRelativeTime(
-											dependency.lastCalledAt,
-										)}
+										{dependency.kind} · {formatRelativeTime(dependency.lastCalledAt)}
 									</p>
 								</div>
-								<span
-									class="shrink-0 text-caption tabular-nums text-muted-foreground"
-								>
+								<span class="shrink-0 text-caption tabular-nums text-muted-foreground">
 									{formatNumber(dependency.calls)} calls
 								</span>
 							</li>
@@ -340,8 +285,7 @@
 						<Button
 							variant="outline"
 							size="sm"
-							onclick={() =>
-								toasts.info(t('page.events.storageDiagnosticsQueued'))}
+							onclick={() => toasts.info(t('page.events.storageDiagnosticsQueued'))}
 						>
 							<Icon name="database" size={13} />
 							{t('page.events.storageDiagnostics')}
@@ -349,8 +293,7 @@
 						<Button
 							variant="outline"
 							size="sm"
-							onclick={() =>
-								toasts.info(t('page.events.systemDiagnosticsQueued'))}
+							onclick={() => toasts.info(t('page.events.systemDiagnosticsQueued'))}
 						>
 							<Icon name="gauge" size={13} />
 							{t('page.events.systemDiagnostics')}
@@ -358,8 +301,7 @@
 						<Button
 							variant="outline"
 							size="sm"
-							onclick={() =>
-								toasts.info(t('page.events.metricsSnapshotQueued'))}
+							onclick={() => toasts.info(t('page.events.metricsSnapshotQueued'))}
 						>
 							<Icon name="chart" size={13} />
 							{t('page.events.metricsSnapshot')}
@@ -367,8 +309,7 @@
 						<Button
 							variant="outline"
 							size="sm"
-							onclick={() =>
-								toasts.warning(t('page.events.expiryCleanupConfirm'))}
+							onclick={() => toasts.warning(t('page.events.expiryCleanupConfirm'))}
 						>
 							<Icon name="clock" size={13} />
 							{t('page.events.cleanExpired')}

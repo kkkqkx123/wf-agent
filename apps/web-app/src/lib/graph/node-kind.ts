@@ -37,9 +37,7 @@ export type StaticNodeType = (typeof STATIC_NODE_TYPES)[number];
 /** Node kind assigned to a node created without a template behind it. */
 export const DEFAULT_NODE_TYPE: StaticNodeType = 'SCRIPT';
 
-const BY_UPPERCASE = new Map<string, StaticNodeType>(
-	STATIC_NODE_TYPES.map((type) => [type, type]),
-);
+const BY_UPPERCASE = new Map<string, StaticNodeType>(STATIC_NODE_TYPES.map((type) => [type, type]));
 
 /**
  * Resolve a node type string exactly the way the backend parser does:
@@ -73,19 +71,13 @@ export function isBuiltinNodeType(value: string): boolean {
  * Node kinds the backend graph validator treats as graph entries; giving one
  * an incoming edge makes the draft fail validation.
  */
-const ENTRY_NODE_TYPES = new Set<StaticNodeType>([
-	'START',
-	'START_FROM_MESSAGE',
-]);
+const ENTRY_NODE_TYPES = new Set<StaticNodeType>(['START', 'START_FROM_MESSAGE']);
 
 /**
  * Node kinds the backend graph validator treats as graph exits; an outgoing
  * edge from one makes the draft fail validation.
  */
-const EXIT_NODE_TYPES = new Set<StaticNodeType>([
-	'END',
-	'CONTINUE_FROM_MESSAGE',
-]);
+const EXIT_NODE_TYPES = new Set<StaticNodeType>(['END', 'CONTINUE_FROM_MESSAGE']);
 
 export interface NodePorts {
 	acceptsInput: boolean;

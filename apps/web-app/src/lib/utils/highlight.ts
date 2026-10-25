@@ -11,8 +11,7 @@
  */
 
 /** Lexical category of one highlighted span. */
-export type TokenKind =
-	'plain' | 'keyword' | 'string' | 'comment' | 'number' | 'function' | 'type';
+export type TokenKind = 'plain' | 'keyword' | 'string' | 'comment' | 'number' | 'function' | 'type';
 
 /** One highlighted span: source text plus its category. */
 export interface HighlightToken {
@@ -442,9 +441,7 @@ function languageKeywords(language: string): string[] {
 }
 
 function isKeyword(language: string, word: string): boolean {
-	return (
-		languageKeywords(language).includes(word) || GENERIC_KEYWORDS.includes(word)
-	);
+	return languageKeywords(language).includes(word) || GENERIC_KEYWORDS.includes(word);
 }
 
 function lineCommentPrefix(language: string): string | null {
@@ -484,9 +481,7 @@ function lineCommentPrefix(language: string): string | null {
 	}
 }
 
-function blockCommentDelims(
-	language: string,
-): { open: string; close: string } | null {
+function blockCommentDelims(language: string): { open: string; close: string } | null {
 	switch (language) {
 		case 'rust':
 		case 'javascript':
@@ -664,8 +659,7 @@ function scanCode(code: string, language: string): HighlightLine[] {
 				kind = 'type';
 			} else {
 				let lookahead = end;
-				while (lookahead < code.length && code[lookahead] === ' ')
-					lookahead += 1;
+				while (lookahead < code.length && code[lookahead] === ' ') lookahead += 1;
 				if (code[lookahead] === '(') kind = 'function';
 			}
 			push(kind, word);
@@ -684,10 +678,7 @@ const cache = new Map<string, HighlightLine[]>();
 
 /** Highlight one code block. Unknown languages tokenize with generic
  * keywords so plain prose still passes through as `plain`. */
-export function highlightCode(
-	code: string,
-	language?: string | null,
-): HighlightLine[] {
+export function highlightCode(code: string, language?: string | null): HighlightLine[] {
 	const normalized = normalizeLanguage(language);
 	if (code.length > MAX_CACHEABLE_LENGTH) {
 		return scanCode(code, normalized);

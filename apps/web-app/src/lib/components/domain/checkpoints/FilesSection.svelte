@@ -5,11 +5,7 @@
 	import Textarea from '#lib/ui/components/Textarea.svelte';
 	import Skeleton from '#lib/ui/components/Skeleton.svelte';
 	import FilesPanel from '#lib/components/domain/checkpoints/FilesPanel.svelte';
-	import {
-		getFileContent,
-		resolveConflicts,
-		type ConflictFile,
-	} from '#lib/services/checkpoints';
+	import { getFileContent, resolveConflicts, type ConflictFile } from '#lib/services/checkpoints';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { checkpoints as checkpointStore } from '#lib/stores/checkpoints.svelte';
 	import { fileWorkspace } from '#lib/stores/fileWorkspace.svelte';
@@ -38,10 +34,7 @@
 			return;
 		}
 		if (resolveBinary) {
-			toasts.error(
-				t('domain.checkpoint.binaryCannotResolve'),
-				t('domain.checkpoint.useTerminal'),
-			);
+			toasts.error(t('domain.checkpoint.binaryCannotResolve'), t('domain.checkpoint.useTerminal'));
 			return;
 		}
 		if (hasConflictMarkers(resolveContent)) {
@@ -144,8 +137,7 @@
 		<Input
 			label={t('domain.files.actor')}
 			value={fileWorkspace.actor}
-			oninput={(event: Event) =>
-				fileWorkspace.setActor((event.target as HTMLInputElement).value)}
+			oninput={(event: Event) => fileWorkspace.setActor((event.target as HTMLInputElement).value)}
 			placeholder={t('domain.checkpoint.resolvingActor')}
 		/>
 		<Input
@@ -163,9 +155,7 @@
 			</p>
 		{:else}
 			{#if resolveTarget && resolveTarget.regions.length > 0}
-				<div
-					class="mb-2 max-h-48 overflow-y-auto rounded-md border border-border"
-				>
+				<div class="mb-2 max-h-48 overflow-y-auto rounded-md border border-border">
 					{#each resolveTarget.regions as region, index (index)}
 						<div class="border-b border-border p-2 last:border-b-0">
 							<p class="text-micro text-muted-foreground">
@@ -179,28 +169,22 @@
 									<p class="text-micro text-muted-foreground">
 										{t('domain.checkpoint.base')}
 									</p>
-									<pre
-										class="whitespace-pre-wrap font-mono text-micro">{region.base.join(
-											'\n',
-										) || '∅'}</pre>
+									<pre class="whitespace-pre-wrap font-mono text-micro">{region.base.join('\n') ||
+											'∅'}</pre>
 								</div>
 								<div>
 									<p class="text-micro text-muted-foreground">
 										{t('domain.checkpoint.ours')}
 									</p>
-									<pre
-										class="whitespace-pre-wrap font-mono text-micro">{region.ours.join(
-											'\n',
-										) || '∅'}</pre>
+									<pre class="whitespace-pre-wrap font-mono text-micro">{region.ours.join('\n') ||
+											'∅'}</pre>
 								</div>
 								<div>
 									<p class="text-micro text-muted-foreground">
 										{t('domain.checkpoint.theirs')}
 									</p>
-									<pre
-										class="whitespace-pre-wrap font-mono text-micro">{region.theirs.join(
-											'\n',
-										) || '∅'}</pre>
+									<pre class="whitespace-pre-wrap font-mono text-micro">{region.theirs.join('\n') ||
+											'∅'}</pre>
 								</div>
 							</div>
 						</div>

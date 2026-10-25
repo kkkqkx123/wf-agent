@@ -42,10 +42,7 @@
 </script>
 
 {#if entries.length >= OUTLINE_MIN_ENTRIES}
-	<nav
-		aria-label={t('domain.timelineOutline.title')}
-		class={cn('shrink-0', className)}
-	>
+	<nav aria-label={t('domain.timelineOutline.title')} class={cn('shrink-0', className)}>
 		<p class="mb-1 text-micro uppercase tracking-wide text-muted-foreground">
 			{t('domain.timelineOutline.outline')}
 		</p>
@@ -58,9 +55,7 @@
 						title={group.kind}
 						class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left text-caption text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
 					>
-						<span class="min-w-0 truncate"
-							>{group.title || t('domain.timelineOutline.event')}</span
-						>
+						<span class="min-w-0 truncate">{group.title || t('domain.timelineOutline.event')}</span>
 						<span class="shrink-0 tabular-nums text-micro">{group.count}</span>
 					</button>
 				</li>

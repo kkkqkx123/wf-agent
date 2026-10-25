@@ -9,12 +9,7 @@
 		class?: string;
 	}
 
-	let {
-		items,
-		dense = false,
-		mono = true,
-		class: className = '',
-	}: Props = $props();
+	let { items, dense = false, mono = true, class: className = '' }: Props = $props();
 </script>
 
 <dl
@@ -27,10 +22,7 @@
 	{#each items as item (item.key)}
 		<dt class="truncate text-caption text-muted-foreground">{item.key}</dt>
 		<dd
-			class={cn(
-				'min-w-0 break-words text-body text-foreground',
-				mono && 'font-mono text-caption',
-			)}
+			class={cn('min-w-0 break-words text-body text-foreground', mono && 'font-mono text-caption')}
 		>
 			{item.value}
 		</dd>

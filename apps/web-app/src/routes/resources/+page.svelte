@@ -19,20 +19,10 @@
 		setSkillEnabled,
 		setToolEnabled,
 	} from '#lib/services/resources';
-	import {
-		listAuthProviders,
-		logoutAuth,
-		type AuthProviderStatus,
-	} from '#lib/services/auth';
+	import { listAuthProviders, logoutAuth, type AuthProviderStatus } from '#lib/services/auth';
 	import AuthLoginDialog from './AuthLoginDialog.svelte';
 	import AuthProvidersPanel from './AuthProvidersPanel.svelte';
-	import type {
-		ModelProfile,
-		Provider,
-		Script,
-		Skill,
-		Tool,
-	} from '#lib/types/models';
+	import type { ModelProfile, Provider, Script, Skill, Tool } from '#lib/types/models';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
 	import { t } from '#lib/i18n';
@@ -48,9 +38,7 @@
 
 	const requestedTab = parseListParams(page.url as unknown as URL).tab;
 	let tab = $state(
-		requestedTab && TABS.some((item) => item.id === requestedTab)
-			? requestedTab
-			: 'models',
+		requestedTab && TABS.some((item) => item.id === requestedTab) ? requestedTab : 'models',
 	);
 
 	$effect(() => {
@@ -112,9 +100,7 @@
 				seenTools = true;
 				const toolPage = await listTools({ limit: 200 });
 				tools = toolPage.items;
-				toolEnabled = Object.fromEntries(
-					tools.map((tool) => [tool.id, tool.enabled]),
-				);
+				toolEnabled = Object.fromEntries(tools.map((tool) => [tool.id, tool.enabled]));
 			} else if (current === 'scripts' && !seenScripts) {
 				seenScripts = true;
 				const scriptPage = await listScripts({ limit: 200 });
@@ -122,13 +108,10 @@
 			} else if (current === 'skills' && !seenSkills) {
 				seenSkills = true;
 				skills = await listSkills();
-				skillEnabled = Object.fromEntries(
-					skills.map((skill) => [skill.id, skill.enabled]),
-				);
+				skillEnabled = Object.fromEntries(skills.map((skill) => [skill.id, skill.enabled]));
 			}
 		} catch (e) {
-			tabError =
-				e instanceof Error ? e.message : t('page.resources.loadFailed');
+			tabError = e instanceof Error ? e.message : t('page.resources.loadFailed');
 			if (current === 'models') seenModels = false;
 			if (current === 'tools') seenTools = false;
 			if (current === 'scripts') seenScripts = false;
@@ -193,9 +176,7 @@
 		authBusyId = null;
 	}
 
-	async function logoutAuthProvider(
-		provider: AuthProviderStatus,
-	): Promise<void> {
+	async function logoutAuthProvider(provider: AuthProviderStatus): Promise<void> {
 		authBusyId = provider.id;
 		try {
 			await logoutAuth(provider.id);
@@ -221,25 +202,13 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	<PageHeader
-		title={t('page.resources.title')}
-		description={t('page.resources.description')}
-	>
+	<PageHeader title={t('page.resources.title')} description={t('page.resources.description')}>
 		{#snippet actions()}
-			<IconButton
-				icon="refresh"
-				label={t('common.refresh')}
-				onclick={() => void reload()}
-			/>
+			<IconButton icon="refresh" label={t('common.refresh')} onclick={() => void reload()} />
 		{/snippet}
 	</PageHeader>
 
-	<Segmented
-		items={TABS}
-		bind:value={tab}
-		class="px-4"
-		panelId="resources-panel"
-	/>
+	<Segmented items={TABS} bind:value={tab} class="px-4" panelId="resources-panel" />
 
 	<div
 		id="resources-panel"

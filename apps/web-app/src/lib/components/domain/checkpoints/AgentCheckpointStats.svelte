@@ -1,10 +1,7 @@
 <script lang="ts">
 	import Button from '#lib/ui/components/Button.svelte';
 	import Badge from '#lib/ui/components/Badge.svelte';
-	import {
-		getAgentCheckpointStats,
-		type AgentCheckpointStats,
-	} from '#lib/services/checkpoints';
+	import { getAgentCheckpointStats, type AgentCheckpointStats } from '#lib/services/checkpoints';
 	import { t } from '#lib/i18n';
 
 	let stats = $state<AgentCheckpointStats | null>(null);
@@ -20,10 +17,7 @@
 			note = null;
 		} catch (e) {
 			console.error('Failed to load agent checkpoint stats:', e);
-			note =
-				e instanceof Error
-					? e.message
-					: t('domain.checkpoint.statsUnavailable');
+			note = e instanceof Error ? e.message : t('domain.checkpoint.statsUnavailable');
 		}
 	}
 </script>

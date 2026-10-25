@@ -37,9 +37,7 @@
 
 	const requestedTab = parseListParams(page.url as unknown as URL).tab;
 	let kind = $state(
-		requestedTab && TABS.some((item) => item.id === requestedTab)
-			? requestedTab
-			: 'all',
+		requestedTab && TABS.some((item) => item.id === requestedTab) ? requestedTab : 'all',
 	);
 
 	$effect(() => {
@@ -74,8 +72,7 @@
 				featured: t.featured || featuredIds.has(t.id),
 			}));
 		} catch (e) {
-			listError =
-				e instanceof Error ? e.message : t('page.templates.loadFailed');
+			listError = e instanceof Error ? e.message : t('page.templates.loadFailed');
 			templates = [];
 		} finally {
 			listLoading = false;
@@ -83,20 +80,12 @@
 	}
 
 	/** Browse-only list: preview and editing live on the detail route. */
-	async function openDetail(row: {
-		id: string;
-		kind: TemplateKind;
-	}): Promise<void> {
-		await goto(
-			resolve('/templates/[kind]/[id]', { kind: row.kind, id: row.id }),
-		);
+	async function openDetail(row: { id: string; kind: TemplateKind }): Promise<void> {
+		await goto(resolve('/templates/[kind]/[id]', { kind: row.kind, id: row.id }));
 	}
 
 	function startCreate(): void {
-		void goto(
-			resolve('/templates/[kind]/[id]', { kind: 'node', id: 'new' }) +
-				'?tab=edit',
-		);
+		void goto(resolve('/templates/[kind]/[id]', { kind: 'node', id: 'new' }) + '?tab=edit');
 	}
 
 	async function runClone(row: Template): Promise<void> {
@@ -105,14 +94,9 @@
 			void recordTemplateUsage(row.id).catch(() => undefined);
 			toasts.success(t('page.templates.cloned'));
 			await reload();
-			await goto(
-				resolve('/templates/[kind]/[id]', { kind: row.kind, id: newId }),
-			);
+			await goto(resolve('/templates/[kind]/[id]', { kind: row.kind, id: newId }));
 		} catch (e) {
-			toasts.error(
-				t('page.templates.cloneFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('page.templates.cloneFailed'), e instanceof Error ? e.message : undefined);
 		}
 	}
 
@@ -136,9 +120,7 @@
 			importOpen = false;
 			importText = '';
 			await reload();
-			await goto(
-				resolve('/templates/[kind]/[id]', { kind: importKind, id: newId }),
-			);
+			await goto(resolve('/templates/[kind]/[id]', { kind: importKind, id: newId }));
 		} catch (e) {
 			importError = e instanceof Error ? e.message : 'Import failed.';
 		} finally {
@@ -158,10 +140,7 @@
 		}),
 	);
 
-	const KIND_ICON: Record<
-		TemplateKind,
-		'blocks' | 'zap' | 'sparkles' | 'workflow'
-	> = {
+	const KIND_ICON: Record<TemplateKind, 'blocks' | 'zap' | 'sparkles' | 'workflow'> = {
 		node: 'blocks',
 		trigger: 'zap',
 		agent: 'sparkles',
@@ -170,16 +149,9 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	<PageHeader
-		title={t('page.templates.title')}
-		description={t('page.templates.description')}
-	>
+	<PageHeader title={t('page.templates.title')} description={t('page.templates.description')}>
 		{#snippet actions()}
-			<IconButton
-				icon="refresh"
-				label={t('common.refresh')}
-				onclick={() => void reload()}
-			/>
+			<IconButton icon="refresh" label={t('common.refresh')} onclick={() => void reload()} />
 			<Button variant="outline" size="sm" onclick={() => (importOpen = true)}>
 				<Icon name="upload" size={13} />
 				{t('page.templates.import')}
@@ -243,9 +215,7 @@
 								<Icon name={KIND_ICON[template.kind]} size={11} />
 								{template.kind}
 							</span>
-							<span class="text-micro text-muted-foreground"
-								>{template.category}</span
-							>
+							<span class="text-micro text-muted-foreground">{template.category}</span>
 						</div>
 						<div class="mt-2 flex flex-wrap gap-1">
 							{#each template.tags as tag (tag)}
@@ -254,22 +224,12 @@
 						</div>
 						{#snippet footer()}
 							<div class="flex items-center justify-between">
-								<span class="tabular-nums"
-									>{formatNumber(template.usage)} uses</span
-								>
+								<span class="tabular-nums">{formatNumber(template.usage)} uses</span>
 								<div class="flex items-center gap-1">
-									<Button
-										variant="ghost"
-										size="sm"
-										onclick={() => void runClone(template)}
-									>
+									<Button variant="ghost" size="sm" onclick={() => void runClone(template)}>
 										Clone
 									</Button>
-									<Button
-										variant="ghost"
-										size="sm"
-										onclick={() => void openDetail(template)}
-									>
+									<Button variant="ghost" size="sm" onclick={() => void openDetail(template)}>
 										Details
 									</Button>
 								</div>

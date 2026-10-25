@@ -1,10 +1,4 @@
-import type {
-	ModelProfile,
-	Provider,
-	Script,
-	Skill,
-	Tool,
-} from '#lib/types/models';
+import type { ModelProfile, Provider, Script, Skill, Tool } from '#lib/types/models';
 import { minutesAgo } from './clock';
 
 export const modelProfiles: ModelProfile[] = [
@@ -232,8 +226,7 @@ export const skills: Skill[] = [
 		description: 'Structured review checklist for large diffs.',
 		enabled: true,
 		version: '1.4.0',
-		promptPreview:
-			'Review the provided diff for correctness, scope creep and missing tests…',
+		promptPreview: 'Review the provided diff for correctness, scope creep and missing tests…',
 	},
 	{
 		id: 'skill-debug',
@@ -241,8 +234,7 @@ export const skills: Skill[] = [
 		description: 'Isolate nondeterministic failures and propose stabilisation.',
 		enabled: true,
 		version: '0.9.2',
-		promptPreview:
-			'Given the failing run history, identify the nondeterministic factor…',
+		promptPreview: 'Given the failing run history, identify the nondeterministic factor…',
 	},
 	{
 		id: 'skill-release',
@@ -250,8 +242,7 @@ export const skills: Skill[] = [
 		description: 'Draft release notes from merged change entries.',
 		enabled: true,
 		version: '2.1.0',
-		promptPreview:
-			'Summarise the merged entries into operator facing release notes…',
+		promptPreview: 'Summarise the merged entries into operator facing release notes…',
 	},
 	{
 		id: 'skill-audit',

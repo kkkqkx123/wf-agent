@@ -97,11 +97,7 @@ function toLock(value: LockView | null): DefinitionLock | null {
 
 // ── drafts ───────────────────────────────────────────────────────
 
-function toDraft(
-	kind: DefinitionKind,
-	value: unknown,
-	issues: DefinitionIssue[],
-): DefinitionDraft {
+function toDraft(kind: DefinitionKind, value: unknown, issues: DefinitionIssue[]): DefinitionDraft {
 	const row = isRecord(value) ? value : {};
 	const id = String(row.id ?? '');
 	return {
@@ -128,21 +124,14 @@ export async function listDefinitionDrafts(
 	kind: DefinitionKind,
 	definitionId?: string,
 ): Promise<DefinitionDraft[]> {
-	const query =
-		definitionId === undefined ? {} : { definition_id: definitionId };
+	const query = definitionId === undefined ? {} : { definition_id: definitionId };
 	let data: unknown;
 	if (kind === 'workflow') {
-		data = await call<unknown>(
-			client.GET('/api/v1/workflows/drafts', { params: { query } }),
-		);
+		data = await call<unknown>(client.GET('/api/v1/workflows/drafts', { params: { query } }));
 	} else if (kind === 'agent') {
-		data = await call<unknown>(
-			client.GET('/api/v1/agents/drafts', { params: { query } }),
-		);
+		data = await call<unknown>(client.GET('/api/v1/agents/drafts', { params: { query } }));
 	} else if (kind === 'node') {
-		data = await call<unknown>(
-			client.GET('/api/v1/templates/node/drafts', { params: { query } }),
-		);
+		data = await call<unknown>(client.GET('/api/v1/templates/node/drafts', { params: { query } }));
 	} else {
 		data = await call<unknown>(
 			client.GET('/api/v1/templates/trigger/drafts', {
@@ -161,8 +150,7 @@ export async function listDefinitionDrafts(
 	);
 	return validated
 		.filter(
-			(result): result is PromiseFulfilledResult<DefinitionDraft> =>
-				result.status === 'fulfilled',
+			(result): result is PromiseFulfilledResult<DefinitionDraft> => result.status === 'fulfilled',
 		)
 		.map((result) => result.value);
 }
@@ -209,17 +197,11 @@ export async function saveDefinitionDraft(
 	const id = String(definition.id ?? '');
 	let data: string | null;
 	if (kind === 'workflow') {
-		data = await call<string>(
-			client.POST('/api/v1/workflows/drafts', { body: definition }),
-		);
+		data = await call<string>(client.POST('/api/v1/workflows/drafts', { body: definition }));
 	} else if (kind === 'agent') {
-		data = await call<string>(
-			client.POST('/api/v1/agents/drafts', { body: definition }),
-		);
+		data = await call<string>(client.POST('/api/v1/agents/drafts', { body: definition }));
 	} else if (kind === 'node') {
-		data = await call<string>(
-			client.POST('/api/v1/templates/node/drafts', { body: definition }),
-		);
+		data = await call<string>(client.POST('/api/v1/templates/node/drafts', { body: definition }));
 	} else {
 		data = await call<string>(
 			client.POST('/api/v1/templates/trigger/drafts', {
@@ -231,10 +213,7 @@ export async function saveDefinitionDraft(
 }
 
 /** Delete a draft. */
-export async function deleteDefinitionDraft(
-	kind: DefinitionKind,
-	id: string,
-): Promise<void> {
+export async function deleteDefinitionDraft(kind: DefinitionKind, id: string): Promise<void> {
 	if (kind === 'workflow') {
 		await call<boolean>(
 			client.DELETE('/api/v1/workflows/drafts/{id}', {
@@ -355,20 +334,14 @@ export async function promoteDefinitionDraft(
 
 // ── versions ─────────────────────────────────────────────────────
 
-function toVersion(
-	kind: DefinitionKind,
-	value: unknown,
-	index: number,
-): DefinitionVersion {
+function toVersion(kind: DefinitionKind, value: unknown, index: number): DefinitionVersion {
 	const row = isRecord(value) ? value : {};
 	// A workflow version is a definition; an agent version is a template
 	// wrapping one.
 	const definition = kind === 'agent' ? row.definition : row;
 	const payload = isRecord(definition) ? definition : {};
 	const version =
-		typeof payload.version === 'string' && payload.version
-			? payload.version
-			: `v${index + 1}`;
+		typeof payload.version === 'string' && payload.version ? payload.version : `v${index + 1}`;
 	const metadata = isRecord(payload.metadata) ? payload.metadata : {};
 	return {
 		kind,
@@ -557,12 +530,10 @@ export async function diffDefinitionVersions(
 			.map((node) => String(node.id ?? ''))
 			.filter(Boolean);
 	const edges = (value: Record<string, unknown>) =>
-		(Array.isArray(value.edges) ? (value.edges as DiffEdgeDto[]) : []).map(
-			(edge) => ({
-				source: String(edge.source_node_id ?? ''),
-				target: String(edge.target_node_id ?? ''),
-			}),
-		);
+		(Array.isArray(value.edges) ? (value.edges as DiffEdgeDto[]) : []).map((edge) => ({
+			source: String(edge.source_node_id ?? ''),
+			target: String(edge.target_node_id ?? ''),
+		}));
 	const topology = diffTopology(
 		nodes(before).map((nodeId) => ({
 			id: nodeId,

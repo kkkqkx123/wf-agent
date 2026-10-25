@@ -21,12 +21,7 @@
 		listPerformanceNodes,
 		runQuery,
 	} from '#lib/services/insights';
-	import type {
-		AuditReport,
-		ErrorAnalysis,
-		PerfNode,
-		QueryResult,
-	} from '#lib/types/models';
+	import type { AuditReport, ErrorAnalysis, PerfNode, QueryResult } from '#lib/types/models';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { t } from '#lib/i18n';
 	import {
@@ -46,9 +41,7 @@
 
 	const requestedTab = parseListParams(page.url as unknown as URL).tab;
 	let tab = $state(
-		requestedTab && TABS.some((item) => item.id === requestedTab)
-			? requestedTab
-			: 'query',
+		requestedTab && TABS.some((item) => item.id === requestedTab) ? requestedTab : 'query',
 	);
 
 	$effect(() => {
@@ -115,8 +108,7 @@
 			}
 		} catch (e) {
 			console.error('Failed to load insights segment:', e);
-			loadError =
-				e instanceof Error ? e.message : t('page.insights.loadFailed');
+			loadError = e instanceof Error ? e.message : t('page.insights.loadFailed');
 		} finally {
 			loading = false;
 		}
@@ -138,12 +130,8 @@
 			seenQuery = true;
 			toasts.success(t('page.insights.defaultScopeExecuted'));
 		} catch (e) {
-			queryError =
-				e instanceof Error ? e.message : t('page.insights.queryFailed');
-			toasts.error(
-				t('page.insights.queryFailedTitle'),
-				e instanceof Error ? e.message : undefined,
-			);
+			queryError = e instanceof Error ? e.message : t('page.insights.queryFailed');
+			toasts.error(t('page.insights.queryFailedTitle'), e instanceof Error ? e.message : undefined);
 		} finally {
 			queryBusy = false;
 		}
@@ -154,10 +142,7 @@
 			await exportQuery({ expressions: [], format: 'csv', limit: 50 });
 			toasts.success(t('page.insights.exportQueued'));
 		} catch (e) {
-			toasts.error(
-				t('page.insights.exportFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('page.insights.exportFailed'), e instanceof Error ? e.message : undefined);
 		}
 	}
 
@@ -279,33 +264,17 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	<PageHeader
-		title={t('page.insights.title')}
-		description={t('page.insights.description')}
-	>
+	<PageHeader title={t('page.insights.title')} description={t('page.insights.description')}>
 		{#snippet actions()}
-			<IconButton
-				icon="refresh"
-				label={t('common.refresh')}
-				onclick={() => void reload()}
-			/>
-			<Button
-				variant="outline"
-				size="sm"
-				onclick={() => void exportAdhocQuery()}
-			>
+			<IconButton icon="refresh" label={t('common.refresh')} onclick={() => void reload()} />
+			<Button variant="outline" size="sm" onclick={() => void exportAdhocQuery()}>
 				<Icon name="download" size={13} />
 				Export
 			</Button>
 		{/snippet}
 	</PageHeader>
 
-	<Segmented
-		items={TABS}
-		bind:value={tab}
-		class="px-4"
-		panelId="insights-panel"
-	/>
+	<Segmented items={TABS} bind:value={tab} class="px-4" panelId="insights-panel" />
 
 	<div
 		id="insights-panel"
@@ -316,25 +285,16 @@
 		{#if tab === 'query'}
 			<div class="space-y-3">
 				<Card title={t('page.insights.adhocQuery')}>
-					<Textarea
-						bind:value={statement}
-						class="min-h-28 font-mono text-caption"
-					/>
+					<Textarea bind:value={statement} class="min-h-28 font-mono text-caption" />
 					<p class="mt-1 text-micro text-muted-foreground">
-						The statement box is a local draft. The query endpoint takes
-						structured filters, so Run executes the default execution scope and
-						reports that scope only until statement execution lands.
+						The statement box is a local draft. The query endpoint takes structured filters, so Run
+						executes the default execution scope and reports that scope only until statement
+						execution lands.
 					</p>
 					<div class="mt-2 flex items-center gap-2">
-						<Button
-							size="sm"
-							disabled={queryBusy}
-							onclick={() => void runAdhocQuery()}
-						>
+						<Button size="sm" disabled={queryBusy} onclick={() => void runAdhocQuery()}>
 							<Icon name="play" size={13} />
-							{queryBusy
-								? t('page.insights.running')
-								: t('page.insights.runQuery')}
+							{queryBusy ? t('page.insights.running') : t('page.insights.runQuery')}
 						</Button>
 						<Button variant="ghost" size="sm" onclick={() => (statement = '')}
 							>{t('page.insights.clear')}</Button
@@ -362,11 +322,7 @@
 							columns={rowColumns}
 							rows={queryResult.rows}
 							rowKey={(row) =>
-								String(
-									row.execution_id ??
-										row.id ??
-										JSON.stringify(row).slice(0, 48),
-								)}
+								String(row.execution_id ?? row.id ?? JSON.stringify(row).slice(0, 48))}
 							dense
 						/>
 					</PageState>
@@ -400,9 +356,7 @@
 									</span>
 								</div>
 								<p class="mt-2 text-caption text-muted-foreground">
-									{formatNumber(report.nodes)} nodes · {formatNumber(
-										report.toolCalls,
-									)} tool calls
+									{formatNumber(report.nodes)} nodes · {formatNumber(report.toolCalls)} tool calls
 								</p>
 								{#snippet footer()}
 									<Button variant="ghost" size="sm" href="/insights"
@@ -430,18 +384,12 @@
 								<p class="text-caption">{error.rootCause}</p>
 								<div class="mt-2 flex flex-wrap items-center gap-1.5">
 									{#if error.similar.length > 0}
-										<span class="text-micro text-muted-foreground"
-											>similar:</span
-										>
+										<span class="text-micro text-muted-foreground">similar:</span>
 										{#each error.similar as id (id)}
-											<Badge variant="outline" class="text-[0.625rem]"
-												>{id}</Badge
-											>
+											<Badge variant="outline" class="text-[0.625rem]">{id}</Badge>
 										{/each}
 									{:else}
-										<span class="text-micro text-muted-foreground"
-											>no similar errors</span
-										>
+										<span class="text-micro text-muted-foreground">no similar errors</span>
 									{/if}
 								</div>
 							</Card>
@@ -452,20 +400,14 @@
 						<ul class="space-y-3">
 							{#each perfNodes as node (node.node)}
 								<li>
-									<div
-										class="flex items-center justify-between gap-3 text-caption"
-									>
+									<div class="flex items-center justify-between gap-3 text-caption">
 										<span class="truncate font-mono">{node.node}</span>
 										<span class="shrink-0 tabular-nums text-muted-foreground">
-											{formatDuration(node.avgMs)} avg · {formatDuration(
-												node.p95Ms,
-											)} p95
+											{formatDuration(node.avgMs)} avg · {formatDuration(node.p95Ms)} p95
 										</span>
 									</div>
 									<div class="mt-1 flex items-center gap-2">
-										<span
-											class="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
-										>
+										<span class="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
 											<span
 												class="block h-full rounded-full bg-chart-1"
 												style:width="{node.share * 100}%"

@@ -11,14 +11,7 @@ const PEER_TTL_MS = 5_000;
 const SWEEP_MS = 2_000;
 const SEND_GAP_MS = 100;
 
-const PALETTE = [
-	'#f97316',
-	'#8b5cf6',
-	'#0ea5e9',
-	'#10b981',
-	'#eab308',
-	'#ec4899',
-] as const;
+const PALETTE = ['#f97316', '#8b5cf6', '#0ea5e9', '#10b981', '#eab308', '#ec4899'] as const;
 
 /** Stable cursor color per client so peers stay recognizable. */
 export function colorForClient(clientId: string): string {
@@ -36,9 +29,7 @@ export function livePeers(
 	now: number,
 ): PresenceCursor[] {
 	return Object.values(frames)
-		.filter(
-			(frame) => frame.clientId !== selfId && now - frame.at <= PEER_TTL_MS,
-		)
+		.filter((frame) => frame.clientId !== selfId && now - frame.at <= PEER_TTL_MS)
 		.map(({ clientId, name, color, x, y }) => ({
 			clientId,
 			name,
@@ -121,20 +112,14 @@ export class PresenceStore {
 		this.transport = transport;
 	}
 
-	join(
-		kind: DefinitionKind,
-		definitionId: string,
-		name = 'this browser',
-	): void {
+	join(kind: DefinitionKind, definitionId: string, name = 'this browser'): void {
 		if (!browser) return;
 		this.leave();
 		this.clientId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 		this.displayName = `${name} · ${this.clientId.slice(-4)}`;
 		let channel: BroadcastChannel;
 		try {
-			channel = new BroadcastChannel(
-				`${CHANNEL_PREFIX}${kind}-${definitionId}`,
-			);
+			channel = new BroadcastChannel(`${CHANNEL_PREFIX}${kind}-${definitionId}`);
 		} catch {
 			return;
 		}

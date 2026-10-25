@@ -84,9 +84,7 @@ function asNumber(value: unknown): number | null {
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-	return value !== null && typeof value === 'object'
-		? (value as Record<string, unknown>)
-		: null;
+	return value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : null;
 }
 
 function asArray(value: unknown): unknown[] {
@@ -111,16 +109,10 @@ function toOption(raw: unknown): InteractionOption | null {
 }
 
 /** Read one question; the engine uses a 0-based index. */
-function toQuestion(
-	raw: unknown,
-	fallbackIndex: number,
-): InteractionQuestion | null {
+function toQuestion(raw: unknown, fallbackIndex: number): InteractionQuestion | null {
 	const record = asRecord(raw);
 	if (!record) return null;
-	const text =
-		asString(record.text) ||
-		asString(record.prompt) ||
-		asString(record.question);
+	const text = asString(record.text) || asString(record.prompt) || asString(record.question);
 	if (!text) return null;
 	const options = asArray(record.options)
 		.map(toOption)
@@ -189,9 +181,7 @@ export function parsePendingInteractions(data: unknown): PendingInteraction[] {
 }
 
 /** Pending interactions of one execution, oldest first. */
-export async function listPendingInteractions(
-	executionId: string,
-): Promise<PendingInteraction[]> {
+export async function listPendingInteractions(executionId: string): Promise<PendingInteraction[]> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/interactions/by-execution/{executionId}', {
 			params: { path: { executionId }, query: { limit: 100 } },

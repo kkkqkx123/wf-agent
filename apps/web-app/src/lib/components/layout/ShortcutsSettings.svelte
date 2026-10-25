@@ -55,13 +55,9 @@
 				return;
 			}
 			const conflicts = findShortcutConflicts(candidate).filter(
-				(conflict) =>
-					conflict.type === 'hotkey' && !conflict.registration.id.includes(id),
+				(conflict) => conflict.type === 'hotkey' && !conflict.registration.id.includes(id),
 			);
-			setShortcutOverride(
-				id,
-				candidate === action?.defaultKeys ? null : candidate,
-			);
+			setShortcutOverride(id, candidate === action?.defaultKeys ? null : candidate);
 			message = conflicts.length
 				? t('layout.shortcuts.savedWithConflict', {
 						action: action?.label ?? id,
@@ -105,10 +101,7 @@
 	}
 </script>
 
-<Card
-	title={t('layout.shortcuts.title')}
-	description={t('layout.shortcuts.description')}
->
+<Card title={t('layout.shortcuts.title')} description={t('layout.shortcuts.description')}>
 	<div class="space-y-1">
 		{#each rows as row (row.id)}
 			<div class="flex items-center justify-between gap-3 rounded px-2 py-1.5">
@@ -124,18 +117,11 @@
 							>{t('layout.shortcuts.recording')}</kbd
 						>
 					{:else}
-						<kbd
-							class="rounded border px-2 py-0.5 text-xs"
-							class:opacity-50={row.disabled}
-						>
+						<kbd class="rounded border px-2 py-0.5 text-xs" class:opacity-50={row.disabled}>
 							{row.disabled ? t('layout.shortcuts.disabled') : row.keys}
 						</kbd>
 					{/if}
-					<Button
-						size="sm"
-						variant="outline"
-						onclick={() => startRecording(row.id)}
-					>
+					<Button size="sm" variant="outline" onclick={() => startRecording(row.id)}>
 						<Icon name="pencil" size={12} />
 						{t('layout.shortcuts.record')}
 					</Button>

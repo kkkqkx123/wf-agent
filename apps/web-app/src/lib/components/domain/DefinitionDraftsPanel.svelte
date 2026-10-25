@@ -63,8 +63,7 @@
 				kind: edge.kind,
 			}));
 		} catch (e) {
-			previewError =
-				e instanceof Error ? e.message : t('domain.drafts.previewFailed');
+			previewError = e instanceof Error ? e.message : t('domain.drafts.previewFailed');
 		} finally {
 			previewLoading = false;
 		}
@@ -88,43 +87,25 @@
 					{#each draft.issues as issue, index (index)}
 						<li class="flex items-start gap-1.5 text-caption text-destructive">
 							<Icon name="alert-circle" size={12} class="mt-0.5 shrink-0" />
-							<span
-								>{issue.field
-									? `${issue.field}: ${issue.message}`
-									: issue.message}</span
-							>
+							<span>{issue.field ? `${issue.field}: ${issue.message}` : issue.message}</span>
 						</li>
 					{/each}
 				</ul>
 			{/if}
 			{#snippet footer()}
 				<div class="flex items-center gap-2">
-					<Button size="sm" onclick={() => onpromote(draft.id)}
-						>{t('domain.graph.promote')}</Button
-					>
-					<Button
-						variant="ghost"
-						size="sm"
-						onclick={() => onvalidate(draft.id)}
-					>
+					<Button size="sm" onclick={() => onpromote(draft.id)}>{t('domain.graph.promote')}</Button>
+					<Button variant="ghost" size="sm" onclick={() => onvalidate(draft.id)}>
 						{t('domain.graph.validate')}
 					</Button>
 					{#if hasGraph}
-						<Button
-							variant="ghost"
-							size="sm"
-							onclick={() => void togglePreview(draft.id)}
-						>
+						<Button variant="ghost" size="sm" onclick={() => void togglePreview(draft.id)}>
 							{previewId === draft.id
 								? t('domain.drafts.hideGraph')
 								: t('domain.drafts.previewGraph')}
 						</Button>
 					{/if}
-					<Button
-						variant="ghost"
-						size="sm"
-						onclick={() => toggleDefinition(draft.id)}
-					>
+					<Button variant="ghost" size="sm" onclick={() => toggleDefinition(draft.id)}>
 						{definitionId === draft.id
 							? t('domain.drafts.hideDefinition')
 							: t('domain.drafts.viewDefinition')}
@@ -143,11 +124,7 @@
 						/>
 					{:else}
 						{#await import('#lib/components/domain/GraphExplorer.svelte') then module}
-							<module.default
-								nodes={previewNodes}
-								edges={previewEdges}
-								preset="workflow"
-							/>
+							<module.default nodes={previewNodes} edges={previewEdges} preset="workflow" />
 						{/await}
 					{/if}
 				</div>

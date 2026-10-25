@@ -39,7 +39,8 @@ export function registerCheckpoints(router: MockRouter): void {
 			.split(',')
 			.map((id) => id.trim())
 			.filter((id) => id.length > 0);
-		const filtered = ids.length === 0 ? checkpoints : checkpoints.filter((c) => ids.includes(c.executionId));
+		const filtered =
+			ids.length === 0 ? checkpoints : checkpoints.filter((c) => ids.includes(c.executionId));
 		return pageView(filtered.map(toCheckpointWire), +(query.limit ?? 50), +(query.offset ?? 0));
 	});
 	router.on('GET', '/api/v1/checkpoints/entity/{entityId}/metadata', () => ({
@@ -47,7 +48,10 @@ export function registerCheckpoints(router: MockRouter): void {
 	}));
 	router.on('PUT', '/api/v1/checkpoints/entity/{entityId}/metadata', () => ({ ok: true }));
 	router.on('GET', '/api/v1/checkpoints/stats', () => {
-		return { total: checkpoints.length, restorable: checkpoints.filter((c) => c.restorable).length };
+		return {
+			total: checkpoints.length,
+			restorable: checkpoints.filter((c) => c.restorable).length,
+		};
 	});
 	router.on('GET', '/api/v1/agent-checkpoints/stats', () => {
 		const byType: Record<string, number> = {};

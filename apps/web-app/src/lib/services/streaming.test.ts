@@ -15,13 +15,10 @@ function collect(): { callbacks: StreamCallbacks; calls: string[] } {
 			onExecution: (id) => calls.push(`execution:${id}`),
 			onDelta: (text) => calls.push(`delta:${text}`),
 			onReasoning: (text) => calls.push(`reasoning:${text}`),
-			onNode: (node) =>
-				calls.push(`node:${node.id}:${node.status}:${node.durationMs}`),
+			onNode: (node) => calls.push(`node:${node.id}:${node.status}:${node.durationMs}`),
 			onToolStart: (id, name) => calls.push(`toolStart:${id}:${name}`),
 			onUsage: (usage) =>
-				calls.push(
-					`usage:${usage.promptTokens}:${usage.completionTokens}:${usage.cost}`,
-				),
+				calls.push(`usage:${usage.promptTokens}:${usage.completionTokens}:${usage.cost}`),
 			onInterrupted: (reason) => calls.push(`interrupted:${reason}`),
 			onError: (failure) => calls.push(`error:${failure.message}`),
 		},
@@ -50,32 +47,20 @@ describe('handleExecutionFrame', () => {
 
 	it('ignores engine bus events the timeline does not model', () => {
 		const spy = vi.fn();
-		handleExecutionFrame(
-			'engine',
-			{ type: 'CHECKPOINT_SAVED', metadata: {} },
-			{ onNode: spy },
-		);
+		handleExecutionFrame('engine', { type: 'CHECKPOINT_SAVED', metadata: {} }, { onNode: spy });
 		expect(spy).not.toHaveBeenCalled();
 	});
 
 	it('reads the increments of the answer and the reasoning separately', () => {
 		const { callbacks, calls } = collect();
 		handleExecutionFrame('', { type: 'llm_delta', content: 'hi' }, callbacks);
-		handleExecutionFrame(
-			'',
-			{ type: 'reasoning_delta', content: 'think' },
-			callbacks,
-		);
+		handleExecutionFrame('', { type: 'reasoning_delta', content: 'think' }, callbacks);
 		expect(calls).toEqual(['delta:hi', 'reasoning:think']);
 	});
 
 	it('ignores frames of the generation protocol', () => {
 		const spy = vi.fn();
-		handleExecutionFrame(
-			'',
-			{ event_type: 'text', text: 'not mine' },
-			{ onDelta: spy },
-		);
+		handleExecutionFrame('', { event_type: 'text', text: 'not mine' }, { onDelta: spy });
 		expect(spy).not.toHaveBeenCalled();
 	});
 });

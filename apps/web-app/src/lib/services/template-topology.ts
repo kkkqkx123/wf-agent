@@ -9,10 +9,7 @@ function field(record: Record<string, unknown>, key: string, fallback: string): 
 }
 
 /** Definition-level object a form edits, unwrapped for library kinds. */
-export function templateEditTarget(
-	kind: TemplateKind,
-	value: unknown,
-): unknown {
+export function templateEditTarget(kind: TemplateKind, value: unknown): unknown {
 	if (kind === 'node' || kind === 'trigger') return value;
 	return (value as Record<string, unknown>)?.definition ?? value;
 }
@@ -28,10 +25,7 @@ export function parseTemplateTopology(value: unknown): TemplateTopology {
 		value && typeof value === 'object' && !Array.isArray(value)
 			? (value as Record<string, unknown>).definition &&
 				typeof (value as Record<string, unknown>).definition === 'object'
-				? ((value as Record<string, unknown>).definition as Record<
-						string,
-						unknown
-					>)
+				? ((value as Record<string, unknown>).definition as Record<string, unknown>)
 				: (value as Record<string, unknown>)
 			: {};
 	return {
@@ -45,10 +39,7 @@ export function parseTemplateTopology(value: unknown): TemplateTopology {
 				id: field(edge, 'id', `edge-${index}`),
 				source: field(edge, 'source_node_id', ''),
 				target: field(edge, 'target_node_id', ''),
-				label:
-					typeof edge.condition === 'string' && edge.condition
-						? edge.condition
-						: undefined,
+				label: typeof edge.condition === 'string' && edge.condition ? edge.condition : undefined,
 				kind: field(edge, 'type', 'DEFAULT'),
 			}))
 			.filter((edge) => edge.source && edge.target),
@@ -78,21 +69,12 @@ export function mergeTemplateGraph(
 	if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
 	const record = value as Record<string, unknown>;
 	const hasDefinition =
-		record.definition &&
-		typeof record.definition === 'object' &&
-		!Array.isArray(record.definition);
-	const target = (hasDefinition ? record.definition : record) as Record<
-		string,
-		unknown
-	>;
+		record.definition && typeof record.definition === 'object' && !Array.isArray(record.definition);
+	const target = (hasDefinition ? record.definition : record) as Record<string, unknown>;
 	const prevNodes = asRecordList(target.nodes);
 	const prevEdges = asRecordList(target.edges);
-	const nodeById = new Map(
-		prevNodes.map((node) => [field(node, 'id', ''), node]),
-	);
-	const edgeById = new Map(
-		prevEdges.map((edge) => [field(edge, 'id', ''), edge]),
-	);
+	const nodeById = new Map(prevNodes.map((node) => [field(node, 'id', ''), node]));
+	const edgeById = new Map(prevEdges.map((edge) => [field(edge, 'id', ''), edge]));
 	const nextNodes = nodes.map((node, index) => {
 		const prev = nodeById.get(node.id) ?? {};
 		return {
@@ -168,10 +150,7 @@ export function skeletonNodeHints(nodes: DisplayNode[]): string[] {
  * Derive a short human summary from a stored template entry for the
  * read-only preview. Unknown shapes degrade to a version row only.
  */
-export function summarizeTemplate(
-	kind: TemplateKind,
-	raw: unknown,
-): KeyValue[] {
+export function summarizeTemplate(kind: TemplateKind, raw: unknown): KeyValue[] {
 	const asRecord = (value: unknown): Record<string, unknown> =>
 		value && typeof value === 'object' && !Array.isArray(value)
 			? (value as Record<string, unknown>)
@@ -186,20 +165,14 @@ export function summarizeTemplate(
 	if (kind === 'workflow') {
 		const nodes = Array.isArray(definition.nodes) ? definition.nodes : null;
 		const edges = Array.isArray(definition.edges) ? definition.edges : null;
-		if (nodes !== null)
-			summary.push({ key: 'Nodes', value: String(nodes.length) });
-		if (edges !== null)
-			summary.push({ key: 'Edges', value: String(edges.length) });
+		if (nodes !== null) summary.push({ key: 'Nodes', value: String(nodes.length) });
+		if (edges !== null) summary.push({ key: 'Edges', value: String(edges.length) });
 		if (nodes !== null && edges !== null) {
 			const targets = new Set(
-				(edges as Array<Record<string, unknown>>).map((edge) =>
-					String(edge.target_node_id ?? ''),
-				),
+				(edges as Array<Record<string, unknown>>).map((edge) => String(edge.target_node_id ?? '')),
 			);
 			const sources = new Set(
-				(edges as Array<Record<string, unknown>>).map((edge) =>
-					String(edge.source_node_id ?? ''),
-				),
+				(edges as Array<Record<string, unknown>>).map((edge) => String(edge.source_node_id ?? '')),
 			);
 			const starts = (nodes as Array<Record<string, unknown>>)
 				.map((node) => String(node.id ?? ''))
@@ -209,8 +182,7 @@ export function summarizeTemplate(
 				.map((node) => String(node.id ?? ''))
 				.filter((id) => id && !sources.has(id))
 				.slice(0, 3);
-			if (starts.length > 0)
-				summary.push({ key: 'Start', value: starts.join(', ') });
+			if (starts.length > 0) summary.push({ key: 'Start', value: starts.join(', ') });
 			if (ends.length > 0) summary.push({ key: 'End', value: ends.join(', ') });
 		}
 		return summary;
@@ -229,10 +201,7 @@ export function summarizeTemplate(
 			const shown = available.slice(0, 5).join(', ');
 			summary.push({
 				key: 'Tools',
-				value:
-					available.length > 5
-						? `${shown} (+${available.length - 5} more)`
-						: shown,
+				value: available.length > 5 ? `${shown} (+${available.length - 5} more)` : shown,
 			});
 		} else {
 			const configKeys = Object.keys(config);

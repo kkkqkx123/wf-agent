@@ -1,9 +1,5 @@
 <script lang="ts">
-	import type {
-		LlmReasoningStep,
-		NodeInputContext,
-		NodeTrace,
-	} from '#lib/types/models';
+	import type { LlmReasoningStep, NodeInputContext, NodeTrace } from '#lib/types/models';
 	import EmptyState from '#lib/ui/components/EmptyState.svelte';
 	import ErrorState from '#lib/ui/components/ErrorState.svelte';
 	import Input from '#lib/ui/components/Input.svelte';
@@ -59,9 +55,7 @@
 	const visible = $derived(filterNodeTraces(traces, status, search));
 	const summary = $derived(summarizeNodeTraces(traces));
 
-	const statusOptions = $derived(
-		NODE_TRACE_STATUS_FILTERS.map((entry) => ({ ...entry })),
-	);
+	const statusOptions = $derived(NODE_TRACE_STATUS_FILTERS.map((entry) => ({ ...entry })));
 
 	function toggle(nodeId: string): void {
 		const opens = !expanded.has(nodeId);
@@ -71,8 +65,7 @@
 	}
 
 	async function loadDetail(nodeId: string): Promise<void> {
-		if (details[nodeId] !== undefined || reasoning[nodeId] !== undefined)
-			return;
+		if (details[nodeId] !== undefined || reasoning[nodeId] !== undefined) return;
 		pending.add(nodeId);
 		try {
 			const [context, steps] = await Promise.all([
@@ -82,10 +75,7 @@
 			details = { ...details, [nodeId]: context };
 			reasoning = { ...reasoning, [nodeId]: steps };
 		} catch (e) {
-			toasts.error(
-				t('domain.nodeTrace.contextFailed'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.nodeTrace.contextFailed'), e instanceof Error ? e.message : undefined);
 		} finally {
 			pending.delete(nodeId);
 		}

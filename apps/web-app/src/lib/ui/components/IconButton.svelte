@@ -32,11 +32,7 @@
 	type="button"
 	aria-label={label}
 	title={label}
-	class={cn(
-		buttonClass(variant, compact ? 'icon-sm' : 'icon'),
-		active && 'bg-accent',
-		className,
-	)}
+	class={cn(buttonClass(variant, compact ? 'icon-sm' : 'icon'), active && 'bg-accent', className)}
 	{...rest}
 >
 	<Icon name={icon} size={iconSize} />

@@ -70,11 +70,7 @@ export interface StreamCallbacks {
 	onReasoning?: (text: string) => void;
 	onIterationStart?: (iteration: number) => void;
 	onIterationEnd?: (iteration: number) => void;
-	onToolStart?: (
-		toolCallId: string,
-		toolName: string,
-		toolKind?: string,
-	) => void;
+	onToolStart?: (toolCallId: string, toolName: string, toolKind?: string) => void;
 	onToolEnd?: (tool: ToolLifecycle) => void;
 	onUsage?: (usage: UsageSnapshot) => void;
 	onSubAgent?: (
@@ -188,23 +184,12 @@ function connectedExecutionId(payload: Record<string, unknown>): string | null {
 }
 
 /** Decode one execution-stream frame by its `event:` line. */
-export function decodeExecutionFrame(
-	event: string,
-	data: unknown,
-): ExecutionFrame {
+export function decodeExecutionFrame(event: string, data: unknown): ExecutionFrame {
 	if (event === 'metadata') {
-		if (
-			isRecord(data) &&
-			typeof data.execution_id === 'string' &&
-			data.execution_id
-		) {
+		if (isRecord(data) && typeof data.execution_id === 'string' && data.execution_id) {
 			return { kind: 'metadata', executionId: data.execution_id };
 		}
-		if (
-			isRecord(data) &&
-			typeof data.executionId === 'string' &&
-			data.executionId
-		) {
+		if (isRecord(data) && typeof data.executionId === 'string' && data.executionId) {
 			return { kind: 'metadata', executionId: data.executionId };
 		}
 		return { kind: 'raw', event, data };
@@ -220,11 +205,7 @@ export function decodeExecutionFrame(
 		return { kind: 'raw', event, data };
 	}
 	if (event === '') {
-		if (
-			isRecord(data) &&
-			typeof data.type === 'string' &&
-			KNOWN_PROTOCOL_TYPES.has(data.type)
-		) {
+		if (isRecord(data) && typeof data.type === 'string' && KNOWN_PROTOCOL_TYPES.has(data.type)) {
 			return { kind: 'protocol', eventType: data.type, data };
 		}
 		return { kind: 'raw', event, data };
@@ -237,17 +218,11 @@ function normalizeBaseEvent(record: Record<string, unknown>): BaseEventFrame {
 		id: typeof record.id === 'string' ? record.id : '',
 		type: record.type as string,
 		timestamp: typeof record.timestamp === 'number' ? record.timestamp : 0,
-		event_name:
-			typeof record.event_name === 'string' ? record.event_name : null,
-		workflow_id:
-			typeof record.workflow_id === 'string' ? record.workflow_id : null,
-		execution_id:
-			typeof record.execution_id === 'string' ? record.execution_id : null,
-		agent_loop_id:
-			typeof record.agent_loop_id === 'string' ? record.agent_loop_id : null,
-		metadata: isRecord(record.metadata)
-			? (record.metadata as Record<string, unknown>)
-			: null,
+		event_name: typeof record.event_name === 'string' ? record.event_name : null,
+		workflow_id: typeof record.workflow_id === 'string' ? record.workflow_id : null,
+		execution_id: typeof record.execution_id === 'string' ? record.execution_id : null,
+		agent_loop_id: typeof record.agent_loop_id === 'string' ? record.agent_loop_id : null,
+		metadata: isRecord(record.metadata) ? (record.metadata as Record<string, unknown>) : null,
 	};
 }
 
@@ -281,9 +256,7 @@ function asNumber(value: unknown, fallback = 0): number {
 }
 
 function frameTimestamp(frame: Frame): string {
-	return typeof frame.timestamp === 'number'
-		? new Date(frame.timestamp).toISOString()
-		: '';
+	return typeof frame.timestamp === 'number' ? new Date(frame.timestamp).toISOString() : '';
 }
 
 function asOptionalNumber(value: unknown): number | null {
@@ -306,9 +279,7 @@ function parseBackgroundMarker(value: unknown): BackgroundMarker | null {
 /** Engine frames carry their node payload under `metadata`. */
 function frameMetadata(frame: Frame): Record<string, unknown> {
 	const metadata = frame.metadata;
-	return metadata && typeof metadata === 'object'
-		? (metadata as Record<string, unknown>)
-		: {};
+	return metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>) : {};
 }
 
 /**
@@ -322,10 +293,7 @@ const NODE_STATUS: Record<string, StreamNodeUpdate['status']> = {
 	NODE_SKIPPED: 'skipped',
 };
 
-function toNodeUpdate(
-	frame: Frame,
-	status: StreamNodeUpdate['status'],
-): StreamNodeUpdate {
+function toNodeUpdate(frame: Frame, status: StreamNodeUpdate['status']): StreamNodeUpdate {
 	const metadata = frameMetadata(frame);
 	const nodeId = asString(metadata.node_id);
 	return {
@@ -412,8 +380,7 @@ export function handleExecutionFrame(
 			callbacks.onToolEnd?.({
 				toolCallId: asString(frame.tool_call_id),
 				toolName: asString(frame.tool_name),
-				toolKind:
-					asString(frame.tool_kind) || asString(frame.kind) || undefined,
+				toolKind: asString(frame.tool_kind) || asString(frame.kind) || undefined,
 				success: frame.success !== false,
 				result: asString(frame.result),
 				error: asOptionalString(frame.error),
@@ -436,15 +403,10 @@ export function handleExecutionFrame(
 			});
 			break;
 		case 'sub_agent_ended':
-			callbacks.onSubAgent?.(
-				asString(frame.id),
-				asString(frame.name),
-				frame.success !== false,
-				{
-					toolCallId: asString(frame.tool_call_id) || undefined,
-					background: frame.background === true,
-				},
-			);
+			callbacks.onSubAgent?.(asString(frame.id), asString(frame.name), frame.success !== false, {
+				toolCallId: asString(frame.tool_call_id) || undefined,
+				background: frame.background === true,
+			});
 			break;
 		case 'sub_agent_progress':
 			callbacks.onSubAgent?.(asString(frame.id), '', null, {

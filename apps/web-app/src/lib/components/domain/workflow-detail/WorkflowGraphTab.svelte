@@ -34,8 +34,7 @@
 	// Selection, overlays and analysis live in the route-owned state object so
 	// leaving the tab and returning keeps them; the route reloads it with the
 	// detail (load/promotion), matching the pre-split page behavior.
-	let { detail, nodes, edges, state: graph, onedit, onclearoverlay }: Props =
-		$props();
+	let { detail, nodes, edges, state: graph, onedit, onclearoverlay }: Props = $props();
 
 	// The log strip shares the tab so graph context and recent runs stay
 	// visible together; collapsed by default to preserve canvas height.
@@ -44,15 +43,9 @@
 	// Read-only execution projection: the latest run is painted onto the
 	// definition topology through the shared overlay helpers, never by
 	// mutating the definition itself.
-	const overlayInput = $derived(
-		executionInputFromSignals(graph.executionOverlay),
-	);
-	const definitionOverlay = $derived(
-		projectExecutionOverlay(nodes, overlayInput),
-	);
-	const overlayNodes = $derived(
-		applyExecutionOverlay(nodes, definitionOverlay),
-	);
+	const overlayInput = $derived(executionInputFromSignals(graph.executionOverlay));
+	const definitionOverlay = $derived(projectExecutionOverlay(nodes, overlayInput));
+	const overlayNodes = $derived(applyExecutionOverlay(nodes, definitionOverlay));
 	const overlayEdges = $derived.by(() =>
 		applyEdgeOverlay(edges, projectEdgeOverlay(edges, definitionOverlay)),
 	);
@@ -61,9 +54,7 @@
 		graph.executionOverlay !== null && hasExecutionSignals(overlayInput),
 	);
 
-	const selectedNode = $derived(
-		nodes.find((node) => node.id === graph.selection) ?? null,
-	);
+	const selectedNode = $derived(nodes.find((node) => node.id === graph.selection) ?? null);
 </script>
 
 {#if graph.analysisError}
@@ -71,11 +62,7 @@
 		{t('domain.workflowGraphTab.analysisUnavailable', {
 			error: graph.analysisError,
 		})}
-		<button
-			type="button"
-			class="underline"
-			onclick={() => void graph.loadAnalysis(detail.id)}
-		>
+		<button type="button" class="underline" onclick={() => void graph.loadAnalysis(detail.id)}>
 			{t('domain.hierarchyTree.retry')}
 		</button>.
 	</p>
@@ -84,11 +71,7 @@
 	<div class="mb-2 flex flex-wrap items-center gap-2">
 		{#if overlayActive && graph.overlayRunId}
 			<Badge variant="info">Run {graph.overlayRunId.slice(0, 8)}</Badge>
-			<Button
-				variant="ghost"
-				size="sm"
-				href={`/executions/${graph.overlayRunId}`}
-			>
+			<Button variant="ghost" size="sm" href={`/executions/${graph.overlayRunId}`}>
 				View execution
 			</Button>
 			<Button
@@ -168,7 +151,7 @@
 			</Button>
 		{/snippet}
 		{#if logsOpen}
-			<RunsPanel kind="workflow" definitionId={detail.id} compact />
+			<RunsPanel kind="workflow" definitionId={detail.id} compact limit={5} />
 		{/if}
 	</Card>
 </div>
@@ -177,10 +160,7 @@
 	<Card title={t('domain.workflowGraphTab.nodes')}>
 		<ul class="space-y-1.5">
 			{#each detail.graph.nodes as node (node.id)}
-				<li
-					id={`wf-node-${node.id}`}
-					class="flex items-center justify-between gap-2 text-caption"
-				>
+				<li id={`wf-node-${node.id}`} class="flex items-center justify-between gap-2 text-caption">
 					<button
 						type="button"
 						class="truncate font-mono underline-offset-2 hover:underline"
@@ -208,8 +188,7 @@
 					<Icon name="arrow-right" size={12} class="text-muted-foreground" />
 					<span class="font-mono">{edge.to}</span>
 					{#if edge.label}
-						<Badge variant="outline" class="text-[0.625rem]">{edge.label}</Badge
-						>
+						<Badge variant="outline" class="text-[0.625rem]">{edge.label}</Badge>
 					{/if}
 				</li>
 			{:else}

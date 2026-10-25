@@ -1,9 +1,5 @@
 <script lang="ts">
-	import type {
-		LlmReasoningStep,
-		NodeInputContext,
-		NodeTrace,
-	} from '#lib/types/models';
+	import type { LlmReasoningStep, NodeInputContext, NodeTrace } from '#lib/types/models';
 	import Icon from '#lib/ui/icons/Icon.svelte';
 	import Button from '#lib/ui/components/Button.svelte';
 	import JsonViewer from '#lib/ui/components/JsonViewer.svelte';
@@ -41,6 +37,14 @@
 
 	const tone = $derived(toneText(statusTone(trace.status), 'text-foreground'));
 	const title = $derived(trace.nodeName || trace.nodeId);
+	const processItems = $derived([
+		{ key: 'status', value: trace.status || '—' },
+		{ key: 'retries', value: String(trace.retryCount) },
+		{
+			key: 'duration',
+			value: trace.durationMs === null ? '—' : formatDuration(trace.durationMs),
+		},
+	]);
 	const hasDetail = $derived(detail !== null || (reasoning?.length ?? 0) > 0);
 	/** Reasoning only exists for LLM nodes; rendering the section empty would
 	 * imply the backend returned nothing rather than "not an LLM node". */
@@ -64,9 +68,7 @@
 	>
 		<Icon name="git-commit" size={14} class={cn('shrink-0', tone)} />
 		<span class="min-w-0 flex-1">
-			<span class="block truncate font-mono text-caption text-foreground"
-				>{title}</span
-			>
+			<span class="block truncate font-mono text-caption text-foreground">{title}</span>
 			<span class="block truncate text-micro text-muted-foreground">
 				{trace.nodeType || t('domain.nodeTrace.unknownType')}
 			</span>
@@ -95,9 +97,7 @@
 	</button>
 
 	{#if expanded}
-		<div
-			class="animate-panel-in space-y-2.5 border-t border-border px-3 py-2.5"
-		>
+		<div class="animate-panel-in space-y-2.5 border-t border-border px-3 py-2.5">
 			<dl class="grid grid-cols-2 gap-x-3 gap-y-1.5">
 				<div>
 					<dt class="text-micro text-muted-foreground">
@@ -118,35 +118,29 @@
 			</dl>
 
 			{#if trace.error}
-				<div
-					class="rounded-md border border-destructive/25 bg-destructive/10 px-2 py-1.5"
-				>
-					<p
-						class="flex items-center gap-1.5 text-micro font-medium text-destructive"
-					>
+				<div class="rounded-md border border-destructive/25 bg-destructive/10 px-2 py-1.5">
+					<p class="flex items-center gap-1.5 text-micro font-medium text-destructive">
 						<Icon name="alert-triangle" size={12} />
 						{t('domain.nodeTrace.failure')}
 					</p>
-					<p
-						class="mt-0.5 font-mono text-micro break-words whitespace-pre-wrap text-foreground"
-					>
+					<p class="mt-0.5 font-mono text-micro break-words whitespace-pre-wrap text-foreground">
 						{trace.error}
 					</p>
 				</div>
 			{/if}
 
 			<div>
-				<p
-					class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
-				>
+				<p class="mb-1 text-micro uppercase tracking-wide text-muted-foreground">Process</p>
+				<KeyValueList items={processItems} dense />
+			</div>
+			<div>
+				<p class="mb-1 text-micro uppercase tracking-wide text-muted-foreground">
 					{t('domain.nodeTrace.input')}
 				</p>
 				<JsonViewer value={trace.input} collapsed />
 			</div>
 			<div>
-				<p
-					class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
-				>
+				<p class="mb-1 text-micro uppercase tracking-wide text-muted-foreground">
 					{t('domain.nodeTrace.output')}
 				</p>
 				{#if markdownOutput !== null}
@@ -158,9 +152,7 @@
 
 			{#if trace.toolDependencies.length > 0}
 				<div>
-					<p
-						class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
-					>
+					<p class="mb-1 text-micro uppercase tracking-wide text-muted-foreground">
 						{t('domain.nodeTrace.toolDependencies')}
 					</p>
 					<ul class="flex flex-wrap gap-1.5">
@@ -169,9 +161,7 @@
 								class="rounded-full border border-border px-2 py-0.5 font-mono text-micro text-foreground"
 							>
 								{dependency.toolName}
-								<span class="tabular-nums text-muted-foreground"
-									>×{dependency.callCount}</span
-								>
+								<span class="tabular-nums text-muted-foreground">×{dependency.callCount}</span>
 							</li>
 						{/each}
 					</ul>
@@ -184,26 +174,20 @@
 				</p>
 			{:else if detail}
 				<div>
-					<p
-						class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
-					>
+					<p class="mb-1 text-micro uppercase tracking-wide text-muted-foreground">
 						{t('domain.nodeTrace.inputParameters')}
 					</p>
 					<KeyValueList items={detail.inputParameters} dense />
 				</div>
 				{#if detail.availableVariables.length > 0}
 					<div>
-						<p
-							class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
-						>
+						<p class="mb-1 text-micro uppercase tracking-wide text-muted-foreground">
 							{t('domain.nodeTrace.variablesInScope')}
 						</p>
 						<ul class="space-y-1">
 							{#each detail.availableVariables as variable (variable.name)}
 								<li class="flex items-start justify-between gap-2 text-micro">
-									<span class="truncate font-mono text-foreground"
-										>{variable.name}</span
-									>
+									<span class="truncate font-mono text-foreground">{variable.name}</span>
 									<span
 										class="min-w-0 flex-1 truncate text-right text-muted-foreground"
 										title={variable.value}>{variable.value}</span
@@ -221,22 +205,16 @@
 
 			{#if isLlmNode && reasoning && reasoning.length > 0}
 				<div>
-					<p
-						class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
-					>
+					<p class="mb-1 text-micro uppercase tracking-wide text-muted-foreground">
 						{t('domain.nodeTrace.reasoning')}
 					</p>
 					<ol class="space-y-1.5">
 						{#each reasoning as step (step.stepId)}
 							<li class="rounded-md bg-muted px-2 py-1.5">
-								<p
-									class="flex items-center gap-1.5 text-micro text-muted-foreground"
-								>
+								<p class="flex items-center gap-1.5 text-micro text-muted-foreground">
 									<span class="font-mono text-foreground">{step.type}</span>
 									{#if step.confidence !== null}
-										<span class="tabular-nums"
-											>{step.confidence.toFixed(2)}</span
-										>
+										<span class="tabular-nums">{step.confidence.toFixed(2)}</span>
 									{/if}
 								</p>
 								<StreamMarkdown content={step.content} done />

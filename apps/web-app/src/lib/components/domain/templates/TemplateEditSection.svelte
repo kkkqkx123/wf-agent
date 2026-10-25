@@ -38,8 +38,7 @@
 	onmovenode={(id, position) => controller.handleTemplateMoveNode(id, position)}
 	onmovenodes={(moves) => controller.handleTemplateMoveNodes(moves)}
 	onaddnode={(position) => controller.handleTemplateAddNode(position)}
-	onconnect={(source, target) =>
-		controller.handleTemplateConnect(source, target)}
+	onconnect={(source, target) => controller.handleTemplateConnect(source, target)}
 	ondeletenodes={(ids) => controller.handleTemplateDeleteNodes(ids)}
 	ondeletegroups={(ids) => controller.handleTemplateDeleteGroups(ids)}
 />

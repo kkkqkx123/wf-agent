@@ -72,10 +72,7 @@ export const PARAM_DEFAULTS: Record<string, Record<string, string>> = {
 	pull: { remote: 'origin' },
 };
 
-export const GUARDED_DANGERS = new SvelteSet([
-	'destructive',
-	'history_rewrite',
-]);
+export const GUARDED_DANGERS = new SvelteSet(['destructive', 'history_rewrite']);
 
 export class GitWorkbench {
 	panel = $state<PanelId>('status');
@@ -129,35 +126,26 @@ export class GitWorkbench {
 	tokenResult = $derived(parseToken(this.token, this.panel));
 	controls = $derived(visibleControls(this.panel));
 	filterQuery = $derived(this.filters[this.panel]);
-	visibleFiles = $derived(
-		this.files.filter((f) => f.path.includes(this.filterQuery)),
-	);
+	visibleFiles = $derived(this.files.filter((f) => f.path.includes(this.filterQuery)));
 	visibleConflicts = $derived(
 		this.files
 			.filter((f) => f.kind === 'conflicted')
 			.filter((f) => f.path.includes(this.filterQuery)),
 	);
-	visibleBranches = $derived(
-		this.branches.filter((b) => b.name.includes(this.filterQuery)),
-	);
+	visibleBranches = $derived(this.branches.filter((b) => b.name.includes(this.filterQuery)));
 	visibleRemotes = $derived(
 		this.remotes.filter(
-			(r) =>
-				r.name.includes(this.filterQuery) || r.url.includes(this.filterQuery),
+			(r) => r.name.includes(this.filterQuery) || r.url.includes(this.filterQuery),
 		),
 	);
 	visibleTags = $derived(
 		this.tags.filter(
-			(t) =>
-				t.name.includes(this.filterQuery) ||
-				t.commit.includes(this.filterQuery),
+			(t) => t.name.includes(this.filterQuery) || t.commit.includes(this.filterQuery),
 		),
 	);
 	visibleCommits = $derived(
 		this.commits.filter(
-			(c) =>
-				c.subject.includes(this.filterQuery) ||
-				c.shortId.includes(this.filterQuery),
+			(c) => c.subject.includes(this.filterQuery) || c.shortId.includes(this.filterQuery),
 		),
 	);
 	visibleReflogs = $derived(
@@ -170,45 +158,33 @@ export class GitWorkbench {
 	);
 	visibleStash = $derived(
 		this.stash.filter(
-			(s) =>
-				s.message.includes(this.filterQuery) ||
-				s.name.includes(this.filterQuery),
+			(s) => s.message.includes(this.filterQuery) || s.name.includes(this.filterQuery),
 		),
 	);
 	visibleWorktrees = $derived(
 		this.worktrees.filter(
-			(w) =>
-				w.path.includes(this.filterQuery) ||
-				w.branch.includes(this.filterQuery),
+			(w) => w.path.includes(this.filterQuery) || w.branch.includes(this.filterQuery),
 		),
 	);
 	visibleSubmodules = $derived(
 		this.submodules.filter(
-			(s) =>
-				s.path.includes(this.filterQuery) ||
-				s.commit.includes(this.filterQuery),
+			(s) => s.path.includes(this.filterQuery) || s.commit.includes(this.filterQuery),
 		),
 	);
 	dialogSpec = $derived(
-		this.dialogAction
-			? this.registry.find((entry) => entry.id === this.dialogAction)
-			: undefined,
+		this.dialogAction ? this.registry.find((entry) => entry.id === this.dialogAction) : undefined,
 	);
 	dialogNeedsConfirm = $derived(
 		this.dialogSpec ? GUARDED_DANGERS.has(this.dialogSpec.danger) : false,
 	);
 	dialogTarget = $derived(
-		this.dialogAction
-			? confirmTarget(this.dialogAction, this.dialogValues)
-			: '',
+		this.dialogAction ? confirmTarget(this.dialogAction, this.dialogValues) : '',
 	);
 	dialogConfirmMatches = $derived(
 		this.dialogConfirm.trim() === this.dialogTarget && this.dialogTarget !== '',
 	);
 	dialogParams = $derived(this.dialogSpec?.params ?? []);
-	dialogCanSubmit = $derived(
-		!this.dialogNeedsConfirm || this.dialogConfirmMatches,
-	);
+	dialogCanSubmit = $derived(!this.dialogNeedsConfirm || this.dialogConfirmMatches);
 	selection = $derived(gitStore.selectionFor(this.panel));
 
 	/** Attach the live subscription, do the initial load and focus the key input. */
@@ -276,21 +252,13 @@ export class GitWorkbench {
 			try {
 				this.registry = await getRegistry();
 				const drift = checkDrift(
-					this.registry
-						.filter((entry) => entry.available)
-						.map((entry) => entry.id),
+					this.registry.filter((entry) => entry.available).map((entry) => entry.id),
 				);
 				if (drift.unknown.length > 0) {
-					toasts.warning(
-						'Git bindings drifted',
-						drift.unknown.slice(0, 3).join(', '),
-					);
+					toasts.warning('Git bindings drifted', drift.unknown.slice(0, 3).join(', '));
 				}
 				if (drift.missing.length > 0) {
-					toasts.warning(
-						'Git bindings incomplete',
-						drift.missing.slice(0, 3).join(', '),
-					);
+					toasts.warning('Git bindings incomplete', drift.missing.slice(0, 3).join(', '));
 				}
 			} catch {
 				// Registry drift is advisory only.
@@ -300,9 +268,7 @@ export class GitWorkbench {
 				this.diffSource = 'unstaged';
 			}
 			if (gitStore.selectedCommit) {
-				this.commitFiles = await getCommitFiles(gitStore.selectedCommit).catch(
-					() => [],
-				);
+				this.commitFiles = await getCommitFiles(gitStore.selectedCommit).catch(() => []);
 			}
 		} catch (e) {
 			this.loadError = e instanceof Error ? e.message : 'Git request failed';
@@ -323,11 +289,7 @@ export class GitWorkbench {
 	}
 
 	async stageHunk(path: string, hunkIndex: number): Promise<void> {
-		await this.dispatchAction(
-			'stage.hunk',
-			{ path, hunkIndex: String(hunkIndex) },
-			undefined,
-		);
+		await this.dispatchAction('stage.hunk', { path, hunkIndex: String(hunkIndex) }, undefined);
 	}
 
 	async selectCommit(id: string): Promise<void> {
@@ -342,10 +304,7 @@ export class GitWorkbench {
 		try {
 			this.diff = await getDiffRange(`${commit}^`, commit, path);
 		} catch (e) {
-			toasts.error(
-				'Commit diff unavailable',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Commit diff unavailable', e instanceof Error ? e.message : undefined);
 		}
 	}
 
@@ -357,9 +316,7 @@ export class GitWorkbench {
 		}
 		if (result.kind === 'command') {
 			this.token = '';
-			toasts.info(
-				'Open the Terminal panel to run commands directly in the repository.',
-			);
+			toasts.info('Open the Terminal panel to run commands directly in the repository.');
 			return;
 		}
 		this.token = '';
@@ -395,10 +352,8 @@ export class GitWorkbench {
 			return entry ? String(entry.index) : '';
 		}
 		if (key === 'commit') return gitStore.selectedCommit ?? '';
-		if (key === 'branch' && this.panel === 'branches')
-			return gitStore.selectedBranch ?? '';
-		if (key === 'from' && this.panel === 'branches')
-			return gitStore.selectedBranch ?? '';
+		if (key === 'branch' && this.panel === 'branches') return gitStore.selectedBranch ?? '';
+		if (key === 'from' && this.panel === 'branches') return gitStore.selectedBranch ?? '';
 		return PARAM_DEFAULTS[action]?.[key] ?? '';
 	}
 
@@ -424,10 +379,7 @@ export class GitWorkbench {
 		let confirm: string | undefined;
 		if (this.dialogNeedsConfirm) {
 			if (!this.dialogCanSubmit) {
-				toasts.error(
-					'Confirmation mismatch',
-					`Type the exact target: ${this.dialogTarget}`,
-				);
+				toasts.error('Confirmation mismatch', `Type the exact target: ${this.dialogTarget}`);
 				return;
 			}
 			confirm = this.dialogTarget;
@@ -455,10 +407,7 @@ export class GitWorkbench {
 						? gitStore.selectedWorktree
 						: gitStore.selectedFile;
 			if (!selected) {
-				toasts.error(
-					'No file selected',
-					'Select a file in the Files panel first',
-				);
+				toasts.error('No file selected', 'Select a file in the Files panel first');
 				return;
 			}
 			params = { ...params, path: selected };
@@ -493,10 +442,7 @@ export class GitWorkbench {
 			this.commitsOffset += more.length;
 			this.commitsHasMore = more.length >= 50;
 		} catch (e) {
-			toasts.error(
-				'More commits unavailable',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('More commits unavailable', e instanceof Error ? e.message : undefined);
 		} finally {
 			this.commitsLoading = false;
 		}

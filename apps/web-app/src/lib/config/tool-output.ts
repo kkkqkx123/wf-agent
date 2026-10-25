@@ -42,36 +42,31 @@ export const TOOL_ERROR_PREVIEW_LINES = 4;
 /** Expanded inline body: head lines kept before the omission marker. */
 export const TOOL_BODY_MAX_LINES = 300;
 
-export const TOOL_OUTPUT_PRESETS: Record<ToolOutputDetail, ToolOutputBudgets> =
-	{
-		compact: {
-			previewMaxLines: 4,
-			previewMaxChars: 160,
-			shellPreviewLines: 4,
-			errorPreviewLines: 2,
-			bodyMaxLines: 100,
-		},
-		balanced: {
-			previewMaxLines: TOOL_PREVIEW_MAX_LINES,
-			previewMaxChars: TOOL_PREVIEW_MAX_CHARS,
-			shellPreviewLines: TOOL_SHELL_PREVIEW_LINES,
-			errorPreviewLines: TOOL_ERROR_PREVIEW_LINES,
-			bodyMaxLines: TOOL_BODY_MAX_LINES,
-		},
-		verbose: {
-			previewMaxLines: 25,
-			previewMaxChars: 800,
-			shellPreviewLines: 25,
-			errorPreviewLines: 8,
-			bodyMaxLines: 600,
-		},
-	};
+export const TOOL_OUTPUT_PRESETS: Record<ToolOutputDetail, ToolOutputBudgets> = {
+	compact: {
+		previewMaxLines: 4,
+		previewMaxChars: 160,
+		shellPreviewLines: 4,
+		errorPreviewLines: 2,
+		bodyMaxLines: 100,
+	},
+	balanced: {
+		previewMaxLines: TOOL_PREVIEW_MAX_LINES,
+		previewMaxChars: TOOL_PREVIEW_MAX_CHARS,
+		shellPreviewLines: TOOL_SHELL_PREVIEW_LINES,
+		errorPreviewLines: TOOL_ERROR_PREVIEW_LINES,
+		bodyMaxLines: TOOL_BODY_MAX_LINES,
+	},
+	verbose: {
+		previewMaxLines: 25,
+		previewMaxChars: 800,
+		shellPreviewLines: 25,
+		errorPreviewLines: 8,
+		bodyMaxLines: 600,
+	},
+};
 
-export const TOOL_OUTPUT_DETAIL_ORDER: ToolOutputDetail[] = [
-	'compact',
-	'balanced',
-	'verbose',
-];
+export const TOOL_OUTPUT_DETAIL_ORDER: ToolOutputDetail[] = ['compact', 'balanced', 'verbose'];
 
 /** Parse a persisted detail value; unknown values fall back to balanced so
  * a corrupt preference never breaks rendering. */
@@ -83,9 +78,7 @@ export function parseToolOutputDetail(value: unknown): ToolOutputDetail {
 }
 
 /** Budgets for one detail preset. */
-export function resolveToolOutputBudgets(
-	detail: ToolOutputDetail,
-): ToolOutputBudgets {
+export function resolveToolOutputBudgets(detail: ToolOutputDetail): ToolOutputBudgets {
 	return TOOL_OUTPUT_PRESETS[detail];
 }
 

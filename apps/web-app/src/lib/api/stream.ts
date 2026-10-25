@@ -31,10 +31,7 @@ function transportError(message: string): StreamFailure {
 	return { message, status: null, retryAfterMs: null };
 }
 
-function dispatchFrame(
-	raw: string,
-	onFrame: (event: string, data: unknown) => void,
-): void {
+function dispatchFrame(raw: string, onFrame: (event: string, data: unknown) => void): void {
 	let current = '';
 	for (const line of raw.split('\n')) {
 		if (line.startsWith('event:')) {
@@ -80,9 +77,7 @@ async function pump(
 		if (signal.aborted) await reader.cancel();
 	} catch (e) {
 		if (!signal.aborted) {
-			onError(
-				transportError(e instanceof Error ? e.message : 'Stream interrupted'),
-			);
+			onError(transportError(e instanceof Error ? e.message : 'Stream interrupted'));
 		}
 	} finally {
 		reader.releaseLock();
@@ -125,9 +120,7 @@ async function handshakeFailure(response: Response): Promise<StreamFailure> {
  * manual reader. Resolves when the server closes the stream; transport
  * failures arrive via onError.
  */
-export async function openPostStream(
-	options: PostStreamOptions,
-): Promise<void> {
+export async function openPostStream(options: PostStreamOptions): Promise<void> {
 	const { path, body, signal, onFrame, onError } = options;
 	const key = resolveApiKey();
 	let response: Response;
@@ -143,11 +136,7 @@ export async function openPostStream(
 		});
 	} catch (e) {
 		if (!signal.aborted) {
-			onError(
-				transportError(
-					e instanceof Error ? e.message : 'Stream request failed',
-				),
-			);
+			onError(transportError(e instanceof Error ? e.message : 'Stream request failed'));
 		}
 		return;
 	}
@@ -177,11 +166,7 @@ export async function openGetStream(options: GetStreamOptions): Promise<void> {
 		});
 	} catch (e) {
 		if (!signal.aborted) {
-			onError(
-				transportError(
-					e instanceof Error ? e.message : 'Stream request failed',
-				),
-			);
+			onError(transportError(e instanceof Error ? e.message : 'Stream request failed'));
 		}
 		return;
 	}

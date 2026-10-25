@@ -9,14 +9,12 @@
 	import Skeleton from '#lib/ui/components/Skeleton.svelte';
 	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import { toneText } from '#lib/ui/components/variants';
-	import { listUnifiedExecutions } from '#lib/services/executions';
+	import { isRerunnableExecutionType, listUnifiedExecutions } from '#lib/services/executions';
+	import { rerunWorkflowRun } from '#lib/services/run';
 	import type { DefinitionKind, Execution } from '#lib/types/models';
-	import {
-		formatDateTime,
-		formatDuration,
-		formatNumber,
-	} from '#lib/utils/format';
+	import { formatDateTime, formatDuration, formatNumber } from '#lib/utils/format';
 	import { statusTone, toneColorVar } from '#lib/ui/status';
+	import { toasts } from '#lib/stores/toast.svelte';
 	import { cn } from '#lib/ui/cn';
 	import { t } from '#lib/i18n';
 	import { resolve } from '$app/paths';
@@ -57,6 +55,7 @@
 	let query = $state('');
 	let status = $state('');
 	let runsDirty = $state(false);
+	let rerunningId = $state<string | null>(null);
 	let stopRunsLive: (() => void) | null = null;
 
 	async function loadRuns(): Promise<void> {
@@ -89,6 +88,23 @@
 		return runs.filter((run) => run.id.toLowerCase().includes(needle));
 	});
 
+	// Re-run lives on the execution detail page too; this shortcut keeps the
+	// lightweight definition bridge from forcing a detour for a retry.
+	async function rerunCurrent(run: Execution): Promise<void> {
+		if (rerunningId) return;
+		if (!isRerunnableExecutionType(run.kind)) return;
+		rerunningId = run.id;
+		try {
+			const id = await rerunWorkflowRun(run.id);
+			toasts.success(t('domain.runs.rerunStarted'), id);
+			await loadRuns();
+		} catch (e) {
+			toasts.error(t('domain.runs.rerunFailed'), e instanceof Error ? e.message : undefined);
+		} finally {
+			rerunningId = null;
+		}
+	}
+
 	onMount(() => {
 		void loadRuns();
 		stopRunsLive = watchListInvalidation({
@@ -114,17 +130,15 @@
 
 <div class="space-y-2.5">
 	<p class="text-micro text-muted-foreground">
-		Execution domain · runs are read-only here; new runs start in the execution
-		workbench and re-runs live on the execution detail page.
+		Execution domain · runs are read-only here; new runs start in the execution workbench. Re-run
+		from any row, or open the run for live controls.
 	</p>
 	{#if runsDirty}
 		<div
 			class="flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2"
 		>
 			<span class="text-caption text-muted-foreground">New runs arrived.</span>
-			<Button size="sm" variant="outline" onclick={() => void loadRuns()}>
-				Refresh
-			</Button>
+			<Button size="sm" variant="outline" onclick={() => void loadRuns()}>Refresh</Button>
 		</div>
 	{/if}
 	{#if !compact}
@@ -136,12 +150,7 @@
 			onstatuschange={() => void loadRuns()}
 		>
 			{#snippet trailing()}
-				<Button
-					variant="ghost"
-					size="sm"
-					disabled={runsLoading}
-					onclick={() => void loadRuns()}
-				>
+				<Button variant="ghost" size="sm" disabled={runsLoading} onclick={() => void loadRuns()}>
 					<Icon name="refresh" size={13} />
 					{t('common.refresh')}
 				</Button>
@@ -161,9 +170,7 @@
 	{:else if visibleRuns.length === 0}
 		<EmptyState
 			icon="activity"
-			title={runs.length === 0
-				? t('domain.runs.emptyTitle')
-				: t('domain.runs.noMatchTitle')}
+			title={runs.length === 0 ? t('domain.runs.emptyTitle') : t('domain.runs.noMatchTitle')}
 			description={runs.length === 0
 				? t('domain.runs.emptyDescription')
 				: t('domain.runs.noMatchDescription')}
@@ -173,7 +180,7 @@
 		<Card title={t('domain.runs.title')} bodyClass="p-0">
 			{#snippet actions()}
 				<Button
-					variant="ghost"
+					variant="brand"
 					size="sm"
 					href={`/executions?definition=${encodeURIComponent(`${kind}:${definitionId}`)}`}
 				>
@@ -219,14 +226,31 @@
 										child
 									</a>
 								{/if}
+								{#if run.rerunOf}
+									<a
+										href={resolve('/executions/[id]', { id: run.rerunOf })}
+										class="truncate font-mono text-micro text-muted-foreground underline-offset-2 hover:underline"
+										title="Rerun of {run.rerunOf}"
+									>
+										rerun
+									</a>
+								{/if}
+								{#if isRerunnableExecutionType(run.kind)}
+									<button
+										type="button"
+										class="shrink-0 text-micro text-foreground underline-offset-2 hover:underline disabled:opacity-50"
+										disabled={rerunningId === run.id}
+										onclick={() => void rerunCurrent(run)}
+										title={t('domain.runs.rerun')}
+									>
+										{rerunningId === run.id ? t('common.loading') : t('domain.runs.rerun')}
+									</button>
+								{/if}
 							</div>
 							<p class="mt-0.5 text-micro text-muted-foreground">
-								<span class="tabular-nums">{formatDateTime(run.startedAt)}</span
-								>
+								<span class="tabular-nums">{formatDateTime(run.startedAt)}</span>
 								{#if run.durationMs !== null}
-									· <span class="tabular-nums"
-										>{formatDuration(run.durationMs)}</span
-									>
+									· <span class="tabular-nums">{formatDuration(run.durationMs)}</span>
 								{/if}
 								{#if run.failedNodes > 0}
 									· <span class={toneText('danger', 'text-muted-foreground')}
@@ -237,10 +261,7 @@
 								{/if}
 							</p>
 							{#if run.error}
-								<p
-									class="mt-0.5 truncate font-mono text-micro text-destructive"
-									title={run.error}
-								>
+								<p class="mt-0.5 truncate font-mono text-micro text-destructive" title={run.error}>
 									{run.error}
 								</p>
 							{/if}

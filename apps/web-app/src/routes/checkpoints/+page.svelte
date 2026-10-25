@@ -32,9 +32,7 @@
 
 	const requestedTab = parseListParams(page.url as unknown as URL).tab;
 	let tab = $state(
-		requestedTab && TABS.some((item) => item.id === requestedTab)
-			? requestedTab
-			: 'chain',
+		requestedTab && TABS.some((item) => item.id === requestedTab) ? requestedTab : 'chain',
 	);
 
 	$effect(() => {
@@ -107,8 +105,7 @@
 			}
 		} catch (e) {
 			console.error('Failed to load checkpoints segment:', e);
-			loadError =
-				e instanceof Error ? e.message : t('page.checkpoints.requestFailed');
+			loadError = e instanceof Error ? e.message : t('page.checkpoints.requestFailed');
 		} finally {
 			loading = false;
 			if (chainDirty || approvalsDirty) {
@@ -202,11 +199,7 @@
 	}
 
 	const segmentEmpty = $derived(
-		tab === 'chain'
-			? chain.length === 0
-			: tab === 'files'
-				? false
-				: approvals.length === 0,
+		tab === 'chain' ? chain.length === 0 : tab === 'files' ? false : approvals.length === 0,
 	);
 
 	const segmentCopy = $derived(emptyCopyFor(tab));
@@ -221,21 +214,12 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	<PageHeader
-		title={t('page.checkpoints.title')}
-		description={t('page.checkpoints.description')}
-	>
+	<PageHeader title={t('page.checkpoints.title')} description={t('page.checkpoints.description')}>
 		{#snippet actions()}
-			<Badge
-				variant={checkpointStore.liveState === 'open' ? 'success' : 'neutral'}
-			>
+			<Badge variant={checkpointStore.liveState === 'open' ? 'success' : 'neutral'}>
 				{liveLabel}
 			</Badge>
-			<IconButton
-				icon="refresh"
-				label={t('common.refresh')}
-				onclick={() => void reload()}
-			/>
+			<IconButton icon="refresh" label={t('common.refresh')} onclick={() => void reload()} />
 			<Button
 				size="sm"
 				disabled={checkpointStore.busy}
@@ -250,12 +234,7 @@
 		{/snippet}
 	</PageHeader>
 
-	<Segmented
-		items={TABS}
-		bind:value={tab}
-		class="px-4"
-		panelId="checkpoints-panel"
-	/>
+	<Segmented items={TABS} bind:value={tab} class="px-4" panelId="checkpoints-panel" />
 
 	<div
 		id="checkpoints-panel"
@@ -296,14 +275,11 @@
 	<Input
 		label={t('page.checkpoints.actor')}
 		value={fileWorkspace.actor}
-		oninput={(event: Event) =>
-			fileWorkspace.setActor((event.target as HTMLInputElement).value)}
+		oninput={(event: Event) => fileWorkspace.setActor((event.target as HTMLInputElement).value)}
 		placeholder="manual"
 	/>
 	{#snippet footer()}
-		<Button variant="ghost" size="sm" onclick={() => (createOpen = false)}>
-			Cancel
-		</Button>
+		<Button variant="ghost" size="sm" onclick={() => (createOpen = false)}>Cancel</Button>
 		<Button
 			size="sm"
 			disabled={checkpointStore.busy || !fileWorkspace.actor.trim()}

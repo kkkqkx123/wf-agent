@@ -20,10 +20,7 @@ const RELEASE_RATIO = 0.5;
  */
 export function streamReleaseChunk(backlog: number): number {
 	if (backlog <= RELEASE_FLOOR) return backlog;
-	return Math.min(
-		backlog,
-		Math.max(RELEASE_FLOOR, Math.ceil(backlog * RELEASE_RATIO)),
-	);
+	return Math.min(backlog, Math.max(RELEASE_FLOOR, Math.ceil(backlog * RELEASE_RATIO)));
 }
 
 export interface LiveToolCall {
@@ -201,8 +198,7 @@ export class StreamRunStore {
 			if (success !== null && success !== undefined) existing.success = success;
 			if (details?.toolCallId) existing.toolCallId = details.toolCallId;
 			if (details?.preview) existing.preview = details.preview;
-			if (details?.background !== undefined)
-				existing.background = details.background;
+			if (details?.background !== undefined) existing.background = details.background;
 			if (details?.activity !== undefined) existing.activity = details.activity;
 			this.subAgents = [...this.subAgents];
 			return;

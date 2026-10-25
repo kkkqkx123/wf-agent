@@ -13,11 +13,7 @@ import {
 } from './group-view';
 import type { DisplayEdge, DisplayNode } from './display-model';
 
-function node(
-	id: string,
-	groupId?: string,
-	extra?: Partial<DisplayNode>,
-): DisplayNode {
+function node(id: string, groupId?: string, extra?: Partial<DisplayNode>): DisplayNode {
 	return groupId
 		? { id, label: id, kind: 'step', groupId, ...extra }
 		: { id, label: id, kind: 'step', ...extra };
@@ -29,12 +25,10 @@ function edge(id: string, source: string, target: string): DisplayEdge {
 
 describe('deriveGroups', () => {
 	it('lists grouped ids in stable order', () => {
-		expect(deriveGroups([node('b', 'g2'), node('a'), node('c', 'g1')])).toEqual(
-			[
-				{ id: 'g1', label: 'g1' },
-				{ id: 'g2', label: 'g2' },
-			],
-		);
+		expect(deriveGroups([node('b', 'g2'), node('a'), node('c', 'g1')])).toEqual([
+			{ id: 'g1', label: 'g1' },
+			{ id: 'g2', label: 'g2' },
+		]);
 	});
 	it('returns empty when nothing is grouped', () => {
 		expect(deriveGroups([node('a')])).toEqual([]);
@@ -63,16 +57,9 @@ describe('buildGroupView', () => {
 		const view = buildGroupView(nodes, edges, new Set(['g']));
 		expect(view.hiddenIds).toEqual(new Set(['a', 'b']));
 		expect(view.titleIds).toEqual(new Set(['group:g']));
-		expect(view.nodes.map((entry) => entry.id).sort()).toEqual([
-			'c',
-			'group:g',
-		]);
-		expect(
-			view.edges.map((entry) => `${entry.source}->${entry.target}`),
-		).toEqual(['group:g->c']);
-		expect(view.canonicals.get('group:g->c')).toEqual([
-			{ source: 'a', target: 'c' },
-		]);
+		expect(view.nodes.map((entry) => entry.id).sort()).toEqual(['c', 'group:g']);
+		expect(view.edges.map((entry) => `${entry.source}->${entry.target}`)).toEqual(['group:g->c']);
+		expect(view.canonicals.get('group:g->c')).toEqual([{ source: 'a', target: 'c' }]);
 		const titles: Record<string, GroupTitle> = view.titles;
 		expect(titles['group:g']?.memberIds).toEqual(['a', 'b']);
 	});
@@ -90,14 +77,10 @@ describe('buildGroupView', () => {
 	});
 	it('keeps edges between two collapsed groups on the boundary', () => {
 		const nodes = [node('a', 'g1'), node('b', 'g2')];
-		const view = buildGroupView(
-			nodes,
-			[edge('e', 'a', 'b')],
-			new Set(['g1', 'g2']),
-		);
-		expect(
-			view.edges.map((entry) => `${entry.source}->${entry.target}`),
-		).toEqual(['group:g1->group:g2']);
+		const view = buildGroupView(nodes, [edge('e', 'a', 'b')], new Set(['g1', 'g2']));
+		expect(view.edges.map((entry) => `${entry.source}->${entry.target}`)).toEqual([
+			'group:g1->group:g2',
+		]);
 	});
 });
 
@@ -122,9 +105,7 @@ describe('group labels and status', () => {
 		];
 		const view = buildGroupView(nodes, [], new Set(['g']));
 		expect(view.titles['group:g']?.status).toBe('failed');
-		expect(view.nodes.find((entry) => entry.id === 'group:g')?.status).toBe(
-			'failed',
-		);
+		expect(view.nodes.find((entry) => entry.id === 'group:g')?.status).toBe('failed');
 		expect(aggregateGroupStatus(['completed', 'failed'])).toBe('failed');
 		expect(aggregateGroupStatus([])).toBeUndefined();
 	});

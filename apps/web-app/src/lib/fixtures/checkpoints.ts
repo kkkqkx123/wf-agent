@@ -181,8 +181,7 @@ export const approvals: Approval[] = [
 		requester: 'wf-release-train',
 		requestedAt: minutesAgo(2),
 		status: 'pending',
-		detail:
-			'Artifact 2026.09.3 will become the canary build for the staging fleet.',
+		detail: 'Artifact 2026.09.3 will become the canary build for the staging fleet.',
 		executionId: 'exec-7f31c2a9',
 	},
 	{
@@ -202,8 +201,7 @@ export const approvals: Approval[] = [
 		requester: 'loop-3c1f8ab2',
 		requestedAt: minutesAgo(26),
 		status: 'approved',
-		detail:
-			'Requested write access under scripts/ for the verification helper.',
+		detail: 'Requested write access under scripts/ for the verification helper.',
 		executionId: 'loop-3c1f8ab2',
 	},
 	{
@@ -213,8 +211,7 @@ export const approvals: Approval[] = [
 		requester: 'loop-3c1f8ab2',
 		requestedAt: minutesAgo(300),
 		status: 'rejected',
-		detail:
-			'Operator declined a retry until the registry incident is resolved.',
+		detail: 'Operator declined a retry until the registry incident is resolved.',
 		executionId: 'exec-2f8b1170',
 	},
 ];
@@ -317,18 +314,13 @@ export interface MockEventFrame {
 const eventListeners = new Set<(frame: MockEventFrame) => void>();
 
 /** Subscribe to mock checkpoint-domain events (drives the mock SSE stream). */
-export function onMockEvent(
-	listener: (frame: MockEventFrame) => void,
-): () => void {
+export function onMockEvent(listener: (frame: MockEventFrame) => void): () => void {
 	eventListeners.add(listener);
 	return () => eventListeners.delete(listener);
 }
 
 /** Publish a checkpoint-domain event to every open mock stream. */
-export function emitMockEvent(
-	type: string,
-	metadata?: Record<string, unknown>,
-): void {
+export function emitMockEvent(type: string, metadata?: Record<string, unknown>): void {
 	const frame: MockEventFrame = { type, timestamp: Date.now(), metadata };
 	for (const listener of eventListeners) listener(frame);
 }
@@ -406,9 +398,7 @@ export function setMockCheckpointTags(id: string, tags: string[]): boolean {
 
 /** Decide the pending approval submitted by `actor` (its view id). */
 export function decideMockApproval(actor: string, approved: boolean): boolean {
-	const index = approvals.findIndex(
-		(row) => row.requester === actor && row.status === 'pending',
-	);
+	const index = approvals.findIndex((row) => row.requester === actor && row.status === 'pending');
 	if (index === -1) return false;
 	const [row] = approvals.splice(index, 1);
 	row.status = approved ? 'approved' : 'rejected';

@@ -3,11 +3,7 @@ import { page } from '$app/state';
 import { groupToolCalls } from '#lib/utils/tool-output';
 import { preferences } from '#lib/stores/preferences.svelte';
 import { SvelteDate, SvelteSet } from 'svelte/reactivity';
-import {
-	getLoopGraph,
-	listLoopMessages,
-	type RunLoopMessage,
-} from '#lib/services/agent-loops';
+import { getLoopGraph, listLoopMessages, type RunLoopMessage } from '#lib/services/agent-loops';
 import {
 	applyExecutionOverlay,
 	matchDecisionNodeId,
@@ -15,19 +11,11 @@ import {
 	projectExecutionOverlay,
 } from '#lib/graph/execution-projection';
 import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
-import {
-	streamLoopRun,
-	streamChat,
-	streamWorkflowExecution,
-} from '#lib/services/streaming';
+import { streamLoopRun, streamChat, streamWorkflowExecution } from '#lib/services/streaming';
 import type { UsageSnapshot } from '#lib/utils/stream-parser';
 import type { StreamFailure } from '#lib/api/stream';
 import { listModelProfiles } from '#lib/services/resources';
-import {
-	DEFAULT_AGENT_ID,
-	isRunnableTemplate,
-	listTemplates,
-} from '#lib/services/templates';
+import { DEFAULT_AGENT_ID, isRunnableTemplate, listTemplates } from '#lib/services/templates';
 import { pickerState } from '#lib/stores/picker-state.svelte';
 import {
 	cancelInteraction as cancelInteractionRequest,
@@ -46,17 +34,10 @@ import type {
 } from '#lib/types/models';
 import { splitAttachments, withAttachments } from '#lib/utils/attachments';
 import { createResource } from '#lib/stores/collection.svelte';
-import {
-	chatStream,
-	type LiveToolCall,
-	type SubAgentNote,
-} from '#lib/stores/stream-run.svelte';
+import { chatStream, type LiveToolCall, type SubAgentNote } from '#lib/stores/stream-run.svelte';
 import { NEW_SESSION, sessions } from '#lib/stores/sessions.svelte';
 import { toasts } from '#lib/stores/toast.svelte';
-import {
-	isInteractionEventType,
-	watchExecutionActivity,
-} from '#lib/services/inspector-activity';
+import { isInteractionEventType, watchExecutionActivity } from '#lib/services/inspector-activity';
 import type { StreamState } from '#lib/api/sse';
 import { gotoWithParams } from '#lib/utils/route';
 import { isSessionTab, type SessionTab } from '#lib/config/session-tabs';
@@ -156,10 +137,7 @@ export class ChatSessionController {
 					const was = this.interactionLiveState;
 					this.interactionLiveState = state;
 					if (this.selectedId !== id) return;
-					if (
-						(was === 'reconnecting' || was === 'connecting') &&
-						state === 'open'
-					) {
+					if ((was === 'reconnecting' || was === 'connecting') && state === 'open') {
 						this.refreshInteractions(true);
 					}
 				},
@@ -251,8 +229,7 @@ export class ChatSessionController {
 
 	session = $derived(
 		this.selectedId
-			? (sessions.list.items.find((item) => item.id === this.selectedId) ??
-					null)
+			? (sessions.list.items.find((item) => item.id === this.selectedId) ?? null)
 			: null,
 	);
 
@@ -278,9 +255,7 @@ export class ChatSessionController {
 	 * while shell output and failures keep their own rows. Grouping is a
 	 * pure derivation over entry ids, so a collapsed group survives appends.
 	 * With previews off the flat pre-grouping list renders instead. */
-	liveGroups = $derived(
-		groupToolCalls(chatStream.tools.map((tool) => this.toLiveEntry(tool))),
-	);
+	liveGroups = $derived(groupToolCalls(chatStream.tools.map((tool) => this.toLiveEntry(tool))));
 	groupTools = $derived(preferences.toolOutputPreviews);
 	openGroups = new SvelteSet<string>();
 
@@ -346,19 +321,12 @@ export class ChatSessionController {
 		for (const agent of this.projectedSubAgents) {
 			const nodeId = this.matchMiniNode(agent.name);
 			if (!nodeId) continue;
-			const status =
-				agent.success === null
-					? 'running'
-					: agent.success
-						? 'completed'
-						: 'failed';
+			const status = agent.success === null ? 'running' : agent.success ? 'completed' : 'failed';
 			live[nodeId] = status;
 			if (agent.success === null) current ??= nodeId;
 		}
 		if (current === null && this.projectedIteration !== null) {
-			current =
-				nodesForIteration(this.miniBaseNodes, this.projectedIteration)[0] ??
-				null;
+			current = nodesForIteration(this.miniBaseNodes, this.projectedIteration)[0] ?? null;
 		}
 		return { live, current };
 	});
@@ -555,8 +523,7 @@ export class ChatSessionController {
 			onCompleted: () => chatStream.complete(),
 			onFailed: (message: string) => chatStream.fail(message),
 			onInterrupted: (reason: string) => chatStream.fail(reason),
-			onError: (failure: StreamFailure) =>
-				chatStream.fail(failure.message, failure.retryAfterMs),
+			onError: (failure: StreamFailure) => chatStream.fail(failure.message, failure.retryAfterMs),
 		};
 	}
 
@@ -648,10 +615,7 @@ export class ChatSessionController {
 	 * Run the message through a workflow. The graph is resolved from the
 	 * template on the server; the composer only hands over the message.
 	 */
-	async runWorkflow(
-		content: string,
-		files: MessageAttachment[],
-	): Promise<void> {
+	async runWorkflow(content: string, files: MessageAttachment[]): Promise<void> {
 		const workflowId = this.workflowId.trim();
 		const signal = chatStream.start(this.selectedId ?? NEW_SESSION, {
 			executionType: 'workflow',
@@ -682,8 +646,7 @@ export class ChatSessionController {
 		await sessions.refresh();
 		if (draft) {
 			const fresh = sessions.sessions.filter((row) => !baseline.has(row.id));
-			const adopted =
-				fresh.find((row) => row.startedAt >= startedAt) ?? fresh[0];
+			const adopted = fresh.find((row) => row.startedAt >= startedAt) ?? fresh[0];
 			if (adopted) {
 				sessions.recordTitle(adopted.id, content);
 				await sessions.open(adopted.id);
@@ -715,8 +678,7 @@ export class ChatSessionController {
 	loadDefaultModel(): void {
 		void listModelProfiles()
 			.then((profiles) => {
-				const preferred =
-					profiles.find((item) => item.isDefault) ?? profiles[0];
+				const preferred = profiles.find((item) => item.isDefault) ?? profiles[0];
 				if (preferred) this.model = preferred.id;
 			})
 			.catch(() => {});
@@ -728,8 +690,7 @@ export class ChatSessionController {
 			.then((templates) => {
 				const runnable = templates.filter(isRunnableTemplate);
 				const preferred =
-					runnable.find((template) => template.id === DEFAULT_AGENT_ID) ??
-					runnable[0];
+					runnable.find((template) => template.id === DEFAULT_AGENT_ID) ?? runnable[0];
 				if (preferred) this.agentId = preferred.id;
 			})
 			.catch(() => {});

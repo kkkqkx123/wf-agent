@@ -13,13 +13,7 @@
 		class?: string;
 	}
 
-	let {
-		status,
-		dot = true,
-		icon = true,
-		size = 'md',
-		class: className = '',
-	}: Props = $props();
+	let { status, dot = true, icon = true, size = 'md', class: className = '' }: Props = $props();
 
 	const TONE_VARIANT: Record<StatusTone, BadgeVariant> = {
 		success: 'success',
@@ -35,10 +29,7 @@
 	const iconName = $derived(statusIcon(status));
 </script>
 
-<Badge
-	{variant}
-	class={cn(size === 'sm' && 'px-1.5 py-0 text-[0.625rem]', className)}
->
+<Badge {variant} class={cn(size === 'sm' && 'px-1.5 py-0 text-[0.625rem]', className)}>
 	{#if icon}
 		<Icon name={iconName} size={size === 'sm' ? 11 : 12} />
 	{/if}

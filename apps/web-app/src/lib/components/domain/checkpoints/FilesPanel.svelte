@@ -91,8 +91,7 @@
 			partitionShown = PARTITION_PAGE;
 		} catch (e) {
 			console.error('Failed to load file workspace segment:', e);
-			loadError =
-				e instanceof Error ? e.message : t('domain.files.requestFailed');
+			loadError = e instanceof Error ? e.message : t('domain.files.requestFailed');
 		} finally {
 			loading = false;
 		}
@@ -157,16 +156,10 @@
 			return;
 		}
 		try {
-			previewTree = await getFileTree(
-				workspace.actor.trim(),
-				treePrefix || undefined,
-			);
+			previewTree = await getFileTree(workspace.actor.trim(), treePrefix || undefined);
 		} catch (e) {
 			console.error('Failed to load workspace tree:', e);
-			toasts.error(
-				t('domain.files.treeUnavailable'),
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error(t('domain.files.treeUnavailable'), e instanceof Error ? e.message : undefined);
 		}
 	}
 
@@ -175,8 +168,8 @@
 		if (!content) return;
 		const name = content.path.split('/').pop() || 'preview';
 		const query = `actor=${encodeURIComponent(content.actor)}&path=${encodeURIComponent(content.path)}`;
-		void downloadFile(`/api/v1/file-checkpoint/content?${query}`, name).catch(
-			() => toasts.error(t('domain.files.downloadUnavailable')),
+		void downloadFile(`/api/v1/file-checkpoint/content?${query}`, name).catch(() =>
+			toasts.error(t('domain.files.downloadUnavailable')),
 		);
 	}
 
@@ -206,13 +199,8 @@
 		if (!target) return;
 		historyLoading = true;
 		try {
-			const page = await getPartitionHistory(
-				target.partitionId,
-				HISTORY_PAGE,
-				offset,
-			);
-			historyCommits =
-				offset === 0 ? page.items : [...historyCommits, ...page.items];
+			const page = await getPartitionHistory(target.partitionId, HISTORY_PAGE, offset);
+			historyCommits = offset === 0 ? page.items : [...historyCommits, ...page.items];
 			historyHasMore = page.hasMore;
 		} catch (e) {
 			console.error('Failed to load partition history:', e);
@@ -267,42 +255,25 @@
 		{:else}
 			<ul class="space-y-1.5">
 				{#each partitions.slice(0, partitionShown) as partition (partition.partitionId)}
-					<li
-						class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption"
-					>
+					<li class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption">
 						<Badge variant="neutral">{partition.kind}</Badge>
-						<span class="min-w-0 flex-1 truncate font-mono"
-							>{partition.name}</span
-						>
+						<span class="min-w-0 flex-1 truncate font-mono">{partition.name}</span>
 						{#if partition.actor}
-							<span class="text-micro text-muted-foreground"
-								>{partition.actor}</span
-							>
+							<span class="text-micro text-muted-foreground">{partition.actor}</span>
 						{/if}
 						<span class="shrink-0 font-mono text-micro text-muted-foreground"
 							>{partition.currentSnapshot.slice(0, 10)} · {partition.historyLen}</span
 						>
-						<Button
-							variant="ghost"
-							size="sm"
-							onclick={() => openHistory(partition)}
-						>
+						<Button variant="ghost" size="sm" onclick={() => openHistory(partition)}>
 							{t('domain.files.history')}
 						</Button>
 					</li>
 				{/each}
 				{#if partitions.length > partitionShown}
 					<li>
-						<Button
-							variant="ghost"
-							size="sm"
-							onclick={() => (partitionShown += PARTITION_PAGE)}
-						>
+						<Button variant="ghost" size="sm" onclick={() => (partitionShown += PARTITION_PAGE)}>
 							{t('domain.files.showMore', {
-								shown: Math.min(
-									PARTITION_PAGE,
-									partitions.length - partitionShown,
-								),
+								shown: Math.min(PARTITION_PAGE, partitions.length - partitionShown),
 								remaining: partitions.length - partitionShown,
 							})}
 						</Button>
@@ -326,9 +297,7 @@
 			<ul class="space-y-2">
 				{#each conflicts as conflict (`${conflict.partition}:${conflict.path}`)}
 					<li class="flex flex-wrap items-center gap-x-2 gap-y-1 text-caption">
-						<span class="min-w-0 flex-1 truncate font-mono"
-							>{conflict.path}</span
-						>
+						<span class="min-w-0 flex-1 truncate font-mono">{conflict.path}</span>
 						<span class="text-micro text-muted-foreground">
 							{t('domain.files.regions', {
 								partition: conflict.partition,
@@ -373,9 +342,7 @@
 		<ul class="max-h-96 space-y-2 overflow-y-auto">
 			{#each historyCommits as commit (commit.snapshotId)}
 				<li class="border-b border-border pb-2 last:border-b-0">
-					<div
-						class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption"
-					>
+					<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption">
 						<span class="font-mono">{commit.snapshotId.slice(0, 10)}</span>
 						<span class="min-w-0 flex-1 truncate">
 							{commit.message ?? t('domain.files.noMessage')}

@@ -9,9 +9,7 @@ import {
 import { GraphEditStore } from '#lib/graph/edit-store.svelte';
 import { EditLockStore } from '#lib/stores/edit-lock.svelte';
 import type { CanvasPosition } from '#lib/graph/canvas-model';
-import {
-	deriveWorkflowFromTemplate,
-} from '#lib/services/template-library';
+import { deriveWorkflowFromTemplate } from '#lib/services/template-library';
 import {
 	allocateGraphNodeId,
 	cloneTemplate,
@@ -56,11 +54,7 @@ export interface TemplateEditRouteContext {
 	isNew: () => boolean;
 	detail: () => TemplateDetail | null;
 	routeIdParam: () => string;
-	loadDetail: (
-		activeKind: TemplateKind,
-		id: string,
-		view: DetailView,
-	) => Promise<void>;
+	loadDetail: (activeKind: TemplateKind, id: string, view: DetailView) => Promise<void>;
 }
 
 /**
@@ -254,15 +248,8 @@ export class TemplateEditController {
 		if (this.editTab === 'form') {
 			this.session.applyForm(this.formState);
 			this.editText = this.session.text;
-		} else if (
-			this.editTab === 'graph' &&
-			kind === 'workflow' &&
-			this.templateEditStore.dirty
-		) {
-			this.session.mergeGraph(
-				this.templateEditStore.nodes,
-				this.templateEditStore.edges,
-			);
+		} else if (this.editTab === 'graph' && kind === 'workflow' && this.templateEditStore.dirty) {
+			this.session.mergeGraph(this.templateEditStore.nodes, this.templateEditStore.edges);
 			this.editText = this.session.text;
 		}
 	}
@@ -299,9 +286,7 @@ export class TemplateEditController {
 		this.templateEditStore.applyMove(id, position);
 	}
 
-	handleTemplateMoveNodes(
-		moves: Array<{ id: string; position: CanvasPosition }>,
-	): void {
+	handleTemplateMoveNodes(moves: Array<{ id: string; position: CanvasPosition }>): void {
 		this.templateEditStore.applyMoves(moves);
 	}
 
@@ -315,11 +300,7 @@ export class TemplateEditController {
 
 	handleTemplateConnect(source: string, target: string): void {
 		const store = this.templateEditStore;
-		if (
-			store.edges.some(
-				(edge) => edge.source === source && edge.target === target,
-			)
-		) {
+		if (store.edges.some((edge) => edge.source === source && edge.target === target)) {
 			return;
 		}
 		const reason = store.connect(source, target);
@@ -337,10 +318,7 @@ export class TemplateEditController {
 	handleTemplateDeleteGroups(ids: string[]): void {
 		const store = this.templateEditStore;
 		for (const id of ids) store.removeGroup(id);
-		toasts.info(
-			'Groups deleted',
-			`${ids.length} group(s) removed from the canvas.`,
-		);
+		toasts.info('Groups deleted', `${ids.length} group(s) removed from the canvas.`);
 	}
 
 	editedPayload(parsed: unknown): unknown {
@@ -348,9 +326,7 @@ export class TemplateEditController {
 		if (kind === 'node' || kind === 'trigger') return parsed;
 		const detail = this.detail;
 		const base =
-			detail?.raw && typeof detail.raw === 'object'
-				? (detail.raw as Record<string, unknown>)
-				: {};
+			detail?.raw && typeof detail.raw === 'object' ? (detail.raw as Record<string, unknown>) : {};
 		return { ...base, definition: parsed };
 	}
 
@@ -385,10 +361,7 @@ export class TemplateEditController {
 		try {
 			definition = this.buildBackendDefinition(value);
 		} catch (e) {
-			toasts.error(
-				'Template invalid',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Template invalid', e instanceof Error ? e.message : undefined);
 			return false;
 		}
 		this.draftBusy = true;
@@ -396,10 +369,7 @@ export class TemplateEditController {
 		try {
 			draftId = await saveDefinitionDraft('workflow', definition);
 			const issues = await validateDefinitionDraft('workflow', draftId);
-			this.serverIssues = serverTemplateIssues(
-				issues,
-				this.session.topology().nodes,
-			);
+			this.serverIssues = serverTemplateIssues(issues, this.session.topology().nodes);
 			this.validatedText = this.editText;
 			if (issues.length > 0) {
 				toasts.warning(`Server reports ${issues.length} issue(s)`);
@@ -408,10 +378,7 @@ export class TemplateEditController {
 			toasts.success('Server validation passed');
 			return true;
 		} catch (e) {
-			toasts.error(
-				'Server validation failed',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Server validation failed', e instanceof Error ? e.message : undefined);
 			return false;
 		} finally {
 			if (draftId !== null) {
@@ -437,10 +404,7 @@ export class TemplateEditController {
 		// checks are instant hints only and never replace the gate.
 		const issues = await validateTemplateDefinition(kind, value);
 		this.serverIssues = issues;
-		const combined = [
-			...localTemplateIssues(kind, value),
-			...this.serverIssues,
-		];
+		const combined = [...localTemplateIssues(kind, value), ...this.serverIssues];
 		this.validationState = combined.length === 0 ? 'valid' : 'invalid';
 		this.validatedText = this.editText;
 		return combined.length === 0;
@@ -450,10 +414,7 @@ export class TemplateEditController {
 		const kind = this.kind;
 		if (!kind) return;
 		if (this.lockStore && !this.lockStore.canWrite) {
-			toasts.warning(
-				'Save blocked',
-				`Held by ${this.lockStore.displayHolder}.`,
-			);
+			toasts.warning('Save blocked', `Held by ${this.lockStore.displayHolder}.`);
 			return;
 		}
 		const valid = await this.runValidate();
@@ -520,10 +481,7 @@ export class TemplateEditController {
 		try {
 			definition = this.buildBackendDefinition(value);
 		} catch (e) {
-			toasts.error(
-				'Template invalid',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Template invalid', e instanceof Error ? e.message : undefined);
 			return;
 		}
 		if (this.templateEditStore.dirty) {
@@ -547,14 +505,9 @@ export class TemplateEditController {
 			toasts.success('Workflow derived from template');
 			// The path is resolve()d; resolve() cannot append the query string.
 
-			await goto(
-				resolve('/workflows/[id]', { id: derivedId }) + '?tab=edit',
-			);
+			await goto(resolve('/workflows/[id]', { id: derivedId }) + '?tab=edit');
 		} catch (e) {
-			toasts.error(
-				'Derive as workflow failed',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Derive as workflow failed', e instanceof Error ? e.message : undefined);
 		} finally {
 			this.openWorkflowBusy = false;
 		}
@@ -565,11 +518,7 @@ export class TemplateEditController {
 		const detail = this.detail;
 		if (!kind || !detail) return;
 		try {
-			const newId = await cloneTemplate(
-				detail.template.id,
-				kind,
-				`${detail.template.name} (copy)`,
-			);
+			const newId = await cloneTemplate(detail.template.id, kind, `${detail.template.name} (copy)`);
 			void recordTemplateUsage(detail.template.id).catch(() => undefined);
 			toasts.success('Template cloned');
 			await goto(resolve('/templates/[kind]/[id]', { kind, id: newId }));
@@ -602,9 +551,7 @@ export class TemplateEditController {
 			// A workflow template is the user's own workflow, published:
 			// removing it from the library leaves the workflow in place.
 			toasts.success(
-				kind === 'workflow'
-					? 'Removed from the template library'
-					: 'Template deleted',
+				kind === 'workflow' ? 'Removed from the template library' : 'Template deleted',
 			);
 			await this.backToLibrary();
 		} catch (e) {
@@ -642,9 +589,7 @@ export class TemplateEditController {
 		const detail = this.detail;
 		if (this.isNew || kind !== 'node' || !detail) return null;
 		const raw =
-			detail.raw && typeof detail.raw === 'object'
-				? (detail.raw as Record<string, unknown>)
-				: null;
+			detail.raw && typeof detail.raw === 'object' ? (detail.raw as Record<string, unknown>) : null;
 		const value = raw?.node_type;
 		return typeof value === 'string' ? normalizeNodeType(value) : null;
 	});

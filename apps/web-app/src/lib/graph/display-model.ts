@@ -543,15 +543,42 @@ export function statusForTone(tone: ExecutionTone): string | undefined {
 export interface ConnectByPortCheck {
 	sourceKind: string;
 	targetKind: string;
+	/** Hotspot port the drag started from; input ports never start a link. */
+	sourcePort?: string | null;
+	/** Hotspot port the drag lands on; output ports never accept a link. */
+	targetPort?: string | null;
+}
+
+/** Coarse port role of a node kind for connection validation. */
+export type PortRole = 'entry' | 'exit' | 'decision' | 'middle';
+
+/**
+ * Port role of a backend node kind: entries accept no input, exits emit no
+ * output, decisions expose a branch port, everything else is a middle step.
+ * Unknown kinds are ordinary middle nodes so the canvas stays drawable.
+ */
+export function portType(kind: string): PortRole {
+	const ports = nodePorts(kind);
+	if (!ports.acceptsInput) return 'entry';
+	if (!ports.emitsOutput) return 'exit';
+	return renderKind(kind) === 'decision' ? 'decision' : 'middle';
 }
 
 /**
  * Reject a connection whose endpoints break the backend boundary rules:
- * entry nodes accept no incoming edge and exit nodes emit none. The reason
- * strings match the backend graph validator so a canvas refusal reads the
- * same as the server-side draft error.
+ * entry nodes accept no incoming edge and exit nodes emit none. Port
+ * direction is validated first: links start at an output or branch port
+ * and land on an input port, mirroring the hotspot model in GraphCanvas.
+ * The reason strings match the backend graph validator so a canvas refusal
+ * reads the same as the server-side draft error.
  */
 export function connectByPort(check: ConnectByPortCheck): string | null {
+	if (check.sourcePort === 'input') {
+		return 'Connections start from an output port';
+	}
+	if (check.targetPort === 'output' || check.targetPort === 'branch') {
+		return 'Connections land on an input port';
+	}
 	const sourceType = parseStaticNodeType(check.sourceKind);
 	const targetType = parseStaticNodeType(check.targetKind);
 	if (sourceType !== null && !nodePorts(sourceType).emitsOutput) {

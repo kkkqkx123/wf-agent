@@ -12,6 +12,10 @@ export interface ConnectCheck {
 	sourceKind?: string;
 	/** Backend kind of the target node; enables port-type validation. */
 	targetKind?: string;
+	/** Hotspot port the drag started from; input ports never start a link. */
+	sourcePort?: string | null;
+	/** Hotspot port the drag lands on; output ports never accept a link. */
+	targetPort?: string | null;
 }
 
 /** Human-readable reason a connect attempt is rejected, or null when valid. */
@@ -37,6 +41,8 @@ export function describeConnectRejection(check: ConnectCheck): string | null {
 	const portReason = connectByPort({
 		sourceKind: check.sourceKind ?? '',
 		targetKind: check.targetKind ?? '',
+		sourcePort: check.sourcePort ?? null,
+		targetPort: check.targetPort ?? null,
 	});
 	if (portReason) return portReason;
 	return null;

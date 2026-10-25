@@ -32,6 +32,10 @@ export interface Execution {
 	version?: string | null;
 	/** Terminal failure message recorded on the execution, if any. */
 	error?: string | null;
+	/** Parent run for subworkflow executions; null for root runs. */
+	parentExecutionId?: string | null;
+	/** Source run this execution was re-run from, if any. */
+	rerunOf?: string | null;
 }
 
 /** Which engine owns an execution. */

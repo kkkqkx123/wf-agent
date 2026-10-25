@@ -54,6 +54,7 @@
 		type GraphPreset,
 	} from '#lib/graph/display-model';
 	import { toasts } from '#lib/stores/toast.svelte';
+	import { GraphFilterState } from '#lib/graph/use-graph-filter.svelte';
 	import { preferences } from '#lib/stores/preferences.svelte';
 	import {
 		getWorkflowLayout,
@@ -191,8 +192,7 @@
 	}
 	let layout = $state<GraphLayoutKind>(initialLayout());
 	let showFilters = $state(false);
-	let query = $state('');
-	let hiddenKinds = $state<string[]>([]);
+	const filter = new GraphFilterState();
 	let collapsedIds = $state<string[]>([]);
 	let matchIndex = $state(0);
 
@@ -279,29 +279,7 @@
 		),
 	);
 
-	const filtered = $derived.by(() => {
-		const hidden = new Set(hiddenKinds);
-		const needle = query.trim().toLowerCase();
-		const keptNodes = nodes.filter((node) => {
-			if (hidden.has(node.kind || 'unknown')) return false;
-			if (
-				needle &&
-				!node.label.toLowerCase().includes(needle) &&
-				!node.id.toLowerCase().includes(needle) &&
-				!(node.groupId ?? '').toLowerCase().includes(needle)
-			) {
-				return false;
-			}
-			return true;
-		});
-		const kept = new Set(keptNodes.map((node) => node.id));
-		return {
-			nodes: keptNodes,
-			edges: edges.filter(
-				(edge) => kept.has(edge.source) && kept.has(edge.target),
-			),
-		};
-	});
+	const filtered = $derived(filter.filter(nodes, edges));
 
 	// Groups fold before the node cap: non-critical groups collapse first so
 	// truncation drops structure last, not first.
@@ -513,8 +491,8 @@
 	);
 
 	$effect(() => {
-		void query;
-		void hiddenKinds;
+		void filter.query;
+		void filter.hiddenKinds;
 		void capped.nodes;
 		matchIndex = 0;
 	});
@@ -762,13 +740,11 @@
 	});
 
 	function toggleKind(kind: string): void {
-		hiddenKinds = hiddenKinds.includes(kind)
-			? hiddenKinds.filter((entry) => entry !== kind)
-			: [...hiddenKinds, kind];
+		filter.toggleKind(kind);
 	}
 
 	function isolateKind(kind: string): void {
-		hiddenKinds = kinds.filter((entry) => entry !== kind);
+		filter.hiddenKinds = kinds.filter((entry) => entry !== kind);
 	}
 
 	/** Move the selection across the filtered node order. */
@@ -1037,7 +1013,7 @@
 		<Card title={t('domain.graph.filters')} class="shrink-0">
 			<div class="flex flex-wrap items-center gap-2">
 				<Input
-					bind:value={query}
+					bind:value={filter.query}
 					placeholder={t('domain.graph.searchPlaceholder')}
 					onkeydown={(event) => {
 						if (event.key === 'Enter') {
@@ -1047,7 +1023,7 @@
 					}}
 					class="h-7 w-44"
 				/>
-				{#if query.trim()}
+				{#if filter.query.trim()}
 					<span class="text-micro text-muted-foreground">{matchLabel}</span>
 					<IconButton
 						icon="chevron-left"
@@ -1068,20 +1044,19 @@
 					>
 						<input
 							type="checkbox"
-							checked={!hiddenKinds.includes(kind)}
+							checked={!filter.hiddenKinds.includes(kind)}
 							onchange={() => toggleKind(kind)}
 							class="accent-current"
 						/>
 						<span class="font-mono">{kind}</span>
 					</label>
 				{/each}
-				{#if hiddenKinds.length > 0 || query}
+				{#if filter.hiddenKinds.length > 0 || filter.query}
 					<Button
 						variant="ghost"
 						size="sm"
 						onclick={() => {
-							hiddenKinds = [];
-							query = '';
+							filter.clear();
 						}}
 					>
 						{t('domain.inspector.clearFilter')}
@@ -1193,12 +1168,12 @@
 									{t('domain.graph.foldTo', { kind: entry.kind })}
 								</Button>
 							{/each}
-							{#if hiddenKinds.length > 0}
+							{#if filter.hiddenKinds.length > 0}
 								<Button
 									variant="ghost"
 									size="sm"
 									onclick={() => {
-										hiddenKinds = [];
+										filter.hiddenKinds = [];
 									}}
 								>
 									{t('domain.graph.showAllKinds')}

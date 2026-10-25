@@ -59,6 +59,7 @@ export interface ConnectSpot {
 
 export interface ConnectDrag {
 	source: string;
+	sourcePort: ConnectPort;
 	sx: number;
 	sy: number;
 	px: number;

@@ -7,7 +7,6 @@
 	import Skeleton from '#lib/ui/components/Skeleton.svelte';
 	import DefinitionDraftsPanel from '#lib/components/domain/DefinitionDraftsPanel.svelte';
 	import DefinitionVersionsPanel from '#lib/components/domain/DefinitionVersionsPanel.svelte';
-	import RunsPanel from '#lib/components/domain/RunsPanel.svelte';
 	import {
 		listDefinitionDrafts,
 		listDefinitionVersions,
@@ -165,6 +164,20 @@
 			onchanged={() => void load()}
 		/>
 
-		<RunsPanel {kind} {definitionId} />
+		<Card title="Runs in execution domain">
+			<p class="text-caption text-muted-foreground">
+				Runs are read-only here. The execution domain is the single center
+				for listing, filtering, re-running and inspecting runs.
+			</p>
+			<div class="mt-2">
+				<Button
+					size="sm"
+					variant="outline"
+					href={`/executions?definition=${encodeURIComponent(`${kind}:${definitionId}`)}`}
+				>
+					View runs in execution domain
+				</Button>
+			</div>
+		</Card>
 	{/if}
 </div>

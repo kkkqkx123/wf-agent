@@ -29,6 +29,14 @@ export interface AgentRunParams {
 	message: string;
 	/** The model the agent answers with. */
 	model: string;
+	/** Per-run filesystem scope; absent inherits the global default. */
+	fileScope?: unknown;
+	/** Seed conversation history; absent starts with an empty transcript. */
+	conversation?: unknown[];
+	/** Upper bound on loop iterations; absent uses the template default. */
+	maxIterations?: number | null;
+	/** Upper bound on tokens; absent uses the template default. */
+	tokenLimit?: number | null;
 }
 
 export type RunParams = WorkflowRunParams | AgentRunParams;
@@ -69,8 +77,10 @@ export async function runDefinition<K extends RunnableKind>(
 					model: run.model,
 					message: run.message,
 					tool_call_protocol: { format: 'json' },
-					conversation: [],
-					file_scope: null,
+					conversation: run.conversation ?? [],
+					file_scope: run.fileScope ?? null,
+					max_iterations: run.maxIterations ?? null,
+					token_limit: run.tokenLimit ?? null,
 				},
 			}),
 		),

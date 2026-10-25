@@ -101,3 +101,21 @@ describe('describeConnectRejection', () => {
 		).toBe('Edge already exists.');
 	});
 });
+
+describe('port direction', () => {
+	it('rejects links dragged from an input hotspot', () => {
+		expect(
+			describeConnectRejection(check({ sourcePort: 'input' })),
+		).toBe('Connections start from an output port');
+	});
+	it('rejects links dropped on an output hotspot', () => {
+		expect(
+			describeConnectRejection(check({ targetPort: 'branch' })),
+		).toBe('Connections land on an input port');
+	});
+	it('keeps topology checks ahead of port checks', () => {
+		expect(
+			describeConnectRejection(check({ target: 'a', sourcePort: 'input' })),
+		).toBe('Cannot self-connect.');
+	});
+});

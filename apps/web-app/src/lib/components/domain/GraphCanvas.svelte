@@ -423,7 +423,11 @@
 		hotspots = spots;
 	}
 
-	function connectRejectReason(source: string, target: string): string | null {
+	function connectRejectReason(
+		source: string,
+		target: string,
+		sourcePort?: string | null,
+	): string | null {
 		return describeConnectRejection({
 			editMode: editSnapshot,
 			source,
@@ -432,10 +436,15 @@
 			hiddenIds: hiddenSnapshot,
 			sourceKind: kindById.get(source) ?? '',
 			targetKind: kindById.get(target) ?? '',
+			sourcePort: sourcePort ?? null,
 		});
 	}
 
-	function connectValid(source: string, target: string): boolean {
+	function connectValid(
+		source: string,
+		target: string,
+		sourcePort?: string | null,
+	): boolean {
 		return isConnectValid({
 			editMode: editSnapshot,
 			source,
@@ -444,6 +453,7 @@
 			hiddenIds: hiddenSnapshot,
 			sourceKind: kindById.get(source) ?? '',
 			targetKind: kindById.get(target) ?? '',
+			sourcePort: sourcePort ?? null,
 		});
 	}
 
@@ -481,7 +491,9 @@
 			core
 				.getElementById(next)
 				.addClass(
-					connectValid(connectDrag.source, next) ? 'connect-ok' : 'connect-bad',
+					connectValid(connectDrag.source, next, connectDrag.sourcePort)
+						? 'connect-ok'
+						: 'connect-bad',
 				);
 		}
 	}
@@ -509,7 +521,11 @@
 		setNodesGrabbable(true);
 		refreshHotspots();
 		if (!commit || !drag || !drag.target) return;
-		const reason = connectRejectReason(drag.source, drag.target);
+		const reason = connectRejectReason(
+			drag.source,
+			drag.target,
+			drag.sourcePort,
+		);
 		if (reason === null) {
 			connectHandler?.(drag.source, drag.target);
 		} else if (reason !== 'Edge already exists.') {
@@ -547,9 +563,14 @@
 			connectRejectHandler?.(t('domain.canvas.hiddenCannotConnect'));
 			return;
 		}
+		if (spot.port === 'input') {
+			connectRejectHandler?.('Connections start from an output port');
+			return;
+		}
 		endConnectDrag(false);
 		connectDrag = {
 			source: spot.id,
+			sourcePort: spot.port,
 			sx: spot.x,
 			sy: spot.y,
 			px: spot.x,
@@ -1163,7 +1184,7 @@
 				x2={connectDrag.px}
 				y2={connectDrag.py}
 				class={connectDrag.target &&
-				connectValid(connectDrag.source, connectDrag.target)
+				connectValid(connectDrag.source, connectDrag.target, connectDrag.sourcePort)
 					? 'stroke-success'
 					: 'stroke-destructive'}
 				stroke-width="2"

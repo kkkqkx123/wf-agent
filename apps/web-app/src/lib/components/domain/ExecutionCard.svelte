@@ -103,13 +103,41 @@
 			</span>
 		</div>
 
-		<div class="mt-1 flex items-center gap-2 text-micro text-muted-foreground">
+		<div class="mt-1 flex flex-wrap items-center gap-2 text-micro text-muted-foreground">
 			<span class="font-mono">{shortId(execution.id, 12)}</span>
 			<span aria-hidden="true">·</span>
 			<span>{formatRelativeTime(execution.startedAt)}</span>
 			{#if execution.durationMs !== null}
 				<span aria-hidden="true">·</span>
 				<span class="tabular-nums">{formatDuration(execution.durationMs)}</span>
+			{/if}
+			{#if execution.version}
+				<span
+					class="rounded border border-border px-1 font-mono"
+					title="Pinned workflow version"
+				>
+					v{execution.version}
+				</span>
+			{/if}
+			{#if execution.parentExecutionId}
+				<a
+					href={`/executions/${encodeURIComponent(execution.parentExecutionId)}`}
+					class="font-mono underline-offset-2 hover:underline"
+					title="Child of {execution.parentExecutionId}"
+					onclick={(event) => event.stopPropagation()}
+				>
+					child of {shortId(execution.parentExecutionId, 8)}
+				</a>
+			{/if}
+			{#if execution.rerunOf}
+				<a
+					href={`/executions/${encodeURIComponent(execution.rerunOf)}`}
+					class="font-mono underline-offset-2 hover:underline"
+					title="Rerun of {execution.rerunOf}"
+					onclick={(event) => event.stopPropagation()}
+				>
+					rerun of {shortId(execution.rerunOf, 8)}
+				</a>
 			{/if}
 		</div>
 

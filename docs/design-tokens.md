@@ -1,57 +1,37 @@
 # 设计令牌速查表
 
-> 来源：`apps/web-app/src/lib/ui/styles/tokens.css`（语义令牌唯一来源）与
-> `apps/web-app/src/app.css` 的 `@theme inline` 映射（Tailwind 类名入口）。
-> 本文档只做速查，新增令牌时以源码为准并同步此处。
-> 对应 `docs/ref/frontend-viz/06-可借鉴Dify与n8n的设计.md` §4.3 的建议。
+本文面向 Web、TUI、VS Code 等多端的界面实现，说明当前可用的语义令牌与密度档位。目标是让各端在不复制样式细节的前提下，对齐颜色、字号、圆角与间距。
 
-## 颜色（HSL 三通道存储，用 `hsl(var(--x) / <alpha>)` 拼透明度）
+## 颜色语义
 
-| 令牌                                                   | 浅色值                      | 深色值                        | 用途                                      |
-| ------------------------------------------------------ | --------------------------- | ----------------------------- | ----------------------------------------- |
-| `--background` / `--foreground`                        | `0 0% 100%` / `220 20% 12%` | `220 16% 10%` / `210 12% 90%` | 页面底与正文                              |
-| `--card` / `--card-foreground`                         | `0 0% 100%` / 同上          | `220 15% 12%` / 同上          | 卡片面                                    |
-| `--popover` / `--popover-foreground`                   | 同 card                     | `220 16% 13%` / 同上          | 浮层（Dialog/菜单）                       |
-| `--primary` / `--primary-foreground`                   | `220 20% 14%` / 白          | `210 12% 88%` / `220 20% 10%` | 主按钮                                    |
-| `--secondary` / `--muted` / `--accent`                 | `214 20% 95/96/94%`         | `217 14% 18/17/20%`           | 次级面、 hover                            |
-| `--destructive` / `--success` / `--warning` / `--info` | 红/绿/ amber /蓝            | 同色系提亮                    | 状态语义                                  |
-| `--running` / `--running-foreground`                   | `252 56% 54%` / 白          | `252 60% 70%` / 深            | 运行态                                    |
-| `--brand` / `--brand-foreground`                       | `24 95% 53%` / 白           | `24 90% 62%` / 深             | 品牌锚点（Logo、主 Run 按钮、主列表空态） |
-| `--border` / `--input` / `--ring`                      | `214 16% 91/88%` / ring 深  | `217 13% 22/26%` / ring 亮    | 边框与焦点环                              |
-| `--sidebar*`（4 个）                                   | 浅灰蓝组                    | 深灰蓝组                      | 侧栏三件套                                |
-| `--chart-1..5`                                         | 蓝/绿/橙/紫/红              | 同色系提亮                    | 图表                                      |
-| `--overlay`                                            | `220 20% 10% / 0.55`        | `0 0% 0% / 0.68`              | 遮罩                                      |
-| `--scrollbar-thumb*`                                   | 灰                          | 深灰                          | 滚动条                                    |
+- 背景与前景：`background`、`foreground` 用于页面底色与正文。
+- 卡片与浮层：`card`、`popover` 用于内容卡与浮动面板，浮层可叠加 `shadow-popover`。
+- 主次操作：`primary` 用于默认强调按钮，`secondary`、`accent` 用于弱强调与悬停。
+- 状态色：`success`、`warning`、`destructive`、`info`、`running` 分别表达成功、警告、危险、信息与运行中。画布中的执行色统一经由展示模型的正规化函数映射，不直接写死色值。
+- 品牌色：`brand` 仅用于品牌锚点，例如主 Run 按钮、空状态图标与关键入口，不用于大面积背景。
+- 边界与输入：`border`、`input`、`ring` 用于分割线、输入边框与焦点环。
+- 侧栏：`sidebar` 系列用于导航底色与激活态。
+- 图表：`chart-1` 至 `chart-5` 用于指标与分析图表。
+- 终端：`ansi-*` 系列用于渲染 shell 输出，亮色与暗色两套。
+- 代码：`code-keyword`、`code-string`、`code-comment`、`code-number`、`code-function`、`code-type` 用于语法高亮。
 
-## 圆角与字号
+明暗两套主题分别在 `:root` 与 `.dark` 下定义，token 均以 HSL 通道存储，便于叠加透明度。
 
-| 令牌                                            | 值                                                        | 说明                   |
-| ----------------------------------------------- | --------------------------------------------------------- | ---------------------- |
-| `--radius`                                      | `calc(0.5rem * var(--density-scale))`                     | 基准圆角，随密度档浮动 |
-| `--text-heading/title/body/caption/small/micro` | `1.125/1/0.875/0.8125/0.75/0.6875rem × var(--font-scale)` | 六档字号，随密度档浮动 |
+## 字号与密度
 
-Tailwind 侧（`app.css @theme inline`）：`--radius-sm/md/lg/xl` 由 `--radius`
-派生；`--color-*`、`--text-*`、`--shadow-*` 全量映射令牌；另有
-`--spacing-sidebar: 15rem`、`--spacing-inspector: 22.5rem` 两个布局常量。
+- 字号档：`text-heading`、`text-title`、`text-body`、`text-caption`、`text-small`、`text-micro`，均随 `font-scale` 缩放。
+- 密度档：`compact`、`default`、`comfortable` 三档，分别调整 `font-scale` 与 `density-scale`（圆角与间距）。偏好保存在本地并在首屏前应用，避免闪烁。
+- 画布字号：`canvas-node-font-size`、`canvas-edge-font-size` 随界面字号流动，缩放补偿由 `canvas-zoom-compensation` 在运行时写入。
+- 内容宽度：`content-max-width` 约束列表页居中宽度，画布路由保持全幅。
 
-## 密度双变量
+## 圆角与阴影
 
-| 变量              | compact | default | comfortable | 作用               |
-| ----------------- | ------- | ------- | ----------- | ------------------ |
-| `--font-scale`    | 0.94    | 1       | 1.06        | 六档字号           |
-| `--density-scale` | 0.92    | 1       | 1.08        | `--radius`（圆角） |
+- 圆角：`radius-sm`、`radius-md`、`radius-lg`、`radius-xl` 由基础 `radius` 与密度派生。
+- 阴影：`shadow-frost` 用于固定铬与毛玻璃，`shadow-popover` 用于浮层，`surface-float` 组合了浮层背景、边框与阴影。
 
-写入路径：首屏 `app.html` 内联恢复 → `routes/+layout.svelte` 响应式应用
-（`applyFontScale` + `applyDensityScale`，`stores/theme.svelte.ts`），
-源头是 `stores/preferences.svelte.ts` 的 `fontScale` / `spacingScale`，
-持久化在 `localStorage wf-ui-preferences`。
+## 使用原则
 
-## 用法示例
-
-- Tailwind 类：`bg-card text-card-foreground border-border`、`text-running`、
-  `bg-brand text-brand-foreground`（仅主 CTA/Logo）、
-  `rounded-lg`（即 `--radius-lg`）。
-- 透明度：`bg-destructive/10`、`border-destructive/25` 由映射自动支持。
-- 状态色：优先 `statusTone()`（`#lib/ui/status`）而非手写色值。
-- 阴影：`shadow-frost`（固定铬）/`shadow-popover`（浮层）；毛玻璃用
-  `frost` / `frost-panel` 工具。
+- 优先使用语义 token，禁止在组件内写死色值。
+- 品牌色只做锚点，不做状态色替代。
+- 新增多端复用组件时，先查本表，再考虑新增 token；新增 token 必须同时给出明暗两套值。
+- 画布相关的颜色必须经由展示模型的正规化入口，保持服务端渲染与测试的回退一致。

@@ -144,6 +144,7 @@ interface UnifiedExecutionDto {
 	definition_id?: string | null;
 	version?: string | null;
 	parent_execution_id?: string | null;
+	rerun_of?: string | null;
 	error?: string | null;
 }
 
@@ -169,6 +170,8 @@ function toUnifiedExecution(d: UnifiedExecutionDto): Execution {
 		memoryPeakBytes: null,
 		version: d.version ?? null,
 		error: d.error ?? null,
+		parentExecutionId: d.parent_execution_id ?? null,
+		rerunOf: d.rerun_of ?? null,
 		kind,
 	};
 }

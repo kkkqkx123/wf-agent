@@ -27,9 +27,15 @@
 		kind: DefinitionKind;
 		/** The definition the runs were made against. */
 		definitionId: string;
+		/** Compact bridge for definition pages: latest few rows only. */
+		compact?: boolean;
+		/** Row budget; defaults to 5 in compact mode and 50 otherwise. */
+		limit?: number;
 	}
 
-	let { kind, definitionId }: Props = $props();
+	let { kind, definitionId, compact = false, limit }: Props = $props();
+
+	const effectiveLimit = $derived(limit ?? (compact ? 5 : 50));
 
 	/** Wire values of the backend execution status enum; the list endpoint
 	 * matches them with exact equality, so aliasing them would filter to
@@ -59,7 +65,7 @@
 		runsDirty = false;
 		try {
 			const result = await listUnifiedExecutions({
-				limit: 50,
+				limit: effectiveLimit,
 				status: status || undefined,
 				definitionId,
 			});
@@ -121,25 +127,27 @@
 			</Button>
 		</div>
 	{/if}
-	<FilterBar
-		bind:query
-		bind:status
-		statusOptions={STATUS_OPTIONS}
-		placeholder={t('domain.runs.filterPlaceholder')}
-		onstatuschange={() => void loadRuns()}
-	>
-		{#snippet trailing()}
-			<Button
-				variant="ghost"
-				size="sm"
-				disabled={runsLoading}
-				onclick={() => void loadRuns()}
-			>
-				<Icon name="refresh" size={13} />
-				{t('common.refresh')}
-			</Button>
-		{/snippet}
-	</FilterBar>
+	{#if !compact}
+		<FilterBar
+			bind:query
+			bind:status
+			statusOptions={STATUS_OPTIONS}
+			placeholder={t('domain.runs.filterPlaceholder')}
+			onstatuschange={() => void loadRuns()}
+		>
+			{#snippet trailing()}
+				<Button
+					variant="ghost"
+					size="sm"
+					disabled={runsLoading}
+					onclick={() => void loadRuns()}
+				>
+					<Icon name="refresh" size={13} />
+					{t('common.refresh')}
+				</Button>
+			{/snippet}
+		</FilterBar>
+	{/if}
 
 	{#if runsLoading && runs.length === 0}
 		<Skeleton lines={4} class="rounded-lg border border-border bg-card p-4" />
@@ -200,6 +208,17 @@
 										v{run.version}
 									</span>
 								{/if}
+								{#if run.parentExecutionId}
+									<a
+										href={resolve('/executions/[id]', {
+											id: run.parentExecutionId,
+										})}
+										class="truncate font-mono text-micro text-muted-foreground underline-offset-2 hover:underline"
+										title="Child of {run.parentExecutionId}"
+									>
+										child
+									</a>
+								{/if}
 							</div>
 							<p class="mt-0.5 text-micro text-muted-foreground">
 								<span class="tabular-nums">{formatDateTime(run.startedAt)}</span
@@ -234,6 +253,16 @@
 					</li>
 				{/if}
 			</ul>
+			{#if compact}
+				<div class="border-t border-border px-3 py-2">
+					<a
+						href={`/executions?definition=${encodeURIComponent(`${kind}:${definitionId}`)}`}
+						class="text-caption text-foreground underline-offset-2 hover:underline"
+					>
+						View all runs in execution domain
+					</a>
+				</div>
+			{/if}
 		</Card>
 	{/if}
 </div>

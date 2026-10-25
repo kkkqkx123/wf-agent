@@ -10,6 +10,7 @@
 	} from '#lib/types/models';
 	import Card from '#lib/ui/components/Card.svelte';
 	import ExecutionAnnotation from './ExecutionAnnotation.svelte';
+	import NodeTracePanel from './NodeTracePanel.svelte';
 	import Segmented from '#lib/ui/components/Segmented.svelte';
 	import ErrorState from '#lib/ui/components/ErrorState.svelte';
 	import Skeleton from '#lib/ui/components/Skeleton.svelte';
@@ -669,22 +670,6 @@
 		if (tab === 'trace' && seenTrace !== id) {
 			void loadNodeTraces(id);
 		}
-		if (tab === 'trace' && seenTimeline !== id) {
-			seenTimeline = id;
-			timelineError = null;
-			void getExecutionHistory(id, ['timeline'])
-				.then((history) => {
-					timeline = history.timeline;
-				})
-				.catch((e: unknown) => {
-					seenTimeline = '';
-					timeline = [];
-					timelineError =
-						e instanceof Error
-							? e.message
-							: t('domain.inspector.timelineFailed');
-				});
-		}
 		// The overview live card reads the same trace snapshot; live runs
 		// pull it once so the current node output shows without visiting trace.
 		if (tab === 'overview' && seenTrace !== id && isLive) {
@@ -1095,23 +1080,19 @@
 				</module.default>
 			{/await}
 		{:else if tab === 'trace'}
-			{#await import('./ExecutionLogTree.svelte') then module}
-				<module.default
-					traces={nodeTraces}
-					timeline={scopedTimeline}
-					skipped={nodeTracesSkipped}
-					loading={nodeTracesLoading}
-					error={nodeTracesError ?? timelineError}
-					selectedNodeId={graphNodeId}
-					onretry={() => {
-						seenTrace = '';
-						seenTimeline = '';
-						nodeTracesError = null;
-						timelineError = null;
-					}}
-					onlocate={(nodeId) => focusGraphNode(nodeId)}
-				/>
-			{/await}
+			<NodeTracePanel
+				executionId={execution.id}
+				traces={nodeTraces}
+				skipped={nodeTracesSkipped}
+				loading={nodeTracesLoading}
+				error={nodeTracesError}
+				selectedNodeId={graphNodeId}
+				onretry={() => {
+					seenTrace = '';
+					nodeTracesError = null;
+				}}
+				onlocate={(nodeId) => focusGraphNode(nodeId)}
+			/>
 		{:else if tab === 'timeline'}
 			{#if timelineError}
 				<ErrorState

@@ -10,9 +10,11 @@
 	import Input from '#lib/ui/components/Input.svelte';
 	import Skeleton from '#lib/ui/components/Skeleton.svelte';
 	import Textarea from '#lib/ui/components/Textarea.svelte';
+	import JsonViewer from '#lib/ui/components/JsonViewer.svelte';
 	import { listWorkflows } from '#lib/services/workflows';
 	import { listTemplates } from '#lib/services/templates';
 	import { listModelProfiles } from '#lib/services/resources';
+	import { listDefinitionVersions } from '#lib/services/definitions';
 	import { runDefinition, type RunnableKind } from '#lib/services/run';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { t } from '#lib/i18n';
@@ -48,6 +50,14 @@
 	let model = $state('');
 	let input = $state('');
 	let version = $state('');
+	let versions = $state<{ value: string; label: string }[]>([]);
+	let versionsLoading = $state(false);
+	let fileScope = $state('');
+	let fileScopeError = $state<string | null>(null);
+	let inputError = $state<string | null>(null);
+	let debugRun = $state(false);
+	let maxIterations = $state('');
+	let tokenLimit = $state('');
 	let starting = $state(false);
 
 	// Execution type and definition are two layers: the type picks the
@@ -76,6 +86,48 @@
 			(definition) => `${definition.kind}:${definition.id}` === selected,
 		) ?? null,
 	);
+
+	/** Parsed workflow input: JSON when it parses, raw text otherwise. */
+	const parsedInput = $derived.by((): unknown => {
+		const trimmed = input.trim();
+		if (trimmed === '') return null;
+		try {
+			return JSON.parse(trimmed) as unknown;
+		} catch {
+			return trimmed;
+		}
+	});
+
+	const parsedFileScope = $derived.by((): unknown => {
+		const trimmed = fileScope.trim();
+		if (trimmed === '') return null;
+		try {
+			return JSON.parse(trimmed) as unknown;
+		} catch {
+			return null;
+		}
+	});
+
+	function validateJsonFields(): boolean {
+		inputError = null;
+		fileScopeError = null;
+		if (input.trim() !== '') {
+			try {
+				JSON.parse(input);
+			} catch {
+				inputError = null;
+			}
+		}
+		if (fileScope.trim() !== '') {
+			try {
+				JSON.parse(fileScope);
+			} catch {
+				fileScopeError = 'File scope must be valid JSON or empty.';
+				return false;
+			}
+		}
+		return true;
+	}
 
 	async function loadDefinitions(): Promise<void> {
 		loading = true;
@@ -128,9 +180,38 @@
 		}
 	}
 
+	async function loadVersions(definitionId: string): Promise<void> {
+		versions = [];
+		if (!definitionId) return;
+		versionsLoading = true;
+		try {
+			const rows = await listDefinitionVersions('workflow', definitionId);
+			versions = [
+				{ value: '', label: 'Latest' },
+				...rows.map((row) => ({
+					value: row.version,
+					label: row.current ? `${row.version} · latest` : row.version,
+				})),
+			];
+		} catch {
+			versions = [{ value: '', label: 'Latest' }];
+		} finally {
+			versionsLoading = false;
+		}
+	}
+
+	$effect(() => {
+		if (selectedDefinition?.kind !== 'workflow') return;
+		void loadVersions(selectedDefinition.id);
+	});
+
 	async function start(): Promise<void> {
 		const definition = selectedDefinition;
 		if (!definition || starting) return;
+		if (!validateJsonFields()) {
+			if (fileScopeError) toasts.error(fileScopeError);
+			return;
+		}
 		if (definition.kind === 'agent' && message.trim() === '') {
 			toasts.error(t('page.executions.taskMessageRequired'));
 			return;
@@ -141,15 +222,31 @@
 		}
 		starting = true;
 		try {
+			const parsedMaxIterations =
+				maxIterations.trim() === '' ? null : Number(maxIterations);
+			const parsedTokenLimit =
+				tokenLimit.trim() === '' ? null : Number(tokenLimit);
+			if (
+				(parsedMaxIterations !== null &&
+					!Number.isFinite(parsedMaxIterations)) ||
+				(parsedTokenLimit !== null && !Number.isFinite(parsedTokenLimit))
+			) {
+				toasts.error('Budget fields must be numbers or empty.');
+				return;
+			}
 			const executionId =
 				definition.kind === 'workflow'
 					? await runDefinition('workflow', definition.id, {
-							input: input.trim() === '' ? null : input,
+							input: parsedInput,
 							version: version.trim() === '' ? null : version.trim(),
+							fileScope: parsedFileScope,
 						})
 					: await runDefinition('agent', definition.id, {
 							message: message.trim(),
 							model,
+							fileScope: parsedFileScope,
+							maxIterations: parsedMaxIterations,
+							tokenLimit: parsedTokenLimit,
 						});
 			toasts.success(t('page.executions.taskStarted'), executionId);
 			if (onstarted) {
@@ -208,16 +305,55 @@
 					No {executionType} definitions available.
 				</p>
 			{:else if selectedDefinition?.kind === 'workflow'}
-				<Input
+				<Select
 					bind:value={version}
+					options={versions.length > 0
+						? versions
+						: [{ value: '', label: 'Latest' }]}
 					label="Version"
-					placeholder="Empty runs the current definition"
+					placeholder={versionsLoading ? 'Loading versions…' : 'Empty runs the current definition'}
+					disabled={versionsLoading}
+					onchange={() => undefined}
 				/>
 				<Textarea
 					bind:value={input}
 					label={t('page.executions.taskInput')}
 					placeholder={t('page.executions.taskInputPlaceholder')}
 				/>
+				{#if input.trim() !== ''}
+					<div class="rounded-md border border-border bg-muted/40 p-2">
+						<p class="mb-1 text-micro text-muted-foreground">Input preview</p>
+						<JsonViewer value={parsedInput} collapsed />
+					</div>
+				{/if}
+				<Textarea
+					bind:value={fileScope}
+					label="File scope (JSON, optional)"
+					placeholder="Optional JSON file scope"
+				/>
+				{#if fileScopeError}
+					<p class="text-micro text-destructive">{fileScopeError}</p>
+				{/if}
+				<label class="flex cursor-pointer items-start gap-2 text-caption">
+					<input
+						type="checkbox"
+						bind:checked={debugRun}
+						class="mt-1 h-3.5 w-3.5 accent-current"
+					/>
+					<span>
+						Debug run of a subworkflow
+						<span class="block text-micro text-muted-foreground">
+							Subworkflows normally run via their parent; direct runs are
+							for debugging only.
+						</span>
+					</span>
+				</label>
+				{#if debugRun}
+					<p class="rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-caption text-muted-foreground">
+						This direct run is a debug run. Prefer triggering the parent
+						workflow so lineage stays intact.
+					</p>
+				{/if}
 			{:else}
 				<Textarea
 					bind:value={message}
@@ -230,6 +366,26 @@
 					label={t('page.executions.taskModel')}
 					placeholder={t('page.executions.taskModelPlaceholder')}
 				/>
+				<Textarea
+					bind:value={fileScope}
+					label="File scope (JSON, optional)"
+					placeholder="Optional JSON file scope"
+				/>
+				{#if fileScopeError}
+					<p class="text-micro text-destructive">{fileScopeError}</p>
+				{/if}
+				<div class="grid grid-cols-2 gap-2">
+					<Input
+						bind:value={maxIterations}
+						label="Max iterations (optional)"
+						placeholder="Empty uses template default"
+					/>
+					<Input
+						bind:value={tokenLimit}
+						label="Token limit (optional)"
+						placeholder="Empty uses template default"
+					/>
+				</div>
 			{/if}
 			<Button size="sm" disabled={starting} onclick={() => void start()}>
 				<Icon name="play" size={13} />

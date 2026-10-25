@@ -56,6 +56,7 @@
 	let engine = $state<'all' | 'workflow' | 'agent' | 'chat'>('all');
 	let versionFilter = $state('');
 	let timeRange = $state<'all' | 'today' | 'last7' | 'last30'>('all');
+	let lineage = $state<'all' | 'root' | 'child'>('all');
 	let autoInsert = $state(false);
 	let insertedIds = $state<Set<string>>(new Set());
 	let view = $state<'list' | 'table'>('list');
@@ -237,8 +238,8 @@
 	});
 	// The status travels to the server; the free-text query only narrows the
 	// page already fetched, which is why it filters names/ids instead of payloads.
-	// Version and time range narrow client-side: the list endpoint has no
-	// dedicated fields for them, so they refine what is already loaded.
+	// Version, time range and lineage narrow client-side: the list endpoint
+	// has no dedicated fields for them, so they refine what is loaded.
 	const filtered = $derived(
 		allExecutions.items.filter((execution) => {
 			const needle = query.trim().toLowerCase();
@@ -260,7 +261,11 @@
 				if (timeRange === 'last7') return ageMs <= 7 * dayMs;
 				return ageMs <= 30 * dayMs;
 			})();
-			return matchesQuery && matchesVersion && matchesTime;
+			const matchesLineage =
+				lineage === 'all' ||
+				(lineage === 'root' && !execution.parentExecutionId) ||
+				(lineage === 'child' && !!execution.parentExecutionId);
+			return matchesQuery && matchesVersion && matchesTime && matchesLineage;
 		}),
 	);
 
@@ -269,6 +274,7 @@
 			(versionFilter.trim() ? 1 : 0) +
 			(timeRange !== 'all' ? 1 : 0) +
 			(engine !== 'all' ? 1 : 0) +
+			(lineage !== 'all' ? 1 : 0) +
 			(query.trim() ? 1 : 0),
 	);
 
@@ -549,6 +555,20 @@
 									: 'all';
 							selectedId = null;
 							void reload();
+						}}
+					/>
+					<Select
+						value={lineage}
+						options={[
+							{ value: 'all', label: 'All runs' },
+							{ value: 'root', label: 'Root runs' },
+							{ value: 'child', label: 'Child runs' },
+						]}
+						size="sm"
+						class="w-32"
+						onchange={(value) => {
+							lineage =
+								value === 'root' || value === 'child' ? value : 'all';
 						}}
 					/>
 					<span class="text-caption tabular-nums text-muted-foreground">

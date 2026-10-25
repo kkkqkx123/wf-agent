@@ -168,7 +168,7 @@
 			</Button>
 		{/snippet}
 		{#if logsOpen}
-			<RunsPanel kind="workflow" definitionId={detail.id} />
+			<RunsPanel kind="workflow" definitionId={detail.id} compact />
 		{/if}
 	</Card>
 </div>

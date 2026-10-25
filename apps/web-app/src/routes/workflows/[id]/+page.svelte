@@ -468,7 +468,7 @@
 				Execution domain · runs are read-only here; new runs start in the
 				execution workbench. Editing the definition happens in the Edit tab.
 			</p>
-			<RunsPanel kind="workflow" definitionId={detail.id} />
+			<RunsPanel kind="workflow" definitionId={detail.id} compact />
 		{/if}
 	</div>
 </div>

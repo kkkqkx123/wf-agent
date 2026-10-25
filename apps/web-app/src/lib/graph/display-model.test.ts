@@ -12,6 +12,7 @@ import {
 	capGraph,
 	connectByPort,
 	distinctKinds,
+	portType,
 	edgeGradient,
 	isDashedEdge,
 	isFailureBranch,
@@ -658,5 +659,42 @@ describe('branch edges', () => {
 			to: 'tone:success',
 			waiting: false,
 		});
+	});
+});
+
+describe('portType', () => {
+	it('classifies entries, exits, decisions and middle nodes', () => {
+		expect(portType('START')).toBe('entry');
+		expect(portType('start_from_message')).toBe('entry');
+		expect(portType('END')).toBe('exit');
+		expect(portType('continue_from_message')).toBe('exit');
+		expect(portType('ROUTE')).toBe('decision');
+		expect(portType('SCRIPT')).toBe('middle');
+		expect(portType('LLM')).toBe('middle');
+		expect(portType('acme.step')).toBe('middle');
+	});
+});
+
+describe('connectByPort direction', () => {
+	it('rejects links starting at an input port', () => {
+		expect(
+			connectByPort({ sourceKind: 'SCRIPT', targetKind: 'LLM', sourcePort: 'input' }),
+		).toBe('Connections start from an output port');
+	});
+	it('rejects links landing on an output or branch port', () => {
+		expect(
+			connectByPort({ sourceKind: 'SCRIPT', targetKind: 'LLM', targetPort: 'output' }),
+		).toBe('Connections land on an input port');
+		expect(
+			connectByPort({ sourceKind: 'SCRIPT', targetKind: 'ROUTE', targetPort: 'branch' }),
+		).toBe('Connections land on an input port');
+	});
+	it('allows output and branch sources to input targets', () => {
+		expect(
+			connectByPort({ sourceKind: 'SCRIPT', targetKind: 'LLM', sourcePort: 'output' }),
+		).toBeNull();
+		expect(
+			connectByPort({ sourceKind: 'ROUTE', targetKind: 'SCRIPT', sourcePort: 'branch' }),
+		).toBeNull();
 	});
 });

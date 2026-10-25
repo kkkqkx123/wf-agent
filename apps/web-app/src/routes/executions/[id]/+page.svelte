@@ -186,6 +186,9 @@
 						rerun of {unified.rerunOf.slice(0, 8)}
 					</a>
 				{/if}
+				{#if unified.debug}
+					<Badge variant="outline">debug</Badge>
+				{/if}
 				{#if unified.parentExecutionId}
 					<a
 						class="font-mono text-caption text-muted-foreground underline-offset-2 hover:underline"

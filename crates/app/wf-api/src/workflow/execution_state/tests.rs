@@ -68,6 +68,7 @@ async fn degrades_gracefully_without_live_state() {
         hierarchy: None,
 
         rerun_of: None,
+        debug: None,
     };
     ctx.storage.workflow_execution.save(&record).await.unwrap();
 
@@ -344,6 +345,7 @@ async fn deep_analysis_degrades_to_persisted() {
         hierarchy: None,
 
         rerun_of: None,
+        debug: None,
     };
     ctx.storage.workflow_execution.save(&record).await.unwrap();
 

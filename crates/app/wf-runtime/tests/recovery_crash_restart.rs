@@ -172,6 +172,7 @@ async fn kill_restart_recover_drives_crashed_execution_to_completion() {
                 input: Some(serde_json::json!({"greeting": "hi"})),
                 options: Some(options),
                 version: None,
+                debug: None,
             },
         )
         .await
@@ -263,6 +264,7 @@ async fn kill_restart_without_checkpoint_is_skipped() {
                 hierarchy: None,
 
                 rerun_of: None,
+                debug: None,
             })
             .await
             .unwrap();
@@ -327,6 +329,7 @@ async fn kill_restart_child_without_checkpoint_points_at_parent() {
                 input: Some(serde_json::json!({"greeting": "hi"})),
                 options: Some(options),
                 version: None,
+                debug: None,
             },
         )
         .await
@@ -374,6 +377,7 @@ async fn kill_restart_child_without_checkpoint_points_at_parent() {
             )),
 
             rerun_of: None,
+            debug: None,
         })
         .await
         .unwrap();

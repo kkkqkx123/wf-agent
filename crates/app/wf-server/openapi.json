@@ -49649,10 +49649,80 @@
       "ExecuteBody": {
         "type": "object",
         "properties": {
+          "debug": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Debug marker for direct subworkflow runs. Metadata only; the engine\nnever reads it for budgets or scheduling."
+          },
+          "enable_checkpoints": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "file_scope": {
             "description": "Optional per-execution filesystem scope. Missing inherits the parent\nexecution then the global default."
           },
           "input": {},
+          "loop_max_iterations_cap": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_execution_time": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_navigation_multiplier": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_pause_duration": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_steps": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Runtime budget overrides. Missing leaves the stored default in place.",
+            "minimum": 0
+          },
+          "node_timeout": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "timeout": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
           "version": {
             "type": [
               "string",

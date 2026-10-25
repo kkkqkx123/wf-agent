@@ -120,6 +120,7 @@ async fn workflow_save_get_execute_status() {
             input: Some(serde_json::json!({"greeting": "hi"})),
             options: None,
             version: None,
+            debug: None,
         },
     )
     .await
@@ -147,6 +148,7 @@ async fn workflow_stream_ends_with_completed() {
             input: Some(serde_json::json!({"greeting": "stream"})),
             options: None,
             version: None,
+            debug: None,
         },
     )
     .await
@@ -194,6 +196,7 @@ async fn checkpoint_command_roundtrip_on_sqlite_store() {
             input: Some(serde_json::json!({"greeting": "sqlite"})),
             options: None,
             version: None,
+            debug: None,
         },
     )
     .await
@@ -270,6 +273,7 @@ async fn checkpoint_chain_respects_node_config_via_api() {
             input: Some(serde_json::json!({"greeting": "api"})),
             options: None,
             version: None,
+            debug: None,
         },
     )
     .await

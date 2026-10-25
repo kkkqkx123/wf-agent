@@ -721,6 +721,7 @@ mod tests {
             hierarchy: None,
 
             rerun_of: None,
+            debug: None,
         };
         super::super::execution::save_execution(&ctx, &execution)
             .await

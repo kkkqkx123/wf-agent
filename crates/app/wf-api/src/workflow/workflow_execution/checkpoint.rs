@@ -20,7 +20,8 @@ use wf_workflow::WorkflowCoordinator;
 use crate::infra::context::ApiContext;
 use crate::infra::error::ApiError;
 
-use super::lifecycle::{default_options, execution_options, live_entity, EXECUTION_OPTIONS_VAR};
+use super::lifecycle::{default_options, execution_options, live_entity};
+use wf_workflow::entity::EXECUTION_OPTIONS_VAR;
 
 /// Preview of what [`crate::workflow::workflow_execution::restore_checkpoint`]
 /// would restore, without side effects.

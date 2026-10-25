@@ -36,6 +36,8 @@ export interface Execution {
 	parentExecutionId?: string | null;
 	/** Source run this execution was re-run from, if any. */
 	rerunOf?: string | null;
+	/** Debug marker for direct subworkflow runs. Metadata only. */
+	debug?: boolean | null;
 }
 
 /** Which engine owns an execution. */
@@ -391,6 +393,18 @@ export type WorkflowInputValue =
  * contract; required fields arrive with the second-stage input schema.
  */
 export type WorkflowInput = Readonly<Record<string, WorkflowInputValue>>;
+
+/** Per-run workflow runtime overrides; absent fields use backend defaults. */
+export interface WorkflowRuntimeOptions {
+	maxSteps?: number | null;
+	timeoutMs?: number | null;
+	maxExecutionTimeMs?: number | null;
+	enableCheckpoints?: boolean | null;
+	nodeTimeoutMs?: number | null;
+	maxPauseDurationMs?: number | null;
+	maxNavigationMultiplier?: number | null;
+	loopMaxIterationsCap?: number | null;
+}
 
 /** Per-run filesystem scope; mirrors backend `ExecutionFileScope`. */
 export interface ExecutionFileScope {

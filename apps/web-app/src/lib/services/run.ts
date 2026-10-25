@@ -14,6 +14,7 @@ import type {
 	RunConversationMessage,
 	WorkflowInput,
 	WorkflowInputValue,
+	WorkflowRuntimeOptions,
 } from '#lib/types/models';
 
 /** The definition kinds that can be started as a run. */
@@ -27,6 +28,10 @@ export interface WorkflowRunParams {
 	fileScope?: ExecutionFileScope | null;
 	/** Pinned version to run; absent runs the stored definition. */
 	version?: string | null;
+	/** Per-run runtime overrides; absent fields use backend defaults. */
+	options?: WorkflowRuntimeOptions | null;
+	/** Debug marker for direct subworkflow runs. Metadata only. */
+	debug?: boolean | null;
 }
 
 /** The parameters an agent run takes. */
@@ -129,6 +134,30 @@ export function assertConversationSeed(value: unknown): RunConversationMessage[]
 	return value as RunConversationMessage[];
 }
 
+/** Assert a runtime number is a finite positive value when set. */
+export function assertPositiveRuntime(value: number | null | undefined, name: string): number | null {
+	if (value === null || value === undefined) return null;
+	if (!Number.isFinite(value) || value <= 0) {
+		throw new Error(`${name} must be a positive number or empty.`);
+	}
+	return value;
+}
+
+/** Assert runtime overrides carry only finite positive numbers when set. */
+export function assertRuntimeOptions(
+	options: WorkflowRuntimeOptions | null | undefined,
+): WorkflowRuntimeOptions | null {
+	if (options === null || options === undefined) return null;
+	assertPositiveRuntime(options.maxSteps ?? null, 'maxSteps');
+	assertPositiveRuntime(options.timeoutMs ?? null, 'timeoutMs');
+	assertPositiveRuntime(options.maxExecutionTimeMs ?? null, 'maxExecutionTimeMs');
+	assertPositiveRuntime(options.nodeTimeoutMs ?? null, 'nodeTimeoutMs');
+	assertPositiveRuntime(options.maxPauseDurationMs ?? null, 'maxPauseDurationMs');
+	assertPositiveRuntime(options.maxNavigationMultiplier ?? null, 'maxNavigationMultiplier');
+	assertPositiveRuntime(options.loopMaxIterationsCap ?? null, 'loopMaxIterationsCap');
+	return options;
+}
+
 /**
  * Start a run of an executable definition and return the execution it
  * produced.
@@ -142,6 +171,7 @@ export async function runDefinition<K extends RunnableKind>(
 		const run = params as WorkflowRunParams;
 		const input = assertWorkflowInput(run.input ?? null);
 		const fileScope = assertFileScope(run.fileScope ?? null);
+		const options = assertRuntimeOptions(run.options ?? null);
 		const data = await call<{ execution_id?: string }>(
 			client.POST('/api/v1/workflows/{id}/execute', {
 				params: { path: { id } },
@@ -149,6 +179,15 @@ export async function runDefinition<K extends RunnableKind>(
 					input,
 					file_scope: fileScope,
 					version: run.version ?? null,
+					max_steps: options?.maxSteps ?? null,
+					timeout: options?.timeoutMs ?? null,
+					max_execution_time: options?.maxExecutionTimeMs ?? null,
+					enable_checkpoints: options?.enableCheckpoints ?? null,
+					node_timeout: options?.nodeTimeoutMs ?? null,
+					max_pause_duration: options?.maxPauseDurationMs ?? null,
+					max_navigation_multiplier: options?.maxNavigationMultiplier ?? null,
+					loop_max_iterations_cap: options?.loopMaxIterationsCap ?? null,
+					debug: run.debug ?? null,
 				},
 			}),
 		);
@@ -209,9 +248,11 @@ export async function rerunWorkflowRun(runId: string): Promise<string> {
 	}
 	const rawInput = 'input' in record ? record.input : null;
 	const input = assertWorkflowInput(rawInput ?? null);
+	const debug = 'debug' in record && typeof record.debug === 'boolean' ? record.debug : null;
 	return runDefinition('workflow', definitionId, {
 		input,
 		version: (record.workflow_version as string | null) ?? null,
+		debug,
 	});
 }
 
@@ -220,4 +261,10 @@ export function isRerunnableType(kind: string): boolean {
 	return kind === 'workflow';
 }
 
-export type { WorkflowInput, WorkflowInputValue, ExecutionFileScope, RunConversationMessage };
+export type {
+	WorkflowInput,
+	WorkflowInputValue,
+	WorkflowRuntimeOptions,
+	ExecutionFileScope,
+	RunConversationMessage,
+};

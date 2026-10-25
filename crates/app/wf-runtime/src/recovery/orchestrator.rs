@@ -159,6 +159,7 @@ mod tests {
             hierarchy: None,
 
             rerun_of: None,
+            debug: None,
         }
     }
 
@@ -318,6 +319,7 @@ mod tests {
             )),
 
             rerun_of: None,
+            debug: None,
         };
         let root = make_execution("root-1", ExecutionStatus::Running);
         // Save child first so scan order alone would recover it first.

@@ -22,6 +22,7 @@ fn workflow_record(id: &str) -> WorkflowExecution {
         hierarchy: None,
 
         rerun_of: None,
+        debug: None,
     }
 }
 

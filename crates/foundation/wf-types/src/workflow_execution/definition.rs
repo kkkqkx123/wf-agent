@@ -48,6 +48,10 @@ pub struct WorkflowExecution {
     pub fork_join_context: Option<ForkJoinContext>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hierarchy: Option<ExecutionHierarchy>,
+    /// Debug marker for direct subworkflow runs. Metadata only; the engine
+    /// never reads it for budgets or scheduling.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debug: Option<bool>,
 }
 
 impl From<WorkflowExecutionStateSnapshot> for WorkflowExecution {
@@ -101,6 +105,7 @@ impl From<WorkflowExecutionStateSnapshot> for WorkflowExecution {
             execution_type: None,
             fork_join_context,
             hierarchy: snapshot.hierarchy,
+            debug: None,
         }
     }
 }

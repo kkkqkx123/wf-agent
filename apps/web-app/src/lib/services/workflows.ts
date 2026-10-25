@@ -9,6 +9,7 @@ import type {
 	WorkflowDetail,
 	WorkflowGraph,
 	WorkflowInput,
+	WorkflowRuntimeOptions,
 } from '#lib/types/models';
 import { assertFileScope, assertWorkflowInput } from '#lib/services/run';
 import { getGraphEdges, getGraphNodes, toWorkflowGraph } from '#lib/services/graph';
@@ -250,9 +251,14 @@ export async function executeWorkflow(
 	 * definition as it stands.
 	 */
 	version?: string | null,
+	options?: {
+		runtime?: WorkflowRuntimeOptions | null;
+		debug?: boolean | null;
+	} | null,
 ): Promise<string> {
 	const checkedInput = assertWorkflowInput(input ?? null);
 	const checkedScope = assertFileScope(fileScope ?? null);
+	const runtime = options?.runtime ?? null;
 	const data = await call<{ execution_id?: string }>(
 		client.POST('/api/v1/workflows/{id}/execute', {
 			params: { path: { id } },
@@ -260,6 +266,15 @@ export async function executeWorkflow(
 				input: checkedInput,
 				file_scope: checkedScope,
 				version: version ?? null,
+				max_steps: runtime?.maxSteps ?? null,
+				timeout: runtime?.timeoutMs ?? null,
+				max_execution_time: runtime?.maxExecutionTimeMs ?? null,
+				enable_checkpoints: runtime?.enableCheckpoints ?? null,
+				node_timeout: runtime?.nodeTimeoutMs ?? null,
+				max_pause_duration: runtime?.maxPauseDurationMs ?? null,
+				max_navigation_multiplier: runtime?.maxNavigationMultiplier ?? null,
+				loop_max_iterations_cap: runtime?.loopMaxIterationsCap ?? null,
+				debug: options?.debug ?? null,
 			},
 		}),
 	);

@@ -133,6 +133,7 @@ interface UnifiedExecutionDto {
 	version?: string | null;
 	parent_execution_id?: string | null;
 	rerun_of?: string | null;
+	debug?: boolean | null;
 	error?: string | null;
 }
 
@@ -159,6 +160,7 @@ function toUnifiedExecution(d: UnifiedExecutionDto): Execution {
 		error: d.error ?? null,
 		parentExecutionId: d.parent_execution_id ?? null,
 		rerunOf: d.rerun_of ?? null,
+		debug: typeof d.debug === 'boolean' ? d.debug : null,
 		kind,
 	};
 }
@@ -198,6 +200,7 @@ interface UnifiedExecutionDetailDto {
 	version?: string | null;
 	rerun_of?: string | null;
 	parent_execution_id?: string | null;
+	debug?: boolean | null;
 	error?: string | null;
 	record?: unknown;
 }
@@ -217,6 +220,7 @@ export interface UnifiedExecutionDetail {
 	definitionId: string | null;
 	version: string | null;
 	rerunOf: string | null;
+	debug: boolean | null;
 	parentExecutionId: string | null;
 	error: string | null;
 	record: unknown;
@@ -244,6 +248,7 @@ export async function getUnifiedExecutionDetail(
 		definitionId: data.definition_id ?? null,
 		version: typeof data.version === 'string' && data.version !== '' ? data.version : null,
 		rerunOf: typeof data.rerun_of === 'string' && data.rerun_of !== '' ? data.rerun_of : null,
+		debug: typeof data.debug === 'boolean' ? data.debug : null,
 		parentExecutionId: data.parent_execution_id ?? null,
 		error: data.error ?? null,
 		record: data.record ?? null,

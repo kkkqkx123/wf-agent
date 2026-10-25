@@ -10037,11 +10037,34 @@ export interface components {
         };
         ExecuteBody: {
             /**
+             * @description Debug marker for direct subworkflow runs. Metadata only; the engine
+             *     never reads it for budgets or scheduling.
+             */
+            debug?: boolean | null;
+            enable_checkpoints?: boolean | null;
+            /**
              * @description Optional per-execution filesystem scope. Missing inherits the parent
              *     execution then the global default.
              */
             file_scope?: unknown;
             input?: unknown;
+            /** Format: int32 */
+            loop_max_iterations_cap?: number | null;
+            /** Format: int64 */
+            max_execution_time?: number | null;
+            /** Format: int32 */
+            max_navigation_multiplier?: number | null;
+            /** Format: int64 */
+            max_pause_duration?: number | null;
+            /**
+             * Format: int32
+             * @description Runtime budget overrides. Missing leaves the stored default in place.
+             */
+            max_steps?: number | null;
+            /** Format: int64 */
+            node_timeout?: number | null;
+            /** Format: int64 */
+            timeout?: number | null;
             /**
              * @description Pinned workflow version to execute. Missing runs the stored
              *     definition as it stands; present loads that saved version instead.

@@ -98,6 +98,7 @@ async fn profile_degrades_to_persisted_record() {
         hierarchy: None,
 
         rerun_of: None,
+        debug: None,
     };
     ctx.storage.workflow_execution.save(&record).await.unwrap();
 
@@ -129,6 +130,7 @@ async fn compare_computes_improvement_rate() {
         hierarchy: None,
 
         rerun_of: None,
+        debug: None,
     };
     ctx.storage
         .workflow_execution

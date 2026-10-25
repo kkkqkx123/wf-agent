@@ -104,6 +104,15 @@ impl TurnParams {
             input: input.cloned(),
             file_scope: None,
             version: None,
+            max_steps: None,
+            timeout: None,
+            max_execution_time: None,
+            enable_checkpoints: None,
+            node_timeout: None,
+            max_pause_duration: None,
+            max_navigation_multiplier: None,
+            loop_max_iterations_cap: None,
+            debug: None,
         }
     }
 
@@ -145,8 +154,8 @@ pub fn parse_workflow_input(input: Option<&str>) -> Result<Option<Value>, String
         None => Ok(None),
         Some(s) if s.trim().is_empty() => Ok(None),
         Some(s) => {
-            let value: Value = serde_json::from_str(s)
-                .map_err(|e| format!("invalid --input JSON: {e}"))?;
+            let value: Value =
+                serde_json::from_str(s).map_err(|e| format!("invalid --input JSON: {e}"))?;
             validate_workflow_input_value(Some(&value))?;
             if value.is_null() {
                 Ok(None)
@@ -185,7 +194,10 @@ mod tests {
         assert!(parse_workflow_input(Some(r#""text""#)).is_err());
         assert!(parse_workflow_input(Some("42")).is_err());
         assert!(parse_workflow_input(Some("true")).is_err());
-        assert_eq!(parse_workflow_input(Some("{}")).unwrap().unwrap(), Value::Object(Default::default()));
+        assert_eq!(
+            parse_workflow_input(Some("{}")).unwrap().unwrap(),
+            Value::Object(Default::default())
+        );
         assert_eq!(parse_workflow_input(Some("null")).unwrap(), None);
     }
 

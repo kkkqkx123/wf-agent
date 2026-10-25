@@ -17,10 +17,12 @@
 	import { listDefinitionVersions } from '#lib/services/definitions';
 	import {
 		assertConversationSeed,
+		assertRuntimeOptions,
 		parseFileScopeText,
 		parseWorkflowInputText,
 		runDefinition,
 		type RunnableKind,
+		type WorkflowRuntimeOptions,
 	} from '#lib/services/run';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { t } from '#lib/i18n';
@@ -58,6 +60,15 @@
 	let fileScopeError = $state<string | null>(null);
 	let inputError = $state<string | null>(null);
 	let debugRun = $state(false);
+	let runtimeError = $state<string | null>(null);
+	let maxSteps = $state('');
+	let timeoutMs = $state('');
+	let maxExecutionTimeMs = $state('');
+	let enableCheckpoints = $state('');
+	let nodeTimeoutMs = $state('');
+	let maxPauseDurationMs = $state('');
+	let maxNavigationMultiplier = $state('');
+	let loopMaxIterationsCap = $state('');
 	let maxIterations = $state('');
 	let tokenLimit = $state('');
 	let conversationSeed = $state('');
@@ -110,6 +121,43 @@
 			return null;
 		}
 	});
+
+	function parseRuntimeNumber(text: string): number | null {
+		const trimmed = text.trim();
+		if (trimmed === '') return null;
+		const value = Number(trimmed);
+		if (!Number.isFinite(value)) throw new Error('Runtime fields must be numbers or empty.');
+		return value;
+	}
+
+	function buildRuntimeOptions(): WorkflowRuntimeOptions | null {
+		const options: WorkflowRuntimeOptions = {
+			maxSteps: parseRuntimeNumber(maxSteps),
+			timeoutMs: parseRuntimeNumber(timeoutMs),
+			maxExecutionTimeMs: parseRuntimeNumber(maxExecutionTimeMs),
+			enableCheckpoints:
+				enableCheckpoints === '' ? null : enableCheckpoints === 'true' ? true : enableCheckpoints === 'false' ? false : null,
+			nodeTimeoutMs: parseRuntimeNumber(nodeTimeoutMs),
+			maxPauseDurationMs: parseRuntimeNumber(maxPauseDurationMs),
+			maxNavigationMultiplier: parseRuntimeNumber(maxNavigationMultiplier),
+			loopMaxIterationsCap: parseRuntimeNumber(loopMaxIterationsCap),
+		};
+		const hasValue = Object.values(options).some((value) => value !== null);
+		if (!hasValue) return null;
+		return assertRuntimeOptions(options) ?? null;
+	}
+
+	function resetRuntime(): void {
+		maxSteps = '';
+		timeoutMs = '';
+		maxExecutionTimeMs = '';
+		enableCheckpoints = '';
+		nodeTimeoutMs = '';
+		maxPauseDurationMs = '';
+		maxNavigationMultiplier = '';
+		loopMaxIterationsCap = '';
+		runtimeError = null;
+	}
 
 	function validateJsonFields(): boolean {
 		fileScopeError = null;
@@ -248,12 +296,25 @@
 				return;
 			}
 			const debugWorkflow = definition.kind === 'workflow' && debugRun;
+			let runtimeOptions: WorkflowRuntimeOptions | null = null;
+			if (definition.kind === 'workflow') {
+				try {
+					runtimeOptions = buildRuntimeOptions();
+				} catch (e) {
+					runtimeError =
+						e instanceof Error ? e.message : 'Runtime fields must be numbers or empty.';
+					toasts.error(runtimeError);
+					return;
+				}
+			}
 			const executionId =
 				definition.kind === 'workflow'
 					? await runDefinition('workflow', definition.id, {
 							input: parseWorkflowInputText(input),
 							version: version.trim() === '' ? null : version.trim(),
 							fileScope: parsedFileScope,
+							options: runtimeOptions,
+							debug: debugWorkflow ? true : null,
 						})
 					: await runDefinition('agent', definition.id, {
 							message: message.trim(),
@@ -359,6 +420,60 @@
 				{#if fileScopeError}
 					<p class="text-micro text-destructive">{fileScopeError}</p>
 				{/if}
+				<details class="rounded-md border border-border p-2">
+					<summary class="cursor-pointer text-caption text-muted-foreground">
+						Runtime overrides (optional)
+					</summary>
+					<div class="mt-2 grid grid-cols-2 gap-2">
+						<Input bind:value={maxSteps} label="Max steps" placeholder="Empty uses default" />
+						<Input bind:value={timeoutMs} label="Timeout (ms)" placeholder="Empty uses default" />
+						<Input
+							bind:value={maxExecutionTimeMs}
+							label="Max execution time (ms)"
+							placeholder="Empty uses default"
+						/>
+						<Select
+							bind:value={enableCheckpoints}
+							options={[
+								{ value: '', label: 'Checkpoints: default' },
+								{ value: 'true', label: 'Checkpoints: on' },
+								{ value: 'false', label: 'Checkpoints: off' },
+							]}
+							label="Checkpoints"
+							onchange={() => undefined}
+						/>
+						<Input
+							bind:value={nodeTimeoutMs}
+							label="Node timeout (ms)"
+							placeholder="Empty uses default"
+						/>
+						<Input
+							bind:value={maxPauseDurationMs}
+							label="Max pause duration (ms)"
+							placeholder="Empty uses default"
+						/>
+						<Input
+							bind:value={maxNavigationMultiplier}
+							label="Navigation multiplier"
+							placeholder="Empty uses default"
+						/>
+						<Input
+							bind:value={loopMaxIterationsCap}
+							label="Loop iterations cap"
+							placeholder="Empty uses default"
+						/>
+					</div>
+					{#if runtimeError}
+						<p class="mt-1 text-micro text-destructive">{runtimeError}</p>
+					{/if}
+					<button
+						type="button"
+						class="mt-2 text-micro text-muted-foreground underline"
+						onclick={() => resetRuntime()}
+					>
+						Reset to defaults
+					</button>
+				</details>
 				<label class="flex cursor-pointer items-start gap-2 text-caption">
 					<input type="checkbox" bind:checked={debugRun} class="mt-1 h-3.5 w-3.5 accent-current" />
 					<span>

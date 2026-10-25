@@ -28,6 +28,7 @@ pub async fn build_workflow_execution(
     graph: &WorkflowGraphStructure,
     options: &WorkflowExecutionOptions,
     output: Option<Value>,
+    debug: Option<bool>,
 ) -> WorkflowExecution {
     // A snapshot failure degrades the persisted record to a bare `Created`
     // state; that loss must be loud, because history/analysis APIs will read
@@ -62,6 +63,7 @@ pub async fn build_workflow_execution(
     let variables = entity
         .variables()
         .iter()
+        .filter(|entry| !WorkflowExecutionEntity::is_internal_variable(entry.key()))
         .map(|entry| VariableDefinition {
             name: entry.key().clone(),
             value: entry.value().clone(),
@@ -135,6 +137,7 @@ pub async fn build_workflow_execution(
         hierarchy,
 
         rerun_of: None,
+        debug,
     }
 }
 
@@ -189,7 +192,7 @@ mod tests {
     async fn root_record_carries_main_type_and_no_hierarchy() {
         let entity = WorkflowExecutionEntity::new("root".to_string(), "wf-1".to_string());
         let record =
-            build_workflow_execution(&entity, &empty_graph(), &empty_options(), None).await;
+            build_workflow_execution(&entity, &empty_graph(), &empty_options(), None, None).await;
         assert_eq!(record.hierarchy, None);
         assert_eq!(
             record.execution_type,
@@ -215,7 +218,7 @@ mod tests {
             .with_hierarchy_manager(child_manager)
             .with_execution_type(wf_types::workflow_execution::WorkflowExecutionType::Subgraph);
         let record =
-            build_workflow_execution(&entity, &empty_graph(), &empty_options(), None).await;
+            build_workflow_execution(&entity, &empty_graph(), &empty_options(), None, None).await;
         let hierarchy = record.hierarchy.expect("child must carry hierarchy");
         assert_eq!(hierarchy.depth(), 1);
         assert_eq!(hierarchy.root_execution_id(), "root");

@@ -42,7 +42,6 @@ pub(crate) fn entry_timeout_ms(options: &WorkflowExecutionOptions) -> u64 {
 
 /// Reserved entity variable holding the resolved execution options so a
 /// paused execution can be resumed with the same input/options.
-pub(crate) const EXECUTION_OPTIONS_VAR: &str = "__execution_options";
 
 /// Parameters for executing a stored workflow.
 #[derive(Debug, Clone, Default)]
@@ -55,6 +54,9 @@ pub struct ExecuteWorkflowParams {
     pub input: Option<Value>,
     /// Execution options; `None` uses engine defaults.
     pub options: Option<WorkflowExecutionOptions>,
+    /// Debug marker for direct subworkflow runs. Metadata only; the engine
+    /// never reads it for budgets or scheduling.
+    pub debug: Option<bool>,
 }
 
 /// Load the workflow definition an execution runs against.
@@ -108,6 +110,40 @@ fn input_shape_kind(value: &Value) -> &'static str {
     }
 }
 
+/// Shared runtime budget gate: numeric budgets must be positive when set.
+/// Zero would clamp the run below any useful budget instead of meaning
+/// "unset", so it fails fast rather than degrading silently.
+pub fn validate_runtime_options(
+    options: Option<&WorkflowExecutionOptions>,
+) -> Result<(), crate::infra::error::ApiError> {
+    let Some(options) = options else {
+        return Ok(());
+    };
+    let positive = [
+        ("max_steps", options.max_steps.map(|v| v as u64)),
+        ("timeout", options.timeout),
+        ("max_execution_time", options.max_execution_time),
+        ("node_timeout", options.node_timeout),
+        ("max_pause_duration", options.max_pause_duration),
+        (
+            "max_navigation_multiplier",
+            options.max_navigation_multiplier.map(|v| v as u64),
+        ),
+        (
+            "loop_max_iterations_cap",
+            options.loop_max_iterations_cap.map(|v| v as u64),
+        ),
+    ];
+    for (name, value) in positive {
+        if value == Some(0) {
+            return Err(crate::infra::error::ApiError::Validation(format!(
+                "workflow {name} must be a positive number when set"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Execute a workflow to completion and await its output.
 ///
 /// Bounded by a wall-clock timeout resolved by `entry_timeout_ms`: an
@@ -118,6 +154,7 @@ pub async fn execute(
     params: ExecuteWorkflowParams,
 ) -> crate::infra::error::ApiResult<WorkflowOutput> {
     validate_workflow_input(params.input.as_ref())?;
+    validate_runtime_options(params.options.as_ref())?;
     let mut definition =
         resolve_definition(ctx, &params.workflow_id, params.version.as_deref()).await?;
     let graph =
@@ -126,6 +163,7 @@ pub async fn execute(
     let hooks = hooks_for_definition(&definition);
     let version = params.version.clone().or(definition.version.clone());
     let entity = spawn_entity(ctx, &params.workflow_id, version);
+    entity.set_debug_run(params.debug);
     let options = resolve_options(
         ctx,
         &entity,
@@ -164,6 +202,7 @@ pub async fn rerun(
         version: source.workflow_version.clone(),
         input: source.input.clone(),
         options: None,
+        debug: source.debug,
     };
     let output = execute(ctx, params).await?;
     if let Ok(Some(mut record)) = ctx
@@ -189,6 +228,7 @@ pub async fn stream(
     params: ExecuteWorkflowParams,
 ) -> crate::infra::error::ApiResult<(Id, ExecutionEventStream)> {
     validate_workflow_input(params.input.as_ref())?;
+    validate_runtime_options(params.options.as_ref())?;
     let mut definition =
         resolve_definition(&ctx, &params.workflow_id, params.version.as_deref()).await?;
     let graph =
@@ -197,6 +237,7 @@ pub async fn stream(
     let hooks = hooks_for_definition(&definition);
     let version = params.version.clone().or(definition.version.clone());
     let entity = spawn_entity(&ctx, &params.workflow_id, version);
+    entity.set_debug_run(params.debug);
     let execution_id = entity.id().clone();
     let (stream, sink) =
         spawn_execution_stream(Some(ctx.event_bus.clone()), execution_id.to_string());
@@ -439,7 +480,7 @@ fn resolve_options(
         }
     }
     if let Ok(value) = serde_json::to_value(&merged) {
-        entity.set_variable(EXECUTION_OPTIONS_VAR, value);
+        entity.set_variable(wf_workflow::entity::EXECUTION_OPTIONS_VAR, value);
     }
     merged
 }
@@ -451,7 +492,7 @@ pub(crate) async fn execution_options(
 ) -> WorkflowExecutionOptions {
     let _ = ctx;
     entity
-        .get_variable(EXECUTION_OPTIONS_VAR)
+        .get_variable(wf_workflow::entity::EXECUTION_OPTIONS_VAR)
         .and_then(|value| serde_json::from_value(value).ok())
         .unwrap_or_else(default_options)
 }

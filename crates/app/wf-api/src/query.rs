@@ -44,6 +44,8 @@ pub struct ExecutionRecord {
     pub output: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debug: Option<bool>,
     pub start_time: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_time: Option<i64>,
@@ -64,6 +66,7 @@ impl From<WorkflowExecution> for ExecutionRecord {
             input: execution.input,
             output: execution.output,
             error: execution.error,
+            debug: execution.debug,
             start_time: execution.started_at,
             end_time: execution.completed_at,
             duration,

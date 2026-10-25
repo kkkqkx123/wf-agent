@@ -62,25 +62,56 @@ pub struct ExecuteBody {
     /// definition as it stands; present loads that saved version instead.
     #[serde(default)]
     pub(crate) version: Option<String>,
+    /// Runtime budget overrides. Missing leaves the stored default in place.
+    #[serde(default)]
+    pub(crate) max_steps: Option<u32>,
+    #[serde(default)]
+    pub(crate) timeout: Option<u64>,
+    #[serde(default)]
+    pub(crate) max_execution_time: Option<u64>,
+    #[serde(default)]
+    pub(crate) enable_checkpoints: Option<bool>,
+    #[serde(default)]
+    pub(crate) node_timeout: Option<u64>,
+    #[serde(default)]
+    pub(crate) max_pause_duration: Option<u64>,
+    #[serde(default)]
+    pub(crate) max_navigation_multiplier: Option<u32>,
+    #[serde(default)]
+    pub(crate) loop_max_iterations_cap: Option<u32>,
+    /// Debug marker for direct subworkflow runs. Metadata only; the engine
+    /// never reads it for budgets or scheduling.
+    #[serde(default)]
+    pub(crate) debug: Option<bool>,
 }
 
 fn execution_options(
-    file_scope: Option<wf_types::config::file_scope::ExecutionFileScope>,
+    body: &ExecuteBody,
 ) -> Option<wf_types::workflow_execution::WorkflowExecutionOptions> {
-    file_scope.map(
-        |scope| wf_types::workflow_execution::WorkflowExecutionOptions {
-            file_scope: Some(scope),
-            input: None,
-            max_steps: None,
-            timeout: None,
-            max_execution_time: None,
-            enable_checkpoints: None,
-            node_timeout: None,
-            max_pause_duration: None,
-            max_navigation_multiplier: None,
-            loop_max_iterations_cap: None,
-        },
-    )
+    let has_runtime = body.max_steps.is_some()
+        || body.timeout.is_some()
+        || body.max_execution_time.is_some()
+        || body.enable_checkpoints.is_some()
+        || body.node_timeout.is_some()
+        || body.max_pause_duration.is_some()
+        || body.max_navigation_multiplier.is_some()
+        || body.loop_max_iterations_cap.is_some()
+        || body.file_scope.is_some();
+    if !has_runtime {
+        return None;
+    }
+    Some(wf_types::workflow_execution::WorkflowExecutionOptions {
+        file_scope: body.file_scope.clone(),
+        input: None,
+        max_steps: body.max_steps,
+        timeout: body.timeout,
+        max_execution_time: body.max_execution_time,
+        enable_checkpoints: body.enable_checkpoints,
+        node_timeout: body.node_timeout,
+        max_pause_duration: body.max_pause_duration,
+        max_navigation_multiplier: body.max_navigation_multiplier,
+        loop_max_iterations_cap: body.loop_max_iterations_cap,
+    })
 }
 
 #[derive(Serialize, ToSchema)]
@@ -108,11 +139,13 @@ pub(crate) async fn handle_execute_workflow(
     Path(path): Path<IdPath>,
     Json(body): Json<ExecuteBody>,
 ) -> impl IntoResponse {
+    let options = execution_options(&body);
     let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
         workflow_id: path.id,
         version: body.version,
         input: body.input,
-        options: execution_options(body.file_scope),
+        options,
+        debug: body.debug,
     };
     match wf_api::workflow::workflow_execution::execute(&state.ctx, params).await {
         Ok(output) => ok(ExecuteView {
@@ -142,11 +175,13 @@ pub(crate) async fn handle_execute_stream(
     Path(path): Path<IdPath>,
     Json(body): Json<ExecuteBody>,
 ) -> Response {
+    let options = execution_options(&body);
     let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
         workflow_id: path.id,
         version: body.version,
         input: body.input,
-        options: execution_options(body.file_scope),
+        options,
+        debug: body.debug,
     };
     let (execution_id, stream) =
         match wf_api::workflow::workflow_execution::stream(state.ctx, params).await {
@@ -185,11 +220,13 @@ pub(crate) async fn handle_execute_background(
     Path(path): Path<IdPath>,
     Json(body): Json<ExecuteBody>,
 ) -> impl IntoResponse {
+    let options = execution_options(&body);
     let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
         workflow_id: path.id,
         version: body.version,
         input: body.input,
-        options: execution_options(body.file_scope),
+        options,
+        debug: body.debug,
     };
     // `stream` spawns the driver detached from this request and hands back
     // the id immediately. Draining the stream in a server task keeps the

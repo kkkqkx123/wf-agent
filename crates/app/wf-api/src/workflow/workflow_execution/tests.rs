@@ -301,6 +301,7 @@ async fn executes_workflow_and_queries_status() {
             input: Some(serde_json::json!({"greeting": "hello"})),
             options: None,
             version: None,
+            debug: None,
         },
     )
     .await
@@ -376,6 +377,7 @@ async fn persisted_execution_readable_after_restart() {
             input: Some(serde_json::json!({"greeting": "persist"})),
             options: None,
             version: None,
+            debug: None,
         },
     )
     .await
@@ -436,6 +438,7 @@ async fn rejects_unknown_workflow() {
             input: None,
             options: None,
             version: None,
+            debug: None,
         },
     )
     .await
@@ -456,6 +459,7 @@ async fn checkpoint_create_and_restore_roundtrip() {
             input: Some(serde_json::json!({"greeting": "cp"})),
             options: None,
             version: None,
+            debug: None,
         },
     )
     .await
@@ -504,6 +508,7 @@ async fn restore_checkpoint_then_resume_continues_from_breakpoint() {
             input: Some(serde_json::json!({"greeting": "hi"})),
             options: None,
             version: None,
+            debug: None,
         },
     )
     .await
@@ -520,6 +525,7 @@ async fn restore_checkpoint_then_resume_continues_from_breakpoint() {
             input: Some(serde_json::json!({"greeting": "hi"})),
             options: Some(partial_options),
             version: None,
+            debug: None,
         },
     )
     .await
@@ -574,6 +580,7 @@ async fn resume_returns_resumed_execution_result() {
             input: Some(serde_json::json!({"greeting": "r"})),
             options: None,
             version: None,
+            debug: None,
         },
     )
     .await
@@ -614,6 +621,7 @@ async fn execution_summaries_project_persisted_records() {
             input: Some(serde_json::json!({"greeting": "hi"})),
             options: None,
             version: None,
+            debug: None,
         },
     )
     .await
@@ -707,6 +715,7 @@ async fn restore_relinks_depth_root_and_children() {
             input: Some(serde_json::json!({"greeting": "hi"})),
             options: None,
             version: None,
+            debug: None,
         },
     )
     .await
@@ -747,6 +756,7 @@ async fn executes_pinned_version_instead_of_current_definition() {
             version: Some("1.0.0".into()),
             input: Some(serde_json::json!({"greeting": "pinned"})),
             options: None,
+            debug: None,
         },
     )
     .await
@@ -764,6 +774,7 @@ async fn executes_pinned_version_instead_of_current_definition() {
             version: Some("9.9.9".into()),
             input: None,
             options: None,
+            debug: None,
         },
     )
     .await;
@@ -776,6 +787,7 @@ async fn executes_pinned_version_instead_of_current_definition() {
             version: None,
             input: None,
             options: None,
+            debug: None,
         },
     )
     .await;
@@ -809,6 +821,7 @@ async fn rerun_links_new_execution_to_source() {
             version: Some("1.0.0".into()),
             input: Some(serde_json::json!({"greeting": "again"})),
             options: None,
+            debug: None,
         },
     )
     .await
@@ -828,4 +841,59 @@ async fn rerun_links_new_execution_to_source() {
         Some(first.execution_id.clone()),
         "rerun record must point back at its source"
     );
+}
+
+#[test]
+fn runtime_budgets_must_be_positive_when_set() {
+    use super::lifecycle::validate_runtime_options;
+    assert!(validate_runtime_options(None).is_ok());
+    let mut options = super::lifecycle::default_options();
+    assert!(validate_runtime_options(Some(&options)).is_ok());
+    options.max_steps = Some(0);
+    assert!(validate_runtime_options(Some(&options)).is_err());
+    options.max_steps = Some(3);
+    options.timeout = Some(0);
+    assert!(validate_runtime_options(Some(&options)).is_err());
+}
+
+#[tokio::test]
+async fn debug_marker_persists_and_rerun_preserves_it() {
+    let ctx = make_ctx();
+    ctx.storage
+        .workflow
+        .save(&make_definition("wf-debug"))
+        .await
+        .unwrap();
+    crate::workflow::version::save_workflow_version(
+        &ctx,
+        "wf-debug",
+        "1.0.0",
+        &make_definition("wf-debug"),
+    )
+    .await
+    .unwrap();
+    let output = execute(
+        &ctx,
+        ExecuteWorkflowParams {
+            workflow_id: "wf-debug".into(),
+            version: None,
+            input: None,
+            options: None,
+            debug: Some(true),
+        },
+    )
+    .await
+    .expect("debug run should complete");
+    let record = crate::workflow::execution::get_execution(&ctx, &output.execution_id.to_string())
+        .await
+        .expect("debug record must be persisted");
+    assert_eq!(record.debug, Some(true));
+    let second = super::lifecycle::rerun(&ctx, &output.execution_id.to_string())
+        .await
+        .expect("rerun should complete");
+    let rerun_record =
+        crate::workflow::execution::get_execution(&ctx, &second.execution_id.to_string())
+            .await
+            .expect("rerun record must be persisted");
+    assert_eq!(rerun_record.debug, Some(true));
 }

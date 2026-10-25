@@ -326,6 +326,7 @@ mod tests {
                 input: Some(serde_json::json!({"greeting": "hi"})),
                 options: Some(partial_options),
                 version: None,
+                debug: None,
             },
         )
         .await
@@ -390,6 +391,7 @@ mod tests {
             hierarchy: None,
 
             rerun_of: None,
+            debug: None,
         };
 
         let item = ApiRecoveryExecutor

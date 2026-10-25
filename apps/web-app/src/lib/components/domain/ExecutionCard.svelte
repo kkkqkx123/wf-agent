@@ -122,6 +122,9 @@
 					rerun of {shortId(execution.rerunOf, 8)}
 				</a>
 			{/if}
+			{#if execution.debug}
+				<span class="font-mono" title="Debug run">debug</span>
+			{/if}
 		</div>
 
 		<div class="mt-2">

@@ -74,6 +74,7 @@ fn workflow_record(id: &str, hierarchy: Option<ExecutionHierarchy>) -> wf_types:
         hierarchy,
 
         rerun_of: None,
+        debug: None,
     }
 }
 

@@ -135,6 +135,7 @@ impl ExecutionBuilder {
             input: self.input,
             options: Some(self.options),
             version: None,
+            debug: None,
         };
         let (execution_id, mut stream) =
             crate::workflow::workflow_execution::stream(ctx.clone(), params).await?;
@@ -221,6 +222,7 @@ impl ExecutionBuilder {
                 input: self.input,
                 options: Some(self.options),
                 version: None,
+                debug: None,
             },
         )
         .await?;

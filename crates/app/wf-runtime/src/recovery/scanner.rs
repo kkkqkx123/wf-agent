@@ -114,6 +114,7 @@ mod tests {
             hierarchy: None,
 
             rerun_of: None,
+            debug: None,
         }
     }
 

@@ -208,7 +208,7 @@ async fn snapshot_rebuild_preserves_state_and_record() {
     assert_eq!(rebuilt_snapshot.completed_nodes, vec!["n1".to_string()]);
     assert_eq!(rebuilt_snapshot.timeout_count, 2);
 
-    let record = build_workflow_execution(&rebuilt, &graph(), &options(), None).await;
+    let record = build_workflow_execution(&rebuilt, &graph(), &options(), None, None).await;
     assert_eq!(
         record.status,
         wf_types::workflow_execution::WorkflowExecutionStatus::Running
@@ -275,6 +275,7 @@ async fn rebuilt_entity_resumes_idempotently_and_settles() {
         &graph(),
         &options(),
         Some(serde_json::json!({"final": true})),
+        None,
     )
     .await;
     assert_eq!(

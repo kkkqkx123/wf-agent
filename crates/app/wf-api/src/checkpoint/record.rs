@@ -551,12 +551,14 @@ mod tests {
             hierarchy: None,
 
             rerun_of: None,
+            debug: None,
         };
         ctx.workflow_execution.save(&execution).await.unwrap();
         let unrelated = WorkflowExecution {
             id: "ex-other".into(),
             workflow_id: "wf-other".into(),
             rerun_of: None,
+            debug: None,
             ..execution
         };
         ctx.workflow_execution.save(&unrelated).await.unwrap();

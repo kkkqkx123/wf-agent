@@ -9,6 +9,16 @@ use wf_types::Id;
 
 use crate::state::WorkflowExecutionState;
 
+/// Internal variable key carrying the execution options from the API boundary
+/// to the persistence layer. Exposed so the wf-api layer can read/write it
+/// through the shared entity variable map.
+pub const EXECUTION_OPTIONS_VAR: &str = "__execution_options";
+
+/// Internal variable key carrying the debug marker from the API boundary to
+/// the persistence layer. Kept private to this module so callers go through
+/// the typed accessors below.
+const DEBUG_RUN_VAR: &str = "__debug_run";
+
 pub struct WorkflowExecutionEntity {
     id: Id,
     workflow_id: Id,
@@ -135,6 +145,32 @@ impl WorkflowExecutionEntity {
 
     pub fn set_variable(&self, name: impl Into<String>, value: Value) {
         self.variables.insert(name.into(), value);
+    }
+
+    /// Set the debug marker for this run. `None` clears it.
+    pub fn set_debug_run(&self, debug: Option<bool>) {
+        match debug {
+            Some(value) => {
+                self.variables
+                    .insert(DEBUG_RUN_VAR.to_string(), Value::Bool(value));
+            }
+            None => {
+                self.variables.remove(DEBUG_RUN_VAR);
+            }
+        }
+    }
+
+    /// Read the debug marker carried by this run, if any.
+    pub fn debug_run(&self) -> Option<bool> {
+        self.variables
+            .get(DEBUG_RUN_VAR)
+            .and_then(|entry| entry.value().as_bool())
+    }
+
+    /// Whether `name` is an internal bookkeeping variable that should not
+    /// appear in the persisted public variable list.
+    pub fn is_internal_variable(name: &str) -> bool {
+        name == EXECUTION_OPTIONS_VAR || name == DEBUG_RUN_VAR
     }
 
     pub fn get_node_result(&self, node_id: &str) -> Option<Value> {

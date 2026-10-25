@@ -149,8 +149,7 @@ pub(crate) async fn run_with_client(
             stream,
         } => {
             let input_value: Option<serde_json::Value> =
-                crate::turn::parse_workflow_input(input.as_deref())
-                    .map_err(CliError::Arguments)?;
+                crate::turn::parse_workflow_input(input.as_deref()).map_err(CliError::Arguments)?;
             if *background || *stream {
                 run_workflow_streaming(cli, client, workflow, input_value, *background).await
             } else {

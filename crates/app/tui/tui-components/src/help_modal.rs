@@ -1,4 +1,4 @@
-//! Help modal showing key bindings.
+//! Help modal derived from the command registry.
 
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
@@ -6,6 +6,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use crate::modal::{centered_rect, Modal, ModalAction, ModalResult};
+use tui_core::command::help_sections;
 use tui_core::keymap::{CKey, Key};
 use tui_style::theme::Theme;
 
@@ -13,21 +14,15 @@ fn to_color(rgb: tui_style::theme::Rgb) -> Color {
     Color::Rgb(rgb.r, rgb.g, rgb.b)
 }
 
-/// Help modal showing key bindings. It is transparent: the screen behind it
-/// keeps rendering so the user can read the shortcut in context. User
-/// keymap overrides can be attached at push time and are listed under the
-/// static overview so the help reflects the active configuration.
+/// Help modal listing every command in the registry. It is transparent:
+/// the screen behind it keeps rendering so the user can read the shortcut
+/// in context.
 #[derive(Default)]
-pub struct HelpModal {
-    /// User overrides as `(binding, key description)` rows.
-    overrides: Vec<(String, String)>,
-}
+pub struct HelpModal;
 
 impl HelpModal {
-    /// Build the modal with the user's keymap overrides listed after the
-    /// static overview.
-    pub fn with_overrides(overrides: Vec<(String, String)>) -> Self {
-        Self { overrides }
+    pub fn new() -> Self {
+        Self
     }
 }
 
@@ -41,23 +36,29 @@ impl Modal for HelpModal {
     }
 
     fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let mut help_text = String::from(
-            "Keys:\n  q / Esc - quit / close\n  0-6 - switch screens\n  Ctrl-B - navigation overlay (all screens incl. Catalog/Git)\n  Ctrl-K or 7 - search palette\n  Ctrl-T - history transcript overlay\n  ? - help\n  j/k - navigate / scroll settings\n  [ ] / Tab - switch exec/workflow views, catalog tabs\n  / filter · X clear filter\n  PgUp/PgDn - detail scroll\n  Enter - select\n  y/n - confirm/cancel\n  o/c/e/l/+/- - settings local keys\n  Alt-T new tab · Alt-W close · Alt-1..9 pick · Alt-[/] prev/next\n  Alt-P pin · Alt-,/. move · Alt-Up parent · Alt-Down child · Alt-S sessions\n  Ctrl-Z - suspend (fg to resume)",
-        );
-        if !self.overrides.is_empty() {
-            help_text.push_str("\n\nCustom bindings:");
-            for (binding, key) in &self.overrides {
-                help_text.push_str(&format!("\n  {key} - {binding}"));
+        let mut help_text = String::new();
+        for (group, rows) in help_sections() {
+            if !help_text.is_empty() {
+                help_text.push('\n');
+            }
+            help_text.push_str(group);
+            help_text.push_str(":\n");
+            for row in rows {
+                help_text.push_str("  ");
+                help_text.push_str(&row.keys);
+                help_text.push_str(" - ");
+                help_text.push_str(row.title);
+                help_text.push('\n');
             }
         }
         let block = Block::default()
             .title(" Help (?) ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(to_color(theme.accent)));
-        let paragraph = Paragraph::new(help_text)
+        let paragraph = Paragraph::new(help_text.trim_end().to_string())
             .block(block)
             .style(Style::default().fg(to_color(theme.fg)));
-        let centered = centered_rect(70, 60, area);
+        let centered = centered_rect(70, 70, area);
         // Transparent: no Clear, the underlying screen stays visible.
         frame.render_widget(paragraph, centered);
     }

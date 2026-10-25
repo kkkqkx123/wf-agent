@@ -19,10 +19,10 @@ use crate::interactive::{
 use crate::keymap::{CKey, Key};
 use tui_components::footer::PanelState;
 use tui_components::panels::{
-    AuthPanel, AuthPromptOption, AuthSessionView, AuthSurfaceRow, CommandId, CommandPalette,
-    MentionEntry, MentionPanel, ModelPanel, QueuedPanel, SkillPanel, WorkflowPanel,
-    WorkflowSummaryRow,
+    AuthPanel, AuthPromptOption, AuthSessionView, AuthSurfaceRow, CommandPalette, MentionEntry,
+    MentionPanel, ModelPanel, QueuedPanel, SkillPanel, WorkflowPanel, WorkflowSummaryRow,
 };
+use tui_core::command::{self, CommandSpec};
 use tui_core::keymap::KeyAction;
 
 /// Entity kinds requested from the mention search endpoint. Files are not
@@ -258,7 +258,7 @@ impl InteractiveController {
         // (for example `/`) still reach the filter.
         match self
             .keymap
-            .resolve(tui_core::keymap::KeymapContext::Panel, key)
+            .resolve_action(tui_core::keymap::KeymapContext::Panel, key)
         {
             Some(KeyAction::Cancel | KeyAction::Back) => {
                 self.dismiss_panel();
@@ -499,46 +499,51 @@ impl InteractiveController {
         self.sync_mention_route();
     }
 
-    /// Run the command selected in the palette.
-    fn run_command(&mut self, command: CommandId, argument: &str) -> InteractiveAction {
-        match command {
-            CommandId::New => InteractiveAction::NewSession,
-            CommandId::Model => {
+    /// Run a command selected in the palette or reached through the leader.
+    pub(crate) fn run_command(
+        &mut self,
+        command: &'static CommandSpec,
+        argument: &str,
+    ) -> InteractiveAction {
+        match command.id {
+            "app.quit" => InteractiveAction::Exit,
+            "app.help" => InteractiveAction::ShowHelp,
+            "session.new" => InteractiveAction::NewSession,
+            "session.list" | "session.resume" => InteractiveAction::OpenSessionList,
+            "session.model" => {
                 self.open_model_panel();
                 InteractiveAction::Continue
             }
-            CommandId::Skill => {
+            "session.skills" => {
                 self.open_skill_panel();
                 InteractiveAction::Continue
             }
-            CommandId::Queued => {
+            "session.queued" => {
                 self.open_queued_panel();
                 InteractiveAction::Continue
             }
-            CommandId::Workflows => {
+            "session.workflows" => {
                 self.open_workflow_panel();
                 InteractiveAction::Continue
             }
-            CommandId::Copy => {
-                self.request_copy_with_arg(argument);
-                InteractiveAction::Continue
-            }
-            CommandId::Auth => {
+            "session.auth" => {
                 self.open_auth_panel();
                 InteractiveAction::Continue
             }
-            CommandId::Quit => InteractiveAction::Exit,
-            CommandId::Help => InteractiveAction::ShowHelp,
-            CommandId::Resume => InteractiveAction::OpenSessionList,
-            CommandId::Executions => {
+            "session.copy" => {
+                self.request_copy_with_arg(argument);
+                InteractiveAction::Continue
+            }
+            "session.executions" => {
                 InteractiveAction::OpenScreen(crate::screens::ScreenKind::Executions)
             }
-            CommandId::Editor => {
+            "session.editor" => {
                 // The shell runs the actual editor handoff (it owns the
                 // terminal), so the session only records the request.
                 self.pending_editor = true;
                 InteractiveAction::Continue
             }
+            _ => InteractiveAction::Continue,
         }
     }
 
@@ -553,15 +558,22 @@ impl InteractiveController {
             Some((command, argument)) => (command, argument.trim()),
             None => (trimmed, ""),
         };
-        let palette = CommandPalette::new();
-        match palette.find(command_text) {
-            Some(command) => {
-                self.run_command(command, argument);
+        match command::lookup_slash(command_text) {
+            Some(spec) => {
+                self.run_command(spec, argument);
                 true
             }
             None => {
-                self.footer
-                    .show_notice(format!("unknown command: {command_text}"));
+                let suggestions = command::slash_suggestions(command_text, 3);
+                let message = if suggestions.is_empty() {
+                    format!("unknown command: {command_text}")
+                } else {
+                    format!(
+                        "unknown command: {command_text} (did you mean {})",
+                        suggestions.join(", ")
+                    )
+                };
+                self.footer.show_notice(message);
                 true
             }
         }
@@ -1514,12 +1526,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_command_palette_opens_the_model_panel() {
+    async fn the_command_palette_runs_the_selected_command() {
         let mut ctl = started_controller().await;
         ctl.handle_key(key(CKey::Char('/')));
-        ctl.handle_key(key(CKey::Down));
-        ctl.handle_key(key(CKey::Enter));
-        assert_eq!(ctl.footer.route, FooterRoute::Model);
+        for c in "help".chars() {
+            ctl.handle_key(key(CKey::Char(c)));
+        }
+        let action = ctl.handle_key(key(CKey::Enter));
+        assert!(matches!(action, InteractiveAction::ShowHelp));
     }
 
     #[tokio::test]

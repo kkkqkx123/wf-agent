@@ -11,7 +11,8 @@ use crate::screens::{ScreenData, ScreenKind};
 use super::input_classify::next_filter;
 use super::signals::SUSPEND_PENDING;
 use super::{TuiApp, DASHBOARD_ENTRIES};
-use tui_core::keymap::{KeyAction as TabKeyAction, KeymapContext};
+use tui_core::command::CommandSpec;
+use tui_core::keymap::{KeyAction, KeymapContext};
 use tui_core::panel_select::Motion;
 use tui_core::screen_data::screen_for_digit;
 
@@ -56,6 +57,10 @@ impl TuiApp {
             return self.handle_overlay_key(key).await;
         }
 
+        if let Some(action) = self.handle_leader_key(key).await? {
+            return Ok(action);
+        }
+
         match key.code {
             CKey::Char('t') if key.ctrl => {
                 let Some(session_id) = self.history_session_id() else {
@@ -85,31 +90,31 @@ impl TuiApp {
         if self.app.screen.navigation.current_kind() == ScreenKind::Interactive {
             // Tab chords are intercepted before the session sees them so a
             // tab switch never leaks into the composer or the overlays.
-            if let Some(action) = self.keymap.resolve(KeymapContext::Global, key) {
-                let tab_handled = match action {
-                    TabKeyAction::TabNew => {
+            if let Some(command) = self.keymap.resolve(KeymapContext::Global, key) {
+                let tab_handled = match command.action {
+                    Some(KeyAction::TabNew) => {
                         self.new_tab().await;
                         self.app
                             .notice
                             .set(format!("tab {} opened", self.sessions.active_index() + 1));
                         true
                     }
-                    TabKeyAction::TabClose => {
+                    Some(KeyAction::TabClose) => {
                         let index = self.sessions.active_index();
                         self.close_tab(index).await;
                         true
                     }
-                    TabKeyAction::TabNext => {
+                    Some(KeyAction::TabNext) => {
                         self.sessions.next(self.now_ms());
                         self.save_tabs();
                         true
                     }
-                    TabKeyAction::TabPrev => {
+                    Some(KeyAction::TabPrev) => {
                         self.sessions.prev(self.now_ms());
                         self.save_tabs();
                         true
                     }
-                    TabKeyAction::TabPick(slot) => {
+                    Some(KeyAction::TabPick(slot)) => {
                         let index = usize::from(slot).saturating_sub(1);
                         if self.sessions.switch(index, self.now_ms()) {
                             self.save_tabs();
@@ -119,19 +124,19 @@ impl TuiApp {
                             true
                         }
                     }
-                    TabKeyAction::TabPin => {
+                    Some(KeyAction::TabPin) => {
                         self.toggle_pin_active();
                         true
                     }
-                    TabKeyAction::TabMovePrev => {
+                    Some(KeyAction::TabMovePrev) => {
                         self.move_active(-1);
                         true
                     }
-                    TabKeyAction::TabMoveNext => {
+                    Some(KeyAction::TabMoveNext) => {
                         self.move_active(1);
                         true
                     }
-                    TabKeyAction::TabParent => {
+                    Some(KeyAction::TabParent) => {
                         if !self.sessions.focus_parent(self.now_ms()) {
                             self.app.notice.set("no parent tab".to_string());
                         } else {
@@ -139,7 +144,7 @@ impl TuiApp {
                         }
                         true
                     }
-                    TabKeyAction::TabChild => {
+                    Some(KeyAction::TabChild) => {
                         if !self.sessions.focus_child_first(self.now_ms()) {
                             self.app.notice.set("no child tab".to_string());
                         } else {
@@ -147,7 +152,7 @@ impl TuiApp {
                         }
                         true
                     }
-                    TabKeyAction::TabChildNext => {
+                    Some(KeyAction::TabChildNext) => {
                         if !self.sessions.focus_child_next(self.now_ms()) {
                             self.app.notice.set("no child tab".to_string());
                         } else {
@@ -155,7 +160,7 @@ impl TuiApp {
                         }
                         true
                     }
-                    TabKeyAction::TabChildPrev => {
+                    Some(KeyAction::TabChildPrev) => {
                         if !self.sessions.focus_child_prev(self.now_ms()) {
                             self.app.notice.set("no child tab".to_string());
                         } else {
@@ -163,7 +168,7 @@ impl TuiApp {
                         }
                         true
                     }
-                    TabKeyAction::SessionList => {
+                    Some(KeyAction::SessionList) => {
                         self.open_session_list();
                         true
                     }
@@ -194,9 +199,7 @@ impl TuiApp {
                         return Ok(LoopAction::Continue);
                     }
                     InteractiveAction::ShowHelp => {
-                        self.modals.push(Box::new(HelpModal::with_overrides(
-                            self.keymap_overrides.clone(),
-                        )));
+                        self.modals.push(Box::new(HelpModal::new()));
                     }
                     InteractiveAction::NewSession => {
                         self.new_tab().await;
@@ -266,40 +269,37 @@ impl TuiApp {
         }
 
         // Shared actions resolve through the keymap (user overrides first,
-        // then builtin defaults); screen-specific keys fall through to the
+        // then registry bindings); screen-specific keys fall through to the
         // hard-coded match below.
-        match self
-            .keymap
-            .resolve(tui_core::keymap::KeymapContext::List, key)
-        {
-            Some(tui_core::keymap::KeyAction::Help) => {
-                self.modals.push(Box::new(HelpModal::with_overrides(
-                    self.keymap_overrides.clone(),
-                )));
-                return Ok(LoopAction::Continue);
-            }
-            Some(tui_core::keymap::KeyAction::Back) => {
-                if !self.go_back() {
+        if let Some(command) = self.keymap.resolve(KeymapContext::List, key) {
+            match command.id {
+                "app.help" => {
+                    self.modals.push(Box::new(HelpModal::new()));
+                    return Ok(LoopAction::Continue);
+                }
+                "ui.back" => {
+                    if !self.go_back() {
+                        return Ok(LoopAction::Quit);
+                    }
+                    return Ok(LoopAction::Continue);
+                }
+                "app.quit" => {
                     return Ok(LoopAction::Quit);
                 }
-                return Ok(LoopAction::Continue);
+                "ui.move_next" => {
+                    let len = self.nav_len();
+                    self.app.screen.navigation.select_next(len);
+                    self.request_detail_for_current();
+                    return Ok(LoopAction::Continue);
+                }
+                "ui.move_prev" => {
+                    let len = self.nav_len();
+                    self.app.screen.navigation.select_prev(len);
+                    self.request_detail_for_current();
+                    return Ok(LoopAction::Continue);
+                }
+                _ => {}
             }
-            Some(tui_core::keymap::KeyAction::Quit) => {
-                return Ok(LoopAction::Quit);
-            }
-            Some(tui_core::keymap::KeyAction::MoveNext) => {
-                let len = self.nav_len();
-                self.app.screen.navigation.select_next(len);
-                self.request_detail_for_current();
-                return Ok(LoopAction::Continue);
-            }
-            Some(tui_core::keymap::KeyAction::MovePrev) => {
-                let len = self.nav_len();
-                self.app.screen.navigation.select_prev(len);
-                self.request_detail_for_current();
-                return Ok(LoopAction::Continue);
-            }
-            _ => {}
         }
 
         match key.code {
@@ -620,6 +620,105 @@ impl TuiApp {
             _ => {}
         }
         Ok(LoopAction::Continue)
+    }
+
+    /// Resolve a leader sequence: the leader opens a pending sequence, the
+    /// following keys either complete a command, extend a prefix (showing
+    /// the which-key hint) or miss (the sequence is dropped).
+    async fn handle_leader_key(&mut self, key: Key) -> CliResult<Option<LoopAction>> {
+        let now = self.now_ms();
+        if let Some(pending) = &self.pending_sequence {
+            if pending.is_expired(now, self.sequence.timeout_ms()) {
+                self.pending_sequence = None;
+                self.app.notice.set("leader: timed out");
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+        }
+        if self.pending_sequence.is_none() {
+            if self.sequence.is_leader(key) && !key.alt {
+                self.pending_sequence = Some(tui_core::command::PendingSequence::start(now));
+                let hint = self.sequence.which_key(&[]);
+                self.app.notice.set(hint);
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                return Ok(Some(LoopAction::Continue));
+            }
+            return Ok(None);
+        }
+        let keys = {
+            let Some(pending) = self.pending_sequence.as_mut() else {
+                return Ok(None);
+            };
+            pending.push(key);
+            pending.keys().to_vec()
+        };
+        if let Some(command) = self.sequence.resolve(&keys) {
+            self.pending_sequence = None;
+            self.app.notice.clear();
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            return Ok(Some(self.run_leader_command(command).await?));
+        }
+        if self.sequence.is_prefix(&keys) {
+            let hint = self.sequence.which_key(&keys);
+            self.app.notice.set(hint);
+        } else {
+            self.pending_sequence = None;
+            self.app.notice.set(self.sequence.which_key(&keys));
+        }
+        self.pending_scope.request(crate::redraw::RedrawScope::Full);
+        Ok(Some(LoopAction::Continue))
+    }
+
+    /// Execute a command reached through the leader sequence.
+    async fn run_leader_command(&mut self, command: &'static CommandSpec) -> CliResult<LoopAction> {
+        match command.id {
+            "app.quit" => {
+                if self.app.screen.navigation.current_kind() == ScreenKind::Interactive {
+                    self.interactive_exit = true;
+                    Ok(LoopAction::Continue)
+                } else {
+                    Ok(LoopAction::Quit)
+                }
+            }
+            "app.help" => {
+                self.modals.push(Box::new(HelpModal::new()));
+                Ok(LoopAction::Continue)
+            }
+            "command.palette" => {
+                if self.sessions.active_mut().is_none() {
+                    self.app.notice.set("no active session for the palette");
+                    return Ok(LoopAction::Continue);
+                }
+                self.goto(ScreenKind::Interactive);
+                if let Some(session) = self.sessions.active_mut() {
+                    session.open_command_panel();
+                }
+                Ok(LoopAction::Continue)
+            }
+            _ => {
+                if self.sessions.active_mut().is_none() {
+                    self.app
+                        .notice
+                        .set(format!("{} needs an active session", command.title));
+                    return Ok(LoopAction::Continue);
+                }
+                self.goto(ScreenKind::Interactive);
+                let action = self
+                    .sessions
+                    .active_mut()
+                    .map(|session| session.run_command(command, ""));
+                match action {
+                    Some(InteractiveAction::Exit) => self.interactive_exit = true,
+                    Some(InteractiveAction::ShowHelp) => {
+                        self.modals.push(Box::new(HelpModal::new()));
+                    }
+                    Some(InteractiveAction::NewSession) => self.new_tab().await,
+                    Some(InteractiveAction::OpenSessionList) => self.open_session_list(),
+                    Some(InteractiveAction::OpenScreen(kind)) => self.goto(kind),
+                    Some(InteractiveAction::Continue) | None => {}
+                }
+                Ok(LoopAction::Continue)
+            }
+        }
     }
 
     pub(super) async fn handle_overlay_key(&mut self, key: Key) -> CliResult<LoopAction> {

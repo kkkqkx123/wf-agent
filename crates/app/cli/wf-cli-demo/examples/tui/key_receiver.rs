@@ -22,7 +22,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 
-use wf_tui::keymap::{builtin_keymap, CKey, Key, KeyAction, KeymapContext};
+use wf_tui::keymap::{CKey, Key, KeyAction, Keymap, KeymapContext};
 
 /// Maximum number of history entries kept in the ring buffer.
 const MAX_HISTORY: usize = 100;
@@ -266,7 +266,7 @@ fn main() -> io::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let keymap = builtin_keymap();
+    let keymap = Keymap::new();
     let mut history: Vec<KeyEntry> = Vec::new();
     let mut current_context = KeymapContext::Global;
     let mut last_entry: Option<KeyEntry> = None;
@@ -314,8 +314,9 @@ fn main() -> io::Result<()> {
                         continue;
                     }
 
-                    // Resolve action and record.
-                    let action = keymap.resolve(current_context, fkey);
+                    // Resolve the registry command behind the key and record
+                    // its low-level action.
+                    let action = keymap.resolve_action(current_context, fkey);
                     let entry = KeyEntry {
                         raw: key,
                         key: fkey,

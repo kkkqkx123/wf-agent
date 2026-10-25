@@ -7,6 +7,8 @@
 
 use std::collections::HashMap;
 
+use crate::command::CommandSpec;
+
 /// Physical key code (modifier-free). Kept deliberately small; the crossterm
 /// adapter converts `KeyCode` into this.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -234,291 +236,153 @@ pub enum KeymapContext {
     Question,
 }
 
-/// A `(context → key → action)` resolution table with global fallback.
+/// A `(context → key → command)` resolution table with global fallback.
+///
+/// The table only holds user overrides: builtin bindings resolve from the
+/// command registry on demand, so an empty table already answers every
+/// builtin chord.
 #[derive(Debug, Clone, Default)]
 pub struct Keymap {
-    global: HashMap<Key, KeyAction>,
-    context: HashMap<KeymapContext, HashMap<Key, KeyAction>>,
+    global: HashMap<Key, &'static CommandSpec>,
+    context: HashMap<KeymapContext, HashMap<Key, &'static CommandSpec>>,
 }
 
 impl Keymap {
-    /// Empty builder (builtin defaults applied on demand via
-    /// [`Self::set_global`] / [`Self::bind`]).
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Bind a global override.
-    pub fn set_global(&mut self, key: Key, action: KeyAction) -> &mut Self {
-        self.global.insert(key, action);
+    pub fn set_global(&mut self, key: Key, command: &'static CommandSpec) -> &mut Self {
+        self.global.insert(key, command);
         self
     }
 
     /// Bind a context-local override.
-    pub fn bind(&mut self, ctx: KeymapContext, key: Key, action: KeyAction) -> &mut Self {
-        self.context.entry(ctx).or_default().insert(key, action);
+    pub fn bind(
+        &mut self,
+        ctx: KeymapContext,
+        key: Key,
+        command: &'static CommandSpec,
+    ) -> &mut Self {
+        self.context.entry(ctx).or_default().insert(key, command);
         self
     }
 
-    /// Resolve `key` in `ctx`: context tables, then the global table, then
-    /// the builtin defaults.
-    pub fn resolve(&self, ctx: KeymapContext, key: Key) -> Option<KeyAction> {
-        if let Some(action) = self.context.get(&ctx).and_then(|m| m.get(&key)).copied() {
-            return Some(action);
+    /// Bind a context-local override from a command id.
+    ///
+    /// Unknown ids are rejected so a settings file can never silently bind
+    /// a command that no longer exists.
+    pub fn bind_id(&mut self, ctx: KeymapContext, key: Key, id: &str) -> bool {
+        let Some(command) = crate::command::by_id(id) else {
+            return false;
+        };
+        if ctx == KeymapContext::Global {
+            self.set_global(key, command);
+        } else {
+            self.bind(ctx, key, command);
         }
-        if let Some(action) = self.global.get(&key).copied() {
-            return Some(action);
-        }
-        builtin_defaults(ctx)
-            .iter()
-            .copied()
-            .find(|(k, _): &(Key, KeyAction)| *k == key)
-            .map(|(_, a)| a)
+        true
     }
-}
 
-/// Builtin bindings that apply in every context. These live in the
-/// *global* table so callers can shadow them with `set_global` and they are
-/// still resolved for any context.
-fn builtin_global() -> Vec<(Key, KeyAction)> {
-    use KeyAction::*;
-    let mut binds = vec![
-        (Key::ctrl(CKey::Char('q')), Quit),
-        (Key::ctrl(CKey::Char('c')), Interrupt),
-        (Key::ctrl(CKey::Char('l')), Redraw),
-        (Key::plain(CKey::Char('?')), Help),
-        (Key::plain(CKey::Char('/')), Palette),
-    ];
-    binds.extend(tab_defaults());
-    binds
-}
-
-/// Default chat-tab chords. Letters register both cases so the binding
-/// matches regardless of how the terminal reports the shift state.
-fn tab_defaults() -> Vec<(Key, KeyAction)> {
-    use KeyAction::*;
-    let mut binds = vec![
-        (
-            Key {
-                code: CKey::Char('t'),
-                ctrl: false,
-                alt: true,
-                shift: false,
-            },
-            TabNew,
-        ),
-        (
-            Key {
-                code: CKey::Char('T'),
-                ctrl: false,
-                alt: true,
-                shift: false,
-            },
-            TabNew,
-        ),
-        (
-            Key {
-                code: CKey::Char('w'),
-                ctrl: false,
-                alt: true,
-                shift: false,
-            },
-            TabClose,
-        ),
-        (
-            Key {
-                code: CKey::Char('W'),
-                ctrl: false,
-                alt: true,
-                shift: false,
-            },
-            TabClose,
-        ),
-        (
-            Key {
-                code: CKey::Char(']'),
-                ctrl: false,
-                alt: true,
-                shift: false,
-            },
-            TabNext,
-        ),
-        (
-            Key {
-                code: CKey::Char('['),
-                ctrl: false,
-                alt: true,
-                shift: false,
-            },
-            TabPrev,
-        ),
-        (
-            Key {
-                code: CKey::Right,
-                ctrl: false,
-                alt: true,
-                shift: false,
-            },
-            TabNext,
-        ),
-        (
-            Key {
-                code: CKey::Left,
-                ctrl: false,
-                alt: true,
-                shift: false,
-            },
-            TabPrev,
-        ),
-    ];
-    for n in 1..=9u8 {
-        let ch = char::from(b'0' + n);
-        binds.push((
-            Key {
-                code: CKey::Char(ch),
-                ctrl: false,
-                alt: true,
-                shift: false,
-            },
-            TabPick(n),
-        ));
+    /// Resolve `key` in `ctx`. The context is one layer above the global
+    /// base, so the same layer machinery serves both ad-hoc lookups and
+    /// explicit mode stacks.
+    pub fn resolve(&self, ctx: KeymapContext, key: Key) -> Option<&'static CommandSpec> {
+        let stack = KeymapStack::base().with(KeyLayer::new(ctx, 10));
+        self.resolve_layered(&stack, key)
     }
-    let alt = |code: CKey| Key {
-        code,
-        ctrl: false,
-        alt: true,
-        shift: false,
-    };
-    binds.extend([
-        (alt(CKey::Char('p')), TabPin),
-        (alt(CKey::Char('P')), TabPin),
-        (alt(CKey::Char('s')), SessionList),
-        (alt(CKey::Char('S')), SessionList),
-        (alt(CKey::Char(',')), TabMovePrev),
-        (alt(CKey::Char('.')), TabMoveNext),
-        (alt(CKey::Up), TabParent),
-        (alt(CKey::Down), TabChild),
-        (alt(CKey::Char('j')), TabChildNext),
-        (alt(CKey::Char('J')), TabChildNext),
-        (alt(CKey::Char('k')), TabChildPrev),
-        (alt(CKey::Char('K')), TabChildPrev),
-    ]);
-    binds
-}
 
-/// Builtin bindings specific to a context. Global keys
-/// are intentionally *not* included — they resolve via the global table.
-fn builtin_defaults(ctx: KeymapContext) -> Vec<(Key, KeyAction)> {
-    use CKey::*;
-    use KeyAction::*;
-    match ctx {
-        KeymapContext::Global => Vec::new(),
-        KeymapContext::List => vec![
-            (Key::plain(Up), MovePrev),
-            (Key::plain(CKey::Char('k')), MovePrev),
-            (Key::plain(Down), MoveNext),
-            (Key::plain(CKey::Char('j')), MoveNext),
-            (Key::plain(Enter), Select),
-            (Key::plain(Esc), Back),
-            (Key::plain(CKey::Char('q')), Back),
-            (Key::plain(CKey::Char('R')), Refresh),
-            (Key::plain(CKey::Char('r')), Refresh),
-            (Key::plain(CKey::Char('D')), KeyAction::Delete),
-            (Key::plain(CKey::Char('N')), New),
-        ],
-        KeymapContext::Detail => vec![
-            (Key::plain(Esc), Back),
-            (Key::plain(CKey::Char('q')), Back),
-            (Key::plain(CKey::Char('E')), Edit),
-            (Key::plain(CKey::Char('D')), KeyAction::Delete),
-        ],
-        KeymapContext::Chat => vec![
-            (Key::plain(Enter), Submit),
-            (Key::plain(Up), HistoryPrev),
-            (Key::plain(Down), HistoryNext),
-            (Key::plain(Esc), Back),
-        ],
-        KeymapContext::Input => vec![
-            (Key::plain(Enter), Submit),
-            (Key::plain(Up), HistoryPrev),
-            (Key::plain(Down), HistoryNext),
-            (Key::plain(Esc), Clear),
-        ],
-        KeymapContext::Modal => vec![
-            (Key::plain(Enter), Submit),
-            (Key::plain(Esc), Cancel),
-            // approval keys
-            (Key::plain(CKey::Char('y')), Approve),
-            (Key::plain(CKey::Char('a')), ApproveAll),
-            (Key::plain(CKey::Char('n')), Deny),
-        ],
-        KeymapContext::Composer => vec![
-            (Key::plain(Enter), Submit),
-            (Key::plain(Esc), Back),
-            (Key::plain(Up), HistoryPrev),
-            (Key::plain(Down), HistoryNext),
-            (Key::ctrl(CKey::Char('u')), Clear),
-        ],
-        KeymapContext::Panel => vec![
-            (Key::plain(Up), MovePrev),
-            (Key::plain(CKey::Char('k')), MovePrev),
-            (Key::plain(Down), MoveNext),
-            (Key::plain(CKey::Char('j')), MoveNext),
-            (Key::plain(Enter), Select),
-            (Key::plain(Esc), Back),
-            (Key::plain(CKey::Char('E')), Edit),
-            (Key::plain(CKey::Char('D')), KeyAction::Delete),
-            (Key::plain(CKey::Delete), KeyAction::Delete),
-            (Key::ctrl(CKey::Char('u')), Clear),
-            (Key::plain(CKey::Char('S')), Scan),
-            (Key::plain(CKey::Char('R')), Reload),
-            (Key::plain(CKey::Char('C')), CacheClear),
-            (Key::plain(Tab), CycleMode),
-        ],
-        KeymapContext::Approval => vec![
-            (Key::plain(Enter), Submit),
-            (Key::plain(Esc), Cancel),
-            (Key::plain(CKey::Char('y')), Approve),
-            (Key::plain(CKey::Char('a')), ApproveAll),
-            (Key::plain(CKey::Char('n')), Deny),
-            (Key::plain(CKey::Char('d')), DenyOnce),
-            (Key::plain(CKey::Char('c')), Cancel),
-        ],
-        KeymapContext::Question => {
-            let mut binds = vec![(Key::plain(Enter), Select), (Key::plain(Esc), Cancel)];
-            // Digit keys select the corresponding option directly.
-            for n in 1..=9u8 {
-                let ch = char::from(b'0' + n);
-                binds.push((Key::plain(CKey::Char(ch)), Pick(n)));
+    /// Resolve to the low-level action when the command has one.
+    pub fn resolve_action(&self, ctx: KeymapContext, key: Key) -> Option<KeyAction> {
+        self.resolve(ctx, key).and_then(|command| command.action)
+    }
+
+    /// Resolve through an ordered layer stack: context overrides first,
+    /// then global overrides, then builtins by layer priority, then the
+    /// global builtin fallback.
+    pub fn resolve_layered(&self, stack: &KeymapStack, key: Key) -> Option<&'static CommandSpec> {
+        for layer in stack.layers.iter().filter(|layer| layer.enabled) {
+            if let Some(command) = self
+                .context
+                .get(&layer.context)
+                .and_then(|m| m.get(&key))
+                .copied()
+            {
+                return Some(command);
             }
-            binds
+        }
+        if let Some(command) = self.global.get(&key).copied() {
+            return Some(command);
+        }
+        for layer in stack.layers.iter().filter(|layer| layer.enabled) {
+            if let Some(command) = crate::command::scoped_command(layer.context, key) {
+                return Some(command);
+            }
+        }
+        crate::command::scoped_command(KeymapContext::Global, key)
+    }
+}
+
+/// One layer of the keymap mode stack.
+#[derive(Debug, Clone, Copy)]
+pub struct KeyLayer {
+    pub context: KeymapContext,
+    pub priority: u8,
+    pub enabled: bool,
+}
+
+impl KeyLayer {
+    pub const fn new(context: KeymapContext, priority: u8) -> Self {
+        Self {
+            context,
+            priority,
+            enabled: true,
         }
     }
 }
 
-/// Convenience: build the keymap with every builtin bound, so callers
-/// usually only need `bind`/`set_global` overrides.
-pub fn builtin_keymap() -> Keymap {
-    let mut km = Keymap::new();
-    for (key, action) in builtin_global() {
-        km.set_global(key, action);
+/// Ordered key layers. Higher priority resolves first; the last layer is
+/// the global base.
+#[derive(Debug, Clone, Default)]
+pub struct KeymapStack {
+    layers: Vec<KeyLayer>,
+}
+
+impl KeymapStack {
+    pub fn new() -> Self {
+        Self::default()
     }
-    for ctx in [
-        KeymapContext::List,
-        KeymapContext::Detail,
-        KeymapContext::Chat,
-        KeymapContext::Input,
-        KeymapContext::Modal,
-        KeymapContext::Composer,
-        KeymapContext::Panel,
-        KeymapContext::Approval,
-        KeymapContext::Question,
-    ] {
-        for (key, action) in builtin_defaults(ctx) {
-            km.bind(ctx, key, action);
+
+    /// Stack with only the global base layer.
+    pub fn base() -> Self {
+        Self::new().with(KeyLayer::new(KeymapContext::Global, 0))
+    }
+
+    /// Push a layer and keep the stack ordered by descending priority.
+    pub fn push(&mut self, layer: KeyLayer) {
+        self.layers.push(layer);
+        self.layers
+            .sort_by_key(|layer| std::cmp::Reverse(layer.priority));
+    }
+
+    pub fn with(mut self, layer: KeyLayer) -> Self {
+        self.push(layer);
+        self
+    }
+
+    /// Enable or disable every layer using `context`.
+    pub fn set_enabled(&mut self, context: KeymapContext, enabled: bool) {
+        for layer in &mut self.layers {
+            if layer.context == context {
+                layer.enabled = enabled;
+            }
         }
     }
-    km
+
+    pub fn layers(&self) -> &[KeyLayer] {
+        &self.layers
+    }
 }
 
 #[cfg(test)]
@@ -529,49 +393,58 @@ mod tests {
 
     #[test]
     fn resolves_list_navigation_from_defaults() {
-        let km = builtin_keymap();
+        let km = Keymap::new();
         // no overrides; ensure the 'None' noop sample? just check list keys.
         assert_eq!(
-            km.resolve(KeymapContext::List, Key::plain(Down)),
+            km.resolve_action(KeymapContext::List, Key::plain(Down)),
             Some(MoveNext)
         );
         assert_eq!(
-            km.resolve(KeymapContext::List, Key::plain(CKey::Char('j'))),
+            km.resolve_action(KeymapContext::List, Key::plain(CKey::Char('j'))),
             Some(MoveNext)
         );
         assert_eq!(
-            km.resolve(KeymapContext::List, Key::plain(Enter)),
+            km.resolve_action(KeymapContext::List, Key::plain(Enter)),
             Some(Select)
         );
     }
 
     #[test]
     fn context_override_wins_over_global() {
-        let mut km = builtin_keymap();
-        // global binds '?' to Help; enter it for List and override Down.
-        km.set_global(Key::plain(CKey::Char('?')), Redraw);
-        // '?' is global; in List it resolves through global override first.
+        let mut km = Keymap::new();
+        km.set_global(
+            Key::plain(CKey::Char('?')),
+            crate::command::by_id("app.redraw").expect("app.redraw is registered"),
+        );
+        // '?' is a global builtin; the override takes precedence.
         assert_eq!(
-            km.resolve(KeymapContext::List, Key::plain(CKey::Char('?'))),
+            km.resolve_action(KeymapContext::List, Key::plain(CKey::Char('?'))),
             Some(Redraw)
         );
     }
 
     #[test]
     fn context_override_beats_builtin() {
-        let mut km = builtin_keymap();
-        km.bind(KeymapContext::List, Key::plain(Down), MoveNext);
-        // rebind to nothing meaningful: check bind changes result.
-        km.bind(KeymapContext::List, Key::plain(Down), Clear);
+        let mut km = Keymap::new();
+        km.bind(
+            KeymapContext::List,
+            Key::plain(Down),
+            crate::command::by_id("ui.move_next").expect("ui.move_next is registered"),
+        );
+        km.bind(
+            KeymapContext::List,
+            Key::plain(Down),
+            crate::command::by_id("ui.clear").expect("ui.clear is registered"),
+        );
         assert_eq!(
-            km.resolve(KeymapContext::List, Key::plain(Down)),
+            km.resolve_action(KeymapContext::List, Key::plain(Down)),
             Some(Clear)
         );
     }
 
     #[test]
     fn global_ctrl_q_is_quit_everywhere() {
-        let km = builtin_keymap();
+        let km = Keymap::new();
         for ctx in [
             KeymapContext::Global,
             KeymapContext::List,
@@ -582,117 +455,157 @@ mod tests {
             KeymapContext::Approval,
             KeymapContext::Question,
         ] {
-            assert_eq!(km.resolve(ctx, Key::ctrl(CKey::Char('q'))), Some(Quit));
+            assert_eq!(
+                km.resolve_action(ctx, Key::ctrl(CKey::Char('q'))),
+                Some(Quit)
+            );
         }
     }
 
     #[test]
     fn unknown_key_is_none() {
-        let km = builtin_keymap();
+        let km = Keymap::new();
         assert_eq!(
-            km.resolve(KeymapContext::Global, Key::ctrl(CKey::Char('z'))),
+            km.resolve_action(KeymapContext::Global, Key::ctrl(CKey::Char('z'))),
             Option::None
         );
     }
 
     #[test]
     fn modal_offers_approval_keys() {
-        let km = builtin_keymap();
+        let km = Keymap::new();
         assert_eq!(
-            km.resolve(KeymapContext::Modal, Key::plain(CKey::Char('y'))),
+            km.resolve_action(KeymapContext::Modal, Key::plain(CKey::Char('y'))),
             Some(Approve)
         );
         assert_eq!(
-            km.resolve(KeymapContext::Modal, Key::plain(CKey::Char('n'))),
+            km.resolve_action(KeymapContext::Modal, Key::plain(CKey::Char('n'))),
             Some(Deny)
         );
     }
 
     #[test]
     fn composer_offers_submit_history_and_clear() {
-        let km = builtin_keymap();
+        let km = Keymap::new();
         let ctx = KeymapContext::Composer;
-        assert_eq!(km.resolve(ctx, Key::plain(Enter)), Some(Submit));
-        assert_eq!(km.resolve(ctx, Key::plain(Esc)), Some(Back));
-        assert_eq!(km.resolve(ctx, Key::plain(Up)), Some(HistoryPrev));
-        assert_eq!(km.resolve(ctx, Key::plain(Down)), Some(HistoryNext));
-        assert_eq!(km.resolve(ctx, Key::ctrl(CKey::Char('u'))), Some(Clear));
+        assert_eq!(km.resolve_action(ctx, Key::plain(Enter)), Some(Submit));
+        assert_eq!(km.resolve_action(ctx, Key::plain(Esc)), Some(Back));
+        assert_eq!(km.resolve_action(ctx, Key::plain(Up)), Some(HistoryPrev));
+        assert_eq!(km.resolve_action(ctx, Key::plain(Down)), Some(HistoryNext));
+        assert_eq!(
+            km.resolve_action(ctx, Key::ctrl(CKey::Char('u'))),
+            Some(Clear)
+        );
     }
 
     #[test]
     fn composer_leaves_character_input_unbound() {
         // Text entry is handled by the composer itself; the keymap only
         // covers commands, so printable characters resolve to None.
-        let km = builtin_keymap();
+        let km = Keymap::new();
         assert_eq!(
-            km.resolve(KeymapContext::Composer, Key::plain(CKey::Char('a'))),
+            km.resolve_action(KeymapContext::Composer, Key::plain(CKey::Char('a'))),
             Option::None
         );
     }
 
     #[test]
     fn panel_offers_navigation_edit_and_delete() {
-        let km = builtin_keymap();
+        let km = Keymap::new();
         let ctx = KeymapContext::Panel;
-        assert_eq!(km.resolve(ctx, Key::plain(Up)), Some(MovePrev));
-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('j'))), Some(MoveNext));
-        assert_eq!(km.resolve(ctx, Key::plain(Enter)), Some(Select));
-        assert_eq!(km.resolve(ctx, Key::plain(Esc)), Some(Back));
-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('E'))), Some(Edit));
+        assert_eq!(km.resolve_action(ctx, Key::plain(Up)), Some(MovePrev));
         assert_eq!(
-            km.resolve(ctx, Key::plain(CKey::Char('D'))),
+            km.resolve_action(ctx, Key::plain(CKey::Char('j'))),
+            Some(MoveNext)
+        );
+        assert_eq!(km.resolve_action(ctx, Key::plain(Enter)), Some(Select));
+        assert_eq!(km.resolve_action(ctx, Key::plain(Esc)), Some(Back));
+        assert_eq!(
+            km.resolve_action(ctx, Key::plain(CKey::Char('E'))),
+            Some(Edit)
+        );
+        assert_eq!(
+            km.resolve_action(ctx, Key::plain(CKey::Char('D'))),
             Some(KeyAction::Delete)
         );
         assert_eq!(
-            km.resolve(ctx, Key::plain(CKey::Delete)),
+            km.resolve_action(ctx, Key::plain(CKey::Delete)),
             Some(KeyAction::Delete)
         );
-        assert_eq!(km.resolve(ctx, Key::ctrl(CKey::Char('u'))), Some(Clear));
+        assert_eq!(
+            km.resolve_action(ctx, Key::ctrl(CKey::Char('u'))),
+            Some(Clear)
+        );
     }
 
     #[test]
     fn approval_offers_deny_once_and_cancel() {
-        let km = builtin_keymap();
+        let km = Keymap::new();
         let ctx = KeymapContext::Approval;
-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('y'))), Some(Approve));
         assert_eq!(
-            km.resolve(ctx, Key::plain(CKey::Char('a'))),
+            km.resolve_action(ctx, Key::plain(CKey::Char('y'))),
+            Some(Approve)
+        );
+        assert_eq!(
+            km.resolve_action(ctx, Key::plain(CKey::Char('a'))),
             Some(ApproveAll)
         );
-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('n'))), Some(Deny));
-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('d'))), Some(DenyOnce));
-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('c'))), Some(Cancel));
-        assert_eq!(km.resolve(ctx, Key::plain(Esc)), Some(Cancel));
-        assert_eq!(km.resolve(ctx, Key::plain(Enter)), Some(Submit));
+        assert_eq!(
+            km.resolve_action(ctx, Key::plain(CKey::Char('n'))),
+            Some(Deny)
+        );
+        assert_eq!(
+            km.resolve_action(ctx, Key::plain(CKey::Char('d'))),
+            Some(DenyOnce)
+        );
+        assert_eq!(
+            km.resolve_action(ctx, Key::plain(CKey::Char('c'))),
+            Some(Cancel)
+        );
+        assert_eq!(km.resolve_action(ctx, Key::plain(Esc)), Some(Cancel));
+        // The approval view has no submit chord.
+        assert_eq!(km.resolve_action(ctx, Key::plain(Enter)), Option::None);
     }
 
     #[test]
     fn question_offers_numeric_picks() {
-        let km = builtin_keymap();
+        let km = Keymap::new();
         let ctx = KeymapContext::Question;
-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('1'))), Some(Pick(1)));
-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('5'))), Some(Pick(5)));
-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('9'))), Some(Pick(9)));
-        assert_eq!(km.resolve(ctx, Key::plain(Enter)), Some(Select));
-        assert_eq!(km.resolve(ctx, Key::plain(Esc)), Some(Cancel));
+        assert_eq!(
+            km.resolve_action(ctx, Key::plain(CKey::Char('1'))),
+            Some(Pick(1))
+        );
+        assert_eq!(
+            km.resolve_action(ctx, Key::plain(CKey::Char('5'))),
+            Some(Pick(5))
+        );
+        assert_eq!(
+            km.resolve_action(ctx, Key::plain(CKey::Char('9'))),
+            Some(Pick(9))
+        );
+        assert_eq!(km.resolve_action(ctx, Key::plain(Enter)), Some(Select));
+        assert_eq!(km.resolve_action(ctx, Key::plain(Esc)), Some(Cancel));
         // Digits beyond 9 have no pick binding.
-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('0'))), Option::None);
+        assert_eq!(
+            km.resolve_action(ctx, Key::plain(CKey::Char('0'))),
+            Option::None
+        );
     }
 
     #[test]
     fn approval_bindings_override_modal_builtin() {
         // The approval context is a superset of the modal keys (y/a/n/Esc)
         // plus d/c; both resolve without ambiguity.
-        let km = builtin_keymap();
+        let km = Keymap::new();
         assert_eq!(
-            km.resolve(KeymapContext::Approval, Key::plain(CKey::Char('y'))),
-            km.resolve(KeymapContext::Modal, Key::plain(CKey::Char('y')))
+            km.resolve_action(KeymapContext::Approval, Key::plain(CKey::Char('y'))),
+            km.resolve_action(KeymapContext::Modal, Key::plain(CKey::Char('y')))
         );
     }
 
     #[test]
     fn tab_chords_resolve_globally() {
-        let km = builtin_keymap();
+        let km = Keymap::new();
         let alt = |code| Key {
             code,
             ctrl: false,
@@ -700,59 +613,59 @@ mod tests {
             shift: false,
         };
         assert_eq!(
-            km.resolve(KeymapContext::Chat, alt(CKey::Char('1'))),
+            km.resolve_action(KeymapContext::Chat, alt(CKey::Char('1'))),
             Some(TabPick(1))
         );
         assert_eq!(
-            km.resolve(KeymapContext::List, alt(CKey::Char('9'))),
+            km.resolve_action(KeymapContext::List, alt(CKey::Char('9'))),
             Some(TabPick(9))
         );
         assert_eq!(
-            km.resolve(KeymapContext::Chat, alt(CKey::Char('t'))),
+            km.resolve_action(KeymapContext::Chat, alt(CKey::Char('t'))),
             Some(TabNew)
         );
         assert_eq!(
-            km.resolve(KeymapContext::Chat, alt(CKey::Char('T'))),
+            km.resolve_action(KeymapContext::Chat, alt(CKey::Char('T'))),
             Some(TabNew)
         );
         assert_eq!(
-            km.resolve(KeymapContext::Chat, alt(CKey::Char('w'))),
+            km.resolve_action(KeymapContext::Chat, alt(CKey::Char('w'))),
             Some(TabClose)
         );
         assert_eq!(
-            km.resolve(KeymapContext::Chat, alt(CKey::Char(']'))),
+            km.resolve_action(KeymapContext::Chat, alt(CKey::Char(']'))),
             Some(TabNext)
         );
         assert_eq!(
-            km.resolve(KeymapContext::Chat, alt(CKey::Char('['))),
+            km.resolve_action(KeymapContext::Chat, alt(CKey::Char('['))),
             Some(TabPrev)
         );
         assert_eq!(
-            km.resolve(KeymapContext::Chat, alt(CKey::Right)),
+            km.resolve_action(KeymapContext::Chat, alt(CKey::Right)),
             Some(TabNext)
         );
         assert_eq!(
-            km.resolve(KeymapContext::Chat, alt(CKey::Left)),
+            km.resolve_action(KeymapContext::Chat, alt(CKey::Left)),
             Some(TabPrev)
         );
         assert_eq!(
-            km.resolve(KeymapContext::Chat, alt(CKey::Char('p'))),
+            km.resolve_action(KeymapContext::Chat, alt(CKey::Char('p'))),
             Some(TabPin)
         );
         assert_eq!(
-            km.resolve(KeymapContext::Chat, alt(CKey::Char('s'))),
+            km.resolve_action(KeymapContext::Chat, alt(CKey::Char('s'))),
             Some(SessionList)
         );
         assert_eq!(
-            km.resolve(KeymapContext::Chat, alt(CKey::Char(','))),
+            km.resolve_action(KeymapContext::Chat, alt(CKey::Char(','))),
             Some(TabMovePrev)
         );
         assert_eq!(
-            km.resolve(KeymapContext::Chat, alt(CKey::Up)),
+            km.resolve_action(KeymapContext::Chat, alt(CKey::Up)),
             Some(TabParent)
         );
         assert_eq!(
-            km.resolve(KeymapContext::Chat, alt(CKey::Down)),
+            km.resolve_action(KeymapContext::Chat, alt(CKey::Down)),
             Some(TabChild)
         );
     }
@@ -784,5 +697,18 @@ mod tests {
         assert_eq!(normalize_key(plain, true), plain);
         let modified = Key::ctrl(CKey::Char('å'));
         assert_eq!(normalize_key(modified, true), modified);
+    }
+
+    #[test]
+    fn stack_resolves_by_priority_and_respects_disabled_layers() {
+        let km = Keymap::new();
+        let mut stack = KeymapStack::base().with(KeyLayer::new(KeymapContext::Panel, 10));
+        assert_eq!(
+            km.resolve_layered(&stack, Key::plain(Down))
+                .map(|command| command.id),
+            Some("ui.move_next")
+        );
+        stack.set_enabled(KeymapContext::Panel, false);
+        assert!(km.resolve_layered(&stack, Key::plain(Down)).is_none());
     }
 }

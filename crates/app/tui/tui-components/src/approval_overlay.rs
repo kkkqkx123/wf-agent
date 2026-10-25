@@ -151,9 +151,9 @@ impl ApprovalView {
         truncate_graphemes(&pretty, width)
     }
 
-    /// Key hints line.
+    /// Key hints line, derived from the command registry.
     pub fn hints(&self) -> String {
-        "y allow once · a allow session · d deny once · n deny session · c cancel".to_string()
+        tui_core::command::hint_line(tui_core::keymap::KeymapContext::Approval)
     }
 
     /// Apply a choice to the pending request.

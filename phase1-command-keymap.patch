@@ -1,0 +1,3583 @@
+diff --git a/crates/app/cli/wf-cli-demo/examples/tui/components_gallery.rs b/crates/app/cli/wf-cli-demo/examples/tui/components_gallery.rs
+index 22a04c9..18c18f4 100644
+--- a/crates/app/cli/wf-cli-demo/examples/tui/components_gallery.rs
++++ b/crates/app/cli/wf-cli-demo/examples/tui/components_gallery.rs
+@@ -105,7 +105,7 @@ fn main() -> io::Result<()> {
+ 
+     let result = (|| -> io::Result<()> {
+         loop {
+-            terminal.draw(|frame| draw(frame, &stack, &palette, palette_open, &last_result))?;
++            terminal.draw(|frame| draw(frame, &mut stack, &palette, palette_open, &last_result))?;
+ 
+             if let Event::Key(k) = event::read()? {
+                 if k.kind != KeyEventKind::Press {
+@@ -244,7 +244,7 @@ fn crossterm_to_ckey(code: &KeyCode) -> CKey {
+ 
+ fn draw(
+     f: &mut ratatui::Frame,
+-    stack: &ModalStack,
++    stack: &mut ModalStack,
+     palette: &CommandPalette,
+     palette_open: bool,
+     last_result: &Option<String>,
+diff --git a/crates/app/cli/wf-cli-demo/examples/tui/key_receiver.rs b/crates/app/cli/wf-cli-demo/examples/tui/key_receiver.rs
+index fcb0538..a87f84e 100644
+--- a/crates/app/cli/wf-cli-demo/examples/tui/key_receiver.rs
++++ b/crates/app/cli/wf-cli-demo/examples/tui/key_receiver.rs
+@@ -22,7 +22,7 @@ use ratatui::text::{Line, Span};
+ use ratatui::widgets::{Block, Borders, Paragraph};
+ use ratatui::Terminal;
+ 
+-use wf_tui::keymap::{builtin_keymap, CKey, Key, KeyAction, KeymapContext};
++use wf_tui::keymap::{CKey, Key, KeyAction, Keymap, KeymapContext};
+ 
+ /// Maximum number of history entries kept in the ring buffer.
+ const MAX_HISTORY: usize = 100;
+@@ -266,7 +266,7 @@ fn main() -> io::Result<()> {
+     let backend = CrosstermBackend::new(stdout);
+     let mut terminal = Terminal::new(backend)?;
+ 
+-    let keymap = builtin_keymap();
++    let keymap = Keymap::new();
+     let mut history: Vec<KeyEntry> = Vec::new();
+     let mut current_context = KeymapContext::Global;
+     let mut last_entry: Option<KeyEntry> = None;
+@@ -314,8 +314,9 @@ fn main() -> io::Result<()> {
+                         continue;
+                     }
+ 
+-                    // Resolve action and record.
+-                    let action = keymap.resolve(current_context, fkey);
++                    // Resolve the registry command behind the key and record
++                    // its low-level action.
++                    let action = keymap.resolve_action(current_context, fkey);
+                     let entry = KeyEntry {
+                         raw: key,
+                         key: fkey,
+diff --git a/crates/app/cli/wf-tui/src/interactive.rs b/crates/app/cli/wf-tui/src/interactive.rs
+index 726da83..5b08bfa 100644
+--- a/crates/app/cli/wf-tui/src/interactive.rs
++++ b/crates/app/cli/wf-tui/src/interactive.rs
+@@ -607,7 +607,7 @@ impl InteractiveController {
+             dismissed_mention: None,
+             prompt_queue: tui_components::queue::PromptQueue::new(),
+             model_override: None,
+-            keymap: tui_core::keymap::builtin_keymap(),
++            keymap: tui_core::keymap::Keymap::new(),
+             pending_editor: false,
+         }
+     }
+diff --git a/crates/app/cli/wf-tui/src/interactive/keys.rs b/crates/app/cli/wf-tui/src/interactive/keys.rs
+index 2512f7b..60b5266 100644
+--- a/crates/app/cli/wf-tui/src/interactive/keys.rs
++++ b/crates/app/cli/wf-tui/src/interactive/keys.rs
+@@ -14,7 +14,7 @@ use crate::approval_overlay::ApprovalChoice;
+ use crate::footer::{FooterRoute, FooterView};
+ use crate::interactive::anchors::{first_line_label, AnchorKind};
+ use crate::interactive::{InteractiveAction, InteractiveController};
+-use crate::keymap::{CKey, Key};
++use crate::keymap::{CKey, Key, KeyAction, KeymapContext};
+ use crate::question_overlay::QuestionOutcome;
+ use crate::terminal::PressOutcome;
+ use crate::transcript::{HistoryLine, Role};
+@@ -256,27 +256,24 @@ impl InteractiveController {
+     }
+ 
+     fn handle_approval_key(&mut self, key: Key) -> InteractiveAction {
+-        let choice = match key.code {
+-            CKey::Char('y') => Some(ApprovalChoice::Approve),
+-            CKey::Char('a') => Some(ApprovalChoice::ApproveAll),
+-            CKey::Char('d') => Some(ApprovalChoice::DenyOnce),
+-            CKey::Char('n') => Some(ApprovalChoice::Deny),
+-            CKey::Char('c') | CKey::Esc => Some(ApprovalChoice::Cancel),
+-            _ => None,
++        let Some(choice) = self
++            .keymap
++            .resolve_action(KeymapContext::Approval, key)
++            .and_then(ApprovalChoice::from_action)
++        else {
++            return InteractiveAction::Continue;
+         };
+-        if let Some(choice) = choice {
+-            let answer = self.resolve_approval(choice);
+-            if let Some(id) = self.pending_approval.take() {
+-                self.post_approval_answer(&id, answer);
+-            }
+-            if let Some(remembered) = choice.remembered() {
+-                if let Some(view) = self.footer.approval.take() {
+-                    self.remembered
+-                        .remember(&view.request().tool_name, remembered);
+-                }
++        let answer = self.resolve_approval(choice);
++        if let Some(id) = self.pending_approval.take() {
++            self.post_approval_answer(&id, answer);
++        }
++        if let Some(remembered) = choice.remembered() {
++            if let Some(view) = self.footer.approval.take() {
++                self.remembered
++                    .remember(&view.request().tool_name, remembered);
+             }
+-            self.footer.present(FooterView::Prompt);
+         }
++        self.footer.present(FooterView::Prompt);
+         InteractiveAction::Continue
+     }
+ 
+@@ -291,21 +288,26 @@ impl InteractiveController {
+     }
+ 
+     fn handle_question_key(&mut self, key: Key) -> InteractiveAction {
+-        let Some(question) = self.footer.question.as_mut() else {
++        let Some(question) = self.footer.question.as_ref() else {
+             self.footer.present(FooterView::Prompt);
+             return InteractiveAction::Continue;
+         };
+-        match key.code {
+-            CKey::Esc => {
++        let Some(action) = self.keymap.resolve_action(KeymapContext::Question, key) else {
++            return InteractiveAction::Continue;
++        };
++        match action {
++            KeyAction::Cancel | KeyAction::Back => {
+                 let outcome = question.cancel();
+                 self.finish_question(&outcome);
+             }
+-            CKey::Enter => {
++            KeyAction::Select | KeyAction::Submit => {
+                 let outcome = question.submit();
+                 self.finish_question(&outcome);
+             }
+-            CKey::Char(c) if c.is_ascii_digit() && !key.ctrl && !key.alt => {
+-                let _ = question.pick(c.to_digit(10).unwrap_or(0) as u8);
++            KeyAction::Pick(index) => {
++                if let Some(question) = self.footer.question.as_mut() {
++                    let _ = question.pick(index);
++                }
+             }
+             _ => {}
+         }
+diff --git a/crates/app/cli/wf-tui/src/interactive/panels.rs b/crates/app/cli/wf-tui/src/interactive/panels.rs
+index 92d1d12..a2823c7 100644
+--- a/crates/app/cli/wf-tui/src/interactive/panels.rs
++++ b/crates/app/cli/wf-tui/src/interactive/panels.rs
+@@ -19,10 +19,10 @@ use crate::interactive::{
+ use crate::keymap::{CKey, Key};
+ use tui_components::footer::PanelState;
+ use tui_components::panels::{
+-    AuthPanel, AuthPromptOption, AuthSessionView, AuthSurfaceRow, CommandId, CommandPalette,
+-    MentionEntry, MentionPanel, ModelPanel, QueuedPanel, SkillPanel, WorkflowPanel,
+-    WorkflowSummaryRow,
++    AuthPanel, AuthPromptOption, AuthSessionView, AuthSurfaceRow, CommandPalette, MentionEntry,
++    MentionPanel, ModelPanel, QueuedPanel, SkillPanel, WorkflowPanel, WorkflowSummaryRow,
+ };
++use tui_core::command::{self, CommandSpec};
+ use tui_core::keymap::KeyAction;
+ 
+ /// Entity kinds requested from the mention search endpoint. Files are not
+@@ -258,7 +258,7 @@ impl InteractiveController {
+         // (for example `/`) still reach the filter.
+         match self
+             .keymap
+-            .resolve(tui_core::keymap::KeymapContext::Panel, key)
++            .resolve_action(tui_core::keymap::KeymapContext::Panel, key)
+         {
+             Some(KeyAction::Cancel | KeyAction::Back) => {
+                 self.dismiss_panel();
+@@ -499,46 +499,51 @@ impl InteractiveController {
+         self.sync_mention_route();
+     }
+ 
+-    /// Run the command selected in the palette.
+-    fn run_command(&mut self, command: CommandId, argument: &str) -> InteractiveAction {
+-        match command {
+-            CommandId::New => InteractiveAction::NewSession,
+-            CommandId::Model => {
++    /// Run a command selected in the palette or reached through the leader.
++    pub(crate) fn run_command(
++        &mut self,
++        command: &'static CommandSpec,
++        argument: &str,
++    ) -> InteractiveAction {
++        match command.id {
++            "app.quit" => InteractiveAction::Exit,
++            "app.help" => InteractiveAction::ShowHelp,
++            "session.new" => InteractiveAction::NewSession,
++            "session.list" | "session.resume" => InteractiveAction::OpenSessionList,
++            "session.model" => {
+                 self.open_model_panel();
+                 InteractiveAction::Continue
+             }
+-            CommandId::Skill => {
++            "session.skills" => {
+                 self.open_skill_panel();
+                 InteractiveAction::Continue
+             }
+-            CommandId::Queued => {
++            "session.queued" => {
+                 self.open_queued_panel();
+                 InteractiveAction::Continue
+             }
+-            CommandId::Workflows => {
++            "session.workflows" => {
+                 self.open_workflow_panel();
+                 InteractiveAction::Continue
+             }
+-            CommandId::Copy => {
+-                self.request_copy_with_arg(argument);
++            "session.auth" => {
++                self.open_auth_panel();
+                 InteractiveAction::Continue
+             }
+-            CommandId::Auth => {
+-                self.open_auth_panel();
++            "session.copy" => {
++                self.request_copy_with_arg(argument);
+                 InteractiveAction::Continue
+             }
+-            CommandId::Quit => InteractiveAction::Exit,
+-            CommandId::Help => InteractiveAction::ShowHelp,
+-            CommandId::Resume => InteractiveAction::OpenSessionList,
+-            CommandId::Executions => {
++            "session.executions" => {
+                 InteractiveAction::OpenScreen(crate::screens::ScreenKind::Executions)
+             }
+-            CommandId::Editor => {
++            "session.editor" => {
+                 // The shell runs the actual editor handoff (it owns the
+                 // terminal), so the session only records the request.
+                 self.pending_editor = true;
+                 InteractiveAction::Continue
+             }
++            _ => InteractiveAction::Continue,
+         }
+     }
+ 
+@@ -553,15 +558,22 @@ impl InteractiveController {
+             Some((command, argument)) => (command, argument.trim()),
+             None => (trimmed, ""),
+         };
+-        let palette = CommandPalette::new();
+-        match palette.find(command_text) {
+-            Some(command) => {
+-                self.run_command(command, argument);
++        match command::lookup_slash(command_text) {
++            Some(spec) => {
++                self.run_command(spec, argument);
+                 true
+             }
+             None => {
+-                self.footer
+-                    .show_notice(format!("unknown command: {command_text}"));
++                let suggestions = command::slash_suggestions(command_text, 3);
++                let message = if suggestions.is_empty() {
++                    format!("unknown command: {command_text}")
++                } else {
++                    format!(
++                        "unknown command: {command_text} (did you mean {})",
++                        suggestions.join(", ")
++                    )
++                };
++                self.footer.show_notice(message);
+                 true
+             }
+         }
+@@ -1514,12 +1526,14 @@ mod tests {
+     }
+ 
+     #[tokio::test]
+-    async fn the_command_palette_opens_the_model_panel() {
++    async fn the_command_palette_runs_the_selected_command() {
+         let mut ctl = started_controller().await;
+         ctl.handle_key(key(CKey::Char('/')));
+-        ctl.handle_key(key(CKey::Down));
+-        ctl.handle_key(key(CKey::Enter));
+-        assert_eq!(ctl.footer.route, FooterRoute::Model);
++        for c in "help".chars() {
++            ctl.handle_key(key(CKey::Char(c)));
++        }
++        let action = ctl.handle_key(key(CKey::Enter));
++        assert!(matches!(action, InteractiveAction::ShowHelp));
+     }
+ 
+     #[tokio::test]
+diff --git a/crates/app/cli/wf-tui/src/state.rs b/crates/app/cli/wf-tui/src/state.rs
+index e4ba743..54629fb 100644
+--- a/crates/app/cli/wf-tui/src/state.rs
++++ b/crates/app/cli/wf-tui/src/state.rs
+@@ -250,6 +250,11 @@ impl NoticeQueue {
+         self.current = Some((text.into(), crate::clock::now_ms()));
+     }
+ 
++    /// Drop the active notice.
++    pub fn clear(&mut self) {
++        self.current = None;
++    }
++
+     /// Get the current notice text if not expired.
+     pub fn current_text(&self) -> Option<String> {
+         let (text, at) = self.current.as_ref()?;
+diff --git a/crates/app/cli/wf-tui/src/tui.rs b/crates/app/cli/wf-tui/src/tui.rs
+index f346721..bdbde0b 100644
+--- a/crates/app/cli/wf-tui/src/tui.rs
++++ b/crates/app/cli/wf-tui/src/tui.rs
+@@ -41,6 +41,7 @@ use crate::size::{ResizeDebouncer, Size};
+ use crate::state::AppState;
+ use crate::terminal::{CrosstermControl, TerminalGuard};
+ use crate::theme::{self, Theme};
++use tui_core::command::{PendingSequence, SequenceMap};
+ use tui_core::keymap::Keymap;
+ use tui_core::plugin::{PluginHost, Slot};
+ use wf_client::WfClient;
+@@ -181,11 +182,13 @@ pub struct TuiApp {
+     finish_cleanups: usize,
+     /// Orphan probe for detached clients.
+     liveness: crate::liveness::LivenessProbe,
+-    /// Key resolution table: builtin defaults merged with user overrides.
++    /// Key resolution table: user overrides; builtin chords resolve from
++    /// the command registry.
+     keymap: Keymap,
+-    /// Applied user overrides as `(binding, key description)` rows for the
+-    /// help display.
+-    keymap_overrides: Vec<(String, String)>,
++    /// Leader chord map derived from the command registry.
++    sequence: SequenceMap,
++    /// Keys typed after the leader, cleared on resolve, timeout or a miss.
++    pending_sequence: Option<PendingSequence>,
+     /// External editor handoff state.
+     editor: crate::editor::EditorHandoff,
+     /// Production frame budget accounting: per-frame metrics plus
+@@ -219,8 +222,8 @@ pub struct TuiApp {
+ impl TuiApp {
+     pub fn new(client: WfClient) -> Self {
+         // User keymap overrides resolve once at startup; failures fall back
+-        // to the builtin keymap and never block the session.
+-        let (keymap, keymap_overrides) = keymap_config::load_user_keymap();
++        // to registry bindings and never block the session.
++        let keymap = keymap_config::load_user_keymap();
+         let (data_tx, data_rx) = mpsc::unbounded_channel();
+         let (feedback_tx, feedback_rx) = mpsc::unbounded_channel();
+         // Capability-driven policy, built once: components render the
+@@ -341,7 +344,8 @@ impl TuiApp {
+             finish_cleanups: 0,
+             liveness: crate::liveness::LivenessProbe::new(),
+             keymap,
+-            keymap_overrides,
++            sequence: SequenceMap::builtin(),
++            pending_sequence: None,
+             editor: crate::editor::EditorHandoff::Idle,
+             prod_metrics: crate::frame_metrics::FrameMetrics::new(),
+             prod_frame_no: 0,
+diff --git a/crates/app/cli/wf-tui/src/tui/key_routes.rs b/crates/app/cli/wf-tui/src/tui/key_routes.rs
+index 321a128..c3bf6c5 100644
+--- a/crates/app/cli/wf-tui/src/tui/key_routes.rs
++++ b/crates/app/cli/wf-tui/src/tui/key_routes.rs
+@@ -11,7 +11,8 @@ use crate::screens::{ScreenData, ScreenKind};
+ use super::input_classify::next_filter;
+ use super::signals::SUSPEND_PENDING;
+ use super::{TuiApp, DASHBOARD_ENTRIES};
+-use tui_core::keymap::{KeyAction as TabKeyAction, KeymapContext};
++use tui_core::command::CommandSpec;
++use tui_core::keymap::{KeyAction, KeymapContext};
+ use tui_core::panel_select::Motion;
+ use tui_core::screen_data::screen_for_digit;
+ 
+@@ -56,6 +57,10 @@ impl TuiApp {
+             return self.handle_overlay_key(key).await;
+         }
+ 
++        if let Some(action) = self.handle_leader_key(key).await? {
++            return Ok(action);
++        }
++
+         match key.code {
+             CKey::Char('t') if key.ctrl => {
+                 let Some(session_id) = self.history_session_id() else {
+@@ -85,31 +90,31 @@ impl TuiApp {
+         if self.app.screen.navigation.current_kind() == ScreenKind::Interactive {
+             // Tab chords are intercepted before the session sees them so a
+             // tab switch never leaks into the composer or the overlays.
+-            if let Some(action) = self.keymap.resolve(KeymapContext::Global, key) {
+-                let tab_handled = match action {
+-                    TabKeyAction::TabNew => {
++            if let Some(command) = self.keymap.resolve(KeymapContext::Global, key) {
++                let tab_handled = match command.action {
++                    Some(KeyAction::TabNew) => {
+                         self.new_tab().await;
+                         self.app
+                             .notice
+                             .set(format!("tab {} opened", self.sessions.active_index() + 1));
+                         true
+                     }
+-                    TabKeyAction::TabClose => {
++                    Some(KeyAction::TabClose) => {
+                         let index = self.sessions.active_index();
+                         self.close_tab(index).await;
+                         true
+                     }
+-                    TabKeyAction::TabNext => {
++                    Some(KeyAction::TabNext) => {
+                         self.sessions.next(self.now_ms());
+                         self.save_tabs();
+                         true
+                     }
+-                    TabKeyAction::TabPrev => {
++                    Some(KeyAction::TabPrev) => {
+                         self.sessions.prev(self.now_ms());
+                         self.save_tabs();
+                         true
+                     }
+-                    TabKeyAction::TabPick(slot) => {
++                    Some(KeyAction::TabPick(slot)) => {
+                         let index = usize::from(slot).saturating_sub(1);
+                         if self.sessions.switch(index, self.now_ms()) {
+                             self.save_tabs();
+@@ -119,19 +124,19 @@ impl TuiApp {
+                             true
+                         }
+                     }
+-                    TabKeyAction::TabPin => {
++                    Some(KeyAction::TabPin) => {
+                         self.toggle_pin_active();
+                         true
+                     }
+-                    TabKeyAction::TabMovePrev => {
++                    Some(KeyAction::TabMovePrev) => {
+                         self.move_active(-1);
+                         true
+                     }
+-                    TabKeyAction::TabMoveNext => {
++                    Some(KeyAction::TabMoveNext) => {
+                         self.move_active(1);
+                         true
+                     }
+-                    TabKeyAction::TabParent => {
++                    Some(KeyAction::TabParent) => {
+                         if !self.sessions.focus_parent(self.now_ms()) {
+                             self.app.notice.set("no parent tab".to_string());
+                         } else {
+@@ -139,7 +144,7 @@ impl TuiApp {
+                         }
+                         true
+                     }
+-                    TabKeyAction::TabChild => {
++                    Some(KeyAction::TabChild) => {
+                         if !self.sessions.focus_child_first(self.now_ms()) {
+                             self.app.notice.set("no child tab".to_string());
+                         } else {
+@@ -147,7 +152,7 @@ impl TuiApp {
+                         }
+                         true
+                     }
+-                    TabKeyAction::TabChildNext => {
++                    Some(KeyAction::TabChildNext) => {
+                         if !self.sessions.focus_child_next(self.now_ms()) {
+                             self.app.notice.set("no child tab".to_string());
+                         } else {
+@@ -155,7 +160,7 @@ impl TuiApp {
+                         }
+                         true
+                     }
+-                    TabKeyAction::TabChildPrev => {
++                    Some(KeyAction::TabChildPrev) => {
+                         if !self.sessions.focus_child_prev(self.now_ms()) {
+                             self.app.notice.set("no child tab".to_string());
+                         } else {
+@@ -163,7 +168,7 @@ impl TuiApp {
+                         }
+                         true
+                     }
+-                    TabKeyAction::SessionList => {
++                    Some(KeyAction::SessionList) => {
+                         self.open_session_list();
+                         true
+                     }
+@@ -194,9 +199,7 @@ impl TuiApp {
+                         return Ok(LoopAction::Continue);
+                     }
+                     InteractiveAction::ShowHelp => {
+-                        self.modals.push(Box::new(HelpModal::with_overrides(
+-                            self.keymap_overrides.clone(),
+-                        )));
++                        self.modals.push(Box::new(HelpModal::new()));
+                     }
+                     InteractiveAction::NewSession => {
+                         self.new_tab().await;
+@@ -266,40 +269,37 @@ impl TuiApp {
+         }
+ 
+         // Shared actions resolve through the keymap (user overrides first,
+-        // then builtin defaults); screen-specific keys fall through to the
++        // then registry bindings); screen-specific keys fall through to the
+         // hard-coded match below.
+-        match self
+-            .keymap
+-            .resolve(tui_core::keymap::KeymapContext::List, key)
+-        {
+-            Some(tui_core::keymap::KeyAction::Help) => {
+-                self.modals.push(Box::new(HelpModal::with_overrides(
+-                    self.keymap_overrides.clone(),
+-                )));
+-                return Ok(LoopAction::Continue);
+-            }
+-            Some(tui_core::keymap::KeyAction::Back) => {
+-                if !self.go_back() {
++        if let Some(command) = self.keymap.resolve(KeymapContext::List, key) {
++            match command.id {
++                "app.help" => {
++                    self.modals.push(Box::new(HelpModal::new()));
++                    return Ok(LoopAction::Continue);
++                }
++                "ui.back" => {
++                    if !self.go_back() {
++                        return Ok(LoopAction::Quit);
++                    }
++                    return Ok(LoopAction::Continue);
++                }
++                "app.quit" => {
+                     return Ok(LoopAction::Quit);
+                 }
+-                return Ok(LoopAction::Continue);
+-            }
+-            Some(tui_core::keymap::KeyAction::Quit) => {
+-                return Ok(LoopAction::Quit);
+-            }
+-            Some(tui_core::keymap::KeyAction::MoveNext) => {
+-                let len = self.nav_len();
+-                self.app.screen.navigation.select_next(len);
+-                self.request_detail_for_current();
+-                return Ok(LoopAction::Continue);
+-            }
+-            Some(tui_core::keymap::KeyAction::MovePrev) => {
+-                let len = self.nav_len();
+-                self.app.screen.navigation.select_prev(len);
+-                self.request_detail_for_current();
+-                return Ok(LoopAction::Continue);
++                "ui.move_next" => {
++                    let len = self.nav_len();
++                    self.app.screen.navigation.select_next(len);
++                    self.request_detail_for_current();
++                    return Ok(LoopAction::Continue);
++                }
++                "ui.move_prev" => {
++                    let len = self.nav_len();
++                    self.app.screen.navigation.select_prev(len);
++                    self.request_detail_for_current();
++                    return Ok(LoopAction::Continue);
++                }
++                _ => {}
+             }
+-            _ => {}
+         }
+ 
+         match key.code {
+@@ -622,6 +622,105 @@ impl TuiApp {
+         Ok(LoopAction::Continue)
+     }
+ 
++    /// Resolve a leader sequence: the leader opens a pending sequence, the
++    /// following keys either complete a command, extend a prefix (showing
++    /// the which-key hint) or miss (the sequence is dropped).
++    async fn handle_leader_key(&mut self, key: Key) -> CliResult<Option<LoopAction>> {
++        let now = self.now_ms();
++        if let Some(pending) = &self.pending_sequence {
++            if pending.is_expired(now, self.sequence.timeout_ms()) {
++                self.pending_sequence = None;
++                self.app.notice.set("leader: timed out");
++                self.pending_scope.request(crate::redraw::RedrawScope::Full);
++            }
++        }
++        if self.pending_sequence.is_none() {
++            if self.sequence.is_leader(key) && !key.alt {
++                self.pending_sequence = Some(tui_core::command::PendingSequence::start(now));
++                let hint = self.sequence.which_key(&[]);
++                self.app.notice.set(hint);
++                self.pending_scope.request(crate::redraw::RedrawScope::Full);
++                return Ok(Some(LoopAction::Continue));
++            }
++            return Ok(None);
++        }
++        let keys = {
++            let Some(pending) = self.pending_sequence.as_mut() else {
++                return Ok(None);
++            };
++            pending.push(key);
++            pending.keys().to_vec()
++        };
++        if let Some(command) = self.sequence.resolve(&keys) {
++            self.pending_sequence = None;
++            self.app.notice.clear();
++            self.pending_scope.request(crate::redraw::RedrawScope::Full);
++            return Ok(Some(self.run_leader_command(command).await?));
++        }
++        if self.sequence.is_prefix(&keys) {
++            let hint = self.sequence.which_key(&keys);
++            self.app.notice.set(hint);
++        } else {
++            self.pending_sequence = None;
++            self.app.notice.set(self.sequence.which_key(&keys));
++        }
++        self.pending_scope.request(crate::redraw::RedrawScope::Full);
++        Ok(Some(LoopAction::Continue))
++    }
++
++    /// Execute a command reached through the leader sequence.
++    async fn run_leader_command(&mut self, command: &'static CommandSpec) -> CliResult<LoopAction> {
++        match command.id {
++            "app.quit" => {
++                if self.app.screen.navigation.current_kind() == ScreenKind::Interactive {
++                    self.interactive_exit = true;
++                    Ok(LoopAction::Continue)
++                } else {
++                    Ok(LoopAction::Quit)
++                }
++            }
++            "app.help" => {
++                self.modals.push(Box::new(HelpModal::new()));
++                Ok(LoopAction::Continue)
++            }
++            "command.palette" => {
++                if self.sessions.active_mut().is_none() {
++                    self.app.notice.set("no active session for the palette");
++                    return Ok(LoopAction::Continue);
++                }
++                self.goto(ScreenKind::Interactive);
++                if let Some(session) = self.sessions.active_mut() {
++                    session.open_command_panel();
++                }
++                Ok(LoopAction::Continue)
++            }
++            _ => {
++                if self.sessions.active_mut().is_none() {
++                    self.app
++                        .notice
++                        .set(format!("{} needs an active session", command.title));
++                    return Ok(LoopAction::Continue);
++                }
++                self.goto(ScreenKind::Interactive);
++                let action = self
++                    .sessions
++                    .active_mut()
++                    .map(|session| session.run_command(command, ""));
++                match action {
++                    Some(InteractiveAction::Exit) => self.interactive_exit = true,
++                    Some(InteractiveAction::ShowHelp) => {
++                        self.modals.push(Box::new(HelpModal::new()));
++                    }
++                    Some(InteractiveAction::NewSession) => self.new_tab().await,
++                    Some(InteractiveAction::OpenSessionList) => self.open_session_list(),
++                    Some(InteractiveAction::OpenScreen(kind)) => self.goto(kind),
++                    Some(InteractiveAction::Continue) | None => {}
++                }
++                Ok(LoopAction::Continue)
++            }
++        }
++    }
++
+     pub(super) async fn handle_overlay_key(&mut self, key: Key) -> CliResult<LoopAction> {
+         if self.overlay == OverlayMode::SearchPalette {
+             return Ok(self.handle_search_palette_key(key));
+diff --git a/crates/app/cli/wf-tui/src/tui/keymap_config.rs b/crates/app/cli/wf-tui/src/tui/keymap_config.rs
+index d0cb121..c3b504b 100644
+--- a/crates/app/cli/wf-tui/src/tui/keymap_config.rs
++++ b/crates/app/cli/wf-tui/src/tui/keymap_config.rs
+@@ -3,12 +3,13 @@
+ //! Settings live in the global XDG config dir (`$XDG_CONFIG_HOME/wf/` or
+ //! `$HOME/.config/wf/`) and are overridden by the project file
+ //! (`.wf/keymap-settings.toml`). Bindings are strings (`context` →
+-//! `action` → `chord`); unknown contexts or actions are skipped with a
+-//! warning so a stale settings file never breaks startup.
++//! `command id` → `chord`); the command id is the registry id, so a
++//! settings file can only rebind commands that actually exist. Unknown
++//! contexts or ids are skipped with a warning.
+ 
+ use std::path::PathBuf;
+ 
+-use tui_core::keymap::{builtin_keymap, CKey, Key, KeyAction, Keymap, KeymapContext};
++use tui_core::keymap::{CKey, Key, Keymap, KeymapContext};
+ use wf_config::keymap as config_keymap;
+ 
+ /// Resolve the global settings directory following the XDG conventions the
+@@ -42,61 +43,6 @@ fn parse_context(name: &str) -> Option<KeymapContext> {
+     })
+ }
+ 
+-fn parse_action(name: &str) -> Option<KeyAction> {
+-    Some(match name {
+-        "quit" => KeyAction::Quit,
+-        "redraw" => KeyAction::Redraw,
+-        "help" => KeyAction::Help,
+-        "palette" => KeyAction::Palette,
+-        "interrupt" => KeyAction::Interrupt,
+-        "cancel" => KeyAction::Cancel,
+-        "back" => KeyAction::Back,
+-        "select" => KeyAction::Select,
+-        "submit" => KeyAction::Submit,
+-        "refresh" => KeyAction::Refresh,
+-        "delete" => KeyAction::Delete,
+-        "new" => KeyAction::New,
+-        "edit" => KeyAction::Edit,
+-        "move_prev" => KeyAction::MovePrev,
+-        "move_next" => KeyAction::MoveNext,
+-        "history_prev" => KeyAction::HistoryPrev,
+-        "history_next" => KeyAction::HistoryNext,
+-        "clear" => KeyAction::Clear,
+-        "home" => KeyAction::Home,
+-        "end" => KeyAction::End,
+-        "scan" => KeyAction::Scan,
+-        "reload" => KeyAction::Reload,
+-        "cache_clear" => KeyAction::CacheClear,
+-        "cycle_mode" => KeyAction::CycleMode,
+-        "approve" => KeyAction::Approve,
+-        "approve_all" => KeyAction::ApproveAll,
+-        "deny_once" => KeyAction::DenyOnce,
+-        "deny" => KeyAction::Deny,
+-        "tab_new" => KeyAction::TabNew,
+-        "tab_close" => KeyAction::TabClose,
+-        "tab_next" => KeyAction::TabNext,
+-        "tab_prev" => KeyAction::TabPrev,
+-        "tab_pin" => KeyAction::TabPin,
+-        "tab_move_prev" => KeyAction::TabMovePrev,
+-        "tab_move_next" => KeyAction::TabMoveNext,
+-        "tab_parent" => KeyAction::TabParent,
+-        "tab_child" => KeyAction::TabChild,
+-        "tab_child_next" => KeyAction::TabChildNext,
+-        "tab_child_prev" => KeyAction::TabChildPrev,
+-        "session_list" => KeyAction::SessionList,
+-        _ => {
+-            if let Some(slot) = name
+-                .strip_prefix("tab_pick_")
+-                .and_then(|rest| rest.parse::<u8>().ok())
+-                .filter(|slot| (1..=9).contains(slot))
+-            {
+-                return Some(KeyAction::TabPick(slot));
+-            }
+-            return None;
+-        }
+-    })
+-}
+-
+ fn chord_to_key(chord: &config_keymap::Chord) -> Key {
+     let code = match chord.code.as_str() {
+         "enter" => CKey::Enter,
+@@ -126,47 +72,42 @@ fn chord_to_key(chord: &config_keymap::Chord) -> Key {
+     }
+ }
+ 
+-/// Build the runtime keymap: builtin defaults plus user overrides from
+-/// keymap settings. Returns the keymap and the applied overrides as
+-/// `(binding, key description)` rows for the help display.
+-pub fn load_user_keymap() -> (Keymap, Vec<(String, String)>) {
+-    let mut keymap = builtin_keymap();
+-    let mut overrides = Vec::new();
++/// Build the runtime keymap from user overrides; builtin bindings resolve
++/// from the command registry on demand.
++pub fn load_user_keymap() -> Keymap {
++    let mut keymap = Keymap::new();
+     let Some(settings_dir) = config_settings_dir() else {
+-        return (keymap, overrides);
++        return keymap;
+     };
+     let project_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+     let Ok(settings) = config_keymap::load_and_merge_keymap_settings(&settings_dir, &project_root)
+     else {
+-        return (keymap, overrides);
++        return keymap;
+     };
+-    for (ctx_name, actions) in &settings.bindings {
++    for (ctx_name, commands) in &settings.bindings {
+         let Some(ctx) = parse_context(ctx_name) else {
+             tracing::warn!(context = %ctx_name, "unknown keymap context in keymap settings");
+             continue;
+         };
+-        for (action_name, description) in actions {
+-            let (Ok(chord), Some(action)) = (
+-                config_keymap::parse_chord(description),
+-                parse_action(action_name),
+-            ) else {
++        for (command_id, description) in commands {
++            let Ok(chord) = config_keymap::parse_chord(description) else {
+                 tracing::warn!(
+-                    action = %action_name,
++                    command = %command_id,
+                     chord = %description,
+                     "ignoring invalid keymap binding"
+                 );
+                 continue;
+             };
+             let key = chord_to_key(&chord);
+-            if ctx == KeymapContext::Global {
+-                keymap.set_global(key, action);
+-            } else {
+-                keymap.bind(ctx, key, action);
++            if !keymap.bind_id(ctx, key, command_id) {
++                tracing::warn!(
++                    command = %command_id,
++                    "unknown command id in keymap settings"
++                );
+             }
+-            overrides.push((format!("{ctx_name}.{action_name}"), key.describe()));
+         }
+     }
+-    (keymap, overrides)
++    keymap
+ }
+ 
+ #[cfg(test)]
+@@ -175,23 +116,31 @@ mod tests {
+     use tui_core::keymap::CKey;
+ 
+     #[test]
+-    fn parses_known_contexts_and_actions() {
++    fn parses_known_contexts() {
+         assert_eq!(parse_context("global"), Some(KeymapContext::Global));
+         assert_eq!(parse_context("approval"), Some(KeymapContext::Approval));
+         assert_eq!(parse_context("nope"), None);
+-        assert_eq!(parse_action("quit"), Some(KeyAction::Quit));
+-        assert_eq!(parse_action("deny_once"), Some(KeyAction::DenyOnce));
+-        assert_eq!(parse_action("tab_new"), Some(KeyAction::TabNew));
+-        assert_eq!(parse_action("tab_pin"), Some(KeyAction::TabPin));
+-        assert_eq!(parse_action("tab_move_prev"), Some(KeyAction::TabMovePrev));
+-        assert_eq!(parse_action("tab_parent"), Some(KeyAction::TabParent));
+-        assert_eq!(parse_action("tab_child"), Some(KeyAction::TabChild));
+-        assert_eq!(parse_action("session_list"), Some(KeyAction::SessionList));
+-        assert_eq!(parse_action("cycle_mode"), Some(KeyAction::CycleMode));
+-        assert_eq!(parse_action("tab_pick_1"), Some(KeyAction::TabPick(1)));
+-        assert_eq!(parse_action("tab_pick_9"), Some(KeyAction::TabPick(9)));
+-        assert_eq!(parse_action("tab_pick_0"), None);
+-        assert_eq!(parse_action("nope"), None);
++    }
++
++    #[test]
++    fn binds_registry_command_ids_only() {
++        let mut keymap = Keymap::new();
++        assert!(keymap.bind_id(
++            KeymapContext::List,
++            Key::plain(CKey::Char('k')),
++            "ui.move_prev"
++        ));
++        assert!(!keymap.bind_id(
++            KeymapContext::List,
++            Key::plain(CKey::Char('k')),
++            "legacy.move_prev"
++        ));
++        assert_eq!(
++            keymap
++                .resolve(KeymapContext::List, Key::plain(CKey::Char('k')))
++                .map(|command| command.id),
++            Some("ui.move_prev")
++        );
+     }
+ 
+     #[test]
+@@ -204,14 +153,16 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn missing_settings_dir_yields_builtin_keymap() {
++    fn missing_settings_dir_yields_empty_overrides() {
+         // No env manipulation: the function must tolerate a missing XDG
+-        // setup and return the builtin keymap unchanged.
+-        let (keymap, overrides) = load_user_keymap();
+-        assert!(overrides.is_empty());
++        // setup and return an override-free keymap that still resolves
++        // builtin chords from the registry.
++        let keymap = load_user_keymap();
+         assert_eq!(
+-            keymap.resolve(KeymapContext::List, Key::plain(CKey::Char('k'))),
+-            Some(KeyAction::MovePrev)
++            keymap
++                .resolve(KeymapContext::List, Key::plain(CKey::Char('k')))
++                .map(|command| command.id),
++            Some("ui.move_prev")
+         );
+     }
+ }
+diff --git a/crates/app/tui/tui-components/src/approval_overlay.rs b/crates/app/tui/tui-components/src/approval_overlay.rs
+index b7855ba..f24d079 100644
+--- a/crates/app/tui/tui-components/src/approval_overlay.rs
++++ b/crates/app/tui/tui-components/src/approval_overlay.rs
+@@ -151,9 +151,9 @@ impl ApprovalView {
+         truncate_graphemes(&pretty, width)
+     }
+ 
+-    /// Key hints line.
++    /// Key hints line, derived from the command registry.
+     pub fn hints(&self) -> String {
+-        "y allow once · a allow session · d deny once · n deny session · c cancel".to_string()
++        tui_core::command::hint_line(tui_core::keymap::KeymapContext::Approval)
+     }
+ 
+     /// Apply a choice to the pending request.
+diff --git a/crates/app/tui/tui-components/src/help_modal.rs b/crates/app/tui/tui-components/src/help_modal.rs
+index 7dd4d4d..8003800 100644
+--- a/crates/app/tui/tui-components/src/help_modal.rs
++++ b/crates/app/tui/tui-components/src/help_modal.rs
+@@ -1,4 +1,4 @@
+-//! Help modal showing key bindings.
++//! Help modal derived from the command registry.
+ 
+ use ratatui::layout::Rect;
+ use ratatui::style::{Color, Style};
+@@ -6,6 +6,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
+ use ratatui::Frame;
+ 
+ use crate::modal::{centered_rect, Modal, ModalAction, ModalResult};
++use tui_core::command::help_sections;
+ use tui_core::keymap::{CKey, Key};
+ use tui_style::theme::Theme;
+ 
+@@ -13,21 +14,15 @@ fn to_color(rgb: tui_style::theme::Rgb) -> Color {
+     Color::Rgb(rgb.r, rgb.g, rgb.b)
+ }
+ 
+-/// Help modal showing key bindings. It is transparent: the screen behind it
+-/// keeps rendering so the user can read the shortcut in context. User
+-/// keymap overrides can be attached at push time and are listed under the
+-/// static overview so the help reflects the active configuration.
++/// Help modal listing every command in the registry. It is transparent:
++/// the screen behind it keeps rendering so the user can read the shortcut
++/// in context.
+ #[derive(Default)]
+-pub struct HelpModal {
+-    /// User overrides as `(binding, key description)` rows.
+-    overrides: Vec<(String, String)>,
+-}
++pub struct HelpModal;
+ 
+ impl HelpModal {
+-    /// Build the modal with the user's keymap overrides listed after the
+-    /// static overview.
+-    pub fn with_overrides(overrides: Vec<(String, String)>) -> Self {
+-        Self { overrides }
++    pub fn new() -> Self {
++        Self
+     }
+ }
+ 
+@@ -41,23 +36,29 @@ impl Modal for HelpModal {
+     }
+ 
+     fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+-        let mut help_text = String::from(
+-            "Keys:\n  q / Esc - quit / close\n  0-6 - switch screens\n  Ctrl-B - navigation overlay (all screens incl. Catalog/Git)\n  Ctrl-K or 7 - search palette\n  Ctrl-T - history transcript overlay\n  ? - help\n  j/k - navigate / scroll settings\n  [ ] / Tab - switch exec/workflow views, catalog tabs\n  / filter · X clear filter\n  PgUp/PgDn - detail scroll\n  Enter - select\n  y/n - confirm/cancel\n  o/c/e/l/+/- - settings local keys\n  Alt-T new tab · Alt-W close · Alt-1..9 pick · Alt-[/] prev/next\n  Alt-P pin · Alt-,/. move · Alt-Up parent · Alt-Down child · Alt-S sessions\n  Ctrl-Z - suspend (fg to resume)",
+-        );
+-        if !self.overrides.is_empty() {
+-            help_text.push_str("\n\nCustom bindings:");
+-            for (binding, key) in &self.overrides {
+-                help_text.push_str(&format!("\n  {key} - {binding}"));
++        let mut help_text = String::new();
++        for (group, rows) in help_sections() {
++            if !help_text.is_empty() {
++                help_text.push('\n');
++            }
++            help_text.push_str(group);
++            help_text.push_str(":\n");
++            for row in rows {
++                help_text.push_str("  ");
++                help_text.push_str(&row.keys);
++                help_text.push_str(" - ");
++                help_text.push_str(row.title);
++                help_text.push('\n');
+             }
+         }
+         let block = Block::default()
+             .title(" Help (?) ")
+             .borders(Borders::ALL)
+             .border_style(Style::default().fg(to_color(theme.accent)));
+-        let paragraph = Paragraph::new(help_text)
++        let paragraph = Paragraph::new(help_text.trim_end().to_string())
+             .block(block)
+             .style(Style::default().fg(to_color(theme.fg)));
+-        let centered = centered_rect(70, 60, area);
++        let centered = centered_rect(70, 70, area);
+         // Transparent: no Clear, the underlying screen stays visible.
+         frame.render_widget(paragraph, centered);
+     }
+diff --git a/crates/app/tui/tui-components/src/panels.rs b/crates/app/tui/tui-components/src/panels.rs
+index 1624636..53da4a1 100644
+--- a/crates/app/tui/tui-components/src/panels.rs
++++ b/crates/app/tui/tui-components/src/panels.rs
+@@ -12,8 +12,7 @@
+ //! into the panel and interprets the selected item's `data`.
+ //!
+ //! This module re-exports from focused sub-modules:
+-//! - Command palette data types and panel (`CommandId`, `CommandEntry`,
+-//!   `CommandPalette`)
++//! - The command palette (`CommandPalette`) over the command registry
+ //! - Model / skill / workflow / mention / queued panels
+ //! - Shared render helper and [`tui_core::renderable::Renderable`] implementations
+ 
+@@ -28,7 +27,7 @@ pub mod skill;
+ pub mod workflow;
+ 
+ pub use auth::{AuthPanel, AuthPromptOption, AuthSessionView, AuthSurfaceRow};
+-pub use command::{CommandEntry, CommandId, CommandPalette};
++pub use command::CommandPalette;
+ pub use filter::PanelFilter;
+ pub use mention::{MentionEntry, MentionMode, MentionPanel};
+ pub use model::ModelPanel;
+@@ -94,22 +93,46 @@ mod tests {
+     fn palette_lists_builtin_commands_and_navigates() {
+         let mut palette = CommandPalette::new();
+         assert!(palette.visible_len() >= 7);
+-        assert_eq!(palette.selected_command(), Some(CommandId::New));
++        assert_eq!(
++            palette.selected_command().map(|command| command.id),
++            Some("app.quit")
++        );
+         palette.handle(KeyAction::MoveNext);
+-        assert_eq!(palette.selected_command(), Some(CommandId::Model));
++        assert_eq!(
++            palette.selected_command().map(|command| command.id),
++            Some("app.help")
++        );
+         palette.handle(KeyAction::MovePrev);
+-        assert_eq!(palette.selected_command(), Some(CommandId::New));
++        assert_eq!(
++            palette.selected_command().map(|command| command.id),
++            Some("app.quit")
++        );
+     }
+ 
+     #[test]
+     fn palette_finds_commands_by_typed_label() {
+         let palette = CommandPalette::new();
+-        assert_eq!(palette.find("/model"), Some(CommandId::Model));
+-        assert_eq!(palette.find("quit"), Some(CommandId::Quit));
+-        assert_eq!(palette.find("help"), Some(CommandId::Help));
+-        assert_eq!(palette.find("/copy"), Some(CommandId::Copy));
+-        assert_eq!(palette.find("copy"), Some(CommandId::Copy));
+-        assert_eq!(palette.find("nope"), None);
++        assert_eq!(
++            palette.find("/model").map(|command| command.id),
++            Some("session.model")
++        );
++        assert_eq!(
++            palette.find("quit").map(|command| command.id),
++            Some("app.quit")
++        );
++        assert_eq!(
++            palette.find("help").map(|command| command.id),
++            Some("app.help")
++        );
++        assert_eq!(
++            palette.find("/copy").map(|command| command.id),
++            Some("session.copy")
++        );
++        assert_eq!(
++            palette.find("copy").map(|command| command.id),
++            Some("session.copy")
++        );
++        assert!(palette.find("nope").is_none());
+     }
+ 
+     #[test]
+@@ -118,7 +141,10 @@ mod tests {
+         palette.filter_push('m');
+         palette.filter_push('o');
+         assert!(palette.visible_len() < 7, "filter narrows the list");
+-        assert_eq!(palette.selected_command(), Some(CommandId::Model));
++        assert_eq!(
++            palette.selected_command().map(|command| command.id),
++            Some("session.model")
++        );
+         palette.handle(KeyAction::Clear);
+         assert!(palette.visible_len() >= 7);
+         // Backspace on an empty filter is a no-op.
+@@ -133,7 +159,10 @@ mod tests {
+             palette.filter_push(c);
+         }
+         assert_eq!(palette.argument(), "all");
+-        assert_eq!(palette.selected_command(), Some(CommandId::Copy));
++        assert_eq!(
++            palette.selected_command().map(|command| command.id),
++            Some("session.copy")
++        );
+         assert_eq!(palette.visible_len(), 1);
+     }
+ 
+diff --git a/crates/app/tui/tui-components/src/panels/command.rs b/crates/app/tui/tui-components/src/panels/command.rs
+index 3ad283c..d317294 100644
+--- a/crates/app/tui/tui-components/src/panels/command.rs
++++ b/crates/app/tui/tui-components/src/panels/command.rs
+@@ -1,52 +1,15 @@
+-//! The `/` command palette: built-in command set, typed filter and
+-//! keymap-driven navigation.
++//! The `/` command palette: a view over the command registry with typed
++//! filtering and keymap-driven navigation.
+ 
+ use crate::panels::filter::{apply, PanelFilter};
+ use crate::select::{Group, GroupItem, NavigateDir, SelectList};
++use tui_core::command::{self, CommandSpec};
+ use tui_core::keymap::KeyAction;
+ 
+-/// Identifies a command palette entry.
+-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+-pub enum CommandId {
+-    /// `/new` — clear the conversation and start a fresh session.
+-    New,
+-    /// `/model` — open the model panel.
+-    Model,
+-    /// `/skills` — open the skill panel.
+-    Skill,
+-    /// `/queued` — open the queued prompt panel.
+-    Queued,
+-    /// `/editor` — edit the composer draft in `$EDITOR`.
+-    Editor,
+-    /// `/quit` — leave the TUI inline session.
+-    Quit,
+-    /// `/help` — show the keymap and command help.
+-    Help,
+-    /// `/workflows` — list and run a workflow.
+-    Workflows,
+-    /// `/resume` — resume the most recent session.
+-    Resume,
+-    /// `/executions` — list recent executions.
+-    Executions,
+-    /// `/copy` — copy the last message or code block to the clipboard.
+-    Copy,
+-    /// `/auth` — manage LLM provider logins (device / PKCE / API key).
+-    Auth,
+-}
+-
+-/// One command palette row.
+-#[derive(Debug, Clone)]
+-pub struct CommandEntry {
+-    pub id: CommandId,
+-    pub label: &'static str,
+-    pub description: &'static str,
+-}
+-
+ /// The `/` command palette.
+ #[derive(Debug, Clone)]
+ pub struct CommandPalette {
+-    list: SelectList<CommandId>,
+-    entries: Vec<CommandEntry>,
++    list: SelectList<&'static CommandSpec>,
+     /// Filter text typed while the palette is open.
+     filter: PanelFilter,
+ }
+@@ -58,18 +21,15 @@ impl Default for CommandPalette {
+ }
+ 
+ impl CommandPalette {
+-    /// Built-in command set.
+     pub fn new() -> Self {
+         Self::with_filter("")
+     }
+ 
+-    /// Built-in command set narrowed by `filter`.
++    /// Palette commands narrowed by `filter`.
+     pub fn with_filter(filter: &str) -> Self {
+-        let entries = Self::builtin_entries();
+-        let list = Self::build_list(&entries, "");
++        let list = Self::build_list();
+         let mut panel = Self {
+             list,
+-            entries,
+             filter: PanelFilter::new(),
+         };
+         panel.filter.set(filter);
+@@ -101,88 +61,38 @@ impl CommandPalette {
+         apply(&mut self.list, &command);
+     }
+ 
+-    fn builtin_entries() -> Vec<CommandEntry> {
+-        vec![
+-            CommandEntry {
+-                id: CommandId::New,
+-                label: "/new",
+-                description: "start a new session (clears the conversation)",
+-            },
+-            CommandEntry {
+-                id: CommandId::Model,
+-                label: "/model",
+-                description: "pick the model profile for the next turns",
+-            },
+-            CommandEntry {
+-                id: CommandId::Skill,
+-                label: "/skills",
+-                description: "list and run a skill",
+-            },
+-            CommandEntry {
+-                id: CommandId::Queued,
+-                label: "/queued",
+-                description: "manage queued prompts",
+-            },
+-            CommandEntry {
+-                id: CommandId::Editor,
+-                label: "/editor",
+-                description: "edit the draft in $EDITOR",
+-            },
+-            CommandEntry {
+-                id: CommandId::Quit,
+-                label: "/quit",
+-                description: "exit the TUI inline session",
+-            },
+-            CommandEntry {
+-                id: CommandId::Help,
+-                label: "/help",
+-                description: "show the inline keymap and command help",
+-            },
+-            CommandEntry {
+-                id: CommandId::Workflows,
+-                label: "/workflows",
+-                description: "list and run a workflow",
+-            },
+-            CommandEntry {
+-                id: CommandId::Resume,
+-                label: "/resume",
+-                description: "resume the most recent session",
+-            },
+-            CommandEntry {
+-                id: CommandId::Executions,
+-                label: "/executions",
+-                description: "list recent executions",
+-            },
+-            CommandEntry {
+-                id: CommandId::Copy,
+-                label: "/copy",
+-                description: "copy the last message or code block (message | code [N] | all | id)",
+-            },
+-            CommandEntry {
+-                id: CommandId::Auth,
+-                label: "/auth",
+-                description: "log in / out of LLM providers (device, PKCE, API key)",
+-            },
+-        ]
+-    }
+-
+-    fn build_list(entries: &[CommandEntry], filter: &str) -> SelectList<CommandId> {
+-        let group = Group::new(Some("commands"));
+-        let mut group = group;
+-        for entry in entries {
+-            group = group.item(GroupItem::new(entry.label, entry.id).described(entry.description));
++    /// Registry order grouped by command group.
++    fn build_list() -> SelectList<&'static CommandSpec> {
++        let mut groups: Vec<Group<&'static CommandSpec>> = Vec::new();
++        for spec in command::palette_commands() {
++            let position = groups
++                .iter()
++                .position(|group| group.title.as_deref() == Some(spec.group));
++            let index = if let Some(index) = position {
++                index
++            } else {
++                groups.push(Group::new(Some(spec.group)));
++                groups.len() - 1
++            };
++            let mut label = match &spec.slash {
++                Some(slash) => format!("/{}", slash.name),
++                None => format!("/{}", spec.id),
++            };
++            if let Some(slash) = &spec.slash {
++                if !slash.argument.is_empty() {
++                    label.push(' ');
++                    label.push_str(slash.argument);
++                }
++            }
++            groups[index]
++                .items
++                .push(GroupItem::new(label, spec).described(spec.description));
+         }
+-        let mut list = SelectList::groups(vec![group]);
+-        list.set_filter(if filter.is_empty() {
+-            None
+-        } else {
+-            Some(filter)
+-        });
+-        list
++        SelectList::groups(groups).with_group_titles(true)
+     }
+ 
+     /// The command highlighted by the cursor.
+-    pub fn selected_command(&self) -> Option<CommandId> {
++    pub fn selected_command(&self) -> Option<&'static CommandSpec> {
+         self.list.selected().map(|item| item.data)
+     }
+ 
+@@ -231,15 +141,10 @@ impl CommandPalette {
+         self.filter.text()
+     }
+ 
+-    /// Look a command up by its typed label (`"/model"`, leading `/`
++    /// Look a command up by its typed slash name (`"/model"`, leading `/`
+     /// optional). Used by direct `/command` submits.
+-    pub fn find(&self, typed: &str) -> Option<CommandId> {
+-        let needle = typed.trim();
+-        let needle = needle.strip_prefix('/').unwrap_or(needle);
+-        self.entries
+-            .iter()
+-            .find(|e| e.label.strip_prefix('/').unwrap_or(e.label) == needle)
+-            .map(|e| e.id)
++    pub fn find(&self, typed: &str) -> Option<&'static CommandSpec> {
++        command::lookup_slash(typed)
+     }
+ 
+     /// Number of visible (filter-passing) commands.
+diff --git a/crates/app/tui/tui-components/src/question_overlay.rs b/crates/app/tui/tui-components/src/question_overlay.rs
+index 69baaca..b2c0995 100644
+--- a/crates/app/tui/tui-components/src/question_overlay.rs
++++ b/crates/app/tui/tui-components/src/question_overlay.rs
+@@ -201,10 +201,13 @@ impl QuestionView {
+         }
+     }
+ 
+-    /// Key hints line.
++    /// Key hints line, derived from the command registry.
+     pub fn hints(&self) -> String {
+         let mode = if self.multi { "multi-select" } else { "select" };
+-        format!("1-9 pick ({mode}) · Enter confirm · Esc cancel")
++        format!(
++            "{} ({mode})",
++            tui_core::command::hint_line(tui_core::keymap::KeymapContext::Question)
++        )
+     }
+ 
+     /// Render the view rows for the given width (window height bounded by
+@@ -395,7 +398,7 @@ mod tests {
+         assert!(lines[0].to_string().contains("? p"));
+         assert!(lines[1].to_string().contains("1. ( ) a"));
+         assert!(lines[2].to_string().contains("2. (x) b"));
+-        assert!(lines.last().unwrap().to_string().contains("Esc cancel"));
++        assert!(lines.last().unwrap().to_string().contains("Esc Cancel"));
+     }
+ 
+     #[test]
+diff --git a/crates/app/tui/tui-core/src/command.rs b/crates/app/tui/tui-core/src/command.rs
+new file mode 100644
+index 0000000..a5a4b1b
+--- /dev/null
++++ b/crates/app/tui/tui-core/src/command.rs
+@@ -0,0 +1,1408 @@
++//! The command registry: the single definition of every user-facing command.
++//!
++//! A command carries its stable id, display metadata, default key scopes,
++//! leader chord, slash name and whether it appears in the command palette.
++//! The keymap, the command palette, the slash parser and the help view all
++//! derive from this table, so a new command is added in exactly one place.
++//!
++//! Execution is addressed by id: commands that map onto a low-level
++//! [`KeyAction`] carry one, while session commands are dispatched by the
++//! caller from the id alone.
++
++use crate::keymap::{CKey, Key, KeyAction, KeymapContext};
++
++/// The key that starts a leader sequence.
++///
++/// `Ctrl-X` is already the transcript decision-anchor shortcut and
++/// `Ctrl-P` cycles user prompts, so the leader uses the free `Ctrl-W`.
++pub const LEADER: Key = Key::ctrl(CKey::Char('w'));
++
++/// Leader sequence timeout in milliseconds.
++pub const LEADER_TIMEOUT_MS: u64 = 2_000;
++
++/// One key scope: the context a group of keys is active in.
++#[derive(Debug, Clone, Copy)]
++pub struct BindingScope {
++    pub context: KeymapContext,
++    pub keys: &'static [Key],
++}
++
++const fn scope(context: KeymapContext, keys: &'static [Key]) -> BindingScope {
++    BindingScope { context, keys }
++}
++
++/// Slash exposure of a command.
++#[derive(Debug, Clone, Copy)]
++pub struct SlashSpec {
++    /// Primary name without the leading slash.
++    pub name: &'static str,
++    /// Alternative names, all without the leading slash.
++    pub aliases: &'static [&'static str],
++    /// Argument syntax shown in help (`""` when the command takes none).
++    pub argument: &'static str,
++}
++
++/// One command definition.
++#[derive(Debug, Clone, Copy)]
++pub struct CommandSpec {
++    pub id: &'static str,
++    pub title: &'static str,
++    pub group: &'static str,
++    pub description: &'static str,
++    /// Low-level action for commands the UI can execute directly.
++    pub action: Option<KeyAction>,
++    pub scopes: &'static [BindingScope],
++    /// Keys pressed after the leader, empty when the command has no chord.
++    pub leader: &'static [Key],
++    pub slash: Option<SlashSpec>,
++    pub palette: bool,
++}
++
++impl CommandSpec {
++    /// First default chord, used for shortcut hints.
++    pub fn shortcut(&self) -> Option<String> {
++        if let Some(scope) = self.scopes.iter().find(|scope| !scope.keys.is_empty()) {
++            return scope.keys.first().map(Key::describe);
++        }
++        self.leader
++            .first()
++            .map(|key| format!("{} {}", LEADER.describe(), key.describe()))
++    }
++}
++
++const fn key(code: CKey) -> Key {
++    Key::plain(code)
++}
++
++const fn ctrl(c: char) -> Key {
++    Key::ctrl(CKey::Char(c))
++}
++
++const fn alt(code: CKey) -> Key {
++    Key {
++        code,
++        ctrl: false,
++        alt: true,
++        shift: false,
++    }
++}
++
++const fn alt_char(c: char) -> Key {
++    alt(CKey::Char(c))
++}
++
++/// Every command. Order defines palette group and row order.
++pub static COMMANDS: &[CommandSpec] = &[
++    // Application.
++    CommandSpec {
++        id: "app.quit",
++        title: "Quit",
++        group: "App",
++        description: "Exit the TUI",
++        action: Some(KeyAction::Quit),
++        scopes: &[scope(KeymapContext::Global, &[ctrl('q')])],
++        leader: &[key(CKey::Char('q'))],
++        slash: Some(SlashSpec {
++            name: "quit",
++            aliases: &["q", "exit"],
++            argument: "",
++        }),
++        palette: true,
++    },
++    CommandSpec {
++        id: "app.help",
++        title: "Help",
++        group: "App",
++        description: "Show keys and commands",
++        action: Some(KeyAction::Help),
++        scopes: &[scope(KeymapContext::Global, &[key(CKey::Char('?'))])],
++        leader: &[key(CKey::Char('h'))],
++        slash: Some(SlashSpec {
++            name: "help",
++            aliases: &["?"],
++            argument: "",
++        }),
++        palette: true,
++    },
++    CommandSpec {
++        id: "app.redraw",
++        title: "Redraw",
++        group: "App",
++        description: "Repaint the screen",
++        action: Some(KeyAction::Redraw),
++        scopes: &[scope(KeymapContext::Global, &[ctrl('l')])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "app.interrupt",
++        title: "Interrupt",
++        group: "App",
++        description: "Interrupt the running turn",
++        action: Some(KeyAction::Interrupt),
++        scopes: &[scope(KeymapContext::Global, &[ctrl('c')])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "command.palette",
++        title: "Command palette",
++        group: "App",
++        description: "Search and run a command",
++        action: Some(KeyAction::Palette),
++        scopes: &[],
++        leader: &[key(CKey::Char('p'))],
++        slash: None,
++        palette: false,
++    },
++    // Session.
++    CommandSpec {
++        id: "session.new",
++        title: "New session",
++        group: "Session",
++        description: "Start a new session tab",
++        action: None,
++        scopes: &[],
++        leader: &[key(CKey::Char('n'))],
++        slash: Some(SlashSpec {
++            name: "new",
++            aliases: &["n"],
++            argument: "",
++        }),
++        palette: true,
++    },
++    CommandSpec {
++        id: "session.list",
++        title: "Sessions",
++        group: "Session",
++        description: "Browse and switch sessions",
++        action: Some(KeyAction::SessionList),
++        scopes: &[scope(
++            KeymapContext::Global,
++            &[alt_char('s'), alt_char('S')],
++        )],
++        leader: &[key(CKey::Char('l'))],
++        slash: Some(SlashSpec {
++            name: "sessions",
++            aliases: &["list", "session"],
++            argument: "",
++        }),
++        palette: true,
++    },
++    CommandSpec {
++        id: "session.model",
++        title: "Model",
++        group: "Session",
++        description: "Pick the model profile for the next turns",
++        action: None,
++        scopes: &[],
++        leader: &[key(CKey::Char('m'))],
++        slash: Some(SlashSpec {
++            name: "model",
++            aliases: &["m"],
++            argument: "",
++        }),
++        palette: true,
++    },
++    CommandSpec {
++        id: "session.skills",
++        title: "Skills",
++        group: "Session",
++        description: "List and run a skill",
++        action: None,
++        scopes: &[],
++        leader: &[key(CKey::Char('s'))],
++        slash: Some(SlashSpec {
++            name: "skills",
++            aliases: &["skill"],
++            argument: "",
++        }),
++        palette: true,
++    },
++    CommandSpec {
++        id: "session.workflows",
++        title: "Workflows",
++        group: "Session",
++        description: "List and run a workflow",
++        action: None,
++        scopes: &[],
++        leader: &[key(CKey::Char('w'))],
++        slash: Some(SlashSpec {
++            name: "workflows",
++            aliases: &["workflow"],
++            argument: "",
++        }),
++        palette: true,
++    },
++    CommandSpec {
++        id: "session.queued",
++        title: "Queued prompts",
++        group: "Session",
++        description: "Manage queued prompts",
++        action: None,
++        scopes: &[],
++        leader: &[key(CKey::Char('u'))],
++        slash: Some(SlashSpec {
++            name: "queued",
++            aliases: &["queue"],
++            argument: "",
++        }),
++        palette: true,
++    },
++    CommandSpec {
++        id: "session.editor",
++        title: "Editor",
++        group: "Session",
++        description: "Edit the draft in $EDITOR",
++        action: None,
++        scopes: &[],
++        leader: &[key(CKey::Char('e'))],
++        slash: Some(SlashSpec {
++            name: "editor",
++            aliases: &["edit"],
++            argument: "",
++        }),
++        palette: true,
++    },
++    CommandSpec {
++        id: "session.auth",
++        title: "Auth",
++        group: "Session",
++        description: "Log in or out of LLM providers",
++        action: None,
++        scopes: &[],
++        leader: &[key(CKey::Char('a'))],
++        slash: Some(SlashSpec {
++            name: "auth",
++            aliases: &["login"],
++            argument: "",
++        }),
++        palette: true,
++    },
++    CommandSpec {
++        id: "session.copy",
++        title: "Copy",
++        group: "Session",
++        description: "Copy a message, code block or the whole transcript",
++        action: None,
++        scopes: &[],
++        leader: &[key(CKey::Char('y'))],
++        slash: Some(SlashSpec {
++            name: "copy",
++            aliases: &["y"],
++            argument: "message | code [N] | all | id",
++        }),
++        palette: true,
++    },
++    CommandSpec {
++        id: "session.resume",
++        title: "Resume",
++        group: "Session",
++        description: "Resume a recent session",
++        action: None,
++        scopes: &[],
++        leader: &[key(CKey::Char('r'))],
++        slash: Some(SlashSpec {
++            name: "resume",
++            aliases: &["recent"],
++            argument: "",
++        }),
++        palette: true,
++    },
++    CommandSpec {
++        id: "session.executions",
++        title: "Executions",
++        group: "Session",
++        description: "List recent executions",
++        action: None,
++        scopes: &[],
++        leader: &[key(CKey::Char('x'))],
++        slash: Some(SlashSpec {
++            name: "executions",
++            aliases: &["exec"],
++            argument: "",
++        }),
++        palette: true,
++    },
++    // Tabs.
++    CommandSpec {
++        id: "tab.new",
++        title: "New tab",
++        group: "Tabs",
++        description: "Open a new session tab",
++        action: Some(KeyAction::TabNew),
++        scopes: &[scope(
++            KeymapContext::Global,
++            &[alt_char('t'), alt_char('T')],
++        )],
++        leader: &[key(CKey::Char('t'))],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "tab.close",
++        title: "Close tab",
++        group: "Tabs",
++        description: "Close the active session tab",
++        action: Some(KeyAction::TabClose),
++        scopes: &[scope(
++            KeymapContext::Global,
++            &[alt_char('w'), alt_char('W')],
++        )],
++        leader: &[key(CKey::Char('c'))],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "tab.next",
++        title: "Next tab",
++        group: "Tabs",
++        description: "Focus the next session tab",
++        action: Some(KeyAction::TabNext),
++        scopes: &[scope(
++            KeymapContext::Global,
++            &[alt_char(']'), alt(CKey::Right)],
++        )],
++        leader: &[key(CKey::Char('.'))],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "tab.prev",
++        title: "Previous tab",
++        group: "Tabs",
++        description: "Focus the previous session tab",
++        action: Some(KeyAction::TabPrev),
++        scopes: &[scope(
++            KeymapContext::Global,
++            &[alt_char('['), alt(CKey::Left)],
++        )],
++        leader: &[key(CKey::Char(','))],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "tab.pick.1",
++        title: "Pick tab 1",
++        group: "Tabs",
++        description: "Focus session tab 1",
++        action: Some(KeyAction::TabPick(1)),
++        scopes: &[scope(KeymapContext::Global, &[alt_char('1')])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "tab.pick.2",
++        title: "Pick tab 2",
++        group: "Tabs",
++        description: "Focus session tab 2",
++        action: Some(KeyAction::TabPick(2)),
++        scopes: &[scope(KeymapContext::Global, &[alt_char('2')])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "tab.pick.3",
++        title: "Pick tab 3",
++        group: "Tabs",
++        description: "Focus session tab 3",
++        action: Some(KeyAction::TabPick(3)),
++        scopes: &[scope(KeymapContext::Global, &[alt_char('3')])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "tab.pick.4",
++        title: "Pick tab 4",
++        group: "Tabs",
++        description: "Focus session tab 4",
++        action: Some(KeyAction::TabPick(4)),
++        scopes: &[scope(KeymapContext::Global, &[alt_char('4')])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "tab.pick.5",
++        title: "Pick tab 5",
++        group: "Tabs",
++        description: "Focus session tab 5",
++        action: Some(KeyAction::TabPick(5)),
++        scopes: &[scope(KeymapContext::Global, &[alt_char('5')])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "tab.pick.6",
++        title: "Pick tab 6",
++        group: "Tabs",
++        description: "Focus session tab 6",
++        action: Some(KeyAction::TabPick(6)),
++        scopes: &[scope(KeymapContext::Global, &[alt_char('6')])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "tab.pick.7",
++        title: "Pick tab 7",
++        group: "Tabs",
++        description: "Focus session tab 7",
++        action: Some(KeyAction::TabPick(7)),
++        scopes: &[scope(KeymapContext::Global, &[alt_char('7')])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "tab.pick.8",
++        title: "Pick tab 8",
++        group: "Tabs",
++        description: "Focus session tab 8",
++        action: Some(KeyAction::TabPick(8)),
++        scopes: &[scope(KeymapContext::Global, &[alt_char('8')])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "tab.pick.9",
++        title: "Pick tab 9",
++        group: "Tabs",
++        description: "Focus session tab 9",
++        action: Some(KeyAction::TabPick(9)),
++        scopes: &[scope(KeymapContext::Global, &[alt_char('9')])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "tab.pin",
++        title: "Pin tab",
++        group: "Tabs",
++        description: "Toggle pin on the active tab",
++        action: Some(KeyAction::TabPin),
++        scopes: &[scope(
++            KeymapContext::Global,
++            &[alt_char('p'), alt_char('P')],
++        )],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "tab.move_prev",
++        title: "Move tab left",
++        group: "Tabs",
++        description: "Move the active tab one slot toward the start",
++        action: Some(KeyAction::TabMovePrev),
++        scopes: &[scope(KeymapContext::Global, &[alt_char(',')])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "tab.move_next",
++        title: "Move tab right",
++        group: "Tabs",
++        description: "Move the active tab one slot toward the end",
++        action: Some(KeyAction::TabMoveNext),
++        scopes: &[scope(KeymapContext::Global, &[alt_char('.')])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "tab.parent",
++        title: "Parent tab",
++        group: "Tabs",
++        description: "Focus the parent of the active sub-agent tab",
++        action: Some(KeyAction::TabParent),
++        scopes: &[scope(KeymapContext::Global, &[alt(CKey::Up)])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "tab.child",
++        title: "Child tab",
++        group: "Tabs",
++        description: "Focus the first child of the active tab",
++        action: Some(KeyAction::TabChild),
++        scopes: &[scope(KeymapContext::Global, &[alt(CKey::Down)])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "tab.child_next",
++        title: "Next child tab",
++        group: "Tabs",
++        description: "Cycle to the next child tab",
++        action: Some(KeyAction::TabChildNext),
++        scopes: &[scope(
++            KeymapContext::Global,
++            &[alt_char('j'), alt_char('J')],
++        )],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "tab.child_prev",
++        title: "Previous child tab",
++        group: "Tabs",
++        description: "Cycle to the previous child tab",
++        action: Some(KeyAction::TabChildPrev),
++        scopes: &[scope(
++            KeymapContext::Global,
++            &[alt_char('k'), alt_char('K')],
++        )],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    // Shared navigation.
++    CommandSpec {
++        id: "ui.move_prev",
++        title: "Move up",
++        group: "Navigation",
++        description: "Move the selection up",
++        action: Some(KeyAction::MovePrev),
++        scopes: &[
++            scope(KeymapContext::List, &[key(CKey::Up), key(CKey::Char('k'))]),
++            scope(KeymapContext::Panel, &[key(CKey::Up), key(CKey::Char('k'))]),
++        ],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "ui.move_next",
++        title: "Move down",
++        group: "Navigation",
++        description: "Move the selection down",
++        action: Some(KeyAction::MoveNext),
++        scopes: &[
++            scope(
++                KeymapContext::List,
++                &[key(CKey::Down), key(CKey::Char('j'))],
++            ),
++            scope(
++                KeymapContext::Panel,
++                &[key(CKey::Down), key(CKey::Char('j'))],
++            ),
++        ],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "ui.select",
++        title: "Select",
++        group: "Navigation",
++        description: "Accept the selected item",
++        action: Some(KeyAction::Select),
++        scopes: &[
++            scope(KeymapContext::List, &[key(CKey::Enter)]),
++            scope(KeymapContext::Panel, &[key(CKey::Enter)]),
++            scope(KeymapContext::Question, &[key(CKey::Enter)]),
++        ],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "ui.back",
++        title: "Back",
++        group: "Navigation",
++        description: "Leave the current view",
++        action: Some(KeyAction::Back),
++        scopes: &[
++            scope(KeymapContext::List, &[key(CKey::Esc), key(CKey::Char('q'))]),
++            scope(
++                KeymapContext::Detail,
++                &[key(CKey::Esc), key(CKey::Char('q'))],
++            ),
++            scope(KeymapContext::Chat, &[key(CKey::Esc)]),
++            scope(KeymapContext::Composer, &[key(CKey::Esc)]),
++            scope(KeymapContext::Panel, &[key(CKey::Esc)]),
++        ],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "ui.cancel",
++        title: "Cancel",
++        group: "Navigation",
++        description: "Dismiss the active modal",
++        action: Some(KeyAction::Cancel),
++        scopes: &[
++            scope(KeymapContext::Modal, &[key(CKey::Esc)]),
++            scope(KeymapContext::Approval, &[key(CKey::Esc)]),
++            scope(KeymapContext::Question, &[key(CKey::Esc)]),
++        ],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "ui.submit",
++        title: "Submit",
++        group: "Navigation",
++        description: "Submit the current input",
++        action: Some(KeyAction::Submit),
++        scopes: &[
++            scope(KeymapContext::Chat, &[key(CKey::Enter)]),
++            scope(KeymapContext::Input, &[key(CKey::Enter)]),
++            scope(KeymapContext::Composer, &[key(CKey::Enter)]),
++            scope(KeymapContext::Modal, &[key(CKey::Enter)]),
++        ],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "ui.refresh",
++        title: "Refresh",
++        group: "Navigation",
++        description: "Reload the current list",
++        action: Some(KeyAction::Refresh),
++        scopes: &[scope(
++            KeymapContext::List,
++            &[key(CKey::Char('R')), key(CKey::Char('r'))],
++        )],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "ui.delete",
++        title: "Delete",
++        group: "Navigation",
++        description: "Delete the selected item",
++        action: Some(KeyAction::Delete),
++        scopes: &[
++            scope(KeymapContext::List, &[key(CKey::Char('D'))]),
++            scope(KeymapContext::Detail, &[key(CKey::Char('D'))]),
++            scope(
++                KeymapContext::Panel,
++                &[key(CKey::Char('D')), key(CKey::Delete)],
++            ),
++        ],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "ui.new",
++        title: "New",
++        group: "Navigation",
++        description: "Create a new item",
++        action: Some(KeyAction::New),
++        scopes: &[scope(KeymapContext::List, &[key(CKey::Char('N'))])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "ui.edit",
++        title: "Edit",
++        group: "Navigation",
++        description: "Edit the selected item",
++        action: Some(KeyAction::Edit),
++        scopes: &[
++            scope(KeymapContext::Detail, &[key(CKey::Char('E'))]),
++            scope(KeymapContext::Panel, &[key(CKey::Char('E'))]),
++        ],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "ui.history_prev",
++        title: "Previous history",
++        group: "Navigation",
++        description: "Recall the previous input",
++        action: Some(KeyAction::HistoryPrev),
++        scopes: &[
++            scope(KeymapContext::Chat, &[key(CKey::Up)]),
++            scope(KeymapContext::Input, &[key(CKey::Up)]),
++            scope(KeymapContext::Composer, &[key(CKey::Up)]),
++        ],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "ui.history_next",
++        title: "Next history",
++        group: "Navigation",
++        description: "Recall the next input",
++        action: Some(KeyAction::HistoryNext),
++        scopes: &[
++            scope(KeymapContext::Chat, &[key(CKey::Down)]),
++            scope(KeymapContext::Input, &[key(CKey::Down)]),
++            scope(KeymapContext::Composer, &[key(CKey::Down)]),
++        ],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "ui.clear",
++        title: "Clear input",
++        group: "Navigation",
++        description: "Clear the current input or filter",
++        action: Some(KeyAction::Clear),
++        scopes: &[
++            scope(KeymapContext::Input, &[key(CKey::Esc)]),
++            scope(KeymapContext::Composer, &[ctrl('u')]),
++            scope(KeymapContext::Panel, &[ctrl('u')]),
++        ],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "ui.scan",
++        title: "Scan",
++        group: "Navigation",
++        description: "Scan for new items",
++        action: Some(KeyAction::Scan),
++        scopes: &[scope(KeymapContext::Panel, &[key(CKey::Char('S'))])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "ui.reload",
++        title: "Reload",
++        group: "Navigation",
++        description: "Clear caches and reload",
++        action: Some(KeyAction::Reload),
++        scopes: &[scope(KeymapContext::Panel, &[key(CKey::Char('R'))])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "ui.cache_clear",
++        title: "Clear cache",
++        group: "Navigation",
++        description: "Drop cached content",
++        action: Some(KeyAction::CacheClear),
++        scopes: &[scope(KeymapContext::Panel, &[key(CKey::Char('C'))])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "ui.cycle_mode",
++        title: "Cycle mode",
++        group: "Navigation",
++        description: "Cycle the active panel mode",
++        action: Some(KeyAction::CycleMode),
++        scopes: &[scope(KeymapContext::Panel, &[key(CKey::Tab)])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    // Approval.
++    CommandSpec {
++        id: "approval.approve",
++        title: "Approve",
++        group: "Approval",
++        description: "Allow this call once",
++        action: Some(KeyAction::Approve),
++        scopes: &[
++            scope(KeymapContext::Modal, &[key(CKey::Char('y'))]),
++            scope(KeymapContext::Approval, &[key(CKey::Char('y'))]),
++        ],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "approval.approve_all",
++        title: "Approve all",
++        group: "Approval",
++        description: "Allow this tool for the session",
++        action: Some(KeyAction::ApproveAll),
++        scopes: &[
++            scope(KeymapContext::Modal, &[key(CKey::Char('a'))]),
++            scope(KeymapContext::Approval, &[key(CKey::Char('a'))]),
++        ],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "approval.deny",
++        title: "Deny all",
++        group: "Approval",
++        description: "Deny this tool for the session",
++        action: Some(KeyAction::Deny),
++        scopes: &[
++            scope(KeymapContext::Modal, &[key(CKey::Char('n'))]),
++            scope(KeymapContext::Approval, &[key(CKey::Char('n'))]),
++        ],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "approval.deny_once",
++        title: "Deny once",
++        group: "Approval",
++        description: "Deny this call only",
++        action: Some(KeyAction::DenyOnce),
++        scopes: &[scope(KeymapContext::Approval, &[key(CKey::Char('d'))])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "approval.cancel",
++        title: "Cancel approval",
++        group: "Approval",
++        description: "Dismiss the approval request",
++        action: Some(KeyAction::Cancel),
++        scopes: &[scope(KeymapContext::Approval, &[key(CKey::Char('c'))])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    // Question picks.
++    CommandSpec {
++        id: "question.pick.1",
++        title: "Pick option 1",
++        group: "Question",
++        description: "Choose the first option",
++        action: Some(KeyAction::Pick(1)),
++        scopes: &[scope(KeymapContext::Question, &[key(CKey::Char('1'))])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "question.pick.2",
++        title: "Pick option 2",
++        group: "Question",
++        description: "Choose the second option",
++        action: Some(KeyAction::Pick(2)),
++        scopes: &[scope(KeymapContext::Question, &[key(CKey::Char('2'))])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "question.pick.3",
++        title: "Pick option 3",
++        group: "Question",
++        description: "Choose the third option",
++        action: Some(KeyAction::Pick(3)),
++        scopes: &[scope(KeymapContext::Question, &[key(CKey::Char('3'))])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "question.pick.4",
++        title: "Pick option 4",
++        group: "Question",
++        description: "Choose the fourth option",
++        action: Some(KeyAction::Pick(4)),
++        scopes: &[scope(KeymapContext::Question, &[key(CKey::Char('4'))])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "question.pick.5",
++        title: "Pick option 5",
++        group: "Question",
++        description: "Choose the fifth option",
++        action: Some(KeyAction::Pick(5)),
++        scopes: &[scope(KeymapContext::Question, &[key(CKey::Char('5'))])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "question.pick.6",
++        title: "Pick option 6",
++        group: "Question",
++        description: "Choose the sixth option",
++        action: Some(KeyAction::Pick(6)),
++        scopes: &[scope(KeymapContext::Question, &[key(CKey::Char('6'))])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "question.pick.7",
++        title: "Pick option 7",
++        group: "Question",
++        description: "Choose the seventh option",
++        action: Some(KeyAction::Pick(7)),
++        scopes: &[scope(KeymapContext::Question, &[key(CKey::Char('7'))])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "question.pick.8",
++        title: "Pick option 8",
++        group: "Question",
++        description: "Choose the eighth option",
++        action: Some(KeyAction::Pick(8)),
++        scopes: &[scope(KeymapContext::Question, &[key(CKey::Char('8'))])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++    CommandSpec {
++        id: "question.pick.9",
++        title: "Pick option 9",
++        group: "Question",
++        description: "Choose the ninth option",
++        action: Some(KeyAction::Pick(9)),
++        scopes: &[scope(KeymapContext::Question, &[key(CKey::Char('9'))])],
++        leader: &[],
++        slash: None,
++        palette: false,
++    },
++];
++
++/// Look a command up by its stable id.
++pub fn by_id(id: &str) -> Option<&'static CommandSpec> {
++    COMMANDS.iter().find(|spec| spec.id == id)
++}
++
++/// The builtin command active for `key` in `context`, if any.
++pub fn scoped_command(context: KeymapContext, key: Key) -> Option<&'static CommandSpec> {
++    COMMANDS.iter().find(|spec| {
++        spec.scopes
++            .iter()
++            .any(|scope| scope.context == context && scope.keys.contains(&key))
++    })
++}
++
++/// Commands shown in the palette, in registry order.
++pub fn palette_commands() -> impl Iterator<Item = &'static CommandSpec> {
++    COMMANDS.iter().filter(|spec| spec.palette)
++}
++
++/// Resolve a typed slash command (leading slash optional).
++pub fn lookup_slash(typed: &str) -> Option<&'static CommandSpec> {
++    let needle = typed.trim().trim_start_matches('/');
++    if needle.is_empty() {
++        return None;
++    }
++    COMMANDS.iter().find(|spec| {
++        spec.slash.is_some_and(|slash| {
++            slash.name.eq_ignore_ascii_case(needle)
++                || slash
++                    .aliases
++                    .iter()
++                    .any(|alias| alias.eq_ignore_ascii_case(needle))
++        })
++    })
++}
++
++/// Closest slash command names for an unknown command.
++pub fn slash_suggestions(typed: &str, limit: usize) -> Vec<String> {
++    let needle = typed.trim().trim_start_matches('/').to_lowercase();
++    if needle.is_empty() {
++        return Vec::new();
++    }
++    let mut scored: Vec<(u8, bool, &'static str)> = Vec::new();
++    for spec in COMMANDS {
++        let Some(slash) = spec.slash else {
++            continue;
++        };
++        let mut best: Option<(u8, usize)> = None;
++        for name in std::iter::once(slash.name).chain(slash.aliases.iter().copied()) {
++            let lower = name.to_lowercase();
++            let prefix = lower.starts_with(&needle);
++            let distance = edit_distance(&needle, &lower);
++            if prefix || distance <= 2 {
++                let rank = usize::from(!prefix);
++                let candidate = (distance.min(u8::MAX as usize) as u8, rank);
++                if best.map_or(true, |current| candidate < current) {
++                    best = Some(candidate);
++                }
++            }
++        }
++        if let Some((distance, rank)) = best {
++            scored.push((distance, rank == 0, slash.name));
++        }
++    }
++    scored.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)).then(a.2.cmp(b.2)));
++    let mut names: Vec<String> = Vec::new();
++    for (_, _, name) in scored {
++        let formatted = format!("/{name}");
++        if !names.contains(&formatted) {
++            names.push(formatted);
++        }
++        if names.len() == limit {
++            break;
++        }
++    }
++    names
++}
++
++fn edit_distance(a: &str, b: &str) -> usize {
++    let a: Vec<char> = a.chars().collect();
++    let b: Vec<char> = b.chars().collect();
++    if a.is_empty() {
++        return b.len();
++    }
++    if b.is_empty() {
++        return a.len();
++    }
++    let mut previous: Vec<usize> = (0..=b.len()).collect();
++    let mut current = vec![0usize; b.len() + 1];
++    for (i, ac) in a.iter().enumerate() {
++        current[0] = i + 1;
++        for (j, bc) in b.iter().enumerate() {
++            let substitution = previous[j] + usize::from(ac != bc);
++            current[j + 1] = substitution.min(previous[j + 1] + 1).min(current[j] + 1);
++        }
++        std::mem::swap(&mut previous, &mut current);
++    }
++    previous[b.len()]
++}
++
++/// One help row: the chord text and what it runs.
++#[derive(Debug, Clone)]
++pub struct HelpRow {
++    pub keys: String,
++    pub title: &'static str,
++}
++
++/// Command help grouped by command group, followed by the leader section.
++pub fn help_sections() -> Vec<(&'static str, Vec<HelpRow>)> {
++    let mut sections: Vec<(&'static str, Vec<HelpRow>)> = Vec::new();
++    for spec in COMMANDS {
++        if spec.id.starts_with("ui.") || spec.id.starts_with("question.") {
++            continue;
++        }
++        let mut keys: Vec<String> = Vec::new();
++        for scope in spec.scopes {
++            if scope.context != KeymapContext::Global {
++                continue;
++            }
++            for key in scope.keys {
++                let text = key.describe();
++                if !keys.contains(&text) {
++                    keys.push(text);
++                }
++            }
++        }
++        if let Some(slash) = spec.slash {
++            let mut text = format!("/{}", slash.name);
++            if !slash.argument.is_empty() {
++                text.push(' ');
++                text.push_str(slash.argument);
++            }
++            keys.push(text);
++        }
++        if keys.is_empty() {
++            continue;
++        }
++        let position = sections
++            .iter()
++            .position(|(group, _)| *group == spec.group)
++            .unwrap_or_else(|| {
++                sections.push((spec.group, Vec::new()));
++                sections.len() - 1
++            });
++        sections[position].1.push(HelpRow {
++            keys: keys.join(" / "),
++            title: spec.title,
++        });
++    }
++    let leader_rows: Vec<HelpRow> = COMMANDS
++        .iter()
++        .filter_map(|spec| {
++            spec.leader.first().map(|key| HelpRow {
++                keys: format!("{} {}", LEADER.describe(), key.describe()),
++                title: spec.title,
++            })
++        })
++        .collect();
++    if !leader_rows.is_empty() {
++        sections.push(("Leader", leader_rows));
++    }
++    sections
++}
++
++/// One-line key hints for the commands scoped to `context`, in registry
++/// order. Numbered pick bindings collapse into a single range hint.
++pub fn hint_line(context: KeymapContext) -> String {
++    let mut parts: Vec<String> = Vec::new();
++    let mut has_picks = false;
++    for spec in COMMANDS {
++        let Some(scope) = spec.scopes.iter().find(|scope| scope.context == context) else {
++            continue;
++        };
++        let Some(key) = scope.keys.first() else {
++            continue;
++        };
++        if spec.id.starts_with("question.pick.") {
++            has_picks = true;
++            continue;
++        }
++        parts.push(format!("{} {}", key.describe(), spec.title));
++    }
++    if has_picks {
++        parts.push("1-9 Pick option".to_string());
++    }
++    parts.join(" · ")
++}
++
++/// A leader chord entry: the keys after the leader plus the command.
++#[derive(Debug, Clone, Copy)]
++pub struct LeaderBinding {
++    pub keys: &'static [Key],
++    pub command: &'static CommandSpec,
++}
++
++/// Resolve leader chords and describe the available continuations.
++#[derive(Debug, Clone)]
++pub struct SequenceMap {
++    leader: Key,
++    timeout_ms: u64,
++    bindings: Vec<LeaderBinding>,
++}
++
++impl SequenceMap {
++    pub fn new(leader: Key, timeout_ms: u64) -> Self {
++        let bindings = COMMANDS
++            .iter()
++            .filter(|spec| !spec.leader.is_empty())
++            .map(|spec| LeaderBinding {
++                keys: spec.leader,
++                command: spec,
++            })
++            .collect();
++        Self {
++            leader,
++            timeout_ms,
++            bindings,
++        }
++    }
++
++    pub fn builtin() -> Self {
++        Self::new(LEADER, LEADER_TIMEOUT_MS)
++    }
++
++    pub fn leader(&self) -> Key {
++        self.leader
++    }
++
++    pub fn timeout_ms(&self) -> u64 {
++        self.timeout_ms
++    }
++
++    pub fn is_leader(&self, key: Key) -> bool {
++        key == self.leader
++    }
++
++    /// The command whose leader chord is exactly `keys`.
++    pub fn resolve(&self, keys: &[Key]) -> Option<&'static CommandSpec> {
++        if keys.is_empty() {
++            return None;
++        }
++        self.bindings
++            .iter()
++            .find(|binding| binding.keys == keys)
++            .map(|binding| binding.command)
++    }
++
++    /// Whether `keys` is a strict prefix of a longer leader chord.
++    pub fn is_prefix(&self, keys: &[Key]) -> bool {
++        if keys.is_empty() {
++            return !self.bindings.is_empty();
++        }
++        self.bindings
++            .iter()
++            .any(|binding| binding.keys.len() > keys.len() && binding.keys.starts_with(keys))
++    }
++
++    /// Keys available after `prefix`, with the command they run.
++    pub fn continuations(&self, prefix: &[Key]) -> Vec<(Key, &'static CommandSpec)> {
++        let mut out: Vec<(Key, &'static CommandSpec)> = Vec::new();
++        for binding in &self.bindings {
++            if binding.keys.len() <= prefix.len() || !binding.keys.starts_with(prefix) {
++                continue;
++            }
++            let next = binding.keys[prefix.len()];
++            if out.iter().any(|(key, _)| *key == next) {
++                continue;
++            }
++            out.push((next, binding.command));
++        }
++        out
++    }
++
++    /// One-line which-key hint for the current prefix.
++    pub fn which_key(&self, prefix: &[Key]) -> String {
++        let entries = self.continuations(prefix);
++        if entries.is_empty() {
++            return format!("{}: no matching command", self.leader.describe());
++        }
++        let body = entries
++            .iter()
++            .map(|(key, spec)| format!("{} {}", key.describe(), spec.title))
++            .collect::<Vec<_>>()
++            .join(" · ");
++        format!("{}: {}", self.leader.describe(), body)
++    }
++}
++
++/// Keys typed after the leader is pressed.
++#[derive(Debug, Clone)]
++pub struct PendingSequence {
++    keys: Vec<Key>,
++    started_ms: u64,
++}
++
++impl PendingSequence {
++    pub fn start(now_ms: u64) -> Self {
++        Self {
++            keys: Vec::new(),
++            started_ms: now_ms,
++        }
++    }
++
++    pub fn push(&mut self, key: Key) {
++        self.keys.push(key);
++    }
++
++    pub fn keys(&self) -> &[Key] {
++        &self.keys
++    }
++
++    pub fn is_expired(&self, now_ms: u64, timeout_ms: u64) -> bool {
++        now_ms.saturating_sub(self.started_ms) > timeout_ms
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn ids_and_slash_names_are_unique() {
++        let mut ids: Vec<&str> = COMMANDS.iter().map(|spec| spec.id).collect();
++        ids.sort_unstable();
++        let count = ids.len();
++        ids.dedup();
++        assert_eq!(ids.len(), count, "command ids must be unique");
++
++        let mut slash_names: Vec<&str> = COMMANDS
++            .iter()
++            .flat_map(|spec| {
++                spec.slash.iter().flat_map(|slash| {
++                    std::iter::once(slash.name).chain(slash.aliases.iter().copied())
++                })
++            })
++            .collect();
++        slash_names.sort_unstable();
++        let count = slash_names.len();
++        slash_names.dedup();
++        assert_eq!(slash_names.len(), count, "slash names must be unique");
++    }
++
++    #[test]
++    fn palette_commands_have_slash_names() {
++        for spec in palette_commands() {
++            assert!(
++                spec.slash.is_some(),
++                "palette command {} needs a slash name",
++                spec.id
++            );
++        }
++    }
++
++    #[test]
++    fn scope_keys_do_not_collide_within_a_context() {
++        for (index, spec) in COMMANDS.iter().enumerate() {
++            for scope in spec.scopes {
++                for key in scope.keys {
++                    for other in COMMANDS.iter().skip(index + 1) {
++                        for other_scope in other.scopes {
++                            if other_scope.context != scope.context {
++                                continue;
++                            }
++                            assert!(
++                                !other_scope.keys.contains(key),
++                                "{} and {} both bind {:?} in {:?}",
++                                spec.id,
++                                other.id,
++                                key,
++                                scope.context
++                            );
++                        }
++                    }
++                }
++            }
++        }
++    }
++
++    #[test]
++    fn slash_lookup_accepts_names_aliases_and_leading_slash() {
++        assert_eq!(
++            lookup_slash("/model").map(|spec| spec.id),
++            Some("session.model")
++        );
++        assert_eq!(lookup_slash("m").map(|spec| spec.id), Some("session.model"));
++        assert_eq!(lookup_slash("exit").map(|spec| spec.id), Some("app.quit"));
++        assert!(lookup_slash("nope").is_none());
++        assert!(lookup_slash("/").is_none());
++    }
++
++    #[test]
++    fn unknown_slash_commands_suggest_neighbours() {
++        let suggestions = slash_suggestions("modl", 3);
++        assert!(suggestions.contains(&"/model".to_string()));
++        assert!(slash_suggestions("zzzz", 3).is_empty());
++    }
++
++    #[test]
++    fn leader_sequence_resolves_prefix_and_hint() {
++        let map = SequenceMap::builtin();
++        assert!(map.is_leader(LEADER));
++        assert!(map.is_prefix(&[]));
++        assert_eq!(
++            map.resolve(&[key(CKey::Char('n'))]).map(|spec| spec.id),
++            Some("session.new")
++        );
++        assert!(map.which_key(&[]).contains("New session"));
++        assert!(map.which_key(&[]).starts_with("Ctrl-w"));
++    }
++
++    #[test]
++    fn pending_sequence_expires_after_the_timeout() {
++        let pending = PendingSequence::start(1_000);
++        assert!(!pending.is_expired(2_500, LEADER_TIMEOUT_MS));
++        assert!(pending.is_expired(3_500, LEADER_TIMEOUT_MS));
++    }
++
++    #[test]
++    fn help_sections_cover_app_and_leader() {
++        let sections = help_sections();
++        assert!(sections.iter().any(|(group, _)| *group == "App"));
++        assert!(sections.iter().any(|(group, _)| *group == "Leader"));
++    }
++}
+diff --git a/crates/app/tui/tui-core/src/keymap.rs b/crates/app/tui/tui-core/src/keymap.rs
+index 48cea9a..2afbe5d 100644
+--- a/crates/app/tui/tui-core/src/keymap.rs
++++ b/crates/app/tui/tui-core/src/keymap.rs
+@@ -7,6 +7,8 @@
+ 
+ use std::collections::HashMap;
+ 
++use crate::command::CommandSpec;
++
+ /// Physical key code (modifier-free). Kept deliberately small; the crossterm
+ /// adapter converts `KeyCode` into this.
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+@@ -234,291 +236,153 @@ pub enum KeymapContext {
+     Question,
+ }
+ 
+-/// A `(context → key → action)` resolution table with global fallback.
++/// A `(context → key → command)` resolution table with global fallback.
++///
++/// The table only holds user overrides: builtin bindings resolve from the
++/// command registry on demand, so an empty table already answers every
++/// builtin chord.
+ #[derive(Debug, Clone, Default)]
+ pub struct Keymap {
+-    global: HashMap<Key, KeyAction>,
+-    context: HashMap<KeymapContext, HashMap<Key, KeyAction>>,
++    global: HashMap<Key, &'static CommandSpec>,
++    context: HashMap<KeymapContext, HashMap<Key, &'static CommandSpec>>,
+ }
+ 
+ impl Keymap {
+-    /// Empty builder (builtin defaults applied on demand via
+-    /// [`Self::set_global`] / [`Self::bind`]).
+     pub fn new() -> Self {
+         Self::default()
+     }
+ 
+     /// Bind a global override.
+-    pub fn set_global(&mut self, key: Key, action: KeyAction) -> &mut Self {
+-        self.global.insert(key, action);
++    pub fn set_global(&mut self, key: Key, command: &'static CommandSpec) -> &mut Self {
++        self.global.insert(key, command);
+         self
+     }
+ 
+     /// Bind a context-local override.
+-    pub fn bind(&mut self, ctx: KeymapContext, key: Key, action: KeyAction) -> &mut Self {
+-        self.context.entry(ctx).or_default().insert(key, action);
++    pub fn bind(
++        &mut self,
++        ctx: KeymapContext,
++        key: Key,
++        command: &'static CommandSpec,
++    ) -> &mut Self {
++        self.context.entry(ctx).or_default().insert(key, command);
+         self
+     }
+ 
+-    /// Resolve `key` in `ctx`: context tables, then the global table, then
+-    /// the builtin defaults.
+-    pub fn resolve(&self, ctx: KeymapContext, key: Key) -> Option<KeyAction> {
+-        if let Some(action) = self.context.get(&ctx).and_then(|m| m.get(&key)).copied() {
+-            return Some(action);
++    /// Bind a context-local override from a command id.
++    ///
++    /// Unknown ids are rejected so a settings file can never silently bind
++    /// a command that no longer exists.
++    pub fn bind_id(&mut self, ctx: KeymapContext, key: Key, id: &str) -> bool {
++        let Some(command) = crate::command::by_id(id) else {
++            return false;
++        };
++        if ctx == KeymapContext::Global {
++            self.set_global(key, command);
++        } else {
++            self.bind(ctx, key, command);
++        }
++        true
++    }
++
++    /// Resolve `key` in `ctx`. The context is one layer above the global
++    /// base, so the same layer machinery serves both ad-hoc lookups and
++    /// explicit mode stacks.
++    pub fn resolve(&self, ctx: KeymapContext, key: Key) -> Option<&'static CommandSpec> {
++        let stack = KeymapStack::base().with(KeyLayer::new(ctx, 10));
++        self.resolve_layered(&stack, key)
++    }
++
++    /// Resolve to the low-level action when the command has one.
++    pub fn resolve_action(&self, ctx: KeymapContext, key: Key) -> Option<KeyAction> {
++        self.resolve(ctx, key).and_then(|command| command.action)
++    }
++
++    /// Resolve through an ordered layer stack: context overrides first,
++    /// then global overrides, then builtins by layer priority, then the
++    /// global builtin fallback.
++    pub fn resolve_layered(&self, stack: &KeymapStack, key: Key) -> Option<&'static CommandSpec> {
++        for layer in stack.layers.iter().filter(|layer| layer.enabled) {
++            if let Some(command) = self
++                .context
++                .get(&layer.context)
++                .and_then(|m| m.get(&key))
++                .copied()
++            {
++                return Some(command);
++            }
+         }
+-        if let Some(action) = self.global.get(&key).copied() {
+-            return Some(action);
++        if let Some(command) = self.global.get(&key).copied() {
++            return Some(command);
+         }
+-        builtin_defaults(ctx)
+-            .iter()
+-            .copied()
+-            .find(|(k, _): &(Key, KeyAction)| *k == key)
+-            .map(|(_, a)| a)
++        for layer in stack.layers.iter().filter(|layer| layer.enabled) {
++            if let Some(command) = crate::command::scoped_command(layer.context, key) {
++                return Some(command);
++            }
++        }
++        crate::command::scoped_command(KeymapContext::Global, key)
+     }
+ }
+ 
+-/// Builtin bindings that apply in every context. These live in the
+-/// *global* table so callers can shadow them with `set_global` and they are
+-/// still resolved for any context.
+-fn builtin_global() -> Vec<(Key, KeyAction)> {
+-    use KeyAction::*;
+-    let mut binds = vec![
+-        (Key::ctrl(CKey::Char('q')), Quit),
+-        (Key::ctrl(CKey::Char('c')), Interrupt),
+-        (Key::ctrl(CKey::Char('l')), Redraw),
+-        (Key::plain(CKey::Char('?')), Help),
+-        (Key::plain(CKey::Char('/')), Palette),
+-    ];
+-    binds.extend(tab_defaults());
+-    binds
++/// One layer of the keymap mode stack.
++#[derive(Debug, Clone, Copy)]
++pub struct KeyLayer {
++    pub context: KeymapContext,
++    pub priority: u8,
++    pub enabled: bool,
+ }
+ 
+-/// Default chat-tab chords. Letters register both cases so the binding
+-/// matches regardless of how the terminal reports the shift state.
+-fn tab_defaults() -> Vec<(Key, KeyAction)> {
+-    use KeyAction::*;
+-    let mut binds = vec![
+-        (
+-            Key {
+-                code: CKey::Char('t'),
+-                ctrl: false,
+-                alt: true,
+-                shift: false,
+-            },
+-            TabNew,
+-        ),
+-        (
+-            Key {
+-                code: CKey::Char('T'),
+-                ctrl: false,
+-                alt: true,
+-                shift: false,
+-            },
+-            TabNew,
+-        ),
+-        (
+-            Key {
+-                code: CKey::Char('w'),
+-                ctrl: false,
+-                alt: true,
+-                shift: false,
+-            },
+-            TabClose,
+-        ),
+-        (
+-            Key {
+-                code: CKey::Char('W'),
+-                ctrl: false,
+-                alt: true,
+-                shift: false,
+-            },
+-            TabClose,
+-        ),
+-        (
+-            Key {
+-                code: CKey::Char(']'),
+-                ctrl: false,
+-                alt: true,
+-                shift: false,
+-            },
+-            TabNext,
+-        ),
+-        (
+-            Key {
+-                code: CKey::Char('['),
+-                ctrl: false,
+-                alt: true,
+-                shift: false,
+-            },
+-            TabPrev,
+-        ),
+-        (
+-            Key {
+-                code: CKey::Right,
+-                ctrl: false,
+-                alt: true,
+-                shift: false,
+-            },
+-            TabNext,
+-        ),
+-        (
+-            Key {
+-                code: CKey::Left,
+-                ctrl: false,
+-                alt: true,
+-                shift: false,
+-            },
+-            TabPrev,
+-        ),
+-    ];
+-    for n in 1..=9u8 {
+-        let ch = char::from(b'0' + n);
+-        binds.push((
+-            Key {
+-                code: CKey::Char(ch),
+-                ctrl: false,
+-                alt: true,
+-                shift: false,
+-            },
+-            TabPick(n),
+-        ));
+-    }
+-    let alt = |code: CKey| Key {
+-        code,
+-        ctrl: false,
+-        alt: true,
+-        shift: false,
+-    };
+-    binds.extend([
+-        (alt(CKey::Char('p')), TabPin),
+-        (alt(CKey::Char('P')), TabPin),
+-        (alt(CKey::Char('s')), SessionList),
+-        (alt(CKey::Char('S')), SessionList),
+-        (alt(CKey::Char(',')), TabMovePrev),
+-        (alt(CKey::Char('.')), TabMoveNext),
+-        (alt(CKey::Up), TabParent),
+-        (alt(CKey::Down), TabChild),
+-        (alt(CKey::Char('j')), TabChildNext),
+-        (alt(CKey::Char('J')), TabChildNext),
+-        (alt(CKey::Char('k')), TabChildPrev),
+-        (alt(CKey::Char('K')), TabChildPrev),
+-    ]);
+-    binds
++impl KeyLayer {
++    pub const fn new(context: KeymapContext, priority: u8) -> Self {
++        Self {
++            context,
++            priority,
++            enabled: true,
++        }
++    }
+ }
+ 
+-/// Builtin bindings specific to a context. Global keys
+-/// are intentionally *not* included — they resolve via the global table.
+-fn builtin_defaults(ctx: KeymapContext) -> Vec<(Key, KeyAction)> {
+-    use CKey::*;
+-    use KeyAction::*;
+-    match ctx {
+-        KeymapContext::Global => Vec::new(),
+-        KeymapContext::List => vec![
+-            (Key::plain(Up), MovePrev),
+-            (Key::plain(CKey::Char('k')), MovePrev),
+-            (Key::plain(Down), MoveNext),
+-            (Key::plain(CKey::Char('j')), MoveNext),
+-            (Key::plain(Enter), Select),
+-            (Key::plain(Esc), Back),
+-            (Key::plain(CKey::Char('q')), Back),
+-            (Key::plain(CKey::Char('R')), Refresh),
+-            (Key::plain(CKey::Char('r')), Refresh),
+-            (Key::plain(CKey::Char('D')), KeyAction::Delete),
+-            (Key::plain(CKey::Char('N')), New),
+-        ],
+-        KeymapContext::Detail => vec![
+-            (Key::plain(Esc), Back),
+-            (Key::plain(CKey::Char('q')), Back),
+-            (Key::plain(CKey::Char('E')), Edit),
+-            (Key::plain(CKey::Char('D')), KeyAction::Delete),
+-        ],
+-        KeymapContext::Chat => vec![
+-            (Key::plain(Enter), Submit),
+-            (Key::plain(Up), HistoryPrev),
+-            (Key::plain(Down), HistoryNext),
+-            (Key::plain(Esc), Back),
+-        ],
+-        KeymapContext::Input => vec![
+-            (Key::plain(Enter), Submit),
+-            (Key::plain(Up), HistoryPrev),
+-            (Key::plain(Down), HistoryNext),
+-            (Key::plain(Esc), Clear),
+-        ],
+-        KeymapContext::Modal => vec![
+-            (Key::plain(Enter), Submit),
+-            (Key::plain(Esc), Cancel),
+-            // approval keys
+-            (Key::plain(CKey::Char('y')), Approve),
+-            (Key::plain(CKey::Char('a')), ApproveAll),
+-            (Key::plain(CKey::Char('n')), Deny),
+-        ],
+-        KeymapContext::Composer => vec![
+-            (Key::plain(Enter), Submit),
+-            (Key::plain(Esc), Back),
+-            (Key::plain(Up), HistoryPrev),
+-            (Key::plain(Down), HistoryNext),
+-            (Key::ctrl(CKey::Char('u')), Clear),
+-        ],
+-        KeymapContext::Panel => vec![
+-            (Key::plain(Up), MovePrev),
+-            (Key::plain(CKey::Char('k')), MovePrev),
+-            (Key::plain(Down), MoveNext),
+-            (Key::plain(CKey::Char('j')), MoveNext),
+-            (Key::plain(Enter), Select),
+-            (Key::plain(Esc), Back),
+-            (Key::plain(CKey::Char('E')), Edit),
+-            (Key::plain(CKey::Char('D')), KeyAction::Delete),
+-            (Key::plain(CKey::Delete), KeyAction::Delete),
+-            (Key::ctrl(CKey::Char('u')), Clear),
+-            (Key::plain(CKey::Char('S')), Scan),
+-            (Key::plain(CKey::Char('R')), Reload),
+-            (Key::plain(CKey::Char('C')), CacheClear),
+-            (Key::plain(Tab), CycleMode),
+-        ],
+-        KeymapContext::Approval => vec![
+-            (Key::plain(Enter), Submit),
+-            (Key::plain(Esc), Cancel),
+-            (Key::plain(CKey::Char('y')), Approve),
+-            (Key::plain(CKey::Char('a')), ApproveAll),
+-            (Key::plain(CKey::Char('n')), Deny),
+-            (Key::plain(CKey::Char('d')), DenyOnce),
+-            (Key::plain(CKey::Char('c')), Cancel),
+-        ],
+-        KeymapContext::Question => {
+-            let mut binds = vec![(Key::plain(Enter), Select), (Key::plain(Esc), Cancel)];
+-            // Digit keys select the corresponding option directly.
+-            for n in 1..=9u8 {
+-                let ch = char::from(b'0' + n);
+-                binds.push((Key::plain(CKey::Char(ch)), Pick(n)));
++/// Ordered key layers. Higher priority resolves first; the last layer is
++/// the global base.
++#[derive(Debug, Clone, Default)]
++pub struct KeymapStack {
++    layers: Vec<KeyLayer>,
++}
++
++impl KeymapStack {
++    pub fn new() -> Self {
++        Self::default()
++    }
++
++    /// Stack with only the global base layer.
++    pub fn base() -> Self {
++        Self::new().with(KeyLayer::new(KeymapContext::Global, 0))
++    }
++
++    /// Push a layer and keep the stack ordered by descending priority.
++    pub fn push(&mut self, layer: KeyLayer) {
++        self.layers.push(layer);
++        self.layers
++            .sort_by_key(|layer| std::cmp::Reverse(layer.priority));
++    }
++
++    pub fn with(mut self, layer: KeyLayer) -> Self {
++        self.push(layer);
++        self
++    }
++
++    /// Enable or disable every layer using `context`.
++    pub fn set_enabled(&mut self, context: KeymapContext, enabled: bool) {
++        for layer in &mut self.layers {
++            if layer.context == context {
++                layer.enabled = enabled;
+             }
+-            binds
+         }
+     }
+-}
+ 
+-/// Convenience: build the keymap with every builtin bound, so callers
+-/// usually only need `bind`/`set_global` overrides.
+-pub fn builtin_keymap() -> Keymap {
+-    let mut km = Keymap::new();
+-    for (key, action) in builtin_global() {
+-        km.set_global(key, action);
+-    }
+-    for ctx in [
+-        KeymapContext::List,
+-        KeymapContext::Detail,
+-        KeymapContext::Chat,
+-        KeymapContext::Input,
+-        KeymapContext::Modal,
+-        KeymapContext::Composer,
+-        KeymapContext::Panel,
+-        KeymapContext::Approval,
+-        KeymapContext::Question,
+-    ] {
+-        for (key, action) in builtin_defaults(ctx) {
+-            km.bind(ctx, key, action);
+-        }
++    pub fn layers(&self) -> &[KeyLayer] {
++        &self.layers
+     }
+-    km
+ }
+ 
+ #[cfg(test)]
+@@ -529,49 +393,58 @@ mod tests {
+ 
+     #[test]
+     fn resolves_list_navigation_from_defaults() {
+-        let km = builtin_keymap();
++        let km = Keymap::new();
+         // no overrides; ensure the 'None' noop sample? just check list keys.
+         assert_eq!(
+-            km.resolve(KeymapContext::List, Key::plain(Down)),
++            km.resolve_action(KeymapContext::List, Key::plain(Down)),
+             Some(MoveNext)
+         );
+         assert_eq!(
+-            km.resolve(KeymapContext::List, Key::plain(CKey::Char('j'))),
++            km.resolve_action(KeymapContext::List, Key::plain(CKey::Char('j'))),
+             Some(MoveNext)
+         );
+         assert_eq!(
+-            km.resolve(KeymapContext::List, Key::plain(Enter)),
++            km.resolve_action(KeymapContext::List, Key::plain(Enter)),
+             Some(Select)
+         );
+     }
+ 
+     #[test]
+     fn context_override_wins_over_global() {
+-        let mut km = builtin_keymap();
+-        // global binds '?' to Help; enter it for List and override Down.
+-        km.set_global(Key::plain(CKey::Char('?')), Redraw);
+-        // '?' is global; in List it resolves through global override first.
++        let mut km = Keymap::new();
++        km.set_global(
++            Key::plain(CKey::Char('?')),
++            crate::command::by_id("app.redraw").expect("app.redraw is registered"),
++        );
++        // '?' is a global builtin; the override takes precedence.
+         assert_eq!(
+-            km.resolve(KeymapContext::List, Key::plain(CKey::Char('?'))),
++            km.resolve_action(KeymapContext::List, Key::plain(CKey::Char('?'))),
+             Some(Redraw)
+         );
+     }
+ 
+     #[test]
+     fn context_override_beats_builtin() {
+-        let mut km = builtin_keymap();
+-        km.bind(KeymapContext::List, Key::plain(Down), MoveNext);
+-        // rebind to nothing meaningful: check bind changes result.
+-        km.bind(KeymapContext::List, Key::plain(Down), Clear);
++        let mut km = Keymap::new();
++        km.bind(
++            KeymapContext::List,
++            Key::plain(Down),
++            crate::command::by_id("ui.move_next").expect("ui.move_next is registered"),
++        );
++        km.bind(
++            KeymapContext::List,
++            Key::plain(Down),
++            crate::command::by_id("ui.clear").expect("ui.clear is registered"),
++        );
+         assert_eq!(
+-            km.resolve(KeymapContext::List, Key::plain(Down)),
++            km.resolve_action(KeymapContext::List, Key::plain(Down)),
+             Some(Clear)
+         );
+     }
+ 
+     #[test]
+     fn global_ctrl_q_is_quit_everywhere() {
+-        let km = builtin_keymap();
++        let km = Keymap::new();
+         for ctx in [
+             KeymapContext::Global,
+             KeymapContext::List,
+@@ -582,117 +455,157 @@ mod tests {
+             KeymapContext::Approval,
+             KeymapContext::Question,
+         ] {
+-            assert_eq!(km.resolve(ctx, Key::ctrl(CKey::Char('q'))), Some(Quit));
++            assert_eq!(
++                km.resolve_action(ctx, Key::ctrl(CKey::Char('q'))),
++                Some(Quit)
++            );
+         }
+     }
+ 
+     #[test]
+     fn unknown_key_is_none() {
+-        let km = builtin_keymap();
++        let km = Keymap::new();
+         assert_eq!(
+-            km.resolve(KeymapContext::Global, Key::ctrl(CKey::Char('z'))),
++            km.resolve_action(KeymapContext::Global, Key::ctrl(CKey::Char('z'))),
+             Option::None
+         );
+     }
+ 
+     #[test]
+     fn modal_offers_approval_keys() {
+-        let km = builtin_keymap();
++        let km = Keymap::new();
+         assert_eq!(
+-            km.resolve(KeymapContext::Modal, Key::plain(CKey::Char('y'))),
++            km.resolve_action(KeymapContext::Modal, Key::plain(CKey::Char('y'))),
+             Some(Approve)
+         );
+         assert_eq!(
+-            km.resolve(KeymapContext::Modal, Key::plain(CKey::Char('n'))),
++            km.resolve_action(KeymapContext::Modal, Key::plain(CKey::Char('n'))),
+             Some(Deny)
+         );
+     }
+ 
+     #[test]
+     fn composer_offers_submit_history_and_clear() {
+-        let km = builtin_keymap();
++        let km = Keymap::new();
+         let ctx = KeymapContext::Composer;
+-        assert_eq!(km.resolve(ctx, Key::plain(Enter)), Some(Submit));
+-        assert_eq!(km.resolve(ctx, Key::plain(Esc)), Some(Back));
+-        assert_eq!(km.resolve(ctx, Key::plain(Up)), Some(HistoryPrev));
+-        assert_eq!(km.resolve(ctx, Key::plain(Down)), Some(HistoryNext));
+-        assert_eq!(km.resolve(ctx, Key::ctrl(CKey::Char('u'))), Some(Clear));
++        assert_eq!(km.resolve_action(ctx, Key::plain(Enter)), Some(Submit));
++        assert_eq!(km.resolve_action(ctx, Key::plain(Esc)), Some(Back));
++        assert_eq!(km.resolve_action(ctx, Key::plain(Up)), Some(HistoryPrev));
++        assert_eq!(km.resolve_action(ctx, Key::plain(Down)), Some(HistoryNext));
++        assert_eq!(
++            km.resolve_action(ctx, Key::ctrl(CKey::Char('u'))),
++            Some(Clear)
++        );
+     }
+ 
+     #[test]
+     fn composer_leaves_character_input_unbound() {
+         // Text entry is handled by the composer itself; the keymap only
+         // covers commands, so printable characters resolve to None.
+-        let km = builtin_keymap();
++        let km = Keymap::new();
+         assert_eq!(
+-            km.resolve(KeymapContext::Composer, Key::plain(CKey::Char('a'))),
++            km.resolve_action(KeymapContext::Composer, Key::plain(CKey::Char('a'))),
+             Option::None
+         );
+     }
+ 
+     #[test]
+     fn panel_offers_navigation_edit_and_delete() {
+-        let km = builtin_keymap();
++        let km = Keymap::new();
+         let ctx = KeymapContext::Panel;
+-        assert_eq!(km.resolve(ctx, Key::plain(Up)), Some(MovePrev));
+-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('j'))), Some(MoveNext));
+-        assert_eq!(km.resolve(ctx, Key::plain(Enter)), Some(Select));
+-        assert_eq!(km.resolve(ctx, Key::plain(Esc)), Some(Back));
+-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('E'))), Some(Edit));
++        assert_eq!(km.resolve_action(ctx, Key::plain(Up)), Some(MovePrev));
++        assert_eq!(
++            km.resolve_action(ctx, Key::plain(CKey::Char('j'))),
++            Some(MoveNext)
++        );
++        assert_eq!(km.resolve_action(ctx, Key::plain(Enter)), Some(Select));
++        assert_eq!(km.resolve_action(ctx, Key::plain(Esc)), Some(Back));
++        assert_eq!(
++            km.resolve_action(ctx, Key::plain(CKey::Char('E'))),
++            Some(Edit)
++        );
+         assert_eq!(
+-            km.resolve(ctx, Key::plain(CKey::Char('D'))),
++            km.resolve_action(ctx, Key::plain(CKey::Char('D'))),
+             Some(KeyAction::Delete)
+         );
+         assert_eq!(
+-            km.resolve(ctx, Key::plain(CKey::Delete)),
++            km.resolve_action(ctx, Key::plain(CKey::Delete)),
+             Some(KeyAction::Delete)
+         );
+-        assert_eq!(km.resolve(ctx, Key::ctrl(CKey::Char('u'))), Some(Clear));
++        assert_eq!(
++            km.resolve_action(ctx, Key::ctrl(CKey::Char('u'))),
++            Some(Clear)
++        );
+     }
+ 
+     #[test]
+     fn approval_offers_deny_once_and_cancel() {
+-        let km = builtin_keymap();
++        let km = Keymap::new();
+         let ctx = KeymapContext::Approval;
+-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('y'))), Some(Approve));
+         assert_eq!(
+-            km.resolve(ctx, Key::plain(CKey::Char('a'))),
++            km.resolve_action(ctx, Key::plain(CKey::Char('y'))),
++            Some(Approve)
++        );
++        assert_eq!(
++            km.resolve_action(ctx, Key::plain(CKey::Char('a'))),
+             Some(ApproveAll)
+         );
+-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('n'))), Some(Deny));
+-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('d'))), Some(DenyOnce));
+-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('c'))), Some(Cancel));
+-        assert_eq!(km.resolve(ctx, Key::plain(Esc)), Some(Cancel));
+-        assert_eq!(km.resolve(ctx, Key::plain(Enter)), Some(Submit));
++        assert_eq!(
++            km.resolve_action(ctx, Key::plain(CKey::Char('n'))),
++            Some(Deny)
++        );
++        assert_eq!(
++            km.resolve_action(ctx, Key::plain(CKey::Char('d'))),
++            Some(DenyOnce)
++        );
++        assert_eq!(
++            km.resolve_action(ctx, Key::plain(CKey::Char('c'))),
++            Some(Cancel)
++        );
++        assert_eq!(km.resolve_action(ctx, Key::plain(Esc)), Some(Cancel));
++        // The approval view has no submit chord.
++        assert_eq!(km.resolve_action(ctx, Key::plain(Enter)), Option::None);
+     }
+ 
+     #[test]
+     fn question_offers_numeric_picks() {
+-        let km = builtin_keymap();
++        let km = Keymap::new();
+         let ctx = KeymapContext::Question;
+-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('1'))), Some(Pick(1)));
+-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('5'))), Some(Pick(5)));
+-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('9'))), Some(Pick(9)));
+-        assert_eq!(km.resolve(ctx, Key::plain(Enter)), Some(Select));
+-        assert_eq!(km.resolve(ctx, Key::plain(Esc)), Some(Cancel));
++        assert_eq!(
++            km.resolve_action(ctx, Key::plain(CKey::Char('1'))),
++            Some(Pick(1))
++        );
++        assert_eq!(
++            km.resolve_action(ctx, Key::plain(CKey::Char('5'))),
++            Some(Pick(5))
++        );
++        assert_eq!(
++            km.resolve_action(ctx, Key::plain(CKey::Char('9'))),
++            Some(Pick(9))
++        );
++        assert_eq!(km.resolve_action(ctx, Key::plain(Enter)), Some(Select));
++        assert_eq!(km.resolve_action(ctx, Key::plain(Esc)), Some(Cancel));
+         // Digits beyond 9 have no pick binding.
+-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('0'))), Option::None);
++        assert_eq!(
++            km.resolve_action(ctx, Key::plain(CKey::Char('0'))),
++            Option::None
++        );
+     }
+ 
+     #[test]
+     fn approval_bindings_override_modal_builtin() {
+         // The approval context is a superset of the modal keys (y/a/n/Esc)
+         // plus d/c; both resolve without ambiguity.
+-        let km = builtin_keymap();
++        let km = Keymap::new();
+         assert_eq!(
+-            km.resolve(KeymapContext::Approval, Key::plain(CKey::Char('y'))),
+-            km.resolve(KeymapContext::Modal, Key::plain(CKey::Char('y')))
++            km.resolve_action(KeymapContext::Approval, Key::plain(CKey::Char('y'))),
++            km.resolve_action(KeymapContext::Modal, Key::plain(CKey::Char('y')))
+         );
+     }
+ 
+     #[test]
+     fn tab_chords_resolve_globally() {
+-        let km = builtin_keymap();
++        let km = Keymap::new();
+         let alt = |code| Key {
+             code,
+             ctrl: false,
+@@ -700,59 +613,59 @@ mod tests {
+             shift: false,
+         };
+         assert_eq!(
+-            km.resolve(KeymapContext::Chat, alt(CKey::Char('1'))),
++            km.resolve_action(KeymapContext::Chat, alt(CKey::Char('1'))),
+             Some(TabPick(1))
+         );
+         assert_eq!(
+-            km.resolve(KeymapContext::List, alt(CKey::Char('9'))),
++            km.resolve_action(KeymapContext::List, alt(CKey::Char('9'))),
+             Some(TabPick(9))
+         );
+         assert_eq!(
+-            km.resolve(KeymapContext::Chat, alt(CKey::Char('t'))),
++            km.resolve_action(KeymapContext::Chat, alt(CKey::Char('t'))),
+             Some(TabNew)
+         );
+         assert_eq!(
+-            km.resolve(KeymapContext::Chat, alt(CKey::Char('T'))),
++            km.resolve_action(KeymapContext::Chat, alt(CKey::Char('T'))),
+             Some(TabNew)
+         );
+         assert_eq!(
+-            km.resolve(KeymapContext::Chat, alt(CKey::Char('w'))),
++            km.resolve_action(KeymapContext::Chat, alt(CKey::Char('w'))),
+             Some(TabClose)
+         );
+         assert_eq!(
+-            km.resolve(KeymapContext::Chat, alt(CKey::Char(']'))),
++            km.resolve_action(KeymapContext::Chat, alt(CKey::Char(']'))),
+             Some(TabNext)
+         );
+         assert_eq!(
+-            km.resolve(KeymapContext::Chat, alt(CKey::Char('['))),
++            km.resolve_action(KeymapContext::Chat, alt(CKey::Char('['))),
+             Some(TabPrev)
+         );
+         assert_eq!(
+-            km.resolve(KeymapContext::Chat, alt(CKey::Right)),
++            km.resolve_action(KeymapContext::Chat, alt(CKey::Right)),
+             Some(TabNext)
+         );
+         assert_eq!(
+-            km.resolve(KeymapContext::Chat, alt(CKey::Left)),
++            km.resolve_action(KeymapContext::Chat, alt(CKey::Left)),
+             Some(TabPrev)
+         );
+         assert_eq!(
+-            km.resolve(KeymapContext::Chat, alt(CKey::Char('p'))),
++            km.resolve_action(KeymapContext::Chat, alt(CKey::Char('p'))),
+             Some(TabPin)
+         );
+         assert_eq!(
+-            km.resolve(KeymapContext::Chat, alt(CKey::Char('s'))),
++            km.resolve_action(KeymapContext::Chat, alt(CKey::Char('s'))),
+             Some(SessionList)
+         );
+         assert_eq!(
+-            km.resolve(KeymapContext::Chat, alt(CKey::Char(','))),
++            km.resolve_action(KeymapContext::Chat, alt(CKey::Char(','))),
+             Some(TabMovePrev)
+         );
+         assert_eq!(
+-            km.resolve(KeymapContext::Chat, alt(CKey::Up)),
++            km.resolve_action(KeymapContext::Chat, alt(CKey::Up)),
+             Some(TabParent)
+         );
+         assert_eq!(
+-            km.resolve(KeymapContext::Chat, alt(CKey::Down)),
++            km.resolve_action(KeymapContext::Chat, alt(CKey::Down)),
+             Some(TabChild)
+         );
+     }
+@@ -785,4 +698,17 @@ mod tests {
+         let modified = Key::ctrl(CKey::Char('å'));
+         assert_eq!(normalize_key(modified, true), modified);
+     }
++
++    #[test]
++    fn stack_resolves_by_priority_and_respects_disabled_layers() {
++        let km = Keymap::new();
++        let mut stack = KeymapStack::base().with(KeyLayer::new(KeymapContext::Panel, 10));
++        assert_eq!(
++            km.resolve_layered(&stack, Key::plain(Down))
++                .map(|command| command.id),
++            Some("ui.move_next")
++        );
++        stack.set_enabled(KeymapContext::Panel, false);
++        assert!(km.resolve_layered(&stack, Key::plain(Down)).is_none());
++    }
+ }
+diff --git a/crates/app/tui/tui-core/src/lib.rs b/crates/app/tui/tui-core/src/lib.rs
+index c8c10e5..a41284b 100644
+--- a/crates/app/tui/tui-core/src/lib.rs
++++ b/crates/app/tui/tui-core/src/lib.rs
+@@ -1,6 +1,7 @@
+ //! tui-core: low-level TUI implementation crate.
+ 
+ pub mod anchor;
++pub mod command;
+ pub mod copy;
+ pub mod event_dispatch;
+ pub mod events;
+diff --git a/docs/plan/tui-opencode-parity-design.md b/docs/plan/tui-opencode-parity-design.md
+index bdbb473..a5eeed5 100644
+--- a/docs/plan/tui-opencode-parity-design.md
++++ b/docs/plan/tui-opencode-parity-design.md
+@@ -236,9 +236,9 @@ OpenCode 的 `packages/tui/src/mini/*` 是一套独立实现的轻量界面：
+ 
+ **统一命令注册表。** 引入一条命令描述包含：稳定标识、标题、分组、描述、默认键位列表、slash 名称与别名、参数说明、是否进入命令面板、启用条件、执行入口。所有展示面（命令面板、slash 补全、帮助、页脚提示、which-key）从注册表派生。执行入口仍调用现有的动作与控制器方法，不改变已有业务实现。
+ 
+-**键位分层与模式栈。** 在现有 `Keymap` 之上增加层与模式：基础层、输入层、面板层、模态层、权限层、提问层；层可声明优先级与启用条件；按下 leader 后进入待决序列，超时（默认 2 秒）取消。保留现有 TOML 覆盖格式，将其解析结果映射到新的命令标识上，避免用户配置失效。
++**键位分层与模式栈。** 在现有 `Keymap` 之上增加层与模式：基础层、输入层、面板层、模态层、权限层、提问层；层可声明优先级与启用条件；按下 leader 后进入待决序列，超时（默认 2 秒）取消。键位配置只接受注册表中的命令标识（`context → command id → chord`），内置绑定从注册表按需解析；不保留旧动作名映射，不提供迁移、兼容或门控逻辑。
+ 
+-**命令面板升级。** 提供全局可搜索面板（`ctrl+p`），支持分类、建议项、设置项入口；输入框内 `/` 复用同一数据源做前缀过滤，二者不再各自维护列表。选中后统一执行并记录使用频次。
++**命令面板升级。** 提供全局可搜索面板（leader `p`），支持分类与建议项；输入框内 `/` 复用同一数据源做前缀过滤，二者不再各自维护列表。选中后统一执行。
+ 
+ **slash 命令体系。** 支持别名、参数解析、参数补全、帮助文案与未知命令提示；区分纯前端命令与需要服务端的命令，后者在无对应接口时明确降级为只读或提示不可用。
+ 
+@@ -318,7 +318,7 @@ OpenCode 的 `packages/tui/src/mini/*` 是一套独立实现的轻量界面：
+ 验收：
+ 
+ - 新增一条命令只需修改注册表一处，命令面板、slash 补全、帮助、页脚提示同时生效；
+-- 现有 TOML 键位覆盖仍然可用，未覆盖项回落到新的默认定义；
++- 键位覆盖只接受注册表命令标识，未覆盖项回落到注册表内置定义；不提供旧配置兼容或迁移；
+ - 未知 slash 命令给出明确提示与最接近的候选；
+ - 命令面板可在任意屏幕打开并搜索，设置项可直达；
+ - 键位解析与冲突检测有单元测试，leader 超时行为可测。

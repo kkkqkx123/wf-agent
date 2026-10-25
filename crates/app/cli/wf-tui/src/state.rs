@@ -250,6 +250,11 @@ impl NoticeQueue {
         self.current = Some((text.into(), crate::clock::now_ms()));
     }
 
+    /// Drop the active notice.
+    pub fn clear(&mut self) {
+        self.current = None;
+    }
+
     /// Get the current notice text if not expired.
     pub fn current_text(&self) -> Option<String> {
         let (text, at) = self.current.as_ref()?;

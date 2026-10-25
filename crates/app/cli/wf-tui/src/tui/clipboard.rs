@@ -105,17 +105,18 @@ impl TuiApp {
         self.queue_selection_copy(text)
     }
 
-    /// Copy the transcript range between anchor and head cells.
-    pub(super) fn copy_transcript_range(
+    /// Copy the logical transcript selection between its anchor and head,
+    /// combined with any earlier Alt+Click regions. The ranges are cleared
+    /// only after the payload is resolved.
+    pub(super) fn copy_transcript_selection(
         &mut self,
-        anchor_row: usize,
-        anchor_col: usize,
-        head_row: usize,
-        head_col: usize,
+        selection: crate::interactive::TranscriptSelection,
     ) -> bool {
-        let Some(text) = self.sessions.active().and_then(|session| {
-            session.transcript_text_in(anchor_row, anchor_col, head_row, head_col)
-        }) else {
+        let Some(text) = self
+            .sessions
+            .active_mut()
+            .and_then(|session| session.take_transcript_selection_text(Some(selection)))
+        else {
             return false;
         };
         self.queue_selection_copy(text)
@@ -147,7 +148,7 @@ impl TuiApp {
 
     /// Queue one sanitized selection payload for the post-frame flush.
     /// Denials surface as a notice; an empty sanitized result copies nothing.
-    fn queue_selection_copy(&mut self, text: String) -> bool {
+    pub(super) fn queue_selection_copy(&mut self, text: String) -> bool {
         if !self.copy_policy.allowed {
             self.app
                 .notice

@@ -33,7 +33,7 @@ impl Modal for ConfirmModal {
         &self.title
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let block = Block::default()
             .title(self.title.clone())
             .borders(Borders::ALL)

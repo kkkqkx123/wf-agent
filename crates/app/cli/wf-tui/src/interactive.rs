@@ -30,6 +30,7 @@ mod perf;
 mod render;
 mod replay;
 mod scrollbar;
+mod selection;
 mod subagent_blocks;
 mod tool_blocks;
 mod turn;
@@ -161,39 +162,27 @@ pub enum InteractiveAction {
     OpenScreen(crate::screens::ScreenKind),
 }
 
-/// Transcript drag selection in viewport display-row space. The anchor is
-/// the press cell, the head is the latest drag cell; both are display rows
-/// plus in-row display columns for text slicing.
+/// Transcript drag selection in logical coordinates: the anchor is the press
+/// cell and the head is the latest drag cell, both as source line plus
+/// display column over the rendered plain projection. Logical positions stay
+/// on the same characters when the transcript is scrolled or rewrapped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TranscriptSelection {
-    /// Press display row.
-    pub anchor_row: usize,
-    /// Press in-row display column.
-    pub anchor_col: usize,
-    /// Latest drag display row.
-    pub head_row: usize,
-    /// Latest drag in-row display column.
-    pub head_col: usize,
+    /// Press position.
+    pub anchor: tui_core::panel_select::TextPos,
+    /// Latest drag or keyboard position.
+    pub head: tui_core::panel_select::TextPos,
 }
 
 impl TranscriptSelection {
-    /// Row span covered by the selection, ordered low to high inclusive.
-    pub fn row_span(self) -> (usize, usize) {
-        if self.anchor_row <= self.head_row {
-            (self.anchor_row, self.head_row)
-        } else {
-            (self.head_row, self.anchor_row)
-        }
-    }
-
-    /// Edge columns oriented with the row span: first element belongs to
-    /// the low row, second to the high row.
-    pub fn edge_cols(self) -> (usize, usize) {
-        if self.anchor_row <= self.head_row {
-            (self.anchor_col, self.head_col)
-        } else {
-            (self.head_col, self.anchor_col)
-        }
+    /// Ordered endpoints, earliest document position first.
+    pub fn ordered(
+        self,
+    ) -> (
+        tui_core::panel_select::TextPos,
+        tui_core::panel_select::TextPos,
+    ) {
+        tui_core::panel_select::ordered(self.anchor, self.head)
     }
 }
 
@@ -299,9 +288,22 @@ pub struct InteractiveController {
     last_scroll_area: Option<ratatui::layout::Rect>,
     /// Composer input viewport published on the last frame.
     last_input_area: Option<ratatui::layout::Rect>,
-    /// Transcript drag selection in viewport display-row space. Set while a
-    /// content drag is in progress, cleared on release, scroll or resize.
+    /// Transcript drag selection in logical rendered-text coordinates. Set
+    /// while a content drag or keyboard extension is active; kept across
+    /// scroll and resize, cleared on release, Escape or a fresh press.
     transcript_selection: Option<TranscriptSelection>,
+    /// Committed non-adjacent transcript selection regions. Alt+Click moves
+    /// the active selection here so several ranges copy together.
+    transcript_regions: Vec<TranscriptSelection>,
+    /// Width-independent rendered plain rows per committed scrollback entry:
+    /// the geometry input for transcript selection. Each entry is refreshed
+    /// when the source identity changes, so streaming append never re-renders
+    /// settled rows.
+    logical_rows: Vec<(u64, std::sync::Arc<Vec<String>>)>,
+    /// Global logical-line start offset of each scrollback entry.
+    logical_offsets: Vec<usize>,
+    /// Total logical lines across the committed scrollback.
+    logical_total: usize,
     /// Pending drag auto-scroll direction (`-1` up, `+1` down) while the
     /// drag head extends past the viewport edge.
     transcript_autoscroll: Option<i8>,
@@ -569,6 +571,10 @@ impl InteractiveController {
             last_scroll_area: None,
             last_input_area: None,
             transcript_selection: None,
+            transcript_regions: Vec::new(),
+            logical_rows: Vec::new(),
+            logical_offsets: Vec::new(),
+            logical_total: 0,
             transcript_autoscroll: None,
             hover_cell: None,
             gutter_drag: false,
@@ -793,6 +799,7 @@ impl InteractiveController {
         badge: Option<ratatui::layout::Rect>,
         input_area: ratatui::layout::Rect,
     ) {
+        self.sync_transcript_layout();
         self.hit_generation = self.hit_generation.wrapping_add(1);
         self.last_scroll_area = Some(scroll_area);
         self.last_badge_rect = badge;
@@ -800,12 +807,13 @@ impl InteractiveController {
     }
 
     /// Drop any published hit snapshot (resize or overlay switch): presses
-    /// recorded against the old geometry can no longer land.
+    /// recorded against the old geometry can no longer land. The logical
+    /// selection survives because its position does not depend on the
+    /// viewport.
     pub(crate) fn clear_hit_frame(&mut self) {
         self.last_badge_rect = None;
         self.last_scroll_area = None;
         self.last_input_area = None;
-        self.clear_transcript_selection();
         self.hover_cell = None;
     }
 
@@ -846,10 +854,94 @@ impl InteractiveController {
         self.transcript_selection = Some(selection);
     }
 
-    /// Clear the transcript drag selection on release, scroll or resize.
+    /// Move the active selection into the committed regions so an additive
+    /// drag can start another disjoint range without losing the old one.
+    pub fn begin_additive_transcript_selection(&mut self) {
+        if let Some(selection) = self.transcript_selection.take() {
+            if selection.anchor != selection.head {
+                self.transcript_regions.push(selection);
+            }
+        }
+    }
+
+    /// Whether any transcript range (active or committed) exists.
+    pub fn has_transcript_selection(&self) -> bool {
+        self.transcript_selection.is_some() || !self.transcript_regions.is_empty()
+    }
+
+    /// Clear every transcript range on release, Escape or a fresh press.
     pub fn clear_transcript_selection(&mut self) {
         self.transcript_selection = None;
+        self.transcript_regions.clear();
         self.transcript_autoscroll = None;
+    }
+
+    /// Combined text of every transcript range plus an optional drag range
+    /// that has not been published yet. Ranges are ordered by logical
+    /// position and overlapping or touching ranges are merged.
+    pub fn selected_transcript_text_all(
+        &self,
+        active: Option<TranscriptSelection>,
+    ) -> Option<String> {
+        let mut ranges: Vec<_> = self
+            .transcript_regions
+            .iter()
+            .copied()
+            .chain(self.transcript_selection)
+            .chain(active)
+            .map(TranscriptSelection::ordered)
+            .filter(|(start, end)| start != end)
+            .collect();
+        ranges.sort();
+        let mut merged: Vec<(
+            tui_core::panel_select::TextPos,
+            tui_core::panel_select::TextPos,
+        )> = Vec::with_capacity(ranges.len());
+        for (start, end) in ranges {
+            match merged.last_mut() {
+                Some((_, last_end)) if start <= *last_end => {
+                    if end > *last_end {
+                        *last_end = end;
+                    }
+                }
+                _ => merged.push((start, end)),
+            }
+        }
+        let parts: Vec<String> = merged
+            .iter()
+            .filter_map(|(start, end)| {
+                self.selected_transcript_text(TranscriptSelection {
+                    anchor: *start,
+                    head: *end,
+                })
+            })
+            .collect();
+        let joined = parts.join("\n");
+        (!joined.trim().is_empty()).then_some(joined)
+    }
+
+    /// Take the combined selection text and clear every range afterwards.
+    pub fn take_transcript_selection_text(
+        &mut self,
+        active: Option<TranscriptSelection>,
+    ) -> Option<String> {
+        let text = self.selected_transcript_text_all(active);
+        self.clear_transcript_selection();
+        text
+    }
+
+    /// Queue the current selection on the controller's pending copy slot so
+    /// the keyboard path shares the shell's clipboard flush.
+    pub fn copy_transcript_selection(&mut self) -> bool {
+        let Some(text) = self.selected_transcript_text_all(None) else {
+            return false;
+        };
+        let Some(clean) = crate::terminal::sanitize_copy_text(&text) else {
+            return false;
+        };
+        self.pending_copy = Some(crate::copy::PendingCopy::new(clean, "selection"));
+        self.clear_transcript_selection();
+        true
     }
 
     /// Pending drag auto-scroll direction: `-1` scrolls up, `+1` scrolls
@@ -867,8 +959,9 @@ impl InteractiveController {
     }
 
     /// Advance one auto-scroll step: move the viewport one notch in the
-    /// armed direction and pin the selection head to the newly exposed
-    /// edge row. Returns whether a step ran.
+    /// armed direction and extend the logical head to the newly exposed
+    /// edge row. The anchor never moves, so scrolling cannot drift the
+    /// selected start. Returns whether a step ran.
     pub fn tick_transcript_autoscroll(&mut self) -> bool {
         let Some(direction) = self.transcript_autoscroll else {
             return false;
@@ -882,19 +975,18 @@ impl InteractiveController {
         } else {
             self.scroll_history_down();
         }
-        let capacity = usize::from(self.last_layout_height.max(1));
-        let edge = if direction < 0 {
-            0
+        let capacity = self.last_layout_height.max(1);
+        let (edge_row, edge_col) = if direction < 0 {
+            (0, 0)
         } else {
-            capacity.saturating_sub(1)
+            (capacity.saturating_sub(1), usize::MAX)
         };
-        let head_col = if direction < 0 { 0 } else { usize::MAX };
-        self.transcript_selection = Some(TranscriptSelection {
-            anchor_row: selection.anchor_row,
-            anchor_col: selection.anchor_col,
-            head_row: edge,
-            head_col,
-        });
+        if let Some(head) = self.transcript_pos_at_display_row(usize::from(edge_row), edge_col) {
+            self.transcript_selection = Some(TranscriptSelection {
+                anchor: selection.anchor,
+                head,
+            });
+        }
         true
     }
 
@@ -1005,10 +1097,174 @@ impl InteractiveController {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tui_core::panel_select::Motion;
 
     async fn started_controller() -> InteractiveController {
         let client = wf_client::WfClient::new(wf_client::ClientConfig::new("http://127.0.0.1:1"));
         InteractiveController::start(client, "exec".into()).await
+    }
+
+    async fn seeded_controller(width: u16, height: u16, lines: &[&str]) -> InteractiveController {
+        let mut ctl = started_controller().await;
+        ctl.last_layout_width = width;
+        ctl.last_layout_height = height;
+        ctl.last_scroll_area = Some(ratatui::layout::Rect::new(0, 0, width, height));
+        for line in lines {
+            ctl.pending_scroll.push(HistoryLine::new(*line));
+        }
+        ctl.settle_scrollback();
+        ctl.tail_lag = 0;
+        ctl.view_scroll = 0;
+        ctl.sync_transcript_layout();
+        ctl
+    }
+
+    fn selection_at(
+        ctl: &InteractiveController,
+        start: (usize, usize),
+        end: (usize, usize),
+    ) -> TranscriptSelection {
+        let anchor = ctl
+            .transcript_pos_at_display_row(start.0, start.1)
+            .expect("anchor row is inside the viewport");
+        let head = ctl
+            .transcript_pos_at_display_row(end.0, end.1)
+            .expect("head row is inside the viewport");
+        TranscriptSelection { anchor, head }
+    }
+
+    #[tokio::test]
+    async fn scrolled_selection_keeps_the_same_characters() {
+        let mut ctl =
+            seeded_controller(20, 3, &["line0", "line1", "line2", "line3", "line4"]).await;
+        let selection = selection_at(&ctl, (0, 0), (0, 5));
+        assert_eq!(
+            ctl.selected_transcript_text(selection),
+            Some("line2".into())
+        );
+        ctl.view_scroll = 2;
+        assert_eq!(
+            ctl.selected_transcript_text(selection),
+            Some("line2".into())
+        );
+        let moved = ctl
+            .transcript_pos_at_display_row(2, 0)
+            .expect("the same row is visible after scrolling");
+        assert_eq!(moved, selection.anchor);
+    }
+
+    #[tokio::test]
+    async fn resized_selection_keeps_the_same_characters() {
+        let mut ctl = seeded_controller(5, 3, &["abcdefghij"]).await;
+        let selection = selection_at(&ctl, (0, 1), (1, 2));
+        assert_eq!(
+            ctl.selected_transcript_text(selection),
+            Some("bcdefgh".into())
+        );
+        ctl.last_layout_width = 10;
+        assert_eq!(
+            ctl.selected_transcript_text(selection),
+            Some("bcdefgh".into())
+        );
+        let moved = ctl
+            .transcript_pos_at_display_row(0, 7)
+            .expect("the logical position maps to one row at the wider width");
+        assert_eq!(moved, selection.head);
+    }
+
+    #[tokio::test]
+    async fn autoscroll_moves_the_head_without_drifting_the_anchor() {
+        let mut ctl = seeded_controller(
+            20,
+            3,
+            &[
+                "row0", "row1", "row2", "row3", "row4", "row5", "row6", "row7",
+            ],
+        )
+        .await;
+        let selection = selection_at(&ctl, (0, 0), (2, 3));
+        ctl.set_transcript_selection(selection);
+        ctl.start_transcript_autoscroll(1);
+        assert!(ctl.tick_transcript_autoscroll());
+        let after = ctl
+            .transcript_selection()
+            .expect("autoscroll keeps the selection alive");
+        assert_eq!(after.anchor, selection.anchor);
+        assert_ne!(after.head, selection.head);
+        assert_eq!(
+            ctl.selected_transcript_text(after),
+            Some("row5\nrow6\nrow7".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn streaming_tail_stays_out_of_the_selection() {
+        let mut ctl = seeded_controller(20, 4, &["committed"]).await;
+        ctl.streaming = Some(HistoryLine::new("unfinished"));
+        ctl.sync_transcript_layout();
+        assert!(ctl.select_all_transcript());
+        let selection = ctl.transcript_selection().expect("selection exists");
+        assert_eq!(
+            ctl.selected_transcript_text(selection),
+            Some("committed".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn keyboard_selection_works_without_mouse_capture() {
+        let mut ctl = seeded_controller(20, 3, &["alpha", "beta", "gamma"]).await;
+        assert!(ctl.transcript_selection_keys_active());
+        assert!(ctl.extend_transcript_selection(Motion::Up));
+        let selection = ctl
+            .transcript_selection()
+            .expect("keyboard selection starts");
+        assert_eq!(
+            ctl.selected_transcript_text(selection),
+            Some("beta\ng".into())
+        );
+        assert!(ctl.extend_transcript_selection(Motion::Up));
+        let grown = ctl.transcript_selection().expect("selection stays");
+        assert_eq!(
+            ctl.selected_transcript_text(grown),
+            Some("alpha\nbeta\ng".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn markdown_selection_uses_the_rendered_projection() {
+        let mut ctl = started_controller().await;
+        ctl.last_layout_width = 40;
+        ctl.last_layout_height = 4;
+        ctl.last_scroll_area = Some(ratatui::layout::Rect::new(0, 0, 40, 4));
+        ctl.pending_scroll
+            .push(HistoryLine::markdown("**bold** text"));
+        ctl.settle_scrollback();
+        ctl.tail_lag = 0;
+        ctl.view_scroll = 0;
+        ctl.sync_transcript_layout();
+        assert!(ctl.select_all_transcript());
+        let selection = ctl.transcript_selection().expect("selection exists");
+        assert_eq!(
+            ctl.selected_transcript_text(selection),
+            Some("bold text".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn additive_regions_copy_together() {
+        let mut ctl = seeded_controller(20, 4, &["alpha", "beta", "gamma", "delta"]).await;
+        let first = selection_at(&ctl, (0, 0), (0, 5));
+        ctl.set_transcript_selection(first);
+        ctl.begin_additive_transcript_selection();
+        let second = selection_at(&ctl, (2, 0), (2, 5));
+        ctl.set_transcript_selection(second);
+        assert_eq!(
+            ctl.selected_transcript_text_all(None),
+            Some("alpha\ngamma".into())
+        );
+        assert!(ctl.copy_transcript_selection());
+        assert!(ctl.take_pending_copy().is_some());
+        assert!(!ctl.has_transcript_selection());
     }
 
     #[tokio::test]

@@ -38,6 +38,27 @@ impl TextPos {
     }
 }
 
+/// Keyboard motion applied to a selection cursor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Motion {
+    /// One character left, crossing to the previous line end.
+    Left,
+    /// One character right, crossing to the next line start.
+    Right,
+    /// One wrapped row up, keeping the column.
+    Up,
+    /// One wrapped row down, keeping the column.
+    Down,
+    /// Start of the current source line.
+    LineStart,
+    /// End of the current source line.
+    LineEnd,
+    /// `n` wrapped rows up.
+    PageUp(u16),
+    /// `n` wrapped rows down.
+    PageDown(u16),
+}
+
 /// Wrap behaviour for a selectable panel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PanelWrapMode {
@@ -172,6 +193,90 @@ impl PanelGeometry {
         };
         let target = usize::from(scroll).saturating_add(usize::from(local_row));
         Some(self.row_col_to_textpos(target, usize::from(local_col)))
+    }
+
+    /// Clamp a logical position to the content: valid line, valid column.
+    pub fn clamp_pos(&self, pos: TextPos) -> TextPos {
+        if self.line_widths.is_empty() {
+            return TextPos::new(0, 0);
+        }
+        let line = pos.line.min(self.line_widths.len() - 1);
+        let col = pos.col.min(self.line_widths[line]);
+        TextPos::new(line, col)
+    }
+
+    /// Apply one keyboard motion to a logical position. The result is always
+    /// clamped to the content, so edges never escape the panel.
+    pub fn move_pos(&self, pos: TextPos, motion: Motion) -> TextPos {
+        if self.line_widths.is_empty() {
+            return TextPos::new(0, 0);
+        }
+        let pos = self.clamp_pos(pos);
+        let line_end = |line: usize| self.line_widths.get(line).copied().unwrap_or(0);
+        match motion {
+            Motion::Left => {
+                if pos.col > 0 {
+                    TextPos::new(pos.line, pos.col - 1)
+                } else if pos.line > 0 {
+                    TextPos::new(pos.line - 1, line_end(pos.line - 1))
+                } else {
+                    pos
+                }
+            }
+            Motion::Right => {
+                if pos.col < line_end(pos.line) {
+                    TextPos::new(pos.line, pos.col + 1)
+                } else if pos.line + 1 < self.line_widths.len() {
+                    TextPos::new(pos.line + 1, 0)
+                } else {
+                    pos
+                }
+            }
+            Motion::Up => {
+                let (row, col) = self.textpos_to_row_col(pos);
+                if row == 0 {
+                    pos
+                } else {
+                    self.row_col_to_textpos(row - 1, col)
+                }
+            }
+            Motion::Down => {
+                let (row, col) = self.textpos_to_row_col(pos);
+                if row + 1 >= self.total_rows() {
+                    pos
+                } else {
+                    self.row_col_to_textpos(row + 1, col)
+                }
+            }
+            Motion::LineStart => TextPos::new(pos.line, 0),
+            Motion::LineEnd => TextPos::new(pos.line, line_end(pos.line)),
+            Motion::PageUp(rows) => self.move_rows(pos, usize::from(rows), true),
+            Motion::PageDown(rows) => self.move_rows(pos, usize::from(rows), false),
+        }
+    }
+
+    /// Whole-content selection range: first character to last character.
+    pub fn select_all(&self) -> Option<(TextPos, TextPos)> {
+        if self.line_widths.is_empty() {
+            return None;
+        }
+        let last = self.line_widths.len() - 1;
+        Some((
+            TextPos::new(0, 0),
+            TextPos::new(last, self.line_widths[last]),
+        ))
+    }
+
+    /// Move `rows` wrapped rows up or down, keeping the in-row column.
+    fn move_rows(&self, pos: TextPos, rows: usize, up: bool) -> TextPos {
+        let (row, col) = self.textpos_to_row_col(pos);
+        let target = if up {
+            row.saturating_sub(rows)
+        } else {
+            row.saturating_add(rows)
+                .min(self.total_rows().saturating_sub(1))
+        };
+        self.row_col_to_textpos(target, col)
     }
 
     /// Extract the selected text with stream semantics. Returns `None` when
@@ -557,5 +662,82 @@ mod tests {
         assert!(geometry
             .highlight_cells(TextPos::new(0, 0), TextPos::new(0, 0), area, 0)
             .is_empty());
+    }
+
+    #[test]
+    fn left_and_right_cross_line_boundaries() {
+        let source = lines(&["ab", "cd"]);
+        let geometry = geometry_for(&source, 40);
+        assert_eq!(
+            geometry.move_pos(TextPos::new(1, 0), Motion::Left),
+            TextPos::new(0, 2)
+        );
+        assert_eq!(
+            geometry.move_pos(TextPos::new(0, 2), Motion::Right),
+            TextPos::new(1, 0)
+        );
+        assert_eq!(
+            geometry.move_pos(TextPos::new(0, 0), Motion::Left),
+            TextPos::new(0, 0)
+        );
+        assert_eq!(
+            geometry.move_pos(TextPos::new(1, 2), Motion::Right),
+            TextPos::new(1, 2)
+        );
+    }
+
+    #[test]
+    fn vertical_motion_keeps_the_column_and_clamps_rows() {
+        let source = lines(&["hello", "hi", "world"]);
+        let geometry = geometry_for(&source, 40);
+        let moved = geometry.move_pos(TextPos::new(0, 3), Motion::Down);
+        assert_eq!(moved, TextPos::new(1, 2));
+        assert_eq!(geometry.move_pos(moved, Motion::Up), TextPos::new(0, 2));
+        assert_eq!(
+            geometry.move_pos(TextPos::new(0, 0), Motion::Up),
+            TextPos::new(0, 0)
+        );
+        assert_eq!(
+            geometry.move_pos(TextPos::new(2, 0), Motion::Down),
+            TextPos::new(2, 0)
+        );
+    }
+
+    #[test]
+    fn page_motion_moves_whole_viewports() {
+        let source: Vec<String> = (0..20).map(|index| format!("row {index}")).collect();
+        let narrow = PanelGeometry::new(display_widths(&source), 3, PanelWrapMode::Wrap, false);
+        let start = TextPos::new(0, 0);
+        let down = narrow.move_pos(start, Motion::PageDown(4));
+        assert!(down > start);
+        assert_eq!(narrow.move_pos(down, Motion::PageUp(4)), start);
+        assert_eq!(narrow.move_pos(down, Motion::PageUp(999)), start);
+    }
+
+    #[test]
+    fn line_home_and_end_stay_on_the_source_line() {
+        let source = lines(&["hello world", "short"]);
+        let geometry = geometry_for(&source, 6);
+        assert_eq!(
+            geometry.move_pos(TextPos::new(0, 8), Motion::LineStart),
+            TextPos::new(0, 0)
+        );
+        assert_eq!(
+            geometry.move_pos(TextPos::new(0, 0), Motion::LineEnd),
+            TextPos::new(0, 11)
+        );
+    }
+
+    #[test]
+    fn select_all_covers_the_last_character() {
+        let source = lines(&["one", "two"]);
+        let geometry = geometry_for(&source, 40);
+        let (start, end) = geometry.select_all().expect("content");
+        assert_eq!(start, TextPos::new(0, 0));
+        assert_eq!(end, TextPos::new(1, 3));
+        let text = geometry
+            .extract_text(start, end, &source, None)
+            .expect("whole content");
+        assert_eq!(text, "one\ntwo");
     }
 }

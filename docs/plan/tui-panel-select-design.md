@@ -42,7 +42,7 @@
 依据架构规则按职责归位，不复制对照对象为独立模块：
 
 - 纯选择语义归 `tui-core`：有序化、点到逻辑位置、按行区间取文、高亮格计算。仅依赖几何与行访问接口，不持有滚动状态，调用方每帧传入面板矩形与滚动偏移。排除装饰字符的复制变体一并归此。
-- 换行缓存归 `tui-render` 预排缓存的扩展：每行字符长度缓存、累计行数前缀和、逻辑位置与行列双向换算、可见窗口取行、换行与裁剪两种模式。失效条件沿用文本指针、宽度、模式三元组。超长行走字符窗口路径。
+- 换行缓存与面板状态归 `tui-core`：每行字符长度缓存、累计行数前缀和、逻辑位置与行列双向换算、可见窗口取行、换行与裁剪两种模式，以及组合缓存与选区的 `SelectablePanel`。缓存下沉到 `tui-core` 使 `tui-components` 的查看器可以自持选区而不反向依赖 `tui-render`。失效条件沿用文本指针、宽度、模式与续行标记四项。超长行走字符窗口路径。
 - 剪贴板后端归 `tui-terminal`：在现有 OSC 52 单路径旁增加本地工具优先、OSC 52 回退的决策链，含按需固定模式的环境变量与进程内开关、tmux 包裹、子进程脱离与后台回收。测试默认禁用，沿用现有消毒与绘制后刷出时序。
 - 鼠标接线归 `wf-tui` 壳层：按下开始、拖拽扩展、释放复制的三段调用保持不变，只是把显示坐标换成逻辑位置；拖出边界时按固定节拍推进滚动并扩展游标；面板外点击清除行为沿用现有配置。
 - 主题与样式不新增语义色，选中高亮复用现有反白与强调色；续行标记与滚动条样式沿用现有弱化风格。
@@ -65,3 +65,14 @@
 - 单元测试覆盖流式三段语义、逆向拖拽、空行与空白选择、缩放重排后同一字符、超长行窗口开销、剪贴板模式解析与禁用。
 - 渲染测试覆盖双面板限定、续行标记列不占字符、滚动条显隐不断言崩溃。
 - 全量校验收敛为一次完整编译检查。
+
+## 八、落地状态回填
+
+- `tui-core`：`TextPos`、`PanelGeometry`（含 `Motion`、`clamp_pos`、`move_pos`、`select_all`）、`PanelWrapCache`（由 `tui-render` 下沉）、`SelectablePanel`（单区域 + 冻结区域、`set_plain`/`set_styled`、`set_marker`）与对应单测已完成。
+- `tui-terminal`：本地工具优先、OSC 52 回退、模式固定与绘制后刷出保持原状，本次未改动。
+- `wf-tui`：transcript 选区改为逻辑坐标；命中与复制复用 `PreparedScrollback` 的行索引与窗口定位；滚动、resize 后选区保持；拖出边界自动滚动时锚点保持逻辑位置；键盘选择（`Shift` 方向/Home/End/PgUp/PgDn、`Ctrl+A`、`Esc`、`Ctrl+Y`）已接入；`Alt+Click` 可冻结当前区域并追加新的不相邻区域，复制时按逻辑位置排序合并。
+- `tui-components`：`Modal` 支持鼠标手势与可变绘制，文件查看器、diff 查看器基于 `SelectablePanel` 拖选复制，`Alt+Click` 追加区域，`Esc` 先清选区再关闭。
+- 历史分页器：`HistoryOverlay` 持有 `SelectablePanel`，绘制时同步 styled 行并回填内容矩形与顶部行号，拖选复制与键盘扩展选择已接入。
+- styled / ANSI 投影：transcript 的几何与复制建立在 `HistoryLine::logical_plain_lines`（渲染后的纯文本投影）上，Markdown 标记不会错位；查看器与历史分页器使用 `SelectablePanel::set_styled` 同时保存 styled 行与纯文本。transcript 本身不解析 ANSI 转义，工具输出中的转义序列按普通字符呈现。
+- 续行标记：`SelectablePanel::set_marker` 与 `PanelWrapCache` 的 `reserve_marker` 已提供预留列开关，默认关闭；transcript 与各查看器当前均未启用可见标记字形。
+- `wf-cli-demo` 双面板示例保留为底层能力验证，未改为 `SelectablePanel` 调用方。

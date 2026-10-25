@@ -12,6 +12,7 @@ use super::input_classify::next_filter;
 use super::signals::SUSPEND_PENDING;
 use super::{TuiApp, DASHBOARD_ENTRIES};
 use tui_core::keymap::{KeyAction as TabKeyAction, KeymapContext};
+use tui_core::panel_select::Motion;
 use tui_core::screen_data::screen_for_digit;
 
 impl TuiApp {
@@ -623,6 +624,11 @@ impl TuiApp {
         if self.overlay == OverlayMode::SessionList {
             return self.handle_session_list_key(key).await;
         }
+        if self.overlay == OverlayMode::History {
+            if let Some(action) = self.handle_history_selection_key(key) {
+                return Ok(action);
+            }
+        }
         match key.code {
             CKey::Esc | CKey::Char('q') if !key.ctrl => {
                 self.overlay = OverlayMode::None;
@@ -699,6 +705,48 @@ impl TuiApp {
             _ => {}
         }
         Ok(LoopAction::Continue)
+    }
+
+    /// History pager selection keys: Ctrl+A selects every loaded row,
+    /// Shift+motion extends the logical cursor, Ctrl+Y copies the selection
+    /// and Esc clears it before the overlay close key runs.
+    fn handle_history_selection_key(&mut self, key: Key) -> Option<LoopAction> {
+        if key.ctrl && !key.alt && matches!(key.code, CKey::Char('y') | CKey::Char('Y')) {
+            match self.history.selection_text() {
+                Some(text) => {
+                    self.queue_selection_copy(text);
+                }
+                None => self.app.notice.set("copy: no selection".to_string()),
+            }
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            return Some(LoopAction::Continue);
+        }
+        if key.ctrl && !key.alt && key.code == CKey::Char('a') {
+            self.history.select_all();
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            return Some(LoopAction::Continue);
+        }
+        if key.code == CKey::Esc && self.history.has_selection() {
+            self.history.clear_selection();
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            return Some(LoopAction::Continue);
+        }
+        if key.shift && !key.ctrl && !key.alt {
+            let motion = match key.code {
+                CKey::Left => Some(Motion::Left),
+                CKey::Right => Some(Motion::Right),
+                CKey::Up => Some(Motion::Up),
+                CKey::Down => Some(Motion::Down),
+                CKey::Home => Some(Motion::LineStart),
+                CKey::End => Some(Motion::LineEnd),
+                _ => None,
+            }?;
+            if self.history.extend_motion(motion) {
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            return Some(LoopAction::Continue);
+        }
+        None
     }
 
     fn handle_search_palette_key(&mut self, key: Key) -> LoopAction {

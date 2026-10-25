@@ -137,7 +137,7 @@ impl Modal for ModelPicker {
         "Select model"
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let centered = centered_rect(70, 70, area);
         render_picker(
             frame,
@@ -181,7 +181,7 @@ impl Modal for SessionPicker {
         "Open session"
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let centered = centered_rect(70, 70, area);
         render_picker(
             frame,

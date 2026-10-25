@@ -5,14 +5,15 @@
 //! character each screen cell maps to. Only the visible rows are ever
 //! materialised, so multi-megabyte bodies and single enormous lines stay
 //! responsive. The logical mapping delegates to
-//! [`tui_core::panel_select::PanelGeometry`]; this cache adds content
+//! [`crate::panel_select::PanelGeometry`]; this cache adds content
 //! ownership, cheap per-frame refresh by pointer identity, and windowed row
 //! slicing that never holds a whole wrapped giant in memory.
 
 use std::sync::Arc;
 
-use tui_core::panel_select::{display_widths, PanelGeometry, PanelWrapMode, TextPos};
 use unicode_width::UnicodeWidthStr;
+
+use crate::panel_select::{display_widths, PanelGeometry, PanelWrapMode, TextPos};
 
 /// Owned wrap cache for one selectable panel.
 #[derive(Debug, Clone, Default)]
@@ -88,6 +89,16 @@ impl PanelWrapCache {
     /// Effective wrap width (marker column already excluded).
     pub fn wrap_width(&self) -> usize {
         self.geometry.as_ref().map_or(0, PanelGeometry::wrap_width)
+    }
+
+    /// Geometry built by the last content refresh.
+    pub fn geometry(&self) -> Option<&PanelGeometry> {
+        self.geometry.as_ref()
+    }
+
+    /// Wrap behaviour this cache was built with.
+    pub fn mode(&self) -> PanelWrapMode {
+        self.mode
     }
 
     /// Visible plain-text rows for a viewport: `height` rows from `scroll`.

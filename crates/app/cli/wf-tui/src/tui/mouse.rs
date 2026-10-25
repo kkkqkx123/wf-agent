@@ -1,8 +1,12 @@
 //! Mouse event handling for the TUI shell: wheel scrolling, click matching,
 //! gutter drags, transcript selection and composer clicks.
 
-use crossterm::event::{MouseEvent, MouseEventKind};
+use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
+use tui_core::panel_select::TextPos;
+
+use crate::interactive::TranscriptSelection;
+use crate::modal::{ModalMouse, ModalMouseKind};
 use crate::overlay::OverlayMode;
 use crate::screens::ScreenKind;
 
@@ -27,13 +31,36 @@ pub(super) struct MousePress {
     /// Composer prompt viewport press: releases place the cursor instead
     /// of touching scrollback hits.
     in_composer: bool,
-    /// Content anchor for transcript drag selection: display row plus
-    /// in-row display column at press time. `None` for gutter, badge,
-    /// composer and history presses.
-    transcript_anchor: Option<(usize, usize)>,
+    /// Content anchor for transcript drag selection: logical text position at
+    /// press time. `None` for gutter, badge, composer and history presses.
+    transcript_anchor: Option<TextPos>,
+    /// Press landed inside the history pager text area and armed a drag
+    /// selection there.
+    history_anchor: bool,
+    /// Alt press: keep the existing transcript regions and add another one
+    /// instead of replacing the selection.
+    transcript_add: bool,
     /// Right-button press: only a same-cell release copies the line, any
     /// drag stays native and never lands.
     is_right: bool,
+}
+
+/// Map a terminal mouse event to the backend-free gesture a modal handles.
+/// Only the left button takes part: right and middle presses stay inert so
+/// native terminal menus keep working. Alt plus a press asks the modal to
+/// keep its existing region and start another one.
+fn modal_mouse_kind(mouse: MouseEvent) -> Option<ModalMouseKind> {
+    match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left) if mouse.modifiers.contains(KeyModifiers::ALT) => {
+            Some(ModalMouseKind::PressAdd)
+        }
+        MouseEventKind::Down(MouseButton::Left) => Some(ModalMouseKind::Press),
+        MouseEventKind::Drag(MouseButton::Left) => Some(ModalMouseKind::Drag),
+        MouseEventKind::Up(MouseButton::Left) => Some(ModalMouseKind::Release),
+        MouseEventKind::ScrollUp => Some(ModalMouseKind::ScrollUp),
+        MouseEventKind::ScrollDown => Some(ModalMouseKind::ScrollDown),
+        _ => None,
+    }
 }
 
 impl TuiApp {
@@ -50,13 +77,17 @@ impl TuiApp {
         if mouse_bypasses_capture(mouse.modifiers) {
             return MouseOutcome::Ignored;
         }
+        // An open modal owns the pointer: wheel and button events go to the
+        // top modal instead of the screen below it.
+        if !self.modals.is_empty() {
+            return self.handle_modal_mouse(mouse);
+        }
         match classify_mouse(mouse.kind) {
             MouseAction::ScrollUp => {
                 self.mouse_press = None;
                 self.clear_click_chain();
                 self.clear_mouse_hover();
                 if let Some(session) = self.sessions.active_mut() {
-                    session.clear_transcript_selection();
                     session.end_gutter_drag();
                 }
                 self.scroll_by_wheel(true);
@@ -67,7 +98,6 @@ impl TuiApp {
                 self.clear_click_chain();
                 self.clear_mouse_hover();
                 if let Some(session) = self.sessions.active_mut() {
-                    session.clear_transcript_selection();
                     session.end_gutter_drag();
                 }
                 self.scroll_by_wheel(false);
@@ -79,6 +109,26 @@ impl TuiApp {
                 } else {
                     MouseOutcome::Ignored
                 }
+            }
+        }
+    }
+
+    /// Route one gesture to the top modal. A modal that reports changed
+    /// content or produced selection text requests a frame; text goes through
+    /// the same sanitized clipboard queue as the keyboard copy paths.
+    fn handle_modal_mouse(&mut self, mouse: MouseEvent) -> MouseOutcome {
+        if !self.perf_policy.enable_mouse_capture {
+            return MouseOutcome::Ignored;
+        }
+        let Some(kind) = modal_mouse_kind(mouse) else {
+            return MouseOutcome::Ignored;
+        };
+        match self.modals.handle_mouse(kind, mouse.column, mouse.row) {
+            ModalMouse::Ignored => MouseOutcome::Ignored,
+            ModalMouse::Changed => MouseOutcome::Clicked,
+            ModalMouse::Copy(text) => {
+                self.queue_selection_copy(text);
+                MouseOutcome::Clicked
             }
         }
     }
@@ -218,9 +268,15 @@ impl TuiApp {
                 return true;
             }
         }
-        // A fresh press drops any previous drag selection.
+        // A fresh press drops any previous drag selection; Alt+Click keeps
+        // the committed regions so several disjoint ranges can be copied.
+        let transcript_add = !is_right && mouse.modifiers.contains(KeyModifiers::ALT);
         if let Some(session) = self.sessions.active_mut() {
-            session.clear_transcript_selection();
+            if transcript_add {
+                session.begin_additive_transcript_selection();
+            } else {
+                session.clear_transcript_selection();
+            }
         }
         let in_history = self.overlay == OverlayMode::History;
         if !in_history && self.app.screen.navigation.current_kind() != ScreenKind::Interactive {
@@ -263,6 +319,8 @@ impl TuiApp {
                     gutter_thumb: false,
                     in_composer: true,
                     transcript_anchor: None,
+                    history_anchor: false,
+                    transcript_add: false,
                     is_right,
                 });
                 self.clear_mouse_hover();
@@ -295,6 +353,14 @@ impl TuiApp {
                 session.begin_gutter_drag();
             }
         }
+        // A fresh left press in the history pager arms a drag selection; any
+        // previous region is dropped so each press starts a new range.
+        let history_anchor = if in_history && !is_right {
+            self.history.clear_selection();
+            self.history.begin_selection(mouse.column, mouse.row)
+        } else {
+            false
+        };
         self.mouse_press = Some(MousePress {
             col: mouse.column,
             row: mouse.row,
@@ -309,6 +375,8 @@ impl TuiApp {
             } else {
                 self.content_anchor_for(mouse)
             },
+            history_anchor,
+            transcript_add,
             is_right,
         });
         self.clear_mouse_hover();
@@ -404,6 +472,14 @@ impl TuiApp {
             return false;
         }
         if in_history {
+            // A drag selection only depends on logical positions, so a
+            // redraw between press and release never invalidates it.
+            if press.history_anchor {
+                return match self.history.finish_selection() {
+                    Some(text) => self.queue_selection_copy(text),
+                    None => false,
+                };
+            }
             if press.history_gen != self.history_hit_generation {
                 return false;
             }
@@ -468,7 +544,7 @@ impl TuiApp {
             // A content drag release lands a transcript selection copy when
             // the pair shares the snapshot generation; cross-generation
             // pairs are stale drags and never copy.
-            if let Some((anchor_row, anchor_col)) = press.transcript_anchor {
+            if let Some(anchor) = press.transcript_anchor {
                 if press.session_gen != session_gen {
                     if let Some(session) = self.sessions.active_mut() {
                         session.clear_transcript_selection();
@@ -476,20 +552,28 @@ impl TuiApp {
                     return false;
                 }
                 let head = self.content_anchor_for(mouse);
-                if let Some(session) = self.sessions.active_mut() {
-                    session.clear_transcript_selection();
-                }
-                let Some((head_row, head_col)) = head else {
+                let Some(head) = head else {
+                    if let Some(session) = self.sessions.active_mut() {
+                        session.clear_transcript_selection();
+                    }
                     return false;
                 };
-                if anchor_row == head_row && anchor_col == head_col {
+                if anchor == head {
+                    if let Some(session) = self.sessions.active_mut() {
+                        session.clear_transcript_selection();
+                    }
                     return false;
                 }
-                return self.copy_transcript_range(anchor_row, anchor_col, head_row, head_col);
+                return self.copy_transcript_selection(TranscriptSelection { anchor, head });
             }
             return false;
         }
         if press.session_gen != session_gen {
+            return false;
+        }
+        // An Alt press without a drag adds nothing; keep the committed
+        // regions and run no click action on that cell.
+        if press.transcript_add {
             return false;
         }
         if let Some(session) = self.sessions.active_mut() {
@@ -549,16 +633,14 @@ impl TuiApp {
         false
     }
 
-    /// Anchor for transcript drag selection: display row plus in-row
-    /// display column for a press cell. `None` outside the content area.
-    fn content_anchor_for(&self, mouse: MouseEvent) -> Option<(usize, usize)> {
+    /// Anchor for transcript drag selection: logical text position for a
+    /// press cell. `None` outside the content area.
+    fn content_anchor_for(&self, mouse: MouseEvent) -> Option<TextPos> {
+        let session = self.sessions.active()?;
+        let area = session.last_scroll_area()?;
         let display_row = self.mouse_content_row(mouse)?;
-        let display_col = self
-            .sessions
-            .active()
-            .and_then(|session| session.last_scroll_area())
-            .map(|area| mouse.column.saturating_sub(area.x) as usize)?;
-        Some((display_row, display_col))
+        let display_col = mouse.column.saturating_sub(area.x) as usize;
+        session.transcript_pos_at_display_row(display_row, display_col)
     }
 
     /// Translate a release cell into a scrollback display row. Returns
@@ -614,7 +696,15 @@ impl TuiApp {
             return false;
         }
         let in_history = self.overlay == OverlayMode::History;
-        if press.in_history != in_history || in_history {
+        if press.in_history != in_history {
+            self.mouse_press = None;
+            return false;
+        }
+        if in_history {
+            if press.history_anchor {
+                self.history.extend_selection(mouse.column, mouse.row);
+                return true;
+            }
             self.mouse_press = None;
             return false;
         }
@@ -635,7 +725,7 @@ impl TuiApp {
         // Content drag with an anchor tracks a transcript selection for
         // highlight and release copy. The press stays armed so the release
         // can land the selection; any drag still breaks multi-click.
-        if let Some((anchor_row, anchor_col)) = press.transcript_anchor {
+        if let Some(anchor) = press.transcript_anchor {
             if press.in_gutter || press.in_composer {
                 self.mouse_press = None;
                 if let Some(session) = self.sessions.active_mut() {
@@ -643,7 +733,7 @@ impl TuiApp {
                 }
                 return false;
             }
-            let Some((head_row, head_col)) = self.content_anchor_for(mouse) else {
+            let Some(head) = self.content_anchor_for(mouse) else {
                 // Drag head left the viewport vertically: arm auto-scroll,
                 // tick one viewport notch and keep the press armed so the
                 // release still lands the grown selection. Horizontal
@@ -656,16 +746,10 @@ impl TuiApp {
                 if let Some(direction) = outside {
                     if let Some(session) = self.sessions.active_mut() {
                         if session.transcript_selection().is_none() {
-                            if let Some((anchor_row, anchor_col)) = press.transcript_anchor {
-                                session.set_transcript_selection(
-                                    crate::interactive::TranscriptSelection {
-                                        anchor_row,
-                                        anchor_col,
-                                        head_row: anchor_row,
-                                        head_col: anchor_col,
-                                    },
-                                );
-                            }
+                            session.set_transcript_selection(TranscriptSelection {
+                                anchor,
+                                head: anchor,
+                            });
                         }
                         session.start_transcript_autoscroll(direction);
                         session.tick_transcript_autoscroll();
@@ -680,12 +764,7 @@ impl TuiApp {
                 return false;
             };
             if let Some(session) = self.sessions.active_mut() {
-                session.set_transcript_selection(crate::interactive::TranscriptSelection {
-                    anchor_row,
-                    anchor_col,
-                    head_row,
-                    head_col,
-                });
+                session.set_transcript_selection(TranscriptSelection { anchor, head });
             }
             return true;
         }

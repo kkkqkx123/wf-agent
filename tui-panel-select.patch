@@ -1,0 +1,3231 @@
+diff --git a/crates/app/cli/wf-tui/src/history_overlay.rs b/crates/app/cli/wf-tui/src/history_overlay.rs
+index 5577b13..e74d97a 100644
+--- a/crates/app/cli/wf-tui/src/history_overlay.rs
++++ b/crates/app/cli/wf-tui/src/history_overlay.rs
+@@ -8,6 +8,10 @@
+ //!
+ //! Timeline and node segments join this view once their contract exists.
+ 
++use ratatui::layout::Rect;
++use tui_core::panel_select::Motion;
++use tui_core::selectable_panel::SelectablePanel;
++
+ use crate::pager::ReplayPager;
+ use crate::replay::ReplayPage;
+ use crate::screen_draw::HistoryOverlayView;
+@@ -26,6 +30,12 @@ pub struct HistoryOverlay {
+     at_top: bool,
+     loading: bool,
+     error: Option<String>,
++    /// Logical selection over the laid-out rows.
++    panel: SelectablePanel,
++    /// Text rectangle and top wrapped row of the last draw, used to map
++    /// terminal cells back to logical positions.
++    content: Option<Rect>,
++    top_row: usize,
+ }
+ 
+ impl HistoryOverlay {
+@@ -39,6 +49,9 @@ impl HistoryOverlay {
+         self.at_top = false;
+         self.loading = true;
+         self.error = None;
++        self.panel.clear();
++        self.content = None;
++        self.top_row = 0;
+     }
+ 
+     /// Session whose scrollback the window holds.
+@@ -65,6 +78,9 @@ impl HistoryOverlay {
+     pub fn land(&mut self, page: ReplayPage, earlier: bool) {
+         self.loading = false;
+         self.error = None;
++        // Prepending or replacing rows renumbers the laid-out lines, so the
++        // logical selection no longer names the same characters: drop it.
++        self.panel.clear_selection();
+         if earlier {
+             self.pager.land_earlier(page.has_more, page.next_before);
+             let ReplayPage { lines, .. } = page;
+@@ -116,6 +132,82 @@ impl HistoryOverlay {
+         self.at_top = at_top;
+     }
+ 
++    /// Remember the text rectangle and top wrapped row of the last draw.
++    pub fn set_layout(&mut self, content: Rect, top_row: usize) {
++        self.content = Some(content);
++        self.top_row = top_row;
++    }
++
++    /// Extract the current selection without freezing it.
++    pub fn selection_text(&self) -> Option<String> {
++        self.panel.selected_text()
++    }
++
++    /// Start a drag selection at a terminal cell inside the overlay content.
++    pub fn begin_selection(&mut self, col: u16, row: u16) -> bool {
++        let Some(area) = self.content else {
++            return false;
++        };
++        if col < area.x
++            || col >= area.x.saturating_add(area.width)
++            || row < area.y
++            || row >= area.y.saturating_add(area.height)
++        {
++            return false;
++        }
++        self.panel.begin((col, row), area, self.top_row as u16)
++    }
++
++    /// Move the drag cursor. Cells outside the content clamp to its edges so
++    /// a drag never selects the border or the scrollbar gutter.
++    pub fn extend_selection(&mut self, col: u16, row: u16) -> bool {
++        let Some(area) = self.content else {
++            return false;
++        };
++        self.panel.extend((col, row), area, self.top_row as u16)
++    }
++
++    /// Extract the dragged text and freeze the region.
++    pub fn finish_selection(&mut self) -> Option<String> {
++        let text = self.panel.selected_text();
++        self.panel.commit();
++        text
++    }
++
++    /// Whether the overlay holds any selection.
++    pub fn has_selection(&self) -> bool {
++        self.panel.has_selection()
++    }
++
++    /// Drop the selection but keep the loaded rows.
++    pub fn clear_selection(&mut self) {
++        self.panel.clear_selection();
++    }
++
++    /// Select every loaded row.
++    pub fn select_all(&mut self) {
++        self.panel.select_all();
++    }
++
++    /// Apply one keyboard motion to the selection cursor.
++    pub fn extend_motion(&mut self, motion: Motion) -> bool {
++        self.panel.extend_motion(motion)
++    }
++
++    /// Borrowed snapshot plus the panel that owns the selection.
++    pub fn split(&mut self) -> (HistoryOverlayView<'_>, &mut SelectablePanel) {
++        let panel = &mut self.panel;
++        let view = HistoryOverlayView {
++            session_id: self.session_id.as_deref(),
++            lines: &self.lines,
++            scroll: self.scroll,
++            has_more: self.pager.is_partial(),
++            loading: self.loading,
++            error: self.error.as_deref(),
++        };
++        (view, panel)
++    }
++
+     /// Borrowed snapshot handed to the renderer.
+     pub fn view(&self) -> HistoryOverlayView<'_> {
+         HistoryOverlayView {
+diff --git a/crates/app/cli/wf-tui/src/interactive.rs b/crates/app/cli/wf-tui/src/interactive.rs
+index 827b8e3..726da83 100644
+--- a/crates/app/cli/wf-tui/src/interactive.rs
++++ b/crates/app/cli/wf-tui/src/interactive.rs
+@@ -30,6 +30,7 @@ mod perf;
+ mod render;
+ mod replay;
+ mod scrollbar;
++mod selection;
+ mod subagent_blocks;
+ mod tool_blocks;
+ mod turn;
+@@ -161,39 +162,27 @@ pub enum InteractiveAction {
+     OpenScreen(crate::screens::ScreenKind),
+ }
+ 
+-/// Transcript drag selection in viewport display-row space. The anchor is
+-/// the press cell, the head is the latest drag cell; both are display rows
+-/// plus in-row display columns for text slicing.
++/// Transcript drag selection in logical coordinates: the anchor is the press
++/// cell and the head is the latest drag cell, both as source line plus
++/// display column over the rendered plain projection. Logical positions stay
++/// on the same characters when the transcript is scrolled or rewrapped.
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+ pub struct TranscriptSelection {
+-    /// Press display row.
+-    pub anchor_row: usize,
+-    /// Press in-row display column.
+-    pub anchor_col: usize,
+-    /// Latest drag display row.
+-    pub head_row: usize,
+-    /// Latest drag in-row display column.
+-    pub head_col: usize,
++    /// Press position.
++    pub anchor: tui_core::panel_select::TextPos,
++    /// Latest drag or keyboard position.
++    pub head: tui_core::panel_select::TextPos,
+ }
+ 
+ impl TranscriptSelection {
+-    /// Row span covered by the selection, ordered low to high inclusive.
+-    pub fn row_span(self) -> (usize, usize) {
+-        if self.anchor_row <= self.head_row {
+-            (self.anchor_row, self.head_row)
+-        } else {
+-            (self.head_row, self.anchor_row)
+-        }
+-    }
+-
+-    /// Edge columns oriented with the row span: first element belongs to
+-    /// the low row, second to the high row.
+-    pub fn edge_cols(self) -> (usize, usize) {
+-        if self.anchor_row <= self.head_row {
+-            (self.anchor_col, self.head_col)
+-        } else {
+-            (self.head_col, self.anchor_col)
+-        }
++    /// Ordered endpoints, earliest document position first.
++    pub fn ordered(
++        self,
++    ) -> (
++        tui_core::panel_select::TextPos,
++        tui_core::panel_select::TextPos,
++    ) {
++        tui_core::panel_select::ordered(self.anchor, self.head)
+     }
+ }
+ 
+@@ -299,9 +288,22 @@ pub struct InteractiveController {
+     last_scroll_area: Option<ratatui::layout::Rect>,
+     /// Composer input viewport published on the last frame.
+     last_input_area: Option<ratatui::layout::Rect>,
+-    /// Transcript drag selection in viewport display-row space. Set while a
+-    /// content drag is in progress, cleared on release, scroll or resize.
++    /// Transcript drag selection in logical rendered-text coordinates. Set
++    /// while a content drag or keyboard extension is active; kept across
++    /// scroll and resize, cleared on release, Escape or a fresh press.
+     transcript_selection: Option<TranscriptSelection>,
++    /// Committed non-adjacent transcript selection regions. Alt+Click moves
++    /// the active selection here so several ranges copy together.
++    transcript_regions: Vec<TranscriptSelection>,
++    /// Width-independent rendered plain rows per committed scrollback entry:
++    /// the geometry input for transcript selection. Each entry is refreshed
++    /// when the source identity changes, so streaming append never re-renders
++    /// settled rows.
++    logical_rows: Vec<(u64, std::sync::Arc<Vec<String>>)>,
++    /// Global logical-line start offset of each scrollback entry.
++    logical_offsets: Vec<usize>,
++    /// Total logical lines across the committed scrollback.
++    logical_total: usize,
+     /// Pending drag auto-scroll direction (`-1` up, `+1` down) while the
+     /// drag head extends past the viewport edge.
+     transcript_autoscroll: Option<i8>,
+@@ -569,6 +571,10 @@ impl InteractiveController {
+             last_scroll_area: None,
+             last_input_area: None,
+             transcript_selection: None,
++            transcript_regions: Vec::new(),
++            logical_rows: Vec::new(),
++            logical_offsets: Vec::new(),
++            logical_total: 0,
+             transcript_autoscroll: None,
+             hover_cell: None,
+             gutter_drag: false,
+@@ -793,6 +799,7 @@ impl InteractiveController {
+         badge: Option<ratatui::layout::Rect>,
+         input_area: ratatui::layout::Rect,
+     ) {
++        self.sync_transcript_layout();
+         self.hit_generation = self.hit_generation.wrapping_add(1);
+         self.last_scroll_area = Some(scroll_area);
+         self.last_badge_rect = badge;
+@@ -800,12 +807,13 @@ impl InteractiveController {
+     }
+ 
+     /// Drop any published hit snapshot (resize or overlay switch): presses
+-    /// recorded against the old geometry can no longer land.
++    /// recorded against the old geometry can no longer land. The logical
++    /// selection survives because its position does not depend on the
++    /// viewport.
+     pub(crate) fn clear_hit_frame(&mut self) {
+         self.last_badge_rect = None;
+         self.last_scroll_area = None;
+         self.last_input_area = None;
+-        self.clear_transcript_selection();
+         self.hover_cell = None;
+     }
+ 
+@@ -846,12 +854,96 @@ impl InteractiveController {
+         self.transcript_selection = Some(selection);
+     }
+ 
+-    /// Clear the transcript drag selection on release, scroll or resize.
++    /// Move the active selection into the committed regions so an additive
++    /// drag can start another disjoint range without losing the old one.
++    pub fn begin_additive_transcript_selection(&mut self) {
++        if let Some(selection) = self.transcript_selection.take() {
++            if selection.anchor != selection.head {
++                self.transcript_regions.push(selection);
++            }
++        }
++    }
++
++    /// Whether any transcript range (active or committed) exists.
++    pub fn has_transcript_selection(&self) -> bool {
++        self.transcript_selection.is_some() || !self.transcript_regions.is_empty()
++    }
++
++    /// Clear every transcript range on release, Escape or a fresh press.
+     pub fn clear_transcript_selection(&mut self) {
+         self.transcript_selection = None;
++        self.transcript_regions.clear();
+         self.transcript_autoscroll = None;
+     }
+ 
++    /// Combined text of every transcript range plus an optional drag range
++    /// that has not been published yet. Ranges are ordered by logical
++    /// position and overlapping or touching ranges are merged.
++    pub fn selected_transcript_text_all(
++        &self,
++        active: Option<TranscriptSelection>,
++    ) -> Option<String> {
++        let mut ranges: Vec<_> = self
++            .transcript_regions
++            .iter()
++            .copied()
++            .chain(self.transcript_selection)
++            .chain(active)
++            .map(TranscriptSelection::ordered)
++            .filter(|(start, end)| start != end)
++            .collect();
++        ranges.sort();
++        let mut merged: Vec<(
++            tui_core::panel_select::TextPos,
++            tui_core::panel_select::TextPos,
++        )> = Vec::with_capacity(ranges.len());
++        for (start, end) in ranges {
++            match merged.last_mut() {
++                Some((_, last_end)) if start <= *last_end => {
++                    if end > *last_end {
++                        *last_end = end;
++                    }
++                }
++                _ => merged.push((start, end)),
++            }
++        }
++        let parts: Vec<String> = merged
++            .iter()
++            .filter_map(|(start, end)| {
++                self.selected_transcript_text(TranscriptSelection {
++                    anchor: *start,
++                    head: *end,
++                })
++            })
++            .collect();
++        let joined = parts.join("\n");
++        (!joined.trim().is_empty()).then_some(joined)
++    }
++
++    /// Take the combined selection text and clear every range afterwards.
++    pub fn take_transcript_selection_text(
++        &mut self,
++        active: Option<TranscriptSelection>,
++    ) -> Option<String> {
++        let text = self.selected_transcript_text_all(active);
++        self.clear_transcript_selection();
++        text
++    }
++
++    /// Queue the current selection on the controller's pending copy slot so
++    /// the keyboard path shares the shell's clipboard flush.
++    pub fn copy_transcript_selection(&mut self) -> bool {
++        let Some(text) = self.selected_transcript_text_all(None) else {
++            return false;
++        };
++        let Some(clean) = crate::terminal::sanitize_copy_text(&text) else {
++            return false;
++        };
++        self.pending_copy = Some(crate::copy::PendingCopy::new(clean, "selection"));
++        self.clear_transcript_selection();
++        true
++    }
++
+     /// Pending drag auto-scroll direction: `-1` scrolls up, `+1` scrolls
+     /// down. Set while a content drag extends past the viewport edge.
+     pub fn transcript_autoscroll(&self) -> Option<i8> {
+@@ -867,8 +959,9 @@ impl InteractiveController {
+     }
+ 
+     /// Advance one auto-scroll step: move the viewport one notch in the
+-    /// armed direction and pin the selection head to the newly exposed
+-    /// edge row. Returns whether a step ran.
++    /// armed direction and extend the logical head to the newly exposed
++    /// edge row. The anchor never moves, so scrolling cannot drift the
++    /// selected start. Returns whether a step ran.
+     pub fn tick_transcript_autoscroll(&mut self) -> bool {
+         let Some(direction) = self.transcript_autoscroll else {
+             return false;
+@@ -882,19 +975,18 @@ impl InteractiveController {
+         } else {
+             self.scroll_history_down();
+         }
+-        let capacity = usize::from(self.last_layout_height.max(1));
+-        let edge = if direction < 0 {
+-            0
++        let capacity = self.last_layout_height.max(1);
++        let (edge_row, edge_col) = if direction < 0 {
++            (0, 0)
+         } else {
+-            capacity.saturating_sub(1)
++            (capacity.saturating_sub(1), usize::MAX)
+         };
+-        let head_col = if direction < 0 { 0 } else { usize::MAX };
+-        self.transcript_selection = Some(TranscriptSelection {
+-            anchor_row: selection.anchor_row,
+-            anchor_col: selection.anchor_col,
+-            head_row: edge,
+-            head_col,
+-        });
++        if let Some(head) = self.transcript_pos_at_display_row(usize::from(edge_row), edge_col) {
++            self.transcript_selection = Some(TranscriptSelection {
++                anchor: selection.anchor,
++                head,
++            });
++        }
+         true
+     }
+ 
+@@ -1005,12 +1097,176 @@ impl InteractiveController {
+ #[cfg(test)]
+ mod tests {
+     use super::*;
++    use tui_core::panel_select::Motion;
+ 
+     async fn started_controller() -> InteractiveController {
+         let client = wf_client::WfClient::new(wf_client::ClientConfig::new("http://127.0.0.1:1"));
+         InteractiveController::start(client, "exec".into()).await
+     }
+ 
++    async fn seeded_controller(width: u16, height: u16, lines: &[&str]) -> InteractiveController {
++        let mut ctl = started_controller().await;
++        ctl.last_layout_width = width;
++        ctl.last_layout_height = height;
++        ctl.last_scroll_area = Some(ratatui::layout::Rect::new(0, 0, width, height));
++        for line in lines {
++            ctl.pending_scroll.push(HistoryLine::new(*line));
++        }
++        ctl.settle_scrollback();
++        ctl.tail_lag = 0;
++        ctl.view_scroll = 0;
++        ctl.sync_transcript_layout();
++        ctl
++    }
++
++    fn selection_at(
++        ctl: &InteractiveController,
++        start: (usize, usize),
++        end: (usize, usize),
++    ) -> TranscriptSelection {
++        let anchor = ctl
++            .transcript_pos_at_display_row(start.0, start.1)
++            .expect("anchor row is inside the viewport");
++        let head = ctl
++            .transcript_pos_at_display_row(end.0, end.1)
++            .expect("head row is inside the viewport");
++        TranscriptSelection { anchor, head }
++    }
++
++    #[tokio::test]
++    async fn scrolled_selection_keeps_the_same_characters() {
++        let mut ctl =
++            seeded_controller(20, 3, &["line0", "line1", "line2", "line3", "line4"]).await;
++        let selection = selection_at(&ctl, (0, 0), (0, 5));
++        assert_eq!(
++            ctl.selected_transcript_text(selection),
++            Some("line2".into())
++        );
++        ctl.view_scroll = 2;
++        assert_eq!(
++            ctl.selected_transcript_text(selection),
++            Some("line2".into())
++        );
++        let moved = ctl
++            .transcript_pos_at_display_row(2, 0)
++            .expect("the same row is visible after scrolling");
++        assert_eq!(moved, selection.anchor);
++    }
++
++    #[tokio::test]
++    async fn resized_selection_keeps_the_same_characters() {
++        let mut ctl = seeded_controller(5, 3, &["abcdefghij"]).await;
++        let selection = selection_at(&ctl, (0, 1), (1, 2));
++        assert_eq!(
++            ctl.selected_transcript_text(selection),
++            Some("bcdefgh".into())
++        );
++        ctl.last_layout_width = 10;
++        assert_eq!(
++            ctl.selected_transcript_text(selection),
++            Some("bcdefgh".into())
++        );
++        let moved = ctl
++            .transcript_pos_at_display_row(0, 7)
++            .expect("the logical position maps to one row at the wider width");
++        assert_eq!(moved, selection.head);
++    }
++
++    #[tokio::test]
++    async fn autoscroll_moves_the_head_without_drifting_the_anchor() {
++        let mut ctl = seeded_controller(
++            20,
++            3,
++            &[
++                "row0", "row1", "row2", "row3", "row4", "row5", "row6", "row7",
++            ],
++        )
++        .await;
++        let selection = selection_at(&ctl, (0, 0), (2, 3));
++        ctl.set_transcript_selection(selection);
++        ctl.start_transcript_autoscroll(1);
++        assert!(ctl.tick_transcript_autoscroll());
++        let after = ctl
++            .transcript_selection()
++            .expect("autoscroll keeps the selection alive");
++        assert_eq!(after.anchor, selection.anchor);
++        assert_ne!(after.head, selection.head);
++        assert_eq!(
++            ctl.selected_transcript_text(after),
++            Some("row5\nrow6\nrow7".into())
++        );
++    }
++
++    #[tokio::test]
++    async fn streaming_tail_stays_out_of_the_selection() {
++        let mut ctl = seeded_controller(20, 4, &["committed"]).await;
++        ctl.streaming = Some(HistoryLine::new("unfinished"));
++        ctl.sync_transcript_layout();
++        assert!(ctl.select_all_transcript());
++        let selection = ctl.transcript_selection().expect("selection exists");
++        assert_eq!(
++            ctl.selected_transcript_text(selection),
++            Some("committed".into())
++        );
++    }
++
++    #[tokio::test]
++    async fn keyboard_selection_works_without_mouse_capture() {
++        let mut ctl = seeded_controller(20, 3, &["alpha", "beta", "gamma"]).await;
++        assert!(ctl.transcript_selection_keys_active());
++        assert!(ctl.extend_transcript_selection(Motion::Up));
++        let selection = ctl
++            .transcript_selection()
++            .expect("keyboard selection starts");
++        assert_eq!(
++            ctl.selected_transcript_text(selection),
++            Some("beta\ng".into())
++        );
++        assert!(ctl.extend_transcript_selection(Motion::Up));
++        let grown = ctl.transcript_selection().expect("selection stays");
++        assert_eq!(
++            ctl.selected_transcript_text(grown),
++            Some("alpha\nbeta\ng".into())
++        );
++    }
++
++    #[tokio::test]
++    async fn markdown_selection_uses_the_rendered_projection() {
++        let mut ctl = started_controller().await;
++        ctl.last_layout_width = 40;
++        ctl.last_layout_height = 4;
++        ctl.last_scroll_area = Some(ratatui::layout::Rect::new(0, 0, 40, 4));
++        ctl.pending_scroll
++            .push(HistoryLine::markdown("**bold** text"));
++        ctl.settle_scrollback();
++        ctl.tail_lag = 0;
++        ctl.view_scroll = 0;
++        ctl.sync_transcript_layout();
++        assert!(ctl.select_all_transcript());
++        let selection = ctl.transcript_selection().expect("selection exists");
++        assert_eq!(
++            ctl.selected_transcript_text(selection),
++            Some("bold text".into())
++        );
++    }
++
++    #[tokio::test]
++    async fn additive_regions_copy_together() {
++        let mut ctl = seeded_controller(20, 4, &["alpha", "beta", "gamma", "delta"]).await;
++        let first = selection_at(&ctl, (0, 0), (0, 5));
++        ctl.set_transcript_selection(first);
++        ctl.begin_additive_transcript_selection();
++        let second = selection_at(&ctl, (2, 0), (2, 5));
++        ctl.set_transcript_selection(second);
++        assert_eq!(
++            ctl.selected_transcript_text_all(None),
++            Some("alpha\ngamma".into())
++        );
++        assert!(ctl.copy_transcript_selection());
++        assert!(ctl.take_pending_copy().is_some());
++        assert!(!ctl.has_transcript_selection());
++    }
++
+     #[tokio::test]
+     async fn tail_catchup_slides_large_appends_in_bounded_steps() {
+         let mut ctl = started_controller().await;
+diff --git a/crates/app/cli/wf-tui/src/interactive/keys.rs b/crates/app/cli/wf-tui/src/interactive/keys.rs
+index 62df5ba..2512f7b 100644
+--- a/crates/app/cli/wf-tui/src/interactive/keys.rs
++++ b/crates/app/cli/wf-tui/src/interactive/keys.rs
+@@ -8,6 +8,8 @@
+ 
+ use serde_json::Value;
+ 
++use tui_core::panel_select::Motion;
++
+ use crate::approval_overlay::ApprovalChoice;
+ use crate::footer::{FooterRoute, FooterView};
+ use crate::interactive::anchors::{first_line_label, AnchorKind};
+@@ -34,6 +36,17 @@ impl InteractiveController {
+             };
+         }
+ 
++        // Keyboard selection works without mouse capture: shift chords move
++        // a logical selection cursor over the transcript, Ctrl+A selects the
++        // whole transcript and Esc drops an existing selection. These run
++        // before the scroll and view dispatch so Shift+PageUp/PageDown grow
++        // the selection instead of paging the viewport alone.
++        if self.transcript_selection_keys_active() {
++            if let Some(action) = self.handle_transcript_selection_key(key) {
++                return action;
++            }
++        }
++
+         // Scrolling belongs to the scrollback regardless of the active footer
+         // view (a prompt, an approval or a question all leave history above).
+         // Tool-output keys are transcript context too: Ctrl+O toggles the
+@@ -139,6 +152,43 @@ impl InteractiveController {
+         }
+     }
+ 
++    /// Route one key to transcript selection when it uses a selection chord.
++    /// Returns `None` for every other key so ordinary scrolling, prompt
++    /// editing and panel navigation stay untouched.
++    fn handle_transcript_selection_key(&mut self, key: Key) -> Option<InteractiveAction> {
++        if key.ctrl && !key.alt && matches!(key.code, CKey::Char('a') | CKey::Char('A')) {
++            self.select_all_transcript();
++            return Some(InteractiveAction::Continue);
++        }
++        if key.ctrl && !key.alt && matches!(key.code, CKey::Char('y') | CKey::Char('Y')) {
++            if self.has_transcript_selection() {
++                self.copy_transcript_selection();
++                return Some(InteractiveAction::Continue);
++            }
++            return None;
++        }
++        if key.shift && !key.ctrl && !key.alt {
++            let motion = match key.code {
++                CKey::Left => Motion::Left,
++                CKey::Right => Motion::Right,
++                CKey::Up => Motion::Up,
++                CKey::Down => Motion::Down,
++                CKey::Home => Motion::LineStart,
++                CKey::End => Motion::LineEnd,
++                CKey::PageUp => Motion::PageUp(self.transcript_page_rows()),
++                CKey::PageDown => Motion::PageDown(self.transcript_page_rows()),
++                _ => return None,
++            };
++            self.extend_transcript_selection(motion);
++            return Some(InteractiveAction::Continue);
++        }
++        if key.code == CKey::Esc && self.has_transcript_selection() {
++            self.clear_transcript_selection();
++            return Some(InteractiveAction::Continue);
++        }
++        None
++    }
++
+     /// Scroll the scrollback viewport up by one page. When the viewport is
+     /// already pinned to the oldest loaded row and the replay is `Partial`,
+     /// request the next (older) page instead: the only way to reveal history
+diff --git a/crates/app/cli/wf-tui/src/interactive/mouse_hit.rs b/crates/app/cli/wf-tui/src/interactive/mouse_hit.rs
+index 671ae72..a461e57 100644
+--- a/crates/app/cli/wf-tui/src/interactive/mouse_hit.rs
++++ b/crates/app/cli/wf-tui/src/interactive/mouse_hit.rs
+@@ -58,6 +58,7 @@ pub(crate) fn badge_contains(rect: &Rect, col: u16, row: u16) -> bool {
+ 
+ /// Slice a display row text by character columns `[start, end)`.
+ /// Columns count characters, matching `word_at_col`.
++#[cfg(test)]
+ pub(crate) fn slice_row_chars(text: &str, start: usize, end: usize) -> String {
+     let chars: Vec<char> = text.chars().collect();
+     let end = end.min(chars.len());
+@@ -144,54 +145,23 @@ pub(crate) fn word_at_col(text: &str, col: usize) -> Option<String> {
+ 
+ use super::anchors::AnchorKind;
+ use super::InteractiveController;
+-use tui_components::scrollbar;
+ 
+ impl InteractiveController {
+     /// Sequence number and scrollback position for a viewport-relative row.
+-    /// Returns `None` for streaming tail rows and outside rows.
++    /// Returns `None` for streaming tail rows and outside rows. Uses the
++    /// prepared scrollback row index, so no reflow runs here.
+     fn seq_at_display_row(&self, display_row: usize) -> Option<(u64, usize)> {
+-        let width = self.last_layout_width.max(1);
+         let capacity = usize::from(self.last_layout_height.max(1));
+-        if capacity == 0 {
+-            return None;
+-        }
+-        let mut cached_total = 0usize;
+-        let mut heights: Vec<usize> = Vec::with_capacity(self.scrollback.len());
+-        for line in &self.scrollback {
+-            let height = line.display_lines(width).len().max(1);
+-            heights.push(height);
+-            cached_total = cached_total.saturating_add(height);
+-        }
+-        let streaming_len = self
+-            .streaming
+-            .as_ref()
+-            .map(|line| line.display_lines(width).len())
+-            .unwrap_or(0);
+-        let total = cached_total.saturating_add(streaming_len);
+-        if total == 0 {
++        if display_row >= capacity {
+             return None;
+         }
+-        let start = scrollbar::top_for_tail(total, capacity, self.view_scroll);
+-        let target = start.saturating_add(display_row);
+-        if target >= total || display_row >= capacity {
++        let target = self.viewport_top_row().saturating_add(display_row);
++        if target >= self.prep.total_rows() {
+             return None;
+         }
+-        if target >= cached_total {
+-            return None;
+-        }
+-        let mut consumed = 0usize;
+-        for (index, line) in self.scrollback.iter().enumerate() {
+-            let height = heights[index];
+-            if target < consumed.saturating_add(height) {
+-                let seq = line.seq_no();
+-                if seq == 0 {
+-                    return None;
+-                }
+-                return Some((seq, index));
+-            }
+-            consumed = consumed.saturating_add(height);
+-        }
+-        None
++        let (index, _) = self.message_at_display_row(target)?;
++        let seq = self.scrollback.get(index)?.seq_no();
++        (seq != 0).then_some((seq, index))
+     }
+ 
+     /// Tool hit for a sequence number: an expandable summary row only.
+@@ -252,116 +222,41 @@ impl InteractiveController {
+         }
+     }
+ 
+-    /// Text covered by a transcript drag between anchor and head cells
+-    /// (display rows plus in-row character columns). Joins partial edge
+-    /// rows with full middle rows; returns `None` when nothing readable
+-    /// is covered.
+-    pub(crate) fn transcript_text_in(
+-        &self,
+-        anchor_row: usize,
+-        anchor_col: usize,
+-        head_row: usize,
+-        head_col: usize,
+-    ) -> Option<String> {
+-        let (lo_row, hi_row) = if anchor_row <= head_row {
+-            (anchor_row, head_row)
+-        } else {
+-            (head_row, anchor_row)
+-        };
+-        let (lo_col, hi_col) = if anchor_row <= head_row {
+-            (anchor_col, head_col)
+-        } else {
+-            (head_col, anchor_col)
+-        };
+-        if lo_row == hi_row {
+-            let text = self.plain_text_for_display_row(lo_row)?;
+-            let (start, end) = if lo_col <= hi_col {
+-                (lo_col, hi_col)
+-            } else {
+-                (hi_col, lo_col)
+-            };
+-            let sliced = slice_row_chars(&text, start, end);
+-            return (!sliced.trim().is_empty()).then_some(sliced);
+-        }
+-        let mut parts = Vec::new();
+-        for row in lo_row..=hi_row {
+-            let text = self.plain_text_for_display_row(row)?;
+-            if row == lo_row {
+-                parts.push(slice_row_chars(&text, lo_col, usize::MAX));
+-            } else if row == hi_row {
+-                parts.push(slice_row_chars(&text, 0, hi_col));
+-            } else {
+-                parts.push(text);
+-            }
+-        }
+-        let joined = parts.join("\n");
+-        (!joined.trim().is_empty()).then_some(joined)
+-    }
+-
+-    /// Plain text of one visible display row for word selection. Returns
+-    /// `None` for streaming rows and outside rows.
++    /// Plain text of one visible display row for word selection. Reads the
++    /// prepared scrollback rows directly. Returns `None` for streaming rows
++    /// and outside rows.
+     pub(crate) fn plain_text_for_display_row(&self, display_row: usize) -> Option<String> {
+-        let width = self.last_layout_width.max(1);
+         let capacity = usize::from(self.last_layout_height.max(1));
+-        if capacity == 0 {
++        if display_row >= capacity {
+             return None;
+         }
+-        let mut cached: Vec<Vec<String>> = Vec::with_capacity(self.scrollback.len());
+-        let mut cached_total = 0usize;
+-        for line in &self.scrollback {
+-            let rows = line.display_lines(width);
+-            cached_total = cached_total.saturating_add(rows.len().max(1));
+-            cached.push(
+-                rows.iter()
+-                    .map(|row| {
+-                        row.spans
+-                            .iter()
+-                            .map(|span| span.content.as_ref())
+-                            .collect::<String>()
+-                    })
+-                    .collect(),
+-            );
+-        }
+-        let streaming_rows: Vec<String> = self
+-            .streaming
+-            .as_ref()
+-            .map(|line| {
+-                line.display_lines(width)
+-                    .iter()
+-                    .map(|row| {
+-                        row.spans
+-                            .iter()
+-                            .map(|span| span.content.as_ref())
+-                            .collect::<String>()
+-                    })
+-                    .collect()
+-            })
+-            .unwrap_or_default();
+-        let total = cached_total.saturating_add(streaming_rows.len());
+-        let start = scrollbar::top_for_tail(total, capacity, self.view_scroll);
+-        let target = start.saturating_add(display_row);
+-        if target >= total || display_row >= capacity || target >= cached_total {
++        let target = self.viewport_top_row().saturating_add(display_row);
++        if target >= self.prep.total_rows() {
+             return None;
+         }
+-        let mut consumed = 0usize;
+-        for rows in cached {
+-            if target < consumed.saturating_add(rows.len()) {
+-                return rows.get(target.saturating_sub(consumed)).cloned();
+-            }
+-            consumed = consumed.saturating_add(rows.len());
+-        }
+-        None
++        let row = self.prep.rows().get(target)?;
++        Some(
++            row.spans
++                .iter()
++                .map(|span| span.content.as_ref())
++                .collect::<String>(),
++        )
+     }
+ 
+     /// Full logical source text behind one visible display row for line
+     /// selection. Returns `None` for streaming rows and outside rows.
+     pub(crate) fn source_text_for_display_row(&self, display_row: usize) -> Option<String> {
+-        let (seq, _) = self.seq_at_display_row(display_row)?;
+-        self.scrollback
+-            .iter()
+-            .find(|row| row.seq_no() == seq)
+-            .map(|row| row.source_text())
+-            .filter(|text| !text.trim().is_empty())
++        let capacity = usize::from(self.last_layout_height.max(1));
++        if display_row >= capacity {
++            return None;
++        }
++        let target = self.viewport_top_row().saturating_add(display_row);
++        if target >= self.prep.total_rows() {
++            return None;
++        }
++        let (index, _) = self.message_at_display_row(target)?;
++        let text = self.scrollback.get(index)?.source_text();
++        (!text.trim().is_empty()).then_some(text)
+     }
+ }
+ 
+diff --git a/crates/app/cli/wf-tui/src/interactive/render.rs b/crates/app/cli/wf-tui/src/interactive/render.rs
+index 970937d..2d4ba46 100644
+--- a/crates/app/cli/wf-tui/src/interactive/render.rs
++++ b/crates/app/cli/wf-tui/src/interactive/render.rs
+@@ -509,14 +509,15 @@ impl InteractiveController {
+         }
+     }
+ 
+-    /// Paint the transcript drag selection as reversed cells over the
+-    /// scrollback viewport. Runs after the scrollback paragraph so it only
+-    /// restyles; middle rows cover the text width, edge rows are sliced by
+-    /// column. The gutter column never highlights.
++    /// Paint the transcript selection as reversed cells over the scrollback
++    /// viewport. Runs after the scrollback paragraph so it only restyles.
++    /// Cell ranges come from the logical selection geometry, so the paint
++    /// follows a rewrapped or scrolled viewport without re-deriving rows
++    /// here. The gutter column never highlights.
+     fn paint_transcript_selection(&self, frame: &mut Frame, area: Rect, show_bar: bool) {
+-        let Some(sel) = self.transcript_selection else {
++        if self.transcript_selection.is_none() {
+             return;
+-        };
++        }
+         if area.width == 0 || area.height == 0 {
+             return;
+         }
+@@ -525,40 +526,18 @@ impl InteractiveController {
+         if text_width == 0 {
+             return;
+         }
+-        let (lo_row, hi_row) = sel.row_span();
+-        let (lo_col, hi_col) = sel.edge_cols();
++        let right = area.x.saturating_add(text_width);
+         let buf = frame.buffer_mut();
+-        for row in lo_row..=hi_row {
+-            let y = area.y.saturating_add(row as u16);
+-            if y >= area.y.saturating_add(area.height) {
++        let style = Style::default().add_modifier(Modifier::REVERSED);
++        for (row, from, to) in self.transcript_highlight_cells(area) {
++            if row < area.y || row >= area.y.saturating_add(area.height) {
+                 continue;
+             }
+-            let (start, end) = if lo_row == hi_row {
+-                let (a, b) = if lo_col <= hi_col {
+-                    (lo_col, hi_col)
+-                } else {
+-                    (hi_col, lo_col)
+-                };
+-                (a, b)
+-            } else if row == lo_row {
+-                (lo_col, usize::MAX)
+-            } else if row == hi_row {
+-                (0, hi_col)
+-            } else {
+-                (0, usize::MAX)
+-            };
+-            let width_cells = usize::from(text_width);
+-            let start = start.min(width_cells);
+-            let end = end.min(width_cells);
+-            if start >= end {
++            let end = to.min(right);
++            if from >= end {
+                 continue;
+             }
+-            let x = area.x.saturating_add(start as u16);
+-            let w = (end - start) as u16;
+-            buf.set_style(
+-                Rect::new(x, y, w, 1),
+-                Style::default().add_modifier(Modifier::REVERSED),
+-            );
++            buf.set_style(Rect::new(from, row, end - from, 1), style);
+         }
+     }
+ 
+diff --git a/crates/app/cli/wf-tui/src/interactive/selection.rs b/crates/app/cli/wf-tui/src/interactive/selection.rs
+new file mode 100644
+index 0000000..7feb7b2
+--- /dev/null
++++ b/crates/app/cli/wf-tui/src/interactive/selection.rs
+@@ -0,0 +1,367 @@
++//! Logical transcript selection geometry.
++//!
++//! Selection state is stored in [`TextPos`] coordinates over the rendered
++//! plain projection of the committed scrollback. The projection is built per
++//! scrollback entry at an unbounded width, so soft wrapping never enters the
++//! coordinate system: scrolling only changes the viewport mapping and a
++//! resize only changes how a logical position maps back to a screen cell.
++//!
++//! Hit testing reads the prepared scrollback row index to find the entry
++//! under a viewport row; only that entry's geometry is materialised, so the
++//! cost follows the selected rows instead of the whole session.
++
++use std::sync::Arc;
++
++use ratatui::layout::Rect;
++use unicode_width::UnicodeWidthStr;
++
++use tui_components::scrollbar;
++use tui_core::panel_select::{ordered, Motion, PanelGeometry, PanelWrapMode, TextPos};
++
++use super::{InteractiveController, TranscriptSelection};
++
++impl InteractiveController {
++    /// Refresh the width-independent rendered plain projection of the
++    /// committed scrollback. Entries are re-rendered only when their identity
++    /// changes; offsets are rebuilt whenever the entry set grows or shrinks.
++    pub(crate) fn sync_transcript_layout(&mut self) {
++        let count = self.scrollback.len();
++        let mut changed = self.logical_rows.len() != count;
++        if self.logical_rows.len() > count {
++            self.logical_rows.truncate(count);
++        }
++        for index in 0..count {
++            let identity = self.scrollback[index].identity();
++            let stale = match self.logical_rows.get(index) {
++                Some((cached, _)) => *cached != identity,
++                None => true,
++            };
++            if stale {
++                let rows = Arc::new(self.scrollback[index].logical_plain_lines());
++                let entry = (identity, rows);
++                if index < self.logical_rows.len() {
++                    self.logical_rows[index] = entry;
++                } else {
++                    self.logical_rows.push(entry);
++                }
++                changed = true;
++            }
++        }
++        if !changed && self.logical_offsets.len() == count {
++            return;
++        }
++        self.logical_offsets.clear();
++        let mut offset = 0usize;
++        for (_, rows) in &self.logical_rows {
++            self.logical_offsets.push(offset);
++            offset = offset.saturating_add(rows.len());
++        }
++        self.logical_total = offset;
++    }
++
++    /// Geometry for one scrollback entry's logical rows at the current text
++    /// width.
++    pub(crate) fn message_geometry(&self, message: usize) -> Option<PanelGeometry> {
++        let (_, rows) = self.logical_rows.get(message)?;
++        let width = usize::from(self.last_layout_width.max(1));
++        let widths: Vec<usize> = rows.iter().map(|row| row.as_str().width()).collect();
++        Some(PanelGeometry::new(
++            widths,
++            width,
++            PanelWrapMode::Wrap,
++            false,
++        ))
++    }
++
++    /// Geometry across every entry's logical rows, used by keyboard motion
++    /// and whole-panel selection. Only widths are collected, never text.
++    pub(crate) fn transcript_geometry(&self) -> Option<PanelGeometry> {
++        if self.logical_rows.is_empty() {
++            return None;
++        }
++        let mut widths = Vec::with_capacity(self.logical_total);
++        for (_, rows) in &self.logical_rows {
++            widths.extend(rows.iter().map(|row| row.as_str().width()));
++        }
++        Some(PanelGeometry::new(
++            widths,
++            usize::from(self.last_layout_width.max(1)),
++            PanelWrapMode::Wrap,
++            false,
++        ))
++    }
++
++    /// First display row of the viewport in the flat display-row space.
++    pub(super) fn viewport_top_row(&self) -> usize {
++        let width = self.last_layout_width.max(1);
++        let streaming_rows = self
++            .streaming
++            .as_ref()
++            .map(|line| line.display_lines(width).len())
++            .unwrap_or(0);
++        let capacity = usize::from(self.last_layout_height.max(1));
++        let total = self.prep.total_rows().saturating_add(streaming_rows);
++        scrollbar::top_for_tail(
++            total,
++            capacity,
++            self.view_scroll.saturating_add(self.tail_lag),
++        )
++    }
++
++    /// Committed scrollback entry owning a flat display row.
++    pub(crate) fn message_at_display_row(&self, target: usize) -> Option<(usize, usize)> {
++        let ranges = self.prep.index();
++        let upper = ranges.partition_point(|range| range.start <= target);
++        if upper == 0 {
++            return None;
++        }
++        let index = upper - 1;
++        let range = ranges[index];
++        if index >= self.scrollback.len() || target >= range.start.saturating_add(range.len) {
++            return None;
++        }
++        Some((index, target.saturating_sub(range.start)))
++    }
++
++    /// Logical position for a viewport-relative row and display column.
++    /// Streaming rows and rows outside the viewport return `None`.
++    pub(crate) fn transcript_pos_at_display_row(
++        &self,
++        display_row: usize,
++        col: usize,
++    ) -> Option<TextPos> {
++        let capacity = usize::from(self.last_layout_height.max(1));
++        if capacity == 0 || display_row >= capacity {
++            return None;
++        }
++        let target = self.viewport_top_row().saturating_add(display_row);
++        if target >= self.prep.total_rows() {
++            return None;
++        }
++        let (message, row_in_message) = self.message_at_display_row(target)?;
++        let geometry = self.message_geometry(message)?;
++        let last_row = geometry.total_rows().saturating_sub(1);
++        let local = geometry.row_col_to_textpos(row_in_message.min(last_row), col);
++        let base = self.logical_offsets.get(message).copied()?;
++        Some(TextPos::new(base.saturating_add(local.line), local.col))
++    }
++
++    /// Whether transcript selection keys should take precedence over the
++    /// active footer view. Only the prompt view competes for them (search
++    /// mode keeps its own navigation, approval and question views keep
++    /// their own keys).
++    pub(crate) fn transcript_selection_keys_active(&self) -> bool {
++        self.footer.view == crate::footer::FooterView::Prompt
++            && !self.footer.composer.search_active()
++    }
++
++    /// Visible wrapped rows, used as one keyboard page step.
++    pub(crate) fn transcript_page_rows(&self) -> u16 {
++        self.last_layout_height.saturating_sub(1).max(1)
++    }
++
++    /// Select every committed rendered character.
++    pub fn select_all_transcript(&mut self) -> bool {
++        let Some((anchor, head)) = self.transcript_geometry().and_then(|g| g.select_all()) else {
++            return false;
++        };
++        self.transcript_regions.clear();
++        self.transcript_selection = Some(TranscriptSelection { anchor, head });
++        self.ensure_transcript_head_visible(head);
++        true
++    }
++
++    /// Extend the active selection by one keyboard motion. Starting from no
++    /// selection anchors at the bottom visible row first.
++    pub(crate) fn extend_transcript_selection(&mut self, motion: Motion) -> bool {
++        let Some(area) = self.last_scroll_area else {
++            return false;
++        };
++        let previous = match self.transcript_selection {
++            Some(selection) => selection,
++            None => {
++                let row = usize::from(area.height.saturating_sub(1));
++                let Some(pos) = self.transcript_pos_at_display_row(row, 0) else {
++                    return false;
++                };
++                TranscriptSelection {
++                    anchor: pos,
++                    head: pos,
++                }
++            }
++        };
++        let Some(geometry) = self.transcript_geometry() else {
++            return false;
++        };
++        let head = geometry.move_pos(previous.head, motion);
++        if head == previous.head && self.transcript_selection.is_some() {
++            return false;
++        }
++        self.transcript_selection = Some(TranscriptSelection {
++            anchor: previous.anchor,
++            head,
++        });
++        self.ensure_transcript_head_visible(head);
++        true
++    }
++
++    /// Scroll the viewport just enough to show the logical head row.
++    fn ensure_transcript_head_visible(&mut self, head: TextPos) {
++        let upper = self
++            .logical_offsets
++            .partition_point(|base| *base <= head.line);
++        if upper == 0 {
++            return;
++        }
++        let message = upper - 1;
++        let base = self.logical_offsets[message];
++        let Some(geometry) = self.message_geometry(message) else {
++            return;
++        };
++        let local = TextPos::new(head.line.saturating_sub(base), head.col);
++        let (local_row, _) = geometry.textpos_to_row_col(local);
++        let head_row = self
++            .prep
++            .source_row_start(message)
++            .unwrap_or(0)
++            .saturating_add(local_row);
++        let capacity = usize::from(self.last_layout_height.max(1));
++        let total = self.prep.total_rows();
++        if capacity == 0 || total == 0 {
++            return;
++        }
++        let max_scroll = total.saturating_sub(capacity);
++        let top = scrollbar::top_for_tail(
++            total,
++            capacity,
++            self.view_scroll.saturating_add(self.tail_lag),
++        );
++        if head_row < top {
++            self.tail_lag = 0;
++            self.view_scroll = max_scroll.saturating_sub(head_row);
++            self.soft_invalidate();
++        } else if head_row >= top.saturating_add(capacity) {
++            let desired = head_row.saturating_add(1).saturating_sub(capacity);
++            self.tail_lag = 0;
++            self.view_scroll = max_scroll.saturating_sub(desired.min(max_scroll));
++            self.soft_invalidate();
++        }
++    }
++
++    /// Extracted text of the selection over the rendered plain projection.
++    /// Entries are joined in document order; whitespace-only results yield
++    /// nothing.
++    pub(crate) fn selected_transcript_text(
++        &self,
++        selection: TranscriptSelection,
++    ) -> Option<String> {
++        let (start, end) = ordered(selection.anchor, selection.head);
++        let mut parts = Vec::new();
++        for message in 0..self.logical_rows.len() {
++            let Some(base) = self.logical_offsets.get(message).copied() else {
++                break;
++            };
++            let rows = &self.logical_rows[message].1;
++            if rows.is_empty() {
++                continue;
++            }
++            let last_line = rows.len() - 1;
++            let message_end = base.saturating_add(last_line);
++            if end.line < base || start.line > message_end {
++                continue;
++            }
++            let local_start = if start.line <= base {
++                TextPos::new(0, if start.line < base { 0 } else { start.col })
++            } else {
++                TextPos::new(start.line - base, start.col)
++            };
++            let local_end = if end.line > message_end {
++                let width = rows[last_line].as_str().width();
++                TextPos::new(last_line, width)
++            } else {
++                TextPos::new(end.line - base, end.col)
++            };
++            let Some(geometry) = self.message_geometry(message) else {
++                continue;
++            };
++            if let Some(text) = geometry.extract_text(local_start, local_end, rows, None) {
++                parts.push(text);
++            }
++        }
++        let joined = parts.join("\n");
++        (!joined.trim().is_empty()).then_some(joined)
++    }
++
++    /// Highlight cells for every selection range in absolute terminal
++    /// coordinates. Only entries intersecting the visible window are scanned.
++    pub(crate) fn transcript_highlight_cells(&self, area: Rect) -> Vec<(u16, u16, u16)> {
++        if area.width == 0 || area.height == 0 {
++            return Vec::new();
++        }
++        let mut cells = Vec::new();
++        for selection in self
++            .transcript_regions
++            .iter()
++            .copied()
++            .chain(self.transcript_selection)
++        {
++            self.highlight_transcript_range(area, selection, &mut cells);
++        }
++        cells
++    }
++
++    /// Append one range's visible highlight cells.
++    fn highlight_transcript_range(
++        &self,
++        area: Rect,
++        selection: TranscriptSelection,
++        cells: &mut Vec<(u16, u16, u16)>,
++    ) {
++        let (start, end) = ordered(selection.anchor, selection.head);
++        let top = self.viewport_top_row();
++        let capacity = usize::from(area.height);
++        for message in 0..self.logical_rows.len() {
++            let Some(base) = self.logical_offsets.get(message).copied() else {
++                break;
++            };
++            let rows = &self.logical_rows[message].1;
++            if rows.is_empty() {
++                continue;
++            }
++            let message_end = base.saturating_add(rows.len() - 1);
++            if end.line < base || start.line > message_end {
++                continue;
++            }
++            let Some(range) = self.prep.index().get(message).copied() else {
++                continue;
++            };
++            let Some(geometry) = self.message_geometry(message) else {
++                continue;
++            };
++            let display_end = range.start.saturating_add(geometry.total_rows());
++            let visible_start = range.start.max(top);
++            let visible_end = display_end.min(top.saturating_add(capacity));
++            if visible_start >= visible_end {
++                continue;
++            }
++            let local_start = if start.line <= base {
++                TextPos::new(0, if start.line < base { 0 } else { start.col })
++            } else {
++                TextPos::new(start.line - base, start.col)
++            };
++            let local_end = if end.line > message_end {
++                TextPos::new(rows.len() - 1, rows[rows.len() - 1].as_str().width())
++            } else {
++                TextPos::new(end.line - base, end.col)
++            };
++            let local_area = Rect::new(
++                area.x,
++                area.y.saturating_add((visible_start - top) as u16),
++                area.width,
++                (visible_end - visible_start) as u16,
++            );
++            let scroll = (visible_start - range.start) as u16;
++            cells.extend(geometry.highlight_cells(local_start, local_end, local_area, scroll));
++        }
++    }
++}
+diff --git a/crates/app/cli/wf-tui/src/lib.rs b/crates/app/cli/wf-tui/src/lib.rs
+index 7fd73ab..419f562 100644
+--- a/crates/app/cli/wf-tui/src/lib.rs
++++ b/crates/app/cli/wf-tui/src/lib.rs
+@@ -22,15 +22,13 @@ pub use tui_components::{
+     prompt_modal, question_overlay, queue, select, tab_bar, transcript,
+ };
+ pub use tui_core::{
+-    anchor, copy, event_dispatch, events, frame_metrics, framer, keymap, panel_select, perf,
+-    plugin, prep_keys, redraw, reducer, render_model, renderable, screen_data, status_line,
+-    stream_pacer, tail, tool_output, width,
++    anchor, copy, event_dispatch, events, frame_metrics, framer, keymap, panel_select, panel_wrap,
++    perf, plugin, prep_keys, redraw, reducer, render_model, renderable, screen_data,
++    selectable_panel, status_line, stream_pacer, tail, tool_output, width,
+ };
+ pub use tui_debug::tui_debug;
+ pub use tui_markdown::markdown;
+-pub use tui_render::{
+-    ansi, deferred, image_raster, layout, panel_wrap, post_process, prep_cache, screen_draw,
+-};
++pub use tui_render::{ansi, deferred, image_raster, layout, post_process, prep_cache, screen_draw};
+ pub use tui_style::{anim_core, animation, motion, theme, theme_mode};
+ pub use tui_terminal::{
+     capabilities, clipboard, editor, image_emit, liveness, probe, sigint, stderr, terminal,
+diff --git a/crates/app/cli/wf-tui/src/tui.rs b/crates/app/cli/wf-tui/src/tui.rs
+index 3c7dd8e..f346721 100644
+--- a/crates/app/cli/wf-tui/src/tui.rs
++++ b/crates/app/cli/wf-tui/src/tui.rs
+@@ -935,19 +935,22 @@ impl TuiApp {
+                 );
+             }
+             OverlayMode::History => {
+-                let mut view = self.history.view();
+-                let (at_top, badge) = crate::screen_draw::draw_transcript_overlay(
++                let (mut view, panel) = self.history.split();
++                let layout = crate::screen_draw::draw_transcript_overlay(
+                     frame,
+                     area,
+                     &mut view,
++                    Some(panel),
+                     &self.theme,
+                 );
+-                self.history.set_viewport(view.scroll, at_top);
++                let scroll = view.scroll;
++                self.history.set_viewport(scroll, layout.at_top);
++                self.history.set_layout(layout.content, layout.top_row);
+                 if scope == crate::redraw::RedrawScope::Full
+                     || scope == crate::redraw::RedrawScope::BottomOnly
+                 {
+                     self.history_hit_generation = self.history_hit_generation.wrapping_add(1);
+-                    self.history_badge = badge;
++                    self.history_badge = layout.badge;
+                 }
+             }
+             OverlayMode::SearchPalette => {
+diff --git a/crates/app/cli/wf-tui/src/tui/clipboard.rs b/crates/app/cli/wf-tui/src/tui/clipboard.rs
+index 2a0618d..b2b34b2 100644
+--- a/crates/app/cli/wf-tui/src/tui/clipboard.rs
++++ b/crates/app/cli/wf-tui/src/tui/clipboard.rs
+@@ -105,17 +105,18 @@ impl TuiApp {
+         self.queue_selection_copy(text)
+     }
+ 
+-    /// Copy the transcript range between anchor and head cells.
+-    pub(super) fn copy_transcript_range(
++    /// Copy the logical transcript selection between its anchor and head,
++    /// combined with any earlier Alt+Click regions. The ranges are cleared
++    /// only after the payload is resolved.
++    pub(super) fn copy_transcript_selection(
+         &mut self,
+-        anchor_row: usize,
+-        anchor_col: usize,
+-        head_row: usize,
+-        head_col: usize,
++        selection: crate::interactive::TranscriptSelection,
+     ) -> bool {
+-        let Some(text) = self.sessions.active().and_then(|session| {
+-            session.transcript_text_in(anchor_row, anchor_col, head_row, head_col)
+-        }) else {
++        let Some(text) = self
++            .sessions
++            .active_mut()
++            .and_then(|session| session.take_transcript_selection_text(Some(selection)))
++        else {
+             return false;
+         };
+         self.queue_selection_copy(text)
+@@ -147,7 +148,7 @@ impl TuiApp {
+ 
+     /// Queue one sanitized selection payload for the post-frame flush.
+     /// Denials surface as a notice; an empty sanitized result copies nothing.
+-    fn queue_selection_copy(&mut self, text: String) -> bool {
++    pub(super) fn queue_selection_copy(&mut self, text: String) -> bool {
+         if !self.copy_policy.allowed {
+             self.app
+                 .notice
+diff --git a/crates/app/cli/wf-tui/src/tui/key_routes.rs b/crates/app/cli/wf-tui/src/tui/key_routes.rs
+index 4e1e343..6ccfcec 100644
+--- a/crates/app/cli/wf-tui/src/tui/key_routes.rs
++++ b/crates/app/cli/wf-tui/src/tui/key_routes.rs
+@@ -12,6 +12,7 @@ use super::input_classify::next_filter;
+ use super::signals::SUSPEND_PENDING;
+ use super::{TuiApp, DASHBOARD_ENTRIES};
+ use tui_core::keymap::{KeyAction as TabKeyAction, KeymapContext};
++use tui_core::panel_select::Motion;
+ use tui_core::screen_data::screen_for_digit;
+ 
+ impl TuiApp {
+@@ -623,6 +624,11 @@ impl TuiApp {
+         if self.overlay == OverlayMode::SessionList {
+             return self.handle_session_list_key(key).await;
+         }
++        if self.overlay == OverlayMode::History {
++            if let Some(action) = self.handle_history_selection_key(key) {
++                return Ok(action);
++            }
++        }
+         match key.code {
+             CKey::Esc | CKey::Char('q') if !key.ctrl => {
+                 self.overlay = OverlayMode::None;
+@@ -701,6 +707,48 @@ impl TuiApp {
+         Ok(LoopAction::Continue)
+     }
+ 
++    /// History pager selection keys: Ctrl+A selects every loaded row,
++    /// Shift+motion extends the logical cursor, Ctrl+Y copies the selection
++    /// and Esc clears it before the overlay close key runs.
++    fn handle_history_selection_key(&mut self, key: Key) -> Option<LoopAction> {
++        if key.ctrl && !key.alt && matches!(key.code, CKey::Char('y') | CKey::Char('Y')) {
++            match self.history.selection_text() {
++                Some(text) => {
++                    self.queue_selection_copy(text);
++                }
++                None => self.app.notice.set("copy: no selection".to_string()),
++            }
++            self.pending_scope.request(crate::redraw::RedrawScope::Full);
++            return Some(LoopAction::Continue);
++        }
++        if key.ctrl && !key.alt && key.code == CKey::Char('a') {
++            self.history.select_all();
++            self.pending_scope.request(crate::redraw::RedrawScope::Full);
++            return Some(LoopAction::Continue);
++        }
++        if key.code == CKey::Esc && self.history.has_selection() {
++            self.history.clear_selection();
++            self.pending_scope.request(crate::redraw::RedrawScope::Full);
++            return Some(LoopAction::Continue);
++        }
++        if key.shift && !key.ctrl && !key.alt {
++            let motion = match key.code {
++                CKey::Left => Some(Motion::Left),
++                CKey::Right => Some(Motion::Right),
++                CKey::Up => Some(Motion::Up),
++                CKey::Down => Some(Motion::Down),
++                CKey::Home => Some(Motion::LineStart),
++                CKey::End => Some(Motion::LineEnd),
++                _ => None,
++            }?;
++            if self.history.extend_motion(motion) {
++                self.pending_scope.request(crate::redraw::RedrawScope::Full);
++            }
++            return Some(LoopAction::Continue);
++        }
++        None
++    }
++
+     fn handle_search_palette_key(&mut self, key: Key) -> LoopAction {
+         match key.code {
+             CKey::Esc => {
+diff --git a/crates/app/cli/wf-tui/src/tui/mouse.rs b/crates/app/cli/wf-tui/src/tui/mouse.rs
+index f4c8a11..f094fd2 100644
+--- a/crates/app/cli/wf-tui/src/tui/mouse.rs
++++ b/crates/app/cli/wf-tui/src/tui/mouse.rs
+@@ -1,8 +1,12 @@
+ //! Mouse event handling for the TUI shell: wheel scrolling, click matching,
+ //! gutter drags, transcript selection and composer clicks.
+ 
+-use crossterm::event::{MouseEvent, MouseEventKind};
++use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+ 
++use tui_core::panel_select::TextPos;
++
++use crate::interactive::TranscriptSelection;
++use crate::modal::{ModalMouse, ModalMouseKind};
+ use crate::overlay::OverlayMode;
+ use crate::screens::ScreenKind;
+ 
+@@ -27,15 +31,38 @@ pub(super) struct MousePress {
+     /// Composer prompt viewport press: releases place the cursor instead
+     /// of touching scrollback hits.
+     in_composer: bool,
+-    /// Content anchor for transcript drag selection: display row plus
+-    /// in-row display column at press time. `None` for gutter, badge,
+-    /// composer and history presses.
+-    transcript_anchor: Option<(usize, usize)>,
++    /// Content anchor for transcript drag selection: logical text position at
++    /// press time. `None` for gutter, badge, composer and history presses.
++    transcript_anchor: Option<TextPos>,
++    /// Press landed inside the history pager text area and armed a drag
++    /// selection there.
++    history_anchor: bool,
++    /// Alt press: keep the existing transcript regions and add another one
++    /// instead of replacing the selection.
++    transcript_add: bool,
+     /// Right-button press: only a same-cell release copies the line, any
+     /// drag stays native and never lands.
+     is_right: bool,
+ }
+ 
++/// Map a terminal mouse event to the backend-free gesture a modal handles.
++/// Only the left button takes part: right and middle presses stay inert so
++/// native terminal menus keep working. Alt plus a press asks the modal to
++/// keep its existing region and start another one.
++fn modal_mouse_kind(mouse: MouseEvent) -> Option<ModalMouseKind> {
++    match mouse.kind {
++        MouseEventKind::Down(MouseButton::Left) if mouse.modifiers.contains(KeyModifiers::ALT) => {
++            Some(ModalMouseKind::PressAdd)
++        }
++        MouseEventKind::Down(MouseButton::Left) => Some(ModalMouseKind::Press),
++        MouseEventKind::Drag(MouseButton::Left) => Some(ModalMouseKind::Drag),
++        MouseEventKind::Up(MouseButton::Left) => Some(ModalMouseKind::Release),
++        MouseEventKind::ScrollUp => Some(ModalMouseKind::ScrollUp),
++        MouseEventKind::ScrollDown => Some(ModalMouseKind::ScrollDown),
++        _ => None,
++    }
++}
++
+ impl TuiApp {
+     /// Handle a non-move mouse event. Motion is filtered by the caller.
+     /// Wheel scrolls the scrollback on the session screen (reusing the
+@@ -50,13 +77,17 @@ impl TuiApp {
+         if mouse_bypasses_capture(mouse.modifiers) {
+             return MouseOutcome::Ignored;
+         }
++        // An open modal owns the pointer: wheel and button events go to the
++        // top modal instead of the screen below it.
++        if !self.modals.is_empty() {
++            return self.handle_modal_mouse(mouse);
++        }
+         match classify_mouse(mouse.kind) {
+             MouseAction::ScrollUp => {
+                 self.mouse_press = None;
+                 self.clear_click_chain();
+                 self.clear_mouse_hover();
+                 if let Some(session) = self.sessions.active_mut() {
+-                    session.clear_transcript_selection();
+                     session.end_gutter_drag();
+                 }
+                 self.scroll_by_wheel(true);
+@@ -67,7 +98,6 @@ impl TuiApp {
+                 self.clear_click_chain();
+                 self.clear_mouse_hover();
+                 if let Some(session) = self.sessions.active_mut() {
+-                    session.clear_transcript_selection();
+                     session.end_gutter_drag();
+                 }
+                 self.scroll_by_wheel(false);
+@@ -83,6 +113,26 @@ impl TuiApp {
+         }
+     }
+ 
++    /// Route one gesture to the top modal. A modal that reports changed
++    /// content or produced selection text requests a frame; text goes through
++    /// the same sanitized clipboard queue as the keyboard copy paths.
++    fn handle_modal_mouse(&mut self, mouse: MouseEvent) -> MouseOutcome {
++        if !self.perf_policy.enable_mouse_capture {
++            return MouseOutcome::Ignored;
++        }
++        let Some(kind) = modal_mouse_kind(mouse) else {
++            return MouseOutcome::Ignored;
++        };
++        match self.modals.handle_mouse(kind, mouse.column, mouse.row) {
++            ModalMouse::Ignored => MouseOutcome::Ignored,
++            ModalMouse::Changed => MouseOutcome::Clicked,
++            ModalMouse::Copy(text) => {
++                self.queue_selection_copy(text);
++                MouseOutcome::Clicked
++            }
++        }
++    }
++
+     /// Whether all mouse hits are suppressed by a covering layer.
+     fn mouse_layer_suppressed(&self) -> bool {
+         if !self.modals.is_empty() {
+@@ -218,9 +268,15 @@ impl TuiApp {
+                 return true;
+             }
+         }
+-        // A fresh press drops any previous drag selection.
++        // A fresh press drops any previous drag selection; Alt+Click keeps
++        // the committed regions so several disjoint ranges can be copied.
++        let transcript_add = !is_right && mouse.modifiers.contains(KeyModifiers::ALT);
+         if let Some(session) = self.sessions.active_mut() {
+-            session.clear_transcript_selection();
++            if transcript_add {
++                session.begin_additive_transcript_selection();
++            } else {
++                session.clear_transcript_selection();
++            }
+         }
+         let in_history = self.overlay == OverlayMode::History;
+         if !in_history && self.app.screen.navigation.current_kind() != ScreenKind::Interactive {
+@@ -263,6 +319,8 @@ impl TuiApp {
+                     gutter_thumb: false,
+                     in_composer: true,
+                     transcript_anchor: None,
++                    history_anchor: false,
++                    transcript_add: false,
+                     is_right,
+                 });
+                 self.clear_mouse_hover();
+@@ -295,6 +353,14 @@ impl TuiApp {
+                 session.begin_gutter_drag();
+             }
+         }
++        // A fresh left press in the history pager arms a drag selection; any
++        // previous region is dropped so each press starts a new range.
++        let history_anchor = if in_history && !is_right {
++            self.history.clear_selection();
++            self.history.begin_selection(mouse.column, mouse.row)
++        } else {
++            false
++        };
+         self.mouse_press = Some(MousePress {
+             col: mouse.column,
+             row: mouse.row,
+@@ -309,6 +375,8 @@ impl TuiApp {
+             } else {
+                 self.content_anchor_for(mouse)
+             },
++            history_anchor,
++            transcript_add,
+             is_right,
+         });
+         self.clear_mouse_hover();
+@@ -404,6 +472,14 @@ impl TuiApp {
+             return false;
+         }
+         if in_history {
++            // A drag selection only depends on logical positions, so a
++            // redraw between press and release never invalidates it.
++            if press.history_anchor {
++                return match self.history.finish_selection() {
++                    Some(text) => self.queue_selection_copy(text),
++                    None => false,
++                };
++            }
+             if press.history_gen != self.history_hit_generation {
+                 return false;
+             }
+@@ -468,7 +544,7 @@ impl TuiApp {
+             // A content drag release lands a transcript selection copy when
+             // the pair shares the snapshot generation; cross-generation
+             // pairs are stale drags and never copy.
+-            if let Some((anchor_row, anchor_col)) = press.transcript_anchor {
++            if let Some(anchor) = press.transcript_anchor {
+                 if press.session_gen != session_gen {
+                     if let Some(session) = self.sessions.active_mut() {
+                         session.clear_transcript_selection();
+@@ -476,22 +552,30 @@ impl TuiApp {
+                     return false;
+                 }
+                 let head = self.content_anchor_for(mouse);
+-                if let Some(session) = self.sessions.active_mut() {
+-                    session.clear_transcript_selection();
+-                }
+-                let Some((head_row, head_col)) = head else {
++                let Some(head) = head else {
++                    if let Some(session) = self.sessions.active_mut() {
++                        session.clear_transcript_selection();
++                    }
+                     return false;
+                 };
+-                if anchor_row == head_row && anchor_col == head_col {
++                if anchor == head {
++                    if let Some(session) = self.sessions.active_mut() {
++                        session.clear_transcript_selection();
++                    }
+                     return false;
+                 }
+-                return self.copy_transcript_range(anchor_row, anchor_col, head_row, head_col);
++                return self.copy_transcript_selection(TranscriptSelection { anchor, head });
+             }
+             return false;
+         }
+         if press.session_gen != session_gen {
+             return false;
+         }
++        // An Alt press without a drag adds nothing; keep the committed
++        // regions and run no click action on that cell.
++        if press.transcript_add {
++            return false;
++        }
+         if let Some(session) = self.sessions.active_mut() {
+             session.clear_transcript_selection();
+         }
+@@ -549,16 +633,14 @@ impl TuiApp {
+         false
+     }
+ 
+-    /// Anchor for transcript drag selection: display row plus in-row
+-    /// display column for a press cell. `None` outside the content area.
+-    fn content_anchor_for(&self, mouse: MouseEvent) -> Option<(usize, usize)> {
++    /// Anchor for transcript drag selection: logical text position for a
++    /// press cell. `None` outside the content area.
++    fn content_anchor_for(&self, mouse: MouseEvent) -> Option<TextPos> {
++        let session = self.sessions.active()?;
++        let area = session.last_scroll_area()?;
+         let display_row = self.mouse_content_row(mouse)?;
+-        let display_col = self
+-            .sessions
+-            .active()
+-            .and_then(|session| session.last_scroll_area())
+-            .map(|area| mouse.column.saturating_sub(area.x) as usize)?;
+-        Some((display_row, display_col))
++        let display_col = mouse.column.saturating_sub(area.x) as usize;
++        session.transcript_pos_at_display_row(display_row, display_col)
+     }
+ 
+     /// Translate a release cell into a scrollback display row. Returns
+@@ -614,7 +696,15 @@ impl TuiApp {
+             return false;
+         }
+         let in_history = self.overlay == OverlayMode::History;
+-        if press.in_history != in_history || in_history {
++        if press.in_history != in_history {
++            self.mouse_press = None;
++            return false;
++        }
++        if in_history {
++            if press.history_anchor {
++                self.history.extend_selection(mouse.column, mouse.row);
++                return true;
++            }
+             self.mouse_press = None;
+             return false;
+         }
+@@ -635,7 +725,7 @@ impl TuiApp {
+         // Content drag with an anchor tracks a transcript selection for
+         // highlight and release copy. The press stays armed so the release
+         // can land the selection; any drag still breaks multi-click.
+-        if let Some((anchor_row, anchor_col)) = press.transcript_anchor {
++        if let Some(anchor) = press.transcript_anchor {
+             if press.in_gutter || press.in_composer {
+                 self.mouse_press = None;
+                 if let Some(session) = self.sessions.active_mut() {
+@@ -643,7 +733,7 @@ impl TuiApp {
+                 }
+                 return false;
+             }
+-            let Some((head_row, head_col)) = self.content_anchor_for(mouse) else {
++            let Some(head) = self.content_anchor_for(mouse) else {
+                 // Drag head left the viewport vertically: arm auto-scroll,
+                 // tick one viewport notch and keep the press armed so the
+                 // release still lands the grown selection. Horizontal
+@@ -656,16 +746,10 @@ impl TuiApp {
+                 if let Some(direction) = outside {
+                     if let Some(session) = self.sessions.active_mut() {
+                         if session.transcript_selection().is_none() {
+-                            if let Some((anchor_row, anchor_col)) = press.transcript_anchor {
+-                                session.set_transcript_selection(
+-                                    crate::interactive::TranscriptSelection {
+-                                        anchor_row,
+-                                        anchor_col,
+-                                        head_row: anchor_row,
+-                                        head_col: anchor_col,
+-                                    },
+-                                );
+-                            }
++                            session.set_transcript_selection(TranscriptSelection {
++                                anchor,
++                                head: anchor,
++                            });
+                         }
+                         session.start_transcript_autoscroll(direction);
+                         session.tick_transcript_autoscroll();
+@@ -680,12 +764,7 @@ impl TuiApp {
+                 return false;
+             };
+             if let Some(session) = self.sessions.active_mut() {
+-                session.set_transcript_selection(crate::interactive::TranscriptSelection {
+-                    anchor_row,
+-                    anchor_col,
+-                    head_row,
+-                    head_col,
+-                });
++                session.set_transcript_selection(TranscriptSelection { anchor, head });
+             }
+             return true;
+         }
+diff --git a/crates/app/tui/tui-components/src/confirm_modal.rs b/crates/app/tui/tui-components/src/confirm_modal.rs
+index ec24efc..ed52a9a 100644
+--- a/crates/app/tui/tui-components/src/confirm_modal.rs
++++ b/crates/app/tui/tui-components/src/confirm_modal.rs
+@@ -33,7 +33,7 @@ impl Modal for ConfirmModal {
+         &self.title
+     }
+ 
+-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
++    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+         let block = Block::default()
+             .title(self.title.clone())
+             .borders(Borders::ALL)
+diff --git a/crates/app/tui/tui-components/src/file_selection.rs b/crates/app/tui/tui-components/src/file_selection.rs
+index 87f8350..141929c 100644
+--- a/crates/app/tui/tui-components/src/file_selection.rs
++++ b/crates/app/tui/tui-components/src/file_selection.rs
+@@ -97,7 +97,7 @@ impl Modal for FileSelectionDialog {
+         &self.title
+     }
+ 
+-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
++    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+         let outer = Block::default()
+             .title(format!(" {} ", self.title))
+             .borders(Borders::ALL)
+diff --git a/crates/app/tui/tui-components/src/file_viewer.rs b/crates/app/tui/tui-components/src/file_viewer.rs
+index bc123e6..243b0d8 100644
+--- a/crates/app/tui/tui-components/src/file_viewer.rs
++++ b/crates/app/tui/tui-components/src/file_viewer.rs
+@@ -5,19 +5,108 @@ use ratatui::style::{Color, Style};
+ use ratatui::text::{Line, Span};
+ use ratatui::Frame;
+ 
+-use crate::modal::{area_rows, render_viewer, scroll_key, Modal, ModalAction, ModalResult, Scroll};
++use crate::modal::{
++    area_rows, render_viewer, scroll_key, Modal, ModalAction, ModalMouse, ModalMouseKind,
++    ModalResult, Scroll,
++};
++use crate::scrollbar;
+ use tui_core::keymap::{CKey, Key};
++use tui_core::panel_select::PanelWrapMode;
++use tui_core::selectable_panel::SelectablePanel;
+ use tui_style::theme::Theme;
+ 
+ fn to_color(rgb: tui_style::theme::Rgb) -> Color {
+     Color::Rgb(rgb.r, rgb.g, rgb.b)
+ }
+ 
++/// Hint line shared by both read-only viewers.
++const VIEWER_HINT: &str =
++    "drag select · Alt+click add · j/k scroll · PgUp/PgDn page · q close · Ctrl+Y copy";
++
++/// Shared mouse routing for a read-only viewer: the selection lives inside
++/// the panel at logical coordinates, so scrolling never moves it.
++fn viewer_mouse(
++    panel: &mut SelectablePanel,
++    content: Rect,
++    scroll: &mut Scroll,
++    add_mode: &mut bool,
++    kind: ModalMouseKind,
++    col: u16,
++    row: u16,
++) -> ModalMouse {
++    if content.width == 0 || content.height == 0 {
++        return ModalMouse::Ignored;
++    }
++    let inside = col >= content.x
++        && col < content.x.saturating_add(content.width)
++        && row >= content.y
++        && row < content.y.saturating_add(content.height);
++    let view = usize::from(content.height.max(1));
++    let total = panel.total_rows();
++    let top = scrollbar::clamp_top(scroll.offset(), total, view) as u16;
++    match kind {
++        ModalMouseKind::Press => {
++            if !inside {
++                return ModalMouse::Ignored;
++            }
++            *add_mode = false;
++            if panel.begin((col, row), content, top) {
++                ModalMouse::Changed
++            } else {
++                ModalMouse::Ignored
++            }
++        }
++        ModalMouseKind::PressAdd => {
++            if !inside {
++                return ModalMouse::Ignored;
++            }
++            *add_mode = true;
++            if panel.begin_region((col, row), content, top) {
++                ModalMouse::Changed
++            } else {
++                ModalMouse::Ignored
++            }
++        }
++        ModalMouseKind::Drag => {
++            if panel.extend((col, row), content, top) {
++                ModalMouse::Changed
++            } else {
++                ModalMouse::Ignored
++            }
++        }
++        ModalMouseKind::Release => {
++            // An add region is frozen without copying: the user is still
++            // building the set and copies it with the copy key.
++            if *add_mode {
++                *add_mode = false;
++                panel.commit();
++                return ModalMouse::Changed;
++            }
++            let text = panel.selected_text();
++            panel.commit();
++            text.map_or(ModalMouse::Ignored, ModalMouse::Copy)
++        }
++        ModalMouseKind::ScrollUp => {
++            scroll.up(1);
++            ModalMouse::Changed
++        }
++        ModalMouseKind::ScrollDown => {
++            scroll.down(total, view, 1);
++            ModalMouse::Changed
++        }
++    }
++}
++
+ /// Read-only text viewer built from pre-wrapped rows.
+ pub struct FileViewer {
+     title: String,
+     rows: Vec<Line<'static>>,
+     scroll: Scroll,
++    panel: SelectablePanel,
++    /// Content rectangle painted by the last frame.
++    content: Rect,
++    /// The press that started the active drag asked to add a region.
++    add_mode: bool,
+ }
+ 
+ impl FileViewer {
+@@ -30,6 +119,9 @@ impl FileViewer {
+             title: title.into(),
+             rows,
+             scroll: Scroll::default(),
++            panel: clip_panel(),
++            content: Rect::default(),
++            add_mode: false,
+         }
+     }
+ 
+@@ -48,6 +140,9 @@ impl FileViewer {
+             title: title.into(),
+             rows,
+             scroll: Scroll::default(),
++            panel: clip_panel(),
++            content: Rect::default(),
++            add_mode: false,
+         }
+     }
+ 
+@@ -61,25 +156,46 @@ impl FileViewer {
+     }
+ }
+ 
++/// Selection panel for pre-wrapped rows: one row per display line.
++fn clip_panel() -> SelectablePanel {
++    let mut panel = SelectablePanel::new();
++    panel.set_mode(PanelWrapMode::Clip);
++    panel
++}
++
+ impl Modal for FileViewer {
+     fn title(&self) -> &str {
+         &self.title
+     }
+ 
+-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+-        render_viewer(
++    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
++        self.content = render_viewer(
+             frame,
+             area,
+-            &self.title,
+-            "j/k scroll · PgUp/PgDn page · Home/End · q close · Ctrl+Y copy",
++            (&self.title, VIEWER_HINT),
+             &self.rows,
+             &self.scroll,
++            Some(&mut self.panel),
+             theme,
+         );
+     }
+ 
++    fn handle_mouse(&mut self, kind: ModalMouseKind, col: u16, row: u16) -> ModalMouse {
++        viewer_mouse(
++            &mut self.panel,
++            self.content,
++            &mut self.scroll,
++            &mut self.add_mode,
++            kind,
++            col,
++            row,
++        )
++    }
++
+     fn copy_source(&self) -> Option<String> {
+-        Some(self.copy_text())
++        self.panel
++            .selected_text()
++            .or_else(|| Some(self.copy_text()))
+     }
+ 
+     fn handle_key(&mut self, key: Key) -> ModalAction {
+@@ -88,6 +204,10 @@ impl Modal for FileViewer {
+             return ModalAction::Stay;
+         }
+         match key.code {
++            CKey::Esc if self.panel.has_selection() => {
++                self.panel.clear_selection();
++                ModalAction::Stay
++            }
+             CKey::Esc | CKey::Char('q') => ModalAction::Close(ModalResult::Dismissed),
+             _ => ModalAction::Stay,
+         }
+@@ -126,6 +246,11 @@ pub struct DiffViewer {
+     title: String,
+     rows: Vec<DiffRow>,
+     scroll: Scroll,
++    panel: SelectablePanel,
++    /// Content rectangle painted by the last frame.
++    content: Rect,
++    /// The press that started the active drag asked to add a region.
++    add_mode: bool,
+ }
+ 
+ impl DiffViewer {
+@@ -134,6 +259,9 @@ impl DiffViewer {
+             title: title.into(),
+             rows,
+             scroll: Scroll::default(),
++            panel: clip_panel(),
++            content: Rect::default(),
++            add_mode: false,
+         }
+     }
+ 
+@@ -184,21 +312,35 @@ impl Modal for DiffViewer {
+         &self.title
+     }
+ 
+-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
++    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+         let rows = self.display_lines(theme);
+-        render_viewer(
++        self.content = render_viewer(
+             frame,
+             area,
+-            &self.title,
+-            "j/k scroll · PgUp/PgDn page · Home/End · q close · Ctrl+Y copy",
++            (&self.title, VIEWER_HINT),
+             &rows,
+             &self.scroll,
++            Some(&mut self.panel),
+             theme,
+         );
+     }
+ 
++    fn handle_mouse(&mut self, kind: ModalMouseKind, col: u16, row: u16) -> ModalMouse {
++        viewer_mouse(
++            &mut self.panel,
++            self.content,
++            &mut self.scroll,
++            &mut self.add_mode,
++            kind,
++            col,
++            row,
++        )
++    }
++
+     fn copy_source(&self) -> Option<String> {
+-        Some(self.copy_text())
++        self.panel
++            .selected_text()
++            .or_else(|| Some(self.copy_text()))
+     }
+ 
+     fn handle_key(&mut self, key: Key) -> ModalAction {
+@@ -207,6 +349,10 @@ impl Modal for DiffViewer {
+             return ModalAction::Stay;
+         }
+         match key.code {
++            CKey::Esc if self.panel.has_selection() => {
++                self.panel.clear_selection();
++                ModalAction::Stay
++            }
+             CKey::Esc | CKey::Char('q') => ModalAction::Close(ModalResult::Dismissed),
+             _ => ModalAction::Stay,
+         }
+@@ -216,6 +362,57 @@ impl Modal for DiffViewer {
+ #[cfg(test)]
+ mod tests {
+     use super::*;
++    use ratatui::backend::TestBackend;
++    use ratatui::Terminal;
++
++    fn draw_viewer(viewer: &mut FileViewer) {
++        let theme = Theme::dark_default();
++        let mut terminal = Terminal::new(TestBackend::new(32, 10)).expect("terminal");
++        terminal
++            .draw(|frame| viewer.draw(frame, frame.area(), &theme))
++            .expect("draw");
++    }
++
++    #[test]
++    fn viewer_drag_selects_visible_text() {
++        let mut viewer = FileViewer::new("readme", "hello world\nsecond line");
++        draw_viewer(&mut viewer);
++        let content = viewer.content;
++        assert_eq!(
++            viewer.handle_mouse(ModalMouseKind::Press, content.x, content.y),
++            ModalMouse::Changed
++        );
++        assert_eq!(
++            viewer.handle_mouse(ModalMouseKind::Drag, content.x + 4, content.y),
++            ModalMouse::Changed
++        );
++        match viewer.handle_mouse(ModalMouseKind::Release, content.x + 4, content.y) {
++            ModalMouse::Copy(text) => assert_eq!(text, "hello"),
++            other => panic!("expected copy, got {other:?}"),
++        }
++    }
++
++    #[test]
++    fn alt_click_keeps_disjoint_regions_and_copies_together() {
++        let mut viewer = FileViewer::new("readme", "alpha\nbeta\ngamma");
++        draw_viewer(&mut viewer);
++        let content = viewer.content;
++        viewer.handle_mouse(ModalMouseKind::Press, content.x, content.y);
++        viewer.handle_mouse(ModalMouseKind::Drag, content.x + 4, content.y);
++        viewer.handle_mouse(ModalMouseKind::Release, content.x + 4, content.y);
++
++        assert_eq!(
++            viewer.handle_mouse(ModalMouseKind::PressAdd, content.x, content.y + 2),
++            ModalMouse::Changed
++        );
++        viewer.handle_mouse(ModalMouseKind::Drag, content.x + 4, content.y + 2);
++        assert_eq!(
++            viewer.handle_mouse(ModalMouseKind::Release, content.x + 4, content.y + 2),
++            ModalMouse::Changed,
++            "an added region is frozen without copying"
++        );
++        assert_eq!(viewer.copy_source().as_deref(), Some("alpha\ngamma"));
++    }
+ 
+     #[test]
+     fn diff_viewer_parses_unified_diff() {
+diff --git a/crates/app/tui/tui-components/src/help_modal.rs b/crates/app/tui/tui-components/src/help_modal.rs
+index f12f8fe..7dd4d4d 100644
+--- a/crates/app/tui/tui-components/src/help_modal.rs
++++ b/crates/app/tui/tui-components/src/help_modal.rs
+@@ -40,7 +40,7 @@ impl Modal for HelpModal {
+         true
+     }
+ 
+-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
++    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+         let mut help_text = String::from(
+             "Keys:\n  q / Esc - quit / close\n  0-6 - switch screens\n  Ctrl-B - navigation overlay (all screens incl. Catalog/Git)\n  Ctrl-K or 7 - search palette\n  Ctrl-T - history transcript overlay\n  ? - help\n  j/k - navigate / scroll settings\n  [ ] / Tab - switch exec/workflow views, catalog tabs\n  / filter · X clear filter\n  PgUp/PgDn - detail scroll\n  Enter - select\n  y/n - confirm/cancel\n  o/c/e/l/+/- - settings local keys\n  Alt-T new tab · Alt-W close · Alt-1..9 pick · Alt-[/] prev/next\n  Alt-P pin · Alt-,/. move · Alt-Up parent · Alt-Down child · Alt-S sessions\n  Ctrl-Z - suspend (fg to resume)",
+         );
+diff --git a/crates/app/tui/tui-components/src/modal.rs b/crates/app/tui/tui-components/src/modal.rs
+index e29d3e0..93e8195 100644
+--- a/crates/app/tui/tui-components/src/modal.rs
++++ b/crates/app/tui/tui-components/src/modal.rs
+@@ -22,6 +22,7 @@ use ratatui::Frame;
+ use tokio::sync::oneshot;
+ 
+ use tui_core::keymap::{CKey, Key};
++use tui_core::selectable_panel::SelectablePanel;
+ use tui_style::theme::{Rgb, Theme};
+ 
+ use crate::scrollbar;
+@@ -41,11 +42,46 @@ pub enum ModalResult {
+     Value(String),
+ }
+ 
++/// Mouse gesture kinds a modal can receive. Modals expose primitives instead
++/// of a terminal event type so this crate stays independent of the backend.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum ModalMouseKind {
++    /// Button pressed.
++    Press,
++    /// Button pressed with the add modifier: keep the existing selection and
++    /// start another region.
++    PressAdd,
++    /// Button held while moving.
++    Drag,
++    /// Button released.
++    Release,
++    /// Wheel up.
++    ScrollUp,
++    /// Wheel down.
++    ScrollDown,
++}
++
++/// Result of one mouse gesture inside a modal.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub enum ModalMouse {
++    /// The modal does not use this gesture.
++    Ignored,
++    /// Selection or viewport changed: a repaint is due.
++    Changed,
++    /// A drag release produced text for the shell clipboard pipeline.
++    Copy(String),
++}
++
+ /// Behavior of a modal component.
+ pub trait Modal {
+     fn title(&self) -> &str;
+-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme);
++    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme);
+     fn handle_key(&mut self, key: Key) -> ModalAction;
++    /// Handle one mouse gesture in terminal cell coordinates. Read-only
++    /// viewers use it for drag selection; other modals ignore it.
++    fn handle_mouse(&mut self, _kind: ModalMouseKind, _col: u16, _row: u16) -> ModalMouse {
++        ModalMouse::Ignored
++    }
+     /// Transparent modals skip the `Clear` pass so the underlying screen keeps
+     /// showing through the overlay. Overlays that must fully hide the screen
+     /// (confirmations, pickers) stay opaque.
+@@ -138,8 +174,8 @@ impl ModalStack {
+         self.stack.last()?.modal.copy_source()
+     }
+ 
+-    pub fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+-        let Some(top) = self.stack.last() else {
++    pub fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
++        let Some(top) = self.stack.last_mut() else {
+             return;
+         };
+         if !top.modal.is_transparent() {
+@@ -148,6 +184,14 @@ impl ModalStack {
+         top.modal.draw(frame, area, theme);
+     }
+ 
++    /// Route one mouse gesture to the top modal.
++    pub fn handle_mouse(&mut self, kind: ModalMouseKind, col: u16, row: u16) -> ModalMouse {
++        match self.stack.last_mut() {
++            Some(entry) => entry.modal.handle_mouse(kind, col, row),
++            None => ModalMouse::Ignored,
++        }
++    }
++
+     pub fn handle_key(&mut self, key: Key) -> Option<ModalResult> {
+         let top = self.stack.last_mut()?;
+         match top.modal.handle_key(key) {
+@@ -174,6 +218,10 @@ pub(crate) struct Scroll {
+ }
+ 
+ impl Scroll {
++    pub(crate) fn offset(&self) -> usize {
++        self.offset
++    }
++
+     pub(crate) fn up(&mut self, step: usize) {
+         self.offset = self.offset.saturating_sub(step);
+     }
+@@ -226,16 +274,21 @@ pub(crate) fn scroll_key(scroll: &mut Scroll, key: Key, total: usize, view: usiz
+     }
+ }
+ 
+-/// Render a windowed list of styled rows inside a bordered block.
++/// Render a windowed list of styled rows inside a bordered block. `header`
++/// carries the title and the hint line. Returns the content rectangle so
++/// callers can hit-test the same cells they painted. When `panel` holds a
++/// selection, its styled content is refreshed at the painted width and its
++/// selection is restyled after the rows land.
+ pub(crate) fn render_viewer(
+     frame: &mut Frame,
+     area: Rect,
+-    title: &str,
+-    hint: &str,
++    header: (&str, &str),
+     rows: &[Line<'static>],
+     scroll: &Scroll,
++    panel: Option<&mut SelectablePanel>,
+     theme: &Theme,
+-) {
++) -> Rect {
++    let (title, hint) = header;
+     let outer = Block::default()
+         .title(format!(" {title} "))
+         .borders(Borders::ALL)
+@@ -252,12 +305,30 @@ pub(crate) fn render_viewer(
+     let total = rows.len();
+     let top = scrollbar::clamp_top(scroll.offset, total, view);
+     let visible: Vec<Line<'static>> = rows.iter().skip(top).take(view).cloned().collect();
+-    if scrollbar::visible_in(chunks[0], total, view) {
++    let content = if scrollbar::visible_in(chunks[0], total, view) {
+         let (content, gutter) = scrollbar::split_content_gutter(chunks[0]);
+         frame.render_widget(Paragraph::new(visible), content);
+         scrollbar::render(frame, gutter, total, view, top, theme);
++        content
+     } else {
+         frame.render_widget(Paragraph::new(visible), chunks[0]);
++        chunks[0]
++    };
++
++    if let Some(panel) = panel {
++        panel.set_styled(rows, usize::from(content.width));
++        let style = Style::default().add_modifier(ratatui::style::Modifier::REVERSED);
++        let buf = frame.buffer_mut();
++        for (row, from, to) in panel.highlight_cells(content, top as u16) {
++            if row < content.y || row >= content.y.saturating_add(content.height) {
++                continue;
++            }
++            let end = to.min(content.x.saturating_add(content.width));
++            if from >= end {
++                continue;
++            }
++            buf.set_style(Rect::new(from, row, end - from, 1), style);
++        }
+     }
+ 
+     let position = if rows.is_empty() {
+@@ -270,6 +341,7 @@ pub(crate) fn render_viewer(
+             .style(Style::default().fg(to_color(theme.muted))),
+         chunks[1],
+     );
++    content
+ }
+ 
+ /// Conservative viewport height used when the real area is unknown.
+diff --git a/crates/app/tui/tui-components/src/model_picker.rs b/crates/app/tui/tui-components/src/model_picker.rs
+index ef53fb3..a45f541 100644
+--- a/crates/app/tui/tui-components/src/model_picker.rs
++++ b/crates/app/tui/tui-components/src/model_picker.rs
+@@ -137,7 +137,7 @@ impl Modal for ModelPicker {
+         "Select model"
+     }
+ 
+-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
++    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+         let centered = centered_rect(70, 70, area);
+         render_picker(
+             frame,
+@@ -181,7 +181,7 @@ impl Modal for SessionPicker {
+         "Open session"
+     }
+ 
+-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
++    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+         let centered = centered_rect(70, 70, area);
+         render_picker(
+             frame,
+diff --git a/crates/app/tui/tui-components/src/password_modal.rs b/crates/app/tui/tui-components/src/password_modal.rs
+index 90f602f..d252dff 100644
+--- a/crates/app/tui/tui-components/src/password_modal.rs
++++ b/crates/app/tui/tui-components/src/password_modal.rs
+@@ -44,7 +44,7 @@ impl Modal for PasswordModal {
+         &self.title
+     }
+ 
+-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
++    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+         let block = Block::default()
+             .title(format!(" {} ", self.title))
+             .borders(Borders::ALL)
+diff --git a/crates/app/tui/tui-components/src/prompt_modal.rs b/crates/app/tui/tui-components/src/prompt_modal.rs
+index ae75dd7..83b727f 100644
+--- a/crates/app/tui/tui-components/src/prompt_modal.rs
++++ b/crates/app/tui/tui-components/src/prompt_modal.rs
+@@ -70,7 +70,7 @@ impl Modal for PromptModal {
+         &self.title
+     }
+ 
+-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
++    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+         let block = Block::default()
+             .title(format!(" {} ", self.title))
+             .borders(Borders::ALL)
+diff --git a/crates/app/tui/tui-components/src/transcript.rs b/crates/app/tui/tui-components/src/transcript.rs
+index 296b1b0..e0dcf26 100644
+--- a/crates/app/tui/tui-components/src/transcript.rs
++++ b/crates/app/tui/tui-components/src/transcript.rs
+@@ -479,6 +479,25 @@ impl HistoryLine {
+             })
+             .collect()
+     }
++
++    /// Width-independent plain rendered rows: hard line breaks only.
++    ///
++    /// The renderer runs at the widest supported width, so soft wrapping is
++    /// absent and a logical position stays on the same characters across a
++    /// resize. Plain lines map to their source lines; Markdown lines map to
++    /// their rendered block rows, which is the plain projection selection
++    /// geometry needs (the stored source text keeps its markup).
++    pub fn logical_plain_lines(&self) -> Vec<String> {
++        self.display_lines(u16::MAX)
++            .iter()
++            .map(|line| {
++                line.spans
++                    .iter()
++                    .map(|s| s.content.as_ref())
++                    .collect::<String>()
++            })
++            .collect()
++    }
+ }
+ 
+ /// Clone a borrowed line into an owned (static) line.
+diff --git a/crates/app/tui/tui-core/src/lib.rs b/crates/app/tui/tui-core/src/lib.rs
+index 7f0dda0..c8c10e5 100644
+--- a/crates/app/tui/tui-core/src/lib.rs
++++ b/crates/app/tui/tui-core/src/lib.rs
+@@ -10,6 +10,7 @@ pub mod headless;
+ pub mod keymap;
+ pub mod observability;
+ pub mod panel_select;
++pub mod panel_wrap;
+ pub mod perf;
+ pub mod plugin;
+ pub mod prep_keys;
+@@ -18,6 +19,7 @@ pub mod reducer;
+ pub mod render_model;
+ pub mod renderable;
+ pub mod screen_data;
++pub mod selectable_panel;
+ pub mod status_line;
+ pub mod stream_pacer;
+ pub mod tail;
+diff --git a/crates/app/tui/tui-core/src/panel_select.rs b/crates/app/tui/tui-core/src/panel_select.rs
+index c9d0c74..754716c 100644
+--- a/crates/app/tui/tui-core/src/panel_select.rs
++++ b/crates/app/tui/tui-core/src/panel_select.rs
+@@ -38,6 +38,27 @@ impl TextPos {
+     }
+ }
+ 
++/// Keyboard motion applied to a selection cursor.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum Motion {
++    /// One character left, crossing to the previous line end.
++    Left,
++    /// One character right, crossing to the next line start.
++    Right,
++    /// One wrapped row up, keeping the column.
++    Up,
++    /// One wrapped row down, keeping the column.
++    Down,
++    /// Start of the current source line.
++    LineStart,
++    /// End of the current source line.
++    LineEnd,
++    /// `n` wrapped rows up.
++    PageUp(u16),
++    /// `n` wrapped rows down.
++    PageDown(u16),
++}
++
+ /// Wrap behaviour for a selectable panel.
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+ pub enum PanelWrapMode {
+@@ -174,6 +195,90 @@ impl PanelGeometry {
+         Some(self.row_col_to_textpos(target, usize::from(local_col)))
+     }
+ 
++    /// Clamp a logical position to the content: valid line, valid column.
++    pub fn clamp_pos(&self, pos: TextPos) -> TextPos {
++        if self.line_widths.is_empty() {
++            return TextPos::new(0, 0);
++        }
++        let line = pos.line.min(self.line_widths.len() - 1);
++        let col = pos.col.min(self.line_widths[line]);
++        TextPos::new(line, col)
++    }
++
++    /// Apply one keyboard motion to a logical position. The result is always
++    /// clamped to the content, so edges never escape the panel.
++    pub fn move_pos(&self, pos: TextPos, motion: Motion) -> TextPos {
++        if self.line_widths.is_empty() {
++            return TextPos::new(0, 0);
++        }
++        let pos = self.clamp_pos(pos);
++        let line_end = |line: usize| self.line_widths.get(line).copied().unwrap_or(0);
++        match motion {
++            Motion::Left => {
++                if pos.col > 0 {
++                    TextPos::new(pos.line, pos.col - 1)
++                } else if pos.line > 0 {
++                    TextPos::new(pos.line - 1, line_end(pos.line - 1))
++                } else {
++                    pos
++                }
++            }
++            Motion::Right => {
++                if pos.col < line_end(pos.line) {
++                    TextPos::new(pos.line, pos.col + 1)
++                } else if pos.line + 1 < self.line_widths.len() {
++                    TextPos::new(pos.line + 1, 0)
++                } else {
++                    pos
++                }
++            }
++            Motion::Up => {
++                let (row, col) = self.textpos_to_row_col(pos);
++                if row == 0 {
++                    pos
++                } else {
++                    self.row_col_to_textpos(row - 1, col)
++                }
++            }
++            Motion::Down => {
++                let (row, col) = self.textpos_to_row_col(pos);
++                if row + 1 >= self.total_rows() {
++                    pos
++                } else {
++                    self.row_col_to_textpos(row + 1, col)
++                }
++            }
++            Motion::LineStart => TextPos::new(pos.line, 0),
++            Motion::LineEnd => TextPos::new(pos.line, line_end(pos.line)),
++            Motion::PageUp(rows) => self.move_rows(pos, usize::from(rows), true),
++            Motion::PageDown(rows) => self.move_rows(pos, usize::from(rows), false),
++        }
++    }
++
++    /// Whole-content selection range: first character to last character.
++    pub fn select_all(&self) -> Option<(TextPos, TextPos)> {
++        if self.line_widths.is_empty() {
++            return None;
++        }
++        let last = self.line_widths.len() - 1;
++        Some((
++            TextPos::new(0, 0),
++            TextPos::new(last, self.line_widths[last]),
++        ))
++    }
++
++    /// Move `rows` wrapped rows up or down, keeping the in-row column.
++    fn move_rows(&self, pos: TextPos, rows: usize, up: bool) -> TextPos {
++        let (row, col) = self.textpos_to_row_col(pos);
++        let target = if up {
++            row.saturating_sub(rows)
++        } else {
++            row.saturating_add(rows)
++                .min(self.total_rows().saturating_sub(1))
++        };
++        self.row_col_to_textpos(target, col)
++    }
++
+     /// Extract the selected text with stream semantics. Returns `None` when
+     /// the range covers no readable characters (empty or whitespace-only).
+     pub fn extract_text(
+@@ -558,4 +663,81 @@ mod tests {
+             .highlight_cells(TextPos::new(0, 0), TextPos::new(0, 0), area, 0)
+             .is_empty());
+     }
++
++    #[test]
++    fn left_and_right_cross_line_boundaries() {
++        let source = lines(&["ab", "cd"]);
++        let geometry = geometry_for(&source, 40);
++        assert_eq!(
++            geometry.move_pos(TextPos::new(1, 0), Motion::Left),
++            TextPos::new(0, 2)
++        );
++        assert_eq!(
++            geometry.move_pos(TextPos::new(0, 2), Motion::Right),
++            TextPos::new(1, 0)
++        );
++        assert_eq!(
++            geometry.move_pos(TextPos::new(0, 0), Motion::Left),
++            TextPos::new(0, 0)
++        );
++        assert_eq!(
++            geometry.move_pos(TextPos::new(1, 2), Motion::Right),
++            TextPos::new(1, 2)
++        );
++    }
++
++    #[test]
++    fn vertical_motion_keeps_the_column_and_clamps_rows() {
++        let source = lines(&["hello", "hi", "world"]);
++        let geometry = geometry_for(&source, 40);
++        let moved = geometry.move_pos(TextPos::new(0, 3), Motion::Down);
++        assert_eq!(moved, TextPos::new(1, 2));
++        assert_eq!(geometry.move_pos(moved, Motion::Up), TextPos::new(0, 2));
++        assert_eq!(
++            geometry.move_pos(TextPos::new(0, 0), Motion::Up),
++            TextPos::new(0, 0)
++        );
++        assert_eq!(
++            geometry.move_pos(TextPos::new(2, 0), Motion::Down),
++            TextPos::new(2, 0)
++        );
++    }
++
++    #[test]
++    fn page_motion_moves_whole_viewports() {
++        let source: Vec<String> = (0..20).map(|index| format!("row {index}")).collect();
++        let narrow = PanelGeometry::new(display_widths(&source), 3, PanelWrapMode::Wrap, false);
++        let start = TextPos::new(0, 0);
++        let down = narrow.move_pos(start, Motion::PageDown(4));
++        assert!(down > start);
++        assert_eq!(narrow.move_pos(down, Motion::PageUp(4)), start);
++        assert_eq!(narrow.move_pos(down, Motion::PageUp(999)), start);
++    }
++
++    #[test]
++    fn line_home_and_end_stay_on_the_source_line() {
++        let source = lines(&["hello world", "short"]);
++        let geometry = geometry_for(&source, 6);
++        assert_eq!(
++            geometry.move_pos(TextPos::new(0, 8), Motion::LineStart),
++            TextPos::new(0, 0)
++        );
++        assert_eq!(
++            geometry.move_pos(TextPos::new(0, 0), Motion::LineEnd),
++            TextPos::new(0, 11)
++        );
++    }
++
++    #[test]
++    fn select_all_covers_the_last_character() {
++        let source = lines(&["one", "two"]);
++        let geometry = geometry_for(&source, 40);
++        let (start, end) = geometry.select_all().expect("content");
++        assert_eq!(start, TextPos::new(0, 0));
++        assert_eq!(end, TextPos::new(1, 3));
++        let text = geometry
++            .extract_text(start, end, &source, None)
++            .expect("whole content");
++        assert_eq!(text, "one\ntwo");
++    }
+ }
+diff --git a/crates/app/tui/tui-render/src/panel_wrap.rs b/crates/app/tui/tui-core/src/panel_wrap.rs
+similarity index 96%
+rename from crates/app/tui/tui-render/src/panel_wrap.rs
+rename to crates/app/tui/tui-core/src/panel_wrap.rs
+index 593ef54..baca932 100644
+--- a/crates/app/tui/tui-render/src/panel_wrap.rs
++++ b/crates/app/tui/tui-core/src/panel_wrap.rs
+@@ -5,15 +5,16 @@
+ //! character each screen cell maps to. Only the visible rows are ever
+ //! materialised, so multi-megabyte bodies and single enormous lines stay
+ //! responsive. The logical mapping delegates to
+-//! [`tui_core::panel_select::PanelGeometry`]; this cache adds content
++//! [`crate::panel_select::PanelGeometry`]; this cache adds content
+ //! ownership, cheap per-frame refresh by pointer identity, and windowed row
+ //! slicing that never holds a whole wrapped giant in memory.
+ 
+ use std::sync::Arc;
+ 
+-use tui_core::panel_select::{display_widths, PanelGeometry, PanelWrapMode, TextPos};
+ use unicode_width::UnicodeWidthStr;
+ 
++use crate::panel_select::{display_widths, PanelGeometry, PanelWrapMode, TextPos};
++
+ /// Owned wrap cache for one selectable panel.
+ #[derive(Debug, Clone, Default)]
+ pub struct PanelWrapCache {
+@@ -90,6 +91,16 @@ impl PanelWrapCache {
+         self.geometry.as_ref().map_or(0, PanelGeometry::wrap_width)
+     }
+ 
++    /// Geometry built by the last content refresh.
++    pub fn geometry(&self) -> Option<&PanelGeometry> {
++        self.geometry.as_ref()
++    }
++
++    /// Wrap behaviour this cache was built with.
++    pub fn mode(&self) -> PanelWrapMode {
++        self.mode
++    }
++
+     /// Visible plain-text rows for a viewport: `height` rows from `scroll`.
+     /// Huge lines contribute only their visible slice; rows are plain
+     /// strings because styling stays with the render layer.
+diff --git a/crates/app/tui/tui-core/src/selectable_panel.rs b/crates/app/tui/tui-core/src/selectable_panel.rs
+new file mode 100644
+index 0000000..24c0ec3
+--- /dev/null
++++ b/crates/app/tui/tui-core/src/selectable_panel.rs
+@@ -0,0 +1,391 @@
++//! Reusable stateful selection for one panel.
++//!
++//! [`SelectablePanel`] combines the windowed wrap cache with a logical range
++//! selection and optional frozen regions. Content arrives either as plain
++//! text or as styled rows; the geometry always works on the plain projection
++//! of those rows, so markdown, ANSI and syntax-highlighted content map to the
++//! characters the user sees while rendering stays with the caller.
++//!
++//! The panel never owns scrolling: [`begin`](SelectablePanel::begin) and
++//! [`extend`](SelectablePanel::extend) receive the current viewport offset and
++//! rectangle, so a resize, scroll or tail-follow keeps the same characters
++//! selected.
++
++use std::collections::HashSet;
++use std::sync::Arc;
++
++use ratatui::layout::Rect;
++use ratatui::text::Line;
++
++use crate::panel_select::{Motion, PanelGeometry, PanelWrapMode, TextPos};
++use crate::panel_wrap::PanelWrapCache;
++
++/// One logical region: anchor is the press cell, cursor the latest cell.
++pub type PanelRegion = (TextPos, TextPos);
++
++/// Selection state, content cache and geometry for one panel.
++#[derive(Debug, Clone, Default)]
++pub struct SelectablePanel {
++    wrap: PanelWrapCache,
++    /// Styled rows of the last `set_styled` call (empty for plain content).
++    styled: Vec<Line<'static>>,
++    /// Width the content was last synced at.
++    width: usize,
++    mode: PanelWrapMode,
++    /// Active drag region.
++    active: Option<PanelRegion>,
++    /// Committed regions appended with an explicit add action.
++    frozen: Vec<PanelRegion>,
++    /// Logical positions excluded from copied payloads.
++    exclude: HashSet<TextPos>,
++    /// Whether the last content sync came from styled rows.
++    styled_source: bool,
++    /// Reserve one column for a continuation marker in the layout.
++    marker: bool,
++    /// Marker flag used by the last content sync.
++    marker_applied: bool,
++}
++
++impl SelectablePanel {
++    /// Empty panel.
++    pub fn new() -> Self {
++        Self::default()
++    }
++
++    /// Replace the content with plain text. Selection is kept: it is stored
++    /// in logical coordinates, so a rewrap at a new width keeps the same
++    /// characters selected. Callers replacing the whole body should call
++    /// [`Self::clear`] first.
++    pub fn set_plain(&mut self, text: Arc<str>, width: usize) {
++        self.styled.clear();
++        self.styled_source = false;
++        self.wrap.set_content(text, width, self.mode, self.marker);
++        self.width = width;
++        self.marker_applied = self.marker;
++    }
++
++    /// Replace the content with styled rows. The plain projection drives
++    /// geometry; the caller keeps painting `rows` if it wants the styles.
++    /// Existing selection is kept for the same reasons as [`Self::set_plain`].
++    pub fn set_styled(&mut self, rows: &[Line<'static>], width: usize) {
++        let unchanged = self.styled_source
++            && self.width == width
++            && self.marker_applied == self.marker
++            && self.styled.len() == rows.len()
++            && self.styled == rows;
++        if unchanged {
++            return;
++        }
++        let plain = rows
++            .iter()
++            .map(|row| {
++                row.spans
++                    .iter()
++                    .map(|span| span.content.as_ref())
++                    .collect::<String>()
++            })
++            .collect::<Vec<_>>()
++            .join("\n");
++        self.styled.clear();
++        self.styled.extend_from_slice(rows);
++        self.styled_source = true;
++        self.width = width;
++        self.marker_applied = self.marker;
++        self.wrap
++            .set_content(Arc::from(plain), width, self.mode, self.marker);
++    }
++
++    /// Reserve one column for a continuation marker. The host paints the
++    /// marker glyph; the extra column keeps its cells out of the logical
++    /// geometry so marker characters are never selectable. Off by default,
++    /// and the next content sync applies the change.
++    pub fn set_marker(&mut self, marker: bool) {
++        self.marker = marker;
++    }
++
++    /// Whether a continuation-marker column is reserved.
++    pub fn marker(&self) -> bool {
++        self.marker
++    }
++
++    /// Wrap behaviour used for geometry. Changing it invalidates the layout.
++    pub fn set_mode(&mut self, mode: PanelWrapMode) {
++        if mode != self.mode {
++            self.mode = mode;
++            self.wrap = PanelWrapCache::new();
++            self.active = None;
++            self.frozen.clear();
++        }
++    }
++
++    /// Excluded logical positions stripped from copied payloads.
++    pub fn set_exclude(&mut self, exclude: HashSet<TextPos>) {
++        self.exclude = exclude;
++    }
++
++    /// Drop content and every selection.
++    pub fn clear(&mut self) {
++        self.wrap = PanelWrapCache::new();
++        self.styled.clear();
++        self.active = None;
++        self.frozen.clear();
++    }
++
++    /// Whether any content is cached.
++    pub fn has_content(&self) -> bool {
++        self.wrap.has_content()
++    }
++
++    /// Styled rows captured by [`Self::set_styled`].
++    pub fn styled_rows(&self) -> &[Line<'static>] {
++        &self.styled
++    }
++
++    /// Geometry built by the last content sync.
++    pub fn geometry(&self) -> Option<&PanelGeometry> {
++        self.wrap.geometry()
++    }
++
++    /// Total wrapped rows of the cached content.
++    pub fn total_rows(&self) -> usize {
++        self.wrap.total_rows()
++    }
++
++    /// Active selection region, if any.
++    pub fn active(&self) -> Option<PanelRegion> {
++        self.active
++    }
++
++    /// Active selection cursor.
++    pub fn head(&self) -> Option<TextPos> {
++        self.active.map(|(_, head)| head)
++    }
++
++    /// Whether any committed region exists.
++    pub fn has_regions(&self) -> bool {
++        !self.frozen.is_empty()
++    }
++
++    /// Start a fresh active region at a terminal cell. Returns whether the
++    /// cell mapped to content.
++    pub fn begin(&mut self, point: (u16, u16), area: Rect, scroll: u16) -> bool {
++        self.frozen.clear();
++        self.begin_active(point, area, scroll)
++    }
++
++    /// Start an active region while keeping existing ones (explicit add).
++    pub fn begin_region(&mut self, point: (u16, u16), area: Rect, scroll: u16) -> bool {
++        if let Some((anchor, head)) = self.active.take() {
++            if anchor != head {
++                self.frozen.push((anchor, head));
++            }
++        }
++        self.begin_active(point, area, scroll)
++    }
++
++    fn begin_active(&mut self, point: (u16, u16), area: Rect, scroll: u16) -> bool {
++        let Some(pos) = self.wrap.point_to_textpos(point, area, scroll) else {
++            self.active = None;
++            return false;
++        };
++        self.active = Some((pos, pos));
++        true
++    }
++
++    /// Update the active cursor to a terminal cell. Returns whether the
++    /// selection changed.
++    pub fn extend(&mut self, point: (u16, u16), area: Rect, scroll: u16) -> bool {
++        let Some(pos) = self.wrap.point_to_textpos(point, area, scroll) else {
++            return false;
++        };
++        match self.active {
++            Some((anchor, head)) if head != pos => {
++                self.active = Some((anchor, pos));
++                true
++            }
++            Some(_) => false,
++            None => false,
++        }
++    }
++
++    /// Apply one keyboard motion to the active cursor.
++    pub fn extend_motion(&mut self, motion: Motion) -> bool {
++        let Some(geometry) = self.wrap.geometry() else {
++            return false;
++        };
++        let Some((anchor, head)) = self.active else {
++            return false;
++        };
++        let moved = geometry.move_pos(head, motion);
++        if moved == head {
++            return false;
++        }
++        self.active = Some((anchor, moved));
++        true
++    }
++
++    /// Select the whole cached content, dropping committed regions.
++    pub fn select_all(&mut self) {
++        self.frozen.clear();
++        self.active = self.wrap.geometry().and_then(PanelGeometry::select_all);
++    }
++
++    /// Freeze the active region and start over.
++    pub fn commit(&mut self) {
++        if let Some((anchor, head)) = self.active.take() {
++            if anchor != head {
++                self.frozen.push((anchor, head));
++            }
++        }
++    }
++
++    /// Clear every selection but keep the content.
++    pub fn clear_selection(&mut self) {
++        self.active = None;
++        self.frozen.clear();
++    }
++
++    /// Whether any selection exists.
++    pub fn has_selection(&self) -> bool {
++        self.active.is_some() || !self.frozen.is_empty()
++    }
++
++    /// Committed regions followed by the active one, oldest first.
++    fn regions(&self) -> Vec<PanelRegion> {
++        let mut regions = self.frozen.clone();
++        if let Some(region) = self.active {
++            if region.0 != region.1 {
++                regions.push(region);
++            }
++        }
++        regions
++    }
++
++    /// Visible plain-text rows for a viewport.
++    pub fn visible_rows(&self, scroll: u16, height: u16) -> Vec<String> {
++        self.wrap.visible_window(scroll, height)
++    }
++
++    /// Extracted text of every selected region, ordered by document
++    /// position. Whitespace-only regions are dropped.
++    pub fn selected_parts(&self) -> Vec<String> {
++        let mut regions = self.regions();
++        regions.sort_by_key(|(anchor, head)| crate::panel_select::ordered(*anchor, *head));
++        regions
++            .into_iter()
++            .filter_map(|(anchor, head)| self.wrap.extract_text(anchor, head, Some(&self.exclude)))
++            .collect()
++    }
++
++    /// Extracted text of every selected region joined with newlines.
++    pub fn selected_text(&self) -> Option<String> {
++        let parts = self.selected_parts();
++        (!parts.is_empty()).then(|| parts.join("\n"))
++    }
++
++    /// Highlight cells for every selected region in absolute terminal
++    /// coordinates.
++    pub fn highlight_cells(&self, area: Rect, scroll: u16) -> Vec<(u16, u16, u16)> {
++        self.regions()
++            .into_iter()
++            .flat_map(|(anchor, head)| self.wrap.highlight_cells(anchor, head, area, scroll))
++            .collect()
++    }
++
++    /// Wrapped row of the active cursor inside the cached layout.
++    pub fn head_row(&self) -> Option<usize> {
++        let head = self.head()?;
++        self.wrap
++            .geometry()
++            .map(|geometry| geometry.textpos_to_row_col(head).0)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::panel_select::TextPos;
++
++    fn panel_for(text: &str, width: usize) -> SelectablePanel {
++        let mut panel = SelectablePanel::new();
++        panel.set_plain(Arc::from(text), width);
++        panel
++    }
++
++    #[test]
++    fn plain_content_selects_the_dragged_range() {
++        let mut panel = panel_for("hello world\nsecond line", 40);
++        let area = Rect::new(0, 0, 40, 10);
++        assert!(panel.begin((0, 0), area, 0));
++        assert!(panel.extend((4, 0), area, 0));
++        assert_eq!(panel.selected_text().as_deref(), Some("hello"));
++    }
++
++    #[test]
++    fn scroll_is_applied_when_mapping_cells() {
++        let mut panel = panel_for("alpha\nbeta\ngamma", 40);
++        let area = Rect::new(0, 0, 40, 2);
++        assert!(panel.begin((0, 0), area, 1));
++        assert!(panel.extend((4, 0), area, 1));
++        assert_eq!(panel.selected_text().as_deref(), Some("beta"));
++    }
++
++    #[test]
++    fn styled_rows_project_to_plain_text() {
++        use ratatui::style::{Modifier, Style};
++        let rows = vec![
++            Line::from(ratatui::text::Span::styled(
++                "bold",
++                Style::default().add_modifier(Modifier::BOLD),
++            )),
++            Line::from("plain"),
++        ];
++        let mut panel = SelectablePanel::new();
++        panel.set_styled(&rows, 20);
++        panel.select_all();
++        assert_eq!(panel.selected_text().as_deref(), Some("bold\nplain"));
++        assert_eq!(panel.styled_rows().len(), 2);
++    }
++
++    #[test]
++    fn committed_regions_keep_disjoint_selections() {
++        let mut panel = panel_for("alpha\nbeta\ngamma", 40);
++        let area = Rect::new(0, 0, 40, 10);
++        assert!(panel.begin((0, 0), area, 0));
++        assert!(panel.extend((4, 0), area, 0));
++        assert!(panel.begin_region((0, 2), area, 0));
++        assert!(panel.extend((4, 2), area, 0));
++        let parts = panel.selected_parts();
++        assert_eq!(parts, vec!["alpha".to_string(), "gamma".to_string()]);
++        assert_eq!(
++            panel.selected_text().as_deref(),
++            Some("alpha\ngamma"),
++            "regions join in document order"
++        );
++    }
++
++    #[test]
++    fn motion_moves_the_active_cursor() {
++        let mut panel = panel_for("hello\nworld", 40);
++        panel.select_all();
++        assert_eq!(panel.head(), Some(TextPos::new(1, 5)));
++        assert!(panel.extend_motion(Motion::Up));
++        assert_eq!(panel.head(), Some(TextPos::new(0, 5)));
++        assert!(!panel.extend_motion(Motion::Up));
++    }
++
++    #[test]
++    fn resize_keeps_the_logical_selection() {
++        let mut panel = panel_for("hello world wrapped", 8);
++        let area = Rect::new(0, 0, 8, 10);
++        assert!(panel.begin((6, 0), area, 0));
++        assert!(panel.extend((7, 1), area, 0));
++        assert_eq!(panel.selected_text().as_deref(), Some("world wrap"));
++        panel.set_plain(Arc::from("hello world wrapped"), 40);
++        assert_eq!(
++            panel.selected_text().as_deref(),
++            Some("world wrap"),
++            "same characters stay selected after a rewrap"
++        );
++    }
++}
+diff --git a/crates/app/tui/tui-render/src/lib.rs b/crates/app/tui/tui-render/src/lib.rs
+index d57d49a..71152ec 100644
+--- a/crates/app/tui/tui-render/src/lib.rs
++++ b/crates/app/tui/tui-render/src/lib.rs
+@@ -4,7 +4,6 @@ pub mod ansi;
+ pub mod deferred;
+ pub mod image_raster;
+ pub mod layout;
+-pub mod panel_wrap;
+ pub mod post_process;
+ pub mod prep_cache;
+ pub mod screen_draw;
+diff --git a/crates/app/tui/tui-render/src/screen_draw.rs b/crates/app/tui/tui-render/src/screen_draw.rs
+index 3e37409..64b03d6 100644
+--- a/crates/app/tui/tui-render/src/screen_draw.rs
++++ b/crates/app/tui/tui-render/src/screen_draw.rs
+@@ -16,6 +16,7 @@ use tui_core::screen_data::{
+     catalog_counts, catalog_tab_label, screen_digit, short_id, CatalogKind, CatalogRow, ExecView,
+     ScreenContext, ScreenData, ScreenKind, SearchRow, WorkflowView,
+ };
++use tui_core::selectable_panel::SelectablePanel;
+ use tui_style::theme::{ColorRole, Theme};
+ 
+ const LOADING_TEXT: &str = "Loading...";
+@@ -1247,16 +1248,30 @@ pub struct HistoryOverlayView<'a> {
+     pub error: Option<&'a str>,
+ }
+ 
++/// Result of one history overlay draw: paging state plus the cells the
++/// caller needs for mouse hit testing.
++pub struct HistoryOverlayLayout {
++    /// The viewport rests on the oldest loaded row.
++    pub at_top: bool,
++    /// Badge hit rectangle, when the badge is painted.
++    pub badge: Option<Rect>,
++    /// Text rectangle the rows landed in.
++    pub content: Rect,
++    /// Wrapped row index painted at the top of `content`.
++    pub top_row: usize,
++}
++
+ /// Draw the history overlay over `area`, tail anchored: the viewport reads
+ /// from the bottom up and only the rows inside the window are painted.
+-/// Returns whether the viewport rests on the oldest loaded row plus the
+-/// badge hit rectangle for mouse clicks.
++/// Returns the paging state, badge rectangle and content geometry the shell
++/// uses for mouse selection.
+ pub fn draw_transcript_overlay(
+     frame: &mut Frame,
+     area: Rect,
+     view: &mut HistoryOverlayView<'_>,
++    panel: Option<&mut SelectablePanel>,
+     theme: &Theme,
+-) -> (bool, Option<Rect>) {
++) -> HistoryOverlayLayout {
+     use ratatui::widgets::Clear;
+     frame.render_widget(Clear, area);
+     let overlay_area = Rect {
+@@ -1311,6 +1326,22 @@ pub fn draw_transcript_overlay(
+     if let Some(gutter) = gutter {
+         scrollbar::render(frame, gutter, rows.len(), capacity, top, theme);
+     }
++    if let Some(panel) = panel {
++        panel.set_styled(&rows, usize::from(content.width));
++        let style = Style::default().add_modifier(Modifier::REVERSED);
++        let buf = frame.buffer_mut();
++        let right = content.x.saturating_add(content.width);
++        for (row, from, to) in panel.highlight_cells(content, start as u16) {
++            if row < content.y || row >= content.y.saturating_add(content.height) {
++                continue;
++            }
++            let end = to.min(right);
++            if from >= end {
++                continue;
++            }
++            buf.set_style(Rect::new(from, row, end - from, 1), style);
++        }
++    }
+     let badge = paint_overlay_jump_badge(frame, content, view.scroll, theme);
+ 
+     if area.height > 0 {
+@@ -1326,7 +1357,12 @@ pub fn draw_transcript_overlay(
+             status_area,
+         );
+     }
+-    (at_top, badge)
++    HistoryOverlayLayout {
++        at_top,
++        badge,
++        content,
++        top_row: start,
++    }
+ }
+ 
+ /// One line below the overlay: the session, where loading stopped and which
+diff --git "a/docs/cli/04-\347\273\210\347\253\257\344\272\244\344\272\222\350\256\276\350\256\241.md" "b/docs/cli/04-\347\273\210\347\253\257\344\272\244\344\272\222\350\256\276\350\256\241.md"
+index 0115788..2732ac5 100644
+--- "a/docs/cli/04-\347\273\210\347\253\257\344\272\244\344\272\222\350\256\276\350\256\241.md"
++++ "b/docs/cli/04-\347\273\210\347\253\257\344\272\244\344\272\222\350\256\276\350\256\241.md"
+@@ -342,7 +342,7 @@ wf-cli 交互设计继承 `design-philosophy.md` 的可预期键位原则，并
+ 
+ 1. **Esc 语义裁剪**：codex 将 `Esc` 同时用于 interrupt_turn / backtrack / 弹窗关闭（上下文重载）。wf-cli 明确分层：**chat 上下文 `Ctrl+C` 取消 turn**（对齐 02 文档 4.2 "Ctrl+C 全局"），`Esc` 专用于"返回/关闭/清空"，避免歧义；P1 若引入 vim 模式再为 Normal 提供 `Esc` 退出。
+ 2. **无 inline scrollback 交互**：codex 的 `insert_history`（scroll region 写 terminal scrollback）与 `raw_output` 模式（Alt+R）面向 inline 视口；wf-cli 全屏 alt-screen 下日志滚动在 ratatui 视口内完成（02 文档 1.2 规则 4），不提供 Alt+R raw 模式。长日志 P1 走全屏分页查看器（退出时内容进 normal scrollback，可被终端原生选择/复制）。
+-3. **无鼠标交互**：同 codex（忽略 mouse），纯键盘驱动；依赖 P1 的 OSC 8 超链接提供文件跳转。
++3. **鼠标交互按需开启**：鼠标捕获默认关闭，与 codex 一致，保留终端原生选择；在 Settings 按 `o` 开启后，滚轮滚动、滚动条拖拽、拖选复制、双击选词、三击选行、右键选行均可用，`Shift` 组合键始终绕过捕获回到原生选择。开关关闭时仍提供完整的键盘选择路径：`Shift+方向键/Home/End/PgUp/PgDn` 扩展选区、`Ctrl+A` 全选、`Esc` 清除、松开或 `Ctrl+Y` 复制。文件查看器、diff 查看器与历史分页器同样支持拖选复制，查看器内 `Alt+Click` 可追加不相邻区域后一次复制。
+ 4. **审批键位对齐 codex approval 语义**：`y` 批准本次 / `a` 批准会话 / `p` 批准前缀 / `d` 拒绝 / `n`+`Esc` 拒绝本次 / `c` 取消（对应 01 文档 4.4 "TUI 下走模态框"）。
+ 5. **bash/shell 模式（`!` 前缀）不引入**：wf-cli 的执行语义与 codex 的 shell 直通不同，`!` 前缀交互由 workflow/execution 命令面承担（headless 子命令），避免双语义。
+ 6. **多行输入节奏**：P0 单行 Input（Enter 提交语义无歧义）；P1 引入 TextArea 后 Enter/Tab 的提交与换行判定参考 codex（submit 与 queue 分离：`Enter` 提交、`Tab` 排队），并保留 codex 的"粘贴突发内 Enter 插入换行"细节。
+diff --git a/docs/plan/tui-panel-select-design.md b/docs/plan/tui-panel-select-design.md
+index c9b498d..460f9bc 100644
+--- a/docs/plan/tui-panel-select-design.md
++++ b/docs/plan/tui-panel-select-design.md
+@@ -42,7 +42,7 @@
+ 依据架构规则按职责归位，不复制对照对象为独立模块：
+ 
+ - 纯选择语义归 `tui-core`：有序化、点到逻辑位置、按行区间取文、高亮格计算。仅依赖几何与行访问接口，不持有滚动状态，调用方每帧传入面板矩形与滚动偏移。排除装饰字符的复制变体一并归此。
+-- 换行缓存归 `tui-render` 预排缓存的扩展：每行字符长度缓存、累计行数前缀和、逻辑位置与行列双向换算、可见窗口取行、换行与裁剪两种模式。失效条件沿用文本指针、宽度、模式三元组。超长行走字符窗口路径。
++- 换行缓存与面板状态归 `tui-core`：每行字符长度缓存、累计行数前缀和、逻辑位置与行列双向换算、可见窗口取行、换行与裁剪两种模式，以及组合缓存与选区的 `SelectablePanel`。缓存下沉到 `tui-core` 使 `tui-components` 的查看器可以自持选区而不反向依赖 `tui-render`。失效条件沿用文本指针、宽度、模式与续行标记四项。超长行走字符窗口路径。
+ - 剪贴板后端归 `tui-terminal`：在现有 OSC 52 单路径旁增加本地工具优先、OSC 52 回退的决策链，含按需固定模式的环境变量与进程内开关、tmux 包裹、子进程脱离与后台回收。测试默认禁用，沿用现有消毒与绘制后刷出时序。
+ - 鼠标接线归 `wf-tui` 壳层：按下开始、拖拽扩展、释放复制的三段调用保持不变，只是把显示坐标换成逻辑位置；拖出边界时按固定节拍推进滚动并扩展游标；面板外点击清除行为沿用现有配置。
+ - 主题与样式不新增语义色，选中高亮复用现有反白与强调色；续行标记与滚动条样式沿用现有弱化风格。
+@@ -65,3 +65,14 @@
+ - 单元测试覆盖流式三段语义、逆向拖拽、空行与空白选择、缩放重排后同一字符、超长行窗口开销、剪贴板模式解析与禁用。
+ - 渲染测试覆盖双面板限定、续行标记列不占字符、滚动条显隐不断言崩溃。
+ - 全量校验收敛为一次完整编译检查。
++
++## 八、落地状态回填
++
++- `tui-core`：`TextPos`、`PanelGeometry`（含 `Motion`、`clamp_pos`、`move_pos`、`select_all`）、`PanelWrapCache`（由 `tui-render` 下沉）、`SelectablePanel`（单区域 + 冻结区域、`set_plain`/`set_styled`、`set_marker`）与对应单测已完成。
++- `tui-terminal`：本地工具优先、OSC 52 回退、模式固定与绘制后刷出保持原状，本次未改动。
++- `wf-tui`：transcript 选区改为逻辑坐标；命中与复制复用 `PreparedScrollback` 的行索引与窗口定位；滚动、resize 后选区保持；拖出边界自动滚动时锚点保持逻辑位置；键盘选择（`Shift` 方向/Home/End/PgUp/PgDn、`Ctrl+A`、`Esc`、`Ctrl+Y`）已接入；`Alt+Click` 可冻结当前区域并追加新的不相邻区域，复制时按逻辑位置排序合并。
++- `tui-components`：`Modal` 支持鼠标手势与可变绘制，文件查看器、diff 查看器基于 `SelectablePanel` 拖选复制，`Alt+Click` 追加区域，`Esc` 先清选区再关闭。
++- 历史分页器：`HistoryOverlay` 持有 `SelectablePanel`，绘制时同步 styled 行并回填内容矩形与顶部行号，拖选复制与键盘扩展选择已接入。
++- styled / ANSI 投影：transcript 的几何与复制建立在 `HistoryLine::logical_plain_lines`（渲染后的纯文本投影）上，Markdown 标记不会错位；查看器与历史分页器使用 `SelectablePanel::set_styled` 同时保存 styled 行与纯文本。transcript 本身不解析 ANSI 转义，工具输出中的转义序列按普通字符呈现。
++- 续行标记：`SelectablePanel::set_marker` 与 `PanelWrapCache` 的 `reserve_marker` 已提供预留列开关，默认关闭；transcript 与各查看器当前均未启用可见标记字形。
++- `wf-cli-demo` 双面板示例保留为底层能力验证，未改为 `SelectablePanel` 调用方。
+diff --git a/docs/research/tui/01-current-tui-interface-inventory.md b/docs/research/tui/01-current-tui-interface-inventory.md
+index 9476db9..5fd835b 100644
+--- a/docs/research/tui/01-current-tui-interface-inventory.md
++++ b/docs/research/tui/01-current-tui-interface-inventory.md
+@@ -144,10 +144,10 @@ Redraw：
+ 
+ - Search palette：`draw_search_palette`，`modal::centered_rect(70, 60)`；input + result list；score 显示；truncated/running/error 状态。
+ - Sidebar：`draw_sidebar_overlay`，左侧 30% screen list + `Clear`；导航 overlay，不是上下文 sidebar。
+-- History overlay：`draw_transcript_overlay`，全屏 transcript，tail anchored，reflow + scrollbar + jump badge + loading/has_more/error status。
++- History overlay：`draw_transcript_overlay`，全屏 transcript，tail anchored，reflow + scrollbar + jump badge + loading/has_more/error status；拖选复制与 `Shift` 键盘扩展选择接入 `SelectablePanel`。
+ - Help modal / approval / question / model picker：`help_modal.rs`, `approval_overlay.rs`, `question_overlay.rs`, `model_picker.rs`。
+ - Confirm/password/prompt modal：`confirm_modal.rs`, `password_modal.rs`, `prompt_modal.rs`。
+-- FileViewer/DiffViewer：`file_viewer.rs`，支持 scroll、copy（Ctrl+Y）；DiffViewer 有 Add/Remove/Context/Hunk coloring。
++- FileViewer/DiffViewer：`file_viewer.rs`，支持 scroll、copy（Ctrl+Y）；DiffViewer 有 Add/Remove/Context/Hunk coloring；拖选复制、`Alt+Click` 多区域、`Esc` 先清选区，均基于 `SelectablePanel` 的逻辑坐标。
+ - Checkpoint chain/detail 通过 `FileViewer` 展示 text。
+ 
+ ## 11. 全局视觉系统

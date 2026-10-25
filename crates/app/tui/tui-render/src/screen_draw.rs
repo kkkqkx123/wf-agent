@@ -16,6 +16,7 @@ use tui_core::screen_data::{
     catalog_counts, catalog_tab_label, screen_digit, short_id, CatalogKind, CatalogRow, ExecView,
     ScreenContext, ScreenData, ScreenKind, SearchRow, WorkflowView,
 };
+use tui_core::selectable_panel::SelectablePanel;
 use tui_style::theme::{ColorRole, Theme};
 
 const LOADING_TEXT: &str = "Loading...";
@@ -1247,16 +1248,30 @@ pub struct HistoryOverlayView<'a> {
     pub error: Option<&'a str>,
 }
 
+/// Result of one history overlay draw: paging state plus the cells the
+/// caller needs for mouse hit testing.
+pub struct HistoryOverlayLayout {
+    /// The viewport rests on the oldest loaded row.
+    pub at_top: bool,
+    /// Badge hit rectangle, when the badge is painted.
+    pub badge: Option<Rect>,
+    /// Text rectangle the rows landed in.
+    pub content: Rect,
+    /// Wrapped row index painted at the top of `content`.
+    pub top_row: usize,
+}
+
 /// Draw the history overlay over `area`, tail anchored: the viewport reads
 /// from the bottom up and only the rows inside the window are painted.
-/// Returns whether the viewport rests on the oldest loaded row plus the
-/// badge hit rectangle for mouse clicks.
+/// Returns the paging state, badge rectangle and content geometry the shell
+/// uses for mouse selection.
 pub fn draw_transcript_overlay(
     frame: &mut Frame,
     area: Rect,
     view: &mut HistoryOverlayView<'_>,
+    panel: Option<&mut SelectablePanel>,
     theme: &Theme,
-) -> (bool, Option<Rect>) {
+) -> HistoryOverlayLayout {
     use ratatui::widgets::Clear;
     frame.render_widget(Clear, area);
     let overlay_area = Rect {
@@ -1311,6 +1326,22 @@ pub fn draw_transcript_overlay(
     if let Some(gutter) = gutter {
         scrollbar::render(frame, gutter, rows.len(), capacity, top, theme);
     }
+    if let Some(panel) = panel {
+        panel.set_styled(&rows, usize::from(content.width));
+        let style = Style::default().add_modifier(Modifier::REVERSED);
+        let buf = frame.buffer_mut();
+        let right = content.x.saturating_add(content.width);
+        for (row, from, to) in panel.highlight_cells(content, start as u16) {
+            if row < content.y || row >= content.y.saturating_add(content.height) {
+                continue;
+            }
+            let end = to.min(right);
+            if from >= end {
+                continue;
+            }
+            buf.set_style(Rect::new(from, row, end - from, 1), style);
+        }
+    }
     let badge = paint_overlay_jump_badge(frame, content, view.scroll, theme);
 
     if area.height > 0 {
@@ -1326,7 +1357,12 @@ pub fn draw_transcript_overlay(
             status_area,
         );
     }
-    (at_top, badge)
+    HistoryOverlayLayout {
+        at_top,
+        badge,
+        content,
+        top_row: start,
+    }
 }
 
 /// One line below the overlay: the session, where loading stopped and which

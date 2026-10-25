@@ -479,6 +479,25 @@ impl HistoryLine {
             })
             .collect()
     }
+
+    /// Width-independent plain rendered rows: hard line breaks only.
+    ///
+    /// The renderer runs at the widest supported width, so soft wrapping is
+    /// absent and a logical position stays on the same characters across a
+    /// resize. Plain lines map to their source lines; Markdown lines map to
+    /// their rendered block rows, which is the plain projection selection
+    /// geometry needs (the stored source text keeps its markup).
+    pub fn logical_plain_lines(&self) -> Vec<String> {
+        self.display_lines(u16::MAX)
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect()
+    }
 }
 
 /// Clone a borrowed line into an owned (static) line.

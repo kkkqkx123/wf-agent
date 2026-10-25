@@ -97,7 +97,7 @@ impl Modal for FileSelectionDialog {
         &self.title
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let outer = Block::default()
             .title(format!(" {} ", self.title))
             .borders(Borders::ALL)

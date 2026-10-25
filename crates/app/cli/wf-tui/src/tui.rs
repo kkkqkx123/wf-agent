@@ -935,19 +935,22 @@ impl TuiApp {
                 );
             }
             OverlayMode::History => {
-                let mut view = self.history.view();
-                let (at_top, badge) = crate::screen_draw::draw_transcript_overlay(
+                let (mut view, panel) = self.history.split();
+                let layout = crate::screen_draw::draw_transcript_overlay(
                     frame,
                     area,
                     &mut view,
+                    Some(panel),
                     &self.theme,
                 );
-                self.history.set_viewport(view.scroll, at_top);
+                let scroll = view.scroll;
+                self.history.set_viewport(scroll, layout.at_top);
+                self.history.set_layout(layout.content, layout.top_row);
                 if scope == crate::redraw::RedrawScope::Full
                     || scope == crate::redraw::RedrawScope::BottomOnly
                 {
                     self.history_hit_generation = self.history_hit_generation.wrapping_add(1);
-                    self.history_badge = badge;
+                    self.history_badge = layout.badge;
                 }
             }
             OverlayMode::SearchPalette => {

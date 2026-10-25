@@ -5,8 +5,6 @@
 
 	interface Props {
 		controller: WorkflowEditSession;
-		/** Owning workflow id, kept for context and future wiring. */
-		workflowId: string;
 	}
 
 	let { controller }: Props = $props();

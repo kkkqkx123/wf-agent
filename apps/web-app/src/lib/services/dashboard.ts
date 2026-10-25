@@ -1,6 +1,6 @@
 import type { Execution, Metric } from '#lib/types/models';
 import { listCheckpoints } from '#lib/services/checkpoints';
-import { listExecutions } from '#lib/services/executions';
+import { listUnifiedExecutions } from '#lib/services/executions';
 import { listWorkflows } from '#lib/services/workflows';
 
 /** Aggregated overview metrics, mirroring the TUI DashboardData. */
@@ -21,7 +21,7 @@ export interface DashboardStats {
 export async function loadDashboardStats(): Promise<DashboardStats> {
 	const [workflows, executions, checkpoints] = await Promise.all([
 		listWorkflows({ limit: 200 }),
-		listExecutions({ limit: 200 }),
+		listUnifiedExecutions({ limit: 200 }),
 		listCheckpoints({ limit: 200 }).catch(() => null),
 	]);
 

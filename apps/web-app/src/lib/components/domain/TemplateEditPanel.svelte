@@ -18,7 +18,6 @@
 		localTemplateIssues,
 		parseTemplateTopology,
 		skeletonNodeHints,
-		templateEditTarget,
 		TemplateEditSession,
 		type TemplateFormField,
 		type TemplateIssue,
@@ -177,16 +176,13 @@
 
 	const nodeSnippet = $derived.by(() => {
 		if (!store.selectedId) return null;
+		// Graph tab only renders for workflow templates; node/trigger kinds
+		// never reach this branch, so no synthesis for their shapes here.
 		const parsed: unknown =
 			parsedProjection.value === undefined
 				? session.fullValue()
 				: parsedProjection.value;
-		const target = templateEditTarget(kind, parsed);
-		const parsedTopology = parseTemplateTopology(
-			kind === 'node' || kind === 'trigger'
-				? { definition: { nodes: [target], edges: [] } }
-				: parsed,
-		);
+		const parsedTopology = parseTemplateTopology(parsed);
 		const match = [...parsedTopology.nodes, ...parsedTopology.edges].find(
 			(entry) => entry.id === store.selectedId,
 		);

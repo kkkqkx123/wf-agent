@@ -1,46 +1,22 @@
-/** Mock routes: executions, unified listings, timelines and artifacts. */
+/** Mock routes: unified executions, audit views and artifacts. */
 
 import { agentLoops } from '#lib/fixtures/agentLoops';
 import {
 	executions,
-	executionDetail,
 	executionHierarchy,
 	executionHistory,
 	executionSubtree,
 	executionToolCalls,
 } from '#lib/fixtures/executions';
 import { executionTimeline } from '#lib/fixtures/triggers';
-import { camelToSnakeDeep, cursorPageView, pageView, type MockRouter } from '../router';
+import { camelToSnakeDeep, cursorPageView, type MockRouter } from '../router';
 
 export function registerExecutions(router: MockRouter): void {
-	// ---------- executions ----------
-	router.on('GET', '/api/v1/executions', (_p, query) => {
-		return pageView(camelToSnakeDeep(executions), +(query.limit ?? 50), +(query.offset ?? 0));
-	});
-	router.on('GET', '/api/v1/executions/{id}', (params) => {
-		const found = executionDetail.id === params.id
-			? executionDetail
-			: executions.find((e) => e.id === params.id) ?? executions[0];
-		return camelToSnakeDeep(found);
-	});
 	router.on('GET', '/api/v1/executions/{id}/audit/tool-calls', () => {
 		return camelToSnakeDeep(executionToolCalls);
 	});
 	router.on('GET', '/api/v1/executions/{id}/audit/timeline', () => {
 		return camelToSnakeDeep(executionTimeline);
-	});
-	router.on('GET', '/api/v1/events/execution-timeline/{executionId}', (_p, query) => {
-		const events = executionTimeline.map((entry) => ({
-			...entry,
-			timestamp: Date.parse(entry.at),
-			type: entry.kind,
-		}));
-		const page = cursorPageView(
-			camelToSnakeDeep(events),
-			+(query.limit ?? 50),
-			query.cursor,
-		);
-		return { ...page, total: events.length };
 	});
 	router.on('GET', '/api/v1/unified-executions', (_p, query) => {
 		const unified = [

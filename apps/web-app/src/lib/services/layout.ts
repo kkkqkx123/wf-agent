@@ -1,5 +1,23 @@
 import { client } from '#lib/api/client';
 import { call } from '#lib/api/envelope';
+import type { GraphLayoutKind } from '#lib/graph/display-model';
+
+/**
+ * Layout semantics: workflow persisted, template temporary.
+ *
+ * - Workflow definition graphs persist positions through the layout endpoint
+ *   (`GET/PUT/DELETE /workflows/{id}/layout`). The edit tab saves topology
+ *   via drafts and positions via this endpoint independently (`dirty` vs
+ *   `layoutDirty`); the read-only graph tab autosaves view drags debounced.
+ * - Template workflow graphs keep positions as ephemeral canvas state only.
+ *   They have no layout endpoint by design, `layoutDirty` stays unwired, and
+ *   pure moves are dropped when the session folds back to text.
+ *
+ * `LayoutKind` mirrors `GraphLayoutKind` from the canvas display model; the
+ * canvas owns the canonical union and this module reuses it so the two never
+ * drift. Only `kind` is persisted today.
+ */
+export type LayoutKind = GraphLayoutKind;
 
 /** A single persisted node position (grid-snapped canvas coordinates). */
 export interface LayoutPoint {
@@ -7,22 +25,11 @@ export interface LayoutPoint {
 	y: number;
 }
 
-/** Layout algorithm, mirroring the backend `LayoutKind` enum. */
-export type LayoutKind = 'layered' | 'columns' | 'rows' | 'compact';
-
-/** Layout direction, mirroring the backend `LayoutDirection` enum. */
-export type LayoutDirection = 'lr' | 'tb' | 'rl' | 'bt';
-
-/** Layout settings persisted alongside positions. */
+/**
+ * Layout settings persisted alongside positions.
+ */
 export interface LayoutSettings {
 	kind: LayoutKind;
-	direction?: LayoutDirection;
-	rank_sep?: number;
-	node_sep?: number;
-	row_height?: number;
-	column_width?: number;
-	wrap_count?: number;
-	padding?: number;
 }
 
 /** Persisted canvas layout for a workflow definition. */

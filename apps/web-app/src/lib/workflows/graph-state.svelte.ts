@@ -1,7 +1,7 @@
 import { getGraphAnalysis, getGraphNeighbors } from '#lib/services/graph';
 import {
-	getExecutionCallStack,
-	getExecutionDetail,
+	getExecutionHistory,
+	getUnifiedExecutionDetail,
 	listUnifiedExecutions,
 } from '#lib/services/executions';
 import { loadAnalysisData } from '#lib/services/inspector-loaders';
@@ -75,14 +75,14 @@ export class WorkflowGraphState {
 
 	/**
 	 * Project the latest run of one definition onto the definition graph.
-	 * Read-only: detail, call stack and analysis are merged into overlay
+	 * Read-only: unified detail and history nodes merge into overlay
 	 * signals without writing back to the definition.
 	 */
 	async loadLatestRunOverlay(definitionId: string): Promise<void> {
 		if (!definitionId || this.overlayLoading) return;
 		this.overlayLoading = true;
 		this.overlayError = null;
-		let runId: string | null = null;
+		let runId: string | null;
 		try {
 			const page = await listUnifiedExecutions({
 				limit: 1,
@@ -115,31 +115,30 @@ export class WorkflowGraphState {
 		this.overlayLoading = true;
 		this.overlayError = null;
 		try {
-			const [detail, callStack, analysis] = await Promise.all([
-				getExecutionDetail(runId),
-				getExecutionCallStack(runId),
+			const [unified, history, analysis] = await Promise.all([
+				getUnifiedExecutionDetail(runId),
+				getExecutionHistory(runId, ['nodes']).catch(() => null),
 				loadAnalysisData(runId).catch(() => null),
 			]);
-			const failed = callStack
-				.filter((frame) =>
-					['failed', 'failure', 'error', 'errored', 'timeout'].includes(
-						frame.status.trim().toLowerCase(),
-					),
-				)
-				.map((frame) => frame.node);
-			const executed = callStack
-				.filter((frame) =>
-					['completed', 'complete', 'success', 'succeeded', 'done'].includes(
-						frame.status.trim().toLowerCase(),
-					),
-				)
-				.map((frame) => frame.node);
+			const record =
+				typeof unified.record === 'object' && unified.record !== null
+					? (unified.record as Record<string, unknown>)
+					: {};
+			const currentNode =
+				typeof record.current_node_id === 'string'
+					? record.current_node_id
+					: null;
+			const historyNodes = history?.nodes ?? [];
+			const failed = historyNodes
+				.filter((node) => node.error)
+				.map((node) => node.nodeId);
+			const executed = historyNodes.map((node) => node.nodeId);
 			this.executionOverlay = {
 				runId,
-				currentNode: detail.currentNode,
-				failedNodes: [
-					...new Set([...failed, ...(analysis?.failedNodes ?? [])]),
-				],
+				currentNode,
+				failedNodes: [...failed, ...(analysis?.failedNodes ?? [])].filter(
+					(value, index, array) => array.indexOf(value) === index,
+				),
 				criticalPath: analysis?.criticalPath ?? [],
 				slowNodes: (analysis?.slowNodes ?? []).map((entry) => ({
 					node: entry.node,

@@ -14,6 +14,10 @@
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { cn } from '#lib/ui/cn';
 	import { t } from '#lib/i18n';
+	import {
+		describeRerunUnsupported,
+		isRerunnableExecutionType,
+	} from '#lib/services/executions';
 
 	interface Props {
 		execution: Execution;
@@ -45,8 +49,11 @@
 					? 'running'
 					: 'default',
 	);
-	const canRerun = $derived(
-		execution.kind === undefined || execution.kind === 'workflow',
+	const canRerun = $derived(isRerunnableExecutionType(execution.kind));
+	const rerunDisabledReason = $derived(
+		execution.kind && !canRerun
+			? describeRerunUnsupported(execution.kind)
+			: '',
 	);
 	const rowError = $derived(isErrorStatus(execution.status));
 
@@ -144,14 +151,25 @@
 				onclick={() => onopen?.(execution)}
 			/>
 		{/if}
-		{#if canRerun && onrerun}
-			<IconButton
-				icon="refresh"
-				label={t('domain.runs.rerun')}
-				compact
-				disabled={rerunning}
-				onclick={() => onrerun?.(execution)}
-			/>
+		{#if onrerun}
+			{#if canRerun}
+				<IconButton
+					icon="refresh"
+					label={t('domain.runs.rerun')}
+					compact
+					disabled={rerunning}
+					onclick={() => onrerun?.(execution)}
+				/>
+			{:else}
+				<IconButton
+					icon="refresh"
+					label={rerunDisabledReason || t('domain.runs.rerun')}
+					compact
+					disabled={true}
+					title={rerunDisabledReason}
+					onclick={() => {}}
+				/>
+			{/if}
 		{/if}
 		<IconButton
 			icon="copy"

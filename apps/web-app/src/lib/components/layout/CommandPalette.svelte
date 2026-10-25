@@ -6,7 +6,7 @@
 	import Dialog from '#lib/ui/components/Dialog.svelte';
 	import { NAV_ITEMS } from '#lib/config/navigation';
 	import { resolveAppPath } from '#lib/utils/route';
-	import { listExecutions } from '#lib/services/executions';
+	import { listUnifiedExecutions } from '#lib/services/executions';
 	import { listWorkflows } from '#lib/services/workflows';
 	import { listAgentLoops } from '#lib/services/agent-loops';
 	import { unifiedSearch, type SearchHit } from '#lib/services/search';
@@ -46,7 +46,7 @@
 		if (executions.length > 0 && workflows.length > 0 && agentLoops.length > 0)
 			return;
 		void Promise.all([
-			listExecutions({ limit: 50 })
+			listUnifiedExecutions({ limit: 50 })
 				.then((page) => {
 					executions = page.items;
 				})

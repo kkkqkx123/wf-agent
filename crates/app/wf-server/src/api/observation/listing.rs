@@ -221,6 +221,10 @@ pub(crate) struct UnifiedExecutionDetailDoc {
     #[serde(skip_serializing_if = "Option::is_none")]
     definition_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rerun_of: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     parent_execution_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
@@ -236,6 +240,8 @@ impl From<wf_api::execution_listing::UnifiedExecutionDetail> for UnifiedExecutio
             start_time: detail.start_time,
             end_time: detail.end_time,
             definition_id: detail.definition_id,
+            version: detail.version,
+            rerun_of: detail.rerun_of,
             parent_execution_id: detail.parent_execution_id,
             error: detail.error,
             record: detail.record,

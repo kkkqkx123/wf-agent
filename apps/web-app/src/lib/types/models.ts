@@ -11,8 +11,8 @@ export interface Execution {
 	id: string;
 	workflowId: string;
 	workflowName: string;
-	/** Owning engine; absent on rows from the workflow-only list. */
-	kind?: ExecutionKind;
+	/** Owning engine. */
+	kind: ExecutionKind;
 	status: string;
 	startedAt: string;
 	endedAt: string | null;
@@ -28,7 +28,7 @@ export interface Execution {
 	tags?: string[];
 	/** Workflow input captured with the execution; used to re-run it. */
 	input?: unknown;
-	/** Pinned workflow version the run executed; absent for legacy records. */
+	/** Pinned workflow version the run executed. */
 	version?: string | null;
 	/** Terminal failure message recorded on the execution, if any. */
 	error?: string | null;
@@ -120,17 +120,23 @@ export interface ExecutionHistory {
 	 */
 	timelineLimit: number;
 	timeline: TimelineEntry[];
+	nodes: NodeExecution[];
 	iterations: IterationRecord[];
 	variables: KeyValue[];
 	contextEvolution: ContextEvolutionStep[];
 	statusTransitions: StatusTransition[];
 }
 
-export interface StackFrame {
-	node: string;
-	depth: number;
-	enteredAt: string;
-	status: string;
+/** One node execution from the unified history nodes section. */
+export interface NodeExecution {
+	nodeId: string;
+	nodeType: string;
+	startedAt: string;
+	endedAt: string | null;
+	durationMs: number;
+	error: string | null;
+	input: unknown;
+	result: unknown;
 }
 
 export interface NodeTraceToolDependency {
@@ -178,21 +184,6 @@ export interface LlmReasoningStep {
 	content: string;
 	confidence: number | null;
 	conclusions: string[];
-}
-
-export interface ExecutionDetail extends Execution {
-	context: KeyValue[];
-	callStack: StackFrame[];
-	variables: KeyValue[];
-	memory: { currentBytes: number; peakBytes: number };
-	migration: Array<{ at: string; from: string; to: string; reason: string }>;
-	analysis: {
-		slowNodes: Array<{ node: string; durationMs: number }>;
-		decisionPoints: string[];
-		failureNodes: string[];
-		criticalPath: string[];
-		iterations: number;
-	};
 }
 
 export interface GraphNode {
@@ -349,6 +340,23 @@ export interface Workflow {
 	successRate: number | null;
 	/** Whether the workflow is published to the template library. */
 	published: boolean;
+	/**
+	 * Persisted derivation source. A template is the reusable view of a
+	 * definition; a workflow is the runnable instance derived from it.
+	 * Publish/unpublish only flips `published`; derivation always writes
+	 * this field. Absent means sourceless history, never backfilled.
+	 */
+	derivedFrom?: DefinitionDerivation | null;
+}
+
+/** First-class derivation lineage shared by every definition body. */
+export interface DefinitionDerivation {
+	/** Source kind: workflow, agent, node, trigger. */
+	sourceKind: string;
+	/** Source definition id. */
+	sourceId: string;
+	/** Derivation time as Unix milliseconds. */
+	derivedAt: number;
 }
 
 export interface WorkflowDetail extends Workflow {

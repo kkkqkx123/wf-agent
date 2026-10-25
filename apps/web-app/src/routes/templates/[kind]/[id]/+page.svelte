@@ -29,6 +29,8 @@
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { t } from '#lib/i18n';
+	import Select from '#lib/ui/components/Select.svelte';
+	import { listWorkflows } from '#lib/services/workflows';
 
 	const KINDS: readonly TemplateKind[] = [
 		'node',
@@ -57,6 +59,37 @@
 	let detailError = $state<string | null>(null);
 	let loadedKey = $state('');
 	let publishBusy = $state(false);
+
+	// Deep-link target for node insertion: `?target=<workflowId>` preselects
+	// the destination so the insert lands straight on its edit tab instead
+	// of requiring a manual second pick in the workflow list.
+	let insertTarget = $state('');
+	let targetOptions = $state<Array<{ value: string; label: string }>>([]);
+	let targetsLoading = $state(false);
+
+	async function loadTargets(): Promise<void> {
+		if (targetsLoading || targetOptions.length > 0) return;
+		targetsLoading = true;
+		try {
+			const pageResult = await listWorkflows({ limit: 200 });
+			targetOptions = pageResult.items.map((workflow) => ({
+				value: workflow.id,
+				label: `${workflow.name} · ${workflow.id.slice(0, 8)}`,
+			}));
+		} catch {
+			targetOptions = [];
+		} finally {
+			targetsLoading = false;
+		}
+	}
+
+	$effect(() => {
+		if (controller.insertNodeType === null) return;
+		const requested =
+			(page.url as unknown as URL).searchParams.get('target') ?? '';
+		if (requested && requested !== insertTarget) insertTarget = requested;
+		void loadTargets();
+	});
 
 	/** Whether the workflow template is published to the library. */
 	const published = $derived(detail?.template.published === true);
@@ -215,10 +248,18 @@
 	>
 		{#snippet actions()}
 			{#if controller.insertNodeType !== null}
+				<Select
+					value={insertTarget}
+					options={targetOptions}
+					size="sm"
+					placeholder="Target workflow (optional)"
+					class="w-56"
+					onchange={(value) => (insertTarget = value)}
+				/>
 				<Button
 					variant="outline"
 					size="sm"
-					onclick={() => controller.insertIntoCanvas()}
+					onclick={() => controller.insertIntoCanvas(insertTarget || null)}
 				>
 					<Icon name="blocks" size={13} />
 					Insert as {controller.insertNodeType}
@@ -286,7 +327,7 @@
 				{:else if detail && !controller.editMode && kind}
 					<TemplateDetailPreview {kind} {detail} {controller} />
 				{:else if detail && kind}
-					<TemplateEditSection {kind} {detail} {controller} />
+					<TemplateEditSection {kind} {controller} />
 				{:else}
 					<EmptyState
 						icon="template"

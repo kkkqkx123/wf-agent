@@ -1,6 +1,7 @@
 import type {
 	ExecutionHierarchy,
 	ExecutionSubtree,
+	NodeExecution,
 	NodeTrace,
 } from '#lib/types/models';
 import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
@@ -15,12 +16,9 @@ import {
 	type SlowNodeEntry,
 } from '#lib/services/graph';
 import {
-	getExecutionCallStack,
-	getExecutionContext,
 	getExecutionHierarchy,
-	getExecutionMemory,
+	getExecutionHistory,
 	getExecutionSubtree,
-	getExecutionVariables,
 } from '#lib/services/executions';
 import { getExecutionNodeTraces } from '#lib/services/node-trace';
 
@@ -79,31 +77,17 @@ export async function loadAnalysisData(id: string): Promise<AnalysisSnapshot> {
 	};
 }
 
-/** State tab snapshot: context, variables, call stack and memory. */
+/** State tab snapshot from the unified history view. */
 export interface StateSnapshot {
-	context: Array<{ key: string; value: string }>;
 	variables: Array<{ key: string; value: string }>;
-	callStack: Array<{
-		node: string;
-		depth: number;
-		enteredAt: string;
-		status: string;
-	}>;
-	memory: { currentBytes: number; peakBytes: number };
+	nodes: NodeExecution[];
 }
 
 export async function loadStateData(id: string): Promise<StateSnapshot> {
-	const [ctx, vars, stack, mem] = await Promise.all([
-		getExecutionContext(id),
-		getExecutionVariables(id),
-		getExecutionCallStack(id),
-		getExecutionMemory(id),
-	]);
+	const history = await getExecutionHistory(id, ['variables', 'nodes']);
 	return {
-		context: ctx,
-		variables: vars,
-		callStack: stack,
-		memory: mem.peakBytes > 0 ? mem : { currentBytes: 0, peakBytes: 0 },
+		variables: history.variables,
+		nodes: history.nodes,
 	};
 }
 

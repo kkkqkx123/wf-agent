@@ -24,15 +24,13 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import {
-		listExecutions,
+		getUnifiedExecutionStats,
 		listUnifiedExecutions,
-		getExecutionDetail,
-		getExecutionStats,
 	} from '#lib/services/executions';
 	import { rerunWorkflowRun } from '#lib/services/run';
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
 	import SessionInspector from '#lib/components/domain/SessionInspector.svelte';
-	import type { Execution, ExecutionDetail, Metric } from '#lib/types/models';
+	import type { Execution, Metric } from '#lib/types/models';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { formatDateTime } from '#lib/utils/format';
 	import { t } from '#lib/i18n';
@@ -75,14 +73,14 @@
 	);
 	let showTaskPanel = $state(requestedDefinition !== null);
 	let compareId = $state<string | null>(null);
-	let compareDetail = $state<ExecutionDetail | null>(null);
+	let compareDetail = $state<Execution | null>(null);
 	let rerunningId = $state<string | null>(null);
 	let allExecutions = $state<{ items: Execution[]; hasMore: boolean }>({
 		items: [],
 		hasMore: false,
 	});
 	let nextCursor = $state<string | null>(null);
-	let detail = $state<ExecutionDetail | null>(null);
+	let detail = $state<Execution | null>(null);
 	let overviewMetrics = $state<Metric[]>([]);
 	let loading = $state(true);
 	let loadingMore = $state(false);
@@ -127,18 +125,15 @@
 		error = null;
 		hasUpdates = false;
 		try {
+			// Unified execution view only: the old workflow-view list is frozen
+			// and draining, so every engine filter goes through one endpoint.
 			const [page, metrics] = await Promise.all([
-				engine === 'workflow'
-					? listExecutions({
-							limit: EXECUTIONS_PAGE,
-							status: status || undefined,
-						})
-					: listUnifiedExecutions({
-							limit: EXECUTIONS_PAGE,
-							status: status || undefined,
-							executionType: engine === 'all' ? undefined : engine,
-						}),
-				getExecutionStats(),
+				listUnifiedExecutions({
+					limit: EXECUTIONS_PAGE,
+					status: status || undefined,
+					executionType: engine === 'all' ? undefined : engine,
+				}),
+				getUnifiedExecutionStats(),
 			]);
 			allExecutions = { items: page.items, hasMore: page.hasMore };
 			nextCursor = 'nextCursor' in page ? page.nextCursor : null;
@@ -162,19 +157,12 @@
 		if (loadingMore || !allExecutions.hasMore) return;
 		loadingMore = true;
 		try {
-			const page =
-				engine === 'workflow'
-					? await listExecutions({
-							limit: EXECUTIONS_PAGE,
-							offset: allExecutions.items.length,
-							status: status || undefined,
-						})
-					: await listUnifiedExecutions({
-							limit: EXECUTIONS_PAGE,
-							cursor: nextCursor ?? undefined,
-							status: status || undefined,
-							executionType: engine === 'all' ? undefined : engine,
-						});
+			const page = await listUnifiedExecutions({
+				limit: EXECUTIONS_PAGE,
+				cursor: nextCursor ?? undefined,
+				status: status || undefined,
+				executionType: engine === 'all' ? undefined : engine,
+			});
 			nextCursor = 'nextCursor' in page ? page.nextCursor : null;
 			allExecutions = {
 				items: [...allExecutions.items, ...page.items],
@@ -191,14 +179,11 @@
 	/** Optional incremental insert: prepend only unseen rows with a flash. */
 	async function insertLatest(): Promise<void> {
 		try {
-			const page =
-				engine === 'workflow'
-					? await listExecutions({ limit: 50, status: status || undefined })
-					: await listUnifiedExecutions({
-							limit: 50,
-							status: status || undefined,
-							executionType: engine === 'all' ? undefined : engine,
-						});
+			const page = await listUnifiedExecutions({
+				limit: 50,
+				status: status || undefined,
+				executionType: engine === 'all' ? undefined : engine,
+			});
 			const known = new Set(allExecutions.items.map((item) => item.id));
 			const fresh = page.items.filter((item) => !known.has(item.id));
 			if (fresh.length === 0) return;
@@ -222,23 +207,13 @@
 			return;
 		}
 		// Agent and chat runs render through the session inspector, which
-		// loads its own data; only workflow runs use the workflow detail.
-		const kind = allExecutions.items.find((row) => row.id === id)?.kind;
-		if (kind === 'agent' || kind === 'chat') {
+		// loads its own data; only workflow runs use the unified inspector.
+		const row = allExecutions.items.find((item) => item.id === id) ?? null;
+		if (!row || row.kind === 'agent' || row.kind === 'chat') {
 			detail = null;
 			return;
 		}
-		void getExecutionDetail(id)
-			.then((row) => {
-				detail = row;
-			})
-			.catch((e) => {
-				detail = null;
-				toasts.error(
-					t('page.executions.detailFailed'),
-					e instanceof Error ? e.message : undefined,
-				);
-			});
+		detail = row;
 	});
 
 	$effect(() => {
@@ -253,22 +228,12 @@
 		}
 		// The compare view is the workflow run inspector; non-workflow
 		// candidates never enter it.
-		const kind = allExecutions.items.find((row) => row.id === id)?.kind;
-		if (kind === 'agent' || kind === 'chat') {
+		const row = allExecutions.items.find((item) => item.id === id) ?? null;
+		if (!row || row.kind === 'agent' || row.kind === 'chat') {
 			compareDetail = null;
 			return;
 		}
-		void getExecutionDetail(id)
-			.then((row) => {
-				compareDetail = row;
-			})
-			.catch((e) => {
-				compareDetail = null;
-				toasts.error(
-					t('page.executions.compareDetailFailed'),
-					e instanceof Error ? e.message : undefined,
-				);
-			});
+		compareDetail = row;
 	});
 	// The status travels to the server; the free-text query only narrows the
 	// page already fetched, which is why it filters names/ids instead of payloads.
@@ -367,8 +332,7 @@
 	const compared = $derived(compareDetail);
 
 	// The inspector switches by executor kind: agent and chat runs render
-	// the session transcript, workflow runs render the run inspector. Rows
-	// from the workflow-only list carry no kind and read as workflow.
+	// the session transcript, workflow runs render the run inspector.
 	const selectedKind = $derived(
 		filtered.find((execution) => execution.id === selectedId)?.kind ??
 			'workflow',
@@ -382,8 +346,7 @@
 		filtered
 			.filter(
 				(execution) =>
-					execution.id !== selectedId &&
-					(execution.kind === undefined || execution.kind === 'workflow'),
+					execution.id !== selectedId && execution.kind === 'workflow',
 			)
 			.map((execution) => ({
 				value: execution.id,
@@ -711,20 +674,7 @@
 		{:else if selected}
 			<ExecutionInspector
 				execution={selected}
-				onrefresh={() => {
-					const id = selectedId;
-					if (!id) return;
-					void getExecutionDetail(id)
-						.then((row) => {
-							detail = row;
-						})
-						.catch((e) => {
-							toasts.error(
-								t('page.executions.detailFailed'),
-								e instanceof Error ? e.message : undefined,
-							);
-						});
-				}}
+				onrefresh={() => void reload()}
 			/>
 		{/if}
 	{/snippet}
@@ -733,20 +683,7 @@
 		{#if compared}
 			<ExecutionInspector
 				execution={compared}
-				onrefresh={() => {
-					const id = compareId;
-					if (!id) return;
-					void getExecutionDetail(id)
-						.then((row) => {
-							compareDetail = row;
-						})
-						.catch((e) => {
-							toasts.error(
-								t('page.executions.compareDetailFailed'),
-								e instanceof Error ? e.message : undefined,
-							);
-						});
-				}}
+				onrefresh={() => void reload()}
 			/>
 		{:else}
 			<EmptyState

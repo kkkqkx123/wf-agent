@@ -18,6 +18,7 @@
 	import DefinitionDraftsPanel from '#lib/components/domain/DefinitionDraftsPanel.svelte';
 	import RunsPanel from '#lib/components/domain/RunsPanel.svelte';
 	import { exportWorkflow, getWorkflowDetail } from '#lib/services/workflows';
+	import { cloneWorkflow } from '#lib/services/workflows';
 	import {
 		publishWorkflowTemplate,
 		unpublishWorkflowTemplate,
@@ -50,13 +51,18 @@
 			: 'graph',
 	);
 
+	let detail = $state<WorkflowDetail | null>(null);
+	let detailError = $state<string | null>(null);
+	let detailLoading = $state(true);
+	let publishBusy = $state(false);
+	let cloneBusy = $state(false);
+
+	const workflow = $derived(detail);
+
 	// A workflow is the runnable instance derived from a reusable template
-	// view. The origin id travels in `?fromTemplate=` when it was just
-	// created from the library, so this page can link back instead of
-	// forking a silent copy.
-	const fromTemplate = $derived(
-		(page.url as unknown as URL).searchParams.get('fromTemplate') ?? '',
-	);
+	// view. The persisted derivation source (`metadata.derived_from`) is the
+	// single lineage field.
+	const derivedFrom = $derived(detail?.derivedFrom ?? null);
 
 	// A run id travels in `?run=` when the user arrives from the execution
 	// domain. The graph tab projects that specific run instead of the latest
@@ -70,13 +76,6 @@
 			tab: tab === 'graph' ? '' : tab,
 		});
 	});
-
-	let detail = $state<WorkflowDetail | null>(null);
-	let detailError = $state<string | null>(null);
-	let detailLoading = $state(true);
-	let publishBusy = $state(false);
-
-	const workflow = $derived(detail);
 
 	const nodes = $derived<DisplayNode[]>(
 		(detail?.graph.nodes ?? []).map((node) => ({
@@ -212,6 +211,28 @@
 		}
 	}
 
+	/**
+	 * Clone this workflow in the same library. The server assigns a new id
+	 * and records this workflow as the persisted derivation source, so the
+	 * clone links back without remark-style lineage.
+	 */
+	async function runClone(id: string): Promise<void> {
+		if (!id || cloneBusy) return;
+		cloneBusy = true;
+		try {
+			const newId = await cloneWorkflow(id);
+			toasts.success(t('page.workflowDetail.cloned'), newId);
+			await goto(`/workflows/${encodeURIComponent(newId)}?tab=edit`);
+		} catch (e) {
+			toasts.error(
+				t('page.workflowDetail.cloneFailed'),
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			cloneBusy = false;
+		}
+	}
+
 	async function goToRunWorkbench(id: string): Promise<void> {
 		const target = `/executions?definition=${encodeURIComponent(`workflow:${id}`)}`;
 		await goto(target);
@@ -321,12 +342,25 @@
 					size="sm"
 					disabled={publishBusy}
 					onclick={() => void runTogglePublish()}
-					title="Publish the reusable template view of this definition"
+					title="Publish the reusable template view of this definition; publishing flips the mark only"
 				>
 					<Icon name={workflow.published ? 'archive' : 'upload'} size={13} />
 					{workflow.published
 						? t('page.workflowDetail.unpublish')
 						: t('page.workflowDetail.publish')}
+				</Button>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={cloneBusy}
+					onclick={() => {
+						const id = page.params.id;
+						if (id) void runClone(id);
+					}}
+					title="Clone in the same library with a new id; the source stays as the derivation lineage"
+				>
+					<Icon name="copy" size={13} />
+					{t('page.workflowDetail.clone')}
 				</Button>
 			{/if}
 			<Button
@@ -363,18 +397,19 @@
 	/>
 
 	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-		{#if fromTemplate}
+		{#if derivedFrom}
 			<p
 				class="mb-2 rounded-lg border border-border bg-card px-3 py-2 text-caption text-muted-foreground"
 			>
 				Runnable instance derived from template
 				<a
 					class="font-mono underline-offset-2 hover:underline"
-					href={`/templates/workflow/${encodeURIComponent(fromTemplate)}`}
+					href={`/templates/workflow/${encodeURIComponent(derivedFrom.sourceId)}`}
 				>
-					{fromTemplate}
+					{derivedFrom.sourceId}
 				</a>
 				· the template stays the reusable view, this workflow is the runnable instance.
+					<span class="font-mono"> · {derivedFrom.sourceKind} · {new Date(derivedFrom.derivedAt).toISOString()}</span>
 			</p>
 		{/if}
 		{#if detailLoading}
@@ -406,7 +441,7 @@
 					>template library</a
 				>. Runs stay in the execution domain (Runs tab, Run button).
 			</p>
-			<WorkflowEditSection controller={session} workflowId={detail.id} />
+			<WorkflowEditSection controller={session} />
 		{:else if tab === 'versions'}
 			{#if detail}
 				<DefinitionVersionsPanel

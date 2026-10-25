@@ -1,6 +1,5 @@
 import type {
 	Execution,
-	ExecutionDetail,
 	ExecutionHierarchy,
 	ExecutionHistory,
 	ExecutionSubtree,
@@ -13,6 +12,7 @@ export const executions: Execution[] = [
 		id: 'exec-7f31c2a9',
 		workflowId: 'wf-release-train',
 		workflowName: 'Release Train',
+		kind: 'workflow',
 		status: 'running',
 		startedAt: minutesAgo(14),
 		endedAt: null,
@@ -31,6 +31,7 @@ export const executions: Execution[] = [
 		id: 'exec-5b0d4417',
 		workflowId: 'wf-incident-triage',
 		workflowName: 'Incident Triage',
+		kind: 'workflow',
 		status: 'paused',
 		startedAt: minutesAgo(52),
 		endedAt: null,
@@ -48,6 +49,7 @@ export const executions: Execution[] = [
 		id: 'exec-9ac2e01d',
 		workflowId: 'wf-data-sync',
 		workflowName: 'Data Sync',
+		kind: 'workflow',
 		status: 'completed',
 		startedAt: minutesAgo(180),
 		endedAt: minutesAgo(164),
@@ -64,6 +66,7 @@ export const executions: Execution[] = [
 		id: 'exec-2f8b1170',
 		workflowId: 'wf-release-train',
 		workflowName: 'Release Train',
+		kind: 'workflow',
 		status: 'failed',
 		startedAt: minutesAgo(320),
 		endedAt: minutesAgo(311),
@@ -80,6 +83,7 @@ export const executions: Execution[] = [
 		id: 'exec-41dd9c08',
 		workflowId: 'wf-model-eval',
 		workflowName: 'Model Evaluation',
+		kind: 'workflow',
 		status: 'completed',
 		startedAt: minutesAgo(460),
 		endedAt: minutesAgo(408),
@@ -98,6 +102,7 @@ export const executions: Execution[] = [
 		id: 'exec-c07b3e55',
 		workflowId: 'wf-data-sync',
 		workflowName: 'Data Sync',
+		kind: 'workflow',
 		status: 'queued',
 		startedAt: minutesAgo(2),
 		endedAt: null,
@@ -114,6 +119,7 @@ export const executions: Execution[] = [
 		id: 'exec-8e21fa63',
 		workflowId: 'wf-incident-triage',
 		workflowName: 'Incident Triage',
+		kind: 'workflow',
 		status: 'cancelled',
 		startedAt: minutesAgo(700),
 		endedAt: minutesAgo(696),
@@ -130,6 +136,7 @@ export const executions: Execution[] = [
 		id: 'exec-6d54b0a2',
 		workflowId: 'wf-model-eval',
 		workflowName: 'Model Evaluation',
+		kind: 'workflow',
 		status: 'running',
 		startedAt: minutesAgo(6),
 		endedAt: null,
@@ -144,79 +151,6 @@ export const executions: Execution[] = [
 	},
 ];
 
-export const executionDetail: ExecutionDetail = {
-	...executions[0],
-	context: [
-		{ key: 'branch', value: 'release/2026.09' },
-		{ key: 'commit', value: '9f2c41ab' },
-		{ key: 'environment', value: 'staging' },
-		{ key: 'actor', value: 'scheduler' },
-	],
-	callStack: [
-		{
-			node: 'integration-test',
-			depth: 0,
-			enteredAt: minutesAgo(4),
-			status: 'running',
-		},
-		{
-			node: 'build-bundle',
-			depth: 1,
-			enteredAt: minutesAgo(9),
-			status: 'completed',
-		},
-		{
-			node: 'checkout',
-			depth: 2,
-			enteredAt: minutesAgo(14),
-			status: 'completed',
-		},
-	],
-	variables: [
-		{ key: 'artifact.version', value: '2026.09.3' },
-		{ key: 'artifact.size', value: '184 MB' },
-		{ key: 'tests.passed', value: '412' },
-		{ key: 'tests.failed', value: '0' },
-		{ key: 'retry.count', value: '1' },
-	],
-	memory: { currentBytes: 486 * 1024 * 1024, peakBytes: 512 * 1024 * 1024 },
-	migration: [
-		{
-			at: minutesAgo(13),
-			from: 'queued',
-			to: 'running',
-			reason: 'worker acquired lease',
-		},
-		{
-			at: minutesAgo(9),
-			from: 'running',
-			to: 'running',
-			reason: 'node build-bundle finished',
-		},
-		{
-			at: minutesAgo(4),
-			from: 'running',
-			to: 'running',
-			reason: 'node integration-test started',
-		},
-	],
-	analysis: {
-		slowNodes: [
-			{ node: 'integration-test', durationMs: 262_000 },
-			{ node: 'build-bundle', durationMs: 188_000 },
-			{ node: 'publish-artifact', durationMs: 74_000 },
-		],
-		decisionPoints: ['coverage-gate', 'smoke-gate'],
-		failureNodes: [],
-		criticalPath: [
-			'checkout',
-			'build-bundle',
-			'integration-test',
-			'publish-artifact',
-		],
-		iterations: 3,
-	},
-};
 
 export const executionToolCalls: ToolCallEntry[] = [
 	{
@@ -322,6 +256,7 @@ export const executionHistory: ExecutionHistory = {
 	executionType: 'workflow',
 	timelineLimit: 100,
 	timeline: [],
+	nodes: [],
 	iterations: [],
 	variables: [
 		{ key: 'releaseChannel', value: 'staging' },

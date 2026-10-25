@@ -754,7 +754,7 @@
 	"domain.templateEdit.goToLine": "Go to line",
 	"domain.templateEdit.gotIt": "Got it",
 	"domain.templateEdit.graph": "Graph",
-	"domain.templateEdit.graphHint": "Graph preview is only available for workflow templates.",
+	"domain.templateEdit.graphHint": "Template graphs stay edit-only by design. Runs never project here; view execution overlay on the workflow graph tab.",
 	"domain.templateEdit.graphOnlyWorkflow": "Graph preview is only available for workflow templates.",
 	"domain.templateEdit.graphReloaded": "Graph reloaded",
 	"domain.templateEdit.graphReloadedDetail": "The document changed; unmerged canvas edits were discarded.",

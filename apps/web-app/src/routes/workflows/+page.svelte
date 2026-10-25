@@ -32,6 +32,8 @@
 		formatPercent,
 		formatRelativeTime,
 	} from '#lib/utils/format';
+	import { page } from '$app/state';
+	import { nodeInsertStore } from '#lib/stores/node-insert.svelte';
 
 	const STATUS_OPTIONS = [
 		{ value: 'active', label: 'Active' },
@@ -55,6 +57,16 @@
 	let newOpen = $state(false);
 	let newName = $state('');
 	let newBusy = $state(false);
+
+	// Pending node insertion from the template library. The banner below is
+	// the recoverable prompt: when staging survived (memory or session
+	// backup) it names the queued node and its source template; when the
+	// address carries `?pendingInsert=1` but staging is gone it explains the
+	// loss and links back instead of failing silently.
+	const pendingInsert = $derived(nodeInsertStore.peek());
+	const pendingFlag = $derived(
+		(page.url as unknown as URL).searchParams.get('pendingInsert') ?? '',
+	);
 
 	onMount(() => {
 		void reload();
@@ -205,6 +217,34 @@
 		</PageHeader>
 
 		<div class="page-container min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+			{#if pendingInsert}
+				<div
+					class="mb-3 flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2"
+				>
+					<span class="text-caption text-muted-foreground">
+						Node {pendingInsert.nodeType} queued{#if pendingInsert.sourceTemplateId}
+							from template <span class="font-mono">{pendingInsert.sourceTemplateId}</span>{/if}
+						· pick a workflow below, then enter edit mode to place it.
+					</span>
+					<Button
+						variant="ghost"
+						size="sm"
+						onclick={() => nodeInsertStore.clear()}
+					>
+						Dismiss
+					</Button>
+				</div>
+			{:else if pendingFlag}
+				<div
+					class="mb-3 flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2"
+				>
+					<span class="text-caption text-muted-foreground">
+						The queued insertion was lost (reload cleared staging). Return to
+						the <a class="underline-offset-2 hover:underline" href="/templates">template library</a>
+						to re-queue it.
+					</span>
+				</div>
+			{/if}
 			<FilterBar
 				bind:query
 				bind:status

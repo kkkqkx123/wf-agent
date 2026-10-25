@@ -9,7 +9,9 @@ import {
 import { GraphEditStore } from '#lib/graph/edit-store.svelte';
 import { EditLockStore } from '#lib/stores/edit-lock.svelte';
 import type { CanvasPosition } from '#lib/graph/canvas-model';
-import { createWorkflow } from '#lib/services/workflows';
+import {
+	deriveWorkflowFromTemplate,
+} from '#lib/services/template-library';
 import {
 	allocateGraphNodeId,
 	cloneTemplate,
@@ -87,8 +89,9 @@ export class TemplateEditController {
 	deleteArmed = $state(false);
 	openWorkflowBusy = $state(false);
 
-	// Single-writer lock for kinds the backend guards. Null for node and
-	// trigger entries, which have no lock endpoint and stay unblocked.
+	// Single-writer lock for the definition being edited. Every kind answers
+	// the same lock endpoint shape; null only while creating or when no
+	// detail is loaded.
 	lockStore = $state<EditLockStore | null>(null);
 
 	// Controlled graph edit state for workflow templates. The canvas only
@@ -212,15 +215,9 @@ export class TemplateEditController {
 	}
 
 	private lockKind(): 'workflow' | 'agent' | 'node' | 'trigger' | null {
-		const kind = this.kind;
-		if (
-			kind === 'workflow' ||
-			kind === 'agent' ||
-			kind === 'node' ||
-			kind === 'trigger'
-		)
-			return kind;
-		return null;
+		// Template kinds share values with definition kinds; the lock endpoint
+		// shape is identical for every kind.
+		return this.kind;
 	}
 
 	private async acquireEditLock(): Promise<void> {
@@ -436,12 +433,10 @@ export class TemplateEditController {
 			this.validationState = 'invalid';
 			return false;
 		}
+		// Every kind validates through a server dry-run endpoint; local field
+		// checks are instant hints only and never replace the gate.
 		const issues = await validateTemplateDefinition(kind, value);
-		if (kind === 'workflow' || kind === 'agent') {
-			this.serverIssues = issues;
-		} else {
-			this.serverIssues = [];
-		}
+		this.serverIssues = issues;
 		const combined = [
 			...localTemplateIssues(kind, value),
 			...this.serverIssues,
@@ -466,16 +461,14 @@ export class TemplateEditController {
 			toasts.error('Template invalid', 'Fix the reported issues first.');
 			return;
 		}
-		if (requiresServerCompileGate(kind)) {
-			// Agent kinds pass their compile gate inside runValidate
-			// (/agents/validate); workflow kinds additionally pass the draft
-			// compile gate below before the save lands.
-			if (kind === 'workflow') {
-				const serverOk = await this.runTemplateServerGate();
-				if (!serverOk) {
-					this.editTab = 'graph';
-					return;
-				}
+		// The dry-run gate already ran inside runValidate for every kind.
+		// Workflow graphs additionally pass the draft compile gate below
+		// before the save lands, so graph rule violations map back to nodes.
+		if (requiresServerCompileGate(kind) && kind === 'workflow') {
+			const serverOk = await this.runTemplateServerGate();
+			if (!serverOk) {
+				this.editTab = 'graph';
+				return;
 			}
 		}
 		const value = this.session.definition();
@@ -537,27 +530,29 @@ export class TemplateEditController {
 			toasts.error('Unsaved graph changes', 'Save the template first.');
 			return;
 		}
+		const detail = this.detail;
+		const templateName =
+			typeof definition.name === 'string' && definition.name
+				? definition.name
+				: `template-${this.routeIdParam}`;
 		this.openWorkflowBusy = true;
 		try {
-			const name =
-				typeof definition.name === 'string' && definition.name
-					? definition.name
-					: `template-${this.routeIdParam}`;
-			const created = await createWorkflow(name, definition);
+			// Cross-library derivation through the server: the new workflow
+			// keeps its own id, starts unpublished, and records this template
+			// as its persisted derivation source. No address-bar lineage.
+			const derivedId = await deriveWorkflowFromTemplate(this.routeIdParam, {
+				newName: detail?.template.name ?? templateName,
+			});
 			void recordTemplateUsage(this.routeIdParam).catch(() => undefined);
-			// A workflow is the runnable instance derived from the reusable
-			// template view. The origin id travels in the address so the
-			// workflow page can link back instead of forking a silent copy.
-			toasts.success('Workflow created from template');
+			toasts.success('Workflow derived from template');
 			// The path is resolve()d; resolve() cannot append the query string.
 
 			await goto(
-				resolve('/workflows/[id]', { id: created.id }) +
-					`?tab=edit&fromTemplate=${encodeURIComponent(this.routeIdParam)}`,
+				resolve('/workflows/[id]', { id: derivedId }) + '?tab=edit',
 			);
 		} catch (e) {
 			toasts.error(
-				'Open as workflow failed',
+				'Derive as workflow failed',
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -656,20 +651,34 @@ export class TemplateEditController {
 
 	/**
 	 * Queue the current node template for insertion into a workflow canvas,
-	 * then send the user to the workflow list to pick the target. Only node
-	 * templates can land on a canvas, and only when the stored `node_type` is
-	 * a non-blank name.
+	 * then deep-link to the target. Only node templates can land on a
+	 * canvas, and only when the stored `node_type` is a non-blank name.
+	 * With a target workflow the link lands straight on its edit tab;
+	 * without one it lands on the workflow list, which shows a recoverable
+	 * prompt until the user picks a target.
 	 */
-	insertIntoCanvas(): void {
+	insertIntoCanvas(targetWorkflowId?: string | null): void {
 		const detail = this.detail;
 		const nodeType = this.insertNodeType;
 		if (!detail || nodeType === null) return;
-		nodeInsertStore.set({ nodeType, name: detail.template.name });
+		const target = targetWorkflowId?.trim() || null;
+		nodeInsertStore.set({
+			nodeType,
+			name: detail.template.name,
+			targetWorkflowId: target,
+			sourceTemplateId: this.routeIdParam,
+		});
 		toasts.success(
 			`${detail.template.name} queued`,
-			'Open a workflow and enter edit mode to place it.',
+			target
+				? 'Opening the target workflow in edit mode.'
+				: 'Open a workflow and enter edit mode to place it.',
 		);
-		void goto(resolve('/workflows'));
+		if (target) {
+			void goto(resolve('/workflows/[id]', { id: target }) + '?tab=edit');
+			return;
+		}
+		void goto(resolve('/workflows') + '?pendingInsert=1');
 	}
 
 	discardEditsAndLeave(): void {

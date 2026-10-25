@@ -9298,6 +9298,8 @@ export interface components {
                 execution_type: string;
                 parent_execution_id?: string | null;
                 record: unknown;
+                rerun_of?: string | null;
+                version?: string | null;
                 /** Format: int64 */
                 start_time: number;
                 status: string;
@@ -10995,6 +10997,8 @@ export interface components {
             execution_type: string;
             parent_execution_id?: string | null;
             record: unknown;
+            rerun_of?: string | null;
+            version?: string | null;
             /** Format: int64 */
             start_time: number;
             status: string;

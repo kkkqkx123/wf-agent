@@ -91,9 +91,22 @@ export class WorkflowEditSession {
 		this.editIssues = [];
 		this.editMode = false;
 		// A node queued from the template library lands as the first edit so
-		// the user sees it without re-picking the template manually.
-		const pendingInsert = nodeInsertStore.consume();
+		// the user sees it without re-picking the template manually. A queued
+		// target pins the insert to one workflow; a mismatched workflow keeps
+		// the queue and points back instead of dropping on the wrong canvas.
+		const pendingInsert = nodeInsertStore.peek();
 		if (pendingInsert) {
+			if (
+				pendingInsert.targetWorkflowId &&
+				pendingInsert.targetWorkflowId !== detail.id
+			) {
+				toasts.info(
+					`Node queued for ${pendingInsert.targetWorkflowId}`,
+					'Open the target workflow to place it.',
+				);
+				return;
+			}
+			nodeInsertStore.consume();
 			this.handleAddNode(
 				{ x: 0, y: 0 },
 				pendingInsert.nodeType,

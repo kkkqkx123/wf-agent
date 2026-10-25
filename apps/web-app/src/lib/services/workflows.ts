@@ -2,6 +2,7 @@ import { client, downloadFile } from '#lib/api/client';
 import { call, extractPage, requireData } from '#lib/api/envelope';
 import type { PageResult } from '#lib/api/envelope';
 import type {
+	DefinitionDerivation,
 	Workflow,
 	WorkflowDefinitionDoc,
 	WorkflowDetail,
@@ -27,14 +28,10 @@ interface WorkflowDto {
 	version?: string | number;
 	status?: string;
 	node_count?: number;
-	nodeCount?: number;
 	edge_count?: number;
-	edgeCount?: number;
 	updated_at?: number;
-	updatedAt?: string;
 	runs?: number;
 	success_rate?: number | null;
-	successRate?: number | null;
 	/** Whether the workflow is published to the template library. */
 	published?: boolean;
 	/** The workflow definition's own metadata. */
@@ -46,7 +43,17 @@ interface WorkflowDto {
 		is_public?: boolean;
 		is_system?: boolean;
 		enabled?: boolean;
+		derived_from?: {
+			source_kind?: string;
+			source_id?: string;
+			derived_at?: number;
+		} | null;
 	};
+	derived_from?: {
+		source_kind?: string;
+		source_id?: string;
+		derived_at?: number;
+	} | null;
 }
 
 /** The workflow detail response: the definition document plus the
@@ -71,7 +78,25 @@ function toIso(value: number | string | null | undefined): string {
 	return '';
 }
 
+function toDerivation(
+	value: unknown,
+): DefinitionDerivation | null {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+	const record = value as Record<string, unknown>;
+	const sourceId =
+		typeof record.source_id === 'string' ? record.source_id : '';
+	const sourceKind =
+		typeof record.source_kind === 'string' ? record.source_kind : '';
+	if (!sourceId || !sourceKind) return null;
+	const derivedAt =
+		typeof record.derived_at === 'number' ? record.derived_at : 0;
+	return { sourceKind, sourceId, derivedAt };
+}
+
 function toWorkflow(d: WorkflowDto): Workflow {
+	const metadata = d.metadata ?? {};
+	const rawDerivation =
+		d.derived_from ?? metadata.derived_from ?? null;
 	return {
 		id: d.id ?? '',
 		name: d.name ?? d.id ?? '',
@@ -81,12 +106,13 @@ function toWorkflow(d: WorkflowDto): Workflow {
 		author: d.author ?? '',
 		version: parseVersion(d.version, 1),
 		status: d.status ?? 'active',
-		nodeCount: d.node_count ?? d.nodeCount ?? 0,
-		edgeCount: d.edge_count ?? d.edgeCount ?? 0,
-		updatedAt: toIso(d.updated_at ?? d.updatedAt),
+		nodeCount: d.node_count ?? 0,
+		edgeCount: d.edge_count ?? 0,
+		updatedAt: toIso(d.updated_at),
 		runs: d.runs ?? 0,
-		successRate: d.success_rate ?? d.successRate ?? null,
-		published: d.published ?? d.metadata?.published ?? false,
+		successRate: d.success_rate ?? null,
+		published: d.published ?? metadata.published ?? false,
+		derivedFrom: toDerivation(rawDerivation),
 	};
 }
 
@@ -126,7 +152,25 @@ export async function getWorkflowDetail(id: string): Promise<WorkflowDetail> {
 		listDefinitionVersions('workflow', id),
 		listDefinitionDrafts('workflow', id),
 	]);
-	return { ...base, id, graph, versions, drafts, definition: data };
+	// The persisted derivation source travels in `metadata.derived_from`;
+	// the list projection may omit it, so the definition document wins when
+	// present. Absent means sourceless history, never backfilled.
+	const fromDefinition = toDerivation(
+		(data as Record<string, unknown>).derived_from ??
+			((data as Record<string, unknown>).metadata as
+				| Record<string, unknown>
+				| undefined)?.derived_from ??
+			null,
+	);
+	return {
+		...base,
+		id,
+		graph,
+		versions,
+		drafts,
+		definition: data,
+		derivedFrom: fromDefinition ?? base.derivedFrom ?? null,
+	};
 }
 
 /**
@@ -153,6 +197,26 @@ export async function createWorkflow(
 		'Workflow creation',
 	);
 	return toWorkflow(data);
+}
+
+/**
+ * Clone a workflow into a new id in the same library. The server assigns
+ * the new id and records the source workflow as the persisted derivation
+ * source, so the clone links back without remark-style lineage.
+ */
+export async function cloneWorkflow(
+	id: string,
+	newId?: string,
+): Promise<string> {
+	const data = await call<string>(
+		client.POST('/api/v1/workflows/{id}/clone', {
+			params: { path: { id } },
+			body: { new_id: newId ?? null },
+		}),
+	);
+	const clonedId = typeof data === 'string' ? data : '';
+	if (!clonedId) throw new Error('Clone returned no workflow id');
+	return clonedId;
 }
 
 /** Partial update goes through the metadata sub-resource, never the item route. */

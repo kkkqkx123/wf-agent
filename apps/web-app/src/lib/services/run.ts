@@ -95,6 +95,11 @@ export async function rerunWorkflowRun(runId: string): Promise<string> {
 			? (detail.record as Record<string, unknown>)
 			: {};
 	const definitionId = detail.definitionId;
+	if (detail.executionType !== 'workflow') {
+		throw new Error(
+			`Rerun not supported for ${detail.executionType} runs: only workflow runs replay`,
+		);
+	}
 	if (!definitionId) {
 		throw new Error(`Run ${runId} carries no workflow definition id`);
 	}
@@ -102,4 +107,9 @@ export async function rerunWorkflowRun(runId: string): Promise<string> {
 		input: record.input ?? null,
 		version: (record.workflow_version as string | null) ?? null,
 	});
+}
+
+/** Whether an execution type supports rerun. Only workflow replays. */
+export function isRerunnableType(kind: string): boolean {
+	return kind === 'workflow';
 }

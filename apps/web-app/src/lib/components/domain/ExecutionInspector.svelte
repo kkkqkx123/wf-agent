@@ -1,8 +1,9 @@
 <script lang="ts">
 	import type {
-		ExecutionDetail,
+		Execution,
 		ExecutionHierarchy,
 		ExecutionSubtree,
+		NodeExecution,
 		NodeTrace,
 		TimelineEntry,
 		ToolCallEntry,
@@ -27,7 +28,7 @@
 	import { extractMarkdownText } from '#lib/utils/markdown';
 	import type { GraphOverlay } from '#lib/graph/display-model';
 	import {
-		getExecutionTimeline,
+		getExecutionHistory,
 		getExecutionToolCalls,
 	} from '#lib/services/executions';
 	import { getExecutionGraphNeighbors } from '#lib/services/graph';
@@ -50,7 +51,6 @@
 		formatDateTime,
 		formatDuration,
 		formatNumber,
-		shortId,
 	} from '#lib/utils/format';
 	import { statusTone } from '#lib/ui/status';
 	import { cn } from '#lib/ui/cn';
@@ -58,6 +58,7 @@
 	import {
 		applyEdgeOverlay,
 		applyExecutionOverlay,
+		matchDecisionNodeId,
 		projectEdgeOverlay,
 		projectExecutionOverlay,
 	} from '#lib/graph/execution-projection';
@@ -74,10 +75,10 @@
 	import { t } from '#lib/i18n';
 
 	interface Props {
-		execution: ExecutionDetail;
+		execution: Execution;
 		tab?: ExecutionTab;
 		class?: string;
-		/** Reload the execution detail, typically after a terminal event. */
+		/** Reload the execution, typically after a terminal event. */
 		onrefresh?: () => void;
 	}
 
@@ -90,7 +91,7 @@
 
 	// Which engine owns this execution decides the tab strip and the extra
 	// loop-specific panels below.
-	const kind = $derived(execution.kind ?? 'workflow');
+	const kind = $derived(execution.kind);
 	const kindTabs = $derived(
 		EXECUTION_TABS.filter((entry) => TAB_GROUPS[kind].includes(entry.id)),
 	);
@@ -131,12 +132,8 @@
 	let liveErrors = $state<ErrorRecord[]>([]);
 	let liveErrorNotice = $state<string | null>(null);
 
-	let context = $state<Array<{ key: string; value: string }>>([]);
 	let variables = $state<Array<{ key: string; value: string }>>([]);
-	let callStack = $state<
-		Array<{ node: string; depth: number; enteredAt: string; status: string }>
-	>([]);
-	let memory = $state({ currentBytes: 0, peakBytes: 0 });
+	let historyNodes = $state<NodeExecution[]>([]);
 	let stateError = $state<string | null>(null);
 	let stateLoading = $state(false);
 
@@ -169,13 +166,9 @@
 	let toolFilter = $state('');
 	let explorer = $state<{ focus: (id: string) => void } | null>(null);
 
-	const failedAll = $derived([
-		...new Set([...failedNodes, ...execution.analysis.failureNodes]),
-	]);
-	const criticalAll = $derived([
-		...new Set([...criticalPath, ...execution.analysis.criticalPath]),
-	]);
-	const slowEntries = $derived([...execution.analysis.slowNodes, ...slowNodes]);
+	const failedAll = $derived([...failedNodes]);
+	const criticalAll = $derived([...criticalPath]);
+	const slowEntries = $derived([...slowNodes]);
 
 	const slowAll = $derived(slowEntries);
 
@@ -193,37 +186,22 @@
 		}));
 	});
 
-	const decisionAll = $derived([
-		...new Set([...decisionPoints, ...execution.analysis.decisionPoints]),
-	]);
+	const decisionAll = $derived([...decisionPoints]);
 
 	const completedFrames = $derived(
-		callStack.filter((frame) =>
-			['completed', 'complete', 'success', 'succeeded', 'done', 'ok'].includes(
-				frame.status.trim().toLowerCase(),
-			),
-		),
+		historyNodes.filter((node) => !node.error),
 	);
 
 	const replayView = $derived.by(() => {
-		if (replayIndex === null || callStack.length === 0) return null;
-		const upto = callStack.slice(0, replayIndex + 1);
+		if (replayIndex === null || historyNodes.length === 0) return null;
+		const upto = historyNodes.slice(0, replayIndex + 1);
 		return {
-			executedNodes: upto.map((frame) => frame.node),
+			executedNodes: upto.map((frame) => frame.nodeId),
 			currentNode:
-				upto.length > 0 ? (upto[upto.length - 1].node ?? null) : null,
+				upto.length > 0 ? (upto[upto.length - 1].nodeId ?? null) : null,
 			failedNodes: upto
-				.filter((frame) =>
-					[
-						'failed',
-						'failure',
-						'error',
-						'errored',
-						'timeout',
-						'aborted',
-					].includes(frame.status.trim().toLowerCase()),
-				)
-				.map((frame) => frame.node),
+				.filter((frame) => frame.error)
+				.map((frame) => frame.nodeId),
 		};
 	});
 
@@ -235,7 +213,7 @@
 			slowNodes: slowAll,
 			decisionPoints: decisionAll,
 			executedNodes:
-				replayView?.executedNodes ?? completedFrames.map((frame) => frame.node),
+				replayView?.executedNodes ?? completedFrames.map((frame) => frame.nodeId),
 			liveStatuses: replayView ? {} : liveStatuses,
 		}),
 	);
@@ -308,20 +286,19 @@
 		return labels;
 	});
 
-	/** Active replay scope: executed graph node ids plus the cursor frame's
-	 * timestamp. Tools join by exact node id, timeline entries by exact
-	 * timestamp; unattributed rows stay visible. */
+	/** Active replay scope: executed graph node ids plus the cursor timestamp.
+	 * Tools join by exact node id; unattributed rows stay visible. */
 	const replayScope = $derived.by(() => {
-		if (replayIndex === null || callStack.length === 0) return null;
+		if (replayIndex === null || historyNodes.length === 0) return null;
 		const graphIds = new Set(graphNodes.map((node) => node.id));
 		const executed = new Set(
 			(replayView?.executedNodes ?? []).filter((id) => graphIds.has(id ?? '')),
 		);
-		const frame = callStack[Math.min(replayIndex, callStack.length - 1)];
+		const frame = historyNodes[Math.min(replayIndex, historyNodes.length - 1)];
 		return {
 			graphIds,
 			executed,
-			cutoff: frame?.enteredAt || null,
+			cutoff: frame?.endedAt || frame?.startedAt || null,
 		};
 	});
 
@@ -371,25 +348,19 @@
 
 	/** Best-effort match between a tool call and a graph node by name. */
 	function matchToolNode(toolName: string, toolId: string): string | null {
-		const needle = toolName.trim().toLowerCase();
-		for (const node of graphNodes) {
-			const id = node.id.toLowerCase();
-			const label = node.label.toLowerCase();
-			if (id === needle || label === needle || id === toolId.toLowerCase()) {
-				return node.id;
-			}
-		}
-		for (const node of graphNodes) {
-			const id = node.id.toLowerCase();
-			const label = node.label.toLowerCase();
-			if (
-				(needle && (label.includes(needle) || needle.includes(id))) ||
-				toolId.toLowerCase().includes(id)
-			) {
-				return node.id;
-			}
-		}
-		return null;
+		const byName = matchDecisionNodeId(graphNodes, toolName);
+		if (byName) return byName;
+		const normalizedToolId = toolId.trim().toLowerCase();
+		if (!normalizedToolId) return null;
+		const exact = graphNodes.find(
+			(node) => node.id.toLowerCase() === normalizedToolId,
+		);
+		if (exact) return exact.id;
+		return (
+			graphNodes.find((node) =>
+				normalizedToolId.includes(node.id.toLowerCase()),
+			)?.id ?? null
+		);
 	}
 
 	function focusGraphNode(nodeId: string): void {
@@ -521,10 +492,10 @@
 	// Replay playback advances the cursor on a fixed tick; colors flow
 	// through the same projection bridge as live state.
 	$effect(() => {
-		if (!replayPlaying || callStack.length === 0) return;
+		if (!replayPlaying || historyNodes.length === 0) return;
 		const timer = setInterval(
 			() => {
-				const last = callStack.length - 1;
+				const last = historyNodes.length - 1;
 				const next = (replayIndex ?? -1) + 1;
 				if (next > last) {
 					replayPlaying = false;
@@ -617,10 +588,8 @@
 		stateError = null;
 		try {
 			const snapshot = await loadStateData(id);
-			context = snapshot.context;
 			variables = snapshot.variables;
-			callStack = snapshot.callStack;
-			memory = snapshot.memory;
+			historyNodes = snapshot.nodes;
 		} catch (e) {
 			stateError =
 				e instanceof Error ? e.message : t('domain.inspector.stateFailed');
@@ -684,9 +653,9 @@
 		if (tab === 'timeline' && seenTimeline !== id) {
 			seenTimeline = id;
 			timelineError = null;
-			void getExecutionTimeline(id)
-				.then((rows) => {
-					timeline = rows;
+			void getExecutionHistory(id, ['timeline'])
+				.then((history) => {
+					timeline = history.timeline;
 				})
 				.catch((e: unknown) => {
 					seenTimeline = '';
@@ -703,9 +672,9 @@
 		if (tab === 'trace' && seenTimeline !== id) {
 			seenTimeline = id;
 			timelineError = null;
-			void getExecutionTimeline(id)
-				.then((rows) => {
-					timeline = rows;
+			void getExecutionHistory(id, ['timeline'])
+				.then((history) => {
+					timeline = history.timeline;
 				})
 				.catch((e: unknown) => {
 					seenTimeline = '';
@@ -725,7 +694,7 @@
 			seenGraph = id;
 			void loadGraph(id);
 		}
-		// The replay cursor walks the call stack, so the graph tab pulls
+		// The replay cursor walks history nodes, so the graph tab pulls
 		// state once; the state tab then reuses the same snapshot.
 		if (tab === 'graph' && seenState !== id) {
 			seenState = id;
@@ -781,9 +750,7 @@
 	}
 
 	const tone = $derived(statusTone(execution.status));
-	const contextItems = $derived(
-		context.length > 0 ? context : execution.context,
-	);
+	const contextItems = $derived(variables);
 	const progressTone = $derived(
 		tone === 'danger'
 			? 'danger'
@@ -954,25 +921,6 @@
 						</p>
 					{/if}
 				</Card>
-				<Card title={t('domain.inspector.statusMigration')}>
-					<ol class="space-y-1.5">
-						{#each execution.migration as entry, index (index)}
-							<li class="flex items-start gap-2 text-caption">
-								<time class="shrink-0 tabular-nums text-muted-foreground">
-									{formatDateTime(entry.at)}
-								</time>
-								<span class="min-w-0">
-									<span class="text-foreground">{entry.from}</span>
-									<span class="mx-1 text-muted-foreground">→</span>
-									<span class="text-foreground">{entry.to}</span>
-									<span class="block text-micro text-muted-foreground"
-										>{entry.reason}</span
-									>
-								</span>
-							</li>
-						{/each}
-					</ol>
-				</Card>
 			</div>
 		{:else if tab === 'graph'}
 			<div class="mb-2 flex flex-wrap items-center gap-2">
@@ -996,13 +944,13 @@
 				{#if kind === 'workflow' && execution.workflowId}
 					<span class="mx-1 h-4 w-px bg-border"></span>
 					<a
-						href={`/workflows/${encodeURIComponent(execution.workflowId)}?tab=graph`}
+						href={`/workflows/${encodeURIComponent(execution.workflowId.replace(/^workflow:/, ''))}?tab=graph&run=${encodeURIComponent(execution.id)}`}
 						class="text-micro text-foreground underline-offset-2 hover:underline"
 					>
 						View progress on the definition graph
 					</a>
 				{/if}
-				{#if callStack.length > 0}
+				{#if historyNodes.length > 0}
 					<span class="mx-1 h-4 w-px bg-border"></span>
 					{#if replayIndex === null}
 						<button
@@ -1052,11 +1000,11 @@
 						<button
 							type="button"
 							class="text-micro text-muted-foreground underline-offset-2 hover:underline"
-							disabled={replayIndex >= callStack.length - 1}
+							disabled={replayIndex >= historyNodes.length - 1}
 							onclick={() => {
 								replayPlaying = false;
 								replayIndex = Math.min(
-									callStack.length - 1,
+									historyNodes.length - 1,
 									(replayIndex ?? -1) + 1,
 								);
 							}}
@@ -1066,7 +1014,7 @@
 						<input
 							type="range"
 							min={0}
-							max={callStack.length - 1}
+							max={historyNodes.length - 1}
 							value={replayIndex}
 							oninput={(event) => {
 								replayPlaying = false;
@@ -1076,7 +1024,7 @@
 							aria-label={t('domain.inspector.replayPosition')}
 						/>
 						<span class="text-micro tabular-nums text-muted-foreground">
-							{(replayIndex ?? 0) + 1}/{callStack.length}
+							{(replayIndex ?? 0) + 1}/{historyNodes.length}
 						</span>
 						<button
 							type="button"
@@ -1464,22 +1412,25 @@
 					<Card title={t('domain.history.variables')}>
 						<KeyValueList items={variables} dense />
 					</Card>
-					<Card title={t('domain.inspector.callStack')}>
+					<Card title="Nodes">
 						<ol class="space-y-2">
-							{#each callStack as frame (frame.node)}
+							{#each historyNodes as node (node.nodeId)}
 								<li
 									class="flex items-start justify-between gap-2 border-b border-border/60 pb-2 last:border-0 last:pb-0"
 								>
 									<span class="min-w-0">
 										<span class="block truncate font-mono text-caption"
-											>{frame.node}</span
+											>{node.nodeId}</span
 										>
 										<span class="text-micro text-muted-foreground">
-											{t('domain.inspector.depth', { depth: frame.depth })} ·
-											{formatDateTime(frame.enteredAt)}
+											{node.nodeType} · {formatDuration(node.durationMs)}
 										</span>
 									</span>
-									<StatusBadge status={frame.status} size="sm" dot={false} />
+									<StatusBadge
+										status={node.error ? 'failed' : 'completed'}
+										size="sm"
+										dot={false}
+									/>
 								</li>
 							{:else}
 								<li class="text-caption text-muted-foreground">
@@ -1487,31 +1438,6 @@
 								</li>
 							{/each}
 						</ol>
-					</Card>
-					<Card title={t('domain.inspector.memory')}>
-						<div class="space-y-2">
-							<div>
-								<div class="flex items-center justify-between text-caption">
-									<span class="text-muted-foreground"
-										>{t('domain.inspector.current')}</span
-									>
-									<span class="tabular-nums"
-										>{formatBytes(memory.currentBytes)}</span
-									>
-								</div>
-								<Progress
-									value={memory.currentBytes / Math.max(1, memory.peakBytes)}
-									tone="default"
-									class="mt-1"
-								/>
-							</div>
-							<p class="text-caption text-muted-foreground">
-								{t('domain.inspector.peakSnapshot', {
-									peak: formatBytes(memory.peakBytes),
-									id: shortId(execution.id, 10),
-								})}
-							</p>
-						</div>
 					</Card>
 				</div>
 			{/if}

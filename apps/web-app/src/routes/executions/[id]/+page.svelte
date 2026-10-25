@@ -18,7 +18,6 @@
 	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
 	import {
 		cancelExecution,
-		getExecutionDetail,
 		getUnifiedExecutionDetail,
 		pauseExecution,
 		resumeExecution,
@@ -30,13 +29,12 @@
 		pauseAgentLoop,
 		resumeAgentLoop,
 	} from '#lib/services/agent-loops';
-	import type { ExecutionDetail } from '#lib/types/models';
+	import type { Execution } from '#lib/types/models';
 	import { toasts } from '#lib/stores/toast.svelte';
-	import { formatDuration } from '#lib/utils/format';
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
 	import { t } from '#lib/i18n';
 
-	let execution = $state<ExecutionDetail | null>(null);
+	let execution = $state<Execution | null>(null);
 	let unified = $state<UnifiedExecutionDetail | null>(null);
 	let loadError = $state<string | null>(null);
 	let loading = $state(false);
@@ -59,14 +57,37 @@
 		loadError = null;
 		loading = true;
 		try {
-			// The unified detail dispatches by executor: agent and chat runs
-			// render the session transcript, workflow runs render the run
-			// inspector below.
+			// Unified detail only: the inspector reads one cross-engine shape.
 			unified = await getUnifiedExecutionDetail(id);
-			execution =
-				unified.executionType === 'workflow'
-					? await getExecutionDetail(id)
-					: null;
+			const record =
+				typeof unified.record === 'object' && unified.record !== null
+					? (unified.record as Record<string, unknown>)
+					: {};
+			const completed = ['completed', 'succeeded', 'success'].includes(
+				unified.status.toLowerCase(),
+			);
+			execution = {
+				id: unified.executionId,
+				workflowId: unified.definitionId ?? '',
+				workflowName: unified.definitionId ?? unified.executionId,
+				kind: unified.executionType,
+				status: unified.status,
+				startedAt: unified.startTime,
+				endedAt: unified.endTime,
+				durationMs: null,
+				progress: completed ? 1 : 0,
+				currentNode:
+					typeof record.current_node_id === 'string'
+						? record.current_node_id
+						: null,
+				trigger: null,
+				tasksTotal: 0,
+				tasksDone: completed ? 1 : 0,
+				failedNodes: 0,
+				memoryPeakBytes: null,
+				version: unified.version,
+				error: unified.error,
+			};
 		} catch (e) {
 			loadError =
 				e instanceof Error ? e.message : t('page.executionDetail.errorTitle');
@@ -165,28 +186,28 @@
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
 		title={execution?.workflowName ??
-			unified?.definitionId ??
 			t('page.executionDetail.titleFallback')}
 		description={t('page.executionDetail.description')}
 	>
 		{#snippet meta()}
-			{#if execution}
+			{#if execution && unified}
 				<StatusBadge status={execution.status} size="sm" />
-				<Badge variant="outline">{formatDuration(execution.durationMs)}</Badge>
+				<Badge variant="outline">{unified.executionType}</Badge>
+				{#if unified.version}
+					<Badge variant="outline">v{unified.version}</Badge>
+				{/if}
 				<span class="font-mono text-caption text-muted-foreground"
 					>{execution.id}</span
 				>
-				{#if execution.trigger}
-					<span class="text-caption text-muted-foreground"
-						>{execution.trigger}</span
+				{#if unified.rerunOf}
+					<a
+						class="font-mono text-caption text-muted-foreground underline-offset-2 hover:underline"
+						href={resolve('/executions/[id]', { id: unified.rerunOf })}
+						title="Rerun source run"
 					>
+						rerun of {unified.rerunOf.slice(0, 8)}
+					</a>
 				{/if}
-			{:else if unified}
-				<StatusBadge status={unified.status} size="sm" />
-				<Badge variant="outline">{unified.executionType}</Badge>
-				<span class="font-mono text-caption text-muted-foreground"
-					>{unified.executionId}</span
-				>
 			{/if}
 		{/snippet}
 		{#snippet actions()}
@@ -240,13 +261,24 @@
 					</Button>
 				{/if}
 			{/if}
-			{#if unified?.executionType === 'workflow' && currentId}
-				<IconButton
-					icon="refresh"
-					label={t('domain.runs.rerun')}
-					disabled={rerunning}
-					onclick={() => void rerunCurrent(currentId)}
-				/>
+			{#if unified && currentId}
+				{#if unified.executionType === 'workflow'}
+					<IconButton
+						icon="refresh"
+						label={t('domain.runs.rerun')}
+						disabled={rerunning}
+						onclick={() => void rerunCurrent(currentId)}
+					/>
+				{:else}
+					<IconButton
+						icon="refresh"
+						label={unified.executionType === 'agent'
+							? 'Agent rerun is not supported yet'
+							: 'Chat transcripts are read-only and cannot rerun'}
+						disabled={true}
+						onclick={() => {}}
+					/>
+				{/if}
 			{/if}
 			{#if currentId}
 				<IconButton
@@ -255,11 +287,11 @@
 					onclick={() => void copyExecutionId(currentId)}
 				/>
 			{/if}
-			{#if unified?.executionType === 'workflow' && currentId && (unified.definitionId ?? execution?.workflowId)}
+			{#if unified?.executionType === 'workflow' && currentId && unified.definitionId}
 				<Button
 					variant="outline"
 					size="sm"
-					href={`/workflows/${encodeURIComponent((unified.definitionId ?? execution?.workflowId ?? '').replace(/^workflow:/, ''))}?tab=graph&run=${encodeURIComponent(currentId)}`}
+					href={`/workflows/${encodeURIComponent(unified.definitionId.replace(/^workflow:/, ''))}?tab=graph&run=${encodeURIComponent(currentId)}`}
 					title="Project this run onto the definition graph (read-only)"
 				>
 					<Icon name="workflow" size={13} />

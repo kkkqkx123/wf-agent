@@ -40,7 +40,7 @@ export default defineConfig(({ mode }) => {
 				brotliSize: true,
 			}),
 		],
-	 resolve: {
+	resolve: {
 			alias,
 		},
 		server: {

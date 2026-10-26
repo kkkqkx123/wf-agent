@@ -12,8 +12,8 @@
 //! truncation; per-tool presentation knowledge lives in `wf-tools`.
 
 use tui_core::tool_output::{
-    cap_block_bytes, collapse_output, collapse_shell_tail, infer_kind, summarize_activity,
-    Collapsed, DetailLevel, ToolOutputConfig,
+    cap_block_bytes, collapse_output, collapse_shell_tail, infer_kind, is_exploration_tool_name,
+    summarize_activity, Collapsed, DetailLevel, ToolOutputConfig,
 };
 use wf_types::tool::{DisplayKind, DisplayPayload};
 
@@ -298,9 +298,14 @@ impl InteractiveController {
             display,
             &self.tool_config,
         );
-        // Low level accumulates successful tools into one activity group
-        // instead of rendering rows. Failures stay visible immediately.
-        if self.tool_config.level == DetailLevel::Low && success {
+        // Low level folds consecutive read-only exploration tools into one
+        // activity group instead of rendering rows. Other tools and failures
+        // stay visible immediately, so writes and commands are never hidden
+        // behind an activity summary.
+        if self.tool_config.level == DetailLevel::Low
+            && success
+            && is_exploration_tool_name(tool_name)
+        {
             self.tool_order.push(tool_call_id.to_string());
             self.tool_blocks.insert(tool_call_id.to_string(), block);
             self.activity.push((tool_name.to_string(), success));

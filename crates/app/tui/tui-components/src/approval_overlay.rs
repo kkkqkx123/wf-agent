@@ -144,6 +144,73 @@ impl ApprovalView {
         lines
     }
 
+    /// Whether this approval is for a file/edit tool that can show a diff.
+    pub fn is_edit_tool(&self) -> bool {
+        matches!(
+            self.request.tool_name.as_str(),
+            "edit_file" | "write_file" | "apply_patch" | "apply_diff"
+        )
+    }
+
+    /// Unified-style diff preview lines for edit/file tools. Falls back to an
+    /// arguments summary for tools without a reconstructable diff.
+    pub fn diff_preview_lines(&self, width: usize) -> Vec<String> {
+        let params = &self.request.parameters;
+        let mut lines = Vec::new();
+        match self.request.tool_name.as_str() {
+            "edit_file" => {
+                let path = params
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("<unknown>");
+                lines.push(format!("file: {path}"));
+                lines.push("--- old".to_string());
+                if let Some(old) = params.get("old_string").and_then(|v| v.as_str()) {
+                    for line in old.lines().take(20) {
+                        lines.push(truncate_graphemes(&format!("-{line}"), width));
+                    }
+                }
+                lines.push("+++ new".to_string());
+                if let Some(new) = params.get("new_string").and_then(|v| v.as_str()) {
+                    for line in new.lines().take(20) {
+                        lines.push(truncate_graphemes(&format!("+{line}"), width));
+                    }
+                }
+            }
+            "write_file" => {
+                let path = params
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("<unknown>");
+                lines.push(format!("file: {path}"));
+                lines.push("+++ new file".to_string());
+                if let Some(content) = params.get("content").and_then(|v| v.as_str()) {
+                    for line in content.lines().take(20) {
+                        lines.push(truncate_graphemes(&format!("+{line}"), width));
+                    }
+                }
+            }
+            "apply_patch" | "apply_diff" => {
+                if let Some(patch) = params
+                    .get("patch")
+                    .or_else(|| params.get("diff"))
+                    .and_then(|v| v.as_str())
+                {
+                    for line in patch.lines().take(40) {
+                        lines.push(truncate_graphemes(line, width));
+                    }
+                } else {
+                    lines.push(self.arguments_preview(width));
+                }
+            }
+            _ => lines.push(self.arguments_preview(width)),
+        }
+        if lines.is_empty() {
+            lines.push(self.arguments_preview(width));
+        }
+        lines
+    }
+
     /// Compact single-line arguments preview (pretty JSON truncated).
     pub fn arguments_preview(&self, width: usize) -> String {
         let pretty =
@@ -218,14 +285,24 @@ impl tui_core::renderable::Renderable for ApprovalView {
             lines.push(Line::from(Span::raw("")));
         }
         let preview_rows = area.height.saturating_sub(4) as usize;
-        let preview = self.arguments_preview(width.saturating_sub(2));
         let mut remaining = preview_rows;
-        for chunk in crate::footer::wrap_columns(&preview, width.saturating_sub(2)) {
-            if remaining == 0 {
-                break;
+        if self.is_edit_tool() {
+            for line in self.diff_preview_lines(width.saturating_sub(2)) {
+                if remaining == 0 {
+                    break;
+                }
+                lines.push(Line::from(Span::raw(line)));
+                remaining -= 1;
             }
-            lines.push(Line::from(Span::raw(chunk)));
-            remaining -= 1;
+        } else {
+            let preview = self.arguments_preview(width.saturating_sub(2));
+            for chunk in crate::footer::wrap_columns(&preview, width.saturating_sub(2)) {
+                if remaining == 0 {
+                    break;
+                }
+                lines.push(Line::from(Span::raw(chunk)));
+                remaining -= 1;
+            }
         }
         lines.push(Line::from(Span::raw("")));
         lines.push(Line::from(Span::raw(self.hints())));

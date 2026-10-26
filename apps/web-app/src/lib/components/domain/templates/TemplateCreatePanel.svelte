@@ -53,14 +53,12 @@
 	store={controller.templateEditStore}
 	draftBusy={controller.draftBusy}
 	saveBusy={controller.saveBusy}
-	openWorkflowBusy={controller.openWorkflowBusy}
 	graphRequest={controller.graphRequest}
 	ontabchange={(next) => (controller.editTab = next)}
 	onvalidate={() => void controller.runValidate()}
 	onsave={() => void controller.runSave()}
 	oncancel={() => void controller.backToLibrary()}
 	onservercheck={() => void controller.runTemplateServerGate()}
-	onopenworkflow={() => void controller.runOpenAsWorkflow()}
 	onmovenode={(id, position) => controller.handleTemplateMoveNode(id, position)}
 	onmovenodes={(moves) => controller.handleTemplateMoveNodes(moves)}
 	onaddnode={(position) => controller.handleTemplateAddNode(position)}

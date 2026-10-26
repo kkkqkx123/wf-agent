@@ -13,8 +13,6 @@
 	"config.navigation.chatDescription": "以对话为核心的智能体 IDE，含会话与输入框",
 	"config.navigation.workbench": "工作台",
 	"config.navigation.workbenchDescription": "工作流与智能体循环的统一执行列表，含实时详情",
-	"config.navigation.workflows": "工作流",
-	"config.navigation.workflowsDescription": "定义、版本、草稿与图",
 	"config.navigation.templates": "模板",
 	"config.navigation.templatesDescription": "节点、触发器与智能体模板注册表",
 	"config.navigation.checkpoints": "检查点",

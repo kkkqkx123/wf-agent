@@ -23,9 +23,37 @@ fn workflow_template(id: &str, category: &str) -> WorkflowTemplate {
             name: format!("Workflow {}", id),
             description: None,
             r#type: None,
-            version: None,
-            nodes: vec![],
-            edges: vec![],
+            version: Some("1.0.0".into()),
+            nodes: vec![
+                wf_types::node::BaseStaticNode {
+                    id: "start".into(),
+                    node_type: wf_types::node::StaticNodeType::Start,
+                    name: Some("start".into()),
+                    description: None,
+                    config: None,
+                    execution_config: None,
+                },
+                wf_types::node::BaseStaticNode {
+                    id: "end".into(),
+                    node_type: wf_types::node::StaticNodeType::End,
+                    name: Some("end".into()),
+                    description: None,
+                    config: None,
+                    execution_config: None,
+                },
+            ],
+            edges: vec![wf_types::workflow::Edge {
+                id: "e1".into(),
+                source_node_id: "start".into(),
+                target_node_id: "end".into(),
+                r#type: wf_types::workflow::EdgeType::Default,
+                condition: None,
+                label: None,
+                description: None,
+                weight: None,
+                metadata: None,
+                error_route: None,
+            }],
             config: None,
             variables: None,
             triggered_subworkflow_config: None,
@@ -205,13 +233,15 @@ async fn update_replaces_in_place_and_rejects_missing() {
 #[tokio::test]
 async fn clone_registers_and_get() {
     let ctx = make_ctx();
-
-    let cloned = clone_workflow_template(&ctx, "wf-a", "My Clone")
+    register_workflow_template(&ctx, &workflow_template("wf-clone-src", "analytics"))
         .await
         .unwrap();
-    assert_ne!(cloned.id.to_string(), "wf-a");
-    assert_eq!(cloned.name, "My Clone");
-    assert!(ctx.registries.workflows.has(&cloned.id));
+
+    let cloned_id = crate::workflow::clone_workflow(&ctx, "wf-clone-src", None)
+        .await
+        .unwrap();
+    assert_ne!(cloned_id, "wf-clone-src");
+    assert!(ctx.registries.workflows.has(&cloned_id));
 
     let cloned_agent = clone_agent_template(&ctx, "agent-a", "Agent Clone")
         .await
@@ -257,7 +287,7 @@ async fn publish_state_travels_with_the_definition() {
         stored.metadata.as_ref().and_then(|m| m.published),
         Some(false)
     );
-    assert_eq!(list_workflow_templates(&ctx).unwrap().len(), 2);
+    assert_eq!(list_workflow_templates(&ctx).unwrap().len(), 3);
 
     publish_workflow_template(&ctx, "wf-publish").await.unwrap();
     let stored = ctx

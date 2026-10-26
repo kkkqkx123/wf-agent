@@ -37,6 +37,8 @@ pub(crate) fn routes() -> Router<ApiState> {
                 .delete(handle_delete_workflow),
         )
         .route("/workflows/{id}/clone", post(handle_clone_workflow))
+        .route("/workflows/{id}/publish", post(handle_publish_workflow))
+        .route("/workflows/{id}/unpublish", post(handle_unpublish_workflow))
         .route("/workflows/validate", post(handle_validate_workflow))
         .route("/workflows/validate/node", post(handle_validate_node))
         .route("/workflows/parse", post(handle_parse_workflow))
@@ -75,6 +77,7 @@ pub(crate) struct ListWorkflowsQuery {
     offset: Option<u64>,
     name: Option<String>,
     r#type: Option<String>,
+    published: Option<bool>,
 }
 
 #[utoipa::path(
@@ -95,6 +98,7 @@ pub(crate) async fn handle_list_workflows(
         limit: Some(fetch_size(limit)),
         name_filter: query.name,
         type_filter: query.r#type,
+        published: query.published,
     };
     match wf_api::workflow::list_workflows(&state.ctx, Some(options)).await {
         Ok(workflows) => ok_page(workflows, limit, offset).into_response(),
@@ -198,6 +202,42 @@ pub(crate) async fn handle_clone_workflow(
 ) -> impl IntoResponse {
     match wf_api::workflow::clone_workflow(&state.ctx, &path.id, body.new_id.as_deref()).await {
         Ok(id) => ok(id).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/workflows/{id}/publish",
+    tag = "workflow",
+    params(IdPath),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<String>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_publish_workflow(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::workflow::publish_workflow(&state.ctx, &path.id).await {
+        Ok(()) => ok(path.id).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/workflows/{id}/unpublish",
+    tag = "workflow",
+    params(IdPath),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<String>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_unpublish_workflow(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::workflow::unpublish_workflow(&state.ctx, &path.id).await {
+        Ok(()) => ok(path.id).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -340,6 +380,7 @@ pub(crate) async fn handle_workflow_summaries(
         limit: Some(fetch_size(limit)),
         name_filter: query.name,
         type_filter: query.r#type,
+        published: query.published,
     };
     match wf_api::workflow::workflow_summaries(&state.ctx, Some(options)).await {
         Ok(summaries) => ok_page(summaries, limit, offset).into_response(),

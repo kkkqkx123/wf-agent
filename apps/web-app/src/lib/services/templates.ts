@@ -19,14 +19,12 @@ export {
 	describeCoordinate,
 	isLibraryCoordinateKind,
 	templateRouteFor,
-	workflowRouteFor,
 	type DefinitionCoordinate,
 } from '#lib/services/template-coordinate';
 export {
 	DEFAULT_AGENT_ID,
 	cloneTemplate,
 	deleteTemplate,
-	deriveWorkflowFromTemplate,
 	exportTemplate,
 	getTemplateDetail,
 	importTemplate,

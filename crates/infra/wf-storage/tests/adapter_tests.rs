@@ -250,6 +250,7 @@ async fn test_list_options_filtering() {
         limit: None,
         name_filter: None,
         type_filter: Some("STANDALONE".into()),
+        published: None,
     };
     let filtered = adapter.list(Some(opts)).await.unwrap();
     assert_eq!(filtered.len(), 3);

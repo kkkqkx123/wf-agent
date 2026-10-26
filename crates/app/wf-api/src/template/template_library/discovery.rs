@@ -155,12 +155,12 @@ pub async fn query_unified(
     Ok(summaries)
 }
 
-/// Featured templates: public + enabled, most used first.
+/// Featured templates: public + enabled + published, most used first.
 pub async fn featured(ctx: &ApiContext, limit: Option<usize>) -> ApiResult<Vec<TemplateSummary>> {
     let mut all = query(ctx, &TemplateFilter::default())
         .await?
         .into_iter()
-        .filter(|t| t.is_public && t.enabled && !t.is_system)
+        .filter(|t| t.is_public && t.enabled && !t.is_system && t.is_published)
         .collect::<Vec<_>>();
     all.sort_by_key(|t| std::cmp::Reverse(t.usage_count));
     all.truncate(limit.unwrap_or(DEFAULT_FEATURED_LIMIT));

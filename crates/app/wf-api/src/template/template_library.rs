@@ -52,6 +52,7 @@ pub struct TemplateSummary {
     pub is_public: bool,
     pub enabled: bool,
     pub is_system: bool,
+    pub is_published: bool,
     pub usage_count: u64,
     pub created_at: i64,
     pub updated_at: i64,
@@ -74,7 +75,7 @@ pub use agent_templates::{
     delete_agent_template, get_agent_template, list_agent_templates, register_agent_template,
     update_agent_template,
 };
-pub use clone::{clone_agent_template, clone_workflow_template};
+pub use clone::clone_agent_template;
 pub use discovery::{
     featured, popular_in_category, query, query_by_author, query_by_category, query_by_tags,
     query_unified,

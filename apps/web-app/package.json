@@ -7,6 +7,7 @@
 		"dev": "node scripts/merge-fragments.mjs && vite dev",
 		"dev:preview": "node scripts/merge-fragments.mjs && vite dev --mode preview",
 		"build": "node scripts/merge-fragments.mjs && vite build",
+		"build:analyze": "node scripts/merge-fragments.mjs && ANALYZE=1 vite build",
 		"build:preview": "node scripts/merge-fragments.mjs && vite build --mode preview",
 		"preview": "vite preview",
 		"start": "node dist/index.js",

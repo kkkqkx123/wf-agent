@@ -20,9 +20,6 @@ pub fn list_workflow_templates(ctx: &ApiContext) -> ApiResult<Vec<WorkflowTempla
     let mut templates = Vec::new();
     for key in keys {
         if let Some(template) = ctx.registries.workflows.get(&key) {
-            if !template.is_published.unwrap_or(false) {
-                continue;
-            }
             templates.push(template.as_ref().clone());
         }
     }
@@ -145,25 +142,17 @@ pub async fn update_workflow_template(
     Ok(())
 }
 
-/// Publish a workflow to the template library.
-///
-/// The published mark is written to the stored definition, so the workflow
-/// stays published across a restart.
+/// Publish a workflow definition.
 pub async fn publish_workflow_template(ctx: &ApiContext, id: &str) -> ApiResult<()> {
-    set_published(ctx, id, true).await
+    crate::workflow::publish_workflow(ctx, id).await
 }
 
-/// Remove a workflow template from the published library view without
-/// deleting it; the entry remains available to the runtime index.
+/// Remove the published mark from a workflow definition.
 pub async fn unpublish_workflow_template(ctx: &ApiContext, id: &str) -> ApiResult<()> {
-    set_published(ctx, id, false).await
+    crate::workflow::unpublish_workflow(ctx, id).await
 }
 
 /// Clear the published mark of a workflow in the stored definition.
-///
-/// The mark is what keeps a workflow in the library across a restart, so
-/// taking the workflow out of the library clears it there. A workflow with
-/// no stored definition has no mark to clear.
 async fn clear_published(ctx: &ApiContext, id: &str) -> ApiResult<()> {
     let Some(mut definition) = ctx.storage.workflow.load(id).await? else {
         return Ok(());
@@ -173,39 +162,5 @@ async fn clear_published(ctx: &ApiContext, id: &str) -> ApiResult<()> {
         .get_or_insert_with(Default::default)
         .published = Some(false);
     ctx.storage.workflow.save(&definition).await?;
-    Ok(())
-}
-
-/// Write the published mark of a workflow.
-///
-/// The stored definition is the record of what the workflow is, so the mark
-/// is written there: that is what makes it outlive a restart. The registry
-/// entry follows the definition, so a workflow that is not registered yet
-/// joins the registry here and can be published again after it was taken
-/// out of the library.
-///
-/// A workflow with no stored definition — a predefined resource — carries the
-/// mark in the registry entry alone, and the resource assembly publishes it
-/// again on the next start.
-async fn set_published(ctx: &ApiContext, id: &str, published: bool) -> ApiResult<()> {
-    let Some(mut definition) = ctx.storage.workflow.load(id).await? else {
-        let mut entry = get_workflow_template(ctx, id)?;
-        entry.is_published = Some(published);
-        ctx.registries
-            .workflows
-            .register_or_replace(entry.id.to_string(), Arc::new(entry));
-        return Ok(());
-    };
-    definition
-        .metadata
-        .get_or_insert_with(Default::default)
-        .published = Some(published);
-    ctx.storage.workflow.save(&definition).await?;
-    // The entry is derived from the definition, so it carries the mark that
-    // was just written.
-    let entry = crate::workflow::library_entry(&ctx.registries, &definition);
-    ctx.registries
-        .workflows
-        .register_or_replace(entry.id.to_string(), Arc::new(entry));
     Ok(())
 }

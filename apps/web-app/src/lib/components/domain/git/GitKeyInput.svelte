@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Badge from '#lib/ui/components/Badge.svelte';
 	import Button from '#lib/ui/components/Button.svelte';
-	import Card from '#lib/ui/components/Card.svelte';
+	import TuiPanel from '#lib/ui/components/TuiPanel.svelte';
 	import Input from '#lib/ui/components/Input.svelte';
 	import { git as gitStore } from '#lib/stores/git.svelte';
 	import type { GitWorkbench } from '#lib/git/workbench.svelte';
@@ -14,7 +14,7 @@
 	let { workbench }: Props = $props();
 </script>
 
-<Card title={t('domain.git.keyInputTitle')} description={t('domain.git.keyInputDescription')}>
+<TuiPanel title="Keys" description={t('domain.git.keyInputDescription')} focused={false}>
 	<div class="flex gap-2">
 		<Input
 			id="git-input"
@@ -48,8 +48,8 @@
 		</p>
 	{/if}
 	{#if gitStore.actionError}
-		<p class="mt-1 text-caption text-destructive">
+		<p class="mt-1 font-mono text-micro text-destructive">
 			{gitStore.actionError}
 		</p>
 	{/if}
-</Card>
+</TuiPanel>

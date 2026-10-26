@@ -13,8 +13,6 @@
 	"config.navigation.chatDescription": "Dialogue-first agent IDE with sessions and composer",
 	"config.navigation.workbench": "Workbench",
 	"config.navigation.workbenchDescription": "Unified execution list for workflows and agent loops, with live detail",
-	"config.navigation.workflows": "Workflows",
-	"config.navigation.workflowsDescription": "Definitions, versions, drafts and graph",
 	"config.navigation.templates": "Templates",
 	"config.navigation.templatesDescription": "Node, trigger and agent template registry",
 	"config.navigation.checkpoints": "Checkpoints",

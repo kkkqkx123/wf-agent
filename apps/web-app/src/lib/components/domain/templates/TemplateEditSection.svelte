@@ -25,7 +25,6 @@
 	store={controller.templateEditStore}
 	draftBusy={controller.draftBusy}
 	saveBusy={controller.saveBusy}
-	openWorkflowBusy={controller.openWorkflowBusy}
 	graphRequest={controller.graphRequest}
 	lockHolder={controller.lockHolder}
 	canWrite={controller.canWrite}
@@ -34,7 +33,6 @@
 	onsave={() => void controller.runSave()}
 	oncancel={() => controller.exitEdit()}
 	onservercheck={() => void controller.runTemplateServerGate()}
-	onopenworkflow={() => void controller.runOpenAsWorkflow()}
 	onmovenode={(id, position) => controller.handleTemplateMoveNode(id, position)}
 	onmovenodes={(moves) => controller.handleTemplateMoveNodes(moves)}
 	onaddnode={(position) => controller.handleTemplateAddNode(position)}

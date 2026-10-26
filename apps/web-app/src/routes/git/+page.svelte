@@ -6,9 +6,11 @@
 	import Segmented from '#lib/ui/components/Segmented.svelte';
 	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import PageState from '#lib/components/layout/PageState.svelte';
+	import GitBoard from '#lib/components/domain/git/GitBoard.svelte';
 	import GitGroupsPanel from '#lib/components/domain/git/GitGroupsPanel.svelte';
 	import GitMainView from '#lib/components/domain/git/GitMainView.svelte';
 	import GitKeyInput from '#lib/components/domain/git/GitKeyInput.svelte';
+	import GitStatusBar from '#lib/components/domain/git/GitStatusBar.svelte';
 
 	import GitActionDialogs from '#lib/components/domain/git/GitActionDialogs.svelte';
 	import { page } from '$app/state';
@@ -16,6 +18,8 @@
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
 	import { GitWorkbench, PANELS } from '#lib/git/workbench.svelte';
 	import type { PanelId } from '#lib/git/workbench.svelte';
+	import { git as gitStore } from '#lib/stores/git.svelte';
+	import { parseToken } from '#lib/git/parse';
 	import { t } from '#lib/i18n';
 
 	const requested = parseListParams(page.url as unknown as URL).panel;
@@ -34,8 +38,123 @@
 			? (requested as PanelId)
 			: 'status';
 
-	onMount(() => workbench.start());
-	onDestroy(() => workbench.stop());
+	const BOARD_ORDER: PanelId[] = ['files', 'branches', 'commits', 'stash'];
+
+	function editableTarget(target: EventTarget | null): boolean {
+		const element = target as HTMLElement | null;
+		if (!element || typeof element.closest !== 'function') return false;
+		return element.closest('input, textarea, select, [contenteditable="true"], .xterm') !== null;
+	}
+
+	function boardVisible(): boolean {
+		return document.getElementById('git-board')?.offsetParent !== null;
+	}
+
+	function selectionIdFor(panel: PanelId): string | null {
+		if (panel === 'files') return gitStore.selectedFile;
+		if (panel === 'commits') return gitStore.selectedCommit;
+		if (panel === 'branches') return gitStore.selectedBranch;
+		if (panel === 'stash') return gitStore.selectedStash;
+		return null;
+	}
+
+	async function selectBoardRow(panel: PanelId, id: string): Promise<void> {
+		if (panel === 'files') await workbench.selectFile(id, false);
+		else if (panel === 'commits') await workbench.selectCommit(id, false);
+		else if (panel === 'branches') gitStore.select('branches', id);
+		else if (panel === 'stash') gitStore.select('stash', id);
+	}
+
+	function focusBoardRow(panel: PanelId, id: string): void {
+		document
+			.querySelector<HTMLButtonElement>(
+				`#git-board [data-board-panel="${panel}"][data-board-id="${CSS.escape(id)}"]`,
+			)
+			?.focus();
+	}
+
+	async function stepBoardRow(panel: PanelId, delta: number): Promise<void> {
+		const rows = Array.from(
+			document.querySelectorAll<HTMLButtonElement>(`#git-board [data-board-panel="${panel}"]`),
+		);
+		if (rows.length === 0) return;
+		const ids = rows.map((row) => row.dataset.boardId ?? '');
+		const current = selectionIdFor(panel);
+		const index = current ? ids.indexOf(current) : -1;
+		const next =
+			index < 0
+				? delta > 0
+					? 0
+					: rows.length - 1
+				: Math.min(rows.length - 1, Math.max(0, index + delta));
+		await selectBoardRow(panel, ids[next]);
+		focusBoardRow(panel, ids[next]);
+	}
+
+	function cycleBoardPanel(delta: number): void {
+		const index = BOARD_ORDER.indexOf(workbench.panel);
+		const next = index < 0 ? 0 : (index + delta + BOARD_ORDER.length) % BOARD_ORDER.length;
+		workbench.panel = BOARD_ORDER[next];
+		const first = document.querySelector<HTMLButtonElement>(
+			`#git-board [data-board-panel="${BOARD_ORDER[next]}"]`,
+		);
+		first?.focus();
+	}
+
+	async function onPageKeydown(event: KeyboardEvent): Promise<void> {
+		if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+		if (workbench.dialogOpen || workbench.helpOpen) return;
+		if (editableTarget(event.target)) return;
+		const target = event.target as HTMLElement | null;
+		const inBoard = target?.closest?.('#git-board') != null;
+		const panel = workbench.panel;
+
+		if (event.key === 'Tab' && inBoard && BOARD_ORDER.includes(panel)) {
+			event.preventDefault();
+			cycleBoardPanel(event.shiftKey ? -1 : 1);
+			return;
+		}
+		if (
+			(event.key === 'j' ||
+				event.key === 'k' ||
+				event.key === 'ArrowDown' ||
+				event.key === 'ArrowUp') &&
+			inBoard &&
+			BOARD_ORDER.includes(panel) &&
+			boardVisible()
+		) {
+			event.preventDefault();
+			const delta = event.key === 'j' || event.key === 'ArrowDown' ? 1 : -1;
+			await stepBoardRow(panel, delta);
+			return;
+		}
+		if (event.key === '?') {
+			workbench.helpOpen = true;
+			return;
+		}
+		if (event.key === '/') {
+			event.preventDefault();
+			workbench.focusFilter();
+			return;
+		}
+		if (event.key.length === 1 || event.key === ' ') {
+			const key = event.key === ' ' ? ' ' : event.key;
+			const result = parseToken(key, panel);
+			if (result.kind === 'action' && result.action) {
+				event.preventDefault();
+				await workbench.runActionId(result.action);
+			}
+		}
+	}
+
+	onMount(() => {
+		workbench.start();
+		window.addEventListener('keydown', onPageKeydown);
+	});
+	onDestroy(() => {
+		window.removeEventListener('keydown', onPageKeydown);
+		workbench.stop();
+	});
 
 	function gotoOpenInIde(selection: string | null): void {
 		const target = selection ? `/ide?path=${encodeURIComponent(selection)}` : '/ide';
@@ -98,9 +217,14 @@
 			emptyDescription={t('page.git.noRepoDesc')}
 			onretry={() => void workbench.reload()}
 		>
-			<div class="grid gap-3 xl:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
-				<GitGroupsPanel {workbench} bind:panel={workbench.panel} />
-				<div class="space-y-3">
+			<div class="grid gap-2 xl:grid-cols-5">
+				<div class="hidden xl:col-span-3 xl:block">
+					<GitBoard {workbench} />
+				</div>
+				<div class="xl:hidden">
+					<GitGroupsPanel {workbench} bind:panel={workbench.panel} />
+				</div>
+				<div class="space-y-2 xl:col-span-2">
 					<GitMainView {workbench} />
 					<GitKeyInput {workbench} />
 					{#if workbench.terminalOpen}
@@ -109,6 +233,9 @@
 						{/await}
 					{/if}
 				</div>
+			</div>
+			<div class="mt-2">
+				<GitStatusBar {workbench} />
 			</div>
 		</PageState>
 	</div>

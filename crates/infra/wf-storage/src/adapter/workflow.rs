@@ -10,6 +10,9 @@ pub struct WorkflowListOptions {
     pub limit: Option<u64>,
     pub name_filter: Option<String>,
     pub type_filter: Option<String>,
+    /// Filter by the published mark in definition metadata. Storage backends
+    /// do not push this down; `wf-api` applies it after listing.
+    pub published: Option<bool>,
 }
 
 impl From<WorkflowListOptions> for QueryFilter {

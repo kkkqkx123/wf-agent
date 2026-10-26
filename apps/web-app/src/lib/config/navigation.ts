@@ -59,12 +59,6 @@ export const NAV_GROUPS: NavGroup[] = [
 		label: message('config.navigation.orchestration'),
 		items: [
 			{
-				href: '/workflows',
-				label: message('config.navigation.workflows'),
-				icon: 'workflow',
-				description: message('config.navigation.workflowsDescription'),
-			},
-			{
 				href: '/templates',
 				label: message('config.navigation.templates'),
 				icon: 'template',

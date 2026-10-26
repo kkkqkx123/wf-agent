@@ -844,10 +844,10 @@
 				{#if kind === 'workflow' && execution.workflowId}
 					<span class="mx-1 h-4 w-px bg-border"></span>
 					<a
-						href={`/workflows/${encodeURIComponent(execution.workflowId.replace(/^workflow:/, ''))}?tab=graph&run=${encodeURIComponent(execution.id)}`}
+						href={`/templates/workflow/${encodeURIComponent(execution.workflowId.replace(/^workflow:/, ''))}?tab=graph`}
 						class="text-micro text-foreground underline-offset-2 hover:underline"
 					>
-						View progress on the definition graph
+						View definition in the template library
 					</a>
 				{/if}
 				{#if historyNodes.length > 0}

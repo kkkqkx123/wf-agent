@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Button from '#lib/ui/components/Button.svelte';
-	import Card from '#lib/ui/components/Card.svelte';
+	import TuiPanel from '#lib/ui/components/TuiPanel.svelte';
 	import DiffView from '#lib/ui/components/DiffView.svelte';
 	import { git as gitStore } from '#lib/stores/git.svelte';
 	import type { GitWorkbench } from '#lib/git/workbench.svelte';
@@ -13,11 +13,12 @@
 	let { workbench }: Props = $props();
 </script>
 
-<Card
-	title={t('domain.git.mainViewTitle')}
+<TuiPanel
+	title="Main"
 	description={workbench.selection
 		? t('domain.git.selected', { selection: workbench.selection })
 		: t('domain.git.mainViewDescription')}
+	focused={workbench.panel === 'commits' || workbench.panel === 'files'}
 >
 	{#if workbench.panel === 'commits' && workbench.commitFiles.length > 0}
 		<ul class="mb-2 divide-y divide-border">
@@ -76,19 +77,20 @@
 		{/each}
 	{/if}
 	{#snippet footer()}
-		<div class="flex flex-wrap gap-2">
+		<div class="flex flex-wrap gap-x-3 gap-y-1">
 			{#each workbench.controls as control (control.id)}
 				{@const spec = workbench.specFor(control.id)}
 				<Button
 					size="sm"
-					variant="outline"
+					variant="ghost"
 					disabled={gitStore.busy || (spec ? !spec.available : false)}
 					title={spec?.reason ?? `${control.name} (${control.hint})`}
 					onclick={() => void workbench.runActionId(control.id)}
 				>
+					<span class="font-mono">[{control.hint}]</span>
 					{control.name}
 				</Button>
 			{/each}
 		</div>
 	{/snippet}
-</Card>
+</TuiPanel>

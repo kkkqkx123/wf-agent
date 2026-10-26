@@ -268,8 +268,8 @@
 				<Button
 					variant="outline"
 					size="sm"
-					href={`/workflows/${encodeURIComponent(unified.definitionId.replace(/^workflow:/, ''))}?tab=graph&run=${encodeURIComponent(currentId)}`}
-					title="Project this run onto the definition graph (read-only)"
+					href={`/templates/workflow/${encodeURIComponent(unified.definitionId.replace(/^workflow:/, ''))}?tab=graph`}
+					title="Open the definition graph in the template library"
 				>
 					<Icon name="workflow" size={13} />
 					{t('page.executionDetail.viewOnGraph')}

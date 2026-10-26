@@ -33146,88 +33146,6 @@
         ]
       }
     },
-    "/api/v1/templates/library/workflows/{id}/derive": {
-      "post": {
-        "tags": [
-          "template"
-        ],
-        "summary": "Derive a runnable workflow from a library template.",
-        "description": "The new workflow is unpublished and records the template as its\nderivation source, so the detail view can link back to it.",
-        "operationId": "handle_derive_workflow_template",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DeriveWorkflowBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Derived workflow id",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_String"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized: missing or invalid API key"
-          },
-          "403": {
-            "description": "Forbidden: API key lacks access"
-          },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests: rate limit exceeded (see Retry-After)"
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Service unavailable: resource limit reached"
-          },
-          "504": {
-            "description": "Gateway timeout: upstream operation timed out"
-          }
-        },
-        "security": [
-          {
-            "api_key": []
-          }
-        ]
-      }
-    },
     "/api/v1/templates/library/workflows/{id}/export": {
       "get": {
         "tags": [
@@ -39935,6 +39853,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "published",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -41326,6 +41252,14 @@
             "required": false,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "published",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -43537,6 +43471,76 @@
         ]
       }
     },
+    "/api/v1/workflows/{id}/publish": {
+      "post": {
+        "tags": [
+          "workflow"
+        ],
+        "operationId": "handle_publish_workflow",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_String"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/workflows/{id}/rollback": {
       "post": {
         "tags": [
@@ -43589,6 +43593,76 @@
           },
           "403": {
             "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workflows/{id}/unpublish": {
+      "post": {
+        "tags": [
+          "workflow"
+        ],
+        "operationId": "handle_unpublish_workflow",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_String"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "429": {
             "description": "Too many requests: rate limit exceeded (see Retry-After)"
@@ -48925,6 +48999,7 @@
                 "is_public",
                 "enabled",
                 "is_system",
+                "is_published",
                 "usage_count",
                 "created_at",
                 "updated_at"
@@ -48956,6 +49031,9 @@
                   "type": "string"
                 },
                 "is_public": {
+                  "type": "boolean"
+                },
+                "is_published": {
                   "type": "boolean"
                 },
                 "is_system": {
@@ -50267,25 +50345,6 @@
           },
           "workflow_name": {
             "type": "string"
-          }
-        }
-      },
-      "DeriveWorkflowBody": {
-        "type": "object",
-        "properties": {
-          "new_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "New workflow id. Absent generates one."
-          },
-          "new_name": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "New workflow name. Absent keeps the template name."
           }
         }
       },
@@ -53493,6 +53552,7 @@
           "is_public",
           "enabled",
           "is_system",
+          "is_published",
           "usage_count",
           "created_at",
           "updated_at"
@@ -53524,6 +53584,9 @@
             "type": "string"
           },
           "is_public": {
+            "type": "boolean"
+          },
+          "is_published": {
             "type": "boolean"
           },
           "is_system": {

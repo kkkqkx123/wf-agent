@@ -4238,6 +4238,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/fs/entries/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_fs_entries_copy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/fs/entries/move": {
         parameters: {
             query?: never;
@@ -4262,6 +4278,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["get_fs_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/fs/raw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_fs_raw"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4312,6 +4344,22 @@ export interface paths {
         get: operations["get_fs_tree"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/fs/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_fs_upload"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6393,27 +6441,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/templates/library/workflows/{id}/derive": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Derive a runnable workflow from a library template.
-         * @description The new workflow is unpublished and records the template as its
-         *     derivation source, so the detail view can link back to it.
-         */
-        post: operations["handle_derive_workflow_template"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/templates/library/workflows/{id}/export": {
         parameters: {
             query?: never;
@@ -8206,6 +8233,22 @@ export interface paths {
         patch: operations["handle_update_metadata"];
         trace?: never;
     };
+    "/api/v1/workflows/{id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_publish_workflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workflows/{id}/rollback": {
         parameters: {
             query?: never;
@@ -8216,6 +8259,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["handle_rollback_workflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflows/{id}/unpublish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_unpublish_workflow"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9686,6 +9745,7 @@ export interface components {
                 enabled: boolean;
                 id: string;
                 is_public: boolean;
+                is_published: boolean;
                 is_system: boolean;
                 kind: string;
                 name: string;
@@ -10095,12 +10155,6 @@ export interface components {
             workflow_id: string;
             workflow_name: string;
         };
-        DeriveWorkflowBody: {
-            /** @description New workflow id. Absent generates one. */
-            new_id?: string | null;
-            /** @description New workflow name. Absent keeps the template name. */
-            new_name?: string | null;
-        };
         /** @description One hunk of a per-file difference (`DiffHunkView` mirrored). */
         DiffHunkDoc: {
             /** @description The `@@` hunk header. */
@@ -10382,6 +10436,10 @@ export interface components {
             fire_id: string;
             fired: boolean;
         };
+        FsCopyBody: {
+            from: string;
+            to: string;
+        };
         FsCreateBody: {
             is_dir?: boolean;
             path: string;
@@ -10403,6 +10461,14 @@ export interface components {
             /** Format: int64 */
             size: number;
             truncated: boolean;
+        };
+        FsRawView: {
+            content_base64: string;
+            filename: string;
+            mime: string;
+            path: string;
+            /** Format: int64 */
+            size: number;
         };
         FsRenameBody: {
             from: string;
@@ -10437,6 +10503,11 @@ export interface components {
         FsTreeView: {
             entries: components["schemas"]["FsTreeEntryView"][];
             truncated: boolean;
+        };
+        FsUploadBody: {
+            content_base64: string;
+            overwrite?: boolean;
+            path: string;
         };
         FsWriteBody: {
             content: string;
@@ -11204,6 +11275,7 @@ export interface components {
             enabled: boolean;
             id: string;
             is_public: boolean;
+            is_published: boolean;
             is_system: boolean;
             kind: string;
             name: string;
@@ -33297,6 +33369,65 @@ export interface operations {
             };
         };
     };
+    post_fs_entries_copy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FsCopyBody"];
+            };
+        };
+        responses: {
+            /** @description Entry copied */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     patch_fs_entries_move: {
         parameters: {
             query?: never;
@@ -33422,6 +33553,63 @@ export interface operations {
             };
         };
     };
+    get_fs_raw: {
+        parameters: {
+            query?: {
+                path?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Raw file bytes as base64 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     get_fs_search: {
         parameters: {
             query?: {
@@ -33430,6 +33618,8 @@ export interface operations {
                 include?: string;
                 case_sensitive?: boolean;
                 regex?: boolean;
+                whole_word?: boolean;
+                offset?: number;
                 limit?: number;
             };
             header?: never;
@@ -33594,6 +33784,65 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    post_fs_upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FsUploadBody"];
+            };
+        };
+        responses: {
+            /** @description File uploaded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Too many requests: rate limit exceeded (see Retry-After) */
             429: {
@@ -45107,85 +45356,6 @@ export interface operations {
             };
         };
     };
-    handle_derive_workflow_template: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DeriveWorkflowBody"];
-            };
-        };
-        responses: {
-            /** @description Derived workflow id */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiEnvelope_String"];
-                };
-            };
-            /** @description Unauthorized: missing or invalid API key */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden: API key lacks access */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Too many requests: rate limit exceeded (see Retry-After) */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Service unavailable: resource limit reached */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Gateway timeout: upstream operation timed out */
-            504: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     handle_export_workflow_template: {
         parameters: {
             query?: {
@@ -51896,6 +52066,7 @@ export interface operations {
                 offset?: number;
                 name?: string;
                 type?: string;
+                published?: boolean;
             };
             header?: never;
             path?: never;
@@ -53273,6 +53444,7 @@ export interface operations {
                 offset?: number;
                 name?: string;
                 type?: string;
+                published?: boolean;
             };
             header?: never;
             path?: never;
@@ -55580,6 +55752,81 @@ export interface operations {
             };
         };
     };
+    handle_publish_workflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_String"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     handle_rollback_workflow: {
         parameters: {
             query?: never;
@@ -55626,6 +55873,81 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_unpublish_workflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_String"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Too many requests: rate limit exceeded (see Retry-After) */
             429: {

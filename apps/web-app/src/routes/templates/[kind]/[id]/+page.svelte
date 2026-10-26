@@ -309,8 +309,8 @@
 						class="rounded-lg border border-border bg-card"
 					/>
 				{/if}
-				{#if kind === 'agent' && !isNew}
-					<DefinitionCapabilities kind="agent" definitionId={routeIdParam} />
+				{#if kind && !isNew}
+					<DefinitionCapabilities kind={kind} definitionId={routeIdParam} />
 				{/if}
 			</div>
 		</div>

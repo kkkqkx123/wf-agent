@@ -9,7 +9,12 @@ import {
 import { GraphEditStore } from '#lib/graph/edit-store.svelte';
 import { EditLockStore } from '#lib/stores/edit-lock.svelte';
 import type { CanvasPosition } from '#lib/graph/canvas-model';
-import { deriveWorkflowFromTemplate } from '#lib/services/template-library';
+import {
+	cloneWorkflow,
+	createWorkflow,
+	deleteWorkflow,
+	replaceWorkflow,
+} from '#lib/services/workflows';
 import {
 	allocateGraphNodeId,
 	cloneTemplate,
@@ -81,7 +86,6 @@ export class TemplateEditController {
 	draftBusy = $state(false);
 	saveBusy = $state(false);
 	deleteArmed = $state(false);
-	openWorkflowBusy = $state(false);
 
 	// Single-writer lock for the definition being edited. Every kind answers
 	// the same lock endpoint shape; null only while creating or when no
@@ -181,7 +185,10 @@ export class TemplateEditController {
 		this.validationState = 'idle';
 		this.serverIssues = [];
 		this.validatedText = null;
-		if (tab === 'graph') this.graphRequest += 1;
+		if (tab === 'graph') {
+			this.graphRequest += 1;
+			this.consumePendingInsert();
+		}
 		void this.acquireEditLock();
 	}
 
@@ -436,21 +443,37 @@ export class TemplateEditController {
 		this.saveBusy = true;
 		try {
 			if (this.isNew) {
-				const payload = value as Record<string, unknown>;
 				const id = this.createId.trim() || slugify(this.createName);
 				if (!id) throw new Error('Template id is required');
-				const savedId = await saveTemplate(this.createKind, null, {
-					...payload,
-					id,
-					name: this.createName.trim() || id,
-				});
+				const name = this.createName.trim() || id;
+				let savedId: string;
+				if (this.createKind === 'workflow') {
+					const definition = templateBackendDefinition(this.createKind, value, id, name);
+					const created = await createWorkflow(name, { ...definition, id, name });
+					savedId = created.id || id;
+				} else {
+					const payload = value as Record<string, unknown>;
+					savedId = await saveTemplate(this.createKind, null, {
+						...payload,
+						id,
+						name,
+					});
+					if (!savedId) savedId = id;
+				}
 				toasts.success('Template created');
 				await goto(
 					resolve('/templates/[kind]/[id]', {
 						kind: this.createKind,
-						id: savedId || id,
+						id: savedId,
 					}),
 				);
+			} else if (kind === 'workflow') {
+				const definition = templateBackendDefinition(kind, value, this.routeIdParam, this.routeIdParam);
+				await replaceWorkflow(this.routeIdParam, { ...definition, id: this.routeIdParam });
+				toasts.success('Template saved');
+				this.session.markClean();
+				this.exitEdit();
+				await this.context.loadDetail(kind, this.routeIdParam, 'preview');
 			} else {
 				await saveTemplate(kind, this.routeIdParam, this.editedPayload(value));
 				toasts.success('Template saved');
@@ -465,60 +488,15 @@ export class TemplateEditController {
 		}
 	}
 
-	async runOpenAsWorkflow(): Promise<void> {
-		const kind = this.kind;
-		if (kind !== 'workflow' || this.isNew) return;
-		this.flushEditState();
-		this.session.applyText(this.editText);
-		this.syntaxError = this.session.syntaxError;
-		const value = this.session.definition();
-		const error = this.session.syntaxError;
-		if (error || value === undefined) {
-			toasts.error('Template invalid', 'Fix the JSON syntax first.');
-			return;
-		}
-		let definition: Record<string, unknown>;
-		try {
-			definition = this.buildBackendDefinition(value);
-		} catch (e) {
-			toasts.error('Template invalid', e instanceof Error ? e.message : undefined);
-			return;
-		}
-		if (this.templateEditStore.dirty) {
-			toasts.error('Unsaved graph changes', 'Save the template first.');
-			return;
-		}
-		const detail = this.detail;
-		const templateName =
-			typeof definition.name === 'string' && definition.name
-				? definition.name
-				: `template-${this.routeIdParam}`;
-		this.openWorkflowBusy = true;
-		try {
-			// Cross-library derivation through the server: the new workflow
-			// keeps its own id, starts unpublished, and records this template
-			// as its persisted derivation source. No address-bar lineage.
-			const derivedId = await deriveWorkflowFromTemplate(this.routeIdParam, {
-				newName: detail?.template.name ?? templateName,
-			});
-			void recordTemplateUsage(this.routeIdParam).catch(() => undefined);
-			toasts.success('Workflow derived from template');
-			// The path is resolve()d; resolve() cannot append the query string.
-
-			await goto(resolve('/workflows/[id]', { id: derivedId }) + '?tab=edit');
-		} catch (e) {
-			toasts.error('Derive as workflow failed', e instanceof Error ? e.message : undefined);
-		} finally {
-			this.openWorkflowBusy = false;
-		}
-	}
-
 	async runClone(): Promise<void> {
 		const kind = this.kind;
 		const detail = this.detail;
 		if (!kind || !detail) return;
 		try {
-			const newId = await cloneTemplate(detail.template.id, kind, `${detail.template.name} (copy)`);
+			const newId =
+				kind === 'workflow'
+					? await cloneWorkflow(detail.template.id)
+					: await cloneTemplate(detail.template.id, kind, `${detail.template.name} (copy)`);
 			void recordTemplateUsage(detail.template.id).catch(() => undefined);
 			toasts.success('Template cloned');
 			await goto(resolve('/templates/[kind]/[id]', { kind, id: newId }));
@@ -547,12 +525,12 @@ export class TemplateEditController {
 		const kind = this.kind;
 		if (!kind || this.isNew) return;
 		try {
-			await deleteTemplate(kind, this.routeIdParam);
-			// A workflow template is the user's own workflow, published:
-			// removing it from the library leaves the workflow in place.
-			toasts.success(
-				kind === 'workflow' ? 'Removed from the template library' : 'Template deleted',
-			);
+			if (kind === 'workflow') {
+				await deleteWorkflow(this.routeIdParam);
+			} else {
+				await deleteTemplate(kind, this.routeIdParam);
+			}
+			toasts.success('Template deleted');
 			await this.backToLibrary();
 		} catch (e) {
 			toasts.error('Delete failed', e instanceof Error ? e.message : undefined);
@@ -595,12 +573,9 @@ export class TemplateEditController {
 	});
 
 	/**
-	 * Queue the current node template for insertion into a workflow canvas,
+	 * Queue the current node template for insertion into a workflow definition,
 	 * then deep-link to the target. Only node templates can land on a
 	 * canvas, and only when the stored `node_type` is a non-blank name.
-	 * With a target workflow the link lands straight on its edit tab;
-	 * without one it lands on the workflow list, which shows a recoverable
-	 * prompt until the user picks a target.
 	 */
 	insertIntoCanvas(targetWorkflowId?: string | null): void {
 		const detail = this.detail;
@@ -616,14 +591,39 @@ export class TemplateEditController {
 		toasts.success(
 			`${detail.template.name} queued`,
 			target
-				? 'Opening the target workflow in edit mode.'
-				: 'Open a workflow and enter edit mode to place it.',
+				? 'Opening the target definition in graph mode.'
+				: 'Open a workflow definition and enter graph mode to place it.',
 		);
 		if (target) {
-			void goto(resolve('/workflows/[id]', { id: target }) + '?tab=edit');
+			void goto(resolve('/templates/[kind]/[id]', { kind: 'workflow', id: target }) + '?tab=graph');
 			return;
 		}
-		void goto(resolve('/workflows') + '?pendingInsert=1');
+		void goto('/templates?tab=workflow');
+	}
+
+	/**
+	 * Apply a queued node insertion to the session document before the canvas
+	 * loads, so the graph tab shows it without a second pick. A queued target
+	 * pins the insert to one definition; a mismatch keeps the queue.
+	 */
+	consumePendingInsert(): void {
+		if (this.kind !== 'workflow') return;
+		const pendingInsert = nodeInsertStore.peek();
+		if (!pendingInsert) return;
+		if (pendingInsert.targetWorkflowId && pendingInsert.targetWorkflowId !== this.routeIdParam) {
+			toasts.info(
+				`Node queued for ${pendingInsert.targetWorkflowId}`,
+				'Open the target definition to place it.',
+			);
+			return;
+		}
+		nodeInsertStore.consume();
+		const topology = this.session.topology();
+		const existing = new SvelteSet(topology.nodes.map((node) => node.id));
+		const id = allocateGraphNodeId(existing);
+		const nodes = [...topology.nodes, { id, label: pendingInsert.name || id, kind: 'STEP' }];
+		this.session.mergeGraph(nodes, topology.edges);
+		this.editText = this.session.text;
 	}
 
 	discardEditsAndLeave(): void {

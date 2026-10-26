@@ -229,6 +229,8 @@ use utoipa::OpenApi;
         crate::api::workflow::workflows::handle_delete_workflow,
         crate::api::workflow::workflows::handle_get_workflow,
         crate::api::workflow::workflows::handle_clone_workflow,
+        crate::api::workflow::workflows::handle_publish_workflow,
+        crate::api::workflow::workflows::handle_unpublish_workflow,
         crate::api::workflow::workflows::handle_validate_workflow,
         crate::api::workflow::workflows::handle_validate_node,
         crate::api::workflow::workflows::handle_parse_workflow,
@@ -500,7 +502,6 @@ use utoipa::OpenApi;
         crate::api::template::locks::handle_acquire_trigger_lock,
         crate::api::template::locks::handle_heartbeat_trigger_lock,
         crate::api::template::locks::handle_release_trigger_lock,
-        crate::api::template::library::handle_derive_workflow_template,
         // ── entity ──
         crate::api::entity::interactions::handle_list_interactions,
         crate::api::entity::interactions::handle_get_interaction,

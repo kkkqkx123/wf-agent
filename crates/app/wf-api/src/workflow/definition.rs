@@ -6,7 +6,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use wf_common;
-use wf_core::registry::Registry;
+use wf_core::registry::{MutableRegistry, Registry};
 use wf_resource::registry::ResourceRegistries;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::adapter::execution::WorkflowExecutionListOptions;
@@ -261,7 +261,54 @@ pub async fn list_workflows(
     ctx: &ApiContext,
     options: Option<WorkflowListOptions>,
 ) -> crate::ApiResult<Vec<WorkflowDefinition>> {
-    ctx.storage.workflow.list(options).await.map_err(Into::into)
+    let published = options.as_ref().and_then(|o| o.published);
+    let mut workflows: Vec<WorkflowDefinition> = ctx
+        .storage
+        .workflow
+        .list(options)
+        .await
+        .map_err(crate::ApiError::from)?;
+    if let Some(want) = published {
+        workflows.retain(|w| w.metadata.as_ref().and_then(|m| m.published).unwrap_or(false) == want);
+    }
+    Ok(workflows)
+}
+
+/// Write the published mark of a workflow.
+///
+/// The stored definition is the record of what the workflow is, so the mark
+/// is written there: that is what makes it outlive a restart. The registry
+/// entry follows the definition.
+pub async fn set_published(ctx: &ApiContext, id: &str, published: bool) -> crate::ApiResult<()> {
+    let Some(mut definition) = ctx.storage.workflow.load(id).await? else {
+        let entry = crate::template::template_library::get_workflow_template(ctx, id)?;
+        let mut entry = entry.clone();
+        entry.is_published = Some(published);
+        ctx.registries
+            .workflows
+            .register_or_replace(entry.id.to_string(), Arc::new(entry));
+        return Ok(());
+    };
+    definition
+        .metadata
+        .get_or_insert_with(Default::default)
+        .published = Some(published);
+    ctx.storage.workflow.save(&definition).await?;
+    let entry = library_entry(&ctx.registries, &definition);
+    ctx.registries
+        .workflows
+        .register_or_replace(entry.id.to_string(), Arc::new(entry));
+    Ok(())
+}
+
+/// Publish a workflow definition.
+pub async fn publish_workflow(ctx: &ApiContext, id: &str) -> crate::ApiResult<()> {
+    set_published(ctx, id, true).await
+}
+
+/// Remove the published mark from a workflow definition.
+pub async fn unpublish_workflow(ctx: &ApiContext, id: &str) -> crate::ApiResult<()> {
+    set_published(ctx, id, false).await
 }
 
 pub async fn update_workflow_metadata(

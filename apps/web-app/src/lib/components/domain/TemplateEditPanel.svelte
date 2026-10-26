@@ -40,7 +40,6 @@
 		store: GraphEditStore;
 		draftBusy: boolean;
 		saveBusy: boolean;
-		openWorkflowBusy: boolean;
 		graphRequest: number;
 		/** Single-writer lock holder text; empty when the kind has no lock. */
 		lockHolder?: string;
@@ -51,7 +50,6 @@
 		onsave: () => void;
 		oncancel: () => void;
 		onservercheck: () => void;
-		onopenworkflow: () => void;
 		onmovenode: (id: string, position: CanvasPosition) => void;
 		onmovenodes: (moves: Array<{ id: string; position: CanvasPosition }>) => void;
 		onaddnode: (position: CanvasPosition) => void;
@@ -74,7 +72,6 @@
 		store,
 		draftBusy,
 		saveBusy,
-		openWorkflowBusy,
 		graphRequest,
 		lockHolder = '',
 		canWrite = true,
@@ -83,7 +80,6 @@
 		onsave,
 		oncancel,
 		onservercheck,
-		onopenworkflow,
 		onmovenode,
 		onmovenodes,
 		onaddnode,
@@ -457,16 +453,6 @@
 		<div class="flex flex-wrap items-center gap-2">
 			<Button variant="outline" size="sm" disabled={draftBusy} onclick={() => onservercheck()}>
 				{draftBusy ? t('domain.templateEdit.checking') : t('domain.templateEdit.checkWithServer')}
-			</Button>
-			<Button
-				variant="outline"
-				size="sm"
-				disabled={openWorkflowBusy}
-				onclick={() => onopenworkflow()}
-			>
-				{openWorkflowBusy
-					? t('domain.templateEdit.opening')
-					: t('domain.templateEdit.openAsWorkflow')}
 			</Button>
 			<span class="text-micro text-muted-foreground">
 				{t('domain.templateEdit.mergeHint')}

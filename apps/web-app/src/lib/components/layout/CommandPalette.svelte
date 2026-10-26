@@ -154,7 +154,7 @@ import { ide, type IdeCommand } from '#lib/stores/ide.svelte';
 			hint: `v${workflow.version} · ${workflow.category}`,
 			run: () => {
 				ui.setCommandOpen(false);
-				void goto(resolve('/workflows/[id]', { id: workflow.id }));
+				void goto(resolve('/templates/[kind]/[id]', { kind: 'workflow', id: workflow.id }));
 			},
 		}));
 

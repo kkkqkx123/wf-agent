@@ -442,7 +442,7 @@
 					<Icon name="play" size={13} />
 					{t('page.executions.newTask')}
 				</Button>
-				<Button size="sm" href="/workflows">
+				<Button size="sm" href="/templates?tab=workflow">
 					<Icon name="blocks" size={13} />
 					{t('page.executions.startFromWorkflow')}
 				</Button>

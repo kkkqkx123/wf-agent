@@ -208,6 +208,11 @@ export class GitWorkbench {
 	}
 
 	focusFilter(): void {
+		const scoped = document.getElementById(`git-filter-${this.panel}`);
+		if (scoped) {
+			scoped.focus();
+			return;
+		}
 		document.getElementById('git-filter')?.focus();
 	}
 
@@ -281,22 +286,22 @@ export class GitWorkbench {
 		}
 	}
 
-	async selectFile(path: string): Promise<void> {
+	async selectFile(path: string, focusInput = true): Promise<void> {
 		gitStore.select('files', path);
 		this.diff = await getDiff(path).catch(() => []);
 		this.diffSource = 'unstaged';
-		this.focusKeyInput();
+		if (focusInput) this.focusKeyInput();
 	}
 
 	async stageHunk(path: string, hunkIndex: number): Promise<void> {
 		await this.dispatchAction('stage.hunk', { path, hunkIndex: String(hunkIndex) }, undefined);
 	}
 
-	async selectCommit(id: string): Promise<void> {
+	async selectCommit(id: string, focusInput = true): Promise<void> {
 		gitStore.select('commits', id);
 		this.diff = [];
 		this.commitFiles = await getCommitFiles(id).catch(() => []);
-		this.focusKeyInput();
+		if (focusInput) this.focusKeyInput();
 	}
 
 	async showCommitFileDiff(commit: string, path: string): Promise<void> {

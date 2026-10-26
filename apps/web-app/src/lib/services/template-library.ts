@@ -110,53 +110,24 @@ export async function cloneTemplate(
 }
 
 /**
- * Derive a runnable workflow from a reusable workflow template.
- * Cross-library derivation: the new workflow keeps its own id, starts
- * unpublished, and records the template as its persisted derivation source
- * (`metadata.derived_from`), so the workflow detail can link back without
- * address-bar conventions. Publish state is never copied: publish and
- * unpublish only flip the published mark on the definition.
- */
-export async function deriveWorkflowFromTemplate(
-	templateId: string,
-	options?: { newId?: string; newName?: string },
-): Promise<string> {
-	const data = await call<string>(
-		client.POST('/api/v1/templates/library/workflows/{id}/derive', {
-			params: { path: { id: templateId } },
-			body: {
-				new_id: options?.newId ?? null,
-				new_name: options?.newName ?? null,
-			},
-		}),
-	);
-	const derivedId = typeof data === 'string' ? data : '';
-	if (!derivedId) throw new Error('Derive returned no workflow id');
-	return derivedId;
-}
-
-/**
- * Publish a workflow to the template library. The published mark is written
- * to the workflow definition, so the workflow stays published across a
- * restart. Publishing flips the mark only: it never copies the definition
- * and never changes the id.
+ * Publish a workflow definition. The published mark is written
+ * to the stored definition, so it stays published across a restart.
  */
 export async function publishWorkflowTemplate(id: string): Promise<void> {
 	await call<string>(
-		client.POST('/api/v1/templates/library/workflows/{id}/publish', {
+		client.POST('/api/v1/workflows/{id}/publish', {
 			params: { path: { id } },
 		}),
 	);
 }
 
 /**
- * Remove a workflow from the published library view. The workflow itself
- * stays where it is and keeps running. Unpublishing flips the mark only:
- * it never moves or copies the definition.
+ * Remove the published mark from a workflow definition. The definition
+ * itself stays where it is and keeps running.
  */
 export async function unpublishWorkflowTemplate(id: string): Promise<void> {
 	await call<string>(
-		client.POST('/api/v1/templates/library/workflows/{id}/unpublish', {
+		client.POST('/api/v1/workflows/{id}/unpublish', {
 			params: { path: { id } },
 		}),
 	);

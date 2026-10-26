@@ -12,6 +12,7 @@ const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(({ mode }) => {
 	const isPreview = mode === 'preview';
+	const analyze = process.env.ANALYZE === '1';
 	const alias: Record<string, string> = isPreview
 		? {
 				'#lib/api/client': path.resolve(rootDir, 'src/lib/api/client.preview.ts'),
@@ -29,13 +30,17 @@ export default defineConfig(({ mode }) => {
 				preprocess: vitePreprocess(),
 				adapter: adapter(),
 			}),
-			visualizer({
-				filename: 'stats.md',
-				template: 'markdown',
-				emitFile: true,
-				gzipSize: true,
-				brotliSize: true,
-			}),
+			...(analyze
+				? [
+						visualizer({
+							filename: 'stats.md',
+							template: 'markdown',
+							emitFile: true,
+							gzipSize: true,
+							brotliSize: true,
+						}),
+					]
+				: []),
 		],
 		resolve: {
 			alias,

@@ -871,6 +871,12 @@ pub(crate) struct UndoLastInputRequest {
     pub execution_id: String,
     #[serde(default)]
     pub checkpoint_prefixes: Option<Vec<String>>,
+    /// Optional TOCTOU guard: when both are set they must match the
+    /// freshly recomputed input window, otherwise apply is rejected.
+    #[serde(default)]
+    pub expected_start_checkpoint_id: Option<String>,
+    #[serde(default)]
+    pub expected_end_checkpoint_id: Option<String>,
 }
 
 #[utoipa::path(
@@ -914,10 +920,18 @@ pub(crate) async fn handle_apply_undo_last_input(
     State(state): State<ApiState>,
     axum::Json(body): axum::Json<UndoLastInputRequest>,
 ) -> impl IntoResponse {
-    match wf_api::checkpoint::undo::apply_undo_last_input(
+    let expected = match (
+        body.expected_start_checkpoint_id,
+        body.expected_end_checkpoint_id,
+    ) {
+        (Some(start), Some(end)) => Some((start, end)),
+        _ => None,
+    };
+    match wf_api::checkpoint::undo::apply_undo_last_input_checked(
         &state.ctx,
         &body.execution_id,
         body.checkpoint_prefixes,
+        expected,
     )
     .await
     {

@@ -64,13 +64,30 @@ pub async fn delete_checkpoint(ctx: &StorageContext, id: &str) -> crate::ApiResu
     ctx.checkpoint.delete(id).await.map_err(Into::into)
 }
 
+/// Prefix reserved for system control tags. Undo boundary detection reads
+/// `trigger:*` tags, so the generic tag update path must never rewrite them.
+pub const SYSTEM_TAG_PREFIX: &str = "trigger:";
+
+fn validate_user_tags(tags: &[String]) -> crate::ApiResult<()> {
+    if tags.iter().any(|tag| tag.starts_with(SYSTEM_TAG_PREFIX)) {
+        return Err(ApiError::Validation(format!(
+            "tags with prefix '{SYSTEM_TAG_PREFIX}' are system-controlled and cannot be updated via this endpoint"
+        )));
+    }
+    Ok(())
+}
+
 /// Update the tags on an existing checkpoint. Loads the record, replaces its
 /// tags, and saves it back. Returns the updated checkpoint.
+///
+/// System `trigger:*` tags are rejected: they feed undo boundary detection
+/// and are written only by the checkpoint coordinator at creation time.
 pub async fn update_checkpoint_tags(
     ctx: &StorageContext,
     id: &str,
     tags: Vec<String>,
 ) -> crate::ApiResult<Checkpoint> {
+    validate_user_tags(&tags)?;
     let mut checkpoint = ctx
         .checkpoint
         .load(id)
@@ -192,7 +209,13 @@ pub fn empty_chain(execution_id: &str) -> CheckpointChainAnalysisView {
 }
 
 fn build_chain(execution_id: &str, mut sorted: Vec<Checkpoint>) -> CheckpointChainAnalysisView {
-    sorted.sort_by_key(|c| c.timestamp);
+    // Deterministic order: timestamp alone is not unique, so equal
+    // timestamps fall back to id order instead of storage order.
+    sorted.sort_by(|a, b| {
+        a.timestamp
+            .cmp(&b.timestamp)
+            .then_with(|| a.id.cmp(&b.id))
+    });
 
     let mut transitions = Vec::new();
     for window in sorted.windows(2) {
@@ -362,7 +385,11 @@ pub async fn list_checkpoints_by_time_range(
         .list_by_entities_with_metadata(&entity_ids, "checkpoint")
         .await?;
     checkpoints.retain(|c| c.timestamp >= start && c.timestamp <= end);
-    checkpoints.sort_by_key(|c| c.timestamp);
+    checkpoints.sort_by(|a, b| {
+        a.timestamp
+            .cmp(&b.timestamp)
+            .then_with(|| a.id.cmp(&b.id))
+    });
     Ok(checkpoints)
 }
 
@@ -380,8 +407,7 @@ mod tests {
     use super::*;
     use wf_types::checkpoint::base::{CheckpointStatus, CheckpointType};
 
-    fn make_checkpoint(id: &str, entity_id: &str, ts: i64) -> Checkpoint {
-        Checkpoint {
+    fn make_checkpoint(id: &str, entity_id: &str, ts: i64) -> Checkpoint {        Checkpoint {
             id: id.into(),
             entity_type: "checkpoint".into(),
             entity_id: entity_id.into(),
@@ -592,5 +618,32 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn update_checkpoint_tags_rejects_system_trigger_tags() {
+        let ctx = StorageContext::new_memory();
+        save_checkpoint(&ctx, &make_checkpoint("cp-tag", "ex-1", 1000))
+            .await
+            .unwrap();
+        let err = update_checkpoint_tags(
+            &ctx,
+            "cp-tag",
+            vec!["trigger:MANUAL".to_string()],
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, crate::ApiError::Validation(_)));
+        let updated = update_checkpoint_tags(
+            &ctx,
+            "cp-tag",
+            vec!["user:reviewed".to_string()],
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            updated.tags,
+            Some(vec!["user:reviewed".to_string()])
+        );
     }
 }

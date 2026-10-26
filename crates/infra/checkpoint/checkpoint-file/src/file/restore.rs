@@ -149,6 +149,34 @@ impl FileCheckpointManager {
         Ok(Some(self.project_commit(&commit_id)?.files))
     }
 
+    /// Materialize the file set linked to a state checkpoint into the
+    /// workspace. `Ok(None)` means the state checkpoint has no link
+    /// (pre-link history or no file history); a malformed or missing
+    /// linked commit is an explicit error, never a silent fallback to the
+    /// latest file checkpoint. This is the write path behind the opt-in
+    /// unified restore; the read-only [`Self::restore_state_files`]
+    /// projection stays available for previews.
+    pub fn materialize_state_files(
+        &self,
+        state_checkpoint_id: &str,
+        base_dir: &Path,
+        opts: &FileCheckpointOptions,
+    ) -> Result<Option<WorkspaceRestoreResult>, CheckpointError> {
+        let linked = self
+            .storage_ref()?
+            .lookup_state_file_link(state_checkpoint_id)?;
+        let Some(commit_id) = linked else {
+            return Ok(None);
+        };
+        if !crate::git_store::is_hex_id(&commit_id) {
+            return Err(CheckpointError::Corrupted {
+                id: state_checkpoint_id.to_string(),
+                reason: format!("linked file commit id malformed: '{commit_id}'"),
+            });
+        }
+        Ok(Some(self.materialize_commit(&commit_id, base_dir, opts)?))
+    }
+
     /// Workspace-aligned content rollback: expand the target tree, delete
     /// extra files not in the target set, recreate empty directories from
     /// the manifest, and skip identical content. Relative paths resolve
@@ -425,6 +453,50 @@ mod tests {
         assert!(matches!(
             err,
             CheckpointError::Validation { .. } | CheckpointError::Io(_)
+        ));
+    }
+
+    #[test]
+    fn materialize_state_files_writes_linked_tree_and_reports_missing() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let actor = manager.actor_id_for("exec-1");
+        let commit = manager.apply_agent_edit(&actor, "a.txt", b"one\n").unwrap();
+        manager.record_state_file_link("state-1", &commit).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"dirty\n").unwrap();
+        let outcome = manager
+            .materialize_state_files(
+                "state-1",
+                dir.path(),
+                &crate::file::FileCheckpointOptions::default(),
+            )
+            .unwrap()
+            .expect("linked file set materialized");
+        assert_eq!(outcome.restored, 1);
+        assert_eq!(
+            std::fs::read(dir.path().join("a.txt")).unwrap(),
+            b"one\n"
+        );
+        // No link: explicit None, never a fallback to latest.
+        assert!(manager
+            .materialize_state_files(
+                "state-unknown",
+                dir.path(),
+                &crate::file::FileCheckpointOptions::default(),
+            )
+            .unwrap()
+            .is_none());
+        // Malformed link: corruption error, not a silent fallback.
+        manager
+            .record_state_file_link("state-2", "not-a-hex")
+            .unwrap();
+        assert!(matches!(
+            manager.materialize_state_files(
+                "state-2",
+                dir.path(),
+                &crate::file::FileCheckpointOptions::default(),
+            ),
+            Err(CheckpointError::Corrupted { .. })
         ));
     }
 

@@ -26,6 +26,17 @@ fn has_trigger(checkpoint: &wf_types::Checkpoint, trigger: &str) -> bool {
         .is_some_and(|tags| tags.iter().any(|tag| tag == trigger))
 }
 
+/// Deterministic checkpoint order for boundary detection: timestamps alone
+/// are not unique, so equal timestamps fall back to id order instead of
+/// depending on storage return order.
+fn sort_checkpoints_for_boundaries(sorted: &mut [wf_types::Checkpoint]) {
+    sorted.sort_by(|a, b| {
+        a.timestamp
+            .cmp(&b.timestamp)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+}
+
 fn is_terminal(checkpoint: &wf_types::Checkpoint) -> bool {
     // Terminal input boundaries. `OnError` is deliberately absent: it marks
     // an in-flight retriable error checkpoint, while `OnFailure` marks the
@@ -138,6 +149,13 @@ pub struct UndoPreview {
     pub preview: Vec<wf_checkpoint::provenance::FileDiffView>,
 }
 
+/// File-only undo of the last completed input.
+///
+/// Scope: rewrites workspace files between the start and end state
+/// checkpoints via selective materialization. It never touches live
+/// execution state, never deletes or rewrites checkpoint records, and never
+/// moves edit refs or the redo stack. Callers needing an audit trail should
+/// create an explicit workspace checkpoint around the call.
 pub async fn preview_undo_last_input(
     ctx: &ApiContext,
     execution_id: &str,
@@ -152,7 +170,7 @@ pub async fn preview_undo_last_input(
     let root = bound_workspace_root(manager)?;
     let opts = FileCheckpointOptions::default();
     let mut sorted = super::record::list_for_execution(ctx, execution_id, None).await?;
-    sorted.sort_by_key(|checkpoint| checkpoint.timestamp);
+    sort_checkpoints_for_boundaries(&mut sorted);
     let Some((start_index, end_index)) = find_input_boundaries(&sorted) else {
         return Err(ApiError::not_found("checkpoint", execution_id));
     };
@@ -180,10 +198,27 @@ pub async fn preview_undo_last_input(
     })
 }
 
+/// Apply the file-only undo of the last completed input.
+///
+/// The boundaries are recomputed fresh. When `expected` carries the
+/// `(start_checkpoint_id, end_checkpoint_id)` returned by a previous
+/// preview, a mismatch is rejected with `Validation` so a preview taken
+/// before a concurrent checkpoint cannot silently undo a different window.
 pub async fn apply_undo_last_input(
     ctx: &ApiContext,
     execution_id: &str,
     checkpoint_prefixes: Option<Vec<String>>,
+) -> ApiResult<usize> {
+    apply_undo_last_input_checked(ctx, execution_id, checkpoint_prefixes, None).await
+}
+
+/// [`apply_undo_last_input`] with TOCTOU protection: `expected` must match
+/// the freshly recomputed input boundaries.
+pub async fn apply_undo_last_input_checked(
+    ctx: &ApiContext,
+    execution_id: &str,
+    checkpoint_prefixes: Option<Vec<String>>,
+    expected: Option<(String, String)>,
 ) -> ApiResult<usize> {
     if execution_id.trim().is_empty() {
         return Err(ApiError::Validation(
@@ -194,12 +229,19 @@ pub async fn apply_undo_last_input(
     let root = bound_workspace_root(manager)?;
     let opts = FileCheckpointOptions::default();
     let mut sorted = super::record::list_for_execution(ctx, execution_id, None).await?;
-    sorted.sort_by_key(|checkpoint| checkpoint.timestamp);
+    sort_checkpoints_for_boundaries(&mut sorted);
     let Some((start_index, end_index)) = find_input_boundaries(&sorted) else {
         return Err(ApiError::not_found("checkpoint", execution_id));
     };
     let start_id = sorted[start_index].id.to_string();
     let end_id = sorted[end_index].id.to_string();
+    if let Some((expected_start, expected_end)) = expected {
+        if expected_start != start_id || expected_end != end_id {
+            return Err(ApiError::Validation(format!(
+                "undo window moved since preview: expected {expected_start}..{expected_end}, now {start_id}..{end_id}"
+            )));
+        }
+    }
     let start_commit = file_commit_for(manager, &start_id)?;
     let end_commit = file_commit_for(manager, &end_id)?;
     let outcome = manager
@@ -302,5 +344,24 @@ mod tests {
     #[test]
     fn empty_timeline_has_no_boundary() {
         assert_eq!(find_input_boundaries(&[]), None);
+    }
+
+    #[test]
+    fn equal_timestamps_fall_back_to_id_order() {
+        let mut sorted = vec![
+            checkpoint("b", 100, &["trigger:MANUAL"]),
+            checkpoint("a", 100, &["trigger:ON_COMPLETE"]),
+        ];
+        sort_checkpoints_for_boundaries(&mut sorted);
+        assert_eq!(sorted[0].id, "a");
+        assert_eq!(sorted[1].id, "b");
+        // Shuffled input converges to the same order.
+        let mut shuffled = vec![
+            checkpoint("b", 100, &["trigger:MANUAL"]),
+            checkpoint("a", 100, &["trigger:ON_COMPLETE"]),
+        ];
+        shuffled.reverse();
+        sort_checkpoints_for_boundaries(&mut shuffled);
+        assert_eq!(shuffled[0].id, "a");
     }
 }

@@ -35,4 +35,6 @@ pub use sync::{
     export_to_workspace, external_update_hint, import_from_external, rebase_baseline,
     reconcile_point, sync_config,
 };
-pub use undo::{apply_undo_last_input, preview_undo_last_input, UndoPreview};
+pub use undo::{
+    apply_undo_last_input, apply_undo_last_input_checked, preview_undo_last_input, UndoPreview,
+};

@@ -15,8 +15,9 @@ mod summary;
 mod tests;
 
 pub use checkpoint::{
-    create_checkpoint, preview_restore_checkpoint, restore_and_resume, restore_checkpoint,
-    RestorePreview, RestoredCheckpoint,
+    create_checkpoint, preview_restore_checkpoint, preview_restore_with_files,
+    restore_and_resume, restore_checkpoint, restore_checkpoint_with_files, FileMaterializeOutcome,
+    RestorePreview, RestoredCheckpoint, UnifiedRestore,
 };
 pub use graph::{definition_to_graph, resolve_graph};
 pub use lifecycle::{

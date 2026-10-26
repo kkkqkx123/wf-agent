@@ -254,6 +254,33 @@ pub fn run_gc(ctx: &ApiContext, keep_recent_heads: usize) -> ApiResult<GcStats> 
         .map_err(ApiError::execution_with_source)
 }
 
+/// Baseline health for the bound file-checkpoint store: whether the store
+/// is self-contained and whether a borrowed baseline anchor is still
+/// resolvable. Read-only; surfaces the manager's `baseline_status` for
+/// ops dashboards without touching GC or seeding.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BaselineHealthView {
+    pub self_contained: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocker: Option<String>,
+    pub status: wf_checkpoint::BaselineStatus,
+}
+
+/// Health view of a borrowed baseline anchor plus the self-containment
+/// verdict. `NoBaseline` means the store never seeded one and stays fully
+/// self-contained; `Degraded` carries the anchor and the reason.
+pub fn baseline_health(ctx: &ApiContext) -> ApiResult<BaselineHealthView> {
+    let manager = manager(ctx)?;
+    let status = manager
+        .baseline_status()
+        .map_err(ApiError::execution_with_source)?;
+    Ok(BaselineHealthView {
+        self_contained: manager.self_contained(),
+        blocker: manager.self_contained_blocker(),
+        status,
+    })
+}
+
 /// Read-only object-store statistics for the storage dashboard: reachable
 /// commits, managed refs, loose objects, on-disk bytes and last GC time.
 pub fn store_stats(ctx: &ApiContext) -> ApiResult<wf_checkpoint::gc::StoreStats> {
@@ -621,7 +648,11 @@ pub fn merge_to_main(
 }
 
 /// Roll back one merged feature from main by appending a revert commit.
-/// Other merged features are untouched. Requires actor attribution.
+/// Other merged features are untouched and main never moves backwards.
+/// The revert is an inverse three-way merge (feature result as base,
+/// current main as ours, pre-merge main as theirs): interleaved features
+/// that overlap the reverted paths surface as `MergeConflict` and leave
+/// main unchanged. Requires actor attribution.
 pub fn rollback_feature(
     ctx: &ApiContext,
     actor: &str,

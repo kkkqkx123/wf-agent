@@ -33,6 +33,50 @@ pub struct RestorePreview {
     pub current_node_id: Option<String>,
     pub node_result_keys: Vec<String>,
     pub variable_keys: Vec<String>,
+    /// File commit linked to this state checkpoint, if any. `None` means
+    /// the checkpoint has no file association (pre-link history or no file
+    /// history) and a unified restore would leave the workspace untouched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_commit_id: Option<String>,
+    /// Number of files in the linked file set, when a link exists and the
+    /// commit is still readable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_count: Option<usize>,
+}
+
+/// How the file side of a unified restore resolved. State restore always
+/// stands on its own; this value only reports what happened to the
+/// workspace so callers can tell `missing` (nothing to do) apart from a
+/// real materialization or a best-effort failure.
+#[derive(Clone, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum FileMaterializeOutcome {
+    /// File checkpointing is disabled or no workspace root is bound.
+    Disabled { reason: String },
+    /// The state checkpoint carries no file link.
+    Missing,
+    /// The linked file tree was materialized into the workspace.
+    Materialized {
+        file_commit_id: String,
+        restored: usize,
+        deleted: usize,
+        skipped: usize,
+    },
+    /// The link existed but materialization failed. The state restore
+    /// still stands; the error is carried here instead of failing the
+    /// whole restore.
+    Failed {
+        file_commit_id: Option<String>,
+        error: String,
+    },
+}
+
+/// State restore plus the file side outcome of an opt-in unified restore.
+#[derive(Clone, Serialize)]
+pub struct UnifiedRestore {
+    #[serde(flatten)]
+    pub restored: RestoredCheckpoint,
+    pub files: FileMaterializeOutcome,
 }
 
 /// Restored execution state returned by [`crate::workflow::workflow_execution::restore_checkpoint`].
@@ -219,6 +263,16 @@ pub async fn preview_restore_checkpoint(
     ctx: &ApiContext,
     checkpoint_id: &str,
 ) -> crate::infra::error::ApiResult<RestorePreview> {
+    preview_restore_with_files(ctx, checkpoint_id).await
+}
+
+/// Preview a restore including the file set linked to the state checkpoint.
+/// The file side is read-only: it resolves the state-file link and counts
+/// the linked tree without writing to the workspace.
+pub async fn preview_restore_with_files(
+    ctx: &ApiContext,
+    checkpoint_id: &str,
+) -> crate::infra::error::ApiResult<RestorePreview> {
     let coordinator = checkpoint_coordinator(ctx);
     let snapshot = coordinator
         .preview_restore(checkpoint_id)
@@ -233,6 +287,7 @@ pub async fn preview_restore_checkpoint(
     let mut variable_keys: Vec<String> =
         snapshot.variable_state.variables.keys().cloned().collect();
     variable_keys.sort();
+    let (file_commit_id, file_count) = linked_file_summary(ctx, checkpoint_id);
     Ok(RestorePreview {
         checkpoint_id: checkpoint_id.to_string(),
         execution_id: snapshot.execution_id.clone(),
@@ -240,7 +295,125 @@ pub async fn preview_restore_checkpoint(
         current_node_id: snapshot.current_node_id.clone(),
         node_result_keys,
         variable_keys,
+        file_commit_id,
+        file_count,
     })
+}
+
+/// Opt-in unified restore: restore execution state as
+/// [`restore_checkpoint`] does, then optionally materialize the linked file
+/// tree into the bound workspace. File failures never roll back the state
+/// restore; they are reported via [`FileMaterializeOutcome::Failed`].
+pub async fn restore_checkpoint_with_files(
+    ctx: &ApiContext,
+    checkpoint_id: &str,
+    materialize_files: bool,
+) -> crate::infra::error::ApiResult<UnifiedRestore> {
+    let restored = restore_checkpoint(ctx, checkpoint_id).await?;
+    if !materialize_files {
+        return Ok(UnifiedRestore {
+            restored,
+            files: FileMaterializeOutcome::Disabled {
+                reason: "file materialization not requested".to_string(),
+            },
+        });
+    }
+    let Some(manager) = ctx.file_checkpoint_manager() else {
+        return Ok(UnifiedRestore {
+            restored,
+            files: FileMaterializeOutcome::Disabled {
+                reason: "file checkpointing is not enabled".to_string(),
+            },
+        });
+    };
+    let Some(root) = manager.workspace_root().map(|root| root.to_path_buf()) else {
+        return Ok(UnifiedRestore {
+            restored,
+            files: FileMaterializeOutcome::Disabled {
+                reason: "file checkpoint workspace root is not configured".to_string(),
+            },
+        });
+    };
+    let linked_commit = match manager.state_file_link_status(checkpoint_id) {
+        Ok(wf_checkpoint::file::StateFileLinkStatus::Linked { file_commit_id }) => {
+            Some(file_commit_id)
+        }
+        Ok(_) => None,
+        Err(err) => {
+            tracing::warn!(
+                checkpoint_id = %checkpoint_id,
+                error = %err,
+                "unified restore: state restore stands, file link lookup failed"
+            );
+            return Ok(UnifiedRestore {
+                restored,
+                files: FileMaterializeOutcome::Failed {
+                    file_commit_id: None,
+                    error: err.to_string(),
+                },
+            });
+        }
+    };
+    let Some(file_commit_id) = linked_commit else {
+        return Ok(UnifiedRestore {
+            restored,
+            files: FileMaterializeOutcome::Missing,
+        });
+    };
+    let opts = wf_checkpoint::file::FileCheckpointOptions::default();
+    match manager.materialize_state_files(checkpoint_id, &root, &opts) {
+        Ok(Some(outcome)) => Ok(UnifiedRestore {
+            restored,
+            files: FileMaterializeOutcome::Materialized {
+                file_commit_id,
+                restored: outcome.restored,
+                deleted: outcome.deleted,
+                skipped: outcome.skipped,
+            },
+        }),
+        Ok(None) => Ok(UnifiedRestore {
+            restored,
+            files: FileMaterializeOutcome::Missing,
+        }),
+        Err(err) => {
+            tracing::warn!(
+                checkpoint_id = %checkpoint_id,
+                error = %err,
+                "unified restore: state restore stands, file materialization failed"
+            );
+            Ok(UnifiedRestore {
+                restored,
+                files: FileMaterializeOutcome::Failed {
+                    file_commit_id: Some(file_commit_id),
+                    error: err.to_string(),
+                },
+            })
+        }
+    }
+}
+
+/// Resolve the linked file commit and its file count for a preview without
+/// touching the workspace. Link lookup failures degrade to `None` so the
+/// state preview still succeeds.
+fn linked_file_summary(ctx: &ApiContext, checkpoint_id: &str) -> (Option<String>, Option<usize>) {
+    let Some(manager) = ctx.file_checkpoint_manager() else {
+        return (None, None);
+    };
+    let file_commit_id = match manager.state_file_link_status(checkpoint_id) {
+        Ok(wf_checkpoint::file::StateFileLinkStatus::Linked { file_commit_id }) => {
+            Some(file_commit_id)
+        }
+        _ => None,
+    };
+    let Some(ref commit_id) = file_commit_id else {
+        return (None, None);
+    };
+    let file_count = manager
+        .restore_state_files("", checkpoint_id)
+        .ok()
+        .flatten()
+        .map(|files| files.len());
+    (Some(commit_id.clone()), file_count)
 }
 
 /// Restore execution state from a checkpoint and immediately drive it to

@@ -533,3 +533,37 @@ fn approve_reuses_pending_when_edit_unchanged() {
     assert_ne!(third_ref, first_ref);
     assert_ne!(third_head, first_head);
 }
+
+#[test]
+fn revert_feature_keeps_interleaved_feature_intact() {
+    use crate::git_store::REF_MAIN;
+    let manager = manager();
+    // Two features touch disjoint files so the revert is conflict-free.
+    manager
+        .create_checkpoint("exec-a", &[entry("a.txt", b"feature-a\n")])
+        .unwrap();
+    manager.merge_agent_to_feature("exec-a", "feature-a").unwrap();
+    manager
+        .create_checkpoint("exec-b", &[entry("b.txt", b"feature-b\n")])
+        .unwrap();
+    manager.merge_agent_to_feature("exec-b", "feature-b").unwrap();
+    manager
+        .merge_features_to_main(&["feature-a", "feature-b"])
+        .unwrap();
+    let git = manager.git_ref().unwrap();
+    let main_before = git.read_ref(REF_MAIN).unwrap().unwrap();
+    let feature_a_head = git
+        .read_ref(&crate::git_store::feat_ref_for_name("feature-a"))
+        .unwrap()
+        .unwrap();
+    let revert = manager
+        .rollback_feature_from_main(&feature_a_head, "ops")
+        .unwrap();
+    assert!(!revert.is_empty());
+    let main_after = git.read_ref(REF_MAIN).unwrap().unwrap();
+    assert_ne!(main_before, main_after);
+    // The interleaved feature's file survives the revert of the other.
+    let commit = git.read_commit(&main_after).unwrap();
+    let files = git.tree_to_files(&commit.tree).unwrap();
+    assert!(files.contains_key("b.txt"), "interleaved feature kept");
+}

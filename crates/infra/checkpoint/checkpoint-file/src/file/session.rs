@@ -386,9 +386,10 @@ impl FileCheckpointManager {
 
     /// Redo the most recently undone commit on an actor's edit ref.
     /// Returns the restored head (hex). The stack entry is only popped after
-    /// the swap succeeds, so a conflict never loses the redo. A moved ref is
-    /// never overwritten: redo restores onto the exact cursor undo left,
-    /// otherwise it reports a conflict instead of orphaning new commits.
+    /// the swap succeeds, so a conflict never loses the redo. Redo restores
+    /// onto the exact cursor undo left: the current head must equal the
+    /// parent of the redo target, otherwise a `Branch` conflict is returned
+    /// and the stack is kept for the caller to decide.
     pub fn redo_edit(&self, entity_id: &str) -> Result<String, CheckpointError> {
         let actor = self.actor_id_for(entity_id);
         let next =
@@ -400,6 +401,15 @@ impl FileCheckpointManager {
         let git = self.git_ref()?;
         let refname = edit_ref_for_actor(actor.as_str());
         let current = git.read_ref(&refname).map_err(map_git_error)?;
+        let next_commit = git.read_commit(&next).map_err(map_git_error)?;
+        let expected_parent = next_commit.parents.first();
+        if expected_parent != current.as_ref() {
+            return Err(CheckpointError::Branch(format!(
+                "redo conflict on '{refname}': expected cursor '{}', found '{}'; not overwriting",
+                expected_parent.cloned().unwrap_or_default(),
+                current.as_deref().unwrap_or("<deleted>"),
+            )));
+        }
         git.compare_and_swap(&refname, current.as_deref(), &next)
             .map_err(map_git_error)?;
         self.redo_stacks.pop(actor.as_str())?;
@@ -413,5 +423,73 @@ impl FileCheckpointManager {
     pub fn can_redo(&self, entity_id: &str) -> Result<bool, CheckpointError> {
         let actor = self.actor_id_for(entity_id);
         Ok(self.redo_stacks.is_available(actor.as_str()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn manager() -> FileCheckpointManager {
+        FileCheckpointManager::new_in_memory().unwrap()
+    }
+
+    #[test]
+    fn redo_conflicts_when_ref_moved_after_undo() {
+        use crate::git_store::SYSTEM_COMMITTER;
+        use std::collections::HashMap;
+        let manager = manager();
+        let actor = manager.actor_id_for("entity-1");
+        manager.apply_agent_edit(&actor, "a.txt", b"v1\n").unwrap();
+        manager.apply_agent_edit(&actor, "a.txt", b"v2\n").unwrap();
+        let undone = manager.undo_edit("entity-1").unwrap();
+        let _ = undone;
+        // Move the ref without clearing the redo stack (simulates a
+        // concurrent writer bypassing the edit API).
+        let git = manager.git_ref().unwrap();
+        let head = git
+            .read_ref(&crate::git_store::edit_ref_for_actor(actor.as_str()))
+            .unwrap()
+            .unwrap();
+        let mut changes = HashMap::new();
+        changes.insert(
+            "b.txt".to_string(),
+            Some((
+                crate::git_store::MODE_FILE.to_string(),
+                b"concurrent\n".to_vec(),
+            )),
+        );
+        let tree = git.build_tree_from_parent(None, &changes).unwrap();
+        let concurrent = git
+            .write_commit(
+                &tree,
+                &[head.clone()],
+                actor.as_str(),
+                SYSTEM_COMMITTER,
+                1,
+                "concurrent",
+            )
+            .unwrap();
+        git.compare_and_swap(
+            &crate::git_store::edit_ref_for_actor(actor.as_str()),
+            Some(head.as_str()),
+            &concurrent,
+        )
+        .unwrap();
+        let err = manager.redo_edit("entity-1").unwrap_err();
+        assert!(matches!(err, CheckpointError::Branch(_)));
+        // The conflict keeps the redo entry for the caller to retry.
+        assert!(manager.can_redo("entity-1").unwrap());
+    }
+
+    #[test]
+    fn redo_restores_undo_cursor_when_unmoved() {
+        let manager = manager();
+        let actor = manager.actor_id_for("entity-1");
+        manager.apply_agent_edit(&actor, "a.txt", b"v1\n").unwrap();
+        let head = manager.apply_agent_edit(&actor, "a.txt", b"v2\n").unwrap();
+        manager.undo_edit("entity-1").unwrap();
+        let restored = manager.redo_edit("entity-1").unwrap();
+        assert_eq!(restored, head);
     }
 }

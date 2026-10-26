@@ -1,5 +1,6 @@
 <script lang="ts">
 	import PtyPanel from '#lib/components/pty/PtyPanel.svelte';
+	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import { ide } from '#lib/stores/ide.svelte';
 	import { t } from '#lib/i18n';
 
@@ -10,10 +11,12 @@
 	let { repo }: Props = $props();
 
 	let cwd = $derived(repo ? repo : undefined);
+	let height = $derived(ide.terminalMaximized ? 560 : ide.terminalHeight);
 
 	let dragging = $state(false);
 
 	function onPointerDown(event: PointerEvent): void {
+		if (ide.terminalMaximized) return;
 		dragging = true;
 		(event.target as HTMLElement).setPointerCapture(event.pointerId);
 		const startY = event.clientY;
@@ -30,19 +33,44 @@
 		window.addEventListener('pointermove', move);
 		window.addEventListener('pointerup', up);
 	}
+
+	function onSeparatorKey(event: KeyboardEvent): void {
+		if (ide.terminalMaximized) return;
+		if (event.key === 'ArrowUp') {
+			event.preventDefault();
+			ide.setTerminalHeight(ide.terminalHeight + 24);
+		} else if (event.key === 'ArrowDown') {
+			event.preventDefault();
+			ide.setTerminalHeight(ide.terminalHeight - 24);
+		}
+	}
 </script>
 
-<div class="flex min-h-0 flex-col border-t border-border bg-card">
-	<div
-		class="flex cursor-ns-resize items-center justify-center py-1 text-muted-foreground hover:text-foreground"
-		onpointerdown={onPointerDown}
-		role="separator"
-		aria-orientation="horizontal"
-		aria-label="Resize terminal"
-	>
-		<div class="h-1 w-16 rounded-full bg-border"></div>
+<div class="flex min-h-0 flex-col bg-card">
+	<div class="flex items-center gap-1 px-3 pt-1">
+		<!-- Focusable ARIA separator: standard pattern for a resizable splitter handle -->
+		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+		<div
+			class="flex flex-1 cursor-ns-resize items-center justify-center py-1 text-muted-foreground hover:text-foreground"
+			onpointerdown={onPointerDown}
+			onkeydown={onSeparatorKey}
+			role="separator"
+			aria-orientation="horizontal"
+			tabindex={0}
+			aria-label="Resize terminal"
+		>
+			<div class="h-1 w-16 rounded-full bg-border"></div>
+		</div>
+		<IconButton
+			icon={ide.terminalMaximized ? 'chevron-down' : 'chevron-up'}
+			label={ide.terminalMaximized ? t('page.ide.restoreTerminal') : t('page.ide.toggleMaximize')}
+			compact
+			variant="ghost"
+			onclick={() => ide.setTerminalMaximized(!ide.terminalMaximized)}
+		/>
 	</div>
-	<div class="min-h-0 flex-1 overflow-hidden px-3 pb-3" style="height: {ide.terminalHeight}px">
+	<div class="min-h-0 flex-1 overflow-hidden px-3 pb-3" style="height: {height}px">
 		<PtyPanel
 			repo={repo || 'ide'}
 			cwd={cwd}

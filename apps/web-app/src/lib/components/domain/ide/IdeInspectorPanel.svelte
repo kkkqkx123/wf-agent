@@ -96,6 +96,16 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col overflow-y-auto px-3 py-2">
+	<div class="flex items-center justify-between gap-2 border-b border-border pb-1">
+		<p class="text-micro uppercase tracking-wide text-muted-foreground">{t('page.ide.fileInfo')}</p>
+		<button
+			type="button"
+			class="cursor-pointer rounded px-1.5 py-0.5 text-micro text-muted-foreground hover:bg-accent hover:text-foreground"
+			onclick={() => ide.setInspectorOpen(false)}
+		>
+			{t('common.close')}
+		</button>
+	</div>
 	{#if !active}
 		<div class="flex flex-1 items-center justify-center px-2 text-center">
 			<div class="space-y-1">

@@ -604,6 +604,165 @@ pub fn rename_entry(ctx: &ApiContext, from: &str, to: &str) -> FsResult<FsEntry>
     entry_of(&root, &absolute_to)
 }
 
+pub const FS_SEARCH_DEFAULT_LIMIT: usize = 100;
+pub const FS_SEARCH_MAX_LIMIT: usize = 300;
+pub const FS_SEARCH_MAX_FILE_BYTES: u64 = 1024 * 1024;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FsSearchMatch {
+    pub path: String,
+    pub line: usize,
+    pub column: Option<usize>,
+    pub preview: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FsSearchResult {
+    pub matches: Vec<FsSearchMatch>,
+    pub truncated: bool,
+}
+
+fn match_include(path: &str, patterns: &[glob::Pattern]) -> bool {
+    if patterns.is_empty() {
+        return true;
+    }
+    patterns.iter().any(|p| p.matches(path))
+}
+
+fn compile_search_patterns(include: Option<&str>) -> FsResult<Vec<glob::Pattern>> {
+    let Some(raw) = include else {
+        return Ok(Vec::new());
+    };
+    let mut out = Vec::new();
+    for part in raw.split(',') {
+        let trimmed = part.trim().trim_start_matches("./");
+        if trimmed.is_empty() {
+            continue;
+        }
+        match glob::Pattern::new(trimmed) {
+            Ok(pattern) => out.push(pattern),
+            Err(e) => return Err(FsError::Validation(format!("invalid include pattern: {e}"))),
+        }
+    }
+    Ok(out)
+}
+
+/// Read-only content search over the workspace. Never reads file contents
+/// into the response beyond truncated preview lines.
+pub fn search_files(
+    ctx: &ApiContext,
+    query: &str,
+    base: &str,
+    include: Option<&str>,
+    case_sensitive: bool,
+    is_regex: bool,
+    max_results: Option<usize>,
+) -> FsResult<FsSearchResult> {
+    let needle = query.trim();
+    if needle.is_empty() {
+        return Err(FsError::Validation("search query must not be empty".to_string()));
+    }
+    if needle.len() > 512 {
+        return Err(FsError::Validation("search query exceeds 512 bytes".to_string()));
+    }
+    let limit = max_results
+        .unwrap_or(FS_SEARCH_DEFAULT_LIMIT)
+        .clamp(1, FS_SEARCH_MAX_LIMIT);
+    let pattern = if is_regex {
+        needle.to_string()
+    } else {
+        regex::escape(needle)
+    };
+    let pattern = if case_sensitive {
+        pattern
+    } else {
+        format!("(?i){pattern}")
+    };
+    let regex = regex::Regex::new(&pattern)
+        .map_err(|e| FsError::Validation(format!("invalid search pattern: {e}")))?;
+    let includes = compile_search_patterns(include)?;
+    let root = workspace_root(ctx)?;
+    let base_absolute = validate_fs_path(&root, base)?;
+    let metadata =
+        std::fs::symlink_metadata(&base_absolute).map_err(|_| FsError::NotFound(base.to_string()))?;
+    if !metadata.file_type().is_dir() {
+        return Err(FsError::NotDirectory(base.to_string()));
+    }
+    let canonical = canonical_root(&root);
+    let mut matches = Vec::new();
+    let mut truncated = false;
+    let mut stack = vec![base_absolute];
+    while let Some(dir) = stack.pop() {
+        if matches.len() >= limit {
+            truncated = true;
+            break;
+        }
+        let read_dir =
+            std::fs::read_dir(&dir).map_err(|e| FsError::Io(format!("search directory: {e}")))?;
+        let mut children: Vec<PathBuf> = Vec::new();
+        for child in read_dir {
+            let child = child.map_err(|e| FsError::Io(format!("search directory: {e}")))?;
+            children.push(child.path());
+        }
+        children.sort();
+        for child_path in children {
+            if matches.len() >= limit {
+                truncated = true;
+                break;
+            }
+            if let Ok(resolved) = child_path.canonicalize() {
+                if !resolved.starts_with(&canonical) {
+                    continue;
+                }
+            }
+            let Ok(entry) = entry_of(&root, &child_path) else {
+                continue;
+            };
+            if entry.is_dir {
+                if tree_skip_dir(&entry.name) {
+                    continue;
+                }
+                stack.push(child_path);
+                continue;
+            }
+            if entry.size > FS_SEARCH_MAX_FILE_BYTES {
+                continue;
+            }
+            if !match_include(&entry.path, &includes) {
+                continue;
+            }
+            let probe = read_probe(&child_path)?;
+            if is_binary_bytes(&probe) {
+                continue;
+            }
+            let Ok(content) = std::fs::read_to_string(&child_path) else {
+                continue;
+            };
+            for (index, line) in content.lines().enumerate() {
+                if matches.len() >= limit {
+                    truncated = true;
+                    break;
+                }
+                let Some(found) = regex.find(line) else {
+                    continue;
+                };
+                let preview = if line.len() > 500 {
+                    format!("{} [truncated]", &line[..500])
+                } else {
+                    line.to_string()
+                };
+                matches.push(FsSearchMatch {
+                    path: entry.path.clone(),
+                    line: index + 1,
+                    column: Some(found.start() + 1),
+                    preview,
+                });
+            }
+        }
+    }
+    Ok(FsSearchResult { matches, truncated })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

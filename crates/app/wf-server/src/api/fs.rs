@@ -12,6 +12,7 @@ pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/fs/list", get(handle_fs_list))
         .route("/fs/tree", get(handle_fs_tree))
+        .route("/fs/search", get(handle_fs_search))
         .route("/fs/content", get(handle_fs_content).put(handle_fs_write))
         .route("/fs/stat", get(handle_fs_stat))
         .route(
@@ -80,6 +81,36 @@ pub(crate) struct FsStatView {
     pub size: u64,
     pub modified_ms: Option<i64>,
     pub is_binary: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub(crate) struct FsSearchMatchView {
+    pub path: String,
+    pub line: usize,
+    pub column: Option<usize>,
+    pub preview: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub(crate) struct FsSearchView {
+    pub matches: Vec<FsSearchMatchView>,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct FsSearchQuery {
+    #[serde(default)]
+    query: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    include: Option<String>,
+    #[serde(default)]
+    case_sensitive: Option<bool>,
+    #[serde(default)]
+    regex: Option<bool>,
+    limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -167,6 +198,46 @@ pub(crate) async fn handle_fs_tree(
                 })
                 .collect(),
             truncated: tree.truncated,
+        })
+        .into_response(),
+        Err(err) => error_response(err.into()),
+    }
+}
+
+#[utoipa::path(get, path = "/api/v1/fs/search", operation_id = "get_fs_search", tag = "fs", params(FsSearchQuery), responses((status = 200, description = "Workspace content search", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "No workspace or no such path", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
+pub(crate) async fn handle_fs_search(
+    State(state): State<ApiState>,
+    Query(query): Query<FsSearchQuery>,
+) -> impl IntoResponse {
+    let needle = query.query.as_deref().unwrap_or("").trim();
+    if needle.is_empty() {
+        return ok(FsSearchView {
+            matches: Vec::new(),
+            truncated: false,
+        })
+        .into_response();
+    }
+    match wf_api::fs::search_files(
+        &state.ctx,
+        needle,
+        query_path(&query.path),
+        query.include.as_deref(),
+        query.case_sensitive.unwrap_or(false),
+        query.regex.unwrap_or(false),
+        query.limit,
+    ) {
+        Ok(result) => ok(FsSearchView {
+            matches: result
+                .matches
+                .into_iter()
+                .map(|m| FsSearchMatchView {
+                    path: m.path,
+                    line: m.line,
+                    column: m.column,
+                    preview: m.preview,
+                })
+                .collect(),
+            truncated: result.truncated,
         })
         .into_response(),
         Err(err) => error_response(err.into()),

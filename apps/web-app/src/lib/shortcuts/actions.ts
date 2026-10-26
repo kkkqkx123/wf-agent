@@ -5,7 +5,7 @@
  * displays from the behavior.
  */
 
-export type ShortcutScope = 'global' | 'canvas';
+export type ShortcutScope = 'global' | 'canvas' | 'ide';
 
 export interface ShortcutAction {
 	/** Stable identifier used by overrides storage. */
@@ -143,6 +143,67 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
 		label: 'Toggle graph filters',
 		defaultKeys: '/',
 		scope: 'canvas',
+	},
+	// IDE (lightweight workspace editor).
+	{
+		id: 'ide.saveFile',
+		label: 'Save current file',
+		defaultKeys: 'Mod+s',
+		scope: 'ide',
+	},
+	{
+		id: 'ide.saveAll',
+		label: 'Save all files',
+		defaultKeys: 'Shift+Mod+s',
+		scope: 'ide',
+	},
+	{
+		id: 'ide.closeTab',
+		label: 'Close current tab',
+		defaultKeys: 'Mod+w',
+		scope: 'ide',
+	},
+	{
+		id: 'ide.toggleSidebar',
+		label: 'Toggle file tree',
+		defaultKeys: 'Mod+b',
+		scope: 'ide',
+	},
+	{
+		id: 'ide.toggleTerminal',
+		label: 'Toggle terminal panel',
+		defaultKeys: 'Mod+j',
+		scope: 'ide',
+	},
+	{
+		id: 'ide.toggleInspector',
+		label: 'Toggle inspector panel',
+		defaultKeys: 'Mod+i',
+		scope: 'ide',
+	},
+	{
+		id: 'ide.quickOpen',
+		label: 'Quick open file',
+		defaultKeys: 'Mod+p',
+		scope: 'ide',
+	},
+	{
+		id: 'ide.contentSearch',
+		label: 'Search file contents',
+		defaultKeys: 'Shift+Mod+f',
+		scope: 'ide',
+	},
+	{
+		id: 'ide.revealInTree',
+		label: 'Reveal current file in tree',
+		defaultKeys: 'Shift+Mod+e',
+		scope: 'ide',
+	},
+	{
+		id: 'ide.copyPath',
+		label: 'Copy current file path',
+		defaultKeys: 'Shift+Mod+c',
+		scope: 'ide',
 	},
 ];
 

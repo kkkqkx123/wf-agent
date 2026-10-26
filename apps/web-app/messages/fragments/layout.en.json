@@ -25,6 +25,7 @@
 	"layout.help.description": "Keyboard shortcuts and documentation",
 	"layout.help.globalShortcuts": "Global shortcuts",
 	"layout.help.canvasShortcuts": "Canvas shortcuts",
+	"layout.help.ideShortcuts": "IDE shortcuts",
 	"layout.help.documentation": "Documentation",
 	"layout.help.globalSearch": "Global search",
 	"layout.help.toggleHelp": "Toggle this help overlay",

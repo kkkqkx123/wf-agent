@@ -89,6 +89,49 @@ export async function renameFsEntry(from: string, to: string): Promise<FsEntry> 
 	return requireData(data, 'FS rename') as FsEntry;
 }
 
+export interface FsContentMatch {
+	path: string;
+	line: number;
+	column: number | null;
+	preview: string;
+}
+
+export interface FsContentResult {
+	matches: FsContentMatch[];
+	truncated: boolean;
+}
+
+export async function searchFsContent(
+	query: string,
+	options?: { path?: string; include?: string; limit?: number },
+): Promise<FsContentResult> {
+	const needle = query.trim();
+	if (!needle) return { matches: [], truncated: false };
+	const data = await call<unknown>(
+		client.GET('/api/v1/fs/search', {
+			params: {
+				query: {
+					query: needle,
+					path: options?.path ?? '',
+					include: options?.include,
+					limit: options?.limit ?? 100,
+				},
+			},
+		}),
+	);
+	const value = requireData(data, 'FS search') as {
+		matches?: Array<Record<string, unknown>>;
+		truncated?: boolean;
+	};
+	const matches = (Array.isArray(value.matches) ? value.matches : []).map((m) => ({
+		path: String(m.path ?? ''),
+		line: Number(m.line ?? 1),
+		column: typeof m.column === 'number' ? (m.column as number) : null,
+		preview: String(m.preview ?? ''),
+	}));
+	return { matches, truncated: Boolean(value.truncated) };
+}
+
 export function languageForPath(path: string): string {
 	const lower = path.toLowerCase();
 	const dot = lower.lastIndexOf('.');

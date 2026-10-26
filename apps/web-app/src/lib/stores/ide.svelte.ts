@@ -62,6 +62,8 @@ export class IdeStore {
 	root = $state<string>('');
 	terminalOpen = $state(true);
 	terminalHeight = $state(280);
+	terminalMaximized = $state(false);
+	sidebarOpen = $state(true);
 	pendingReveal = $state<IdeReveal | null>(null);
 	gitBadges = $state<SvelteMap<string, GitBadgeLevel>>(new SvelteMap());
 	gitBadgesAvailable = $state(true);
@@ -95,7 +97,11 @@ export class IdeStore {
 				this.terminalHeight = height;
 			}
 			this.inspectorOpen = sessionStorage.getItem(storageKey('inspector')) === '1';
+			this.terminalMaximized = sessionStorage.getItem(storageKey('term-max')) === '1';
+			const sidebar = sessionStorage.getItem(storageKey('sidebar'));
+			this.sidebarOpen = sidebar === null ? true : sidebar === '1';
 		}
+		this.restoreDrafts();
 	}
 
 	private persistTabs(): void {
@@ -219,18 +225,36 @@ export class IdeStore {
 		}
 	}
 
-	async loadFile(path: string): Promise<void> {
+	async loadFile(path: string, silent = false): Promise<void> {
 		const tab = this.tabs.find((t) => t.path === path);
 		if (!tab) return;
-		tab.loading = true;
+		const background = silent && tab.content !== '';
+		if (!background) {
+			tab.loading = true;
+		}
 		tab.error = null;
 		try {
 			const file = await readFsFile(path);
 			tab.isBinary = file.is_binary;
 			tab.truncated = file.truncated ?? false;
 			tab.hash = file.hash ?? null;
-			tab.content = file.is_binary ? '' : (file.content ?? '');
-			tab.original = tab.content;
+			const serverContent = file.is_binary ? '' : (file.content ?? '');
+			const drafts = this.readDrafts();
+			const draft = drafts[path];
+			if (
+				!tab.truncated &&
+				!tab.isBinary &&
+				draft &&
+				typeof draft.content === 'string' &&
+				draft.content !== serverContent
+			) {
+				tab.original = serverContent;
+				tab.content = draft.content;
+			} else {
+				tab.content = serverContent;
+				tab.original = tab.content;
+				this.clearDraft(path);
+			}
 		} catch (e) {
 			tab.error = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -240,18 +264,107 @@ export class IdeStore {
 
 	updateContent(path: string, content: string): void {
 		const tab = this.tabs.find((t) => t.path === path);
-		if (tab) tab.content = content;
+		if (tab) {
+			tab.content = content;
+			this.persistDraft(path, content, tab.original);
+		}
 	}
 
-	async saveFile(path: string): Promise<boolean> {
+	moveTab(from: string, to: string): void {
+		if (from === to) return;
+		const entries = [...this.tabs];
+		const fromIndex = entries.findIndex((t) => t.path === from);
+		const toIndex = entries.findIndex((t) => t.path === to);
+		if (fromIndex < 0 || toIndex < 0) return;
+		const [moved] = entries.splice(fromIndex, 1);
+		if (!moved) return;
+		const target = fromIndex < toIndex ? toIndex - 1 : toIndex;
+		entries.splice(target, 0, moved);
+		this.tabs = entries;
+		this.persistTabs();
+	}
+
+	private draftKey(): string {
+		return 'wf.ide.drafts.v1';
+	}
+
+	private readDrafts(): Record<string, { content: string; savedAt: number }> {
+		try {
+			const raw = localStorage.getItem(this.draftKey());
+			if (!raw) return {};
+			const parsed = JSON.parse(raw) as Record<string, { content: string; savedAt: number }>;
+			if (typeof parsed !== 'object' || parsed === null) return {};
+			return parsed;
+		} catch {
+			return {};
+		}
+	}
+
+	private persistDraft(path: string, content: string, original: string): void {
+		try {
+			if (typeof localStorage === 'undefined') return;
+			const drafts = this.readDrafts();
+			if (content === original) {
+				if (path in drafts) {
+					delete drafts[path];
+					localStorage.setItem(this.draftKey(), JSON.stringify(drafts));
+				}
+				return;
+			}
+			if (content.length > 512 * 1024) return;
+			drafts[path] = { content, savedAt: Date.now() };
+			const keys = Object.keys(drafts);
+			if (keys.length > 30) {
+				const oldest = keys
+					.map((key) => ({ key, at: drafts[key]?.savedAt ?? 0 }))
+					.sort((a, b) => a.at - b.at)[0];
+				if (oldest) delete drafts[oldest.key];
+			}
+			localStorage.setItem(this.draftKey(), JSON.stringify(drafts));
+		} catch {
+			// Draft persistence is best-effort.
+		}
+	}
+
+	private restoreDrafts(): void {
+		try {
+			if (typeof localStorage === 'undefined') return;
+			const drafts = this.readDrafts();
+			for (const tab of this.tabs) {
+				const draft = drafts[tab.path];
+				if (draft && typeof draft.content === 'string') {
+					tab.content = draft.content;
+					tab.original = '';
+				}
+			}
+		} catch {
+			// Corrupt drafts never block startup.
+		}
+	}
+
+	private clearDraft(path: string): void {
+		try {
+			if (typeof localStorage === 'undefined') return;
+			const drafts = this.readDrafts();
+			if (path in drafts) {
+				delete drafts[path];
+				localStorage.setItem(this.draftKey(), JSON.stringify(drafts));
+			}
+		} catch {
+			// Ignore storage failures.
+		}
+	}
+
+	async saveFile(path: string, force = false): Promise<boolean> {
 		const tab = this.tabs.find((t) => t.path === path);
 		if (!tab || tab.saving || tab.isBinary || tab.truncated) return false;
 		tab.saving = true;
 		tab.error = null;
 		try {
-			const saved = await writeFsFile(path, tab.content, tab.hash ?? undefined);
+			const saved = await writeFsFile(path, tab.content, force ? undefined : (tab.hash ?? undefined));
 			tab.original = tab.content;
 			tab.hash = saved.hash ?? tab.hash;
+			this.clearDraft(path);
 			return true;
 		} catch (e) {
 			tab.error = e instanceof Error ? e.message : String(e);
@@ -286,6 +399,7 @@ export class IdeStore {
 		if (this.activePath === path) {
 			this.activePath = this.tabs[0]?.path ?? null;
 		}
+		this.clearDraft(path);
 		this.persistTabs();
 	}
 
@@ -302,6 +416,20 @@ export class IdeStore {
 	setInspectorOpen(open: boolean): void {
 		this.inspectorOpen = open;
 		writeSession('inspector', open ? '1' : '0');
+	}
+
+	setSidebarOpen(open: boolean): void {
+		this.sidebarOpen = open;
+		writeSession('sidebar', open ? '1' : '0');
+	}
+
+	setTerminalMaximized(maximized: boolean): void {
+		this.terminalMaximized = maximized;
+		try {
+			sessionStorage.setItem(storageKey('term-max'), maximized ? '1' : '0');
+		} catch {
+			// Ignore storage failures.
+		}
 	}
 
 	requestReveal(path: string): void {

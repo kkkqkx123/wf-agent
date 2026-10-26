@@ -46,6 +46,8 @@
 		revealLine?: number | null;
 		revealCol?: number | null;
 		onChange?: (value: string) => void;
+		onSave?: () => void;
+		onCursor?: (line: number, col: number) => void;
 	}
 
 	let {
@@ -57,6 +59,8 @@
 		revealLine = null,
 		revealCol = null,
 		onChange,
+		onSave,
+		onCursor,
 	}: Props = $props();
 
 	let container: HTMLDivElement | undefined = $state();
@@ -65,6 +69,7 @@
 	let textareaValue = $state('');
 	let editor: { dispose(): void } | null = null;
 	let changeDisposable: { dispose(): void } | null = null;
+	let cursorDisposable: { dispose(): void } | null = null;
 	let lastEmitted = $state('');
 	let disposed = false;
 	let lastRevealedKey = '';
@@ -142,6 +147,7 @@
 		if (!monacoNs || !container) return;
 		editor?.dispose();
 		changeDisposable?.dispose();
+		cursorDisposable?.dispose();
 		const key = `ide:${targetPath}`;
 		let model = ideModels.get(key);
 		if (!model) {
@@ -170,6 +176,23 @@
 			textareaValue = next;
 			onChange?.(next);
 		});
+		try {
+			cursorDisposable = instance.onDidChangeCursorPosition?.((e: {
+				position: { lineNumber: number; column: number };
+			}) => {
+				onCursor?.(e.position.lineNumber, e.position.column);
+			});
+		} catch {
+			cursorDisposable = null;
+		}
+		try {
+			instance.addCommand?.(
+				(monacoNs.KeyMod.CtrlCmd | monacoNs.KeyCode.KeyS) as number,
+				() => onSave?.(),
+			);
+		} catch {
+			// Save shortcut inside the editor is best-effort.
+		}
 	}
 
 	$effect(() => {
@@ -257,6 +280,7 @@
 	onDestroy(() => {
 		disposed = true;
 		changeDisposable?.dispose();
+		cursorDisposable?.dispose();
 		editor?.dispose();
 		editor = null;
 	});

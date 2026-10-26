@@ -2,6 +2,7 @@
 	import Dialog from '#lib/ui/components/Dialog.svelte';
 	import { ui } from '#lib/stores/ui.svelte';
 	import { CANVAS_SHORTCUT_HELP } from '#lib/graph/canvas-shortcuts';
+	import { IDE_SHORTCUT_HELP } from '#lib/ide/ide-shortcuts';
 	import { goto } from '$app/navigation';
 	import { t, type MessageKey } from '#lib/i18n';
 
@@ -28,6 +29,11 @@
 	// Canvas entries live in the shared shortcut catalog, so their labels
 	// stay as-is instead of being duplicated as layout.* keys.
 	const canvasShortcuts: Shortcut[] = CANVAS_SHORTCUT_HELP.map((entry) => ({
+		keys: entry.keys,
+		action: entry.action,
+	}));
+
+	const ideShortcuts: Shortcut[] = IDE_SHORTCUT_HELP.map((entry) => ({
 		keys: entry.keys,
 		action: entry.action,
 	}));
@@ -82,6 +88,24 @@
 		</p>
 		<ul class="mt-1 divide-y divide-border rounded-md border border-border">
 			{#each canvasShortcuts as shortcut (shortcut.keys)}
+				<li class="flex items-center justify-between px-3 py-2">
+					<span class="text-body">{shortcut.action}</span>
+					<kbd
+						class="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-micro text-muted-foreground"
+					>
+						{shortcut.keys}
+					</kbd>
+				</li>
+			{/each}
+		</ul>
+	</section>
+
+	<section class="mt-4">
+		<p class="text-micro uppercase tracking-wide text-muted-foreground">
+			{t('layout.help.ideShortcuts')}
+		</p>
+		<ul class="mt-1 divide-y divide-border rounded-md border border-border">
+			{#each ideShortcuts as shortcut (shortcut.keys)}
 				<li class="flex items-center justify-between px-3 py-2">
 					<span class="text-body">{shortcut.action}</span>
 					<kbd

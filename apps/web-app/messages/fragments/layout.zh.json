@@ -25,6 +25,7 @@
 	"layout.help.description": "键盘快捷键与文档",
 	"layout.help.globalShortcuts": "全局快捷键",
 	"layout.help.canvasShortcuts": "画布快捷键",
+	"layout.help.ideShortcuts": "IDE 快捷键",
 	"layout.help.documentation": "文档",
 	"layout.help.globalSearch": "全局搜索",
 	"layout.help.toggleHelp": "切换此帮助浮层",

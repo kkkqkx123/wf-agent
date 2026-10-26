@@ -6,7 +6,9 @@
 	import Input from '#lib/ui/components/Input.svelte';
 	import Button from '#lib/ui/components/Button.svelte';
 	import Dialog from '#lib/ui/components/Dialog.svelte';
+	import ContextMenu, { type ContextMenuItem } from '#lib/ui/components/ContextMenu.svelte';
 	import { ide } from '#lib/stores/ide.svelte';
+	import { ptyStoreFor } from '#lib/stores/pty-session.svelte';
 	import {
 		createFsEntry,
 		deleteFsEntry,
@@ -18,6 +20,12 @@
 	import { IDE_TREE_ROW_HEIGHT_PX } from '#lib/utils/file-tree-window';
 	import type { GitBadgeLevel } from '#lib/utils/git-badges';
 
+	interface Props {
+		onQuickOpen?: () => void;
+	}
+
+	let { onQuickOpen }: Props = $props();
+
 	let filter = $state('');
 	let expanded = new SvelteSet<string>(['']);
 	let creating = $state<{ parent: string; isDir: boolean } | null>(null);
@@ -27,6 +35,7 @@
 	let actionError = $state<string | null>(null);
 	let deleteOpen = $state(false);
 	let pendingDelete = $state<string | null>(null);
+	let menu = $state<{ x: number; y: number; target: string; isDir: boolean } | null>(null);
 
 	const MAX_DIR_ENTRIES = 200;
 	// Fixed row height shared with the future windowed list; exposed as a CSS
@@ -168,16 +177,20 @@
 		if (renaming !== path) return;
 		renaming = null;
 		const base = parentOf(path);
-		if (!renameValue.trim()) return;
-		const target = base ? `${base}/${renameValue.trim()}` : renameValue.trim();
+		const raw = renameValue.trim().replace(/^\.\/+/, '');
+		if (!raw) return;
+		const target = base ? `${base}/${raw}` : raw;
 		if (target === path) return;
 		try {
 			await renameFsEntry(path, target);
 			ide.invalidateParents(path);
 			ide.invalidateParents(target);
 			invalidateFsTreeIndex();
-			invalidateFsTreeIndex();
 			if (ide.dirState(base).loaded) await ide.loadDir(base, true);
+			const targetBase = parentOf(target);
+			if (targetBase !== base && ide.dirState(targetBase).loaded) {
+				await ide.loadDir(targetBase, true);
+			}
 			void ide.refreshGitStatus();
 			retargetTabs(path, target);
 		} catch (e) {
@@ -220,6 +233,106 @@
 	function entryIcon(isDir: boolean): 'folder' | 'file' {
 		return isDir ? 'folder' : 'file';
 	}
+
+	function openMenu(event: MouseEvent, target: string, isDir: boolean): void {
+		event.preventDefault();
+		event.stopPropagation();
+		menu = { x: event.clientX, y: event.clientY, target, isDir };
+	}
+
+	function openMenuKeyboard(event: KeyboardEvent, target: string, isDir: boolean): void {
+		if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+			event.preventDefault();
+			const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+			menu = { x: rect.left + 24, y: rect.top + rect.height, target, isDir };
+		}
+	}
+
+	function menuItems(): ContextMenuItem[] {
+		if (!menu) return [];
+		if (!menu.target) {
+			return [
+				{ id: 'new-file', label: t('page.ide.newFile') },
+				{ id: 'new-folder', label: t('page.ide.newFolder') },
+				{ id: 'refresh', label: t('common.refresh') },
+			];
+		}
+		const items: ContextMenuItem[] = [];
+		if (!menu.isDir) {
+			items.push({ id: 'open', label: t('page.ide.menuOpen') });
+			items.push({ id: 'open-pinned', label: t('page.ide.menuOpenPinned') });
+		} else {
+			items.push({ id: 'new-file', label: t('page.ide.newFile') });
+			items.push({ id: 'new-folder', label: t('page.ide.newFolder') });
+			items.push({ id: 'open-terminal', label: t('page.ide.menuOpenTerminal') });
+		}
+		items.push({ id: 'copy-path', label: t('page.ide.copyPath') });
+		if (!menu.isDir) {
+			items.push({ id: 'terminal-file', label: t('page.ide.menuOpenTerminal') });
+		}
+		items.push({ id: 'rename', label: t('page.ide.rename') });
+		items.push({ id: 'delete', label: t('page.ide.delete'), danger: true });
+		return items;
+	}
+
+	function menuTitle(): string {
+		if (!menu || !menu.target) return t('page.ide.fileTree');
+		return menu.target.split('/').pop() ?? menu.target;
+	}
+
+	async function copyText(value: string): Promise<void> {
+		try {
+			await navigator.clipboard.writeText(value);
+		} catch {
+			actionError = t('page.ide.copyFailed');
+		}
+	}
+
+	async function openInTerminal(target: string, isDir: boolean): Promise<void> {
+		const dir = isDir ? target : parentOf(target);
+		const cwd = ide.root ? (dir ? `${ide.root}/${dir}` : ide.root) : undefined;
+		try {
+			const store = ptyStoreFor(ide.root || 'ide');
+			ide.terminalOpen = true;
+			await store.spawn({ cwd });
+		} catch {
+			actionError = t('page.ide.terminalFailed');
+		}
+	}
+
+	function handleMenuAction(id: string): void {
+		const current = menu;
+		menu = null;
+		if (!current) return;
+		const target = current.target;
+		if (!target) {
+			if (id === 'new-file') startCreate('', false);
+			else if (id === 'new-folder') startCreate('', true);
+			else if (id === 'refresh') {
+				void ide.loadDir('', true);
+				void ide.refreshGitStatus();
+			}
+			return;
+		}
+		if (id === 'open') void openEntry(target, current.isDir, true);
+		else if (id === 'open-pinned') void openEntry(target, current.isDir, false);
+		else if (id === 'copy-path') void copyText(target);
+		else if (id === 'new-file') {
+			if (!expanded.has(target)) {
+				expanded.add(target);
+				void ide.loadDir(target);
+			}
+			startCreate(target, false);
+		} else if (id === 'new-folder') {
+			if (!expanded.has(target)) {
+				expanded.add(target);
+				void ide.loadDir(target);
+			}
+			startCreate(target, true);
+		} else if (id === 'open-terminal' || id === 'terminal-file') void openInTerminal(target, current.isDir);
+		else if (id === 'rename') startRename(target);
+		else if (id === 'delete') requestRemove(target);
+	}
 </script>
 
 {#snippet node(dirPath: string, level: number)}
@@ -247,6 +360,18 @@
 			aria-selected={ide.activePath === entry.path}
 			aria-expanded={entry.is_dir ? isOpen : undefined}
 			aria-level={level + 1}
+			tabindex={0}
+			oncontextmenu={(e) => openMenu(e, entry.path, entry.is_dir)}
+			onkeydown={(e) => {
+				openMenuKeyboard(e, entry.path, entry.is_dir);
+				if (e.key === 'Enter' && !(e.target instanceof HTMLInputElement)) {
+					void openEntry(entry.path, entry.is_dir, true);
+				} else if (e.key === 'ArrowRight' && entry.is_dir && !isOpen) {
+					toggle(entry.path);
+				} else if (e.key === 'ArrowLeft' && entry.is_dir && isOpen) {
+					toggle(entry.path);
+				}
+			}}
 		>
 			<div
 				class="group flex w-full items-center gap-1 rounded-md px-1 py-1 text-body hover:bg-accent/60 {ide.activePath ===
@@ -380,6 +505,13 @@
 			/>
 		</div>
 		<IconButton
+			icon="search"
+			label={t('page.ide.quickOpen')}
+			compact
+			variant="ghost"
+			onclick={() => onQuickOpen?.()}
+		/>
+		<IconButton
 			icon="plus"
 			label={t('page.ide.newFile')}
 			compact
@@ -416,12 +548,28 @@
 	<div
 		class="min-h-0 flex-1 overflow-y-auto px-1 py-1"
 		role="tree"
+		tabindex={0}
 		aria-label={t('page.ide.fileTree')}
 		style={treeRowHeightStyle}
+		oncontextmenu={(e) => {
+			if ((e.target as HTMLElement).closest('[role="treeitem"]')) return;
+			openMenu(e, '', true);
+		}}
 	>
 		{@render node('', 0)}
 	</div>
 </div>
+
+{#if menu}
+	<ContextMenu
+		x={menu.x}
+		y={menu.y}
+		title={menuTitle()}
+		items={menuItems()}
+		onaction={handleMenuAction}
+		onclose={() => (menu = null)}
+	/>
+{/if}
 
 <Dialog
 	bind:open={deleteOpen}

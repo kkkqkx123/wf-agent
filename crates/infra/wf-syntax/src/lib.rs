@@ -39,25 +39,29 @@ impl CodeSpan {
     }
 }
 
+/// Fenced-code alias table shared with the web frontend. The TSV file is the
+/// single source of truth; the frontend generates a TS module from it at
+/// build time and both sides carry a consistency test against this file.
+static LANGUAGE_ALIASES: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
+
+fn language_aliases() -> &'static HashMap<&'static str, &'static str> {
+    LANGUAGE_ALIASES.get_or_init(|| {
+        include_str!("language-aliases.tsv")
+            .lines()
+            .filter(|line| !line.trim().is_empty() && !line.trim_start().starts_with('#'))
+            .filter_map(|line| line.split_once('\t'))
+            .map(|(alias, canonical)| (alias.trim(), canonical.trim()))
+            .collect()
+    })
+}
+
 pub fn normalize_language(language: Option<&str>) -> String {
-    match language.unwrap_or("").trim().to_ascii_lowercase().as_str() {
-        "rs" => "rust",
-        "py" | "py3" | "python3" => "python",
-        "js" | "jsx" | "mjs" | "cjs" | "node" => "javascript",
-        "ts" | "tsx" | "mts" | "cts" => "typescript",
-        "sh" | "bash" | "zsh" | "shell" | "shellscript" => "bash",
-        "ps1" | "powershell" => "powershell",
-        "yml" => "yaml",
-        "c++" | "cc" | "cxx" | "hpp" | "h" | "cpp" => "cpp",
-        "c#" | "cs" => "csharp",
-        "golang" => "go",
-        "rb" => "ruby",
-        "kt" | "kts" => "kotlin",
-        "hs" => "haskell",
-        "md" | "markdown" => "markdown",
-        other => other,
-    }
-    .to_string()
+    let raw = language.unwrap_or("").trim().to_ascii_lowercase();
+    language_aliases()
+        .get(raw.as_str())
+        .copied()
+        .unwrap_or(&raw)
+        .to_string()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -394,7 +398,7 @@ mod tests {
 
     #[test]
     fn all_language_specs_highlight_trivial_input() {
-        for (language, _) in specs() {
+        for language in specs().keys() {
             let lines = highlight_block(Some(language), &["x".to_string()]);
             assert_eq!(
                 lines.len(),
@@ -406,5 +410,24 @@ mod tests {
                 "highlight_block returned no spans for {language}"
             );
         }
+    }
+
+    #[test]
+    fn alias_table_is_wellformed_and_applied() {
+        let raw = include_str!("language-aliases.tsv");
+        let mut count = 0;
+        for line in raw.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let (alias, canonical) = line
+                .split_once('\t')
+                .unwrap_or_else(|| panic!("alias line missing tab separator: {line}"));
+            assert!(!alias.is_empty() && !canonical.is_empty(), "blank field in: {line}");
+            assert_eq!(normalize_language(Some(alias)), canonical, "alias not applied");
+            count += 1;
+        }
+        assert!(count > 0, "alias table must not be empty");
     }
 }

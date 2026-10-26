@@ -4,11 +4,18 @@
 	 * markstream default. It receives the parsed node from the markdown
 	 * renderer through the `code_block` custom-component slot, reads the
 	 * fenced language and source, and paints lexical tokens. Streaming
-	 * re-renders only re-tokenize the current text.
+	 * re-renders reuse the completed lines and re-tokenize only the
+	 * appended tail.
 	 */
 	import { cn } from '#lib/ui/cn';
 	import Icon from '#lib/ui/icons/Icon.svelte';
-	import { highlightCode, normalizeLanguage, type TokenKind, type HighlightLine } from '#lib/utils/highlight';
+	import {
+		highlightIncremental,
+		normalizeLanguage,
+		type TokenKind,
+		type HighlightLine,
+		type HighlightIncrementalState,
+	} from '#lib/utils/highlight';
 	import { t } from '#lib/i18n';
 
 	interface Props {
@@ -34,12 +41,18 @@
 					: '',
 	);
 	let lines = $state<HighlightLine[]>([]);
+	// Non-reactive on purpose: it feeds the incremental highlighter without
+	// re-triggering the effect (only code/language changes should).
+	let previous: HighlightIncrementalState | null = null;
 	$effect(() => {
 		const currentCode = code;
 		const currentLanguage = rawLanguage;
 		let cancelled = false;
-		highlightCode(currentCode, currentLanguage).then((result) => {
-			if (!cancelled) lines = result;
+		highlightIncremental(currentCode, currentLanguage, previous).then((result) => {
+			if (!cancelled) {
+				lines = result;
+				previous = { code: currentCode, lines: result };
+			}
 		});
 		return () => {
 			cancelled = true;

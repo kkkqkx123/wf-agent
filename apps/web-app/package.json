@@ -21,7 +21,8 @@
 		"lint:fix": "eslint . --fix",
 		"lint:i18n": "node scripts/merge-fragments.mjs && node scripts/check-i18n.mjs",
 		"format": "prettier --write .",
-		"format:check": "prettier --check ."
+		"format:check": "prettier --check .",
+		"gen:aliases": "node scripts/generate-language-aliases.mjs"
 	},
 	"keywords": [
 		"web",

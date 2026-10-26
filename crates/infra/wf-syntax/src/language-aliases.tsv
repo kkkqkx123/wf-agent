@@ -1,0 +1,36 @@
+# Canonical fenced-code language alias table.
+# Single source of truth shared by the Rust side (wf-syntax) and the web
+# frontend (generated TS module). One mapping per line: alias<TAB>canonical.
+# Canonical names themselves are not listed. Keep lines sorted by alias.
+c#	csharp
+c++	cpp
+cc	cpp
+cjs	javascript
+cs	csharp
+cxx	cpp
+cts	typescript
+golang	go
+h	cpp
+hs	haskell
+hpp	cpp
+js	javascript
+jsx	javascript
+kt	kotlin
+kts	kotlin
+md	markdown
+mjs	javascript
+mts	typescript
+node	javascript
+ps1	powershell
+py	python
+py3	python
+python3	python
+rb	ruby
+rs	rust
+sh	bash
+shell	bash
+shellscript	bash
+tsx	typescript
+ts	typescript
+yml	yaml
+zsh	bash

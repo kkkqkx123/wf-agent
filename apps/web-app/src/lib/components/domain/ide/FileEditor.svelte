@@ -87,58 +87,70 @@
 			{/if}
 		</div>
 
-		{#key ide.activePath}
-			{@const active = ide.active()}
-			{#if active}
-				<div class="flex min-h-0 flex-1 flex-col">
-					{#if active.loading}
-						<p class="p-4 text-caption text-muted-foreground">{t('common.loading')}</p>
-					{:else if active.error && !active.content}
-						<div class="space-y-2 p-4">
-							<p class="text-body text-destructive">{active.error}</p>
-							<Button size="sm" variant="outline" onclick={() => void ide.loadFile(active.path)}>
-								{t('common.retry')}
-							</Button>
-						</div>
-					{:else if active.isBinary}
-						<div class="space-y-2 p-4">
-							<p class="text-body font-medium">{t('page.ide.binaryTitle')}</p>
-							<p class="text-caption text-muted-foreground">{t('page.ide.binaryDesc')}</p>
-						</div>
-					{:else}
-						{#if active.error}
-							<p
-								class="border-b border-destructive/30 bg-destructive/10 px-3 py-1 text-micro text-destructive"
-							>
-								{active.error}
-							</p>
-						{/if}
-						<div class="min-h-0 flex-1">
-							<MonacoEditor
-								filePath={active.path}
-								value={active.content}
-								language={active.language}
-								readOnly={false}
-								onChange={(next) => ide.updateContent(active.path, next)}
-							/>
-						</div>
-						<div
-							class="flex items-center justify-between border-t border-border px-3 py-1 text-micro text-muted-foreground"
+		{@const active = ide.active()}
+		{#if active}
+			<div class="flex min-h-0 flex-1 flex-col">
+				{#if active.loading}
+					<p class="p-4 text-caption text-muted-foreground">{t('common.loading')}</p>
+				{:else if active.error && !active.content}
+					<div class="space-y-2 p-4">
+						<p class="text-body text-destructive">{active.error}</p>
+						<Button size="sm" variant="outline" onclick={() => void ide.loadFile(active.path)}>
+							{t('common.retry')}
+						</Button>
+					</div>
+				{:else if active.isBinary}
+					<div class="space-y-2 p-4">
+						<p class="text-body font-medium">{t('page.ide.binaryTitle')}</p>
+						<p class="text-caption text-muted-foreground">{t('page.ide.binaryDesc')}</p>
+					</div>
+				{:else}
+					{#if active.error}
+						<p
+							class="border-b border-destructive/30 bg-destructive/10 px-3 py-1 text-micro text-destructive"
 						>
-							<span>{active.path} · {active.language}</span>
-							<span>
-								{#if active.saving}
-									{t('page.ide.saving')}
-								{:else if active.content !== active.original}
-									{t('page.ide.unsaved')}
-								{:else}
-									{t('page.ide.saved')}
-								{/if}
-							</span>
-						</div>
+							{active.error}
+						</p>
 					{/if}
-				</div>
-			{/if}
-		{/key}
+					{#if active.truncated}
+						<p
+							class="border-b border-amber-500/30 bg-amber-500/10 px-3 py-1 text-micro text-amber-700 dark:text-amber-300"
+						>
+							{t('domain.files.truncatedPath', { path: active.path })}
+						</p>
+					{/if}
+					<div class="min-h-0 flex-1">
+						<MonacoEditor
+							filePath={active.path}
+							value={active.content}
+							language={active.language}
+							readOnly={active.truncated}
+							contentReady={!active.loading}
+							revealLine={ide.pendingReveal?.path === active.path
+								? (ide.pendingReveal.line ?? null)
+								: null}
+							revealCol={ide.pendingReveal?.path === active.path
+								? (ide.pendingReveal.col ?? null)
+								: null}
+							onChange={(next) => ide.updateContent(active.path, next)}
+						/>
+					</div>
+					<div
+						class="flex items-center justify-between border-t border-border px-3 py-1 text-micro text-muted-foreground"
+					>
+						<span>{active.path} · {active.language}</span>
+						<span>
+							{#if active.saving}
+								{t('page.ide.saving')}
+							{:else if active.content !== active.original}
+								{t('page.ide.unsaved')}
+							{:else}
+								{t('page.ide.saved')}
+							{/if}
+						</span>
+					</div>
+				{/if}
+			</div>
+		{/if}
 	{/if}
 </div>

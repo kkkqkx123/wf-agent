@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { entityMention, fileMentionRef, parseMentionValue, textRuns } from './mentions';
+import {
+	entityMention,
+	fileMentionRef,
+	parseMentionValue,
+	resolveMentionFileTarget,
+	textRuns,
+} from './mentions';
 
 describe('entityMention', () => {
 	it('keeps the canonical id unchanged', () => {
@@ -80,5 +86,40 @@ describe('textRuns', () => {
 			{ text: '@src/main.rs#10-20', kind: 'file' },
 			{ text: ' now', kind: null },
 		]);
+	});
+});
+
+describe('resolveMentionFileTarget', () => {
+	it('resolves the canonical file form with a line range', () => {
+		expect(resolveMentionFileTarget('@file:src/a.ts#10-20', 'file')).toEqual({
+			path: 'src/a.ts',
+			lineStart: 10,
+			lineEnd: 20,
+		});
+	});
+
+	it('resolves the shorthand form with a single line', () => {
+		expect(resolveMentionFileTarget('@src/main.rs#7', 'file')).toEqual({
+			path: 'src/main.rs',
+			lineStart: 7,
+			lineEnd: 7,
+		});
+	});
+
+	it('resolves a bare path without lines', () => {
+		expect(resolveMentionFileTarget('@file:docs/readme.md', 'file')).toEqual({
+			path: 'docs/readme.md',
+			lineStart: null,
+			lineEnd: null,
+		});
+	});
+
+	it('rejects non-file kinds', () => {
+		expect(resolveMentionFileTarget('@workflow:build', 'workflow')).toBeNull();
+		expect(resolveMentionFileTarget('@tool:git', 'tool')).toBeNull();
+	});
+
+	it('rejects the bare kind without a path', () => {
+		expect(resolveMentionFileTarget('@file', 'file')).toBeNull();
 	});
 });

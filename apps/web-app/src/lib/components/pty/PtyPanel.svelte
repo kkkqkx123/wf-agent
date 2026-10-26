@@ -12,11 +12,13 @@
 	interface Props {
 		/** Repo root; scopes the session store and persistence. */
 		repo: string;
+		/** Working directory for newly spawned sessions. Falls back to server default when unset. */
+		cwd?: string;
 		open: boolean;
 		onClose: () => void;
 	}
 
-	let { repo, open, onClose }: Props = $props();
+	let { repo, cwd, open, onClose }: Props = $props();
 
 	const store: PtySessionStore = $derived(ptyStoreFor(repo));
 
@@ -45,7 +47,7 @@
 		void store.reconcile().then(() => {
 			if (!autoSpawned && store.sessions.length === 0) {
 				autoSpawned = true;
-				void store.spawn().then((session) => {
+				void store.spawn({ cwd }).then((session) => {
 					if (session) instance?.focus();
 				});
 			}
@@ -83,7 +85,7 @@
 
 	async function restartExited(id: string): Promise<void> {
 		clearFailure();
-		await store.clone(id);
+		await store.clone(id, { cwd });
 		instance?.focus();
 	}
 </script>
@@ -155,7 +157,7 @@
 				compact
 				variant="ghost"
 				onclick={() => {
-					void store.spawn().then((session) => {
+					void store.spawn({ cwd }).then((session) => {
 						if (session) instance?.focus();
 					});
 				}}

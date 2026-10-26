@@ -105,6 +105,7 @@
 	"chat.interactionPrompt.customAnswer": "Custom answer",
 	"chat.interactionPrompt.submit": "Submit",
 	"chat.mentionBadge.aria": "Mention {kind}: {text}",
+	"chat.mentionBadge.openInIde": "Open {kind} {text} in IDE",
 	"pty.ptyPanel.title": "Terminal",
 	"pty.ptyPanel.description": "Repo-locked interactive shell; output streams over a persistent PTY.",
 	"pty.ptyPanel.renameHint": "Double-click to rename",

@@ -332,6 +332,7 @@ use utoipa::OpenApi;
         crate::api::pty::handle_pty_connect_token,
         // ── fs (workspace filesystem) ──
         crate::api::fs::handle_fs_list,
+        crate::api::fs::handle_fs_tree,
         crate::api::fs::handle_fs_content,
         crate::api::fs::handle_fs_stat,
         crate::api::fs::handle_fs_write,
@@ -768,6 +769,8 @@ use utoipa::OpenApi;
         crate::api::fs::FsEntryView,
         crate::api::fs::FsFileView,
         crate::api::fs::FsStatView,
+        crate::api::fs::FsTreeEntryView,
+        crate::api::fs::FsTreeView,
         crate::api::fs::FsWriteBody,
         crate::api::fs::FsCreateBody,
         crate::api::fs::FsRenameBody,

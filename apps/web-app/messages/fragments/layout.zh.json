@@ -15,6 +15,8 @@
 	"layout.commandPalette.searchLabel": "命令面板搜索",
 	"layout.commandPalette.noMatches": "没有匹配项",
 	"layout.commandPalette.groupNavigate": "导航",
+	"layout.commandPalette.groupFiles": "文件",
+	"layout.commandPalette.filesTruncated": "结果已被截断；请细化查询以缩小范围。",
 	"layout.commandPalette.groupExecutions": "执行",
 	"layout.commandPalette.groupWorkflows": "工作流",
 	"layout.commandPalette.groupLoops": "智能体循环",

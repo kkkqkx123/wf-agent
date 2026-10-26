@@ -12,6 +12,7 @@
 	import SyncCard from './files/SyncCard.svelte';
 	import WorkspaceCard from './files/WorkspaceCard.svelte';
 	import { downloadFile } from '#lib/api/client';
+import { buildIdeUrl } from '#lib/utils/ide-url';
 	import {
 		getMainDiffs,
 		getDiffActors,
@@ -178,6 +179,12 @@
 		void selectChange(change);
 	}
 
+	function openPreviewInIde(): void {
+		const content = previewContent;
+		if (!content) return;
+		window.open(buildIdeUrl(content.path), '_blank', 'noopener');
+	}
+
 	// ── partition commit history ──
 	const HISTORY_PAGE = 50;
 	let historyOpen = $state(false);
@@ -237,6 +244,7 @@
 				);
 			}}
 			ondownload={downloadPreview}
+			onopeninide={openPreviewInIde}
 		/>
 	</div>
 </PageState>

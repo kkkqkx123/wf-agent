@@ -6,7 +6,8 @@
 	import StreamMarkdown from '#lib/components/chat/LazyStreamMarkdown.svelte';
 	import MentionBadge from '#lib/components/chat/MentionBadge.svelte';
 	import { splitAttachments } from '#lib/utils/attachments';
-	import { textRuns } from '#lib/utils/mentions';
+	import { resolveMentionFileTarget, textRuns } from '#lib/utils/mentions';
+	import { buildIdeUrl } from '#lib/utils/ide-url';
 	import { formatDateTime } from '#lib/utils/format';
 	import { resolveToolOutputBudgets } from '#lib/config/tool-output';
 	import {
@@ -51,6 +52,12 @@
 		isUser ? splitAttachments(message.content) : { text: message.content, attachments: [] },
 	);
 	const runs = $derived(textRuns(body.text));
+
+	function badgeHref(text: string, kind: string): string | null {
+		const target = resolveMentionFileTarget(text, kind);
+		if (!target) return null;
+		return buildIdeUrl(target.path, target.lineStart, null);
+	}
 	const expanded = $derived(expandedIndex === null ? null : body.attachments[expandedIndex]);
 
 	const isTool = $derived(message.role === 'tool');
@@ -166,6 +173,7 @@
 									text={run.text}
 									kind={run.kind}
 									surface={isUser ? 'primary' : 'muted'}
+									href={badgeHref(run.text, run.kind)}
 								/>
 							</span>
 						{:else}

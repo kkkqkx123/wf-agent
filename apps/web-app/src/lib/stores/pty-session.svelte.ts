@@ -159,6 +159,7 @@ export class PtySessionStore {
 
 	/** Create a server session and make it active. */
 	async spawn(options?: {
+		cwd?: string;
 		command?: string;
 		rows?: number;
 		cols?: number;
@@ -350,10 +351,10 @@ export class PtySessionStore {
 	 * Recover a broken session by cloning it: the local buffer is kept so the
 	 * user does not lose scrollback, but a fresh server session is spawned.
 	 */
-	async clone(id: string): Promise<void> {
+	async clone(id: string, options?: { cwd?: string }): Promise<void> {
 		const previous = this.byId(id);
 		if (!previous) return;
-		const replacement = await this.spawn();
+		const replacement = await this.spawn(options);
 		if (!replacement) return;
 		this.patch(replacement.id, {
 			title: previous.title,

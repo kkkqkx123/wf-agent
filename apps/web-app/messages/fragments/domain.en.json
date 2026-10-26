@@ -213,6 +213,7 @@
 	"domain.files.diffUnavailable": "Diff against main unavailable",
 	"domain.files.download": "Download",
 	"domain.files.downloadUnavailable": "Download unavailable",
+	"domain.files.openInIde": "Open in IDE",
 	"domain.files.extraFeatures": "Extra features for main (comma or space separated)",
 	"domain.files.feature": "Feature",
 	"domain.files.featureNamePlaceholder": "Feature name for refs/wf/feat/<name>",

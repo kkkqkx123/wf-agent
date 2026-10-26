@@ -11,6 +11,7 @@ use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/fs/list", get(handle_fs_list))
+        .route("/fs/tree", get(handle_fs_tree))
         .route("/fs/content", get(handle_fs_content).put(handle_fs_write))
         .route("/fs/stat", get(handle_fs_stat))
         .route(
@@ -81,6 +82,28 @@ pub(crate) struct FsStatView {
     pub is_binary: Option<bool>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub(crate) struct FsTreeEntryView {
+    pub path: String,
+    pub is_dir: bool,
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub(crate) struct FsTreeView {
+    pub entries: Vec<FsTreeEntryView>,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct FsTreeQuery {
+    #[serde(default)]
+    path: Option<String>,
+    depth: Option<u32>,
+    limit: Option<usize>,
+}
+
 fn entry_view(entry: wf_api::fs::FsEntry) -> FsEntryView {
     FsEntryView {
         name: entry.name,
@@ -123,6 +146,29 @@ pub(crate) async fn handle_fs_list(
 ) -> impl IntoResponse {
     match wf_api::fs::list_dir(&state.ctx, query_path(&query.path)) {
         Ok(entries) => ok(entries.into_iter().map(entry_view).collect::<Vec<_>>()).into_response(),
+        Err(err) => error_response(err.into()),
+    }
+}
+
+#[utoipa::path(get, path = "/api/v1/fs/tree", operation_id = "get_fs_tree", tag = "fs", params(FsTreeQuery), responses((status = 200, description = "Recursive file index", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "No workspace or no such path", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
+pub(crate) async fn handle_fs_tree(
+    State(state): State<ApiState>,
+    Query(query): Query<FsTreeQuery>,
+) -> impl IntoResponse {
+    match wf_api::fs::list_tree(&state.ctx, query_path(&query.path), query.depth, query.limit) {
+        Ok(tree) => ok(FsTreeView {
+            entries: tree
+                .entries
+                .into_iter()
+                .map(|e| FsTreeEntryView {
+                    path: e.path,
+                    is_dir: e.is_dir,
+                    size: e.size,
+                })
+                .collect(),
+            truncated: tree.truncated,
+        })
+        .into_response(),
         Err(err) => error_response(err.into()),
     }
 }

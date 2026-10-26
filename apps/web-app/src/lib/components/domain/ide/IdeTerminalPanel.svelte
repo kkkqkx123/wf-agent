@@ -1,12 +1,15 @@
 <script lang="ts">
 	import PtyPanel from '#lib/components/pty/PtyPanel.svelte';
 	import { ide } from '#lib/stores/ide.svelte';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		repo: string;
 	}
 
 	let { repo }: Props = $props();
+
+	let cwd = $derived(repo ? repo : undefined);
 
 	let dragging = $state(false);
 
@@ -42,6 +45,7 @@
 	<div class="min-h-0 flex-1 overflow-hidden px-3 pb-3" style="height: {ide.terminalHeight}px">
 		<PtyPanel
 			repo={repo || 'ide'}
+			cwd={cwd}
 			open={ide.terminalOpen}
 			onClose={() => {
 				ide.terminalOpen = false;
@@ -55,7 +59,7 @@
 					ide.terminalOpen = true;
 				}}
 			>
-				Show terminal
+				{t('page.ide.showTerminal')}
 			</button>
 		{/if}
 	</div>

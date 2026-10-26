@@ -105,6 +105,7 @@
 	"chat.interactionPrompt.customAnswer": "自定义答案",
 	"chat.interactionPrompt.submit": "提交",
 	"chat.mentionBadge.aria": "提及 {kind}：{text}",
+	"chat.mentionBadge.openInIde": "在 IDE 中打开 {kind} {text}",
 	"pty.ptyPanel.title": "终端",
 	"pty.ptyPanel.description": "锁定仓库的交互式 Shell；输出通过持久 PTY 流式传输。",
 	"pty.ptyPanel.renameHint": "双击重命名",

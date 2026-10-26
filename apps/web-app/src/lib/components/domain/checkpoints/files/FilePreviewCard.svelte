@@ -28,6 +28,7 @@
 		onreloadtree,
 		onshowmore,
 		ondownload,
+		onopeninide,
 	}: {
 		selectedChange: FileChange | null;
 		mainDiff: DiffFile | null;
@@ -42,6 +43,7 @@
 		onreloadtree: () => void;
 		onshowmore: () => void;
 		ondownload: () => void;
+		onopeninide: () => void;
 	} = $props();
 
 	const timelineEntries = $derived(previewTimeline?.entries ?? []);
@@ -91,6 +93,10 @@
 	{#if previewContent && !previewContent.isBinary && previewContent.content !== null}
 		<Card title={previewContent.path}>
 			{#snippet actions()}
+				<Button variant="ghost" size="sm" onclick={onopeninide}>
+					<Icon name="code" size={13} />
+					{t('domain.files.openInIde')}
+				</Button>
 				<Button variant="ghost" size="sm" onclick={ondownload}>
 					<Icon name="download" size={13} />
 					{t('domain.files.download')}

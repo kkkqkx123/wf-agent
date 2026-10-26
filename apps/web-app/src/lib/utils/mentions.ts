@@ -45,6 +45,38 @@ export function fileMentionRef(path: string, lineStart?: number, lineEnd?: numbe
 	return end === lineStart ? `@file:${clean}#${lineStart}` : `@file:${clean}#${lineStart}-${end}`;
 }
 
+/** A file mention split into its workspace-relative target and 1-based line segment. */
+export interface MentionFileTarget {
+	path: string;
+	lineStart: number | null;
+	lineEnd: number | null;
+}
+
+/**
+ * Resolve the file target behind a rendered badge. Accepts both the canonical
+ * `@file:path#start-end` form and the `@path/with/slash` shorthand; every
+ * other kind (workflow, tool, …) resolves to null.
+ */
+export function resolveMentionFileTarget(text: string, kind: string): MentionFileTarget | null {
+	if (kind !== 'file') return null;
+	let raw = text.trim();
+	if (!raw.startsWith('@')) return null;
+	raw = raw.slice(1);
+	if (raw.startsWith('file:')) raw = raw.slice('file:'.length);
+	else if (raw.startsWith('file')) {
+		const rest = raw.slice('file'.length);
+		if (rest === '') return null;
+		if (!rest.startsWith(':')) return null;
+		raw = rest.slice(1);
+	}
+	raw = raw.replace(/^\.?\/+/, '');
+	if (!raw) return null;
+	const target = parseMentionValue(raw);
+	const path = target.value.replace(/^\.?\/+/, '');
+	if (!path || path.includes('\0')) return null;
+	return { path, lineStart: target.lineStart, lineEnd: target.lineEnd };
+}
+
 /** Split a reference value into its target and line segment. */
 export function parseMentionValue(raw: string): MentionTarget {
 	const match = /^(.*?)#(\d+)(?:-(\d+))?$/.exec(raw);

@@ -41,6 +41,22 @@ export function registerFs(router: MockRouter): void {
 		const path = String(query.path ?? '');
 		return entriesFor(path);
 	});
+	router.on('GET', '/api/v1/fs/tree', (_p, query) => {
+		const base = String(query.path ?? '');
+		const rawLimit = Number((query as Record<string, unknown>).limit ?? 2000);
+		const limit = Number.isFinite(rawLimit) ? Math.min(5000, Math.max(1, Math.floor(rawLimit))) : 2000;
+		const flat: Array<{ path: string; is_dir: boolean; size: number }> = [];
+		const visit = (prefix: string): boolean => {
+			for (const row of entriesFor(prefix)) {
+				flat.push({ path: row.path, is_dir: row.is_dir, size: row.size });
+				if (flat.length >= limit) return true;
+				if (row.is_dir && visit(row.path)) return true;
+			}
+			return false;
+		};
+		const truncated = visit(base.replace(/\/$/, ''));
+		return { entries: flat.slice(0, limit), truncated };
+	});
 	router.on('GET', '/api/v1/fs/stat', (_p, query) => {
 		const path = String(query.path ?? '');
 		if (!path) {

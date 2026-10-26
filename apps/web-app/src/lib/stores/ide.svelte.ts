@@ -1,5 +1,7 @@
 import { SvelteMap } from 'svelte/reactivity';
-import { listFs, readFsFile, writeFsFile } from '#lib/services/fs';
+import { listFs, readFsFile, writeFsFile, languageForPath } from '#lib/services/fs';
+import { listFiles } from '#lib/services/git';
+import { aggregateBadges, badgeForFile, type GitBadgeLevel } from '#lib/utils/git-badges';
 import type { FsEntry } from '#lib/services/fs';
 
 export interface IdeFileTab {
@@ -12,6 +14,7 @@ export interface IdeFileTab {
 	saving: boolean;
 	error: string | null;
 	isBinary: boolean;
+	truncated: boolean;
 	preview: boolean;
 }
 
@@ -44,22 +47,12 @@ function writeSession(key: string, value: unknown): void {
 	}
 }
 
-function languageFor(path: string): string {
-	const lower = path.toLowerCase();
-	if (lower.endsWith('.svelte')) return 'svelte';
-	if (lower.endsWith('.ts') || lower.endsWith('.tsx')) return 'typescript';
-	if (lower.endsWith('.js') || lower.endsWith('.jsx') || lower.endsWith('.mjs'))
-		return 'javascript';
-	if (lower.endsWith('.json')) return 'json';
-	if (lower.endsWith('.rs')) return 'rust';
-	if (lower.endsWith('.py')) return 'python';
-	if (lower.endsWith('.toml')) return 'toml';
-	if (lower.endsWith('.yaml') || lower.endsWith('.yml')) return 'yaml';
-	if (lower.endsWith('.md')) return 'markdown';
-	if (lower.endsWith('.css')) return 'css';
-	if (lower.endsWith('.html')) return 'html';
-	if (lower.endsWith('.sh')) return 'shell';
-	return 'plaintext';
+const MAX_OPEN_TABS = 20;
+
+export interface IdeReveal {
+	path: string;
+	line: number | null;
+	col: number | null;
 }
 
 export class IdeStore {
@@ -69,7 +62,11 @@ export class IdeStore {
 	root = $state<string>('');
 	terminalOpen = $state(true);
 	terminalHeight = $state(280);
-	rightOpen = $state(false);
+	pendingReveal = $state<IdeReveal | null>(null);
+	gitBadges = $state<SvelteMap<string, GitBadgeLevel>>(new SvelteMap());
+	gitBadgesAvailable = $state(true);
+	inspectorOpen = $state(false);
+	revealRequest = $state<string | null>(null);
 
 	constructor() {
 		const saved = readSession<{ tabs: string[]; active: string | null }>('tabs', {
@@ -77,16 +74,17 @@ export class IdeStore {
 			active: null,
 		});
 		if (saved.tabs.length > 0) {
-			this.tabs = saved.tabs.slice(0, 20).map((path) => ({
+			this.tabs = saved.tabs.slice(0, MAX_OPEN_TABS).map((path) => ({
 				path,
 				content: '',
 				original: '',
 				hash: null,
-				language: languageFor(path),
+				language: languageForPath(path),
 				loading: true,
 				saving: false,
 				error: null,
 				isBinary: false,
+				truncated: false,
 				preview: false,
 			}));
 			this.activePath = saved.active ?? saved.tabs[0] ?? null;
@@ -96,6 +94,7 @@ export class IdeStore {
 			if (Number.isFinite(height) && height >= 120 && height <= 800) {
 				this.terminalHeight = height;
 			}
+			this.inspectorOpen = sessionStorage.getItem(storageKey('inspector')) === '1';
 		}
 	}
 
@@ -108,10 +107,6 @@ export class IdeStore {
 
 	setRoot(root: string): void {
 		this.root = root;
-	}
-
-	dirKey(path: string): string {
-		return path;
 	}
 
 	dirState(path: string): IdeDirState {
@@ -170,7 +165,14 @@ export class IdeStore {
 		return this.tabs.filter((t) => t.content !== t.original).map((t) => t.path);
 	}
 
-	async openFile(path: string, preview = false): Promise<void> {
+	async openFile(path: string, preview = false, line?: number | null, col?: number | null): Promise<void> {
+		const lineNo = line !== undefined && line !== null && line >= 1 ? Math.floor(line) : null;
+		const colNo = col !== undefined && col !== null && col >= 1 ? Math.floor(col) : null;
+		if (lineNo !== null || colNo !== null) {
+			this.pendingReveal = { path, line: lineNo, col: colNo };
+		} else if (this.pendingReveal?.path === path) {
+			this.pendingReveal = null;
+		}
 		const existing = this.tabs.find((t) => t.path === path);
 		if (existing) {
 			this.activePath = path;
@@ -184,11 +186,12 @@ export class IdeStore {
 			content: '',
 			original: '',
 			hash: null,
-			language: languageFor(path),
+			language: languageForPath(path),
 			loading: true,
 			saving: false,
 			error: null,
 			isBinary: false,
+			truncated: false,
 			preview,
 		};
 		if (preview) {
@@ -200,9 +203,20 @@ export class IdeStore {
 			if (previewIndex >= 0) this.tabs.splice(previewIndex, 1, tab);
 			else this.tabs.push(tab);
 		}
+		this.evictExcessTabs(path);
 		this.activePath = path;
 		this.persistTabs();
 		await this.loadFile(path);
+	}
+
+	private evictExcessTabs(keepPath: string): void {
+		while (this.tabs.length > MAX_OPEN_TABS) {
+			const victim = this.tabs.find(
+				(t) => t.path !== keepPath && t.path !== this.activePath && t.content === t.original,
+			);
+			if (!victim) return;
+			this.tabs = this.tabs.filter((t) => t !== victim);
+		}
 	}
 
 	async loadFile(path: string): Promise<void> {
@@ -213,6 +227,7 @@ export class IdeStore {
 		try {
 			const file = await readFsFile(path);
 			tab.isBinary = file.is_binary;
+			tab.truncated = file.truncated ?? false;
 			tab.hash = file.hash ?? null;
 			tab.content = file.is_binary ? '' : (file.content ?? '');
 			tab.original = tab.content;
@@ -230,7 +245,7 @@ export class IdeStore {
 
 	async saveFile(path: string): Promise<boolean> {
 		const tab = this.tabs.find((t) => t.path === path);
-		if (!tab || tab.saving || tab.isBinary) return false;
+		if (!tab || tab.saving || tab.isBinary || tab.truncated) return false;
 		tab.saving = true;
 		tab.error = null;
 		try {
@@ -274,24 +289,6 @@ export class IdeStore {
 		this.persistTabs();
 	}
 
-	closeOthers(path: string): void {
-		const keep = this.tabs.filter((t) => t.path === path || t.content === t.original);
-		this.tabs = this.tabs.filter((t) => t.path === path || t.content !== t.original);
-		void keep;
-		this.activePath = path;
-		this.persistTabs();
-	}
-
-	moveTab(path: string, direction: -1 | 1): void {
-		const index = this.tabs.findIndex((t) => t.path === path);
-		const target = index + direction;
-		if (index < 0 || target < 0 || target >= this.tabs.length) return;
-		const next = [...this.tabs];
-		[next[index], next[target]] = [next[target], next[index]];
-		this.tabs = next;
-		this.persistTabs();
-	}
-
 	setTerminalHeight(height: number): void {
 		const clamped = Math.min(800, Math.max(120, Math.round(height)));
 		this.terminalHeight = clamped;
@@ -300,6 +297,49 @@ export class IdeStore {
 		} catch {
 			// Ignore storage failures.
 		}
+	}
+
+	setInspectorOpen(open: boolean): void {
+		this.inspectorOpen = open;
+		writeSession('inspector', open ? '1' : '0');
+	}
+
+	requestReveal(path: string): void {
+		this.revealRequest = path;
+	}
+
+	consumeReveal(): string | null {
+		const pending = this.revealRequest;
+		this.revealRequest = null;
+		return pending;
+	}
+
+	/** Refresh the version-status table from the git change list. Never throws. */
+	async refreshGitStatus(): Promise<void> {
+		try {
+			const files = await listFiles();
+			const next = new SvelteMap<string, GitBadgeLevel>();
+			for (const file of files) {
+				const level = badgeForFile(file);
+				if (level) next.set(file.path, level);
+			}
+			this.gitBadges = next;
+			this.gitBadgesAvailable = true;
+		} catch {
+			this.gitBadges = new SvelteMap<string, GitBadgeLevel>();
+			this.gitBadgesAvailable = false;
+		}
+	}
+
+	/** Aggregate badge for a directory from its changed descendants. */
+	dirBadge(dirPath: string): GitBadgeLevel | null {
+		const prefix = dirPath ? `${dirPath}/` : '';
+		const levels: GitBadgeLevel[] = [];
+		for (const [path, level] of this.gitBadges) {
+			if (prefix && !path.startsWith(prefix)) continue;
+			levels.push(level);
+		}
+		return aggregateBadges(levels);
 	}
 }
 

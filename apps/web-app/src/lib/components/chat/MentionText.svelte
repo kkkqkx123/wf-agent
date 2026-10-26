@@ -1,7 +1,8 @@
 <script lang="ts">
 	import type { SvelteRenderableNode, SvelteRenderContext } from 'markstream-svelte';
 	import { resolveStreamingTextState } from 'markstream-core';
-	import { textRuns } from '#lib/utils/mentions';
+	import { resolveMentionFileTarget, textRuns } from '#lib/utils/mentions';
+	import { buildIdeUrl } from '#lib/utils/ide-url';
 	import MentionBadge from './MentionBadge.svelte';
 
 	interface Props {
@@ -15,7 +16,7 @@
 
 	let previousKey = '';
 	let previousContent = '';
-	let deltaClass = 'markstream-svelte-text__stream-delta--a';
+	let deltaClass = 'markstream-svelte-text__stream__delta--a';
 
 	const content = $derived(
 		String(
@@ -42,8 +43,8 @@
 		});
 		if (result.appended)
 			deltaClass = deltaClass.endsWith('--a')
-				? 'markstream-svelte-text__stream-delta--b'
-				: 'markstream-svelte-text__stream-delta--a';
+				? 'markstream-svelte-text__stream__delta--b'
+				: 'markstream-svelte-text__stream__delta--a';
 		previousKey = streamKey;
 		previousContent = content;
 		state?.set(streamKey, content);
@@ -57,6 +58,12 @@
 	function renderRuns(text: string) {
 		return textRuns(text);
 	}
+
+	function stableHref(text: string, kind: string): string | null {
+		const target = resolveMentionFileTarget(text, kind);
+		if (!target) return null;
+		return buildIdeUrl(target.path, target.lineStart, null);
+	}
 </script>
 
 <span
@@ -67,7 +74,7 @@
 	{#each renderRuns(streamInfo.stableContent) as run, i (i)}
 		{#if run.kind}
 			<span class="mx-0.5 inline-flex">
-				<MentionBadge text={run.text} kind={run.kind} />
+				<MentionBadge text={run.text} kind={run.kind} href={stableHref(run.text, run.kind)} />
 			</span>
 		{:else}
 			{run.text}
@@ -75,7 +82,7 @@
 	{/each}
 	{#if streamInfo.deltaContent}
 		<span
-			class="markstream-svelte-text__stream-delta text-node-stream-delta {streamInfo.deltaClass}"
+			class="markstream-svelte-text__stream__delta text-node-stream-delta {streamInfo.deltaClass}"
 		>
 			{#each renderRuns(streamInfo.deltaContent) as run, i (i)}
 				{#if run.kind}

@@ -6,6 +6,39 @@ export type FsEntry = components['schemas']['FsEntryView'];
 export type FsFileContent = components['schemas']['FsFileView'];
 export type FsStat = components['schemas']['FsStatView'];
 
+export interface FsTreeEntry {
+	path: string;
+	is_dir: boolean;
+	size: number;
+}
+
+export interface FsTreeResult {
+	entries: FsTreeEntry[];
+	truncated: boolean;
+}
+
+export async function listFsTree(
+	base?: string,
+	depth?: number,
+	limit?: number,
+): Promise<FsTreeResult> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/fs/tree', {
+			params: { query: { path: base ?? '', depth, limit } },
+		}),
+	);
+	const value = requireData(data, 'FS tree') as {
+		entries?: Array<Record<string, unknown>>;
+		truncated?: boolean;
+	};
+	const entries = (Array.isArray(value.entries) ? value.entries : []).map((e) => ({
+		path: String(e.path ?? ''),
+		is_dir: Boolean(e.is_dir),
+		size: Number(e.size ?? 0),
+	}));
+	return { entries, truncated: Boolean(value.truncated) };
+}
+
 export async function listFs(path?: string): Promise<FsEntry[]> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/fs/list', { params: { query: { path: path ?? '' } } }),

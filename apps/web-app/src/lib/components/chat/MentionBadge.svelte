@@ -9,9 +9,10 @@
 		kind: string;
 		surface?: 'card' | 'primary' | 'muted';
 		size?: 'micro' | 'caption';
+		href?: string | null;
 	}
 
-	let { text, kind, surface = 'card', size = 'micro' }: Props = $props();
+	let { text, kind, surface = 'card', size = 'micro', href = null }: Props = $props();
 
 	const surfaceClass = $derived(
 		surface === 'primary'
@@ -20,18 +21,37 @@
 				? 'border-border/70 bg-muted/60 text-muted-foreground'
 				: 'border-border/70 bg-muted/60 text-muted-foreground',
 	);
+
+	const classes = $derived(
+		cn(
+			'inline-flex items-center gap-1 rounded border px-1.5 font-mono not-italic',
+			size === 'micro' ? 'text-micro' : 'text-caption',
+			surfaceClass,
+			mentionClass(kind, text),
+			href
+				? 'cursor-pointer underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[hsl(var(--ring))]'
+				: '',
+		),
+	);
 </script>
 
-<span
-	class={cn(
-		'inline-flex items-center gap-1 rounded border px-1.5 font-mono not-italic',
-		size === 'micro' ? 'text-micro' : 'text-caption',
-		surfaceClass,
-		mentionClass(kind, text),
-	)}
-	title={text}
-	aria-label={t('chat.mentionBadge.aria', { kind, text })}
->
-	<Icon name={mentionIcon(kind, text)} size={size === 'micro' ? 11 : 12} />
-	{text}
-</span>
+{#if href}
+	<a
+		href={href}
+		class={classes}
+		title={t('chat.mentionBadge.openInIde', { kind, text })}
+		aria-label={t('chat.mentionBadge.openInIde', { kind, text })}
+	>
+		<Icon name={mentionIcon(kind, text)} size={size === 'micro' ? 11 : 12} />
+		{text}
+	</a>
+{:else}
+	<span
+		class={classes}
+		title={text}
+		aria-label={t('chat.mentionBadge.aria', { kind, text })}
+	>
+		<Icon name={mentionIcon(kind, text)} size={size === 'micro' ? 11 : 12} />
+		{text}
+	</span>
+{/if}

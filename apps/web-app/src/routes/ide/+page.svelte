@@ -10,8 +10,10 @@
 	import FileTree from '#lib/components/domain/ide/FileTree.svelte';
 	import FileEditor from '#lib/components/domain/ide/FileEditor.svelte';
 	import IdeTerminalPanel from '#lib/components/domain/ide/IdeTerminalPanel.svelte';
+	import IdeInspectorPanel from '#lib/components/domain/ide/IdeInspectorPanel.svelte';
 	import { ide } from '#lib/stores/ide.svelte';
 	import { getMeta } from '#lib/services/git';
+	import { parseIdeQuery } from '#lib/utils/ide-url';
 	import { t } from '#lib/i18n';
 
 	let loading = $state(true);
@@ -28,8 +30,9 @@
 			ide.setRoot(meta.root);
 			noRepo = false;
 			await ide.loadDir('', true);
-			const requested = page.url.searchParams.get('path');
-			if (requested) await ide.openFile(requested, false);
+			void ide.refreshGitStatus();
+			const requested = parseIdeQuery(page.url.searchParams);
+			if (requested) await ide.openFile(requested.path, false, requested.line, requested.col);
 			else if (ide.activePath) await ide.loadFile(ide.activePath);
 		} catch (e) {
 			const message = e instanceof Error ? e.message : String(e);
@@ -73,9 +76,21 @@
 	}
 
 	function handleKeys(event: KeyboardEvent): void {
-		if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') {
+		const mod = event.ctrlKey || event.metaKey;
+		if (mod && event.key.toLowerCase() === 's') {
+			event.preventDefault();
+			const current = ide.active();
+			if (current && !current.isBinary && !current.saving) void ide.saveFile(current.path);
+			return;
+		}
+		if (mod && event.key.toLowerCase() === 'b') {
 			event.preventDefault();
 			leftOpen = !leftOpen;
+			return;
+		}
+		if (mod && event.key.toLowerCase() === 'i') {
+			event.preventDefault();
+			ide.setInspectorOpen(!ide.inspectorOpen);
 		}
 	}
 </script>
@@ -102,6 +117,13 @@
 				}}
 			>
 				{ide.terminalOpen ? t('page.ide.hideTerminal') : t('page.ide.showTerminal')}
+			</Button>
+			<Button
+				size="sm"
+				variant="outline"
+				onclick={() => ide.setInspectorOpen(!ide.inspectorOpen)}
+			>
+				{ide.inspectorOpen ? t('page.ide.hideInspector') : t('page.ide.showInspector')}
 			</Button>
 			<Button
 				size="sm"
@@ -137,6 +159,13 @@
 					<section class="flex min-w-0 flex-1 flex-col">
 						<FileEditor onRequestClose={requestClose} />
 					</section>
+					{#if ide.inspectorOpen}
+						<aside
+							class="flex w-72 shrink-0 flex-col border-l border-border bg-muted/20 max-lg:hidden"
+						>
+							<IdeInspectorPanel onclosetab={requestClose} />
+						</aside>
+					{/if}
 				</div>
 				{#if ide.terminalOpen}
 					<div class="shrink-0">

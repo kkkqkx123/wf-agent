@@ -10,6 +10,9 @@
 	import { listWorkflows } from '#lib/services/workflows';
 	import { listAgentLoops } from '#lib/services/agent-loops';
 	import { unifiedSearch, type SearchHit } from '#lib/services/search';
+import { buildIdeUrl } from '#lib/utils/ide-url';
+import { filterFsTree, getFsTreeIndex } from '#lib/utils/fs-tree-index';
+import { ide } from '#lib/stores/ide.svelte';
 	import type { AgentLoop, Execution, Workflow } from '#lib/types/models';
 	import { ui } from '#lib/stores/ui.svelte';
 	import { cn } from '#lib/ui/cn';
@@ -19,6 +22,7 @@
 	// translated only at render time.
 	const GROUP_LABEL: Record<string, MessageKey> = {
 		Navigate: 'layout.commandPalette.groupNavigate',
+		Files: 'layout.commandPalette.groupFiles',
 		Executions: 'layout.commandPalette.groupExecutions',
 		Workflows: 'layout.commandPalette.groupWorkflows',
 		'Agent loops': 'layout.commandPalette.groupLoops',
@@ -40,6 +44,8 @@
 	let workflows = $state<Workflow[]>([]);
 	let agentLoops = $state<AgentLoop[]>([]);
 	let remoteHits = $state<SearchHit[]>([]);
+	let fileHits = $state<Array<{ path: string; is_dir: boolean }>>([]);
+	let fileTruncated = $state(false);
 
 	$effect(() => {
 		if (!ui.commandOpen) return;
@@ -61,6 +67,35 @@
 				})
 				.catch(() => {}),
 		]);
+	});
+
+	$effect(() => {
+		const needle = query.trim();
+		if (!ui.commandOpen || needle.length < 2) {
+			fileHits = [];
+			fileTruncated = false;
+			return;
+		}
+		let cancelled = false;
+		const timer = setTimeout(() => {
+			const root = ide.root || 'workspace';
+			void getFsTreeIndex(root)
+				.then((index) => {
+					if (cancelled) return;
+					fileTruncated = index.truncated;
+					fileHits = filterFsTree(index.entries, needle, 10);
+				})
+				.catch(() => {
+					if (!cancelled) {
+						fileHits = [];
+						fileTruncated = false;
+					}
+				});
+		}, 200);
+		return () => {
+			cancelled = true;
+			clearTimeout(timer);
+		};
 	});
 
 	$effect(() => {
@@ -152,7 +187,21 @@
 			},
 		}));
 
-		const all = [...nav, ...execs, ...flows, ...loops, ...remote];
+		const files: CommandItem[] = fileHits
+			.filter((hit) => !hit.is_dir)
+			.map((hit) => ({
+				id: `file:${hit.path}`,
+				label: hit.path.split('/').pop() ?? hit.path,
+				group: 'Files',
+				icon: 'file',
+				hint: hit.path,
+				run: () => {
+					ui.setCommandOpen(false);
+					void goto(buildIdeUrl(hit.path));
+				},
+			}));
+
+		const all = [...nav, ...files, ...execs, ...flows, ...loops, ...remote];
 		const needle = query.trim().toLowerCase();
 		if (!needle) return all.filter((item) => item.group === 'Navigate');
 		return all.filter(
@@ -248,6 +297,11 @@
 							<span class="shrink-0 truncate text-micro text-muted-foreground">{item.hint}</span>
 						</button>
 					{/each}
+					{#if group.name === 'Files' && fileTruncated}
+						<p class="px-2 py-1 text-micro text-muted-foreground">
+							{t('layout.commandPalette.filesTruncated')}
+						</p>
+					{/if}
 				{/each}
 			{/if}
 		</div>

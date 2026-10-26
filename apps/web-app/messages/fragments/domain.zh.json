@@ -213,6 +213,7 @@
 	"domain.files.diffUnavailable": "相对 main 的差异不可用",
 	"domain.files.download": "下载",
 	"domain.files.downloadUnavailable": "下载不可用",
+	"domain.files.openInIde": "在 IDE 中打开",
 	"domain.files.extraFeatures": "main 的额外 feature（逗号或空格分隔）",
 	"domain.files.feature": "Feature",
 	"domain.files.featureNamePlaceholder": "refs/wf/feat/<name> 的 feature 名称",

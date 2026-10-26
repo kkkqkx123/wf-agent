@@ -268,6 +268,114 @@ pub fn list_dir(ctx: &ApiContext, path: &str) -> FsResult<Vec<FsEntry>> {
     Ok(entries)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FsTreeEntry {
+    pub path: String,
+    pub is_dir: bool,
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FsTreeResult {
+    pub entries: Vec<FsTreeEntry>,
+    pub truncated: bool,
+}
+
+pub const FS_TREE_DEFAULT_DEPTH: u32 = 6;
+pub const FS_TREE_MAX_DEPTH: u32 = 12;
+pub const FS_TREE_DEFAULT_LIMIT: usize = 2000;
+pub const FS_TREE_MAX_LIMIT: usize = 5000;
+
+const FS_TREE_SKIPPED_DIRS: &[&str] = &[
+    ".git",
+    "target",
+    "node_modules",
+    "dist",
+    ".svelte-kit",
+    "__pycache__",
+];
+
+fn tree_skip_dir(name: &str) -> bool {
+    FS_TREE_SKIPPED_DIRS.contains(&name)
+}
+
+/// Read-only recursive listing for the command palette file index. Shares
+/// path validation with the single-level listing and never reads contents.
+pub fn list_tree(
+    ctx: &ApiContext,
+    base: &str,
+    max_depth: Option<u32>,
+    max_entries: Option<usize>,
+) -> FsResult<FsTreeResult> {
+    let depth = max_depth
+        .unwrap_or(FS_TREE_DEFAULT_DEPTH)
+        .clamp(1, FS_TREE_MAX_DEPTH);
+    let limit = max_entries
+        .unwrap_or(FS_TREE_DEFAULT_LIMIT)
+        .clamp(1, FS_TREE_MAX_LIMIT);
+    let root = workspace_root(ctx)?;
+    let base_absolute = validate_fs_path(&root, base)?;
+    let metadata =
+        std::fs::symlink_metadata(&base_absolute).map_err(|_| FsError::NotFound(base.to_string()))?;
+    if !metadata.file_type().is_dir() {
+        return Err(FsError::NotDirectory(base.to_string()));
+    }
+    let canonical = canonical_root(&root);
+    let mut entries = Vec::new();
+    let mut truncated = false;
+    let mut stack: Vec<(PathBuf, u32)> = vec![(base_absolute, 0)];
+    while let Some((dir, level)) = stack.pop() {
+        if level >= depth {
+            continue;
+        }
+        let read_dir =
+            std::fs::read_dir(&dir).map_err(|e| FsError::Io(format!("list tree: {e}")))?;
+        let mut children: Vec<PathBuf> = Vec::new();
+        for child in read_dir {
+            let child = child.map_err(|e| FsError::Io(format!("list tree: {e}")))?;
+            children.push(child.path());
+        }
+        children.sort_by(|a, b| {
+            let an = a.file_name().map(|n| n.to_string_lossy().to_lowercase());
+            let bn = b.file_name().map(|n| n.to_string_lossy().to_lowercase());
+            an.cmp(&bn).then_with(|| a.cmp(b))
+        });
+        for child_path in children {
+            if entries.len() >= limit {
+                truncated = true;
+                break;
+            }
+            if let Ok(resolved) = child_path.canonicalize() {
+                if !resolved.starts_with(&canonical) {
+                    continue;
+                }
+            }
+            let Ok(entry) = entry_of(&root, &child_path) else {
+                continue;
+            };
+            if entry.is_dir && tree_skip_dir(&entry.name) {
+                continue;
+            }
+            entries.push(FsTreeEntry {
+                path: entry.path.clone(),
+                is_dir: entry.is_dir,
+                size: entry.size,
+            });
+            if entries.len() >= limit {
+                truncated = true;
+                break;
+            }
+            if entry.is_dir {
+                stack.push((child_path, level + 1));
+            }
+        }
+        if truncated {
+            break;
+        }
+    }
+    Ok(FsTreeResult { entries, truncated })
+}
+
 pub fn stat_path(ctx: &ApiContext, path: &str) -> FsResult<FsStat> {
     let root = workspace_root(ctx)?;
     let absolute = validate_fs_path(&root, path)?;

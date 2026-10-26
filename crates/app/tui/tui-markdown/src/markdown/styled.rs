@@ -11,7 +11,7 @@
 use ratatui::text::{Line, Span};
 
 use super::document::{DocBlock, Document, StyleRole, StyledLine};
-use super::highlight::{CodeTokenKind, HighlightBlockState, HighlightCache};
+use super::highlight::{CodeTokenKind, HighlightCache};
 use super::render_options::{ChartMode, RenderOptions};
 use tui_style::motion::{self, MotionMode};
 use tui_style::theme;
@@ -481,13 +481,12 @@ fn code_block_lines_highlighted_with_options(
         "```",
         theme::tool_call_style(),
     )]));
-    let mut state = HighlightBlockState::new();
-    for raw in lines {
+    let highlighted = cache.highlight_block(language, lines);
+    for (raw, spans) in lines.iter().zip(highlighted) {
         if raw.is_empty() {
             continue;
         }
-        let spans: Vec<Span<'static>> = cache
-            .highlight_with_state(language, raw, &mut state)
+        let spans: Vec<Span<'static>> = spans
             .into_iter()
             .map(|token| Span::styled(token.text, style_for_token(token.kind)))
             .collect();

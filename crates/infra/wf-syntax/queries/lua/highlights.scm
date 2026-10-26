@@ -123,7 +123,7 @@
 
 (vararg_expression) @constant
 
-(nil) @constant.builtin
+(nil) @keyword
 
 [
   (false)

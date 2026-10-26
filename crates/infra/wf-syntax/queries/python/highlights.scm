@@ -41,7 +41,7 @@
   (none)
   (true)
   (false)
-] @constant.builtin
+] @keyword
 
 [
   (integer)

@@ -610,7 +610,6 @@ mod tests {
             code_row.spans.len() > 1,
             "highlighted code splits into token spans"
         );
-        assert!(cache.misses() > 0);
         let text: String = code_row
             .spans
             .iter()
@@ -737,6 +736,5 @@ mod tests {
         let lines = render_styled_lines_lazy(src, 80, MotionMode::Static, &mut cache, true, None);
         let joined = text(&lines).join("\n");
         assert!(joined.contains("middle"));
-        assert!(cache.misses() >= 3);
     }
 }

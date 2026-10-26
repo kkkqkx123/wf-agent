@@ -120,7 +120,7 @@
   (nil)
   (true)
   (false)
-] @constant.builtin
+] @keyword
 
 (interpolation
   "#{" @punctuation.special

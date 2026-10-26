@@ -178,7 +178,7 @@
 
 (inline_modifier) @storageclass
 
-(null_literal) @constant.builtin
+(null_literal) @keyword
 
 (wildcard) @parameter
 

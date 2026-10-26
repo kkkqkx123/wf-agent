@@ -147,7 +147,7 @@
 (string_literal) @string
 (raw_string_literal) @string
 
-(boolean_literal) @constant.builtin
+(boolean_literal) @keyword
 (integer_literal) @constant.builtin
 (float_literal) @constant.builtin
 

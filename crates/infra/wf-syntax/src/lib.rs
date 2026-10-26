@@ -45,7 +45,7 @@ pub fn normalize_language(language: Option<&str>) -> String {
         "py" | "py3" | "python3" => "python",
         "js" | "jsx" | "mjs" | "cjs" | "node" => "javascript",
         "ts" | "tsx" | "mts" | "cts" => "typescript",
-        "sh" | "bash" | "zsh" | "shell" => "bash",
+        "sh" | "bash" | "zsh" | "shell" | "shellscript" => "bash",
         "ps1" | "powershell" => "powershell",
         "yml" => "yaml",
         "c++" | "cc" | "cxx" | "hpp" | "h" | "cpp" => "cpp",
@@ -106,7 +106,15 @@ fn build_specs() -> HashMap<&'static str, LanguageSpec> {
     add!("ruby", tree_sitter_ruby::LANGUAGE.into(), include_str!("../queries/ruby/highlights.scm"));
     add!("rust", tree_sitter_rust::LANGUAGE.into(), include_str!("../queries/rust/highlights.scm"));
     add!("scala", tree_sitter_scala::LANGUAGE.into(), include_str!("../queries/scala/highlights.scm"));
-    add!("typescript", tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(), include_str!("../queries/typescript/highlights.scm"));
+    add!(
+        "typescript",
+        tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+        concat!(
+            include_str!("../queries/javascript/highlights.scm"),
+            "\n",
+            include_str!("../queries/typescript/highlights.scm")
+        )
+    );
 
     specs
 }
@@ -122,11 +130,14 @@ fn spec(normalized: &str) -> Option<&'static LanguageSpec> {
 }
 
 fn capture_kind(name: &str) -> CodeTokenKind {
+    if name.contains("language") || name.contains("boolean") {
+        return CodeTokenKind::Keyword;
+    }
     let base = name.split('.').next().unwrap_or(name);
     match base {
         "comment" | "documentation" => CodeTokenKind::Comment,
         "string" | "char" | "regex" => CodeTokenKind::String,
-        "number" | "float" | "integer" | "boolean" | "constant" => CodeTokenKind::Number,
+        "number" | "float" | "integer" | "constant" => CodeTokenKind::Number,
         "keyword" | "conditional" | "repeat" | "label" | "exception" => CodeTokenKind::Keyword,
         "function" | "method" | "constructor" | "macro" => CodeTokenKind::Function,
         "type" | "class" | "struct" | "enum" | "interface" | "trait" | "namespace" | "module" => CodeTokenKind::Type,
@@ -345,4 +356,55 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 
 pub fn content_hash(line: &str) -> u64 {
     fnv1a(line.as_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn typescript_combined_query_is_valid() {
+        let language: tree_sitter::Language =
+            tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into();
+        let source = concat!(
+            include_str!("../queries/javascript/highlights.scm"),
+            "\n",
+            include_str!("../queries/typescript/highlights.scm")
+        );
+        assert!(
+            Query::new(&language, source).is_ok(),
+            "combined TypeScript query must parse"
+        );
+    }
+
+    #[test]
+    fn all_language_specs_load() {
+        let expected = [
+            "bash", "c", "cpp", "csharp", "css", "dart", "go", "html", "java",
+            "javascript", "lua", "php", "python", "ruby", "rust", "scala",
+            "typescript",
+        ];
+        for language in expected {
+            assert!(
+                specs().contains_key(language),
+                "missing or invalid highlight spec for {language}"
+            );
+        }
+    }
+
+    #[test]
+    fn all_language_specs_highlight_trivial_input() {
+        for (language, _) in specs() {
+            let lines = highlight_block(Some(language), &["x".to_string()]);
+            assert_eq!(
+                lines.len(),
+                1,
+                "highlight_block returned wrong line count for {language}"
+            );
+            assert!(
+                !lines[0].is_empty(),
+                "highlight_block returned no spans for {language}"
+            );
+        }
+    }
 }

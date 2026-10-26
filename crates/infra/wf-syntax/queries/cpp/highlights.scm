@@ -30,7 +30,7 @@
 ; Constants
 
 (this) @variable.builtin
-(null "nullptr" @constant)
+(null "nullptr" @keyword)
 
 ; Keywords
 

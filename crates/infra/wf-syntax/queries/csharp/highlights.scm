@@ -52,10 +52,8 @@
 
 (escape_sequence) @string.escape
 
-[
-  (boolean_literal)
-  (null_literal)
-] @constant.builtin
+(boolean_literal) @keyword
+(null_literal) @keyword
 
 ;; Comments
 

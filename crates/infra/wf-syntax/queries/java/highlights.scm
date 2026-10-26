@@ -83,7 +83,7 @@
   (true)
   (false)
   (null_literal)
-] @constant.builtin
+] @keyword
 
 [
   (line_comment)

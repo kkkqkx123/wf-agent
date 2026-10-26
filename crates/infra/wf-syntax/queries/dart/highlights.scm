@@ -18,7 +18,7 @@
 
 (true) @boolean
 (false) @boolean
-(null_literal) @constant.builtin
+(null_literal) @keyword
 
 (string_literal) @string
 (template_chars_single) @string

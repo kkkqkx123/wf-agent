@@ -117,7 +117,8 @@
   (true)
   (false)
   (nil)
-  (iota)
-] @constant.builtin
+] @keyword
+
+(iota) @constant.builtin
 
 (comment) @comment

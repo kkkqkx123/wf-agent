@@ -8,7 +8,7 @@
 	 */
 	import { cn } from '#lib/ui/cn';
 	import Icon from '#lib/ui/icons/Icon.svelte';
-	import { highlightCode, normalizeLanguage, type TokenKind } from '#lib/utils/highlight';
+	import { highlightCode, normalizeLanguage, type TokenKind, type HighlightLine } from '#lib/utils/highlight';
 	import { t } from '#lib/i18n';
 
 	interface Props {
@@ -33,7 +33,18 @@
 					? node.content
 					: '',
 	);
-	const lines = $derived(highlightCode(code, rawLanguage));
+	let lines = $state<HighlightLine[]>([]);
+	$effect(() => {
+		const currentCode = code;
+		const currentLanguage = rawLanguage;
+		let cancelled = false;
+		highlightCode(currentCode, currentLanguage).then((result) => {
+			if (!cancelled) lines = result;
+		});
+		return () => {
+			cancelled = true;
+		};
+	});
 	// Flatten the token lines into one stream with explicit newline entries so
 	// the template emits variable text rather than a per-line string literal.
 	type RenderToken = { kind: TokenKind | 'newline'; text: string };

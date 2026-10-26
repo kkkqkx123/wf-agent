@@ -77,7 +77,7 @@
   (false)
   (null)
   (undefined)
-] @constant.builtin
+] @keyword
 
 (comment) @comment
 

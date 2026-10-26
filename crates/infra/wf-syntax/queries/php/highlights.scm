@@ -191,8 +191,8 @@
   (heredoc_body)
   (nowdoc_body)
 ] @string
-(boolean) @constant.builtin
-(null) @constant.builtin
+(boolean) @keyword
+(null) @keyword
 (integer) @number
 (float) @number
 (comment) @comment

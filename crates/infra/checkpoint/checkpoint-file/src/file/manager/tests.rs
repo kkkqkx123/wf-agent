@@ -542,11 +542,15 @@ fn revert_feature_keeps_interleaved_feature_intact() {
     manager
         .create_checkpoint("exec-a", &[entry("a.txt", b"feature-a\n")])
         .unwrap();
-    manager.merge_agent_to_feature("exec-a", "feature-a").unwrap();
+    manager
+        .merge_agent_to_feature("exec-a", "feature-a")
+        .unwrap();
     manager
         .create_checkpoint("exec-b", &[entry("b.txt", b"feature-b\n")])
         .unwrap();
-    manager.merge_agent_to_feature("exec-b", "feature-b").unwrap();
+    manager
+        .merge_agent_to_feature("exec-b", "feature-b")
+        .unwrap();
     manager
         .merge_features_to_main(&["feature-a", "feature-b"])
         .unwrap();

@@ -12,6 +12,7 @@
 
 	import GitActionDialogs from '#lib/components/domain/git/GitActionDialogs.svelte';
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
 	import { GitWorkbench, PANELS } from '#lib/git/workbench.svelte';
 	import type { PanelId } from '#lib/git/workbench.svelte';
@@ -35,6 +36,11 @@
 
 	onMount(() => workbench.start());
 	onDestroy(() => workbench.stop());
+
+	function gotoOpenInIde(selection: string | null): void {
+		const target = selection ? `/ide?path=${encodeURIComponent(selection)}` : '/ide';
+		void goto(target);
+	}
 
 	$effect(() => {
 		void gotoWithParams(page.url as unknown as URL, {
@@ -64,6 +70,9 @@
 			/>
 			<Button size="sm" variant="outline" onclick={() => void workbench.toggleTerminal()}>
 				{workbench.terminalOpen ? t('page.git.hideTerminal') : t('page.git.terminal')}
+			</Button>
+			<Button size="sm" variant="outline" onclick={() => void gotoOpenInIde(workbench.selection)}>
+				{t('page.git.openInIde')}
 			</Button>
 		{/snippet}
 	</PageHeader>

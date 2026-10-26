@@ -473,10 +473,7 @@ mod tests {
             .unwrap()
             .expect("linked file set materialized");
         assert_eq!(outcome.restored, 1);
-        assert_eq!(
-            std::fs::read(dir.path().join("a.txt")).unwrap(),
-            b"one\n"
-        );
+        assert_eq!(std::fs::read(dir.path().join("a.txt")).unwrap(), b"one\n");
         // No link: explicit None, never a fallback to latest.
         assert!(manager
             .materialize_state_files(

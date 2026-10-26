@@ -21,6 +21,8 @@
 	"config.navigation.checkpointsDescription": "执行链、文件工作区与审批",
 	"config.navigation.git": "Git",
 	"config.navigation.gitDescription": "用户仓库工作台：状态、文件、分支与终端",
+	"config.navigation.ide": "IDE",
+	"config.navigation.ideDescription": "轻量文件树、编辑器与终端",
 	"config.navigation.triggers": "触发器",
 	"config.navigation.triggersDescription": "触发器记录与钩子测试分发",
 	"config.navigation.modelsTools": "模型与工具",

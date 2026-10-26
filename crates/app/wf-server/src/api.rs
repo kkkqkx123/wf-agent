@@ -3,6 +3,7 @@ pub mod chat;
 pub mod checkpoint;
 pub mod definition;
 pub mod entity;
+pub mod fs;
 pub mod git;
 pub mod llm;
 pub mod observation;

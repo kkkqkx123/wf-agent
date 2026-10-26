@@ -330,6 +330,14 @@ use utoipa::OpenApi;
         crate::api::pty::handle_update_pty,
         crate::api::pty::handle_connect_pty,
         crate::api::pty::handle_pty_connect_token,
+        // ── fs (workspace filesystem) ──
+        crate::api::fs::handle_fs_list,
+        crate::api::fs::handle_fs_content,
+        crate::api::fs::handle_fs_stat,
+        crate::api::fs::handle_fs_write,
+        crate::api::fs::handle_fs_create,
+        crate::api::fs::handle_fs_delete,
+        crate::api::fs::handle_fs_rename,
         // ── trigger ──
         crate::api::trigger::executions::handle_list_trigger_executions,
         crate::api::trigger::executions::handle_save_trigger_execution,
@@ -757,6 +765,12 @@ use utoipa::OpenApi;
         crate::api::checkpoint::file_sync::ExportRequest,
         crate::api::checkpoint::file_sync::RebaseRequest,
         crate::api::git::actions::GitActionBody,
+        crate::api::fs::FsEntryView,
+        crate::api::fs::FsFileView,
+        crate::api::fs::FsStatView,
+        crate::api::fs::FsWriteBody,
+        crate::api::fs::FsCreateBody,
+        crate::api::fs::FsRenameBody,
         crate::api::pty::PtySession,
         crate::api::pty::PtySessionStatus,
         crate::api::pty::CreatePtyBody,
@@ -792,6 +806,7 @@ use utoipa::OpenApi;
         (name = "system", description = "Health, events, dependencies, and metrics"),
         (name = "web", description = "User preferences, favorites, and batch operations"),
         (name = "git", description = "User repository version control: read-only queries, unified action entry, terminal sessions"),
+        (name = "fs", description = "Workspace filesystem: directory listing, file read/write, entries"),
     ),
     servers(
         (url = "/", description = "Server root; paths include the /api/v1 prefix where applicable")

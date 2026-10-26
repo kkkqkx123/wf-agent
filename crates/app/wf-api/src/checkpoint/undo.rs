@@ -30,11 +30,7 @@ fn has_trigger(checkpoint: &wf_types::Checkpoint, trigger: &str) -> bool {
 /// are not unique, so equal timestamps fall back to id order instead of
 /// depending on storage return order.
 fn sort_checkpoints_for_boundaries(sorted: &mut [wf_types::Checkpoint]) {
-    sorted.sort_by(|a, b| {
-        a.timestamp
-            .cmp(&b.timestamp)
-            .then_with(|| a.id.cmp(&b.id))
-    });
+    sorted.sort_by(|a, b| a.timestamp.cmp(&b.timestamp).then_with(|| a.id.cmp(&b.id)));
 }
 
 fn is_terminal(checkpoint: &wf_types::Checkpoint) -> bool {

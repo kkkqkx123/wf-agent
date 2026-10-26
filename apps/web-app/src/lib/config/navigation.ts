@@ -88,6 +88,12 @@ export const NAV_GROUPS: NavGroup[] = [
 				icon: 'git-commit',
 				description: message('config.navigation.gitDescription'),
 			},
+			{
+				href: '/ide',
+				label: message('config.navigation.ide'),
+				icon: 'code',
+				description: message('config.navigation.ideDescription'),
+			},
 		],
 	},
 	{

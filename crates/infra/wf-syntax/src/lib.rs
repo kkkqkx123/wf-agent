@@ -35,7 +35,10 @@ pub struct CodeSpan {
 
 impl CodeSpan {
     pub fn new(text: impl Into<String>, kind: CodeTokenKind) -> Self {
-        Self { text: text.into(), kind }
+        Self {
+            text: text.into(),
+            kind,
+        }
     }
 }
 
@@ -94,22 +97,86 @@ fn build_specs() -> HashMap<&'static str, LanguageSpec> {
         };
     }
 
-    add!("bash", tree_sitter_bash::LANGUAGE.into(), include_str!("../queries/bash/highlights.scm"));
-    add!("c", tree_sitter_c::LANGUAGE.into(), include_str!("../queries/c/highlights.scm"));
-    add!("cpp", tree_sitter_cpp::LANGUAGE.into(), include_str!("../queries/cpp/highlights.scm"));
-    add!("csharp", tree_sitter_c_sharp::LANGUAGE.into(), include_str!("../queries/csharp/highlights.scm"));
-    add!("css", tree_sitter_css::LANGUAGE.into(), include_str!("../queries/css/highlights.scm"));
-    add!("dart", tree_sitter_dart::LANGUAGE.into(), include_str!("../queries/dart/highlights.scm"));
-    add!("go", tree_sitter_go::LANGUAGE.into(), include_str!("../queries/go/highlights.scm"));
-    add!("html", tree_sitter_html::LANGUAGE.into(), include_str!("../queries/html/highlights.scm"));
-    add!("java", tree_sitter_java::LANGUAGE.into(), include_str!("../queries/java/highlights.scm"));
-    add!("javascript", tree_sitter_javascript::LANGUAGE.into(), include_str!("../queries/javascript/highlights.scm"));
-    add!("lua", tree_sitter_lua::LANGUAGE.into(), include_str!("../queries/lua/highlights.scm"));
-    add!("php", tree_sitter_php::LANGUAGE_PHP.into(), include_str!("../queries/php/highlights.scm"));
-    add!("python", tree_sitter_python::LANGUAGE.into(), include_str!("../queries/python/highlights.scm"));
-    add!("ruby", tree_sitter_ruby::LANGUAGE.into(), include_str!("../queries/ruby/highlights.scm"));
-    add!("rust", tree_sitter_rust::LANGUAGE.into(), include_str!("../queries/rust/highlights.scm"));
-    add!("scala", tree_sitter_scala::LANGUAGE.into(), include_str!("../queries/scala/highlights.scm"));
+    add!(
+        "bash",
+        tree_sitter_bash::LANGUAGE.into(),
+        include_str!("../queries/bash/highlights.scm")
+    );
+    add!(
+        "c",
+        tree_sitter_c::LANGUAGE.into(),
+        include_str!("../queries/c/highlights.scm")
+    );
+    add!(
+        "cpp",
+        tree_sitter_cpp::LANGUAGE.into(),
+        include_str!("../queries/cpp/highlights.scm")
+    );
+    add!(
+        "csharp",
+        tree_sitter_c_sharp::LANGUAGE.into(),
+        include_str!("../queries/csharp/highlights.scm")
+    );
+    add!(
+        "css",
+        tree_sitter_css::LANGUAGE.into(),
+        include_str!("../queries/css/highlights.scm")
+    );
+    add!(
+        "dart",
+        tree_sitter_dart::LANGUAGE.into(),
+        include_str!("../queries/dart/highlights.scm")
+    );
+    add!(
+        "go",
+        tree_sitter_go::LANGUAGE.into(),
+        include_str!("../queries/go/highlights.scm")
+    );
+    add!(
+        "html",
+        tree_sitter_html::LANGUAGE.into(),
+        include_str!("../queries/html/highlights.scm")
+    );
+    add!(
+        "java",
+        tree_sitter_java::LANGUAGE.into(),
+        include_str!("../queries/java/highlights.scm")
+    );
+    add!(
+        "javascript",
+        tree_sitter_javascript::LANGUAGE.into(),
+        include_str!("../queries/javascript/highlights.scm")
+    );
+    add!(
+        "lua",
+        tree_sitter_lua::LANGUAGE.into(),
+        include_str!("../queries/lua/highlights.scm")
+    );
+    add!(
+        "php",
+        tree_sitter_php::LANGUAGE_PHP.into(),
+        include_str!("../queries/php/highlights.scm")
+    );
+    add!(
+        "python",
+        tree_sitter_python::LANGUAGE.into(),
+        include_str!("../queries/python/highlights.scm")
+    );
+    add!(
+        "ruby",
+        tree_sitter_ruby::LANGUAGE.into(),
+        include_str!("../queries/ruby/highlights.scm")
+    );
+    add!(
+        "rust",
+        tree_sitter_rust::LANGUAGE.into(),
+        include_str!("../queries/rust/highlights.scm")
+    );
+    add!(
+        "scala",
+        tree_sitter_scala::LANGUAGE.into(),
+        include_str!("../queries/scala/highlights.scm")
+    );
     add!(
         "typescript",
         tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
@@ -144,7 +211,9 @@ fn capture_kind(name: &str) -> CodeTokenKind {
         "number" | "float" | "integer" | "constant" => CodeTokenKind::Number,
         "keyword" | "conditional" | "repeat" | "label" | "exception" => CodeTokenKind::Keyword,
         "function" | "method" | "constructor" | "macro" => CodeTokenKind::Function,
-        "type" | "class" | "struct" | "enum" | "interface" | "trait" | "namespace" | "module" => CodeTokenKind::Type,
+        "type" | "class" | "struct" | "enum" | "interface" | "trait" | "namespace" | "module" => {
+            CodeTokenKind::Type
+        }
         _ => CodeTokenKind::Plain,
     }
 }
@@ -183,10 +252,7 @@ pub fn highlight_block(language: Option<&str>, lines: &[String]) -> Vec<Vec<Code
             ranges.push((capture.node.start_byte(), capture.node.end_byte(), name));
         }
     }
-    ranges.sort_by(|a, b| {
-        a.0.cmp(&b.0)
-            .then((b.1 - b.0).cmp(&(a.1 - a.0)))
-    });
+    ranges.sort_by(|a, b| a.0.cmp(&b.0).then((b.1 - b.0).cmp(&(a.1 - a.0))));
 
     let mut line_starts = Vec::with_capacity(lines.len());
     let mut acc = 0usize;
@@ -317,7 +383,9 @@ impl HighlightCache {
         self.entries.is_empty()
     }
     pub fn bytes(&self) -> usize {
-        self.entries.len().saturating_mul(BYTES_PER_HIGHLIGHT_LINE_ESTIMATE)
+        self.entries
+            .len()
+            .saturating_mul(BYTES_PER_HIGHLIGHT_LINE_ESTIMATE)
     }
     pub fn hits(&self) -> u64 {
         self.hits
@@ -368,8 +436,7 @@ mod tests {
 
     #[test]
     fn typescript_combined_query_is_valid() {
-        let language: tree_sitter::Language =
-            tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into();
+        let language: tree_sitter::Language = tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into();
         let source = concat!(
             include_str!("../queries/javascript/highlights.scm"),
             "\n",
@@ -384,8 +451,22 @@ mod tests {
     #[test]
     fn all_language_specs_load() {
         let expected = [
-            "bash", "c", "cpp", "csharp", "css", "dart", "go", "html", "java",
-            "javascript", "lua", "php", "python", "ruby", "rust", "scala",
+            "bash",
+            "c",
+            "cpp",
+            "csharp",
+            "css",
+            "dart",
+            "go",
+            "html",
+            "java",
+            "javascript",
+            "lua",
+            "php",
+            "python",
+            "ruby",
+            "rust",
+            "scala",
             "typescript",
         ];
         for language in expected {
@@ -424,8 +505,15 @@ mod tests {
             let (alias, canonical) = line
                 .split_once('\t')
                 .unwrap_or_else(|| panic!("alias line missing tab separator: {line}"));
-            assert!(!alias.is_empty() && !canonical.is_empty(), "blank field in: {line}");
-            assert_eq!(normalize_language(Some(alias)), canonical, "alias not applied");
+            assert!(
+                !alias.is_empty() && !canonical.is_empty(),
+                "blank field in: {line}"
+            );
+            assert_eq!(
+                normalize_language(Some(alias)),
+                canonical,
+                "alias not applied"
+            );
             count += 1;
         }
         assert!(count > 0, "alias table must not be empty");

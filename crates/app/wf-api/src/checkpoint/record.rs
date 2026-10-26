@@ -211,11 +211,7 @@ pub fn empty_chain(execution_id: &str) -> CheckpointChainAnalysisView {
 fn build_chain(execution_id: &str, mut sorted: Vec<Checkpoint>) -> CheckpointChainAnalysisView {
     // Deterministic order: timestamp alone is not unique, so equal
     // timestamps fall back to id order instead of storage order.
-    sorted.sort_by(|a, b| {
-        a.timestamp
-            .cmp(&b.timestamp)
-            .then_with(|| a.id.cmp(&b.id))
-    });
+    sorted.sort_by(|a, b| a.timestamp.cmp(&b.timestamp).then_with(|| a.id.cmp(&b.id)));
 
     let mut transitions = Vec::new();
     for window in sorted.windows(2) {
@@ -385,11 +381,7 @@ pub async fn list_checkpoints_by_time_range(
         .list_by_entities_with_metadata(&entity_ids, "checkpoint")
         .await?;
     checkpoints.retain(|c| c.timestamp >= start && c.timestamp <= end);
-    checkpoints.sort_by(|a, b| {
-        a.timestamp
-            .cmp(&b.timestamp)
-            .then_with(|| a.id.cmp(&b.id))
-    });
+    checkpoints.sort_by(|a, b| a.timestamp.cmp(&b.timestamp).then_with(|| a.id.cmp(&b.id)));
     Ok(checkpoints)
 }
 
@@ -407,7 +399,8 @@ mod tests {
     use super::*;
     use wf_types::checkpoint::base::{CheckpointStatus, CheckpointType};
 
-    fn make_checkpoint(id: &str, entity_id: &str, ts: i64) -> Checkpoint {        Checkpoint {
+    fn make_checkpoint(id: &str, entity_id: &str, ts: i64) -> Checkpoint {
+        Checkpoint {
             id: id.into(),
             entity_type: "checkpoint".into(),
             entity_id: entity_id.into(),
@@ -626,24 +619,13 @@ mod tests {
         save_checkpoint(&ctx, &make_checkpoint("cp-tag", "ex-1", 1000))
             .await
             .unwrap();
-        let err = update_checkpoint_tags(
-            &ctx,
-            "cp-tag",
-            vec!["trigger:MANUAL".to_string()],
-        )
-        .await
-        .unwrap_err();
+        let err = update_checkpoint_tags(&ctx, "cp-tag", vec!["trigger:MANUAL".to_string()])
+            .await
+            .unwrap_err();
         assert!(matches!(err, crate::ApiError::Validation(_)));
-        let updated = update_checkpoint_tags(
-            &ctx,
-            "cp-tag",
-            vec!["user:reviewed".to_string()],
-        )
-        .await
-        .unwrap();
-        assert_eq!(
-            updated.tags,
-            Some(vec!["user:reviewed".to_string()])
-        );
+        let updated = update_checkpoint_tags(&ctx, "cp-tag", vec!["user:reviewed".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(updated.tags, Some(vec!["user:reviewed".to_string()]));
     }
 }

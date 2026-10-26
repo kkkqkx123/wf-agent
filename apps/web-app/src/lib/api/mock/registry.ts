@@ -20,6 +20,7 @@ import { registerTriggers } from './routes/triggers';
 import { registerFileCheckpoint } from './routes/file-checkpoint';
 import { registerGit } from './routes/git';
 import { registerPty } from './routes/pty';
+import { registerFs } from './routes/fs';
 
 export function registerAllRoutes(router: MockRouter): void {
 	// Definition routes come first: their literal paths (`/workflows/drafts`,
@@ -36,4 +37,5 @@ export function registerAllRoutes(router: MockRouter): void {
 	registerFileCheckpoint(router);
 	registerGit(router);
 	registerPty(router);
+	registerFs(router);
 }

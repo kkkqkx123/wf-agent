@@ -80,6 +80,7 @@ pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddleware
         // user git domain (read-only queries + unified action)
         .merge(api::git::readonly::routes())
         .merge(api::git::actions::routes())
+        .merge(api::fs::routes())
         .merge(api::pty::routes())
         // trigger domain (ledger + template activation gateway)
         .merge(api::trigger::executions::routes())

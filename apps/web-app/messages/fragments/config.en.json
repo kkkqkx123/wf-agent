@@ -21,6 +21,8 @@
 	"config.navigation.checkpointsDescription": "Execution chains, file workspace and approvals",
 	"config.navigation.git": "Git",
 	"config.navigation.gitDescription": "User repository workbench: status, files, branches and terminal",
+	"config.navigation.ide": "IDE",
+	"config.navigation.ideDescription": "Lightweight file tree, editor and terminal",
 	"config.navigation.triggers": "Triggers",
 	"config.navigation.triggersDescription": "Trigger records and hook test dispatch",
 	"config.navigation.modelsTools": "Models & Tools",

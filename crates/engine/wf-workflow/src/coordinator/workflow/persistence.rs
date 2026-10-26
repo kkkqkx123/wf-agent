@@ -47,15 +47,14 @@ impl WorkflowCoordinator {
         else {
             return;
         };
-        let record =
-            build_workflow_execution(
-                entity,
-                self.traversal.graph(),
-                &self.ctx.options,
-                None,
-                entity.debug_run(),
-            )
-            .await;
+        let record = build_workflow_execution(
+            entity,
+            self.traversal.graph(),
+            &self.ctx.options,
+            None,
+            entity.debug_run(),
+        )
+        .await;
         manager.persist_workflow(&record).await;
     }
 

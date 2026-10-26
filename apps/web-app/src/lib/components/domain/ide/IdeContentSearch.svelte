@@ -14,6 +14,9 @@
 
 	let query = $state('');
 	let scope = $state('');
+	let caseSensitive = $state(false);
+	let wholeWord = $state(false);
+	let useRegex = $state(false);
 	let matches = $state<FsContentMatch[]>([]);
 	let truncated = $state(false);
 	let searching = $state(false);
@@ -46,7 +49,13 @@
 		let cancelled = false;
 		const timer = setTimeout(() => {
 			searching = true;
-			void searchFsContent(needle, { path: scope.trim(), limit: 100 })
+			void searchFsContent(needle, {
+				path: scope.trim(),
+				caseSensitive,
+				wholeWord,
+				regex: useRegex,
+				limit: 100,
+			})
 				.then((result) => {
 					if (cancelled || !open) return;
 					matches = result.matches;
@@ -105,6 +114,20 @@
 			aria-label={t('page.ide.searchPathPlaceholder')}
 			class="h-8 w-full rounded-md border border-input bg-card px-3 text-caption focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 		/>
+		<div class="flex flex-wrap gap-4 text-caption text-muted-foreground">
+			<label class="flex cursor-pointer items-center gap-1.5">
+				<input type="checkbox" bind:checked={caseSensitive} class="accent-primary" />
+				{t('page.ide.searchCaseSensitive')}
+			</label>
+			<label class="flex cursor-pointer items-center gap-1.5">
+				<input type="checkbox" bind:checked={wholeWord} class="accent-primary" />
+				{t('page.ide.searchWholeWord')}
+			</label>
+			<label class="flex cursor-pointer items-center gap-1.5">
+				<input type="checkbox" bind:checked={useRegex} class="accent-primary" />
+				{t('page.ide.searchRegex')}
+			</label>
+		</div>
 		<div class="max-h-72 overflow-y-auto">
 			{#if error}
 				<p class="px-2 py-3 text-caption text-destructive">{error}</p>

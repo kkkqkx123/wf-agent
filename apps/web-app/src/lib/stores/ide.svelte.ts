@@ -2,6 +2,8 @@ import { SvelteMap } from 'svelte/reactivity';
 import { listFs, readFsFile, writeFsFile, languageForPath } from '#lib/services/fs';
 import { listFiles } from '#lib/services/git';
 import { aggregateBadges, badgeForFile, type GitBadgeLevel } from '#lib/utils/git-badges';
+import { toasts } from '#lib/stores/toast.svelte';
+import { t } from '#lib/i18n';
 import type { FsEntry } from '#lib/services/fs';
 
 export interface IdeFileTab {
@@ -55,6 +57,17 @@ export interface IdeReveal {
 	col: number | null;
 }
 
+/** UI-level IDE commands that can be queued from the command palette. */
+export type IdeCommand =
+	| 'quickOpen'
+	| 'contentSearch'
+	| 'newFile'
+	| 'newFolder'
+	| 'saveFile'
+	| 'saveAll'
+	| 'reveal'
+	| 'copyPath';
+
 export class IdeStore {
 	dirs = $state<SvelteMap<string, IdeDirState>>(new SvelteMap());
 	tabs = $state<IdeFileTab[]>([]);
@@ -67,8 +80,9 @@ export class IdeStore {
 	pendingReveal = $state<IdeReveal | null>(null);
 	gitBadges = $state<SvelteMap<string, GitBadgeLevel>>(new SvelteMap());
 	gitBadgesAvailable = $state(true);
-	inspectorOpen = $state(false);
 	revealRequest = $state<string | null>(null);
+	commandQueue = $state<IdeCommand[]>([]);
+	rootCreateRequest = $state<{ isDir: boolean; nonce: number } | null>(null);
 
 	constructor() {
 		const saved = readSession<{ tabs: string[]; active: string | null }>('tabs', {
@@ -96,7 +110,6 @@ export class IdeStore {
 			if (Number.isFinite(height) && height >= 120 && height <= 800) {
 				this.terminalHeight = height;
 			}
-			this.inspectorOpen = sessionStorage.getItem(storageKey('inspector')) === '1';
 			this.terminalMaximized = sessionStorage.getItem(storageKey('term-max')) === '1';
 			const sidebar = sessionStorage.getItem(storageKey('sidebar'));
 			this.sidebarOpen = sidebar === null ? true : sidebar === '1';
@@ -205,9 +218,7 @@ export class IdeStore {
 			if (previewIndex >= 0) this.tabs.splice(previewIndex, 1, tab);
 			else this.tabs.push(tab);
 		} else {
-			const previewIndex = this.tabs.findIndex((t) => t.preview);
-			if (previewIndex >= 0) this.tabs.splice(previewIndex, 1, tab);
-			else this.tabs.push(tab);
+			this.tabs.push(tab);
 		}
 		this.evictExcessTabs(path);
 		this.activePath = path;
@@ -216,12 +227,17 @@ export class IdeStore {
 	}
 
 	private evictExcessTabs(keepPath: string): void {
+		let evicted = 0;
 		while (this.tabs.length > MAX_OPEN_TABS) {
 			const victim = this.tabs.find(
 				(t) => t.path !== keepPath && t.path !== this.activePath && t.content === t.original,
 			);
 			if (!victim) return;
 			this.tabs = this.tabs.filter((t) => t !== victim);
+			evicted += 1;
+		}
+		if (evicted > 0) {
+			toasts.warning(t('page.ide.tabLimitTitle', { count: evicted }));
 		}
 	}
 
@@ -413,11 +429,6 @@ export class IdeStore {
 		}
 	}
 
-	setInspectorOpen(open: boolean): void {
-		this.inspectorOpen = open;
-		writeSession('inspector', open ? '1' : '0');
-	}
-
 	setSidebarOpen(open: boolean): void {
 		this.sidebarOpen = open;
 		writeSession('sidebar', open ? '1' : '0');
@@ -440,6 +451,23 @@ export class IdeStore {
 		const pending = this.revealRequest;
 		this.revealRequest = null;
 		return pending;
+	}
+
+	/** Queue a UI-level IDE command (from the command palette) for the page. */
+	requestCommand(command: IdeCommand): void {
+		this.commandQueue = [...this.commandQueue, command];
+	}
+
+	consumeCommand(): IdeCommand | null {
+		const [next, ...rest] = this.commandQueue;
+		if (next === undefined) return null;
+		this.commandQueue = rest;
+		return next;
+	}
+
+	/** Ask the file tree to start an inline create input at the workspace root. */
+	requestRootCreate(isDir: boolean): void {
+		this.rootCreateRequest = { isDir, nonce: (this.rootCreateRequest?.nonce ?? 0) + 1 };
 	}
 
 	/** Refresh the version-status table from the git change list. Never throws. */

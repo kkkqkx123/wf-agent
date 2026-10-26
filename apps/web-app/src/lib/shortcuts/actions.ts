@@ -176,12 +176,6 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
 		scope: 'ide',
 	},
 	{
-		id: 'ide.toggleInspector',
-		label: 'Toggle inspector panel',
-		defaultKeys: 'Mod+i',
-		scope: 'ide',
-	},
-	{
 		id: 'ide.quickOpen',
 		label: 'Quick open file',
 		defaultKeys: 'Mod+p',

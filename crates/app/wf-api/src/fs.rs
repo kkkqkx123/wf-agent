@@ -33,6 +33,7 @@ pub struct FsStat {
     pub size: u64,
     pub modified_ms: Option<i64>,
     pub is_binary: Option<bool>,
+    pub hash: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -389,12 +390,20 @@ pub fn stat_path(ctx: &ApiContext, path: &str) -> FsResult<FsStat> {
         let probe = read_probe(&absolute)?;
         Some(is_binary_bytes(&probe))
     };
+    let hash = if is_dir {
+        None
+    } else {
+        let bytes =
+            std::fs::read(&absolute).map_err(|e| FsError::Io(format!("read {path}: {e}")))?;
+        Some(file_hash(&bytes))
+    };
     Ok(FsStat {
         path: path.to_string(),
         is_dir,
         size,
         modified_ms: modified_ms(&metadata),
         is_binary,
+        hash,
     })
 }
 
@@ -656,6 +665,8 @@ pub fn search_files(
     include: Option<&str>,
     case_sensitive: bool,
     is_regex: bool,
+    whole_word: bool,
+    offset: usize,
     max_results: Option<usize>,
 ) -> FsResult<FsSearchResult> {
     let needle = query.trim();
@@ -668,11 +679,14 @@ pub fn search_files(
     let limit = max_results
         .unwrap_or(FS_SEARCH_DEFAULT_LIMIT)
         .clamp(1, FS_SEARCH_MAX_LIMIT);
-    let pattern = if is_regex {
+    let mut pattern = if is_regex {
         needle.to_string()
     } else {
         regex::escape(needle)
     };
+    if whole_word {
+        pattern = format!(r"\b(?:{pattern})\b");
+    }
     let pattern = if case_sensitive {
         pattern
     } else {
@@ -690,6 +704,7 @@ pub fn search_files(
     }
     let canonical = canonical_root(&root);
     let mut matches = Vec::new();
+    let mut collected: usize = 0;
     let mut truncated = false;
     let mut stack = vec![base_absolute];
     while let Some(dir) = stack.pop() {
@@ -746,6 +761,10 @@ pub fn search_files(
                 let Some(found) = regex.find(line) else {
                     continue;
                 };
+                if matches.len() + collected < offset {
+                    collected += 1;
+                    continue;
+                }
                 let preview = if line.len() > 500 {
                     format!("{} [truncated]", &line[..500])
                 } else {

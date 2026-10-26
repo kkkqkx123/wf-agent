@@ -10419,6 +10419,7 @@ export interface components {
             truncated: boolean;
         };
         FsStatView: {
+            hash?: string | null;
             is_binary?: boolean | null;
             is_dir: boolean;
             /** Format: int64 */

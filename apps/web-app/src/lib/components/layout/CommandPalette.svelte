@@ -12,7 +12,7 @@
 	import { unifiedSearch, type SearchHit } from '#lib/services/search';
 import { buildIdeUrl } from '#lib/utils/ide-url';
 import { filterFsTree, getFsTreeIndex } from '#lib/utils/fs-tree-index';
-import { ide } from '#lib/stores/ide.svelte';
+import { ide, type IdeCommand } from '#lib/stores/ide.svelte';
 	import type { AgentLoop, Execution, Workflow } from '#lib/types/models';
 	import { ui } from '#lib/stores/ui.svelte';
 	import { cn } from '#lib/ui/cn';
@@ -23,6 +23,7 @@ import { ide } from '#lib/stores/ide.svelte';
 	const GROUP_LABEL: Record<string, MessageKey> = {
 		Navigate: 'layout.commandPalette.groupNavigate',
 		Files: 'layout.commandPalette.groupFiles',
+		IDE: 'layout.commandPalette.groupIde',
 		Executions: 'layout.commandPalette.groupExecutions',
 		Workflows: 'layout.commandPalette.groupWorkflows',
 		'Agent loops': 'layout.commandPalette.groupLoops',
@@ -201,9 +202,32 @@ import { ide } from '#lib/stores/ide.svelte';
 				},
 			}));
 
-		const all = [...nav, ...files, ...execs, ...flows, ...loops, ...remote];
+		const ideCommands: CommandItem[] = (
+			[
+				{ id: 'ide:quickOpen', label: t('page.ide.quickOpenTitle'), icon: 'search' as IconName, command: 'quickOpen' },
+				{ id: 'ide:contentSearch', label: t('page.ide.searchTitle'), icon: 'search' as IconName, command: 'contentSearch' },
+				{ id: 'ide:newFile', label: t('page.ide.newFile'), icon: 'plus' as IconName, command: 'newFile' },
+				{ id: 'ide:newFolder', label: t('page.ide.newFolder'), icon: 'folder' as IconName, command: 'newFolder' },
+				{ id: 'ide:saveFile', label: t('page.ide.saveFile'), icon: 'save' as IconName, command: 'saveFile' },
+				{ id: 'ide:saveAll', label: t('page.ide.saveAll'), icon: 'save' as IconName, command: 'saveAll' },
+				{ id: 'ide:reveal', label: t('page.ide.locateInTree'), icon: 'folder' as IconName, command: 'reveal' },
+				{ id: 'ide:copyPath', label: t('page.ide.copyPath'), icon: 'file' as IconName, command: 'copyPath' },
+			] as Array<{ id: string; label: string; icon: IconName; command: IdeCommand }>
+		).map(({ id, label, icon, command }) => ({
+			id,
+			label,
+			group: 'IDE',
+			icon,
+			hint: '',
+			run: () => {
+				ui.setCommandOpen(false);
+				ide.requestCommand(command);
+			},
+		}));
+
+		const all = [...nav, ...ideCommands, ...files, ...execs, ...flows, ...loops, ...remote];
 		const needle = query.trim().toLowerCase();
-		if (!needle) return all.filter((item) => item.group === 'Navigate');
+		if (!needle) return all.filter((item) => item.group === 'Navigate' || item.group === 'IDE');
 		return all.filter(
 			(item) =>
 				item.label.toLowerCase().includes(needle) || item.hint.toLowerCase().includes(needle),

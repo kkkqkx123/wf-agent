@@ -17,7 +17,6 @@ export interface IdeShortcutHandlers {
 	closeTab(): void;
 	toggleSidebar(): void;
 	toggleTerminal(): void;
-	toggleInspector(): void;
 	quickOpen(): void;
 	contentSearch(): void;
 	revealInTree(): void;
@@ -59,7 +58,6 @@ export function registerIdeShortcuts(
 	bind('ide.closeTab', (h) => h.closeTab());
 	bind('ide.toggleSidebar', (h) => h.toggleSidebar());
 	bind('ide.toggleTerminal', (h) => h.toggleTerminal());
-	bind('ide.toggleInspector', (h) => h.toggleInspector());
 	bind('ide.quickOpen', (h) => h.quickOpen());
 	bind('ide.contentSearch', (h) => h.contentSearch());
 	bind('ide.revealInTree', (h) => h.revealInTree());

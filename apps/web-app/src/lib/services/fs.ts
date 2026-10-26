@@ -101,9 +101,19 @@ export interface FsContentResult {
 	truncated: boolean;
 }
 
+export interface FsContentSearchOptions {
+	path?: string;
+	include?: string;
+	caseSensitive?: boolean;
+	regex?: boolean;
+	wholeWord?: boolean;
+	offset?: number;
+	limit?: number;
+}
+
 export async function searchFsContent(
 	query: string,
-	options?: { path?: string; include?: string; limit?: number },
+	options?: FsContentSearchOptions,
 ): Promise<FsContentResult> {
 	const needle = query.trim();
 	if (!needle) return { matches: [], truncated: false };
@@ -114,6 +124,10 @@ export async function searchFsContent(
 					query: needle,
 					path: options?.path ?? '',
 					include: options?.include,
+					case_sensitive: options?.caseSensitive,
+					regex: options?.regex,
+					whole_word: options?.wholeWord,
+					offset: options?.offset,
 					limit: options?.limit ?? 100,
 				},
 			},

@@ -9,10 +9,6 @@ export interface FsTreeIndex {
 
 const indexCache = new Map<string, FsTreeIndex>();
 
-export function cachedFsTreeIndex(root: string): FsTreeIndex | null {
-	return indexCache.get(root) ?? null;
-}
-
 export async function getFsTreeIndex(root: string): Promise<FsTreeIndex> {
 	const cached = indexCache.get(root);
 	if (cached) return cached;

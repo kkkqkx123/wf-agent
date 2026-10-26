@@ -12,6 +12,7 @@
 	import ShortcutsSettings from '#lib/components/layout/ShortcutsSettings.svelte';
 	import UnsavedChangesDialog from '#lib/ui/components/UnsavedChangesDialog.svelte';
 	import { preferences, type Density, type ThemeMode } from '#lib/stores/preferences.svelte';
+import { EDITOR_FONT_SIZE_MIN, EDITOR_FONT_SIZE_MAX } from '#lib/stores/preferences.svelte';
 	import {
 		describeToolOutputBudgets,
 		resolveToolOutputBudgets,
@@ -409,6 +410,37 @@
 								Preview {toolBudgetsHint}
 							</p>
 						</div>
+					</Card>
+
+					<Card
+						title={t('page.settings.editor')}
+						description={t('page.settings.editorDesc')}
+					>
+						<div class="flex items-center gap-3">
+							<input
+								type="range"
+								min={EDITOR_FONT_SIZE_MIN}
+								max={EDITOR_FONT_SIZE_MAX}
+								step="1"
+								value={preferences.editorFontSize}
+								oninput={(event) =>
+									preferences.setEditorFontSize(
+										Number((event.currentTarget as HTMLInputElement).value),
+									)}
+								class="w-full accent-[hsl(var(--primary))]"
+							/>
+							<span
+								class="w-16 shrink-0 text-right text-caption tabular-nums text-muted-foreground"
+							>
+								{preferences.editorFontSize}px
+							</span>
+						</div>
+						<Switch
+							checked={preferences.editorWordWrap}
+							label={t('page.settings.editorWordWrap')}
+							class="mt-3"
+							onchange={() => preferences.setEditorWordWrap(!preferences.editorWordWrap)}
+						/>
 					</Card>
 				</div>
 			{:else if section === 'shortcuts'}

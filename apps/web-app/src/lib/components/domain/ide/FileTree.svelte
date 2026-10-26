@@ -16,6 +16,7 @@
 		languageForPath,
 	} from '#lib/services/fs';
 	import { t } from '#lib/i18n';
+	import { buildIdeUrl } from '#lib/utils/ide-url';
 	import { invalidateFsTreeIndex } from '#lib/utils/fs-tree-index';
 	import { IDE_TREE_ROW_HEIGHT_PX } from '#lib/utils/file-tree-window';
 	import type { GitBadgeLevel } from '#lib/utils/git-badges';
@@ -35,6 +36,7 @@
 	let actionError = $state<string | null>(null);
 	let deleteOpen = $state(false);
 	let pendingDelete = $state<string | null>(null);
+	let pendingDeleteIsDir = $state(false);
 	let menu = $state<{ x: number; y: number; target: string; isDir: boolean } | null>(null);
 
 	const MAX_DIR_ENTRIES = 200;
@@ -79,6 +81,15 @@
 			}
 		}
 		ide.consumeReveal();
+	});
+
+	let handledCreateNonce = 0;
+	$effect(() => {
+		const request = ide.rootCreateRequest;
+		if (!request || request.nonce === handledCreateNonce) return;
+		handledCreateNonce = request.nonce;
+		if (!expanded.has('')) expanded.add('');
+		startCreate('', request.isDir);
 	});
 
 	function parentOf(path: string): string {
@@ -198,10 +209,23 @@
 		}
 	}
 
-	function requestRemove(path: string): void {
+	function requestRemove(path: string, isDir: boolean): void {
 		pendingDelete = path;
+		pendingDeleteIsDir = isDir;
 		deleteOpen = true;
 		actionError = null;
+	}
+
+	function deleteDescription(): string {
+		const target = pendingDelete;
+		if (!target) return '';
+		if (pendingDeleteIsDir) {
+			const count = ide.dirState(target).entries?.length;
+			if (typeof count === 'number') {
+				return t('page.ide.confirmDeleteDir', { path: target, count });
+			}
+		}
+		return t('page.ide.confirmDelete', { path: target });
 	}
 
 	function cancelRemove(): void {
@@ -261,12 +285,14 @@
 		if (!menu.isDir) {
 			items.push({ id: 'open', label: t('page.ide.menuOpen') });
 			items.push({ id: 'open-pinned', label: t('page.ide.menuOpenPinned') });
+			items.push({ id: 'open-new-window', label: t('page.ide.openInNewWindow') });
 		} else {
 			items.push({ id: 'new-file', label: t('page.ide.newFile') });
 			items.push({ id: 'new-folder', label: t('page.ide.newFolder') });
 			items.push({ id: 'open-terminal', label: t('page.ide.menuOpenTerminal') });
 		}
 		items.push({ id: 'copy-path', label: t('page.ide.copyPath') });
+		items.push({ id: 'copy-relative-path', label: t('page.ide.copyRelativePath') });
 		if (!menu.isDir) {
 			items.push({ id: 'terminal-file', label: t('page.ide.menuOpenTerminal') });
 		}
@@ -316,7 +342,10 @@
 		}
 		if (id === 'open') void openEntry(target, current.isDir, true);
 		else if (id === 'open-pinned') void openEntry(target, current.isDir, false);
-		else if (id === 'copy-path') void copyText(target);
+		else if (id === 'open-new-window') {
+			if (ide.root) window.open(buildIdeUrl(target), '_blank', 'noopener');
+		} else if (id === 'copy-path') void copyText(target);
+		else if (id === 'copy-relative-path') void copyText(target);
 		else if (id === 'new-file') {
 			if (!expanded.has(target)) {
 				expanded.add(target);
@@ -331,7 +360,7 @@
 			startCreate(target, true);
 		} else if (id === 'open-terminal' || id === 'terminal-file') void openInTerminal(target, current.isDir);
 		else if (id === 'rename') startRename(target);
-		else if (id === 'delete') requestRemove(target);
+		else if (id === 'delete') requestRemove(target, current.isDir);
 	}
 </script>
 
@@ -453,7 +482,7 @@
 						label={t('page.ide.delete')}
 						compact
 						variant="ghost"
-						onclick={() => requestRemove(entry.path)}
+						onclick={() => requestRemove(entry.path, entry.is_dir)}
 					/>
 				</span>
 			</div>
@@ -574,7 +603,7 @@
 <Dialog
 	bind:open={deleteOpen}
 	title={t('page.ide.delete')}
-	description={pendingDelete ? t('page.ide.confirmDelete', { path: pendingDelete }) : undefined}
+	description={pendingDelete ? deleteDescription() : undefined}
 >
 	<div class="flex justify-end gap-2 p-4">
 		<Button size="sm" variant="ghost" onclick={cancelRemove}>

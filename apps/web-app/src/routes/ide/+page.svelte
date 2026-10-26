@@ -10,11 +10,11 @@
 	import FileTree from '#lib/components/domain/ide/FileTree.svelte';
 	import FileEditor from '#lib/components/domain/ide/FileEditor.svelte';
 	import IdeTerminalPanel from '#lib/components/domain/ide/IdeTerminalPanel.svelte';
-	import IdeInspectorPanel from '#lib/components/domain/ide/IdeInspectorPanel.svelte';
 	import IdeQuickOpen from '#lib/components/domain/ide/IdeQuickOpen.svelte';
 	import IdeContentSearch from '#lib/components/domain/ide/IdeContentSearch.svelte';
 	import { ide } from '#lib/stores/ide.svelte';
 	import { getMeta } from '#lib/services/git';
+	import { statFs } from '#lib/services/fs';
 	import { parseIdeQuery } from '#lib/utils/ide-url';
 	import { registerIdeShortcuts } from '#lib/ide/ide-shortcuts';
 	import { t } from '#lib/i18n';
@@ -82,7 +82,6 @@
 			toggleTerminal: () => {
 				ide.terminalOpen = !ide.terminalOpen;
 			},
-			toggleInspector: () => ide.setInspectorOpen(!ide.inspectorOpen),
 			quickOpen: () => {
 				quickOpen = true;
 			},
@@ -115,13 +114,66 @@
 	});
 
 	$effect(() => {
+		const command = ide.consumeCommand();
+		if (!command) return;
+		switch (command) {
+			case 'quickOpen':
+				quickOpen = true;
+				break;
+			case 'contentSearch':
+				contentSearch = true;
+				break;
+			case 'saveFile': {
+				const current = ide.active();
+				if (current && !current.isBinary && !current.saving) void ide.saveFile(current.path);
+				break;
+			}
+			case 'saveAll':
+				void ide.saveAll();
+				break;
+			case 'reveal': {
+				const current = ide.active();
+				if (current) ide.requestReveal(current.path);
+				break;
+			}
+			case 'copyPath': {
+				const current = ide.active();
+				if (!current) break;
+				try {
+					void navigator.clipboard.writeText(current.path);
+				} catch {
+					// Clipboard is best-effort.
+				}
+				break;
+			}
+			case 'newFile':
+				ide.sidebarOpen = true;
+				ide.requestRootCreate(false);
+				break;
+			case 'newFolder':
+				ide.sidebarOpen = true;
+				ide.requestRootCreate(true);
+				break;
+		}
+	});
+
+	$effect(() => {
 		if (typeof window === 'undefined') return;
 		const onFocus = (): void => {
 			const current = ide.active();
 			if (!current || current.loading || current.saving) return;
-			if (current.content === current.original && !current.isBinary && !current.truncated) {
+			if (current.content !== current.original || current.isBinary || current.truncated) return;
+			if (current.hash === null) {
 				void ide.loadFile(current.path, true);
+				return;
 			}
+			void statFs(current.path)
+				.then((stat) => {
+					if (stat.hash && stat.hash !== current.hash) void ide.loadFile(current.path, true);
+				})
+				.catch(() => {
+					// External-change probing is best-effort.
+				});
 		};
 		window.addEventListener('focus', onFocus);
 		return () => window.removeEventListener('focus', onFocus);
@@ -173,13 +225,6 @@
 			<Button
 				size="sm"
 				variant="outline"
-				onclick={() => ide.setInspectorOpen(!ide.inspectorOpen)}
-			>
-				{ide.inspectorOpen ? t('page.ide.hideInspector') : t('page.ide.showInspector')}
-			</Button>
-			<Button
-				size="sm"
-				variant="outline"
 				onclick={() => void ide.saveAll()}
 				disabled={ide.dirtyPaths.length === 0}
 			>
@@ -209,13 +254,6 @@
 					<section class="flex min-w-0 flex-1 flex-col">
 						<FileEditor onRequestClose={requestClose} />
 					</section>
-					{#if ide.inspectorOpen}
-						<aside
-							class="absolute top-0 right-0 bottom-0 z-20 flex w-72 max-w-[85vw] shrink-0 flex-col border-l border-border bg-card shadow-lg"
-						>
-							<IdeInspectorPanel onclosetab={requestClose} />
-						</aside>
-					{/if}
 				</div>
 				{#if ide.terminalOpen}
 					<div class="shrink-0 border-t border-border">

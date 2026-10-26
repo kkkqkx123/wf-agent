@@ -36,6 +36,7 @@
 <script lang="ts">
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import { resolvedTheme } from '#lib/stores/theme.svelte';
+	import { preferences } from '#lib/stores/preferences.svelte';
 
 	interface Props {
 		filePath: string;
@@ -163,7 +164,8 @@
 			readOnly,
 			automaticLayout: true,
 			minimap: { enabled: false },
-			fontSize: 13,
+			fontSize: preferences.editorFontSize,
+			wordWrap: preferences.editorWordWrap ? 'on' : 'off',
 			fontFamily: "'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace",
 			scrollBeyondLastLine: false,
 			theme: resolvedTheme() === 'dark' ? 'vs-dark' : 'vs',
@@ -173,7 +175,7 @@
 		changeDisposable = instance.onDidChangeModelContent(() => {
 			const next = instance.getValue() as string;
 			lastEmitted = next;
-			textareaValue = next;
+			if (failed) textareaValue = next;
 			onChange?.(next);
 		});
 		try {
@@ -207,13 +209,16 @@
 		if (value !== lastEmitted) {
 			(editor as unknown as { setValue(v: string): void }).setValue(value);
 			lastEmitted = value;
-			textareaValue = value;
 		}
 	});
 
 	$effect(() => {
 		if (!editor) return;
-		(editor as unknown as { updateOptions(o: unknown): void }).updateOptions({ readOnly });
+		(editor as unknown as { updateOptions(o: unknown): void }).updateOptions({
+			readOnly,
+			fontSize: preferences.editorFontSize,
+			wordWrap: preferences.editorWordWrap ? 'on' : 'off',
+		});
 	});
 
 	$effect(() => {

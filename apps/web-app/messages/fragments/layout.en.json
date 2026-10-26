@@ -16,6 +16,7 @@
 	"layout.commandPalette.noMatches": "No matches",
 	"layout.commandPalette.groupNavigate": "Navigate",
 	"layout.commandPalette.groupFiles": "Files",
+	"layout.commandPalette.groupIde": "Editor actions",
 	"layout.commandPalette.filesTruncated": "Results truncated; refine the query to narrow down.",
 	"layout.commandPalette.groupExecutions": "Executions",
 	"layout.commandPalette.groupWorkflows": "Workflows",

@@ -38,9 +38,15 @@ interface PersistedPreferences {
 	inspectorWidth?: number;
 	inspectorPinned?: boolean;
 	minimapMode?: MinimapMode;
+	editorFontSize?: number;
+	editorWordWrap?: boolean;
 	toolOutputPreviews?: boolean;
 	toolOutputDetail?: ToolOutputDetail;
 }
+
+export const EDITOR_FONT_SIZE_MIN = 10;
+export const EDITOR_FONT_SIZE_MAX = 24;
+export const EDITOR_FONT_SIZE_DEFAULT = 13;
 
 const DENSITY_SCALE: Record<Density, number> = {
 	compact: 0.94,
@@ -73,6 +79,8 @@ class PreferencesStore {
 	inspectorWidth = $state(INSPECTOR_WIDTH_DEFAULT);
 	inspectorPinned = $state(false);
 	minimapMode = $state<MinimapMode>('auto');
+	editorFontSize = $state(EDITOR_FONT_SIZE_DEFAULT);
+	editorWordWrap = $state(false);
 	toolOutputPreviews = $state(true);
 	toolOutputDetail = $state<ToolOutputDetail>('balanced');
 
@@ -106,6 +114,15 @@ class PreferencesStore {
 			stored.minimapMode === 'off'
 		) {
 			this.minimapMode = stored.minimapMode;
+		}
+		if (
+			typeof stored.editorFontSize === 'number' &&
+			Number.isFinite(stored.editorFontSize)
+		) {
+			this.editorFontSize = clampEditorFontSize(stored.editorFontSize);
+		}
+		if (typeof stored.editorWordWrap === 'boolean') {
+			this.editorWordWrap = stored.editorWordWrap;
 		}
 		if (typeof stored.toolOutputPreviews === 'boolean') {
 			this.toolOutputPreviews = stored.toolOutputPreviews;
@@ -175,6 +192,16 @@ class PreferencesStore {
 		this.persist();
 	}
 
+	setEditorFontSize(size: number): void {
+		this.editorFontSize = clampEditorFontSize(size);
+		this.persist();
+	}
+
+	setEditorWordWrap(enabled: boolean): void {
+		this.editorWordWrap = enabled;
+		this.persist();
+	}
+
 	setToolOutputPreviews(enabled: boolean): void {
 		this.toolOutputPreviews = enabled;
 		this.persist();
@@ -219,6 +246,8 @@ class PreferencesStore {
 					inspectorWidth: this.inspectorWidth,
 					inspectorPinned: this.inspectorPinned,
 					minimapMode: this.minimapMode,
+					editorFontSize: this.editorFontSize,
+					editorWordWrap: this.editorWordWrap,
 					toolOutputPreviews: this.toolOutputPreviews,
 					toolOutputDetail: this.toolOutputDetail,
 				} satisfies PersistedPreferences),
@@ -235,6 +264,13 @@ function clampSidebarWidth(width: number): number {
 
 function clampInspectorWidth(width: number): number {
 	return Math.min(INSPECTOR_WIDTH_MAX, Math.max(INSPECTOR_WIDTH_MIN, Math.round(width)));
+}
+
+function clampEditorFontSize(size: number): number {
+	return Math.min(
+		EDITOR_FONT_SIZE_MAX,
+		Math.max(EDITOR_FONT_SIZE_MIN, Math.round(size)),
+	);
 }
 
 export const preferences = new PreferencesStore();

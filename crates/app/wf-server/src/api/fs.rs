@@ -81,6 +81,7 @@ pub(crate) struct FsStatView {
     pub size: u64,
     pub modified_ms: Option<i64>,
     pub is_binary: Option<bool>,
+    pub hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -110,6 +111,9 @@ pub(crate) struct FsSearchQuery {
     case_sensitive: Option<bool>,
     #[serde(default)]
     regex: Option<bool>,
+    #[serde(default)]
+    whole_word: Option<bool>,
+    offset: Option<usize>,
     limit: Option<usize>,
 }
 
@@ -163,6 +167,7 @@ fn stat_view(stat: wf_api::fs::FsStat) -> FsStatView {
         size: stat.size,
         modified_ms: stat.modified_ms,
         is_binary: stat.is_binary,
+        hash: stat.hash,
     }
 }
 
@@ -224,6 +229,8 @@ pub(crate) async fn handle_fs_search(
         query.include.as_deref(),
         query.case_sensitive.unwrap_or(false),
         query.regex.unwrap_or(false),
+        query.whole_word.unwrap_or(false),
+        query.offset.unwrap_or(0),
         query.limit,
     ) {
         Ok(result) => ok(FsSearchView {

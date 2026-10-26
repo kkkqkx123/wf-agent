@@ -11,10 +11,16 @@
 	import { ptyStoreFor } from '#lib/stores/pty-session.svelte';
 	import {
 		createFsEntry,
-		deleteFsEntry,
+		downloadFsBlob,
+		readFsRaw,
 		renameFsEntry,
-		languageForPath,
 	} from '#lib/services/fs';
+	import {
+		deletePaths,
+		parentOf,
+		pasteClipboard,
+		uploadFiles,
+	} from '#lib/ide/clipboard';
 	import { t } from '#lib/i18n';
 	import { buildIdeUrl } from '#lib/utils/ide-url';
 	import { invalidateFsTreeIndex } from '#lib/utils/fs-tree-index';
@@ -22,10 +28,11 @@
 	import type { GitBadgeLevel } from '#lib/utils/git-badges';
 
 	interface Props {
-		onQuickOpen?: () => void;
+		onFocusSearch?: () => void;
+		onViewDiff?: (path: string) => void;
 	}
 
-	let { onQuickOpen }: Props = $props();
+	let { onFocusSearch, onViewDiff }: Props = $props();
 
 	let filter = $state('');
 	let expanded = new SvelteSet<string>(['']);
@@ -35,13 +42,16 @@
 	let renameValue = $state('');
 	let actionError = $state<string | null>(null);
 	let deleteOpen = $state(false);
-	let pendingDelete = $state<string | null>(null);
+	let pendingDeletePaths = $state<string[]>([]);
 	let pendingDeleteIsDir = $state(false);
 	let menu = $state<{ x: number; y: number; target: string; isDir: boolean } | null>(null);
+	let dropTarget = $state<string | null>(null);
+	let dragPaths = $state<string[]>([]);
+	let uploadDir = $state('');
+	let pendingOverwrite = $state<{ destDir: string; files: File[]; names: string[]; conflicts: string[] } | null>(null);
+	let fileInput: HTMLInputElement | null = $state(null);
 
 	const MAX_DIR_ENTRIES = 200;
-	// Fixed row height shared with the future windowed list; exposed as a CSS
-	// variable so the replacement render container keeps identical metrics.
 	const treeRowHeightStyle = `--ide-tree-row-height: ${IDE_TREE_ROW_HEIGHT_PX}px`;
 
 	const BADGE_DOT: Record<GitBadgeLevel, string> = {
@@ -80,6 +90,8 @@
 				void ide.loadDir(prefix);
 			}
 		}
+		ide.setSelection([target]);
+		ide.anchorPath = target;
 		ide.consumeReveal();
 	});
 
@@ -92,9 +104,13 @@
 		startCreate('', request.isDir);
 	});
 
-	function parentOf(path: string): string {
-		return path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
-	}
+	let handledUploadNonce = 0;
+	$effect(() => {
+		const request = ide.uploadRequest;
+		if (!request || request.nonce === handledUploadNonce) return;
+		handledUploadNonce = request.nonce;
+		openUploadPicker(request.dir);
+	});
 
 	function toggle(path: string): void {
 		if (expanded.has(path)) expanded.delete(path);
@@ -115,10 +131,49 @@
 		return { shown: matched.slice(0, MAX_DIR_ENTRIES), overflow: matched.length - MAX_DIR_ENTRIES };
 	}
 
+	function flattenVisible(): string[] {
+		const out: string[] = [];
+		const walk = (dir: string): void => {
+			for (const entry of visibleEntries(dir).shown) {
+				out.push(entry.path);
+				if (entry.is_dir && expanded.has(entry.path)) walk(entry.path);
+			}
+		};
+		walk('');
+		return out;
+	}
+
 	function rowBadge(path: string, isDir: boolean): GitBadgeLevel | null {
 		if (!ide.gitBadgesAvailable) return null;
 		if (!isDir) return ide.gitBadges.get(path) ?? null;
 		return ide.dirBadge(path);
+	}
+
+	function isCut(path: string): boolean {
+		return ide.clipboard?.mode === 'cut' && (ide.clipboard.paths.includes(path) ?? false);
+	}
+
+	function effectiveTargets(target: string): string[] {
+		if (ide.selectedPaths.includes(target) && ide.selectedPaths.length > 0) {
+			return [...ide.selectedPaths];
+		}
+		return target ? [target] : [];
+	}
+
+	function rangeSelect(anchor: string, to: string): void {
+		const flat = flattenVisible();
+		const a = flat.indexOf(anchor);
+		const b = flat.indexOf(to);
+		if (a < 0 || b < 0) {
+			const merged = [...ide.selectedPaths];
+			for (const p of [anchor, to]) if (!merged.includes(p)) merged.push(p);
+			ide.setSelection(merged);
+			ide.anchorPath = to;
+			return;
+		}
+		const [lo, hi] = a <= b ? [a, b] : [b, a];
+		ide.setSelection(flat.slice(lo, hi + 1));
+		ide.anchorPath = to;
 	}
 
 	async function openEntry(path: string, isDir: boolean, preview = true): Promise<void> {
@@ -132,6 +187,24 @@
 		} catch (e) {
 			actionError = e instanceof Error ? e.message : String(e);
 		}
+	}
+
+	function handleRowClick(event: MouseEvent, path: string, isDir: boolean): void {
+		if (event.ctrlKey || event.metaKey) {
+			const next = new Set(ide.selectedPaths);
+			if (next.has(path)) next.delete(path);
+			else next.add(path);
+			ide.setSelection([...next]);
+			ide.anchorPath = path;
+			return;
+		}
+		if (event.shiftKey) {
+			rangeSelect(ide.anchorPath ?? path, path);
+			return;
+		}
+		ide.setSelection([path]);
+		ide.anchorPath = path;
+		void openEntry(path, isDir, true);
 	}
 
 	function startCreate(parent: string, isDir: boolean): void {
@@ -166,24 +239,6 @@
 		actionError = null;
 	}
 
-	function retargetTabs(from: string, to: string): void {
-		const prefix = `${from}/`;
-		const previousActive = ide.activePath;
-		for (const tab of ide.tabs) {
-			if (tab.path === from) {
-				tab.path = to;
-				tab.language = languageForPath(to);
-			} else if (tab.path.startsWith(prefix)) {
-				tab.path = `${to}${tab.path.slice(from.length)}`;
-				tab.language = languageForPath(tab.path);
-			}
-		}
-		if (previousActive === from) ide.activePath = to;
-		else if (previousActive?.startsWith(prefix)) {
-			ide.activePath = `${to}${previousActive.slice(from.length)}`;
-		}
-	}
-
 	async function commitRename(path: string): Promise<void> {
 		if (renaming !== path) return;
 		renaming = null;
@@ -203,21 +258,27 @@
 				await ide.loadDir(targetBase, true);
 			}
 			void ide.refreshGitStatus();
-			retargetTabs(path, target);
+			ide.bumpGitRefresh();
+			ide.retargetPath(path, target);
+			ide.setSelection([target]);
+			ide.anchorPath = target;
 		} catch (e) {
 			actionError = e instanceof Error ? e.message : String(e);
 		}
 	}
 
-	function requestRemove(path: string, isDir: boolean): void {
-		pendingDelete = path;
-		pendingDeleteIsDir = isDir;
+	function requestRemove(paths: string[], isDir: boolean): void {
+		pendingDeletePaths = [...paths];
+		pendingDeleteIsDir = isDir && paths.length === 1;
 		deleteOpen = true;
 		actionError = null;
 	}
 
 	function deleteDescription(): string {
-		const target = pendingDelete;
+		if (pendingDeletePaths.length > 1) {
+			return t('page.ide.confirmDeleteMany', { count: pendingDeletePaths.length });
+		}
+		const target = pendingDeletePaths[0];
 		if (!target) return '';
 		if (pendingDeleteIsDir) {
 			const count = ide.dirState(target).entries?.length;
@@ -229,28 +290,20 @@
 	}
 
 	function cancelRemove(): void {
-		pendingDelete = null;
+		pendingDeletePaths = [];
 		deleteOpen = false;
 	}
 
 	async function confirmRemove(): Promise<void> {
-		const target = pendingDelete;
-		pendingDelete = null;
+		const targets = pendingDeletePaths;
+		pendingDeletePaths = [];
 		deleteOpen = false;
-		if (!target) return;
-		try {
-			await deleteFsEntry(target);
-			ide.invalidateParents(target);
-			invalidateFsTreeIndex();
-			await ide.loadDir(parentOf(target), true);
-			void ide.refreshGitStatus();
-			const prefix = `${target}/`;
-			const affected = ide.tabs.filter(
-				(entry) => entry.path === target || entry.path.startsWith(prefix),
-			);
-			for (const tab of affected) ide.forceClose(tab.path);
-		} catch (e) {
-			actionError = e instanceof Error ? e.message : String(e);
+		if (targets.length === 0) return;
+		const { ok, failed } = await deletePaths(targets);
+		if (failed.length > 0) {
+			actionError = t('page.ide.deletePartial', { ok, failed: failed.length });
+		} else {
+			actionError = null;
 		}
 	}
 
@@ -274,35 +327,63 @@
 
 	function menuItems(): ContextMenuItem[] {
 		if (!menu) return [];
+		const hasClipboard = (ide.clipboard?.paths.length ?? 0) > 0;
 		if (!menu.target) {
-			return [
+			const items: ContextMenuItem[] = [
 				{ id: 'new-file', label: t('page.ide.newFile') },
 				{ id: 'new-folder', label: t('page.ide.newFolder') },
-				{ id: 'refresh', label: t('common.refresh') },
+				{ id: 'upload', label: t('page.ide.uploadFiles') },
 			];
+			if (hasClipboard) items.push({ id: 'paste', label: t('page.ide.paste') });
+			items.push({ id: 'refresh', label: t('common.refresh') });
+			return items;
 		}
+		const targets = effectiveTargets(menu.target);
+		const multi = targets.length > 1;
 		const items: ContextMenuItem[] = [];
-		if (!menu.isDir) {
+		if (!multi && !menu.isDir) {
 			items.push({ id: 'open', label: t('page.ide.menuOpen') });
 			items.push({ id: 'open-pinned', label: t('page.ide.menuOpenPinned') });
 			items.push({ id: 'open-new-window', label: t('page.ide.openInNewWindow') });
-		} else {
+		}
+		if (!multi && menu.isDir) {
 			items.push({ id: 'new-file', label: t('page.ide.newFile') });
 			items.push({ id: 'new-folder', label: t('page.ide.newFolder') });
+		}
+		items.push({ id: 'cut', label: t('page.ide.cut') });
+		items.push({ id: 'copy', label: t('page.ide.copy') });
+		if (!multi && menu.isDir && hasClipboard) {
+			items.push({ id: 'paste', label: t('page.ide.paste') });
+		}
+		if (!multi && !menu.isDir) {
+			items.push({ id: 'download', label: t('page.ide.download') });
+			items.push({ id: 'view-diff', label: t('page.ide.viewDiff') });
+		}
+		if (multi) {
+			items.push({ id: 'download', label: t('page.ide.download') });
+		}
+		if (!multi && menu.isDir) {
+			items.push({ id: 'upload', label: t('page.ide.uploadFiles') });
 			items.push({ id: 'open-terminal', label: t('page.ide.menuOpenTerminal') });
 		}
 		items.push({ id: 'copy-path', label: t('page.ide.copyPath') });
 		items.push({ id: 'copy-relative-path', label: t('page.ide.copyRelativePath') });
-		if (!menu.isDir) {
+		if (!multi && !menu.isDir) {
 			items.push({ id: 'terminal-file', label: t('page.ide.menuOpenTerminal') });
 		}
-		items.push({ id: 'rename', label: t('page.ide.rename') });
-		items.push({ id: 'delete', label: t('page.ide.delete'), danger: true });
+		if (!multi) items.push({ id: 'rename', label: t('page.ide.rename') });
+		items.push({
+			id: 'delete',
+			label: multi ? `${t('page.ide.delete')} (${targets.length})` : t('page.ide.delete'),
+			danger: true,
+		});
 		return items;
 	}
 
 	function menuTitle(): string {
 		if (!menu || !menu.target) return t('page.ide.fileTree');
+		const targets = effectiveTargets(menu.target);
+		if (targets.length > 1) return t('page.ide.selectedCount', { count: targets.length });
 		return menu.target.split('/').pop() ?? menu.target;
 	}
 
@@ -326,6 +407,75 @@
 		}
 	}
 
+	async function doPaste(destDir: string): Promise<void> {
+		actionError = null;
+		const { ok, failed } = await pasteClipboard(destDir);
+		if (failed.length > 0) {
+			actionError = t('page.ide.pastePartial', { ok, failed: failed.length });
+		}
+	}
+
+	async function downloadPaths(paths: string[]): Promise<void> {
+		actionError = null;
+		let started = 0;
+		for (const path of paths) {
+			try {
+				const raw = await readFsRaw(path);
+				downloadFsBlob(raw.filename, raw.mime, raw.content_base64);
+				started += 1;
+			} catch (e) {
+				actionError = e instanceof Error ? e.message : String(e);
+				return;
+			}
+		}
+		if (started > 0 && paths.length === 1) {
+			actionError = null;
+		}
+	}
+
+	function openUploadPicker(dir: string): void {
+		uploadDir = dir;
+		pendingOverwrite = null;
+		fileInput?.click();
+	}
+
+	async function doUploadFiles(destDir: string, files: File[], names?: string[], overwrite = false): Promise<void> {
+		actionError = null;
+		const outcome = await uploadFiles(destDir, files, { overwrite, names });
+		if (!overwrite && outcome.conflicts.length > 0) {
+			pendingOverwrite = { destDir, files, names: names ?? files.map((f) => f.name), conflicts: outcome.conflicts };
+			if (outcome.uploaded.length > 0 || outcome.failed.length > 0) {
+				actionError = t('page.ide.uploadPartial', {
+					ok: outcome.uploaded.length,
+					failed: outcome.failed.length,
+					conflicts: outcome.conflicts.length,
+				});
+			}
+			return;
+		}
+		if (outcome.failed.length > 0 || outcome.conflicts.length > 0) {
+			actionError = t('page.ide.uploadPartial', {
+				ok: outcome.uploaded.length,
+				failed: outcome.failed.length,
+				conflicts: outcome.conflicts.length,
+			});
+		}
+	}
+
+	function onPickerChange(): void {
+		const files = fileInput ? Array.from(fileInput.files ?? []) : [];
+		if (fileInput) fileInput.value = '';
+		if (files.length === 0) return;
+		void doUploadFiles(uploadDir, files);
+	}
+
+	async function confirmOverwriteAll(): Promise<void> {
+		const pending = pendingOverwrite;
+		pendingOverwrite = null;
+		if (!pending) return;
+		await doUploadFiles(pending.destDir, pending.files, pending.names, true);
+	}
+
 	function handleMenuAction(id: string): void {
 		const current = menu;
 		menu = null;
@@ -334,17 +484,30 @@
 		if (!target) {
 			if (id === 'new-file') startCreate('', false);
 			else if (id === 'new-folder') startCreate('', true);
+			else if (id === 'upload') openUploadPicker('');
+			else if (id === 'paste') void doPaste('');
 			else if (id === 'refresh') {
 				void ide.loadDir('', true);
 				void ide.refreshGitStatus();
 			}
 			return;
 		}
+		const targets = effectiveTargets(target);
 		if (id === 'open') void openEntry(target, current.isDir, true);
 		else if (id === 'open-pinned') void openEntry(target, current.isDir, false);
 		else if (id === 'open-new-window') {
 			if (ide.root) window.open(buildIdeUrl(target), '_blank', 'noopener');
-		} else if (id === 'copy-path') void copyText(target);
+		} else if (id === 'cut') {
+			ide.setClipboard({ mode: 'cut', paths: targets });
+		} else if (id === 'copy') {
+			ide.setClipboard({ mode: 'copy', paths: targets });
+		} else if (id === 'paste') {
+			const dest = current.isDir ? target : parentOf(target);
+			void doPaste(dest);
+		} else if (id === 'download') void downloadPaths(targets);
+		else if (id === 'view-diff') onViewDiff?.(target);
+		else if (id === 'upload') openUploadPicker(current.isDir ? target : parentOf(target));
+		else if (id === 'copy-path') void copyText(target);
 		else if (id === 'copy-relative-path') void copyText(target);
 		else if (id === 'new-file') {
 			if (!expanded.has(target)) {
@@ -360,7 +523,69 @@
 			startCreate(target, true);
 		} else if (id === 'open-terminal' || id === 'terminal-file') void openInTerminal(target, current.isDir);
 		else if (id === 'rename') startRename(target);
-		else if (id === 'delete') requestRemove(target, current.isDir);
+		else if (id === 'delete') requestRemove(targets, current.isDir);
+	}
+
+	function onRowDragStart(path: string, event: DragEvent): void {
+		dragPaths = ide.selectedPaths.includes(path) && ide.selectedPaths.length > 0
+			? [...ide.selectedPaths]
+			: [path];
+		if (event.dataTransfer) {
+			event.dataTransfer.effectAllowed = 'move';
+			try {
+				event.dataTransfer.setData('text/plain', dragPaths.join('\n'));
+			} catch {
+				// Drag payload is best-effort.
+			}
+		}
+	}
+
+	function onRowDragOver(path: string, isDir: boolean, event: DragEvent): void {
+		const dest = isDir ? path : parentOf(path);
+		if (dragPaths.length > 0) {
+			if (dragPaths.includes(dest) || dragPaths.some((p) => dest.startsWith(`${p}/`))) return;
+		}
+		event.preventDefault();
+		if (event.dataTransfer) event.dataTransfer.dropEffect = dragPaths.length > 0 ? 'move' : 'copy';
+		dropTarget = dest;
+	}
+
+	function onRowDragLeave(): void {
+		dropTarget = null;
+	}
+
+	async function onRowDrop(path: string, isDir: boolean, event: DragEvent): Promise<void> {
+		event.preventDefault();
+		const dest = isDir ? path : parentOf(path);
+		dropTarget = null;
+		const external = event.dataTransfer ? Array.from(event.dataTransfer.files ?? []) : [];
+		if (external.length > 0) {
+			await doUploadFiles(dest, external);
+			return;
+		}
+		if (dragPaths.length === 0) return;
+		const moving = [...dragPaths];
+		dragPaths = [];
+		ide.setClipboard({ mode: 'cut', paths: moving });
+		await doPaste(dest);
+	}
+
+	function onRootDragOver(event: DragEvent): void {
+		if ((event.target as HTMLElement | null)?.closest?.('[role="treeitem"]')) return;
+		if ((event.dataTransfer?.types ?? []).includes('Files')) {
+			event.preventDefault();
+			if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+			dropTarget = '';
+		}
+	}
+
+	async function onRootDrop(event: DragEvent): Promise<void> {
+		if ((event.currentTarget as HTMLElement | null)?.closest?.('[role="treeitem"]')) return;
+		event.preventDefault();
+		dropTarget = null;
+		const external = event.dataTransfer ? Array.from(event.dataTransfer.files ?? []) : [];
+		if (external.length > 0) await doUploadFiles('', external);
+		dragPaths = [];
 	}
 </script>
 
@@ -384,17 +609,32 @@
 		{@const isOpen = expanded.has(entry.path)}
 		{@const dirty = entry.is_dir ? false : ide.isDirty(entry.path)}
 		{@const badge = rowBadge(entry.path, entry.is_dir)}
+		{@const selected = ide.isSelected(entry.path)}
+		{@const cut = isCut(entry.path)}
+		{@const isDrop = dropTarget === entry.path}
 		<div
 			role="treeitem"
-			aria-selected={ide.activePath === entry.path}
+			aria-selected={selected || ide.activePath === entry.path}
 			aria-expanded={entry.is_dir ? isOpen : undefined}
 			aria-level={level + 1}
 			tabindex={0}
+			draggable="true"
+			ondragstart={(e) => onRowDragStart(entry.path, e)}
+			ondragover={(e) => onRowDragOver(entry.path, entry.is_dir, e)}
+			ondragleave={onRowDragLeave}
+			ondrop={(e) => void onRowDrop(entry.path, entry.is_dir, e)}
 			oncontextmenu={(e) => openMenu(e, entry.path, entry.is_dir)}
 			onkeydown={(e) => {
 				openMenuKeyboard(e, entry.path, entry.is_dir);
 				if (e.key === 'Enter' && !(e.target instanceof HTMLInputElement)) {
 					void openEntry(entry.path, entry.is_dir, true);
+				} else if (e.key === ' ' && !(e.target instanceof HTMLInputElement)) {
+					e.preventDefault();
+					const next = new Set(ide.selectedPaths);
+					if (next.has(entry.path)) next.delete(entry.path);
+					else next.add(entry.path);
+					ide.setSelection([...next]);
+					ide.anchorPath = entry.path;
 				} else if (e.key === 'ArrowRight' && entry.is_dir && !isOpen) {
 					toggle(entry.path);
 				} else if (e.key === 'ArrowLeft' && entry.is_dir && isOpen) {
@@ -406,13 +646,15 @@
 				class="group flex w-full items-center gap-1 rounded-md px-1 py-1 text-body hover:bg-accent/60 {ide.activePath ===
 				entry.path
 					? 'bg-accent text-accent-foreground'
-					: ''}"
+					: selected
+						? 'bg-accent/40'
+						: ''} {cut ? 'opacity-50' : ''} {isDrop ? 'ring-2 ring-primary' : ''}"
 			>
 				{#if entry.is_dir}
 					<button
 						type="button"
 						class="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left"
-						onclick={() => toggle(entry.path)}
+						onclick={(e) => handleRowClick(e, entry.path, true)}
 						ondblclick={() => toggle(entry.path)}
 					>
 						<Icon
@@ -433,7 +675,7 @@
 					<button
 						type="button"
 						class="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left"
-						onclick={() => void openEntry(entry.path, false, true)}
+						onclick={(e) => handleRowClick(e, entry.path, false)}
 						ondblclick={() => void openEntry(entry.path, false, false)}
 					>
 						<span class="w-4 shrink-0"></span>
@@ -482,7 +724,7 @@
 						label={t('page.ide.delete')}
 						compact
 						variant="ghost"
-						onclick={() => requestRemove(entry.path, entry.is_dir)}
+						onclick={() => requestRemove(effectiveTargets(entry.path), entry.is_dir)}
 					/>
 				</span>
 			</div>
@@ -535,10 +777,10 @@
 		</div>
 		<IconButton
 			icon="search"
-			label={t('page.ide.quickOpen')}
+			label={t('page.ide.sidebarSearch')}
 			compact
 			variant="ghost"
-			onclick={() => onQuickOpen?.()}
+			onclick={() => onFocusSearch?.()}
 		/>
 		<IconButton
 			icon="plus"
@@ -566,6 +808,30 @@
 		/>
 	</div>
 
+	{#if ide.selectedPaths.length > 0 || ide.clipboard}
+		<div class="flex items-center gap-1 border-b border-border px-2 py-1 text-micro text-muted-foreground">
+			{#if ide.selectedPaths.length > 0}
+				<span class="min-w-0 flex-1 truncate">
+					{t('page.ide.selectedCount', { count: ide.selectedPaths.length })}
+				</span>
+				<button
+					type="button"
+					class="cursor-pointer rounded px-1 underline hover:no-underline"
+					onclick={() => ide.clearSelection()}
+				>
+					{t('page.ide.clearSelection')}
+				</button>
+			{/if}
+			{#if ide.clipboard}
+				<span class="shrink-0 truncate" title={ide.clipboard.paths.join(', ')}>
+					{ide.clipboard.mode === 'cut'
+						? t('page.ide.clipboardCut', { count: ide.clipboard.paths.length })
+						: t('page.ide.clipboardCopy', { count: ide.clipboard.paths.length })}
+				</span>
+			{/if}
+		</div>
+	{/if}
+
 	{#if actionError}
 		<p
 			class="border-b border-destructive/30 bg-destructive/10 px-3 py-1 text-micro text-destructive"
@@ -580,6 +846,8 @@
 		tabindex={0}
 		aria-label={t('page.ide.fileTree')}
 		style={treeRowHeightStyle}
+		ondragover={onRootDragOver}
+		ondrop={(e) => void onRootDrop(e)}
 		oncontextmenu={(e) => {
 			if ((e.target as HTMLElement).closest('[role="treeitem"]')) return;
 			openMenu(e, '', true);
@@ -588,6 +856,8 @@
 		{@render node('', 0)}
 	</div>
 </div>
+
+<input type="file" multiple class="hidden" bind:this={fileInput} onchange={onPickerChange} />
 
 {#if menu}
 	<ContextMenu
@@ -603,7 +873,7 @@
 <Dialog
 	bind:open={deleteOpen}
 	title={t('page.ide.delete')}
-	description={pendingDelete ? deleteDescription() : undefined}
+	description={pendingDeletePaths.length > 0 ? deleteDescription() : undefined}
 >
 	<div class="flex justify-end gap-2 p-4">
 		<Button size="sm" variant="ghost" onclick={cancelRemove}>
@@ -611,6 +881,22 @@
 		</Button>
 		<Button size="sm" variant="default" onclick={() => void confirmRemove()}>
 			{t('common.delete')}
+		</Button>
+	</div>
+</Dialog>
+
+<Dialog
+	open={pendingOverwrite !== null}
+	title={t('page.ide.overwriteTitle')}
+	description={pendingOverwrite ? t('page.ide.overwriteDesc', { names: pendingOverwrite.conflicts.slice(0, 3).join(', ') }) : undefined}
+	onclose={() => (pendingOverwrite = null)}
+>
+	<div class="flex justify-end gap-2 p-4">
+		<Button size="sm" variant="ghost" onclick={() => (pendingOverwrite = null)}>
+			{t('page.ide.skipConflicts')}
+		</Button>
+		<Button size="sm" variant="default" onclick={() => void confirmOverwriteAll()}>
+			{t('page.ide.overwriteAll')}
 		</Button>
 	</div>
 </Dialog>

@@ -199,6 +199,72 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
 		defaultKeys: 'Shift+Mod+c',
 		scope: 'ide',
 	},
+	{
+		id: 'ide.cut',
+		label: 'Cut selection in file tree',
+		defaultKeys: 'Mod+x',
+		scope: 'ide',
+	},
+	{
+		id: 'ide.copy',
+		label: 'Copy selection in file tree',
+		defaultKeys: 'Mod+c',
+		scope: 'ide',
+	},
+	{
+		id: 'ide.paste',
+		label: 'Paste clipboard into folder',
+		defaultKeys: 'Mod+v',
+		scope: 'ide',
+	},
+	{
+		id: 'ide.selectAll',
+		label: 'Select all in file tree',
+		defaultKeys: 'Mod+a',
+		scope: 'ide',
+	},
+	{
+		id: 'ide.clearSelection',
+		label: 'Clear file tree selection',
+		defaultKeys: 'Escape',
+		scope: 'ide',
+	},
+	{
+		id: 'ide.upload',
+		label: 'Upload files to folder',
+		defaultKeys: 'Shift+Mod+u',
+		scope: 'ide',
+	},
+	{
+		id: 'ide.download',
+		label: 'Download selected file',
+		defaultKeys: 'Shift+Mod+d',
+		scope: 'ide',
+	},
+	{
+		id: 'ide.toggleHistory',
+		label: 'Toggle history sidebar',
+		defaultKeys: 'Shift+Mod+h',
+		scope: 'ide',
+	},
+	{
+		id: 'ide.nextChange',
+		label: 'Jump to next change',
+		defaultKeys: 'Alt+ArrowDown',
+		scope: 'ide',
+	},
+	{
+		id: 'ide.prevChange',
+		label: 'Jump to previous change',
+		defaultKeys: 'Alt+ArrowUp',
+		scope: 'ide',
+	},
+	{
+		id: 'ide.viewDiff',
+		label: 'View diff of selected file',
+		defaultKeys: 'Shift+Mod+g',
+		scope: 'ide',
+	},
 ];
 
 export function shortcutActionById(id: string): ShortcutAction | undefined {

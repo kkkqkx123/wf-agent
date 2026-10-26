@@ -21798,6 +21798,56 @@
         ]
       }
     },
+    "/api/v1/fs/entries/copy": {
+      "post": {
+        "tags": [
+          "fs"
+        ],
+        "operationId": "post_fs_entries_copy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FsCopyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Entry copied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/fs/entries/move": {
       "patch": {
         "tags": [
@@ -21908,6 +21958,56 @@
         ]
       }
     },
+    "/api/v1/fs/raw": {
+      "get": {
+        "tags": [
+          "fs"
+        ],
+        "operationId": "get_fs_raw",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Raw file bytes as base64",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/fs/search": {
       "get": {
         "tags": [
@@ -21953,6 +22053,23 @@
             "required": false,
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "whole_word",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
             }
           },
           {
@@ -22120,6 +22237,56 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/fs/upload": {
+      "post": {
+        "tags": [
+          "fs"
+        ],
+        "operationId": "post_fs_upload",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FsUploadBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "File uploaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
           },
           "429": {
             "description": "Too many requests: rate limit exceeded (see Retry-After)"
@@ -50835,6 +51002,21 @@
           }
         }
       },
+      "FsCopyBody": {
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ],
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        }
+      },
       "FsCreateBody": {
         "type": "object",
         "required": [
@@ -50914,6 +51096,35 @@
           }
         }
       },
+      "FsRawView": {
+        "type": "object",
+        "required": [
+          "path",
+          "filename",
+          "mime",
+          "size",
+          "content_base64"
+        ],
+        "properties": {
+          "content_base64": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "FsRenameBody": {
         "type": "object",
         "required": [
@@ -50982,6 +51193,12 @@
           "size"
         ],
         "properties": {
+          "hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "is_binary": {
             "type": [
               "boolean",
@@ -51044,6 +51261,24 @@
           },
           "truncated": {
             "type": "boolean"
+          }
+        }
+      },
+      "FsUploadBody": {
+        "type": "object",
+        "required": [
+          "path",
+          "content_base64"
+        ],
+        "properties": {
+          "content_base64": {
+            "type": "string"
+          },
+          "overwrite": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
           }
         }
       },

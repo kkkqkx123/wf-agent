@@ -21,6 +21,17 @@ export interface IdeShortcutHandlers {
 	contentSearch(): void;
 	revealInTree(): void;
 	copyPath(): void;
+	cut(): void;
+	copy(): void;
+	paste(): void;
+	selectAll(): void;
+	clearSelection(): void;
+	upload(): void;
+	download(): void;
+	toggleHistory(): void;
+	nextChange(): void;
+	prevChange(): void;
+	viewDiff(): void;
 }
 
 /**
@@ -41,16 +52,20 @@ export function registerIdeShortcuts(
 		if (isShortcutDisabled(actionId)) return;
 		const hotkey = effectiveHotkey(actionId);
 		if (!hotkey) return;
-		handles.push(
-			manager.register(
-				hotkey,
-				(event) => {
-					event.preventDefault();
-					run(get());
-				},
-				{ target: root, ignoreInputs: false },
-			),
-		);
+		try {
+			handles.push(
+				manager.register(
+					hotkey,
+					(event) => {
+						event.preventDefault();
+						run(get());
+					},
+					{ target: root, ignoreInputs: false },
+				),
+			);
+		} catch {
+			// An unparsable binding must not break the remaining shortcuts.
+		}
 	}
 
 	bind('ide.saveFile', (h) => h.saveFile());
@@ -62,6 +77,17 @@ export function registerIdeShortcuts(
 	bind('ide.contentSearch', (h) => h.contentSearch());
 	bind('ide.revealInTree', (h) => h.revealInTree());
 	bind('ide.copyPath', (h) => h.copyPath());
+	bind('ide.cut', (h) => h.cut());
+	bind('ide.copy', (h) => h.copy());
+	bind('ide.paste', (h) => h.paste());
+	bind('ide.selectAll', (h) => h.selectAll());
+	bind('ide.clearSelection', (h) => h.clearSelection());
+	bind('ide.upload', (h) => h.upload());
+	bind('ide.download', (h) => h.download());
+	bind('ide.toggleHistory', (h) => h.toggleHistory());
+	bind('ide.nextChange', (h) => h.nextChange());
+	bind('ide.prevChange', (h) => h.prevChange());
+	bind('ide.viewDiff', (h) => h.viewDiff());
 
 	return () => {
 		for (const handle of handles) handle.unregister();

@@ -267,3 +267,21 @@
 		transition-duration: 0.01ms !important;
 	}
 }
+
+/* IDE git gutter: read-only per-line change decorations in Monaco. */
+.ide-gutter-add,
+.ide-gutter-change,
+.ide-gutter-delete {
+	width: 3px !important;
+	margin-left: 4px;
+}
+.ide-gutter-add {
+	background: hsl(142 71% 45%);
+}
+.ide-gutter-change {
+	background: hsl(38 92% 50%);
+}
+.ide-gutter-delete {
+	background: hsl(0 84% 60%);
+	border-top: 2px solid hsl(0 84% 60%);
+}

@@ -56,7 +56,7 @@
 | 事实 | 依据 |
 |---|---|
 | `src` 下共 118 个源文件；`lib/api/` 含类型化客户端、信封拆包、推送读取与帧切分；`lib/services/` 共 13 个 API 直连的领域封装 | `apps/web-app/src` 目录清点 |
-| 样例数据目录与开发模式开关已删除，正式应用无静默回退样例；样例仅保留于 `apps/web-app-preview` 的模拟客户端内 | `apps/web-app/src/lib` 目录清点（无 `fixtures/`、`stores/app.ts`） |
+| 样例数据目录与开发模式开关已从正式路径删除，正式应用无静默回退样例；样例仅保留于 preview 模式的模拟客户端（`client.preview.ts` + `src/lib/fixtures`） | `apps/web-app/vite.config.ts`（`#lib/api/client` 仅在 `--mode preview` 下 alias 到模拟客户端） |
 | 对话页已上线：`routes/chat/` + `components/chat/`（作曲器、推理块、流式 Markdown、转录滚动器），根路由重定向到 `/chat`，导航首组为 Conversation | `apps/web-app/src/routes/+page.ts`；`apps/web-app/src/lib/config/navigation.ts` |
 | 运行时依赖新增 Markdown 渲染器与 OpenAPI 请求库 | `apps/web-app/package.json` 的 dependencies |
 | 错误态已建：`components/ui/ErrorState.svelte` + 路由级 `routes/+error.svelte`，聊天页加载失败带重试入口 | 对应文件 |
@@ -303,7 +303,7 @@ apps/web-app/src/
 
 计划中的 `workflows/[id]/versions`、`agent-loops/[id]/messages` 一类子路由**未单独建路由**，改为详情页内的分段内容（`ExecutionInspector` 提供 overview / timeline / tools / analysis / state 五个分段）。理由：这些面板是同一对象的不同视图，单独建路由会让面包屑与返回栈膨胀，且后续接 API 时每个子路由都要重复取一次详情。若后续需要深链（分享某个版本），再拆成子路由并补 `?tab=` 兼容。
 
-`fixtures/` 与开发模式开关已随正式化收敛删除；样例数据仅保留于 `apps/web-app-preview` 的模拟客户端内，正式应用的领域服务与页面无需感知数据源差异。
+`fixtures/` 不再随正式构建生效；样例数据仅保留于 preview 模式的模拟客户端（`client.preview.ts` + `src/lib/fixtures`）内，正式应用的领域服务与页面无需感知数据源差异。
 
 ---
 
@@ -409,7 +409,6 @@ apps/web-app/src/
 ### 11.2 后续衔接
 
 - **复验（待补）**：T10 落地后执行 `npm run check`、`npm run build`、`npm run lint`、`npm run test` 四项，全绿后关闭 T10。
-- **预览同步**：正式应用变更后按既有同步脚本更新 `apps/web-app-preview`（样例目录与模拟客户端为预览独有，不被覆盖）。
 - **深链需求出现时**：把详情页分段拆成子路由，并按第 7 节的说明补 `?tab=` 兼容。
 - **深度能力阶段**：工具调用卡、Diff 与产物预览、大纲导轨按 `docs/plan/web/web-frontend-borrow-analysis.md:71-73` 的第二批推进；图表与公式能力缺失为有意取舍，待真实需求出现后再评估可选依赖。
 - **范围外（仍未决）**：多会话并发流与自动重连；全局错误聚合需后端聚合器；图可视化选型（开放点 O2）。

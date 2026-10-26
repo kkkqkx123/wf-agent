@@ -17,6 +17,7 @@ dashmap.workspace = true
 regex.workspace = true
 glob.workspace = true
 tokio-util.workspace = true
+base64.workspace = true
 wf-types = { path = "../../foundation/wf-types" }
 wf-common = { path = "../../foundation/wf-common" }
 wf-storage = { path = "../../infra/wf-storage" }

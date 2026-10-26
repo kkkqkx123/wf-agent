@@ -37,6 +37,7 @@
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import { resolvedTheme } from '#lib/stores/theme.svelte';
 	import { preferences } from '#lib/stores/preferences.svelte';
+	import type { GutterMark } from '#lib/ide/git-diff-lines';
 
 	interface Props {
 		filePath: string;
@@ -46,6 +47,7 @@
 		contentReady?: boolean;
 		revealLine?: number | null;
 		revealCol?: number | null;
+		gutterMarks?: GutterMark[];
 		onChange?: (value: string) => void;
 		onSave?: () => void;
 		onCursor?: (line: number, col: number) => void;
@@ -59,6 +61,7 @@
 		contentReady = true,
 		revealLine = null,
 		revealCol = null,
+		gutterMarks = [],
 		onChange,
 		onSave,
 		onCursor,
@@ -71,6 +74,7 @@
 	let editor: { dispose(): void } | null = null;
 	let changeDisposable: { dispose(): void } | null = null;
 	let cursorDisposable: { dispose(): void } | null = null;
+	let decorationIds: string[] = [];
 	let lastEmitted = $state('');
 	let disposed = false;
 	let lastRevealedKey = '';
@@ -149,6 +153,7 @@
 		editor?.dispose();
 		changeDisposable?.dispose();
 		cursorDisposable?.dispose();
+		decorationIds = [];
 		const key = `ide:${targetPath}`;
 		let model = ideModels.get(key);
 		if (!model) {
@@ -195,6 +200,7 @@
 		} catch {
 			// Save shortcut inside the editor is best-effort.
 		}
+		applyGutter(gutterMarks);
 	}
 
 	$effect(() => {
@@ -243,6 +249,55 @@
 		lastRevealedKey = key;
 		untrack(() => revealAt(line, col));
 	});
+
+	$effect(() => {
+		applyGutter(gutterMarks);
+	});
+
+	function applyGutter(marks: GutterMark[]): void {
+		const instance = editor as unknown as {
+			deltaDecorations(oldIds: string[], decs: unknown[]): string[];
+		} | null;
+		if (!monacoNs || loading || failed || !instance) return;
+		try {
+			const RangeCtor = monacoNs.Range as new (
+				startLine: number,
+				startCol: number,
+				endLine: number,
+				endCol: number,
+			) => unknown;
+			const lane = monacoNs.editor?.OverviewRulerLane?.Right as number | undefined;
+			const decs = marks.map((mark: GutterMark) => ({
+				range: new RangeCtor(mark.line, 1, mark.line, 1),
+				options: {
+					linesDecorationsClassName:
+						mark.kind === 'add'
+							? 'ide-gutter-add'
+							: mark.kind === 'change'
+								? 'ide-gutter-change'
+								: 'ide-gutter-delete',
+					hoverMessage: mark.hover
+						? { value: ['```diff', mark.hover, '```'].join('\n') }
+						: undefined,
+					overviewRuler:
+						lane === undefined
+							? undefined
+							: {
+									color:
+										mark.kind === 'add'
+											? '#22c55e'
+											: mark.kind === 'change'
+												? '#f59e0b'
+												: '#ef4444',
+									position: lane,
+								},
+				},
+			}));
+			decorationIds = instance.deltaDecorations(decorationIds, decs);
+		} catch {
+			// Gutter decorations are advisory; the file stays editable.
+		}
+	}
 
 	function revealAt(line: number, col?: number | null): void {
 		try {

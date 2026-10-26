@@ -66,7 +66,27 @@ export type IdeCommand =
 	| 'saveFile'
 	| 'saveAll'
 	| 'reveal'
-	| 'copyPath';
+	| 'copyPath'
+	| 'cut'
+	| 'copy'
+	| 'paste'
+	| 'selectAll'
+	| 'clearSelection'
+	| 'upload'
+	| 'download'
+	| 'focusSearch'
+	| 'toggleHistory'
+	| 'nextChange'
+	| 'prevChange'
+	| 'viewDiff';
+
+/** Session-scoped clipboard: paths plus copy/cut semantics. Never persisted. */
+export interface IdeClipboard {
+	mode: 'cut' | 'copy';
+	paths: string[];
+}
+
+export type IdeSidebarView = 'tree' | 'search';
 
 export class IdeStore {
 	dirs = $state<SvelteMap<string, IdeDirState>>(new SvelteMap());
@@ -83,6 +103,15 @@ export class IdeStore {
 	revealRequest = $state<string | null>(null);
 	commandQueue = $state<IdeCommand[]>([]);
 	rootCreateRequest = $state<{ isDir: boolean; nonce: number } | null>(null);
+	uploadRequest = $state<{ dir: string; nonce: number } | null>(null);
+	clipboard = $state<IdeClipboard | null>(null);
+	selectedPaths = $state<string[]>([]);
+	anchorPath = $state<string | null>(null);
+	sidebarView = $state<IdeSidebarView>('tree');
+	searchTab = $state<'files' | 'content'>('files');
+	historyOpen = $state(false);
+	/** Bumped after saves and git writes so gutter and history refresh. */
+	gitRefreshSeq = $state(0);
 
 	constructor() {
 		const saved = readSession<{ tabs: string[]; active: string | null }>('tabs', {
@@ -113,6 +142,7 @@ export class IdeStore {
 			this.terminalMaximized = sessionStorage.getItem(storageKey('term-max')) === '1';
 			const sidebar = sessionStorage.getItem(storageKey('sidebar'));
 			this.sidebarOpen = sidebar === null ? true : sidebar === '1';
+			this.historyOpen = sessionStorage.getItem(storageKey('history')) === '1';
 		}
 		this.restoreDrafts();
 	}
@@ -434,6 +464,77 @@ export class IdeStore {
 		writeSession('sidebar', open ? '1' : '0');
 	}
 
+	setHistoryOpen(open: boolean): void {
+		this.historyOpen = open;
+		writeSession('history', open ? '1' : '0');
+	}
+
+	setClipboard(next: IdeClipboard | null): void {
+		this.clipboard = next ? { mode: next.mode, paths: [...next.paths] } : null;
+	}
+
+	clearClipboard(): void {
+		this.clipboard = null;
+	}
+
+	setSelection(paths: string[]): void {
+		this.selectedPaths = [...paths];
+		if (paths.length === 0) this.anchorPath = null;
+		else if (!this.anchorPath || !paths.includes(this.anchorPath)) {
+			this.anchorPath = paths[paths.length - 1] ?? null;
+		}
+	}
+
+	clearSelection(): void {
+		this.selectedPaths = [];
+		this.anchorPath = null;
+	}
+
+	isSelected(path: string): boolean {
+		return this.selectedPaths.includes(path);
+	}
+
+	bumpGitRefresh(): void {
+		this.gitRefreshSeq += 1;
+	}
+
+	/** Rewrite open tabs after a move/copy target change. */
+	retargetPath(from: string, to: string): void {
+		const prefix = `${from}/`;
+		const previousActive = this.activePath;
+		for (const tab of this.tabs) {
+			if (tab.path === from) {
+				tab.path = to;
+				tab.language = languageForPath(to);
+			} else if (tab.path.startsWith(prefix)) {
+				tab.path = `${to}${tab.path.slice(from.length)}`;
+				tab.language = languageForPath(tab.path);
+			}
+		}
+		if (previousActive === from) this.activePath = to;
+		else if (previousActive?.startsWith(prefix)) {
+			this.activePath = `${to}${previousActive.slice(from.length)}`;
+		}
+		this.persistTabs();
+	}
+
+	/** Close tabs whose files were removed. */
+	closePaths(paths: string[]): void {
+		const doomed = new Set(paths);
+		const prefixes = paths.map((p) => `${p}/`);
+		this.tabs = this.tabs.filter((tab) => {
+			if (doomed.has(tab.path)) {
+				this.clearDraft(tab.path);
+				return false;
+			}
+			return !prefixes.some((prefix) => tab.path.startsWith(prefix));
+		});
+		if (this.activePath && !this.tabs.some((t) => t.path === this.activePath)) {
+			this.activePath = this.tabs[0]?.path ?? null;
+		}
+		this.persistTabs();
+	}
+
 	setTerminalMaximized(maximized: boolean): void {
 		this.terminalMaximized = maximized;
 		try {
@@ -468,6 +569,11 @@ export class IdeStore {
 	/** Ask the file tree to start an inline create input at the workspace root. */
 	requestRootCreate(isDir: boolean): void {
 		this.rootCreateRequest = { isDir, nonce: (this.rootCreateRequest?.nonce ?? 0) + 1 };
+	}
+
+	/** Ask the file tree to open the upload picker for `dir`. */
+	requestUpload(dir: string): void {
+		this.uploadRequest = { dir, nonce: (this.uploadRequest?.nonce ?? 0) + 1 };
 	}
 
 	/** Refresh the version-status table from the git change list. Never throws. */

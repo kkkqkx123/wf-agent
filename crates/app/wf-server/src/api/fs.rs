@@ -15,11 +15,14 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/fs/search", get(handle_fs_search))
         .route("/fs/content", get(handle_fs_content).put(handle_fs_write))
         .route("/fs/stat", get(handle_fs_stat))
+        .route("/fs/raw", get(handle_fs_raw))
+        .route("/fs/upload", post(handle_fs_upload))
         .route(
             "/fs/entries",
             post(handle_fs_create).delete(handle_fs_delete),
         )
         .route("/fs/entries/move", patch(handle_fs_rename))
+        .route("/fs/entries/copy", post(handle_fs_copy))
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -53,6 +56,29 @@ pub(crate) struct FsCreateBody {
 pub(crate) struct FsRenameBody {
     from: String,
     to: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub(crate) struct FsCopyBody {
+    from: String,
+    to: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub(crate) struct FsUploadBody {
+    path: String,
+    content_base64: String,
+    #[serde(default)]
+    overwrite: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub(crate) struct FsRawView {
+    pub path: String,
+    pub filename: String,
+    pub mime: String,
+    pub size: u64,
+    pub content_base64: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -318,6 +344,47 @@ pub(crate) async fn handle_fs_rename(
     axum::Json(body): axum::Json<FsRenameBody>,
 ) -> impl IntoResponse {
     match wf_api::fs::rename_entry(&state.ctx, &body.from, &body.to) {
+        Ok(entry) => ok(entry_view(entry)).into_response(),
+        Err(err) => error_response(err.into()),
+    }
+}
+
+#[utoipa::path(post, path = "/api/v1/fs/entries/copy", operation_id = "post_fs_entries_copy", tag = "fs", request_body = FsCopyBody, responses((status = 200, description = "Entry copied", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
+pub(crate) async fn handle_fs_copy(
+    State(state): State<ApiState>,
+    axum::Json(body): axum::Json<FsCopyBody>,
+) -> impl IntoResponse {
+    match wf_api::fs::copy_entry(&state.ctx, &body.from, &body.to) {
+        Ok(entry) => ok(entry_view(entry)).into_response(),
+        Err(err) => error_response(err.into()),
+    }
+}
+
+#[utoipa::path(get, path = "/api/v1/fs/raw", operation_id = "get_fs_raw", tag = "fs", params(FsPathQuery), responses((status = 200, description = "Raw file bytes as base64", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
+pub(crate) async fn handle_fs_raw(
+    State(state): State<ApiState>,
+    Query(query): Query<FsPathQuery>,
+) -> impl IntoResponse {
+    match wf_api::fs::read_raw(&state.ctx, query_path(&query.path)) {
+        Ok(raw) => ok(FsRawView {
+            path: raw.path,
+            filename: raw.filename,
+            mime: raw.mime,
+            size: raw.size,
+            content_base64: raw.content_base64,
+        })
+        .into_response(),
+        Err(err) => error_response(err.into()),
+    }
+}
+
+#[utoipa::path(post, path = "/api/v1/fs/upload", operation_id = "post_fs_upload", tag = "fs", request_body = FsUploadBody, responses((status = 200, description = "File uploaded", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
+pub(crate) async fn handle_fs_upload(
+    State(state): State<ApiState>,
+    axum::Json(body): axum::Json<FsUploadBody>,
+) -> impl IntoResponse {
+    match wf_api::fs::upload_bytes(&state.ctx, &body.path, &body.content_base64, body.overwrite)
+    {
         Ok(entry) => ok(entry_view(entry)).into_response(),
         Err(err) => error_response(err.into()),
     }

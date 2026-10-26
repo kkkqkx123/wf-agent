@@ -1,4 +1,4 @@
-import { client } from '#lib/api/client';
+import { client, API_BASE_URL, resolveApiKey } from '#lib/api/client';
 import { call, requireData } from '#lib/api/envelope';
 import type { components } from '#lib/api/schema';
 
@@ -87,6 +87,99 @@ export async function deleteFsEntry(path: string): Promise<void> {
 export async function renameFsEntry(from: string, to: string): Promise<FsEntry> {
 	const data = await call<unknown>(client.PATCH('/api/v1/fs/entries/move', { body: { from, to } }));
 	return requireData(data, 'FS rename') as FsEntry;
+}
+
+export interface FsRawView {
+	path: string;
+	filename: string;
+	mime: string;
+	size: number;
+	content_base64: string;
+}
+
+interface FsEnvelope<T> {
+	success: boolean;
+	data?: T;
+	error?: { code?: string; message?: string };
+}
+
+async function fsEnvelope<T>(path: string, init: RequestInit): Promise<T> {
+	const key = resolveApiKey();
+	const response = await fetch(`${API_BASE_URL}${path}`, {
+		...init,
+		headers: {
+			'Content-Type': 'application/json',
+			...(key ? { 'x-api-key': key } : {}),
+			...(init.headers ?? {}),
+		},
+	});
+	let body: FsEnvelope<T>;
+	try {
+		body = (await response.json()) as FsEnvelope<T>;
+	} catch {
+		throw new Error(`FS request failed (HTTP ${response.status})`);
+	}
+	if (!response.ok || !body.success) {
+		throw new Error(body.error?.message ?? `FS request failed (HTTP ${response.status})`);
+	}
+	return requireData(body.data, 'FS response');
+}
+
+export async function copyFsEntry(from: string, to: string): Promise<FsEntry> {
+	return fsEnvelope<FsEntry>('/api/v1/fs/entries/copy', {
+		method: 'POST',
+		body: JSON.stringify({ from, to }),
+	});
+}
+
+export async function readFsRaw(path: string): Promise<FsRawView> {
+	const params = new URLSearchParams({ path });
+	return fsEnvelope<FsRawView>(`/api/v1/fs/raw?${params.toString()}`, { method: 'GET' });
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+	let binary = '';
+	const chunk = 8192;
+	for (let i = 0; i < bytes.length; i += chunk) {
+		binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+	}
+	return btoa(binary);
+}
+
+export async function blobToBase64(blob: Blob): Promise<string> {
+	const buffer = await blob.arrayBuffer();
+	return bytesToBase64(new Uint8Array(buffer));
+}
+
+export async function uploadFsFile(
+	path: string,
+	data: Blob,
+	overwrite = false,
+): Promise<FsEntry> {
+	const content_base64 = await blobToBase64(data);
+	return fsEnvelope<FsEntry>('/api/v1/fs/upload', {
+		method: 'POST',
+		body: JSON.stringify({ path, content_base64, overwrite }),
+	});
+}
+
+export function base64ToBlob(contentBase64: string, mime: string): Blob {
+	const binary = atob(contentBase64);
+	const bytes = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i += 1) {
+		bytes[i] = binary.charCodeAt(i);
+	}
+	return new Blob([bytes.buffer as ArrayBuffer], { type: mime || 'application/octet-stream' });
+}
+
+export function downloadFsBlob(filename: string, mime: string, contentBase64: string): void {
+	const blob = base64ToBlob(contentBase64, mime);
+	const url = URL.createObjectURL(blob);
+	const anchor = document.createElement('a');
+	anchor.href = url;
+	anchor.download = filename;
+	anchor.click();
+	URL.revokeObjectURL(url);
 }
 
 export interface FsContentMatch {

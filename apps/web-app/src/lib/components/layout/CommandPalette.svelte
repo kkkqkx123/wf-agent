@@ -204,14 +204,25 @@ import { ide, type IdeCommand } from '#lib/stores/ide.svelte';
 
 		const ideCommands: CommandItem[] = (
 			[
-				{ id: 'ide:quickOpen', label: t('page.ide.quickOpenTitle'), icon: 'search' as IconName, command: 'quickOpen' },
-				{ id: 'ide:contentSearch', label: t('page.ide.searchTitle'), icon: 'search' as IconName, command: 'contentSearch' },
+				{ id: 'ide:focusSearchFiles', label: t('page.ide.quickOpenTitle'), icon: 'search' as IconName, command: 'quickOpen' },
+				{ id: 'ide:focusSearchContent', label: t('page.ide.searchTitle'), icon: 'search' as IconName, command: 'focusSearch' },
 				{ id: 'ide:newFile', label: t('page.ide.newFile'), icon: 'plus' as IconName, command: 'newFile' },
 				{ id: 'ide:newFolder', label: t('page.ide.newFolder'), icon: 'folder' as IconName, command: 'newFolder' },
 				{ id: 'ide:saveFile', label: t('page.ide.saveFile'), icon: 'save' as IconName, command: 'saveFile' },
 				{ id: 'ide:saveAll', label: t('page.ide.saveAll'), icon: 'save' as IconName, command: 'saveAll' },
 				{ id: 'ide:reveal', label: t('page.ide.locateInTree'), icon: 'folder' as IconName, command: 'reveal' },
 				{ id: 'ide:copyPath', label: t('page.ide.copyPath'), icon: 'file' as IconName, command: 'copyPath' },
+				{ id: 'ide:cut', label: t('page.ide.cut'), icon: 'file' as IconName, command: 'cut' },
+				{ id: 'ide:copy', label: t('page.ide.copy'), icon: 'file' as IconName, command: 'copy' },
+				{ id: 'ide:paste', label: t('page.ide.paste'), icon: 'file' as IconName, command: 'paste' },
+				{ id: 'ide:selectAll', label: t('page.ide.selectAll'), icon: 'file' as IconName, command: 'selectAll' },
+				{ id: 'ide:clearSelection', label: t('page.ide.clearSelection'), icon: 'x' as IconName, command: 'clearSelection' },
+				{ id: 'ide:upload', label: t('page.ide.uploadFiles'), icon: 'plus' as IconName, command: 'upload' },
+				{ id: 'ide:download', label: t('page.ide.download'), icon: 'file' as IconName, command: 'download' },
+				{ id: 'ide:toggleHistory', label: t('page.ide.historyTitle'), icon: 'activity' as IconName, command: 'toggleHistory' },
+				{ id: 'ide:nextChange', label: t('page.ide.nextChange'), icon: 'activity' as IconName, command: 'nextChange' },
+				{ id: 'ide:prevChange', label: t('page.ide.prevChange'), icon: 'activity' as IconName, command: 'prevChange' },
+				{ id: 'ide:viewDiff', label: t('page.ide.viewDiff'), icon: 'activity' as IconName, command: 'viewDiff' },
 			] as Array<{ id: string; label: string; icon: IconName; command: IdeCommand }>
 		).map(({ id, label, icon, command }) => ({
 			id,

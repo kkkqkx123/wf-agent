@@ -4,13 +4,17 @@
 	import Button from '#lib/ui/components/Button.svelte';
 	import MonacoEditor from './MonacoEditor.svelte';
 	import { ide } from '#lib/stores/ide.svelte';
+	import type { GutterMark } from '#lib/ide/git-diff-lines';
 	import { t } from '#lib/i18n';
 
 	interface Props {
 		onRequestClose?: (path: string) => void;
+		gutterMarks?: GutterMark[];
+		diffOverflow?: boolean;
+		onOpenFullDiff?: () => void;
 	}
 
-	let { onRequestClose }: Props = $props();
+	let { onRequestClose, gutterMarks = [], diffOverflow = false, onOpenFullDiff }: Props = $props();
 
 	let cursor = $state<{ line: number; col: number } | null>(null);
 	let dragPath = $state<string | null>(null);
@@ -179,6 +183,20 @@
 							{t('domain.files.truncatedPath', { path: active.path })}
 						</p>
 					{/if}
+					{#if diffOverflow}
+						<div
+							class="flex flex-wrap items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1 text-micro text-amber-700 dark:text-amber-300"
+						>
+							<span class="min-w-0 flex-1">{t('page.ide.diffOverflow')}</span>
+							<button
+								type="button"
+								class="cursor-pointer underline hover:no-underline"
+								onclick={() => onOpenFullDiff?.()}
+							>
+								{t('page.ide.viewDiff')}
+							</button>
+						</div>
+					{/if}
 					<div class="min-h-0 flex-1">
 						<MonacoEditor
 							filePath={active.path}
@@ -186,6 +204,7 @@
 							language={active.language}
 							readOnly={active.truncated}
 							contentReady={!active.loading}
+							{gutterMarks}
 							revealLine={ide.pendingReveal?.path === active.path
 								? (ide.pendingReveal.line ?? null)
 								: null}

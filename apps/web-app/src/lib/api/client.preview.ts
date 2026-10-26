@@ -1,23 +1,23 @@
 /**
  * Fixture-backed replacement for openapi-fetch's client.
  *
- * web-app-preview never talks to a real wf-server. Every call to
+ * Preview mode never talks to a real wf-server. Every call to
  * `client.GET` / `client.POST` below resolves instantly against the
  * hard-coded sample data in `#lib/fixtures`. The return shape matches
  * openapi-fetch ({ data, error, response }) so `envelope.ts` and the
  * services layer stay completely unchanged.
  *
- * This file is a "preview-only override": sync-frontend-preview.sh copies
- * it *once* from the source tree, then excludes it from future syncs so
- * edits here never get overwritten.
+ * This file is selected by the `#lib/api/client` alias in `vite.config.ts`
+ * and `tsconfig.preview.json` when running with `--mode preview`; every
+ * other mode uses the real client (`client.ts`).
  *
  * The mock internals live under `./mock/`: the router kernel
  * (`mock/router.ts`), per-domain route registrations (`mock/routes/*`,
  * wired in registration order by `mock/registry.ts`), wire adapters
  * (`mock/wire.ts`) and the fixture SSE stream (`mock/event-stream.ts`).
  * This facade keeps the public surface (`client`, `request`,
- * `downloadFile`, `API_BASE_URL`, `resolveApiKey`) that mirrored files
- * import, so shared code never sees the split.
+ * `downloadFile`, `API_BASE_URL`, `resolveApiKey`) that shared code
+ * imports, so the two clients stay drop-in interchangeable.
  */
 
 import { makeRouter, missingRoute, okEnvelope, queryOf } from './mock/router';

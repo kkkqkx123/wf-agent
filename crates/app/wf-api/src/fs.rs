@@ -189,6 +189,16 @@ fn enforce_symlink_containment(root: &Path, normalized: &Path, display: &str) ->
     Ok(())
 }
 
+use base64::Engine as _;
+
+fn base64_encode(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+fn base64_decode(input: &str) -> Result<Vec<u8>, base64::DecodeError> {
+    base64::engine::general_purpose::STANDARD.decode(input.trim())
+}
+
 fn relative_path(root: &Path, absolute: &Path) -> String {
     if absolute == root {
         return String::new();
@@ -613,9 +623,267 @@ pub fn rename_entry(ctx: &ApiContext, from: &str, to: &str) -> FsResult<FsEntry>
     entry_of(&root, &absolute_to)
 }
 
+pub fn mime_for_path(path: &str) -> String {
+    let lower = path.to_lowercase();
+    let ext = lower.rsplit('.').next().unwrap_or("");
+    match ext {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "pdf" => "application/pdf",
+        "zip" => "application/zip",
+        "json" => "application/json",
+        "html" | "htm" => "text/html",
+        "css" => "text/css",
+        "js" | "mjs" | "cjs" => "text/javascript",
+        "ts" | "tsx" => "text/plain",
+        "md" | "markdown" => "text/markdown",
+        "txt" | "log" | "rs" | "py" | "go" | "toml" | "yaml" | "yml" | "sh" | "sql" | "xml" => {
+            "text/plain"
+        }
+        _ => "application/octet-stream",
+    }
+    .to_string()
+}
+
+/// Server-side recursive copy used by the IDE clipboard. Byte-level copy so
+/// binary files work; pre-scans totals and removes a partially created
+/// target on failure instead of leaving a half-written tree.
+pub fn copy_entry(ctx: &ApiContext, from: &str, to: &str) -> FsResult<FsEntry> {
+    if from.is_empty() || to.is_empty() {
+        return Err(FsError::Validation(
+            "source and destination must be non-empty".to_string(),
+        ));
+    }
+    if from == to {
+        return Err(FsError::Validation("source and destination match".to_string()));
+    }
+    if to.starts_with(&format!("{from}/")) {
+        return Err(FsError::Validation(
+            "cannot copy a directory into itself".to_string(),
+        ));
+    }
+    let root = workspace_root(ctx)?;
+    let absolute_from = validate_fs_path(&root, from)?;
+    let absolute_to = validate_fs_path(&root, to)?;
+    let source_meta = std::fs::symlink_metadata(&absolute_from)
+        .map_err(|_| FsError::NotFound(from.to_string()))?;
+    if source_meta.file_type().is_symlink() {
+        return Err(FsError::Validation(format!("refusing symlink copy: {from}")));
+    }
+    if absolute_to.exists() {
+        return Err(FsError::AlreadyExists(to.to_string()));
+    }
+    let Some(parent) = absolute_to.parent() else {
+        return Err(FsError::Validation("destination has no parent".to_string()));
+    };
+    if !parent.exists() {
+        return Err(FsError::NotFound(to.to_string()));
+    }
+    if !parent.is_dir() {
+        return Err(FsError::NotDirectory(to.to_string()));
+    }
+    if source_meta.file_type().is_dir() {
+        let plan = plan_copy_dir(&absolute_from, 0)?;
+        if plan.files > FS_COPY_MAX_FILES {
+            return Err(FsError::TooLarge(format!(
+                "copy exceeds {FS_COPY_MAX_FILES} files"
+            )));
+        }
+        if plan.total_bytes > FS_COPY_MAX_TOTAL_BYTES {
+            return Err(FsError::TooLarge(format!(
+                "copy exceeds {} bytes",
+                FS_COPY_MAX_TOTAL_BYTES
+            )));
+        }
+        let outcome = copy_dir_all(&absolute_from, &absolute_to);
+        if outcome.is_err() {
+            let _ = std::fs::remove_dir_all(&absolute_to);
+            outcome?;
+        }
+    } else {
+        if source_meta.len() > FS_COPY_MAX_FILE_BYTES {
+            return Err(FsError::TooLarge(format!(
+                "{from} is {} bytes, copy limit is {FS_COPY_MAX_FILE_BYTES}",
+                source_meta.len()
+            )));
+        }
+        std::fs::copy(&absolute_from, &absolute_to)
+            .map_err(|e| FsError::Io(format!("copy {from} to {to}: {e}")))?;
+    }
+    entry_of(&root, &absolute_to)
+}
+
+struct CopyPlan {
+    files: usize,
+    total_bytes: u64,
+}
+
+fn plan_copy_dir(dir: &Path, depth: usize) -> FsResult<CopyPlan> {
+    if depth > FS_COPY_MAX_DEPTH {
+        return Err(FsError::TooLarge(format!(
+            "copy exceeds depth {FS_COPY_MAX_DEPTH}"
+        )));
+    }
+    let mut plan = CopyPlan {
+        files: 0,
+        total_bytes: 0,
+    };
+    let read_dir =
+        std::fs::read_dir(dir).map_err(|e| FsError::Io(format!("scan copy source: {e}")))?;
+    for child in read_dir {
+        let child = child.map_err(|e| FsError::Io(format!("scan copy source: {e}")))?;
+        let meta = child
+            .metadata()
+            .map_err(|e| FsError::Io(format!("scan copy source: {e}")))?;
+        if meta.file_type().is_symlink() {
+            return Err(FsError::Validation("refusing symlink copy".to_string()));
+        }
+        if meta.is_dir() {
+            let sub = plan_copy_dir(&child.path(), depth + 1)?;
+            plan.files += sub.files;
+            plan.total_bytes += sub.total_bytes;
+        } else {
+            if meta.len() > FS_COPY_MAX_FILE_BYTES {
+                return Err(FsError::TooLarge(format!(
+                    "copy file exceeds {FS_COPY_MAX_FILE_BYTES} bytes"
+                )));
+            }
+            plan.files += 1;
+            plan.total_bytes += meta.len();
+        }
+        if plan.files > FS_COPY_MAX_FILES || plan.total_bytes > FS_COPY_MAX_TOTAL_BYTES {
+            break;
+        }
+    }
+    Ok(plan)
+}
+
+fn copy_dir_all(source: &Path, target: &Path) -> FsResult<()> {
+    std::fs::create_dir(target).map_err(|e| FsError::Io(format!("create copy target: {e}")))?;
+    let read_dir =
+        std::fs::read_dir(source).map_err(|e| FsError::Io(format!("copy directory: {e}")))?;
+    for child in read_dir {
+        let child = child.map_err(|e| FsError::Io(format!("copy directory: {e}")))?;
+        let file_name = child.file_name();
+        let dest = target.join(file_name);
+        let file_type = child
+            .file_type()
+            .map_err(|e| FsError::Io(format!("copy directory: {e}")))?;
+        if file_type.is_dir() {
+            copy_dir_all(&child.path(), &dest)?;
+        } else if file_type.is_symlink() {
+            return Err(FsError::Validation("refusing symlink copy".to_string()));
+        } else {
+            std::fs::copy(child.path(), &dest)
+                .map_err(|e| FsError::Io(format!("copy file: {e}")))?;
+        }
+    }
+    Ok(())
+}
+
+/// Raw bytes for download, base64-encoded to reuse the JSON envelope.
+/// Binary-safe; no UTF-8 conversion and no truncation beyond the size cap.
+pub fn read_raw(ctx: &ApiContext, path: &str) -> FsResult<FsRawContent> {
+    if path.is_empty() {
+        return Err(FsError::IsDirectory("(workspace root)".to_string()));
+    }
+    let root = workspace_root(ctx)?;
+    let absolute = validate_fs_path(&root, path)?;
+    let metadata =
+        std::fs::symlink_metadata(&absolute).map_err(|_| FsError::NotFound(path.to_string()))?;
+    if metadata.file_type().is_dir() {
+        return Err(FsError::IsDirectory(path.to_string()));
+    }
+    if metadata.len() > MAX_READ_BYTES as u64 {
+        return Err(FsError::TooLarge(format!(
+            "{path} is {} bytes, limit is {MAX_READ_BYTES}",
+            metadata.len()
+        )));
+    }
+    let bytes = std::fs::read(&absolute).map_err(|e| FsError::Io(format!("read {path}: {e}")))?;
+    if bytes.len() > MAX_READ_BYTES {
+        return Err(FsError::TooLarge(format!(
+            "{path} exceeds {MAX_READ_BYTES} bytes"
+        )));
+    }
+    let filename = absolute
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| path.to_string());
+    Ok(FsRawContent {
+        path: path.to_string(),
+        filename,
+        mime: mime_for_path(path),
+        size: bytes.len() as u64,
+        content_base64: base64_encode(&bytes),
+    })
+}
+
+/// Binary-safe upload. Base64 keeps the JSON envelope; the write itself is
+/// atomic and reuses workspace containment checks. Existing paths require
+/// explicit overwrite.
+pub fn upload_bytes(
+    ctx: &ApiContext,
+    path: &str,
+    content_base64: &str,
+    overwrite: bool,
+) -> FsResult<FsEntry> {
+    if path.is_empty() {
+        return Err(FsError::IsDirectory("(workspace root)".to_string()));
+    }
+    let bytes = base64_decode(content_base64)
+        .map_err(|e| FsError::Validation(format!("invalid base64 upload: {e}")))?;
+    if bytes.len() > MAX_READ_BYTES {
+        return Err(FsError::TooLarge(format!(
+            "upload exceeds {MAX_READ_BYTES} bytes"
+        )));
+    }
+    let root = workspace_root(ctx)?;
+    let absolute = validate_fs_path(&root, path)?;
+    if let Ok(meta) = std::fs::symlink_metadata(&absolute) {
+        if meta.file_type().is_dir() {
+            return Err(FsError::IsDirectory(path.to_string()));
+        }
+        if !overwrite {
+            return Err(FsError::AlreadyExists(path.to_string()));
+        }
+    }
+    let Some(parent) = absolute.parent() else {
+        return Err(FsError::Validation("upload path has no parent".to_string()));
+    };
+    if !parent.exists() {
+        return Err(FsError::NotFound(format!("parent of {path} is missing")));
+    }
+    if !parent.is_dir() {
+        return Err(FsError::NotDirectory(path.to_string()));
+    }
+    write_atomic(&absolute, &bytes)?;
+    entry_of(&root, &absolute)
+}
+
 pub const FS_SEARCH_DEFAULT_LIMIT: usize = 100;
 pub const FS_SEARCH_MAX_LIMIT: usize = 300;
 pub const FS_SEARCH_MAX_FILE_BYTES: u64 = 1024 * 1024;
+
+/// Recursive copy guardrails. Single files reuse the read limit so text and
+/// binary copies share one ceiling; totals stay small enough to avoid a
+/// half-written tree on failure (the target is removed on error).
+pub const FS_COPY_MAX_FILE_BYTES: u64 = MAX_READ_BYTES as u64;
+pub const FS_COPY_MAX_TOTAL_BYTES: u64 = 16 * 1024 * 1024;
+pub const FS_COPY_MAX_FILES: usize = 500;
+pub const FS_COPY_MAX_DEPTH: usize = 8;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FsRawContent {
+    pub path: String,
+    pub filename: String,
+    pub mime: String,
+    pub size: u64,
+    pub content_base64: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FsSearchMatch {

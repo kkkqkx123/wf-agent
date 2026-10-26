@@ -63,7 +63,7 @@
 
 ### 4.1 前端：统一键位注册中心（引入 @tanstack/hotkeys）
 
-1. **依赖**：`apps/web-app` 增加 `@tanstack/hotkeys`（内核）+ `@tanstack/svelte-hotkeys`（适配层）。`web-app-preview` 由同步脚本镜像，无需单独处理。
+1. **依赖**：`apps/web-app` 增加 `@tanstack/hotkeys`（内核）+ `@tanstack/svelte-hotkeys`（适配层）。
 2. **动作注册表** `lib/shortcuts/`：
    - `actions.ts`：声明式定义全部动作 `{ id, description, defaultKeys, scope, handler }`。scope 枚举：`global` / `canvas` / `palette` / `transcript` / `input`。现有 `CANVAS_SHORTCUT_HELP` 迁移为该表的一部分，帮助浮层（F1）从注册表生成，消除手写副本。
    - `registry.ts`：将动作表注册进 hotkey-manager，统一处理 scope 激活、`isTyping` 守卫（输入框内仅放行显式允许的键）与冲突上报。

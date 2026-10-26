@@ -24,7 +24,6 @@ linkrs 前端为 SvelteKit 项目，其 i18n 方案由四部分组成：
 
 - `apps/web-app` 同为 SvelteKit（`adapter-auto`，`src/routes` 页面路由，`src/lib` 逻辑层），与 linkrs 构建形态一致，Paraglide 可直接复用。
 - 已有本地偏好模块 `src/lib/stores/preferences.svelte.ts`：theme / density 等在首绘前从 `localStorage` 恢复，语言偏好应并入同一轨道。
-- `apps/web-app-preview` 是由 `scripts/sync-frontend-preview.sh` 生成的 fixture 镜像，i18n 资源需纳入同步范围。
 - 全部文案目前为硬编码字符串，散布于约百余个 `.svelte` 组件与少量 `.ts` 文件，一次替换工作量较大，需分阶段推进。
 
 ## 四、选型结论
@@ -98,9 +97,8 @@ paraglideVitePlugin({
 
 每个阶段独立可合入，en 为基准语言先行提取，zh 随阶段补齐；缺失 key 自动回落 baseLocale（Paraglide 默认行为），不会阻塞渲染。
 
-### 5. preview 镜像与校验
+### 5. 校验
 
-- `messages/`、`project.inlang/`、`src/lib/i18n/` 随 `scripts/sync-frontend-preview.sh` 同步；若脚本按白名单同步，需将上述路径加入；
 - 新增脚本校验（可挂 `npm run check` 前置或独立 `lint:i18n`）：比对 `en.json` 与 `zh.json` 的 key 集合一致，报告多出/缺失项；
 - 验证命令：`npm run check`（svelte-check 覆盖 key 类型）、`npm run test`、`vite build` 后抽查产物中未用 key 已被 tree-shake。
 

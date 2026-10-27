@@ -268,6 +268,16 @@ impl InteractiveController {
                     self.footer.present(crate::footer::FooterView::Question);
                 }
                 InteractiveEvent::TurnEvent(event) => self.handle_turn_event(event),
+                InteractiveEvent::RecapReady { ticket, text } => {
+                    // A late answer never sticks to a newer turn: the
+                    // ticket moved on while the side call was in flight.
+                    if ticket != self.recap_ticket {
+                        continue;
+                    }
+                    if let Some(text) = text.filter(|text| !text.trim().is_empty()) {
+                        self.footer.show_notice(format!("※ recap: {text}"));
+                    }
+                }
                 InteractiveEvent::PanelCandidates { route, payload } => {
                     self.apply_panel_candidates(route, payload);
                 }

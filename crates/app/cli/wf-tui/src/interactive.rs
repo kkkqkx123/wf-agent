@@ -145,6 +145,9 @@ pub enum InteractiveEvent {
         /// The fetch failed; no further pages can be requested.
         failed: bool,
     },
+    /// A screen-only recap read landed. `None` is silence and shows
+    /// nothing; a ticket mismatch drops the late answer.
+    RecapReady { ticket: u64, text: Option<String> },
 }
 
 /// What the caller should do after a key press.
@@ -393,6 +396,10 @@ pub struct InteractiveController {
     keymap: tui_core::keymap::Keymap,
     /// Whether the user asked to edit the composer draft in `$EDITOR`.
     pending_editor: bool,
+    /// Recap ticket: a late side-call answer whose ticket moved on is
+    /// dropped instead of sticking to a newer turn. Tabs own separate
+    /// controllers, so a tab switch drops the old channel with it.
+    recap_ticket: u64,
 }
 
 impl InteractiveController {
@@ -609,6 +616,7 @@ impl InteractiveController {
             model_override: None,
             keymap: tui_core::keymap::Keymap::new(),
             pending_editor: false,
+            recap_ticket: 0,
         }
     }
 

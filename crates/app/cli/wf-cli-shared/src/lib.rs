@@ -24,6 +24,7 @@ pub mod error;
 pub mod mode;
 pub mod output;
 pub mod paths;
+pub mod recap;
 pub mod run;
 pub mod run_diag;
 pub mod run_interaction;

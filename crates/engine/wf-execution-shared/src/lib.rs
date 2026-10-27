@@ -18,6 +18,7 @@ pub mod interactive_script_session;
 pub mod interruption;
 pub mod message_ops;
 pub mod messaging_impl;
+pub mod recap;
 pub mod script_router;
 pub mod single_shot;
 pub mod token_events;

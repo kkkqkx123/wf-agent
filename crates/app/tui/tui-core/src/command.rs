@@ -312,6 +312,21 @@ pub static COMMANDS: &[CommandSpec] = &[
         palette: true,
     },
     CommandSpec {
+        id: "session.recap",
+        title: "Recap",
+        group: "Session",
+        description: "Show a one-line recap of where the turn left off",
+        action: None,
+        scopes: &[],
+        leader: &[],
+        slash: Some(SlashSpec {
+            name: "recap",
+            aliases: &[],
+            argument: "",
+        }),
+        palette: true,
+    },
+    CommandSpec {
         id: "session.executions",
         title: "Executions",
         group: "Session",

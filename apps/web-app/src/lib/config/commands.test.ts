@@ -24,6 +24,10 @@ describe('parseCommand', () => {
 
 describe('matchCommands', () => {
 	it('filters by the typed prefix', () => {
-		expect(matchCommands('re').map((command) => command.name)).toEqual(['retry']);
+		expect(matchCommands('re').map((command) => command.name)).toEqual(['retry', 'recap']);
+	});
+
+	it('parses the recap command', () => {
+		expect(parseCommand('/recap')?.command.name).toBe('recap');
 	});
 });

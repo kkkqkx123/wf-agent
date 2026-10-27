@@ -32,6 +32,7 @@
 	const showTranscript = $derived(controller.showTranscript);
 	const liveGroups = $derived(controller.liveGroups);
 	const groupTools = $derived(controller.groupTools);
+	const recapNote = $derived(controller.recapNote);
 </script>
 
 {#if showTranscript}
@@ -184,6 +185,11 @@
 							{t('chat.chatTranscript.stop')}
 						</Button>
 					</div>
+				{/if}
+				{#if recapNote}
+					<p class="text-caption text-muted-foreground" role="note">
+						<span aria-hidden="true">※ recap: </span>{recapNote}
+					</p>
 				{/if}
 			{/if}
 		{/snippet}

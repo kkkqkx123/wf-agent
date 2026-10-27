@@ -18,6 +18,7 @@ pub mod llm;
 pub mod mention;
 pub mod pty;
 pub mod query;
+pub mod recap;
 pub mod template;
 pub mod trigger;
 pub mod web;

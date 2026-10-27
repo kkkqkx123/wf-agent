@@ -45,6 +45,7 @@
 	"config.commands.new": "Start a fresh draft session",
 	"config.commands.retry": "Resend the last user message",
 	"config.commands.continue": "Keep the run going, optionally steering it",
+	"config.commands.recap": "Show a one-line recap of where the turn left off",
 	"config.sessionTabs.overview": "Overview",
 	"config.sessionTabs.graph": "Graph",
 	"config.sessionTabs.iterations": "Iterations",

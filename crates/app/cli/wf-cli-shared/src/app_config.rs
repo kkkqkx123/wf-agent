@@ -71,6 +71,18 @@ pub struct BehaviorConfig {
     pub sidebar: bool,
     #[serde(default)]
     pub approval_timeout_secs: Option<u64>,
+    /// Automatic screen-only recap notes after long, away or over-screen
+    /// turns. Absent means on; manual `/recap` always runs regardless.
+    #[serde(default)]
+    pub recap: Option<bool>,
+}
+
+impl BehaviorConfig {
+    /// Automatic recap notes are on unless explicitly disabled. Manual
+    /// `/recap` bypasses this switch.
+    pub fn recap_enabled(&self) -> bool {
+        self.recap.unwrap_or(true)
+    }
 }
 
 /// Default copy target name for the config file. Lowercase in TOML.
@@ -562,6 +574,15 @@ debug_socket = false
         let parsed: AppConfig = toml::from_str("").unwrap();
         assert!(!parsed.behavior.mouse_capture);
         assert!(!parsed.behavior.session_scrollbar);
+        assert!(parsed.behavior.recap_enabled());
+    }
+
+    #[test]
+    fn recap_switch_roundtrip_via_toml() {
+        let parsed: AppConfig = toml::from_str("[behavior]\nrecap = false\n").unwrap();
+        assert!(!parsed.behavior.recap_enabled());
+        let empty: AppConfig = toml::from_str("").unwrap();
+        assert!(empty.behavior.recap_enabled());
     }
 
     #[test]

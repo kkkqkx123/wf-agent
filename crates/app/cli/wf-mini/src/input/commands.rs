@@ -15,6 +15,7 @@ pub enum SlashCommand {
     Usage(Option<String>),
     Tools(Option<String>),
     Display,
+    Recap,
 }
 
 /// Parse a trimmed input line into a slash command, if it is one.
@@ -72,6 +73,7 @@ pub fn parse_command(line: &str) -> Option<SlashCommand> {
             _ => None,
         },
         "/display" if tokens.next().is_none() => Some(SlashCommand::Display),
+        "/recap" if tokens.next().is_none() => Some(SlashCommand::Recap),
         _ => None,
     }
 }
@@ -106,6 +108,8 @@ mod tests {
         assert_eq!(parse_command("/rerun abc"), None);
         assert_eq!(parse_command("/rerun 1 2"), None);
         assert_eq!(parse_command("/quit now"), None);
+        assert_eq!(parse_command("/recap"), Some(SlashCommand::Recap));
+        assert_eq!(parse_command("/recap now"), None);
         assert_eq!(parse_command("hello"), None);
         assert_eq!(parse_command("/unknown"), None);
     }

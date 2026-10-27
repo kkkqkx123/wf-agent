@@ -91,6 +91,9 @@ pub struct NativeSession {
     /// turn as interrupted.
     cancel_tx: tokio::sync::watch::Sender<bool>,
     cancel_rx: tokio::sync::watch::Receiver<bool>,
+    /// Recap ticket: a late side-call answer whose ticket moved on is
+    /// dropped instead of sticking to a newer turn or session.
+    recap_ticket: u64,
 }
 
 /// What a slash command asks the loop to do.
@@ -107,8 +110,12 @@ impl NativeSession {
         self.history.push(&question);
         self.prev_prompt = Some(question.clone());
         output::diag_line(&format!("user: {question}"));
+        let turn_started = Instant::now();
+        let ticket = self.note_turn_started();
         if let Some(finished) = self.run_turn(question.clone()).await {
             self.record_completed_turn(&question, &finished);
+            self.maybe_auto_recap(ticket, turn_started.elapsed(), &finished)
+                .await;
         }
         self.discard_stale_lines().await;
     }
@@ -148,6 +155,7 @@ impl NativeSession {
             broker: Arc::new(SuggestBroker::new()),
             cancel_tx: tokio::sync::watch::channel(false).0,
             cancel_rx: tokio::sync::watch::channel(false).1,
+            recap_ticket: 0,
         })
     }
 
@@ -285,7 +293,7 @@ impl NativeSession {
         match command {
             SlashCommand::Quit => CommandAction::Exit,
             SlashCommand::Help => {
-                output::diag_line("commands: /help show this help, /clear print a separator, /new start a fresh conversation, /checkpoints list checkpoints, /quit exit (Ctrl-D also exits)");
+                output::diag_line("commands: /help show this help, /clear print a separator, /new start a fresh conversation, /checkpoints list checkpoints, /recap show a one-line recap of the turn, /quit exit (Ctrl-D also exits)");
                 output::diag_line("history: /history [prefix] list recent prompts (optional prefix filter), /rerun [n] re-ask prompt n (default: last)");
                 output::diag_line("display: /markdown [raw|plain|styled] set or show stdout rendering, /reasoning [on|off], /usage [on|off], /tools [on|off], /display show all");
                 output::diag_line("keys: Tab or Right-arrow (at line end) accept the suggestion, Ctrl-Right or Alt-f accept one word, Up/Down browse history by prefix, Alt-b/Alt-f word motion, Alt-d/Alt-Backspace kill word, Alt-. insert history tail word, Ctrl-C cancels the running turn, Ctrl-C twice at the prompt quits, Ctrl-D quits");
@@ -330,6 +338,7 @@ impl NativeSession {
             SlashCommand::New => {
                 self.transcript.clear();
                 self.anchor = format!("mini-{}", wf_common::generate_id());
+                self.note_turn_started();
                 output::diag_line(&format!(
                     "started a new conversation (session {})",
                     self.anchor
@@ -426,6 +435,89 @@ impl NativeSession {
                 output::diag_line(&format!("display: {}", self.display.describe()));
                 CommandAction::Continue
             }
+            SlashCommand::Recap => {
+                self.request_recap_now().await;
+                CommandAction::Continue
+            }
+        }
+    }
+
+    /// A new turn (or session) moves the recap ticket so a late side-call
+    /// answer can never stick to it.
+    fn note_turn_started(&mut self) -> u64 {
+        self.recap_ticket = self.recap_ticket.wrapping_add(1);
+        self.recap_ticket
+    }
+
+    /// Whether automatic recap notes are on. The file is optional: absent
+    /// or unreadable means on, matching the web default for old servers.
+    fn recap_enabled() -> bool {
+        let Some(path) = wf_cli_shared::app_config::config_file_path() else {
+            return true;
+        };
+        match wf_cli_shared::app_config::ConfigManager::load(&path) {
+            Ok(manager) => manager.config().behavior.recap_enabled(),
+            Err(_) => true,
+        }
+    }
+
+    /// Read one screen-only recap over HTTP. `None` is silence: nothing
+    /// worth saying, side call failed, no profile, or the ticket moved on.
+    async fn fetch_recap(&self, ticket: u64) -> Option<String> {
+        let profile = self.model.clone().unwrap_or_default();
+        if profile.trim().is_empty() {
+            return None;
+        }
+        let body = serde_json::json!({
+            "session_id": self.anchor,
+            "profile_id": profile,
+        });
+        let response: Result<serde_json::Value, _> =
+            self.client.post_json("/api/v1/chat/recap", &body).await;
+        if ticket != self.recap_ticket {
+            return None;
+        }
+        let text = response
+            .ok()?
+            .get("data")?
+            .get("text")?
+            .as_str()?
+            .to_string();
+        if text.trim().is_empty() {
+            return None;
+        }
+        Some(text)
+    }
+
+    /// Manual `/recap`: same read face, bypasses the automatic gate and
+    /// the display switch. Silence stays silent.
+    async fn request_recap_now(&mut self) {
+        let ticket = self.note_turn_started();
+        if let Some(text) = self.fetch_recap(ticket).await {
+            output::diag_line(&format!("※ recap: {text}"));
+        }
+    }
+
+    /// Automatic recap after a completed turn. Only normal completions
+    /// qualify; failures and interrupts already have their own notice.
+    async fn maybe_auto_recap(&self, ticket: u64, elapsed: Duration, finished: &FinishedTurn) {
+        if !finished.outcome.completed {
+            return;
+        }
+        let reply_rows = reply_rows(&finished.outcome.assistant_text);
+        let screen_rows = terminal_rows();
+        if !wf_cli_shared::recap::wants_recap(
+            Some(elapsed),
+            false,
+            reply_rows,
+            screen_rows,
+            Self::recap_enabled(),
+            false,
+        ) {
+            return;
+        }
+        if let Some(text) = self.fetch_recap(ticket).await {
+            output::diag_line(&format!("※ recap: {text}"));
         }
     }
 
@@ -732,6 +824,26 @@ impl TurnOutcome {
             assistant_text,
         }
     }
+}
+
+/// Visible rows of the reply: physical lines folded to the terminal
+/// width, so a long single line still counts as over-screen output.
+fn reply_rows(text: &str) -> usize {
+    let cols = crate::editor::terminal_cols().max(20) as usize;
+    text.lines()
+        .map(|line| {
+            let width = line.chars().count().max(1);
+            width.div_ceil(cols).max(1)
+        })
+        .sum::<usize>()
+        .max(1)
+}
+
+/// Terminal height in rows; 24 on failure so the gate still decides.
+fn terminal_rows() -> u16 {
+    crossterm::terminal::size()
+        .map(|(_, rows)| rows)
+        .unwrap_or(24)
 }
 
 #[cfg(test)]

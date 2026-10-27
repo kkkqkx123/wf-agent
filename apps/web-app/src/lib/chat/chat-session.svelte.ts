@@ -12,6 +12,7 @@ import {
 } from '#lib/graph/execution-projection';
 import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
 import { streamLoopRun, streamChat, streamWorkflowExecution } from '#lib/services/streaming';
+import { postChatRecap, postLoopRecap, shouldRecap } from '#lib/services/recap';
 import type { UsageSnapshot } from '#lib/utils/stream-parser';
 import type { StreamFailure } from '#lib/api/stream';
 import { listModelProfiles } from '#lib/services/resources';
@@ -74,6 +75,13 @@ export class ChatSessionController {
 	pendingInteractions = $state<PendingInteraction[]>([]);
 	/** Last interaction-event transport state; drives the REST fallback. */
 	interactionLiveState = $state<StreamState>('closed');
+	/** Screen-only recap line below the answer. Never enters history. */
+	recapNote = $state<string | null>(null);
+	private recapTicket = 0;
+	private recapAbort: AbortController | null = null;
+	private turnBeganAt = 0;
+	private awayThisTurn = false;
+	private recapVisibilityOff: (() => void) | null = null;
 	private interactionFetchedAt = 0;
 	private interactionInFlight = false;
 	private interactionDirty = false;
@@ -87,6 +95,7 @@ export class ChatSessionController {
 		$effect(() => {
 			void this.selectedId;
 			this.openGroups.clear();
+			this.dropRecap();
 		});
 
 		$effect(() => {
@@ -507,7 +516,87 @@ export class ChatSessionController {
 		new: () => sessions.startDraft(),
 		retry: () => this.retryLast(),
 		continue: (arg) => this.sendPrompt(arg ? `Continue: ${arg}` : 'Continue'),
+		recap: () => this.requestRecapNow(),
 	};
+
+	/** Drop a pending recap read: the ticket moves so a late answer is discarded. */
+	dropRecap(): void {
+		this.recapTicket += 1;
+		this.recapAbort?.abort();
+		this.recapAbort = null;
+		this.recapNote = null;
+		this.recapVisibilityOff?.();
+		this.recapVisibilityOff = null;
+	}
+
+	/** Arm the auto-recap signals for the turn that is about to run. */
+	private beginRecapTurn(): void {
+		this.dropRecap();
+		this.turnBeganAt = Date.now();
+		this.awayThisTurn = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+		if (typeof document === 'undefined') return;
+		const onHide = () => {
+			if (document.visibilityState === 'hidden') this.awayThisTurn = true;
+		};
+		document.addEventListener('visibilitychange', onHide);
+		this.recapVisibilityOff = () => document.removeEventListener('visibilitychange', onHide);
+	}
+
+	/** Manual `/recap`: same read face, but bypasses the automatic gate. */
+	requestRecapNow(): void {
+		const id = this.selectedId;
+		const profile = this.model.trim();
+		if (!id || !profile) return;
+		if (this.executionType === 'workflow') return;
+		const ticket = ++this.recapTicket;
+		this.recapAbort?.abort();
+		const controller = new AbortController();
+		this.recapAbort = controller;
+		const read =
+			this.executionType === 'chat'
+				? postChatRecap(id, profile, controller.signal)
+				: postLoopRecap(id, profile, controller.signal);
+		void read.then((text) => {
+			if (ticket !== this.recapTicket) return;
+			if (this.selectedId !== id) return;
+			if (text) this.recapNote = text;
+		});
+	}
+
+	/** Automatic recap after a normally completed turn. Silent on every miss. */
+	private maybeRecap(normalStop: boolean): void {
+		this.recapVisibilityOff?.();
+		this.recapVisibilityOff = null;
+		if (!normalStop) return;
+		if (this.executionType === 'workflow') return;
+		const id = this.selectedId;
+		const profile = this.model.trim();
+		if (!id || !profile) return;
+		// Overflow heuristic: the live answer already holds the full text,
+		// so a multi-screen reply is a long string, not a measured box.
+		const overflowsScreen = chatStream.answer.length > 3000;
+		const gate = shouldRecap({
+			elapsedMs: Date.now() - this.turnBeganAt,
+			away: this.awayThisTurn,
+			overflowsScreen,
+			enabled: preferences.recapEnabled,
+			autonomous: false,
+		});
+		if (!gate) return;
+		const ticket = ++this.recapTicket;
+		this.recapAbort?.abort();
+		const controller = new AbortController();
+		this.recapAbort = controller;
+		const read =
+			this.executionType === 'chat'
+				? postChatRecap(id, profile, controller.signal)
+				: postLoopRecap(id, profile, controller.signal);
+		void read.then((text) => {
+			if (ticket !== this.recapTicket) return;
+			if (this.selectedId !== id) return;
+			if (text) this.recapNote = text;
+		});
+	}
 
 	/**
 	 * Callbacks shared by every execution type: the answer text, the
@@ -530,6 +619,7 @@ export class ChatSessionController {
 	/** Run the message through the agent loop. */
 	async runAgent(content: string, files: MessageAttachment[]): Promise<void> {
 		const draft = !this.selectedId;
+		this.beginRecapTurn();
 		const baseline = new SvelteSet(sessions.list.items.map((item) => item.id));
 		const startedAt = new SvelteDate().toISOString();
 		const history: RunLoopMessage[] = this.bubbles.map((message) => ({
@@ -595,6 +685,7 @@ export class ChatSessionController {
 			await tick();
 		}
 		pickerState.recordUsed('model', this.model.trim());
+		this.beginRecapTurn();
 		const signal = chatStream.start(sessionId, {
 			executionType: 'chat',
 			model: this.model.trim(),
@@ -623,6 +714,7 @@ export class ChatSessionController {
 		});
 		pickerState.recordUsed('workflow', workflowId);
 		pickerState.recordUsed('model', this.model.trim());
+		this.beginRecapTurn();
 		await streamWorkflowExecution(
 			workflowId,
 			{ input: { message: withAttachments(content, files) } },
@@ -654,6 +746,7 @@ export class ChatSessionController {
 		}
 		this.revision += 1;
 		if (this.selectedId) await this.transcript.reload();
+		this.maybeRecap(chatStream.done && !chatStream.error && !chatStream.cancelled);
 	}
 
 	/** URL-sync effect body; the route hosts the $effect wrapper. */

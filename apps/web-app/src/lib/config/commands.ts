@@ -1,6 +1,6 @@
 import { message } from '#lib/i18n';
 
-export type CommandAction = 'new' | 'retry' | 'continue';
+export type CommandAction = 'new' | 'retry' | 'continue' | 'recap';
 
 export interface SlashCommand {
 	name: string;
@@ -29,6 +29,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 		arg: '[note]',
 		description: message('config.commands.continue'),
 		action: 'continue',
+	},
+	{
+		name: 'recap',
+		arg: null,
+		description: message('config.commands.recap'),
+		action: 'recap',
 	},
 ];
 

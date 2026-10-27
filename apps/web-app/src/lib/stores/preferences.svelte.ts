@@ -42,6 +42,7 @@ interface PersistedPreferences {
 	editorWordWrap?: boolean;
 	toolOutputPreviews?: boolean;
 	toolOutputDetail?: ToolOutputDetail;
+	recapEnabled?: boolean;
 }
 
 export const EDITOR_FONT_SIZE_MIN = 10;
@@ -83,6 +84,7 @@ class PreferencesStore {
 	editorWordWrap = $state(false);
 	toolOutputPreviews = $state(true);
 	toolOutputDetail = $state<ToolOutputDetail>('balanced');
+	recapEnabled = $state(true);
 
 	constructor() {
 		const stored = read();
@@ -129,6 +131,9 @@ class PreferencesStore {
 		}
 		if (stored.toolOutputDetail !== undefined) {
 			this.toolOutputDetail = parseToolOutputDetail(stored.toolOutputDetail);
+		}
+		if (typeof stored.recapEnabled === 'boolean') {
+			this.recapEnabled = stored.recapEnabled;
 		}
 	}
 
@@ -212,6 +217,11 @@ class PreferencesStore {
 		this.persist();
 	}
 
+	setRecapEnabled(enabled: boolean): void {
+		this.recapEnabled = enabled;
+		this.persist();
+	}
+
 	/** Rotate the tool output detail preset: compact, balanced, verbose. */
 	cycleToolOutputDetail(): void {
 		const order: ToolOutputDetail[] = ['compact', 'balanced', 'verbose'];
@@ -250,6 +260,7 @@ class PreferencesStore {
 					editorWordWrap: this.editorWordWrap,
 					toolOutputPreviews: this.toolOutputPreviews,
 					toolOutputDetail: this.toolOutputDetail,
+					recapEnabled: this.recapEnabled,
 				} satisfies PersistedPreferences),
 			);
 		} catch {

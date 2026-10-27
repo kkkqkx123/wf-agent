@@ -39,6 +39,48 @@ const AUTH_POLL_FALLBACK_SECS: u64 = 5;
 impl InteractiveController {
     // ── opening ────────────────────────────────────────────────────────
 
+    /// Manual `/recap`: one screen-only read over HTTP. Silence stays
+    /// silent; a late answer is dropped by ticket when the turn moved on.
+    /// The display switch gates only the automatic note, never this call.
+    pub(crate) fn request_recap_now(&mut self) {
+        self.recap_ticket = self.recap_ticket.wrapping_add(1);
+        let ticket = self.recap_ticket;
+        let Some(session_id) = self.footer.state.execution_id.clone() else {
+            return;
+        };
+        let Some(profile) = self
+            .model_override
+            .clone()
+            .or_else(|| self.footer.state.model.clone())
+        else {
+            return;
+        };
+        if session_id.trim().is_empty() || profile.trim().is_empty() {
+            return;
+        }
+        let client = self.client.clone();
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let body = serde_json::json!({
+                "session_id": session_id,
+                "profile_id": profile,
+            });
+            let text: Option<String> = client
+                .post_json::<_, serde_json::Value>("/api/v1/chat/recap", &body)
+                .await
+                .ok()
+                .and_then(|response| {
+                    response
+                        .get("data")?
+                        .get("text")?
+                        .as_str()
+                        .map(str::to_string)
+                })
+                .filter(|text| !text.trim().is_empty());
+            let _ = tx.send(crate::interactive::InteractiveEvent::RecapReady { ticket, text });
+        });
+    }
+
     /// Open the `/` command palette. The filter starts at the typed `/`, so
     /// the command word narrows the list and the rest is the argument.
     pub(crate) fn open_command_panel(&mut self) {
@@ -536,6 +578,10 @@ impl InteractiveController {
             }
             "session.executions" => {
                 InteractiveAction::OpenScreen(crate::screens::ScreenKind::Executions)
+            }
+            "session.recap" => {
+                self.request_recap_now();
+                InteractiveAction::Continue
             }
             "session.editor" => {
                 // The shell runs the actual editor handoff (it owns the

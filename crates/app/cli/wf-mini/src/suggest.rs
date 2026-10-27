@@ -117,6 +117,7 @@ const COMMANDS: &[&[&str]] = &[
     &["/usage"],
     &["/tools"],
     &["/display"],
+    &["/recap"],
 ];
 
 impl SuggestStrategy for CommandStrategy {

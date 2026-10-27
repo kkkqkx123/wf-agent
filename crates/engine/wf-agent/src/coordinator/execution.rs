@@ -6,10 +6,13 @@ use wf_core::interruption::InterruptionSignal;
 use wf_execution_shared::execution_loop;
 use wf_metrics::MetricsRegistry;
 use wf_types::checkpoint::CheckpointTiming;
+use wf_types::events::EventType;
+use wf_types::message::Message;
 use wf_types::execution::FailurePolicyConfig;
 
 use crate::checkpoint::AgentCheckpointIntegration;
 use crate::coordinator::iteration::{IterationExecutor, IterationResult};
+use crate::coordinator::state_transitor::AgentLoopStateTransitor;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
 use crate::error_analysis::{analyze_error, decide_retry, RetryDecision};
@@ -172,6 +175,25 @@ impl AgentExecutionCoordinator {
                 return Err(Self::stopped_error(entity).await);
             }
 
+            // Inject any buffered steering inputs before this iteration. This
+            // never interrupts the current response; it only adds context for
+            // the next LLM request.
+            let steering = entity.drain_steering_inputs().await;
+            if !steering.is_empty() {
+                let text = steering.join("\n\n");
+                {
+                    let mut conv = entity.conversation().write().await;
+                    conv.add_message(Message::user_text(text));
+                }
+                if let Some(bus) = entity.event_bus() {
+                    AgentLoopStateTransitor::emit_event(
+                        &bus,
+                        EventType::AgentSteeringInjected,
+                        entity.id().clone(),
+                    );
+                }
+            }
+
             let iteration_start = wf_common::now();
             let iteration_result = self
                 .execute_iteration_with_retry(entity, failure_policy)
@@ -212,6 +234,25 @@ impl AgentExecutionCoordinator {
                                 return Err(Self::stopped_error(entity).await);
                             }
                             _ => {
+                                // Follow-up inputs are injected only when the
+                                // run would otherwise stop, and never interrupt
+                                // the current response.
+                                let followups = entity.drain_followup_inputs().await;
+                                if !followups.is_empty() {
+                                    let text = followups.join("\n\n");
+                                    {
+                                        let mut conv = entity.conversation().write().await;
+                                        conv.add_message(Message::user_text(text));
+                                    }
+                                    if let Some(bus) = entity.event_bus() {
+                                        AgentLoopStateTransitor::emit_event(
+                                            &bus,
+                                            EventType::AgentFollowupQueued,
+                                            entity.id().clone(),
+                                        );
+                                    }
+                                    continue;
+                                }
                                 // File-checkpoint approval policy at loop end
                                 // (auto merge / submit to the approval layer).
                                 if let Some(ref cp) = self.checkpoint {

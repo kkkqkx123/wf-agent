@@ -136,3 +136,74 @@ pub async fn status(
     let status: wf_types::ExecutionStatus = entity.state.read().await.status().into();
     Ok(status)
 }
+
+/// Append a runtime input to a running agent loop. The input is buffered
+/// according to `as_mode` (default follow-up) and injected at the next
+/// safe boundary without interrupting the current response.
+pub async fn append(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+    text: String,
+    as_mode: Option<&str>,
+) -> crate::infra::error::ApiResult<()> {
+    let entity = live_entity(ctx, agent_loop_id)?;
+    if entity.status().is_terminal() {
+        return Err(ApiError::Validation(format!(
+            "agent loop {agent_loop_id} is terminal and cannot accept appended input"
+        )));
+    }
+    let mode = match as_mode {
+        Some("steering") | Some("steer") => Some(wf_agent::entity::AgentAppendMode::Steering),
+        Some("followup") | Some("follow_up") | Some("follow-up") => {
+            Some(wf_agent::entity::AgentAppendMode::Followup)
+        }
+        Some(other) => {
+            return Err(ApiError::Validation(format!(
+                "unknown append mode: {other}"
+            )))
+        }
+        None => None,
+    };
+    entity.append_runtime_input(text, mode).await;
+    Ok(())
+}
+
+/// Change the default append mode for subsequent runtime inputs.
+pub async fn set_append_mode(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+    mode: &str,
+) -> crate::infra::error::ApiResult<()> {
+    let entity = live_entity(ctx, agent_loop_id)?;
+    if entity.status().is_terminal() {
+        return Err(ApiError::Validation(format!(
+            "agent loop {agent_loop_id} is terminal"
+        )));
+    }
+    let mode = match mode {
+        "steering" | "steer" => wf_agent::entity::AgentAppendMode::Steering,
+        "followup" | "follow_up" | "follow-up" => wf_agent::entity::AgentAppendMode::Followup,
+        other => {
+            return Err(ApiError::Validation(format!(
+                "unknown append mode: {other}"
+            )))
+        }
+    };
+    entity.set_append_mode(mode).await;
+    Ok(())
+}
+
+/// Move all buffered follow-up inputs into the steering buffer.
+pub async fn convert_pending_to_steering(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> crate::infra::error::ApiResult<()> {
+    let entity = live_entity(ctx, agent_loop_id)?;
+    if entity.status().is_terminal() {
+        return Err(ApiError::Validation(format!(
+            "agent loop {agent_loop_id} is terminal"
+        )));
+    }
+    entity.convert_pending_to_steering().await;
+    Ok(())
+}

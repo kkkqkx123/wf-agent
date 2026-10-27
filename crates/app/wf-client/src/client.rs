@@ -318,6 +318,52 @@ impl WfClient {
         unwrap_generated_envelope(envelope.into_inner())
     }
 
+    /// Typed agent-loop append (`POST /api/v1/agent-loops/{id}/append`).
+    pub async fn append_agent_loop(
+        &self,
+        id: &str,
+        text: String,
+        as_mode: Option<String>,
+    ) -> ClientResult<serde_json::Value> {
+        let body = generated::types::AppendAgentLoopBody {
+            text,
+            as_mode,
+        };
+        let envelope = self
+            .generated
+            .handle_append_loop(id, &body)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed agent-loop append-mode switch (`POST /api/v1/agent-loops/{id}/append-mode`).
+    pub async fn set_agent_loop_append_mode(
+        &self,
+        id: &str,
+        mode: &str,
+    ) -> ClientResult<serde_json::Value> {
+        let body = generated::types::SetAppendModeBody {
+            mode: mode.to_string(),
+        };
+        let envelope = self
+            .generated
+            .handle_set_append_mode_loop(id, &body)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed convert pending to steering (`POST /api/v1/agent-loops/{id}/convert-pending-to-steering`).
+    pub async fn convert_pending_to_steering(&self, id: &str) -> ClientResult<serde_json::Value> {
+        let envelope = self
+            .generated
+            .handle_convert_pending_to_steering_loop(id)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
     /// Typed agent-loop status (`GET /api/v1/agent-loops/{id}/status`).
     pub async fn agent_loop_status(&self, id: &str) -> ClientResult<String> {
         let envelope = self

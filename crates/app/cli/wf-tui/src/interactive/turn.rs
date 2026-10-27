@@ -80,6 +80,23 @@ impl InteractiveController {
     /// active turn reaches a terminal event.
     pub(super) fn submit_prompt(&mut self, prompt: String) {
         if self.turn_task.is_some() {
+            if let Some(loop_id) = self.active_agent_loop_id.clone() {
+                let client = self.client.clone();
+                let tx = self.tx.clone();
+                let mode = self.append_mode.clone();
+                let text = prompt.clone();
+                tokio::spawn(async move {
+                    let result = client.append_agent_loop(&loop_id, text, Some(mode)).await;
+                    let notice = match result {
+                        Ok(_) => "input appended to the running agent".to_string(),
+                        Err(e) => format!("append failed: {e}; queued locally"),
+                    };
+                    let _ = tx.send(InteractiveEvent::Notice(notice));
+                });
+                self.footer
+                    .show_notice("appending to the running agent...");
+                return;
+            }
             self.prompt_queue.push(prompt);
             self.footer
                 .show_notice("queued: the current turn is still running");
@@ -132,6 +149,7 @@ impl InteractiveController {
         self.scroll_at_top = false;
         self.turn_text.clear();
         self.turn_prompt = prompt.clone();
+        self.active_agent_loop_id = None;
         self.note_turn_started();
         self.pacer.clear();
         // A new turn breaks any pending activity group so its summary row
@@ -306,6 +324,7 @@ impl InteractiveController {
                     self.footer.present(crate::footer::FooterView::Question);
                 }
                 InteractiveEvent::TurnEvent(event) => self.handle_turn_event(event),
+                InteractiveEvent::Notice(text) => self.footer.show_notice(text),
                 InteractiveEvent::RecapReady { ticket, text } => {
                     // A late answer never sticks to a newer turn: the
                     // ticket moved on while the side call was in flight.
@@ -478,6 +497,9 @@ impl InteractiveController {
 
         match &event {
             ExecutionStreamEvent::Engine(base) => {
+                if self.active_agent_loop_id.is_none() {
+                    self.active_agent_loop_id = base.agent_loop_id.clone().or_else(|| base.execution_id.clone());
+                }
                 self.record_engine_anchor(base);
             }
             ExecutionStreamEvent::Completed { iterations, .. } => {

@@ -263,6 +263,33 @@ pub enum ExecutionSub {
         #[arg(long, alias = "yes")]
         force: bool,
     },
+    /// Append runtime input to a running agent loop.
+    Append {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Input text.
+        #[arg(value_name = "TEXT")]
+        text: String,
+        /// Append mode (steering or followup).
+        #[arg(long, value_name = "MODE")]
+        mode: Option<String>,
+    },
+    /// Set the default append mode for a running agent loop.
+    AppendMode {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Append mode (steering or followup).
+        #[arg(value_name = "MODE")]
+        mode: String,
+    },
+    /// Convert buffered follow-up inputs into steering inputs.
+    ConvertPending {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
     /// Cleanup completed agent loop executions.
     Cleanup {
         /// Only cleanup before this ISO8601 timestamp or epoch millis (stored as string, lexicographic compare not used; any value triggers cleanup).

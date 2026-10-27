@@ -206,6 +206,37 @@ pub(crate) async fn run_with_client(
                 OutputEnvelope::success("execution-resume", data).with_entity(id.clone()),
             )
         }
+
+        ExecutionSub::Append { id, text, mode } => {
+            let data = client
+                .append_agent_loop(id, text.clone(), mode.clone())
+                .await
+                .map_err(CliError::from)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("execution-append", data).with_entity(id.clone()),
+            )
+        }
+        ExecutionSub::AppendMode { id, mode } => {
+            let data = client
+                .set_agent_loop_append_mode(id, mode)
+                .await
+                .map_err(CliError::from)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("execution-append-mode", data).with_entity(id.clone()),
+            )
+        }
+        ExecutionSub::ConvertPending { id } => {
+            let data = client
+                .convert_pending_to_steering(id)
+                .await
+                .map_err(CliError::from)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("execution-convert-pending", data).with_entity(id.clone()),
+            )
+        }
         ExecutionSub::Status { id } => status_execution(client, cli, id).await,
         ExecutionSub::Hierarchy { id } => {
             let view = client.execution_hierarchy(id).await?;

@@ -69,7 +69,7 @@ mod tests;
 
 pub use accessor::AgentStateAccessor;
 pub use checkpoint::{auto_resume, resume_from_checkpoint};
-pub use lifecycle::{cancel, pause, resume, run, status, stream};
+pub use lifecycle::{append, cancel, convert_pending_to_steering, pause, resume, run, set_append_mode, status, stream};
 
 // helpers re-exported as pub(crate) maybe
 pub fn registry(ctx: &ApiContext) -> Arc<AgentLoopRegistry> {

@@ -79,6 +79,8 @@ pub struct NativeSession {
     lines: Arc<tokio::sync::Mutex<LineReader>>,
     transcript: Transcript,
     anchor: String,
+    /// Server-side agent loop id of the most recent turn, when known.
+    current_loop_id: Option<String>,
     /// Raw-mode prompt editor is usable: stdin and stderr are TTYs.
     raw_prompt: bool,
     /// The previously submitted prompt (backs the `match_prev_cmd`
@@ -159,6 +161,7 @@ impl NativeSession {
             lines: Arc::new(tokio::sync::Mutex::new(LineReader::for_stdin())),
             transcript,
             anchor,
+            current_loop_id: None,
             raw_prompt,
             prev_prompt: None,
             suggest: Arc::new(SuggestEngine::new()),
@@ -451,6 +454,51 @@ impl NativeSession {
                 self.request_recap_now().await;
                 CommandAction::Continue
             }
+            SlashCommand::Steer(text) => {
+                if let Some(id) = self.current_loop_id.clone() {
+                    match self.client.append_agent_loop(&id, text, Some("steering".to_string())).await {
+                        Ok(_) => output::diag_line("steering input appended"),
+                        Err(e) => output::diag_line(&format!("append failed: {e}")),
+                    }
+                } else {
+                    output::diag_line("no active agent loop to append to");
+                }
+                CommandAction::Continue
+            }
+            SlashCommand::Followup(text) => {
+                if let Some(id) = self.current_loop_id.clone() {
+                    match self.client.append_agent_loop(&id, text, Some("followup".to_string())).await {
+                        Ok(_) => output::diag_line("follow-up input appended"),
+                        Err(e) => output::diag_line(&format!("append failed: {e}")),
+                    }
+                } else {
+                    output::diag_line("no active agent loop to append to");
+                }
+                CommandAction::Continue
+            }
+            SlashCommand::AppendMode(mode) => {
+                if let Some(id) = self.current_loop_id.clone() {
+                    let mode_str = mode.unwrap_or_else(|| "followup".to_string());
+                    match self.client.set_agent_loop_append_mode(&id, &mode_str).await {
+                        Ok(_) => output::diag_line(&format!("append mode set to {mode_str}")),
+                        Err(e) => output::diag_line(&format!("set mode failed: {e}")),
+                    }
+                } else {
+                    output::diag_line("no active agent loop");
+                }
+                CommandAction::Continue
+            }
+            SlashCommand::ConvertPending => {
+                if let Some(id) = self.current_loop_id.clone() {
+                    match self.client.convert_pending_to_steering(&id).await {
+                        Ok(_) => output::diag_line("pending follow-ups converted to steering"),
+                        Err(e) => output::diag_line(&format!("convert failed: {e}")),
+                    }
+                } else {
+                    output::diag_line("no active agent loop");
+                }
+                CommandAction::Continue
+            }
         }
     }
 
@@ -689,7 +737,7 @@ impl NativeSession {
     /// Run one turn seeded with the session transcript. Returns `None`
     /// when the turn never started; the outcome tells whether the round
     /// counts as memory.
-    async fn run_turn(&self, prompt: String) -> Option<FinishedTurn> {
+    async fn run_turn(&mut self, prompt: String) -> Option<FinishedTurn> {
         let params = TurnParams {
             agent: self.agent.clone(),
             model: self.model.clone(),
@@ -736,7 +784,7 @@ impl NativeSession {
     /// without a terminal event, `Err(Some(..))` a transport failure. Both
     /// interrupt handling and terminal-event detection are written exactly
     /// once here.
-    async fn pump_stream<S>(&self, execution_id: &str, mut stream: S) -> TurnOutcome
+    async fn pump_stream<S>(&mut self, execution_id: &str, mut stream: S) -> TurnOutcome
     where
         S: futures::Stream<Item = Result<ExecutionStreamEvent, Option<wf_client::ClientError>>>
             + Unpin,
@@ -760,6 +808,11 @@ impl NativeSession {
                 }
                 event = stream.next() => match event {
                     Some(Ok(event)) => {
+                        if let ExecutionStreamEvent::Engine(base) = &event {
+                            if let Some(id) = base.agent_loop_id.clone().or_else(|| base.execution_id.clone()) {
+                                self.current_loop_id = Some(id);
+                            }
+                        }
                         if let Some(completed) = renderer.on_event(&event) {
                             let text = renderer.assistant_text();
                             break TurnOutcome::finished(completed, text);

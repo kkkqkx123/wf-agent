@@ -21,7 +21,7 @@
 		type UnifiedExecutionDetail,
 	} from '#lib/services/executions';
 	import { rerunWorkflowRun } from '#lib/services/run';
-	import { cancelAgentLoop, pauseAgentLoop, resumeAgentLoop } from '#lib/services/agent-loops';
+	import { appendAgentLoopInput, cancelAgentLoop, convertPendingToSteering, pauseAgentLoop, resumeAgentLoop, setAgentLoopAppendMode } from '#lib/services/agent-loops';
 	import type { Execution } from '#lib/types/models';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
@@ -33,6 +33,9 @@
 	let loading = $state(false);
 	let controlBusy = $state(false);
 	let cancelArmed = $state(false);
+let appendText = $state('');
+let appendMode = $state<'steering' | 'followup'>('followup');
+let appendBusy = $state(false);
 	let rerunning = $state(false);
 
 	const requestedTab = parseListParams(page.url as unknown as URL).tab ?? null;
@@ -120,6 +123,43 @@
 		} catch (e) {
 			toasts.error(
 				t('page.executionDetail.failed', { label }),
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			controlBusy = false;
+		}
+	}
+
+	async function runAppend(): Promise<void> {
+		const id = page.params.id;
+		if (!id || !appendText.trim()) return;
+		appendBusy = true;
+		try {
+			await appendAgentLoopInput(id, appendText.trim(), appendMode);
+			toasts.success(t('page.executionDetail.done', { label: 'append' }));
+			appendText = '';
+			await load(id);
+		} catch (e) {
+			toasts.error(
+				t('page.executionDetail.failed', { label: 'append' }),
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			appendBusy = false;
+		}
+	}
+
+	async function runConvertPending(): Promise<void> {
+		const id = page.params.id;
+		if (!id) return;
+		controlBusy = true;
+		try {
+			await convertPendingToSteering(id);
+			toasts.success(t('page.executionDetail.done', { label: 'convert' }));
+			await load(id);
+		} catch (e) {
+			toasts.error(
+				t('page.executionDetail.failed', { label: 'convert' }),
 				e instanceof Error ? e.message : undefined,
 			);
 		} finally {
@@ -237,6 +277,25 @@
 						{t('page.executionDetail.cancel')}
 					</Button>
 				{/if}
+			{/if}
+			{#if unified && unified.executionType === 'agent'}
+				<div class="flex items-center gap-2">
+					<select bind:value={appendMode} class="text-sm border rounded px-2 py-1">
+						<option value="followup">followup</option>
+						<option value="steering">steering</option>
+					</select>
+					<input
+						class="text-sm border rounded px-2 py-1 flex-1"
+						bind:value={appendText}
+						placeholder="append input"
+					/>
+					<Button size="sm" disabled={appendBusy || !appendText.trim()} onclick={() => void runAppend()}>
+						append
+					</Button>
+					<Button size="sm" variant="outline" disabled={controlBusy} onclick={() => void runConvertPending()}>
+						convert
+					</Button>
+				</div>
 			{/if}
 			{#if unified && currentId}
 				{#if unified.executionType === 'workflow'}

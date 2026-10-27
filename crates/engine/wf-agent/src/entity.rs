@@ -14,6 +14,13 @@ use crate::coordinator::state_transitor::AgentLoopStateTransitor;
 use crate::state::AgentLoopState;
 use crate::timeout::{AgentTimeoutManager, TimeoutHandle};
 
+/// Where a runtime append input is buffered by default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentAppendMode {
+    Followup,
+    Steering,
+}
+
 pub struct AgentLoopEntity {
     id: Id,
     /// Id of the agent definition this loop runs against (the `agent_id` of
@@ -58,6 +65,12 @@ pub struct AgentLoopEntity {
     subagent_tx: std::sync::RwLock<
         Option<tokio::sync::mpsc::Sender<wf_types::events::ExecutionStreamEvent>>,
     >,
+    /// Runtime append-input mode for new inputs when no explicit mode is given.
+    append_mode: tokio::sync::Mutex<AgentAppendMode>,
+    /// Buffered steering inputs (injected at the next iteration boundary).
+    steering_inputs: tokio::sync::Mutex<Vec<String>>,
+    /// Buffered follow-up inputs (injected when the run would otherwise stop).
+    followup_inputs: tokio::sync::Mutex<Vec<String>>,
 }
 
 impl AgentLoopEntity {
@@ -94,6 +107,9 @@ impl AgentLoopEntity {
             timeout_metrics: None,
             gate_permit: std::sync::RwLock::new(None),
             subagent_tx: std::sync::RwLock::new(None),
+            append_mode: tokio::sync::Mutex::new(AgentAppendMode::Followup),
+            steering_inputs: tokio::sync::Mutex::new(Vec::new()),
+            followup_inputs: tokio::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -581,6 +597,58 @@ impl AgentLoopEntity {
             .is_some();
         self.timeout_manager.cancel(&format!("pause-{}", self.id));
         had_handle
+    }
+}
+
+impl AgentLoopEntity {
+    /// Buffer a runtime append input. `mode` overrides the run's default
+    /// append mode when provided.
+    pub async fn append_runtime_input(
+        &self,
+        text: String,
+        mode: Option<AgentAppendMode>,
+    ) -> AgentAppendMode {
+        let resolved = match mode {
+            Some(m) => m,
+            None => *self.append_mode.lock().await,
+        };
+        if resolved == AgentAppendMode::Steering {
+            self.steering_inputs.lock().await.push(text);
+        } else {
+            self.followup_inputs.lock().await.push(text);
+        }
+        resolved
+    }
+
+    pub async fn set_append_mode(&self, mode: AgentAppendMode) {
+        *self.append_mode.lock().await = mode;
+    }
+
+    pub async fn append_mode(&self) -> AgentAppendMode {
+        *self.append_mode.lock().await
+    }
+
+    pub async fn convert_pending_to_steering(&self) {
+        let mut followups = self.followup_inputs.lock().await;
+        let mut steering = self.steering_inputs.lock().await;
+        steering.append(&mut *followups);
+        followups.clear();
+    }
+
+    pub async fn drain_steering_inputs(&self) -> Vec<String> {
+        let mut buf = self.steering_inputs.lock().await;
+        std::mem::take(&mut *buf)
+    }
+
+    pub async fn drain_followup_inputs(&self) -> Vec<String> {
+        let mut buf = self.followup_inputs.lock().await;
+        std::mem::take(&mut *buf)
+    }
+
+    pub async fn pending_append_counts(&self) -> (usize, usize) {
+        let s = self.steering_inputs.lock().await.len();
+        let f = self.followup_inputs.lock().await.len();
+        (s, f)
     }
 }
 

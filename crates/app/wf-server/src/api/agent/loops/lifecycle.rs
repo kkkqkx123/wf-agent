@@ -280,3 +280,91 @@ pub(crate) async fn handle_cancel_loop(
         Err(e) => error_response(e),
     }
 }
+
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct AppendAgentLoopBody {
+    text: String,
+    #[serde(default)]
+    as_mode: Option<String>,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct SetAppendModeBody {
+    mode: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/agent-loops/{id}/append",
+    tag = "agent",
+    params(IdPath),
+    request_body = AppendAgentLoopBody,
+    responses(
+        (status = 200, description = "Input appended", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 400, description = "Invalid request", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_append_loop(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Json(body): Json<AppendAgentLoopBody>,
+) -> impl IntoResponse {
+    match wf_api::agent::agent_execution::append(
+        &state.ctx,
+        &path.id,
+        body.text,
+        body.as_mode.as_deref(),
+    )
+    .await
+    {
+        Ok(()) => ok(()).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/agent-loops/{id}/append-mode",
+    tag = "agent",
+    params(IdPath),
+    request_body = SetAppendModeBody,
+    responses(
+        (status = 200, description = "Append mode updated", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 400, description = "Invalid request", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_set_append_mode_loop(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Json(body): Json<SetAppendModeBody>,
+) -> impl IntoResponse {
+    match wf_api::agent::agent_execution::set_append_mode(&state.ctx, &path.id, &body.mode).await {
+        Ok(()) => ok(()).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/agent-loops/{id}/convert-pending-to-steering",
+    tag = "agent",
+    params(IdPath),
+    responses(
+        (status = 200, description = "Pending inputs converted", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_convert_pending_to_steering_loop(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::agent::agent_execution::convert_pending_to_steering(&state.ctx, &path.id).await {
+        Ok(()) => ok(()).into_response(),
+        Err(e) => error_response(e),
+    }
+}

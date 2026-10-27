@@ -16,6 +16,10 @@ pub enum SlashCommand {
     Tools(Option<String>),
     Display,
     Recap,
+    Steer(String),
+    Followup(String),
+    AppendMode(Option<String>),
+    ConvertPending,
 }
 
 /// Parse a trimmed input line into a slash command, if it is one.
@@ -74,6 +78,33 @@ pub fn parse_command(line: &str) -> Option<SlashCommand> {
         },
         "/display" if tokens.next().is_none() => Some(SlashCommand::Display),
         "/recap" if tokens.next().is_none() => Some(SlashCommand::Recap),
+        "/steer" => {
+            let rest: Vec<&str> = tokens.collect();
+            if rest.is_empty() {
+                None
+            } else {
+                Some(SlashCommand::Steer(rest.join(" ")))
+            }
+        }
+        "/followup" | "/follow-up" => {
+            let rest: Vec<&str> = tokens.collect();
+            if rest.is_empty() {
+                None
+            } else {
+                Some(SlashCommand::Followup(rest.join(" ")))
+            }
+        }
+        "/append-mode" => {
+            let mode = tokens.next().map(|s| s.to_string());
+            if tokens.next().is_none() {
+                Some(SlashCommand::AppendMode(mode))
+            } else {
+                None
+            }
+        }
+        "/convert-pending" | "/steer-pending" if tokens.next().is_none() => {
+            Some(SlashCommand::ConvertPending)
+        }
         _ => None,
     }
 }

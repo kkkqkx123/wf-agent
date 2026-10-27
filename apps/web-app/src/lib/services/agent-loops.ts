@@ -336,6 +336,36 @@ export async function cancelAgentLoop(id: string): Promise<void> {
 	);
 }
 
+export async function appendAgentLoopInput(
+	id: string,
+	text: string,
+	asMode?: 'steering' | 'followup',
+): Promise<void> {
+	await call<unknown>(
+		client.POST('/api/v1/agent-loops/{id}/append', {
+			params: { path: { id } },
+			body: { text, as_mode: asMode ?? null },
+		}),
+	);
+}
+
+export async function setAgentLoopAppendMode(id: string, mode: 'steering' | 'followup'): Promise<void> {
+	await call<unknown>(
+		client.POST('/api/v1/agent-loops/{id}/append-mode', {
+			params: { path: { id } },
+			body: { mode },
+		}),
+	);
+}
+
+export async function convertPendingToSteering(id: string): Promise<void> {
+	await call<unknown>(
+		client.POST('/api/v1/agent-loops/{id}/convert-pending-to-steering', {
+			params: { path: { id } },
+		}),
+	);
+}
+
 export interface LoopErrorRecord {
 	id: string;
 	error: string;

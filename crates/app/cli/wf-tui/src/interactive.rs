@@ -126,6 +126,8 @@ pub enum InteractiveEvent {
         route: crate::footer::FooterRoute,
         error: String,
     },
+    /// A notice to display in the footer.
+    Notice(String),
     /// The first replay page landed: it replaces the whole scrollback.
     ReplayLoaded {
         lines: Vec<HistoryLine>,
@@ -392,6 +394,10 @@ pub struct InteractiveController {
     dismissed_mention: Option<usize>,
     /// Prompts submitted while a turn is running; drained in order.
     prompt_queue: tui_components::queue::PromptQueue,
+    /// Server-side agent loop id for the active turn, when known.
+    active_agent_loop_id: Option<String>,
+    /// Default append mode for runtime inputs submitted during an active turn.
+    append_mode: String,
     /// Session-level model override applied to the next turn.
     model_override: Option<String>,
     /// Key resolution table for the footer panel routes.
@@ -627,6 +633,8 @@ impl InteractiveController {
             mention_search_inflight: false,
             dismissed_mention: None,
             prompt_queue: tui_components::queue::PromptQueue::new(),
+            active_agent_loop_id: None,
+            append_mode: "followup".to_string(),
             model_override: None,
             keymap: tui_core::keymap::Keymap::new(),
             pending_editor: false,

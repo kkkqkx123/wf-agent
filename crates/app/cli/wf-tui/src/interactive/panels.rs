@@ -732,6 +732,101 @@ impl InteractiveController {
             Some((command, argument)) => (command, argument.trim()),
             None => (trimmed, ""),
         };
+
+        // Runtime append commands for the active agent loop.
+        match command_text {
+            "/steer" => {
+                if argument.is_empty() {
+                    self.footer.show_notice("usage: /steer <text>");
+                    return true;
+                }
+                if let Some(loop_id) = self.active_agent_loop_id.clone() {
+                    let client = self.client.clone();
+                    let tx = self.tx.clone();
+                    let text = argument.to_string();
+                    tokio::spawn(async move {
+                        let res = client.append_agent_loop(&loop_id, text, Some("steering".to_string())).await;
+                        let notice = match res {
+                            Ok(_) => "steering input appended".to_string(),
+                            Err(e) => format!("append failed: {e}"),
+                        };
+                        let _ = tx.send(InteractiveEvent::Notice(notice));
+                    });
+                    self.footer.show_notice("appending steering input...");
+                } else {
+                    self.footer.show_notice("no active agent loop");
+                }
+                return true;
+            }
+            "/followup" | "/follow-up" => {
+                if argument.is_empty() {
+                    self.footer.show_notice("usage: /followup <text>");
+                    return true;
+                }
+                if let Some(loop_id) = self.active_agent_loop_id.clone() {
+                    let client = self.client.clone();
+                    let tx = self.tx.clone();
+                    let text = argument.to_string();
+                    tokio::spawn(async move {
+                        let res = client.append_agent_loop(&loop_id, text, Some("followup".to_string())).await;
+                        let notice = match res {
+                            Ok(_) => "follow-up input appended".to_string(),
+                            Err(e) => format!("append failed: {e}"),
+                        };
+                        let _ = tx.send(InteractiveEvent::Notice(notice));
+                    });
+                    self.footer.show_notice("appending follow-up input...");
+                } else {
+                    self.footer.show_notice("no active agent loop");
+                }
+                return true;
+            }
+            "/append-mode" => {
+                if argument.is_empty() {
+                    self.footer.show_notice(format!("append mode: {}", self.append_mode));
+                    return true;
+                }
+                if argument != "steering" && argument != "followup" {
+                    self.footer.show_notice("usage: /append-mode [steering|followup]");
+                    return true;
+                }
+                self.append_mode = argument.to_string();
+                if let Some(loop_id) = self.active_agent_loop_id.clone() {
+                    let client = self.client.clone();
+                    let tx = self.tx.clone();
+                    let mode = self.append_mode.clone();
+                    tokio::spawn(async move {
+                        let res = client.set_agent_loop_append_mode(&loop_id, &mode).await;
+                        let notice = match res {
+                            Ok(_) => format!("append mode set to {mode}"),
+                            Err(e) => format!("set mode failed: {e}"),
+                        };
+                        let _ = tx.send(InteractiveEvent::Notice(notice));
+                    });
+                }
+                return true;
+            }
+            "/convert-pending" | "/steer-pending" => {
+                if let Some(loop_id) = self.active_agent_loop_id.clone() {
+                    let client = self.client.clone();
+                    let tx = self.tx.clone();
+                    tokio::spawn(async move {
+                        let res = client.convert_pending_to_steering(&loop_id).await;
+                        let notice = match res {
+                            Ok(_) => "pending follow-ups converted to steering".to_string(),
+                            Err(e) => format!("convert failed: {e}"),
+                        };
+                        let _ = tx.send(InteractiveEvent::Notice(notice));
+                    });
+                    self.footer.show_notice("converting pending inputs...");
+                } else {
+                    self.footer.show_notice("no active agent loop");
+                }
+                return true;
+            }
+            _ => {}
+        }
+
         match command::lookup_slash(command_text) {
             Some(spec) => {
                 self.run_command(spec, argument);

@@ -6,6 +6,11 @@
 
 Baseline: `main` @ `002b7b1c3`（2026-10-22）。本轮只产出文档；实施按下面的阶段分别提交，每阶段独立跑门。recap 的现有实现是稳定代码，扩展只做加法。
 
+> 适用范围说明（2026-10-27 补）：本文分析的对象是 `ref/atomcode` 快照中的实现（`atomcode-coding` / `atomcode-daemon` / `atomcode-tui` / webui），
+> 当前主仓（`wf-agent` / `wf-execution-shared` / `wf-api` / `wf-server` / `web-app` / `wf-tui` / `wf-mini`）尚无 recap 的任何实现。
+> 因此本文第 2 章是「参考实现的精确记录」，第 5 章是「传输层结论」，两者都成立，但第 5 章的文件路径与类型名不可直接套用，
+> 正式实现时的对照关系见文末第 8 章。传输层结论本身（请求-响应、不广播、视图持有触发判定、失败静默）不受影响。
+
 > 后续：把旁路请求本身通用化（recap 退化为其中一个特殊实现）的方案见 [2026-10-27-aside-request-and-resources-design.md](2026-10-27-aside-request-and-resources-design.md)。本文的传输层结论（daemon/webui/手动命令）不受影响。
 
 ## 1. 现状：recap 是什么
@@ -263,3 +268,22 @@ ACP 的 `SessionNotification` 只有消息内容语义，没有「宿主装饰�
 5. Phase 5/6 不做。
 
 Failure semantics: `SideCallProvider` 取不到 provider、25s 超时、`<none>`、`sanitize_recap` 返回 `None`、无绑定 runtime、generation 变化——全部等价为「这一回合没有 recap」，前端不显示任何东西，不产生错误气泡，不写入会话日志，不影响回合终态与后续提交。webui 的在途请求一律可被新回合或会话切换 abort；服务端不因一次 recap 失败改变 runtime 状态。
+
+## 8. 落到当前主仓的对照（2026-10-27 补）
+
+本文第 1、3、4 章的结论仍然成立：三条硬约束、视图持有触发判定、请求-响应而非广播、失败静默、`ui.recap` 只管自动注记、ACP 不补、
+resume 与失败终态不生成 recap。需要修正的只是「实现落点」，对照如下：
+
+| 本文概念 | `ref/atomcode` 落点 | 当前主仓落点 |
+| --- | --- | --- |
+| 旁路调用原语 | `sample_side_call`（coding 私有） | `wf-execution-shared::single_shot::generate_text_once` + `LlmGateway::generate`，立项时补超时与取消（见实施计划） |
+| 上下文投影 | `recent_stable_transcript`（JSON Lines + 脱敏 + 16K 上限） | 新写：基于 `ConversationSession::view_messages` / 消息存储的同等投影，脱敏与上限规则照搬 |
+| 清洗 | `sanitize_recap`（240 字符、单行） | 照搬为新模块的同名函数与同名常量，单测照搬 |
+| 服务端读取入口 | `LiveViewHub::recap` + `POST /live/recap` | `wf-api` 新增 recap 读取面 + `wf-server` 新增路由（形如 `POST /api/v1/agent-loops/{id}/recap`，以实施计划为准），复用现有鉴权与 envelope |
+| 前端触发判定 | TUI 三信号 / webui `Chat.tsx` | `wf-tui` / `wf-mini` 与 `web-app` 各自按可见性信号实现，判定函数抽为可单测的纯函数 |
+| 配置 | `UiConfig.recap` / `[ui] recap` | 显示层开关归 `wf-config` 的显示旋钮（`tui.toml` / `file_layer` 一侧），精确键名在立项探针中固定 |
+| 手动触发 | TUI `SessionCommands` / webui slash | `wf-tui` 命令 + `web-app` composer 命令，手动路径不受自动开关约束 |
+
+两处有意保留的差异：服务端不另加比旁路超时更短的 HTTP 超时（会误杀可成功的调用）；响应沿用工作区既有 envelope 而不是本文示例的 `{ok, text}` 形状。
+
+正式的分阶段实施方案见 [../plan/recap-aside/00-overview.md](../plan/recap-aside/00-overview.md)。

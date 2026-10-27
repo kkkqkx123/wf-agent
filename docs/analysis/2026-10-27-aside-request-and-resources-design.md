@@ -6,6 +6,12 @@
 
 Baseline: `main` @ `002b7b1c3`（2026-10-22）。本轮只产出文档。前一轮的 recap 传输扩展方案见 [2026-10-26-recap-extension-design.md](2026-10-26-recap-extension-design.md)；本文不改那份方案的结论，只回答「要不要把旁路请求本身做成通用能力」。
 
+> 适用范围说明（2026-10-27 补）：本文分析的对象是 `ref/atomcode` 快照（`atomcode-harness` 的 plexus 插件树、`SessionEvent`、`resources/asides/` 设想）。
+> 当前主仓没有 plexus 插件树，没有 `SessionEvent`，`resources/asides/` 也不存在；且经核查，主仓目前只有压缩摘要这一种旁路形态，
+> recap / 标题 / 下一句猜测在主仓均无实现——因此本文「重复已经发生了四次」的前提在主仓不成立，「原语先行」的顺序也不适用。
+> 本文的设计原则（第 3、5 章）仍然成立并被实施计划继承，机制设计（第 4 章）需转写为工作区原生形态，顺序改为「先落 recap 实例，第二个用途落地时再通用化」。
+> 详细对照见文末第 8 章，正式的分阶段实施方案见 [../plan/recap-aside/00-overview.md](../plan/recap-aside/00-overview.md)。
+
 ## 1. 结论：需要改造，但改造点在插件层
 
 需要，而且值得做。理由是重复已经发生了四次，而不是「将来可能会用到」：
@@ -291,3 +297,36 @@ const ASIDE_DOCS: &[(&str, &str, &str)] = &[
 5. **压缩**：只做「摘要复用请求实现」，不做旁路触发。
 
 Failure semantics: 旁路请求在任何一步失败——没有模型槽、`prompt` 返回 `None`、超时、空答案、清洗后为空、白名单拒绝、generation/session/turn 过期、宿主没有 sink——都收敛为「这次旁路没有发生」：屏幕不显示、日志不增长、请求不阻塞、回合终态不变。原语没有任何一条路径能让主流程等它，也没有任何一条路径能替主流程做决定。
+
+## 8. 落到当前主仓的对照与修正（2026-10-27 补）
+
+### 8.1 仍然成立的部分
+
+- 三个去向三种语义（第 3 章）：屏幕注记不落日志、事实只走白名单、决策不新增 API。这三条是实施计划的硬约束，原样继承。
+- `prompt` 返回 `Option`（先判断值不值得问，再决定花不花调用）、`interpret` 同步无 IO、模型槽显式声明（会话模型 vs 轻量模型不可默认混用）。
+- 调度行永不阻塞主流程（只 spawn、不 await）、单 in-flight 去重、过期丢弃（ticket 语义）。
+- 不新增第二压缩状态机：压缩触发权仍归 `TokenUsageTracker` / 上下文压缩流程，旁路最多复用「问」的一半，且只产出屏幕注记。
+- todo 三条路的判断（第 4.6 章）：先做提案（提醒注记 + 给模型的 system-reminder 式内容），合成 `AssistantMessage` 不做，
+  窄事实加宽折叠另立 ADR。本文的白名单禁令（`AssistantMessage` 永不在白名单）在主仓同样适用。
+- 提示词不进 `config.toml`：主仓对应为「提示词是 `wf-resource` 的注册资产，不是 `wf-config` 的可打印配置」
+  ——`dump` 类调试输出不得原样渲染提示词正文。
+
+### 8.2 需要转写的机制
+
+| 本文机制 | 主仓对应 |
+| --- | --- |
+| `Aside` trait + `AsideHubSvc`（plexus 缝） | `wf-execution-shared` 内新增 `aside` 模块：`Aside` trait + 注册表（与 `wf-tools` 的 registry 同形，不引入新插件框架） |
+| `aside-runner` 订阅 `SessionEventCommitted` | 订阅 `EventBus` 上已有的回合/迭代事件（`AgentTurnCompleted` / `AgentIterationCompleted`），只读、不改变终态 |
+| `AsideNoteSink` / `HostEvent::AsideNote` | 第一版不需要：recap 走请求-响应（实施计划阶段一、二）；广播式屏幕事件等确有多端共享需求时再立项 |
+| `resources/asides/<id>/aside.toml + prompt.md` | `wf-resource` 既有形态：提示词正文进模板/片段注册表（`configs/*.json` + `embedded_assets` + `registry`），
+  节奏/模型槽/超时/上限/去向等数值与枚举由 Rust 侧的 `AsideDef` 结构携带，不新增 TOML + Markdown 双文件格式 |
+| `SessionEvent::Titled` / `Injected{Reminder}` 白名单 | 主仓尚无对应变体；提案类用途的落点在立项探针中选定（事件总线注记 vs 随下一请求注入的上下文），选定前不定义白名单 |
+| `SessionLog::derive_messages` 投影 | `ConversationSession::view_messages` / 消息存储 + 新写的稳定转录投影（脱敏与上限规则照搬） |
+| `LlmSvc` / `LlmUtilitySvc` 两档模型 | `LlmGateway` + 显式 `profile_id`（执行 profile vs 轻量 profile，由调用方声明，不做默认回退） |
+
+### 8.3 顺序修正：原语不先行
+
+本文第 7 章的 Phase A（原语先落地、recap 不动、双路对照）依赖一个前提：recap 已有稳定实现可以对照。
+主仓 recap 尚不存在，因此顺序反转：先按 recap 扩展方案把 recap 做成第一个实例（实例即模式的载体），
+等第二个真实用途（todo 提案或上下文提示）立项时，再把实例中沉淀的形状抽成通用原语，并用「新老测试同时通过」验收。
+提前抽原语在主仓只会得到一个没有第二个调用方的抽象。

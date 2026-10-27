@@ -11,6 +11,9 @@ use super::commands::{
     ResetKeyboardEnhancementFlags,
 };
 use super::control::TerminalControl;
+use super::state::{
+    format_program_status, sanitize_title, ProgramStatus, PROGRESS_ACTIVE, PROGRESS_CLEAR,
+};
 
 /// Production control plane backed by crossterm (any writer; stdout in
 /// production, `Vec<u8>` in tests).
@@ -101,6 +104,23 @@ impl<W: Write + fmt::Debug> TerminalControl for CrosstermControl<W> {
     fn copy_to_clipboard(&mut self, text: &str) -> io::Result<()> {
         use crossterm::clipboard::CopyToClipboard;
         crossterm::execute!(self.writer, CopyToClipboard::to_clipboard_from(text))
+    }
+    fn set_title(&mut self, title: &str) -> io::Result<()> {
+        use crossterm::terminal::SetTitle;
+        crossterm::execute!(self.writer, SetTitle(sanitize_title(title)))
+    }
+    fn set_progress(&mut self, active: bool) -> io::Result<()> {
+        if active {
+            self.writer.write_all(PROGRESS_ACTIVE.as_bytes())?;
+        } else {
+            self.writer.write_all(PROGRESS_CLEAR.as_bytes())?;
+        }
+        self.writer.flush()
+    }
+    fn set_program_status(&mut self, status: ProgramStatus) -> io::Result<()> {
+        self.writer
+            .write_all(format_program_status(&status).as_bytes())?;
+        self.writer.flush()
     }
 }
 

@@ -12,6 +12,7 @@ pub mod recap;
 pub mod system;
 pub mod template;
 pub(crate) mod ticket;
+pub mod title;
 pub mod trigger;
 pub mod web;
 pub mod workflow;

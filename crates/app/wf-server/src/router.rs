@@ -74,6 +74,7 @@ pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddleware
         .merge(api::chat::routes())
         // screen-only recap reads (chat sessions + agent loops share the face)
         .merge(api::recap::routes())
+        .merge(api::title::routes())
         // shared checkpoint domain (execution records + file workspace)
         .merge(api::checkpoint::checkpoints::routes())
         .merge(api::checkpoint::file_provenance::routes())

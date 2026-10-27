@@ -14,6 +14,41 @@ use crate::turn::{TurnKind, TurnParams};
 
 use super::{InteractiveController, InteractiveEvent};
 
+/// Truncate a prompt into a short session title.
+fn truncate_title(prompt: &str) -> String {
+    let cleaned: String = prompt
+        .lines()
+        .next()
+        .unwrap_or("")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if cleaned.is_empty() {
+        return String::new();
+    }
+    const LIMIT: usize = 40;
+    if cleaned.chars().count() <= LIMIT {
+        cleaned
+    } else {
+        let mut out: String = cleaned.chars().take(LIMIT.saturating_sub(1)).collect();
+        out.push('…');
+        out
+    }
+}
+
+impl InteractiveController {
+    /// Resolved auto title mode.
+    fn auto_title_mode() -> String {
+        let Some(path) = crate::app_config::config_file_path() else {
+            return "truncate".to_string();
+        };
+        match crate::app_config::ConfigManager::load(&path) {
+            Ok(manager) => manager.config().terminal.auto_title_mode().to_string(),
+            Err(_) => "truncate".to_string(),
+        }
+    }
+}
+
 /// Adapt server SSE frames into execution stream events, skipping the
 /// stream metadata frame and unparsable frames.
 pub(crate) fn cmd_stream_frames(
@@ -88,6 +123,8 @@ impl InteractiveController {
         model: Option<String>,
     ) {
         self.footer.state.phase = Phase::Streaming;
+        self.terminal_program_status = tui_terminal::terminal::state::ProgramStatusState::Working;
+        self.terminal_program_error = None;
         self.reducer = crate::reducer::SessionReducer::new(self.execution_id.clone());
         self.scroll_cover = 0;
         self.view_scroll = 0;
@@ -95,6 +132,7 @@ impl InteractiveController {
         self.scroll_at_top = false;
         self.turn_text.clear();
         self.turn_prompt = prompt.clone();
+        self.note_turn_started();
         self.pacer.clear();
         // A new turn breaks any pending activity group so its summary row
         // lands before the fresh prompt.
@@ -278,6 +316,14 @@ impl InteractiveController {
                         self.footer.show_notice(format!("※ recap: {text}"));
                     }
                 }
+                InteractiveEvent::TitleReady { ticket, text } => {
+                    if ticket != self.title_ticket {
+                        continue;
+                    }
+                    if let Some(text) = text.filter(|text| !text.trim().is_empty()) {
+                        self.pending_title = Some(text);
+                    }
+                }
                 InteractiveEvent::PanelCandidates { route, payload } => {
                     self.apply_panel_candidates(route, payload);
                 }
@@ -435,15 +481,43 @@ impl InteractiveController {
                 self.record_engine_anchor(base);
             }
             ExecutionStreamEvent::Completed { iterations, .. } => {
+                self.terminal_program_status =
+                    tui_terminal::terminal::state::ProgramStatusState::Done;
+                self.terminal_program_error = None;
+                if self.pending_title.is_none() {
+                    match Self::auto_title_mode().as_str() {
+                        "llm" => {
+                            self.request_title_now();
+                        }
+                        "truncate" => {
+                            let title = truncate_title(&self.turn_prompt);
+                            if !title.is_empty() {
+                                self.pending_title = Some(title);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 self.flush_activity();
                 self.pending_scroll.push(HistoryLine::new_role(
                     format!("✓ completed · {} iterations", iterations),
                     Role::Add,
                 ));
+                let answer = self.turn_text.clone();
+                let ticket = self.recap_ticket;
+                let elapsed = self
+                    .turn_started_at
+                    .map(|started| started.elapsed())
+                    .unwrap_or_default();
                 self.record_completed_turn();
+                self.maybe_auto_recap(ticket, elapsed, &answer);
                 self.finish_turn();
             }
             ExecutionStreamEvent::Failed { error } => {
+                self.terminal_program_status =
+                    tui_terminal::terminal::state::ProgramStatusState::Error;
+                self.terminal_program_error =
+                    Some(error.lines().next().unwrap_or("Error").to_string());
                 self.flush_activity();
                 if Self::should_render_terminal(self.graceful, &event) {
                     self.pending_scroll.push(HistoryLine::new_role(
@@ -456,6 +530,10 @@ impl InteractiveController {
                 self.finish_turn();
             }
             ExecutionStreamEvent::Interrupted { reason } => {
+                self.terminal_program_status =
+                    tui_terminal::terminal::state::ProgramStatusState::Idle;
+                self.terminal_program_error = None;
+                let _ = reason;
                 self.flush_activity();
                 if Self::should_render_terminal(self.graceful, &event) {
                     self.pending_scroll.push(HistoryLine::new_role(

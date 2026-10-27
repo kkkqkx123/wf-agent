@@ -20,6 +20,7 @@ pub mod pty;
 pub mod query;
 pub mod recap;
 pub mod template;
+pub mod title;
 pub mod trigger;
 pub mod web;
 pub mod workflow;

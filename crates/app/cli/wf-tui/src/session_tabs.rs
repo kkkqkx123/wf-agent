@@ -19,6 +19,9 @@ pub struct SessionTab {
     pub controller: InteractiveController,
     pub holder: SessionHolder,
     pub title: String,
+    /// Whether the title is still the generated default and may be replaced
+    /// by content-based auto-naming.
+    pub title_is_default: bool,
     pub last_active_ms: u64,
     pub pinned: bool,
     pub parent_id: Option<String>,
@@ -42,6 +45,7 @@ impl SessionTab {
             controller,
             holder,
             title,
+            title_is_default: true,
             last_active_ms: now_ms,
             pinned: false,
             parent_id: None,

@@ -81,6 +81,134 @@ impl InteractiveController {
         });
     }
 
+    /// Request a content-based title from the server (LLM mode). Silence
+    /// on every miss; a late answer is dropped by ticket.
+    pub(crate) fn request_title_now(&mut self) {
+        self.title_ticket = self.title_ticket.wrapping_add(1);
+        let ticket = self.title_ticket;
+        let Some(session_id) = self.footer.state.execution_id.clone() else {
+            return;
+        };
+        // Model selection: configured title_model, then session model.
+        let configured = crate::app_config::config_file_path()
+            .and_then(|path| crate::app_config::ConfigManager::load(&path).ok())
+            .and_then(|m| m.config().terminal.title_model.clone());
+        let profile = configured
+            .or_else(|| self.model_override.clone())
+            .or_else(|| self.footer.state.model.clone());
+        let Some(profile) = profile else {
+            return;
+        };
+        if session_id.trim().is_empty() || profile.trim().is_empty() {
+            return;
+        }
+        let client = self.client.clone();
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let body = serde_json::json!({
+                "session_id": session_id,
+                "profile_id": profile,
+            });
+            let text: Option<String> = client
+                .post_json::<_, serde_json::Value>("/api/v1/chat/title", &body)
+                .await
+                .ok()
+                .and_then(|response| {
+                    response
+                        .get("data")?
+                        .get("text")?
+                        .as_str()
+                        .map(str::to_string)
+                })
+                .filter(|text| !text.trim().is_empty());
+            let _ = tx.send(crate::interactive::InteractiveEvent::TitleReady { ticket, text });
+        });
+    }
+
+    /// Mark a new turn so a late recap answer cannot stick to it. Returns
+    /// the ticket callers must echo back when the side call lands.
+    pub(crate) fn note_turn_started(&mut self) -> u64 {
+        self.recap_ticket = self.recap_ticket.wrapping_add(1);
+        self.turn_started_at = Some(std::time::Instant::now());
+        self.away_this_turn = false;
+        self.recap_ticket
+    }
+
+    /// Record that terminal focus left during the current turn.
+    pub(crate) fn note_focus_lost(&mut self) {
+        self.away_this_turn = true;
+    }
+
+    /// Whether automatic recap notes are enabled in the config file.
+    fn recap_enabled() -> bool {
+        let Some(path) = crate::app_config::config_file_path() else {
+            return true;
+        };
+        match crate::app_config::ConfigManager::load(&path) {
+            Ok(manager) => manager.config().behavior.recap_enabled(),
+            Err(_) => true,
+        }
+    }
+
+    /// Automatic recap after a normally completed turn. Silent on every miss.
+    pub(crate) fn maybe_auto_recap(
+        &mut self,
+        ticket: u64,
+        elapsed: std::time::Duration,
+        answer: &str,
+    ) {
+        let reply_rows = reply_rows(answer);
+        let screen_rows = crossterm::terminal::size()
+            .map(|(_, rows)| rows)
+            .unwrap_or(24);
+        if !wf_cli_shared::recap::wants_recap(
+            Some(elapsed),
+            self.away_this_turn,
+            reply_rows,
+            screen_rows,
+            Self::recap_enabled(),
+            false,
+        ) {
+            return;
+        }
+        let Some(session_id) = self.footer.state.execution_id.clone() else {
+            return;
+        };
+        let Some(profile) = self
+            .model_override
+            .clone()
+            .or_else(|| self.footer.state.model.clone())
+        else {
+            return;
+        };
+        if session_id.trim().is_empty() || profile.trim().is_empty() {
+            return;
+        }
+        let client = self.client.clone();
+        let tx = self.tx.clone();
+        let answer_owned = answer.to_string();
+        let _ = answer_owned;
+        tokio::spawn(async move {
+            let body = serde_json::json!({
+                "session_id": session_id,
+                "profile_id": profile,
+            });
+            let text: Option<String> = client
+                .post_json::<_, serde_json::Value>("/api/v1/chat/recap", &body)
+                .await
+                .ok()
+                .and_then(|response| {
+                    response
+                        .get("data")?
+                        .get("text")?
+                        .as_str()
+                        .map(str::to_string)
+                })
+                .filter(|text| !text.trim().is_empty());
+            let _ = tx.send(crate::interactive::InteractiveEvent::RecapReady { ticket, text });
+        });
+    }
+
     /// Open the `/` command palette. The filter starts at the typed `/`, so
     /// the command word narrows the list and the rest is the argument.
     pub(crate) fn open_command_panel(&mut self) {
@@ -1494,6 +1622,21 @@ fn encode_query(query: &str) -> String {
     out
 }
 
+/// Visible rows of a reply, folding long lines to the terminal width.
+fn reply_rows(text: &str) -> usize {
+    let cols = crossterm::terminal::size()
+        .map(|(cols, _)| cols)
+        .unwrap_or(80)
+        .max(20) as usize;
+    text.lines()
+        .map(|line| {
+            let width = line.chars().count().max(1);
+            width.div_ceil(cols).max(1)
+        })
+        .sum::<usize>()
+        .max(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1698,5 +1841,11 @@ mod tests {
         assert_eq!(ctl.footer.route, FooterRoute::Composer);
         assert_eq!(ctl.footer.composer.content(), "draft");
         assert!(ctl.prompt_queue.is_empty());
+    }
+
+    #[test]
+    fn reply_rows_counts_folded_lines() {
+        assert_eq!(reply_rows(""), 1);
+        assert!(reply_rows(&"x".repeat(10_000)) > 1);
     }
 }

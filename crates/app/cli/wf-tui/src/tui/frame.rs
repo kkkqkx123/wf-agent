@@ -156,6 +156,52 @@ impl TuiApp {
         }
     }
 
+    pub(super) fn sync_terminal_state(
+        &mut self,
+        guard: &mut TerminalGuard<CrosstermControl<io::Stdout>>,
+    ) {
+        // Title.
+        let desired_title = if self.app.screen.navigation.current_kind()
+            == tui_core::screen_data::ScreenKind::Interactive
+        {
+            self.sessions
+                .active_tab()
+                .map(|tab| format!("WF Agent - {}", tab.title))
+                .unwrap_or_else(|| "WF Agent".to_string())
+        } else {
+            format!(
+                "WF Agent - {}",
+                self.app.screen.navigation.current_kind().title()
+            )
+        };
+        self.terminal_state.sync_title(guard, &desired_title);
+
+        // Progress.
+        let progress = self
+            .sessions
+            .active()
+            .is_some_and(|session| session.is_processing());
+        let enabled = Self::terminal_progress_enabled();
+        self.terminal_state.sync_progress(guard, progress, enabled);
+
+        // Program status, gated by capability detection / env.
+        if !Self::program_status_enabled() {
+            return;
+        }
+        let desired_status = if let Some(session) = self.sessions.active() {
+            session.terminal_program_status()
+        } else {
+            tui_terminal::terminal::state::ProgramStatus {
+                state: tui_terminal::terminal::state::ProgramStatusState::Idle,
+                app: Some("wf".to_string()),
+                kind: None,
+                message: None,
+            }
+        };
+        self.terminal_state
+            .sync_program_status(guard, desired_status);
+    }
+
     /// Focus gained: reassert the terminal modes (terminals may clear them
     /// while backgrounded), mark focused, and request one differential
     /// catch-up frame. Never invalidates the backend: the terminal still
@@ -181,6 +227,26 @@ impl TuiApp {
     pub(super) fn on_focus_lost(&mut self) {
         let (focused, _) = focus_transition(self.app.focused, FocusInput::Lost);
         self.app.focused = focused;
+    }
+
+    fn terminal_progress_enabled() -> bool {
+        if let Ok(value) = std::env::var("WF_TUI_TERMINAL_PROGRESS") {
+            return matches!(value.as_str(), "1" | "true" | "TRUE" | "yes");
+        }
+        let Some(path) = crate::app_config::config_file_path() else {
+            return false;
+        };
+        let Ok(manager) = crate::app_config::ConfigManager::load(&path) else {
+            return false;
+        };
+        manager.config().terminal.terminal_progress_enabled()
+    }
+
+    fn program_status_enabled() -> bool {
+        if let Ok(value) = std::env::var("WF_TUI_PROGRAM_STATUS") {
+            return !matches!(value.as_str(), "0" | "false" | "FALSE" | "no");
+        }
+        true
     }
 
     /// Compensation for dropped focus-gained reports: any key, mouse

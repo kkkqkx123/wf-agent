@@ -11,6 +11,7 @@
 //! conversation ledger (`--session` id or the newest loop for `--resume`).
 
 use std::io::IsTerminal;
+use std::io::Write;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -112,10 +113,19 @@ impl NativeSession {
         output::diag_line(&format!("user: {question}"));
         let turn_started = Instant::now();
         let ticket = self.note_turn_started();
+        let progress_enabled = Self::terminal_progress_enabled();
+        if progress_enabled {
+            eprint!("\x1b]9;4;3\x07");
+            let _ = std::io::stderr().flush();
+        }
         if let Some(finished) = self.run_turn(question.clone()).await {
             self.record_completed_turn(&question, &finished);
             self.maybe_auto_recap(ticket, turn_started.elapsed(), &finished)
                 .await;
+        }
+        if progress_enabled {
+            eprint!("\x1b]9;4;0\x07");
+            let _ = std::io::stderr().flush();
         }
         self.discard_stale_lines().await;
     }
@@ -161,6 +171,7 @@ impl NativeSession {
 
     /// Run the prompt loop until EOF or a quit command.
     pub async fn run(mut self) -> CliResult<()> {
+        self.set_terminal_title();
         output::diag_line(
             "native mini — type a prompt, /help for commands, Ctrl-D to quit; remembers the full history",
         );
@@ -339,6 +350,7 @@ impl NativeSession {
                 self.transcript.clear();
                 self.anchor = format!("mini-{}", wf_common::generate_id());
                 self.note_turn_started();
+                self.set_terminal_title();
                 output::diag_line(&format!(
                     "started a new conversation (session {})",
                     self.anchor
@@ -447,6 +459,27 @@ impl NativeSession {
     fn note_turn_started(&mut self) -> u64 {
         self.recap_ticket = self.recap_ticket.wrapping_add(1);
         self.recap_ticket
+    }
+
+    /// Set the terminal window title for this session.
+    fn set_terminal_title(&self) {
+        use std::io::Write;
+        let title = format!("WF Agent - {}", self.anchor);
+        eprint!("\x1b]0;{title}\x07");
+        let _ = std::io::stderr().flush();
+    }
+
+    fn terminal_progress_enabled() -> bool {
+        if let Ok(value) = std::env::var("WF_TUI_TERMINAL_PROGRESS") {
+            return matches!(value.as_str(), "1" | "true" | "TRUE" | "yes");
+        }
+        let Some(path) = wf_cli_shared::app_config::config_file_path() else {
+            return false;
+        };
+        match wf_cli_shared::app_config::ConfigManager::load(&path) {
+            Ok(manager) => manager.config().terminal.terminal_progress_enabled(),
+            Err(_) => false,
+        }
     }
 
     /// Whether automatic recap notes are on. The file is optional: absent

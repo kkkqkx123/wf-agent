@@ -139,6 +139,7 @@ impl TuiApp {
                         .unwrap_or_default()
                         .to_string(),
                     title: tab.title.clone(),
+                    title_is_default: tab.title_is_default,
                     pinned: tab.pinned,
                     parent_id: tab.parent_id.clone(),
                     model: tab.model.clone(),
@@ -200,6 +201,7 @@ impl TuiApp {
             session.load_replay(&entry.session_id);
             let mut tab = SessionTab::new(session, entry.session_id.clone(), entry.last_active_ms);
             tab.title = entry.title;
+            tab.title_is_default = entry.title_is_default;
             tab.pinned = entry.pinned;
             tab.parent_id = entry.parent_id;
             tab.model = entry.model;

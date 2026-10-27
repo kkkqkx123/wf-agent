@@ -148,6 +148,8 @@ pub enum InteractiveEvent {
     /// A screen-only recap read landed. `None` is silence and shows
     /// nothing; a ticket mismatch drops the late answer.
     RecapReady { ticket: u64, text: Option<String> },
+    /// A content-based title landed. `None` means no title.
+    TitleReady { ticket: u64, text: Option<String> },
 }
 
 /// What the caller should do after a key press.
@@ -400,6 +402,18 @@ pub struct InteractiveController {
     /// dropped instead of sticking to a newer turn. Tabs own separate
     /// controllers, so a tab switch drops the old channel with it.
     recap_ticket: u64,
+    /// Start of the current turn, used for the automatic recap gate.
+    turn_started_at: Option<std::time::Instant>,
+    /// Whether terminal focus left during the current turn.
+    away_this_turn: bool,
+    /// Ticket for in-flight content-based title requests.
+    title_ticket: u64,
+    /// Last terminal program status state for this session.
+    terminal_program_status: tui_terminal::terminal::state::ProgramStatusState,
+    /// Last error message for program status reporting.
+    terminal_program_error: Option<String>,
+    /// Pending content-based title generated for this session.
+    pending_title: Option<String>,
 }
 
 impl InteractiveController {
@@ -617,6 +631,12 @@ impl InteractiveController {
             keymap: tui_core::keymap::Keymap::new(),
             pending_editor: false,
             recap_ticket: 0,
+            title_ticket: 0,
+            turn_started_at: None,
+            away_this_turn: false,
+            terminal_program_status: tui_terminal::terminal::state::ProgramStatusState::Idle,
+            terminal_program_error: None,
+            pending_title: None,
         }
     }
 
@@ -1079,9 +1099,63 @@ impl InteractiveController {
         self.footer.composer.is_empty()
     }
 
+    /// Take a pending content-based title, if any.
+    pub fn take_pending_title(&mut self) -> Option<String> {
+        self.pending_title.take()
+    }
+
     /// Whether an approval overlay forces a full frame.
     pub fn approval_active(&self) -> bool {
         self.footer.approval.is_some() || self.pending_approval.is_some()
+    }
+
+    /// Desired terminal program status for this session.
+    pub fn terminal_program_status(&self) -> tui_terminal::terminal::state::ProgramStatus {
+        use tui_terminal::terminal::state::{ProgramStatus, ProgramStatusKind, ProgramStatusState};
+        if let Some(approval) = &self.footer.approval {
+            return ProgramStatus {
+                state: ProgramStatusState::Blocked,
+                app: Some("wf".to_string()),
+                kind: Some(ProgramStatusKind::Permission),
+                message: Some(approval.request().tool_name.clone()),
+            };
+        }
+        if self.footer.question.is_some() {
+            return ProgramStatus {
+                state: ProgramStatusState::Blocked,
+                app: Some("wf".to_string()),
+                kind: Some(ProgramStatusKind::Question),
+                message: Some("Question".to_string()),
+            };
+        }
+        if self.is_processing() {
+            return ProgramStatus {
+                state: ProgramStatusState::Working,
+                app: Some("wf".to_string()),
+                kind: None,
+                message: None,
+            };
+        }
+        match self.terminal_program_status {
+            ProgramStatusState::Error => ProgramStatus {
+                state: ProgramStatusState::Error,
+                app: Some("wf".to_string()),
+                kind: None,
+                message: self.terminal_program_error.clone(),
+            },
+            ProgramStatusState::Done => ProgramStatus {
+                state: ProgramStatusState::Done,
+                app: Some("wf".to_string()),
+                kind: None,
+                message: None,
+            },
+            _ => ProgramStatus {
+                state: ProgramStatusState::Idle,
+                app: Some("wf".to_string()),
+                kind: None,
+                message: None,
+            },
+        }
     }
 
     /// Single-cell fast-path inputs for the current state. The shell supplies

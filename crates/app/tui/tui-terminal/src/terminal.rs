@@ -20,6 +20,7 @@ pub mod modes;
 pub mod orphan;
 pub mod panic;
 pub mod sequences;
+pub mod state;
 
 pub use crate::probe::{ColorSet, TerminalProbe};
 pub use crate::sigint::{DoublePressTracker, PressOutcome, SIGINT_DOUBLE_PRESS_WINDOW};
@@ -259,6 +260,24 @@ mod tests {
             fn copy_to_clipboard(&mut self, text: &str) -> io::Result<()> {
                 let _ = text;
                 self.ops.borrow_mut().push("copy_to_clipboard");
+                Ok(())
+            }
+            fn set_title(&mut self, title: &str) -> io::Result<()> {
+                let _ = title;
+                self.ops.borrow_mut().push("set_title");
+                Ok(())
+            }
+            fn set_progress(&mut self, active: bool) -> io::Result<()> {
+                let _ = active;
+                self.ops.borrow_mut().push("set_progress");
+                Ok(())
+            }
+            fn set_program_status(
+                &mut self,
+                status: super::state::ProgramStatus,
+            ) -> io::Result<()> {
+                let _ = status;
+                self.ops.borrow_mut().push("set_program_status");
                 Ok(())
             }
         }

@@ -21,6 +21,8 @@ pub const TABS_FILE_NAME: &str = "tabs.json";
 pub struct SavedTab {
     pub session_id: String,
     pub title: String,
+    #[serde(default = "default_true")]
+    pub title_is_default: bool,
     #[serde(default)]
     pub pinned: bool,
     #[serde(default)]
@@ -48,6 +50,10 @@ pub struct SavedTabs {
 
 fn saved_version() -> u32 {
     TABS_SNAPSHOT_VERSION
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for SavedTabs {
@@ -119,6 +125,7 @@ mod tests {
                 SavedTab {
                     session_id: "exec-1".to_string(),
                     title: "exec-1".to_string(),
+                    title_is_default: true,
                     pinned: true,
                     parent_id: None,
                     model: Some("claude".to_string()),
@@ -129,6 +136,7 @@ mod tests {
                 SavedTab {
                     session_id: "exec-2".to_string(),
                     title: "exec-2".to_string(),
+                    title_is_default: false,
                     pinned: false,
                     parent_id: Some("exec-1".to_string()),
                     model: None,

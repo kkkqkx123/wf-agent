@@ -300,6 +300,33 @@ pub struct TerminalConfig {
     /// Enable keyboard enhancement probing/resolution. `None` keeps auto.
     #[serde(default)]
     pub keyboard_enhancement: Option<bool>,
+    /// Show OSC 9;4 progress in the terminal tab during processing. Defaults
+    /// to false to match pi.
+    #[serde(default)]
+    pub show_terminal_progress: Option<bool>,
+    /// Automatic session title mode: `off`, `truncate`, or `llm`. Defaults
+    /// to `truncate` when unset.
+    #[serde(default)]
+    pub auto_title_mode: Option<String>,
+    /// Optional model/profile id used for LLM title generation. When unset,
+    /// the active session model is used.
+    #[serde(default)]
+    pub title_model: Option<String>,
+}
+
+impl TerminalConfig {
+    pub fn terminal_progress_enabled(&self) -> bool {
+        self.show_terminal_progress.unwrap_or(false)
+    }
+
+    pub fn auto_title_mode(&self) -> &str {
+        match self.auto_title_mode.as_deref() {
+            Some("off") | Some("truncate") | Some("llm") => {
+                self.auto_title_mode.as_deref().unwrap()
+            }
+            _ => "truncate",
+        }
+    }
 }
 
 /// Appearance settings.

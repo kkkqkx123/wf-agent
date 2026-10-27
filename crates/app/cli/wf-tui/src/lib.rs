@@ -49,6 +49,7 @@ pub mod session_tabs;
 pub mod size;
 pub mod state;
 pub mod tab_persistence;
+pub mod terminal_state;
 pub mod tui;
 
 use wf_cli_shared::mode::{CliMode, ModeResolver};

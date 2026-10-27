@@ -138,6 +138,8 @@ pub struct TuiApp {
     /// key / data / resize / theme change requests here, and the submit
     /// point takes it exactly once per frame.
     pending_scope: crate::redraw::PendingScope,
+    /// Terminal-side state (title, progress, program status) sync helper.
+    terminal_state: crate::terminal_state::TerminalStateManager,
     /// Pending surface invalidation merged by severity (Hard > Soft): hard
     /// clears the terminal before recomposing (real desynchronization only),
     /// soft replays fully from retained state so scroll and reflow never
@@ -325,6 +327,7 @@ impl TuiApp {
                 pending.request(crate::redraw::RedrawScope::Full);
                 pending
             },
+            terminal_state: crate::terminal_state::TerminalStateManager::default(),
             invalidation: crate::redraw::InvalidationSentinel::new(),
             frame_cache: crate::redraw::FrameCache::new(),
             last_anim_ms: None,
@@ -412,6 +415,7 @@ impl TuiApp {
             .await;
 
         let _ = terminal.clear();
+        self.terminal_state.clear(&mut guard);
         guard.restore()?;
 
         // Abort and join every fetch so no task keeps the runtime alive.
@@ -447,11 +451,20 @@ impl TuiApp {
             // Apply runtime input-policy changes (mouse toggle is instant):
             // the guard only flips the delta, so steady states pay no cost.
             self.sync_terminal_modes(guard);
+            // Keep terminal-side state (title, progress, program status) in
+            // sync with the live session without per-frame redundant writes.
+            self.sync_terminal_state(guard);
 
             // Pump every tab: background tabs keep their stream tasks
             // advancing while only the active tab paints.
             for tab in self.sessions.iter_mut() {
                 tab.controller.handle_events();
+                if tab.title_is_default {
+                    if let Some(title) = tab.controller.take_pending_title() {
+                        tab.title = title;
+                        tab.title_is_default = false;
+                    }
+                }
             }
             if self.sessions.background_streaming() {
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
@@ -582,6 +595,9 @@ impl TuiApp {
                     }
                     Event::FocusLost => {
                         self.on_focus_lost();
+                        if let Some(controller) = self.sessions.active_mut() {
+                            controller.note_focus_lost();
+                        }
                     }
                     Event::Paste(text) => {
                         let focus_flipped = self.mark_client_focused();

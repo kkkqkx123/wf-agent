@@ -4,6 +4,8 @@
 use std::fmt;
 use std::io;
 
+use super::state::ProgramStatus;
+
 /// Abstract terminal control plane (injectable for tests).
 pub trait TerminalControl: fmt::Debug {
     fn enable_raw(&mut self) -> io::Result<()>;
@@ -34,6 +36,15 @@ pub trait TerminalControl: fmt::Debug {
     /// policy (capability gate, TTY check, sanitization); this only emits
     /// the byte sequence through the owned writer.
     fn copy_to_clipboard(&mut self, text: &str) -> io::Result<()>;
+
+    /// Set the terminal window title (OSC 0).
+    fn set_title(&mut self, title: &str) -> io::Result<()>;
+
+    /// Toggle the indeterminate progress indicator (OSC 9;4).
+    fn set_progress(&mut self, active: bool) -> io::Result<()>;
+
+    /// Report program status (OSC 7501).
+    fn set_program_status(&mut self, status: ProgramStatus) -> io::Result<()>;
 }
 
 /// Sanitize a copy payload: strip NUL bytes (terminals reject the whole
@@ -133,6 +144,21 @@ impl TerminalControl for FakeControl {
     fn copy_to_clipboard(&mut self, text: &str) -> io::Result<()> {
         self.ops.push("copy_to_clipboard");
         self.copied.push(text.to_string());
+        Ok(())
+    }
+    fn set_title(&mut self, title: &str) -> io::Result<()> {
+        let _ = title;
+        self.ops.push("set_title");
+        Ok(())
+    }
+    fn set_progress(&mut self, active: bool) -> io::Result<()> {
+        let _ = active;
+        self.ops.push("set_progress");
+        Ok(())
+    }
+    fn set_program_status(&mut self, status: ProgramStatus) -> io::Result<()> {
+        let _ = status;
+        self.ops.push("set_program_status");
         Ok(())
     }
 }

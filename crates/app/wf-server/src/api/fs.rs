@@ -217,7 +217,12 @@ pub(crate) async fn handle_fs_tree(
     State(state): State<ApiState>,
     Query(query): Query<FsTreeQuery>,
 ) -> impl IntoResponse {
-    match wf_api::fs::list_tree(&state.ctx, query_path(&query.path), query.depth, query.limit) {
+    match wf_api::fs::list_tree(
+        &state.ctx,
+        query_path(&query.path),
+        query.depth,
+        query.limit,
+    ) {
         Ok(tree) => ok(FsTreeView {
             entries: tree
                 .entries
@@ -383,8 +388,7 @@ pub(crate) async fn handle_fs_upload(
     State(state): State<ApiState>,
     axum::Json(body): axum::Json<FsUploadBody>,
 ) -> impl IntoResponse {
-    match wf_api::fs::upload_bytes(&state.ctx, &body.path, &body.content_base64, body.overwrite)
-    {
+    match wf_api::fs::upload_bytes(&state.ctx, &body.path, &body.content_base64, body.overwrite) {
         Ok(entry) => ok(entry_view(entry)).into_response(),
         Err(err) => error_response(err.into()),
     }

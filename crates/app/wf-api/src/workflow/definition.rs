@@ -269,7 +269,13 @@ pub async fn list_workflows(
         .await
         .map_err(crate::ApiError::from)?;
     if let Some(want) = published {
-        workflows.retain(|w| w.metadata.as_ref().and_then(|m| m.published).unwrap_or(false) == want);
+        workflows.retain(|w| {
+            w.metadata
+                .as_ref()
+                .and_then(|m| m.published)
+                .unwrap_or(false)
+                == want
+        });
     }
     Ok(workflows)
 }

@@ -326,8 +326,8 @@ pub fn list_tree(
         .clamp(1, FS_TREE_MAX_LIMIT);
     let root = workspace_root(ctx)?;
     let base_absolute = validate_fs_path(&root, base)?;
-    let metadata =
-        std::fs::symlink_metadata(&base_absolute).map_err(|_| FsError::NotFound(base.to_string()))?;
+    let metadata = std::fs::symlink_metadata(&base_absolute)
+        .map_err(|_| FsError::NotFound(base.to_string()))?;
     if !metadata.file_type().is_dir() {
         return Err(FsError::NotDirectory(base.to_string()));
     }
@@ -658,7 +658,9 @@ pub fn copy_entry(ctx: &ApiContext, from: &str, to: &str) -> FsResult<FsEntry> {
         ));
     }
     if from == to {
-        return Err(FsError::Validation("source and destination match".to_string()));
+        return Err(FsError::Validation(
+            "source and destination match".to_string(),
+        ));
     }
     if to.starts_with(&format!("{from}/")) {
         return Err(FsError::Validation(
@@ -671,7 +673,9 @@ pub fn copy_entry(ctx: &ApiContext, from: &str, to: &str) -> FsResult<FsEntry> {
     let source_meta = std::fs::symlink_metadata(&absolute_from)
         .map_err(|_| FsError::NotFound(from.to_string()))?;
     if source_meta.file_type().is_symlink() {
-        return Err(FsError::Validation(format!("refusing symlink copy: {from}")));
+        return Err(FsError::Validation(format!(
+            "refusing symlink copy: {from}"
+        )));
     }
     if absolute_to.exists() {
         return Err(FsError::AlreadyExists(to.to_string()));
@@ -939,10 +943,14 @@ pub fn search_files(
 ) -> FsResult<FsSearchResult> {
     let needle = query.trim();
     if needle.is_empty() {
-        return Err(FsError::Validation("search query must not be empty".to_string()));
+        return Err(FsError::Validation(
+            "search query must not be empty".to_string(),
+        ));
     }
     if needle.len() > 512 {
-        return Err(FsError::Validation("search query exceeds 512 bytes".to_string()));
+        return Err(FsError::Validation(
+            "search query exceeds 512 bytes".to_string(),
+        ));
     }
     let limit = max_results
         .unwrap_or(FS_SEARCH_DEFAULT_LIMIT)
@@ -965,8 +973,8 @@ pub fn search_files(
     let includes = compile_search_patterns(include)?;
     let root = workspace_root(ctx)?;
     let base_absolute = validate_fs_path(&root, base)?;
-    let metadata =
-        std::fs::symlink_metadata(&base_absolute).map_err(|_| FsError::NotFound(base.to_string()))?;
+    let metadata = std::fs::symlink_metadata(&base_absolute)
+        .map_err(|_| FsError::NotFound(base.to_string()))?;
     if !metadata.file_type().is_dir() {
         return Err(FsError::NotDirectory(base.to_string()));
     }

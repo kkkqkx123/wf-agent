@@ -1,14 +1,19 @@
 /**
  * Web frontend syntax highlighting.
  *
- * Token boundaries come from Shiki's TextMate grammars (JavaScript regex
- * engine, no WASM assets). The fixed github-light theme is only a
+ * Fine-grained Shiki setup: the core highlighter and each language grammar
+ * are loaded through dynamic imports on first use, so no bundled language
+ * pack or engine asset reaches the initial chunks. The JavaScript regex
+ * engine avoids WASM assets entirely. The fixed github-light theme is only a
  * tokenization carrier: its colors never reach the DOM. Rendering colors are
  * the application's own `text-code-*` CSS classes, which follow the app
  * theme (light/dark) automatically.
  */
 
-import { getSingletonHighlighter, createJavaScriptRegexEngine } from 'shiki';
+import { createHighlighterCore } from 'shiki/core';
+import { createJavaScriptRegexEngine } from 'shiki/engine/javascript';
+import type { HighlighterCore } from 'shiki/core';
+import { bundledLanguages } from 'shiki/langs';
 
 import { LANGUAGE_ALIASES } from './language-aliases.generated';
 
@@ -40,20 +45,36 @@ function shikiLanguage(normalized: string): string {
 	return SHIKI_LANGUAGE_ALIASES[normalized] ?? normalized;
 }
 
-const highlighterPromise = getSingletonHighlighter({
-	themes: ['github-light'],
-	langs: [],
-	engine: createJavaScriptRegexEngine(),
-});
+/**
+ * The core highlighter (engine + theme) is created on first use. Importing
+ * this module alone costs nothing; even the github-light theme definition is
+ * a dynamic import resolved lazily.
+ */
+let highlighterPromise: Promise<HighlighterCore> | null = null;
+
+function getHighlighter(): Promise<HighlighterCore> {
+	highlighterPromise ??= import('@shikijs/themes/github-light').then((theme) =>
+		createHighlighterCore({
+			themes: [theme.default],
+			langs: [],
+			engine: createJavaScriptRegexEngine({ forgiving: true }),
+		}),
+	);
+	return highlighterPromise;
+}
 
 const loadedLanguages = new Set<string>();
 
 async function ensureLanguage(normalized: string): Promise<string | null> {
 	const lang = shikiLanguage(normalized);
 	if (loadedLanguages.has(lang)) return lang;
-	const highlighter = await highlighterPromise;
+	// bundledLanguages is a lazy registry: each entry is a dynamic import
+	// thunk, so only the grammar actually requested is fetched and parsed.
+	const loader = (bundledLanguages as Record<string, () => Promise<{ default: unknown[] }>>)[lang];
+	if (!loader) return null;
 	try {
-		await highlighter.loadLanguage(lang as never);
+		const highlighter = await getHighlighter();
+		await highlighter.loadLanguage((await loader()).default as never);
 		loadedLanguages.add(lang);
 		return lang;
 	} catch {
@@ -151,7 +172,7 @@ const HIGHLIGHT_THEME = 'github-light';
  */
 let colorKindsPromise: Promise<Map<string, TokenKind>> | null = null;
 
-function buildColorKinds(highlighter: Awaited<typeof highlighterPromise>): Map<string, TokenKind> {
+function buildColorKinds(highlighter: HighlighterCore): Map<string, TokenKind> {
 	const theme = highlighter.getTheme(HIGHLIGHT_THEME);
 	const map = new Map<string, TokenKind>();
 	const defaultFg = theme.fg?.toLowerCase();
@@ -172,7 +193,7 @@ function buildColorKinds(highlighter: Awaited<typeof highlighterPromise>): Map<s
 }
 
 function colorKinds(): Promise<Map<string, TokenKind>> {
-	colorKindsPromise ??= highlighterPromise.then(buildColorKinds);
+	colorKindsPromise ??= getHighlighter().then(buildColorKinds);
 	return colorKindsPromise;
 }
 
@@ -181,7 +202,7 @@ function colorKinds(): Promise<Map<string, TokenKind>> {
 async function tokenize(code: string, normalized: string): Promise<HighlightLine[]> {
 	const lang = await ensureLanguage(normalized);
 	if (!lang) return plainLines(code);
-	const [highlighter, kinds] = await Promise.all([highlighterPromise, colorKinds()]);
+	const [highlighter, kinds] = await Promise.all([getHighlighter(), colorKinds()]);
 	const result = highlighter.codeToTokens(code, {
 		lang: lang as never,
 		theme: HIGHLIGHT_THEME,

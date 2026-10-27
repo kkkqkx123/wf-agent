@@ -456,7 +456,11 @@ impl NativeSession {
             }
             SlashCommand::Steer(text) => {
                 if let Some(id) = self.current_loop_id.clone() {
-                    match self.client.append_agent_loop(&id, text, Some("steering".to_string())).await {
+                    match self
+                        .client
+                        .append_agent_loop(&id, text, Some("steering".to_string()))
+                        .await
+                    {
                         Ok(_) => output::diag_line("steering input appended"),
                         Err(e) => output::diag_line(&format!("append failed: {e}")),
                     }
@@ -467,7 +471,11 @@ impl NativeSession {
             }
             SlashCommand::Followup(text) => {
                 if let Some(id) = self.current_loop_id.clone() {
-                    match self.client.append_agent_loop(&id, text, Some("followup".to_string())).await {
+                    match self
+                        .client
+                        .append_agent_loop(&id, text, Some("followup".to_string()))
+                        .await
+                    {
                         Ok(_) => output::diag_line("follow-up input appended"),
                         Err(e) => output::diag_line(&format!("append failed: {e}")),
                     }
@@ -477,8 +485,12 @@ impl NativeSession {
                 CommandAction::Continue
             }
             SlashCommand::AppendMode(mode) => {
+                let mode_str = mode.unwrap_or_else(|| "followup".to_string());
+                if mode_str != "steering" && mode_str != "followup" {
+                    output::diag_line("usage: /append-mode steering|followup");
+                    return CommandAction::Continue;
+                }
                 if let Some(id) = self.current_loop_id.clone() {
-                    let mode_str = mode.unwrap_or_else(|| "followup".to_string());
                     match self.client.set_agent_loop_append_mode(&id, &mode_str).await {
                         Ok(_) => output::diag_line(&format!("append mode set to {mode_str}")),
                         Err(e) => output::diag_line(&format!("set mode failed: {e}")),

@@ -195,7 +195,11 @@ fn impact_for_event(event: &wf_types::events::BaseEvent) -> FeedImpact {
         T::ToolCallStarted | T::ToolCallCompleted | T::ToolCallFailed => {
             FeedImpact::of(vec![ScreenKind::Executions], true)
         }
-        T::AgentStarted | T::AgentCompleted | T::AgentFailed => {
+        T::AgentStarted
+        | T::AgentCompleted
+        | T::AgentFailed
+        | T::AgentSteeringInjected
+        | T::AgentFollowupQueued => {
             FeedImpact::of(vec![ScreenKind::Dashboard, ScreenKind::Executions], false)
         }
         T::GitChanged => FeedImpact::of(vec![ScreenKind::Git], true),

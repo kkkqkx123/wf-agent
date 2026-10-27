@@ -128,6 +128,8 @@ pub enum InteractiveEvent {
     },
     /// A notice to display in the footer.
     Notice(String),
+    /// Queue a prompt locally after a failed runtime append.
+    QueuePrompt(String),
     /// The first replay page landed: it replaces the whole scrollback.
     ReplayLoaded {
         lines: Vec<HistoryLine>,

@@ -325,10 +325,7 @@ impl WfClient {
         text: String,
         as_mode: Option<String>,
     ) -> ClientResult<serde_json::Value> {
-        let body = generated::types::AppendAgentLoopBody {
-            text,
-            as_mode,
-        };
+        let body = generated::types::AppendAgentLoopBody { text, as_mode };
         let envelope = self
             .generated
             .handle_append_loop(id, &body)

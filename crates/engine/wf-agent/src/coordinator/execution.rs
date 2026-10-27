@@ -7,12 +7,11 @@ use wf_execution_shared::execution_loop;
 use wf_metrics::MetricsRegistry;
 use wf_types::checkpoint::CheckpointTiming;
 use wf_types::events::EventType;
-use wf_types::message::Message;
 use wf_types::execution::FailurePolicyConfig;
+use wf_types::message::Message;
 
 use crate::checkpoint::AgentCheckpointIntegration;
 use crate::coordinator::iteration::{IterationExecutor, IterationResult};
-use crate::coordinator::state_transitor::AgentLoopStateTransitor;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
 use crate::error_analysis::{analyze_error, decide_retry, RetryDecision};
@@ -180,17 +179,30 @@ impl AgentExecutionCoordinator {
             // the next LLM request.
             let steering = entity.drain_steering_inputs().await;
             if !steering.is_empty() {
+                let count = steering.len();
                 let text = steering.join("\n\n");
                 {
                     let mut conv = entity.conversation().write().await;
-                    conv.add_message(Message::user_text(text));
+                    conv.add_message(Message::user_text(text.clone()));
                 }
                 if let Some(bus) = entity.event_bus() {
-                    AgentLoopStateTransitor::emit_event(
-                        &bus,
-                        EventType::AgentSteeringInjected,
-                        entity.id().clone(),
+                    let mut metadata = wf_types::Metadata::new();
+                    metadata.insert("input_count".to_string(), serde_json::json!(count));
+                    metadata.insert(
+                        "text_preview".to_string(),
+                        serde_json::json!(text.chars().take(200).collect::<String>()),
                     );
+                    let event = wf_types::events::BaseEvent {
+                        id: wf_common::generate_id(),
+                        r#type: EventType::AgentSteeringInjected,
+                        timestamp: wf_common::now(),
+                        workflow_id: None,
+                        execution_id: Some(entity.id().clone()),
+                        agent_loop_id: None,
+                        event_name: None,
+                        metadata: Some(metadata),
+                    };
+                    let _ = bus.publish(event);
                 }
             }
 
@@ -239,17 +251,36 @@ impl AgentExecutionCoordinator {
                                 // the current response.
                                 let followups = entity.drain_followup_inputs().await;
                                 if !followups.is_empty() {
+                                    let count = followups.len();
                                     let text = followups.join("\n\n");
                                     {
                                         let mut conv = entity.conversation().write().await;
-                                        conv.add_message(Message::user_text(text));
+                                        conv.add_message(Message::user_text(text.clone()));
                                     }
                                     if let Some(bus) = entity.event_bus() {
-                                        AgentLoopStateTransitor::emit_event(
-                                            &bus,
-                                            EventType::AgentFollowupQueued,
-                                            entity.id().clone(),
+                                        let mut metadata = wf_types::Metadata::new();
+                                        metadata.insert(
+                                            "input_count".to_string(),
+                                            serde_json::json!(count),
                                         );
+                                        metadata.insert(
+                                            "text_preview".to_string(),
+                                            serde_json::json!(text
+                                                .chars()
+                                                .take(200)
+                                                .collect::<String>()),
+                                        );
+                                        let event = wf_types::events::BaseEvent {
+                                            id: wf_common::generate_id(),
+                                            r#type: EventType::AgentFollowupQueued,
+                                            timestamp: wf_common::now(),
+                                            workflow_id: None,
+                                            execution_id: Some(entity.id().clone()),
+                                            agent_loop_id: None,
+                                            event_name: None,
+                                            metadata: Some(metadata),
+                                        };
+                                        let _ = bus.publish(event);
                                     }
                                     continue;
                                 }

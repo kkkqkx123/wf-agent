@@ -711,6 +711,67 @@ impl InteractiveController {
                 self.request_recap_now();
                 InteractiveAction::Continue
             }
+
+            "agent.append_mode_steering" => {
+                self.append_mode = "steering".to_string();
+                if let Some(loop_id) = self.active_agent_loop_id.clone() {
+                    let client = self.client.clone();
+                    let tx = self.tx.clone();
+                    tokio::spawn(async move {
+                        let res = client
+                            .set_agent_loop_append_mode(&loop_id, "steering")
+                            .await;
+                        let notice = match res {
+                            Ok(_) => "append mode set to steering".to_string(),
+                            Err(e) => format!("set mode failed: {e}"),
+                        };
+                        let _ = tx.send(InteractiveEvent::Notice(notice));
+                    });
+                } else {
+                    self.footer
+                        .show_notice("append mode set to steering (no active loop)");
+                }
+                InteractiveAction::Continue
+            }
+            "agent.append_mode_followup" => {
+                self.append_mode = "followup".to_string();
+                if let Some(loop_id) = self.active_agent_loop_id.clone() {
+                    let client = self.client.clone();
+                    let tx = self.tx.clone();
+                    tokio::spawn(async move {
+                        let res = client
+                            .set_agent_loop_append_mode(&loop_id, "followup")
+                            .await;
+                        let notice = match res {
+                            Ok(_) => "append mode set to followup".to_string(),
+                            Err(e) => format!("set mode failed: {e}"),
+                        };
+                        let _ = tx.send(InteractiveEvent::Notice(notice));
+                    });
+                } else {
+                    self.footer
+                        .show_notice("append mode set to followup (no active loop)");
+                }
+                InteractiveAction::Continue
+            }
+            "agent.convert_pending" => {
+                if let Some(loop_id) = self.active_agent_loop_id.clone() {
+                    let client = self.client.clone();
+                    let tx = self.tx.clone();
+                    tokio::spawn(async move {
+                        let res = client.convert_pending_to_steering(&loop_id).await;
+                        let notice = match res {
+                            Ok(_) => "pending follow-ups converted to steering".to_string(),
+                            Err(e) => format!("convert failed: {e}"),
+                        };
+                        let _ = tx.send(InteractiveEvent::Notice(notice));
+                    });
+                    self.footer.show_notice("converting pending inputs...");
+                } else {
+                    self.footer.show_notice("no active agent loop");
+                }
+                InteractiveAction::Continue
+            }
             "session.editor" => {
                 // The shell runs the actual editor handoff (it owns the
                 // terminal), so the session only records the request.
@@ -745,7 +806,9 @@ impl InteractiveController {
                     let tx = self.tx.clone();
                     let text = argument.to_string();
                     tokio::spawn(async move {
-                        let res = client.append_agent_loop(&loop_id, text, Some("steering".to_string())).await;
+                        let res = client
+                            .append_agent_loop(&loop_id, text, Some("steering".to_string()))
+                            .await;
                         let notice = match res {
                             Ok(_) => "steering input appended".to_string(),
                             Err(e) => format!("append failed: {e}"),
@@ -768,7 +831,9 @@ impl InteractiveController {
                     let tx = self.tx.clone();
                     let text = argument.to_string();
                     tokio::spawn(async move {
-                        let res = client.append_agent_loop(&loop_id, text, Some("followup".to_string())).await;
+                        let res = client
+                            .append_agent_loop(&loop_id, text, Some("followup".to_string()))
+                            .await;
                         let notice = match res {
                             Ok(_) => "follow-up input appended".to_string(),
                             Err(e) => format!("append failed: {e}"),
@@ -783,11 +848,13 @@ impl InteractiveController {
             }
             "/append-mode" => {
                 if argument.is_empty() {
-                    self.footer.show_notice(format!("append mode: {}", self.append_mode));
+                    self.footer
+                        .show_notice(format!("append mode: {}", self.append_mode));
                     return true;
                 }
                 if argument != "steering" && argument != "followup" {
-                    self.footer.show_notice("usage: /append-mode [steering|followup]");
+                    self.footer
+                        .show_notice("usage: /append-mode [steering|followup]");
                     return true;
                 }
                 self.append_mode = argument.to_string();

@@ -284,7 +284,9 @@ pub(crate) async fn handle_cancel_loop(
 #[derive(Deserialize, ToSchema)]
 pub(crate) struct AppendAgentLoopBody {
     text: String,
-    #[serde(default)]
+    /// Runtime append mode. Accepts both the documented `as` field and the
+    /// historical `as_mode` field.
+    #[serde(alias = "as", default)]
     as_mode: Option<String>,
 }
 

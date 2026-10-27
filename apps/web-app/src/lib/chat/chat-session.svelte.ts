@@ -12,6 +12,7 @@ import {
 } from '#lib/graph/execution-projection';
 import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
 import { streamLoopRun, streamChat, streamWorkflowExecution } from '#lib/services/streaming';
+import { appendAgentLoopInput } from '#lib/services/agent-loops';
 import { postChatRecap, postLoopRecap, shouldRecap } from '#lib/services/recap';
 import type { UsageSnapshot } from '#lib/utils/stream-parser';
 import type { StreamFailure } from '#lib/api/stream';
@@ -66,6 +67,8 @@ export class ChatSessionController {
 	workflowId = $state('');
 	/** Execution type for this composer turn. */
 	executionType = $state<ChatExecutionType>('agent');
+	/** Active agent loop id for the running turn, when known. */
+	activeAgentLoopId = $state<string | null>(null);
 	revision = $state(0);
 
 	/** Inspector tab, mirrored into the address by the route. */
@@ -394,7 +397,24 @@ export class ChatSessionController {
 	sendText(message: OutgoingMessage): boolean {
 		const text = message.text.trim();
 		if (!text && message.attachments.length === 0) return false;
-		if (chatStream.active) return false;
+		if (chatStream.active) {
+			// Runtime append to a running agent loop instead of starting a
+			// new turn; defaults to follow-up semantics.
+			if (
+				this.executionType === 'agent' &&
+				this.activeAgentLoopId &&
+				message.attachments.length === 0
+			) {
+				const loopId = this.activeAgentLoopId;
+				void appendAgentLoopInput(loopId, text, 'followup')
+					.then(() => toasts.success('input appended to the running agent'))
+					.catch((e) =>
+						toasts.error('append failed', e instanceof Error ? e.message : undefined),
+					);
+				return true;
+			}
+			return false;
+		}
 		if (!this.model.trim()) {
 			toasts.error('Choose a model before sending');
 			return false;
@@ -606,10 +626,16 @@ export class ChatSessionController {
 		return {
 			onDelta: (delta: string) => chatStream.appendDelta(delta),
 			onReasoning: (delta: string) => chatStream.appendReasoning(delta),
+			onExecution: (id: string) => {
+				if (this.executionType === 'agent') this.activeAgentLoopId = id;
+			},
 			onUsage: (usage: UsageSnapshot) => {
 				chatStream.usage = usage;
 			},
-			onCompleted: () => chatStream.complete(),
+			onCompleted: () => {
+				chatStream.complete();
+				this.activeAgentLoopId = null;
+			},
 			onFailed: (message: string) => chatStream.fail(message),
 			onInterrupted: (reason: string) => chatStream.fail(reason),
 			onError: (failure: StreamFailure) => chatStream.fail(failure.message, failure.retryAfterMs),
@@ -618,6 +644,7 @@ export class ChatSessionController {
 
 	/** Run the message through the agent loop. */
 	async runAgent(content: string, files: MessageAttachment[]): Promise<void> {
+		this.activeAgentLoopId = null;
 		const draft = !this.selectedId;
 		this.beginRecapTurn();
 		const baseline = new SvelteSet(sessions.list.items.map((item) => item.id));

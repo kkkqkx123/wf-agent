@@ -85,16 +85,19 @@ impl InteractiveController {
                 let tx = self.tx.clone();
                 let mode = self.append_mode.clone();
                 let text = prompt.clone();
+                let fallback = prompt.clone();
                 tokio::spawn(async move {
                     let result = client.append_agent_loop(&loop_id, text, Some(mode)).await;
                     let notice = match result {
                         Ok(_) => "input appended to the running agent".to_string(),
-                        Err(e) => format!("append failed: {e}; queued locally"),
+                        Err(e) => {
+                            let _ = tx.send(InteractiveEvent::QueuePrompt(fallback));
+                            format!("append failed: {e}; queued locally")
+                        }
                     };
                     let _ = tx.send(InteractiveEvent::Notice(notice));
                 });
-                self.footer
-                    .show_notice("appending to the running agent...");
+                self.footer.show_notice("appending to the running agent...");
                 return;
             }
             self.prompt_queue.push(prompt);
@@ -325,6 +328,11 @@ impl InteractiveController {
                 }
                 InteractiveEvent::TurnEvent(event) => self.handle_turn_event(event),
                 InteractiveEvent::Notice(text) => self.footer.show_notice(text),
+                InteractiveEvent::QueuePrompt(prompt) => {
+                    self.prompt_queue.push(prompt);
+                    self.footer
+                        .show_notice("queued: the current turn is still running");
+                }
                 InteractiveEvent::RecapReady { ticket, text } => {
                     // A late answer never sticks to a newer turn: the
                     // ticket moved on while the side call was in flight.
@@ -492,14 +500,22 @@ impl InteractiveController {
     }
 
     fn handle_turn_event(&mut self, event: ExecutionStreamEvent) {
+        // Capture the server-side agent loop id before reducer processing so
+        // runtime append targets are available as early as possible.
+        if let ExecutionStreamEvent::Engine(base) = &event {
+            if self.active_agent_loop_id.is_none() {
+                self.active_agent_loop_id = base
+                    .agent_loop_id
+                    .clone()
+                    .or_else(|| base.execution_id.clone());
+            }
+        }
+
         let _ = self.reducer.push_batch(std::slice::from_ref(&event));
         self.footer.state.merge_reducer(self.reducer.footer());
 
         match &event {
             ExecutionStreamEvent::Engine(base) => {
-                if self.active_agent_loop_id.is_none() {
-                    self.active_agent_loop_id = base.agent_loop_id.clone().or_else(|| base.execution_id.clone());
-                }
                 self.record_engine_anchor(base);
             }
             ExecutionStreamEvent::Completed { iterations, .. } => {

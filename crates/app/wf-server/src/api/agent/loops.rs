@@ -41,7 +41,10 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/agent-loops/{id}/resume", post(handle_resume_loop))
         .route("/agent-loops/{id}/cancel", post(handle_cancel_loop))
         .route("/agent-loops/{id}/append", post(handle_append_loop))
-        .route("/agent-loops/{id}/append-mode", post(handle_set_append_mode_loop))
+        .route(
+            "/agent-loops/{id}/append-mode",
+            post(handle_set_append_mode_loop),
+        )
         .route(
             "/agent-loops/{id}/convert-pending-to-steering",
             post(handle_convert_pending_to_steering_loop),

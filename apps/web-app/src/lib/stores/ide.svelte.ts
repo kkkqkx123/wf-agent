@@ -1,4 +1,4 @@
-import { SvelteMap } from 'svelte/reactivity';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { listFs, readFsFile, writeFsFile, languageForPath } from '#lib/services/fs';
 import { listFiles } from '#lib/services/git';
 import { aggregateBadges, badgeForFile, type GitBadgeLevel } from '#lib/utils/git-badges';
@@ -520,7 +520,7 @@ export class IdeStore {
 
 	/** Close tabs whose files were removed. */
 	closePaths(paths: string[]): void {
-		const doomed = new Set(paths);
+		const doomed = new SvelteSet(paths);
 		const prefixes = paths.map((p) => `${p}/`);
 		this.tabs = this.tabs.filter((tab) => {
 			if (doomed.has(tab.path)) {

@@ -191,7 +191,7 @@
 
 	function handleRowClick(event: MouseEvent, path: string, isDir: boolean): void {
 		if (event.ctrlKey || event.metaKey) {
-			const next = new Set(ide.selectedPaths);
+			const next = new SvelteSet(ide.selectedPaths);
 			if (next.has(path)) next.delete(path);
 			else next.add(path);
 			ide.setSelection([...next]);
@@ -630,7 +630,7 @@
 					void openEntry(entry.path, entry.is_dir, true);
 				} else if (e.key === ' ' && !(e.target instanceof HTMLInputElement)) {
 					e.preventDefault();
-					const next = new Set(ide.selectedPaths);
+					const next = new SvelteSet(ide.selectedPaths);
 					if (next.has(entry.path)) next.delete(entry.path);
 					else next.add(entry.path);
 					ide.setSelection([...next]);

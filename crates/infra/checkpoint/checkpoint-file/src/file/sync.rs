@@ -3,6 +3,11 @@
 // back as human history. The checkpoint store stays the process record;
 // the user repository stays the delivery record. Reconcile points in the
 // metadata KV link one export to the next import.
+//
+// Data-exchange namespace (stage 1 naming): `export_*` / `import_*` /
+// `reconcile_*` move data across the store boundary and are NOT restores.
+// Workspace writes are `restore_*`, pointer moves are `undo_*`/`redo_*`,
+// history appends are `merge_*`/`revert_*`.
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 

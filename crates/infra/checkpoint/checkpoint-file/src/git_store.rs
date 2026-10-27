@@ -52,6 +52,14 @@ pub const STATE_CONFLICT_UNRESOLVED: &str = "conflict-unresolved";
 pub const STATE_CONFLICT_RESOLVED: &str = "conflict-resolved";
 /// Commit trailer repeating once per conflicted path.
 pub const TRAILER_CONFLICT_FILE: &str = "Wf-Conflict-File";
+/// Commit trailer carrying the feature name absorbed by a main merge.
+/// Written on every `merge feature into main` commit so a later revert can
+/// address the merge by stable feature name instead of an exact commit id.
+pub const TRAILER_FEATURE: &str = "Wf-Feature";
+/// Commit trailer carrying a stable merge identifier (`<feature>-<ts>-<prefix>`).
+/// Written alongside `Wf-Feature` on main merges for precise addressing when
+/// one feature was merged more than once.
+pub const TRAILER_MERGE_ID: &str = "Wf-Merge-Id";
 
 /// Author/committer identity used for system-created commits.
 pub const SYSTEM_COMMITTER: &str = "wf-checkpoint <system@local>";

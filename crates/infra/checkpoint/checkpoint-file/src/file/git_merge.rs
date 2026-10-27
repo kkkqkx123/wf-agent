@@ -23,7 +23,8 @@ use crate::file::git_write::map_git_error;
 use crate::file::FileCheckpointManager;
 use crate::git_store::{
     commit_message, edit_ref_for_actor, feat_ref_for_name, merge_file_maps, review_ref_for_id,
-    REF_MAIN, REF_REVIEW_PREFIX, STATE_CONFLICT_UNRESOLVED, TRAILER_CONFLICT_FILE, TRAILER_STATE,
+    REF_MAIN, REF_REVIEW_PREFIX, STATE_CONFLICT_UNRESOLVED, TRAILER_CONFLICT_FILE, TRAILER_FEATURE,
+    TRAILER_MERGE_ID, TRAILER_STATE,
 };
 use crate::storage::ReviewStatus;
 use checkpoint_base::error::CheckpointError;
@@ -145,7 +146,53 @@ impl GitMergeOutcome {
     }
 }
 
+/// Authoritative conflict status of one ref head. The `Wf-State` /
+/// `Wf-Conflict-File` trailers are the single source of truth; conflict
+/// markers embedded in file bytes are display-only and never decide
+/// blocking. All merge gates and health listings read through this
+/// helper so blocking and enumeration cannot drift apart.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ConflictStatus {
+    /// Whether the ref head carries an unresolved merge.
+    pub unresolved: bool,
+    /// Conflict files recorded in the head commit trailers.
+    pub files: Vec<String>,
+}
+
+impl ConflictStatus {
+    pub fn clean() -> Self {
+        Self {
+            unresolved: false,
+            files: Vec::new(),
+        }
+    }
+}
+
 impl FileCheckpointManager {
+    /// Authoritative conflict status of one ref: reads the head commit
+    /// trailers (`Wf-State` / `Wf-Conflict-File`). A missing ref or an
+    /// unreadable head reports clean so cleanup favors safety; merge
+    /// gates treat a missing feature as not-found separately.
+    pub fn conflict_status_for_ref(
+        &self,
+        refname: &str,
+    ) -> Result<ConflictStatus, CheckpointError> {
+        let git = self.git_ref()?;
+        let head = git.read_ref(refname).map_err(map_git_error)?;
+        let Some(head) = head else {
+            return Ok(ConflictStatus::clean());
+        };
+        let commit = git.read_commit(&head).map_err(map_git_error)?;
+        if commit.trailer(TRAILER_STATE).as_deref() == Some(STATE_CONFLICT_UNRESOLVED) {
+            Ok(ConflictStatus {
+                unresolved: true,
+                files: commit.trailers(TRAILER_CONFLICT_FILE),
+            })
+        } else {
+            Ok(ConflictStatus::clean())
+        }
+    }
+
     /// Submit an actor's edit line for review: copy the edit ref to a fresh
     /// review ref (no merge) and mark it pending. Returns
     /// `(review ref, commit id)`.
@@ -262,14 +309,13 @@ impl FileCheckpointManager {
         let storage = self.storage_ref()?;
         let feature_ref = feat_ref_for_name(feature_name);
         let feature_head = git.read_ref(&feature_ref).map_err(map_git_error)?;
-        if let Some(head) = &feature_head {
-            let commit = git.read_commit(head).map_err(map_git_error)?;
-            if commit.trailer(TRAILER_STATE).as_deref() == Some(STATE_CONFLICT_UNRESOLVED) {
-                return Err(CheckpointError::MergeConflict {
-                    actor: actor_str.to_string(),
-                    files: commit.trailers(TRAILER_CONFLICT_FILE),
-                });
-            }
+        // Single authoritative gate: trailers decide, markers are display.
+        let status = self.conflict_status_for_ref(&feature_ref)?;
+        if status.unresolved {
+            return Err(CheckpointError::MergeConflict {
+                actor: actor_str.to_string(),
+                files: status.files,
+            });
         }
         let review_commit = git.read_commit(review_head).map_err(map_git_error)?;
         let review_tree = git
@@ -473,21 +519,21 @@ impl FileCheckpointManager {
                 id: format!("feature '{feature_name}'"),
             })?;
         let feature_commit = git.read_commit(&feature_head).map_err(map_git_error)?;
-        if feature_commit.trailer(TRAILER_STATE).as_deref() == Some(STATE_CONFLICT_UNRESOLVED) {
+        // Single authoritative gate for both sides: trailers decide.
+        let feature_status = self.conflict_status_for_ref(&feature_ref)?;
+        if feature_status.unresolved {
             return Err(CheckpointError::MergeConflict {
                 actor: actor_str.to_string(),
-                files: feature_commit.trailers(TRAILER_CONFLICT_FILE),
+                files: feature_status.files,
             });
         }
         let main_head = git.read_ref(REF_MAIN).map_err(map_git_error)?;
-        if let Some(head) = &main_head {
-            let commit = git.read_commit(head).map_err(map_git_error)?;
-            if commit.trailer(TRAILER_STATE).as_deref() == Some(STATE_CONFLICT_UNRESOLVED) {
-                return Err(CheckpointError::MergeConflict {
-                    actor: actor_str.to_string(),
-                    files: commit.trailers(TRAILER_CONFLICT_FILE),
-                });
-            }
+        let main_status = self.conflict_status_for_ref(REF_MAIN)?;
+        if main_status.unresolved {
+            return Err(CheckpointError::MergeConflict {
+                actor: actor_str.to_string(),
+                files: main_status.files,
+            });
         }
         let feature_tree = git
             .tree_to_bytes(&feature_commit.tree)
@@ -611,12 +657,21 @@ impl FileCheckpointManager {
                 });
             }
         }
+        // Stable merge addressing: record which feature this main merge
+        // absorbed plus a unique merge id, so `revert_feature_by_name`
+        // can locate the absorbing merge without exact commit ids.
+        let merge_ts = self.creation_timestamp()?;
+        let head_prefix = feature_head.get(..8).unwrap_or(&feature_head).to_string();
+        let merge_id = format!("{feature_name}-{merge_ts}-{head_prefix}");
         let message = commit_message(
             &format!("merge feature '{feature_name}' into main"),
             Some(actor_str),
             None,
             Some("merge"),
-            &[],
+            &[
+                (TRAILER_FEATURE.to_string(), feature_name.to_string()),
+                (TRAILER_MERGE_ID.to_string(), merge_id),
+            ],
         );
         let id = git
             .write_commit(

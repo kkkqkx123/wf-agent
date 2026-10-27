@@ -59,7 +59,9 @@ pub const LAST_GC_KEY: &str = "file_checkpoint.last_gc_ms";
 /// Read-only object-store statistics for the storage dashboard. Counts are
 /// honest measurements of the store as it is; reachability-based
 /// reclaimable estimates are deliberately not derived here because that
-/// requires a full graph walk.
+/// requires a full graph walk. For the walked variant see
+/// [`StoreWatermark`], which splits the loose-object count into
+/// reachable and reclaimable tiers for retention tuning.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct StoreStats {
     /// Commits reachable from any ref.
@@ -73,4 +75,35 @@ pub struct StoreStats {
     /// Time of the last completed GC run (Unix milliseconds), when recorded.
     #[serde(default)]
     pub last_gc_ms: Option<i64>,
+}
+
+/// Point-in-time storage watermark from a full reachability walk.
+/// Unlike [`StoreStats`] (cheap counters), this splits loose commits into
+/// tiers so retention can be tuned and dashboards can show water levels:
+/// ref-reachable plus baseline-anchored commits are protected, the rest
+/// is reclaimable by the next sweep (modulo the in-flight grace window).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StoreWatermark {
+    /// Loose objects currently in the object store.
+    pub loose_objects: u64,
+    /// Loose commits reachable from a ref or the baseline anchor.
+    pub reachable_commits: u64,
+    /// Loose commits unreachable from every ref and the baseline anchor
+    /// (reclaimable by the next sweep outside the grace window).
+    pub reclaimable_commits: u64,
+    /// Time of the last completed GC run (Unix milliseconds), when recorded.
+    #[serde(default)]
+    pub last_gc_ms: Option<i64>,
+}
+
+/// Report of one cleanup run: the reclaimed counts plus the watermark
+/// observed after the sweep. Returned by the `run_gc_report` entry so
+/// callers can observe storage pressure without a second walk; the
+/// `GcCompleted` event continues to carry the plain [`GcStats`].
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GcReport {
+    /// What this sweep reclaimed.
+    pub stats: GcStats,
+    /// Watermark observed after the sweep.
+    pub watermark_after: StoreWatermark,
 }

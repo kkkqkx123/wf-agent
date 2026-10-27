@@ -24,6 +24,41 @@ pub struct MergeCommitResult {
 /// whose ref update has not landed yet.
 pub const DEFAULT_GC_INFLIGHT_GRACE: std::time::Duration = std::time::Duration::from_secs(300);
 
+/// Options for merging features into main.
+///
+/// Multi-feature merges resolve overlapping lines in input order, so the
+/// order is semantics. `confirm_order` makes that choice explicit for
+/// multi-feature merges; the legacy [`Self::merge_features_to_main`]
+/// entry preserves the historical behavior by confirming internally.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct FeatureMergeOptions {
+    /// Pre-validate every feature before executing any merge. A predicted
+    /// conflict aborts with no main commit created (all-or-nothing for
+    /// the predictable cases). Mid-execution races can still partially
+    /// advance main; those surface as `PartialMerge` with the completed
+    /// list instead of a bare conflict.
+    pub atomic: bool,
+    /// Asserts the input order is intentional. Required when merging more
+    /// than one feature through [`Self::merge_features_to_main_with_options`].
+    pub confirm_order: bool,
+}
+
+/// Read-only prediction for one feature merge into main. Produced by
+/// [`Self::preview_merge_features_to_main`]; no ref is moved and no
+/// commit is created.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FeatureMergePreview {
+    /// Feature name as given.
+    pub feature: String,
+    /// Whether the merge is predicted to conflict.
+    pub would_conflict: bool,
+    /// Predicted conflict files (empty when clean).
+    pub conflict_files: Vec<String>,
+    /// Why the merge cannot proceed even before content comparison
+    /// (missing feature, unresolved state). `None` when addressable.
+    pub reason: Option<String>,
+}
+
 impl FileCheckpointManager {
     /// Submit the actor's edit line for review: copy the edit ref to a
     /// fresh review ref (no merge) and mark it pending. Returns the
@@ -54,26 +89,109 @@ impl FileCheckpointManager {
     /// input order; a conflicted feature aborts the sequence with a
     /// `MergeConflict` error (main already gained the earlier merges, each
     /// individually revertable).
+    ///
+    /// Legacy entry: preserves the historical non-atomic behavior. For an
+    /// explicit order confirmation, a dry-run preview, or all-or-nothing
+    /// pre-validation, use [`Self::merge_features_to_main_with_options`]
+    /// with [`FeatureMergeOptions`].
     pub fn merge_features_to_main(
         &self,
         feature_names: &[&str],
     ) -> Result<MergeCommitResult, CheckpointError> {
+        self.merge_features_to_main_with_options(
+            feature_names,
+            &FeatureMergeOptions {
+                atomic: false,
+                confirm_order: true,
+            },
+        )
+    }
+
+    /// Merge features into main with explicit options. Multi-feature
+    /// merges require `options.confirm_order` because overlapping lines
+    /// resolve in input order. With `options.atomic`, every feature is
+    /// pre-validated first and a predicted conflict aborts before any
+    /// main commit is created; a conflict surfacing mid-sequence (after
+    /// earlier merges already landed, e.g. under concurrent writers)
+    /// surfaces as `PartialMerge` carrying the completed features.
+    pub fn merge_features_to_main_with_options(
+        &self,
+        feature_names: &[&str],
+        options: &FeatureMergeOptions,
+    ) -> Result<MergeCommitResult, CheckpointError> {
         for feature in feature_names {
             crate::branch::ensure_feature_branch_name(feature)?;
         }
+        if feature_names.is_empty() {
+            return Err(CheckpointError::Validation {
+                reason: "no features given to merge".to_string(),
+            });
+        }
         if feature_names.len() > 1 {
+            if !options.confirm_order {
+                return Err(CheckpointError::Validation {
+                    reason: format!(
+                        "merging {} features resolves overlapping lines in input order; pass confirm_order to assert the order is intentional",
+                        feature_names.len()
+                    ),
+                });
+            }
             tracing::warn!(
                 features = feature_names.len(),
                 "merging multiple features sequentially; overlapping lines resolve in input order"
             );
         }
+        if options.atomic {
+            let previews = self.preview_merge_features_to_main(feature_names)?;
+            let blocked: Vec<&FeatureMergePreview> = previews
+                .iter()
+                .filter(|p| p.would_conflict || p.reason.is_some())
+                .collect();
+            if !blocked.is_empty() {
+                let mut files: Vec<String> = blocked
+                    .iter()
+                    .flat_map(|p| p.conflict_files.clone())
+                    .collect();
+                files.sort();
+                files.dedup();
+                let reasons: Vec<String> =
+                    blocked.iter().filter_map(|p| p.reason.clone()).collect();
+                if !reasons.is_empty() {
+                    return Err(CheckpointError::Validation {
+                        reason: format!(
+                            "atomic merge pre-validation failed: {}",
+                            reasons.join("; ")
+                        ),
+                    });
+                }
+                return Err(CheckpointError::MergeConflict {
+                    actor: "merge".to_string(),
+                    files,
+                });
+            }
+        }
         let mut last: Option<GitMergeOutcome> = None;
+        let mut completed: Vec<String> = Vec::new();
         for feature in feature_names {
             // Sequential merges use the caller's actor label when one is
             // known; merges are content-addressed so the label only feeds
             // the commit trailer.
-            let outcome = self.merge_feature_into_main(feature, "merge")?;
-            last = Some(outcome);
+            match self.merge_feature_into_main(feature, "merge") {
+                Ok(outcome) => {
+                    completed.push((*feature).to_string());
+                    last = Some(outcome);
+                }
+                Err(CheckpointError::MergeConflict { actor, files })
+                    if options.atomic && !completed.is_empty() =>
+                {
+                    return Err(CheckpointError::PartialMerge {
+                        completed,
+                        actor,
+                        files,
+                    });
+                }
+                Err(err) => return Err(err),
+            }
         }
         let outcome = last.ok_or_else(|| CheckpointError::Validation {
             reason: "no features given to merge".to_string(),
@@ -82,6 +200,96 @@ impl FileCheckpointManager {
             checkpoint_id: outcome.commit_id.clone(),
             merge_result: outcome,
         })
+    }
+
+    /// Dry-run preview for merging features into main: predicts per-feature
+    /// conflicts without moving any ref or creating any commit. Confirm
+    /// the preview, then execute with
+    /// [`Self::merge_features_to_main_with_options`].
+    pub fn preview_merge_features_to_main(
+        &self,
+        feature_names: &[&str],
+    ) -> Result<Vec<FeatureMergePreview>, CheckpointError> {
+        use crate::git_store::{
+            merge_file_maps, REF_MAIN, STATE_CONFLICT_UNRESOLVED, TRAILER_STATE,
+        };
+        for feature in feature_names {
+            crate::branch::ensure_feature_branch_name(feature)?;
+        }
+        let git = self.git_ref()?;
+        let main_head = git.read_ref(REF_MAIN).map_err(map_git_error)?;
+        let main_unresolved = match &main_head {
+            Some(head) => git
+                .read_commit(head)
+                .map_err(map_git_error)
+                .map(|c| c.trailer(TRAILER_STATE).as_deref() == Some(STATE_CONFLICT_UNRESOLVED))
+                .unwrap_or(false),
+            None => false,
+        };
+        let main_tree: std::collections::HashMap<String, Vec<u8>> = match &main_head {
+            Some(head) => {
+                let commit = git.read_commit(head).map_err(map_git_error)?;
+                git.tree_to_bytes(&commit.tree).map_err(map_git_error)?
+            }
+            None => std::collections::HashMap::new(),
+        };
+        let mut previews = Vec::with_capacity(feature_names.len());
+        for feature in feature_names {
+            let feature_ref = feat_ref_for_name(feature);
+            let feature_head = git.read_ref(&feature_ref).map_err(map_git_error)?;
+            let Some(feature_head) = feature_head else {
+                previews.push(FeatureMergePreview {
+                    feature: (*feature).to_string(),
+                    would_conflict: true,
+                    conflict_files: Vec::new(),
+                    reason: Some(format!("feature '{feature}' not found")),
+                });
+                continue;
+            };
+            let feature_commit = git.read_commit(&feature_head).map_err(map_git_error)?;
+            if feature_commit.trailer(TRAILER_STATE).as_deref() == Some(STATE_CONFLICT_UNRESOLVED) {
+                previews.push(FeatureMergePreview {
+                    feature: (*feature).to_string(),
+                    would_conflict: true,
+                    conflict_files: feature_commit
+                        .trailers(crate::git_store::TRAILER_CONFLICT_FILE),
+                    reason: Some(format!(
+                        "feature '{feature}' carries an unresolved conflict"
+                    )),
+                });
+                continue;
+            }
+            if main_unresolved {
+                previews.push(FeatureMergePreview {
+                    feature: (*feature).to_string(),
+                    would_conflict: true,
+                    conflict_files: Vec::new(),
+                    reason: Some("main carries an unresolved conflict".to_string()),
+                });
+                continue;
+            }
+            let feature_tree = git
+                .tree_to_bytes(&feature_commit.tree)
+                .map_err(map_git_error)?;
+            let base_tree: std::collections::HashMap<String, Vec<u8>> = match &main_head {
+                Some(main) => match git.merge_base(main, &feature_head).map_err(map_git_error)? {
+                    Some(base) => {
+                        let commit = git.read_commit(&base).map_err(map_git_error)?;
+                        git.tree_to_bytes(&commit.tree).map_err(map_git_error)?
+                    }
+                    None => std::collections::HashMap::new(),
+                },
+                None => std::collections::HashMap::new(),
+            };
+            let (_, conflicts) = merge_file_maps(&base_tree, &main_tree, &feature_tree);
+            previews.push(FeatureMergePreview {
+                feature: (*feature).to_string(),
+                would_conflict: !conflicts.is_empty(),
+                conflict_files: conflicts,
+                reason: None,
+            });
+        }
+        Ok(previews)
     }
 
     /// Fork-join join step: merge each feature into main in order, then
@@ -102,7 +310,23 @@ impl FileCheckpointManager {
 
     /// Roll back one merged feature from main by appending a revert commit.
     /// Other merged features are untouched. Returns the revert commit id.
+    ///
+    /// Canonical history-append name is [`Self::revert_feature_merge`];
+    /// this `rollback_*` spelling is a legacy alias. For stable
+    /// addressing by feature name (survives repeated merges), see
+    /// [`Self::revert_feature_by_name`].
     pub fn rollback_feature_from_main(
+        &self,
+        feature_head: &str,
+        actor_str: &str,
+    ) -> Result<String, CheckpointError> {
+        self.revert_feature_merge(feature_head, actor_str)
+    }
+
+    /// Canonical history-append revert: roll back one merged feature from
+    /// main by appending a revert commit. Main only moves forward; other
+    /// merged features are untouched. Returns the revert commit id.
+    pub fn revert_feature_merge(
         &self,
         feature_head: &str,
         actor_str: &str,
@@ -110,6 +334,50 @@ impl FileCheckpointManager {
         Ok(self
             .revert_feature_on_main(feature_head, actor_str)?
             .commit_id)
+    }
+
+    /// Revert the latest merge of a feature by stable feature name.
+    /// The absorbing main merge is located through the `Wf-Feature`
+    /// trailer written at merge time, so repeated merges of one feature
+    /// stay addressable without the caller tracking exact commit ids.
+    /// When the feature was merged more than once, the newest absorbing
+    /// merge is reverted. Returns the revert commit id.
+    pub fn revert_feature_by_name(
+        &self,
+        feature_name: &str,
+        actor_str: &str,
+    ) -> Result<String, CheckpointError> {
+        crate::branch::ensure_feature_branch_name(feature_name)?;
+        let git = self.git_ref()?;
+        let main_head = git
+            .read_ref(crate::git_store::REF_MAIN)
+            .map_err(map_git_error)?
+            .ok_or_else(|| CheckpointError::Validation {
+                reason: "main has no commits to roll back".to_string(),
+            })?;
+        let absorbing = git
+            .log(&main_head, 0)
+            .map_err(map_git_error)?
+            .into_iter()
+            .find(|c| c.trailer(crate::git_store::TRAILER_FEATURE).as_deref() == Some(feature_name))
+            .ok_or_else(|| CheckpointError::Validation {
+                reason: format!("feature '{feature_name}' has no recorded merge into main"),
+            })?;
+        let feature_head = match absorbing.parents.as_slice() {
+            // Main merges record parents as [pre-merge main, feature];
+            // a single-parent absorbing merge means main was empty and
+            // the feature itself is the only parent.
+            [_, feature, ..] => feature.clone(),
+            [only] => only.clone(),
+            [] => {
+                return Err(CheckpointError::Validation {
+                    reason: format!(
+                        "feature '{feature_name}' merge has no addressable feature parent"
+                    ),
+                });
+            }
+        };
+        self.revert_feature_merge(&feature_head, actor_str)
     }
 
     /// Run object-store cleanup: drop loose objects unreachable from any ref,
@@ -182,6 +450,76 @@ impl FileCheckpointManager {
         grace_ms: u64,
     ) -> Result<crate::gc::GcStats, CheckpointError> {
         self.run_gc_with_grace(retention, std::time::Duration::from_millis(grace_ms))
+    }
+
+    /// Run cleanup and return the report form: reclaimed counts plus the
+    /// watermark observed after the sweep. The `GcCompleted` event
+    /// publication is shared with [`Self::run_gc`]; this entry only adds
+    /// the post-sweep watermark so callers observe storage pressure
+    /// without a second walk.
+    pub fn run_gc_report(
+        &self,
+        retention: crate::gc::GcRetention,
+    ) -> Result<crate::gc::GcReport, CheckpointError> {
+        let stats = self.run_gc(retention)?;
+        let watermark_after = self.store_watermark()?;
+        Ok(crate::gc::GcReport {
+            stats,
+            watermark_after,
+        })
+    }
+
+    /// Point-in-time storage watermark from a full reachability walk.
+    /// Tiers loose commits into reachable (ref or baseline anchored) and
+    /// reclaimable (unreachable) so dashboards can show water levels and
+    /// retention can be tuned. Heavier than the cheap counters; call it
+    /// on demand, never per pass.
+    pub fn store_watermark(&self) -> Result<crate::gc::StoreWatermark, CheckpointError> {
+        use std::collections::HashSet;
+        let git = self.git_ref()?;
+        let mut reachable: HashSet<String> = HashSet::new();
+        for commit in git.all_commits().map_err(map_git_error)? {
+            Self::insert_commit_closure(git, &commit.id, &commit.tree, &mut reachable);
+        }
+        if let Some(anchor) = git.baseline_anchor_id() {
+            reachable.insert(anchor);
+        }
+        let ids = Self::list_object_ids(git);
+        let mut reachable_commits = 0u64;
+        let mut reclaimable_commits = 0u64;
+        for id in &ids {
+            if git.read_commit(id).is_err() {
+                continue;
+            }
+            if reachable.contains(id) {
+                reachable_commits += 1;
+            } else {
+                reclaimable_commits += 1;
+            }
+        }
+        let last_gc_ms = self
+            .storage_ref()
+            .ok()
+            .and_then(|storage| {
+                crate::storage::MetadataStore::load_metadata(storage, crate::gc::LAST_GC_KEY)
+                    .ok()
+                    .flatten()
+            })
+            .and_then(|value| value.parse::<i64>().ok());
+        Ok(crate::gc::StoreWatermark {
+            loose_objects: ids.len() as u64,
+            reachable_commits,
+            reclaimable_commits,
+            last_gc_ms,
+        })
+    }
+
+    /// Count of loose commits unreachable from every ref and the baseline
+    /// anchor: what the next sweep outside the grace window would reclaim.
+    /// Cheap enough for dashboards; the full tier split lives in
+    /// [`Self::store_watermark`].
+    pub fn estimate_reclaimable_commits(&self) -> Result<u64, CheckpointError> {
+        Ok(self.store_watermark()?.reclaimable_commits)
     }
 
     /// Drop loose objects unreachable from any ref, protecting the newest

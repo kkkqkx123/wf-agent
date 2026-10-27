@@ -35,7 +35,7 @@ pub mod watcher;
 pub use approval::{ConflictView, MergeOutcome, PendingApproval};
 pub use event::{CheckpointEvent, CheckpointEventBus};
 pub use file::actor::{PreciseApplyStats, PreciseFileEvent, PreciseFileEventKind};
-pub use file::merge::MergeCommitResult;
+pub use file::merge::{FeatureMergeOptions, FeatureMergePreview, MergeCommitResult};
 pub use file::sync::{
     BaselineRebaseOutcome, BaselineSeedOutcome, BaselineStatus, ExportOptions, ExportOutcome,
     ExternalUpdateHint, ImportOutcome, ReconcilePoint, SYNC_RECONCILE_KEY,
@@ -44,7 +44,8 @@ pub use file::undo::UndoPlan;
 pub use file::util::sha256_hex;
 pub use file::{
     FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata, FileCheckpointOptions,
-    FileContentEntry, FileState, StateFileLinkStatus, WorkspaceRestoreResult,
+    FileContentEntry, FileState, RestoreTarget, StateFileLinkStatus, StateFileRestorePolicy,
+    WorkspaceRestoreResult,
 };
 pub use provenance::{
     DeltaSummary, DiffHunkView, FileDiffKind, FileDiffView, PartitionCommitView, PartitionView,

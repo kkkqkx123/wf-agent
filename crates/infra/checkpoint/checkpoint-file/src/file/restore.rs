@@ -181,6 +181,9 @@ impl FileCheckpointManager {
     /// extra files not in the target set, recreate empty directories from
     /// the manifest, and skip identical content. Relative paths resolve
     /// under `base_dir`; escapes are rejected. Returns written paths.
+    ///
+    /// Legacy alias: prefers [`Self::restore_files`] with
+    /// [`RestoreTarget::Commit`] for new code.
     pub fn restore_content(
         &self,
         checkpoint_id: &str,
@@ -219,6 +222,9 @@ impl FileCheckpointManager {
     /// recreate empty directories from the manifest. Content-identical
     /// files are skipped (idempotent). Per-file failures follow
     /// `failure_behavior`.
+    ///
+    /// Legacy alias of the full-commit core: prefers [`Self::restore_files`]
+    /// with [`RestoreTarget::Commit`] for new code.
     pub fn restore_workspace(
         &self,
         _entity_id: &str,
@@ -232,6 +238,9 @@ impl FileCheckpointManager {
     /// Range restore: only touches files inside `checkpoint_prefixes`.
     /// Files outside the range are preserved, ignored names are never
     /// deleted, and repeating the same restore skips identical content.
+    ///
+    /// Legacy alias of the scoped-commit core: prefers [`Self::restore_files`]
+    /// with [`RestoreTarget::Commit`] for new code.
     pub fn restore_workspace_scoped(
         &self,
         _entity_id: &str,
@@ -418,6 +427,9 @@ impl FileCheckpointManager {
 
     /// Workspace-aligned restore to the latest checkpoint of an entity, if
     /// any.
+    ///
+    /// Legacy alias: resolve the latest id first, then call
+    /// [`Self::restore_files`] for new code.
     pub fn restore_latest_workspace(
         &self,
         entity_id: &str,
@@ -430,6 +442,106 @@ impl FileCheckpointManager {
                 self.restore_workspace(entity_id, &id, base_dir, opts)?,
             )),
             None => Ok(None),
+        }
+    }
+}
+
+/// Canonical workspace-restore target for the unified restore entry.
+///
+/// Naming convention (stage 1): `restore_*` means workspace writes only.
+/// Pointer moves are `undo_*`/`redo_*`, history appends are
+/// `merge_*`/`revert_*`. Older `restore_*` variants that only differ by
+/// parameter combination are legacy aliases of the three cores covered
+/// here (full commit, scoped commit, path selection).
+#[derive(Debug, Clone)]
+pub enum RestoreTarget {
+    /// Materialize one commit tree, optionally limited to path prefixes.
+    /// `prefixes == None` restores the full tree; `Some(list)` restores
+    /// only files inside the range (an empty list is a no-op).
+    Commit {
+        commit_id: String,
+        prefixes: Option<Vec<String>>,
+    },
+    /// Materialize exactly the listed paths, each from its own commit
+    /// (`path -> commit id`). Paths outside the map are never touched.
+    Selection {
+        files: std::collections::HashMap<String, String>,
+    },
+}
+
+/// How a unified state-linked restore treats a state checkpoint with no
+/// durable file link. Callers must choose explicitly so file absence is
+/// never silently mistaken for a complete restore.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StateFileRestorePolicy {
+    /// Missing (or still pending) link yields `Ok(None)`; the caller
+    /// restores state only. Preserves the historical behavior.
+    #[default]
+    Lenient,
+    /// Missing (or still pending) link is a `Validation` error;
+    /// the caller must handle it instead of proceeding state-only.
+    Strict,
+}
+
+impl FileCheckpointManager {
+    /// Unified workspace-restore entry: every workspace write goes
+    /// through one of the three canonical cores (full / scoped /
+    /// selected). Preview with [`Self::preview_restore`] (commit targets)
+    /// or [`Self::preview_restore_selected`] (selection targets), then
+    /// execute the preview through this method.
+    pub fn restore_files(
+        &self,
+        target: &RestoreTarget,
+        base_dir: &Path,
+        opts: &FileCheckpointOptions,
+    ) -> Result<WorkspaceRestoreResult, CheckpointError> {
+        match target {
+            RestoreTarget::Commit {
+                commit_id,
+                prefixes,
+            } => self.materialize_commit_scoped(commit_id, base_dir, opts, prefixes.as_deref()),
+            RestoreTarget::Selection { files } => self.restore_selected(files, base_dir, opts),
+        }
+    }
+
+    /// Unified state-linked restore with an explicit missing-link policy.
+    /// `Lenient` preserves the historical `Ok(None)` contract; `Strict`
+    /// turns a missing or still-pending link into an explicit error so
+    /// callers cannot silently run a state-only restore.
+    pub fn materialize_state_files_with_policy(
+        &self,
+        state_checkpoint_id: &str,
+        base_dir: &Path,
+        opts: &FileCheckpointOptions,
+        policy: StateFileRestorePolicy,
+    ) -> Result<Option<WorkspaceRestoreResult>, CheckpointError> {
+        let linked = self
+            .storage_ref()?
+            .lookup_state_file_link(state_checkpoint_id)?;
+        match (linked, policy) {
+            (Some(commit_id), _) => {
+                if !crate::git_store::is_hex_id(&commit_id) {
+                    return Err(CheckpointError::Corrupted {
+                        id: state_checkpoint_id.to_string(),
+                        reason: format!("linked file commit id malformed: '{commit_id}'"),
+                    });
+                }
+                Ok(Some(self.materialize_commit(&commit_id, base_dir, opts)?))
+            }
+            (None, StateFileRestorePolicy::Lenient) => {
+                // Distinguish pending from truly missing in the message
+                // surface via `state_file_link_status`; the contract here
+                // stays `None` so historical callers keep compiling.
+                Ok(None)
+            }
+            (None, StateFileRestorePolicy::Strict) => {
+                let status = self.state_file_link_status(state_checkpoint_id)?;
+                Err(CheckpointError::Validation {
+                    reason: format!(
+                        "state checkpoint '{state_checkpoint_id}' has no durable file link (status: {status:?}); refusing state-only restore under Strict policy",
+                    ),
+                })
+            }
         }
     }
 }

@@ -34,6 +34,9 @@ fn checkpoint_err(e: wf_checkpoint::CheckpointError) -> ApiError {
         CE::MergeConflict { actor, files } => {
             ApiError::Conflict(format!("merge conflict actor={actor} files={files:?}"))
         }
+        CE::PartialMerge { completed, actor, files } => ApiError::Conflict(format!(
+            "partial multi-feature merge completed={completed:?} actor={actor} files={files:?}; revert the completed features or retry atomically"
+        )),
         CE::Storage(e) => ApiError::from(e),
         other => ApiError::execution_with_source(other),
     }

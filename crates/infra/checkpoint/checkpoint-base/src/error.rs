@@ -41,6 +41,15 @@ pub enum CheckpointError {
     #[error("merge conflict: actor={actor}, files={files:?}")]
     MergeConflict { actor: String, files: Vec<String> },
 
+    #[error(
+        "partial multi-feature merge: completed={completed:?}, actor={actor}, files={files:?}"
+    )]
+    PartialMerge {
+        completed: Vec<String>,
+        actor: String,
+        files: Vec<String>,
+    },
+
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 

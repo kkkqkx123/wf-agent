@@ -76,17 +76,14 @@ impl FileCheckpointManager {
             let git = self.git_ref()?;
             let storage = self.storage_ref()?;
             let feature_ref = feat_ref_for_name(feature_name);
-            if let Some(head) = git.read_ref(&feature_ref).map_err(map_git_error)? {
-                if let Ok(commit) = git.read_commit(&head) {
-                    if commit.trailer(crate::git_store::TRAILER_STATE).as_deref()
-                        == Some(crate::git_store::STATE_CONFLICT_UNRESOLVED)
-                    {
-                        return Err(CheckpointError::MergeConflict {
-                            actor: actor.as_str().to_string(),
-                            files: commit.trailers(crate::git_store::TRAILER_CONFLICT_FILE),
-                        });
-                    }
-                }
+            // Authoritative gate shared with the merge paths: trailers
+            // decide, markers are display-only.
+            let status = self.conflict_status_for_ref(&feature_ref)?;
+            if status.unresolved {
+                return Err(CheckpointError::MergeConflict {
+                    actor: actor.as_str().to_string(),
+                    files: status.files,
+                });
             }
             let review_commit = git.read_commit(&review_head).map_err(map_git_error)?;
             let review_tree = git
@@ -353,17 +350,13 @@ impl FileCheckpointManager {
         if conflict_behavior == ConflictBehavior::Fail {
             let git = self.git_ref()?;
             let feature_ref = feat_ref_for_name(feature_name);
-            if let Some(head) = git.read_ref(&feature_ref).map_err(map_git_error)? {
-                if let Ok(commit) = git.read_commit(&head) {
-                    if commit.trailer(crate::git_store::TRAILER_STATE).as_deref()
-                        == Some(crate::git_store::STATE_CONFLICT_UNRESOLVED)
-                    {
-                        return Err(CheckpointError::MergeConflict {
-                            actor: actor.as_str().to_string(),
-                            files: commit.trailers(crate::git_store::TRAILER_CONFLICT_FILE),
-                        });
-                    }
-                }
+            // Authoritative gate shared with the merge paths.
+            let status = self.conflict_status_for_ref(&feature_ref)?;
+            if status.unresolved {
+                return Err(CheckpointError::MergeConflict {
+                    actor: actor.as_str().to_string(),
+                    files: status.files,
+                });
             }
             let review_commit = git.read_commit(&review_head).map_err(map_git_error)?;
             let review_tree = git

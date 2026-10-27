@@ -36,6 +36,10 @@ impl FileCheckpointManager {
                 reason: "conflict resolutions must not be empty".to_string(),
             });
         }
+        // Authoritative conflict set comes from the head commit trailers
+        // (shared gate: `conflict_status_for_ref`); marker re-parsing
+        // below only validates that resolved bytes no longer carry
+        // display markers, it never decides blocking.
         let conflicted = {
             let commit = git.read_commit(&head).map_err(map_git_error)?;
             if commit.trailer(crate::git_store::TRAILER_STATE).as_deref()

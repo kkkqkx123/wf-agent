@@ -72,6 +72,21 @@ fn next_edit_group_id(timestamp: i64) -> EditGroupId {
     EditGroupId(format!("sess-{timestamp}-{}-{n}", std::process::id()))
 }
 
+/// Where an edit group sits relative to its actor's edit-ref head.
+/// Returned by [`FileCheckpointManager::edit_group_head_status`] so a
+/// non-head group can be reported (current head included) instead of
+/// merely rejected, letting the caller retry later or escalate.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EditGroupHeadStatus {
+    /// Current head of the actor's edit ref (`None` when the ref is gone).
+    pub head: Option<String>,
+    /// Whether the group forms the contiguous head run and
+    /// `undo_edit_group` would succeed now.
+    pub at_head: bool,
+    /// Whether the group is still a staged (uncommitted) batch.
+    pub pending: bool,
+}
+
 impl FileCheckpointManager {
     // ── edit groups (operation batches) ─────────────────────────────
 
@@ -243,6 +258,10 @@ impl FileCheckpointManager {
     /// batch when it is still pending; otherwise move the actor's own ref
     /// back past the contiguous run of head commits carrying the group
     /// trailer. Returns the ref head after rollback (hex).
+    ///
+    /// Pointer-move family (`undo_*`): only the actor's own edit ref
+    /// moves; review, feature and main refs are never touched. For the
+    /// canonical name see [`Self::undo_edit_group`].
     pub fn rollback_edit_group(
         &self,
         entity_id: &str,
@@ -311,9 +330,12 @@ impl FileCheckpointManager {
                 if commit.trailer(crate::git_store::TRAILER_SESSION).as_deref()
                     != Some(target.as_str())
                 {
+                    // Report the current head so the caller can retry
+                    // later or escalate; see `edit_group_head_status` for
+                    // the non-moving query form.
                     return Err(CheckpointError::Validation {
                         reason: format!(
-                            "edit group {group_id} is not at the head of '{}'",
+                            "edit group {group_id} is not at the head of '{}' (head is '{head}'); retry after the head moves or escalate",
                             actor.as_str()
                         ),
                     });
@@ -338,6 +360,59 @@ impl FileCheckpointManager {
         Err(CheckpointError::Branch(format!(
             "concurrent ref update conflict on '{refname}'"
         )))
+    }
+
+    /// Canonical pointer-move name for rolling back an edit group.
+    /// Identical to [`Self::rollback_edit_group`]; the `rollback_*`
+    /// spelling is a legacy alias kept for compatibility.
+    pub fn undo_edit_group(
+        &self,
+        entity_id: &str,
+        group_id: &EditGroupId,
+    ) -> Result<String, CheckpointError> {
+        self.rollback_edit_group(entity_id, group_id)
+    }
+
+    /// Describe where an edit group sits relative to the actor's edit-ref
+    /// head without moving anything. Returns the current head and whether
+    /// the group forms the contiguous head run (i.e. whether
+    /// [`Self::undo_edit_group`] would succeed now). A non-head group is
+    /// a business outcome, not an error: the caller decides between
+    /// retrying later and escalating to a human.
+    pub fn edit_group_head_status(
+        &self,
+        entity_id: &str,
+        group_id: &EditGroupId,
+    ) -> Result<EditGroupHeadStatus, CheckpointError> {
+        if self.pending_batches.contains_key(&group_id.to_string()) {
+            let actor = self.actor_id_for(entity_id);
+            let git = self.git_ref()?;
+            let head = git
+                .read_ref(&edit_ref_for_actor(actor.as_str()))
+                .map_err(map_git_error)?;
+            return Ok(EditGroupHeadStatus {
+                head,
+                at_head: true,
+                pending: true,
+            });
+        }
+        let actor = self.actor_id_for(entity_id);
+        let git = self.git_ref()?;
+        let refname = edit_ref_for_actor(actor.as_str());
+        let head = git.read_ref(&refname).map_err(map_git_error)?;
+        let Some(head_id) = head.clone() else {
+            return Err(CheckpointError::NotFound {
+                id: format!("no commits for actor '{}'", actor.as_str()),
+            });
+        };
+        let commit = git.read_commit(&head_id).map_err(map_git_error)?;
+        let at_head = commit.trailer(crate::git_store::TRAILER_SESSION).as_deref()
+            == Some(group_id.to_string().as_str());
+        Ok(EditGroupHeadStatus {
+            head,
+            at_head,
+            pending: false,
+        })
     }
 
     // ── undo / redo (edit-ref cursor) ──────────────────────────────────

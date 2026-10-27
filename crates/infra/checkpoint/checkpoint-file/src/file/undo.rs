@@ -73,6 +73,67 @@ impl FileCheckpointManager {
             .collect())
     }
 
+    /// Canonical workspace preview for an explicit path selection:
+    /// the per-file differences applying `files` (`path -> commit id`)
+    /// would produce, without touching the worktree. This is the preview
+    /// half of the two-phase protocol; execute the same map with
+    /// [`Self::restore_selected`]. Opaque (oversized / over-cap /
+    /// nested-pointer) entries are reported without loading bytes.
+    pub fn preview_restore_selected(
+        &self,
+        files: &HashMap<String, String>,
+        base_dir: &Path,
+        opts: &FileCheckpointOptions,
+    ) -> Result<Vec<FileDiffView>, CheckpointError> {
+        self.preview_undo_plan(files, base_dir, opts, None)
+    }
+
+    /// Canonical workspace restore between two commits: every path that
+    /// differs between `start_commit` and `end_commit` is expanded from
+    /// `start_commit` (paths absent there are deleted). Preview with
+    /// [`Self::preview_restore_between`], then execute with this method.
+    ///
+    /// Naming convention (stage 1): workspace writes are `restore_*`;
+    /// `undo_*` without a `restore` qualifier moves only the actor's
+    /// edit-ref pointer (see `session.rs`).
+    pub fn restore_between(
+        &self,
+        start_commit: Option<&str>,
+        end_commit: Option<&str>,
+        base_dir: &Path,
+        opts: &FileCheckpointOptions,
+        checkpoint_prefixes: Option<&[String]>,
+    ) -> Result<WorkspaceRestoreResult, CheckpointError> {
+        self.apply_undo(
+            start_commit,
+            end_commit,
+            base_dir,
+            opts,
+            checkpoint_prefixes,
+        )
+    }
+
+    /// Preview half of [`Self::restore_between`]: the per-file
+    /// differences the restore would produce, without touching disk.
+    pub fn preview_restore_between(
+        &self,
+        start_commit: Option<&str>,
+        end_commit: Option<&str>,
+        base_dir: &Path,
+        opts: &FileCheckpointOptions,
+        checkpoint_prefixes: Option<&[String]>,
+    ) -> Result<UndoPlan, CheckpointError> {
+        self.stage_undo(
+            start_commit,
+            end_commit,
+            base_dir,
+            opts,
+            checkpoint_prefixes,
+        )
+    }
+
+    /// Legacy alias of [`Self::restore_between`]: stages the touched set
+    /// and previews it. Prefers `preview_restore_between` for new code.
     pub fn stage_undo(
         &self,
         start_commit: Option<&str>,
@@ -91,6 +152,9 @@ impl FileCheckpointManager {
         })
     }
 
+    /// Legacy alias of [`Self::restore_between`]. Prefers
+    /// `restore_between` for new code so workspace writes are never
+    /// mistaken for edit-pointer moves.
     pub fn apply_undo(
         &self,
         start_commit: Option<&str>,

@@ -54500,7 +54500,7 @@
               "string",
               "null"
             ],
-            "description": "Audit source label (`user` / `cli` / `tui` / `web` /\n`workflow-console`); absent defaults to `api`."
+            "description": "Audit source label (`user` / `cli` / `tui` / `web` /\n`workflow-console` / `api`); absent defaults to `api`."
           },
           "value": {
             "description": "New value applied at the boundary. Stored verbatim, without the\ntype coercion a `VARIABLE` node would perform."

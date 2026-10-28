@@ -928,19 +928,34 @@ fn compile_search_patterns(include: Option<&str>) -> FsResult<Vec<glob::Pattern>
     Ok(out)
 }
 
+/// Search knobs for [`search_files`]: the query plus its matching and
+/// paging options. Grouped so the entry point stays within the argument
+/// limit and callers name every option at the construction site.
+#[derive(Debug, Clone, Copy)]
+pub struct FsSearchOptions<'a> {
+    pub query: &'a str,
+    pub base: &'a str,
+    pub include: Option<&'a str>,
+    pub case_sensitive: bool,
+    pub is_regex: bool,
+    pub whole_word: bool,
+    pub offset: usize,
+    pub max_results: Option<usize>,
+}
+
 /// Read-only content search over the workspace. Never reads file contents
 /// into the response beyond truncated preview lines.
-pub fn search_files(
-    ctx: &ApiContext,
-    query: &str,
-    base: &str,
-    include: Option<&str>,
-    case_sensitive: bool,
-    is_regex: bool,
-    whole_word: bool,
-    offset: usize,
-    max_results: Option<usize>,
-) -> FsResult<FsSearchResult> {
+pub fn search_files(ctx: &ApiContext, options: FsSearchOptions<'_>) -> FsResult<FsSearchResult> {
+    let FsSearchOptions {
+        query,
+        base,
+        include,
+        case_sensitive,
+        is_regex,
+        whole_word,
+        offset,
+        max_results,
+    } = options;
     let needle = query.trim();
     if needle.is_empty() {
         return Err(FsError::Validation(

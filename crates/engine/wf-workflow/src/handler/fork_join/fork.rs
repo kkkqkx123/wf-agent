@@ -524,10 +524,11 @@ impl ForkHandler {
         });
 
         // Hand the branch results to the JOIN over a shared variable keyed by
-        // the fork node id. The JOIN (in the parent coordinator) reads it to
-        // aggregate branch outputs; branches run in child coordinators whose
-        // node outputs never reach the parent graph.
-        ctx.set_internal_variable(format!("__fork_outputs_{}", node_id), output.clone());
+        // the fork node id (see `super::fork_output_key`). The JOIN (in the
+        // parent coordinator) reads it to aggregate branch outputs; branches
+        // run in child coordinators whose node outputs never reach the
+        // parent graph.
+        ctx.set_internal_variable(super::fork_output_key(&node_id), output.clone());
 
         Ok(NodeExecutionResult {
             output,

@@ -24,10 +24,12 @@ pub struct WorkflowAgentLoop {
 }
 
 /// Extract the node id -> agent loop id mapping written by the AGENT_LOOP
-/// handler into the `__agent_loop_ids` variable.
+/// handler (see `wf_execution_shared::context::node_metadata::AGENT_LOOP_IDS_VAR`).
 fn parse_mapping(variables: &dashmap::DashMap<String, Value>) -> BTreeMap<String, String> {
     let mut map = BTreeMap::new();
-    if let Some(entry) = variables.get("__agent_loop_ids") {
+    if let Some(entry) =
+        variables.get(wf_execution_shared::context::node_metadata::AGENT_LOOP_IDS_VAR)
+    {
         if let Some(obj) = entry.value().as_object() {
             for (k, v) in obj {
                 if let Some(id) = v.as_str() {
@@ -48,7 +50,7 @@ async fn loop_id_for_node(
     let entity = ctx
         .workflow_execution(execution_id)
         .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
-    parse_mapping(&entity.variables())
+    parse_mapping(entity.variables())
         .remove(node_id)
         .ok_or_else(|| ApiError::not_found("agent_loop", node_id))
 }
@@ -60,7 +62,7 @@ pub async fn list_agent_loops(
     let entity = ctx
         .workflow_execution(execution_id)
         .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
-    let map = parse_mapping(&entity.variables());
+    let map = parse_mapping(entity.variables());
     let mut result = Vec::new();
     for (node_id, loop_id) in map {
         if let Some(loop_entity) = ctx.agent_loop(&loop_id) {

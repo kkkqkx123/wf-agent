@@ -202,6 +202,18 @@ async fn run_triggered_subworkflow(
     let triggered_workflow_id = run.triggered_workflow_id;
     let variables = Arc::new(DashMap::new());
     variable_mapping::inherit_all_variables(&ctx.variables, &variables);
+    // The runtime-injected loop iteration cap is engine control state, so it
+    // no longer rides the snapshot above: propagate it explicitly like the
+    // other inherited budgets.
+    if let Some(cap) = ctx
+        .variables
+        .get(crate::loop_state::LOOP_MAX_ITERATIONS_CAP_KEY)
+    {
+        variables.insert(
+            crate::loop_state::LOOP_MAX_ITERATIONS_CAP_KEY.to_string(),
+            cap.clone(),
+        );
+    }
     for (key, value) in &run.input_mapping {
         variables.insert(key.clone(), value.clone());
     }

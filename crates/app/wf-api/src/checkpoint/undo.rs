@@ -78,9 +78,7 @@ fn find_input_boundaries(sorted: &[wf_types::Checkpoint]) -> Option<(usize, usiz
         (Some(terminal), Some(after)) => after > terminal,
     };
     if compression_tail {
-        let Some(end) = last_after else {
-            return None;
-        };
+        let end = last_after?;
         let floor = sorted[..end]
             .iter()
             .rposition(is_end_kind)

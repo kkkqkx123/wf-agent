@@ -107,8 +107,9 @@ impl SyncHandler {
             registry.get(&source_path_id).map(|record| record.variables)
         } else {
             // Compatibility fallback: the fork hands over
-            // `__fork_outputs_<fork_id>` carrying per-branch results
-            // including a public-variable snapshot.
+            // `__fork_outputs_<fork_id>` (see
+            // `crate::handler::fork_join::fork_output_key`) carrying
+            // per-branch results including a public-variable snapshot.
             config
                 .get("variable_mappings")
                 .and_then(|v| v.as_array())
@@ -117,7 +118,7 @@ impl SyncHandler {
                         .as_ref()
                         .and_then(|g| find_fork_by_path(g, &source_path_id))
                         .and_then(|fork_id| {
-                            ctx.get_variable(&format!("__fork_outputs_{}", fork_id))
+                            ctx.get_variable(&crate::handler::fork_join::fork_output_key(&fork_id))
                         })
                         .and_then(|output| {
                             output

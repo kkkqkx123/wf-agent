@@ -13,6 +13,7 @@
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::error::{WorkflowError, WorkflowResult};
@@ -42,9 +43,13 @@ pub struct LoopState {
     pub iteration_count: u32,
     /// Loop variable receiving the current item; `None` for counting loops.
     pub variable_name: Option<String>,
-    /// Variable names imported via `variable_inputs`; removed when the loop
-    /// exits (scope cleanup).
+    /// Variable names imported via `variable_inputs`. Names that shadowed a
+    /// pre-existing value restore it when the loop exits; names absent
+    /// before entry are removed (scope cleanup without clobbering).
     pub imported_variables: Vec<String>,
+    /// Pre-existing values shadowed by `imported_variables`, captured at
+    /// entry. A name missing here was absent and is removed on exit.
+    pub imported_snapshots: HashMap<String, Value>,
     /// True once LOOP_START has started the current iteration. Re-entry with
     /// the flag set (retry / checkpoint resume) passes through without
     /// advancing; LOOP_END clears it when it continues to the next
@@ -100,7 +105,14 @@ pub fn exit_loop(variables: &VariableStore, loop_id: &str) -> WorkflowResult<Opt
     };
     let removed = current.remove(pos);
     for name in &removed.imported_variables {
-        variables.remove(name);
+        match removed.imported_snapshots.get(name) {
+            Some(previous) => {
+                variables.insert(name.clone(), previous.clone());
+            }
+            None => {
+                variables.remove(name);
+            }
+        }
     }
     set_stack(variables, &current)?;
     Ok(Some(removed))
@@ -218,6 +230,7 @@ mod tests {
             iteration_count: 0,
             variable_name: None,
             imported_variables: vec![],
+            imported_snapshots: HashMap::new(),
             iteration_started: false,
             iteration_nodes: vec![],
         }
@@ -262,6 +275,25 @@ mod tests {
         record_iteration_completion(&vars, "branch").unwrap();
         let state = find_loop(&vars, "l1").unwrap().unwrap();
         assert_eq!(state.iteration_nodes, vec!["body", "branch"]);
+    }
+
+    #[test]
+    fn exit_loop_restores_shadowed_variables() {
+        let vars = store();
+        vars.insert("name".to_string(), Value::String("alice".to_string()));
+        let mut st = state("l1", Value::Null, 3);
+        st.imported_variables = vec!["name".to_string(), "fresh".to_string()];
+        st.imported_snapshots =
+            HashMap::from([("name".to_string(), Value::String("alice".to_string()))]);
+        vars.insert("name".to_string(), Value::String("bob".to_string()));
+        vars.insert("fresh".to_string(), Value::String("tmp".to_string()));
+        enter_loop(&vars, st).unwrap();
+        exit_loop(&vars, "l1").unwrap();
+        assert_eq!(
+            vars.get("name").unwrap().clone(),
+            Value::String("alice".to_string())
+        );
+        assert!(!vars.contains_key("fresh"));
     }
 
     #[test]

@@ -6,12 +6,18 @@ use wf_execution_shared::context::is_internal_variable;
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::variable::VariableResolver;
 
-/// Snapshot copy of every parent variable into the target map.
+/// Snapshot copy of every parent variable into the target map, excluding
+/// engine-owned internal keys. Child scopes start without the parent's
+/// control state (loop stacks, idempotency markers, result slots); message
+/// contexts travel through explicit message mappings instead of a stale copy.
 pub fn inherit_all_variables(
     parent: &Arc<DashMap<String, Value>>,
     target: &Arc<DashMap<String, Value>>,
 ) {
     for entry in parent.iter() {
+        if is_internal_variable(entry.key()) {
+            continue;
+        }
         target.insert(entry.key().clone(), entry.value().clone());
     }
 }
@@ -99,8 +105,7 @@ pub fn set_variable_path(
     value: Value,
 ) -> WorkflowResult<()> {
     let root = path.split('.').next().unwrap_or("");
-    if is_internal_variable(root)
-        || wf_execution_shared::context::is_system_reserved_variable(path)
+    if is_internal_variable(root) || wf_execution_shared::context::is_system_reserved_variable(path)
     {
         return Err(WorkflowError::VariableError(format!(
             "refusing to write reserved variable '{}' through the public path writer",
@@ -148,6 +153,17 @@ pub fn set_variable_path(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_inherit_skips_internal_keys() {
+        let parent = Arc::new(DashMap::new());
+        parent.insert("user".to_string(), Value::from("alice"));
+        parent.insert("__loop_state_stack".to_string(), serde_json::json!([]));
+        let child = Arc::new(DashMap::new());
+        inherit_all_variables(&parent, &child);
+        assert_eq!(child.get("user").unwrap().clone(), Value::from("alice"));
+        assert!(!child.contains_key("__loop_state_stack"));
+    }
 
     #[test]
     fn test_set_variable_path() {

@@ -47,7 +47,8 @@ impl JoinHandler {
         publish_join_started(event_bus.as_ref(), ctx, strategy);
 
         // Prefer the fork registry (live branch records keyed by path id),
-        // falling back to the recorded `__fork_outputs_<fork_id>` variable
+        // falling back to the recorded fork-outputs variable (see
+        // `super::fork_output_key`)
         // and then to the local input when the JOIN was reached without a
         // fork (e.g. resumed from a checkpoint). The local input is only
         // interpretable as a fork output shape when it arrived as a merged
@@ -82,7 +83,7 @@ impl JoinHandler {
         } else {
             let fork_output = fork_id
                 .as_ref()
-                .and_then(|id| ctx.get_variable(&format!("__fork_outputs_{}", id)));
+                .and_then(|id| ctx.get_variable(&super::fork_output_key(id)));
             let (records, dropped) = if let Some(output) = &fork_output {
                 collect_branch_records(output)
             } else if ctx.input_shape == NodeInputShape::Merged {

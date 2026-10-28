@@ -255,14 +255,16 @@ pub(crate) async fn handle_fs_search(
     }
     match wf_api::fs::search_files(
         &state.ctx,
-        needle,
-        query_path(&query.path),
-        query.include.as_deref(),
-        query.case_sensitive.unwrap_or(false),
-        query.regex.unwrap_or(false),
-        query.whole_word.unwrap_or(false),
-        query.offset.unwrap_or(0),
-        query.limit,
+        wf_api::fs::FsSearchOptions {
+            query: needle,
+            base: query_path(&query.path),
+            include: query.include.as_deref(),
+            case_sensitive: query.case_sensitive.unwrap_or(false),
+            is_regex: query.regex.unwrap_or(false),
+            whole_word: query.whole_word.unwrap_or(false),
+            offset: query.offset.unwrap_or(0),
+            max_results: query.limit,
+        },
     ) {
         Ok(result) => ok(FsSearchView {
             matches: result

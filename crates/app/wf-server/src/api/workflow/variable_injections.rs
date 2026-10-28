@@ -36,7 +36,7 @@ pub(crate) struct SubmitVariableInjectionBody {
     /// type coercion a `VARIABLE` node would perform.
     pub(crate) value: serde_json::Value,
     /// Audit source label (`user` / `cli` / `tui` / `web` /
-    /// `workflow-console`); absent defaults to `api`.
+    /// `workflow-console` / `api`); absent defaults to `api`.
     #[serde(default)]
     pub(crate) source: Option<String>,
     /// Application policy (`next_boundary` default, `on_resume`).
@@ -301,6 +301,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn explicit_api_source_is_accepted() {
+        let ctx = make_ctx();
+        register_live_execution(&ctx, "exec-1");
+        let response = send(
+            ctx.clone(),
+            "POST",
+            "/api/v1/executions/exec-1/variable-injections",
+            Some(serde_json::json!({
+                "variable_name": "speed",
+                "value": 7,
+                "source": "api",
+                "policy": "next_boundary",
+            })),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = json_body(response).await;
+        assert_eq!(body["data"]["source"], "api");
+    }
+
+    #[tokio::test]
     async fn invalid_submissions_are_rejected() {
         let ctx = make_ctx();
         register_live_execution(&ctx, "exec-1");
@@ -308,6 +329,8 @@ mod tests {
             serde_json::json!({"variable_name": "", "value": 1}),
             serde_json::json!({"variable_name": "__secret", "value": 1}),
             serde_json::json!({"variable_name": "a.b", "value": 1}),
+            serde_json::json!({"variable_name": "execution", "value": 1}),
+            serde_json::json!({"variable_name": "my-var", "value": 1}),
             serde_json::json!({"variable_name": "x", "value": 1, "source": "evil"}),
             serde_json::json!({"variable_name": "x", "value": 1, "policy": "later"}),
         ] {

@@ -314,6 +314,18 @@ async fn execute_branch(
         &branch_ctx.parent_variables,
         &exec_ctx.variables,
     );
+    // The runtime-injected loop iteration cap is engine control state, so it
+    // no longer rides the snapshot above: propagate it explicitly like the
+    // other inherited budgets.
+    if let Some(cap) = branch_ctx
+        .parent_variables
+        .get(crate::loop_state::LOOP_MAX_ITERATIONS_CAP_KEY)
+    {
+        exec_ctx.variables.insert(
+            crate::loop_state::LOOP_MAX_ITERATIONS_CAP_KEY.to_string(),
+            cap.clone(),
+        );
+    }
 
     let branch_variables = exec_ctx.variables.clone();
 

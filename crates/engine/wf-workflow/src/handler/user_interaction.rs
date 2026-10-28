@@ -10,6 +10,7 @@ use wf_types::message::{Message, MessageContentValue, MessageRole};
 use wf_types::node::StaticNodeType;
 
 use crate::error::{WorkflowError, WorkflowResult};
+use crate::handler::interaction_keys;
 use crate::handler::NodeHandler;
 use crate::interaction::register_interaction;
 use crate::message_context;
@@ -131,12 +132,10 @@ impl UserInteractionHandler {
             .and_then(|v| v.as_u64())
             .unwrap_or(30000);
 
-        let user_response_var = "__interaction_response__";
+        let user_response_var = interaction_keys::RESPONSE_VAR;
 
         // 1. Pre-set response (synchronous path, kept for compatibility).
-        let existing_response = ctx
-            .get_variable(user_response_var)
-            .or_else(|| ctx.get_variable("__interaction_response__"));
+        let existing_response = ctx.get_variable(user_response_var);
 
         let (response, interaction_id, responded) = match existing_response {
             Some(value) => (Some(value), None, true),
@@ -167,7 +166,7 @@ impl UserInteractionHandler {
                     ]),
                 );
 
-                ctx.set_internal_variable("__interaction_waiting__", Value::Bool(true));
+                ctx.set_internal_variable(interaction_keys::WAITING_VAR, Value::Bool(true));
                 emit_interaction_event(
                     ctx.event_bus.as_deref(),
                     EventType::WorkflowExecutionPaused,
@@ -186,7 +185,7 @@ impl UserInteractionHandler {
 
                 let wait_result = tokio::time::timeout(Duration::from_millis(timeout_ms), rx).await;
 
-                ctx.set_internal_variable("__interaction_waiting__", Value::Bool(false));
+                ctx.set_internal_variable(interaction_keys::WAITING_VAR, Value::Bool(false));
                 emit_interaction_event(
                     ctx.event_bus.as_deref(),
                     EventType::WorkflowExecutionResumed,

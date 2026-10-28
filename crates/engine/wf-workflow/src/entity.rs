@@ -72,8 +72,10 @@ pub const MAX_PENDING_VARIABLE_INJECTIONS: usize = 128;
 pub const MAX_INJECTION_VARIABLE_NAME_LEN: usize = 128;
 
 /// Audit source labels accepted on submission; an absent source is
-/// attributed to the generic API entry point.
-pub const VARIABLE_INJECTION_SOURCES: &[&str] = &["user", "cli", "tui", "web", "workflow-console"];
+/// attributed to the generic API entry point, which is also accepted
+/// explicitly so omitted and explicit sources agree.
+pub const VARIABLE_INJECTION_SOURCES: &[&str] =
+    &["user", "cli", "tui", "web", "workflow-console", "api"];
 pub const DEFAULT_VARIABLE_INJECTION_SOURCE: &str = "api";
 
 /// Normalize a caller-supplied audit source against the allowlist.
@@ -88,7 +90,10 @@ pub fn normalize_injection_source(source: Option<&str>) -> Result<String, String
 /// Validate an injected variable name. Injection writes top-level map keys
 /// only: dotted paths would imply nested-path semantics the drain does not
 /// implement, and the `__` prefix is engine-owned state (the same boundary
-/// the node execution context and trigger actions enforce).
+/// the node execution context and trigger actions enforce). Reserved system
+/// roots and shapes the assembly layer cannot resolve are rejected here so
+/// a submission failure surfaces at submit time instead of a silent
+/// write-only variable.
 pub fn validate_injection_variable_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("variable name must not be empty".to_string());
@@ -105,8 +110,16 @@ pub fn validate_injection_variable_name(name: &str) -> Result<(), String> {
     }
     if name.contains('.') {
         return Err(format!(
-            "variable injection accepts top-level names only: '{name}'"
+            "variable injection accepts top-level names only: '{name}' (write nested values through variable outputs instead)"
         ));
+    }
+    if wf_execution_shared::context::is_system_reserved_variable(name) {
+        return Err(format!(
+            "refusing to inject reserved system variable '{name}'"
+        ));
+    }
+    if let Some(reason) = wf_common::template::validate_template_path(name) {
+        return Err(format!("invalid variable name '{name}': {reason}"));
     }
     Ok(())
 }
@@ -702,14 +715,25 @@ mod tests {
             "api".to_string()
         );
         assert_eq!(
+            normalize_injection_source(Some("api")).expect("explicit default"),
+            "api".to_string()
+        );
+        assert_eq!(
             normalize_injection_source(Some("tui")).expect("allowlisted"),
             "tui".to_string()
         );
         assert!(normalize_injection_source(Some("evil")).is_err());
         assert!(validate_injection_variable_name("speed").is_ok());
+        assert!(validate_injection_variable_name("var1").is_ok());
+        assert!(validate_injection_variable_name("_scratch").is_ok());
         assert!(validate_injection_variable_name("").is_err());
         assert!(validate_injection_variable_name("__loop").is_err());
         assert!(validate_injection_variable_name("a.b").is_err());
+        assert!(validate_injection_variable_name("execution").is_err());
+        assert!(validate_injection_variable_name("node").is_err());
+        assert!(validate_injection_variable_name("my-var").is_err());
+        assert!(validate_injection_variable_name("9bad").is_err());
+        assert!(validate_injection_variable_name("has space").is_err());
     }
 
     #[tokio::test]

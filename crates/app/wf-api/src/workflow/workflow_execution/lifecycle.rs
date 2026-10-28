@@ -40,9 +40,6 @@ pub(crate) fn entry_timeout_ms(options: &WorkflowExecutionOptions) -> u64 {
     }
 }
 
-/// Reserved entity variable holding the resolved execution options so a
-/// paused execution can be resumed with the same input/options.
-
 /// Parameters for executing a stored workflow.
 #[derive(Debug, Clone, Default)]
 pub struct ExecuteWorkflowParams {

@@ -265,8 +265,7 @@ impl ScriptHandler {
                 // second; see the layering contract in `crate::variable`
                 // module docs.
                 let system = ctx.system_context();
-                let rendered =
-                    VariableResolver::resolve_str(tmpl, &ctx.variables, Some(&system));
+                let rendered = VariableResolver::resolve_str(tmpl, &ctx.variables, Some(&system));
                 let rendered = rendered.as_str().unwrap_or(tmpl).to_string();
                 (
                     ScriptDefinition {
@@ -760,9 +759,7 @@ pub(crate) fn snapshot_variables(
 ) -> std::collections::HashMap<String, Value> {
     ctx.variables
         .iter()
-        .filter(|entry| {
-            !wf_execution_shared::context::is_internal_variable(entry.key())
-        })
+        .filter(|entry| !wf_execution_shared::context::is_internal_variable(entry.key()))
         .map(|entry| (entry.key().clone(), entry.value().clone()))
         .collect()
 }

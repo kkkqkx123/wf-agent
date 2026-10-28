@@ -9,6 +9,7 @@ use wf_script::{InteractionMode, ScriptDefinition, ScriptEngine, ScriptEngineOpt
 use wf_types::node::StaticNodeType;
 
 use crate::error::{WorkflowError, WorkflowResult};
+use crate::handler::interaction_keys;
 use crate::handler::output_mapping;
 use crate::handler::NodeHandler;
 use crate::interactive_script_session::{
@@ -288,7 +289,7 @@ impl InteractiveScriptHandler {
             .cloned()
             .unwrap_or_default();
         let preset_user_input = ctx
-            .get_variable("__interaction_input__")
+            .get_variable(interaction_keys::INPUT_VAR)
             .unwrap_or(Value::Null);
         if preset_user_input != Value::Null {
             preset_inputs.insert(0, preset_user_input);
@@ -399,7 +400,7 @@ impl InteractiveScriptHandler {
             output_mapping::apply_output_mappings(ctx, &parsed_output, mapping)?;
         }
 
-        ctx.set_internal_variable("__interaction_output__", parsed_output.clone());
+        ctx.set_internal_variable(interaction_keys::OUTPUT_VAR, parsed_output.clone());
 
         let mut metadata = std::collections::HashMap::new();
         {
@@ -454,7 +455,7 @@ impl InteractiveScriptHandler {
             crate::handler::script::sandbox_config_from_node(config, language, &ctx.node_id)?;
 
         let user_input = if interaction_mode.is_some() {
-            ctx.get_variable("__interaction_input__")
+            ctx.get_variable(interaction_keys::INPUT_VAR)
                 .unwrap_or(Value::Null)
         } else {
             Value::Null
@@ -542,7 +543,7 @@ impl InteractiveScriptHandler {
             output_mapping::apply_output_mappings(ctx, &parsed_output, mapping)?;
         }
 
-        ctx.set_internal_variable("__interaction_output__", parsed_output.clone());
+        ctx.set_internal_variable(interaction_keys::OUTPUT_VAR, parsed_output.clone());
 
         let mut metadata = std::collections::HashMap::new();
         {

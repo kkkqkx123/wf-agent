@@ -74,10 +74,18 @@ impl LoopStartHandler {
                 .map(String::from);
 
             let mut imported_variables = Vec::new();
+            let mut imported_snapshots = HashMap::new();
             if let Some(inputs) = config.get("variable_inputs").and_then(|v| v.as_array()) {
                 for input in inputs {
                     if let Some(name) = input.get("internal_name").and_then(|v| v.as_str()) {
                         imported_variables.push(name.to_string());
+                    }
+                }
+                // Snapshot pre-existing values before the self-mapping below
+                // overwrites them, so loop exit restores instead of deletes.
+                for name in &imported_variables {
+                    if let Some(previous) = ctx.variables.get(name) {
+                        imported_snapshots.insert(name.clone(), previous.clone());
                     }
                 }
                 crate::handler::variable_mapping::apply_variable_inputs(
@@ -97,6 +105,7 @@ impl LoopStartHandler {
                     iteration_count: 0,
                     variable_name,
                     imported_variables,
+                    imported_snapshots,
                     iteration_started: false,
                     iteration_nodes: Vec::new(),
                 },

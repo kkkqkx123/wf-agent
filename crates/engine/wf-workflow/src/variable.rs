@@ -598,14 +598,17 @@ fn rem_values(a: &Value, b: &Value) -> Result<Value, ExpressionError> {
 fn negate(a: &Value) -> Result<Value, ExpressionError> {
     match a {
         Value::Number(x) => match x.as_i64() {
-            Some(i) => i.checked_neg().map(|v| Value::Number(v.into())).ok_or_else(|| {
-                ExpressionError::new(a.to_string(), "unary '-' overflowed")
-            }),
+            Some(i) => i
+                .checked_neg()
+                .map(|v| Value::Number(v.into()))
+                .ok_or_else(|| ExpressionError::new(a.to_string(), "unary '-' overflowed")),
             None => {
                 let neg = -x.as_f64().unwrap_or(0.0);
-                serde_json::Number::from_f64(neg).map(Value::Number).ok_or_else(|| {
-                    ExpressionError::new(a.to_string(), "unary '-' produced a non-finite value")
-                })
+                serde_json::Number::from_f64(neg)
+                    .map(Value::Number)
+                    .ok_or_else(|| {
+                        ExpressionError::new(a.to_string(), "unary '-' produced a non-finite value")
+                    })
             }
         },
         _ => Err(ExpressionError::new(
@@ -820,8 +823,20 @@ fn looks_like_expression(s: &str) -> bool {
         }
         let is_operator = matches!(
             c,
-            b'+' | b'-' | b'*' | b'/' | b'%' | b'<' | b'>' | b'=' | b'!' | b'&' | b'|'
-                | b'?' | b':' | b'(' | b')'
+            b'+' | b'-'
+                | b'*'
+                | b'/'
+                | b'%'
+                | b'<'
+                | b'>'
+                | b'='
+                | b'!'
+                | b'&'
+                | b'|'
+                | b'?'
+                | b':'
+                | b'('
+                | b')'
         );
         if is_operator {
             let touches_span = spans
@@ -959,7 +974,10 @@ mod tests {
             evaluate_expression("(a + b) * 2", &vars, None).unwrap(),
             Value::from(26)
         );
-        assert_eq!(evaluate_expression("a % b", &vars, None).unwrap(), Value::from(1));
+        assert_eq!(
+            evaluate_expression("a % b", &vars, None).unwrap(),
+            Value::from(1)
+        );
         assert_eq!(
             evaluate_expression("a > b", &vars, None).unwrap(),
             Value::Bool(true)

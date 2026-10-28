@@ -480,7 +480,7 @@ async fn test_set_variable_rejects_reserved_prefix() {
     .await;
     assert!(!result.success, "reserved-prefix write must be rejected");
     let error = result.error.unwrap();
-    assert!(error.contains("reserved '__' prefix"), "error: {error}");
+    assert!(error.contains("reserved variable"), "error: {error}");
     assert!(
         !ctx.variables.contains_key("__msg_ctx__chat"),
         "rejected write must not touch the variable map"

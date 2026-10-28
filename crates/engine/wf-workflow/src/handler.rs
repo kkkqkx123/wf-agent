@@ -2,6 +2,7 @@ pub mod agent_loop;
 pub mod context_processor;
 pub mod embed_boundary;
 pub mod fork_join;
+pub mod interaction_keys;
 pub mod interactive_script;
 pub mod llm;
 pub mod loop_handler;

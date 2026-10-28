@@ -449,6 +449,98 @@ export async function getExecutionSubtree(executionId: string): Promise<Executio
 	};
 }
 
+/** Names accepted by the injection application policy. */
+export type VariableInjectionPolicy = 'next_boundary' | 'on_resume';
+
+/** One buffered variable update waiting for its application policy. */
+export interface VariableInjection {
+	injectionId: string;
+	variableName: string;
+	value: unknown;
+	source: string;
+	submittedAt: number;
+	policy: string;
+}
+
+type VariableInjectionViewDoc = components['schemas']['VariableInjectionView'];
+
+function toVariableInjection(d: VariableInjectionViewDoc): VariableInjection {
+	return {
+		injectionId: d.injection_id,
+		variableName: d.variable_name,
+		value: d.value,
+		source: d.source,
+		submittedAt: d.submitted_at,
+		policy: d.policy,
+	};
+}
+
+/**
+ * Buffer an externally submitted variable update on a live workflow
+ * execution. The update waits for its policy instead of touching the
+ * running nodes. Failures throw so the caller can keep the unsent draft;
+ * nothing is cleared here.
+ */
+export async function submitVariableInjection(
+	executionId: string,
+	input: {
+		variableName: string;
+		value: unknown;
+		source?: string;
+		policy?: VariableInjectionPolicy;
+	},
+): Promise<VariableInjection> {
+	const id = requireExecutionId(executionId);
+	const data = requireData(
+		await call<VariableInjectionViewDoc>(
+			client.POST('/api/v1/executions/{id}/variable-injections', {
+				params: { path: { id } },
+				body: {
+					variable_name: input.variableName,
+					value: input.value,
+					source: input.source ?? null,
+					policy: input.policy ?? null,
+				},
+			}),
+		),
+		`Variable injection missing for execution ${id}`,
+	);
+	return toVariableInjection(data);
+}
+
+/** Pending variable updates of a workflow execution, oldest first. */
+export async function listVariableInjections(executionId: string): Promise<VariableInjection[]> {
+	const id = requireExecutionId(executionId);
+	const data = requireData(
+		await call<{ injections?: VariableInjectionViewDoc[] }>(
+			client.GET('/api/v1/executions/{id}/variable-injections', {
+				params: { path: { id } },
+			}),
+		),
+		`Variable injections missing for execution ${id}`,
+	);
+	return (data.injections ?? []).map(toVariableInjection);
+}
+
+/**
+ * Drop one pending update. Applied values are never removed this way;
+ * only the buffered entry goes away. Unknown ids report NotFound.
+ */
+export async function removeVariableInjection(
+	executionId: string,
+	injectionId: string,
+): Promise<void> {
+	const id = requireExecutionId(executionId);
+	if (injectionId === '') {
+		throw new Error('Injection id must not be empty');
+	}
+	await call<unknown>(
+		client.DELETE('/api/v1/executions/{id}/variable-injections/{injection_id}', {
+			params: { path: { id, injection_id: injectionId } },
+		}),
+	);
+}
+
 /** Names accepted by the history `include` parameter. */
 export const HISTORY_SECTIONS = [
 	'timeline',

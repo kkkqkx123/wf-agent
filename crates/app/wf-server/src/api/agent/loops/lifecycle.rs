@@ -283,20 +283,20 @@ pub(crate) async fn handle_cancel_loop(
 
 #[derive(Deserialize, ToSchema)]
 pub(crate) struct AppendAgentLoopBody {
-    text: String,
+    pub(crate) text: String,
     /// Runtime append mode. Accepts both the documented `as` field and the
     /// historical `as_mode` field.
     #[serde(alias = "as", default)]
-    as_mode: Option<String>,
+    pub(crate) as_mode: Option<String>,
     /// Calling channel for the audit trail (`user`/`cli`/`tui`/`web`/
     /// `workflow-console`); absent values default to `api`.
     #[serde(default)]
-    source: Option<String>,
+    pub(crate) source: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]
 pub(crate) struct SetAppendModeBody {
-    mode: String,
+    pub(crate) mode: String,
 }
 
 #[utoipa::path(
@@ -323,6 +323,7 @@ pub(crate) async fn handle_append_loop(
         body.text,
         body.as_mode.as_deref(),
         body.source.as_deref(),
+        None,
     )
     .await
     {

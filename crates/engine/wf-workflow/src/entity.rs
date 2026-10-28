@@ -19,6 +19,98 @@ pub const EXECUTION_OPTIONS_VAR: &str = "__execution_options";
 /// the typed accessors below.
 const DEBUG_RUN_VAR: &str = "__debug_run";
 
+/// Application policy of a pending workflow variable injection: when the
+/// buffered update is applied to the live variable map.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VariableInjectionPolicy {
+    /// Applied at the next node boundary of the running execution.
+    NextBoundary,
+    /// Held back until an explicit pause/resume cycle applies it.
+    OnResume,
+}
+
+impl VariableInjectionPolicy {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::NextBoundary => "next_boundary",
+            Self::OnResume => "on_resume",
+        }
+    }
+
+    /// Parse a caller-supplied policy label; hyphens and underscores are
+    /// interchangeable, `None` means the default (`NextBoundary`).
+    pub fn parse(raw: Option<&str>) -> Option<Self> {
+        let normalized = raw?.trim().replace('-', "_");
+        match normalized.as_str() {
+            "next_boundary" | "next" | "boundary" => Some(Self::NextBoundary),
+            "on_resume" | "resume" => Some(Self::OnResume),
+            _ => None,
+        }
+    }
+}
+
+/// One externally submitted variable update waiting for its application
+/// policy to trigger. The audit source and submission time travel with the
+/// update so the apply-time event matches the submit-time record.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PendingVariableInjection {
+    pub id: String,
+    pub variable_name: String,
+    pub value: Value,
+    pub source: String,
+    pub submitted_at: i64,
+    pub policy: VariableInjectionPolicy,
+}
+
+/// Upper bound of buffered injections per execution. The buffer is a
+/// short-lived handoff, not storage: submissions past the bound are
+/// rejected so a stalled consumer cannot grow memory without limit.
+pub const MAX_PENDING_VARIABLE_INJECTIONS: usize = 128;
+
+/// Longest accepted variable name for an injected update.
+pub const MAX_INJECTION_VARIABLE_NAME_LEN: usize = 128;
+
+/// Audit source labels accepted on submission; an absent source is
+/// attributed to the generic API entry point.
+pub const VARIABLE_INJECTION_SOURCES: &[&str] = &["user", "cli", "tui", "web", "workflow-console"];
+pub const DEFAULT_VARIABLE_INJECTION_SOURCE: &str = "api";
+
+/// Normalize a caller-supplied audit source against the allowlist.
+pub fn normalize_injection_source(source: Option<&str>) -> Result<String, String> {
+    match source {
+        None => Ok(DEFAULT_VARIABLE_INJECTION_SOURCE.to_string()),
+        Some(raw) if VARIABLE_INJECTION_SOURCES.contains(&raw) => Ok(raw.to_string()),
+        Some(raw) => Err(format!("unknown variable injection source: {raw}")),
+    }
+}
+
+/// Validate an injected variable name. Injection writes top-level map keys
+/// only: dotted paths would imply nested-path semantics the drain does not
+/// implement, and the `__` prefix is engine-owned state (the same boundary
+/// the node execution context and trigger actions enforce).
+pub fn validate_injection_variable_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("variable name must not be empty".to_string());
+    }
+    if name.len() > MAX_INJECTION_VARIABLE_NAME_LEN {
+        return Err(format!(
+            "variable name exceeds {MAX_INJECTION_VARIABLE_NAME_LEN} characters"
+        ));
+    }
+    if wf_execution_shared::context::is_internal_variable(name) {
+        return Err(format!(
+            "refusing to inject internal variable '{name}' (reserved '__' prefix)"
+        ));
+    }
+    if name.contains('.') {
+        return Err(format!(
+            "variable injection accepts top-level names only: '{name}'"
+        ));
+    }
+    Ok(())
+}
+
 pub struct WorkflowExecutionEntity {
     id: Id,
     workflow_id: Id,
@@ -30,6 +122,11 @@ pub struct WorkflowExecutionEntity {
     cancellation: tokio_util::sync::CancellationToken,
     variables: Arc<DashMap<String, Value>>,
     node_results: Arc<DashMap<String, Value>>,
+    /// Externally submitted variable updates waiting for their application
+    /// policy (next node boundary or pause/resume). Keyed by injection id;
+    /// never part of the state snapshot, so a crash drops pending items
+    /// while already-applied values survive through the variable map.
+    pending_injections: Arc<DashMap<String, PendingVariableInjection>>,
     pub current_node_id: Arc<tokio::sync::RwLock<Option<String>>>,
     hierarchy: Arc<ExecutionHierarchyManager>,
     execution_type: Option<wf_types::workflow_execution::WorkflowExecutionType>,
@@ -53,6 +150,7 @@ impl WorkflowExecutionEntity {
             cancellation: tokio_util::sync::CancellationToken::new(),
             variables: Arc::new(DashMap::new()),
             node_results: Arc::new(DashMap::new()),
+            pending_injections: Arc::new(DashMap::new()),
             current_node_id: Arc::new(tokio::sync::RwLock::new(None)),
             hierarchy,
             execution_type: None,
@@ -171,6 +269,91 @@ impl WorkflowExecutionEntity {
     /// appear in the persisted public variable list.
     pub fn is_internal_variable(name: &str) -> bool {
         name == EXECUTION_OPTIONS_VAR || name == DEBUG_RUN_VAR
+    }
+
+    /// Buffer an externally submitted variable update. The update waits for
+    /// its application policy instead of touching the live map, so a
+    /// running node never observes a half-applied change.
+    pub fn submit_variable_injection(
+        &self,
+        variable_name: impl Into<String>,
+        value: Value,
+        source: Option<&str>,
+        policy: Option<VariableInjectionPolicy>,
+    ) -> Result<PendingVariableInjection, String> {
+        use wf_execution_shared::types::execution_entity::ExecutionEntity;
+        if self.status().is_terminal() {
+            return Err(format!(
+                "execution {} is terminal and cannot accept variable injections",
+                self.id()
+            ));
+        }
+        let variable_name = variable_name.into();
+        validate_injection_variable_name(&variable_name)?;
+        let source = normalize_injection_source(source)?;
+        if self.pending_injections.len() >= MAX_PENDING_VARIABLE_INJECTIONS {
+            return Err(format!(
+                "pending variable injection buffer is full ({MAX_PENDING_VARIABLE_INJECTIONS} items)"
+            ));
+        }
+        let injection = PendingVariableInjection {
+            id: wf_common::generate_id(),
+            variable_name,
+            value,
+            source,
+            submitted_at: wf_common::now(),
+            policy: policy.unwrap_or(VariableInjectionPolicy::NextBoundary),
+        };
+        self.pending_injections
+            .insert(injection.id.clone(), injection.clone());
+        Ok(injection)
+    }
+
+    /// Pending updates ordered by submission time (ties by id) for stable
+    /// listing and deterministic last-writer-wins draining.
+    pub fn list_variable_injections(&self) -> Vec<PendingVariableInjection> {
+        let mut items: Vec<PendingVariableInjection> = self
+            .pending_injections
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect();
+        items.sort_by(|a, b| {
+            a.submitted_at
+                .cmp(&b.submitted_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        items
+    }
+
+    /// Drop one pending update; `false` means the id was unknown (already
+    /// applied or never submitted). Applied values are never removed: only
+    /// the pending buffer entry goes away.
+    pub fn remove_variable_injection(&self, id: &str) -> bool {
+        self.pending_injections.remove(id).is_some()
+    }
+
+    /// Take and return every pending update of `policy`, ordered by
+    /// submission time. The caller applies the returned items and publishes
+    /// the audit events; removal here makes the application idempotent.
+    pub fn drain_variable_injections(
+        &self,
+        policy: VariableInjectionPolicy,
+    ) -> Vec<PendingVariableInjection> {
+        let mut items: Vec<PendingVariableInjection> = Vec::new();
+        for entry in self.pending_injections.iter() {
+            if entry.value().policy == policy {
+                items.push(entry.value().clone());
+            }
+        }
+        for item in &items {
+            self.pending_injections.remove(&item.id);
+        }
+        items.sort_by(|a, b| {
+            a.submitted_at
+                .cmp(&b.submitted_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        items
     }
 
     pub fn get_node_result(&self, node_id: &str) -> Option<Value> {
@@ -490,5 +673,95 @@ mod tests {
         assert!(entity.is_failed());
         assert!(!entity.is_completed());
         assert!(!entity.is_cancelled());
+    }
+
+    #[test]
+    fn injection_policy_labels_parse() {
+        assert_eq!(
+            VariableInjectionPolicy::NextBoundary.label(),
+            "next_boundary"
+        );
+        assert_eq!(VariableInjectionPolicy::OnResume.label(), "on_resume");
+        assert_eq!(VariableInjectionPolicy::parse(None), None);
+        assert_eq!(
+            VariableInjectionPolicy::parse(Some("next_boundary")),
+            Some(VariableInjectionPolicy::NextBoundary)
+        );
+        assert_eq!(
+            VariableInjectionPolicy::parse(Some("on-resume")),
+            Some(VariableInjectionPolicy::OnResume)
+        );
+        assert_eq!(VariableInjectionPolicy::parse(Some("nope")), None);
+    }
+
+    #[test]
+    fn injection_sources_and_names_validate() {
+        assert_eq!(
+            normalize_injection_source(None).expect("default"),
+            "api".to_string()
+        );
+        assert_eq!(
+            normalize_injection_source(Some("tui")).expect("allowlisted"),
+            "tui".to_string()
+        );
+        assert!(normalize_injection_source(Some("evil")).is_err());
+        assert!(validate_injection_variable_name("speed").is_ok());
+        assert!(validate_injection_variable_name("").is_err());
+        assert!(validate_injection_variable_name("__loop").is_err());
+        assert!(validate_injection_variable_name("a.b").is_err());
+    }
+
+    #[tokio::test]
+    async fn injections_buffer_list_drain_and_remove() {
+        let entity = WorkflowExecutionEntity::new("exec-1".to_string(), "wf-1".to_string());
+        entity.state.write().await.start().expect("start");
+        let first = entity
+            .submit_variable_injection(
+                "speed",
+                serde_json::json!(1),
+                Some("cli"),
+                Some(VariableInjectionPolicy::NextBoundary),
+            )
+            .expect("submit");
+        assert_eq!(first.source, "cli".to_string());
+        let second = entity
+            .submit_variable_injection(
+                "held",
+                serde_json::json!(true),
+                None,
+                Some(VariableInjectionPolicy::OnResume),
+            )
+            .expect("submit");
+        assert_eq!(second.source, "api".to_string());
+        assert_eq!(entity.list_variable_injections().len(), 2);
+
+        // The boundary drain only takes its own policy and leaves the rest.
+        let drained = entity.drain_variable_injections(VariableInjectionPolicy::NextBoundary);
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].variable_name, "speed".to_string());
+        assert_eq!(entity.list_variable_injections().len(), 1);
+
+        assert!(entity.remove_variable_injection(&second.id));
+        assert!(!entity.remove_variable_injection(&second.id));
+        assert!(entity.list_variable_injections().is_empty());
+    }
+
+    #[tokio::test]
+    async fn injections_reject_bad_names_and_terminal_executions() {
+        let entity = WorkflowExecutionEntity::new("exec-1".to_string(), "wf-1".to_string());
+        assert!(entity
+            .submit_variable_injection("", serde_json::json!(1), None, None)
+            .is_err());
+        assert!(entity
+            .submit_variable_injection("__x", serde_json::json!(1), None, None)
+            .is_err());
+        assert!(entity
+            .submit_variable_injection("x", serde_json::json!(1), Some("evil"), None)
+            .is_err());
+        entity.state.write().await.start().expect("start");
+        entity.state.write().await.complete().expect("complete");
+        assert!(entity
+            .submit_variable_injection("x", serde_json::json!(1), None, None)
+            .is_err());
     }
 }

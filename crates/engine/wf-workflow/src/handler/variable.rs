@@ -9,7 +9,7 @@ use crate::handler::NodeHandler;
 use crate::variable::evaluate_expression;
 
 fn is_readonly_var(name: &str) -> bool {
-    name.starts_with("__")
+    wf_execution_shared::context::is_internal_variable(name)
 }
 
 pub struct VariableHandler;

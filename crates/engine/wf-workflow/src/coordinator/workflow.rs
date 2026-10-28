@@ -24,6 +24,7 @@ mod node_exec;
 mod persistence;
 mod routing;
 mod timeout;
+mod variable_injection;
 
 pub struct WorkflowCoordinator {
     pub(super) ctx: ExecutorContext,
@@ -342,6 +343,11 @@ impl WorkflowCoordinator {
         while let Some(node_id) = &self.current_node_id.clone() {
             self.check_interruption_and_timeout(&entity, event_bus_ref, node_id)
                 .await?;
+
+            // Node-boundary injection: pending external updates land here,
+            // after the pause/cancel gate and before navigation, skip and
+            // routing decisions, so the next node observes them.
+            self.apply_pending_variable_injections(&entity).await;
 
             if self
                 .ctx

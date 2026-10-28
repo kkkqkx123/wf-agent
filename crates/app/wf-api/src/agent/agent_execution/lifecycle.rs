@@ -140,12 +140,17 @@ pub async fn status(
 /// Append a runtime input to a running agent loop. The input is buffered
 /// according to `as_mode` (default follow-up) and injected at the next
 /// safe boundary without interrupting the current response.
+///
+/// `workflow_execution_id` links the audit event to the owning workflow
+/// execution when the append targets a nested loop; standalone appends
+/// leave it empty so the event keeps `workflow_id` unset.
 pub async fn append(
     ctx: &ApiContext,
     agent_loop_id: &str,
     text: String,
     as_mode: Option<&str>,
     source: Option<&str>,
+    workflow_execution_id: Option<&str>,
 ) -> crate::infra::error::ApiResult<()> {
     let entity = live_entity(ctx, agent_loop_id)?;
     if entity.status().is_terminal() {
@@ -176,14 +181,26 @@ pub async fn append(
         }
         None => None,
     };
-    let resolved = entity.append_runtime_input(text.clone(), mode).await;
+    let resolved = entity
+        .append_runtime_input(
+            text.clone(),
+            mode,
+            source_type.to_string(),
+            wf_common::now(),
+        )
+        .await;
     let bus = ctx.event_bus.clone();
-    let preview: String = text.chars().take(120).collect();
+    let preview: String = text
+        .chars()
+        .take(wf_agent::entity::APPEND_PREVIEW_CHARS)
+        .collect();
+    let now = wf_common::now();
+    let workflow_id = workflow_execution_id.map(|id| wf_types::Id::from(id.to_string()));
     let event = wf_types::events::BaseEvent {
         id: wf_common::generate_id(),
         r#type: wf_types::events::EventType::AgentSteeringInjected,
-        timestamp: wf_common::now(),
-        workflow_id: None,
+        timestamp: now,
+        workflow_id,
         execution_id: Some(wf_types::Id::from(agent_loop_id.to_string())),
         agent_loop_id: Some(wf_types::Id::from(agent_loop_id.to_string())),
         event_name: None,
@@ -191,9 +208,12 @@ pub async fn append(
             let mut m = std::collections::HashMap::new();
             m.insert(
                 "mode".to_string(),
-                serde_json::Value::String(format!("{:?}", resolved).to_lowercase()),
+                serde_json::Value::String(append_mode_label(resolved)),
             );
-            m.insert("text_preview".to_string(), serde_json::Value::String(preview));
+            m.insert(
+                "text_preview".to_string(),
+                serde_json::Value::String(preview),
+            );
             m.insert(
                 "source_type".to_string(),
                 serde_json::Value::String(source_type.to_string()),
@@ -202,11 +222,26 @@ pub async fn append(
                 "input_count".to_string(),
                 serde_json::Value::Number(serde_json::Number::from(1)),
             );
+            m.insert(
+                "submitted_at".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(now)),
+            );
+            if let Some(workflow_execution_id) = workflow_execution_id {
+                m.insert(
+                    "workflow_execution_id".to_string(),
+                    serde_json::Value::String(workflow_execution_id.to_string()),
+                );
+            }
             m
         }),
     };
     let _ = bus.publish_logged(event, "agent-append");
     Ok(())
+}
+
+/// Stable audit label for an append mode.
+fn append_mode_label(mode: wf_agent::entity::AgentAppendMode) -> String {
+    mode.label().to_string()
 }
 
 /// Change the default append mode for subsequent runtime inputs.

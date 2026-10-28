@@ -180,7 +180,20 @@ impl AgentExecutionCoordinator {
             let steering = entity.drain_steering_inputs().await;
             if !steering.is_empty() {
                 let count = steering.len();
-                let text = steering.join("\n\n");
+                let text = steering
+                    .iter()
+                    .map(|input| input.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
+                let source_type = {
+                    let first = steering[0].source.clone();
+                    if steering.iter().all(|input| input.source == first) {
+                        first
+                    } else {
+                        "mixed".to_string()
+                    }
+                };
+                let submitted_at = steering.iter().map(|input| input.submitted_at).min();
                 {
                     let mut conv = entity.conversation().write().await;
                     conv.add_message(Message::user_text(text.clone()));
@@ -190,8 +203,26 @@ impl AgentExecutionCoordinator {
                     metadata.insert("input_count".to_string(), serde_json::json!(count));
                     metadata.insert(
                         "text_preview".to_string(),
-                        serde_json::json!(text.chars().take(200).collect::<String>()),
+                        serde_json::json!(text
+                            .chars()
+                            .take(crate::entity::APPEND_PREVIEW_CHARS)
+                            .collect::<String>()),
                     );
+                    metadata.insert(
+                        "mode".to_string(),
+                        serde_json::json!(crate::entity::AgentAppendMode::Steering.label()),
+                    );
+                    metadata.insert("source_type".to_string(), serde_json::json!(source_type));
+                    if let Some(submitted_at) = submitted_at {
+                        metadata
+                            .insert("submitted_at".to_string(), serde_json::json!(submitted_at));
+                    }
+                    if let Some(parent) = entity.parent_execution_id() {
+                        metadata.insert(
+                            "workflow_execution_id".to_string(),
+                            serde_json::json!(parent.to_string()),
+                        );
+                    }
                     let event = wf_types::events::BaseEvent {
                         id: wf_common::generate_id(),
                         r#type: EventType::AgentSteeringInjected,
@@ -202,7 +233,7 @@ impl AgentExecutionCoordinator {
                         event_name: None,
                         metadata: Some(metadata),
                     };
-                    let _ = bus.publish(event);
+                    let _ = bus.publish_logged(event, "agent-steering-drain");
                 }
             }
 
@@ -252,7 +283,21 @@ impl AgentExecutionCoordinator {
                                 let followups = entity.drain_followup_inputs().await;
                                 if !followups.is_empty() {
                                     let count = followups.len();
-                                    let text = followups.join("\n\n");
+                                    let text = followups
+                                        .iter()
+                                        .map(|input| input.text.as_str())
+                                        .collect::<Vec<_>>()
+                                        .join("\n\n");
+                                    let source_type = {
+                                        let first = followups[0].source.clone();
+                                        if followups.iter().all(|input| input.source == first) {
+                                            first
+                                        } else {
+                                            "mixed".to_string()
+                                        }
+                                    };
+                                    let submitted_at =
+                                        followups.iter().map(|input| input.submitted_at).min();
                                     {
                                         let mut conv = entity.conversation().write().await;
                                         conv.add_message(Message::user_text(text.clone()));
@@ -267,9 +312,31 @@ impl AgentExecutionCoordinator {
                                             "text_preview".to_string(),
                                             serde_json::json!(text
                                                 .chars()
-                                                .take(200)
+                                                .take(crate::entity::APPEND_PREVIEW_CHARS)
                                                 .collect::<String>()),
                                         );
+                                        metadata.insert(
+                                            "mode".to_string(),
+                                            serde_json::json!(
+                                                crate::entity::AgentAppendMode::Followup.label()
+                                            ),
+                                        );
+                                        metadata.insert(
+                                            "source_type".to_string(),
+                                            serde_json::json!(source_type),
+                                        );
+                                        if let Some(submitted_at) = submitted_at {
+                                            metadata.insert(
+                                                "submitted_at".to_string(),
+                                                serde_json::json!(submitted_at),
+                                            );
+                                        }
+                                        if let Some(parent) = entity.parent_execution_id() {
+                                            metadata.insert(
+                                                "workflow_execution_id".to_string(),
+                                                serde_json::json!(parent.to_string()),
+                                            );
+                                        }
                                         let event = wf_types::events::BaseEvent {
                                             id: wf_common::generate_id(),
                                             r#type: EventType::AgentFollowupQueued,
@@ -280,7 +347,7 @@ impl AgentExecutionCoordinator {
                                             event_name: None,
                                             metadata: Some(metadata),
                                         };
-                                        let _ = bus.publish(event);
+                                        let _ = bus.publish_logged(event, "agent-followup-drain");
                                     }
                                     continue;
                                 }

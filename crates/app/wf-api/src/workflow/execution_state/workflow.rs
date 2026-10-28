@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
+use wf_execution_shared::context::is_internal_variable;
 use wf_execution_shared::types::state_manager::StateManager;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::events::{BaseEvent, EventType};
@@ -167,13 +168,6 @@ pub(super) fn record_variable_map(
         }
     }
     map
-}
-
-/// Internal variable keys (engine-managed protocol markers such as
-/// `__agent_loop_ids`, `__loop_*`, `__tool_blocked_*`) never enter the
-/// user-facing variable views.
-pub(super) fn is_internal_variable(key: &str) -> bool {
-    key.starts_with("__")
 }
 
 pub(super) async fn node_records(

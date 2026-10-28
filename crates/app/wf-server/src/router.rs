@@ -57,6 +57,7 @@ pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddleware
         .merge(api::workflow::versions::routes())
         .merge(api::workflow::graphs::routes())
         .merge(api::workflow::executions::routes())
+        .merge(api::workflow::variable_injections::routes())
         .merge(api::workflow::execution_state::routes())
         .merge(api::workflow::execution_analysis::routes())
         .merge(api::workflow::approvals::routes())

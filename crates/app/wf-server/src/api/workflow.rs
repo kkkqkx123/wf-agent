@@ -5,5 +5,6 @@ pub mod execution_state;
 pub mod executions;
 pub mod graphs;
 pub mod locks;
+pub mod variable_injections;
 pub mod versions;
 pub mod workflows;

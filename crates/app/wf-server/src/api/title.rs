@@ -32,6 +32,17 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/agent-loops/{id}/title", post(handle_loop_title))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/title",
+    tag = "chat",
+    request_body = ChatTitleBody,
+    responses(
+        (status = 200, description = "Title text or null when silent", body = crate::envelope::ApiEnvelope<TitleResponse>),
+        (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
 pub(crate) async fn handle_chat_title(
     State(state): State<ApiState>,
     Json(body): Json<ChatTitleBody>,
@@ -46,6 +57,18 @@ pub(crate) async fn handle_chat_title(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/agent-loops/{id}/title",
+    tag = "agent",
+    params(IdPath),
+    request_body = LoopTitleBody,
+    responses(
+        (status = 200, description = "Title text or null when silent", body = crate::envelope::ApiEnvelope<TitleResponse>),
+        (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
 pub(crate) async fn handle_loop_title(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,

@@ -4,7 +4,9 @@ use std::panic::AssertUnwindSafe;
 use futures::FutureExt;
 use serde_json::Value;
 use wf_core::EventBus;
-use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
+use wf_execution_shared::context::{
+    is_internal_variable, NodeExecutionContext, NodeExecutionResult,
+};
 use wf_metrics::collectors::node::NodeExecutionRecord as MetricsNodeExecutionRecord;
 use wf_metrics::collectors::node::NodeMetricsCollector;
 use wf_types::checkpoint::NodeCheckpointConfig;
@@ -334,7 +336,7 @@ impl WorkflowCoordinator {
                 .ctx
                 .variables
                 .iter()
-                .filter(|entry| !entry.key().starts_with("__"))
+                .filter(|entry| !is_internal_variable(entry.key()))
                 .map(|entry| (entry.key().clone(), entry.value().clone()))
                 .collect();
             registry.update_variables(path_id, snapshot);

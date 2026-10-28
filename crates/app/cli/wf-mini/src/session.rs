@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 
-use wf_client::WfClient;
+use wf_client::{WfClient, WorkflowNestedAgentLoop};
 use wf_types::events::ExecutionStreamEvent;
 
 use wf_cli_shared::display::{parse_toggle, MarkdownMode};
@@ -81,6 +81,15 @@ pub struct NativeSession {
     anchor: String,
     /// Server-side agent loop id of the most recent turn, when known.
     current_loop_id: Option<String>,
+    /// Workflow execution attached via `/loops` for nested agent-loop
+    /// operations. Set only explicitly so plain agent turns never
+    /// misroute their loop-only submits.
+    nested_execution_id: Option<String>,
+    /// Sticky nested node selection: auto-set when a listing shows a
+    /// single target, otherwise set by an explicit `--node` submit.
+    nested_selected_node: Option<String>,
+    /// Last `/loops` snapshot backing the single-target default.
+    nested_loops: Vec<WorkflowNestedAgentLoop>,
     /// Raw-mode prompt editor is usable: stdin and stderr are TTYs.
     raw_prompt: bool,
     /// The previously submitted prompt (backs the `match_prev_cmd`
@@ -162,6 +171,9 @@ impl NativeSession {
             transcript,
             anchor,
             current_loop_id: None,
+            nested_execution_id: None,
+            nested_selected_node: None,
+            nested_loops: Vec::new(),
             raw_prompt,
             prev_prompt: None,
             suggest: Arc::new(SuggestEngine::new()),
@@ -310,6 +322,7 @@ impl NativeSession {
                 output::diag_line("commands: /help show this help, /clear print a separator, /new start a fresh conversation, /checkpoints list checkpoints, /recap show a one-line recap of the turn, /quit exit (Ctrl-D also exits)");
                 output::diag_line("history: /history [prefix] list recent prompts (optional prefix filter), /rerun [n] re-ask prompt n (default: last)");
                 output::diag_line("display: /markdown [raw|plain|styled] set or show stdout rendering, /reasoning [on|off], /usage [on|off], /tools [on|off], /display show all");
+                output::diag_line("nested loops: /loops [execution] list workflow nested targets, /steer [--node <id>] <text> steering input, /followup [--node <id>] <text> follow-up input, /append-mode [--node <id>] steering|followup, /convert-pending [--node <id>]");
                 output::diag_line("keys: Tab or Right-arrow (at line end) accept the suggestion, Ctrl-Right or Alt-f accept one word, Up/Down browse history by prefix, Alt-b/Alt-f word motion, Alt-d/Alt-Backspace kill word, Alt-. insert history tail word, Ctrl-C cancels the running turn, Ctrl-C twice at the prompt quits, Ctrl-D quits");
                 output::diag_line(
                     "notes: the full history stays in memory; prompt history is plain text on disk (see --history-file/--no-history); workflows run via `wf run --workflow` and the management subcommands",
@@ -352,6 +365,9 @@ impl NativeSession {
             SlashCommand::New => {
                 self.transcript.clear();
                 self.anchor = format!("mini-{}", wf_common::generate_id());
+                self.nested_execution_id = None;
+                self.nested_selected_node = None;
+                self.nested_loops = Vec::new();
                 self.note_turn_started();
                 self.set_terminal_title();
                 output::diag_line(&format!(
@@ -454,63 +470,259 @@ impl NativeSession {
                 self.request_recap_now().await;
                 CommandAction::Continue
             }
-            SlashCommand::Steer(text) => {
-                if let Some(id) = self.current_loop_id.clone() {
-                    match self
-                        .client
-                        .append_agent_loop(&id, text, Some("steering".to_string()), None)
-                        .await
-                    {
-                        Ok(_) => output::diag_line("steering input appended"),
-                        Err(e) => output::diag_line(&format!("append failed: {e}")),
-                    }
-                } else {
-                    output::diag_line("no active agent loop to append to");
-                }
+            SlashCommand::Steer { node, text } => {
+                self.submit_loop_text(node, text, "steering").await;
                 CommandAction::Continue
             }
-            SlashCommand::Followup(text) => {
-                if let Some(id) = self.current_loop_id.clone() {
-                    match self
-                        .client
-                        .append_agent_loop(&id, text, Some("followup".to_string()), None)
-                        .await
-                    {
-                        Ok(_) => output::diag_line("follow-up input appended"),
-                        Err(e) => output::diag_line(&format!("append failed: {e}")),
-                    }
-                } else {
-                    output::diag_line("no active agent loop to append to");
-                }
+            SlashCommand::Followup { node, text } => {
+                self.submit_loop_text(node, text, "followup").await;
                 CommandAction::Continue
             }
-            SlashCommand::AppendMode(mode) => {
+            SlashCommand::AppendMode { node, mode } => {
                 let mode_str = mode.unwrap_or_else(|| "followup".to_string());
                 if mode_str != "steering" && mode_str != "followup" {
-                    output::diag_line("usage: /append-mode steering|followup");
+                    output::diag_line("usage: /append-mode [--node <id>] steering|followup");
                     return CommandAction::Continue;
                 }
-                if let Some(id) = self.current_loop_id.clone() {
-                    match self.client.set_agent_loop_append_mode(&id, &mode_str).await {
-                        Ok(_) => output::diag_line(&format!("append mode set to {mode_str}")),
-                        Err(e) => output::diag_line(&format!("set mode failed: {e}")),
-                    }
-                } else {
-                    output::diag_line("no active agent loop");
-                }
+                self.set_loop_append_mode(node, mode_str).await;
                 CommandAction::Continue
             }
-            SlashCommand::ConvertPending => {
-                if let Some(id) = self.current_loop_id.clone() {
-                    match self.client.convert_pending_to_steering(&id).await {
-                        Ok(_) => output::diag_line("pending follow-ups converted to steering"),
-                        Err(e) => output::diag_line(&format!("convert failed: {e}")),
-                    }
-                } else {
-                    output::diag_line("no active agent loop");
-                }
+            SlashCommand::ConvertPending { node } => {
+                self.convert_loop_pending(node).await;
                 CommandAction::Continue
             }
+            SlashCommand::Loops(execution) => {
+                self.list_nested_loops(execution).await;
+                CommandAction::Continue
+            }
+        }
+    }
+
+    /// Resolve the nested submit target: an explicit `--node` wins, then
+    /// the sticky selection, then the single entry of the last `/loops`
+    /// snapshot. `Err` carries the user-facing reason for the diag line.
+    fn resolve_nested_node(&self, explicit: Option<String>) -> Result<String, String> {
+        if let Some(node) = explicit {
+            return Ok(node);
+        }
+        if let Some(selected) = self.nested_selected_node.clone() {
+            return Ok(selected);
+        }
+        if self.nested_loops.len() == 1 {
+            return Ok(self.nested_loops[0].node_id.clone());
+        }
+        if self.nested_loops.is_empty() {
+            return Err("no nested target selected; run /loops <execution> first".to_string());
+        }
+        Err("multiple nested targets; pass --node <id> (see /loops)".to_string())
+    }
+
+    /// Keep a failed submit text in prompt history so it can be retried
+    /// via history recall instead of being silently dropped.
+    fn keep_failed_input(&mut self, text: &str) {
+        self.history.push(text);
+    }
+
+    /// Submit steering/follow-up text to a nested workflow node when a
+    /// node is given or an execution is attached; otherwise fall back to
+    /// the current loop-only path. Failures only diag and keep the text.
+    async fn submit_loop_text(&mut self, node: Option<String>, text: String, mode: &str) {
+        if node.is_some() || self.nested_execution_id.is_some() {
+            let Some(execution) = self.nested_execution_id.clone() else {
+                self.keep_failed_input(&text);
+                output::diag_line(
+                    "no workflow execution attached; run /loops <execution> first (input kept in history)",
+                );
+                return;
+            };
+            let target = match self.resolve_nested_node(node) {
+                Ok(target) => target,
+                Err(reason) => {
+                    self.keep_failed_input(&text);
+                    output::diag_line(&format!("{reason} (input kept in history)"));
+                    return;
+                }
+            };
+            match self
+                .client
+                .append_workflow_nested_agent_loop(
+                    &execution,
+                    &target,
+                    text.clone(),
+                    Some(mode.to_string()),
+                    Some("cli".to_string()),
+                )
+                .await
+            {
+                Ok(_) => {
+                    self.nested_selected_node = Some(target.clone());
+                    output::diag_line(&format!("{mode} input appended to {target}"));
+                }
+                Err(err) => {
+                    self.keep_failed_input(&text);
+                    output::diag_line(&format!(
+                        "append to {target} failed: {err} (input kept in history)"
+                    ));
+                }
+            }
+            return;
+        }
+        if let Some(id) = self.current_loop_id.clone() {
+            match self
+                .client
+                .append_agent_loop(&id, text.clone(), Some(mode.to_string()), None)
+                .await
+            {
+                Ok(_) => output::diag_line(if mode == "steering" {
+                    "steering input appended"
+                } else {
+                    "follow-up input appended"
+                }),
+                Err(err) => {
+                    self.keep_failed_input(&text);
+                    output::diag_line(&format!("append failed: {err} (input kept in history)"));
+                }
+            }
+        } else {
+            self.keep_failed_input(&text);
+            output::diag_line("no active agent loop to append to (input kept in history)");
+        }
+    }
+
+    /// Switch the default append mode of a nested node or, without nested
+    /// context, of the current loop.
+    async fn set_loop_append_mode(&mut self, node: Option<String>, mode: String) {
+        if node.is_some() || self.nested_execution_id.is_some() {
+            let Some(execution) = self.nested_execution_id.clone() else {
+                output::diag_line("no workflow execution attached; run /loops <execution> first");
+                return;
+            };
+            let target = match self.resolve_nested_node(node) {
+                Ok(target) => target,
+                Err(reason) => {
+                    output::diag_line(&reason);
+                    return;
+                }
+            };
+            match self
+                .client
+                .set_workflow_nested_append_mode(&execution, &target, &mode)
+                .await
+            {
+                Ok(_) => {
+                    self.nested_selected_node = Some(target.clone());
+                    output::diag_line(&format!("append mode of {target} set to {mode}"));
+                }
+                Err(err) => output::diag_line(&format!("set mode failed: {err}")),
+            }
+            return;
+        }
+        if let Some(id) = self.current_loop_id.clone() {
+            match self.client.set_agent_loop_append_mode(&id, &mode).await {
+                Ok(_) => output::diag_line(&format!("append mode set to {mode}")),
+                Err(err) => output::diag_line(&format!("set mode failed: {err}")),
+            }
+        } else {
+            output::diag_line("no active agent loop");
+        }
+    }
+
+    /// Convert pending follow-ups of a nested node or, without nested
+    /// context, of the current loop.
+    async fn convert_loop_pending(&mut self, node: Option<String>) {
+        if node.is_some() || self.nested_execution_id.is_some() {
+            let Some(execution) = self.nested_execution_id.clone() else {
+                output::diag_line("no workflow execution attached; run /loops <execution> first");
+                return;
+            };
+            let target = match self.resolve_nested_node(node) {
+                Ok(target) => target,
+                Err(reason) => {
+                    output::diag_line(&reason);
+                    return;
+                }
+            };
+            match self
+                .client
+                .convert_workflow_nested_pending(&execution, &target)
+                .await
+            {
+                Ok(_) => {
+                    self.nested_selected_node = Some(target.clone());
+                    output::diag_line(&format!(
+                        "pending follow-ups of {target} converted to steering"
+                    ));
+                }
+                Err(err) => output::diag_line(&format!("convert failed: {err}")),
+            }
+            return;
+        }
+        if let Some(id) = self.current_loop_id.clone() {
+            match self.client.convert_pending_to_steering(&id).await {
+                Ok(_) => output::diag_line("pending follow-ups converted to steering"),
+                Err(err) => output::diag_line(&format!("convert failed: {err}")),
+            }
+        } else {
+            output::diag_line("no active agent loop");
+        }
+    }
+
+    /// List the nested agent-loop targets of the attached execution (or
+    /// attach to the given one first). Refreshes the snapshot and keeps
+    /// the selection minimal: a single target is auto-selected, a stale
+    /// selection is dropped, multiple targets need an explicit `--node`.
+    async fn list_nested_loops(&mut self, execution: Option<String>) {
+        if let Some(execution) = execution {
+            self.nested_execution_id = Some(execution);
+            self.nested_selected_node = None;
+        }
+        let Some(execution) = self.nested_execution_id.clone() else {
+            output::diag_line("usage: /loops <execution-id>");
+            return;
+        };
+        match self.client.list_workflow_agent_loops(&execution).await {
+            Ok(loops) => {
+                if loops.is_empty() {
+                    self.nested_loops = Vec::new();
+                    self.nested_selected_node = None;
+                    output::diag_line(&format!("no nested agent loops for execution {execution}"));
+                    return;
+                }
+                for entry in &loops {
+                    let marker =
+                        if self.nested_selected_node.as_deref() == Some(entry.node_id.as_str()) {
+                            "*"
+                        } else {
+                            " "
+                        };
+                    output::diag_line(&format!(
+                        "{marker} node {} status {} steering_pending {} followup_pending {} append_mode {} live {} loop {}",
+                        entry.node_id,
+                        entry.status,
+                        entry.steering_pending,
+                        entry.followup_pending,
+                        entry.append_mode.as_deref().unwrap_or("-"),
+                        entry.live,
+                        entry.agent_loop_id,
+                    ));
+                }
+                if loops.len() == 1 {
+                    let only = loops[0].node_id.clone();
+                    self.nested_selected_node = Some(only.clone());
+                    output::diag_line(&format!("selected nested target {only}"));
+                } else if let Some(selected) = self.nested_selected_node.clone() {
+                    if !loops.iter().any(|entry| entry.node_id == selected) {
+                        self.nested_selected_node = None;
+                        output::diag_line(
+                            "previous selection is gone; pass --node <id> to select a target",
+                        );
+                    }
+                } else {
+                    output::diag_line("multiple nested targets; pass --node <id> to select one");
+                }
+                self.nested_loops = loops;
+            }
+            Err(err) => output::diag_line(&format!("list loops failed: {err}")),
         }
     }
 

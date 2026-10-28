@@ -382,6 +382,12 @@ pub async fn resume(
 
     entity.resume().await?;
 
+    // Held-back operator updates land before the remaining graph re-drives,
+    // so the resumed execution observes them from its first boundary.
+    coordinator
+        .apply_on_resume_variable_injections(&entity)
+        .await;
+
     run_lifecycle_middleware(ctx, MiddlewarePhase::BeforeWorkflowExecution, &entity, None).await?;
 
     match coordinator.execute().await {

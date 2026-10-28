@@ -154,7 +154,7 @@ async fn persisted_agent_execution_readable_after_restart() {
         None,
     ));
 
-    use crate::agent::list_agent_executions(&ctx2.storage, None)
+    let executions = crate::agent::list_agent_executions(&ctx2.storage, None)
         .await
         .unwrap();
     assert_eq!(executions.len(), 1);

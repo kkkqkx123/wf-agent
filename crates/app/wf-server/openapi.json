@@ -5402,6 +5402,76 @@
         ]
       }
     },
+    "/api/v1/agent-loops/{id}/recap": {
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "operationId": "handle_loop_recap",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoopRecapBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Recap line or null when silent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_RecapResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/agent-loops/{id}/resume": {
       "post": {
         "tags": [
@@ -6062,6 +6132,76 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/agent-loops/{id}/title": {
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "operationId": "handle_loop_title",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoopTitleBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Title text or null when silent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_TitleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
           },
           "503": {
             "description": "Service unavailable: resource limit reached"
@@ -8772,6 +8912,66 @@
         ]
       }
     },
+    "/api/v1/chat/recap": {
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "operationId": "handle_chat_recap",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRecapBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Recap line or null when silent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_RecapResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/chat/stream": {
       "post": {
         "tags": [
@@ -8823,6 +9023,66 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/chat/title": {
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "operationId": "handle_chat_title",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatTitleBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Title text or null when silent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_TitleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
           },
           "503": {
             "description": "Service unavailable: resource limit reached"
@@ -12165,7 +12425,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/WorkflowAgentLoopAppendBody"
+                "$ref": "#/components/schemas/AppendAgentLoopBody"
               }
             }
           },
@@ -12233,7 +12493,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/WorkflowAgentLoopAppendModeBody"
+                "$ref": "#/components/schemas/SetAppendModeBody"
               }
             }
           },
@@ -18688,6 +18948,212 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/executions/{id}/variable-injections": {
+      "get": {
+        "tags": [
+          "workflow"
+        ],
+        "operationId": "handle_list_variable_injections",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ListVariableInjectionsView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "workflow"
+        ],
+        "operationId": "handle_submit_variable_injection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitVariableInjectionBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_VariableInjectionView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/executions/{id}/variable-injections/{injection_id}": {
+      "delete": {
+        "tags": [
+          "workflow"
+        ],
+        "operationId": "handle_delete_variable_injection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "injection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_DeleteVariableInjectionView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
           },
           "503": {
             "description": "Service unavailable: resource limit reached"
@@ -45651,6 +46117,38 @@
           }
         }
       },
+      "ApiEnvelope_DeleteVariableInjectionView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "removed"
+            ],
+            "properties": {
+              "removed": {
+                "type": "boolean"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_EntityMetadataDoc": {
         "type": "object",
         "required": [
@@ -46673,6 +47171,41 @@
               },
               "version": {
                 "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_ListVariableInjectionsView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "injections"
+            ],
+            "properties": {
+              "injections": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/VariableInjectionView"
+                }
               }
             }
           },
@@ -47771,6 +48304,40 @@
           }
         }
       },
+      "ApiEnvelope_RecapResponse": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Success payload of both recap routes.",
+            "properties": {
+              "text": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The cleaned recap line, or null when this turn has no recap."
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_RejectResponse": {
         "type": "object",
         "required": [
@@ -48250,6 +48817,38 @@
           }
         }
       },
+      "ApiEnvelope_TitleResponse": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_TopologicalSortDoc": {
         "type": "object",
         "required": [
@@ -48489,6 +49088,57 @@
         ],
         "properties": {
           "data": {},
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_VariableInjectionView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "injection_id",
+              "variable_name",
+              "value",
+              "source",
+              "submitted_at",
+              "policy"
+            ],
+            "properties": {
+              "injection_id": {
+                "type": "string"
+              },
+              "policy": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              },
+              "submitted_at": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "value": {},
+              "variable_name": {
+                "type": "string"
+              }
+            }
+          },
           "error": {
             "oneOf": [
               {
@@ -49916,6 +50566,24 @@
           }
         }
       },
+      "ChatRecapBody": {
+        "type": "object",
+        "description": "Wire body of `POST /chat/recap`.",
+        "required": [
+          "session_id",
+          "profile_id"
+        ],
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "description": "LLM profile id that ran the session and serves the side call."
+          },
+          "session_id": {
+            "type": "string",
+            "description": "Session anchor of the conversation."
+          }
+        }
+      },
       "ChatRunBody": {
         "type": "object",
         "description": "Wire body of `/chat/stream`.",
@@ -49938,6 +50606,21 @@
               "null"
             ],
             "description": "Session anchor of the conversation. Absent starts a new session."
+          }
+        }
+      },
+      "ChatTitleBody": {
+        "type": "object",
+        "required": [
+          "session_id",
+          "profile_id"
+        ],
+        "properties": {
+          "profile_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
           }
         }
       },
@@ -50524,6 +51207,17 @@
           },
           "type": {
             "type": "string"
+          }
+        }
+      },
+      "DeleteVariableInjectionView": {
+        "type": "object",
+        "required": [
+          "removed"
+        ],
+        "properties": {
+          "removed": {
+            "type": "boolean"
           }
         }
       },
@@ -52320,6 +53014,20 @@
           }
         }
       },
+      "ListVariableInjectionsView": {
+        "type": "object",
+        "required": [
+          "injections"
+        ],
+        "properties": {
+          "injections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VariableInjectionView"
+            }
+          }
+        }
+      },
       "LockView": {
         "type": "object",
         "required": [
@@ -52377,6 +53085,24 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "LoopRecapBody": {
+        "type": "object",
+        "description": "Wire body of `POST /agent-loops/{id}/recap`.",
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "description": "LLM profile id that ran the loop and serves the side call."
+          }
+        }
+      },
+      "LoopTitleBody": {
+        "type": "object",
+        "properties": {
+          "profile_id": {
+            "type": "string"
           }
         }
       },
@@ -52546,8 +53272,15 @@
             ]
           },
           "input": {},
+          "metadata": {},
           "node_id": {
             "type": "string"
+          },
+          "node_name": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "node_type": {
             "type": "string"
@@ -52991,6 +53724,19 @@
           "indexed_commits": {
             "type": "integer",
             "minimum": 0
+          }
+        }
+      },
+      "RecapResponse": {
+        "type": "object",
+        "description": "Success payload of both recap routes.",
+        "properties": {
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The cleaned recap line, or null when this turn has no recap."
           }
         }
       },
@@ -53735,6 +54481,36 @@
           }
         }
       },
+      "SubmitVariableInjectionBody": {
+        "type": "object",
+        "required": [
+          "variable_name",
+          "value"
+        ],
+        "properties": {
+          "policy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Application policy (`next_boundary` default, `on_resume`)."
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Audit source label (`user` / `cli` / `tui` / `web` /\n`workflow-console`); absent defaults to `api`."
+          },
+          "value": {
+            "description": "New value applied at the boundary. Stored verbatim, without the\ntype coercion a `VARIABLE` node would perform."
+          },
+          "variable_name": {
+            "type": "string",
+            "description": "Top-level variable name. The `__` prefix and dotted paths are rejected."
+          }
+        }
+      },
       "SubtreeDoc": {
         "type": "object",
         "description": "One page of the executions below a root, breadth-first.",
@@ -53956,6 +54732,17 @@
             "type": "string"
           },
           "workflow_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TitleResponse": {
+        "type": "object",
+        "properties": {
+          "text": {
             "type": [
               "string",
               "null"
@@ -54387,36 +55174,32 @@
           "value": {}
         }
       },
-      "WorkflowAgentLoopAppendBody": {
+      "VariableInjectionView": {
         "type": "object",
         "required": [
-          "text"
+          "injection_id",
+          "variable_name",
+          "value",
+          "source",
+          "submitted_at",
+          "policy"
         ],
         "properties": {
-          "as_mode": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "injection_id": {
+            "type": "string"
+          },
+          "policy": {
+            "type": "string"
           },
           "source": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "text": {
             "type": "string"
-          }
-        }
-      },
-      "WorkflowAgentLoopAppendModeBody": {
-        "type": "object",
-        "required": [
-          "mode"
-        ],
-        "properties": {
-          "mode": {
+          },
+          "submitted_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "value": {},
+          "variable_name": {
             "type": "string"
           }
         }

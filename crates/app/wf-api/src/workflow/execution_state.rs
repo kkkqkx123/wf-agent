@@ -27,10 +27,9 @@ pub use context::{
 };
 pub use views::{
     CommonTransitionView, ContextEvolutionView, ContextStateTransitionView,
-    ExecutionContextSnapshotView, NodeExecutionRecordView,
-    NodeInputContextView, StateTransitionView, VariableSnapshotView,
-    VariableValueSnapshotView, WorkflowCallStackView, WorkflowExecutionStateView,
-    WorkflowStackFrameView, WorkflowStateTransitionAnalysisView,
+    ExecutionContextSnapshotView, NodeExecutionRecordView, NodeInputContextView,
+    StateTransitionView, VariableSnapshotView, VariableValueSnapshotView, WorkflowCallStackView,
+    WorkflowExecutionStateView, WorkflowStackFrameView, WorkflowStateTransitionAnalysisView,
 };
 pub use workflow::{
     workflow_execution_get_state, workflow_execution_status_transitions,

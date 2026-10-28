@@ -20,6 +20,7 @@ pub mod summary;
 pub mod tool_approval_handler;
 pub mod validation;
 pub mod variable;
+pub mod variable_injection;
 pub mod version;
 pub mod versioning;
 pub mod workflow_execution;
@@ -50,6 +51,9 @@ pub use validation::{validate_workflow, WorkflowValidator};
 pub use variable::{
     convert_type, create_store, eval_expression, get_variable, has_variable, list_variables,
     remove_variable, set_variable, ExpressionResult,
+};
+pub use variable_injection::{
+    list_variable_injections, remove_variable_injection, submit_variable_injection,
 };
 pub use version::{get_workflow_version, list_workflow_versions, save_workflow_version};
 pub use versioning::{

@@ -290,6 +290,48 @@ pub enum ExecutionSub {
         #[arg(value_name = "ID")]
         id: String,
     },
+    /// List agent loops bound to a workflow execution.
+    AgentLoops {
+        /// Workflow execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Append runtime input to the agent loop bound to a workflow node.
+    NestedAppend {
+        /// Workflow execution id.
+        #[arg(value_name = "EXECUTION")]
+        execution: String,
+        /// Workflow node id.
+        #[arg(value_name = "NODE")]
+        node: String,
+        /// Input text.
+        #[arg(value_name = "TEXT")]
+        text: String,
+        /// Append mode (steering or followup).
+        #[arg(long, value_name = "MODE")]
+        mode: Option<String>,
+    },
+    /// Set the default append mode for a nested agent loop.
+    NestedAppendMode {
+        /// Workflow execution id.
+        #[arg(value_name = "EXECUTION")]
+        execution: String,
+        /// Workflow node id.
+        #[arg(value_name = "NODE")]
+        node: String,
+        /// Append mode (steering or followup).
+        #[arg(value_name = "MODE")]
+        mode: String,
+    },
+    /// Convert pending follow-ups to steering for a nested agent loop.
+    NestedConvertPending {
+        /// Workflow execution id.
+        #[arg(value_name = "EXECUTION")]
+        execution: String,
+        /// Workflow node id.
+        #[arg(value_name = "NODE")]
+        node: String,
+    },
     /// Cleanup completed agent loop executions.
     Cleanup {
         /// Only cleanup before this ISO8601 timestamp or epoch millis (stored as string, lexicographic compare not used; any value triggers cleanup).

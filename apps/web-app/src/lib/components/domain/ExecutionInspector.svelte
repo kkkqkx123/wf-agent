@@ -825,6 +825,13 @@
 						</p>
 					{/if}
 				</Card>
+				{#if kind === 'workflow'}
+					{#key execution.id}
+						{#await import('./WorkflowNestedAgentLoopsCard.svelte') then module}
+							<module.default executionId={execution.id} live={isLive} />
+						{/await}
+					{/key}
+				{/if}
 			</div>
 		{:else if tab === 'graph'}
 			<div class="mb-2 flex flex-wrap items-center gap-2">
@@ -1279,6 +1286,13 @@
 				/>
 			{:else}
 				<div class="space-y-3">
+					{#if kind === 'workflow'}
+						{#key execution.id}
+							{#await import('./WorkflowVariableInjectionsPanel.svelte') then module}
+								<module.default executionId={execution.id} />
+							{/await}
+						{/key}
+					{/if}
 					<Card title={t('domain.history.variables')}>
 						<KeyValueList items={variables} dense />
 					</Card>

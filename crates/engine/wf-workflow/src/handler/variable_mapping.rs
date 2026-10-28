@@ -1,6 +1,7 @@
 use dashmap::DashMap;
 use serde_json::Value;
 use std::sync::Arc;
+use wf_execution_shared::context::is_internal_variable;
 
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::variable::VariableResolver;
@@ -98,7 +99,7 @@ pub fn set_variable_path(
     value: Value,
 ) -> WorkflowResult<()> {
     let root = path.split('.').next().unwrap_or("");
-    if root.starts_with("__") {
+    if is_internal_variable(root) {
         return Err(WorkflowError::VariableError(format!(
             "refusing to write internal variable '{}' through the public path writer",
             root

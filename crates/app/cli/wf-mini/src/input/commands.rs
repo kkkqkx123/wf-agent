@@ -16,10 +16,40 @@ pub enum SlashCommand {
     Tools(Option<String>),
     Display,
     Recap,
-    Steer(String),
-    Followup(String),
-    AppendMode(Option<String>),
-    ConvertPending,
+    Steer {
+        node: Option<String>,
+        text: String,
+    },
+    Followup {
+        node: Option<String>,
+        text: String,
+    },
+    AppendMode {
+        node: Option<String>,
+        mode: Option<String>,
+    },
+    ConvertPending {
+        node: Option<String>,
+    },
+    Loops(Option<String>),
+}
+
+/// Split an optional leading `--node <id>` (or `--node=<id>`) flag from
+/// the remaining arguments. The flag selects a nested workflow node
+/// explicitly; its absence means the session default applies.
+fn split_node_flag(args: &[&str]) -> Option<(Option<String>, Vec<String>)> {
+    let (node, rest) = match args.first() {
+        Some(first) if *first == "--node" => {
+            let id = args.get(1)?;
+            (Some((*id).to_string()), args.get(2..).unwrap_or(&[]))
+        }
+        Some(first) => match first.strip_prefix("--node=") {
+            Some(id) if !id.is_empty() => (Some(id.to_string()), args.get(1..).unwrap_or(&[])),
+            _ => (None, args),
+        },
+        None => (None, args),
+    };
+    Some((node, rest.iter().map(|item| (*item).to_string()).collect()))
 }
 
 /// Parse a trimmed input line into a slash command, if it is one.
@@ -79,31 +109,57 @@ pub fn parse_command(line: &str) -> Option<SlashCommand> {
         "/display" if tokens.next().is_none() => Some(SlashCommand::Display),
         "/recap" if tokens.next().is_none() => Some(SlashCommand::Recap),
         "/steer" => {
-            let rest: Vec<&str> = tokens.collect();
+            let args: Vec<&str> = tokens.collect();
+            let (node, rest) = split_node_flag(&args)?;
             if rest.is_empty() {
                 None
             } else {
-                Some(SlashCommand::Steer(rest.join(" ")))
+                Some(SlashCommand::Steer {
+                    node,
+                    text: rest.join(" "),
+                })
             }
         }
         "/followup" | "/follow-up" => {
-            let rest: Vec<&str> = tokens.collect();
+            let args: Vec<&str> = tokens.collect();
+            let (node, rest) = split_node_flag(&args)?;
             if rest.is_empty() {
                 None
             } else {
-                Some(SlashCommand::Followup(rest.join(" ")))
+                Some(SlashCommand::Followup {
+                    node,
+                    text: rest.join(" "),
+                })
             }
         }
         "/append-mode" => {
-            let mode = tokens.next().map(|s| s.to_string());
-            if tokens.next().is_none() {
-                Some(SlashCommand::AppendMode(mode))
+            let args: Vec<&str> = tokens.collect();
+            let (node, rest) = split_node_flag(&args)?;
+            match rest.len() {
+                0 => Some(SlashCommand::AppendMode { node, mode: None }),
+                1 => Some(SlashCommand::AppendMode {
+                    node,
+                    mode: Some(rest[0].clone()),
+                }),
+                _ => None,
+            }
+        }
+        "/convert-pending" | "/steer-pending" => {
+            let args: Vec<&str> = tokens.collect();
+            let (node, rest) = split_node_flag(&args)?;
+            if rest.is_empty() {
+                Some(SlashCommand::ConvertPending { node })
             } else {
                 None
             }
         }
-        "/convert-pending" | "/steer-pending" if tokens.next().is_none() => {
-            Some(SlashCommand::ConvertPending)
+        "/loops" => {
+            let args: Vec<&str> = tokens.collect();
+            match args.len() {
+                0 => Some(SlashCommand::Loops(None)),
+                1 => Some(SlashCommand::Loops(Some(args[0].to_string()))),
+                _ => None,
+            }
         }
         _ => None,
     }
@@ -167,5 +223,63 @@ mod tests {
         );
         assert_eq!(parse_command("/display"), Some(SlashCommand::Display));
         assert_eq!(parse_command("/display x"), None);
+    }
+
+    #[test]
+    fn parses_nested_loop_commands() {
+        assert_eq!(
+            parse_command("/steer hold on"),
+            Some(SlashCommand::Steer {
+                node: None,
+                text: "hold on".to_string(),
+            })
+        );
+        assert_eq!(
+            parse_command("/steer --node worker-1 hold on"),
+            Some(SlashCommand::Steer {
+                node: Some("worker-1".to_string()),
+                text: "hold on".to_string(),
+            })
+        );
+        assert_eq!(
+            parse_command("/followup --node=worker-1 retry"),
+            Some(SlashCommand::Followup {
+                node: Some("worker-1".to_string()),
+                text: "retry".to_string(),
+            })
+        );
+        assert_eq!(parse_command("/steer"), None);
+        assert_eq!(parse_command("/steer --node"), None);
+        assert_eq!(
+            parse_command("/append-mode steering"),
+            Some(SlashCommand::AppendMode {
+                node: None,
+                mode: Some("steering".to_string()),
+            })
+        );
+        assert_eq!(
+            parse_command("/append-mode --node worker-1 followup"),
+            Some(SlashCommand::AppendMode {
+                node: Some("worker-1".to_string()),
+                mode: Some("followup".to_string()),
+            })
+        );
+        assert_eq!(
+            parse_command("/convert-pending"),
+            Some(SlashCommand::ConvertPending { node: None })
+        );
+        assert_eq!(
+            parse_command("/convert-pending --node worker-1"),
+            Some(SlashCommand::ConvertPending {
+                node: Some("worker-1".to_string()),
+            })
+        );
+        assert_eq!(parse_command("/convert-pending extra"), None);
+        assert_eq!(parse_command("/loops"), Some(SlashCommand::Loops(None)));
+        assert_eq!(
+            parse_command("/loops exec-1"),
+            Some(SlashCommand::Loops(Some("exec-1".to_string())))
+        );
+        assert_eq!(parse_command("/loops a b"), None);
     }
 }

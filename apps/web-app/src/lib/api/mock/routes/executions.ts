@@ -122,4 +122,51 @@ export function registerExecutions(router: MockRouter): void {
 		failed_nodes: [],
 		critical_path: [],
 	}));
+	// Preview-only buffer for externally submitted variable injections.
+	// Unknown executions read as unrouted (404), mirroring the backend;
+	// validation parity (names, sources, policies) lives server-side only.
+	let injectionSeq = 0;
+	const injectionStore = new Map<
+		string,
+		Array<{
+			injection_id: string;
+			variable_name: string;
+			value: unknown;
+			source: string;
+			submitted_at: number;
+			policy: string;
+		}>
+	>();
+	const knownExecution = (id: string): boolean => executions.some((e) => e.id === id);
+	router.on('POST', '/api/v1/executions/{id}/variable-injections', (params, _q, body) => {
+		if (!knownExecution(params.id)) return undefined;
+		const record = {
+			injection_id: `inj-preview-${(injectionSeq += 1)}`,
+			variable_name: String(body?.variable_name ?? ''),
+			value: body?.value ?? null,
+			source: typeof body?.source === 'string' && body.source !== '' ? body.source : 'api',
+			submitted_at: Date.now(),
+			policy:
+				typeof body?.policy === 'string' && body.policy !== '' ? body.policy : 'next_boundary',
+		};
+		const buffered = injectionStore.get(params.id) ?? [];
+		buffered.push(record);
+		injectionStore.set(params.id, buffered);
+		return record;
+	});
+	router.on('GET', '/api/v1/executions/{id}/variable-injections', (params) => {
+		if (!knownExecution(params.id)) return undefined;
+		const buffered = [...(injectionStore.get(params.id) ?? [])].sort(
+			(a, b) => a.submitted_at - b.submitted_at || (a.injection_id < b.injection_id ? -1 : 1),
+		);
+		return { injections: buffered };
+	});
+	router.on('DELETE', '/api/v1/executions/{id}/variable-injections/{injection_id}', (params) => {
+		if (!knownExecution(params.id)) return undefined;
+		const buffered = injectionStore.get(params.id) ?? [];
+		const index = buffered.findIndex((entry) => entry.injection_id === params.injection_id);
+		if (index === -1) return undefined;
+		buffered.splice(index, 1);
+		return { removed: true };
+	});
 }

@@ -179,6 +179,11 @@ pub enum EventType {
     WorkflowErrorBranchSuspended,
     /// A suspended error branch resumed from its branch target.
     WorkflowErrorBranchResumed,
+    /// An externally submitted workflow variable injection was applied at a
+    /// node boundary. Metadata carries `variable_name`, `new_value`,
+    /// `old_value` (when present), `source`, `submitted_at`, `applied_at`,
+    /// `policy` and `boundary_node_id`.
+    WorkflowVariableInjected,
     /// A PTY terminal session stopped producing output: process exit, idle
     /// reclaim or explicit removal. Metadata carries `session_id`, `exit_code`
     /// and `reason` (process/idle/removed).
@@ -342,6 +347,7 @@ impl EventType {
             EventType::WorkflowErrorBranchTaken => "WORKFLOW_ERROR_BRANCH_TAKEN",
             EventType::WorkflowErrorBranchSuspended => "WORKFLOW_ERROR_BRANCH_SUSPENDED",
             EventType::WorkflowErrorBranchResumed => "WORKFLOW_ERROR_BRANCH_RESUMED",
+            EventType::WorkflowVariableInjected => "WORKFLOW_VARIABLE_INJECTED",
             EventType::PtyExited => "PTY_EXITED",
             EventType::DefinitionLockChanged => "DEFINITION_LOCK_CHANGED",
             EventType::GitChanged => "GIT_CHANGED",
@@ -402,6 +408,7 @@ impl EventType {
             | EventType::AsyncCompletionTriggered
             | EventType::AsyncCompletionErrorTriggered => EventCategory::Request,
             EventType::VariableChanged
+            | EventType::WorkflowVariableInjected
             | EventType::MessageAdded
             | EventType::MessageContextUpdated
             | EventType::ConversationWritebackCompleted

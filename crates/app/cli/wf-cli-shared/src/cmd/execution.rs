@@ -237,6 +237,65 @@ pub(crate) async fn run_with_client(
                 OutputEnvelope::success("execution-convert-pending", data).with_entity(id.clone()),
             )
         }
+        ExecutionSub::AgentLoops { id } => {
+            let loops = client
+                .list_workflow_agent_loops(id)
+                .await
+                .map_err(CliError::from)?;
+            let data = serde_json::to_value(&loops).unwrap_or(serde_json::Value::Null);
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("execution-agent-loops", data).with_entity(id.clone()),
+            )
+        }
+        ExecutionSub::NestedAppend {
+            execution,
+            node,
+            text,
+            mode,
+        } => {
+            let data = client
+                .append_workflow_nested_agent_loop(
+                    execution,
+                    node,
+                    text.clone(),
+                    mode.clone(),
+                    Some("cli".to_string()),
+                )
+                .await
+                .map_err(CliError::from)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("execution-nested-append", data)
+                    .with_entity(execution.clone()),
+            )
+        }
+        ExecutionSub::NestedAppendMode {
+            execution,
+            node,
+            mode,
+        } => {
+            let data = client
+                .set_workflow_nested_append_mode(execution, node, mode)
+                .await
+                .map_err(CliError::from)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("execution-nested-append-mode", data)
+                    .with_entity(execution.clone()),
+            )
+        }
+        ExecutionSub::NestedConvertPending { execution, node } => {
+            let data = client
+                .convert_workflow_nested_pending(execution, node)
+                .await
+                .map_err(CliError::from)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("execution-nested-convert-pending", data)
+                    .with_entity(execution.clone()),
+            )
+        }
         ExecutionSub::Status { id } => status_execution(client, cli, id).await,
         ExecutionSub::Hierarchy { id } => {
             let view = client.execution_hierarchy(id).await?;

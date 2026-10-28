@@ -101,6 +101,46 @@ pub enum PanelPayload {
     },
 }
 
+/// One addressable nested agent loop bound to a workflow node. The list
+/// endpoint is the authority for identity, liveness, pending counts and
+/// the default append mode; event-stream loop ids are only realtime hints.
+#[derive(Debug, Clone)]
+pub struct NestedAgentLoopTarget {
+    /// Workflow execution owning the binding.
+    pub execution_id: String,
+    /// Workflow node bound to the loop.
+    pub node_id: String,
+    /// Server-side agent loop id behind the node.
+    pub agent_loop_id: String,
+    /// Loop status reported by the list endpoint.
+    pub status: String,
+    /// True while the loop entity is still live.
+    pub live: bool,
+    /// Server-buffered steering inputs waiting for an iteration boundary.
+    pub steering_pending: usize,
+    /// Server-buffered follow-up inputs waiting for the run tail.
+    pub followup_pending: usize,
+    /// Default append mode reported for live loops, if any.
+    pub append_mode: Option<String>,
+}
+
+impl From<wf_client::WorkflowNestedAgentLoop> for NestedAgentLoopTarget {
+    fn from(entry: wf_client::WorkflowNestedAgentLoop) -> Self {
+        Self {
+            // The list response carries no execution id; the caller stamps
+            // the execution it listed, so commands address execution + node.
+            execution_id: String::new(),
+            node_id: entry.node_id,
+            agent_loop_id: entry.agent_loop_id,
+            status: entry.status,
+            live: entry.live,
+            steering_pending: entry.steering_pending,
+            followup_pending: entry.followup_pending,
+            append_mode: entry.append_mode,
+        }
+    }
+}
+
 /// Events from the server side into the interactive event loop.
 #[derive(Debug)]
 pub enum InteractiveEvent {
@@ -128,8 +168,24 @@ pub enum InteractiveEvent {
     },
     /// A notice to display in the footer.
     Notice(String),
-    /// Queue a prompt locally after a failed runtime append.
+    /// Queue a prompt locally after a failed runtime append. The local
+    /// queue is never reported as server buffered; see the queued panel.
     QueuePrompt(String),
+    /// Nested agent-loop targets rebuilt from the list endpoint.
+    NestedTargetsLoaded {
+        /// Workflow execution that was listed.
+        execution_id: String,
+        /// Fresh targets; the execution id is stamped by the caller.
+        targets: Vec<NestedAgentLoopTarget>,
+        /// Background recalibration updates state without scrollback rows.
+        silent: bool,
+    },
+    /// A nested target listing failed; remote state is kept as-is.
+    NestedTargetsFailed {
+        /// Workflow execution that was listed.
+        execution_id: String,
+        error: String,
+    },
     /// The first replay page landed: it replaces the whole scrollback.
     ReplayLoaded {
         lines: Vec<HistoryLine>,
@@ -398,6 +454,16 @@ pub struct InteractiveController {
     prompt_queue: tui_components::queue::PromptQueue,
     /// Server-side agent loop id for the active turn, when known.
     active_agent_loop_id: Option<String>,
+    /// Workflow execution backing the nested agent-loop targets, when
+    /// attached. Falls back to the session execution until `/loops`
+    /// attaches a workflow execution explicitly.
+    nested_execution_id: Option<String>,
+    /// Nested agent-loop targets rebuilt from the list endpoint.
+    nested_targets: Vec<NestedAgentLoopTarget>,
+    /// Selected nested target index. A single target auto-selects;
+    /// multiple targets require an explicit selection; empty means the
+    /// nested append surface is disabled.
+    nested_selected: Option<usize>,
     /// Default append mode for runtime inputs submitted during an active turn.
     append_mode: String,
     /// Session-level model override applied to the next turn.
@@ -552,7 +618,7 @@ impl InteractiveController {
             footer.composer.set_history_file(path);
         }
 
-        Self {
+        let controller = Self {
             client,
             execution_id: execution_id.clone(),
             tx,
@@ -636,6 +702,9 @@ impl InteractiveController {
             dismissed_mention: None,
             prompt_queue: tui_components::queue::PromptQueue::new(),
             active_agent_loop_id: None,
+            nested_execution_id: None,
+            nested_targets: Vec::new(),
+            nested_selected: None,
             append_mode: "followup".to_string(),
             model_override: None,
             keymap: tui_core::keymap::Keymap::new(),
@@ -647,7 +716,11 @@ impl InteractiveController {
             terminal_program_status: tui_terminal::terminal::state::ProgramStatusState::Idle,
             terminal_program_error: None,
             pending_title: None,
-        }
+        };
+        // Rebuild nested targets once at session start so a resumed
+        // workflow execution discovers its addressable loops immediately.
+        controller.refresh_nested_targets();
+        controller
     }
 
     /// Replace the key resolution table used by the footer panel routes.

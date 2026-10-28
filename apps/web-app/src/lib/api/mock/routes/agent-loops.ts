@@ -141,4 +141,35 @@ export function registerAgentLoops(router: MockRouter): void {
 		result: 'Preview run accepted; connect a live backend to execute.',
 		iterations: 1,
 	}));
+
+	// ---------- workflow nested agent loops ----------
+	// Static preview rows in the backend snake_case shape; the shared
+	// service narrows them through the same guard as live payloads.
+	router.on('GET', '/api/v1/executions/{id}/agent-loops', () => [
+		{
+			node_id: 'planner',
+			agent_loop_id: 'loop-preview-planner',
+			status: 'running',
+			live: true,
+			steering_pending: 1,
+			followup_pending: 2,
+			append_mode: 'followup',
+		},
+		{
+			node_id: 'reviewer',
+			agent_loop_id: 'loop-preview-reviewer',
+			status: 'paused',
+			live: false,
+			steering_pending: 0,
+			followup_pending: 0,
+			append_mode: 'steering',
+		},
+	]);
+	router.on('POST', '/api/v1/executions/{id}/agent-loops/{node_id}/append', () => ({ ok: true }));
+	router.on('POST', '/api/v1/executions/{id}/agent-loops/{node_id}/append-mode', () => ({
+		ok: true,
+	}));
+	router.on('POST', '/api/v1/executions/{id}/agent-loops/{node_id}/convert-pending', () => ({
+		ok: true,
+	}));
 }

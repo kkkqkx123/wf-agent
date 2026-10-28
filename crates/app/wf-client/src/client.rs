@@ -60,6 +60,19 @@ impl ClientConfig {
     }
 }
 
+/// One agent loop bound to a workflow node, as returned by
+/// `GET /api/v1/executions/{id}/agent-loops`.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct WorkflowNestedAgentLoop {
+    pub node_id: String,
+    pub agent_loop_id: String,
+    pub status: String,
+    pub live: bool,
+    pub steering_pending: usize,
+    pub followup_pending: usize,
+    pub append_mode: Option<String>,
+}
+
 /// Shared HTTP client for `wf-server`.
 #[derive(Debug, Clone)]
 pub struct WfClient {
@@ -326,7 +339,11 @@ impl WfClient {
         as_mode: Option<String>,
         source: Option<String>,
     ) -> ClientResult<serde_json::Value> {
-        let body = generated::types::AppendAgentLoopBody { text, as_mode, source };
+        let body = generated::types::AppendAgentLoopBody {
+            text,
+            as_mode,
+            source,
+        };
         let envelope = self
             .generated
             .handle_append_loop(id, &body)
@@ -360,6 +377,66 @@ impl WfClient {
             .await
             .map_err(map_typed_error)?;
         unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// List agent loops bound to a workflow execution
+    /// (`GET /api/v1/executions/{id}/agent-loops`).
+    pub async fn list_workflow_agent_loops(
+        &self,
+        execution_id: &str,
+    ) -> ClientResult<Vec<WorkflowNestedAgentLoop>> {
+        self.get_json(&format!("/api/v1/executions/{execution_id}/agent-loops"))
+            .await
+    }
+
+    /// Append input to the agent loop bound to a workflow node.
+    pub async fn append_workflow_nested_agent_loop(
+        &self,
+        execution_id: &str,
+        node_id: &str,
+        text: String,
+        as_mode: Option<String>,
+        source: Option<String>,
+    ) -> ClientResult<serde_json::Value> {
+        let body = serde_json::json!({
+            "text": text,
+            "as_mode": as_mode,
+            "source": source,
+        });
+        self.post_json(
+            &format!("/api/v1/executions/{execution_id}/agent-loops/{node_id}/append"),
+            &body,
+        )
+        .await
+    }
+
+    /// Switch the default append mode of a nested agent loop.
+    pub async fn set_workflow_nested_append_mode(
+        &self,
+        execution_id: &str,
+        node_id: &str,
+        mode: &str,
+    ) -> ClientResult<serde_json::Value> {
+        let body = serde_json::json!({ "mode": mode });
+        self.post_json(
+            &format!("/api/v1/executions/{execution_id}/agent-loops/{node_id}/append-mode"),
+            &body,
+        )
+        .await
+    }
+
+    /// Convert pending follow-ups to steering for a nested agent loop.
+    pub async fn convert_workflow_nested_pending(
+        &self,
+        execution_id: &str,
+        node_id: &str,
+    ) -> ClientResult<serde_json::Value> {
+        let body = serde_json::json!({});
+        self.post_json(
+            &format!("/api/v1/executions/{execution_id}/agent-loops/{node_id}/convert-pending"),
+            &body,
+        )
+        .await
     }
 
     /// Typed agent-loop status (`GET /api/v1/agent-loops/{id}/status`).

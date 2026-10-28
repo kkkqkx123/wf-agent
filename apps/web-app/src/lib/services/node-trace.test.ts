@@ -56,7 +56,13 @@ describe('toNodeTrace', () => {
 			retryCount: 2,
 			error: null,
 			toolDependencies: [{ toolName: 'bash', callCount: 3 }],
+			metadata: null,
 		});
+	});
+
+	it('carries node metadata through when present', () => {
+		const mapped = toNodeTrace({ node_id: 'n1', metadata: { agent_loop_id: 'loop-1' } });
+		expect(mapped?.metadata).toEqual({ agent_loop_id: 'loop-1' });
 	});
 
 	it('drops rows that carry no node id', () => {

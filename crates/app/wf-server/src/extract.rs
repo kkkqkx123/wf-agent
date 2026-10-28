@@ -37,6 +37,14 @@ pub(crate) struct IdSnakeNodePath {
     pub(crate) node_id: String,
 }
 
+/// `{id}` + `{injection_id}` path pair used by variable injection routes.
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Path)]
+pub(crate) struct IdInjectionPath {
+    pub(crate) id: String,
+    pub(crate) injection_id: String,
+}
+
 /// `{id}` + `{cid}` path pair used by checkpoint restore routes.
 #[derive(Deserialize, IntoParams)]
 #[into_params(parameter_in = Path)]

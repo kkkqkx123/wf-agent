@@ -534,7 +534,7 @@ impl NodeExecutionContext {
         value: Value,
     ) -> crate::error::ExecutionSharedResult<()> {
         let name = name.into();
-        if name.starts_with("__") {
+        if is_internal_variable(&name) {
             return Err(crate::error::ExecutionSharedError::VariableError(format!(
                 "refusing to write internal variable '{}' through the public entry",
                 name
@@ -621,6 +621,16 @@ pub mod node_metadata {
     ];
     /// Internal variable holding the node id -> agent loop id addressing map.
     pub const AGENT_LOOP_IDS_VAR: &str = "__agent_loop_ids";
+}
+
+/// Prefix marking engine-owned variables. User writes through the public
+/// entry are rejected for these names; engine state uses the internal entry.
+pub const INTERNAL_VARIABLE_PREFIX: &str = "__";
+
+/// Single predicate for engine-owned variable names so every guard and view
+/// agrees on the boundary.
+pub fn is_internal_variable(name: &str) -> bool {
+    name.starts_with(INTERNAL_VARIABLE_PREFIX)
 }
 
 /// Single writer for the node id -> agent loop id addressing map so the

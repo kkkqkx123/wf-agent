@@ -138,6 +138,12 @@ impl InteractiveController {
                 self.jump_to_prev_anchor();
                 return InteractiveAction::Continue;
             }
+            // Cycle the nested agent-loop selection without leaving the
+            // composer, mirroring the anchor-jump shortcut style.
+            CKey::Char('l') | CKey::Char('L') if key.alt && !key.ctrl => {
+                self.cycle_nested_target();
+                return InteractiveAction::Continue;
+            }
             CKey::Char('y') | CKey::Char('Y') if key.ctrl && !key.alt => {
                 self.request_copy_default();
                 return InteractiveAction::Continue;

@@ -5,6 +5,7 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 use wf_core::EventBus;
 use wf_execution_shared::approval::ToolApprovalHandler;
+use wf_execution_shared::context::is_internal_variable;
 use wf_execution_shared::context::ExecutorContext;
 use wf_execution_shared::fork::ForkRegistry;
 use wf_tools::registry::ToolRegistry;
@@ -373,7 +374,7 @@ fn public_variables(
 ) -> std::collections::HashMap<String, Value> {
     variables
         .iter()
-        .filter(|entry| !entry.key().starts_with("__"))
+        .filter(|entry| !is_internal_variable(entry.key()))
         .map(|entry| (entry.key().clone(), entry.value().clone()))
         .collect()
 }

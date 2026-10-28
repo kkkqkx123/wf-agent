@@ -289,8 +289,10 @@ impl SessionTabs {
                 for (pos, tab) in self.tabs.iter_mut().enumerate() {
                     if pos == self.active {
                         tab.holder.reattached();
+                        tab.controller.note_reattached();
                     } else {
                         tab.holder.detach();
+                        tab.controller.note_detached();
                     }
                 }
             }
@@ -328,6 +330,7 @@ impl SessionTabs {
         }
         if let Some(active) = self.tabs.get_mut(self.active) {
             active.holder.reattached();
+            active.controller.note_reattached();
         }
         removed
     }
@@ -337,6 +340,7 @@ impl SessionTabs {
         for (index, other) in self.tabs.iter_mut().enumerate() {
             if index != self.active {
                 other.holder.detach();
+                other.controller.note_detached();
             }
         }
         tab.holder.attach();
@@ -355,8 +359,10 @@ impl SessionTabs {
         for (pos, tab) in self.tabs.iter_mut().enumerate() {
             if pos == self.active {
                 tab.holder.reattached();
+                tab.controller.note_reattached();
             } else {
                 tab.holder.detach();
+                tab.controller.note_detached();
             }
         }
         true
@@ -395,6 +401,7 @@ impl SessionTabs {
         self.touch_active();
         if let Some(active) = self.tabs.get_mut(self.active) {
             active.holder.reattached();
+            active.controller.note_reattached();
         }
         Some(tab)
     }
@@ -425,6 +432,7 @@ impl SessionTabs {
     pub fn detach_all(&mut self) {
         for tab in &mut self.tabs {
             tab.holder.detach();
+            tab.controller.note_detached();
         }
     }
 
@@ -432,6 +440,7 @@ impl SessionTabs {
     pub fn attach_active(&mut self) {
         if let Some(tab) = self.tabs.get_mut(self.active) {
             tab.holder.reattached();
+            tab.controller.note_reattached();
         }
     }
 

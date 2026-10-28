@@ -111,7 +111,10 @@ pub(super) async fn raw_attempts(
         .into_iter()
         .map(|result| RawNodeAttempt {
             node_id: result.node_id.clone(),
-            node_name: result.node_name.clone().unwrap_or_else(|| result.node_id.clone()),
+            node_name: result
+                .node_name
+                .clone()
+                .unwrap_or_else(|| result.node_id.clone()),
             node_type: result
                 .node_type
                 .clone()

@@ -95,6 +95,8 @@ use utoipa::OpenApi;
         crate::api::agent::loops::handle_append_loop,
         crate::api::agent::loops::handle_set_append_mode_loop,
         crate::api::agent::loops::handle_convert_pending_to_steering_loop,
+        crate::api::recap::handle_loop_recap,
+        crate::api::title::handle_loop_title,
         crate::api::agent::loops::handle_loop_summaries,
         crate::api::agent::loops::handle_loop_statistics,
         crate::api::agent::loops::handle_loop_summary,
@@ -124,6 +126,8 @@ use utoipa::OpenApi;
         crate::api::agent::variables::handle_batch_set_loop_variables,
         // ── chat ──
         crate::api::chat::handle_chat_stream,
+        crate::api::recap::handle_chat_recap,
+        crate::api::title::handle_chat_title,
         // ── workflow ──
         crate::api::workflow::approvals::handle_request_approval,
         crate::api::workflow::approvals::handle_check_approval,
@@ -209,6 +213,9 @@ use utoipa::OpenApi;
         crate::api::workflow::executions::handle_append_workflow_agent_loop,
         crate::api::workflow::executions::handle_set_workflow_agent_loop_append_mode,
         crate::api::workflow::executions::handle_convert_workflow_agent_loop_pending,
+        crate::api::workflow::variable_injections::handle_submit_variable_injection,
+        crate::api::workflow::variable_injections::handle_list_variable_injections,
+        crate::api::workflow::variable_injections::handle_delete_variable_injection,
         crate::api::workflow::graphs::handle_graph,
         crate::api::workflow::graphs::handle_graph_summary,
         crate::api::workflow::graphs::handle_graph_nodes,

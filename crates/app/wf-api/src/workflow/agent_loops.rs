@@ -73,7 +73,7 @@ pub async fn list_agent_loops(
                 live: true,
                 steering_pending: steering,
                 followup_pending: followup,
-                append_mode: Some(format!("{:?}", mode).to_lowercase()),
+                append_mode: Some(append_mode_label(mode)),
             });
             continue;
         }
@@ -103,6 +103,11 @@ pub async fn list_agent_loops(
     Ok(result)
 }
 
+/// Stable audit label for an append mode.
+fn append_mode_label(mode: wf_agent::entity::AgentAppendMode) -> String {
+    mode.label().to_string()
+}
+
 /// Append one runtime input to the agent loop bound to `node_id`.
 /// `source` labels the calling channel for the audit trail.
 pub async fn append_to_agent_loop(
@@ -114,7 +119,8 @@ pub async fn append_to_agent_loop(
     source: Option<&str>,
 ) -> ApiResult<()> {
     let loop_id = loop_id_for_node(ctx, execution_id, node_id).await?;
-    crate::agent::agent_execution::append(ctx, &loop_id, text, as_mode, source).await
+    crate::agent::agent_execution::append(ctx, &loop_id, text, as_mode, source, Some(execution_id))
+        .await
 }
 
 pub async fn set_agent_loop_append_mode(

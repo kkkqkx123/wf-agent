@@ -28,6 +28,13 @@ impl InteractiveController {
         self.prep.sync_replace(&scrollback, width, version);
         self.scrollback = scrollback;
         self.footer.state.execution_id = Some(session_id.to_string());
+        // A replay repoints the session at another execution: drop stale
+        // nested remotes and rebuild targets for the new execution. Local
+        // drafts in the prompt queue are kept.
+        self.nested_execution_id = None;
+        self.nested_selected = None;
+        self.nested_targets.clear();
+        self.refresh_nested_targets();
 
         let client = self.client.clone();
         let session_id = session_id.to_string();

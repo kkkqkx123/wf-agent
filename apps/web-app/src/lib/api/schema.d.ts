@@ -551,7 +551,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/agent-loops/{id}/convert-pending-to-steering": {
+    "/api/v1/agent-loops/{id}/convert-pending": {
         parameters: {
             query?: never;
             header?: never;
@@ -1051,6 +1051,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agent-loops/{id}/recap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_loop_recap"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agent-loops/{id}/resume": {
         parameters: {
             query?: never;
@@ -1162,6 +1178,22 @@ export interface paths {
         get: operations["handle_loop_timeline"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-loops/{id}/title": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_loop_title"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1645,6 +1677,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chat/recap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_chat_recap"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chat/stream": {
         parameters: {
             query?: never;
@@ -1655,6 +1703,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["handle_chat_stream"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chat/title": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_chat_title"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2221,14 +2285,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/executions/{id}/agent-iterations": {
+    "/api/v1/executions/{id}/agent-loops": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["handle_agent_execution_iterations"];
+        get: operations["handle_list_workflow_agent_loops"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2237,32 +2301,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/executions/{id}/agent-state": {
+    "/api/v1/executions/{id}/agent-loops/{node_id}/append": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["handle_agent_execution_state"];
+        get?: never;
         put?: never;
-        post?: never;
+        post: operations["handle_append_workflow_agent_loop"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/executions/{id}/agent-variables": {
+    "/api/v1/executions/{id}/agent-loops/{node_id}/append-mode": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["handle_agent_execution_variables"];
+        get?: never;
         put?: never;
-        post?: never;
+        post: operations["handle_set_workflow_agent_loop_append_mode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/executions/{id}/agent-loops/{node_id}/convert-pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_convert_workflow_agent_loop_pending"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3577,6 +3657,38 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/executions/{id}/variable-injections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_list_variable_injections"];
+        put?: never;
+        post: operations["handle_submit_variable_injection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/executions/{id}/variable-injections/{injection_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["handle_delete_variable_injection"];
         options?: never;
         head?: never;
         patch?: never;
@@ -8789,6 +8901,13 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_DeleteVariableInjectionView: {
+            data?: {
+                removed: boolean;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_EntityMetadataDoc: {
             /**
              * @description Entity metadata document: a bare map of arbitrary JSON values, or
@@ -9103,6 +9222,13 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_ListVariableInjectionsView: {
+            data?: {
+                injections: components["schemas"]["VariableInjectionView"][];
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_LockView: {
             data?: {
                 /** Format: int64 */
@@ -9396,6 +9522,15 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_RecapResponse: {
+            /** @description Success payload of both recap routes. */
+            data?: {
+                /** @description The cleaned recap line, or null when this turn has no recap. */
+                text?: string | null;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_RejectResponse: {
             data?: {
                 baseline_snapshot_id: string;
@@ -9534,6 +9669,13 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_TitleResponse: {
+            data?: {
+                text?: string | null;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_TopologicalSortDoc: {
             /** @description Topological sort result. */
             data?: {
@@ -9596,6 +9738,19 @@ export interface components {
         };
         ApiEnvelope_Value: {
             data?: unknown;
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_VariableInjectionView: {
+            data?: {
+                injection_id: string;
+                policy: string;
+                source: string;
+                /** Format: int64 */
+                submitted_at: number;
+                value: unknown;
+                variable_name: string;
+            };
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
@@ -9853,7 +10008,16 @@ export interface components {
             message: string;
         };
         AppendAgentLoopBody: {
+            /**
+             * @description Runtime append mode. Accepts both the documented `as` field and the
+             *     historical `as_mode` field.
+             */
             as_mode?: string | null;
+            /**
+             * @description Calling channel for the audit trail (`user`/`cli`/`tui`/`web`/
+             *     `workflow-console`); absent values default to `api`.
+             */
+            source?: string | null;
             text: string;
         };
         ApplyUndoResponse: {
@@ -9966,6 +10130,13 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        /** @description Wire body of `POST /chat/recap`. */
+        ChatRecapBody: {
+            /** @description LLM profile id that ran the session and serves the side call. */
+            profile_id: string;
+            /** @description Session anchor of the conversation. */
+            session_id: string;
+        };
         /** @description Wire body of `/chat/stream`. */
         ChatRunBody: {
             /** @description The user text of this turn. */
@@ -9974,6 +10145,10 @@ export interface components {
             profile_id: string;
             /** @description Session anchor of the conversation. Absent starts a new session. */
             session_id?: string | null;
+        };
+        ChatTitleBody: {
+            profile_id: string;
+            session_id: string;
         };
         /** @description One stored execution checkpoint (`wf_types::Checkpoint` mirrored). */
         CheckpointDoc: {
@@ -10163,6 +10338,9 @@ export interface components {
             /** Format: int64 */
             timestamp: number;
             type: string;
+        };
+        DeleteVariableInjectionView: {
+            removed: boolean;
         };
         /**
          * @description One file change recorded on an actor partition
@@ -10800,6 +10978,9 @@ export interface components {
         LibraryImportBody: {
             json: string;
         };
+        ListVariableInjectionsView: {
+            injections: components["schemas"]["VariableInjectionView"][];
+        };
         LockView: {
             /** Format: int64 */
             expires_at: number;
@@ -10815,6 +10996,14 @@ export interface components {
             /** Format: int64 */
             timestamp: number;
             workflow_id?: string | null;
+        };
+        /** @description Wire body of `POST /agent-loops/{id}/recap`. */
+        LoopRecapBody: {
+            /** @description LLM profile id that ran the loop and serves the side call. */
+            profile_id?: string;
+        };
+        LoopTitleBody: {
+            profile_id?: string;
         };
         LoopVariableBatchBody: {
             /** @description Variable entries (1-100) */
@@ -11032,6 +11221,11 @@ export interface components {
         /** @description Rebuild response: number of indexed commits. */
         RebuildIndexResponse: {
             indexed_commits: number;
+        };
+        /** @description Success payload of both recap routes. */
+        RecapResponse: {
+            /** @description The cleaned recap line, or null when this turn has no recap. */
+            text?: string | null;
         };
         /** @description One export/import link (`wf_checkpoint::ReconcilePoint` mirrored). */
         ReconcilePointDoc: {
@@ -11291,6 +11485,22 @@ export interface components {
         SubmitReviewResponse: {
             review_commit: string;
         };
+        SubmitVariableInjectionBody: {
+            /** @description Application policy (`next_boundary` default, `on_resume`). */
+            policy?: string | null;
+            /**
+             * @description Audit source label (`user` / `cli` / `tui` / `web` /
+             *     `workflow-console`); absent defaults to `api`.
+             */
+            source?: string | null;
+            /**
+             * @description New value applied at the boundary. Stored verbatim, without the
+             *     type coercion a `VARIABLE` node would perform.
+             */
+            value: unknown;
+            /** @description Top-level variable name. The `__` prefix and dotted paths are rejected. */
+            variable_name: string;
+        };
         /** @description One page of the executions below a root, breadth-first. */
         SubtreeDoc: {
             /** @description Opaque cursor for the following page; absent on the last page. */
@@ -11363,6 +11573,9 @@ export interface components {
             timestamp: number;
             type: string;
             workflow_id?: string | null;
+        };
+        TitleResponse: {
+            text?: string | null;
         };
         /** @description One tool call inside an agent iteration. */
         ToolCallDoc: {
@@ -11487,6 +11700,15 @@ export interface components {
             name: string;
             scope?: string | null;
             value: unknown;
+        };
+        VariableInjectionView: {
+            injection_id: string;
+            policy: string;
+            source: string;
+            /** Format: int64 */
+            submitted_at: number;
+            value: unknown;
+            variable_name: string;
         };
         /**
          * @description Reconstructed file of an actor partition
@@ -16904,6 +17126,76 @@ export interface operations {
             };
         };
     };
+    handle_loop_recap: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoopRecapBody"];
+            };
+        };
+        responses: {
+            /** @description Recap line or null when silent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_RecapResponse"];
+                };
+            };
+            /** @description Invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     handle_resume_loop: {
         parameters: {
             query?: never;
@@ -17562,6 +17854,76 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_loop_title: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoopTitleBody"];
+            };
+        };
+        responses: {
+            /** @description Title text or null when silent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_TitleResponse"];
+                };
+            };
+            /** @description Invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Service unavailable: resource limit reached */
             503: {
@@ -20333,6 +20695,74 @@ export interface operations {
             };
         };
     };
+    handle_chat_recap: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatRecapBody"];
+            };
+        };
+        responses: {
+            /** @description Recap line or null when silent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_RecapResponse"];
+                };
+            };
+            /** @description Invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     handle_chat_stream: {
         parameters: {
             query?: never;
@@ -20393,6 +20823,74 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_chat_title: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatTitleBody"];
+            };
+        };
+        responses: {
+            /** @description Title text or null when silent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_TitleResponse"];
+                };
+            };
+            /** @description Invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Service unavailable: resource limit reached */
             503: {
@@ -23500,7 +23998,7 @@ export interface operations {
             };
         };
     };
-    handle_agent_execution_iterations: {
+    handle_list_workflow_agent_loops: {
         parameters: {
             query?: never;
             header?: never;
@@ -23534,30 +24032,12 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
             /** @description Too many requests: rate limit exceeded (see Retry-After) */
             429: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
             };
             /** @description Service unavailable: resource limit reached */
             503: {
@@ -23575,16 +24055,21 @@ export interface operations {
             };
         };
     };
-    handle_agent_execution_state: {
+    handle_append_workflow_agent_loop: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 id: string;
+                node_id: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppendAgentLoopBody"];
+            };
+        };
         responses: {
             /** @description Success */
             200: {
@@ -23609,30 +24094,12 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
             /** @description Too many requests: rate limit exceeded (see Retry-After) */
             429: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
             };
             /** @description Service unavailable: resource limit reached */
             503: {
@@ -23650,12 +24117,75 @@ export interface operations {
             };
         };
     };
-    handle_agent_execution_variables: {
+    handle_set_workflow_agent_loop_append_mode: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 id: string;
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAppendModeBody"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_convert_workflow_agent_loop_pending: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                node_id: string;
             };
             cookie?: never;
         };
@@ -23684,30 +24214,12 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
             /** @description Too many requests: rate limit exceeded (see Retry-After) */
             429: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
             };
             /** @description Service unavailable: resource limit reached */
             503: {
@@ -30091,6 +30603,218 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_list_variable_injections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_ListVariableInjectionsView"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_submit_variable_injection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitVariableInjectionBody"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_VariableInjectionView"];
+                };
+            };
+            /** @description Invalid parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_delete_variable_injection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                injection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_DeleteVariableInjectionView"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Service unavailable: resource limit reached */
             503: {

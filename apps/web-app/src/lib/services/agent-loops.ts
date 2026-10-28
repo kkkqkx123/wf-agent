@@ -366,6 +366,8 @@ export async function convertPendingToSteering(id: string): Promise<void> {
 	);
 }
 
+export type WorkflowNestedAppendMode = 'steering' | 'followup';
+
 interface WorkflowNestedAgentLoopDto {
 	node_id: string;
 	agent_loop_id: string;
@@ -386,6 +388,21 @@ export interface WorkflowNestedAgentLoop {
 	appendMode: string | null;
 }
 
+/** Structural guard for one nested-loop row; anything else is not listable. */
+function isNestedAgentLoopDto(value: unknown): value is WorkflowNestedAgentLoopDto {
+	if (typeof value !== 'object' || value === null) return false;
+	const dto = value as Record<string, unknown>;
+	return (
+		typeof dto.node_id === 'string' &&
+		typeof dto.agent_loop_id === 'string' &&
+		typeof dto.status === 'string' &&
+		typeof dto.live === 'boolean' &&
+		typeof dto.steering_pending === 'number' &&
+		typeof dto.followup_pending === 'number' &&
+		(dto.append_mode === null || typeof dto.append_mode === 'string')
+	);
+}
+
 function mapNestedAgentLoop(dto: WorkflowNestedAgentLoopDto): WorkflowNestedAgentLoop {
 	return {
 		nodeId: dto.node_id,
@@ -398,22 +415,28 @@ function mapNestedAgentLoop(dto: WorkflowNestedAgentLoopDto): WorkflowNestedAgen
 	};
 }
 
-export async function listWorkflowNestedAgentLoops(executionId: string): Promise<WorkflowNestedAgentLoop[]> {
-	const res = await call<{ data?: unknown }>(
+/** Agent loops bound to the nodes of a workflow execution. Unknown payloads read as empty. */
+export async function listWorkflowNestedAgentLoops(
+	executionId: string,
+): Promise<WorkflowNestedAgentLoop[]> {
+	const data = await call<unknown>(
 		client.GET('/api/v1/executions/{id}/agent-loops', {
 			params: { path: { id: executionId } },
 		}),
 	);
-	const data = (res as { data?: unknown })?.data ?? res;
 	if (!Array.isArray(data)) return [];
-	return (data as WorkflowNestedAgentLoopDto[]).map(mapNestedAgentLoop);
+	return data.filter(isNestedAgentLoopDto).map(mapNestedAgentLoop);
 }
 
+/**
+ * Append input to the agent loop bound to one workflow node. Failures throw
+ * so the caller can keep the unsent draft; nothing is cleared here.
+ */
 export async function appendWorkflowNestedAgentLoopInput(
 	executionId: string,
 	nodeId: string,
 	text: string,
-	asMode?: 'steering' | 'followup',
+	asMode?: WorkflowNestedAppendMode,
 	source?: string,
 ): Promise<void> {
 	await call<unknown>(
@@ -427,7 +450,7 @@ export async function appendWorkflowNestedAgentLoopInput(
 export async function setWorkflowNestedAgentLoopAppendMode(
 	executionId: string,
 	nodeId: string,
-	mode: 'steering' | 'followup',
+	mode: WorkflowNestedAppendMode,
 ): Promise<void> {
 	await call<unknown>(
 		client.POST('/api/v1/executions/{id}/agent-loops/{node_id}/append-mode', {

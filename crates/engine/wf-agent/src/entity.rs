@@ -21,6 +21,28 @@ pub enum AgentAppendMode {
     Steering,
 }
 
+impl AgentAppendMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            AgentAppendMode::Steering => "steering",
+            AgentAppendMode::Followup => "followup",
+        }
+    }
+}
+
+/// Truncation width for audit text previews, shared by the API append path
+/// and the coordinator drain path so both emit the same shape.
+pub const APPEND_PREVIEW_CHARS: usize = 120;
+
+/// One buffered runtime input. The audit source and submission time travel
+/// with the text so the drain-time event matches the append-time event.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RuntimeInput {
+    pub text: String,
+    pub source: String,
+    pub submitted_at: i64,
+}
+
 pub struct AgentLoopEntity {
     id: Id,
     /// Id of the agent definition this loop runs against (the `agent_id` of
@@ -68,9 +90,9 @@ pub struct AgentLoopEntity {
     /// Runtime append-input mode for new inputs when no explicit mode is given.
     append_mode: tokio::sync::Mutex<AgentAppendMode>,
     /// Buffered steering inputs (injected at the next iteration boundary).
-    steering_inputs: tokio::sync::Mutex<Vec<String>>,
+    steering_inputs: tokio::sync::Mutex<Vec<RuntimeInput>>,
     /// Buffered follow-up inputs (injected when the run would otherwise stop).
-    followup_inputs: tokio::sync::Mutex<Vec<String>>,
+    followup_inputs: tokio::sync::Mutex<Vec<RuntimeInput>>,
 }
 
 impl AgentLoopEntity {
@@ -602,20 +624,28 @@ impl AgentLoopEntity {
 
 impl AgentLoopEntity {
     /// Buffer a runtime append input. `mode` overrides the run's default
-    /// append mode when provided.
+    /// append mode when provided. The audit source and submission time are
+    /// stored with the text so drain-time events stay consistent.
     pub async fn append_runtime_input(
         &self,
         text: String,
         mode: Option<AgentAppendMode>,
+        source: String,
+        submitted_at: i64,
     ) -> AgentAppendMode {
         let resolved = match mode {
             Some(m) => m,
             None => *self.append_mode.lock().await,
         };
+        let input = RuntimeInput {
+            text,
+            source,
+            submitted_at,
+        };
         if resolved == AgentAppendMode::Steering {
-            self.steering_inputs.lock().await.push(text);
+            self.steering_inputs.lock().await.push(input);
         } else {
-            self.followup_inputs.lock().await.push(text);
+            self.followup_inputs.lock().await.push(input);
         }
         resolved
     }
@@ -635,12 +665,12 @@ impl AgentLoopEntity {
         followups.clear();
     }
 
-    pub async fn drain_steering_inputs(&self) -> Vec<String> {
+    pub async fn drain_steering_inputs(&self) -> Vec<RuntimeInput> {
         let mut buf = self.steering_inputs.lock().await;
         std::mem::take(&mut *buf)
     }
 
-    pub async fn drain_followup_inputs(&self) -> Vec<String> {
+    pub async fn drain_followup_inputs(&self) -> Vec<RuntimeInput> {
         let mut buf = self.followup_inputs.lock().await;
         std::mem::take(&mut *buf)
     }

@@ -22,7 +22,7 @@ pub(crate) mod normalize;
 pub mod remote;
 pub mod sse;
 
-pub use client::{ClientConfig, WfClient, DEFAULT_BASE_URL};
+pub use client::{ClientConfig, WfClient, WorkflowNestedAgentLoop, DEFAULT_BASE_URL};
 pub use error::{ClientError, ClientResult};
 pub use remote::{resolve_base_url, tunnel_base_url_from_env, SshTunnelConfig};
 pub use sse::{endpoints, SseFrame};

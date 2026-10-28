@@ -714,6 +714,12 @@ impl InteractiveController {
 
             "agent.append_mode_steering" => {
                 self.append_mode = "steering".to_string();
+                // Nested workflow targets win while attached so a mode switch
+                // never lands on the wrong execution by bare loop id.
+                if self.nested_append_enabled() {
+                    self.submit_nested_mode(None, "steering".to_string());
+                    return InteractiveAction::Continue;
+                }
                 if let Some(loop_id) = self.active_agent_loop_id.clone() {
                     let client = self.client.clone();
                     let tx = self.tx.clone();
@@ -728,13 +734,18 @@ impl InteractiveController {
                         let _ = tx.send(InteractiveEvent::Notice(notice));
                     });
                 } else {
-                    self.footer
-                        .show_notice("append mode set to steering (no active loop)");
+                    self.footer.show_notice(
+                        "append mode set to steering (no active loop; staged locally)",
+                    );
                 }
                 InteractiveAction::Continue
             }
             "agent.append_mode_followup" => {
                 self.append_mode = "followup".to_string();
+                if self.nested_append_enabled() {
+                    self.submit_nested_mode(None, "followup".to_string());
+                    return InteractiveAction::Continue;
+                }
                 if let Some(loop_id) = self.active_agent_loop_id.clone() {
                     let client = self.client.clone();
                     let tx = self.tx.clone();
@@ -749,12 +760,17 @@ impl InteractiveController {
                         let _ = tx.send(InteractiveEvent::Notice(notice));
                     });
                 } else {
-                    self.footer
-                        .show_notice("append mode set to followup (no active loop)");
+                    self.footer.show_notice(
+                        "append mode set to followup (no active loop; staged locally)",
+                    );
                 }
                 InteractiveAction::Continue
             }
             "agent.convert_pending" => {
+                if self.nested_append_enabled() {
+                    self.submit_nested_convert(None);
+                    return InteractiveAction::Continue;
+                }
                 if let Some(loop_id) = self.active_agent_loop_id.clone() {
                     let client = self.client.clone();
                     let tx = self.tx.clone();
@@ -794,86 +810,203 @@ impl InteractiveController {
             None => (trimmed, ""),
         };
 
-        // Runtime append commands for the active agent loop.
+        // Runtime append commands. Each accepts an optional leading
+        // `--node <id>` / `--node=<id>` flag addressing a nested workflow
+        // target; without the flag the selected nested target applies while
+        // attached, otherwise the active loop-only path applies. Nested
+        // failures keep the input in the local queue with a retry hint.
         match command_text {
             "/steer" => {
-                if argument.is_empty() {
-                    self.footer.show_notice("usage: /steer <text>");
+                let (node, rest) = split_node_flag(argument);
+                let text = rest.join(" ");
+                if text.trim().is_empty() {
+                    self.footer
+                        .show_notice("usage: /steer [--node <id>] <text>");
+                    return true;
+                }
+                if node.is_some() || self.nested_append_enabled() {
+                    self.submit_nested_text(node, text, Some("steering".to_string()));
                     return true;
                 }
                 if let Some(loop_id) = self.active_agent_loop_id.clone() {
                     let client = self.client.clone();
                     let tx = self.tx.clone();
-                    let text = argument.to_string();
                     tokio::spawn(async move {
                         let res = client
-                            .append_agent_loop(&loop_id, text, Some("steering".to_string()), None)
+                            .append_agent_loop(
+                                &loop_id,
+                                text.clone(),
+                                Some("steering".to_string()),
+                                None,
+                            )
                             .await;
-                        let notice = match res {
-                            Ok(_) => "steering input appended".to_string(),
-                            Err(e) => format!("append failed: {e}"),
-                        };
-                        let _ = tx.send(InteractiveEvent::Notice(notice));
+                        match res {
+                            Ok(_) => {
+                                let _ = tx.send(InteractiveEvent::Notice(
+                                    "steering input appended".to_string(),
+                                ));
+                            }
+                            Err(e) => {
+                                let _ = tx.send(InteractiveEvent::QueuePrompt(text));
+                                let _ = tx.send(InteractiveEvent::Notice(format!(
+                                    "append failed: {e}; kept in local queue (not server buffered), retry from /queued"
+                                )));
+                            }
+                        }
                     });
                     self.footer.show_notice("appending steering input...");
                 } else {
-                    self.footer.show_notice("no active agent loop");
+                    self.prompt_queue.push(text);
+                    self.footer
+                        .show_notice("no active agent loop; staged locally (not server buffered)");
                 }
                 return true;
             }
             "/followup" | "/follow-up" => {
-                if argument.is_empty() {
-                    self.footer.show_notice("usage: /followup <text>");
+                let (node, rest) = split_node_flag(argument);
+                let text = rest.join(" ");
+                if text.trim().is_empty() {
+                    self.footer
+                        .show_notice("usage: /followup [--node <id>] <text>");
+                    return true;
+                }
+                if node.is_some() || self.nested_append_enabled() {
+                    self.submit_nested_text(node, text, Some("followup".to_string()));
                     return true;
                 }
                 if let Some(loop_id) = self.active_agent_loop_id.clone() {
                     let client = self.client.clone();
                     let tx = self.tx.clone();
-                    let text = argument.to_string();
                     tokio::spawn(async move {
                         let res = client
-                            .append_agent_loop(&loop_id, text, Some("followup".to_string()), None)
+                            .append_agent_loop(
+                                &loop_id,
+                                text.clone(),
+                                Some("followup".to_string()),
+                                None,
+                            )
                             .await;
-                        let notice = match res {
-                            Ok(_) => "follow-up input appended".to_string(),
-                            Err(e) => format!("append failed: {e}"),
-                        };
-                        let _ = tx.send(InteractiveEvent::Notice(notice));
+                        match res {
+                            Ok(_) => {
+                                let _ = tx.send(InteractiveEvent::Notice(
+                                    "follow-up input appended".to_string(),
+                                ));
+                            }
+                            Err(e) => {
+                                let _ = tx.send(InteractiveEvent::QueuePrompt(text));
+                                let _ = tx.send(InteractiveEvent::Notice(format!(
+                                    "append failed: {e}; kept in local queue (not server buffered), retry from /queued"
+                                )));
+                            }
+                        }
                     });
                     self.footer.show_notice("appending follow-up input...");
                 } else {
-                    self.footer.show_notice("no active agent loop");
+                    self.prompt_queue.push(text);
+                    self.footer
+                        .show_notice("no active agent loop; staged locally (not server buffered)");
                 }
                 return true;
             }
             "/append-mode" => {
-                if argument.is_empty() {
-                    self.footer
-                        .show_notice(format!("append mode: {}", self.append_mode));
-                    return true;
+                let (node, rest) = split_node_flag(argument);
+                match rest.len() {
+                    0 if node.is_none() => {
+                        if let Some(target) = self.selected_nested_target() {
+                            self.footer.show_notice(format!(
+                                "selected {}: mode {}, server buffered steering={} followup={}, queued locally={}",
+                                target.node_id,
+                                target.append_mode.as_deref().unwrap_or("-"),
+                                target.steering_pending,
+                                target.followup_pending,
+                                self.prompt_queue.len(),
+                            ));
+                        } else if !self.nested_targets.is_empty() {
+                            self.footer.show_notice(
+                                "multiple nested targets; select one with /nested-select <node> (see /loops)",
+                            );
+                        } else {
+                            self.footer
+                                .show_notice(format!("append mode: {}", self.append_mode));
+                        }
+                        return true;
+                    }
+                    0 => {
+                        match self.resolve_nested_target(node) {
+                            Ok((_, resolved)) => {
+                                if let Some(target) = self
+                                    .nested_targets
+                                    .iter()
+                                    .find(|entry| entry.node_id == resolved)
+                                {
+                                    self.footer.show_notice(format!(
+                                        "selected {}: mode {}, server buffered steering={} followup={}, queued locally={}",
+                                        target.node_id,
+                                        target.append_mode.as_deref().unwrap_or("-"),
+                                        target.steering_pending,
+                                        target.followup_pending,
+                                        self.prompt_queue.len(),
+                                    ));
+                                } else {
+                                    self.footer
+                                        .show_notice(format!("selected nested target {resolved}"));
+                                }
+                            }
+                            Err(reason) => {
+                                self.footer.show_notice(reason);
+                            }
+                        }
+                        return true;
+                    }
+                    1 => {
+                        let mode = rest[0].clone();
+                        if mode != "steering" && mode != "followup" {
+                            self.footer.show_notice(
+                                "usage: /append-mode [--node <id>] [steering|followup]",
+                            );
+                            return true;
+                        }
+                        if node.is_some() || self.nested_append_enabled() {
+                            self.submit_nested_mode(node, mode);
+                            return true;
+                        }
+                        self.append_mode = mode.clone();
+                        if let Some(loop_id) = self.active_agent_loop_id.clone() {
+                            let client = self.client.clone();
+                            let tx = self.tx.clone();
+                            tokio::spawn(async move {
+                                let res = client.set_agent_loop_append_mode(&loop_id, &mode).await;
+                                let notice = match res {
+                                    Ok(_) => format!("append mode set to {mode}"),
+                                    Err(e) => format!("set mode failed: {e}"),
+                                };
+                                let _ = tx.send(InteractiveEvent::Notice(notice));
+                            });
+                        } else {
+                            self.footer.show_notice(format!(
+                                "append mode set to {mode} (no active loop; staged locally)"
+                            ));
+                        }
+                        return true;
+                    }
+                    _ => {
+                        self.footer
+                            .show_notice("usage: /append-mode [--node <id>] [steering|followup]");
+                        return true;
+                    }
                 }
-                if argument != "steering" && argument != "followup" {
-                    self.footer
-                        .show_notice("usage: /append-mode [steering|followup]");
-                    return true;
-                }
-                self.append_mode = argument.to_string();
-                if let Some(loop_id) = self.active_agent_loop_id.clone() {
-                    let client = self.client.clone();
-                    let tx = self.tx.clone();
-                    let mode = self.append_mode.clone();
-                    tokio::spawn(async move {
-                        let res = client.set_agent_loop_append_mode(&loop_id, &mode).await;
-                        let notice = match res {
-                            Ok(_) => format!("append mode set to {mode}"),
-                            Err(e) => format!("set mode failed: {e}"),
-                        };
-                        let _ = tx.send(InteractiveEvent::Notice(notice));
-                    });
-                }
-                return true;
             }
             "/convert-pending" | "/steer-pending" => {
+                let (node, rest) = split_node_flag(argument);
+                if !rest.is_empty() {
+                    self.footer
+                        .show_notice("usage: /convert-pending [--node <id>]");
+                    return true;
+                }
+                if node.is_some() || self.nested_append_enabled() {
+                    self.submit_nested_convert(node);
+                    return true;
+                }
                 if let Some(loop_id) = self.active_agent_loop_id.clone() {
                     let client = self.client.clone();
                     let tx = self.tx.clone();
@@ -889,6 +1022,31 @@ impl InteractiveController {
                 } else {
                     self.footer.show_notice("no active agent loop");
                 }
+                return true;
+            }
+            "/loops" | "/agent-loops" => {
+                let tokens: Vec<&str> = argument.split_whitespace().collect();
+                match tokens.len() {
+                    0 => {
+                        self.request_nested_targets(None);
+                    }
+                    1 => {
+                        self.request_nested_targets(Some(tokens[0].to_string()));
+                    }
+                    _ => {
+                        self.footer.show_notice("usage: /loops [execution-id]");
+                    }
+                }
+                return true;
+            }
+            "/nested-select" | "/select-loop" => {
+                let tokens: Vec<&str> = argument.split_whitespace().collect();
+                if tokens.len() != 1 {
+                    self.footer
+                        .show_notice("usage: /nested-select <node-id|number>");
+                    return true;
+                }
+                self.select_nested_target(tokens[0]);
                 return true;
             }
             _ => {}
@@ -1782,6 +1940,34 @@ fn encode_query(query: &str) -> String {
         }
     }
     out
+}
+
+/// Split an optional leading `--node <id>` / `--node=<id>` flag from slash
+/// arguments. The flag selects a nested workflow node explicitly; its
+/// absence means the selected nested target (or the loop-only path) applies.
+fn split_node_flag(argument: &str) -> (Option<String>, Vec<String>) {
+    let mut tokens: Vec<String> = argument.split_whitespace().map(str::to_string).collect();
+    let node = if tokens.first().map(String::as_str) == Some("--node") {
+        tokens.remove(0);
+        if tokens.is_empty() {
+            return (None, Vec::new());
+        }
+        Some(tokens.remove(0))
+    } else if let Some(id) = tokens
+        .first()
+        .and_then(|first| first.strip_prefix("--node="))
+        .map(str::to_string)
+    {
+        tokens.remove(0);
+        if id.trim().is_empty() {
+            None
+        } else {
+            Some(id)
+        }
+    } else {
+        None
+    };
+    (node, tokens)
 }
 
 /// Visible rows of a reply, folding long lines to the terminal width.

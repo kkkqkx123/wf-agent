@@ -283,9 +283,7 @@ impl ApiContext {
 
     /// The default handler set wired with this context's sandbox, file
     /// checkpoint manager and agent loop registry.
-    fn build_default_handlers(
-        &self,
-    ) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
+    fn build_default_handlers(&self) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
         wf_workflow::create_default_handlers_with(
             self.llm_gateway.clone(),
             Some(self.sandbox.clone()),

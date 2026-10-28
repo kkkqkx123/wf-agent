@@ -18,7 +18,7 @@ use utoipa::{IntoParams, ToSchema};
 use wf_api::WorkflowExecutionListOptions;
 
 use crate::envelope::{error_response, ok};
-use crate::extract::IdPath;
+use crate::extract::{IdNodePath, IdPath};
 use crate::paged::{fetch_size, ok_page, resolve_page_fields};
 use crate::router::ApiState;
 use crate::sse::{execution_frames, sse_response};
@@ -48,6 +48,23 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/executions/{id}/status", get(handle_status))
         // ── execution trigger history (ledger view) ──
         .route("/executions/{id}/triggers", get(handle_trigger_history))
+        // ── nested agent loops ──
+        .route(
+            "/executions/{id}/agent-loops",
+            get(handle_list_workflow_agent_loops),
+        )
+        .route(
+            "/executions/{id}/agent-loops/{node_id}/append",
+            post(handle_append_workflow_agent_loop),
+        )
+        .route(
+            "/executions/{id}/agent-loops/{node_id}/append-mode",
+            post(handle_set_workflow_agent_loop_append_mode),
+        )
+        .route(
+            "/executions/{id}/agent-loops/{node_id}/convert-pending",
+            post(handle_convert_workflow_agent_loop_pending),
+        )
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -580,6 +597,105 @@ pub(crate) async fn handle_trigger_history(
                 .collect();
             ok_page(window, limit, offset).into_response()
         }
+        Err(e) => error_response(e),
+    }
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct WorkflowAgentLoopAppendBody {
+    pub text: String,
+    #[serde(default)]
+    pub as_mode: Option<String>,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct WorkflowAgentLoopAppendModeBody {
+    pub mode: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/executions/{id}/agent-loops",
+    tag = "workflow",
+    params(IdPath),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_list_workflow_agent_loops(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::workflow::list_agent_loops(&state.ctx, &path.id).await {
+        Ok(loops) => ok(loops).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/executions/{id}/agent-loops/{node_id}/append",
+    tag = "workflow",
+    params(IdNodePath),
+    request_body = WorkflowAgentLoopAppendBody,
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_append_workflow_agent_loop(
+    State(state): State<ApiState>,
+    Path(path): Path<IdNodePath>,
+    Json(body): Json<WorkflowAgentLoopAppendBody>,
+) -> impl IntoResponse {
+    match wf_api::workflow::append_to_agent_loop(
+        &state.ctx,
+        &path.id,
+        &path.node_id,
+        body.text,
+        body.as_mode.as_deref(),
+    )
+    .await
+    {
+        Ok(()) => ok(serde_json::json!({})).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/executions/{id}/agent-loops/{node_id}/append-mode",
+    tag = "workflow",
+    params(IdNodePath),
+    request_body = WorkflowAgentLoopAppendModeBody,
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_set_workflow_agent_loop_append_mode(
+    State(state): State<ApiState>,
+    Path(path): Path<IdNodePath>,
+    Json(body): Json<WorkflowAgentLoopAppendModeBody>,
+) -> impl IntoResponse {
+    match wf_api::workflow::set_agent_loop_append_mode(&state.ctx, &path.id, &path.node_id, &body.mode)
+        .await
+    {
+        Ok(()) => ok(serde_json::json!({})).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/executions/{id}/agent-loops/{node_id}/convert-pending",
+    tag = "workflow",
+    params(IdNodePath),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_convert_workflow_agent_loop_pending(
+    State(state): State<ApiState>,
+    Path(path): Path<IdNodePath>,
+) -> impl IntoResponse {
+    match wf_api::workflow::convert_pending_to_steering(&state.ctx, &path.id, &path.node_id).await
+    {
+        Ok(()) => ok(serde_json::json!({})).into_response(),
         Err(e) => error_response(e),
     }
 }

@@ -61,6 +61,10 @@ pub struct ExecutorContext {
     /// Typed signal bus for internal workflow/agent signals
     /// (replaces the `__`-prefixed variable protocol).
     pub signal_bus: Option<Arc<InternalSignalBus>>,
+    /// Agent loop registry handle (stored as `Any` to avoid a reverse
+    /// dependency on `wf-agent`); downcast to the concrete registry by
+    /// consumers that need capacity-aware registration.
+    pub agent_loop_registry: Option<Arc<dyn std::any::Any + Send + Sync>>,
 }
 
 impl ExecutorContext {
@@ -90,6 +94,7 @@ impl ExecutorContext {
             readonly_variables: None,
             fork_registries: Arc::new(std::collections::HashMap::new()),
             signal_bus: None,
+            agent_loop_registry: None,
         }
     }
 
@@ -200,6 +205,16 @@ impl ExecutorContext {
         self
     }
 
+    /// Inject the agent loop registry (stored as `Any` to keep the shared
+    /// layer free of a `wf-agent` dependency).
+    pub fn with_agent_loop_registry(
+        mut self,
+        registry: Arc<dyn std::any::Any + Send + Sync>,
+    ) -> Self {
+        self.agent_loop_registry = Some(registry);
+        self
+    }
+
     /// Inherit the parent's checkpoint wiring; spawned child executions
     /// build their own depth-adjusted integration from it.
     pub fn with_checkpoint_scope(
@@ -306,6 +321,9 @@ pub struct NodeExecutionContext {
     /// Typed signal bus for internal workflow/agent signals
     /// (replaces the `__`-prefixed variable protocol).
     pub signal_bus: Option<Arc<InternalSignalBus>>,
+    /// Agent loop registry handle (stored as `Any`), propagated from the
+    /// owning execution.
+    pub agent_loop_registry: Option<Arc<dyn std::any::Any + Send + Sync>>,
     /// Session-level cache shared across the trigger actions of one message
     /// node visit. Not persisted or checkpointed; `None` for non-message
     /// nodes.
@@ -365,6 +383,7 @@ impl NodeExecutionContext {
             readonly_variables: None,
             fork_registries: Arc::new(std::collections::HashMap::new()),
             signal_bus: None,
+            agent_loop_registry: None,
             session_cache: None,
             parent_node_timeout_ms: None,
             parent_max_execution_time_ms: None,
@@ -503,6 +522,15 @@ impl NodeExecutionContext {
     /// Inject a typed signal bus for internal workflow/agent signals.
     pub fn with_signal_bus(mut self, bus: Arc<InternalSignalBus>) -> Self {
         self.signal_bus = Some(bus);
+        self
+    }
+
+    /// Inject the agent loop registry (stored as `Any`).
+    pub fn with_agent_loop_registry(
+        mut self,
+        registry: Arc<dyn std::any::Any + Send + Sync>,
+    ) -> Self {
+        self.agent_loop_registry = Some(registry);
         self
     }
 

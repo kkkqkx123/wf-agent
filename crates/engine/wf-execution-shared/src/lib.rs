@@ -1,3 +1,4 @@
+pub mod agent_loop_control;
 pub mod agent_prompt;
 pub mod approval;
 pub mod chat;
@@ -26,6 +27,9 @@ pub mod token_events;
 pub mod token_tracker;
 pub mod types;
 
+pub use agent_loop_control::{
+    AgentAppendMode, AgentLoopControl, AgentLoopRegistryHandle,
+};
 pub use approval::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
 pub use chat::{ChatSession, ChatTemplate};
 pub use checkpoint_scope::CheckpointScope;

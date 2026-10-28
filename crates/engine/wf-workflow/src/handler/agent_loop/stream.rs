@@ -16,6 +16,7 @@ use crate::error::WorkflowResult;
 pub(crate) async fn run_streaming(
     mut stream: AgentEventStream,
     ctx: &NodeExecutionContext,
+    agent_loop_id: wf_types::Id,
 ) -> WorkflowResult<NodeExecutionResult> {
     let mut final_result = Value::Null;
     let mut iterations = 0u32;
@@ -59,7 +60,7 @@ pub(crate) async fn run_streaming(
                 timestamp: wf_common::now(),
                 workflow_id: Some(ctx.execution_id.clone()),
                 execution_id: Some(ctx.execution_id.clone()),
-                agent_loop_id: Some(ctx.node_id.clone()),
+                agent_loop_id: Some(agent_loop_id.to_string()),
                 event_name: None,
                 metadata: serde_json::to_value(&event).ok().and_then(|v| {
                     v.as_object()
@@ -103,6 +104,10 @@ pub(crate) async fn run_streaming(
         Value::Number(iterations.into()),
     );
     metadata.insert("node_id".to_string(), Value::String(ctx.node_id.clone()));
+    metadata.insert(
+        "agent_loop_id".to_string(),
+        Value::String(agent_loop_id.to_string()),
+    );
     Ok(NodeExecutionResult {
         output: final_result,
         next_node_ids: Vec::new(),

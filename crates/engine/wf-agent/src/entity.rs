@@ -15,11 +15,7 @@ use crate::state::AgentLoopState;
 use crate::timeout::{AgentTimeoutManager, TimeoutHandle};
 
 /// Where a runtime append input is buffered by default.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AgentAppendMode {
-    Followup,
-    Steering,
-}
+pub type AgentAppendMode = wf_execution_shared::agent_loop_control::AgentAppendMode;
 
 pub struct AgentLoopEntity {
     id: Id,
@@ -655,6 +651,62 @@ impl AgentLoopEntity {
 impl wf_execution_shared::execution_loop::HasInterruption for AgentLoopEntity {
     fn interruption(&self) -> &InterruptionState {
         &self.interruption
+    }
+}
+
+#[async_trait::async_trait]
+impl wf_execution_shared::agent_loop_control::AgentLoopControl for AgentLoopEntity {
+    fn agent_loop_id(&self) -> wf_types::Id {
+        self.id().clone()
+    }
+
+    fn status(&self) -> wf_execution_shared::types::execution_entity::ExecutionStatus {
+        <Self as wf_execution_shared::types::execution_entity::ExecutionEntity>::status(self)
+    }
+
+    fn is_terminal(&self) -> bool {
+        <Self as wf_execution_shared::types::execution_entity::ExecutionEntity>::status(self)
+            .is_terminal()
+    }
+
+    fn parent_execution_id(&self) -> Option<wf_types::Id> {
+        self.parent_execution_id()
+    }
+
+    fn hierarchy_manager(&self) -> Option<std::sync::Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>> {
+        Some(self.hierarchy_manager())
+    }
+
+    async fn append_runtime_input(
+        &self,
+        text: String,
+        mode: Option<wf_execution_shared::agent_loop_control::AgentAppendMode>,
+    ) -> wf_execution_shared::agent_loop_control::AgentAppendMode {
+        self.append_runtime_input(text, mode).await
+    }
+
+    async fn set_append_mode(&self, mode: wf_execution_shared::agent_loop_control::AgentAppendMode) {
+        self.set_append_mode(mode).await
+    }
+
+    async fn append_mode(&self) -> wf_execution_shared::agent_loop_control::AgentAppendMode {
+        self.append_mode().await
+    }
+
+    async fn convert_pending_to_steering(&self) {
+        self.convert_pending_to_steering().await
+    }
+
+    async fn pending_append_counts(&self) -> (usize, usize) {
+        self.pending_append_counts().await
+    }
+
+    async fn register_child(&self, child_id: wf_types::Id) {
+        self.register_child(child_id).await
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 

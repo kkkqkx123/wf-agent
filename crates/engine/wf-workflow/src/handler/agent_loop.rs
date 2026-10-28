@@ -75,7 +75,26 @@ impl AgentLoopHandler {
             settings.enable_general_tool,
         );
 
-        let coordinator = coordinator::build_coordinator(self.gateway.clone(), ctx, agent_config);
+        let mut coordinator = coordinator::build_coordinator(self.gateway.clone(), ctx, agent_config);
+        let agent_loop_id = wf_types::Id::from(format!(
+            "{}:{}",
+            ctx.node_id,
+            wf_common::generate_id()
+        ));
+        coordinator = coordinator.with_agent_loop_id(agent_loop_id.clone());
+
+        // Record the node -> agent loop id mapping for later addressing.
+        let mut mapping = ctx
+            .variables
+            .get("__agent_loop_ids")
+            .and_then(|entry| entry.value().as_object().cloned())
+            .unwrap_or_default();
+        mapping.insert(
+            ctx.node_id.clone(),
+            serde_json::Value::String(agent_loop_id.to_string()),
+        );
+        ctx.variables
+            .insert("__agent_loop_ids".to_string(), serde_json::Value::Object(mapping));
 
         // Loop-boundary history normalization: upstream archives carry
         // upstream bucket shapes; rewrite once to this loop's target
@@ -151,7 +170,7 @@ impl AgentLoopHandler {
 
         if settings.stream_enabled {
             let stream = coordinator.execute_stream(loop_config, loop_input).await;
-            return stream::run_streaming(stream, ctx).await;
+            return stream::run_streaming(stream, ctx, agent_loop_id.clone()).await;
         }
 
         match coordinator.execute(loop_config, loop_input).await {
@@ -166,6 +185,10 @@ impl AgentLoopHandler {
                 metadata.insert(
                     "node_id".to_string(),
                     serde_json::Value::String(ctx.node_id.clone()),
+                );
+                metadata.insert(
+                    "agent_loop_id".to_string(),
+                    serde_json::Value::String(agent_loop_id.to_string()),
                 );
                 metadata.insert(
                     "message_count".to_string(),

@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use wf_agent::checkpoint::AgentCheckpointStrategy;
 use wf_agent::coordinator::lifecycle::AgentLoopCoordinator;
+use wf_agent::registry::AgentLoopRegistry;
 use wf_agent::VariableBackedVisibilityStore;
 use wf_execution_shared::context::NodeExecutionContext;
 use wf_llm::LlmGateway;
@@ -24,6 +25,13 @@ pub(crate) fn build_coordinator(
         .with_parent_execution_id(Some(ctx.execution_id.clone()));
     if let Some(manager) = ctx.hierarchy_manager.clone() {
         coordinator = coordinator.with_parent_hierarchy_manager(manager);
+    }
+    if let Some(registry) = ctx
+        .agent_loop_registry
+        .as_ref()
+        .and_then(|r| r.clone().downcast::<AgentLoopRegistry>().ok())
+    {
+        coordinator = coordinator.with_entity_registry(registry);
     }
     if let Some(ref bus) = ctx.event_bus {
         coordinator = coordinator.with_event_bus(bus.clone());

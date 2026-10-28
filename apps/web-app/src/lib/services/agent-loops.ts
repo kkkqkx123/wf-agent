@@ -366,6 +366,63 @@ export async function convertPendingToSteering(id: string): Promise<void> {
 	);
 }
 
+export interface WorkflowNestedAgentLoop {
+	nodeId: string;
+	agentLoopId: string;
+	status: string;
+	steeringPending: number;
+	followupPending: number;
+	appendMode: string;
+}
+
+export async function listWorkflowNestedAgentLoops(executionId: string): Promise<WorkflowNestedAgentLoop[]> {
+	const res = await call<{ data?: unknown }>(
+		client.GET('/api/v1/executions/{id}/agent-loops', {
+			params: { path: { id: executionId } },
+		}),
+	);
+	const data = (res as { data?: unknown })?.data ?? res;
+	return Array.isArray(data) ? (data as WorkflowNestedAgentLoop[]) : [];
+}
+
+export async function appendWorkflowNestedAgentLoopInput(
+	executionId: string,
+	nodeId: string,
+	text: string,
+	asMode?: 'steering' | 'followup',
+): Promise<void> {
+	await call<unknown>(
+		client.POST('/api/v1/executions/{id}/agent-loops/{node_id}/append', {
+			params: { path: { id: executionId, node_id: nodeId } },
+			body: { text, as_mode: asMode ?? null },
+		}),
+	);
+}
+
+export async function setWorkflowNestedAgentLoopAppendMode(
+	executionId: string,
+	nodeId: string,
+	mode: 'steering' | 'followup',
+): Promise<void> {
+	await call<unknown>(
+		client.POST('/api/v1/executions/{id}/agent-loops/{node_id}/append-mode', {
+			params: { path: { id: executionId, node_id: nodeId } },
+			body: { mode },
+		}),
+	);
+}
+
+export async function convertWorkflowNestedAgentLoopPending(
+	executionId: string,
+	nodeId: string,
+): Promise<void> {
+	await call<unknown>(
+		client.POST('/api/v1/executions/{id}/agent-loops/{node_id}/convert-pending', {
+			params: { path: { id: executionId, node_id: nodeId } },
+		}),
+	);
+}
+
 export interface LoopErrorRecord {
 	id: string;
 	error: string;

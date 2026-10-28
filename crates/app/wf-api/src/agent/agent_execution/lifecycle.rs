@@ -164,7 +164,32 @@ pub async fn append(
         }
         None => None,
     };
-    entity.append_runtime_input(text, mode).await;
+    let resolved = entity.append_runtime_input(text.clone(), mode).await;
+    let bus = ctx.event_bus.clone();
+    let preview: String = text.chars().take(120).collect();
+    let event = wf_types::events::BaseEvent {
+        id: wf_common::generate_id(),
+        r#type: wf_types::events::EventType::AgentSteeringInjected,
+        timestamp: wf_common::now(),
+        workflow_id: None,
+        execution_id: Some(wf_types::Id::from(agent_loop_id.to_string())),
+        agent_loop_id: Some(wf_types::Id::from(agent_loop_id.to_string())),
+        event_name: None,
+        metadata: Some({
+            let mut m = std::collections::HashMap::new();
+            m.insert(
+                "mode".to_string(),
+                serde_json::Value::String(format!("{:?}", resolved).to_lowercase()),
+            );
+            m.insert("text_preview".to_string(), serde_json::Value::String(preview));
+            m.insert(
+                "source_type".to_string(),
+                serde_json::Value::String("api".to_string()),
+            );
+            m
+        }),
+    };
+    let _ = bus.publish_logged(event, "agent-append");
     Ok(())
 }
 

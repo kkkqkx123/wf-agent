@@ -351,7 +351,8 @@ pub async fn resume(
         ctx.tool_registry.clone(),
         options,
     )
-    .with_resource_registries(ctx.registries.clone());
+    .with_resource_registries(ctx.registries.clone())
+    .with_agent_loop_registry(ctx.agent_loops.clone());
     if let Some(manager) = entity.hierarchy_manager() {
         exec_ctx = exec_ctx.with_hierarchy_manager(manager);
     }
@@ -554,7 +555,8 @@ async fn run_workflow(
         ctx.tool_registry.clone(),
         options,
     )
-    .with_resource_registries(ctx.registries.clone());
+    .with_resource_registries(ctx.registries.clone())
+    .with_agent_loop_registry(ctx.agent_loops.clone());
     if let Some(manager) = entity.hierarchy_manager() {
         exec_ctx = exec_ctx.with_hierarchy_manager(manager);
     }

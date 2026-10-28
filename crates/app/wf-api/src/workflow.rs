@@ -1,6 +1,7 @@
 //! Workflow domain APIs: definitions, builders, composition, execution,
 //! iteration, execution graph/state analysis, approvals and checkpointing.
 
+pub mod agent_loops;
 pub mod approval;
 pub mod builder;
 pub mod composition;
@@ -23,6 +24,8 @@ pub mod version;
 pub mod versioning;
 pub mod workflow_execution;
 pub mod workflow_iteration;
+
+pub use agent_loops::*;
 
 pub use definition::{
     carry_metadata, clone_workflow, delete_workflow, derive_workflow_from_template, get_workflow,

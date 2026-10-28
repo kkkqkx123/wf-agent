@@ -55,6 +55,8 @@ pub(super) struct ExecutionAttempt<'a> {
     pub result: Option<Value>,
     /// Fork/join branch the node ran under (audit detail).
     pub branch_id: Option<String>,
+    /// Handler-reported metadata (agent loop id, iteration count).
+    pub metadata: Option<Value>,
 }
 
 impl WorkflowCoordinator {
@@ -109,6 +111,7 @@ impl WorkflowCoordinator {
                     .as_ref()
                     .map(wf_types::checkpoint::workflow::cap_node_payload),
                 branch_id: attempt.branch_id,
+                metadata: attempt.metadata,
             });
     }
 
@@ -264,10 +267,6 @@ impl WorkflowCoordinator {
         self.record_loop_iteration_completion(node_id)?;
         entity.set_node_result(node_id.to_string(), output.output.clone());
 
-        for (k, v) in &output.metadata {
-            self.ctx.variables.insert(k.clone(), v.clone());
-        }
-
         entity
             .state
             .write()
@@ -285,6 +284,21 @@ impl WorkflowCoordinator {
                 input: Some(node_ctx.input.clone()),
                 result: Some(output.output.clone()),
                 branch_id: None,
+                metadata: if output.metadata.is_empty() {
+                    None
+                } else {
+                    let capped: std::collections::HashMap<String, Value> = output
+                        .metadata
+                        .iter()
+                        .map(|(k, v)| {
+                            (
+                                k.clone(),
+                                wf_execution_shared::context::cap_metadata_value(v),
+                            )
+                        })
+                        .collect();
+                    Some(wf_execution_shared::context::metadata_map_to_value(&capped))
+                },
             },
         )
         .await;
@@ -370,6 +384,7 @@ impl WorkflowCoordinator {
                 input: Some(node_ctx.input.clone()),
                 result: None,
                 branch_id: None,
+                metadata: None,
             },
         )
         .await;

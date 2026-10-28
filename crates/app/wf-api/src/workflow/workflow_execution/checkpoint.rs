@@ -181,7 +181,10 @@ pub async fn restore_checkpoint(
             .iter()
             .map(|record| wf_workflow::state::NodeExecutionRecord {
                 node_id: record.node_id.clone(),
-                node_name: record.node_id.clone(),
+                node_name: record
+                    .node_name
+                    .clone()
+                    .unwrap_or_else(|| record.node_id.clone()),
                 node_type: record.node_type.clone(),
                 start_time: record.started_at,
                 end_time: record.completed_at,
@@ -190,6 +193,7 @@ pub async fn restore_checkpoint(
                 input: record.input.clone(),
                 result: record.result.clone(),
                 branch_id: record.branch_id.clone(),
+                metadata: record.metadata.clone(),
             })
             .collect();
         entity
@@ -445,6 +449,7 @@ fn snapshot_node_records(
             .map(
                 |record| wf_types::checkpoint::workflow::NodeExecutionRecord {
                     node_id: record.node_id.clone(),
+                    node_name: Some(record.node_name.clone()),
                     node_type: record.node_type.clone(),
                     input: record.input.clone(),
                     result: record.result.clone(),
@@ -456,6 +461,7 @@ fn snapshot_node_records(
                         .map(|end| end - record.start_time)
                         .unwrap_or(0),
                     branch_id: record.branch_id.clone(),
+                    metadata: record.metadata.clone(),
                 },
             )
             .collect(),

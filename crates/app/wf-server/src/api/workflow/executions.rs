@@ -18,7 +18,7 @@ use utoipa::{IntoParams, ToSchema};
 use wf_api::WorkflowExecutionListOptions;
 
 use crate::envelope::{error_response, ok};
-use crate::extract::{IdNodePath, IdPath};
+use crate::extract::{IdSnakeNodePath, IdPath};
 use crate::paged::{fetch_size, ok_page, resolve_page_fields};
 use crate::router::ApiState;
 use crate::sse::{execution_frames, sse_response};
@@ -606,6 +606,8 @@ pub struct WorkflowAgentLoopAppendBody {
     pub text: String,
     #[serde(default)]
     pub as_mode: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -635,14 +637,14 @@ pub(crate) async fn handle_list_workflow_agent_loops(
     post,
     path = "/api/v1/executions/{id}/agent-loops/{node_id}/append",
     tag = "workflow",
-    params(IdNodePath),
+    params(IdSnakeNodePath),
     request_body = WorkflowAgentLoopAppendBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_append_workflow_agent_loop(
     State(state): State<ApiState>,
-    Path(path): Path<IdNodePath>,
+    Path(path): Path<IdSnakeNodePath>,
     Json(body): Json<WorkflowAgentLoopAppendBody>,
 ) -> impl IntoResponse {
     match wf_api::workflow::append_to_agent_loop(
@@ -651,6 +653,7 @@ pub(crate) async fn handle_append_workflow_agent_loop(
         &path.node_id,
         body.text,
         body.as_mode.as_deref(),
+        body.source.as_deref(),
     )
     .await
     {
@@ -663,14 +666,14 @@ pub(crate) async fn handle_append_workflow_agent_loop(
     post,
     path = "/api/v1/executions/{id}/agent-loops/{node_id}/append-mode",
     tag = "workflow",
-    params(IdNodePath),
+    params(IdSnakeNodePath),
     request_body = WorkflowAgentLoopAppendModeBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_set_workflow_agent_loop_append_mode(
     State(state): State<ApiState>,
-    Path(path): Path<IdNodePath>,
+    Path(path): Path<IdSnakeNodePath>,
     Json(body): Json<WorkflowAgentLoopAppendModeBody>,
 ) -> impl IntoResponse {
     match wf_api::workflow::set_agent_loop_append_mode(&state.ctx, &path.id, &path.node_id, &body.mode)
@@ -685,13 +688,13 @@ pub(crate) async fn handle_set_workflow_agent_loop_append_mode(
     post,
     path = "/api/v1/executions/{id}/agent-loops/{node_id}/convert-pending",
     tag = "workflow",
-    params(IdNodePath),
+    params(IdSnakeNodePath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_convert_workflow_agent_loop_pending(
     State(state): State<ApiState>,
-    Path(path): Path<IdNodePath>,
+    Path(path): Path<IdSnakeNodePath>,
 ) -> impl IntoResponse {
     match wf_api::workflow::convert_pending_to_steering(&state.ctx, &path.id, &path.node_id).await
     {
@@ -796,9 +799,6 @@ mod tests {
         for uri in [
             "/api/v1/executions/missing/context-transitions",
             "/api/v1/executions/missing/context-snapshots",
-            "/api/v1/executions/missing/agent-state",
-            "/api/v1/executions/missing/agent-iterations",
-            "/api/v1/executions/missing/agent-variables",
             "/api/v1/executions/missing/nodes/by-type/llm",
             "/api/v1/executions/missing/llm-reasoning-path/node-1",
             "/api/v1/executions/missing/nodes/node-1/input-context",

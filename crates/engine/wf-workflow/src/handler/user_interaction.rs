@@ -262,14 +262,17 @@ impl UserInteractionHandler {
         };
 
         let mut metadata = HashMap::new();
-        metadata.insert(
-            "operation_type".to_string(),
-            Value::String(interaction_type.to_string()),
-        );
-        metadata.insert("responded".to_string(), Value::Bool(responded));
-        metadata.insert("approved".to_string(), Value::Bool(approved));
-        if let Some(id) = &interaction_id {
-            metadata.insert("interaction_id".to_string(), Value::String(id.clone()));
+        {
+            use wf_execution_shared::context::node_metadata as keys;
+            metadata.insert(
+                keys::OPERATION_TYPE.to_string(),
+                Value::String(interaction_type.to_string()),
+            );
+            metadata.insert(keys::RESPONDED.to_string(), Value::Bool(responded));
+            metadata.insert(keys::APPROVED.to_string(), Value::Bool(approved));
+            if let Some(id) = &interaction_id {
+                metadata.insert(keys::INTERACTION_ID.to_string(), Value::String(id.clone()));
+            }
         }
 
         let output = response.unwrap_or(Value::Null);

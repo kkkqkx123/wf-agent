@@ -162,7 +162,7 @@ impl JoinHandler {
 
         let mut metadata = HashMap::new();
         metadata.insert(
-            "failed_branches".to_string(),
+            wf_execution_shared::context::node_metadata::FAILED_BRANCHES.to_string(),
             Value::Array(
                 failed_records
                     .iter()

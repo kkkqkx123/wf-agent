@@ -5,7 +5,6 @@ use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::context::StorageContext;
 use wf_types::ExecutionStatus;
 
-use super::agent::agent_execution_get_state;
 use super::context::{
     workflow_execution_analyze_state_transitions, workflow_execution_get_call_stack,
     workflow_execution_get_context_evolution, workflow_execution_get_context_transitions,
@@ -110,43 +109,6 @@ async fn live_workflow_entity_supplies_full_state() {
 }
 
 #[tokio::test]
-async fn agent_state_from_live_entity() {
-    use wf_agent::entity::AgentLoopEntity;
-
-    let ctx = make_ctx();
-    let entity = Arc::new(AgentLoopEntity::new(wf_types::Id::from(
-        "agent-live".to_string(),
-    )));
-    entity.state.write().await.start().unwrap();
-    entity.state.write().await.start_iteration();
-    let _ = ctx.agent_loops.register(entity.clone());
-
-    let view = agent_execution_get_state(&ctx, "agent-live").await.unwrap();
-    assert_eq!(view.source, "live");
-    assert_eq!(view.current_iteration, 1);
-    assert_eq!(view.status, ExecutionStatus::Running);
-}
-
-#[tokio::test]
-async fn agent_state_degrades_to_persisted() {
-    let ctx = make_ctx();
-    let meta = wf_types::AgentLoopStorageMetadata {
-        id: "agent-p".into(),
-        definition_id: "agent-def".into(),
-        status: "completed".into(),
-        current_iteration: 3,
-        started_at: wf_common::now(),
-        updated_at: wf_common::now(),
-    };
-    ctx.storage.agent_loop.save(&meta).await.unwrap();
-
-    let view = agent_execution_get_state(&ctx, "agent-p").await.unwrap();
-    assert_eq!(view.source, "persisted");
-    assert_eq!(view.current_iteration, 3);
-    assert_eq!(view.status, ExecutionStatus::Completed);
-}
-
-#[tokio::test]
 async fn execution_context_call_stack_and_memory() {
     use wf_core::registry::MutableRegistry;
     use wf_workflow::entity::WorkflowExecutionEntity;
@@ -173,6 +135,7 @@ async fn execution_context_call_stack_and_memory() {
             input: None,
             result: None,
             branch_id: None,
+            metadata: None,
         });
         state.record_node_execution(NodeExecutionRecord {
             node_id: "n2".into(),
@@ -185,6 +148,7 @@ async fn execution_context_call_stack_and_memory() {
             input: None,
             result: None,
             branch_id: None,
+            metadata: None,
         });
         state.mark_node_completed("n1".into());
         state.set_current_node(Some("n2".into()));
@@ -245,6 +209,7 @@ async fn variable_snapshots_and_context_evolution() {
             input: None,
             result: None,
             branch_id: None,
+            metadata: None,
         });
         state.record_node_execution(NodeExecutionRecord {
             node_id: "b".into(),
@@ -257,6 +222,7 @@ async fn variable_snapshots_and_context_evolution() {
             input: None,
             result: None,
             branch_id: None,
+            metadata: None,
         });
         state.mark_node_completed("a".into());
         state.mark_node_completed("b".into());
@@ -394,6 +360,7 @@ async fn context_transition_queries_and_node_input_context() {
             input: None,
             result: None,
             branch_id: None,
+            metadata: None,
         });
         state.record_node_execution(NodeExecutionRecord {
             node_id: "b".into(),
@@ -406,6 +373,7 @@ async fn context_transition_queries_and_node_input_context() {
             input: None,
             result: None,
             branch_id: None,
+            metadata: None,
         });
         state.mark_node_completed("a".into());
         state.mark_node_completed("b".into());

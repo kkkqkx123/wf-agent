@@ -22,6 +22,7 @@ interface NodeTraceDto {
 	retry_count?: number;
 	error?: string | null;
 	tool_dependencies?: Array<{ tool_name?: string; call_count?: number }>;
+	metadata?: unknown;
 }
 
 interface NodeInputContextDto {
@@ -94,6 +95,7 @@ export function toNodeTrace(row: NodeTraceDto): NodeTrace | null {
 		retryCount: row.retry_count ?? 0,
 		error: row.error ?? null,
 		toolDependencies: dependencies,
+		metadata: row.metadata ?? null,
 	};
 }
 

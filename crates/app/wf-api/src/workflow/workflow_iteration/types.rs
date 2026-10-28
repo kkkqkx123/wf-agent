@@ -51,6 +51,8 @@ pub struct ExtendedNodeExecutionRecordView {
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tool_dependencies: Vec<ToolDependencyView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
 }
 
 /// Filter over extended node execution records.
@@ -116,4 +118,5 @@ pub struct RawNodeAttempt {
     pub error: Option<String>,
     pub input: Option<Value>,
     pub output: Option<Value>,
+    pub metadata: Option<Value>,
 }

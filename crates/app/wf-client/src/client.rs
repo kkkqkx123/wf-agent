@@ -324,8 +324,9 @@ impl WfClient {
         id: &str,
         text: String,
         as_mode: Option<String>,
+        source: Option<String>,
     ) -> ClientResult<serde_json::Value> {
-        let body = generated::types::AppendAgentLoopBody { text, as_mode };
+        let body = generated::types::AppendAgentLoopBody { text, as_mode, source };
         let envelope = self
             .generated
             .handle_append_loop(id, &body)
@@ -351,7 +352,7 @@ impl WfClient {
         unwrap_generated_envelope(envelope.into_inner())
     }
 
-    /// Typed convert pending to steering (`POST /api/v1/agent-loops/{id}/convert-pending-to-steering`).
+    /// Typed convert pending to steering (`POST /api/v1/agent-loops/{id}/convert-pending`).
     pub async fn convert_pending_to_steering(&self, id: &str) -> ClientResult<serde_json::Value> {
         let envelope = self
             .generated

@@ -402,25 +402,34 @@ impl InteractiveScriptHandler {
         ctx.set_internal_variable("__interaction_output__", parsed_output.clone());
 
         let mut metadata = std::collections::HashMap::new();
-        metadata.insert("language".to_string(), Value::String(language.to_string()));
-        metadata.insert(
-            "interaction_mode".to_string(),
-            Value::String(match mode {
-                InteractionMode::Blocking => "blocking".to_string(),
-                InteractionMode::LlmAssisted => "llm_assisted".to_string(),
-                InteractionMode::Hybrid => "hybrid".to_string(),
-            }),
-        );
-        metadata.insert(
-            "completed_rounds".to_string(),
-            Value::Number(outcome.completed_rounds.into()),
-        );
-        metadata.insert("had_input".to_string(), Value::Bool(had_preset));
-        metadata.insert(
-            "output_truncated".to_string(),
-            Value::Bool(outcome.output_truncated),
-        );
-        metadata.insert("session_id".to_string(), Value::String(session_id.clone()));
+        {
+            use wf_execution_shared::context::node_metadata as keys;
+            metadata.insert(
+                keys::LANGUAGE.to_string(),
+                Value::String(language.to_string()),
+            );
+            metadata.insert(
+                keys::INTERACTION_MODE.to_string(),
+                Value::String(match mode {
+                    InteractionMode::Blocking => "blocking".to_string(),
+                    InteractionMode::LlmAssisted => "llm_assisted".to_string(),
+                    InteractionMode::Hybrid => "hybrid".to_string(),
+                }),
+            );
+            metadata.insert(
+                keys::COMPLETED_ROUNDS.to_string(),
+                Value::Number(outcome.completed_rounds.into()),
+            );
+            metadata.insert(keys::HAD_INPUT.to_string(), Value::Bool(had_preset));
+            metadata.insert(
+                keys::OUTPUT_TRUNCATED.to_string(),
+                Value::Bool(outcome.output_truncated),
+            );
+            metadata.insert(
+                keys::SESSION_ID.to_string(),
+                Value::String(session_id.clone()),
+            );
+        }
 
         Ok(NodeExecutionResult {
             output: parsed_output,
@@ -536,13 +545,19 @@ impl InteractiveScriptHandler {
         ctx.set_internal_variable("__interaction_output__", parsed_output.clone());
 
         let mut metadata = std::collections::HashMap::new();
-        metadata.insert("language".to_string(), Value::String(language.to_string()));
-        metadata.insert(
-            "had_input".to_string(),
-            Value::Bool(user_input != Value::Null),
-        );
-        if let Some(strategy) = routed.strategy_id {
-            metadata.insert("strategy".to_string(), Value::String(strategy));
+        {
+            use wf_execution_shared::context::node_metadata as keys;
+            metadata.insert(
+                keys::LANGUAGE.to_string(),
+                Value::String(language.to_string()),
+            );
+            metadata.insert(
+                keys::HAD_INPUT.to_string(),
+                Value::Bool(user_input != Value::Null),
+            );
+            if let Some(strategy) = routed.strategy_id {
+                metadata.insert(keys::STRATEGY.to_string(), Value::String(strategy));
+            }
         }
 
         Ok(NodeExecutionResult {

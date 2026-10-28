@@ -145,6 +145,7 @@ pub async fn append(
     agent_loop_id: &str,
     text: String,
     as_mode: Option<&str>,
+    source: Option<&str>,
 ) -> crate::infra::error::ApiResult<()> {
     let entity = live_entity(ctx, agent_loop_id)?;
     if entity.status().is_terminal() {
@@ -152,6 +153,17 @@ pub async fn append(
             "agent loop {agent_loop_id} is terminal and cannot accept appended input"
         )));
     }
+    // Audit source label: an allowlist distinguishes the real caller channel;
+    // an absent source is attributed to the generic API entry point.
+    let source_type = match source {
+        Some(s @ ("user" | "cli" | "tui" | "web" | "workflow-console")) => s,
+        None => "api",
+        Some(other) => {
+            return Err(ApiError::Validation(format!(
+                "unknown append source: {other}"
+            )))
+        }
+    };
     let mode = match as_mode {
         Some("steering") | Some("steer") => Some(wf_agent::entity::AgentAppendMode::Steering),
         Some("followup") | Some("follow_up") | Some("follow-up") => {
@@ -184,7 +196,11 @@ pub async fn append(
             m.insert("text_preview".to_string(), serde_json::Value::String(preview));
             m.insert(
                 "source_type".to_string(),
-                serde_json::Value::String("api".to_string()),
+                serde_json::Value::String(source_type.to_string()),
+            );
+            m.insert(
+                "input_count".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(1)),
             );
             m
         }),

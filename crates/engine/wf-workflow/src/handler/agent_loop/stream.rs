@@ -99,15 +99,17 @@ pub(crate) async fn run_streaming(
     }
 
     let mut metadata = std::collections::HashMap::new();
-    metadata.insert(
-        "iteration_count".to_string(),
-        Value::Number(iterations.into()),
-    );
-    metadata.insert("node_id".to_string(), Value::String(ctx.node_id.clone()));
-    metadata.insert(
-        "agent_loop_id".to_string(),
-        Value::String(agent_loop_id.to_string()),
-    );
+    {
+        use wf_execution_shared::context::node_metadata as keys;
+        metadata.insert(
+            keys::ITERATION_COUNT.to_string(),
+            Value::Number(iterations.into()),
+        );
+        metadata.insert(
+            keys::AGENT_LOOP_ID.to_string(),
+            Value::String(agent_loop_id.to_string()),
+        );
+    }
     Ok(NodeExecutionResult {
         output: final_result,
         next_node_ids: Vec::new(),

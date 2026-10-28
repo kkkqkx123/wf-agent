@@ -43,18 +43,6 @@ pub(crate) fn routes() -> Router<ApiState> {
             "/executions/{id}/context-snapshots",
             get(handle_key_context_snapshots),
         )
-        .route(
-            "/executions/{id}/agent-state",
-            get(handle_agent_execution_state),
-        )
-        .route(
-            "/executions/{id}/agent-iterations",
-            get(handle_agent_execution_iterations),
-        )
-        .route(
-            "/executions/{id}/agent-variables",
-            get(handle_agent_execution_variables),
-        )
         // ── state records (persisted snapshots) ──
         .route(
             "/executions/{id}/state-records",
@@ -344,62 +332,6 @@ pub(crate) async fn handle_key_context_snapshots(
     .await
     {
         Ok(snapshots) => ok(snapshots).into_response(),
-        Err(e) => error_response(e),
-    }
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/v1/executions/{id}/agent-state",
-    tag = "workflow",
-    params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("api_key" = []))
-)]
-pub(crate) async fn handle_agent_execution_state(
-    State(state): State<ApiState>,
-    Path(path): Path<IdPath>,
-) -> impl IntoResponse {
-    match wf_api::workflow::execution_state::agent_execution_get_state(&state.ctx, &path.id).await {
-        Ok(view) => ok(view).into_response(),
-        Err(e) => error_response(e),
-    }
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/v1/executions/{id}/agent-iterations",
-    tag = "workflow",
-    params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("api_key" = []))
-)]
-pub(crate) async fn handle_agent_execution_iterations(
-    State(state): State<ApiState>,
-    Path(path): Path<IdPath>,
-) -> impl IntoResponse {
-    match wf_api::workflow::execution_state::agent_execution_iteration_history(&state.ctx, &path.id)
-        .await
-    {
-        Ok(records) => ok(records).into_response(),
-        Err(e) => error_response(e),
-    }
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/v1/executions/{id}/agent-variables",
-    tag = "workflow",
-    params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("api_key" = []))
-)]
-pub(crate) async fn handle_agent_execution_variables(
-    State(state): State<ApiState>,
-    Path(path): Path<IdPath>,
-) -> impl IntoResponse {
-    match wf_api::workflow::execution_state::agent_execution_variables(&state.ctx, &path.id).await {
-        Ok(variables) => ok(variables).into_response(),
         Err(e) => error_response(e),
     }
 }

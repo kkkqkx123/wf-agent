@@ -47,6 +47,10 @@ pub(crate) fn resolve_handler_registry(
 
 pub struct HandlerRegistry {
     handlers: HashMap<StaticNodeType, Box<dyn NodeHandler>>,
+    /// Shared agent loop registry handed to the AGENT_LOOP handler when the
+    /// default set is registered. Nested loops register through it and become
+    /// addressable at runtime.
+    agent_loop_registry: Option<Arc<wf_agent::registry::AgentLoopRegistry>>,
 }
 
 impl HandlerRegistry {
@@ -55,7 +59,18 @@ impl HandlerRegistry {
     pub fn new() -> Self {
         Self {
             handlers: HashMap::new(),
+            agent_loop_registry: None,
         }
+    }
+
+    /// Attach the shared agent loop registry consumed by the AGENT_LOOP
+    /// handler registered by `register_defaults*`.
+    pub fn with_agent_loop_registry(
+        mut self,
+        registry: Arc<wf_agent::registry::AgentLoopRegistry>,
+    ) -> Self {
+        self.agent_loop_registry = Some(registry);
+        self
     }
 
     pub fn register(&mut self, handler: Box<dyn NodeHandler>) {
@@ -133,7 +148,10 @@ impl HandlerRegistry {
                 .with_llm_gateway_opt(Some(gateway.clone()))
                 .with_file_checkpoint_opt(file_checkpoint),
         ));
-        self.register(Box::new(agent_loop::AgentLoopHandler::new(gateway)));
+        self.register(Box::new(
+            agent_loop::AgentLoopHandler::new(gateway)
+                .with_agent_loop_registry_opt(self.agent_loop_registry.clone()),
+        ));
         self.register(Box::new(tool_visibility::ToolVisibilityHandler));
         self.register(Box::new(embed_boundary::EmbedStartHandler));
         self.register(Box::new(embed_boundary::EmbedEndHandler));

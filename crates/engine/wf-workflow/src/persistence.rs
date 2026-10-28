@@ -88,11 +88,14 @@ pub async fn build_workflow_execution(
                 status: record
                     .map(|r| if r.success { "completed" } else { "failed" }.to_string())
                     .unwrap_or_else(|| "completed".to_string()),
-                input: None,
+                input: record.and_then(|r| r.input.clone()),
                 output: Some(entry.value().clone()),
                 error: record.and_then(|r| r.error.clone()),
                 started_at: record.map(|r| r.start_time),
                 completed_at: record.and_then(|r| r.end_time),
+                node_name: record.map(|r| r.node_name.clone()),
+                node_type: record.map(|r| r.node_type.clone()),
+                metadata: record.and_then(|r| r.metadata.clone()),
             }
         })
         .collect();

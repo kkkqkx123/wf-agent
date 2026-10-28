@@ -39,6 +39,7 @@ async fn node_analyses_path_and_stats() {
             input: None,
             result: None,
             branch_id: None,
+            metadata: None,
         });
         state.record_node_execution(NodeExecutionRecord {
             node_id: "n1".into(),
@@ -51,6 +52,7 @@ async fn node_analyses_path_and_stats() {
             input: None,
             result: None,
             branch_id: None,
+            metadata: None,
         });
         // Node n2 - a long-running tool node.
         state.record_node_execution(NodeExecutionRecord {
@@ -64,6 +66,7 @@ async fn node_analyses_path_and_stats() {
             input: None,
             result: None,
             branch_id: None,
+            metadata: None,
         });
         state.mark_node_completed("n1".into());
         state.mark_node_completed("n2".into());
@@ -142,6 +145,7 @@ async fn llm_reasoning_path_extracts_attempt_chain() {
             input: None,
             result: None,
             branch_id: None,
+            metadata: None,
         });
         state.mark_node_completed("llm1".into());
     }
@@ -176,6 +180,9 @@ async fn llm_reasoning_path_extracts_attempt_chain() {
             error: None,
             input: Some(serde_json::json!({"prompt": "think"})),
             output: Some(serde_json::json!({"content": "the answer is 42"})),
+            node_name: None,
+            node_type: None,
+            metadata: None,
         }]),
         errors: None,
         error: None,
@@ -234,6 +241,7 @@ async fn llm_reasoning_path_reports_failure() {
             input: None,
             result: None,
             branch_id: None,
+            metadata: None,
         });
     }
     ctx.workflow_executions

@@ -87,7 +87,7 @@ impl InteractiveController {
                 let text = prompt.clone();
                 let fallback = prompt.clone();
                 tokio::spawn(async move {
-                    let result = client.append_agent_loop(&loop_id, text, Some(mode)).await;
+                    let result = client.append_agent_loop(&loop_id, text, Some(mode), None).await;
                     let notice = match result {
                         Ok(_) => "input appended to the running agent".to_string(),
                         Err(e) => {
@@ -504,10 +504,7 @@ impl InteractiveController {
         // runtime append targets are available as early as possible.
         if let ExecutionStreamEvent::Engine(base) = &event {
             if self.active_agent_loop_id.is_none() {
-                self.active_agent_loop_id = base
-                    .agent_loop_id
-                    .clone()
-                    .or_else(|| base.execution_id.clone());
+                self.active_agent_loop_id = base.agent_loop_id.clone();
             }
         }
 

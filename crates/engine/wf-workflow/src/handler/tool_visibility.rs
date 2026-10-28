@@ -206,11 +206,14 @@ impl ToolVisibilityHandler {
         emit_visibility_event(ctx.event_bus.as_deref(), ctx, action, &tools);
 
         let mut metadata = std::collections::HashMap::new();
-        metadata.insert("action".to_string(), Value::String(action.to_string()));
-        metadata.insert(
-            "tools".to_string(),
-            Value::Array(tools.iter().map(|t| Value::String(t.clone())).collect()),
-        );
+        {
+            use wf_execution_shared::context::node_metadata as keys;
+            metadata.insert(keys::ACTION.to_string(), Value::String(action.to_string()));
+            metadata.insert(
+                keys::TOOLS.to_string(),
+                Value::Array(tools.iter().map(|t| Value::String(t.clone())).collect()),
+            );
+        }
         Ok(NodeExecutionResult {
             output: ctx.input.clone(),
             next_node_ids: Vec::new(),

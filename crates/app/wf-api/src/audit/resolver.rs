@@ -338,6 +338,7 @@ fn live_node_view(record: &wf_workflow::state::NodeExecutionRecord) -> NodeExecu
     NodeExecutionAuditView {
         node_id: record.node_id.clone(),
         node_type: record.node_type.clone(),
+        node_name: Some(record.node_name.clone()),
         input: record.input.clone(),
         result: record.result.clone(),
         error: record.error.clone(),
@@ -348,6 +349,7 @@ fn live_node_view(record: &wf_workflow::state::NodeExecutionRecord) -> NodeExecu
             .map(|end| end - record.start_time)
             .unwrap_or(0),
         branch_id: record.branch_id.clone(),
+        metadata: record.metadata.clone(),
     }
 }
 
@@ -356,7 +358,8 @@ fn persisted_node_view(
 ) -> NodeExecutionAuditView {
     NodeExecutionAuditView {
         node_id: record.node_id.clone(),
-        node_type: String::new(),
+        node_type: record.node_type.clone().unwrap_or_default(),
+        node_name: record.node_name.clone(),
         input: record.input.clone(),
         result: record.output.clone(),
         error: record.error.clone(),
@@ -368,6 +371,7 @@ fn persisted_node_view(
             .map(|(end, start)| end - start)
             .unwrap_or(0),
         branch_id: None,
+        metadata: record.metadata.clone(),
     }
 }
 
@@ -377,6 +381,10 @@ fn checkpoint_node_view(
     NodeExecutionAuditView {
         node_id: record.node_id.clone(),
         node_type: record.node_type.clone(),
+        node_name: record
+            .node_name
+            .clone()
+            .or_else(|| Some(record.node_id.clone())),
         input: record.input.clone(),
         result: record.result.clone(),
         error: record.error.clone(),
@@ -384,6 +392,7 @@ fn checkpoint_node_view(
         completed_at: record.completed_at,
         duration_ms: record.duration_ms,
         branch_id: record.branch_id.clone(),
+        metadata: record.metadata.clone(),
     }
 }
 

@@ -119,7 +119,6 @@ impl WorkflowCoordinator {
         ctx.tool_approval_options = self.ctx.tool_approval_options.clone();
         ctx.fork_registries = self.ctx.fork_registries.clone();
         ctx.signal_bus = self.ctx.signal_bus.clone();
-        ctx.agent_loop_registry = self.ctx.agent_loop_registry.clone();
         // Carry the owning execution's resolved budgets so a TRIGGER
         // sub-workflow inherits the same source (entry config / limits)
         // rather than resetting to the engine fallback.

@@ -288,6 +288,10 @@ pub(crate) struct AppendAgentLoopBody {
     /// historical `as_mode` field.
     #[serde(alias = "as", default)]
     as_mode: Option<String>,
+    /// Calling channel for the audit trail (`user`/`cli`/`tui`/`web`/
+    /// `workflow-console`); absent values default to `api`.
+    #[serde(default)]
+    source: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -318,6 +322,7 @@ pub(crate) async fn handle_append_loop(
         &path.id,
         body.text,
         body.as_mode.as_deref(),
+        body.source.as_deref(),
     )
     .await
     {
@@ -352,7 +357,7 @@ pub(crate) async fn handle_set_append_mode_loop(
 
 #[utoipa::path(
     post,
-    path = "/api/v1/agent-loops/{id}/convert-pending-to-steering",
+    path = "/api/v1/agent-loops/{id}/convert-pending",
     tag = "agent",
     params(IdPath),
     responses(

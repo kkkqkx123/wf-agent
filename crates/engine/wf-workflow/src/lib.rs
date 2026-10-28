@@ -127,7 +127,7 @@ pub fn create_default_handlers(
     gateway: Arc<LlmGateway>,
     sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
 ) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
-    create_default_handlers_with_file_checkpoint(gateway, sandbox, None)
+    create_default_handlers_with(gateway, sandbox, None, None)
 }
 
 /// Like [`create_default_handlers`], additionally attaching the
@@ -137,7 +137,22 @@ pub fn create_default_handlers_with_file_checkpoint(
     sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
     file_checkpoint: Option<wf_checkpoint::FileCheckpointManager>,
 ) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
+    create_default_handlers_with(gateway, sandbox, file_checkpoint, None)
+}
+
+/// Canonical constructor: the shared agent loop registry is attached to the
+/// AGENT_LOOP handler so nested loops register through its capacity gate;
+/// `None` runs the handler without runtime registration.
+pub fn create_default_handlers_with(
+    gateway: Arc<LlmGateway>,
+    sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
+    file_checkpoint: Option<wf_checkpoint::FileCheckpointManager>,
+    agent_loop_registry: Option<Arc<wf_agent::registry::AgentLoopRegistry>>,
+) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
     let mut registry = HandlerRegistry::new();
+    if let Some(agent_loop_registry) = agent_loop_registry {
+        registry = registry.with_agent_loop_registry(agent_loop_registry);
+    }
     registry.register_defaults_with_file_checkpoint(gateway, sandbox, file_checkpoint);
     registry.into_arc()
 }

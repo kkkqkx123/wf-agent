@@ -807,7 +807,7 @@ impl InteractiveController {
                     let text = argument.to_string();
                     tokio::spawn(async move {
                         let res = client
-                            .append_agent_loop(&loop_id, text, Some("steering".to_string()))
+                            .append_agent_loop(&loop_id, text, Some("steering".to_string()), None)
                             .await;
                         let notice = match res {
                             Ok(_) => "steering input appended".to_string(),
@@ -832,7 +832,7 @@ impl InteractiveController {
                     let text = argument.to_string();
                     tokio::spawn(async move {
                         let res = client
-                            .append_agent_loop(&loop_id, text, Some("followup".to_string()))
+                            .append_agent_loop(&loop_id, text, Some("followup".to_string()), None)
                             .await;
                         let notice = match res {
                             Ok(_) => "follow-up input appended".to_string(),

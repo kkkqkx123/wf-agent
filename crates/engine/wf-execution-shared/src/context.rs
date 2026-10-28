@@ -61,10 +61,6 @@ pub struct ExecutorContext {
     /// Typed signal bus for internal workflow/agent signals
     /// (replaces the `__`-prefixed variable protocol).
     pub signal_bus: Option<Arc<InternalSignalBus>>,
-    /// Agent loop registry handle (stored as `Any` to avoid a reverse
-    /// dependency on `wf-agent`); downcast to the concrete registry by
-    /// consumers that need capacity-aware registration.
-    pub agent_loop_registry: Option<Arc<dyn std::any::Any + Send + Sync>>,
 }
 
 impl ExecutorContext {
@@ -94,7 +90,6 @@ impl ExecutorContext {
             readonly_variables: None,
             fork_registries: Arc::new(std::collections::HashMap::new()),
             signal_bus: None,
-            agent_loop_registry: None,
         }
     }
 
@@ -205,16 +200,6 @@ impl ExecutorContext {
         self
     }
 
-    /// Inject the agent loop registry (stored as `Any` to keep the shared
-    /// layer free of a `wf-agent` dependency).
-    pub fn with_agent_loop_registry(
-        mut self,
-        registry: Arc<dyn std::any::Any + Send + Sync>,
-    ) -> Self {
-        self.agent_loop_registry = Some(registry);
-        self
-    }
-
     /// Inherit the parent's checkpoint wiring; spawned child executions
     /// build their own depth-adjusted integration from it.
     pub fn with_checkpoint_scope(
@@ -321,9 +306,6 @@ pub struct NodeExecutionContext {
     /// Typed signal bus for internal workflow/agent signals
     /// (replaces the `__`-prefixed variable protocol).
     pub signal_bus: Option<Arc<InternalSignalBus>>,
-    /// Agent loop registry handle (stored as `Any`), propagated from the
-    /// owning execution.
-    pub agent_loop_registry: Option<Arc<dyn std::any::Any + Send + Sync>>,
     /// Session-level cache shared across the trigger actions of one message
     /// node visit. Not persisted or checkpointed; `None` for non-message
     /// nodes.
@@ -383,7 +365,6 @@ impl NodeExecutionContext {
             readonly_variables: None,
             fork_registries: Arc::new(std::collections::HashMap::new()),
             signal_bus: None,
-            agent_loop_registry: None,
             session_cache: None,
             parent_node_timeout_ms: None,
             parent_max_execution_time_ms: None,
@@ -525,15 +506,6 @@ impl NodeExecutionContext {
         self
     }
 
-    /// Inject the agent loop registry (stored as `Any`).
-    pub fn with_agent_loop_registry(
-        mut self,
-        registry: Arc<dyn std::any::Any + Send + Sync>,
-    ) -> Self {
-        self.agent_loop_registry = Some(registry);
-        self
-    }
-
     /// Attach a session-level cache shared across the trigger actions of the
     /// message node visit (not persisted or checkpointed).
     pub fn with_session_cache(
@@ -580,6 +552,117 @@ impl NodeExecutionContext {
     }
 }
 
+/// Canonical node metadata keys and conversion entry points.
+///
+/// Handlers reference these constants instead of hand-writing strings so a
+/// typo becomes a compile error. Storage keeps the `Value::Object` shape and
+/// transport keeps the map shape; conversion goes through the helpers below.
+pub mod node_metadata {
+    pub const AGENT_LOOP_ID: &str = "agent_loop_id";
+    pub const ITERATION_COUNT: &str = "iteration_count";
+    pub const MESSAGE_COUNT: &str = "message_count";
+    pub const NODE_COUNT: &str = "node_count";
+    pub const CHILD_ERROR_IGNORED: &str = "child_error_ignored";
+    pub const CHILD_ERROR: &str = "child_error";
+    pub const BRANCH_COUNT: &str = "branch_count";
+    pub const SUCCESS_COUNT: &str = "success_count";
+    pub const OUTCOME: &str = "outcome";
+    pub const FAILED_BRANCHES: &str = "failed_branches";
+    pub const MODEL: &str = "model";
+    pub const FINISH_REASON: &str = "finish_reason";
+    pub const PROMPT_TOKENS: &str = "prompt_tokens";
+    pub const COMPLETION_TOKENS: &str = "completion_tokens";
+    pub const TOOL_CALLS: &str = "tool_calls";
+    pub const TOOL_CALL_COUNT: &str = "tool_call_count";
+    pub const STREAM: &str = "stream";
+    pub const ROUNDS_EXHAUSTED: &str = "rounds_exhausted";
+    pub const EVENT: &str = "event";
+    pub const ACTION: &str = "action";
+    pub const TOOLS: &str = "tools";
+    pub const OPERATION_TYPE: &str = "operation_type";
+    pub const RESPONDED: &str = "responded";
+    pub const APPROVED: &str = "approved";
+    pub const INTERACTION_ID: &str = "interaction_id";
+    pub const OPERATION: &str = "operation";
+    pub const SOURCE_PATH_ID: &str = "source_path_id";
+    pub const SYNCED_VARIABLES: &str = "synced_variables";
+    pub const LOOP_ID: &str = "loop_id";
+    pub const ITERATION: &str = "iteration";
+    pub const SHOULD_CONTINUE: &str = "should_continue";
+    pub const SCRIPT_NAME: &str = "script_name";
+    pub const EXECUTION_TIME: &str = "execution_time";
+    pub const LANGUAGE: &str = "language";
+    pub const EXECUTOR_MODE: &str = "executor_mode";
+    pub const SANDBOX_MODE: &str = "sandbox_mode";
+    pub const STRATEGY: &str = "strategy";
+    pub const FLOW: &str = "flow";
+    pub const INTERACTION_MODE: &str = "interaction_mode";
+    pub const COMPLETED_ROUNDS: &str = "completed_rounds";
+    pub const HAD_INPUT: &str = "had_input";
+    pub const OUTPUT_TRUNCATED: &str = "output_truncated";
+    pub const SESSION_ID: &str = "session_id";
+    pub const VARIABLE_NAME: &str = "variable_name";
+    pub const SKIPPED: &str = "skipped";
+    pub const OLD_VALUE: &str = "old_value";
+    pub const NEW_VALUE: &str = "new_value";
+
+    /// Nested field carrying handler metadata inside a `NodeCompleted` payload.
+    pub const NODE_METADATA_FIELD: &str = "node_metadata";
+    /// `NodeCompleted` payload keys owned by the coordinator; handler metadata
+    /// never overwrites them.
+    pub const RESERVED_EVENT_KEYS: &[&str] = &[
+        "has_next_nodes",
+        "node_name",
+        "node_type",
+        "duration_ms",
+        "node_id",
+        "rejection_source",
+        NODE_METADATA_FIELD,
+    ];
+    /// Internal variable holding the node id -> agent loop id addressing map.
+    pub const AGENT_LOOP_IDS_VAR: &str = "__agent_loop_ids";
+}
+
+/// Single writer for the node id -> agent loop id addressing map so the
+/// handler and the `agent_loops` query path never diverge on the key.
+pub fn record_agent_loop_binding(
+    variables: &Arc<DashMap<String, Value>>,
+    node_id: &str,
+    agent_loop_id: &str,
+) {
+    let mut mapping = variables
+        .get(node_metadata::AGENT_LOOP_IDS_VAR)
+        .and_then(|entry| entry.value().as_object().cloned())
+        .unwrap_or_default();
+    mapping.insert(
+        node_id.to_string(),
+        Value::String(agent_loop_id.to_string()),
+    );
+    variables.insert(
+        node_metadata::AGENT_LOOP_IDS_VAR.to_string(),
+        Value::Object(mapping),
+    );
+}
+
+/// Handler metadata map converted to the storage object shape.
+pub fn metadata_map_to_value(map: &std::collections::HashMap<String, Value>) -> Value {
+    Value::Object(map.clone().into_iter().collect())
+}
+
+/// Storage object converted back to the builder map shape.
+pub fn metadata_value_to_map(value: &Value) -> std::collections::HashMap<String, Value> {
+    value
+        .as_object()
+        .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+        .unwrap_or_default()
+}
+
+/// One metadata value capped to the checkpoint payload budget so a single
+/// large array never dominates an event or a state record.
+pub fn cap_metadata_value(value: &Value) -> Value {
+    wf_types::checkpoint::workflow::cap_node_payload(value)
+}
+
 pub struct NodeExecutionResult {
     pub output: Value,
     pub next_node_ids: Vec<String>,
@@ -600,5 +683,15 @@ impl NodeExecutionResult {
             next_node_ids,
             metadata: std::collections::HashMap::new(),
         }
+    }
+
+    /// Insert one handler metadata entry through the canonical key set.
+    pub fn insert_metadata(&mut self, key: &str, value: Value) {
+        self.metadata.insert(key.to_string(), value);
+    }
+
+    /// Storage object shape of this result's metadata.
+    pub fn metadata_object(&self) -> Value {
+        metadata_map_to_value(&self.metadata)
     }
 }

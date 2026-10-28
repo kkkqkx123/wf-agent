@@ -209,7 +209,7 @@ pub(crate) async fn run_with_client(
 
         ExecutionSub::Append { id, text, mode } => {
             let data = client
-                .append_agent_loop(id, text.clone(), mode.clone())
+                .append_agent_loop(id, text.clone(), mode.clone(), None)
                 .await
                 .map_err(CliError::from)?;
             render_envelope(

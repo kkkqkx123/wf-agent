@@ -450,6 +450,7 @@ async fn context_compression_chain_end_to_end() {
         contexts.clone(),
         None,
         None,
+        None,
     ));
     register_compression_handler(
         &hook_handler_registry,
@@ -991,6 +992,7 @@ async fn no_compression_event_when_named_array_within_limit() {
         contexts.clone(),
         None,
         None,
+        None,
     ));
     register_compression_handler(
         &hook_handler_registry,
@@ -1362,6 +1364,7 @@ async fn routed_compression_end_to_end_via_listener() {
         tool_registry: None,
         sandbox: None,
         agent_executor: None,
+        agent_loop_registry: None,
         ledger: None,
         hook_handler_registry: None,
         signal_bus: None,

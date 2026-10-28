@@ -85,6 +85,7 @@ fn collapse_node(
         retry_count,
         error: latest.error.clone(),
         tool_dependencies,
+        metadata: latest.metadata.clone(),
     }
 }
 

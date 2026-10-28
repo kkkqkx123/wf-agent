@@ -123,7 +123,13 @@ impl ApiContext {
         let storage = Arc::new(storage);
         let event_bus = Arc::new(EventBus::new(1024));
         let llm_gateway = Arc::new(LlmGateway::new());
-        let handlers = wf_workflow::create_default_handlers(llm_gateway.clone(), None);
+        let agent_loops = Arc::new(AgentLoopRegistry::new());
+        let handlers = wf_workflow::create_default_handlers_with(
+            llm_gateway.clone(),
+            None,
+            None,
+            Some(agent_loops.clone()),
+        );
         let ctx = Self {
             storage: storage.clone(),
             registries,
@@ -134,7 +140,7 @@ impl ApiContext {
             sandbox: Arc::new(wf_sandbox::SandboxRuntime::new()),
             checkpoint_store: Arc::new(storage.checkpoint.store().clone()),
             workflow_executions: ConcurrentRegistry::new(),
-            agent_loops: Arc::new(AgentLoopRegistry::new()),
+            agent_loops,
             user_interaction_handler: Arc::new(tokio::sync::RwLock::new(None)),
             state_manager: ExecutionStateManager::new()
                 .with_workflow_store(Arc::new(storage.workflow_execution.clone()))
@@ -168,7 +174,13 @@ impl ApiContext {
         tool_registry: Arc<ToolRegistry>,
         metrics: Option<Arc<MetricsRegistry>>,
     ) -> Self {
-        let handlers = wf_workflow::create_default_handlers(llm_gateway.clone(), None);
+        let agent_loops = Arc::new(AgentLoopRegistry::new());
+        let handlers = wf_workflow::create_default_handlers_with(
+            llm_gateway.clone(),
+            None,
+            None,
+            Some(agent_loops.clone()),
+        );
         let ctx = Self {
             storage: storage.clone(),
             registries,
@@ -179,7 +191,7 @@ impl ApiContext {
             sandbox: Arc::new(wf_sandbox::SandboxRuntime::new()),
             checkpoint_store: Arc::new(storage.checkpoint.store().clone()),
             workflow_executions: ConcurrentRegistry::new(),
-            agent_loops: Arc::new(AgentLoopRegistry::new()),
+            agent_loops,
             user_interaction_handler: Arc::new(tokio::sync::RwLock::new(None)),
             state_manager: ExecutionStateManager::new()
                 .with_workflow_store(Arc::new(storage.workflow_execution.clone()))
@@ -260,12 +272,26 @@ impl ApiContext {
         self
     }
 
-    /// Inject a shared agent loop registry so server-started executions and
-    /// tool-dispatched executions (through the runtime composite callback)
-    /// share one view. Without injection a private registry is used.
+    /// Replace the shared agent loop registry and rebuild the default
+    /// handler set so AGENT_LOOP handlers address loops through the new
+    /// registry (nested loops register through its capacity gate).
     pub fn with_agent_loop_registry(mut self, registry: Arc<AgentLoopRegistry>) -> Self {
         self.agent_loops = registry;
+        self.handlers = self.build_default_handlers();
         self
+    }
+
+    /// The default handler set wired with this context's sandbox, file
+    /// checkpoint manager and agent loop registry.
+    fn build_default_handlers(
+        &self,
+    ) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
+        wf_workflow::create_default_handlers_with(
+            self.llm_gateway.clone(),
+            Some(self.sandbox.clone()),
+            self.file_checkpoint_manager.clone(),
+            Some(self.agent_loops.clone()),
+        )
     }
 
     /// Inject the shared trigger runtime state registry (wf-runtime listener
@@ -287,13 +313,8 @@ impl ApiContext {
         mut self,
         manager: wf_checkpoint::FileCheckpointManager,
     ) -> Self {
-        self.file_checkpoint_manager = Some(manager.clone());
-        let handlers = wf_workflow::create_default_handlers_with_file_checkpoint(
-            self.llm_gateway.clone(),
-            Some(self.sandbox.clone()),
-            Some(manager),
-        );
-        self.handlers = handlers;
+        self.file_checkpoint_manager = Some(manager);
+        self.handlers = self.build_default_handlers();
         self
     }
 

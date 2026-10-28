@@ -360,19 +360,42 @@ export async function setAgentLoopAppendMode(id: string, mode: 'steering' | 'fol
 
 export async function convertPendingToSteering(id: string): Promise<void> {
 	await call<unknown>(
-		client.POST('/api/v1/agent-loops/{id}/convert-pending-to-steering', {
+		client.POST('/api/v1/agent-loops/{id}/convert-pending', {
 			params: { path: { id } },
 		}),
 	);
+}
+
+interface WorkflowNestedAgentLoopDto {
+	node_id: string;
+	agent_loop_id: string;
+	status: string;
+	live: boolean;
+	steering_pending: number;
+	followup_pending: number;
+	append_mode: string | null;
 }
 
 export interface WorkflowNestedAgentLoop {
 	nodeId: string;
 	agentLoopId: string;
 	status: string;
+	live: boolean;
 	steeringPending: number;
 	followupPending: number;
-	appendMode: string;
+	appendMode: string | null;
+}
+
+function mapNestedAgentLoop(dto: WorkflowNestedAgentLoopDto): WorkflowNestedAgentLoop {
+	return {
+		nodeId: dto.node_id,
+		agentLoopId: dto.agent_loop_id,
+		status: dto.status,
+		live: dto.live,
+		steeringPending: dto.steering_pending,
+		followupPending: dto.followup_pending,
+		appendMode: dto.append_mode,
+	};
 }
 
 export async function listWorkflowNestedAgentLoops(executionId: string): Promise<WorkflowNestedAgentLoop[]> {
@@ -382,7 +405,8 @@ export async function listWorkflowNestedAgentLoops(executionId: string): Promise
 		}),
 	);
 	const data = (res as { data?: unknown })?.data ?? res;
-	return Array.isArray(data) ? (data as WorkflowNestedAgentLoop[]) : [];
+	if (!Array.isArray(data)) return [];
+	return (data as WorkflowNestedAgentLoopDto[]).map(mapNestedAgentLoop);
 }
 
 export async function appendWorkflowNestedAgentLoopInput(
@@ -390,11 +414,12 @@ export async function appendWorkflowNestedAgentLoopInput(
 	nodeId: string,
 	text: string,
 	asMode?: 'steering' | 'followup',
+	source?: string,
 ): Promise<void> {
 	await call<unknown>(
 		client.POST('/api/v1/executions/{id}/agent-loops/{node_id}/append', {
 			params: { path: { id: executionId, node_id: nodeId } },
-			body: { text, as_mode: asMode ?? null },
+			body: { text, as_mode: asMode ?? null, source: source ?? null },
 		}),
 	);
 }

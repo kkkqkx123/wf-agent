@@ -249,17 +249,49 @@ impl NodeCoordinator {
                 )
                 .await;
 
+                let mut completed_data = serde_json::json!({
+                    "has_next_nodes": !output.next_node_ids.is_empty(),
+                    "node_name": node_name,
+                    "node_type": node_type,
+                    "duration_ms": wf_common::now() - node_start,
+                });
+                // Handler metadata travels nested under `node_metadata` so it
+                // can never overwrite the standard keys above. Each value is
+                // capped to the checkpoint payload budget.
+                if let Some(map) = completed_data.as_object_mut() {
+                    if !output.metadata.is_empty() {
+                        let mut nested = serde_json::Map::with_capacity(output.metadata.len());
+                        for (k, v) in &output.metadata {
+                            if wf_execution_shared::context::node_metadata::RESERVED_EVENT_KEYS
+                                .contains(&k.as_str())
+                            {
+                                tracing::warn!(
+                                    node_id = %node_id,
+                                    key = %k,
+                                    "handler metadata key collides with a reserved event key; dropped"
+                                );
+                                continue;
+                            }
+                            nested.insert(
+                                k.clone(),
+                                wf_execution_shared::context::cap_metadata_value(v),
+                            );
+                        }
+                        if !nested.is_empty() {
+                            map.insert(
+                                wf_execution_shared::context::node_metadata::NODE_METADATA_FIELD
+                                    .to_string(),
+                                serde_json::Value::Object(nested),
+                            );
+                        }
+                    }
+                }
                 Self::emit_event(
                     event_bus,
                     EventType::NodeCompleted,
                     entity,
                     &node_id,
-                    &serde_json::json!({
-                        "has_next_nodes": !output.next_node_ids.is_empty(),
-                        "node_name": node_name,
-                        "node_type": node_type,
-                        "duration_ms": wf_common::now() - node_start,
-                    }),
+                    &completed_data,
                 )
                 .await;
 

@@ -109,8 +109,8 @@ impl AgentLoopStateTransitor {
             r#type: event_type,
             timestamp: wf_common::now(),
             workflow_id: None,
-            execution_id: Some(execution_id),
-            agent_loop_id: None,
+            execution_id: Some(execution_id.clone()),
+            agent_loop_id: Some(execution_id),
 
             event_name: None,
             metadata: None,

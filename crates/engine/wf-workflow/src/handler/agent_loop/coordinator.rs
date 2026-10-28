@@ -16,6 +16,7 @@ pub(crate) fn build_coordinator(
     gateway: Arc<LlmGateway>,
     ctx: &NodeExecutionContext,
     agent_config: Option<&wf_types::agent::AgentConfig>,
+    agent_loop_registry: Option<Arc<AgentLoopRegistry>>,
 ) -> AgentLoopCoordinator {
     let tool_registry = ctx
         .tool_registry
@@ -26,11 +27,7 @@ pub(crate) fn build_coordinator(
     if let Some(manager) = ctx.hierarchy_manager.clone() {
         coordinator = coordinator.with_parent_hierarchy_manager(manager);
     }
-    if let Some(registry) = ctx
-        .agent_loop_registry
-        .as_ref()
-        .and_then(|r| r.clone().downcast::<AgentLoopRegistry>().ok())
-    {
+    if let Some(registry) = agent_loop_registry {
         coordinator = coordinator.with_entity_registry(registry);
     }
     if let Some(ref bus) = ctx.event_bus {

@@ -15,6 +15,9 @@ pub struct NodeExecutionRecordView {
     pub end_time: Option<i64>,
     pub success: bool,
     pub error: Option<String>,
+    /// Handler-reported node metadata (agent loop id, iteration count).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
 }
 
 /// Snapshot of a workflow execution's state.
@@ -44,39 +47,6 @@ pub struct StateTransitionView {
     pub from: String,
     pub to: String,
     pub timestamp: i64,
-}
-
-/// One tool call recorded by an agent iteration.
-#[derive(Debug, Clone, Serialize)]
-pub struct ToolCallRecordView {
-    pub name: String,
-    pub duration_ms: i64,
-    pub success: bool,
-}
-
-/// One agent loop iteration record.
-#[derive(Debug, Clone, Serialize)]
-pub struct IterationRecordView {
-    pub iteration: u32,
-    pub start_time: i64,
-    pub end_time: Option<i64>,
-    pub tool_call_count: u32,
-    pub tool_calls: Vec<ToolCallRecordView>,
-}
-
-/// Snapshot of an agent loop's execution state.
-#[derive(Debug, Clone, Serialize)]
-pub struct AgentLoopStateView {
-    pub agent_loop_id: String,
-    pub status: ExecutionStatus,
-    pub current_iteration: u32,
-    pub tool_call_count: u32,
-    pub iteration_history: Vec<IterationRecordView>,
-    pub variables: BTreeMap<String, Value>,
-    pub start_time: i64,
-    pub end_time: Option<i64>,
-    pub error: Option<String>,
-    pub source: String,
 }
 
 /// One variable value at a specific point in time.

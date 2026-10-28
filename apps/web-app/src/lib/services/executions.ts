@@ -514,12 +514,14 @@ function toNodeExecution(record: NodeExecutionDoc): NodeExecution {
 	return {
 		nodeId: record.node_id,
 		nodeType: record.node_type,
+		nodeName: record.node_name ?? null,
 		startedAt: toIso(record.started_at),
 		endedAt: record.completed_at != null ? toIso(record.completed_at) : null,
 		durationMs: record.duration_ms,
 		error: record.error ?? null,
 		input: record.input ?? null,
 		result: record.result ?? null,
+		metadata: record.metadata ?? null,
 	};
 }
 

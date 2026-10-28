@@ -3080,7 +3080,7 @@
         ]
       }
     },
-    "/api/v1/agent-loops/{id}/convert-pending-to-steering": {
+    "/api/v1/agent-loops/{id}/convert-pending": {
       "post": {
         "tags": [
           "agent"
@@ -12087,12 +12087,12 @@
         ]
       }
     },
-    "/api/v1/executions/{id}/agent-iterations": {
+    "/api/v1/executions/{id}/agent-loops": {
       "get": {
         "tags": [
           "workflow"
         ],
-        "operationId": "handle_agent_execution_iterations",
+        "operationId": "handle_list_workflow_agent_loops",
         "parameters": [
           {
             "name": "id",
@@ -12120,28 +12120,8 @@
           "403": {
             "description": "Forbidden: API key lacks access"
           },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
           "429": {
             "description": "Too many requests: rate limit exceeded (see Retry-After)"
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
           },
           "503": {
             "description": "Service unavailable: resource limit reached"
@@ -12157,12 +12137,12 @@
         ]
       }
     },
-    "/api/v1/executions/{id}/agent-state": {
-      "get": {
+    "/api/v1/executions/{id}/agent-loops/{node_id}/append": {
+      "post": {
         "tags": [
           "workflow"
         ],
-        "operationId": "handle_agent_execution_state",
+        "operationId": "handle_append_workflow_agent_loop",
         "parameters": [
           {
             "name": "id",
@@ -12171,8 +12151,26 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "node_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkflowAgentLoopAppendBody"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "Success",
@@ -12190,28 +12188,8 @@
           "403": {
             "description": "Forbidden: API key lacks access"
           },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
           "429": {
             "description": "Too many requests: rate limit exceeded (see Retry-After)"
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
           },
           "503": {
             "description": "Service unavailable: resource limit reached"
@@ -12227,15 +12205,91 @@
         ]
       }
     },
-    "/api/v1/executions/{id}/agent-variables": {
-      "get": {
+    "/api/v1/executions/{id}/agent-loops/{node_id}/append-mode": {
+      "post": {
         "tags": [
           "workflow"
         ],
-        "operationId": "handle_agent_execution_variables",
+        "operationId": "handle_set_workflow_agent_loop_append_mode",
         "parameters": [
           {
             "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "node_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkflowAgentLoopAppendModeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/executions/{id}/agent-loops/{node_id}/convert-pending": {
+      "post": {
+        "tags": [
+          "workflow"
+        ],
+        "operationId": "handle_convert_workflow_agent_loop_pending",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "node_id",
             "in": "path",
             "required": true,
             "schema": {
@@ -12260,28 +12314,8 @@
           "403": {
             "description": "Forbidden: API key lacks access"
           },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
           "429": {
             "description": "Too many requests: rate limit exceeded (see Retry-After)"
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
           },
           "503": {
             "description": "Service unavailable: resource limit reached"
@@ -49503,7 +49537,15 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Runtime append mode. Accepts both the documented `as` field and the\nhistorical `as_mode` field."
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Calling channel for the audit trail (`user`/`cli`/`tui`/`web`/\n`workflow-console`); absent values default to `api`."
           },
           "text": {
             "type": "string"
@@ -54343,6 +54385,40 @@
             ]
           },
           "value": {}
+        }
+      },
+      "WorkflowAgentLoopAppendBody": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "as_mode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkflowAgentLoopAppendModeBody": {
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string"
+          }
         }
       },
       "WorkspaceFileDoc": {

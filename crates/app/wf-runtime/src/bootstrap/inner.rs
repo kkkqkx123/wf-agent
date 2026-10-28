@@ -345,6 +345,7 @@ impl Runtime {
                 .with_gateway(llm_gateway.clone())
                 .with_event_bus(event_bus.clone())
                 .with_sandbox(sandbox_runtime.clone())
+                .with_agent_loop_registry(agent_registry.clone())
                 .with_hook_handler_registry(hook_handler_registry.clone())
                 .with_signal_bus(signal_bus.clone());
         if let Some(metrics) = metrics.as_ref() {
@@ -405,6 +406,7 @@ impl Runtime {
             tool_registry: tool_registry.clone(),
             sandbox_runtime: sandbox_runtime.clone(),
             agent_executor: agent_executor.clone(),
+            agent_registry: agent_registry.clone(),
             hook_handler_registry: hook_handler_registry.clone(),
             storage: storage_manager.shared_context().map(|ctx| {
                 Arc::new(ctx.trigger_execution.clone()) as Arc<dyn TriggerExecutionRecorder>

@@ -29,6 +29,10 @@ pub fn cap_node_payload(value: &serde_json::Value) -> serde_json::Value {
 #[serde(rename_all = "camelCase")]
 pub struct NodeExecutionRecord {
     pub node_id: String,
+    /// Display name from the graph definition, falls back to `node_id` when
+    /// the checkpoint predates the field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node_name: Option<String>,
     pub node_type: String,
     /// Input passed to the node handler (payload-capped, see
     /// [`cap_node_payload`]).
@@ -46,6 +50,9 @@ pub struct NodeExecutionRecord {
     /// Fork/join branch the node executed under (`None` in linear flows).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch_id: Option<String>,
+    /// Handler-reported node metadata (agent loop id, iteration count).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
 }
 
 /// One named message context captured as a first-class checkpoint domain.

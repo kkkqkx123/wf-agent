@@ -62,14 +62,17 @@ impl VariableHandler {
             .is_some_and(|declared| declared.contains(variable_name))
         {
             let mut metadata = std::collections::HashMap::new();
-            metadata.insert(
-                "variable_name".to_string(),
-                Value::String(variable_name.to_string()),
-            );
-            metadata.insert(
-                "skipped".to_string(),
-                Value::String("declared_readonly".to_string()),
-            );
+            {
+                use wf_execution_shared::context::node_metadata as keys;
+                metadata.insert(
+                    keys::VARIABLE_NAME.to_string(),
+                    Value::String(variable_name.to_string()),
+                );
+                metadata.insert(
+                    keys::SKIPPED.to_string(),
+                    Value::String("declared_readonly".to_string()),
+                );
+            }
             return Ok(NodeExecutionResult {
                 output: ctx.input.clone(),
                 next_node_ids: Vec::new(),
@@ -94,14 +97,17 @@ impl VariableHandler {
         ctx.set_variable(variable_name.to_string(), resolved.clone())?;
 
         let mut metadata = std::collections::HashMap::new();
-        metadata.insert(
-            "variable_name".to_string(),
-            Value::String(variable_name.to_string()),
-        );
-        if let Some(old) = old_value {
-            metadata.insert("old_value".to_string(), old.clone());
+        {
+            use wf_execution_shared::context::node_metadata as keys;
+            metadata.insert(
+                keys::VARIABLE_NAME.to_string(),
+                Value::String(variable_name.to_string()),
+            );
+            if let Some(old) = old_value {
+                metadata.insert(keys::OLD_VALUE.to_string(), old.clone());
+            }
+            metadata.insert(keys::NEW_VALUE.to_string(), resolved);
         }
-        metadata.insert("new_value".to_string(), resolved);
 
         Ok(NodeExecutionResult {
             output: ctx.input.clone(),

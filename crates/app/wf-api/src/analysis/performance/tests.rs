@@ -44,6 +44,7 @@ async fn profile_builds_timeline_from_live_entity() {
             input: None,
             result: None,
             branch_id: None,
+            metadata: None,
         });
     entity
         .state
@@ -60,6 +61,7 @@ async fn profile_builds_timeline_from_live_entity() {
             input: None,
             result: None,
             branch_id: None,
+            metadata: None,
         });
     ctx.workflow_executions
         .register("exec-perf-1".to_string(), entity.clone())
@@ -177,6 +179,7 @@ async fn analyze_performance_builds_profile_with_summary() {
                 input: None,
                 result: None,
                 branch_id: None,
+                metadata: None,
             });
         }
         let _ = state.complete();
@@ -230,6 +233,7 @@ async fn summary_bottlenecks_and_node_comparison() {
                 input: None,
                 result: None,
                 branch_id: None,
+                metadata: None,
             });
         }
         let _ = state.complete();

@@ -27,6 +27,9 @@ pub struct NodeExecutionRecord {
     /// Fork/join branch the node ran under; `None` in linear flows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch_id: Option<String>,
+    /// Handler-reported node metadata (agent loop id, iteration count).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
 }
 
 /// Statistics summarising interruption events captured during execution.
@@ -453,6 +456,7 @@ mod tests {
             input: None,
             result: Some(serde_json::json!({"ok": true})),
             branch_id: None,
+            metadata: None,
         }
     }
 

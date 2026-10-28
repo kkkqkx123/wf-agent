@@ -123,6 +123,8 @@ pub struct NodeExecutionAuditView {
     pub node_id: String,
     pub node_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub input: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<serde_json::Value>,
@@ -134,6 +136,8 @@ pub struct NodeExecutionAuditView {
     pub duration_ms: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
 }
 
 /// Combined audit report of an execution.

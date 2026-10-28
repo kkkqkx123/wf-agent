@@ -95,8 +95,9 @@ pub(super) async fn raw_attempts(
                 end_time: r.end_time,
                 success: r.success,
                 error: r.error.clone(),
-                input: None,
-                output: None,
+                input: r.input.clone(),
+                output: r.result.clone(),
+                metadata: r.metadata.clone(),
             })
             .collect();
         records.sort_by_key(|r| r.start_time);
@@ -110,14 +111,18 @@ pub(super) async fn raw_attempts(
         .into_iter()
         .map(|result| RawNodeAttempt {
             node_id: result.node_id.clone(),
-            node_name: result.node_id,
-            node_type: "unknown".to_string(),
+            node_name: result.node_name.clone().unwrap_or_else(|| result.node_id.clone()),
+            node_type: result
+                .node_type
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string()),
             start_time: result.started_at.unwrap_or(started_at),
             end_time: result.completed_at,
             success: result.status == "completed",
             error: result.error.clone(),
             input: result.input,
             output: result.output,
+            metadata: result.metadata,
         })
         .collect();
     records.sort_by_key(|r| r.start_time);

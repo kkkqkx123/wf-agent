@@ -25,7 +25,7 @@ use crate::checkpoint::NodeCheckpointStrategy;
 use crate::coordinator::{WorkflowExecutionParams, WorkflowLifecycleCoordinator};
 use crate::entity::WorkflowExecutionEntity;
 use crate::error::{WorkflowError, WorkflowResult};
-use crate::handler::{HandlerRegistry, NodeHandler};
+use crate::handler::NodeHandler;
 use crate::registry::{
     create_execution_registry, create_graph_registry, WorkflowExecutionRegistry,
 };
@@ -58,6 +58,10 @@ pub struct WorkflowExecutionCallback {
     /// into the script handlers of executions launched here. `None` uses
     /// per-handler defaults.
     sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
+    /// Shared agent loop registry attached to the AGENT_LOOP handler of the
+    /// default handler set (fallback path only; ignored when `handlers` is
+    /// supplied explicitly).
+    agent_loop_registry: Option<Arc<wf_agent::registry::AgentLoopRegistry>>,
 }
 
 impl WorkflowExecutionCallback {
@@ -77,6 +81,7 @@ impl WorkflowExecutionCallback {
             hooks: Vec::new(),
             workflow_hooks: std::sync::RwLock::new(HashMap::new()),
             sandbox: None,
+            agent_loop_registry: None,
         }
     }
 
@@ -97,6 +102,16 @@ impl WorkflowExecutionCallback {
     /// rules) into the script handlers of executions launched here.
     pub fn with_sandbox(mut self, sandbox: Arc<wf_sandbox::SandboxRuntime>) -> Self {
         self.sandbox = Some(sandbox);
+        self
+    }
+
+    /// Attach the shared agent loop registry used when this callback builds
+    /// its fallback default handler set.
+    pub fn with_agent_loop_registry(
+        mut self,
+        registry: Arc<wf_agent::registry::AgentLoopRegistry>,
+    ) -> Self {
+        self.agent_loop_registry = Some(registry);
         self
     }
 
@@ -183,11 +198,12 @@ impl WorkflowExecutionCallback {
     fn handlers(&self) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
         match &self.handlers {
             Some(h) => h.clone(),
-            None => {
-                let mut registry = HandlerRegistry::new();
-                registry.register_defaults_with_sandbox(self.gateway.clone(), self.sandbox.clone());
-                registry.into_arc()
-            }
+            None => crate::create_default_handlers_with(
+                self.gateway.clone(),
+                self.sandbox.clone(),
+                None,
+                self.agent_loop_registry.clone(),
+            ),
         }
     }
 

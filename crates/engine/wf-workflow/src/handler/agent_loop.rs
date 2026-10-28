@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
+use wf_agent::registry::AgentLoopRegistry;
 use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
 use wf_llm::LlmGateway;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput};
@@ -16,11 +17,28 @@ pub(crate) mod stream;
 
 pub struct AgentLoopHandler {
     gateway: Arc<LlmGateway>,
+    /// Shared agent loop registry: nested loops register through its capacity
+    /// gate so they become addressable at runtime. Propagated structurally —
+    /// the handler map is cloned wholesale into every child execution.
+    agent_loop_registry: Option<Arc<AgentLoopRegistry>>,
 }
 
 impl AgentLoopHandler {
     pub fn new(gateway: Arc<LlmGateway>) -> Self {
-        Self { gateway }
+        Self {
+            gateway,
+            agent_loop_registry: None,
+        }
+    }
+
+    /// Attach the shared agent loop registry (`None` leaves the handler
+    /// without runtime registration, standalone mode).
+    pub fn with_agent_loop_registry_opt(
+        mut self,
+        registry: Option<Arc<AgentLoopRegistry>>,
+    ) -> Self {
+        self.agent_loop_registry = registry;
+        self
     }
 }
 
@@ -75,26 +93,22 @@ impl AgentLoopHandler {
             settings.enable_general_tool,
         );
 
-        let mut coordinator = coordinator::build_coordinator(self.gateway.clone(), ctx, agent_config);
-        let agent_loop_id = wf_types::Id::from(format!(
-            "{}:{}",
-            ctx.node_id,
-            wf_common::generate_id()
-        ));
+        let mut coordinator = coordinator::build_coordinator(
+            self.gateway.clone(),
+            ctx,
+            agent_config,
+            self.agent_loop_registry.clone(),
+        );
+        let agent_loop_id =
+            wf_types::Id::from(format!("{}:{}", ctx.node_id, wf_common::generate_id()));
         coordinator = coordinator.with_agent_loop_id(agent_loop_id.clone());
 
         // Record the node -> agent loop id mapping for later addressing.
-        let mut mapping = ctx
-            .variables
-            .get("__agent_loop_ids")
-            .and_then(|entry| entry.value().as_object().cloned())
-            .unwrap_or_default();
-        mapping.insert(
-            ctx.node_id.clone(),
-            serde_json::Value::String(agent_loop_id.to_string()),
+        wf_execution_shared::context::record_agent_loop_binding(
+            &ctx.variables,
+            &ctx.node_id,
+            &agent_loop_id.to_string(),
         );
-        ctx.variables
-            .insert("__agent_loop_ids".to_string(), serde_json::Value::Object(mapping));
 
         // Loop-boundary history normalization: upstream archives carry
         // upstream bucket shapes; rewrite once to this loop's target
@@ -178,24 +192,23 @@ impl AgentLoopHandler {
                 conversation::export_conversation(ctx, &output.conversation);
 
                 let mut metadata = std::collections::HashMap::new();
-                metadata.insert(
-                    "iteration_count".to_string(),
-                    serde_json::Value::Number(output.iterations.into()),
-                );
-                metadata.insert(
-                    "node_id".to_string(),
-                    serde_json::Value::String(ctx.node_id.clone()),
-                );
-                metadata.insert(
-                    "agent_loop_id".to_string(),
-                    serde_json::Value::String(agent_loop_id.to_string()),
-                );
-                metadata.insert(
-                    "message_count".to_string(),
-                    serde_json::Value::Number(serde_json::Number::from(
-                        output.conversation.len() as u64
-                    )),
-                );
+                {
+                    use wf_execution_shared::context::node_metadata as keys;
+                    metadata.insert(
+                        keys::ITERATION_COUNT.to_string(),
+                        serde_json::Value::Number(output.iterations.into()),
+                    );
+                    metadata.insert(
+                        keys::AGENT_LOOP_ID.to_string(),
+                        serde_json::Value::String(agent_loop_id.to_string()),
+                    );
+                    metadata.insert(
+                        keys::MESSAGE_COUNT.to_string(),
+                        serde_json::Value::Number(serde_json::Number::from(
+                            output.conversation.len() as u64,
+                        )),
+                    );
+                }
 
                 Ok(NodeExecutionResult {
                     output: output.result,

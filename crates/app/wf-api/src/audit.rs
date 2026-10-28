@@ -271,6 +271,7 @@ mod tests {
                 input: Some(serde_json::json!({"q": 1})),
                 result: Some(serde_json::json!({"ok": true})),
                 branch_id: None,
+                metadata: None,
             });
             state.record_node_execution(NodeExecutionRecord {
                 node_id: "n2".into(),
@@ -283,6 +284,7 @@ mod tests {
                 input: None,
                 result: None,
                 branch_id: None,
+                metadata: None,
             });
             let _ = state.complete();
         }

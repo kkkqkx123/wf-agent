@@ -1,4 +1,3 @@
-pub mod agent_loop_control;
 pub mod agent_prompt;
 pub mod approval;
 pub mod chat;
@@ -27,13 +26,14 @@ pub mod token_events;
 pub mod token_tracker;
 pub mod types;
 
-pub use agent_loop_control::{
-    AgentAppendMode, AgentLoopControl, AgentLoopRegistryHandle,
-};
 pub use approval::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
 pub use chat::{ChatSession, ChatTemplate};
 pub use checkpoint_scope::CheckpointScope;
-pub use context::{ExecutorContext, NodeExecutionContext, NodeExecutionResult, NodeInputShape};
+pub use context::{
+    cap_metadata_value, metadata_map_to_value, metadata_value_to_map, node_metadata,
+    record_agent_loop_binding, ExecutorContext, NodeExecutionContext, NodeExecutionResult,
+    NodeInputShape,
+};
 pub use error::{ExecutionSharedError, ExecutionSharedResult, InterruptionKind};
 pub use event_metrics_bridge::EventMetricsBridge;
 pub use execution_loop::{

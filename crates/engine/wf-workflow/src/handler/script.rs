@@ -427,24 +427,30 @@ impl ScriptHandler {
         }
 
         let mut metadata = std::collections::HashMap::new();
-        metadata.insert(
-            "script_name".to_string(),
-            Value::String(script_name.to_string()),
-        );
-        metadata.insert(
-            "execution_time".to_string(),
-            Value::Number(result.execution_time_ms.into()),
-        );
-        metadata.insert("language".to_string(), Value::String(language.to_string()));
-        metadata.insert(
-            "executor_mode".to_string(),
-            Value::String(executor_mode_name(&executor_mode)),
-        );
-        if let Some(sandbox_mode) = routed.sandbox_mode {
-            metadata.insert("sandbox_mode".to_string(), Value::String(sandbox_mode));
-        }
-        if let Some(strategy) = routed.strategy_id {
-            metadata.insert("strategy".to_string(), Value::String(strategy));
+        {
+            use wf_execution_shared::context::node_metadata as keys;
+            metadata.insert(
+                keys::SCRIPT_NAME.to_string(),
+                Value::String(script_name.to_string()),
+            );
+            metadata.insert(
+                keys::EXECUTION_TIME.to_string(),
+                Value::Number(result.execution_time_ms.into()),
+            );
+            metadata.insert(
+                keys::LANGUAGE.to_string(),
+                Value::String(language.to_string()),
+            );
+            metadata.insert(
+                keys::EXECUTOR_MODE.to_string(),
+                Value::String(executor_mode_name(&executor_mode)),
+            );
+            if let Some(sandbox_mode) = routed.sandbox_mode {
+                metadata.insert(keys::SANDBOX_MODE.to_string(), Value::String(sandbox_mode));
+            }
+            if let Some(strategy) = routed.strategy_id {
+                metadata.insert(keys::STRATEGY.to_string(), Value::String(strategy));
+            }
         }
 
         Ok(NodeExecutionResult {
@@ -600,7 +606,10 @@ impl ScriptHandler {
         }
 
         let mut metadata = std::collections::HashMap::new();
-        metadata.insert("flow".to_string(), Value::String(flow.name));
+        metadata.insert(
+            wf_execution_shared::context::node_metadata::FLOW.to_string(),
+            Value::String(flow.name),
+        );
         Ok(NodeExecutionResult {
             output,
             next_node_ids: Vec::new(),

@@ -46,7 +46,7 @@ pub(crate) fn routes() -> Router<ApiState> {
             post(handle_set_append_mode_loop),
         )
         .route(
-            "/agent-loops/{id}/convert-pending-to-steering",
+            "/agent-loops/{id}/convert-pending",
             post(handle_convert_pending_to_steering_loop),
         )
         .route(

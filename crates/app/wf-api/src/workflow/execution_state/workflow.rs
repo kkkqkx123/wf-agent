@@ -33,6 +33,9 @@ pub async fn workflow_execution_get_state(
             .map_err(|e| ApiError::execution(format!("state snapshot failed: {e}")))?;
         let mut variables = BTreeMap::new();
         for entry in entity.variables().iter() {
+            if is_internal_variable(entry.key()) {
+                continue;
+            }
             variables.insert(entry.key().clone(), entry.value().clone());
         }
         return Ok(WorkflowExecutionStateView {
@@ -52,6 +55,7 @@ pub async fn workflow_execution_get_state(
                     end_time: r.end_time,
                     success: r.success,
                     error: r.error,
+                    metadata: r.metadata,
                 })
                 .collect(),
             variables,
@@ -105,6 +109,9 @@ pub async fn workflow_execution_variables(
     if let Some(entity) = ctx.workflow_execution(execution_id) {
         let mut variables = BTreeMap::new();
         for entry in entity.variables().iter() {
+            if is_internal_variable(entry.key()) {
+                continue;
+            }
             variables.insert(entry.key().clone(), entry.value().clone());
         }
         return Ok(variables);
@@ -153,10 +160,20 @@ pub(super) fn record_variable_map(
     let mut map = BTreeMap::new();
     if let Some(variables) = variables {
         for variable in variables {
+            if is_internal_variable(&variable.name) {
+                continue;
+            }
             map.insert(variable.name, variable.value);
         }
     }
     map
+}
+
+/// Internal variable keys (engine-managed protocol markers such as
+/// `__agent_loop_ids`, `__loop_*`, `__tool_blocked_*`) never enter the
+/// user-facing variable views.
+pub(super) fn is_internal_variable(key: &str) -> bool {
+    key.starts_with("__")
 }
 
 pub(super) async fn node_records(

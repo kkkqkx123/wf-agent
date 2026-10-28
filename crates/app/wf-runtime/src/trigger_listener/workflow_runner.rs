@@ -133,7 +133,7 @@ impl WorkflowRunner {
         gateway: Arc<LlmGateway>,
         contexts: Arc<ExecutionContextRegistry>,
     ) -> Self {
-        Self::with_skill_loader(registries, event_bus, gateway, contexts, None)
+        Self::with_skill_loader(registries, event_bus, gateway, contexts, None, None)
     }
 
     pub fn with_skill_loader(
@@ -142,11 +142,17 @@ impl WorkflowRunner {
         gateway: Arc<LlmGateway>,
         contexts: Arc<ExecutionContextRegistry>,
         skill_loader: Option<Arc<wf_tools::SkillLoader>>,
+        agent_loop_registry: Option<Arc<wf_agent::registry::AgentLoopRegistry>>,
     ) -> Self {
         Self {
             registries,
             event_bus,
-            handlers: wf_workflow::create_default_handlers(gateway, None),
+            handlers: wf_workflow::create_default_handlers_with(
+                gateway,
+                None,
+                None,
+                agent_loop_registry,
+            ),
             contexts,
             skill_loader,
             tool_registry: None,
@@ -179,11 +185,17 @@ impl WorkflowRunner {
         contexts: Arc<ExecutionContextRegistry>,
         tool_registry: Option<Arc<wf_tools::registry::ToolRegistry>>,
         sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
+        agent_loop_registry: Option<Arc<wf_agent::registry::AgentLoopRegistry>>,
     ) -> Self {
         Self {
             registries,
             event_bus,
-            handlers: wf_workflow::create_default_handlers(gateway, sandbox),
+            handlers: wf_workflow::create_default_handlers_with(
+                gateway,
+                sandbox,
+                None,
+                agent_loop_registry,
+            ),
             contexts,
             skill_loader: None,
             tool_registry,

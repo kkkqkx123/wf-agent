@@ -28,6 +28,15 @@ pub(crate) struct IdVersionPath {
     pub(crate) version: String,
 }
 
+/// `{id}` + `{node_id}` path pair used by nested agent-loop routes (snake_case
+/// placeholder, matching the URL template).
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Path)]
+pub(crate) struct IdSnakeNodePath {
+    pub(crate) id: String,
+    pub(crate) node_id: String,
+}
+
 /// `{id}` + `{cid}` path pair used by checkpoint restore routes.
 #[derive(Deserialize, IntoParams)]
 #[into_params(parameter_in = Path)]

@@ -137,12 +137,14 @@ export interface ExecutionHistory {
 export interface NodeExecution {
 	nodeId: string;
 	nodeType: string;
+	nodeName?: string | null;
 	startedAt: string;
 	endedAt: string | null;
 	durationMs: number;
 	error: string | null;
 	input: unknown;
 	result: unknown;
+	metadata?: unknown;
 }
 
 export interface NodeTraceToolDependency {
@@ -165,6 +167,7 @@ export interface NodeTrace {
 	retryCount: number;
 	error: string | null;
 	toolDependencies: NodeTraceToolDependency[];
+	metadata?: unknown;
 }
 
 export interface NodeInputVariable {

@@ -10871,7 +10871,9 @@ export interface components {
             duration_ms: number;
             error?: string | null;
             input?: unknown;
+            metadata?: unknown;
             node_id: string;
+            node_name?: string | null;
             node_type: string;
             result?: unknown;
             /** Format: int64 */

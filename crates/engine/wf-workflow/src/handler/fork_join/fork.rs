@@ -331,7 +331,7 @@ impl ForkHandler {
             &execution_id,
             HashMap::from([
                 (
-                    "branch_count".to_string(),
+                    wf_execution_shared::context::node_metadata::BRANCH_COUNT.to_string(),
                     Value::Number(serde_json::Number::from(cfg.paths.len() as u64)),
                 ),
                 ("node_id".to_string(), Value::String(node_id.clone())),
@@ -444,37 +444,40 @@ impl ForkHandler {
             &execution_id,
             HashMap::from([
                 (
-                    "branch_count".to_string(),
+                    wf_execution_shared::context::node_metadata::BRANCH_COUNT.to_string(),
                     Value::Number(serde_json::Number::from(cfg.paths.len() as u64)),
                 ),
                 (
-                    "success_count".to_string(),
+                    wf_execution_shared::context::node_metadata::SUCCESS_COUNT.to_string(),
                     Value::Number(serde_json::Number::from(
                         results.iter().filter(|r| r.success).count() as u64,
                     )),
                 ),
                 (
-                    "outcome".to_string(),
+                    wf_execution_shared::context::node_metadata::OUTCOME.to_string(),
                     Value::String(format!("{:?}", outcome)),
                 ),
             ]),
         );
 
         let mut metadata = HashMap::new();
-        metadata.insert(
-            "branch_count".to_string(),
-            Value::Number(serde_json::Number::from(cfg.paths.len() as u64)),
-        );
-        metadata.insert(
-            "success_count".to_string(),
-            Value::Number(serde_json::Number::from(
-                results.iter().filter(|r| r.success).count() as u64,
-            )),
-        );
-        metadata.insert(
-            "outcome".to_string(),
-            Value::String(format!("{:?}", outcome)),
-        );
+        {
+            use wf_execution_shared::context::node_metadata as keys;
+            metadata.insert(
+                keys::BRANCH_COUNT.to_string(),
+                Value::Number(serde_json::Number::from(cfg.paths.len() as u64)),
+            );
+            metadata.insert(
+                keys::SUCCESS_COUNT.to_string(),
+                Value::Number(serde_json::Number::from(
+                    results.iter().filter(|r| r.success).count() as u64,
+                )),
+            );
+            metadata.insert(
+                keys::OUTCOME.to_string(),
+                Value::String(format!("{:?}", outcome)),
+            );
+        }
 
         if outcome == ForkOutcome::Failed {
             let failures: Vec<String> = results

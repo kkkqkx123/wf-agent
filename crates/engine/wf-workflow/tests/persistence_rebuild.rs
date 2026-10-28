@@ -83,6 +83,7 @@ fn node_record(node_id: &str, success: bool) -> NodeExecutionRecord {
         input: None,
         result: Some(serde_json::json!({"ok": success})),
         branch_id: None,
+        metadata: None,
     }
 }
 

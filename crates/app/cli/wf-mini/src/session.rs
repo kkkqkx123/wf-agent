@@ -458,7 +458,7 @@ impl NativeSession {
                 if let Some(id) = self.current_loop_id.clone() {
                     match self
                         .client
-                        .append_agent_loop(&id, text, Some("steering".to_string()))
+                        .append_agent_loop(&id, text, Some("steering".to_string()), None)
                         .await
                     {
                         Ok(_) => output::diag_line("steering input appended"),
@@ -473,7 +473,7 @@ impl NativeSession {
                 if let Some(id) = self.current_loop_id.clone() {
                     match self
                         .client
-                        .append_agent_loop(&id, text, Some("followup".to_string()))
+                        .append_agent_loop(&id, text, Some("followup".to_string()), None)
                         .await
                     {
                         Ok(_) => output::diag_line("follow-up input appended"),
@@ -821,7 +821,7 @@ impl NativeSession {
                 event = stream.next() => match event {
                     Some(Ok(event)) => {
                         if let ExecutionStreamEvent::Engine(base) = &event {
-                            if let Some(id) = base.agent_loop_id.clone().or_else(|| base.execution_id.clone()) {
+                            if let Some(id) = base.agent_loop_id.clone() {
                                 self.current_loop_id = Some(id);
                             }
                         }

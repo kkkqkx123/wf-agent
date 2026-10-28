@@ -291,17 +291,23 @@ impl SyncHandler {
         emit_sync_event(ctx.event_bus.as_deref(), EventType::NodeSyncCompleted, ctx).await;
 
         let mut metadata = std::collections::HashMap::new();
-        metadata.insert("source_path_id".to_string(), Value::String(source_path_id));
-        if !synced_variables.is_empty() {
+        {
+            use wf_execution_shared::context::node_metadata as keys;
             metadata.insert(
-                "synced_variables".to_string(),
-                Value::Array(
-                    synced_variables
-                        .iter()
-                        .map(|s| Value::String(s.clone()))
-                        .collect(),
-                ),
+                keys::SOURCE_PATH_ID.to_string(),
+                Value::String(source_path_id),
             );
+            if !synced_variables.is_empty() {
+                metadata.insert(
+                    keys::SYNCED_VARIABLES.to_string(),
+                    Value::Array(
+                        synced_variables
+                            .iter()
+                            .map(|s| Value::String(s.clone()))
+                            .collect(),
+                    ),
+                );
+            }
         }
 
         Ok(NodeExecutionResult {

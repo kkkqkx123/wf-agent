@@ -35,6 +35,9 @@ pub(super) struct TriggerSubsystemDeps {
     pub(super) tool_registry: Arc<wf_tools::registry::ToolRegistry>,
     pub(super) sandbox_runtime: Arc<wf_sandbox::SandboxRuntime>,
     pub(super) agent_executor: Arc<wf_agent::executor::AgentLoopExecutor>,
+    /// Shared agent loop registry attached to the triggered sub-workflow
+    /// handlers so nested AGENT_LOOP nodes register through the same gate.
+    pub(super) agent_registry: Arc<wf_agent::registry::AgentLoopRegistry>,
     pub(super) hook_handler_registry: Arc<HookHandlerRegistry>,
     pub(super) storage: Option<Arc<dyn TriggerExecutionRecorder>>,
     pub(super) limits: wf_types::config::limits::LimitsConfig,
@@ -58,6 +61,7 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
         tool_registry,
         sandbox_runtime,
         agent_executor,
+        agent_registry,
         hook_handler_registry,
         storage,
         limits,
@@ -123,6 +127,7 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
                 execution_contexts.clone(),
                 Some(tool_registry.clone()),
                 Some(sandbox_runtime.clone()),
+                Some(agent_registry.clone()),
             )
             .with_signal_bus(signal_bus.clone())
             .with_limits(limits),
@@ -136,6 +141,7 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
         tool_registry: Some(tool_registry.clone()),
         sandbox: Some(sandbox_runtime.clone()),
         agent_executor: Some(agent_executor.clone()),
+        agent_loop_registry: Some(agent_registry),
         ledger: Some(ledger.clone()),
         hook_handler_registry: Some(hook_handler_registry.clone()),
         signal_bus: Some(signal_bus.clone()),

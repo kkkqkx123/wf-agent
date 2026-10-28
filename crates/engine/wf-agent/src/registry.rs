@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use wf_common::gate::GateStats;
-use wf_execution_shared::agent_loop_control::{AgentLoopControl, AgentLoopRegistryHandle};
 use wf_execution_shared::types::execution_entity::{ExecutionEntity, ExecutionStatus};
 use wf_tools::callback::AgentLoopOutput;
 use wf_types::execution::MAX_EXECUTION_DEPTH;
@@ -56,9 +55,6 @@ impl AgentExecutionRecord {
 /// limit, aligned with Codex's `reserve_spawn_slot` + `session_depth`.
 pub struct AgentLoopRegistry {
     entities: DashMap<Id, Arc<AgentLoopEntity>>,
-    /// Controls registered through the shared handle (kept in parallel with
-    /// `entities` so the shared layer can address loops without concrete types).
-    controls: DashMap<Id, Arc<dyn AgentLoopControl>>,
     /// Terminal results of finished executions, keyed by execution id.
     /// Written by the spawning path, read by `query_execution_status` and
     /// cleared together with the entity by `cleanup_terminated`.
@@ -90,7 +86,6 @@ impl AgentLoopRegistry {
             .unwrap_or(4);
         Self {
             entities: DashMap::new(),
-            controls: DashMap::new(),
             results: DashMap::new(),
             tasks: DashMap::new(),
             gate: Arc::new(AgentCapacityGate::new(max_concurrent)),
@@ -167,8 +162,6 @@ impl AgentLoopRegistry {
                 entity.set_gate_permit(permit);
             }
             self.entities.insert(id.clone(), entity.clone());
-            self.controls
-                .insert(id.clone(), entity as Arc<dyn AgentLoopControl>);
             return Ok(());
         }
         // A terminal entity describes a finished execution, not a running
@@ -177,8 +170,6 @@ impl AgentLoopRegistry {
         // outcomes (completed / failed / cancelled) must not be limited by it.
         if Self::is_terminal(&entity) {
             self.entities.insert(id.clone(), entity.clone());
-            self.controls
-                .insert(id.clone(), entity as Arc<dyn AgentLoopControl>);
             return Ok(());
         }
         let max = self.max_concurrent();
@@ -186,10 +177,7 @@ impl AgentLoopRegistry {
             AgentError::ConcurrencySaturated(format!("concurrent execution limit {max} reached"))
         })?;
         entity.set_gate_permit(Some(permit));
-        let id_for_control = id.clone();
         self.entities.insert(id.clone(), entity.clone());
-        self.controls
-            .insert(id_for_control, entity as Arc<dyn AgentLoopControl>);
         Ok(())
     }
 
@@ -208,7 +196,6 @@ impl AgentLoopRegistry {
     }
 
     pub fn unregister(&self, id: &Id) -> bool {
-        self.controls.remove(id);
         self.entities.remove(id).is_some()
     }
 
@@ -226,7 +213,6 @@ impl AgentLoopRegistry {
 
     pub fn clear(&self) {
         self.entities.clear();
-        self.controls.clear();
         self.results.clear();
         self.tasks.clear();
     }
@@ -351,54 +337,12 @@ impl AgentLoopRegistry {
                     | ExecutionStatus::Stopped
             ) {
                 self.entities.remove(&id);
-                self.controls.remove(&id);
                 self.results.remove(&id);
                 self.tasks.remove(&id);
                 removed += 1;
             }
         }
         removed
-    }
-}
-
-#[async_trait::async_trait]
-impl AgentLoopRegistryHandle for AgentLoopRegistry {
-    fn register_control(&self, control: Arc<dyn AgentLoopControl>) -> Result<(), String> {
-        let _ = control.as_any().downcast_ref::<AgentLoopEntity>();
-        // Store the control handle for shared addressing.
-        self.controls.insert(control.agent_loop_id(), control);
-        Ok(())
-    }
-
-    fn unregister(&self, id: &Id) -> bool {
-        let c = self.controls.remove(id).is_some();
-        let e = self.entities.remove(id).is_some();
-        c || e
-    }
-
-    fn get(&self, id: &Id) -> Option<Arc<dyn AgentLoopControl>> {
-        if let Some(c) = self.controls.get(id) {
-            return Some(c.clone());
-        }
-        self.get(id).map(|e| e as Arc<dyn AgentLoopControl>)
-    }
-
-    fn has(&self, id: &Id) -> bool {
-        self.controls.contains_key(id) || self.entities.contains_key(id)
-    }
-
-    fn all_ids(&self) -> Vec<Id> {
-        let mut ids: Vec<Id> = self.controls.iter().map(|e| e.key().clone()).collect();
-        for e in self.entities.iter() {
-            if !ids.contains(e.key()) {
-                ids.push(e.key().clone());
-            }
-        }
-        ids
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
     }
 }
 

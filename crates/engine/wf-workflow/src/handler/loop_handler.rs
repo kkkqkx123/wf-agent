@@ -207,15 +207,21 @@ impl LoopEndHandler {
         }
 
         let mut metadata = HashMap::new();
-        metadata.insert("loop_id".to_string(), Value::String(loop_id.clone()));
-        metadata.insert(
-            "iteration".to_string(),
-            Value::Number(state.iteration_count.into()),
-        );
+        {
+            use wf_execution_shared::context::node_metadata as keys;
+            metadata.insert(keys::LOOP_ID.to_string(), Value::String(loop_id.clone()));
+            metadata.insert(
+                keys::ITERATION.to_string(),
+                Value::Number(state.iteration_count.into()),
+            );
+        }
 
         if terminate {
             exit_loop(&ctx.variables, &loop_id)?;
-            metadata.insert("should_continue".to_string(), Value::Bool(false));
+            metadata.insert(
+                wf_execution_shared::context::node_metadata::SHOULD_CONTINUE.to_string(),
+                Value::Bool(false),
+            );
             return Ok(NodeExecutionResult {
                 output: ctx.input.clone(),
                 next_node_ids: Vec::new(),
@@ -233,7 +239,10 @@ impl LoopEndHandler {
         } else {
             Vec::new()
         };
-        metadata.insert("should_continue".to_string(), Value::Bool(true));
+        metadata.insert(
+            wf_execution_shared::context::node_metadata::SHOULD_CONTINUE.to_string(),
+            Value::Bool(true),
+        );
 
         Ok(NodeExecutionResult {
             output: ctx.input.clone(),

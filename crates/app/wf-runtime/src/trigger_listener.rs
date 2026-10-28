@@ -142,6 +142,7 @@ pub fn start_trigger_listener_with_skills(
         gateway.clone(),
         contexts.clone(),
         skill_loader,
+        None,
     ));
     spawn_listener(ListenerDeps {
         event_bus,
@@ -152,6 +153,7 @@ pub fn start_trigger_listener_with_skills(
         tool_registry: None,
         sandbox: None,
         agent_executor: None,
+        agent_loop_registry: None,
         ledger: None,
         hook_handler_registry: None,
         signal_bus: None,
@@ -180,6 +182,7 @@ pub fn start_trigger_listener_with_registry(
         tool_registry,
         sandbox,
         agent_executor,
+        agent_loop_registry,
         ledger,
     } = options;
     let runner: Arc<dyn SubworkflowRunner> = Arc::new(WorkflowRunner::with_tool_registry(
@@ -189,6 +192,7 @@ pub fn start_trigger_listener_with_registry(
         contexts.clone(),
         tool_registry.clone(),
         sandbox.clone(),
+        agent_loop_registry.clone(),
     ));
     start_trigger_listener_with_parts(ListenerDeps {
         event_bus,
@@ -199,6 +203,7 @@ pub fn start_trigger_listener_with_registry(
         tool_registry,
         sandbox,
         agent_executor,
+        agent_loop_registry,
         ledger,
         hook_handler_registry: None,
         signal_bus: None,
@@ -227,6 +232,9 @@ pub struct ListenerOptions {
     pub tool_registry: Option<Arc<wf_tools::registry::ToolRegistry>>,
     pub sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
     pub agent_executor: Option<Arc<wf_agent::executor::AgentLoopExecutor>>,
+    /// Shared agent loop registry attached to the triggered sub-workflow
+    /// handler set; `None` keeps nested loops unregistered at runtime.
+    pub agent_loop_registry: Option<Arc<wf_agent::registry::AgentLoopRegistry>>,
     pub ledger: Option<Arc<TriggerLedger>>,
 }
 
@@ -243,6 +251,10 @@ pub(crate) struct ListenerDeps {
     pub(crate) tool_registry: Option<Arc<wf_tools::registry::ToolRegistry>>,
     pub(crate) sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
     pub(crate) agent_executor: Option<Arc<wf_agent::executor::AgentLoopExecutor>>,
+    /// Shared agent loop registry attached to the handler sets this listener
+    /// builds (context-action callback), keeping nested AGENT_LOOP nodes
+    /// addressable across trigger-launched executions.
+    pub(crate) agent_loop_registry: Option<Arc<wf_agent::registry::AgentLoopRegistry>>,
     pub(crate) ledger: Option<Arc<TriggerLedger>>,
     pub(crate) hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
     pub(crate) signal_bus: Option<Arc<InternalSignalBus>>,
@@ -280,6 +292,7 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
         tool_registry,
         sandbox,
         agent_executor,
+        agent_loop_registry,
         ledger,
         hook_handler_registry,
         signal_bus,
@@ -345,6 +358,7 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
             &gateway,
             &sandbox,
             &tool_registry,
+            &agent_loop_registry,
             signal_bus,
         ),
     );
@@ -401,13 +415,19 @@ fn context_runner(
     gateway: &Arc<LlmGateway>,
     sandbox: &Option<Arc<wf_sandbox::SandboxRuntime>>,
     tool_registry: &Option<Arc<wf_tools::registry::ToolRegistry>>,
+    agent_loop_registry: &Option<Arc<wf_agent::registry::AgentLoopRegistry>>,
     signal_bus: Option<Arc<InternalSignalBus>>,
 ) -> Arc<ContextTriggerRunner> {
     Arc::new(
         ContextTriggerRunner::new(
             event_bus.clone(),
             contexts.clone(),
-            wf_workflow::create_default_handlers(gateway.clone(), sandbox.clone()),
+            wf_workflow::create_default_handlers_with(
+                gateway.clone(),
+                sandbox.clone(),
+                None,
+                agent_loop_registry.clone(),
+            ),
             tool_registry.clone(),
             shutdown.clone(),
         )

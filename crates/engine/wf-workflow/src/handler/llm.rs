@@ -344,35 +344,44 @@ impl LlmHandler {
                 .unwrap_or(Value::Null)
         };
 
-        let mut metadata = HashMap::new();
-        if let Some(response) = &final_response {
-            if !response.model.is_empty() {
-                metadata.insert("model".to_string(), Value::String(response.model.clone()));
-            }
-            if let Some(finish_reason) = &response.finish_reason {
-                metadata.insert(
-                    "finish_reason".to_string(),
-                    Value::String(finish_reason.clone()),
-                );
-            }
-            if let Some(usage) = &response.usage {
-                metadata.insert(
-                    "prompt_tokens".to_string(),
-                    Value::Number(usage.prompt_tokens.into()),
-                );
-                metadata.insert(
-                    "completion_tokens".to_string(),
-                    Value::Number(usage.completion_tokens.into()),
-                );
-            }
-        }
         let executed_tool_count = executed_tool_calls.len();
-        if !executed_tool_calls.is_empty() {
-            metadata.insert("tool_calls".to_string(), Value::Array(executed_tool_calls));
-        }
-        metadata.insert("stream".to_string(), Value::Bool(cfg.stream_enabled));
-        if stopped_with_tools {
-            metadata.insert("rounds_exhausted".to_string(), Value::Bool(true));
+        let mut metadata = HashMap::new();
+        {
+            use wf_execution_shared::context::node_metadata as keys;
+            if let Some(response) = &final_response {
+                if !response.model.is_empty() {
+                    metadata.insert(
+                        keys::MODEL.to_string(),
+                        Value::String(response.model.clone()),
+                    );
+                }
+                if let Some(finish_reason) = &response.finish_reason {
+                    metadata.insert(
+                        keys::FINISH_REASON.to_string(),
+                        Value::String(finish_reason.clone()),
+                    );
+                }
+                if let Some(usage) = &response.usage {
+                    metadata.insert(
+                        keys::PROMPT_TOKENS.to_string(),
+                        Value::Number(usage.prompt_tokens.into()),
+                    );
+                    metadata.insert(
+                        keys::COMPLETION_TOKENS.to_string(),
+                        Value::Number(usage.completion_tokens.into()),
+                    );
+                }
+            }
+            if !executed_tool_calls.is_empty() {
+                metadata.insert(
+                    keys::TOOL_CALLS.to_string(),
+                    Value::Array(executed_tool_calls),
+                );
+            }
+            metadata.insert(keys::STREAM.to_string(), Value::Bool(cfg.stream_enabled));
+            if stopped_with_tools {
+                metadata.insert(keys::ROUNDS_EXHAUSTED.to_string(), Value::Bool(true));
+            }
         }
 
         // Write the assistant response to the configured output context
@@ -397,16 +406,19 @@ impl LlmHandler {
 
         let mut completion_meta = HashMap::from([
             (
-                "event".to_string(),
+                wf_execution_shared::context::node_metadata::EVENT.to_string(),
                 Value::String("llm_node_completed".to_string()),
             ),
             (
-                "tool_call_count".to_string(),
+                wf_execution_shared::context::node_metadata::TOOL_CALL_COUNT.to_string(),
                 Value::Number(serde_json::Number::from(executed_tool_count as u64)),
             ),
         ]);
         if stopped_with_tools {
-            completion_meta.insert("rounds_exhausted".to_string(), Value::Bool(true));
+            completion_meta.insert(
+                wf_execution_shared::context::node_metadata::ROUNDS_EXHAUSTED.to_string(),
+                Value::Bool(true),
+            );
         }
         emit_llm_event(
             ctx.event_bus.as_deref(),

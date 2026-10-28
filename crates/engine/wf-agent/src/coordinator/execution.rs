@@ -196,9 +196,9 @@ impl AgentExecutionCoordinator {
                         id: wf_common::generate_id(),
                         r#type: EventType::AgentSteeringInjected,
                         timestamp: wf_common::now(),
-                        workflow_id: None,
+                        workflow_id: entity.parent_execution_id(),
                         execution_id: Some(entity.id().clone()),
-                        agent_loop_id: None,
+                        agent_loop_id: Some(entity.id().clone()),
                         event_name: None,
                         metadata: Some(metadata),
                     };
@@ -274,9 +274,9 @@ impl AgentExecutionCoordinator {
                                             id: wf_common::generate_id(),
                                             r#type: EventType::AgentFollowupQueued,
                                             timestamp: wf_common::now(),
-                                            workflow_id: None,
+                                            workflow_id: entity.parent_execution_id(),
                                             execution_id: Some(entity.id().clone()),
-                                            agent_loop_id: None,
+                                            agent_loop_id: Some(entity.id().clone()),
                                             event_name: None,
                                             metadata: Some(metadata),
                                         };

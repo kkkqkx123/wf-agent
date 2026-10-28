@@ -77,6 +77,8 @@ pub(crate) struct NodeExecutionDoc {
     node_id: String,
     node_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    node_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<Value>)]
     input: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -90,6 +92,9 @@ pub(crate) struct NodeExecutionDoc {
     duration_ms: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     branch_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<Value>)]
+    metadata: Option<serde_json::Value>,
 }
 
 impl From<wf_api::NodeExecutionAuditView> for NodeExecutionDoc {
@@ -97,6 +102,7 @@ impl From<wf_api::NodeExecutionAuditView> for NodeExecutionDoc {
         Self {
             node_id: view.node_id,
             node_type: view.node_type,
+            node_name: view.node_name,
             input: view.input,
             result: view.result,
             error: view.error,
@@ -104,6 +110,7 @@ impl From<wf_api::NodeExecutionAuditView> for NodeExecutionDoc {
             completed_at: view.completed_at,
             duration_ms: view.duration_ms,
             branch_id: view.branch_id,
+            metadata: view.metadata,
         }
     }
 }

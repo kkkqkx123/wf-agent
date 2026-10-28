@@ -93,17 +93,20 @@ fn ignore_child_error(config: &Value) -> bool {
 /// did not complete normally.
 fn ignored_child_result(node_count: u64, err: &WorkflowError) -> NodeExecutionResult {
     let mut ignored_metadata = HashMap::new();
-    ignored_metadata.insert(
-        "node_count".to_string(),
-        Value::Number(serde_json::Number::from(node_count)),
-    );
-    ignored_metadata.insert("child_error_ignored".to_string(), Value::Bool(true));
-    ignored_metadata.insert(
-        "child_error".to_string(),
-        Value::String(wf_types::workflow::error_branch::truncate_summary(
-            &err.to_string(),
-        )),
-    );
+    {
+        use wf_execution_shared::context::node_metadata as keys;
+        ignored_metadata.insert(
+            keys::NODE_COUNT.to_string(),
+            Value::Number(serde_json::Number::from(node_count)),
+        );
+        ignored_metadata.insert(keys::CHILD_ERROR_IGNORED.to_string(), Value::Bool(true));
+        ignored_metadata.insert(
+            keys::CHILD_ERROR.to_string(),
+            Value::String(wf_types::workflow::error_branch::truncate_summary(
+                &err.to_string(),
+            )),
+        );
+    }
     NodeExecutionResult {
         output: Value::Null,
         next_node_ids: Vec::new(),
@@ -343,12 +346,15 @@ pub(crate) async fn execute_subgraph(
     };
 
     let mut metadata = HashMap::new();
-    metadata.insert(
-        "node_count".to_string(),
-        Value::Number(serde_json::Number::from(
-            coordinator.completed_nodes().len() as u64,
-        )),
-    );
+    {
+        use wf_execution_shared::context::node_metadata as keys;
+        metadata.insert(
+            keys::NODE_COUNT.to_string(),
+            Value::Number(serde_json::Number::from(
+                coordinator.completed_nodes().len() as u64,
+            )),
+        );
+    }
 
     Ok(NodeExecutionResult {
         output,

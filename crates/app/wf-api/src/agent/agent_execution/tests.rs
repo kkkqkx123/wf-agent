@@ -154,15 +154,7 @@ async fn persisted_agent_execution_readable_after_restart() {
         None,
     ));
 
-    use crate::workflow::execution_state::agent_execution_get_state;
-    let view = agent_execution_get_state(&ctx2, &agent_loop_id)
-        .await
-        .expect("persisted agent state query");
-    assert_eq!(view.source, "persisted");
-    assert_eq!(view.status, wf_types::ExecutionStatus::Completed);
-    assert_eq!(view.agent_loop_id, agent_loop_id);
-
-    let executions = crate::agent::list_agent_executions(&ctx2.storage, None)
+    use crate::agent::list_agent_executions(&ctx2.storage, None)
         .await
         .unwrap();
     assert_eq!(executions.len(), 1);

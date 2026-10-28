@@ -1,23 +1,33 @@
-use crate::infra::context::ApiContext;
-use wf_execution_shared::types::execution_entity::ExecutionEntity;
-use crate::infra::error::{ApiError, ApiResult};
+use std::collections::BTreeMap;
 
+use serde_json::Value;
+use wf_execution_shared::types::execution_entity::ExecutionEntity;
+
+use crate::infra::context::ApiContext;
+use crate::infra::error::{ApiError, ApiResult};
+use wf_storage::adapter::base::BaseStorageAdapter;
+
+/// One agent loop bound to a workflow execution node: identity, status and
+/// pending runtime-input counts.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WorkflowAgentLoop {
     pub node_id: String,
     pub agent_loop_id: String,
     pub status: wf_types::ExecutionStatus,
+    /// Whether the loop entity is still resident in the registry (`false`
+    /// means the row was rebuilt from the persisted execution record).
+    pub live: bool,
     pub steering_pending: usize,
     pub followup_pending: usize,
-    pub append_mode: String,
+    /// Current default append destination; only live entities hold one.
+    pub append_mode: Option<String>,
 }
 
-fn mapping(ctx: &ApiContext, execution_id: &str) -> ApiResult<std::collections::BTreeMap<String, String>> {
-    let entity = ctx
-        .workflow_execution(execution_id)
-        .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
-    let mut map = std::collections::BTreeMap::new();
-    if let Some(entry) = entity.variables().get("__agent_loop_ids") {
+/// Extract the node id -> agent loop id mapping written by the AGENT_LOOP
+/// handler into the `__agent_loop_ids` variable.
+fn parse_mapping(variables: &dashmap::DashMap<String, Value>) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    if let Some(entry) = variables.get("__agent_loop_ids") {
         if let Some(obj) = entry.value().as_object() {
             for (k, v) in obj {
                 if let Some(id) = v.as_str() {
@@ -26,53 +36,85 @@ fn mapping(ctx: &ApiContext, execution_id: &str) -> ApiResult<std::collections::
             }
         }
     }
-    Ok(map)
+    map
+}
+
+/// Resolve the loop id `node_id` is bound to in this execution.
+async fn loop_id_for_node(
+    ctx: &ApiContext,
+    execution_id: &str,
+    node_id: &str,
+) -> ApiResult<String> {
+    let entity = ctx
+        .workflow_execution(execution_id)
+        .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
+    parse_mapping(&entity.variables())
+        .remove(node_id)
+        .ok_or_else(|| ApiError::not_found("agent_loop", node_id))
 }
 
 pub async fn list_agent_loops(
     ctx: &ApiContext,
     execution_id: &str,
 ) -> ApiResult<Vec<WorkflowAgentLoop>> {
-    let map = mapping(ctx, execution_id)?;
+    let entity = ctx
+        .workflow_execution(execution_id)
+        .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
+    let map = parse_mapping(&entity.variables());
     let mut result = Vec::new();
     for (node_id, loop_id) in map {
-        if let Some(entity) = ctx.agent_loop(&loop_id) {
-            let (steering, followup) = entity.pending_append_counts().await;
-            let mode = entity.append_mode().await;
+        if let Some(loop_entity) = ctx.agent_loop(&loop_id) {
+            let (steering, followup) = loop_entity.pending_append_counts().await;
+            let mode = loop_entity.append_mode().await;
             result.push(WorkflowAgentLoop {
                 node_id,
                 agent_loop_id: loop_id,
-                status: entity.status().into(),
+                status: loop_entity.status().into(),
+                live: true,
                 steering_pending: steering,
                 followup_pending: followup,
-                append_mode: format!("{:?}", mode).to_lowercase(),
+                append_mode: Some(format!("{:?}", mode).to_lowercase()),
             });
-        } else {
+            continue;
+        }
+        // The entity left the registry (terminal cleanup): report the real
+        // persisted terminal status rather than synthesizing one.
+        if let Some(record) = ctx.storage.agent_execution.load(&loop_id).await? {
             result.push(WorkflowAgentLoop {
                 node_id,
                 agent_loop_id: loop_id,
-                status: wf_types::ExecutionStatus::Completed,
+                status: record.status,
+                live: false,
                 steering_pending: 0,
                 followup_pending: 0,
-                append_mode: "followup".to_string(),
+                append_mode: None,
             });
+        } else {
+            // Record purged by the user: nothing truthful remains to report.
+            tracing::warn!(
+                target: "wf_api",
+                execution_id,
+                node_id,
+                agent_loop_id = %loop_id,
+                "agent loop mapping has no live entity or persisted record; skipping"
+            );
         }
     }
     Ok(result)
 }
 
+/// Append one runtime input to the agent loop bound to `node_id`.
+/// `source` labels the calling channel for the audit trail.
 pub async fn append_to_agent_loop(
     ctx: &ApiContext,
     execution_id: &str,
     node_id: &str,
     text: String,
     as_mode: Option<&str>,
+    source: Option<&str>,
 ) -> ApiResult<()> {
-    let map = mapping(ctx, execution_id)?;
-    let loop_id = map
-        .get(node_id)
-        .ok_or_else(|| ApiError::execution_not_found(node_id))?;
-    crate::agent::agent_execution::append(ctx, loop_id, text, as_mode).await
+    let loop_id = loop_id_for_node(ctx, execution_id, node_id).await?;
+    crate::agent::agent_execution::append(ctx, &loop_id, text, as_mode, source).await
 }
 
 pub async fn set_agent_loop_append_mode(
@@ -81,11 +123,8 @@ pub async fn set_agent_loop_append_mode(
     node_id: &str,
     mode: &str,
 ) -> ApiResult<()> {
-    let map = mapping(ctx, execution_id)?;
-    let loop_id = map
-        .get(node_id)
-        .ok_or_else(|| ApiError::execution_not_found(node_id))?;
-    crate::agent::agent_execution::set_append_mode(ctx, loop_id, mode).await
+    let loop_id = loop_id_for_node(ctx, execution_id, node_id).await?;
+    crate::agent::agent_execution::set_append_mode(ctx, &loop_id, mode).await
 }
 
 pub async fn convert_pending_to_steering(
@@ -93,11 +132,6 @@ pub async fn convert_pending_to_steering(
     execution_id: &str,
     node_id: &str,
 ) -> ApiResult<()> {
-    let map = mapping(ctx, execution_id)?;
-    let loop_id = map
-        .get(node_id)
-        .ok_or_else(|| ApiError::execution_not_found(node_id))?;
-    crate::agent::agent_execution::convert_pending_to_steering(ctx, loop_id).await
+    let loop_id = loop_id_for_node(ctx, execution_id, node_id).await?;
+    crate::agent::agent_execution::convert_pending_to_steering(ctx, &loop_id).await
 }
-
-

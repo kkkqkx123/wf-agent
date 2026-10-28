@@ -26,8 +26,15 @@ pub fn restore_tracker_from_variables(
     let Some(value) = ctx.variables.get(TRACKER_STATE_KEY) else {
         return;
     };
-    if let Ok(state) = serde_json::from_value(value.clone()) {
-        tracker.restore(state);
+    match serde_json::from_value(value.clone()) {
+        Ok(state) => tracker.restore(state),
+        Err(e) => {
+            tracing::warn!(
+                key = TRACKER_STATE_KEY,
+                error = %e,
+                "token tracker state is corrupted, starting without checkpointed guards"
+            );
+        }
     }
 }
 
@@ -701,5 +708,25 @@ mod tests {
             "emission must report the full request estimate, not the bare array"
         );
         assert!(tokens_used > array_estimate);
+    }
+
+    #[test]
+    fn corrupted_tracker_state_starts_fresh() {
+        let vars = Arc::new(dashmap::DashMap::new());
+        vars.insert(
+            TRACKER_STATE_KEY.to_string(),
+            serde_json::json!({"not": "a tracker state"}),
+        );
+        let ctx = NodeExecutionContext::new(
+            "exec-budget".to_string(),
+            "llm1".to_string(),
+            StaticNodeType::Llm,
+            Value::Null,
+            vars,
+        );
+        let mut tracker = wf_execution_shared::TokenUsageTracker::new(0);
+        restore_tracker_from_variables(&ctx, &mut tracker);
+        assert_eq!(tracker.cumulative_usage().total_tokens, 0);
+        assert_eq!(tracker.estimated_total(), 0);
     }
 }

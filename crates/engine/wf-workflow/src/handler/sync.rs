@@ -376,3 +376,141 @@ async fn emit_sync_event(
     )
     .ok();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    use dashmap::DashMap;
+    use wf_types::node::StaticNodeType;
+    use wf_types::workflow::EdgeType;
+    use wf_types::workflow_execution::{
+        WorkflowEdge, WorkflowGraphStructure, WorkflowNode,
+    };
+
+    fn graph_with_fork(fork_id: &str, path_id: &str) -> Arc<WorkflowGraphStructure> {
+        Arc::new(WorkflowGraphStructure {
+            nodes: vec![WorkflowNode {
+                id: fork_id.to_string(),
+                name: None,
+                node_type: "FORK".to_string(),
+                inner: serde_json::json!({
+                    "fork_paths": [{"path_id": path_id, "child_node_id": "a"}]
+                }),
+            }],
+            edges: vec![WorkflowEdge {
+                id: "e1".to_string(),
+                source_node_id: fork_id.to_string(),
+                target_node_id: "a".to_string(),
+                r#type: EdgeType::Default,
+                condition: None,
+                label: None,
+                description: None,
+                error_route: None,
+            }],
+            start_node_id: Some(fork_id.to_string()),
+            end_node_ids: vec!["a".to_string()],
+            error_default: None,
+        })
+    }
+
+    fn ctx_with_fallback(
+        vars: Arc<DashMap<String, Value>>,
+        graph: Arc<WorkflowGraphStructure>,
+        config: Value,
+    ) -> NodeExecutionContext {
+        let mut ctx = NodeExecutionContext::new(
+            wf_types::Id::new(),
+            "sync1".to_string(),
+            StaticNodeType::Sync,
+            Value::Null,
+            vars,
+        );
+        ctx.graph_structure = Some(graph);
+        ctx.node_config = Some(config);
+        ctx
+    }
+
+    #[tokio::test]
+    async fn corrupted_message_context_degrades_without_failing() {
+        let vars = Arc::new(DashMap::new());
+        // Checkpoint-resume fallback: no live registry, the fork output
+        // variable carries a branch record whose message array is corrupted.
+        vars.insert(
+            crate::handler::fork_join::fork_output_key("fork1"),
+            serde_json::json!({
+                "results": [{
+                    "branch_id": "p1",
+                    "output": {},
+                    "success": true,
+                    "variables": {"__msg_ctx__chat": "not-a-message-array"}
+                }],
+                "outputs": [],
+                "outcome": "Succeeded"
+            }),
+        );
+        let mut ctx = ctx_with_fallback(
+            vars.clone(),
+            graph_with_fork("fork1", "p1"),
+            serde_json::json!({
+                "source_path_id": "p1",
+                "wait_for_completion": false,
+                "variable_mappings": [],
+                "message_inputs": [{
+                    "source_context_id": "chat",
+                    "internal_name": "synced",
+                    "required": false
+                }]
+            }),
+        );
+        SyncHandler
+            .execute(&mut ctx)
+            .await
+            .expect("corrupted message context must degrade, not fail");
+        assert!(
+            crate::message_context::get_context(&vars, "synced").is_empty(),
+            "nothing is registered from an unparseable array"
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_required_message_context_fails() {
+        let vars = Arc::new(DashMap::new());
+        vars.insert(
+            crate::handler::fork_join::fork_output_key("fork1"),
+            serde_json::json!({
+                "results": [{
+                    "branch_id": "p1",
+                    "output": {},
+                    "success": true,
+                    "variables": {}
+                }],
+                "outputs": [],
+                "outcome": "Succeeded"
+            }),
+        );
+        let mut ctx = ctx_with_fallback(
+            vars,
+            graph_with_fork("fork1", "p1"),
+            serde_json::json!({
+                "source_path_id": "p1",
+                "wait_for_completion": false,
+                "variable_mappings": [],
+                "message_inputs": [{
+                    "source_context_id": "chat",
+                    "internal_name": "synced",
+                    "required": true
+                }]
+            }),
+        );
+        let err = match SyncHandler.execute(&mut ctx).await {
+            Ok(_) => panic!("missing required context must fail"),
+            Err(e) => e,
+        };
+        assert!(
+            err.to_string().contains("required message context"),
+            "{err:?}"
+        );
+    }
+}

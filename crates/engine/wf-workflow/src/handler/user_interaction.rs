@@ -185,7 +185,7 @@ impl UserInteractionHandler {
 
                 let wait_result = tokio::time::timeout(Duration::from_millis(timeout_ms), rx).await;
 
-                ctx.set_internal_variable(interaction_keys::WAITING_VAR, Value::Bool(false));
+                ctx.variables.remove(interaction_keys::WAITING_VAR);
                 emit_interaction_event(
                     ctx.event_bus.as_deref(),
                     EventType::WorkflowExecutionResumed,
@@ -258,6 +258,10 @@ impl UserInteractionHandler {
         // 3. Apply the operation (UPDATE_VARIABLES / ADD_MESSAGE).
         let input_data = response.clone().unwrap_or(Value::Null);
         apply_operation(ctx, &config, &input_data, interaction_type)?;
+        // Consume the preset/response slot so a later node or a later loop
+        // iteration does not reuse a stale value. The resolved value travels
+        // in the node output and `node_results`, never in the shared slot.
+        ctx.variables.remove(user_response_var);
 
         let (approved, responded) = match &response {
             Some(Value::String(s)) => (s == "approved" || s == "yes" || s == "true", true),
@@ -734,6 +738,164 @@ mod tests {
 
         // The pending entry must be gone after the run settles (no leak).
         assert!(!crate::interaction::interaction_registry().is_pending(&interaction_id));
+        assert_eq!(
+            crate::interaction::interaction_registry().pending_count(),
+            0
+        );
+        crate::interaction::interaction_registry().reset_for_tests();
+    }
+
+    #[tokio::test]
+    async fn preset_response_is_consumed_after_apply() {
+        use wf_execution_shared::context::NodeExecutionContext;
+        use wf_types::node::StaticNodeType;
+
+        let vars = Arc::new(dashmap::DashMap::new());
+        vars.insert(
+            crate::handler::interaction_keys::RESPONSE_VAR.to_string(),
+            Value::from("banana"),
+        );
+        let mut ctx = NodeExecutionContext::new(
+            wf_common::generate_id(),
+            "interaction".to_string(),
+            StaticNodeType::UserInteraction,
+            Value::Null,
+            vars.clone(),
+        )
+        .with_node_config(serde_json::json!({
+            "prompt": "enter value",
+            "timeout": 5000,
+            "operation_type": "update_variables",
+            "variables": [{"variable_name": "user_choice", "expression": "{{input}}"}]
+        }));
+        let result = UserInteractionHandler
+            .execute(&mut ctx)
+            .await
+            .expect("preset path must succeed");
+        assert_eq!(result.output, Value::from("banana"));
+        assert_eq!(
+            vars.get("user_choice").map(|v| v.clone()),
+            Some(Value::from("banana"))
+        );
+        assert!(!vars.contains_key(crate::handler::interaction_keys::RESPONSE_VAR));
+        assert!(!vars.contains_key(crate::handler::interaction_keys::WAITING_VAR));
+    }
+
+    #[tokio::test]
+    async fn waiting_marker_is_removed_after_async_resolve() {
+        use wf_execution_shared::context::NodeExecutionContext;
+        use wf_types::node::StaticNodeType;
+
+        let _registry_guard = crate::interaction::acquire_registry_test_lock().await;
+        crate::interaction::interaction_registry().reset_for_tests();
+        let bus = Arc::new(wf_core::EventBus::new(64));
+        let mut sub = bus.subscribe();
+        let vars = Arc::new(dashmap::DashMap::new());
+        let mut ctx = NodeExecutionContext::new(
+            wf_common::generate_id(),
+            "interaction".to_string(),
+            StaticNodeType::UserInteraction,
+            Value::Null,
+            vars.clone(),
+        )
+        .with_node_config(serde_json::json!({
+            "prompt": "async value",
+            "timeout": 5000,
+            "operation_type": "update_variables",
+            "variables": [{"variable_name": "user_choice", "expression": "{{input}}"}]
+        }));
+        ctx.event_bus = Some(bus);
+        let mut ctx = ctx;
+        let handler = tokio::spawn(async move {
+            let result = UserInteractionHandler.execute(&mut ctx).await;
+            (result, ctx)
+        });
+        let interaction_id = loop {
+            match sub.recv().await {
+                Ok(event)
+                    if event.r#type
+                        == wf_types::events::EventType::FollowupQuestionRequested =>
+                {
+                    break event
+                        .metadata
+                        .as_ref()
+                        .and_then(|m| m.get("interaction_id"))
+                        .and_then(|v| v.as_str().map(|s| s.to_string()))
+                        .expect("interaction id must be present");
+                }
+                Ok(_) => continue,
+                Err(_) => panic!("event bus closed before the interaction request"),
+            }
+        };
+        assert!(crate::interaction::interaction_registry().is_pending(&interaction_id));
+        crate::interaction::complete_interaction(&interaction_id, Value::from("async-ok"));
+        let (result, _ctx) = handler.await.unwrap();
+        let result = result.expect("async path must succeed");
+        assert_eq!(result.output, Value::from("async-ok"));
+        assert!(!vars.contains_key(crate::handler::interaction_keys::WAITING_VAR));
+        assert!(!vars.contains_key(crate::handler::interaction_keys::RESPONSE_VAR));
+        assert_eq!(
+            vars.get("user_choice").map(|v| v.clone()),
+            Some(Value::from("async-ok"))
+        );
+        crate::interaction::interaction_registry().reset_for_tests();
+    }
+
+    #[tokio::test]
+    async fn preset_not_reused_across_two_runs() {
+        use wf_execution_shared::context::NodeExecutionContext;
+        use wf_types::node::StaticNodeType;
+
+        let _registry_guard = crate::interaction::acquire_registry_test_lock().await;
+        crate::interaction::interaction_registry().reset_for_tests();
+        let vars = Arc::new(dashmap::DashMap::new());
+        vars.insert(
+            crate::handler::interaction_keys::RESPONSE_VAR.to_string(),
+            Value::from("first"),
+        );
+        let config = serde_json::json!({
+            "prompt": "enter value",
+            "timeout": 5000,
+            "operation_type": "update_variables",
+            "variables": [{"variable_name": "user_choice", "expression": "{{input}}"}]
+        });
+        let mut ctx = NodeExecutionContext::new(
+            wf_common::generate_id(),
+            "interaction".to_string(),
+            StaticNodeType::UserInteraction,
+            Value::Null,
+            vars.clone(),
+        )
+        .with_node_config(config.clone());
+        let result = UserInteractionHandler
+            .execute(&mut ctx)
+            .await
+            .expect("preset run must succeed");
+        assert_eq!(result.output, Value::from("first"));
+        assert!(!vars.contains_key(crate::handler::interaction_keys::RESPONSE_VAR));
+
+        // Second run with the same variables must wait for a fresh response
+        // instead of reusing the consumed preset; with no responder it
+        // times out and leaves no waiting marker behind.
+        let mut ctx = NodeExecutionContext::new(
+            wf_common::generate_id(),
+            "interaction".to_string(),
+            StaticNodeType::UserInteraction,
+            Value::Null,
+            vars.clone(),
+        )
+        .with_node_config(serde_json::json!({
+            "prompt": "enter value",
+            "timeout": 50,
+            "operation_type": "update_variables",
+            "variables": [{"variable_name": "user_choice", "expression": "{{input}}"}]
+        }));
+        let err = match UserInteractionHandler.execute(&mut ctx).await {
+            Ok(_) => panic!("second run must not reuse the stale preset"),
+            Err(e) => e,
+        };
+        assert!(err.to_string().contains("timeout"), "{err:?}");
+        assert!(!vars.contains_key(crate::handler::interaction_keys::WAITING_VAR));
         assert_eq!(
             crate::interaction::interaction_registry().pending_count(),
             0

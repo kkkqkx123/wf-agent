@@ -291,6 +291,7 @@ impl InteractiveScriptHandler {
         let preset_user_input = ctx
             .get_variable(interaction_keys::INPUT_VAR)
             .unwrap_or(Value::Null);
+        let consumed_var_preset = preset_user_input != Value::Null;
         if preset_user_input != Value::Null {
             preset_inputs.insert(0, preset_user_input);
         }
@@ -392,6 +393,12 @@ impl InteractiveScriptHandler {
             let _ = router.shell_store().kill(&shell_session);
         }
         let outcome = outcome?;
+        // Consume the shared preset slot so the next script node does not
+        // reuse it. Removal happens only on success so a retry keeps the
+        // preset.
+        if consumed_var_preset {
+            ctx.variables.remove(interaction_keys::INPUT_VAR);
+        }
 
         let output = Value::String(outcome.output.clone());
         let parsed_output = serde_json::from_str::<Value>(&outcome.output).unwrap_or(output);
@@ -541,6 +548,12 @@ impl InteractiveScriptHandler {
 
         if let Some(mapping) = output_mapping {
             output_mapping::apply_output_mappings(ctx, &parsed_output, mapping)?;
+        }
+        // Consume the shared preset slot so the next script node does not
+        // reuse it. Removal happens only on success so a retry keeps the
+        // preset.
+        if user_input != Value::Null {
+            ctx.variables.remove(interaction_keys::INPUT_VAR);
         }
 
         ctx.set_internal_variable(interaction_keys::OUTPUT_VAR, parsed_output.clone());

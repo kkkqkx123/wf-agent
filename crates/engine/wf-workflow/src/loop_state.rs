@@ -157,6 +157,25 @@ pub fn record_iteration_completion(variables: &VariableStore, node_id: &str) -> 
     Ok(())
 }
 
+/// Whether a `__completed_{node}` marker should still suppress re-execution.
+///
+/// Inside an active loop a stale marker from a previous iteration must not
+/// suppress the next iteration: the coordinator tracks per-iteration
+/// completion in `iteration_nodes`, so a node absent from the current
+/// iteration list starts a new iteration and must re-execute. Outside loops
+/// (or when already recorded in this iteration) the marker stays
+/// authoritative. A corrupted stack propagates as an error instead of a
+/// silent pass-through.
+pub fn should_honor_completed_marker(
+    variables: &VariableStore,
+    node_id: &str,
+) -> WorkflowResult<bool> {
+    let Some(top) = current_loop(variables)?.filter(|s| !s.loop_id.is_empty()) else {
+        return Ok(true);
+    };
+    Ok(top.iteration_nodes.contains(&node_id.to_string()))
+}
+
 /// Loop continuation condition (bounded by max_iterations and the iterable
 /// length).
 pub fn loop_condition_met(state: &LoopState) -> bool {
@@ -372,5 +391,32 @@ mod tests {
         assert!(loop_condition_met(&s));
         s.current_index = 2;
         assert!(!loop_condition_met(&s));
+    }
+
+    #[test]
+    fn completed_marker_is_honored_outside_loops() {
+        let vars = store();
+        assert!(should_honor_completed_marker(&vars, "n1").unwrap());
+    }
+
+    #[test]
+    fn completed_marker_is_ignored_on_new_loop_iteration() {
+        let vars = store();
+        enter_loop(&vars, state("l1", Value::Null, 3)).unwrap();
+        assert!(!should_honor_completed_marker(&vars, "body").unwrap());
+
+        record_iteration_completion(&vars, "body").unwrap();
+        assert!(should_honor_completed_marker(&vars, "body").unwrap());
+        assert!(!should_honor_completed_marker(&vars, "other").unwrap());
+    }
+
+    #[test]
+    fn completed_marker_error_propagates_on_corrupted_stack() {
+        let vars = store();
+        vars.insert(
+            LOOP_STATE_STACK_KEY.to_string(),
+            serde_json::json!({"not": "a stack"}),
+        );
+        assert!(should_honor_completed_marker(&vars, "n1").is_err());
     }
 }

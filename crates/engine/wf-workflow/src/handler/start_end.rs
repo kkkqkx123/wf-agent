@@ -29,11 +29,14 @@ impl StartHandler {
         &self,
         ctx: &mut NodeExecutionContext,
     ) -> WorkflowResult<NodeExecutionResult> {
-        let already_executed = ctx
+        let marker_set = ctx
             .get_variable(&internal::completed_marker(&ctx.node_id))
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        if already_executed {
+        if marker_set && crate::loop_state::should_honor_completed_marker(
+            &ctx.variables,
+            &ctx.node_id,
+        )? {
             return Ok(NodeExecutionResult::simple(ctx.input.clone()));
         }
         ctx.set_internal_variable(internal::completed_marker(&ctx.node_id), Value::from(true));
@@ -62,11 +65,14 @@ impl EndHandler {
         &self,
         ctx: &mut NodeExecutionContext,
     ) -> WorkflowResult<NodeExecutionResult> {
-        let already_executed = ctx
+        let marker_set = ctx
             .get_variable(&internal::completed_marker(&ctx.node_id))
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        if already_executed {
+        if marker_set && crate::loop_state::should_honor_completed_marker(
+            &ctx.variables,
+            &ctx.node_id,
+        )? {
             return Ok(NodeExecutionResult::simple(ctx.input.clone()));
         }
         ctx.set_internal_variable(internal::completed_marker(&ctx.node_id), Value::from(true));

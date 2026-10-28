@@ -266,4 +266,45 @@ mod tests {
             serde_json::json!({"items": [1, 2, 3], "n": 2})
         );
     }
+
+    #[test]
+    fn fork_output_key_roundtrip_for_checkpoint_resume() {
+        let key = super::super::fork_output_key("f1");
+        assert!(key.starts_with("__"));
+        assert_ne!(key, super::super::fork_output_key("f2"));
+
+        // What the fork publishes under the key: branch results carrying
+        // public variable snapshots for the JOIN fallback path.
+        let published = serde_json::json!({
+            "results": [
+                {"branch_id": "p1", "output": {"x": 1}, "success": true,
+                 "variables": {"value": 1}},
+                {"branch_id": "p2", "output": {"y": 2}, "success": true,
+                 "variables": {"value": 2}}
+            ],
+            "outputs": [
+                {"branch_id": "p1", "output": {"x": 1}, "success": true},
+                {"branch_id": "p2", "output": {"y": 2}, "success": true}
+            ],
+            "outcome": "Succeeded"
+        });
+        let vars = std::sync::Arc::new(dashmap::DashMap::new());
+        vars.insert(key.clone(), published.clone());
+        let stored = vars.get(&key).map(|v| v.clone()).expect("key readable");
+        let (records, dropped) = collect_branch_records(&stored);
+        assert!(dropped.is_empty(), "{dropped:?}");
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].branch_id, "p1");
+        assert_eq!(
+            records[0].variables.as_ref().and_then(|m| m.get("value")),
+            Some(&serde_json::json!(1))
+        );
+        let merged = merge_outputs(
+            &records
+                .iter()
+                .map(|r| r.output.clone())
+                .collect::<Vec<_>>(),
+        );
+        assert_eq!(merged, serde_json::json!({"x": 1, "y": 2}));
+    }
 }

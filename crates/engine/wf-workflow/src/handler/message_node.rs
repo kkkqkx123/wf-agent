@@ -222,11 +222,14 @@ impl StartFromMessageHandler {
         &self,
         ctx: &mut NodeExecutionContext,
     ) -> WorkflowResult<NodeExecutionResult> {
-        let already_executed = ctx
+        let marker_set = ctx
             .get_variable(&internal::completed_marker(&ctx.node_id))
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        if already_executed {
+        if marker_set && crate::loop_state::should_honor_completed_marker(
+            &ctx.variables,
+            &ctx.node_id,
+        )? {
             return Ok(NodeExecutionResult::simple(ctx.input.clone()));
         }
         ctx.set_internal_variable(internal::completed_marker(&ctx.node_id), Value::from(true));
@@ -268,11 +271,14 @@ impl ContinueFromMessageHandler {
         &self,
         ctx: &mut NodeExecutionContext,
     ) -> WorkflowResult<NodeExecutionResult> {
-        let already_executed = ctx
+        let marker_set = ctx
             .get_variable(&internal::completed_marker(&ctx.node_id))
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        if already_executed {
+        if marker_set && crate::loop_state::should_honor_completed_marker(
+            &ctx.variables,
+            &ctx.node_id,
+        )? {
             return Ok(NodeExecutionResult::simple(ctx.input.clone()));
         }
         ctx.set_internal_variable(internal::completed_marker(&ctx.node_id), Value::from(true));
@@ -572,5 +578,78 @@ mod tests {
         let stopped = run(stop_graph, options_with_input(Value::Null)).await;
         assert!(stopped.is_err());
         assert!(stopped.unwrap_err().to_string().contains("stopped"));
+    }
+
+    #[tokio::test]
+    async fn completed_marker_does_not_suppress_new_loop_iteration() {
+        use std::collections::HashMap;
+
+        use crate::loop_state::{enter_loop, record_iteration_completion, LoopState};
+        use crate::trigger::internal::completed_marker;
+
+        let vars = Arc::new(DashMap::new());
+        enter_loop(
+            &vars,
+            LoopState {
+                loop_id: "l1".to_string(),
+                iterable: Value::Null,
+                current_index: 0,
+                max_iterations: 10,
+                iteration_count: 0,
+                variable_name: None,
+                imported_variables: Vec::new(),
+                imported_snapshots: HashMap::new(),
+                iteration_started: false,
+                iteration_nodes: Vec::new(),
+            },
+        )
+        .unwrap();
+        // Stale marker left by the previous iteration.
+        vars.insert(completed_marker("msg1"), Value::Bool(true));
+
+        let config = serde_json::json!({
+            "variable_outputs": [{"internal_name": "v", "target_variable": "greeting"}]
+        });
+        // New iteration: the node is absent from `iteration_nodes`, so the
+        // stale marker must not suppress re-execution.
+        let mut ctx = NodeExecutionContext::new(
+            wf_types::Id::new(),
+            "msg1".to_string(),
+            StaticNodeType::ContinueFromMessage,
+            serde_json::json!({"v": "alice"}),
+            vars.clone(),
+        )
+        .with_node_config(config.clone());
+        let result = ContinueFromMessageHandler
+            .execute(&mut ctx)
+            .await
+            .expect("new iteration must re-execute");
+        assert_eq!(result.output, serde_json::json!({"v": "alice"}));
+        assert_eq!(
+            vars.get("greeting").map(|v| v.clone()),
+            Some(Value::String("alice".to_string()))
+        );
+
+        // Same iteration after recording completion: the marker suppresses
+        // the duplicate trigger instead.
+        record_iteration_completion(&vars, "msg1").unwrap();
+        let mut ctx = NodeExecutionContext::new(
+            wf_types::Id::new(),
+            "msg1".to_string(),
+            StaticNodeType::ContinueFromMessage,
+            serde_json::json!({"v": "bob"}),
+            vars.clone(),
+        )
+        .with_node_config(config);
+        let result = ContinueFromMessageHandler
+            .execute(&mut ctx)
+            .await
+            .expect("repeat visit must not fail");
+        assert_eq!(result.output, serde_json::json!({"v": "bob"}));
+        assert_eq!(
+            vars.get("greeting").map(|v| v.clone()),
+            Some(Value::String("alice".to_string())),
+            "completed iteration must not re-export"
+        );
     }
 }

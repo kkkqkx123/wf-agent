@@ -48,17 +48,43 @@ pub const APPROVAL_WAIT_VAR: &str = "__approval_wait_ms";
 /// until the wait lands and is credited.
 pub const APPROVAL_WAITING_VAR: &str = "__approval_wait_started_ms";
 
-/// Completed approval waits so far, in milliseconds.
+/// Completed approval waits so far, in milliseconds. A present but
+/// non-numeric value is treated as zero with a warning so a corrupted slot
+/// never silently extends the budget.
 pub fn approval_wait_ms(variables: &VariableStore) -> u64 {
-    variables
-        .get(APPROVAL_WAIT_VAR)
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0)
+    match variables.get(APPROVAL_WAIT_VAR) {
+        None => 0,
+        Some(v) => match v.value().as_u64() {
+            Some(ms) => ms,
+            None => {
+                tracing::warn!(
+                    key = APPROVAL_WAIT_VAR,
+                    value = ?v.value(),
+                    "approval wait accumulator is corrupted, treating as zero"
+                );
+                0
+            }
+        },
+    }
 }
 
-/// Start timestamp of the in-progress approval wait, if any.
+/// Start timestamp of the in-progress approval wait, if any. A present but
+/// non-integer value is ignored with a warning instead of a silent pass.
 pub fn approval_wait_started_ms(variables: &VariableStore) -> Option<i64> {
-    variables.get(APPROVAL_WAITING_VAR).and_then(|v| v.as_i64())
+    match variables.get(APPROVAL_WAITING_VAR) {
+        None => None,
+        Some(v) => match v.value().as_i64() {
+            Some(ms) => Some(ms),
+            None => {
+                tracing::warn!(
+                    key = APPROVAL_WAITING_VAR,
+                    value = ?v.value(),
+                    "approval wait marker is corrupted, ignoring the in-progress wait"
+                );
+                None
+            }
+        },
+    }
 }
 
 /// Active time between two timestamps: wall-clock minus completed approval
@@ -97,11 +123,23 @@ pub fn end_approval_wait(variables: &VariableStore) {
     }
 }
 /// Accumulated active time before this segment, carried across resumes.
+/// A present but non-numeric value is treated as zero with a warning so a
+/// corrupted slot restarts the clock loudly instead of silently.
 pub fn accumulated_ms(variables: &VariableStore) -> u64 {
-    variables
-        .get(ELAPSED_VAR)
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0)
+    match variables.get(ELAPSED_VAR) {
+        None => 0,
+        Some(v) => match v.value().as_u64() {
+            Some(ms) => ms,
+            None => {
+                tracing::warn!(
+                    key = ELAPSED_VAR,
+                    value = ?v.value(),
+                    "accumulated active time is corrupted, restarting the clock from zero"
+                );
+                0
+            }
+        },
+    }
 }
 
 /// Build the `execution_config` snapshot payload: original totals plus the
@@ -110,7 +148,13 @@ pub fn snapshot_config(
     variables: &VariableStore,
     segment_start_ms: i64,
 ) -> Option<serde_json::Value> {
-    let budgets = variables.get(BUDGETS_VAR).map(|v| v.clone())?;
+    let Some(budgets) = variables.get(BUDGETS_VAR).map(|v| v.clone()) else {
+        tracing::warn!(
+            key = BUDGETS_VAR,
+            "budget totals are missing, snapshotting without an execution config"
+        );
+        return None;
+    };
     let segment_ms = (wf_common::now() - segment_start_ms).max(0) as u64;
     let elapsed_ms = accumulated_ms(variables).saturating_add(segment_ms);
     Some(serde_json::json!({
@@ -128,6 +172,10 @@ pub fn continuation_options(
     execution_config: Option<&serde_json::Value>,
 ) -> WorkflowResult<wf_types::workflow_execution::WorkflowExecutionOptions> {
     let Some(config) = execution_config else {
+        tracing::warn!(
+            execution_id = %execution_id,
+            "checkpoint carries no execution config, resuming without budgets"
+        );
         return Ok(unbudgeted());
     };
     // Snapshots captured through the application restore path nest the full
@@ -189,13 +237,23 @@ pub fn continuation_options(
 /// Total active time recorded in a snapshot's `execution_config`, reseeded
 /// into the resumed entity so the following checkpoint keeps accumulating.
 pub fn snapshot_elapsed_ms(execution_config: Option<&serde_json::Value>) -> u64 {
-    execution_config
-        .and_then(|c| {
-            c.get("elapsed_ms")
-                .or_else(|| c.get("executed_ms"))
-                .and_then(|v| v.as_u64())
-        })
-        .unwrap_or(0)
+    let Some(config) = execution_config else {
+        return 0;
+    };
+    let raw = config.get("elapsed_ms").or_else(|| config.get("executed_ms"));
+    match raw {
+        None => 0,
+        Some(v) => match v.as_u64() {
+            Some(ms) => ms,
+            None => {
+                tracing::warn!(
+                    value = %v,
+                    "checkpoint elapsed time is corrupted, reseeding from zero"
+                );
+                0
+            }
+        },
+    }
 }
 
 fn unbudgeted() -> wf_types::workflow_execution::WorkflowExecutionOptions {
@@ -300,5 +358,59 @@ mod tests {
         let vars = store();
         end_approval_wait(&vars);
         assert_eq!(approval_wait_ms(&vars), 0);
+    }
+
+    #[test]
+    fn corrupted_budget_slots_degrade_to_zero() {
+        let vars = store();
+        vars.insert(APPROVAL_WAIT_VAR.to_string(), serde_json::json!("bad"));
+        vars.insert(APPROVAL_WAITING_VAR.to_string(), serde_json::json!("bad"));
+        vars.insert(ELAPSED_VAR.to_string(), serde_json::json!("bad"));
+        assert_eq!(approval_wait_ms(&vars), 0);
+        assert_eq!(approval_wait_started_ms(&vars), None);
+        assert_eq!(accumulated_ms(&vars), 0);
+    }
+
+    #[test]
+    fn corrupted_snapshot_elapsed_reseeds_from_zero() {
+        let bad = serde_json::json!({"elapsed_ms": "bad"});
+        assert_eq!(snapshot_elapsed_ms(Some(&bad)), 0);
+        assert_eq!(snapshot_elapsed_ms(None), 0);
+    }
+
+    #[test]
+    fn missing_budgets_snapshot_returns_none() {
+        let vars = store();
+        assert!(snapshot_config(&vars, wf_common::now()).is_none());
+    }
+
+    #[test]
+    fn corrupted_elapsed_falls_back_to_segment_only() {
+        let vars = store();
+        persist_totals(&vars, &options());
+        vars.insert(ELAPSED_VAR.to_string(), serde_json::json!(100_000u64));
+        let full = snapshot_config(&vars, wf_common::now()).expect("budgets persisted");
+        assert!(full.get("elapsed_ms").and_then(|v| v.as_u64()).unwrap() >= 100_000);
+
+        vars.insert(ELAPSED_VAR.to_string(), serde_json::json!("bad"));
+        let degraded = snapshot_config(&vars, wf_common::now()).expect("budgets persisted");
+        assert!(
+            degraded.get("elapsed_ms").and_then(|v| v.as_u64()).unwrap() < 5_000,
+            "corrupted accumulation restarts from zero: {degraded}"
+        );
+    }
+
+    #[test]
+    fn corrupted_config_elapsed_keeps_full_budget() {
+        let vars = store();
+        persist_totals(&vars, &options());
+        let mut config = snapshot_config(&vars, wf_common::now()).expect("budgets persisted");
+        config["elapsed_ms"] = serde_json::json!("bad");
+        let next = continuation_options("exec-1", Some(&config)).unwrap();
+        assert_eq!(
+            next.max_execution_time,
+            Some(1000),
+            "unparseable elapsed defaults to zero, keeping the full budget"
+        );
     }
 }

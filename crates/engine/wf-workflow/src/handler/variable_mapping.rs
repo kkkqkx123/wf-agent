@@ -42,7 +42,7 @@ pub fn apply_variable_inputs(
         };
 
         let placeholder = format!("${{{}}}", source_path);
-        let resolved = VariableResolver::resolve(&Value::String(placeholder.clone()), parent);
+        let resolved = VariableResolver::resolve(&Value::String(placeholder.clone()), parent, None);
         let unresolved = matches!(&resolved, Value::String(s) if *s == placeholder);
 
         if unresolved {
@@ -91,17 +91,19 @@ pub fn apply_variable_outputs(
 }
 
 /// Write `value` into the variable map at a dotted path
-/// (`a.b.c` creates nested objects). Targets with the `__` internal prefix
-/// are rejected.
+/// (`a.b.c` creates nested objects). Engine-owned and read-only system
+/// roots are rejected.
 pub fn set_variable_path(
     vars: &Arc<DashMap<String, Value>>,
     path: &str,
     value: Value,
 ) -> WorkflowResult<()> {
     let root = path.split('.').next().unwrap_or("");
-    if is_internal_variable(root) {
+    if is_internal_variable(root)
+        || wf_execution_shared::context::is_system_reserved_variable(path)
+    {
         return Err(WorkflowError::VariableError(format!(
-            "refusing to write internal variable '{}' through the public path writer",
+            "refusing to write reserved variable '{}' through the public path writer",
             root
         )));
     }

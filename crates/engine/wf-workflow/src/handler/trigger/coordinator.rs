@@ -235,9 +235,11 @@ async fn handle_set_variable(
     // state (e.g. writing `__msg_ctx__*` directly bypasses the token
     // ledger). Message-context updates must use the dedicated
     // `SetMessageContext` / `AppendMessageContext` actions instead.
-    if is_internal_variable(var_name) {
+    if is_internal_variable(var_name)
+        || wf_execution_shared::context::is_system_reserved_variable(var_name)
+    {
         return Err(WorkflowError::TriggerError(format!(
-            "SetVariable refuses to write internal variable '{}' (reserved '__' prefix); use SetMessageContext/AppendMessageContext for message contexts",
+            "SetVariable refuses to write reserved variable '{}'; use SetMessageContext/AppendMessageContext for message contexts",
             var_name
         )));
     }

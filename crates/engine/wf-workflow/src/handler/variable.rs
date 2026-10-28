@@ -10,6 +10,7 @@ use crate::variable::evaluate_expression;
 
 fn is_readonly_var(name: &str) -> bool {
     wf_execution_shared::context::is_internal_variable(name)
+        || wf_execution_shared::context::is_system_reserved_variable(name)
 }
 
 pub struct VariableHandler;
@@ -83,9 +84,12 @@ impl VariableHandler {
         let old_value = ctx.get_variable(variable_name);
 
         let resolved = match config.get("expression").and_then(|v| v.as_str()) {
-            Some(expression) => evaluate_expression(expression, &ctx.variables).map_err(|e| {
-                WorkflowError::VariableError(format!("VARIABLE '{}': {}", variable_name, e))
-            })?,
+            Some(expression) => {
+                let system = ctx.system_context();
+                evaluate_expression(expression, &ctx.variables, Some(&system)).map_err(|e| {
+                    WorkflowError::VariableError(format!("VARIABLE '{}': {}", variable_name, e))
+                })?
+            }
             // No expression: fall back to the node input payload.
             None => ctx.input.clone(),
         };

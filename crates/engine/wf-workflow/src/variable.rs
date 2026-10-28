@@ -15,6 +15,7 @@
 use dashmap::DashMap;
 use serde_json::Value;
 use std::sync::Arc;
+use wf_execution_shared::context::{resolve_system_path, SystemContext};
 
 pub type VariableStore = Arc<DashMap<String, Value>>;
 
@@ -57,14 +58,20 @@ pub struct ExprEvaluator<'a> {
     input: &'a [u8],
     pos: usize,
     variables: &'a VariableStore,
+    system: Option<&'a SystemContext>,
 }
 
 impl<'a> ExprEvaluator<'a> {
-    pub fn new(input: &'a str, variables: &'a VariableStore) -> Self {
+    pub fn new(
+        input: &'a str,
+        variables: &'a VariableStore,
+        system: Option<&'a SystemContext>,
+    ) -> Self {
         Self {
             input: input.as_bytes(),
             pos: 0,
             variables,
+            system,
         }
     }
 
@@ -360,14 +367,13 @@ impl<'a> ExprEvaluator<'a> {
                 "false" => return Ok(Value::Bool(false)),
                 "null" => return Ok(Value::Null),
                 _ => {
-                    return VariableResolver::lookup_variable(name, self.variables).ok_or_else(
-                        || {
+                    return VariableResolver::lookup_variable(name, self.variables, self.system)
+                        .ok_or_else(|| {
                             ExpressionError::new(
                                 String::from_utf8_lossy(self.input),
                                 format!("variable '{}' not found", name),
                             )
-                        },
-                    );
+                        });
                 }
             }
         }
@@ -396,7 +402,7 @@ impl<'a> ExprEvaluator<'a> {
         }
         let name = span.path;
         self.pos += span.end;
-        VariableResolver::lookup_variable(&name, self.variables).ok_or_else(|| {
+        VariableResolver::lookup_variable(&name, self.variables, self.system).ok_or_else(|| {
             ExpressionError::new(
                 String::from_utf8_lossy(self.input),
                 format!("variable '{}' not found", name),
@@ -439,45 +445,57 @@ fn compare_values(a: &Value, b: &Value) -> Result<Option<Ordering>, ExpressionEr
 /// Apply an integer-aware binary numeric operation: when both operands are
 /// integers and the op is `+ - * / %`, integer arithmetic is used so results
 /// stay integral (e.g. `10 / 4 == 2`); otherwise float arithmetic is used.
-fn number_op<F, G>(x: &serde_json::Number, y: &serde_json::Number, int_op: F, float_op: G) -> Value
+/// Overflow, division by zero remnants and non-finite float results are
+/// explicit errors so misconfiguration never degrades to a silent null.
+fn number_op<F, G>(
+    expr: &str,
+    x: &serde_json::Number,
+    y: &serde_json::Number,
+    int_op: F,
+    float_op: G,
+) -> Result<Value, ExpressionError>
 where
     F: Fn(i64, i64) -> Option<i64>,
     G: Fn(f64, f64) -> Option<f64>,
 {
     match (x.as_i64(), y.as_i64()) {
         (Some(a), Some(b)) => match int_op(a, b) {
-            Some(i) => Value::Number(i.into()),
-            None => {
-                tracing::warn!(
-                    operand_a = %x,
-                    operand_b = %y,
-                    "integer expression overflowed or divided by zero; expression degraded to null"
-                );
-                Value::Null
-            }
+            Some(i) => Ok(Value::Number(i.into())),
+            None => Err(ExpressionError::new(
+                expr.to_string(),
+                format!("numeric operation overflowed for operands {x} and {y}"),
+            )),
         },
         _ => match (x.as_f64(), y.as_f64()) {
-            (Some(a), Some(b)) => float_op(a, b)
-                .and_then(serde_json::Number::from_f64)
-                .map(Value::Number)
-                .unwrap_or_else(|| {
-                    tracing::warn!(
-                        operand_a = %x,
-                        operand_b = %y,
-                        "float expression produced a non-finite value; expression degraded to null"
-                    );
-                    Value::Null
+            (Some(a), Some(b)) => match float_op(a, b) {
+                Some(v) => serde_json::Number::from_f64(v).map(Value::Number).ok_or_else(|| {
+                    ExpressionError::new(
+                        expr.to_string(),
+                        format!("numeric operation produced a non-finite value for operands {x} and {y}"),
+                    )
                 }),
-            _ => Value::Null,
+                None => Err(ExpressionError::new(
+                    expr.to_string(),
+                    format!("numeric operation failed for operands {x} and {y}"),
+                )),
+            },
+            _ => Err(ExpressionError::new(
+                expr.to_string(),
+                "numeric operation requires numeric operands",
+            )),
         },
     }
 }
 
 fn add_values(a: &Value, b: &Value) -> Result<Value, ExpressionError> {
     match (a, b) {
-        (Value::Number(x), Value::Number(y)) => {
-            Ok(number_op(x, y, |a, b| a.checked_add(b), |a, b| Some(a + b)))
-        }
+        (Value::Number(x), Value::Number(y)) => number_op(
+            &format!("{a} + {b}"),
+            x,
+            y,
+            |a, b| a.checked_add(b),
+            |a, b| Some(a + b),
+        ),
         (Value::String(x), Value::String(y)) => {
             let mut joined = x.clone();
             joined.push_str(y);
@@ -499,9 +517,13 @@ fn add_values(a: &Value, b: &Value) -> Result<Value, ExpressionError> {
 
 fn sub_values(a: &Value, b: &Value) -> Result<Value, ExpressionError> {
     match (a, b) {
-        (Value::Number(x), Value::Number(y)) => {
-            Ok(number_op(x, y, |a, b| a.checked_sub(b), |a, b| Some(a - b)))
-        }
+        (Value::Number(x), Value::Number(y)) => number_op(
+            &format!("{a} - {b}"),
+            x,
+            y,
+            |a, b| a.checked_sub(b),
+            |a, b| Some(a - b),
+        ),
         _ => Err(ExpressionError::new(
             format!("{} - {}", a, b),
             "operator '-' requires numeric operands",
@@ -511,9 +533,13 @@ fn sub_values(a: &Value, b: &Value) -> Result<Value, ExpressionError> {
 
 fn mul_values(a: &Value, b: &Value) -> Result<Value, ExpressionError> {
     match (a, b) {
-        (Value::Number(x), Value::Number(y)) => {
-            Ok(number_op(x, y, |a, b| a.checked_mul(b), |a, b| Some(a * b)))
-        }
+        (Value::Number(x), Value::Number(y)) => number_op(
+            &format!("{a} * {b}"),
+            x,
+            y,
+            |a, b| a.checked_mul(b),
+            |a, b| Some(a * b),
+        ),
         _ => Err(ExpressionError::new(
             format!("{} * {}", a, b),
             "operator '*' requires numeric operands",
@@ -530,7 +556,13 @@ fn div_values(a: &Value, b: &Value) -> Result<Value, ExpressionError> {
                     "division by zero",
                 ));
             }
-            Ok(number_op(x, y, |a, b| a.checked_div(b), |a, b| Some(a / b)))
+            number_op(
+                &format!("{a} / {b}"),
+                x,
+                y,
+                |a, b| a.checked_div(b),
+                |a, b| Some(a / b),
+            )
         }
         _ => Err(ExpressionError::new(
             format!("{} / {}", a, b),
@@ -548,7 +580,13 @@ fn rem_values(a: &Value, b: &Value) -> Result<Value, ExpressionError> {
                     "modulo by zero",
                 ));
             }
-            Ok(number_op(x, y, |a, b| a.checked_rem(b), |a, b| Some(a % b)))
+            number_op(
+                &format!("{a} % {b}"),
+                x,
+                y,
+                |a, b| a.checked_rem(b),
+                |a, b| Some(a % b),
+            )
         }
         _ => Err(ExpressionError::new(
             format!("{} % {}", a, b),
@@ -560,12 +598,14 @@ fn rem_values(a: &Value, b: &Value) -> Result<Value, ExpressionError> {
 fn negate(a: &Value) -> Result<Value, ExpressionError> {
     match a {
         Value::Number(x) => match x.as_i64() {
-            Some(i) => Ok(Value::Number(i.checked_neg().unwrap_or(0).into())),
+            Some(i) => i.checked_neg().map(|v| Value::Number(v.into())).ok_or_else(|| {
+                ExpressionError::new(a.to_string(), "unary '-' overflowed")
+            }),
             None => {
                 let neg = -x.as_f64().unwrap_or(0.0);
-                Ok(serde_json::Number::from_f64(neg)
-                    .map(Value::Number)
-                    .unwrap_or(Value::Null))
+                serde_json::Number::from_f64(neg).map(Value::Number).ok_or_else(|| {
+                    ExpressionError::new(a.to_string(), "unary '-' produced a non-finite value")
+                })
             }
         },
         _ => Err(ExpressionError::new(
@@ -582,26 +622,38 @@ impl VariableResolver {
     /// A whole-string single reference preserves the value type;
     /// embedded references coerce with display semantics for text transport.
     /// Condition literals and prompt display each own their converters.
-    pub fn resolve(input: &Value, variables: &VariableStore) -> Value {
+    /// The optional system view resolves read-only `execution.*` and
+    /// `node.*` paths without touching the variable map.
+    pub fn resolve(
+        input: &Value,
+        variables: &VariableStore,
+        system: Option<&SystemContext>,
+    ) -> Value {
         match input {
-            Value::String(s) => Self::resolve_str(s, variables),
+            Value::String(s) => Self::resolve_str(s, variables, system),
             Value::Object(map) => {
                 let resolved: serde_json::Map<String, Value> = map
                     .iter()
-                    .map(|(k, v)| (k.clone(), Self::resolve(v, variables)))
+                    .map(|(k, v)| (k.clone(), Self::resolve(v, variables, system)))
                     .collect();
                 Value::Object(resolved)
             }
             Value::Array(arr) => {
-                let resolved: Vec<Value> =
-                    arr.iter().map(|v| Self::resolve(v, variables)).collect();
+                let resolved: Vec<Value> = arr
+                    .iter()
+                    .map(|v| Self::resolve(v, variables, system))
+                    .collect();
                 Value::Array(resolved)
             }
             other => other.clone(),
         }
     }
 
-    pub fn resolve_str(input: &str, variables: &VariableStore) -> Value {
+    pub fn resolve_str(
+        input: &str,
+        variables: &VariableStore,
+        system: Option<&SystemContext>,
+    ) -> Value {
         let spans = wf_common::template::scan_variable_spans(input);
         if spans.len() == 1
             && spans[0].closed
@@ -609,7 +661,7 @@ impl VariableResolver {
             && spans[0].end == input.len()
             && !spans[0].path.is_empty()
         {
-            if let Some(v) = Self::lookup_variable(&spans[0].path, variables) {
+            if let Some(v) = Self::lookup_variable(&spans[0].path, variables, system) {
                 return v;
             }
         }
@@ -628,7 +680,7 @@ impl VariableResolver {
             }
             if span.path.is_empty() {
                 result.push_str(&input[span.start..span.end]);
-            } else if let Some(v) = Self::lookup_variable(&span.path, variables) {
+            } else if let Some(v) = Self::lookup_variable(&span.path, variables, system) {
                 result.push_str(&wf_common::template::value_to_display_string(&v));
             } else {
                 tracing::debug!(
@@ -644,11 +696,25 @@ impl VariableResolver {
         Value::String(result)
     }
 
-    fn lookup_variable(path: &str, variables: &VariableStore) -> Option<Value> {
+    fn lookup_variable(
+        path: &str,
+        variables: &VariableStore,
+        system: Option<&SystemContext>,
+    ) -> Option<Value> {
+        if let Some(ctx) = system {
+            if let Some(value) = resolve_system_path(ctx, path) {
+                return Some(value);
+            }
+        }
         // `variables.x` is a scope-prefixed path: it reads the flat variable
         // `x` from the store, not a nested key
         // under a literal "variables" entry.
         let path = path.strip_prefix("variables.").unwrap_or(path);
+        if let Some(ctx) = system {
+            if let Some(value) = resolve_system_path(ctx, path) {
+                return Some(value);
+            }
+        }
         if wf_common::template::validate_template_path(path).is_some() {
             return None;
         }
@@ -675,20 +741,20 @@ impl VariableResolver {
 
 /// Evaluate an expression string against the variable store. Falls back to
 /// plain variable interpolation when the expression contains no expression
-/// operators, so `${var}` configs keep working.
+/// operators, so `${var}` configs keep working. Template literals that
+/// embed `${...}` refs fall back to interpolation only for syntax-shape
+/// failures; semantic failures (missing variable, type mismatch, division
+/// by zero, overflow) are returned as errors instead of masked strings.
 pub fn evaluate_expression(
     expression: &str,
     variables: &VariableStore,
+    system: Option<&SystemContext>,
 ) -> Result<Value, ExpressionError> {
     let trimmed = expression.trim();
     if !trimmed.is_empty() && looks_like_expression(trimmed) {
-        match ExprEvaluator::new(trimmed, variables).evaluate() {
+        match ExprEvaluator::new(trimmed, variables, system).evaluate() {
             Ok(value) => Ok(value),
-            // A template literal (a string embedding `${...}` refs) may
-            // legitimately contain operator characters in its literal text
-            // (e.g. `${variables.step1}-done`). When the expression parse
-            // fails, fall back to plain interpolation for such templates.
-            Err(e) if trimmed.contains("${") => {
+            Err(e) if trimmed.contains("${") && !is_semantic_evaluation_error(&e) => {
                 tracing::debug!(
                     expression = trimmed,
                     error = %e,
@@ -697,6 +763,7 @@ pub fn evaluate_expression(
                 Ok(VariableResolver::resolve(
                     &Value::String(expression.to_string()),
                     variables,
+                    system,
                 ))
             }
             Err(e) => Err(e),
@@ -705,30 +772,64 @@ pub fn evaluate_expression(
         Ok(VariableResolver::resolve(
             &Value::String(expression.to_string()),
             variables,
+            system,
         ))
     }
 }
 
+/// Whether an evaluation failure reflects a semantic problem that must
+/// surface instead of degrading to an interpolated string.
+fn is_semantic_evaluation_error(e: &ExpressionError) -> bool {
+    let msg = e.message.as_str();
+    msg.contains("not found")
+        || msg.contains("requires")
+        || msg.contains("division by zero")
+        || msg.contains("modulo by zero")
+        || msg.contains("overflowed")
+        || msg.contains("non-finite")
+        || msg.contains("failed for operands")
+}
+
 /// Whether a string contains expression operators beyond a bare variable
 /// reference / literal (arithmetic, comparison, logic, ternary, grouping).
+/// Operators inside `${...}` spans never count, and an operator directly
+/// adjacent to a span edge (`${a}-done`) counts as template text, not as an
+/// expression operator. Spaced or multi-character operators still count.
 fn looks_like_expression(s: &str) -> bool {
-    let chars: Vec<char> = s.chars().collect();
+    let spans = wf_common::template::scan_variable_spans(s);
+    let bytes = s.as_bytes();
     let mut i = 0;
-    let mut in_string = false;
-    while i < chars.len() {
-        let c = chars[i];
-        if in_string {
-            if c == '"' || c == '\'' {
-                in_string = false;
+    let mut in_string: Option<u8> = None;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if spans.iter().any(|sp| i >= sp.start && i < sp.end) {
+            i += 1;
+            continue;
+        }
+        if let Some(quote) = in_string {
+            if c == quote {
+                in_string = None;
             }
             i += 1;
             continue;
         }
-        match c {
-            '"' | '\'' => in_string = true,
-            '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' | '!' | '&' | '|' | '?' | ':' | '('
-            | ')' => return true,
-            _ => {}
+        if c == b'"' || c == b'\'' {
+            in_string = Some(c);
+            i += 1;
+            continue;
+        }
+        let is_operator = matches!(
+            c,
+            b'+' | b'-' | b'*' | b'/' | b'%' | b'<' | b'>' | b'=' | b'!' | b'&' | b'|'
+                | b'?' | b':' | b'(' | b')'
+        );
+        if is_operator {
+            let touches_span = spans
+                .iter()
+                .any(|sp| sp.closed && (i == sp.end || (i + 1) == sp.start));
+            if !touches_span {
+                return true;
+            }
         }
         i += 1;
     }
@@ -826,14 +927,14 @@ mod tests {
     #[test]
     fn test_resolve_simple() {
         let vars = store(&[("name", Value::String("world".to_string()))]);
-        let result = VariableResolver::resolve_str("hello ${name}", &vars);
+        let result = VariableResolver::resolve_str("hello ${name}", &vars, None);
         assert_eq!(result, Value::String("hello world".to_string()));
     }
 
     #[test]
     fn test_resolve_missing() {
         let vars = store(&[]);
-        let result = VariableResolver::resolve_str("hello ${missing}", &vars);
+        let result = VariableResolver::resolve_str("hello ${missing}", &vars, None);
         assert_eq!(result, Value::String("hello ${missing}".to_string()));
     }
 
@@ -843,7 +944,7 @@ mod tests {
             ("a", Value::String("A".to_string())),
             ("b", Value::String("B".to_string())),
         ]);
-        let result = VariableResolver::resolve_str("${a} and ${b}", &vars);
+        let result = VariableResolver::resolve_str("${a} and ${b}", &vars, None);
         assert_eq!(result, Value::String("A and B".to_string()));
     }
 
@@ -851,24 +952,24 @@ mod tests {
     fn expression_arithmetic_and_comparison() {
         let vars = store(&[("a", Value::from(10)), ("b", Value::from(3))]);
         assert_eq!(
-            evaluate_expression("a + b * 2", &vars).unwrap(),
+            evaluate_expression("a + b * 2", &vars, None).unwrap(),
             Value::from(16)
         );
         assert_eq!(
-            evaluate_expression("(a + b) * 2", &vars).unwrap(),
+            evaluate_expression("(a + b) * 2", &vars, None).unwrap(),
             Value::from(26)
         );
-        assert_eq!(evaluate_expression("a % b", &vars).unwrap(), Value::from(1));
+        assert_eq!(evaluate_expression("a % b", &vars, None).unwrap(), Value::from(1));
         assert_eq!(
-            evaluate_expression("a > b", &vars).unwrap(),
+            evaluate_expression("a > b", &vars, None).unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            evaluate_expression("a >= 10 && b < 4", &vars).unwrap(),
+            evaluate_expression("a >= 10 && b < 4", &vars, None).unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            evaluate_expression("a == 10", &vars).unwrap(),
+            evaluate_expression("a == 10", &vars, None).unwrap(),
             Value::Bool(true)
         );
     }
@@ -880,19 +981,19 @@ mod tests {
             ("n", Value::from(5)),
         ]);
         assert_eq!(
-            evaluate_expression("'hello ' + name", &vars).unwrap(),
+            evaluate_expression("'hello ' + name", &vars, None).unwrap(),
             Value::String("hello world".to_string())
         );
         assert_eq!(
-            evaluate_expression("n > 3 ? 'big' : 'small'", &vars).unwrap(),
+            evaluate_expression("n > 3 ? 'big' : 'small'", &vars, None).unwrap(),
             Value::String("big".to_string())
         );
         assert_eq!(
-            evaluate_expression("!true", &vars).unwrap(),
+            evaluate_expression("!true", &vars, None).unwrap(),
             Value::Bool(false)
         );
         assert_eq!(
-            evaluate_expression("-n + 2", &vars).unwrap(),
+            evaluate_expression("-n + 2", &vars, None).unwrap(),
             Value::from(-3)
         );
     }
@@ -907,11 +1008,11 @@ mod tests {
             )])),
         )]);
         assert_eq!(
-            evaluate_expression("user.age >= 18", &vars).unwrap(),
+            evaluate_expression("user.age >= 18", &vars, None).unwrap(),
             Value::Bool(true)
         );
         assert_eq!(
-            evaluate_expression("${user.age}", &vars).unwrap(),
+            evaluate_expression("${user.age}", &vars, None).unwrap(),
             Value::from(30)
         );
     }
@@ -919,20 +1020,20 @@ mod tests {
     #[test]
     fn expression_errors_are_explicit() {
         let vars = store(&[("n", Value::from(10))]);
-        assert!(evaluate_expression("n / 0", &vars).is_err());
-        assert!(evaluate_expression("missing + 1", &vars).is_err());
-        assert!(evaluate_expression("'abc' - 1", &vars).is_err());
+        assert!(evaluate_expression("n / 0", &vars, None).is_err());
+        assert!(evaluate_expression("missing + 1", &vars, None).is_err());
+        assert!(evaluate_expression("'abc' - 1", &vars, None).is_err());
     }
 
     #[test]
     fn variables_scope_prefix_resolves_flat_store() {
         let vars = store(&[("step1", Value::String("hi".to_string()))]);
         assert_eq!(
-            evaluate_expression("${variables.step1}-done", &vars).unwrap(),
+            evaluate_expression("${variables.step1}-done", &vars, None).unwrap(),
             Value::String("hi-done".to_string())
         );
         assert_eq!(
-            evaluate_expression("variables.step1 == 'hi'", &vars).unwrap(),
+            evaluate_expression("variables.step1 == 'hi'", &vars, None).unwrap(),
             Value::Bool(true)
         );
     }
@@ -941,7 +1042,7 @@ mod tests {
     fn array_index_path_resolves() {
         let vars = store(&[("items", serde_json::json!(["a", "b"]))]);
         assert_eq!(
-            VariableResolver::resolve_str("${items.1}", &vars),
+            VariableResolver::resolve_str("${items.1}", &vars, None),
             Value::String("b".to_string())
         );
     }
@@ -950,12 +1051,12 @@ mod tests {
     fn legacy_interpolation_falls_back() {
         let vars = store(&[("greeting", Value::String("hi".to_string()))]);
         assert_eq!(
-            evaluate_expression("hello ${greeting}", &vars).unwrap(),
+            evaluate_expression("hello ${greeting}", &vars, None).unwrap(),
             Value::String("hello hi".to_string())
         );
         // A bare reference without operators stays on the interpolation path.
         assert_eq!(
-            evaluate_expression("${greeting}", &vars).unwrap(),
+            evaluate_expression("${greeting}", &vars, None).unwrap(),
             Value::String("hi".to_string())
         );
     }
@@ -999,6 +1100,47 @@ mod tests {
         assert_eq!(
             convert_variable_type("v", Value::String(String::new()), Some("array")).unwrap(),
             Value::Array(Vec::new())
+        );
+    }
+
+    #[test]
+    fn overflow_is_explicit_not_null() {
+        let vars = store(&[("big", Value::from(i64::MAX))]);
+        assert!(evaluate_expression("big + 1", &vars, None).is_err());
+        assert!(evaluate_expression("big * 2", &vars, None).is_err());
+    }
+
+    #[test]
+    fn template_suffix_stays_interpolation() {
+        let vars = store(&[("step1", Value::String("hi".to_string()))]);
+        assert_eq!(
+            evaluate_expression("${step1}-done", &vars, None).unwrap(),
+            Value::String("hi-done".to_string())
+        );
+    }
+
+    #[test]
+    fn semantic_error_is_not_masked_by_interpolation() {
+        let vars = store(&[("a", Value::from(1))]);
+        assert!(evaluate_expression("${a} / 0", &vars, None).is_err());
+        assert!(evaluate_expression("${a} + missing", &vars, None).is_err());
+    }
+
+    #[test]
+    fn system_context_resolves_readonly_paths() {
+        let vars = store(&[]);
+        let system = SystemContext::new("exec-1", "n1", "VARIABLE");
+        assert_eq!(
+            VariableResolver::resolve_str("${execution.id}", &vars, Some(&system)),
+            Value::String("exec-1".to_string())
+        );
+        assert_eq!(
+            VariableResolver::resolve_str("${node.id}", &vars, Some(&system)),
+            Value::String("n1".to_string())
+        );
+        assert_eq!(
+            evaluate_expression("node.type == 'VARIABLE'", &vars, Some(&system)).unwrap(),
+            Value::Bool(true)
         );
     }
 }

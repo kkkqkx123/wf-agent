@@ -268,7 +268,8 @@ fn resolve_iterable(config: &Value, ctx: &NodeExecutionContext) -> WorkflowResul
                 let path = &trimmed[2..trimmed.len() - 2];
                 resolve_expression(path, ctx)?
             } else if trimmed.starts_with("${") && trimmed.ends_with("}") {
-                VariableResolver::resolve_str(trimmed, &ctx.variables)
+                let system = ctx.system_context();
+                VariableResolver::resolve_str(trimmed, &ctx.variables, Some(&system))
             } else if let Ok(parsed) = serde_json::from_str::<Value>(s) {
                 parsed
             } else {
@@ -325,7 +326,14 @@ fn resolve_expression(path: &str, ctx: &NodeExecutionContext) -> WorkflowResult<
         }
     };
 
-    let resolved = VariableResolver::resolve(&Value::String(expression.clone()), &ctx.variables);
+    let resolved = {
+        let system = ctx.system_context();
+        VariableResolver::resolve(
+            &Value::String(expression.clone()),
+            &ctx.variables,
+            Some(&system),
+        )
+    };
     if matches!(&resolved, Value::String(s) if *s == expression) {
         return Err(WorkflowError::LoopError(format!(
             "Variable '{}' not found in the loop context",

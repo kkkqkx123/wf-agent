@@ -186,7 +186,12 @@ impl SyncHandler {
                     continue;
                 };
                 if let Some(val) = ctx.get_variable(source_variable) {
-                    let resolved = crate::variable::VariableResolver::resolve(&val, &ctx.variables);
+                    let system = ctx.system_context();
+                    let resolved = crate::variable::VariableResolver::resolve(
+                        &val,
+                        &ctx.variables,
+                        Some(&system),
+                    );
                     ctx.set_variable(target_variable.to_string(), resolved)?;
                     synced_variables.push(target_variable.to_string());
                 }

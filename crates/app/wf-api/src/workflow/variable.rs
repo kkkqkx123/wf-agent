@@ -55,7 +55,7 @@ pub fn eval_expression(
     store: &VariableStore,
     expr: &str,
 ) -> Result<ExpressionResult, ExpressionError> {
-    let value = evaluate_expression(expr, store)?;
+    let value = evaluate_expression(expr, store, None)?;
     let display = match &value {
         serde_json::Value::String(s) => s.clone(),
         other => other.to_string(),

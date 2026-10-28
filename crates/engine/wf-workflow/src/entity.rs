@@ -265,10 +265,11 @@ impl WorkflowExecutionEntity {
             .and_then(|entry| entry.value().as_bool())
     }
 
-    /// Whether `name` is an internal bookkeeping variable that should not
-    /// appear in the persisted public variable list.
+    /// Whether `name` is engine-owned bookkeeping state excluded from
+    /// public persisted views. Delegates to the shared prefix predicate
+    /// so persistence, branch snapshots and injection validation agree.
     pub fn is_internal_variable(name: &str) -> bool {
-        name == EXECUTION_OPTIONS_VAR || name == DEBUG_RUN_VAR
+        wf_execution_shared::context::is_internal_variable(name)
     }
 
     /// Buffer an externally submitted variable update. The update waits for

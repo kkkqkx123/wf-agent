@@ -520,14 +520,24 @@ impl NodeExecutionContext {
         self.event_bus = Some(event_bus);
     }
 
+    /// Derive the read-only system view for variable expressions from the
+    /// current execution state.
+    pub fn system_context(&self) -> SystemContext {
+        SystemContext::new(
+            self.execution_id.clone(),
+            self.node_id.clone(),
+            self.node_type.canonical_name(),
+        )
+    }
+
     pub fn get_variable(&self, name: &str) -> Option<Value> {
         self.variables.get(name).map(|v| v.clone())
     }
 
     /// Write a variable through the protected entry: names with the `__`
-    /// internal prefix are rejected with a structured error. Engine-internal
-    /// state (loop stacks, message contexts, fork handovers, interaction
-    /// markers) must use [`Self::set_internal_variable`] instead.
+    /// internal prefix and reserved system roots are rejected with a
+    /// structured error. Engine-internal state must use
+    /// [`Self::set_internal_variable`] instead.
     pub fn set_variable(
         &self,
         name: impl Into<String>,
@@ -537,6 +547,12 @@ impl NodeExecutionContext {
         if is_internal_variable(&name) {
             return Err(crate::error::ExecutionSharedError::VariableError(format!(
                 "refusing to write internal variable '{}' through the public entry",
+                name
+            )));
+        }
+        if is_system_reserved_variable(&name) {
+            return Err(crate::error::ExecutionSharedError::VariableError(format!(
+                "refusing to write read-only system variable '{}' through the public entry",
                 name
             )));
         }
@@ -631,6 +647,56 @@ pub const INTERNAL_VARIABLE_PREFIX: &str = "__";
 /// agrees on the boundary.
 pub fn is_internal_variable(name: &str) -> bool {
     name.starts_with(INTERNAL_VARIABLE_PREFIX)
+}
+
+/// Read-only system namespace roots resolved from execution state, never
+/// stored in the variable map. Writes targeting these roots are rejected
+/// by the public variable entry.
+pub const SYSTEM_ROOT_EXECUTION: &str = "execution";
+pub const SYSTEM_ROOT_NODE: &str = "node";
+
+/// Whether `name` targets the read-only system namespace (`execution.*`,
+/// `node.*`, including the `variables.`-prefixed alias form).
+pub fn is_system_reserved_variable(name: &str) -> bool {
+    let stripped = name.strip_prefix("variables.").unwrap_or(name);
+    let root = stripped.split('.').next().unwrap_or("");
+    root == SYSTEM_ROOT_EXECUTION || root == SYSTEM_ROOT_NODE
+}
+
+/// Lightweight read-only execution view exposed to variable expressions.
+/// Values are derived from execution state on read; nothing is stored in
+/// the variable map.
+#[derive(Debug, Clone)]
+pub struct SystemContext {
+    pub execution_id: String,
+    pub node_id: String,
+    pub node_type: String,
+}
+
+impl SystemContext {
+    pub fn new(
+        execution_id: impl Into<String>,
+        node_id: impl Into<String>,
+        node_type: impl Into<String>,
+    ) -> Self {
+        Self {
+            execution_id: execution_id.into(),
+            node_id: node_id.into(),
+            node_type: node_type.into(),
+        }
+    }
+}
+
+/// Resolve a reserved system path against execution state. Returns `None`
+/// for non-system paths so callers fall through to the variable store.
+pub fn resolve_system_path(system: &SystemContext, path: &str) -> Option<Value> {
+    let stripped = path.strip_prefix("variables.").unwrap_or(path);
+    match stripped {
+        "execution.id" => Some(Value::String(system.execution_id.clone())),
+        "node.id" => Some(Value::String(system.node_id.clone())),
+        "node.type" => Some(Value::String(system.node_type.clone())),
+        _ => None,
+    }
 }
 
 /// Single writer for the node id -> agent loop id addressing map so the

@@ -264,7 +264,9 @@ impl ScriptHandler {
                 // Workflow-variable layer first, script-argument layer
                 // second; see the layering contract in `crate::variable`
                 // module docs.
-                let rendered = VariableResolver::resolve_str(tmpl, &ctx.variables);
+                let system = ctx.system_context();
+                let rendered =
+                    VariableResolver::resolve_str(tmpl, &ctx.variables, Some(&system));
                 let rendered = rendered.as_str().unwrap_or(tmpl).to_string();
                 (
                     ScriptDefinition {
@@ -751,12 +753,16 @@ pub(crate) fn script_execution_options_from_config(
     })
 }
 
-/// Snapshot the workflow variables for template argument resolution.
+/// Snapshot the user-visible workflow variables for template argument
+/// resolution. Engine-owned keys stay out of script inputs.
 pub(crate) fn snapshot_variables(
     ctx: &NodeExecutionContext,
 ) -> std::collections::HashMap<String, Value> {
     ctx.variables
         .iter()
+        .filter(|entry| {
+            !wf_execution_shared::context::is_internal_variable(entry.key())
+        })
         .map(|entry| (entry.key().clone(), entry.value().clone()))
         .collect()
 }

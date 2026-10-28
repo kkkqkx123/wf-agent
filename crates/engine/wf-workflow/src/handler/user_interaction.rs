@@ -113,7 +113,12 @@ impl UserInteractionHandler {
                 // `crate::variable`): this field moves workflow values,
                 // unlike `message.content_template` which renders
                 // `{{input}}` at the text layer.
-                let resolved = crate::variable::VariableResolver::resolve_str(s, &ctx.variables);
+                let system = ctx.system_context();
+                let resolved = crate::variable::VariableResolver::resolve_str(
+                    s,
+                    &ctx.variables,
+                    Some(&system),
+                );
                 resolved
                     .as_str()
                     .map(|s| s.to_string())
@@ -313,8 +318,12 @@ fn apply_operation(
                         .unwrap_or("{{input}}");
                     if let Some(name) = name {
                         let value = evaluate_expression(expression, input_data);
-                        let resolved =
-                            crate::variable::VariableResolver::resolve(&value, &ctx.variables);
+                        let system = ctx.system_context();
+                        let resolved = crate::variable::VariableResolver::resolve(
+                            &value,
+                            &ctx.variables,
+                            Some(&system),
+                        );
                         ctx.set_variable(name.to_string(), resolved)?;
                     }
                 }

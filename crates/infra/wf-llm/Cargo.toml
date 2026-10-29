@@ -30,6 +30,12 @@ llm-gateway = { package = "llm-suite-gateway", path = "../llm-suite/crates/llm-s
 # authentication, re-exported by this facade. `file-store` gives hosts a
 # ready JSON store (0600, atomic replace) for `wf llm login`.
 llm-auth = { package = "llm-suite-auth", path = "../llm-suite/crates/llm-suite-auth", features = ["file-store"] }
+# Image generation capability (OpenAI-compatible images + mock), kept in
+# the same facade so hosts use one `wf_llm` import for all LLM abilities.
+llm-images = { package = "llm-suite-images", path = "../llm-suite/crates/llm-suite-images", features = ["mock"] }
+# Network model discovery (split from llm-suite-config so profile-only
+# hosts never pay for the TLS stack).
+llm-discovery = { package = "llm-suite-discovery", path = "../llm-suite/crates/llm-suite-discovery" }
 
 async-trait.workspace = true
 serde.workspace = true

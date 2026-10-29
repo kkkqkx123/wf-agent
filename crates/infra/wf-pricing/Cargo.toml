@@ -6,6 +6,7 @@ description = "LiteLLM-style public + custom pricing resolver for LLM token cost
 
 [dependencies]
 llm-token = { package = "llm-suite-token", path = "../llm-suite/crates/llm-suite-token" }
+llm-types = { package = "llm-suite-types", path = "../llm-suite/crates/llm-suite-types" }
 wf-storage = { path = "../wf-storage" }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -91,6 +91,9 @@ pub struct TokenUsageRecord {
     pub completion_cost: Option<f64>,
     /// Total cost of the request.
     pub total_cost: Option<f64>,
+    /// Billing total reported by the provider itself. When present it is
+    /// the value `total_cost` was taken from.
+    pub provider_total: Option<f64>,
     /// Amount the cache saved against the base input rate.
     pub cache_savings: Option<f64>,
     /// True when the usage was produced locally because the provider

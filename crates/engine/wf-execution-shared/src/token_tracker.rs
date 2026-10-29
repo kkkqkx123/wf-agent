@@ -59,6 +59,7 @@ impl From<&RequestUsage> for TokenUsageStats {
             prompt_tokens_cost: None,
             completion_tokens_cost: None,
             total_cost: usage.total_cost,
+            provider_total: None,
         }
     }
 }
@@ -702,6 +703,7 @@ mod tests {
             prompt_tokens_cost: None,
             completion_tokens_cost: None,
             total_cost: Some(0.01),
+            provider_total: None,
         }
     }
 

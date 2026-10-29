@@ -20,6 +20,12 @@ pub struct ContributionManager {
     /// entry is a provider authentication implementation contributed by a
     /// plugin (login / refresh / resolve).
     pub(crate) llm_auth_registry: Registry<String, Arc<dyn PluginLlmAuth>>,
+    /// Image generation registry backing the `llm-images` contribution
+    /// type. Each entry implements `generate_images` for one provider.
+    /// Native backends carry network access like `llm-auth`; Lua/Wasm
+    /// entries are limited to deterministic test doubles until the ABI
+    /// gains a dispatch channel.
+    pub(crate) llm_images_registry: Registry<String, Arc<dyn PluginLlmImages>>,
     /// Declarative provider definitions contributed by plugins (manifest
     /// `llm_providers` segment or `register_llm_provider_definition`).
     /// The runtime bridge writes them into the gateway provider registry.
@@ -53,6 +59,7 @@ impl ContributionManager {
             tool_type_registry: Registry::new(),
             llm_registry: Registry::new(),
             llm_auth_registry: Registry::new(),
+            llm_images_registry: Registry::new(),
             llm_provider_definitions: Registry::new(),
             event_handler_registry: MultiRegistry::new(),
             middleware_registry: MultiRegistry::new(),
@@ -84,6 +91,7 @@ impl ContributionManager {
         self.tool_type_registry.unregister_by_plugin(plugin_id);
         self.llm_registry.unregister_by_plugin(plugin_id);
         self.llm_auth_registry.unregister_by_plugin(plugin_id);
+        self.llm_images_registry.unregister_by_plugin(plugin_id);
         self.llm_provider_definitions
             .unregister_by_plugin(plugin_id);
         self.event_handler_registry.unregister_by_plugin(plugin_id);
@@ -164,6 +172,11 @@ impl ContributionManager {
         for (key, owner) in self.all_llm_auths() {
             if owner == plugin_id {
                 records.push((ContributionType::LlmAuth.as_str().into(), key));
+            }
+        }
+        for (key, owner) in self.all_llm_images() {
+            if owner == plugin_id {
+                records.push((ContributionType::LlmImages.as_str().into(), key));
             }
         }
         for (key, owner) in self.all_llm_provider_definitions() {

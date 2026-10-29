@@ -214,6 +214,7 @@ pub(crate) fn convert_provider_definition(
         no_proxy: None,
         rate_limit: None,
         auth: provider.auth.as_ref().map(convert_auth_ref),
+        compat: None,
     }
 }
 

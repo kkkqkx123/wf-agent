@@ -387,6 +387,7 @@ mod tests {
                 no_proxy: None,
                 rate_limit: None,
                 auth: None,
+                compat: None,
             })
             .unwrap();
         assert_eq!(

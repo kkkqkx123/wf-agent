@@ -32,7 +32,9 @@ pub enum OAuthFlowConfig {
 }
 
 /// One declared provider authentication surface. All fields except `id`,
-/// `method` and `display_name` are method-specific.
+/// `method` and `display_name` are method-specific. When `preset` names a
+/// built-in OAuth preset (e.g. `"openai-codex"`), missing endpoints are
+/// filled from the preset; explicit fields always win.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AuthProviderConfig {
     /// Provider id keying the credential store and matching
@@ -81,6 +83,12 @@ pub struct AuthProviderConfig {
     /// Bind a loopback listener instead of asking for a pasted callback.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loopback: Option<bool>,
+    /// Built-in OAuth preset name (e.g. `"openai-codex"`,
+    /// `"github-copilot"`, `"google-vertex"`). When set, missing OAuth
+    /// endpoints are filled from the preset before validation; explicit
+    /// fields always win over the preset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
 }
 
 /// LLM authentication configuration: the credential store location plus
@@ -95,6 +103,123 @@ pub struct AuthConfig {
     /// Declared provider authentication surfaces.
     #[serde(default)]
     pub providers: Vec<AuthProviderConfig>,
+}
+
+/// All built-in OAuth preset names in stable order.
+pub fn oauth_preset_names() -> Vec<&'static str> {
+    vec!["openai-codex", "github-copilot", "google-vertex"]
+}
+
+/// Template for a built-in OAuth preset. The template carries the
+/// well-known endpoints, flow and scope; `id`, `display_name` and
+/// `login_label` stay with the caller. Returns `None` for unknown names.
+pub fn oauth_preset_template(name: &str) -> Option<AuthProviderConfig> {
+    match name {
+        "openai-codex" => Some(AuthProviderConfig {
+            id: String::new(),
+            method: AuthMethodConfig::OAuth,
+            display_name: String::new(),
+            login_label: Some("Sign in with ChatGPT".to_string()),
+            env: None,
+            flow: Some(OAuthFlowConfig::Pkce),
+            is_subscription: Some(true),
+            device_authorization_url: None,
+            authorize_url: Some("https://auth.openai.com/authorize".to_string()),
+            token_url: Some("https://auth.openai.com/oauth/token".to_string()),
+            client_id: Some("codex-cli".to_string()),
+            scope: Some("openid profile email".to_string()),
+            redirect_uri: Some("http://localhost:1455/auth/callback".to_string()),
+            loopback: Some(true),
+            preset: None,
+        }),
+        "github-copilot" => Some(AuthProviderConfig {
+            id: String::new(),
+            method: AuthMethodConfig::OAuth,
+            display_name: String::new(),
+            login_label: Some("Sign in with GitHub".to_string()),
+            env: None,
+            flow: Some(OAuthFlowConfig::Device),
+            is_subscription: Some(true),
+            device_authorization_url: Some("https://github.com/login/device/code".to_string()),
+            authorize_url: None,
+            token_url: Some("https://github.com/login/oauth/access_token".to_string()),
+            client_id: Some("Iv1.b507a08c87ec2d4b".to_string()),
+            scope: Some("read:user".to_string()),
+            redirect_uri: None,
+            loopback: Some(false),
+            preset: None,
+        }),
+        "google-vertex" => Some(AuthProviderConfig {
+            id: String::new(),
+            method: AuthMethodConfig::OAuth,
+            display_name: String::new(),
+            login_label: Some("Sign in with Google".to_string()),
+            env: None,
+            flow: Some(OAuthFlowConfig::Pkce),
+            is_subscription: Some(false),
+            device_authorization_url: None,
+            authorize_url: Some("https://accounts.google.com/o/oauth2/v2/auth".to_string()),
+            token_url: Some("https://oauth2.googleapis.com/token".to_string()),
+            client_id: Some("vertex-cli".to_string()),
+            scope: Some("https://www.googleapis.com/auth/cloud-platform".to_string()),
+            redirect_uri: Some("http://localhost:8085/oauth/callback".to_string()),
+            loopback: Some(false),
+            preset: None,
+        }),
+        _ => None,
+    }
+}
+
+/// Expand `preset` on a provider declaration: missing OAuth fields are
+/// filled from the named template; explicit fields always win. The
+/// `preset` marker is cleared on success so downstream validation sees a
+/// plain declaration. Unknown preset names are an error.
+pub fn expand_auth_preset(mut provider: AuthProviderConfig) -> Result<AuthProviderConfig, String> {
+    let Some(preset_name) = provider.preset.clone() else {
+        return Ok(provider);
+    };
+    let template =
+        oauth_preset_template(&preset_name).ok_or_else(|| format!("unknown auth preset '{preset_name}'"))?;
+    if provider.flow.is_none() {
+        provider.flow = template.flow;
+    }
+    if provider.is_subscription.is_none() {
+        provider.is_subscription = template.is_subscription;
+    }
+    if provider.device_authorization_url.is_none() {
+        provider.device_authorization_url = template.device_authorization_url;
+    }
+    if provider.authorize_url.is_none() {
+        provider.authorize_url = template.authorize_url;
+    }
+    if provider.token_url.is_none() {
+        provider.token_url = template.token_url;
+    }
+    if provider.client_id.is_none() {
+        provider.client_id = template.client_id;
+    }
+    if provider.scope.is_none() {
+        provider.scope = template.scope;
+    }
+    if provider.redirect_uri.is_none() {
+        provider.redirect_uri = template.redirect_uri;
+    }
+    if provider.loopback.is_none() {
+        provider.loopback = template.loopback;
+    }
+    if provider.login_label.is_none() {
+        provider.login_label = template.login_label;
+    }
+    // A preset implies OAuth unless the declaration says otherwise.
+    if provider.method == AuthMethodConfig::ApiKey
+        && (provider.flow.is_some()
+            || provider.token_url.is_some()
+            || provider.client_id.is_some())
+    {
+        provider.method = AuthMethodConfig::OAuth;
+    }
+    provider.preset = None;
+    Ok(provider)
 }
 
 #[cfg(test)]
@@ -117,6 +242,7 @@ mod tests {
             scope: Some("api".to_string()),
             redirect_uri: None,
             loopback: None,
+            preset: None,
         }
     }
 
@@ -148,5 +274,74 @@ env = "ACME_API_KEY"
         assert_eq!(parsed.method, AuthMethodConfig::ApiKey);
         assert_eq!(parsed.env.as_deref(), Some("ACME_API_KEY"));
         assert!(parsed.flow.is_none());
+    }
+
+    #[test]
+    fn preset_names_cover_all_templates() {
+        for name in oauth_preset_names() {
+            assert!(oauth_preset_template(name).is_some(), "{name}");
+        }
+        assert!(oauth_preset_template("nope").is_none());
+    }
+
+    #[test]
+    fn expand_preset_fills_missing_fields_and_clears_marker() {
+        let provider = AuthProviderConfig {
+            id: "codex".to_string(),
+            method: AuthMethodConfig::ApiKey,
+            display_name: "Codex".to_string(),
+            login_label: None,
+            env: None,
+            flow: None,
+            is_subscription: None,
+            device_authorization_url: None,
+            authorize_url: None,
+            token_url: None,
+            client_id: None,
+            scope: None,
+            redirect_uri: None,
+            loopback: None,
+            preset: Some("openai-codex".to_string()),
+        };
+        let expanded = expand_auth_preset(provider).expect("expand");
+        assert_eq!(expanded.preset, None);
+        assert_eq!(expanded.method, AuthMethodConfig::OAuth);
+        assert_eq!(expanded.flow, Some(OAuthFlowConfig::Pkce));
+        assert!(expanded.token_url.is_some());
+    }
+
+    #[test]
+    fn expand_preset_keeps_explicit_fields() {
+        let provider = AuthProviderConfig {
+            id: "codex".to_string(),
+            method: AuthMethodConfig::OAuth,
+            display_name: "Codex".to_string(),
+            login_label: None,
+            env: None,
+            flow: Some(OAuthFlowConfig::Pkce),
+            is_subscription: None,
+            device_authorization_url: None,
+            authorize_url: None,
+            token_url: Some("https://custom.test/token".to_string()),
+            client_id: None,
+            scope: None,
+            redirect_uri: None,
+            loopback: None,
+            preset: Some("openai-codex".to_string()),
+        };
+        let expanded = expand_auth_preset(provider).expect("expand");
+        assert_eq!(
+            expanded.token_url.as_deref(),
+            Some("https://custom.test/token")
+        );
+    }
+
+    #[test]
+    fn expand_unknown_preset_fails() {
+        let provider = AuthProviderConfig {
+            preset: Some("nope".to_string()),
+            ..provider()
+        };
+        assert!(expand_auth_preset(provider).is_err());
     }
 }

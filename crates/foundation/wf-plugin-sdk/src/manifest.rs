@@ -44,6 +44,11 @@ pub enum PluginPermission {
     /// the provider's OAuth endpoints; credentials are persisted by the
     /// host's credential store, never by the plugin itself.
     LlmAuth,
+    /// Contribute an image generation implementation (`llm-images`
+    /// contribution: `generate_images`). Like `llm-auth`, implementations
+    /// that hit the network must run on the native backend; Lua/Wasm
+    /// sandboxes have no HTTP and can only serve deterministic test doubles.
+    LlmImages,
     /// Perform LLM model discovery over the network for a contributed
     /// provider (default models endpoint or custom endpoint). Subdivides
     /// `network` so discovery can be granted without general socket access.

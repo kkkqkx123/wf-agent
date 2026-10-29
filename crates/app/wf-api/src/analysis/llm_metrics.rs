@@ -236,6 +236,7 @@ mod tests {
             total_tokens: input + cache_read + output,
             reported_total_tokens: input + cache_read + output,
             total_cost: Some(0.01),
+            provider_total: None,
             ..Default::default()
         }
     }

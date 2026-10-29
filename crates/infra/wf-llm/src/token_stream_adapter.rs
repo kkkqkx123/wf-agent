@@ -49,6 +49,7 @@ impl llm_client::TokenUsageSink for MetricsSinkAdapter {
             prompt_cost: report.usage.prompt_tokens_cost,
             completion_cost: report.usage.completion_tokens_cost,
             total_cost: report.usage.total_cost,
+            provider_total: report.usage.provider_total,
             cache_savings: report.cache_savings,
             estimated: report.estimated,
         });

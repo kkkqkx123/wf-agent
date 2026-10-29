@@ -76,6 +76,7 @@ fn profile(server: &MockServer, id: &str, format: Option<ToolCallProtocol>) -> L
         circuit_breaker: None,
         prompt_caching: None,
         auth: None,
+        compat: None,
     }
 }
 
@@ -288,6 +289,7 @@ async fn provider_definition_supplies_base_url() {
             no_proxy: None,
             rate_limit: None,
             auth: None,
+            compat: None,
         })
         .expect("provider");
 

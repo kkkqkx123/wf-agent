@@ -222,6 +222,7 @@ mod tests {
             circuit_breaker: None,
             prompt_caching: None,
             auth: None,
+            compat: None,
         }
     }
 

@@ -29,6 +29,7 @@ fn record(prompt: u64, completion: u64, cache_read: u64) -> TokenUsageRecord {
         prompt_cost: Some(0.001),
         completion_cost: Some(0.002),
         total_cost: Some(0.003),
+        provider_total: None,
         cache_savings: None,
         estimated: false,
     }

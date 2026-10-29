@@ -18,9 +18,9 @@ pub use config::validate_config_for;
 pub use contributions::{
     parse_middleware_outcome, AuthDescriptor, CodecHttpRequest, MiddlewareOutcome, NextFn,
     PluginAuthEvent, PluginAuthNext, PluginAuthOption, PluginAuthPrompt, PluginEventHandler,
-    PluginExecutionContext, PluginLlmAuth, PluginLlmCodec, PluginLoginChallenge, PluginLoginStep,
-    PluginMiddlewareHandler, PluginNodeHandler, PluginNodeResult, PluginToolContext,
-    PluginToolExecutor, PluginToolResult,
+    PluginExecutionContext, PluginLlmAuth, PluginLlmCodec, PluginLlmImages, PluginLoginChallenge,
+    PluginLoginStep, PluginMiddlewareHandler, PluginNodeHandler, PluginNodeResult,
+    PluginToolContext, PluginToolExecutor, PluginToolResult,
 };
 pub use error::{PluginError, PluginResult};
 pub use manifest::{

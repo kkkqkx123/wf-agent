@@ -125,7 +125,11 @@ pub(crate) fn load_llm_auth(path: &Path) -> ConfigResult<serde_json::Value> {
     let provider: wf_types::config::llm_auth::AuthProviderConfig =
         serde_json::from_value(value.clone())
             .map_err(|e| ConfigError::Parse(format!("invalid LLM auth: {e}")))?;
-    crate::processor::llm_auth::validate_auth_provider(&provider)?;
+    // Presets fill missing OAuth endpoints before validation so a
+    // `preset = "openai-codex"` declaration validates as a full one.
+    let expanded = crate::processor::llm_auth::expand_auth_presets(&[provider])
+        .map_err(|e| ConfigError::Parse(format!("invalid LLM auth preset: {e}")))?;
+    crate::processor::llm_auth::validate_auth_provider(&expanded[0])?;
     Ok(value)
 }
 

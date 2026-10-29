@@ -54,6 +54,7 @@ impl LiteLlmModel {
                 cache_read_per_mtok,
                 cache_write_5m_per_mtok,
                 cache_write_1h_per_mtok: cache_write_5m_per_mtok,
+                tiers: None,
             },
             scope,
         }

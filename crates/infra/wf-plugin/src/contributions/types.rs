@@ -5,7 +5,7 @@
 pub use wf_plugin_sdk::contributions::{
     parse_middleware_outcome, AuthDescriptor, CodecHttpRequest, MiddlewareOutcome, NextFn,
     PluginAuthEvent, PluginAuthNext, PluginAuthOption, PluginAuthPrompt, PluginEventData,
-    PluginEventHandler, PluginExecutionContext, PluginLlmAuth, PluginLlmCodec,
+    PluginEventHandler, PluginExecutionContext, PluginLlmAuth, PluginLlmCodec, PluginLlmImages,
     PluginLoginChallenge, PluginLoginStep, PluginMiddlewareHandler, PluginNodeHandler,
     PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult,
 };
@@ -26,6 +26,9 @@ pub enum ContributionType {
     /// Provider authentication implementation (login / refresh / resolve),
     /// referenced by a provider definition's `auth` segment.
     LlmAuth,
+    /// Image generation implementation (`generate_images`). Network
+    /// implementations must run on the native backend, like `llm-auth`.
+    LlmImages,
     EventHandler,
     Middleware,
     // Declarative resource contributions (payloads from wf-types, no new dependencies)
@@ -47,6 +50,7 @@ impl ContributionType {
             Self::ToolType => "tool-type",
             Self::LlmFormat => "llm-provider",
             Self::LlmAuth => "llm-auth",
+            Self::LlmImages => "llm-images",
             Self::EventHandler => "event-handler",
             Self::Middleware => "middleware",
             Self::Workflow => "workflow",
@@ -67,6 +71,7 @@ impl ContributionType {
             Self::ToolType,
             Self::LlmFormat,
             Self::LlmAuth,
+            Self::LlmImages,
             Self::EventHandler,
             Self::Middleware,
             Self::Workflow,

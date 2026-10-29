@@ -730,6 +730,7 @@ mod tests {
                 no_proxy: None,
                 rate_limit: None,
                 auth: None,
+                compat: None,
             })
             .unwrap();
 
@@ -837,6 +838,7 @@ mod tests {
                         .collect(),
                 ),
             }),
+            compat: None,
         }
     }
 

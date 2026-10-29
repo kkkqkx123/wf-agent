@@ -831,6 +831,7 @@ mod tests {
             prompt_tokens_cost: None,
             completion_tokens_cost: None,
             total_cost: Some(0.005),
+            provider_total: None,
         };
         session.update_token_usage(&stats);
         // Real usage is present, but the decision track still queues the
@@ -914,6 +915,7 @@ mod tests {
                 prompt_tokens_cost: None,
                 completion_tokens_cost: None,
                 total_cost: Some(0.002),
+                provider_total: None,
             },
         }
         .into();

@@ -62,6 +62,7 @@ fn profile(server: &MockServer, id: &str, format: Option<ToolCallProtocol>) -> L
         circuit_breaker: None,
         prompt_caching: None,
         auth: None,
+        compat: None,
     }
 }
 

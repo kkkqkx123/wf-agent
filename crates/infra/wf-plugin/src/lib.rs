@@ -43,8 +43,9 @@ pub use contributions::{
     ContributionManager, ContributionRegistrar, ContributionType, MiddlewareOutcome, NextFn,
     OverridePolicy, PluginAuthEvent, PluginAuthNext, PluginAuthOption, PluginAuthPrompt,
     PluginEventData, PluginEventHandler, PluginExecutionContext, PluginLlmAuth, PluginLlmCodec,
-    PluginLoginChallenge, PluginLoginStep, PluginMiddlewareHandler, PluginNodeHandler,
-    PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult, RegistrarGuard,
+    PluginLlmImages, PluginLoginChallenge, PluginLoginStep, PluginMiddlewareHandler,
+    PluginNodeHandler, PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult,
+    RegistrarGuard,
 };
 pub use dependency::{resolve_dependencies, ResolvedGraph};
 pub use engine::{PluginEngine, PluginSystemConfig};

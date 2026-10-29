@@ -157,6 +157,7 @@ async fn stream_emits_chunks_and_aggregates_output() {
                 prompt_tokens_cost: None,
                 completion_tokens_cost: None,
                 total_cost: None,
+                provider_total: None,
             }),
             stream_stats: None,
             id: None,

@@ -16,6 +16,16 @@ impl ContributionManager {
         self.llm_auth_registry.all()
     }
 
+    /// Image generation implementation contributed by a plugin.
+    pub fn get_llm_images(&self, name: &str) -> Option<Arc<dyn PluginLlmImages>> {
+        self.llm_images_registry.get(name)
+    }
+
+    /// All plugin-contributed image implementations as `(name, owner)` pairs.
+    pub fn all_llm_images(&self) -> Vec<(String, String)> {
+        self.llm_images_registry.all()
+    }
+
     /// Declarative provider definition contributed by a plugin.
     pub fn get_llm_provider_definition(
         &self,

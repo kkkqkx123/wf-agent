@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use wf_config::processor::llm_auth::{transform_auth_providers, validate_auth_config};
+use wf_config::processor::llm_auth::{
+    expand_auth_presets, transform_auth_providers, validate_auth_config,
+};
 use wf_config::processor::llm_profile::{
     transform_llm_profile, validate_llm_profile, validate_provider_definition,
 };
@@ -51,10 +53,13 @@ pub fn create_auth_registry(
     config: &wf_types::config::llm_auth::AuthConfig,
     project_root: Option<&std::path::Path>,
 ) -> RuntimeResult<Arc<wf_llm::AuthRegistry>> {
-    validate_auth_config(&config.providers).map_err(|e| {
+    let expanded = expand_auth_presets(&config.providers).map_err(|e| {
         crate::error::RuntimeError::Config(format!("Invalid LLM auth declaration: {e}"))
     })?;
-    let providers = transform_auth_providers(&config.providers, &std::collections::HashMap::new())
+    validate_auth_config(&expanded).map_err(|e| {
+        crate::error::RuntimeError::Config(format!("Invalid LLM auth declaration: {e}"))
+    })?;
+    let providers = transform_auth_providers(&expanded, &std::collections::HashMap::new())
         .map_err(|e| {
             crate::error::RuntimeError::Config(format!("Invalid LLM auth declaration: {e}"))
         })?;
@@ -130,11 +135,21 @@ pub fn create_llm_gateway(
 
 /// Register file-layer provider definitions and profiles on a gateway.
 ///
-/// Provider definitions register first, profiles second: profiles with
-/// `provider_id` merge connection defaults once at registration time, so
-/// the request hot path never merges again. Plugin codecs and providers
-/// must already be synced (fixed startup order, no lazy backfill).
+/// Built-in connection templates (`wf-llm`) register first as the static
+/// baseline; file-layer definitions win on id collision. Profiles then
+/// merge connection defaults once at registration time and fill a missing
+/// `context_window_size` from the LiteLLM table (`wf-pricing`, best
+/// effort, model-name match), so the request hot path never merges again.
+/// Costs are never filled here: the pricing resolver remains the single
+/// cost path. Plugin codecs and providers must already be synced (fixed
+/// startup order, no lazy backfill).
 pub fn register_llm_config(gateway: &LlmGateway, config: &LlmConfig) -> RuntimeResult<()> {
+    // Static baseline: built-in providers never block file-layer config.
+    // A builtin that fails to register is a programming error, but file
+    // definitions must still land, so degrade to a warning.
+    if let Err(e) = wf_llm::register_builtin_providers(gateway.provider_registry()) {
+        tracing::warn!(error = %e, "failed to register built-in LLM providers");
+    }
     for definition in &config.provider_definitions {
         validate_provider_definition(definition).map_err(|e| {
             crate::error::RuntimeError::Config(format!("Invalid LLM provider: {e}"))
@@ -146,12 +161,23 @@ pub fn register_llm_config(gateway: &LlmGateway, config: &LlmConfig) -> RuntimeR
             })?;
     }
 
+    // Model metadata comes from the LiteLLM table, matched by model name
+    // only: its provider namespace ("openai", "vertex_ai-...") differs
+    // from local registry ids ("builtin-openai", ...), and the fill is a
+    // best-effort hint — explicit config always wins.
+    let metadata = wf_pricing::ModelMetadataResolver::from_embedded();
     for profile in &config.profiles {
         validate_llm_profile(profile)
             .map_err(|e| crate::error::RuntimeError::Config(format!("Invalid LLM profile: {e}")))?;
         let transformed = transform_llm_profile(profile, &std::collections::HashMap::new())
             .map_err(|e| crate::error::RuntimeError::Config(format!("Invalid LLM profile: {e}")))?;
-        gateway.register_profile(transformed).map_err(|e| {
+        let mut with_catalog = transformed;
+        if with_catalog.context_window_size.is_none() {
+            if let Some(meta) = metadata.metadata_for(&with_catalog.model) {
+                with_catalog.context_window_size = meta.context_window;
+            }
+        }
+        gateway.register_profile(with_catalog).map_err(|e| {
             crate::error::RuntimeError::Config(format!("Failed to register LLM profile: {e}"))
         })?;
     }

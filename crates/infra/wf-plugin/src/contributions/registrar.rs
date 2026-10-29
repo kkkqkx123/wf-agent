@@ -36,6 +36,12 @@ pub trait ContributionRegistrar {
     /// Register a provider authentication implementation; `name` matches
     /// the `auth.provider` reference of a provider definition.
     fn register_llm_auth(&mut self, name: &str, auth: Arc<dyn PluginLlmAuth>) -> PluginResult<()>;
+    /// Register an image generation implementation (`llm-images`).
+    fn register_llm_images(
+        &mut self,
+        name: &str,
+        images: Arc<dyn PluginLlmImages>,
+    ) -> PluginResult<()>;
     /// Register a declarative LLM connection template. The runtime bridge
     /// writes it into the provider registry on activation and removes it
     /// symmetrically on deactivation.

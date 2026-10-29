@@ -82,6 +82,25 @@ pub fn validate_auth_config(providers: &[AuthProviderConfig]) -> ConfigResult<()
     Ok(())
 }
 
+/// Expand `preset` markers on declared providers before validation.
+///
+/// Missing OAuth fields are filled from the built-in preset template;
+/// explicit fields always win. Unknown preset names are a config error.
+/// Providers without a preset pass through untouched.
+pub fn expand_auth_presets(
+    providers: &[AuthProviderConfig],
+) -> ConfigResult<Vec<AuthProviderConfig>> {
+    providers
+        .iter()
+        .cloned()
+        .map(|provider| {
+            wf_types::config::llm_auth::expand_auth_preset(provider).map_err(|e| {
+                ConfigError::Validation(format!("invalid auth preset: {e}"))
+            })
+        })
+        .collect()
+}
+
 /// Substitute `${VAR}` references in every declared field. Endpoints and
 /// client ids may come from the environment; secrets never appear here.
 pub fn transform_auth_providers(
@@ -213,6 +232,7 @@ mod tests {
             scope: None,
             redirect_uri: None,
             loopback: None,
+            preset: None,
         }
     }
 
@@ -232,6 +252,7 @@ mod tests {
             scope: None,
             redirect_uri: None,
             loopback: None,
+            preset: None,
         }
     }
 
@@ -405,5 +426,86 @@ mod tests {
             transformed[0].token_url.as_deref(),
             Some("https://dash.test/token")
         );
+    }
+
+    #[test]
+    fn preset_expands_missing_oauth_fields() {
+        let preset = AuthProviderConfig {
+            id: "codex".to_string(),
+            method: AuthMethodConfig::ApiKey,
+            display_name: "Codex".to_string(),
+            login_label: None,
+            env: None,
+            flow: None,
+            is_subscription: None,
+            device_authorization_url: None,
+            authorize_url: None,
+            token_url: None,
+            client_id: None,
+            scope: None,
+            redirect_uri: None,
+            loopback: None,
+            preset: Some("openai-codex".to_string()),
+        };
+        let expanded = expand_auth_presets(&[preset]).expect("expand");
+        assert_eq!(expanded[0].preset, None);
+        assert_eq!(expanded[0].method, AuthMethodConfig::OAuth);
+        assert_eq!(expanded[0].flow, Some(OAuthFlowConfig::Pkce));
+        assert!(expanded[0].token_url.is_some());
+        assert!(validate_auth_provider(&expanded[0]).is_ok());
+    }
+
+    #[test]
+    fn preset_explicit_fields_win() {
+        let preset = AuthProviderConfig {
+            id: "codex".to_string(),
+            method: AuthMethodConfig::OAuth,
+            display_name: "Codex".to_string(),
+            login_label: None,
+            env: None,
+            flow: Some(OAuthFlowConfig::Pkce),
+            is_subscription: None,
+            device_authorization_url: None,
+            authorize_url: None,
+            token_url: Some("https://custom.test/token".to_string()),
+            client_id: None,
+            scope: None,
+            redirect_uri: Some("http://127.0.0.1:9999/cb".to_string()),
+            loopback: None,
+            preset: Some("openai-codex".to_string()),
+        };
+        let expanded = expand_auth_presets(&[preset]).expect("expand");
+        assert_eq!(
+            expanded[0].token_url.as_deref(),
+            Some("https://custom.test/token")
+        );
+        assert_eq!(
+            expanded[0].redirect_uri.as_deref(),
+            Some("http://127.0.0.1:9999/cb")
+        );
+        // Preset fills the gaps.
+        assert!(expanded[0].client_id.is_some());
+    }
+
+    #[test]
+    fn unknown_preset_is_rejected() {
+        let preset = AuthProviderConfig {
+            id: "x".to_string(),
+            method: AuthMethodConfig::OAuth,
+            display_name: "X".to_string(),
+            login_label: None,
+            env: None,
+            flow: None,
+            is_subscription: None,
+            device_authorization_url: None,
+            authorize_url: None,
+            token_url: None,
+            client_id: None,
+            scope: None,
+            redirect_uri: None,
+            loopback: None,
+            preset: Some("nope".to_string()),
+        };
+        assert!(expand_auth_presets(&[preset]).is_err());
     }
 }

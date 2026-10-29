@@ -6,10 +6,12 @@
 //! depend on it without knowing about this host crate); this crate supplies the
 //! concrete implementations and the runtime factory.
 
+pub mod metadata;
 pub mod resolver;
 pub mod static_table;
 pub mod storage_table;
 
+pub use metadata::ModelMetadataResolver;
 pub use resolver::{CompositePricingResolver, PricingResolver};
 pub use static_table::StaticPricingResolver;
 pub use storage_table::StoragePricingResolver;

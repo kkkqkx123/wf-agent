@@ -185,6 +185,7 @@ mod tests {
             prompt_caching: None,
             metadata: None,
             auth: None,
+            compat: None,
         }
     }
 

@@ -312,6 +312,28 @@ pub trait PluginLlmAuth: Send + Sync {
     fn resolve(&self, credential: Value) -> PluginResult<Value>;
 }
 
+// ── image generation ────────────────────────────────────────────────
+// A plugin contributes an image generation implementation for one provider.
+// The contract is synchronous and JSON-based like the codec/auth
+// contracts: `context` carries the resolved endpoint plus credential
+// (`{base_url, api_key, model, headers?}`), `prompt` is the text prompt
+// and `options` carries `{size?, quality?, count?, response_format?}`.
+// The result follows the host `ImagesResult` JSON shape
+// (`{images: [{b64_json?, url?, revised_prompt?}], created?}`). Network
+// implementations must run on the native backend (same constraint as
+// `llm-auth`); Lua/Wasm sandboxes have no HTTP.
+pub trait PluginLlmImages: Send + Sync {
+    /// Display name, e.g. "Acme Images".
+    fn name(&self) -> String;
+    /// Generate images for a prompt under the given context and options.
+    fn generate_images(
+        &self,
+        context: Value,
+        prompt: String,
+        options: Value,
+    ) -> PluginResult<Value>;
+}
+
 #[async_trait]
 pub trait PluginMiddlewareHandler: Send + Sync {
     /// Handle one middleware phase. Implementations may rewrite `context`

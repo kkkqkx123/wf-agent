@@ -237,6 +237,86 @@ pub fn api_key_prompt(display_name: &str) -> AuthPrompt {
     }
 }
 
+/// Built-in OAuth presets: well-known subscription providers as declarative
+/// configs. Hosts reference them via `preset = "openai-codex"` in
+/// `AuthProviderConfig`; explicit fields always win over the preset. No
+/// provider is hard-wired into the auth flow itself: presets are pure data
+/// constructors over [`DeclaredOAuthConfig`].
+pub mod oauth_presets {
+    use super::{DeclaredFlow, DeclaredOAuthConfig};
+
+    /// OpenAI Codex (ChatGPT subscription) OAuth preset (PKCE, loopback).
+    pub fn openai_codex() -> DeclaredOAuthConfig {
+        DeclaredOAuthConfig {
+            display_name: "OpenAI Codex".to_string(),
+            flow: DeclaredFlow::Pkce,
+            is_subscription: true,
+            device_authorization_url: None,
+            token_url: "https://auth.openai.com/oauth/token".to_string(),
+            authorize_url: Some("https://auth.openai.com/authorize".to_string()),
+            client_id: "codex-cli".to_string(),
+            scope: Some("openid profile email".to_string()),
+            redirect_uri: Some("http://localhost:1455/auth/callback".to_string()),
+            loopback: true,
+            login_label: Some("Sign in with ChatGPT".to_string()),
+        }
+    }
+
+    /// GitHub Copilot OAuth preset (device flow, subscription-backed).
+    pub fn github_copilot() -> DeclaredOAuthConfig {
+        DeclaredOAuthConfig {
+            display_name: "GitHub Copilot".to_string(),
+            flow: DeclaredFlow::Device,
+            is_subscription: true,
+            device_authorization_url: Some(
+                "https://github.com/login/device/code".to_string(),
+            ),
+            token_url: "https://github.com/login/oauth/access_token".to_string(),
+            authorize_url: None,
+            client_id: "Iv1.b507a08c87ec2d4b".to_string(),
+            scope: Some("read:user".to_string()),
+            redirect_uri: None,
+            loopback: false,
+            login_label: Some("Sign in with GitHub".to_string()),
+        }
+    }
+
+    /// Google Vertex (Gemini) OAuth preset (PKCE, pasted callback).
+    /// Uses the Google OAuth endpoints with the Cloud Platform scope; the
+    /// client id is a placeholder hosts override with their own credential.
+    pub fn google_vertex() -> DeclaredOAuthConfig {
+        DeclaredOAuthConfig {
+            display_name: "Google Vertex".to_string(),
+            flow: DeclaredFlow::Pkce,
+            is_subscription: false,
+            device_authorization_url: None,
+            token_url: "https://oauth2.googleapis.com/token".to_string(),
+            authorize_url: Some("https://accounts.google.com/o/oauth2/v2/auth".to_string()),
+            client_id: "vertex-cli".to_string(),
+            scope: Some("https://www.googleapis.com/auth/cloud-platform".to_string()),
+            redirect_uri: Some("http://localhost:8085/oauth/callback".to_string()),
+            loopback: false,
+            login_label: Some("Sign in with Google".to_string()),
+        }
+    }
+
+    /// Resolve a preset name to its declarative config.
+    /// Returns `None` for unknown names so callers can fail loudly.
+    pub fn preset_named(name: &str) -> Option<DeclaredOAuthConfig> {
+        match name {
+            "openai-codex" => Some(openai_codex()),
+            "github-copilot" => Some(github_copilot()),
+            "google-vertex" => Some(google_vertex()),
+            _ => None,
+        }
+    }
+
+    /// All built-in preset names in stable order.
+    pub fn preset_names() -> Vec<&'static str> {
+        vec!["openai-codex", "github-copilot", "google-vertex"]
+    }
+}
+
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -328,5 +408,30 @@ mod tests {
         let oauth_surface = DeclaredOAuth::provider_auth(device_config());
         assert!(oauth_surface.oauth.is_some());
         assert!(oauth_surface.api_key.is_none());
+    }
+
+    #[test]
+    fn oauth_presets_cover_all_names() {
+        for name in oauth_presets::preset_names() {
+            let config = oauth_presets::preset_named(name).expect(name);
+            assert!(!config.token_url.is_empty(), "{name}");
+            assert!(!config.client_id.is_empty(), "{name}");
+        }
+        assert!(oauth_presets::preset_named("nope").is_none());
+    }
+
+    #[test]
+    fn oauth_presets_carry_expected_flows() {
+        let codex = oauth_presets::openai_codex();
+        assert_eq!(codex.flow, DeclaredFlow::Pkce);
+        assert!(codex.is_subscription);
+
+        let copilot = oauth_presets::github_copilot();
+        assert_eq!(copilot.flow, DeclaredFlow::Device);
+        assert!(copilot.is_subscription);
+        assert!(copilot.device_authorization_url.is_some());
+
+        let vertex = oauth_presets::google_vertex();
+        assert_eq!(vertex.flow, DeclaredFlow::Pkce);
     }
 }

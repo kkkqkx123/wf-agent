@@ -107,6 +107,23 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
         Ok(())
     }
 
+    fn register_llm_images(
+        &mut self,
+        name: &str,
+        images: Arc<dyn PluginLlmImages>,
+    ) -> PluginResult<()> {
+        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
+        self.validate(&plugin_id, ContributionType::LlmImages, name)?;
+        self.manager
+            .check_conflict(ContributionType::LlmImages.as_str(), name, || {
+                self.manager.llm_images_registry.get_owner(name)
+            })?;
+        self.manager
+            .llm_images_registry
+            .register(name.into(), plugin_id, images);
+        Ok(())
+    }
+
     fn register_llm_provider_definition(
         &mut self,
         definition: wf_types::llm::LlmProviderDefinition,

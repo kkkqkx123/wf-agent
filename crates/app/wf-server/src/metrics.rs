@@ -114,6 +114,7 @@ mod tests {
                 total_tokens: 15,
                 reported_total_tokens: 15,
                 total_cost: Some(0.002),
+                provider_total: None,
                 ..Default::default()
             });
         registry.config().record_access();

@@ -2,6 +2,7 @@
 // assembly child), HTTP client and shared error type.
 pub mod auth;
 pub mod auth_plugin;
+pub mod builtin;
 pub mod codecs_plugin;
 // Generic-to-concrete metrics adapter wired by the facade layer.
 pub mod token_stream_adapter;
@@ -26,11 +27,20 @@ pub use llm_codec::{
     create_codec, AnthropicCodec, GeminiNativeCodec, LlmCodec, OpenaiChatCodec, OpenaiResponseCodec,
 };
 pub use llm_codec::{LlmError, LlmResult};
-pub use llm_config::catalog::{ModelCatalog, DEFAULT_MODELS_JSON_PATH, DEFAULT_MODELS_PATH};
+pub use builtin::{
+    builtin_provider_definitions, builtin_provider_ids, register_builtin_providers,
+    BUILTIN_ANTHROPIC_ID, BUILTIN_GEMINI_ID, BUILTIN_OLLAMA_ID, BUILTIN_OPENAI_ID,
+    BUILTIN_OPENROUTER_ID,
+};
+pub use llm_config::catalog::{apply_catalog_metadata, catalog_entry_for_profile};
+pub use llm_discovery::{
+    filter_models, ModelCatalog, DEFAULT_MODELS_JSON_PATH, DEFAULT_MODELS_PATH,
+};
 pub use llm_config::profile::ProfileManager;
 pub use llm_config::provider::{apply_provider_defaults, ProviderDefinitionRegistry};
 pub use llm_config::{catalog, merge, profile, provider};
-pub use llm_gateway::LlmGateway;
+pub use llm_discovery as discovery;
+pub use llm_gateway::{LlmGateway, RequestProbe};
 // Credential storage and provider-owned authentication: the gateway's
 // optional auth registry, the store contract and the OAuth/login
 // primitives hosts wire into it.
@@ -46,7 +56,8 @@ pub use llm_message::history_converter::{
     render_tool_calls, render_tool_result,
 };
 pub use llm_message::history_text::{summarize_counts, to_plain_text};
-pub use llm_message::{helper, history_converter, history_text, message_builder};
+pub use llm_message::transform::{transform_for_target, TransformTarget, MAX_TOOL_CALL_ID_LEN};
+pub use llm_message::{helper, history_converter, history_text, message_builder, transform};
 pub use llm_token::count;
 pub use llm_token::count::{
     estimate_image_tokens, estimate_message_tokens, estimate_messages, estimate_request_tokens,
@@ -54,11 +65,25 @@ pub use llm_token::count::{
 };
 pub use llm_token::estimation;
 pub use llm_token::estimation::{estimate_tokens, TokenEstimator};
+pub use llm_token::pricing;
+pub use llm_token::pricing::{
+    compute_baseline_cost, compute_cache_savings, compute_cost, CacheTokenScope, TokenCost,
+    TokenPricing, TokenPricingTier,
+};
 pub use llm_token::usage;
 pub use llm_token::usage::{
     normalize_usage, token_accounting, LlmCallContext, LlmUsageReport, NormalizedUsage,
     ReasoningTokenScope, TokenAccounting,
 };
+// Image generation capability (provider trait + OpenAI-compatible HTTP +
+// mock), following the embedding/decision shape.
+pub use llm_images;
+pub use llm_images::{
+    ImageData, ImageGenerationProvider, ImageModel, ImagesContext, ImagesOptions, ImagesResult,
+    OpenAiCompatibleImagesProvider,
+};
+#[cfg(feature = "mock")]
+pub use llm_images::{MockImageGenerationProvider, MockImagesStep};
 pub use llm_tool_call::partial_json_parser;
 pub use llm_tool_call::partial_json_parser::{
     parse_partial_json, recover_partial_json, PartialParseResult,

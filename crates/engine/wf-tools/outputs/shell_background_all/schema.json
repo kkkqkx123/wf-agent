@@ -1,0 +1,27 @@
+{
+  "description": "Move every running background shell task bound to one execution out of the blocking path. Completion of each task is reported through the shell completion event. Returns the moved tasks with guidance on how to follow up.",
+  "enabled": true,
+  "id": "shell_background_all",
+  "metadata": {
+    "category": "shell",
+    "risk_level": "read_only",
+    "tags": [
+      "background"
+    ]
+  },
+  "name": "shell_background_all",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "execution_id": {
+        "description": "Execution owning the running tasks",
+        "type": "string"
+      }
+    },
+    "required": [
+      "execution_id"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateful"
+}

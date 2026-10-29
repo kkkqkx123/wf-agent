@@ -1,5 +1,5 @@
 {
-  "description": "Wait for a background shell session command to finish or for its output to match a pattern. Returns the current status, exit code and full output; 'timed_out' is true when the deadline elapsed first. Provide 'pattern' (a regex) to stop early once matching output appears.",
+  "description": "Wait for a background shell session command to finish or for its output to match a pattern. Returns the current status, exit code and full output; 'timed_out' is true when the deadline elapsed first. When the session is moved to the background while waiting, the wait returns immediately with 'backgrounded' true instead of waiting out the deadline. Provide 'pattern' (a regex) to stop early once matching output appears. Absolute byte cursors from shell_output window responses stay valid across truncation; incremental reads are a convenience over the same cursor.",
   "enabled": true,
   "id": "shell_wait",
   "metadata": {

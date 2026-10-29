@@ -9,6 +9,7 @@
   "result": {
     "execution_time": 0,
     "result": {
+      "execution_id": "stub-agent-loop",
       "iterations": 1,
       "result": {
         "agent_id": "standard/worker",

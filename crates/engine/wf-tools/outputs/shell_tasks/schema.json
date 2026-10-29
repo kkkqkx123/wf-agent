@@ -1,0 +1,31 @@
+{
+  "description": "List background shell tasks (commands started by backend_shell or execute_in_session). By default only running tasks are returned; set 'include_settled' to also see recently finished ones. Provide 'execution_id' to filter to one execution. Absolute byte cursors from shell_output window responses are the canonical paging positions; incremental reads are a convenience over the same cursor. Acknowledge a settled task with shell_ack once its completion event is consumed.",
+  "enabled": true,
+  "id": "shell_tasks",
+  "metadata": {
+    "category": "shell",
+    "risk_level": "read_only",
+    "tags": [
+      "tasks",
+      "background"
+    ]
+  },
+  "name": "shell_tasks",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "execution_id": {
+        "description": "Only tasks bound to this execution",
+        "type": "string"
+      },
+      "include_settled": {
+        "default": false,
+        "description": "Also return recently settled tasks (default false)",
+        "type": "boolean"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "tool_type": "stateful"
+}

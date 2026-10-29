@@ -1,0 +1,8 @@
+# shell_background_all (shell)
+Move every running background shell task bound to one execution out of the blocking path. Completion of each task is reported through the shell completion event. Returns the moved tasks with guidance on how to follow up.
+
+tips:
+- Do not wait, sleep or poll after backgrounding; follow up via shell_output, shell_wait or shell_tasks once notified
+
+examples:
+- shell_background_all("exec-1")

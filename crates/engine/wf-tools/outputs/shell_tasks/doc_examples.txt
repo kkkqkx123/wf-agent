@@ -1,0 +1,9 @@
+# shell_tasks (shell)
+List background shell tasks (commands started by backend_shell or execute_in_session). By default only running tasks are returned; set 'include_settled' to also see recently finished ones. Provide 'execution_id' to filter to one execution. Absolute byte cursors from shell_output window responses are the canonical paging positions; incremental reads are a convenience over the same cursor. Acknowledge a settled task with shell_ack once its completion event is consumed.
+
+tips:
+- Use shell_output or shell_wait with a session_id to follow up on a task
+
+examples:
+- shell_tasks()
+- shell_tasks(execution_id="exec-1")

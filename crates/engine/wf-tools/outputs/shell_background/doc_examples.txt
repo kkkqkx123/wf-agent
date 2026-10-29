@@ -1,0 +1,8 @@
+# shell_background (shell)
+Move a running background shell session out of the blocking path: the caller stops waiting and completion is reported through the shell completion event. Returns the task record with guidance on how to follow up.
+
+tips:
+- Do not wait, sleep or poll after backgrounding; follow up via shell_output, shell_wait or shell_tasks once notified
+
+examples:
+- shell_background("abc123")

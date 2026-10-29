@@ -1,5 +1,5 @@
 {
-  "description": "Search file contents using a regular expression pattern. Returns matching file paths and line numbers.",
+  "description": "Search file contents using a regular expression pattern. Returns matching file paths and line numbers. Files hidden by ignore rules are skipped and counted; pass include_ignored=true to search them too.",
   "enabled": true,
   "id": "grep_search",
   "metadata": {
@@ -17,6 +17,10 @@
       "include": {
         "description": "File glob pattern to include (e.g. *.rs)",
         "type": "string"
+      },
+      "include_ignored": {
+        "description": "Search files hidden by ignore rules too (default false); execution scope still applies",
+        "type": "boolean"
       },
       "path": {
         "description": "The directory to search in",

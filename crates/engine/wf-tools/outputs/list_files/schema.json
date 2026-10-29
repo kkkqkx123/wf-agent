@@ -1,5 +1,5 @@
 {
-  "description": "List files and directories at the given path. Can be recursive.",
+  "description": "List files and directories at the given path. Can be recursive. Entries hidden by ignore rules are counted and noted; pass include_ignored=true to reveal them. Out-of-scope entries are counted and noted separately.",
   "enabled": true,
   "id": "list_files",
   "metadata": {
@@ -14,6 +14,10 @@
   "parameters": {
     "additionalProperties": false,
     "properties": {
+      "include_ignored": {
+        "description": "Reveal entries hidden by ignore rules (default false); execution scope still applies",
+        "type": "boolean"
+      },
       "path": {
         "description": "Absolute path to the directory",
         "type": "string"

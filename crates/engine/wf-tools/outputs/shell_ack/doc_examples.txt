@@ -1,0 +1,8 @@
+# shell_ack (shell)
+Confirm delivery of a settled background shell task notification and drop the entry. Only settled tasks (completed, failed, cancelled) can be acknowledged; running tasks return acknowledged false.
+
+tips:
+- Call after reading a background completion event so the task list stays small
+
+examples:
+- shell_ack("abc123")

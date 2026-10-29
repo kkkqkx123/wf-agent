@@ -1,5 +1,5 @@
 # glob_search (filesystem)
-Find files matching a glob pattern. Returns matching file paths relative to the search path.
+Find files matching a glob pattern. Returns matching file paths relative to the search path. Entries hidden by ignore rules are skipped and counted; pass include_ignored=true to reveal them.
 
 examples:
 - glob_search("**/*.rs", "/home/user/project")

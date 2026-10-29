@@ -1,0 +1,27 @@
+{
+  "description": "Move a running background shell session out of the blocking path: the caller stops waiting and completion is reported through the shell completion event. Returns the task record with guidance on how to follow up.",
+  "enabled": true,
+  "id": "shell_background",
+  "metadata": {
+    "category": "shell",
+    "risk_level": "read_only",
+    "tags": [
+      "background"
+    ]
+  },
+  "name": "shell_background",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "session_id": {
+        "description": "The session ID returned by backend_shell",
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateful"
+}

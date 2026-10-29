@@ -33,6 +33,10 @@
         "description": "Enable token usage tracking",
         "type": "boolean"
       },
+      "file_scope": {
+        "description": "Optional execution filesystem scope override (enabled, read_prefixes, write_prefixes, checkpoint_prefixes, workdir); missing inherits parent then global",
+        "type": "object"
+      },
       "hooks": {
         "description": "Hooks to attach to the agent loop",
         "type": "array"

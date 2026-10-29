@@ -1,5 +1,5 @@
 # list_files (filesystem)
-List files and directories at the given path. Can be recursive.
+List files and directories at the given path. Can be recursive. Entries hidden by ignore rules are counted and noted; pass include_ignored=true to reveal them. Out-of-scope entries are counted and noted separately.
 
 examples:
 - list_files("/home/user/project/src")

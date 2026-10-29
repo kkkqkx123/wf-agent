@@ -13,6 +13,10 @@
   "parameters": {
     "additionalProperties": false,
     "properties": {
+      "file_scope": {
+        "description": "Optional execution filesystem scope override (enabled, read_prefixes, write_prefixes, checkpoint_prefixes, workdir); missing inherits parent then global",
+        "type": "object"
+      },
       "input": {
         "description": "Input parameters for the workflow",
         "type": "object"

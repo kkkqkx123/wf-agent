@@ -5,7 +5,7 @@
     "path": "does/not/exist.txt"
   },
   "result": {
-    "error": "Execution error: Cannot access '<WORKSPACE>/does/not/exist.txt': No such file or directory (os error 2)",
+    "error": "Execution error: not_found: file '<WORKSPACE>/does/not/exist.txt' does not exist. Use list_files to confirm the path or write_file to create it.",
     "execution_time": 0,
     "retry_count": 0,
     "success": false

@@ -1,5 +1,5 @@
 {
-  "description": "Retrieve output from a running background shell session by session_id. Set 'all' to false to read only output produced since the last read (incremental). Optionally provide 'filter' (a regex) to keep only matching lines; an invalid regex is ignored.",
+  "description": "Retrieve output from a running background shell session by session_id. Absolute byte positions are the canonical paging cursor: pass a previous windowed response's 'window_end' as 'start' to continue the stream across truncation. Set 'all' to false to read only output produced since the last read (incremental convenience over the same cursor). Optionally provide 'filter' (a regex) to keep only matching lines; an invalid regex is ignored.",
   "enabled": true,
   "id": "shell_output",
   "metadata": {

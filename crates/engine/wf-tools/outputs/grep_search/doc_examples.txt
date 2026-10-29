@@ -1,5 +1,5 @@
 # grep_search (filesystem)
-Search file contents using a regular expression pattern. Returns matching file paths and line numbers.
+Search file contents using a regular expression pattern. Returns matching file paths and line numbers. Files hidden by ignore rules are skipped and counted; pass include_ignored=true to search them too.
 
 tips:
 - Use specific patterns to narrow results

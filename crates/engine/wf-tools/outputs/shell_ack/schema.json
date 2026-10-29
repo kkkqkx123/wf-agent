@@ -1,0 +1,28 @@
+{
+  "description": "Confirm delivery of a settled background shell task notification and drop the entry. Only settled tasks (completed, failed, cancelled) can be acknowledged; running tasks return acknowledged false.",
+  "enabled": true,
+  "id": "shell_ack",
+  "metadata": {
+    "category": "shell",
+    "risk_level": "read_only",
+    "tags": [
+      "tasks",
+      "background"
+    ]
+  },
+  "name": "shell_ack",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "session_id": {
+        "description": "The session ID returned by backend_shell",
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateful"
+}

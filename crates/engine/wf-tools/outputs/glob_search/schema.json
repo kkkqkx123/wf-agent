@@ -1,5 +1,5 @@
 {
-  "description": "Find files matching a glob pattern. Returns matching file paths relative to the search path.",
+  "description": "Find files matching a glob pattern. Returns matching file paths relative to the search path. Entries hidden by ignore rules are skipped and counted; pass include_ignored=true to reveal them.",
   "enabled": true,
   "id": "glob_search",
   "metadata": {
@@ -14,6 +14,10 @@
   "parameters": {
     "additionalProperties": false,
     "properties": {
+      "include_ignored": {
+        "description": "Reveal entries hidden by ignore rules (default false); execution scope still applies",
+        "type": "boolean"
+      },
       "path": {
         "description": "The directory to search in",
         "type": "string"

@@ -176,6 +176,7 @@ impl NodeBuilder<NoType> {
             child_execution_timeout: None,
             total_branch_timeout: None,
             wait_for_completion: None,
+            message_inputs: None,
         };
         Self::new(id)
             .type_(StaticNodeType::Fork)
@@ -193,6 +194,9 @@ impl NodeBuilder<NoType> {
             threshold: None,
             timeout: None,
             main_path_id: None,
+            variable_outputs: None,
+            message_outputs: None,
+            data_outputs: None,
         };
         Self::new(id)
             .type_(StaticNodeType::Join)
@@ -212,6 +216,8 @@ impl NodeBuilder<NoType> {
             wait_for_completion: None,
             timeout: None,
             variable_exchanges: None,
+            message_inputs: None,
+            data_inputs: None,
         };
         Self::new(id)
             .type_(StaticNodeType::Sync)

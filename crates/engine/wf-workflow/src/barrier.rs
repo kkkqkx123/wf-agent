@@ -126,6 +126,10 @@ pub enum ForkOutcome {
     Succeeded,
     Failed,
     Partial,
+    /// The fork launched its branches and returned without waiting
+    /// (non-blocking mode). Branch results live in the fork registry;
+    /// the recorded fork output carries no branch conclusions.
+    Detached,
 }
 
 impl FailureStrategy {

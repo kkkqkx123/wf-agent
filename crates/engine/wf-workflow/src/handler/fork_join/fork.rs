@@ -26,6 +26,7 @@ struct ForkConfig {
     child_execution_timeout: u64,
     total_branch_timeout: u64,
     wait_for_completion: bool,
+    message_inputs: Option<Value>,
 }
 
 fn parse_fork_config(ctx: &NodeExecutionContext) -> WorkflowResult<ForkConfig> {
@@ -89,6 +90,11 @@ fn parse_fork_config(ctx: &NodeExecutionContext) -> WorkflowResult<ForkConfig> {
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
 
+    // Fork-level message downlink (`message_inputs` mapping): the only way
+    // a branch scope starts with the parent's message contexts, since the
+    // variable snapshot never carries them.
+    let message_inputs = config.get("message_inputs").cloned();
+
     Ok(ForkConfig {
         paths,
         failure_strategy,
@@ -96,6 +102,7 @@ fn parse_fork_config(ctx: &NodeExecutionContext) -> WorkflowResult<ForkConfig> {
         child_execution_timeout,
         total_branch_timeout,
         wait_for_completion,
+        message_inputs,
     })
 }
 
@@ -140,7 +147,37 @@ impl ForkRuntime {
                 tool_approval_handler: self.branch_ctx.tool_approval_handler.clone(),
                 fork_registries: self.branch_ctx.fork_registries.clone(),
                 fork_registry: self.branch_ctx.fork_registry.clone(),
+                fork_message_inputs: self.branch_ctx.fork_message_inputs.clone(),
             },
+        }
+    }
+}
+
+/// Extract the branch identifier carried by a fork path entry.
+fn path_id_of(path: &Value) -> String {
+    path.get("path_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("path")
+        .to_string()
+}
+
+/// Append a cancelled failure for every branch without a result so the
+/// result set stays one-per-branch after an early abort. The registry
+/// records for those branches must already be settled or cancelled by
+/// the caller; JOIN waits treat them as settled failures.
+fn fill_missing_results(
+    branches: &[(Value, wf_types::Id)],
+    results: &mut Vec<BranchResult>,
+    detail: &str,
+) {
+    use std::collections::HashSet;
+    let present: HashSet<String> = results.iter().map(|r| r.branch_id.clone()).collect();
+    for (path, _) in branches {
+        let id = path_id_of(path);
+        if !present.contains(&id) {
+            results.push(BranchResult::failure(&id, detail).with_category(
+                wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
+            ));
         }
     }
 }
@@ -149,8 +186,10 @@ async fn run_serial(
     branches: &[(Value, wf_types::Id)],
     runtime: &ForkRuntime,
     child_execution_timeout: u64,
+    failure_strategy: &FailureStrategy,
 ) -> Vec<BranchResult> {
     let mut results = Vec::new();
+    let fail_fast = matches!(failure_strategy, FailureStrategy::FailFast);
     for (idx, (path, branch_execution_id)) in branches.iter().enumerate() {
         results.push(
             run_branch(
@@ -166,6 +205,25 @@ async fn run_serial(
             .as_ref()
             .is_some_and(|t| t.is_cancelled())
         {
+            break;
+        }
+        if fail_fast && results.last().is_some_and(|r| !r.success) {
+            // FailFast stops launching further branches. The skipped
+            // branches never settle on their own, so cancel their
+            // pre-registered records (a JOIN waiter must not hang) and
+            // keep one result per branch.
+            for (skipped_path, _) in &branches[idx + 1..] {
+                let skipped_id = path_id_of(skipped_path);
+                if let Some(registry) = &runtime.fork_registry {
+                    registry.cancel(&skipped_id);
+                }
+                results.push(
+                    BranchResult::failure(&skipped_id, "fork branch skipped after fail_fast")
+                        .with_category(
+                        wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
+                    ),
+                );
+            }
             break;
         }
     }
@@ -235,7 +293,9 @@ async fn run_parallel(
     runtime: &ForkRuntime,
     child_execution_timeout: u64,
     total_branch_timeout: u64,
+    failure_strategy: &FailureStrategy,
 ) -> Vec<BranchResult> {
+    let fail_fast = matches!(failure_strategy, FailureStrategy::FailFast);
     let mut set = tokio::task::JoinSet::new();
     for (idx, (path, branch_execution_id)) in branches.iter().enumerate() {
         set.spawn(run_branch(
@@ -246,6 +306,10 @@ async fn run_parallel(
         ));
     }
     let mut results = Vec::with_capacity(branches.len());
+    // Detail for branches that never produced a result after an early
+    // abort; kept one-per-abort-cause so the published result set stays
+    // one-per-branch.
+    let mut abort_detail: Option<&str> = None;
     let total_deadline = (total_branch_timeout > 0).then(|| {
         std::time::Instant::now() + std::time::Duration::from_millis(total_branch_timeout)
     });
@@ -264,6 +328,7 @@ async fn run_parallel(
                             total_branch_timeout
                         );
                         set.abort_all();
+                        abort_detail = Some("fork branch aborted after total_branch_timeout");
                         break;
                     }
                 }
@@ -281,10 +346,21 @@ async fn run_parallel(
             // The parent was cancelled: abort the remaining in-flight
             // branches instead of letting them run to completion.
             set.abort_all();
+            abort_detail = Some("fork branch cancelled by parent");
             break;
         }
         match joined {
-            Ok(result) => results.push(result),
+            Ok(result) => {
+                let failed = !result.success;
+                results.push(result);
+                if fail_fast && failed {
+                    // FailFast aborts the still-running siblings instead
+                    // of waiting for every branch to settle.
+                    set.abort_all();
+                    abort_detail = Some("fork branch aborted after fail_fast");
+                    break;
+                }
+            }
             Err(e) => {
                 // A panicking branch must surface as a failure, not be
                 // silently dropped (JoinError carries no payload).
@@ -294,6 +370,15 @@ async fn run_parallel(
                 ));
             }
         }
+    }
+    if let Some(detail) = abort_detail {
+        // Aborted tasks never settle on their own: mark their registry
+        // records cancelled so JOIN waiters wake, and keep the published
+        // result set one-per-branch.
+        if let Some(registry) = &runtime.fork_registry {
+            registry.abort_all();
+        }
+        fill_missing_results(branches, &mut results, detail);
     }
     results
 }
@@ -404,6 +489,7 @@ impl ForkHandler {
                 tool_approval_handler: ctx.tool_approval_handler.clone(),
                 fork_registries: ctx.fork_registries.clone(),
                 fork_registry: registry,
+                fork_message_inputs: cfg.message_inputs.clone(),
             },
             execution_id: execution_id.clone(),
             parent_manager: ctx.hierarchy_manager.clone().ok_or_else(|| {
@@ -418,12 +504,29 @@ impl ForkHandler {
         };
 
         let results: Vec<BranchResult> = if cfg.fork_strategy == "serial" {
-            run_serial(&branches, &runtime, cfg.child_execution_timeout).await
+            run_serial(
+                &branches,
+                &runtime,
+                cfg.child_execution_timeout,
+                &cfg.failure_strategy,
+            )
+            .await
         } else if !cfg.wait_for_completion {
             // Non-blocking fork: spawn every branch, keep the task handles
             // in the registry (so the parent can abort them on cancellation)
             // and return immediately. The JOIN node waits for the branches
             // through the same registry.
+            if cfg.total_branch_timeout > 0 {
+                // The fork-level total budget never applies here (the
+                // handler has returned); the JOIN timeout bounds the wait
+                // instead. Warn so the ignored knob is not misconfigured
+                // silently.
+                tracing::warn!(
+                    "fork '{}' ignores total_branch_timeout ({}ms) in non-blocking mode; the JOIN timeout bounds the wait instead",
+                    node_id,
+                    cfg.total_branch_timeout
+                );
+            }
             spawn_non_blocking(&branches, &runtime, cfg.child_execution_timeout);
             Vec::new()
         } else {
@@ -432,11 +535,21 @@ impl ForkHandler {
                 &runtime,
                 cfg.child_execution_timeout,
                 cfg.total_branch_timeout,
+                &cfg.failure_strategy,
             )
             .await
         };
 
-        let outcome = cfg.failure_strategy.evaluate(&results);
+        // A non-blocking fork settles nothing itself: branches live on in
+        // the fork registry, so reporting `Succeeded` for the empty result
+        // set would mislead. `Detached` keeps the handover honest; the JOIN
+        // still aggregates through the registry.
+        let blocking = cfg.fork_strategy == "serial" || cfg.wait_for_completion;
+        let outcome = if blocking {
+            cfg.failure_strategy.evaluate(&results)
+        } else {
+            ForkOutcome::Detached
+        };
 
         emit_fork_event(
             runtime.event_bus.as_ref(),

@@ -62,20 +62,59 @@ impl SyncHandler {
         // Locate the fork registry of the fork that launched the source
         // branch: the branch's live variables are published after every
         // completed node, so the SYNC reads the branch's current state.
-        // Inside a fork branch the graph is the branch subgraph (it contains
-        // no FORK node), so the registry is also matched by the fork's
-        // recorded path ids.
-        let registry = ctx
-            .graph_structure
+        // The execution's own fork origin is authoritative when this SYNC
+        // runs inside a branch (the branch subgraph contains no FORK node,
+        // so graph lookup cannot see it). Graph lookup covers SYNC nodes in
+        // the parent graph; the cross-registry scan is only a last resort.
+        let launching_fork_id: Option<String> = ctx
+            .hierarchy_manager
             .as_ref()
-            .and_then(|g| find_fork_by_path(g, &source_path_id))
-            .and_then(|fork_id| ctx.fork_registries.get(&fork_id))
+            .and_then(|manager| manager.fork_path())
+            .map(|path| path.fork_node_id);
+        let registry = launching_fork_id
+            .as_ref()
+            .and_then(|fork_id| ctx.fork_registries.get(fork_id))
+            .filter(|registry| registry.path_ids().iter().any(|p| p == &source_path_id))
             .cloned()
             .or_else(|| {
-                ctx.fork_registries
+                ctx.graph_structure
+                    .as_ref()
+                    .and_then(|g| find_fork_by_path(g, &source_path_id))
+                    .and_then(|fork_id| ctx.fork_registries.get(&fork_id))
+                    .cloned()
+            })
+            .or_else(|| {
+                // Ambiguous duplicate path ids across forks must not
+                // resolve by hash iteration order: surface the collision
+                // and pick the smallest fork id deterministically.
+                let mut hits: Vec<(
+                    String,
+                    std::sync::Arc<wf_execution_shared::fork::ForkRegistry>,
+                )> = ctx
+                    .fork_registries
                     .iter()
-                    .find(|(_, reg)| reg.path_ids().iter().any(|p| p == &source_path_id))
-                    .map(|(_, reg)| reg.clone())
+                    .filter(|(_, registry)| {
+                        registry.path_ids().iter().any(|p| p == &source_path_id)
+                    })
+                    .map(|(fork_id, registry)| (fork_id.clone(), registry.clone()))
+                    .collect();
+                if hits.len() > 1 {
+                    hits.sort_by(|a, b| a.0.cmp(&b.0));
+                    crate::degradation::emit_data_degradation(
+                        ctx.event_bus.as_deref(),
+                        None,
+                        &ctx.execution_id,
+                        "sync_ambiguous_source_fork",
+                        &format!(
+                            "SYNC node '{}' source path '{}' matches {} forks; using '{}'",
+                            ctx.node_id,
+                            source_path_id,
+                            hits.len(),
+                            hits[0].0,
+                        ),
+                    );
+                }
+                hits.into_iter().next().map(|(_, registry)| registry)
             });
 
         // Wait for the source branch to settle (bounded by `timeout`), then
@@ -114,6 +153,7 @@ impl SyncHandler {
             message_contexts: std::collections::HashMap<String, Value>,
             message_histories: std::collections::HashMap<String, Value>,
         }
+        let live_registry = registry.is_some();
         let source: Option<BranchSource> = if let Some(registry) = &registry {
             registry.get(&source_path_id).map(|record| BranchSource {
                 variables: record.variables,
@@ -147,6 +187,22 @@ impl SyncHandler {
                     })
                 })
         };
+        if !live_registry && source.is_some() {
+            // No live registry (checkpoint resume, detached restart): the
+            // SYNC reads a frozen snapshot instead of the branch's current
+            // state, and skips the wait above. Old snapshots carry no
+            // message exports either — surface the downgrade.
+            crate::degradation::emit_data_degradation(
+                ctx.event_bus.as_deref(),
+                None,
+                &ctx.execution_id,
+                "sync_fork_output_fallback",
+                &format!(
+                    "SYNC node '{}' has no live fork registry; reading the recorded fork output for source branch '{}' instead",
+                    ctx.node_id, source_path_id,
+                ),
+            );
+        }
         let source_variables = source.as_ref().map(|s| &s.variables);
 
         let mut synced_variables: Vec<String> = Vec::new();

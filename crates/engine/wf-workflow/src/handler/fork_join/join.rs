@@ -10,7 +10,7 @@ use super::events::{publish_join_completed, publish_join_started};
 use super::graph::find_fork_node;
 use super::merge::{
     aggregate_branch_data_outputs, aggregate_branch_messages, aggregate_branch_variables,
-    collect_branch_records, merge_outputs,
+    collect_branch_records, merge_outputs_with_conflicts,
 };
 use crate::barrier::BranchResult;
 use crate::error::{WorkflowError, WorkflowResult};
@@ -78,6 +78,7 @@ impl JoinHandler {
             }
         }
 
+        let live_registry = registry.is_some();
         let raw_results = if let Some(registry) = &registry {
             collect_from_registry(ctx, &config, registry, &path_ids, strategy).await?
         } else {
@@ -98,6 +99,22 @@ impl JoinHandler {
                     &ctx.execution_id,
                     "join_branch_records",
                     &dropped.join("; "),
+                );
+            }
+            if !live_registry && fork_id.is_some() && fork_output.is_some() {
+                // No live registry (checkpoint resume, detached restart):
+                // the aggregation below reads a frozen snapshot instead of
+                // branch final states, and old snapshots carry no message
+                // exports. Say so loudly rather than merging silently.
+                crate::degradation::emit_data_degradation(
+                    ctx.event_bus.as_deref(),
+                    None,
+                    &ctx.execution_id,
+                    "join_fork_output_fallback",
+                    &format!(
+                        "JOIN node '{}' has no live fork registry; aggregating from the recorded fork output instead",
+                        ctx.node_id,
+                    ),
                 );
             }
             records
@@ -134,15 +151,21 @@ impl JoinHandler {
                         .take(threshold.max(1))
                         .map(|r| r.output.clone())
                         .collect();
-                    merge_outputs(&taken)
+                    let (merged, conflicts) = merge_outputs_with_conflicts(&taken);
+                    report_merge_conflicts(ctx, &conflicts);
+                    merged
                 }
                 // wait_for_all merges every successful branch output.
-                _ => merge_outputs(
-                    &success_records
-                        .iter()
-                        .map(|r| r.output.clone())
-                        .collect::<Vec<_>>(),
-                ),
+                _ => {
+                    let (merged, conflicts) = merge_outputs_with_conflicts(
+                        &success_records
+                            .iter()
+                            .map(|r| r.output.clone())
+                            .collect::<Vec<_>>(),
+                    );
+                    report_merge_conflicts(ctx, &conflicts);
+                    merged
+                }
             }
         };
 
@@ -263,6 +286,22 @@ async fn collect_from_registry(
                 ),
         })
         .collect())
+}
+
+/// Surface silent last-wins collisions from output merging as
+/// data-degradation events so an overwritten branch contribution stays
+/// observable instead of disappearing quietly.
+fn report_merge_conflicts(ctx: &NodeExecutionContext, conflicts: &[String]) {
+    if conflicts.is_empty() {
+        return;
+    }
+    crate::degradation::emit_data_degradation(
+        ctx.event_bus.as_deref(),
+        None,
+        &ctx.execution_id,
+        "join_merge_conflicts",
+        &conflicts.join("; "),
+    );
 }
 
 #[cfg(test)]

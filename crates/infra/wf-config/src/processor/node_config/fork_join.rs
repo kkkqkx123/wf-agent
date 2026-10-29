@@ -83,6 +83,26 @@ pub(crate) fn validate_fork_node(
     ) {
         errors.push(err);
     }
+    if let Some(inputs) = config.get("message_inputs") {
+        match inputs.as_array() {
+            None => errors.push(NodeConfigIssue::new(
+                field_path(node_id, "message_inputs"),
+                format!("FORK node '{}' message_inputs must be an array", node_id),
+            )),
+            Some(arr) => {
+                for (idx, entry) in arr.iter().enumerate() {
+                    for field in ["source_context_id", "internal_name"] {
+                        if let Some(err) = require_string(node_id, node_type, entry, field, true) {
+                            errors.push(NodeConfigIssue::new(
+                                format!("nodes.{}.config.message_inputs[{}]", node_id, idx),
+                                err.message,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
     errors
 }
 

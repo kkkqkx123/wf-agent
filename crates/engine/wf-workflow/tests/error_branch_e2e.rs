@@ -174,10 +174,13 @@ impl NodeHandler for ScriptStub {
                 serde_json::json!({"value": value, "has_error_ns": has_error_ns}),
             );
         }
-        let mut metadata = HashMap::new();
+        let metadata = HashMap::new();
         if let Some(writes) = config.get("writes").and_then(|v| v.as_object()) {
             for (key, value) in writes {
-                metadata.insert(key.clone(), value.clone());
+                // Business writes land in the variable map (main or
+                // isolated error scope, depending on where this node runs).
+                // Result metadata stays audit-only and never becomes state.
+                ctx.set_variable(key.clone(), value.clone())?;
             }
         }
         let output = config

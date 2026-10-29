@@ -446,6 +446,190 @@ impl NodeHandler for CaptureEnd {
     }
 }
 
+/// SCRIPT stand-in that records its run and fails when its config sets
+/// `fail: true`.
+struct FailAwareScript {
+    recorded: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+#[async_trait]
+impl NodeHandler for FailAwareScript {
+    fn node_type(&self) -> StaticNodeType {
+        StaticNodeType::Script
+    }
+
+    async fn execute(
+        &self,
+        ctx: &mut NodeExecutionContext,
+    ) -> wf_execution_shared::error::ExecutionSharedResult<NodeExecutionResult> {
+        let name = ctx
+            .node_config
+            .as_ref()
+            .and_then(|c| c.get("name").and_then(|v| v.as_str()))
+            .unwrap_or("script")
+            .to_string();
+        self.recorded.lock().unwrap().push(name.clone());
+        if ctx
+            .node_config
+            .as_ref()
+            .and_then(|c| c.get("fail"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            return Err(wf_workflow::error::WorkflowError::OperationError(format!(
+                "branch {name} failed on purpose"
+            ))
+            .into());
+        }
+        Ok(NodeExecutionResult::simple(
+            serde_json::json!({"from": name}),
+        ))
+    }
+}
+
+/// SCRIPT stand-in that writes and/or reads named message contexts,
+/// driven by its config (`write_context`, `read_context`).
+struct MessageProbeScript {
+    recorded: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+#[async_trait]
+impl NodeHandler for MessageProbeScript {
+    fn node_type(&self) -> StaticNodeType {
+        StaticNodeType::Script
+    }
+
+    async fn execute(
+        &self,
+        ctx: &mut NodeExecutionContext,
+    ) -> wf_execution_shared::error::ExecutionSharedResult<NodeExecutionResult> {
+        let config = ctx.node_config.clone().unwrap_or(serde_json::Value::Null);
+        if let Some(write) = config.get("write_context").and_then(|v| v.as_str()) {
+            wf_workflow::append_context(
+                &ctx.variables,
+                write,
+                vec![Message {
+                    id: wf_types::Id::new(),
+                    role: MessageRole::Assistant,
+                    content: MessageContentValue::Text("parent message".to_string()),
+                    timestamp: wf_common::now(),
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_calls: None,
+                    thinking: None,
+                    thinking_signature: None,
+                    metadata: None,
+                }],
+            );
+        }
+        if let Some(read) = config.get("read_context").and_then(|v| v.as_str()) {
+            let count = wf_workflow::get_context(&ctx.variables, read).len();
+            self.recorded.lock().unwrap().push(format!("read:{count}"));
+        }
+        Ok(NodeExecutionResult::simple(serde_json::json!({})))
+    }
+}
+
+fn message_downlink_graph(with_inputs: bool) -> WorkflowGraphStructure {
+    let mut fork_inner = serde_json::json!({
+        "fork_paths": [{"path_id": "p1", "child_node_id": "reader"}]
+    });
+    if with_inputs {
+        fork_inner["message_inputs"] = serde_json::json!([
+            {"source_context_id": "chat", "internal_name": "seeded"}
+        ]);
+    }
+    graph(
+        vec![
+            node("start", "START", serde_json::json!({})),
+            node(
+                "exporter",
+                "SCRIPT",
+                serde_json::json!({"script_name": "sE", "risk": "medium", "write_context": "chat"}),
+            ),
+            node("fork", "FORK", fork_inner),
+            node(
+                "reader",
+                "SCRIPT",
+                serde_json::json!({"script_name": "sR", "risk": "medium", "read_context": "seeded"}),
+            ),
+            node(
+                "join",
+                "JOIN",
+                serde_json::json!({"fork_path_ids": ["p1"], "join_strategy": "wait_for_all"}),
+            ),
+            node("end", "END", serde_json::json!({})),
+        ],
+        vec![
+            edge("start", "exporter"),
+            edge("exporter", "fork"),
+            edge("fork", "reader"),
+            edge("reader", "join"),
+            edge("join", "end"),
+        ],
+        "start",
+        vec!["end"],
+    )
+}
+
+/// Fork-level `message_inputs` seed the branch scope from the parent's
+/// message contexts; without the mapping the branch starts message-blind
+/// because the variable snapshot never carries messages.
+#[tokio::test]
+async fn fork_message_inputs_seed_branch_scope() {
+    for (with_inputs, expected) in [(true, "read:1"), (false, "read:0")] {
+        let recorded = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut reg = HandlerRegistry::new();
+        reg.register_defaults(Arc::new(wf_llm::LlmGateway::new()));
+        reg.register(Box::new(MessageProbeScript {
+            recorded: recorded.clone(),
+        }));
+        run_workflow(message_downlink_graph(with_inputs), reg.into_arc())
+            .await
+            .expect("message downlink workflow must complete");
+        assert_eq!(
+            recorded.lock().unwrap().as_slice(),
+            &[expected.to_string()],
+            "with_inputs={with_inputs}"
+        );
+    }
+}
+
+/// Serial `fail_fast` stops launching branches after the first failure:
+/// branch b never runs and the fork reports the failure.
+#[tokio::test]
+async fn serial_fail_fast_skips_later_branches() {
+    let mut g = fork_join_graph();
+    let fork = g.nodes.iter_mut().find(|n| n.node_type == "FORK").unwrap();
+    fork.inner = serde_json::json!({
+        "fork_paths": [
+            {"path_id": "p1", "child_node_id": "a"},
+            {"path_id": "p2", "child_node_id": "b"}
+        ],
+        "fork_strategy": "serial",
+        "failure_strategy": "fail_fast"
+    });
+    // Branch a fails; branch b would succeed.
+    let a = g.nodes.iter_mut().find(|n| n.id == "a").unwrap();
+    a.inner = serde_json::json!({"script_name": "sA", "risk": "medium", "name": "a", "fail": true});
+    let recorded = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut reg = HandlerRegistry::new();
+    reg.register_defaults(Arc::new(wf_llm::LlmGateway::new()));
+    reg.register(Box::new(FailAwareScript {
+        recorded: recorded.clone(),
+    }));
+    let err = run_workflow(g, reg.into_arc())
+        .await
+        .expect_err("fail_fast must fail the fork");
+    assert!(err.to_string().contains("fork"), "{err:?}");
+    let recorded = recorded.lock().unwrap();
+    assert!(recorded.iter().any(|e| e == "a"), "failing branch ran");
+    assert!(
+        recorded.iter().all(|e| e != "b"),
+        "later branch skipped after fail_fast, got {recorded:?}"
+    );
+}
+
 /// SYNC deep-clones source branch variables into the target scope.
 #[tokio::test]
 async fn sync_deep_clones_source_branch_variables() {

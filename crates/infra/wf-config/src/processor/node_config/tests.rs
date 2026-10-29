@@ -137,6 +137,27 @@ fn fork_requires_branches() {
         Some(&serde_json::json!({"fork_paths": [{"path_id": "p1", "child_node_id": "n1"}]})),
     )
     .is_empty());
+
+    let errors = validate_node_config(
+        "FORK",
+        "f",
+        Some(&serde_json::json!({
+            "fork_paths": [{"path_id": "p1", "child_node_id": "n1"}],
+            "message_inputs": [{"source_context_id": "chat"}]
+        })),
+    );
+    assert_eq!(errors.len(), 1);
+    assert!(errors[0].message.contains("internal_name"));
+
+    assert!(validate_node_config(
+        "FORK",
+        "f",
+        Some(&serde_json::json!({
+            "fork_paths": [{"path_id": "p1", "child_node_id": "n1"}],
+            "message_inputs": [{"source_context_id": "chat", "internal_name": "seeded"}]
+        })),
+    )
+    .is_empty());
 }
 
 #[test]

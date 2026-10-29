@@ -21,6 +21,10 @@ pub struct SyncNodeConfig {
     pub timeout: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub variable_exchanges: Option<Vec<SyncVariableExchange>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_inputs: Option<Vec<super::super::super::workflow::WorkflowMessageInput>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_inputs: Option<Vec<super::super::super::workflow::WorkflowDataInput>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

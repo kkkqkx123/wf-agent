@@ -168,17 +168,20 @@ pub fn find_fork_by_path(graph: &WorkflowGraphStructure, path_id: &str) -> Optio
 }
 
 /// Locate the FORK node whose `fork_paths` match this JOIN's `fork_path_ids`.
+/// The comparison is order-insensitive (both sides sorted), so declaration
+/// order never affects fork resolution.
 pub fn find_fork_node(
     ctx: &NodeExecutionContext,
     graph: &WorkflowGraphStructure,
 ) -> Option<String> {
-    let path_ids: Vec<&str> = ctx
+    let mut path_ids: Vec<&str> = ctx
         .node_config
         .as_ref()
         .and_then(|c| c.get("fork_path_ids"))
         .and_then(|v| v.as_array())
         .map(|ids| ids.iter().filter_map(|v| v.as_str()).collect())
         .unwrap_or_default();
+    path_ids.sort_unstable();
     graph
         .nodes
         .iter()
@@ -188,11 +191,12 @@ pub fn find_fork_node(
                     .get("fork_paths")
                     .and_then(|p| p.as_array())
                     .map(|paths| {
-                        paths
+                        let mut fork_paths: Vec<&str> = paths
                             .iter()
                             .filter_map(|p| p.get("path_id").and_then(|v| v.as_str()))
-                            .collect::<Vec<_>>()
-                            == path_ids
+                            .collect();
+                        fork_paths.sort_unstable();
+                        fork_paths == path_ids
                     })
                     .unwrap_or(false)
         })
@@ -375,6 +379,33 @@ mod tests {
             vec![],
         );
         assert_eq!(find_join_node(&no_branches, "fork"), None);
+    }
+
+    #[test]
+    fn find_fork_node_matches_path_ids_regardless_of_order() {
+        let graph = build_graph(
+            vec![WorkflowNode {
+                id: "fork".into(),
+                name: None,
+                node_type: "FORK".into(),
+                inner: serde_json::json!({
+                    "fork_paths": [
+                        {"path_id": "p1", "child_node_id": "a"},
+                        {"path_id": "p2", "child_node_id": "b"}
+                    ]
+                }),
+            }],
+            vec![],
+        );
+        let ctx = wf_execution_shared::context::NodeExecutionContext::new(
+            wf_types::Id::new(),
+            "join".to_string(),
+            wf_types::node::StaticNodeType::Join,
+            serde_json::Value::Null,
+            std::sync::Arc::new(dashmap::DashMap::new()),
+        )
+        .with_node_config(serde_json::json!({"fork_path_ids": ["p2", "p1"]}));
+        assert_eq!(find_fork_node(&ctx, &graph), Some("fork".to_string()));
     }
 
     #[test]

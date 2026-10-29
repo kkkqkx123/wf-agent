@@ -31,6 +31,11 @@ pub struct ForkNodeConfig {
     /// the fork registry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wait_for_completion: Option<bool>,
+    /// Fork-level message downlink: seeds each branch scope from the
+    /// parent's message contexts (the variable snapshot never carries
+    /// messages, so this is the only downlink).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_inputs: Option<Vec<super::super::super::workflow::WorkflowMessageInput>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -63,6 +68,12 @@ pub struct JoinNodeConfig {
     pub timeout: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub main_path_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variable_outputs: Option<Vec<super::super::super::workflow::WorkflowVariableOutput>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_outputs: Option<Vec<super::super::super::workflow::WorkflowMessageOutput>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_outputs: Option<Vec<super::super::super::workflow::WorkflowDataOutput>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

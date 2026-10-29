@@ -7,7 +7,17 @@ use crate::error::WorkflowResult;
 /// Merge strategy: object fields merged field-by-field (arrays concatenated,
 /// scalars last-wins). Non-object outputs fall back to last-wins.
 pub fn merge_outputs(outputs: &[Value]) -> Value {
+    merge_outputs_with_conflicts(outputs).0
+}
+
+/// Merge like [`merge_outputs`], additionally reporting one detail string
+/// per overwritten key so the caller can surface silent last-wins
+/// collisions instead of losing a branch's contribution unnoticed.
+/// Array concatenation is intentional merging and never reported; only
+/// replacements (scalar/object overwrites, including type changes) are.
+pub fn merge_outputs_with_conflicts(outputs: &[Value]) -> (Value, Vec<String>) {
     let mut merged: serde_json::Map<String, Value> = serde_json::Map::new();
+    let mut conflicts = Vec::new();
     for output in outputs {
         match output {
             Value::Object(map) => {
@@ -17,6 +27,11 @@ pub fn merge_outputs(outputs: &[Value]) -> Value {
                             prev.extend(items.clone());
                         }
                         (Some(prev), value) => {
+                            if prev != value {
+                                conflicts.push(format!(
+                                    "merge overwrote key '{key}'; later branch output won"
+                                ));
+                            }
                             *prev = value.clone();
                         }
                         (None, value) => {
@@ -26,11 +41,11 @@ pub fn merge_outputs(outputs: &[Value]) -> Value {
                 }
             }
             value => {
-                return value.clone();
+                return (value.clone(), conflicts);
             }
         }
     }
-    Value::Object(merged)
+    (Value::Object(merged), conflicts)
 }
 
 /// Collect raw `BranchResult` records from a fork output shape
@@ -249,11 +264,13 @@ pub fn aggregate_branch_messages(ctx: &mut NodeExecutionContext, success_records
     }
 }
 
-/// Merge `data_outputs` (`{ internal_name, output_key }`) from the
-/// successful branches into the JOIN output: each mapping copies the named
-/// branch variable into the aggregated output under `output_key`. The
-/// primary record is the first successful branch (the main path); missing
-/// values are skipped, so the output keeps whatever the strategy produced.
+/// Merge `data_outputs` (`{ internal_name, output_key }`) from every
+/// successful branch into the JOIN output: each mapping copies the named
+/// branch variable into the aggregated output under `output_key`.
+/// The `main_path_id` branch (when configured and among the successes) is
+/// applied last so it wins key collisions; the remaining branches apply in
+/// record order. Missing values are skipped, so the output keeps whatever
+/// the strategy produced.
 pub fn aggregate_branch_data_outputs(
     config: &Value,
     success_records: &[BranchResult],
@@ -262,34 +279,47 @@ pub fn aggregate_branch_data_outputs(
     let Some(mappings) = config.get("data_outputs").and_then(|v| v.as_array()) else {
         return;
     };
-    let Some(primary) = success_records.first() else {
+    if success_records.is_empty() {
         return;
-    };
-    let Some(ref variables) = primary.variables else {
-        return;
-    };
+    }
+    let main_path_id = config
+        .get("main_path_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let mut ordered: Vec<&BranchResult> = success_records
+        .iter()
+        .filter(|r| r.branch_id != main_path_id)
+        .collect();
+    if let Some(main) = success_records.iter().find(|r| r.branch_id == main_path_id) {
+        ordered.push(main);
+    }
 
-    for mapping in mappings {
-        let internal_name = mapping
-            .get("internal_name")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default();
-        let output_key = mapping
-            .get("output_key")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default();
-        if internal_name.is_empty() || output_key.is_empty() {
-            continue;
-        }
-        let Some(value) = variables.get(internal_name) else {
+    for record in ordered {
+        let Some(ref variables) = record.variables else {
             continue;
         };
-        if let Value::Object(map) = aggregated {
-            map.insert(output_key.to_string(), value.clone());
-        } else {
-            let mut map = serde_json::Map::new();
-            map.insert(output_key.to_string(), value.clone());
-            *aggregated = Value::Object(map);
+        for mapping in mappings {
+            let internal_name = mapping
+                .get("internal_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let output_key = mapping
+                .get("output_key")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            if internal_name.is_empty() || output_key.is_empty() {
+                continue;
+            }
+            let Some(value) = variables.get(internal_name) else {
+                continue;
+            };
+            if let Value::Object(map) = aggregated {
+                map.insert(output_key.to_string(), value.clone());
+            } else {
+                let mut map = serde_json::Map::new();
+                map.insert(output_key.to_string(), value.clone());
+                *aggregated = Value::Object(map);
+            }
         }
     }
 }
@@ -317,6 +347,67 @@ mod tests {
         assert_eq!(outputs.len(), 2);
         assert_eq!(merge_outputs(&outputs), serde_json::json!({"x": 1, "y": 2}));
         assert_eq!(records[2].error_message(), Some("boom"));
+    }
+
+    #[test]
+    fn merge_reports_overwritten_keys() {
+        let outputs = vec![
+            serde_json::json!({"a": 1, "items": [1]}),
+            serde_json::json!({"a": 2, "items": [2]}),
+            serde_json::json!({"b": 3}),
+        ];
+        let (merged, conflicts) = merge_outputs_with_conflicts(&outputs);
+        assert_eq!(merged, serde_json::json!({"a": 2, "items": [1, 2], "b": 3}));
+        assert_eq!(conflicts.len(), 1);
+        assert!(conflicts[0].contains("'a'"), "{}", conflicts[0]);
+
+        // Identical values and array concatenation are not conflicts.
+        let (_, none) = merge_outputs_with_conflicts(&[
+            serde_json::json!({"a": 1}),
+            serde_json::json!({"a": 1}),
+        ]);
+        assert!(none.is_empty());
+    }
+
+    #[test]
+    fn data_outputs_merge_all_branches_with_main_priority() {
+        let records = vec![
+            BranchResult::success_with_variables(
+                "p1",
+                serde_json::json!({}),
+                std::collections::HashMap::from([("v".to_string(), serde_json::json!(1))]),
+            ),
+            BranchResult::success_with_variables(
+                "p2",
+                serde_json::json!({}),
+                std::collections::HashMap::from([
+                    ("v".to_string(), serde_json::json!(2)),
+                    ("w".to_string(), serde_json::json!(20)),
+                ]),
+            ),
+        ];
+        let config = serde_json::json!({
+            "main_path_id": "p2",
+            "data_outputs": [
+                {"internal_name": "v", "output_key": "value"},
+                {"internal_name": "w", "output_key": "extra"},
+                {"internal_name": "missing", "output_key": "skipped"}
+            ]
+        });
+        let mut aggregated = serde_json::json!({"keep": true});
+        aggregate_branch_data_outputs(&config, &records, &mut aggregated);
+        assert_eq!(
+            aggregated,
+            serde_json::json!({"keep": true, "value": 2, "extra": 20})
+        );
+
+        // Without main_path_id, record order decides (later wins).
+        let config = serde_json::json!({
+            "data_outputs": [{"internal_name": "v", "output_key": "value"}]
+        });
+        let mut aggregated = serde_json::Value::Null;
+        aggregate_branch_data_outputs(&config, &records, &mut aggregated);
+        assert_eq!(aggregated, serde_json::json!({"value": 2}));
     }
 
     #[test]

@@ -322,6 +322,62 @@ pub fn merge_archived_history(
     }
 }
 
+/// Seed a child scope from the parent's message contexts (`message_inputs`
+/// mapping: `{ source_context_id, internal_name, required }`). Each entry
+/// copies the parent's active view into the child's named context and
+/// merges the parent's archived history alongside it (a history-only source
+/// still contributes its archive). Entries missing from the parent are
+/// skipped unless required, in which case the first missing required entry
+/// fails the seeding. Returns the number of seeded contexts.
+pub fn seed_message_inputs(
+    parent: &DashMap<String, Value>,
+    child: &DashMap<String, Value>,
+    mappings: &Value,
+    owner: &str,
+) -> Result<usize, String> {
+    let Some(entries) = mappings.as_array() else {
+        return Ok(0);
+    };
+    let mut seeded = 0;
+    for entry in entries {
+        let source_context_id = entry
+            .get("source_context_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let internal_name = entry
+            .get("internal_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let required = entry
+            .get("required")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if source_context_id.is_empty() || internal_name.is_empty() {
+            continue;
+        }
+        let active = get_context(parent, source_context_id);
+        let history = archived_history(parent, source_context_id);
+        if active.is_empty() && history.is_empty() {
+            if required {
+                return Err(format!(
+                    "{owner}: required message context '{source_context_id}' not found"
+                ));
+            }
+            continue;
+        }
+        // Register first so the target's previous active view is archived
+        // before the source history merges in.
+        if !active.is_empty() {
+            register_context(child, internal_name, active);
+        }
+        if !history.is_empty() {
+            merge_archived_history(child, internal_name, history);
+        }
+        seeded += 1;
+    }
+    Ok(seeded)
+}
+
 /// Whether a named context has been registered (even when empty).
 pub fn has_context(variables: &DashMap<String, Value>, context_id: &str) -> bool {
     variables.contains_key(&context_key(context_id))
@@ -491,6 +547,49 @@ mod tests {
         // The dirty entry is recomputed on the next read.
         let _ = get_context(&vars, "chat");
         assert_eq!(ledger_message_count(&vars, "chat"), 1);
+    }
+
+    #[test]
+    fn seed_message_inputs_copies_active_and_history() {
+        let parent = Arc::new(DashMap::new());
+        append_context(&parent, "chat", vec![msg(MessageRole::User, "hi")]);
+        register_context(&parent, "chat", vec![msg(MessageRole::Assistant, "yo")]);
+        // Parent now holds one archived and one active message.
+        assert_eq!(archived_history(&parent, "chat").len(), 1);
+        assert_eq!(get_context(&parent, "chat").len(), 1);
+
+        let child = Arc::new(DashMap::new());
+        let seeded = seed_message_inputs(
+            &parent,
+            &child,
+            &serde_json::json!([
+                {"source_context_id": "chat", "internal_name": "seeded"},
+                {"source_context_id": "absent", "internal_name": "skipped"},
+                {"source_context_id": "", "internal_name": "skipped-too"}
+            ]),
+            "FORK node 'f'",
+        )
+        .expect("optional missing entries are skipped");
+        assert_eq!(seeded, 1);
+        assert_eq!(get_context(&child, "seeded").len(), 1);
+        assert_eq!(archived_history(&child, "seeded").len(), 1);
+        assert!(!has_context(&child, "skipped"));
+    }
+
+    #[test]
+    fn seed_message_inputs_required_missing_fails() {
+        let parent = Arc::new(DashMap::new());
+        let child = Arc::new(DashMap::new());
+        let err = seed_message_inputs(
+            &parent,
+            &child,
+            &serde_json::json!([
+                {"source_context_id": "chat", "internal_name": "seeded", "required": true}
+            ]),
+            "FORK node 'f'",
+        )
+        .expect_err("missing required context must fail");
+        assert!(err.contains("chat"), "{err}");
     }
 
     #[test]

@@ -38,6 +38,10 @@ pub struct BranchContext {
     /// The registry of the fork that launched this branch (live-variable
     /// progress sink).
     pub fork_registry: Option<Arc<ForkRegistry>>,
+    /// Fork-level `message_inputs` mapping seeding the branch scope from
+    /// the parent's message contexts (messages never ride the variable
+    /// snapshot, so this explicit mapping is the only downlink).
+    pub fork_message_inputs: Option<Value>,
 }
 
 /// Per-branch execution inputs bundled together so the branch runners take
@@ -318,6 +322,20 @@ async fn execute_branch(
         &branch_ctx.parent_variables,
         &exec_ctx.variables,
     );
+    // Fork-level message inputs seed the branch scope from the parent's
+    // message contexts; unlike variables, messages never ride the snapshot
+    // because `__` filtering excludes them, so this explicit mapping is
+    // the only message downlink. A missing required context fails the
+    // branch instead of starting it message-blind.
+    if let Some(ref mappings) = branch_ctx.fork_message_inputs {
+        crate::message_context::seed_message_inputs(
+            &branch_ctx.parent_variables,
+            &exec_ctx.variables,
+            mappings,
+            &format!("FORK node '{fork_node_id}'"),
+        )
+        .map_err(crate::error::WorkflowError::ForkJoinError)?;
+    }
     // The runtime-injected loop iteration cap is engine control state, so it
     // no longer rides the snapshot above: propagate it explicitly like the
     // other inherited budgets.

@@ -128,6 +128,30 @@ pub async fn count_tokens(ctx: &ApiContext, request: &LlmRequest) -> ApiResult<T
         .map_err(Into::into)
 }
 
+/// Generate images with the model bound to `profile_id`.
+///
+/// The gateway resolves the profile (provider defaults merged at
+/// registration, auth applied per call) and posts to the profile's
+/// `{base_url}/images/generations` endpoint with the OpenAI images
+/// contract. An empty prompt is a validation error; an unknown profile
+/// surfaces `NotFound` through the gateway error mapping.
+pub async fn generate_images(
+    ctx: &ApiContext,
+    profile_id: &str,
+    prompt: &str,
+    options: &wf_llm::ImagesOptions,
+) -> ApiResult<wf_llm::ImagesResult> {
+    if prompt.is_empty() {
+        return Err(ApiError::Validation(
+            "image prompt must not be empty".into(),
+        ));
+    }
+    ctx.llm_gateway
+        .generate_images(profile_id, prompt, options)
+        .await
+        .map_err(Into::into)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

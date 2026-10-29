@@ -133,3 +133,72 @@ export_plugin!(ClaudeSubscriptionPlugin);
 9. **FFI 端到端**：用 `python3 scripts/ffi_smoke.py` 直接加载 `.so`，驱动两阶段 manifest 取回、ABI 版本协商、`on_load`/`on_unload` 生命周期与 `llm-auth` 各 op，验证宿主所见即所得。
 
 宿主侧（wf-runtime）应额外覆盖 `sync_auth` / `unsync_auth`：激活时注册、卸载时移除且 profile 快照保留；provider 引用未注册 auth 时激活失败。
+
+## 7. 图片生成贡献（llm-images 契约）
+
+`PluginLlmImages` 与 codec/auth 同风格，走**同步 JSON 契约**。宿主侧通过 `wf_llm::PluginImagesAdapter`
+把插件实现适配为异步 `ImageGenerationProvider`，`generate_images` 网关方法则为 OpenAI 兼容端点提供
+免插件直连路径。两者覆盖的端点相同（`POST {base}/images/generations`），差异只在凭据与端点来源。
+
+### 插件侧一个 op 与 JSON 形状
+
+| op | 输入 | 输出（核心字段） |
+|---|---|---|
+| `generate_images` | `{ "context": {base_url, api_key?, model, headers?}, "prompt": "...", "options": {size?, quality?, count?, response_format?} }` | `ImagesResult{ images: [{b64_json?, url?, revised_prompt?}], created? }` |
+
+- `context` 由宿主在构造 `PluginImagesAdapter` 时绑定（对应 `ImagesContext` 序列化），每次调用原样透传；
+- `options` 对应 `ImagesOptions` 序列化，`count` 缺省按 1 处理；
+- 返回值按 `ImagesResult` 反序列化，形状不对即 `Decode` 错误。
+
+### 后端约束（易错点）
+
+- 需要出站 HTTP 的图片实现**必须 native 后端**，与 `llm-auth` 相同：Lua 沙箱禁 `require`、wasm 沙箱仅 import
+  `host-log`，两者均无网络；
+- 桥接（`WfPluginBridge::sync_images`）只做存在性校验与日志，不在网关持有注册表：网关的图片传输按调用
+  即时构造（profile 解析 → `ImagesContext` → `OpenAiCompatibleImagesProvider`），无缓存客户端可驱逐，
+  因此卸载时也无需清理传输状态；
+- 插件作者应覆盖：空 prompt 在适配层即拒绝（不进插件）；插件错误映射为传输错误；正常返回的 `url`/
+  `b64_json` 与请求 `count` 一致。
+
+### 宿主直连路径（无插件）
+
+```rust
+let result = gateway
+    .generate_images("my-profile", "a cat", &ImagesOptions::new().with_count(2))
+    .await?;
+```
+
+网关从 effective profile（provider 默认已合并、auth 已注入）派生 `ImagesContext`：`base_url` 追加
+`images/generations`（已带则不重复）、`api_key`/`model`/`timeout`/`proxy`/`no_proxy`/`custom_headers`/
+`headers`/`query_params` 原样透传。`wf-api::llm::generate_images` 是同一语义的 API 门面（空 prompt →
+`Validation`，未知 profile → `NotFound`）。
+
+## 8. 模型元数据与兼容性（ModelMetadata / ProviderCompat）
+
+- **结构性元数据**（`llm-suite-types`）：`ModelMetadata{ id, provider_id, model_type, format, context_window,`
+  `max_output_tokens, input_modalities, reasoning, thinking_levels, cost }`，其中 `cost` 恒为空（计价唯一走
+  pricing resolver），`supports_image()` 由 `input_modalities` 派生；
+- **内置目录**（`wf-llm-catalog`）：`builtin_provider_definitions()` 返回 5 个连接模板（OpenAI / Anthropic /
+  Gemini / Ollama / OpenRouter），`register_builtin_providers()` 复用既有 `ProviderDefinitionRegistry`
+  （文件层定义按 id 覆盖）；模型元数据经 `model_metadata(name)` / `model_metadata_for(names)` 查询，数据来自
+  `wf-pricing` 内嵌 LiteLLM 表；
+- **profile 接线**：`LlmProfile` / `LlmProviderDefinition` 各带 `compat: Option<ProviderCompat>`；
+  `apply_provider_defaults` 先做 definition→profile 逐字段合并，再在仍为 `None` 时做窄探测（仅 OpenAI Chat
+  本地网关信号 → legacy `max_tokens`，命中打 `debug` 日志），显式配置永远优先；`resolve_generation` 在合并后
+  回填 `profile.compat.max_tokens_field`；compat 不进传输缓存键（只影响请求体）；
+- **catalog 回填**：`apply_catalog_metadata(profile, &[ModelMetadata])` 只补缺失的 `context_window_size`
+  （显式配置必胜，provider 作用域用于同名模型消歧）；运行时 bootstrap 用 LiteLLM resolver 按模型名 best-effort
+  回填（其 provider 命名空间与本地注册 id 不同，故只按模型名匹配）；
+- 插件贡献模型元数据时只发结构性字段，不要重复计价；新增 `ProviderCompat` 字段必须附带读取它的 codec 分支与测试。
+
+## 9. 内置 OAuth 预设
+
+三处同一数据源，保持同步：
+
+- `wf_types::config::llm_auth::oauth_preset_template(name)`：配置层模板（`openai-codex` / `github-copilot` /
+  `google-vertex`），`expand_auth_preset()` 在校验前把 `preset = "..."` 展开为完整声明，显式字段永远覆盖模板；
+- `wf_llm::auth::oauth_presets::{openai_codex, github_copilot, google_vertex}()`：运行时的
+  `DeclaredOAuthConfig` 纯数据构造，`preset_named(name)` 按名解析；
+- `wf-config::processor::llm_auth::expand_auth_presets()`：批量展开 + 未知名即配置错误。
+
+自定义端点/作用域时在声明中显式覆盖对应字段即可，preset 只填缺失项。

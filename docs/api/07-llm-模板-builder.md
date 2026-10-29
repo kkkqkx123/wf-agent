@@ -33,7 +33,33 @@ Provider = 连接模板（base URL/auth/headers/模型发现），按名引用�
 
 - `list/get/create/delete`：create 校验 id 与 `LlmFormat::Custom(name)` 非空；注册/替换时**驱逐缓存网关客户端**使引用它的 profile 取到新默认值；删除后既有 profile 保留**已合并快照**不回退。
 - `list_models`：热路径之外显式调用，api_key 取第一个匹配 profile；**此处发现失败报错**（与装配期降级相反）。
+- `list_models_filtered(ctx, provider_id, predicate)`：同上再按凭据谓词过滤（allow-list/前缀/订阅标记由调用方闭包承载，纯函数无 trait 对象）；
+  `list_models_for_allowlist(ctx, provider_id, allowed)` 为显式 id 集合的便捷版。
+- `refresh_all(ctx)`：全量刷新多 provider 目录，事务式上报（每 provider 独立成败，单点不可达不阻塞其余）；
+  `refresh_filtered(ctx, predicate)` 在成功条目上再做凭据过滤，失败原样透传供调用方逐 provider warn。
 - `assemble_check(ctx, profile)`（供 profile create 调用）：无 provider 直通；发现失败 warn + 原样；目录非空且不含该 model 仅 warn（stale/自定义）；唯一改数据行为 = 回填缺失的 `context_window_size`。
+
+### 1.4.1 ProviderCompat 与 ModelMetadata 使用
+
+- `compat`（`LlmProfile`/`LlmProviderDefinition`）：5 个窄字段（`supports_developer_role`、`supports_strict_mode`、
+  `supports_mid_convo_system_messages`、`supports_long_cache_retention`、`max_tokens_field`），全部 `Option`。
+  注册时 `apply_provider_defaults` 做 definition→profile 逐字段合并 + 窄探测（OpenAI Chat 本地网关 → legacy
+  `max_tokens`，打 `debug` 日志），显式值永远优先；`resolve_generation` 回填 `profile.compat.max_tokens_field`；
+  compat 不进传输缓存键。确需透传无消费者字段时先用 `metadata`/`custom_body` 逃生，待 codec 有分支再转正。
+- `ModelMetadata` 查询：`wf_llm::{model_metadata, model_metadata_for, ModelMetadataResolver}`（数据来自 `wf-pricing`
+  内嵌 LiteLLM 表），`supports_image()` 供消息迁移查询；`apply_catalog_metadata(profile, &[ModelMetadata])` 只补
+  缺失 `context_window_size`。会话跨模型迁移由调用方显式调 `transform_for_target(messages, target)`
+  （同模型 no-op，可无条件调用；网关热路径不自动执行）。
+
+### 1.4.2 图片生成与请求观测
+
+- `generate_images(ctx, profile_id, prompt, options)`：网关从 effective profile 派生 `ImagesContext`
+  （`base_url` 追加 `images/generations`、透传 `api_key`/`timeout`/`proxy`/`no_proxy`/headers/query），经
+  `OpenAiCompatibleImagesProvider` 直连 OpenAI/OpenRouter/自托管兼容端点；空 prompt → `Validation`，未知
+  profile → `NotFound`。插件图片实现经 `wf_llm::PluginImagesAdapter` 显式消费（见 `custom-provider.md` 第 7 节）。
+- `RequestProbe`（`with_request_probe`）：`{on_request, on_response, on_stream_start}` 三个纯 `fn` 指针，空即热路径
+  单分支零开销；有状态观测走 tracing span + metrics sink。图片路径只打 tracing，不进 probe
+ （probe 承载 chat 请求/响应类型）。
 
 ### 1.5 script.rs（923 行）— 脚本执行与注册表（TS `ScriptRegistryAPI` + `ExecuteScriptCommand`）
 

@@ -77,6 +77,99 @@ pub async fn list_models(ctx: &ApiContext, provider_id: &str) -> ApiResult<Vec<M
         .map_err(ApiError::from)
 }
 
+/// List the models advertised by a provider, credential-filtered.
+///
+/// Same key resolution as [`list_models`], then `predicate` keeps only the
+/// entries the logged-in credential may use (allow-list, prefix, or
+/// subscription flag closed over by the caller). The predicate is a plain
+/// function so no trait object crosses the API boundary.
+pub async fn list_models_filtered(
+    ctx: &ApiContext,
+    provider_id: &str,
+    predicate: impl Fn(&ModelInfo) -> bool,
+) -> ApiResult<Vec<ModelInfo>> {
+    let models = list_models(ctx, provider_id).await?;
+    Ok(wf_llm::filter_models(models, predicate))
+}
+
+/// List the models advertised by a provider, restricted to an allow-list.
+///
+/// Convenience over [`list_models_filtered`] for the credential-filtering
+/// shape where the login owns an explicit set of model ids. An empty
+/// allow-list yields an empty listing.
+pub async fn list_models_for_allowlist(
+    ctx: &ApiContext,
+    provider_id: &str,
+    allowed: &std::collections::HashSet<String>,
+) -> ApiResult<Vec<ModelInfo>> {
+    let models = list_models(ctx, provider_id).await?;
+    Ok(wf_llm::filter_models_by_allowlist(models, allowed))
+}
+
+/// Refresh the model listings of every registered provider at once.
+///
+/// Transactional in the reporting sense: every provider yields an entry,
+/// successes carry the discovered models and failures carry the discovery
+/// error. Callers degrade failures to warnings; one unreachable endpoint
+/// never blocks the rest.
+pub async fn refresh_all(
+    ctx: &ApiContext,
+) -> ApiResult<std::collections::HashMap<String, Result<Vec<ModelInfo>, String>>> {
+    let definitions = ctx.llm_gateway.provider_registry().list();
+    let api_keys: std::collections::HashMap<String, String> = ctx
+        .llm_gateway
+        .profile_registry()
+        .list()
+        .into_iter()
+        .filter_map(|p| {
+            let provider_id = p.provider_id.clone()?;
+            let api_key = p.api_key.clone()?;
+            Some((provider_id, api_key))
+        })
+        .collect();
+    let refreshed = ctx
+        .llm_gateway
+        .model_catalog()
+        .refresh_all(&definitions, &api_keys)
+        .await;
+    Ok(refreshed
+        .into_iter()
+        .map(|(id, result)| (id, result.map_err(|e| e.to_string())))
+        .collect())
+}
+
+/// Refresh every provider listing, then credential-filter the successes.
+///
+/// Same reporting as [`refresh_all`], with `predicate` applied to each
+/// successful listing. Failures pass through untouched so callers can warn
+/// per provider instead of failing the whole refresh.
+pub async fn refresh_filtered(
+    ctx: &ApiContext,
+    predicate: impl Fn(&ModelInfo) -> bool,
+) -> ApiResult<std::collections::HashMap<String, Result<Vec<ModelInfo>, String>>> {
+    let definitions = ctx.llm_gateway.provider_registry().list();
+    let api_keys: std::collections::HashMap<String, String> = ctx
+        .llm_gateway
+        .profile_registry()
+        .list()
+        .into_iter()
+        .filter_map(|p| {
+            let provider_id = p.provider_id.clone()?;
+            let api_key = p.api_key.clone()?;
+            Some((provider_id, api_key))
+        })
+        .collect();
+    let refreshed = ctx
+        .llm_gateway
+        .model_catalog()
+        .refresh_filtered(&definitions, &api_keys, predicate)
+        .await;
+    Ok(refreshed
+        .into_iter()
+        .map(|(id, result)| (id, result.map_err(|e| e.to_string())))
+        .collect())
+}
+
 /// Assembly-time check of a profile against its provider catalog.
 ///
 /// - Discovery failure: warn and proceed, never block registration.

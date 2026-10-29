@@ -165,6 +165,31 @@ impl WfPluginBridge {
         Ok(())
     }
 
+    /// Sync plugin image contributions: image providers have no gateway
+    /// registry (the gateway builds a short-lived OpenAI-compatible
+    /// transport per `generate_images` call), so this validates presence
+    /// and logs ownership. Hosts consume a plugin images implementation
+    /// explicitly through `wf_llm::PluginImagesAdapter` with their own
+    /// `ImagesContext`; network implementations must run on the native
+    /// backend like `llm-auth` (Lua/Wasm sandboxes have no HTTP).
+    fn sync_images(&self, plugin_id: &str, manager: &ContributionManager) {
+        for (name, owner) in manager.all_llm_images() {
+            if owner == plugin_id {
+                tracing::debug!("  llm-images (plugin-owned): {}", name);
+            }
+        }
+    }
+
+    /// Symmetric teardown of [`Self::sync_images`]: image providers hold no
+    /// gateway state, so teardown only logs the removal.
+    fn unsync_images(&self, plugin_id: &str, manager: &ContributionManager) {
+        for (name, owner) in manager.all_llm_images() {
+            if owner == plugin_id {
+                tracing::debug!("  llm-images (plugin-removed): {}", name);
+            }
+        }
+    }
+
     /// Symmetric teardown of [`Self::sync_auth`]: remove the plugin's auth
     /// surfaces and evict the clients that resolved through them.
     fn unsync_auth(&self, plugin_id: &str, manager: &ContributionManager) {
@@ -351,9 +376,12 @@ impl ContributionBridge for WfPluginBridge {
         // LLM formats and providers land in the gateway last so a codec
         // registration failure fails activation loudly instead of running
         // with missing formats. Auth surfaces follow: they key the
-        // credential store and the login entry points.
+        // credential store and the login entry points. Image contributions
+        // hold no gateway state; they are validated and logged so ownership
+        // stays visible in activation traces.
         self.sync_llm(plugin_id, manager)?;
         self.sync_auth(plugin_id, manager)?;
+        self.sync_images(plugin_id, manager);
 
         Ok(())
     }
@@ -365,6 +393,7 @@ impl ContributionBridge for WfPluginBridge {
         // entries (mirrors the tail of `sync_all`).
         self.unsync_llm(plugin_id, manager);
         self.unsync_auth(plugin_id, manager);
+        self.unsync_images(plugin_id, manager);
 
         // Symmetric teardown of `sync_all` through the shared
         // `uninstall_bundle` helper.

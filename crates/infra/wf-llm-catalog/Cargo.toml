@@ -1,0 +1,21 @@
+[package]
+name = "wf-llm-catalog"
+version.workspace = true
+edition.workspace = true
+description = "Built-in LLM provider connection templates and model metadata catalog"
+
+[dependencies]
+wf-types = { path = "../../foundation/wf-types" }
+wf-pricing = { path = "../wf-pricing" }
+# Shared LLM types (leaf).
+llm-types = { package = "llm-suite-types", path = "../llm-suite/crates/llm-suite-types" }
+# Registry used by `register_builtin_providers`.
+llm-config = { package = "llm-suite-config", path = "../llm-suite/crates/llm-suite-config" }
+# Error type returned by registration.
+llm-codec = { package = "llm-suite-codec", path = "../llm-suite/crates/llm-suite-codec" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+# none yet

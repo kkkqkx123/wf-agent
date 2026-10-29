@@ -11,6 +11,8 @@ wf-types = { path = "../../foundation/wf-types" }
 wf-common = { path = "../../foundation/wf-common" }
 wf-metrics = { path = "../wf-metrics" }
 wf-plugin-sdk = { path = "../../foundation/wf-plugin-sdk" }
+# Built-in provider templates and model metadata catalog (independent package).
+wf-llm-catalog = { path = "../wf-llm-catalog" }
 # Shared tool-call protocol: partial-JSON recovery plus XML text-protocol
 # parsing/rendering. wf-llm re-exports these modules so the agent engine
 # layer stays on a single canonical implementation.

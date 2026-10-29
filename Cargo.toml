@@ -13,6 +13,7 @@ members = [
     "crates/infra/wf-syntax",
     "crates/infra/wf-storage",
     "crates/infra/wf-pricing",
+    "crates/infra/wf-llm-catalog",
     "crates/infra/wf-llm",
     "crates/infra/wf-script",
     "crates/infra/wf-sandbox",

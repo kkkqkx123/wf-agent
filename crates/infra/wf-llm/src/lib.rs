@@ -2,7 +2,6 @@
 // assembly child), HTTP client and shared error type.
 pub mod auth;
 pub mod auth_plugin;
-pub mod builtin;
 pub mod codecs_plugin;
 // Generic-to-concrete metrics adapter wired by the facade layer.
 pub mod token_stream_adapter;
@@ -27,11 +26,13 @@ pub use llm_codec::{
     create_codec, AnthropicCodec, GeminiNativeCodec, LlmCodec, OpenaiChatCodec, OpenaiResponseCodec,
 };
 pub use llm_codec::{LlmError, LlmResult};
-pub use builtin::{
+pub use wf_llm_catalog::providers::{
     builtin_provider_definitions, builtin_provider_ids, register_builtin_providers,
     BUILTIN_ANTHROPIC_ID, BUILTIN_GEMINI_ID, BUILTIN_OLLAMA_ID, BUILTIN_OPENAI_ID,
     BUILTIN_OPENROUTER_ID,
 };
+// Model-metadata query helpers from the independent catalog crate.
+pub use wf_llm_catalog::{model_metadata, model_metadata_for, ModelMetadataResolver};
 pub use llm_config::catalog::{apply_catalog_metadata, catalog_entry_for_profile};
 pub use llm_discovery::{
     filter_models, ModelCatalog, DEFAULT_MODELS_JSON_PATH, DEFAULT_MODELS_PATH,

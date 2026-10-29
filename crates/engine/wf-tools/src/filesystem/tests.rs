@@ -77,7 +77,15 @@ fn test_write_and_edit_file() {
             &ctx,
         )
         .unwrap();
-    assert!(edit.as_str().unwrap().contains("replaced 1 occurrence"));
+    assert!(edit["display"]
+        .as_str()
+        .unwrap()
+        .contains("replaced 1 occurrence"));
+    assert!(edit["diff"].as_str().unwrap().contains("-hello world"));
+    assert!(edit["diff"].as_str().unwrap().contains("+hello rust"));
+    assert_eq!(edit["additions"], serde_json::json!(1));
+    assert_eq!(edit["deletions"], serde_json::json!(1));
+    assert_eq!(edit["first_changed_line"], serde_json::json!(1));
     assert_eq!(
         std::fs::read_to_string(root.join("nested/file.txt")).unwrap(),
         "hello rust\n"
@@ -208,6 +216,197 @@ fn test_glob_search() {
         .contains("No matches found"));
 
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn edit_file_preserves_crlf_and_bom() {
+    let root = tempfile::tempdir().unwrap();
+    let handlers = FsToolHandlers::new(FsToolConfig {
+        workspace_dir: Some(root.path().to_path_buf()),
+        enable_ignore: false,
+        ..Default::default()
+    });
+    let ctx = ToolExecutionContext::new("exec-encoding".into());
+
+    let crlf_path = root.path().join("crlf.txt");
+    std::fs::write(&crlf_path, "a\r\nold\r\nb\r\n").unwrap();
+    let edited = handlers
+        .edit_file(
+            &serde_json::json!({
+                "path": crlf_path.to_str().unwrap(),
+                "old_string": "old",
+                "new_string": "new"
+            }),
+            &ctx,
+        )
+        .unwrap();
+    assert_eq!(
+        std::fs::read(&crlf_path).unwrap(),
+        b"a\r\nnew\r\nb\r\n".to_vec()
+    );
+    assert!(edited["diff"].as_str().unwrap().contains("-old"));
+
+    let bom_path = root.path().join("bom.txt");
+    std::fs::write(&bom_path, "\u{FEFF}hello\n").unwrap();
+    handlers
+        .edit_file(
+            &serde_json::json!({
+                "path": bom_path.to_str().unwrap(),
+                "old_string": "hello",
+                "new_string": "hi"
+            }),
+            &ctx,
+        )
+        .unwrap();
+    assert_eq!(
+        std::fs::read(&bom_path).unwrap(),
+        "\u{FEFF}hi\n".as_bytes().to_vec()
+    );
+
+    let diffed = root.path().join("crlf-diff.txt");
+    std::fs::write(&diffed, "line1\r\nline2\r\n").unwrap();
+    let applied = handlers
+        .apply_diff(
+            &serde_json::json!({
+                "path": diffed.to_str().unwrap(),
+                "diff": "<<<<<<< SEARCH\nline1\n=======\nline1x\n>>>>>>> REPLACE"
+            }),
+            &ctx,
+        )
+        .unwrap();
+    assert_eq!(
+        std::fs::read(&diffed).unwrap(),
+        b"line1x\r\nline2\r\n".to_vec()
+    );
+    assert_eq!(applied["additions"], serde_json::json!(1));
+}
+
+#[test]
+fn edit_file_falls_back_to_fuzzy_matching() {
+    let root = tempfile::tempdir().unwrap();
+    let handlers = FsToolHandlers::new(FsToolConfig {
+        workspace_dir: Some(root.path().to_path_buf()),
+        enable_ignore: false,
+        ..Default::default()
+    });
+    let ctx = ToolExecutionContext::new("exec-fuzzy".into());
+
+    let target = root.path().join("fuzzy.txt");
+    std::fs::write(&target, "first  \nsecond\n").unwrap();
+    let edited = handlers
+        .edit_file(
+            &serde_json::json!({
+                "path": target.to_str().unwrap(),
+                "old_string": "first   ",
+                "new_string": "FIRST"
+            }),
+            &ctx,
+        )
+        .unwrap();
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "FIRST\nsecond\n");
+    assert_eq!(edited["additions"], serde_json::json!(1));
+    assert_eq!(edited["deletions"], serde_json::json!(1));
+
+    std::fs::write(&target, "dup\ndup\n").unwrap();
+    let ambiguous = handlers.edit_file(
+        &serde_json::json!({
+            "path": target.to_str().unwrap(),
+            "old_string": "dup",
+            "new_string": "DUP"
+        }),
+        &ctx,
+    );
+    assert!(ambiguous.is_err());
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "dup\ndup\n");
+
+    std::fs::write(&target, "\u{201C}x\u{201D}\n\u{201C}x\u{201D}\n").unwrap();
+    let fuzzy_ambiguous = handlers.edit_file(
+        &serde_json::json!({
+            "path": target.to_str().unwrap(),
+            "old_string": "\"x\"",
+            "new_string": "y"
+        }),
+        &ctx,
+    );
+    assert!(fuzzy_ambiguous.is_err());
+    assert_eq!(
+        std::fs::read_to_string(&target).unwrap(),
+        "\u{201C}x\u{201D}\n\u{201C}x\u{201D}\n"
+    );
+}
+
+#[test]
+fn edit_file_applies_batches_atomically() {
+    let root = tempfile::tempdir().unwrap();
+    let handlers = FsToolHandlers::new(FsToolConfig {
+        workspace_dir: Some(root.path().to_path_buf()),
+        enable_ignore: false,
+        ..Default::default()
+    });
+    let ctx = ToolExecutionContext::new("exec-batch".into());
+
+    let target = root.path().join("batch.txt");
+    std::fs::write(&target, "aaa\nbbb\nccc\n").unwrap();
+    let edited = handlers
+        .edit_file(
+            &serde_json::json!({
+                "path": target.to_str().unwrap(),
+                "edits": [
+                    { "old_string": "aaa", "new_string": "AAA" },
+                    { "old_string": "ccc", "new_string": "CCC" },
+                ]
+            }),
+            &ctx,
+        )
+        .unwrap();
+    assert_eq!(edited["replaced"], serde_json::json!(2));
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "AAA\nbbb\nCCC\n");
+    assert_eq!(edited["additions"], serde_json::json!(2));
+    assert_eq!(edited["deletions"], serde_json::json!(2));
+
+    std::fs::write(&target, "aaa\nbbb\n").unwrap();
+    let overlapping = handlers.edit_file(
+        &serde_json::json!({
+            "path": target.to_str().unwrap(),
+            "edits": [
+                { "old_string": "aaa\nbbb", "new_string": "X" },
+                { "old_string": "bbb", "new_string": "Y" },
+            ]
+        }),
+        &ctx,
+    );
+    assert!(overlapping.is_err());
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "aaa\nbbb\n");
+
+    let missing = handlers.edit_file(
+        &serde_json::json!({
+            "path": target.to_str().unwrap(),
+            "edits": [{ "old_string": "zzz", "new_string": "Z" }]
+        }),
+        &ctx,
+    );
+    assert!(missing.is_err());
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "aaa\nbbb\n");
+
+    let mixed = handlers.edit_file(
+        &serde_json::json!({
+            "path": target.to_str().unwrap(),
+            "old_string": "aaa",
+            "new_string": "AAA",
+            "edits": [{ "old_string": "bbb", "new_string": "BBB" }]
+        }),
+        &ctx,
+    );
+    assert!(mixed.is_err());
+
+    let empty = handlers.edit_file(
+        &serde_json::json!({
+            "path": target.to_str().unwrap(),
+            "edits": []
+        }),
+        &ctx,
+    );
+    assert!(empty.is_err());
 }
 
 #[test]

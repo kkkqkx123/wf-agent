@@ -1,8 +1,10 @@
 # edit_file (filesystem)
-Perform an exact string replacement in a file. Replaces the first occurrence of old_string with new_string.
+Edit a single file using exact text replacement. Every old_string must match a unique, non-overlapping region of the original file. Accepts one old_string/new_string pair or an edits array of multiple replacements applied atomically in one call.
 
 tips:
 - Use unique context around the edit target
+- When changing multiple separate locations in one file, use one edit call with an edits array instead of multiple edit calls
+- If two changes touch the same block or nearby lines, merge them into one edit instead
 
 examples:
 - edit_file("src/main.rs", "old_function()", "new_function()")

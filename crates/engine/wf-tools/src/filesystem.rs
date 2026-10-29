@@ -6,6 +6,7 @@
 //! write-side operations and `patch_ops` the patch/diff operations.
 
 mod config;
+mod edit_diff;
 mod handlers_read;
 mod handlers_write;
 mod ignore;

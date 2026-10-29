@@ -14,7 +14,7 @@ pub use checkpoint_base::cache::CheckpointCache;
 pub use checkpoint_base::clock::{CheckpointClock, ManualClock};
 pub use checkpoint_base::common::content::ContentFilter;
 pub use checkpoint_base::common::{
-    diff_stats_for_text, inline_word_diff, unified_diff_text, DiffStats,
+    diff_stats_for_text, inline_word_diff, is_binary, unified_diff_text, DiffStats,
 };
 pub use checkpoint_base::delta::calculator::{AgentDiffCalculator, WorkflowDiffCalculator};
 pub use checkpoint_base::delta::restorer::GenericDeltaRestorer;

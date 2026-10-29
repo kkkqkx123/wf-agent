@@ -164,16 +164,37 @@ impl ApprovalView {
                     .and_then(|v| v.as_str())
                     .unwrap_or("<unknown>");
                 lines.push(format!("file: {path}"));
-                lines.push("--- old".to_string());
-                if let Some(old) = params.get("old_string").and_then(|v| v.as_str()) {
-                    for line in old.lines().take(20) {
-                        lines.push(truncate_graphemes(&format!("-{line}"), width));
+                if let Some(edits) = params.get("edits").and_then(|v| v.as_array()) {
+                    lines.push(format!("{} replacement(s)", edits.len()));
+                    for (index, edit) in edits.iter().enumerate().take(4) {
+                        lines.push(format!("--- old[{}]", index));
+                        if let Some(old) = edit.get("old_string").and_then(|v| v.as_str()) {
+                            for line in old.lines().take(8) {
+                                lines.push(truncate_graphemes(&format!("-{line}"), width));
+                            }
+                        }
+                        lines.push(format!("+++ new[{}]", index));
+                        if let Some(new) = edit.get("new_string").and_then(|v| v.as_str()) {
+                            for line in new.lines().take(8) {
+                                lines.push(truncate_graphemes(&format!("+{line}"), width));
+                            }
+                        }
                     }
-                }
-                lines.push("+++ new".to_string());
-                if let Some(new) = params.get("new_string").and_then(|v| v.as_str()) {
-                    for line in new.lines().take(20) {
-                        lines.push(truncate_graphemes(&format!("+{line}"), width));
+                    if edits.len() > 4 {
+                        lines.push(format!("... and {} more", edits.len() - 4));
+                    }
+                } else {
+                    lines.push("--- old".to_string());
+                    if let Some(old) = params.get("old_string").and_then(|v| v.as_str()) {
+                        for line in old.lines().take(20) {
+                            lines.push(truncate_graphemes(&format!("-{line}"), width));
+                        }
+                    }
+                    lines.push("+++ new".to_string());
+                    if let Some(new) = params.get("new_string").and_then(|v| v.as_str()) {
+                        for line in new.lines().take(20) {
+                            lines.push(truncate_graphemes(&format!("+{line}"), width));
+                        }
                     }
                 }
             }

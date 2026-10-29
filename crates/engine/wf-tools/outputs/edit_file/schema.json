@@ -1,5 +1,5 @@
 {
-  "description": "Perform an exact string replacement in a file. Replaces the first occurrence of old_string with new_string.",
+  "description": "Edit a single file using exact text replacement. Every old_string must match a unique, non-overlapping region of the original file. Accepts one old_string/new_string pair or an edits array of multiple replacements applied atomically in one call.",
   "enabled": true,
   "id": "edit_file",
   "metadata": {
@@ -15,12 +15,16 @@
   "parameters": {
     "additionalProperties": false,
     "properties": {
+      "edits": {
+        "description": "Multiple replacements applied atomically. Each entry has old_string and new_string; every old_string must match a unique, non-overlapping region. Use this or old_string/new_string, not both",
+        "type": "array"
+      },
       "new_string": {
-        "description": "The replacement text",
+        "description": "The replacement text for old_string",
         "type": "string"
       },
       "old_string": {
-        "description": "The exact text to search for (must be unique)",
+        "description": "The exact text to search for (must be unique). Use this or edits, not both",
         "type": "string"
       },
       "path": {
@@ -29,9 +33,7 @@
       }
     },
     "required": [
-      "path",
-      "old_string",
-      "new_string"
+      "path"
     ],
     "type": "object"
   },

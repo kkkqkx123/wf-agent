@@ -8,7 +8,17 @@
   },
   "result": {
     "execution_time": 0,
-    "result": "Edited <WORKSPACE>/edit.txt: replaced 1 occurrence(s)",
+    "result": {
+      "additions": 1,
+      "binary": false,
+      "deletions": 1,
+      "diff": "@@ -1 +1 @@\n-alpha beta gamma\n+alpha BETA gamma\n",
+      "display": "Edited <WORKSPACE>/edit.txt: replaced 1 occurrence(s)",
+      "first_changed_line": 1,
+      "path": "<WORKSPACE>/edit.txt",
+      "replaced": 1,
+      "success": true
+    },
     "retry_count": 0,
     "success": true
   },

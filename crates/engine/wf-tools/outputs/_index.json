@@ -1,5 +1,5 @@
 {
-  "cases": 28,
+  "cases": 29,
   "tools": {
     "apply_diff": {
       "cases": [
@@ -50,6 +50,11 @@
       "cases": [
         {
           "case": "basic",
+          "execution_error": null,
+          "passed": true
+        },
+        {
+          "case": "batch",
           "execution_error": null,
           "passed": true
         }

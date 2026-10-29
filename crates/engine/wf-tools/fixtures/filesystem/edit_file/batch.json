@@ -1,0 +1,14 @@
+{
+  "tool": "edit_file",
+  "description": "Apply two disjoint replacements atomically in one call",
+  "tier": "offline",
+  "workspace": { "files": { "batch.txt": "aaa\nbbb\nccc\n" } },
+  "parameters": {
+    "path": "batch.txt",
+    "edits": [
+      { "old_string": "aaa", "new_string": "AAA" },
+      { "old_string": "ccc", "new_string": "CCC" }
+    ]
+  },
+  "expect": { "success": true, "result_contains": "replaced 2 occurrence(s)" }
+}

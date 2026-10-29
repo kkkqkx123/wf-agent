@@ -7,6 +7,10 @@ use serde_json::Value;
 use crate::error::{tag_detail, ToolError, ToolResult, NOT_FOUND_TAG};
 use crate::executor::trait_def::ToolExecutionContext;
 
+use super::edit_diff::{
+    compute_edit_diff, detect_line_ending, normalize_to_lf, restore_line_endings, strip_bom,
+    UTF8_BOM,
+};
 use super::handlers_write::notify_precise;
 use super::{require_string, FsToolHandlers};
 
@@ -236,7 +240,7 @@ impl FsToolHandlers {
         if path.is_dir() {
             return failure_value(hunk, "update", "Path is not a file");
         }
-        let original = match std::fs::read_to_string(path) {
+        let raw_original = match std::fs::read_to_string(path) {
             Ok(c) => c,
             Err(e) => {
                 return failure_value(
@@ -246,11 +250,18 @@ impl FsToolHandlers {
                 );
             }
         };
+        let had_bom = raw_original.starts_with(UTF8_BOM);
+        let line_ending = detect_line_ending(&raw_original);
+        let original = normalize_to_lf(strip_bom(&raw_original));
         let new_content =
             match crate::patch::apply_chunks_to_content(&original, &hunk.path, &hunk.chunks) {
                 Ok(c) => c,
                 Err(e) => return failure_value(hunk, "update", &e.to_string()),
             };
+        let mut new_content = restore_line_endings(&new_content, line_ending);
+        if had_bom {
+            new_content.insert(0, UTF8_BOM);
+        }
 
         if let Some(move_path) = &hunk.move_path {
             let dest = scoped_dest.map(|p| p.to_path_buf()).unwrap_or_else(|| {
@@ -319,7 +330,7 @@ impl FsToolHandlers {
             )));
         }
 
-        let content = std::fs::read_to_string(&path).map_err(|e| {
+        let raw_content = std::fs::read_to_string(&path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 ToolError::ExecutionError(tag_detail(
                     NOT_FOUND_TAG,
@@ -337,15 +348,10 @@ impl FsToolHandlers {
         let blocks =
             crate::patch::parse_search_replace_blocks(diff).map_err(ToolError::ValidationFailed)?;
 
-        let line_ending = if content.contains("\r\n") {
-            "\r\n"
-        } else {
-            "\n"
-        };
-        let mut result_lines: Vec<String> = content
-            .split('\n')
-            .map(|l| l.trim_end_matches('\r').to_string())
-            .collect();
+        let had_bom = raw_content.starts_with(UTF8_BOM);
+        let content = normalize_to_lf(strip_bom(&raw_content));
+        let line_ending = detect_line_ending(&raw_content);
+        let mut result_lines: Vec<String> = content.split('\n').map(|l| l.to_string()).collect();
 
         let mut sorted = blocks.clone();
         sorted.sort_by_key(|b| b.start_line.unwrap_or(0));
@@ -371,8 +377,12 @@ impl FsToolHandlers {
             )));
         }
 
-        let final_content = result_lines.join(line_ending);
-        std::fs::write(&path, final_content).map_err(|e| {
+        let joined = result_lines.join("\n");
+        let mut final_content = restore_line_endings(&joined, line_ending);
+        if had_bom {
+            final_content.insert(0, UTF8_BOM);
+        }
+        std::fs::write(&path, &final_content).map_err(|e| {
             ToolError::ExecutionError(format!("Failed to write '{}': {}", path.display(), e))
         })?;
 
@@ -393,12 +403,18 @@ impl FsToolHandlers {
             partial_hint,
             self.unrestorable_note(ctx, &path).unwrap_or("")
         );
+        let edit_diff = compute_edit_diff(&content, &joined);
 
         Ok(serde_json::json!({
             "success": true,
             "applied": applied,
             "failed": failures.len(),
             "display": display,
+            "diff": edit_diff.diff,
+            "additions": edit_diff.additions,
+            "deletions": edit_diff.deletions,
+            "first_changed_line": edit_diff.first_changed_line,
+            "binary": edit_diff.binary,
         }))
     }
 }

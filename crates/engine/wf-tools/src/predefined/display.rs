@@ -77,10 +77,27 @@ fn shell_display(result: &str) -> DisplayPayload {
     }
 }
 
+/// Prefer the structured `diff` field of edit tool results when present.
+/// Plain-text results predate structured diffs and are used verbatim.
+fn edit_diff_text(result: &str) -> std::borrow::Cow<'_, str> {
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(result) {
+        if let Some(diff) = value.get("diff").and_then(|diff| diff.as_str()) {
+            if !diff.is_empty() {
+                return std::borrow::Cow::Owned(diff.to_string());
+            }
+        }
+        if let Some(display) = value.get("display").and_then(|display| display.as_str()) {
+            return std::borrow::Cow::Owned(display.to_string());
+        }
+    }
+    std::borrow::Cow::Borrowed(result)
+}
+
 fn diff_display(result: &str) -> DisplayPayload {
-    match super::fold::fold_merged_diff(result) {
+    let diff_text = edit_diff_text(result);
+    match super::fold::fold_merged_diff(&diff_text) {
         Some(folded) => {
-            let total = result.lines().count();
+            let total = diff_text.lines().count();
             DisplayPayload {
                 kind: DisplayKind::Diff,
                 hidden_lines: total.saturating_sub(folded.lines().count()),
@@ -90,7 +107,7 @@ fn diff_display(result: &str) -> DisplayPayload {
         }
         None => DisplayPayload {
             kind: DisplayKind::Diff,
-            preview: result.to_string(),
+            preview: diff_text.into_owned(),
             truncated: false,
             hidden_lines: 0,
         },
@@ -242,6 +259,23 @@ mod tests {
         assert_eq!(payload.kind, DisplayKind::ShellTail);
         assert!(!payload.truncated);
         assert_eq!(payload.preview, "ok");
+    }
+
+    #[test]
+    fn structured_edit_results_prefer_the_diff_field() {
+        let result = serde_json::json!({
+            "success": true,
+            "display": "Edited f: replaced 1 occurrence(s)",
+            "diff": "@@ -1 +1 @@\n-old\n+new\n",
+            "additions": 1,
+            "deletions": 1,
+        })
+        .to_string();
+        let payload = display_for(Some("edit_file"), &result);
+        assert_eq!(payload.kind, DisplayKind::Diff);
+        assert!(!payload.truncated);
+        assert!(payload.preview.contains("-old"));
+        assert!(!payload.preview.contains("replaced 1 occurrence"));
     }
 
     #[test]

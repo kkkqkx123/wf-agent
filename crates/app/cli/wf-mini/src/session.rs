@@ -41,6 +41,10 @@ const PROMPT: &str = "> ";
 /// Window in which a second prompt-time Ctrl-C quits the session.
 const PROMPT_QUIT_WINDOW: Duration = Duration::from_secs(5);
 
+/// Heartbeat interval for the running window title: one frame flip per
+/// tick proves the process is alive, a frozen frame signals a stall.
+const TITLE_HEARTBEAT: Duration = Duration::from_secs(1);
+
 /// Tracks prompt-time Ctrl-C presses: one press abandons the current line
 /// and stays, a second press inside the window quits. Any consumed line
 /// resets the armer, so only back-to-back presses quit.
@@ -106,6 +110,9 @@ pub struct NativeSession {
     /// Recap ticket: a late side-call answer whose ticket moved on is
     /// dropped instead of sticking to a newer turn or session.
     recap_ticket: u64,
+    /// Window-title heartbeat frame index, advanced once per tick while a
+    /// turn runs. A frozen frame in the title signals a stalled process.
+    title_frame: usize,
 }
 
 /// What a slash command asks the loop to do.
@@ -181,6 +188,7 @@ impl NativeSession {
             cancel_tx: tokio::sync::watch::channel(false).0,
             cancel_rx: tokio::sync::watch::channel(false).1,
             recap_ticket: 0,
+            title_frame: 0,
         })
     }
 
@@ -733,12 +741,26 @@ impl NativeSession {
         self.recap_ticket
     }
 
+    /// Write the terminal window title. While a turn runs the title is
+    /// prefixed with an alternating heartbeat glyph; when idle the plain
+    /// title is written.
+    fn write_terminal_title(&self, running_frame: Option<usize>) {
+        let base = format!("WF Agent - {}", self.anchor);
+        let title = tui_terminal::terminal::state::running_title(
+            &base,
+            running_frame.unwrap_or(0),
+            running_frame.is_some(),
+        );
+        eprint!(
+            "\x1b]0;{}\x07",
+            tui_terminal::terminal::state::sanitize_title(&title)
+        );
+        let _ = std::io::stderr().flush();
+    }
+
     /// Set the terminal window title for this session.
     fn set_terminal_title(&self) {
-        use std::io::Write;
-        let title = format!("WF Agent - {}", self.anchor);
-        eprint!("\x1b]0;{title}\x07");
-        let _ = std::io::stderr().flush();
+        self.write_terminal_title(None);
     }
 
     fn terminal_progress_enabled() -> bool {
@@ -982,6 +1004,8 @@ impl NativeSession {
             .await
         {
             Ok(stream) => {
+                self.title_frame = 0;
+                self.write_terminal_title(Some(0));
                 let stop = Arc::new(self.cancel_tx.subscribe());
                 let approver = MiniApprover::new(
                     &self.client,
@@ -1018,6 +1042,7 @@ impl NativeSession {
         // The cancel receiver needs `&mut` for poll; keep a local clone so
         // the pump can hold `&self` like every other session method.
         let mut cancel = self.cancel_rx.clone();
+        let mut heartbeat = tokio::time::Instant::now() + TITLE_HEARTBEAT;
         let outcome = loop {
             tokio::select! {
                 biased;
@@ -1029,6 +1054,14 @@ impl NativeSession {
                         continue;
                     }
                     break TurnOutcome::interrupted(renderer.assistant_text());
+                }
+                _ = tokio::time::sleep_until(heartbeat) => {
+                    // Heartbeat tick: flip the title frame so a frozen title
+                    // signals a stalled process even with no stream traffic.
+                    self.title_frame = self.title_frame.wrapping_add(1);
+                    self.write_terminal_title(Some(self.title_frame));
+                    heartbeat = tokio::time::Instant::now() + TITLE_HEARTBEAT;
+                    continue;
                 }
                 event = stream.next() => match event {
                     Some(Ok(event)) => {
@@ -1058,6 +1091,8 @@ impl NativeSession {
             }
         };
         renderer.finish();
+        // Back to the plain session title regardless of how the turn ended.
+        self.write_terminal_title(None);
         self.finish_turn(execution_id, started, outcome.interrupted);
         outcome
     }

@@ -104,6 +104,8 @@ pub struct TuiApp {
     search_palette: crate::search_palette::SearchPalette,
     /// Transient session list browser backing the session list overlay.
     session_list: crate::session_list::SessionList,
+    /// Transient session tree browser backing the session tree overlay.
+    session_tree: crate::session_tree::SessionTree,
     data_tx: mpsc::UnboundedSender<DataResult>,
     data_rx: mpsc::UnboundedReceiver<DataResult>,
     feedback_tx: mpsc::UnboundedSender<crate::overlay::Feedback>,
@@ -302,6 +304,7 @@ impl TuiApp {
             history: crate::history_overlay::HistoryOverlay::default(),
             search_palette: crate::search_palette::SearchPalette::new(),
             session_list: crate::session_list::SessionList::new(),
+            session_tree: crate::session_tree::SessionTree::new(),
             data_tx,
             data_rx,
             feedback_tx,
@@ -1002,13 +1005,51 @@ impl TuiApp {
                         active: index == active,
                     })
                     .collect();
-                crate::screen_draw::draw_session_list(
-                    frame,
-                    area,
-                    &rows,
-                    self.session_list.selected(),
-                    &self.theme,
-                );
+                let recent: Vec<String> = self
+                    .session_list
+                    .recent_visible()
+                    .iter()
+                    .map(|row| row.display())
+                    .collect();
+                let view = crate::screen_draw::SessionListView {
+                    tabs: &rows,
+                    tab_selected: self.session_list.selected(),
+                    show_recent: self.session_list.pane()
+                        == crate::session_list::SessionListPane::Recent,
+                    recent_rows: &recent,
+                    recent_selected: self.session_list.recent_selected(),
+                    recent_filter: self.session_list.recent_filter(),
+                };
+                crate::screen_draw::draw_session_list(frame, area, &view, &self.theme);
+            }
+            OverlayMode::SessionTree => {
+                if self.session_tree.is_loading() {
+                    crate::screen_draw::draw_session_tree_placeholder(
+                        frame,
+                        area,
+                        self.session_tree.session_id(),
+                        "Loading session tree…",
+                        &self.theme,
+                    );
+                } else if let Some(error) = self.session_tree.error() {
+                    crate::screen_draw::draw_session_tree_placeholder(
+                        frame,
+                        area,
+                        self.session_tree.session_id(),
+                        &format!("failed to load: {error}"),
+                        &self.theme,
+                    );
+                } else if let Some(session_id) = self.session_tree.session_id() {
+                    let rows = self.session_tree.rows();
+                    let status = self.session_tree.status_line();
+                    let view = crate::screen_draw::SessionTreeView {
+                        session_id,
+                        rows: &rows,
+                        selected: self.session_tree.selected(),
+                        status: &status,
+                    };
+                    crate::screen_draw::draw_session_tree(frame, area, &view, &self.theme);
+                }
             }
             OverlayMode::None => {}
         }

@@ -106,12 +106,22 @@ pub(super) fn load_local_settings() -> LocalSettings {
     let notification_enabled = manager
         .as_ref()
         .and_then(|m| m.config().notifications.enabled);
+    let double_escape = manager
+        .as_ref()
+        .map(|m| match m.config().behavior.double_escape_action() {
+            crate::app_config::DoubleEscapeActionName::Tree => "tree",
+            crate::app_config::DoubleEscapeActionName::Fork => "fork",
+            crate::app_config::DoubleEscapeActionName::Off => "off",
+        })
+        .unwrap_or("tree")
+        .to_string();
     LocalSettings {
         config_path: path.unwrap_or_else(|| "unavailable".to_string()),
         mouse_capture,
         session_scrollbar,
         sidebar,
         copy_target: format!("{copy_target:?}").to_lowercase(),
+        double_escape,
         tool_output_enabled: tool_config.enabled,
         tool_output_level: tool_config.level.label().to_string(),
         preview_max_lines: tool_config.preview_max_lines,

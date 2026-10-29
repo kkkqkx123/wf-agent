@@ -212,6 +212,7 @@ fn synthetic_settings() -> ScreenData {
             session_scrollbar: false,
             sidebar: false,
             copy_target: "message".into(),
+            double_escape: "tree".into(),
             tool_output_enabled: true,
             tool_output_level: "medium".into(),
             preview_max_lines: 10,

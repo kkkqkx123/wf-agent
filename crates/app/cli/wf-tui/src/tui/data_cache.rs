@@ -71,6 +71,16 @@ pub(super) enum DataResult {
         title: String,
         result: crate::error::CliResult<Vec<String>>,
     },
+    /// Assembled session tree nodes for the tree overlay, tagged with the
+    /// session they belong to.
+    SessionTree {
+        session_id: String,
+        result: crate::error::CliResult<crate::session_tree::AssembledTree>,
+    },
+    /// Recent sessions for the session list recent pane.
+    RecentSessions {
+        result: crate::error::CliResult<Vec<crate::session_list::RecentSession>>,
+    },
     /// Fresh sidebar section data (files, git, mcp) for the session panel.
     Sidebar(crate::fetch::SidebarFetch),
 }
@@ -344,6 +354,32 @@ impl TuiApp {
                     match result {
                         Ok(page) => self.history.land(page, earlier),
                         Err(err) => self.history.fail(format!("{err}")),
+                    }
+                    changed = true;
+                }
+                DataResult::SessionTree { session_id, result } => {
+                    // Nodes for a session the overlay no longer shows belong
+                    // to a window that was closed or reopened meanwhile.
+                    if self.session_tree.session_id() != Some(session_id.as_str()) {
+                        continue;
+                    }
+                    match result {
+                        Ok(assembled) => self.session_tree.land(
+                            assembled.nodes,
+                            assembled.truncated,
+                            assembled.total_messages,
+                        ),
+                        Err(err) => self.session_tree.fail(format!("{err}")),
+                    }
+                    changed = true;
+                }
+                DataResult::RecentSessions { result } => {
+                    match result {
+                        Ok(rows) => self.session_list.set_recent(rows),
+                        Err(err) => self.app.notice.set(format!("recent sessions: {err}")),
+                    }
+                    if self.overlay == crate::overlay::OverlayMode::SessionList {
+                        self.pending_scope.request(crate::redraw::RedrawScope::Full);
                     }
                     changed = true;
                 }

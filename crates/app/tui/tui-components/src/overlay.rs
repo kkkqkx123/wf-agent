@@ -36,4 +36,6 @@ pub enum OverlayMode {
     SearchPalette,
     /// Session list browser for open chat tabs
     SessionList,
+    /// Session tree browser for the active session (double-Esc)
+    SessionTree,
 }

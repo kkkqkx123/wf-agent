@@ -696,6 +696,26 @@ impl TuiApp {
         }
     }
 
+    /// Cycle the double-Esc action: tree -> fork -> off -> tree. Applies
+    /// instantly because sessions read the config on every Esc press.
+    pub(super) fn cycle_double_escape(&mut self) {
+        use crate::app_config::DoubleEscapeActionName;
+        self.update_local_config(|config| {
+            let next = match config.behavior.double_escape_action() {
+                DoubleEscapeActionName::Tree => DoubleEscapeActionName::Fork,
+                DoubleEscapeActionName::Fork => DoubleEscapeActionName::Off,
+                DoubleEscapeActionName::Off => DoubleEscapeActionName::Tree,
+            };
+            config.behavior.double_escape_action = Some(next);
+            let label = match next {
+                DoubleEscapeActionName::Tree => "tree",
+                DoubleEscapeActionName::Fork => "fork",
+                DoubleEscapeActionName::Off => "off",
+            };
+            format!("double-esc {label} (empty-composer double-Esc)")
+        });
+    }
+
     pub(super) fn cycle_copy_target(&mut self) {
         use crate::app_config::CopyTargetName;
         self.update_local_config(|config| {

@@ -75,6 +75,11 @@ pub struct BehaviorConfig {
     /// turns. Absent means on; manual `/recap` always runs regardless.
     #[serde(default)]
     pub recap: Option<bool>,
+    /// Double-Esc with an empty composer: open the session tree (`tree`,
+    /// the default), branch the session into a new tab (`fork`), or stay
+    /// inert (`off`). Absent means `tree`.
+    #[serde(default)]
+    pub double_escape_action: Option<DoubleEscapeActionName>,
 }
 
 impl BehaviorConfig {
@@ -83,6 +88,21 @@ impl BehaviorConfig {
     pub fn recap_enabled(&self) -> bool {
         self.recap.unwrap_or(true)
     }
+
+    /// Double-Esc action, defaulting to opening the session tree.
+    pub fn double_escape_action(&self) -> DoubleEscapeActionName {
+        self.double_escape_action
+            .unwrap_or(DoubleEscapeActionName::Tree)
+    }
+}
+
+/// Double-Esc action name for the config file. Lowercase in TOML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DoubleEscapeActionName {
+    Tree,
+    Fork,
+    Off,
 }
 
 /// Default copy target name for the config file. Lowercase in TOML.
@@ -602,6 +622,26 @@ debug_socket = false
         assert!(!parsed.behavior.mouse_capture);
         assert!(!parsed.behavior.session_scrollbar);
         assert!(parsed.behavior.recap_enabled());
+        assert_eq!(
+            parsed.behavior.double_escape_action(),
+            DoubleEscapeActionName::Tree
+        );
+    }
+
+    #[test]
+    fn double_escape_action_roundtrip_via_toml() {
+        let parsed: AppConfig =
+            toml::from_str("[behavior]\ndouble_escape_action = \"fork\"\n").unwrap();
+        assert_eq!(
+            parsed.behavior.double_escape_action(),
+            DoubleEscapeActionName::Fork
+        );
+        let off: AppConfig =
+            toml::from_str("[behavior]\ndouble_escape_action = \"off\"\n").unwrap();
+        assert_eq!(
+            off.behavior.double_escape_action(),
+            DoubleEscapeActionName::Off
+        );
     }
 
     #[test]

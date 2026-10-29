@@ -255,6 +255,22 @@ pub(crate) fn load_session_scrollbar_opt_in() -> bool {
     }
 }
 
+/// Best-effort double-Esc action from the user config file. A missing or
+/// unreadable config (or an unknown value, which fails the whole file
+/// parse and falls back here) means opening the session tree.
+/// Takes effect on the next Esc press because the session reads it live.
+pub(crate) fn load_double_escape_action() -> crate::app_config::DoubleEscapeActionName {
+    use crate::app_config::DoubleEscapeActionName;
+    let path = match crate::app_config::config_file_path() {
+        Some(path) => path,
+        None => return DoubleEscapeActionName::Tree,
+    };
+    match crate::app_config::ConfigManager::load(&path) {
+        Ok(manager) => manager.config().behavior.double_escape_action(),
+        Err(_) => DoubleEscapeActionName::Tree,
+    }
+}
+
 /// Best-effort session sidebar opt-in from the user config file. A missing
 /// or unreadable config means off. Takes effect instantly because the width
 /// change grades a full frame.

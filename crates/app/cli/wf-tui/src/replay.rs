@@ -214,6 +214,19 @@ pub async fn latest_session_id(client: &WfClient) -> CliResult<Option<String>> {
         .map(str::to_string))
 }
 
+/// Conversation records backing the session tree browser: agent-loop
+/// messages first, execution messages as fallback, oldest first. Unlike
+/// the replay loaders this skips the summary validation so the tree can
+/// also open over sessions whose summary is temporarily unavailable.
+pub(crate) async fn conversation_records(client: &WfClient, session_id: &str) -> Vec<Message> {
+    let mut records = loop_messages(client, session_id).await;
+    if records.is_empty() {
+        records = execution_messages(client, session_id).await;
+    }
+    records.sort_by_key(|r| r.timestamp);
+    records
+}
+
 async fn loop_summary(client: &WfClient, session_id: &str) -> CliResult<Option<serde_json::Value>> {
     match client
         .get_json::<serde_json::Value>(&format!("/api/v1/agent-loops/{session_id}/summary"))
@@ -254,7 +267,10 @@ fn conversation_items(data: Result<serde_json::Value, wf_client::ClientError>) -
     items
 }
 
-async fn iteration_details(client: &WfClient, session_id: &str) -> Vec<serde_json::Value> {
+pub(crate) async fn iteration_details(
+    client: &WfClient,
+    session_id: &str,
+) -> Vec<serde_json::Value> {
     let data: Result<serde_json::Value, _> = client
         .get_json(&format!(
             "/api/v1/agent-loops/{session_id}/iteration-history"

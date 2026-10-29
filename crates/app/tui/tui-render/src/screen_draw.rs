@@ -1006,6 +1006,10 @@ pub fn draw_settings(
             ));
             out.push(format!("  [c] copy_target: {}", d.local.copy_target));
             out.push(format!(
+                "  [t] double-esc: {} (instant, empty-composer double-Esc)",
+                d.local.double_escape
+            ));
+            out.push(format!(
                 "  [e] {} · [l] level {}",
                 tui_components::property_list::format_toggle(
                     "tool output",
@@ -1043,7 +1047,7 @@ pub fn draw_settings(
     let end = (scroll + capacity).min(lines.len());
     let text = lines[scroll..end].join("\n");
     let block = titled_block(
-        "Settings (j/k scroll, o/c/e/l/s local keys, +/- preview, m model, Esc back)",
+        "Settings (j/k scroll, o/c/e/l/s/t local keys, +/- preview, m model, Esc back)",
         ColorRole::Default,
         theme,
     );
@@ -1079,26 +1083,68 @@ pub struct SessionListRow<'a> {
     pub active: bool,
 }
 
+/// Snapshot of the session list browser: live tabs plus the read-only
+/// recent-sessions pane. Exactly one pane is visible; `show_recent`
+/// selects it.
+pub struct SessionListView<'a> {
+    pub tabs: &'a [SessionListRow<'a>],
+    pub tab_selected: usize,
+    pub show_recent: bool,
+    pub recent_rows: &'a [String],
+    pub recent_selected: usize,
+    pub recent_filter: &'a str,
+}
+
 /// Session list browser overlay: centered floating list of open tabs with
-/// pin/streaming markers. Keys: j/k move, Enter switch, d close, p pin,
-//  x prune closed, Esc close.
-pub fn draw_session_list(
-    frame: &mut Frame,
-    area: Rect,
-    rows: &[SessionListRow<'_>],
-    selected: usize,
-    theme: &Theme,
-) {
+/// pin/streaming markers, plus a recent-sessions pane. Tabs keys: j/k
+/// move, Enter switch, d close, p pin, x prune, Tab recent. Recent keys:
+/// j/k move, Enter replay in a new tab, typing filters, Tab tabs.
+/// Esc closes (clearing the recent filter first).
+pub fn draw_session_list(frame: &mut Frame, area: Rect, view: &SessionListView, theme: &Theme) {
     let popup = tui_components::modal::centered_rect(70, 60, area);
     frame.render_widget(Clear, popup);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(3)])
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(3),
+            Constraint::Length(1),
+        ])
         .split(popup);
-    let hint = Paragraph::new("Enter switch · d close · p pin · x prune · Esc close")
-        .block(titled_block("Sessions", ColorRole::Accent, theme));
+    let hint = if view.show_recent {
+        Paragraph::new("↑/↓ move · Enter replay · Tab tabs · type to filter · Esc close")
+    } else {
+        Paragraph::new("Enter switch · d close · p pin · x prune · Tab recent · Esc close")
+    }
+    .block(titled_block("Sessions", ColorRole::Accent, theme));
     frame.render_widget(hint, chunks[0]);
-    let items: Vec<ListItem> = rows
+    if view.show_recent {
+        let items: Vec<ListItem> = view
+            .recent_rows
+            .iter()
+            .enumerate()
+            .map(|(idx, text)| {
+                ListItem::new(text.as_str())
+                    .style(selected_style(idx == view.recent_selected, theme))
+            })
+            .collect();
+        let mut state = ListState::default();
+        if !view.recent_rows.is_empty() {
+            state.select(Some(view.recent_selected.min(view.recent_rows.len() - 1)));
+        }
+        let list =
+            List::new(items).block(titled_block("Recent sessions", ColorRole::Accent, theme));
+        frame.render_stateful_widget(list, chunks[1], &mut state);
+        let status = if view.recent_filter.is_empty() {
+            format!("({}) recent · Tab for open tabs", view.recent_rows.len())
+        } else {
+            format!("filter: {} · Tab for open tabs", view.recent_filter)
+        };
+        frame.render_widget(Paragraph::new(status), chunks[2]);
+        return;
+    }
+    let items: Vec<ListItem> = view
+        .tabs
         .iter()
         .enumerate()
         .map(|(idx, row)| {
@@ -1114,15 +1160,16 @@ pub fn draw_session_list(
                 stream,
                 current,
             );
-            ListItem::new(text).style(selected_style(idx == selected, theme))
+            ListItem::new(text).style(selected_style(idx == view.tab_selected, theme))
         })
         .collect();
     let mut state = ListState::default();
-    if !rows.is_empty() {
-        state.select(Some(selected.min(rows.len() - 1)));
+    if !view.tabs.is_empty() {
+        state.select(Some(view.tab_selected.min(view.tabs.len() - 1)));
     }
     let list = List::new(items).block(titled_block("Open tabs", ColorRole::Accent, theme));
     frame.render_stateful_widget(list, chunks[1], &mut state);
+    frame.render_widget(Paragraph::new("Tab for recent sessions"), chunks[2]);
 }
 
 /// Search palette overlay: centered floating input plus result list.
@@ -1182,6 +1229,86 @@ pub fn draw_search_palette(
     }
     let list = List::new(items).block(titled_block("Results", ColorRole::Accent, theme));
     frame.render_stateful_widget(list, chunks[1], &mut state);
+}
+
+/// Session tree placeholder overlay: centered floating panel naming the
+/// session the tree belongs to, shown while the tree model loads or when
+/// the fetch failed (`note` carries the loading/error text).
+pub fn draw_session_tree_placeholder(
+    frame: &mut Frame,
+    area: Rect,
+    session_id: Option<&str>,
+    note: &str,
+    theme: &Theme,
+) {
+    let popup = tui_components::modal::centered_rect(70, 40, area);
+    frame.render_widget(Clear, popup);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(3)])
+        .split(popup);
+    let hint = Paragraph::new("Session tree · Esc close").block(titled_block(
+        "Session tree",
+        ColorRole::Accent,
+        theme,
+    ));
+    frame.render_widget(hint, chunks[0]);
+    let body = match session_id {
+        Some(id) => format!("Session {}\n\n{note}", short_id(id)),
+        None => "No active session.".to_string(),
+    };
+    let panel = Paragraph::new(body).block(titled_block("Tree", ColorRole::Accent, theme));
+    frame.render_widget(panel, chunks[1]);
+}
+
+/// Snapshot of the loaded session tree browser for drawing.
+pub struct SessionTreeView<'a> {
+    pub session_id: &'a str,
+    pub rows: &'a [String],
+    pub selected: usize,
+    pub status: &'a str,
+}
+
+/// Session tree browser overlay: centered floating list of one session's
+/// messages with checkpoint section markers. Keys: j/k move, PgUp/PgDn
+/// page, Home/End jump, Enter/y copy row, 1/2/3 filter, f cycle filter,
+/// Left/Right fold section, typing searches, Esc clears search then closes.
+pub fn draw_session_tree(frame: &mut Frame, area: Rect, view: &SessionTreeView, theme: &Theme) {
+    let popup = tui_components::modal::centered_rect(80, 80, area);
+    frame.render_widget(Clear, popup);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(3),
+            Constraint::Length(1),
+        ])
+        .split(popup);
+    let title = format!("Session tree {}", short_id(view.session_id));
+    let hint = Paragraph::new(
+        "↑/↓ move · PgUp/PgDn · Enter branch · Ctrl+Y copy · Ctrl+B mark · Ctrl+D/T/A/R filter · Ctrl+O cycle · ←/→ fold · type to search · Esc close",
+    )
+    .block(titled_block(&title, ColorRole::Accent, theme));
+    frame.render_widget(hint, chunks[0]);
+    if view.rows.is_empty() {
+        let empty = Paragraph::new("No entries match (change filter or clear search).")
+            .block(titled_block("Tree", ColorRole::Accent, theme));
+        frame.render_widget(empty, chunks[1]);
+    } else {
+        let items: Vec<ListItem> = view
+            .rows
+            .iter()
+            .enumerate()
+            .map(|(idx, text)| {
+                ListItem::new(text.as_str()).style(selected_style(idx == view.selected, theme))
+            })
+            .collect();
+        let mut state = ListState::default();
+        state.select(Some(view.selected.min(view.rows.len() - 1)));
+        let list = List::new(items).block(titled_block("Tree", ColorRole::Accent, theme));
+        frame.render_stateful_widget(list, chunks[1], &mut state);
+    }
+    frame.render_widget(Paragraph::new(view.status), chunks[2]);
 }
 
 /// Navigation overlay: screen list taking 30% of the width. Moved here from the

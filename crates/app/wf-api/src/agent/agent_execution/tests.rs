@@ -2,6 +2,7 @@ use super::*;
 use wf_llm::{LlmGateway, LlmResponseSpec, MockLlmClient};
 use wf_resource::registry::ResourceRegistries;
 use wf_storage::adapter::BaseStorageAdapter;
+use wf_storage::adapter::MessageStorageAdapter;
 use wf_storage::context::StorageContext;
 
 fn gateway_with(mock: Arc<MockLlmClient>) -> Arc<LlmGateway> {
@@ -169,7 +170,7 @@ async fn persisted_agent_execution_readable_after_restart() {
 async fn streams_agent_loop_events() {
     let ctx = make_ctx();
     let mut stream = stream(
-        &ctx,
+        ctx.clone(),
         RunAgentLoopParams::new(
             AgentLoopConfig {
                 file_scope: None,
@@ -210,6 +211,23 @@ async fn streams_agent_loop_events() {
         }
     }
     assert!(saw_completed, "stream must end with Completed");
+
+    // Stream turns must persist their conversation so resumed sessions can
+    // read them back.
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let executions = ctx.storage.agent_execution.list(None).await.unwrap();
+    assert!(!executions.is_empty(), "agent execution must be persisted");
+    let agent_loop_id = executions[0].id.to_string();
+    let persisted = ctx
+        .storage
+        .message
+        .list_by_agent_loop(&agent_loop_id, None)
+        .await
+        .unwrap();
+    assert!(
+        !persisted.is_empty(),
+        "stream agent conversation must be persisted"
+    );
 }
 
 #[tokio::test]

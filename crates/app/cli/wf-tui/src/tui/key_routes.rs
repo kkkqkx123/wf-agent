@@ -207,6 +207,12 @@ impl TuiApp {
                     InteractiveAction::OpenSessionList => {
                         self.open_session_list();
                     }
+                    InteractiveAction::OpenSessionTree => {
+                        self.open_session_tree();
+                    }
+                    InteractiveAction::ForkLatest => {
+                        self.branch_latest().await;
+                    }
                     InteractiveAction::OpenScreen(kind) => {
                         self.goto(kind);
                     }
@@ -607,6 +613,11 @@ impl TuiApp {
             {
                 self.cycle_tool_level();
             }
+            CKey::Char('t')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Settings =>
+            {
+                self.cycle_double_escape();
+            }
             CKey::Char('+')
                 if self.app.screen.navigation.current_kind() == ScreenKind::Settings =>
             {
@@ -713,6 +724,8 @@ impl TuiApp {
                     }
                     Some(InteractiveAction::NewSession) => self.new_tab().await,
                     Some(InteractiveAction::OpenSessionList) => self.open_session_list(),
+                    Some(InteractiveAction::OpenSessionTree) => self.open_session_tree(),
+                    Some(InteractiveAction::ForkLatest) => self.branch_latest().await,
                     Some(InteractiveAction::OpenScreen(kind)) => self.goto(kind),
                     Some(InteractiveAction::Continue) | None => {}
                 }
@@ -727,6 +740,9 @@ impl TuiApp {
         }
         if self.overlay == OverlayMode::SessionList {
             return self.handle_session_list_key(key).await;
+        }
+        if self.overlay == OverlayMode::SessionTree {
+            return Ok(self.handle_session_tree_key(key).await);
         }
         if self.overlay == OverlayMode::History {
             if let Some(action) = self.handle_history_selection_key(key) {
@@ -853,6 +869,105 @@ impl TuiApp {
         None
     }
 
+    /// Session tree browser keys. Arrows move (every printable character
+    /// types into the search, so there are no plain-letter bindings here):
+    /// Enter branches from the selected node, Ctrl+Y copies its text,
+    /// Ctrl+D/T/A/R select the four filters, Ctrl+O cycles them, Ctrl+B
+    /// toggles the bookmark, Left/Right folds sections. Esc clears an
+    /// active search first and closes the overlay otherwise.
+    async fn handle_session_tree_key(&mut self, key: Key) -> LoopAction {
+        let plain = !key.ctrl && !key.alt;
+        let ctrl = key.ctrl && !key.alt;
+        match key.code {
+            CKey::Esc if plain => {
+                if !self.session_tree.search_query().is_empty() {
+                    self.session_tree.clear_search();
+                } else {
+                    self.session_tree.close();
+                    self.overlay = OverlayMode::None;
+                }
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Down if plain => {
+                self.session_tree.move_next();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Up if plain => {
+                self.session_tree.move_prev();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::PageDown if plain => {
+                self.session_tree.page_by(10);
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::PageUp if plain => {
+                self.session_tree.page_by(-10);
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Home if plain => {
+                self.session_tree.jump_to_first();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::End if plain => {
+                self.session_tree.jump_to_last();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Left | CKey::Right if plain => {
+                self.session_tree.toggle_fold();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Enter if plain => {
+                self.branch_from_tree().await;
+            }
+            CKey::Char('y') | CKey::Char('Y') if ctrl => {
+                match self.session_tree.selected_copy_text() {
+                    Some(text) => {
+                        self.queue_selection_copy(text);
+                    }
+                    None => self.app.notice.set("tree: nothing to copy".to_string()),
+                }
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Char('d') | CKey::Char('D') if ctrl => {
+                self.session_tree
+                    .set_filter(crate::session_tree::TreeFilter::Default);
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Char('t') | CKey::Char('T') if ctrl => {
+                self.session_tree
+                    .set_filter(crate::session_tree::TreeFilter::NoTools);
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Char('a') | CKey::Char('A') if ctrl => {
+                self.session_tree
+                    .set_filter(crate::session_tree::TreeFilter::All);
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Char('r') | CKey::Char('R') if ctrl => {
+                self.session_tree
+                    .set_filter(crate::session_tree::TreeFilter::Bookmarked);
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Char('o') | CKey::Char('O') if ctrl => {
+                self.session_tree.cycle_filter();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Char('b') | CKey::Char('B') if ctrl => {
+                self.toggle_tree_bookmark();
+            }
+            CKey::Backspace if plain => {
+                self.session_tree.search_backspace();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Char(c) if plain && !c.is_control() => {
+                self.session_tree.search_push(c);
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            _ => {}
+        }
+        LoopAction::Continue
+    }
+
     fn handle_search_palette_key(&mut self, key: Key) -> LoopAction {
         match key.code {
             CKey::Esc => {
@@ -918,6 +1033,15 @@ impl TuiApp {
     }
 
     async fn handle_session_list_key(&mut self, key: Key) -> CliResult<LoopAction> {
+        // Tab toggles the tabs/recent panes everywhere in this overlay.
+        if key.code == CKey::Tab && !key.ctrl && !key.alt {
+            self.session_list.toggle_pane();
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            return Ok(LoopAction::Continue);
+        }
+        if self.session_list.pane() == crate::session_list::SessionListPane::Recent {
+            return self.handle_recent_list_key(key).await;
+        }
         let len = self.sessions.len();
         match key.code {
             CKey::Esc => {
@@ -989,6 +1113,72 @@ impl TuiApp {
                     self.session_list.select(index, len);
                     self.pending_scope.request(crate::redraw::RedrawScope::Full);
                 }
+            }
+            _ => {}
+        }
+        Ok(LoopAction::Continue)
+    }
+
+    /// Recent-sessions pane keys. Arrows move (every printable character
+    /// filters, so there are no plain-letter bindings here) and Enter opens
+    /// the selected session as a replay tab (read-only revisit, no server
+    /// writes). Esc clears the filter first, then closes.
+    async fn handle_recent_list_key(&mut self, key: Key) -> CliResult<LoopAction> {
+        let plain = !key.ctrl && !key.alt;
+        match key.code {
+            CKey::Esc if plain => {
+                if !self.session_list.recent_filter().is_empty() {
+                    self.session_list.clear_recent_filter();
+                } else {
+                    self.overlay = OverlayMode::None;
+                }
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Enter if plain => {
+                let Some(id) = self.session_list.recent_selected_id() else {
+                    self.app.notice.set("recent: nothing selected".to_string());
+                    self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                    return Ok(LoopAction::Continue);
+                };
+                let short = crate::screens::short_id(&id);
+                self.overlay = OverlayMode::None;
+                self.open_tab_for_session(id, None, None).await;
+                self.app
+                    .notice
+                    .set(format!("opened replay of {short} in a new tab"));
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Down if plain => {
+                self.session_list.recent_move_next();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Up if plain => {
+                self.session_list.recent_move_prev();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::PageDown if plain => {
+                self.session_list.recent_page_by(10);
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::PageUp if plain => {
+                self.session_list.recent_page_by(-10);
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Home if plain => {
+                self.session_list.recent_jump_to_first();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::End if plain => {
+                self.session_list.recent_jump_to_last();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Backspace if plain => {
+                self.session_list.recent_filter_backspace();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Char(c) if plain && !c.is_control() => {
+                self.session_list.recent_filter_push(c);
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
             }
             _ => {}
         }

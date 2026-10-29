@@ -23,17 +23,7 @@ impl InteractiveController {
     /// Handle one key while the session screen is active.
     pub fn handle_key(&mut self, key: Key) -> InteractiveAction {
         if key.ctrl && key.code == CKey::Char('c') {
-            let now_ms = self.now_ms();
-            return match self.exit_tracker.press(now_ms) {
-                PressOutcome::SecondPress => InteractiveAction::Exit,
-                PressOutcome::FirstPress => {
-                    self.pending_scroll.push(HistoryLine::new_role(
-                        "Press Ctrl-C again within 5s to exit the session.".to_string(),
-                        Role::Warning,
-                    ));
-                    InteractiveAction::Continue
-                }
-            };
+            return self.arm_exit();
         }
 
         // Keyboard selection works without mouse capture: shift chords move
@@ -155,6 +145,63 @@ impl InteractiveController {
             FooterView::Permission => self.handle_approval_key(key),
             FooterView::Question => self.handle_question_key(key),
             FooterView::Prompt => self.handle_prompt_key(key),
+        }
+    }
+
+    /// Arm the Ctrl-C double-press exit: first press warns, second exits.
+    /// Esc during a running turn shares this channel (see
+    /// [`Self::handle_empty_esc`]) so exit arming stays in one place.
+    fn arm_exit(&mut self) -> InteractiveAction {
+        let now_ms = self.now_ms();
+        match self.exit_tracker.press(now_ms) {
+            PressOutcome::SecondPress => InteractiveAction::Exit,
+            PressOutcome::FirstPress => {
+                self.pending_scroll.push(HistoryLine::new_role(
+                    "Press Ctrl-C again within 5s to exit the session.".to_string(),
+                    Role::Warning,
+                ));
+                InteractiveAction::Continue
+            }
+        }
+    }
+
+    /// Handle Esc with the composer focused and no panel, search or
+    /// selection owning the key. Priority: a running turn reuses the exit
+    /// arming channel; non-empty input resets double-Esc arming and is
+    /// otherwise ignored; empty input feeds the double-Esc tracker which
+    /// dispatches the configured action on the second press.
+    fn handle_empty_esc(&mut self) -> InteractiveAction {
+        if self.is_processing() {
+            self.escape_tracker.reset();
+            return self.arm_exit();
+        }
+        if !self.composer_empty() {
+            self.escape_tracker.reset();
+            return InteractiveAction::Continue;
+        }
+        let action = crate::tui::input_classify::load_double_escape_action();
+        self.dispatch_double_escape(action, self.now_ms())
+    }
+
+    /// Dispatch a double-Esc press with an explicit clock for testing.
+    /// The first press inside the window only arms; the second dispatches.
+    /// `Off` never arms so disabled configuration stays fully inert.
+    fn dispatch_double_escape(
+        &mut self,
+        action: crate::app_config::DoubleEscapeActionName,
+        now_ms: u64,
+    ) -> InteractiveAction {
+        use crate::app_config::DoubleEscapeActionName as Configured;
+        if action == Configured::Off {
+            return InteractiveAction::Continue;
+        }
+        match self.escape_tracker.press(now_ms) {
+            PressOutcome::SecondPress => match action {
+                Configured::Tree => InteractiveAction::OpenSessionTree,
+                Configured::Fork => InteractiveAction::ForkLatest,
+                Configured::Off => InteractiveAction::Continue,
+            },
+            PressOutcome::FirstPress => InteractiveAction::Continue,
         }
     }
 
@@ -423,6 +470,9 @@ impl InteractiveController {
             }
         }
         match key.code {
+            CKey::Esc if !key.ctrl && !key.alt => {
+                return self.handle_empty_esc();
+            }
             CKey::Enter => {
                 // Shift+Enter inserts a newline inside the input; plain Enter
                 // and Ctrl+Enter submit. Without keyboard enhancement the
@@ -436,8 +486,8 @@ impl InteractiveController {
                 if self.handle_copy_command(&text) {
                     return InteractiveAction::Continue;
                 }
-                if self.handle_command_line(&text) {
-                    return InteractiveAction::Continue;
+                if let Some(action) = self.handle_command_line(&text) {
+                    return action;
                 }
                 if !text.trim().is_empty() {
                     self.flush_activity();
@@ -546,8 +596,16 @@ pub(crate) fn normalize_paste(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::normalize_paste;
+    use crate::app_config::DoubleEscapeActionName;
     use crate::approval_overlay::ApprovalChoice;
+    use crate::interactive::InteractiveAction;
     use crate::keymap::{CKey, Key};
+    use crate::reducer::Phase;
+
+    async fn empty_controller() -> crate::interactive::InteractiveController {
+        let client = wf_client::WfClient::new(wf_client::ClientConfig::new("http://127.0.0.1:1"));
+        crate::interactive::InteractiveController::start(client, "exec".into()).await
+    }
 
     #[test]
     fn approval_choice_from_key() {
@@ -563,5 +621,82 @@ mod tests {
         assert_eq!(normalize_paste("a\r\nb\rc"), "a\nb\nc");
         assert_eq!(normalize_paste("plain"), "plain");
         assert_eq!(normalize_paste(""), "");
+    }
+
+    #[tokio::test]
+    async fn double_esc_with_empty_composer_opens_the_tree() {
+        let mut ctl = empty_controller().await;
+        assert!(ctl.footer.composer.is_empty());
+        let first = ctl.dispatch_double_escape(DoubleEscapeActionName::Tree, 1_000);
+        assert!(matches!(first, InteractiveAction::Continue));
+        let second = ctl.dispatch_double_escape(DoubleEscapeActionName::Tree, 1_200);
+        assert!(matches!(second, InteractiveAction::OpenSessionTree));
+    }
+
+    #[tokio::test]
+    async fn double_esc_fork_action_branches() {
+        let mut ctl = empty_controller().await;
+        assert!(matches!(
+            ctl.dispatch_double_escape(DoubleEscapeActionName::Fork, 1_000),
+            InteractiveAction::Continue
+        ));
+        assert!(matches!(
+            ctl.dispatch_double_escape(DoubleEscapeActionName::Fork, 1_400),
+            InteractiveAction::ForkLatest
+        ));
+    }
+
+    #[tokio::test]
+    async fn double_esc_off_stays_inert() {
+        let mut ctl = empty_controller().await;
+        for now in [1_000, 1_100, 1_200] {
+            assert!(matches!(
+                ctl.dispatch_double_escape(DoubleEscapeActionName::Off, now),
+                InteractiveAction::Continue
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn double_esc_window_expiry_rearms() {
+        let mut ctl = empty_controller().await;
+        assert!(matches!(
+            ctl.dispatch_double_escape(DoubleEscapeActionName::Tree, 1_000),
+            InteractiveAction::Continue
+        ));
+        // Past the 500 ms window the next press arms again instead of firing.
+        assert!(matches!(
+            ctl.dispatch_double_escape(DoubleEscapeActionName::Tree, 2_000),
+            InteractiveAction::Continue
+        ));
+        assert!(matches!(
+            ctl.dispatch_double_escape(DoubleEscapeActionName::Tree, 2_100),
+            InteractiveAction::OpenSessionTree
+        ));
+    }
+
+    #[tokio::test]
+    async fn esc_with_text_resets_double_esc_arming() {
+        let mut ctl = empty_controller().await;
+        ctl.footer.composer.insert_char('x');
+        let action = ctl.handle_empty_esc();
+        assert!(matches!(action, InteractiveAction::Continue));
+        // The armed press from before the typing must not leak through once
+        // the composer is empty again: the next Esc only arms.
+        ctl.footer.composer.set_text("");
+        let action = ctl.handle_empty_esc();
+        assert!(matches!(action, InteractiveAction::Continue));
+    }
+
+    #[tokio::test]
+    async fn esc_while_processing_arms_exit_like_ctrl_c() {
+        let mut ctl = empty_controller().await;
+        ctl.footer.state.phase = Phase::Streaming;
+        // First Esc arms, second Esc exits: the shared Ctrl-C channel.
+        assert!(matches!(
+            ctl.handle_empty_esc(),
+            InteractiveAction::Continue
+        ));
+        assert!(matches!(ctl.handle_empty_esc(), InteractiveAction::Exit));
     }
 }

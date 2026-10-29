@@ -1,10 +1,15 @@
 //! SIGINT double-press state machine: tracks two Ctrl+C presses within a
-//! time window.
+//! time window. The same tracker backs double-Esc detection, which uses a
+//! much shorter window.
 
 use std::time::Duration;
 
 /// Window within which a second Ctrl+C counts as "interrupt".
 pub const SIGINT_DOUBLE_PRESS_WINDOW: Duration = Duration::from_secs(5);
+
+/// Window within which a second Esc with an empty composer opens the
+/// configured double-Esc action (session tree by default).
+pub const ESC_DOUBLE_PRESS_WINDOW: Duration = Duration::from_millis(500);
 
 /// Outcome of recording a press.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

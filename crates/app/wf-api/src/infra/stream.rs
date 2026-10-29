@@ -4,6 +4,8 @@ use std::task::{Context, Poll};
 
 use futures::{Stream, StreamExt};
 use serde_json::Value;
+
+use crate::infra::context::ApiContext;
 use tokio::sync::mpsc::{self, error::TrySendError};
 
 use wf_agent::stream::{AgentEventStream, AgentStreamEvent};
@@ -17,15 +19,30 @@ pub struct ExecutionEventStream {
     /// the driver so a disconnected consumer stops the workflow instead of
     /// letting it run out the execution timeout (mirrors `AgentEventStream`).
     task: Option<tokio::task::JoinHandle<()>>,
+    /// Optional conversation persistence hook for agent streams: when a
+    /// terminal event is delivered, the agent loop's conversation is
+    /// persisted to the message store so stream turns are resumable.
+    persist: Option<(Arc<ApiContext>, String)>,
 }
 
 impl ExecutionEventStream {
     pub fn new(rx: mpsc::Receiver<ExecutionStreamEvent>) -> Self {
-        Self { rx, task: None }
+        Self {
+            rx,
+            task: None,
+            persist: None,
+        }
     }
 
     pub(crate) fn with_task(mut self, task: tokio::task::JoinHandle<()>) -> Self {
         self.task = Some(task);
+        self
+    }
+
+    /// Attach a conversation-persistence hook to an agent stream. The hook
+    /// fires once when a terminal event is delivered to the consumer.
+    pub fn with_persist(mut self, ctx: Arc<ApiContext>, agent_loop_id: String) -> Self {
+        self.persist = Some((ctx, agent_loop_id));
         self
     }
 
@@ -193,7 +210,26 @@ impl Stream for ExecutionEventStream {
     type Item = ExecutionStreamEvent;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.rx).poll_recv(cx)
+        let polled = Pin::new(&mut self.rx).poll_recv(cx);
+        if let Poll::Ready(Some(event)) = &polled {
+            let is_terminal = matches!(
+                event,
+                ExecutionStreamEvent::Completed { .. }
+                    | ExecutionStreamEvent::Failed { .. }
+                    | ExecutionStreamEvent::Interrupted { .. }
+            );
+            if is_terminal {
+                if let Some((ctx, id)) = self.persist.take() {
+                    tokio::spawn(async move {
+                        crate::agent::agent_execution::checkpoint::persist_stream_conversation(
+                            &ctx, &id,
+                        )
+                        .await;
+                    });
+                }
+            }
+        }
+        polled
     }
 }
 

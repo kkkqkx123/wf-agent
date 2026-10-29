@@ -131,3 +131,23 @@ pub const PROGRESS_CLEAR: &str = "\x1b]9;4;0\x07";
 pub fn sanitize_title(title: &str) -> String {
     title.chars().filter(|c| !c.is_control()).collect()
 }
+
+/// Heartbeat frame glyphs for the window title while a turn runs. ASCII-safe
+/// geometric shapes render consistently across common fonts, unlike braille
+/// or emoji.
+pub const RUNNING_TITLE_FRAMES: [&str; 2] = ["●", "○"];
+
+/// Build a window title for one heartbeat tick. While running, the base
+/// title is prefixed with the alternating frame glyph; when idle the base
+/// title is returned unchanged. A frozen frame therefore signals a stalled
+/// process.
+pub fn running_title(base: &str, frame: usize, running: bool) -> String {
+    if running {
+        format!(
+            "{} {base}",
+            RUNNING_TITLE_FRAMES[frame % RUNNING_TITLE_FRAMES.len()]
+        )
+    } else {
+        base.to_string()
+    }
+}

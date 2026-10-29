@@ -143,3 +143,26 @@ pub(super) async fn persist_conversation(
         }
     }
 }
+
+/// Persist the conversation of a stream-mode agent loop once its terminal
+/// event has been delivered. Reads the live entity's append-only history and
+/// upserts every message by id, so repeated calls are idempotent.
+pub async fn persist_stream_conversation(ctx: &ApiContext, agent_loop_id: &str) {
+    let id = wf_types::Id::from(agent_loop_id.to_string());
+    let Some(entity) = ctx.agent_loops.get(&id) else {
+        return;
+    };
+    let messages = entity.conversation().read().await.state.messages.clone();
+    for message in messages {
+        let record =
+            crate::entity::message::record(agent_loop_id, Some(agent_loop_id), message);
+        if let Err(err) = ctx.storage.message.save(&record).await {
+            tracing::warn!(
+                target: "wf_api",
+                agent_loop_id = %agent_loop_id,
+                error = %err,
+                "failed to persist stream agent conversation message"
+            );
+        }
+    }
+}

@@ -23,7 +23,9 @@ pub mod sequences;
 pub mod state;
 
 pub use crate::probe::{ColorSet, TerminalProbe};
-pub use crate::sigint::{DoublePressTracker, PressOutcome, SIGINT_DOUBLE_PRESS_WINDOW};
+pub use crate::sigint::{
+    DoublePressTracker, PressOutcome, ESC_DOUBLE_PRESS_WINDOW, SIGINT_DOUBLE_PRESS_WINDOW,
+};
 pub use crate::stderr::TerminalStderrGuard;
 
 pub use commands::{

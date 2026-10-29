@@ -57,7 +57,7 @@ use crate::prep_cache::PreparedScrollback;
 use crate::reducer::Phase;
 use crate::reducer::SessionReducer;
 use crate::stream_pacer::SegmentedPacer;
-use crate::terminal::{DoublePressTracker, SIGINT_DOUBLE_PRESS_WINDOW};
+use crate::terminal::{DoublePressTracker, ESC_DOUBLE_PRESS_WINDOW, SIGINT_DOUBLE_PRESS_WINDOW};
 use crate::transcript::HistoryLine;
 
 /// Candidate payload for a footer panel route.
@@ -223,6 +223,10 @@ pub enum InteractiveAction {
     NewSession,
     /// Open the shell session list overlay.
     OpenSessionList,
+    /// Open the shell session tree overlay for the active session.
+    OpenSessionTree,
+    /// Branch the active session from its latest checkpoint into a new tab.
+    ForkLatest,
     /// Switch the shell to a management screen.
     OpenScreen(crate::screens::ScreenKind),
 }
@@ -325,6 +329,10 @@ pub struct InteractiveController {
     /// Copy failure notice drained by the shell into its notice queue.
     pending_copy_notice: Option<String>,
     exit_tracker: DoublePressTracker,
+    /// Double-Esc detection for the empty-composer tree shortcut. The first
+    /// Esc only arms the tracker; a second Esc inside the window dispatches
+    /// the configured double-Esc action.
+    escape_tracker: DoublePressTracker,
     /// Pagination state machine for replay-history loading (see `load_replay`).
     pager: ReplayPager,
     /// Viewport scrolled up from the bottom of the scrollback (display rows).
@@ -656,6 +664,7 @@ impl InteractiveController {
             pending_copy: None,
             pending_copy_notice: None,
             exit_tracker: DoublePressTracker::new(SIGINT_DOUBLE_PRESS_WINDOW),
+            escape_tracker: DoublePressTracker::new(ESC_DOUBLE_PRESS_WINDOW),
             pager: ReplayPager::default(),
             view_scroll: 0,
             tail_lag: 0,
@@ -762,6 +771,12 @@ impl InteractiveController {
     /// Session this controller replays, as its footer reports it.
     pub fn session_id(&self) -> Option<&str> {
         self.footer.state.execution_id.as_deref()
+    }
+
+    /// Prefill the composer draft. Branch-from-user-message replays the
+    /// selected text so it can be edited and resent in the new tab.
+    pub fn prefill_composer(&mut self, text: &str) {
+        self.footer.composer.set_text(text);
     }
 
     /// Snapshot of the session-owned sidebar sections. The shell overlays the

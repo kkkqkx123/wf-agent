@@ -7,6 +7,7 @@ use crate::overlay::OverlayMode;
 use crate::screens::ScreenKind;
 use crate::session_tabs::SessionTab;
 
+use super::data_cache::DataResult;
 use super::input_classify::{load_session_scrollbar_opt_in, load_tool_output_config};
 use super::TuiApp;
 
@@ -116,12 +117,405 @@ impl TuiApp {
         }
     }
 
-    /// Open the session list browser over the current tab set.
+    /// Open the session list browser over the current tab set and refresh
+    /// the recent-sessions pane on a background task.
     pub(super) fn open_session_list(&mut self) {
         self.session_list
             .open(self.sessions.active_index(), self.sessions.len());
+        self.request_recent_sessions();
         self.overlay = OverlayMode::SessionList;
         self.pending_scope.request(crate::redraw::RedrawScope::Full);
+    }
+
+    /// Fetch the newest agent-loop summaries for the recent pane. Failures
+    /// surface as a notice; the tabs pane keeps working regardless.
+    pub(super) fn request_recent_sessions(&mut self) {
+        let client = self.client.clone();
+        let tx = self.data_tx.clone();
+        let now_ms = self.now_ms();
+        self.tasks.push(tokio::spawn(async move {
+            let result: Result<Vec<crate::session_list::RecentSession>, String> = async {
+                let data: serde_json::Value = client
+                    .get_json(wf_cli_shared::paths::AGENT_LOOPS_SUMMARIES)
+                    .await
+                    .map_err(|err| err.to_string())?;
+                let mut items = data
+                    .get("items")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .or_else(|| data.as_array().cloned())
+                    .unwrap_or_default();
+                items.sort_by_key(|item| {
+                    std::cmp::Reverse(item.get("start_time").and_then(|v| v.as_i64()).unwrap_or(0))
+                });
+                Ok(items
+                    .into_iter()
+                    .take(50)
+                    .filter_map(|item| {
+                        let id = item.get("id")?.as_str()?.to_string();
+                        let status = item
+                            .get("status")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("?")
+                            .to_string();
+                        let start_ms = item.get("start_time").and_then(|v| v.as_i64()).unwrap_or(0);
+                        Some(crate::session_list::RecentSession {
+                            id,
+                            status,
+                            started: crate::session_list::relative_age(start_ms, now_ms),
+                        })
+                    })
+                    .collect())
+            }
+            .await;
+            let _ = tx.send(DataResult::RecentSessions {
+                result: result.map_err(crate::error::CliError::Business),
+            });
+        }));
+    }
+
+    /// Open the session tree browser for the active session and fetch its
+    /// model on a background task; the placeholder paints until it lands.
+    pub(super) fn open_session_tree(&mut self) {
+        let Some(session_id) = self
+            .sessions
+            .active()
+            .and_then(|session| session.session_id())
+            .map(str::to_owned)
+        else {
+            self.app.notice.set("no active session for the tree");
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            return;
+        };
+        self.session_tree.open(session_id.clone());
+        self.session_tree
+            .set_bookmarks(Self::tree_bookmark_ids(&session_id));
+        self.request_session_tree();
+        self.overlay = OverlayMode::SessionTree;
+        self.pending_scope.request(crate::redraw::RedrawScope::Full);
+    }
+
+    /// Bookmarked node ids for one session from the persisted file.
+    fn tree_bookmark_ids(session_id: &str) -> Vec<String> {
+        crate::tab_persistence::load_bookmarks()
+            .bookmarks
+            .into_iter()
+            .filter(|bookmark| bookmark.session_id == session_id)
+            .map(|bookmark| bookmark.node_id)
+            .collect()
+    }
+
+    /// Toggle the bookmark on the tree selection and persist it. Marking is
+    /// client-side only: stale ids simply match nothing on reopen.
+    pub(super) fn toggle_tree_bookmark(&mut self) {
+        let Some(session_id) = self.session_tree.session_id().map(str::to_owned) else {
+            return;
+        };
+        let Some((node_id, label, marked)) = self.session_tree.toggle_bookmark_selected() else {
+            self.app.notice.set("tree: nothing selected".to_string());
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            return;
+        };
+        let mut saved = crate::tab_persistence::load_bookmarks();
+        if marked {
+            saved.bookmarks.push(crate::tab_persistence::SavedBookmark {
+                session_id: session_id.clone(),
+                node_id: node_id.clone(),
+                label,
+                created_ms: self.now_ms(),
+            });
+            self.app.notice.set(format!(
+                "tree: bookmarked {}",
+                crate::screens::short_id(&node_id)
+            ));
+        } else {
+            saved.bookmarks.retain(|bookmark| {
+                !(bookmark.session_id == session_id && bookmark.node_id == node_id)
+            });
+            self.app.notice.set(format!(
+                "tree: unmarked {}",
+                crate::screens::short_id(&node_id)
+            ));
+        }
+        crate::tab_persistence::save_bookmarks(&saved);
+        self.pending_scope.request(crate::redraw::RedrawScope::Full);
+    }
+
+    /// Branch the active session from its latest checkpoint into a new tab.
+    /// Restore lands as a new commit under a fresh execution id; the source
+    /// tab keeps running untouched. This is a branch, never an in-place
+    /// switch, and the notice says so explicitly.
+    pub(super) async fn branch_latest(&mut self) {
+        let Some(source) = self
+            .sessions
+            .active()
+            .and_then(|session| session.session_id())
+            .map(str::to_owned)
+        else {
+            self.app.notice.set("no active session to branch");
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            return;
+        };
+        let target = self.branch_restore_target(&source).await;
+        let Some((checkpoint_id, is_loop, _timestamp)) = target else {
+            self.app.notice.set(format!(
+                "no checkpoints yet in {}; send a turn first",
+                crate::screens::short_id(&source)
+            ));
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            return;
+        };
+        let restore = self
+            .restore_checkpoint(&source, &checkpoint_id, is_loop)
+            .await;
+        match restore {
+            Ok(new_id) => {
+                let short_source = crate::screens::short_id(&source);
+                let short_new = crate::screens::short_id(&new_id);
+                let short_cp = crate::screens::short_id(&checkpoint_id);
+                self.open_tab_for_session(new_id.clone(), Some(source), None)
+                    .await;
+                Self::mark_branch_title(self.sessions.active_tab_mut(), &new_id, &short_source);
+                self.app.notice.set(format!(
+                    "branched {short_source} at {short_cp} into new tab {short_new} (history preserved; branch, not in-place)"
+                ));
+            }
+            Err(err) => {
+                self.app.notice.set(format!("branch failed: {err}"));
+            }
+        }
+        self.pending_scope.request(crate::redraw::RedrawScope::Full);
+    }
+
+    /// Restore `checkpoint_id` of `source` as a new commit under a fresh
+    /// execution id. History is never rewritten; the source keeps running.
+    /// Returns the new execution id, trying the agent-loop endpoint first
+    /// and falling back to the execution endpoint.
+    async fn restore_checkpoint(
+        &self,
+        source: &str,
+        checkpoint_id: &str,
+        is_loop: bool,
+    ) -> Result<String, String> {
+        // Try the known domain first, then the other one: checkpoint ids
+        // are unique per domain, so exactly one endpoint can serve them.
+        let attempts = if is_loop {
+            [true, false]
+        } else {
+            [false, true]
+        };
+        let mut last_err = format!("unknown checkpoint {checkpoint_id}");
+        for attempt_loop in attempts {
+            let outcome = if attempt_loop {
+                self.client
+                    .post_json::<_, serde_json::Value>(
+                        &format!(
+                            "/api/v1/agent-loops/{source}/checkpoints/{checkpoint_id}/restore"
+                        ),
+                        &serde_json::json!({}),
+                    )
+                    .await
+                    .map(|value| {
+                        value
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(checkpoint_id)
+                            .to_string()
+                    })
+                    .map_err(|err| err.to_string())
+            } else {
+                self.client
+                    .post_json::<_, serde_json::Value>(
+                        &format!("/api/v1/executions/checkpoints/{checkpoint_id}/restore"),
+                        &serde_json::json!({}),
+                    )
+                    .await
+                    .map(|value| {
+                        value
+                            .get("execution_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(checkpoint_id)
+                            .to_string()
+                    })
+                    .map_err(|err| err.to_string())
+            };
+            match outcome {
+                Ok(new_id) => return Ok(new_id),
+                Err(err) => last_err = err,
+            }
+        }
+        Err(last_err)
+    }
+
+    /// Origin note for a branch tab: the tab strip is the visible top of
+    /// the new page, so the source short id rides in the title. The title
+    /// stays default-eligible, so content-based auto-naming may replace it
+    /// later without any extra bookkeeping.
+    fn mark_branch_title(tab: Option<&mut SessionTab>, new_id: &str, short_source: &str) {
+        if let Some(tab) = tab {
+            tab.title = format!(
+                "{} (from {})",
+                crate::screens::short_id(new_id),
+                short_source
+            );
+        }
+    }
+
+    /// Latest checkpoint of `source`: agent-loop chain first, execution
+    /// chain as fallback. Returns the checkpoint id, which domain served
+    /// it, and its timestamp for branch messaging.
+    async fn branch_restore_target(&self, source: &str) -> Option<(String, bool, i64)> {
+        // Timestamp decides the latest checkpoint, never chain position.
+        let pick_latest = |value: serde_json::Value| -> Option<(String, i64)> {
+            crate::session_tree::checkpoint_points(&value)
+                .into_iter()
+                .map(|point| (point.id, point.timestamp))
+                .max_by_key(|(_, timestamp)| *timestamp)
+        };
+        if let Ok(view) = self.client.agent_loop_checkpoints_chain(source).await {
+            let value = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
+            if let Some((id, timestamp)) = pick_latest(value) {
+                return Some((id, true, timestamp));
+            }
+        }
+        if let Ok(view) = self.client.execution_checkpoints_chain(source).await {
+            let value = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
+            if let Some((id, timestamp)) = pick_latest(value) {
+                return Some((id, false, timestamp));
+            }
+        }
+        None
+    }
+
+    /// Load the tree model for the open tree overlay on a background task:
+    /// conversation records plus the checkpoint chain, assembled into
+    /// display nodes. The newest messages win under the node cap.
+    pub(super) fn request_session_tree(&mut self) {
+        let Some(session_id) = self.session_tree.session_id().map(str::to_owned) else {
+            return;
+        };
+        let client = self.client.clone();
+        let tx = self.data_tx.clone();
+        self.tasks.push(tokio::spawn(async move {
+            let records = crate::replay::conversation_records(&client, &session_id).await;
+            let total_messages = records.len();
+            let chain = if let Ok(view) = client.agent_loop_checkpoints_chain(&session_id).await {
+                serde_json::to_value(&view).ok()
+            } else if let Ok(view) = client.execution_checkpoints_chain(&session_id).await {
+                serde_json::to_value(&view).ok()
+            } else {
+                None
+            };
+            let checkpoints = chain
+                .as_ref()
+                .map(crate::session_tree::checkpoint_points)
+                .unwrap_or_default();
+            let iterations = if records.is_empty() {
+                crate::replay::iteration_details(&client, &session_id).await
+            } else {
+                Vec::new()
+            };
+            let (nodes, truncated) =
+                crate::session_tree::assemble_tree(&records, &checkpoints, &iterations);
+            let _ = tx.send(DataResult::SessionTree {
+                session_id,
+                result: Ok(crate::session_tree::AssembledTree {
+                    nodes,
+                    truncated,
+                    total_messages,
+                }),
+            });
+        }));
+    }
+
+    /// Branch the tree selection into a new tab: restore the nearest
+    /// checkpoint at-or-before the selected node, open the new execution as
+    /// a child tab of the source session, and prefill user-message text so
+    /// it can be edited and resent. Failures keep the tree open with its
+    /// selection; success closes the tree and lands in the new tab.
+    pub(super) async fn branch_from_tree(&mut self) {
+        let Some(source) = self.session_tree.session_id().map(str::to_owned) else {
+            self.app.notice.set("tree: no session to branch");
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            return;
+        };
+        let Some(node) = self.session_tree.selected_node().cloned() else {
+            self.app.notice.set("tree: nothing selected");
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            return;
+        };
+        let Some(checkpoint_id) = node.checkpoint_id.clone() else {
+            self.app.notice.set(
+                "tree: no checkpoint at or before this point yet — send a turn first".to_string(),
+            );
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            return;
+        };
+        match self.restore_checkpoint(&source, &checkpoint_id, true).await {
+            Ok(new_id) => {
+                let prefill = (node.kind == crate::session_tree::TreeNodeKind::User)
+                    .then(|| node.full_text.clone())
+                    .filter(|text| !text.trim().is_empty());
+                let short_source = crate::screens::short_id(&source);
+                let short_cp = crate::screens::short_id(&checkpoint_id);
+                self.session_tree.close();
+                self.overlay = OverlayMode::None;
+                self.open_tab_for_session(new_id.clone(), Some(source.clone()), prefill)
+                    .await;
+                Self::mark_branch_title(
+                    self.sessions.active_tab_mut(),
+                    &new_id,
+                    &crate::screens::short_id(&source),
+                );
+                self.app.notice.set(format!(
+                    "branched {short_source} at {short_cp} into a new tab (history preserved; branch, not in-place)"
+                ));
+            }
+            Err(err) => {
+                self.app.notice.set(format!("branch failed: {err}"));
+            }
+        }
+        self.pending_scope.request(crate::redraw::RedrawScope::Full);
+    }
+
+    /// Open a new tab bound to an existing server session id (branch
+    /// restores, replays, restores-from-tabs-file). The tab replays the
+    /// server history on attach, matching restored-tab behavior.
+    pub(super) async fn open_tab_for_session(
+        &mut self,
+        id: String,
+        parent_id: Option<String>,
+        prefill: Option<String>,
+    ) {
+        if self.sessions.len() >= tui_core::screen_data::MAX_CHAT_TABS {
+            if let Some(victim) = self.sessions.eviction_victim() {
+                if let Some(tab) = self.sessions.remove(victim) {
+                    tab.controller.shutdown().await;
+                }
+                self.app
+                    .notice
+                    .set("tab limit reached: oldest unpinned tab closed".to_string());
+            }
+        }
+        let mut session = InteractiveController::start(self.client.clone(), id.clone()).await;
+        session.set_keymap(self.keymap.clone());
+        session.set_perf_tier(self.perf_tier.marker());
+        session.apply_perf_policy(self.perf_policy);
+        session.apply_copy_policy(self.copy_policy);
+        session.set_tool_config(load_tool_output_config());
+        session.set_session_scrollbar(load_session_scrollbar_opt_in());
+        session.load_replay(&id);
+        if let Some(text) = prefill {
+            session.prefill_composer(&text);
+        }
+        let workspace = std::env::current_dir()
+            .ok()
+            .and_then(|dir| dir.to_str().map(str::to_string));
+        let mut tab = SessionTab::new(session, id, self.now_ms());
+        tab.parent_id = parent_id;
+        tab.workspace = workspace;
+        self.sessions.push(tab);
+        self.save_tabs();
     }
 
     /// Snapshot the open tabs for persistence.

@@ -680,6 +680,8 @@ impl InteractiveController {
             "app.help" => InteractiveAction::ShowHelp,
             "session.new" => InteractiveAction::NewSession,
             "session.list" | "session.resume" => InteractiveAction::OpenSessionList,
+            "session.tree" => InteractiveAction::OpenSessionTree,
+            "session.fork" => InteractiveAction::ForkLatest,
             "session.model" => {
                 self.open_model_panel();
                 InteractiveAction::Continue
@@ -799,11 +801,13 @@ impl InteractiveController {
     }
 
     /// Handle a composer line that starts with `/`: the typed command runs
-    /// directly. Returns whether the line was consumed.
-    pub(crate) fn handle_command_line(&mut self, text: &str) -> bool {
+    /// directly. Returns the command outcome when the line was consumed so
+    /// session-level actions (`/tree`, `/fork`, `/sessions`, ...) reach the
+    /// shell instead of being swallowed.
+    pub(crate) fn handle_command_line(&mut self, text: &str) -> Option<InteractiveAction> {
         let trimmed = text.trim();
         if !trimmed.starts_with('/') {
-            return false;
+            return None;
         }
         let (command_text, argument) = match trimmed.split_once(' ') {
             Some((command, argument)) => (command, argument.trim()),
@@ -822,11 +826,11 @@ impl InteractiveController {
                 if text.trim().is_empty() {
                     self.footer
                         .show_notice("usage: /steer [--node <id>] <text>");
-                    return true;
+                    return Some(InteractiveAction::Continue);
                 }
                 if node.is_some() || self.nested_append_enabled() {
                     self.submit_nested_text(node, text, Some("steering".to_string()));
-                    return true;
+                    return Some(InteractiveAction::Continue);
                 }
                 if let Some(loop_id) = self.active_agent_loop_id.clone() {
                     let client = self.client.clone();
@@ -860,7 +864,7 @@ impl InteractiveController {
                     self.footer
                         .show_notice("no active agent loop; staged locally (not server buffered)");
                 }
-                return true;
+                return Some(InteractiveAction::Continue);
             }
             "/followup" | "/follow-up" => {
                 let (node, rest) = split_node_flag(argument);
@@ -868,11 +872,11 @@ impl InteractiveController {
                 if text.trim().is_empty() {
                     self.footer
                         .show_notice("usage: /followup [--node <id>] <text>");
-                    return true;
+                    return Some(InteractiveAction::Continue);
                 }
                 if node.is_some() || self.nested_append_enabled() {
                     self.submit_nested_text(node, text, Some("followup".to_string()));
-                    return true;
+                    return Some(InteractiveAction::Continue);
                 }
                 if let Some(loop_id) = self.active_agent_loop_id.clone() {
                     let client = self.client.clone();
@@ -906,7 +910,7 @@ impl InteractiveController {
                     self.footer
                         .show_notice("no active agent loop; staged locally (not server buffered)");
                 }
-                return true;
+                return Some(InteractiveAction::Continue);
             }
             "/append-mode" => {
                 let (node, rest) = split_node_flag(argument);
@@ -929,7 +933,7 @@ impl InteractiveController {
                             self.footer
                                 .show_notice(format!("append mode: {}", self.append_mode));
                         }
-                        return true;
+                        return Some(InteractiveAction::Continue);
                     }
                     0 => {
                         match self.resolve_nested_target(node) {
@@ -956,7 +960,7 @@ impl InteractiveController {
                                 self.footer.show_notice(reason);
                             }
                         }
-                        return true;
+                        return Some(InteractiveAction::Continue);
                     }
                     1 => {
                         let mode = rest[0].clone();
@@ -964,11 +968,11 @@ impl InteractiveController {
                             self.footer.show_notice(
                                 "usage: /append-mode [--node <id>] [steering|followup]",
                             );
-                            return true;
+                            return Some(InteractiveAction::Continue);
                         }
                         if node.is_some() || self.nested_append_enabled() {
                             self.submit_nested_mode(node, mode);
-                            return true;
+                            return Some(InteractiveAction::Continue);
                         }
                         self.append_mode = mode.clone();
                         if let Some(loop_id) = self.active_agent_loop_id.clone() {
@@ -987,12 +991,12 @@ impl InteractiveController {
                                 "append mode set to {mode} (no active loop; staged locally)"
                             ));
                         }
-                        return true;
+                        return Some(InteractiveAction::Continue);
                     }
                     _ => {
                         self.footer
                             .show_notice("usage: /append-mode [--node <id>] [steering|followup]");
-                        return true;
+                        return Some(InteractiveAction::Continue);
                     }
                 }
             }
@@ -1001,11 +1005,11 @@ impl InteractiveController {
                 if !rest.is_empty() {
                     self.footer
                         .show_notice("usage: /convert-pending [--node <id>]");
-                    return true;
+                    return Some(InteractiveAction::Continue);
                 }
                 if node.is_some() || self.nested_append_enabled() {
                     self.submit_nested_convert(node);
-                    return true;
+                    return Some(InteractiveAction::Continue);
                 }
                 if let Some(loop_id) = self.active_agent_loop_id.clone() {
                     let client = self.client.clone();
@@ -1022,7 +1026,7 @@ impl InteractiveController {
                 } else {
                     self.footer.show_notice("no active agent loop");
                 }
-                return true;
+                return Some(InteractiveAction::Continue);
             }
             "/loops" | "/agent-loops" => {
                 let tokens: Vec<&str> = argument.split_whitespace().collect();
@@ -1037,26 +1041,23 @@ impl InteractiveController {
                         self.footer.show_notice("usage: /loops [execution-id]");
                     }
                 }
-                return true;
+                return Some(InteractiveAction::Continue);
             }
             "/nested-select" | "/select-loop" => {
                 let tokens: Vec<&str> = argument.split_whitespace().collect();
                 if tokens.len() != 1 {
                     self.footer
                         .show_notice("usage: /nested-select <node-id|number>");
-                    return true;
+                    return Some(InteractiveAction::Continue);
                 }
                 self.select_nested_target(tokens[0]);
-                return true;
+                return Some(InteractiveAction::Continue);
             }
             _ => {}
         }
 
         match command::lookup_slash(command_text) {
-            Some(spec) => {
-                self.run_command(spec, argument);
-                true
-            }
+            Some(spec) => Some(self.run_command(spec, argument)),
             None => {
                 let suggestions = command::slash_suggestions(command_text, 3);
                 let message = if suggestions.is_empty() {
@@ -1068,7 +1069,7 @@ impl InteractiveController {
                     )
                 };
                 self.footer.show_notice(message);
-                true
+                Some(InteractiveAction::Continue)
             }
         }
     }
@@ -2156,6 +2157,24 @@ mod tests {
             .notice
             .as_ref()
             .is_some_and(|(text, _)| text.contains("unknown command")));
+    }
+
+    #[tokio::test]
+    async fn typed_tree_and_fork_commands_reach_the_shell() {
+        use crate::interactive::InteractiveAction;
+        let mut ctl = started_controller().await;
+        assert!(matches!(
+            ctl.handle_command_line("/tree"),
+            Some(InteractiveAction::OpenSessionTree)
+        ));
+        assert!(matches!(
+            ctl.handle_command_line("/fork"),
+            Some(InteractiveAction::ForkLatest)
+        ));
+        assert!(matches!(
+            ctl.handle_command_line("/branch"),
+            Some(InteractiveAction::ForkLatest)
+        ));
     }
 
     #[tokio::test]

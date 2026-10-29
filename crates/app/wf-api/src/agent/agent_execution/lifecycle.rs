@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use wf_tools::callback::AgentLoopOutput;
@@ -66,10 +67,10 @@ pub async fn run(
 /// lifecycle, iteration boundaries, terminal outcome) flow through the
 /// returned stream.
 pub async fn stream(
-    ctx: &ApiContext,
+    ctx: Arc<ApiContext>,
     params: RunAgentLoopParams,
 ) -> crate::infra::error::ApiResult<ExecutionEventStream> {
-    gate_agent_config(ctx, &params.config)?;
+    gate_agent_config(&ctx, &params.config)?;
     // Resolve the loop id up front (instead of inside the coordinator) so
     // the host-default approval handler can scope its interaction records
     // to the same execution.
@@ -77,12 +78,12 @@ pub async fn stream(
         .agent_loop_id
         .clone()
         .unwrap_or_else(|| wf_types::Id::from(wf_common::generate_id()));
-    let mut coordinator = coordinator_for(ctx, &params, Some(agent_loop_id.as_str()));
-    coordinator = coordinator.with_agent_loop_id(agent_loop_id);
+    let mut coordinator = coordinator_for(&ctx, &params, Some(agent_loop_id.as_str()));
+    coordinator = coordinator.with_agent_loop_id(agent_loop_id.clone());
     let stream = coordinator
         .execute_stream(params.config, params.input)
         .await;
-    Ok(ExecutionEventStream::from_agent_stream(stream))
+    Ok(ExecutionEventStream::from_agent_stream(stream).with_persist(ctx, agent_loop_id.to_string()))
 }
 
 /// Pause a running agent loop (checked between iterations).

@@ -46,6 +46,7 @@ pub mod search_palette;
 pub mod session_holder;
 pub mod session_list;
 pub mod session_tabs;
+pub mod session_tree;
 pub mod size;
 pub mod state;
 pub mod tab_persistence;

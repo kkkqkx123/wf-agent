@@ -62,7 +62,7 @@ impl std::fmt::Debug for RunAgentLoopParams {
 }
 
 mod accessor;
-mod checkpoint;
+pub mod checkpoint;
 mod lifecycle;
 #[cfg(test)]
 mod tests;

@@ -547,6 +547,8 @@ pub struct LocalSettings {
     pub session_scrollbar: bool,
     pub sidebar: bool,
     pub copy_target: String,
+    /// Double-Esc action label (`tree` / `fork` / `off`).
+    pub double_escape: String,
     pub tool_output_enabled: bool,
     pub tool_output_level: String,
     pub preview_max_lines: usize,

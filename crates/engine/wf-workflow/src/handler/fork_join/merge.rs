@@ -145,7 +145,14 @@ pub fn aggregate_branch_variables(
 
 /// Merge message contexts from the successful branches into the parent
 /// scope. A `message_outputs` mapping (`{ context_id, target_context_id }`)
-/// copies each branch's named message array into the parent context.
+/// appends each branch's named message array into the parent context.
+///
+/// Reads the explicit `BranchResult::message_contexts` export first; the
+/// legacy `variables["__msg_ctx__*"]` lookup stays as a fallback for
+/// hand-built records and old `__fork_outputs_*` snapshots (which never
+/// carried messages in production). Archived histories merge into the
+/// parent's archived history (id-deduplicated); the parent ledger is
+/// rebuilt incrementally by `append_context`.
 pub fn aggregate_branch_messages(ctx: &mut NodeExecutionContext, success_records: &[BranchResult]) {
     let Some(config) = &ctx.node_config else {
         return;
@@ -154,9 +161,6 @@ pub fn aggregate_branch_messages(ctx: &mut NodeExecutionContext, success_records
         return;
     };
     for record in success_records {
-        let Some(ref variables) = record.variables else {
-            continue;
-        };
         for mapping in outputs {
             let context_id = mapping
                 .get("context_id")
@@ -169,15 +173,75 @@ pub fn aggregate_branch_messages(ctx: &mut NodeExecutionContext, success_records
             if context_id.is_empty() || target_context_id.is_empty() {
                 continue;
             }
-            let key = format!("{}{}", crate::message_context::CONTEXT_PREFIX, context_id);
-            if let Some(value) = variables.get(&key) {
-                if let Ok(messages) =
-                    serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone())
-                {
-                    crate::message_context::append_context(
+            let value = record
+                .message_contexts
+                .as_ref()
+                .and_then(|contexts| contexts.get(context_id))
+                .or_else(|| {
+                    record.variables.as_ref().and_then(|variables| {
+                        variables.get(&format!(
+                            "{}{}",
+                            crate::message_context::CONTEXT_PREFIX,
+                            context_id
+                        ))
+                    })
+                });
+            if let Some(history_value) = record
+                .message_histories
+                .as_ref()
+                .and_then(|histories| histories.get(context_id))
+            {
+                match serde_json::from_value::<Vec<wf_types::message::Message>>(
+                    history_value.clone(),
+                ) {
+                    Ok(history) => crate::message_context::merge_archived_history(
                         &ctx.variables,
                         target_context_id,
-                        messages,
+                        history,
+                    ),
+                    Err(e) => {
+                        tracing::warn!(
+                            branch_id = %record.branch_id,
+                            context_id = %context_id,
+                            error = %e,
+                            "JOIN message history failed to parse; skipping history merge"
+                        );
+                        crate::degradation::emit_data_degradation(
+                            ctx.event_bus.as_deref(),
+                            None,
+                            &ctx.execution_id,
+                            "join_message_histories",
+                            &format!(
+                                "branch '{}' message history '{}' failed to parse: {}",
+                                record.branch_id, context_id, e
+                            ),
+                        );
+                    }
+                }
+            }
+            let Some(value) = value else { continue };
+            match serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone()) {
+                Ok(messages) => crate::message_context::append_context(
+                    &ctx.variables,
+                    target_context_id,
+                    messages,
+                ),
+                Err(e) => {
+                    tracing::warn!(
+                        branch_id = %record.branch_id,
+                        context_id = %context_id,
+                        error = %e,
+                        "JOIN message context failed to parse; skipping branch contribution"
+                    );
+                    crate::degradation::emit_data_degradation(
+                        ctx.event_bus.as_deref(),
+                        None,
+                        &ctx.execution_id,
+                        "join_message_outputs",
+                        &format!(
+                            "branch '{}' message context '{}' failed to parse: {}",
+                            record.branch_id, context_id, e
+                        ),
                     );
                 }
             }
@@ -268,6 +332,90 @@ mod tests {
     }
 
     #[test]
+    fn aggregate_messages_reads_explicit_export_and_merges_history() {
+        use std::sync::Arc;
+        use wf_execution_shared::context::NodeExecutionContext;
+        use wf_types::node::StaticNodeType;
+
+        let msg = |id: &str, text: &str| {
+            serde_json::json!({
+                "id": id,
+                "role": "assistant",
+                "content": text,
+                "timestamp": 0,
+            })
+        };
+        let active_b1 = vec![msg("m1", "from b1")];
+        let history_b1 = vec![msg("m0", "archived b1")];
+        // Old-shape record without the explicit export stays parseable and
+        // contributes nothing (production never carried messages in
+        // `variables`).
+        let (old_records, _) = collect_branch_records(&serde_json::json!({
+            "results": [{"branch_id": "old", "output": {}, "success": true}]
+        }));
+        assert!(old_records[0].message_contexts.is_none());
+
+        let record = BranchResult::success("b1", serde_json::json!({})).with_message_contexts(
+            std::collections::HashMap::from([(
+                "chat".to_string(),
+                serde_json::to_value(&active_b1).unwrap(),
+            )]),
+            std::collections::HashMap::from([(
+                "chat".to_string(),
+                serde_json::to_value(&history_b1).unwrap(),
+            )]),
+        );
+        let vars = Arc::new(dashmap::DashMap::new());
+        let mut ctx = NodeExecutionContext::new(
+            wf_types::Id::new(),
+            "join1".to_string(),
+            StaticNodeType::Join,
+            serde_json::Value::Null,
+            vars.clone(),
+        )
+        .with_node_config(serde_json::json!({
+            "message_outputs": [{"context_id": "chat", "target_context_id": "merged"}]
+        }));
+        aggregate_branch_messages(&mut ctx, &[record]);
+        let active = crate::message_context::get_context(&vars, "merged");
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].id, "m1");
+        let archived = crate::message_context::archived_history(&vars, "merged");
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].id, "m0");
+        // Parent ledger is rebuilt incrementally by the append.
+        assert!(crate::message_context::ledger_estimated_tokens(&vars, "merged") > 0);
+    }
+
+    #[test]
+    fn aggregate_messages_degrades_corrupted_export_without_failing() {
+        use std::sync::Arc;
+        use wf_execution_shared::context::NodeExecutionContext;
+        use wf_types::node::StaticNodeType;
+
+        let record = BranchResult::success("b1", serde_json::json!({})).with_message_contexts(
+            std::collections::HashMap::from([(
+                "chat".to_string(),
+                serde_json::json!("not-a-message-array"),
+            )]),
+            std::collections::HashMap::new(),
+        );
+        let vars = Arc::new(dashmap::DashMap::new());
+        let mut ctx = NodeExecutionContext::new(
+            wf_types::Id::new(),
+            "join1".to_string(),
+            StaticNodeType::Join,
+            serde_json::Value::Null,
+            vars.clone(),
+        )
+        .with_node_config(serde_json::json!({
+            "message_outputs": [{"context_id": "chat", "target_context_id": "merged"}]
+        }));
+        aggregate_branch_messages(&mut ctx, &[record]);
+        assert!(crate::message_context::get_context(&vars, "merged").is_empty());
+    }
+
+    #[test]
     fn fork_output_key_roundtrip_for_checkpoint_resume() {
         let key = super::super::fork_output_key("f1");
         assert!(key.starts_with("__"));
@@ -299,12 +447,7 @@ mod tests {
             records[0].variables.as_ref().and_then(|m| m.get("value")),
             Some(&serde_json::json!(1))
         );
-        let merged = merge_outputs(
-            &records
-                .iter()
-                .map(|r| r.output.clone())
-                .collect::<Vec<_>>(),
-        );
+        let merged = merge_outputs(&records.iter().map(|r| r.output.clone()).collect::<Vec<_>>());
         assert_eq!(merged, serde_json::json!({"x": 1, "y": 2}));
     }
 }

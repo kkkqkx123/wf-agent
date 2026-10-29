@@ -17,6 +17,18 @@ pub struct BranchResult {
     /// failed before the snapshot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variables: Option<std::collections::HashMap<String, serde_json::Value>>,
+    /// Explicit message-context export, independent of the public variable
+    /// table (`__` filtering never carries `__msg_ctx__*`). Keyed by
+    /// normalized context id (prefix stripped), values are the raw message
+    /// array JSON; corrupted entries are carried verbatim and degrade at the
+    /// consumer. `None` for old records and branches with no messages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_contexts: Option<std::collections::HashMap<String, serde_json::Value>>,
+    /// Archived (superseded) history paired with `message_contexts`, keyed
+    /// the same way. Merged into the parent's archived history on JOIN/SYNC
+    /// so cross-domain handover is lossless.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_histories: Option<std::collections::HashMap<String, serde_json::Value>>,
 }
 
 impl BranchResult {
@@ -27,6 +39,8 @@ impl BranchResult {
             output,
             failure: None,
             variables: None,
+            message_contexts: None,
+            message_histories: None,
         }
     }
 
@@ -41,7 +55,29 @@ impl BranchResult {
             output,
             failure: None,
             variables: Some(variables),
+            message_contexts: None,
+            message_histories: None,
         }
+    }
+
+    /// Attach the explicit message export snapshots. Empty maps are stored
+    /// as `None` so branches without messages keep the old shape.
+    pub fn with_message_contexts(
+        mut self,
+        contexts: std::collections::HashMap<String, serde_json::Value>,
+        histories: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Self {
+        self.message_contexts = if contexts.is_empty() {
+            None
+        } else {
+            Some(contexts)
+        };
+        self.message_histories = if histories.is_empty() {
+            None
+        } else {
+            Some(histories)
+        };
+        self
     }
 
     pub fn failure(branch_id: impl Into<String>, detail: impl Into<String>) -> Self {
@@ -54,6 +90,8 @@ impl BranchResult {
                 detail: detail.into(),
             }),
             variables: None,
+            message_contexts: None,
+            message_histories: None,
         }
     }
 

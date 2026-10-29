@@ -241,6 +241,10 @@ async fn collect_from_registry(
                 path_id,
                 record.output.clone().unwrap_or(Value::Null),
                 record.variables.clone(),
+            )
+            .with_message_contexts(
+                record.message_contexts.clone(),
+                record.message_histories.clone(),
             ),
             BranchStatus::Failed => BranchResult::failure(
                 path_id,

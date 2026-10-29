@@ -272,6 +272,56 @@ pub fn resolve_source_target(config: &Value, default: &str) -> (String, String) 
     (source, target)
 }
 
+/// Snapshot the explicit branch message export: active views keyed by
+/// normalized context id plus archived histories keyed the same way.
+/// Values are raw message-array JSON; corrupted entries are carried
+/// verbatim so the consumer can degrade loudly instead of dropping
+/// silently at the boundary.
+pub fn snapshot_branch_messages(
+    variables: &DashMap<String, Value>,
+) -> (
+    std::collections::HashMap<String, Value>,
+    std::collections::HashMap<String, Value>,
+) {
+    let mut contexts = std::collections::HashMap::new();
+    let mut histories = std::collections::HashMap::new();
+    for entry in variables.iter() {
+        if let Some(context_id) = entry.key().strip_prefix(CONTEXT_PREFIX) {
+            contexts.insert(context_id.to_string(), entry.value().clone());
+        } else if let Some(context_id) = entry.key().strip_prefix(CONTEXT_HISTORY_PREFIX) {
+            histories.insert(context_id.to_string(), entry.value().clone());
+        }
+    }
+    (contexts, histories)
+}
+
+/// Merge incoming archived messages into a context's archived history,
+/// deduplicated by message id and preserving first-seen order.
+pub fn merge_archived_history(
+    variables: &DashMap<String, Value>,
+    context_id: &str,
+    incoming: Vec<Message>,
+) {
+    if incoming.is_empty() {
+        return;
+    }
+    let mut history = archived_history(variables, context_id);
+    let mut known: std::collections::HashSet<String> =
+        history.iter().map(|m| m.id.clone()).collect();
+    let mut changed = false;
+    for message in incoming {
+        if known.insert(message.id.clone()) {
+            history.push(message);
+            changed = true;
+        }
+    }
+    if changed {
+        if let Ok(value) = serde_json::to_value(&history) {
+            variables.insert(history_key(context_id), value);
+        }
+    }
+}
+
 /// Whether a named context has been registered (even when empty).
 pub fn has_context(variables: &DashMap<String, Value>, context_id: &str) -> bool {
     variables.contains_key(&context_key(context_id))

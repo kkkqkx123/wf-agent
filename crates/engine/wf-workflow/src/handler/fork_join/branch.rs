@@ -131,14 +131,18 @@ pub async fn run_branch(
     );
 
     // Record the settlement in the fork registry (idempotent; first
-    // settlement wins). Wakes SYNC/JOIN waiters.
+    // settlement wins). Wakes SYNC/JOIN waiters. The explicit message
+    // export travels alongside the public variable snapshot because `__`
+    // filtering never carries message keys.
     if let Some(registry) = &fork_registry {
-        registry.settle(
+        registry.settle_with_messages(
             &path_id,
             result.success,
             result.output.clone(),
             result.error_message().map(|s| s.to_string()),
             result.variables.clone(),
+            result.message_contexts.clone(),
+            result.message_histories.clone(),
         );
     }
     result
@@ -369,11 +373,16 @@ async fn execute_branch(
     };
 
     match run_result {
-        Ok(output) => Ok(BranchResult::success_with_variables(
-            branch_id,
-            output,
-            public_variables(&branch_variables),
-        )),
+        Ok(output) => {
+            let (message_contexts, message_histories) =
+                crate::message_context::snapshot_branch_messages(&branch_variables);
+            Ok(BranchResult::success_with_variables(
+                branch_id,
+                output,
+                public_variables(&branch_variables),
+            )
+            .with_message_contexts(message_contexts, message_histories))
+        }
         Err(e) => Ok(BranchResult::failure(branch_id, e.to_string())
             .with_category(crate::error_branch::classify_error(&e))),
     }

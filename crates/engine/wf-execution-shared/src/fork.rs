@@ -110,6 +110,13 @@ pub struct BranchRecord {
     /// every completed node while the branch runs and frozen at settlement,
     /// so SYNC nodes can read the source branch's intermediate state.
     pub variables: HashMap<String, Value>,
+    /// Explicit message-context export (active views, keyed by normalized
+    /// context id). Updated alongside `variables` so live SYNC reads see
+    /// branch messages; frozen at settlement for JOIN aggregation.
+    pub message_contexts: HashMap<String, Value>,
+    /// Archived histories paired with `message_contexts`, keyed the same
+    /// way, for lossless handover into the parent's archived history.
+    pub message_histories: HashMap<String, Value>,
 }
 
 impl BranchRecord {
@@ -164,6 +171,8 @@ impl ForkRegistry {
             output: None,
             error: None,
             variables: HashMap::new(),
+            message_contexts: HashMap::new(),
+            message_histories: HashMap::new(),
         });
         record.execution_id = Some(execution_id);
     }
@@ -177,6 +186,22 @@ impl ForkRegistry {
         }
     }
 
+    /// Replace the branch's explicit message export (written after every
+    /// completed node alongside `update_variables`, since `__` filtering
+    /// never carries message keys in the variable snapshot).
+    pub fn update_message_contexts(
+        &self,
+        path_id: &str,
+        contexts: HashMap<String, Value>,
+        histories: HashMap<String, Value>,
+    ) {
+        let mut guard = self.inner.lock().expect("fork registry poisoned");
+        if let Some(record) = guard.get_mut(path_id) {
+            record.message_contexts = contexts;
+            record.message_histories = histories;
+        }
+    }
+
     /// Record the branch settlement and wake all waiters. Idempotent: later
     /// calls on a settled branch are ignored (the first settlement wins).
     pub fn settle(
@@ -187,6 +212,23 @@ impl ForkRegistry {
         error: Option<String>,
         variables: Option<HashMap<String, Value>>,
     ) {
+        self.settle_with_messages(path_id, success, output, error, variables, None, None);
+    }
+
+    /// Settlement carrying the explicit message export alongside the public
+    /// variable snapshot. `None` message maps leave the live-published
+    /// message snapshot in place.
+    #[allow(clippy::too_many_arguments)]
+    pub fn settle_with_messages(
+        &self,
+        path_id: &str,
+        success: bool,
+        output: Value,
+        error: Option<String>,
+        variables: Option<HashMap<String, Value>>,
+        message_contexts: Option<HashMap<String, Value>>,
+        message_histories: Option<HashMap<String, Value>>,
+    ) {
         let mut guard = self.inner.lock().expect("fork registry poisoned");
         let record = guard
             .entry(path_id.to_string())
@@ -196,6 +238,8 @@ impl ForkRegistry {
                 output: None,
                 error: None,
                 variables: HashMap::new(),
+                message_contexts: HashMap::new(),
+                message_histories: HashMap::new(),
             });
         if record.status != BranchStatus::Running {
             return;
@@ -209,6 +253,12 @@ impl ForkRegistry {
         record.error = error;
         if let Some(vars) = variables {
             record.variables = vars;
+        }
+        if let Some(contexts) = message_contexts {
+            record.message_contexts = contexts;
+        }
+        if let Some(histories) = message_histories {
+            record.message_histories = histories;
         }
         drop(guard);
         self.notify_for(path_id).notify_waiters();
@@ -227,6 +277,8 @@ impl ForkRegistry {
                 output: None,
                 error: None,
                 variables: HashMap::new(),
+                message_contexts: HashMap::new(),
+                message_histories: HashMap::new(),
             });
         if record.status != BranchStatus::Running {
             return;

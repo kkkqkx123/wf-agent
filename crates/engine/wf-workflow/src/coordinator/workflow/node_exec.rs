@@ -331,6 +331,8 @@ impl WorkflowCoordinator {
 
         // Publish the branch's public variables into the fork registry after
         // every completed node (SYNC reads the source branch's live state).
+        // Message contexts travel through the explicit export channel: `__`
+        // filtering never carries them in the variable snapshot.
         if let Some((registry, path_id)) = &self.fork_branch_progress {
             let snapshot = self
                 .ctx
@@ -340,6 +342,9 @@ impl WorkflowCoordinator {
                 .map(|entry| (entry.key().clone(), entry.value().clone()))
                 .collect();
             registry.update_variables(path_id, snapshot);
+            let (contexts, histories) =
+                crate::message_context::snapshot_branch_messages(&self.ctx.variables);
+            registry.update_message_contexts(path_id, contexts, histories);
         }
 
         // An explicit merge point brings isolated error-branch writes back to

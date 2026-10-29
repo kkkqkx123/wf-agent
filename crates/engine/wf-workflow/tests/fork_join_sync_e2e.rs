@@ -311,6 +311,111 @@ async fn join_aggregates_variables_and_failure_info() {
     );
 }
 
+/// JOIN merges branch message contexts (explicit export) into the parent
+/// scope; SYNC copies a single branch context into the target scope.
+#[tokio::test]
+async fn join_and_sync_propagate_branch_message_contexts() {
+    // start -> fork(p1 -> a, p2 -> b) -> join -> sync -> end. Both branches
+    // append one message to `chat`; the JOIN appends both into `merged` and
+    // the SYNC copies `chat` from branch p1 into `copied`.
+    let g = graph(
+        vec![
+            node("start", "START", serde_json::json!({})),
+            node(
+                "fork",
+                "FORK",
+                serde_json::json!({
+                    "fork_paths": [
+                        {"path_id": "p1", "child_node_id": "a"},
+                        {"path_id": "p2", "child_node_id": "b"}
+                    ]
+                }),
+            ),
+            node(
+                "a",
+                "SCRIPT",
+                serde_json::json!({"script_name": "sA", "risk": "medium", "name": "a"}),
+            ),
+            node(
+                "b",
+                "SCRIPT",
+                serde_json::json!({"script_name": "sB", "risk": "medium", "name": "b"}),
+            ),
+            node(
+                "join",
+                "JOIN",
+                serde_json::json!({
+                    "fork_path_ids": ["p1", "p2"],
+                    "join_strategy": "wait_for_all",
+                    "message_outputs": [
+                        {"context_id": "chat", "target_context_id": "merged"}
+                    ]
+                }),
+            ),
+            node(
+                "sync",
+                "SYNC",
+                serde_json::json!({
+                    "source_path_id": "p1",
+                    "wait_for_completion": true,
+                    "timeout": 2000,
+                    "message_inputs": [
+                        {"source_context_id": "chat", "internal_name": "copied", "required": true}
+                    ]
+                }),
+            ),
+            node("end", "END", serde_json::json!({})),
+        ],
+        vec![
+            edge("start", "fork"),
+            edge("fork", "a"),
+            edge("fork", "b"),
+            edge("a", "join"),
+            edge("b", "join"),
+            edge("join", "sync"),
+            edge("sync", "end"),
+        ],
+        "start",
+        vec!["end"],
+    );
+
+    let mut reg = HandlerRegistry::new();
+    reg.register_defaults(Arc::new(wf_llm::LlmGateway::new()));
+    reg.register(Box::new(ExporterScript {
+        variable_name: "value".to_string(),
+        context_id: "chat".to_string(),
+    }));
+    let captured = Arc::new(std::sync::Mutex::new(serde_json::Value::Null));
+    reg.register(Box::new(CaptureEnd {
+        captured: captured.clone(),
+        captured_input: None,
+    }));
+    let _ = run_workflow(g, reg.into_arc())
+        .await
+        .expect("fork/join/sync message propagation must complete");
+    let vars = captured.lock().unwrap().clone();
+    let merged = vars
+        .get("__msg_ctx__merged")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        merged.len(),
+        2,
+        "both branches appended into the parent context: {vars:?}"
+    );
+    let copied = vars
+        .get("__msg_ctx__copied")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        copied.len(),
+        1,
+        "sync copied the source branch context: {vars:?}"
+    );
+}
+
 /// END stand-in that records the parent variable map for assertions.
 struct CaptureEnd {
     captured: Arc<std::sync::Mutex<serde_json::Value>>,

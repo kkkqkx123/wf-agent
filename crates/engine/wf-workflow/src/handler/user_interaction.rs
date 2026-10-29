@@ -813,8 +813,7 @@ mod tests {
         let interaction_id = loop {
             match sub.recv().await {
                 Ok(event)
-                    if event.r#type
-                        == wf_types::events::EventType::FollowupQuestionRequested =>
+                    if event.r#type == wf_types::events::EventType::FollowupQuestionRequested =>
                 {
                     break event
                         .metadata

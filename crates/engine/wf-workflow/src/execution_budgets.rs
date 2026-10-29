@@ -185,7 +185,17 @@ pub fn continuation_options(
         config.get("executed_ms").and_then(|v| v.as_u64()),
     ) {
         let mut options: wf_types::workflow_execution::WorkflowExecutionOptions =
-            serde_json::from_value(nested.clone()).unwrap_or_else(|_| unbudgeted());
+            match serde_json::from_value(nested.clone()) {
+                Ok(options) => options,
+                Err(e) => {
+                    tracing::warn!(
+                        execution_id = %execution_id,
+                        error = %e,
+                        "nested execution options are corrupted, resuming without budgets"
+                    );
+                    unbudgeted()
+                }
+            };
         options.max_steps = None;
         options.max_execution_time = match options.max_execution_time {
             Some(total) if total > 0 => {
@@ -240,7 +250,9 @@ pub fn snapshot_elapsed_ms(execution_config: Option<&serde_json::Value>) -> u64 
     let Some(config) = execution_config else {
         return 0;
     };
-    let raw = config.get("elapsed_ms").or_else(|| config.get("executed_ms"));
+    let raw = config
+        .get("elapsed_ms")
+        .or_else(|| config.get("executed_ms"));
     match raw {
         None => 0,
         Some(v) => match v.as_u64() {

@@ -33,10 +33,9 @@ impl StartHandler {
             .get_variable(&internal::completed_marker(&ctx.node_id))
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        if marker_set && crate::loop_state::should_honor_completed_marker(
-            &ctx.variables,
-            &ctx.node_id,
-        )? {
+        if marker_set
+            && crate::loop_state::should_honor_completed_marker(&ctx.variables, &ctx.node_id)?
+        {
             return Ok(NodeExecutionResult::simple(ctx.input.clone()));
         }
         ctx.set_internal_variable(internal::completed_marker(&ctx.node_id), Value::from(true));
@@ -69,10 +68,9 @@ impl EndHandler {
             .get_variable(&internal::completed_marker(&ctx.node_id))
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        if marker_set && crate::loop_state::should_honor_completed_marker(
-            &ctx.variables,
-            &ctx.node_id,
-        )? {
+        if marker_set
+            && crate::loop_state::should_honor_completed_marker(&ctx.variables, &ctx.node_id)?
+        {
             return Ok(NodeExecutionResult::simple(ctx.input.clone()));
         }
         ctx.set_internal_variable(internal::completed_marker(&ctx.node_id), Value::from(true));

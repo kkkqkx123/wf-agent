@@ -103,49 +103,51 @@ impl SyncHandler {
             }
         }
 
-        let source_variables = if let Some(registry) = &registry {
-            registry.get(&source_path_id).map(|record| record.variables)
+        // Source branch state for variable and message sync. The live
+        // registry is preferred; without it (e.g. the fork ran in an
+        // earlier execution whose registry is gone) the SYNC falls back to
+        // the recorded fork output variable. The fallback is intentionally
+        // decoupled from `variable_mappings`: a message-only SYNC must also
+        // reach the recorded branch results.
+        struct BranchSource {
+            variables: std::collections::HashMap<String, Value>,
+            message_contexts: std::collections::HashMap<String, Value>,
+            message_histories: std::collections::HashMap<String, Value>,
+        }
+        let source: Option<BranchSource> = if let Some(registry) = &registry {
+            registry.get(&source_path_id).map(|record| BranchSource {
+                variables: record.variables,
+                message_contexts: record.message_contexts,
+                message_histories: record.message_histories,
+            })
         } else {
             // Compatibility fallback: the fork hands over
             // `__fork_outputs_<fork_id>` (see
             // `crate::handler::fork_join::fork_output_key`) carrying
-            // per-branch results including a public-variable snapshot.
-            config
-                .get("variable_mappings")
-                .and_then(|v| v.as_array())
-                .and_then(|_| {
-                    ctx.graph_structure
-                        .as_ref()
-                        .and_then(|g| find_fork_by_path(g, &source_path_id))
-                        .and_then(|fork_id| {
-                            ctx.get_variable(&crate::handler::fork_join::fork_output_key(&fork_id))
-                        })
-                        .and_then(|output| {
-                            output
-                                .get("results")
-                                .and_then(|v| v.as_array())
-                                .and_then(|records| {
-                                    records.iter().find_map(|record| {
-                                        let branch_id = record
-                                            .get("branch_id")
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or_default();
-                                        if branch_id == source_path_id {
-                                            record.get("variables").and_then(|v| v.as_object()).map(
-                                                |obj| {
-                                                    obj.iter()
-                                                        .map(|(k, v)| (k.clone(), v.clone()))
-                                                        .collect()
-                                                },
-                                            )
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                })
-                        })
+            // per-branch results including the explicit message export.
+            ctx.graph_structure
+                .as_ref()
+                .and_then(|g| find_fork_by_path(g, &source_path_id))
+                .and_then(|fork_id| {
+                    ctx.get_variable(&crate::handler::fork_join::fork_output_key(&fork_id))
+                })
+                .and_then(|output| {
+                    let (records, _) =
+                        crate::handler::fork_join::merge::collect_branch_records(&output);
+                    records.into_iter().find_map(|record| {
+                        if record.branch_id == source_path_id {
+                            Some(BranchSource {
+                                variables: record.variables.unwrap_or_default(),
+                                message_contexts: record.message_contexts.unwrap_or_default(),
+                                message_histories: record.message_histories.unwrap_or_default(),
+                            })
+                        } else {
+                            None
+                        }
+                    })
                 })
         };
+        let source_variables = source.as_ref().map(|s| &s.variables);
 
         let mut synced_variables: Vec<String> = Vec::new();
 
@@ -200,10 +202,14 @@ impl SyncHandler {
         }
 
         // 3. Message context sync: copy named message arrays from the source
-        // branch's exported variables into the target scope.
-        if let (Some(message_inputs), Some(source_vars)) = (
+        // branch's explicit message export into the target scope (copy, not
+        // append: the source active view becomes the target active view and
+        // the source history merges into the target history). Falls back to
+        // the legacy `variables["__msg_ctx__*"]` lookup for hand-built and
+        // old snapshot records.
+        if let (Some(message_inputs), Some(branch)) = (
             config.get("message_inputs").and_then(|v| v.as_array()),
-            source_variables.as_ref(),
+            source.as_ref(),
         ) {
             for entry in message_inputs {
                 let source_context_id = entry
@@ -221,42 +227,101 @@ impl SyncHandler {
                 if source_context_id.is_empty() || internal_name.is_empty() {
                     continue;
                 }
-                let key = format!(
-                    "{}{}",
-                    crate::message_context::CONTEXT_PREFIX,
-                    source_context_id
-                );
-                if let Some(value) = source_vars.get(&key) {
-                    match serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone()) {
-                        Ok(messages) => crate::message_context::register_context(
-                            &ctx.variables,
-                            internal_name,
-                            messages,
-                        ),
+                let value = branch.message_contexts.get(source_context_id).or_else(|| {
+                    branch.variables.get(&format!(
+                        "{}{}",
+                        crate::message_context::CONTEXT_PREFIX,
+                        source_context_id
+                    ))
+                });
+                let history = branch.message_histories.get(source_context_id).and_then(
+                    |history_value| match serde_json::from_value::<Vec<wf_types::message::Message>>(
+                        history_value.clone(),
+                    ) {
+                        Ok(history) => Some(history),
                         Err(e) => {
                             tracing::warn!(
                                 node_id = %ctx.node_id,
                                 context_id = %source_context_id,
                                 error = %e,
-                                "SYNC message context failed to parse; registering nothing"
+                                "SYNC message history failed to parse; skipping history merge"
                             );
                             crate::degradation::emit_data_degradation(
                                 ctx.event_bus.as_deref(),
                                 None,
                                 &ctx.execution_id,
-                                "sync_message_inputs",
+                                "sync_message_histories",
                                 &format!(
-                                    "message context '{}' failed to parse: {}",
+                                    "message history '{}' failed to parse: {}",
                                     source_context_id, e
                                 ),
                             );
+                            None
+                        }
+                    },
+                );
+                let Some(value) = value else {
+                    // No active view: still merge a valid history so archived
+                    // content is not lost, then enforce the required gate.
+                    if let Some(history) = history {
+                        crate::message_context::merge_archived_history(
+                            &ctx.variables,
+                            internal_name,
+                            history,
+                        );
+                    }
+                    if required {
+                        return Err(WorkflowError::ForkJoinError(format!(
+                            "SYNC node '{}': required message context '{}' not found in source branch '{}'",
+                            ctx.node_id, source_context_id, source_path_id
+                        )));
+                    }
+                    continue;
+                };
+                match serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone()) {
+                    Ok(messages) => {
+                        // Register first so the target's previous active view
+                        // is archived before the source history merges in.
+                        crate::message_context::register_context(
+                            &ctx.variables,
+                            internal_name,
+                            messages,
+                        );
+                        if let Some(history) = history {
+                            crate::message_context::merge_archived_history(
+                                &ctx.variables,
+                                internal_name,
+                                history,
+                            );
                         }
                     }
-                } else if required {
-                    return Err(WorkflowError::ForkJoinError(format!(
-                        "SYNC node '{}': required message context '{}' not found in source branch '{}'",
-                        ctx.node_id, source_context_id, source_path_id
-                    )));
+                    Err(e) => {
+                        tracing::warn!(
+                            node_id = %ctx.node_id,
+                            context_id = %source_context_id,
+                            error = %e,
+                            "SYNC message context failed to parse; registering nothing"
+                        );
+                        crate::degradation::emit_data_degradation(
+                            ctx.event_bus.as_deref(),
+                            None,
+                            &ctx.execution_id,
+                            "sync_message_inputs",
+                            &format!(
+                                "message context '{}' failed to parse: {}",
+                                source_context_id, e
+                            ),
+                        );
+                        // The active view is unreadable, but a valid history
+                        // is still worth preserving.
+                        if let Some(history) = history {
+                            crate::message_context::merge_archived_history(
+                                &ctx.variables,
+                                internal_name,
+                                history,
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -385,9 +450,7 @@ mod tests {
     use dashmap::DashMap;
     use wf_types::node::StaticNodeType;
     use wf_types::workflow::EdgeType;
-    use wf_types::workflow_execution::{
-        WorkflowEdge, WorkflowGraphStructure, WorkflowNode,
-    };
+    use wf_types::workflow_execution::{WorkflowEdge, WorkflowGraphStructure, WorkflowNode};
 
     fn graph_with_fork(fork_id: &str, path_id: &str) -> Arc<WorkflowGraphStructure> {
         Arc::new(WorkflowGraphStructure {
@@ -472,6 +535,58 @@ mod tests {
             crate::message_context::get_context(&vars, "synced").is_empty(),
             "nothing is registered from an unparseable array"
         );
+    }
+
+    #[tokio::test]
+    async fn message_only_fallback_needs_no_variable_mappings() {
+        let vars = Arc::new(DashMap::new());
+        // Explicit message export in the recorded fork output; no
+        // `variable_mappings` configured at all (the old gate would have
+        // returned an empty source and silently skipped the sync).
+        vars.insert(
+            crate::handler::fork_join::fork_output_key("fork1"),
+            serde_json::json!({
+                "results": [{
+                    "branch_id": "p1",
+                    "output": {},
+                    "success": true,
+                    "variables": {"value": 1},
+                    "message_contexts": {"chat": [{
+                        "id": "m1", "role": "assistant",
+                        "content": "from branch", "timestamp": 0
+                    }]},
+                    "message_histories": {"chat": [{
+                        "id": "m0", "role": "user",
+                        "content": "archived", "timestamp": 0
+                    }]}
+                }],
+                "outputs": [],
+                "outcome": "Succeeded"
+            }),
+        );
+        let mut ctx = ctx_with_fallback(
+            vars.clone(),
+            graph_with_fork("fork1", "p1"),
+            serde_json::json!({
+                "source_path_id": "p1",
+                "wait_for_completion": false,
+                "message_inputs": [{
+                    "source_context_id": "chat",
+                    "internal_name": "synced",
+                    "required": true
+                }]
+            }),
+        );
+        SyncHandler
+            .execute(&mut ctx)
+            .await
+            .expect("message-only fallback must copy without variable_mappings");
+        let active = crate::message_context::get_context(&vars, "synced");
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].id, "m1");
+        let archived = crate::message_context::archived_history(&vars, "synced");
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].id, "m0");
     }
 
     #[tokio::test]

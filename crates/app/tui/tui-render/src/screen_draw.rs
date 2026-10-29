@@ -1267,6 +1267,7 @@ pub struct SessionTreeView<'a> {
     pub rows: &'a [String],
     pub selected: usize,
     pub status: &'a str,
+    pub restore_prompt: bool,
 }
 
 /// Session tree browser overlay: centered floating list of one session's
@@ -1285,10 +1286,12 @@ pub fn draw_session_tree(frame: &mut Frame, area: Rect, view: &SessionTreeView, 
         ])
         .split(popup);
     let title = format!("Session tree {}", short_id(view.session_id));
-    let hint = Paragraph::new(
-        "↑/↓ move · PgUp/PgDn · Enter branch · Ctrl+Y copy · Ctrl+B mark · Ctrl+D/T/A/R filter · Ctrl+O cycle · ←/→ fold · type to search · Esc close",
-    )
-    .block(titled_block(&title, ColorRole::Accent, theme));
+    let hint_text = if view.restore_prompt {
+        "restore scope: 1 history · 2 workspace · 3 both · Esc cancel".to_string()
+    } else {
+        "↑/↓ move · PgUp/PgDn · Enter restore · Ctrl+Y copy · Ctrl+B mark · Ctrl+D/T/A/R filter · Ctrl+O cycle · Ctrl+E expand · Ctrl+G collapse · ←/→ fold · type to search · Esc close".to_string()
+    };
+    let hint = Paragraph::new(hint_text).block(titled_block(&title, ColorRole::Accent, theme));
     frame.render_widget(hint, chunks[0]);
     if view.rows.is_empty() {
         let empty = Paragraph::new("No entries match (change filter or clear search).")

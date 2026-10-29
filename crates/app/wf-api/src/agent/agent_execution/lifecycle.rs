@@ -83,7 +83,10 @@ pub async fn stream(
     let stream = coordinator
         .execute_stream(params.config, params.input)
         .await;
-    Ok(ExecutionEventStream::from_agent_stream(stream).with_persist(ctx, agent_loop_id.to_string()))
+    Ok(
+        ExecutionEventStream::from_agent_stream(stream)
+            .with_persist(ctx, agent_loop_id.to_string()),
+    )
 }
 
 /// Pause a running agent loop (checked between iterations).

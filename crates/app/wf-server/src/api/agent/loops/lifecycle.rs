@@ -162,7 +162,7 @@ pub(crate) async fn handle_run_loop(
     Json(body): Json<RunAgentLoopBody>,
 ) -> impl IntoResponse {
     match wf_api::agent::agent_execution::run(
-        state.ctx.clone(),
+        &state.ctx,
         match params_from_body(&state, body).await {
             Ok(params) => params,
             Err(e) => return error_response(e),

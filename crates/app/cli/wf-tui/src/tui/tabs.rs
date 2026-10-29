@@ -433,7 +433,25 @@ impl TuiApp {
     /// a child tab of the source session, and prefill user-message text so
     /// it can be edited and resent. Failures keep the tree open with its
     /// selection; success closes the tree and lands in the new tab.
-    pub(super) async fn branch_from_tree(&mut self) {
+    /// Resolve the file commit id linked to a state checkpoint, if any.
+    async fn resolve_state_file_commit(&self, checkpoint_id: &str) -> Option<String> {
+        let url = format!("/api/v1/file-checkpoint/state-links?ids={}", checkpoint_id);
+        let value: serde_json::Value = self.client.get_json(&url).await.ok()?;
+        let arr = value.as_array()?;
+        let first = arr.first()?;
+        if first.get("state").and_then(|v| v.as_str()) != Some("linked") {
+            return None;
+        }
+        first
+            .get("file_commit_id")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned)
+    }
+
+    pub(super) async fn branch_from_tree_with_scope(
+        &mut self,
+        scope: crate::session_tree::RestoreScope,
+    ) {
         let Some(source) = self.session_tree.session_id().map(str::to_owned) else {
             self.app.notice.set("tree: no session to branch");
             self.pending_scope.request(crate::redraw::RedrawScope::Full);
@@ -451,30 +469,87 @@ impl TuiApp {
             self.pending_scope.request(crate::redraw::RedrawScope::Full);
             return;
         };
-        match self.restore_checkpoint(&source, &checkpoint_id, true).await {
-            Ok(new_id) => {
-                let prefill = (node.kind == crate::session_tree::TreeNodeKind::User)
-                    .then(|| node.full_text.clone())
-                    .filter(|text| !text.trim().is_empty());
-                let short_source = crate::screens::short_id(&source);
-                let short_cp = crate::screens::short_id(&checkpoint_id);
-                self.session_tree.close();
-                self.overlay = OverlayMode::None;
-                self.open_tab_for_session(new_id.clone(), Some(source.clone()), prefill)
-                    .await;
-                Self::mark_branch_title(
-                    self.sessions.active_tab_mut(),
-                    &new_id,
-                    &crate::screens::short_id(&source),
-                );
-                self.app.notice.set(format!(
-                    "branched {short_source} at {short_cp} into a new tab (history preserved; branch, not in-place)"
-                ));
-            }
-            Err(err) => {
-                self.app.notice.set(format!("branch failed: {err}"));
+        let short_source = crate::screens::short_id(&source);
+        let short_cp = crate::screens::short_id(&checkpoint_id);
+        let mut notices: Vec<String> = Vec::new();
+        let mut state_ok = true;
+        let mut new_id: Option<String> = None;
+
+        // History restore (state) unless workspace-only.
+        if scope != crate::session_tree::RestoreScope::Workspace {
+            match self.restore_checkpoint(&source, &checkpoint_id, true).await {
+                Ok(id) => {
+                    new_id = Some(id);
+                    notices.push(format!(
+                        "history branched {short_source} at {short_cp} into a new tab"
+                    ));
+                }
+                Err(err) => {
+                    state_ok = false;
+                    self.app.notice.set(format!("branch failed: {err}"));
+                    self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                    return;
+                }
             }
         }
+
+        // Workspace restore unless history-only.
+        if scope != crate::session_tree::RestoreScope::History {
+            // Resolve the linked file commit via the state->file link.
+            let file_commit = self.resolve_state_file_commit(&checkpoint_id).await;
+            match file_commit {
+                Some(commit) => {
+                    let entity = source.clone();
+                    let body = serde_json::json!({
+                        "entity": entity,
+                        "checkpoint": commit,
+                    });
+                    match self
+                        .client
+                        .post_json::<_, serde_json::Value>("/api/v1/file-checkpoint/restore", &body)
+                        .await
+                    {
+                        Ok(value) => {
+                            let restored =
+                                value.get("restored").and_then(|v| v.as_u64()).unwrap_or(0);
+                            notices.push(format!(
+                                "workspace restored ({restored} file(s)) from {short_cp}"
+                            ));
+                        }
+                        Err(err) => {
+                            notices.push(format!("workspace restore failed: {err}"));
+                        }
+                    }
+                }
+                None => {
+                    notices.push(format!(
+                        "no linked workspace commit for {short_cp}; workspace unchanged"
+                    ));
+                }
+            }
+        }
+
+        // Land in the new tab when state was restored.
+        if let Some(id) = new_id {
+            let prefill = (node.kind == crate::session_tree::TreeNodeKind::User)
+                .then(|| node.full_text.clone())
+                .filter(|text| !text.trim().is_empty());
+            self.session_tree.close();
+            self.overlay = OverlayMode::None;
+            self.open_tab_for_session(id.clone(), Some(source.clone()), prefill)
+                .await;
+            Self::mark_branch_title(
+                self.sessions.active_tab_mut(),
+                &id,
+                &crate::screens::short_id(&source),
+            );
+        } else {
+            // Workspace-only: close the tree, stay on the current tab.
+            self.session_tree.close();
+            self.overlay = OverlayMode::None;
+        }
+        self.app.notice.set(notices.join("; "));
+        let _ = state_ok;
         self.pending_scope.request(crate::redraw::RedrawScope::Full);
     }
 

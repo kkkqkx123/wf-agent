@@ -460,6 +460,17 @@ pub struct AssembledTree {
     pub total_messages: usize,
 }
 
+/// Scope of a checkpoint restore triggered from the tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestoreScope {
+    /// Restore execution/agent-loop state only, into a new tab.
+    History,
+    /// Restore the linked workspace files only.
+    Workspace,
+    /// Restore both state and workspace files.
+    Both,
+}
+
 /// Session tree browser state: nodes plus view controls. The visible list is
 /// derived (filter -> search -> fold) and the selection survives view changes
 /// by node id, falling back to the nearest following row.
@@ -476,6 +487,8 @@ pub struct SessionTree {
     /// Client-side bookmarked node ids for this session. Set by the shell
     /// from the persisted bookmarks file; stale ids simply match nothing.
     bookmarks: HashSet<String>,
+    /// Whether the restore-scope selector is open on top of the tree.
+    restore_prompt: bool,
     truncated: bool,
     total_messages: usize,
     loading: bool,
@@ -498,6 +511,7 @@ impl SessionTree {
         self.search.clear();
         self.folded.clear();
         self.bookmarks.clear();
+        self.restore_prompt = false;
         self.truncated = false;
         self.total_messages = 0;
         self.loading = true;
@@ -555,6 +569,7 @@ impl SessionTree {
         self.selected_id = None;
         self.search.clear();
         self.folded.clear();
+        self.restore_prompt = false;
         self.loading = false;
         self.error = None;
     }
@@ -652,6 +667,11 @@ impl SessionTree {
         ];
         if !self.search.is_empty() {
             parts.push(format!("search: {}", self.search));
+        }
+        if let Some(node) = self.selected_node() {
+            if let Some(cp) = &node.checkpoint_id {
+                parts.push(format!("cp: {}", &cp[..cp.len().min(8)]));
+            }
         }
         if !self.folded.is_empty() {
             parts.push(format!("folded: {}", self.folded.len()));
@@ -767,6 +787,44 @@ impl SessionTree {
         } else {
             self.folded.insert(section);
         }
+        self.rebuild_visible();
+    }
+
+    /// Whether the restore-scope selector is currently open.
+    pub fn restore_prompt(&self) -> bool {
+        self.restore_prompt
+    }
+
+    /// Open the restore-scope selector on the current selection.
+    pub fn open_restore_prompt(&mut self) {
+        if self
+            .selected_node()
+            .and_then(|n| n.checkpoint_id.as_ref())
+            .is_some()
+        {
+            self.restore_prompt = true;
+        }
+    }
+
+    /// Close the restore-scope selector without touching the tree.
+    pub fn close_restore_prompt(&mut self) {
+        self.restore_prompt = false;
+    }
+
+    /// Expand every checkpoint section.
+    pub fn expand_all(&mut self) {
+        self.folded.clear();
+        self.rebuild_visible();
+    }
+
+    /// Collapse every checkpoint section.
+    pub fn collapse_all(&mut self) {
+        self.folded = self
+            .nodes
+            .iter()
+            .filter(|n| n.kind == TreeNodeKind::Checkpoint)
+            .map(|n| n.id.clone())
+            .collect();
         self.rebuild_visible();
     }
 

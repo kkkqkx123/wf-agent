@@ -154,8 +154,7 @@ pub async fn persist_stream_conversation(ctx: &ApiContext, agent_loop_id: &str) 
     };
     let messages = entity.conversation().read().await.state.messages.clone();
     for message in messages {
-        let record =
-            crate::entity::message::record(agent_loop_id, Some(agent_loop_id), message);
+        let record = crate::entity::message::record(agent_loop_id, Some(agent_loop_id), message);
         if let Err(err) = ctx.storage.message.save(&record).await {
             tracing::warn!(
                 target: "wf_api",

@@ -11,6 +11,10 @@ mod data_cache;
 mod frame;
 pub(crate) mod input_classify;
 mod key_routes;
+mod leader;
+mod navigation;
+mod normal_keys;
+mod overlay_keys;
 pub(crate) mod keymap_config;
 mod mouse;
 mod signals;
@@ -1047,6 +1051,7 @@ impl TuiApp {
                         rows: &rows,
                         selected: self.session_tree.selected(),
                         status: &status,
+                        restore_prompt: self.session_tree.restore_prompt(),
                     };
                     crate::screen_draw::draw_session_tree(frame, area, &view, &self.theme);
                 }

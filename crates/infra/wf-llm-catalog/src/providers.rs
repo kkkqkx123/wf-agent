@@ -45,6 +45,9 @@ pub fn builtin_provider_definitions() -> Vec<LlmProviderDefinition> {
             rate_limit: None,
             auth: None,
             compat: None,
+            identity: None,
+            transport: None,
+            env: None,
         },
         LlmProviderDefinition {
             id: BUILTIN_ANTHROPIC_ID.to_string(),
@@ -65,6 +68,9 @@ pub fn builtin_provider_definitions() -> Vec<LlmProviderDefinition> {
             rate_limit: None,
             auth: None,
             compat: None,
+            identity: None,
+            transport: None,
+            env: None,
         },
         LlmProviderDefinition {
             id: BUILTIN_GEMINI_ID.to_string(),
@@ -82,6 +88,9 @@ pub fn builtin_provider_definitions() -> Vec<LlmProviderDefinition> {
             rate_limit: None,
             auth: None,
             compat: None,
+            identity: None,
+            transport: None,
+            env: None,
         },
         LlmProviderDefinition {
             id: BUILTIN_OLLAMA_ID.to_string(),
@@ -107,6 +116,9 @@ pub fn builtin_provider_definitions() -> Vec<LlmProviderDefinition> {
                 ),
                 ..Default::default()
             }),
+            identity: None,
+            transport: None,
+            env: None,
         },
         LlmProviderDefinition {
             id: BUILTIN_OPENROUTER_ID.to_string(),
@@ -127,6 +139,9 @@ pub fn builtin_provider_definitions() -> Vec<LlmProviderDefinition> {
             rate_limit: None,
             auth: None,
             compat: None,
+            identity: None,
+            transport: None,
+            env: None,
         },
     ]
 }

@@ -75,6 +75,9 @@ mod tests {
             prompt_caching: None,
             auth: None,
             compat: None,
+            identity: None,
+            transport: None,
+            env: None,
         }
     }
 

@@ -388,6 +388,9 @@ mod tests {
                 rate_limit: None,
                 auth: None,
                 compat: None,
+                identity: None,
+                transport: None,
+                env: None,
             })
             .unwrap();
         assert_eq!(

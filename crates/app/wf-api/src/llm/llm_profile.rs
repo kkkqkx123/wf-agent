@@ -378,6 +378,9 @@ fn template_profile(
         prompt_caching: None,
         auth: None,
         compat: None,
+        identity: None,
+        transport: None,
+        env: None,
     }
 }
 

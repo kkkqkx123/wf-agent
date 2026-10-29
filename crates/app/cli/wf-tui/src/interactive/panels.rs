@@ -2106,6 +2106,9 @@ mod tests {
             prompt_caching: None,
             auth: None,
             compat: None,
+            identity: None,
+            transport: None,
+            env: None,
         }];
         ctl.open_model_panel();
         ctl.handle_key(key(CKey::Enter));

@@ -760,6 +760,9 @@ mod tests {
                 rate_limit: None,
                 auth: None,
                 compat: None,
+                identity: None,
+                transport: None,
+                env: None,
             })
             .unwrap();
 
@@ -868,6 +871,9 @@ mod tests {
                 ),
             }),
             compat: None,
+            identity: None,
+            transport: None,
+            env: None,
         }
     }
 

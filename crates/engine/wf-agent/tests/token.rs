@@ -138,6 +138,9 @@ async fn token_events_emitted_when_limit_crossed() {
             prompt_caching: None,
             auth: None,
             compat: None,
+            identity: None,
+            transport: None,
+            env: None,
         })
         .expect("mock profile registers");
     let coordinator = AgentLoopCoordinator::new(gateway, registry_with_echo()).with_event_bus(bus);

@@ -435,6 +435,9 @@ async fn context_compression_chain_end_to_end() {
                 prompt_caching: None,
                 auth: None,
                 compat: None,
+                identity: None,
+                transport: None,
+                env: None,
             })
             .expect("test profile registers");
     }
@@ -981,6 +984,9 @@ async fn no_compression_event_when_named_array_within_limit() {
                 prompt_caching: None,
                 auth: None,
                 compat: None,
+                identity: None,
+                transport: None,
+                env: None,
             })
             .expect("test profile registers");
     }

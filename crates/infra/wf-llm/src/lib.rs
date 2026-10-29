@@ -10,7 +10,7 @@ pub mod token_stream_adapter;
 pub use auth_plugin::PluginAuthAdapter;
 pub use codecs_plugin::PluginCodecAdapter;
 pub use images_plugin::PluginImagesAdapter;
-pub use llm_client::client::{LlmClient, LlmClientImpl};
+pub use llm_client::client::{FetchHook, LlmClient, LlmClientImpl};
 pub use llm_client::dead_loop_detector::{
     DeadLoopDetectionResult, DeadLoopDetector, DeadLoopDetectorConfig,
 };
@@ -52,7 +52,7 @@ pub use llm_auth;
 pub use llm_auth::{
     ApiKeyAuth, AuthContext, AuthMethod, AuthRegistry, AuthSurfaceInfo, Credential, CredentialInfo,
     CredentialStore, FileCredentialStore, MemoryCredentialStore, ModelAuth, OAuthAuth,
-    OAuthCredential, ProviderAuth, ResolvedAuth, StdAuthContext,
+    OAuthCredential, OverlayAuthContext, ProviderAuth, ResolvedAuth, StdAuthContext,
 };
 pub use llm_message::helper::extract_text_content;
 pub use llm_message::history_converter::{

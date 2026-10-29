@@ -77,6 +77,9 @@ fn profile(server: &MockServer, id: &str, format: Option<ToolCallProtocol>) -> L
         prompt_caching: None,
         auth: None,
         compat: None,
+        identity: None,
+        transport: None,
+        env: None,
     }
 }
 
@@ -108,6 +111,9 @@ fn user_request(profile_id: &str) -> LlmRequest {
         timeout_ms: None,
         prompt_caching: None,
         cached_content: None,
+        max_retries: None,
+        retry_delay_ms: None,
+        extra_headers: None,
     }
 }
 
@@ -290,6 +296,9 @@ async fn provider_definition_supplies_base_url() {
             rate_limit: None,
             auth: None,
             compat: None,
+            identity: None,
+            transport: None,
+            env: None,
         })
         .expect("provider");
 

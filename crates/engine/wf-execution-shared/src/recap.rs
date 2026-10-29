@@ -399,6 +399,9 @@ pub fn build_recap_request(profile_id: &str, transcript: &str) -> LlmRequest {
         timeout_ms: Some(RECAP_TIMEOUT_MS),
         prompt_caching: None,
         cached_content: None,
+        max_retries: None,
+        retry_delay_ms: None,
+        extra_headers: None,
     }
 }
 
@@ -520,6 +523,9 @@ mod tests {
             prompt_caching: None,
             auth: None,
             compat: None,
+            identity: None,
+            transport: None,
+            env: None,
         }
     }
 

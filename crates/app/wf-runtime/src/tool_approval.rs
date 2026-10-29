@@ -267,6 +267,9 @@ impl LlmApprovalHandler {
             timeout_ms: None,
             prompt_caching: None,
             cached_content: None,
+            max_retries: None,
+            retry_delay_ms: None,
+            extra_headers: None,
         };
         let result = wf_execution_shared::generate_text_once(&self.gateway, &llm_request, None)
             .await
@@ -356,6 +359,9 @@ mod tests {
             prompt_caching: None,
             auth: None,
             compat: None,
+            identity: None,
+            transport: None,
+            env: None,
         }
     }
 

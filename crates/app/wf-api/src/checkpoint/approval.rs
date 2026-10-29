@@ -247,6 +247,9 @@ pub async fn review_pending_approval(
         timeout_ms: None,
         prompt_caching: None,
         cached_content: None,
+        max_retries: None,
+        retry_delay_ms: None,
+        extra_headers: None,
     };
 
     match run_review_round(ctx, &request, &review_execution_id).await {
@@ -379,6 +382,9 @@ mod tests {
                 prompt_caching: None,
                 auth: None,
                 compat: None,
+                identity: None,
+                transport: None,
+                env: None,
             })
             .expect("mock profile registers");
         (ctx, mock)

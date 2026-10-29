@@ -974,6 +974,9 @@ fn test_llm_gateway_registers_and_rejects_invalid_profiles() {
         prompt_caching: None,
         auth: None,
         compat: None,
+        identity: None,
+        transport: None,
+        env: None,
     }];
     let gateway = init_llm_gateway(
         &LlmConfig {
@@ -1019,6 +1022,9 @@ fn test_llm_gateway_registers_and_rejects_invalid_profiles() {
                 prompt_caching: None,
                 auth: None,
                 compat: None,
+                identity: None,
+                transport: None,
+                env: None,
             }],
             provider_definitions: Vec::new(),
             auth: Default::default(),

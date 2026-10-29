@@ -619,6 +619,9 @@ mod tests {
             timeout_ms: None,
             prompt_caching: None,
             cached_content: None,
+            max_retries: None,
+            retry_delay_ms: None,
+            extra_headers: None,
         }
     }
 

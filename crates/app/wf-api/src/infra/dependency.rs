@@ -620,6 +620,9 @@ mod tests {
             prompt_caching: None,
             auth: None,
             compat: None,
+            identity: None,
+            transport: None,
+            env: None,
         };
         let _ = ctx.llm_gateway.profile_registry().register(profile);
         ctx

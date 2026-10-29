@@ -110,6 +110,7 @@ smallvec = "1"
 toml = "1.1"
 hex = "0.4"
 similar = "3"
+unicode-normalization = "0.1"
 clap = { version = "4", features = ["derive"] }
 sha2 = "0.11"
 ed25519-dalek = { version = "2", features = ["rand_core"] }

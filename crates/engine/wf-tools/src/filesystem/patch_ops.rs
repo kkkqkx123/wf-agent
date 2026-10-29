@@ -12,7 +12,7 @@ use super::edit_diff::{
     UTF8_BOM,
 };
 use super::handlers_write::notify_precise;
-use super::{require_string, FsToolHandlers};
+use super::{mutation_queue::lock_for_file, require_string, FsToolHandlers};
 
 impl FsToolHandlers {
     /// apply_patch: apply a Codex-style patch (Add/Delete/Update File
@@ -21,6 +21,7 @@ impl FsToolHandlers {
     /// partially successful patch keeps the events of the hunks that did
     /// succeed.
     pub fn apply_patch(&self, parameters: &Value, ctx: &ToolExecutionContext) -> ToolResult<Value> {
+        super::check_cancelled(ctx, "apply_patch")?;
         let patch = require_string(parameters, "patch")?;
         let hunks = crate::patch::parse_patch(patch)?;
 
@@ -67,9 +68,28 @@ impl FsToolHandlers {
                 }
             }
             let result = match hunk.op {
-                crate::patch::PatchOp::AddFile => self.apply_patch_add(&hunk, &path),
-                crate::patch::PatchOp::DeleteFile => self.apply_patch_delete(&hunk, &path),
+                crate::patch::PatchOp::AddFile => {
+                    let file_lock = lock_for_file(&path);
+                    let _guard = file_lock
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    super::check_cancelled(ctx, "apply_patch")?;
+                    self.apply_patch_add(&hunk, &path)
+                }
+                crate::patch::PatchOp::DeleteFile => {
+                    let file_lock = lock_for_file(&path);
+                    let _guard = file_lock
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    super::check_cancelled(ctx, "apply_patch")?;
+                    self.apply_patch_delete(&hunk, &path)
+                }
                 crate::patch::PatchOp::UpdateFile => {
+                    let file_lock = lock_for_file(&path);
+                    let _guard = file_lock
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    super::check_cancelled(ctx, "apply_patch")?;
                     self.apply_patch_update_scoped(&hunk, &path, ctx)
                 }
             };
@@ -318,6 +338,7 @@ impl FsToolHandlers {
     /// apply_diff: apply SEARCH/REPLACE blocks to modify a file.
     /// On success reports a precise modification through the observer.
     pub fn apply_diff(&self, parameters: &Value, ctx: &ToolExecutionContext) -> ToolResult<Value> {
+        super::check_cancelled(ctx, "apply_diff")?;
         let path_str = require_string(parameters, "path")?;
         let diff = require_string(parameters, "diff")?;
         let resolved = self.resolve_scoped(path_str, ctx);
@@ -329,6 +350,11 @@ impl FsToolHandlers {
                 path.display()
             )));
         }
+
+        let file_lock = lock_for_file(&path);
+        let _guard = file_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let raw_content = std::fs::read_to_string(&path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -378,6 +404,7 @@ impl FsToolHandlers {
         }
 
         let joined = result_lines.join("\n");
+        super::check_cancelled(ctx, "apply_diff")?;
         let mut final_content = restore_line_endings(&joined, line_ending);
         if had_bom {
             final_content.insert(0, UTF8_BOM);

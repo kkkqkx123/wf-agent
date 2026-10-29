@@ -399,6 +399,33 @@ fn edit_file_applies_batches_atomically() {
     );
     assert!(mixed.is_err());
 
+    // A JSON-stringified batch normalizes to the array shape.
+    std::fs::write(&target, "aaa\nbbb\n").unwrap();
+    let stringified = handlers.edit_file(
+        &serde_json::json!({
+            "path": target.to_str().unwrap(),
+            "edits": serde_json::to_string(&serde_json::json!([
+                { "old_string": "aaa", "new_string": "AAA" },
+            ]))
+            .unwrap()
+        }),
+        &ctx,
+    );
+    assert!(stringified.is_ok());
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "AAA\nbbb\n");
+
+    // One replacement object normalizes to a one-element batch.
+    std::fs::write(&target, "aaa\nbbb\n").unwrap();
+    let single_object = handlers.edit_file(
+        &serde_json::json!({
+            "path": target.to_str().unwrap(),
+            "edits": { "old_string": "bbb", "new_string": "BBB" }
+        }),
+        &ctx,
+    );
+    assert!(single_object.is_ok());
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "aaa\nBBB\n");
+
     let empty = handlers.edit_file(
         &serde_json::json!({
             "path": target.to_str().unwrap(),

@@ -11,17 +11,12 @@ use wf_types::config::file_scope::scope_path_contains;
 
 use super::{
     edit_diff::{
-        compute_edit_diff, detect_line_ending, normalize_to_lf, resolve_edit_span,
-        restore_line_endings, strip_bom, EditSpan, SpanError, UTF8_BOM,
+        apply_edits_to_content, compute_edit_diff, detect_line_ending, normalize_to_lf,
+        restore_line_endings, strip_bom, EditApplyError, EditPair, UTF8_BOM,
     },
+    mutation_queue::lock_for_file,
     require_string, FsToolHandlers,
 };
-
-/// One normalized replacement pending application.
-struct PendingEdit {
-    old_text: String,
-    new_text: String,
-}
 
 impl FsToolHandlers {
     pub(super) fn finish_write_gate(
@@ -76,8 +71,10 @@ impl FsToolHandlers {
     /// write_file: write content, creating parent directories as needed.
     /// On success reports a precise change (created vs modified by prior
     /// existence) through the context observer, immediately after the disk
-    /// write.
+    /// write. The file lock serializes against concurrent edits so the
+    /// existence probe and the write observe one ordering.
     pub fn write_file(&self, parameters: &Value, ctx: &ToolExecutionContext) -> ToolResult<Value> {
+        super::check_cancelled(ctx, "write_file")?;
         let path_str = require_string(parameters, "path")?;
         let content = require_string(parameters, "content")?;
         let resolved = self.resolve_scoped(path_str, ctx);
@@ -90,6 +87,10 @@ impl FsToolHandlers {
             )));
         }
 
+        let file_lock = lock_for_file(&path);
+        let _guard = file_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let existed = path.exists();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
@@ -121,10 +122,12 @@ impl FsToolHandlers {
 
     /// Collect the requested replacements from either the single-pair or
     /// the batch shape. The two shapes cannot be mixed, and the batch
-    /// shape requires at least one entry.
-    fn pending_edits(parameters: &Value) -> ToolResult<Vec<PendingEdit>> {
-        match parameters.get("edits") {
-            Some(Value::Array(items)) => {
+    /// shape requires at least one entry. Models sometimes serialize the
+    /// batch as a JSON string or send one replacement object instead of
+    /// a one-element array; both spellings are normalized here.
+    fn pending_edits(parameters: &Value) -> ToolResult<Vec<EditPair>> {
+        match Self::edits_items(parameters)? {
+            Some(items) => {
                 if parameters.get("old_string").is_some() || parameters.get("new_string").is_some()
                 {
                     return Err(ToolError::ValidationFailed(
@@ -161,16 +164,13 @@ impl FsToolHandlers {
                                 "edits[{index}].old_string must not be empty"
                             )));
                         }
-                        Ok(PendingEdit {
+                        Ok(EditPair {
                             old_text: normalize_to_lf(old),
                             new_text: normalize_to_lf(new),
                         })
                     })
                     .collect()
             }
-            Some(_) => Err(ToolError::ValidationFailed(
-                "edits must be an array of replacements".into(),
-            )),
             None => {
                 let old_string = require_string(parameters, "old_string")?;
                 let new_string = require_string(parameters, "new_string")?;
@@ -179,7 +179,7 @@ impl FsToolHandlers {
                         "old_string must not be empty".into(),
                     ));
                 }
-                Ok(vec![PendingEdit {
+                Ok(vec![EditPair {
                     old_text: normalize_to_lf(old_string),
                     new_text: normalize_to_lf(new_string),
                 }])
@@ -187,13 +187,44 @@ impl FsToolHandlers {
         }
     }
 
+    /// Normalize the `edits` parameter to a replacement list. Accepts an
+    /// array, a single replacement object, or a JSON string of either.
+    fn edits_items(parameters: &Value) -> ToolResult<Option<Vec<Value>>> {
+        match parameters.get("edits") {
+            None => Ok(None),
+            Some(Value::Array(items)) => Ok(Some(items.clone())),
+            Some(Value::Object(_)) => Ok(Some(vec![parameters["edits"].clone()])),
+            Some(Value::String(raw)) => {
+                let parsed: Value = serde_json::from_str(raw).map_err(|_| {
+                    ToolError::ValidationFailed(
+                        "edits must be an array of replacements or a single replacement object"
+                            .into(),
+                    )
+                })?;
+                match parsed {
+                    Value::Array(items) => Ok(Some(items)),
+                    Value::Object(_) => Ok(Some(vec![parsed])),
+                    _ => Err(ToolError::ValidationFailed(
+                        "edits must be an array of replacements or a single replacement object"
+                            .into(),
+                    )),
+                }
+            }
+            Some(_) => Err(ToolError::ValidationFailed(
+                "edits must be an array of replacements".into(),
+            )),
+        }
+    }
+
     /// edit_file: exact string replacement of one pair or a batch of
     /// non-overlapping replacements applied atomically. Every replacement
     /// is matched against the original content; fuzzy matching tolerates
-    /// insignificant whitespace and typographic differences. On success
-    /// reports a precise modification through the observer and returns
-    /// the unified diff of the change for display purposes.
+    /// insignificant whitespace and typographic differences. Matching and
+    /// application share the preview kernel so dry runs cannot drift from
+    /// the write. On success reports a precise modification through the
+    /// observer and returns the unified diff of the change for display.
     pub fn edit_file(&self, parameters: &Value, ctx: &ToolExecutionContext) -> ToolResult<Value> {
+        super::check_cancelled(ctx, "edit_file")?;
         let file_path = require_string(parameters, "path")?;
         let resolved = self.resolve_scoped(file_path, ctx);
         let path = self.ensure_in_scope("edit_file", &resolved, ctx, true)?;
@@ -204,6 +235,13 @@ impl FsToolHandlers {
                 path.display()
             )));
         }
+
+        // Serialize against concurrent edits of the same file so the
+        // read-modify-write cycle observes one ordering.
+        let file_lock = lock_for_file(&path);
+        let _guard = file_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let raw_content = std::fs::read_to_string(&path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -218,6 +256,7 @@ impl FsToolHandlers {
                 ToolError::ExecutionError(format!("Failed to read '{}': {}", path.display(), e))
             }
         })?;
+        super::check_cancelled(ctx, "edit_file")?;
 
         // Models never include the invisible BOM in edit text, and may use
         // LF while the file uses CRLF: match in normalized space and
@@ -230,70 +269,57 @@ impl FsToolHandlers {
         let original_ending = detect_line_ending(content);
         let normalized_content = normalize_to_lf(content);
 
-        // Resolve every replacement against the original content so
-        // offsets stay stable, then apply in reverse order.
-        let mut spans: Vec<(usize, EditSpan)> = Vec::with_capacity(pending.len());
-        for (index, edit) in pending.iter().enumerate() {
-            match resolve_edit_span(&normalized_content, &edit.old_text) {
-                Ok(span) => spans.push((index, span)),
-                Err(SpanError::Empty) => {
-                    return Err(ToolError::ValidationFailed(if batch {
-                        format!("edits[{index}].old_string must not be empty")
-                    } else {
-                        "old_string must not be empty".to_string()
-                    }));
-                }
-                Err(SpanError::Duplicate(count)) => {
-                    return Err(ToolError::ExecutionError(if batch {
-                        format!(
+        // Resolution and application share the preview kernel; only the
+        // error messages are shaped for single versus batch calls here.
+        let new_normalized_content = match apply_edits_to_content(&normalized_content, &pending) {
+            Ok(applied) => applied,
+            Err(EditApplyError::Empty { index }) => {
+                return Err(ToolError::ValidationFailed(if batch {
+                    format!("edits[{index}].old_string must not be empty")
+                } else {
+                    "old_string must not be empty".to_string()
+                }));
+            }
+            Err(EditApplyError::Duplicate { index, count }) => {
+                return Err(ToolError::ExecutionError(if batch {
+                    format!(
                             "Found {count} occurrences of edits[{index}] in '{}'. Each old_string must be unique. Provide more context to make it unique.",
                             path.display()
                         )
-                    } else {
-                        format!(
+                } else {
+                    format!(
                             "old_string found {count} times in '{}'. Add more context to old_string to make it unique.",
                             path.display()
                         )
-                    }));
-                }
-                Err(SpanError::NotFound) => {
-                    return Err(ToolError::ExecutionError(if batch {
-                        format!(
+                }));
+            }
+            Err(EditApplyError::NotFound { index }) => {
+                return Err(ToolError::ExecutionError(if batch {
+                    format!(
                             "Could not find edits[{index}] in '{}'. The old text must match exactly including all whitespace and newlines.",
                             path.display()
                         )
-                    } else {
-                        format!(
+                } else {
+                    format!(
                             "old_string not found in '{}'. Provide more context in old_string to make it unique, or use apply_diff for complex edits.",
                             path.display()
                         )
-                    }));
-                }
+                }));
             }
-        }
-        spans.sort_by_key(|(_, span)| span.start);
-        for window in spans.windows(2) {
-            let (first_index, first) = window[0];
-            let (second_index, second) = window[1];
-            if second.start < first.start + first.len {
+            Err(EditApplyError::Overlap { first, second }) => {
                 return Err(ToolError::ExecutionError(format!(
-                    "edits[{first_index}] and edits[{second_index}] overlap in '{}'. Merge them into one edit or target disjoint regions.",
-                    path.display()
-                )));
+                        "edits[{first}] and edits[{second}] overlap in '{}'. Merge them into one edit or target disjoint regions.",
+                        path.display()
+                    )));
             }
-        }
-
-        let mut new_normalized_content = normalized_content.clone();
-        for (index, span) in spans.iter().rev() {
-            new_normalized_content
-                .replace_range(span.start..span.start + span.len, &pending[*index].new_text);
-        }
+        };
         if new_normalized_content == normalized_content {
             return Err(ToolError::ExecutionError(format!(
                 "No changes made to '{}'. The replacement produced identical content.",
                 path.display()
             )));
         }
+        super::check_cancelled(ctx, "edit_file")?;
 
         let mut final_content = restore_line_endings(&new_normalized_content, original_ending);
         if had_bom {

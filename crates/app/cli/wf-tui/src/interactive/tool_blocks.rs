@@ -112,6 +112,16 @@ fn body_row_role(kind: DisplayKind, line: &str) -> Role {
     Role::Muted
 }
 
+/// Row text for one body line. Diff rows expand tabs to spaces so
+/// indented changes align across terminals; other rows pass through.
+fn body_row_text(kind: DisplayKind, line: &str) -> String {
+    if kind == DisplayKind::Diff {
+        line.replace('\t', "   ")
+    } else {
+        line.to_string()
+    }
+}
+
 /// Body rows for a block in its collapsed or expanded form. Expanded rows
 /// show the full capped excerpt; on failure the complete error leads.
 fn block_rows(block: &ToolBlock, expanded: bool, config: &ToolOutputConfig) -> Vec<HistoryLine> {
@@ -132,7 +142,7 @@ fn block_rows(block: &ToolBlock, expanded: bool, config: &ToolOutputConfig) -> V
         }
         for line in block.output.lines() {
             rows.push(HistoryLine::new_role(
-                line.to_string(),
+                body_row_text(block.kind, line),
                 body_row_role(block.kind, line),
             ));
         }
@@ -144,7 +154,12 @@ fn block_rows(block: &ToolBlock, expanded: bool, config: &ToolOutputConfig) -> V
             .collapsed_preview(config)
             .text
             .lines()
-            .map(|line| HistoryLine::new_role(line.to_string(), body_row_role(block.kind, line)))
+            .map(|line| {
+                HistoryLine::new_role(
+                    body_row_text(block.kind, line),
+                    body_row_role(block.kind, line),
+                )
+            })
             .collect()
     }
 }

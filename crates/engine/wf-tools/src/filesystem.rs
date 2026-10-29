@@ -10,6 +10,7 @@ mod edit_diff;
 mod handlers_read;
 mod handlers_write;
 mod ignore;
+mod mutation_queue;
 mod patch_ops;
 mod scope;
 
@@ -17,6 +18,12 @@ mod scope;
 mod tests;
 
 pub use config::FsToolConfig;
+pub use edit_diff::{
+    apply_edits_to_content, compute_edit_diff, detect_line_ending, expand_diff_tabs,
+    first_changed_line, generate_display_diff, normalize_to_lf, preview_edits, resolve_edit_span,
+    restore_line_endings, strip_bom, DisplayDiff, EditApplyError, EditDiff, EditPair, EditPreview,
+    EditSpan, SpanError, DIFF_CONTEXT_LINES, DISPLAY_CONTEXT_LINES, UTF8_BOM,
+};
 
 use std::path::Path;
 use std::sync::Arc;
@@ -93,4 +100,20 @@ fn require_string<'a>(parameters: &'a Value, key: &str) -> ToolResult<&'a str> {
     parameters.get(key).and_then(|v| v.as_str()).ok_or_else(|| {
         ToolError::ValidationFailed(format!("Missing or invalid '{}' parameter", key))
     })
+}
+
+/// Observe cooperative cancellation for synchronous filesystem handlers.
+/// Sync handlers cannot race the abort signal, so they check it before
+/// reads, after reads and before writes instead of holding no lock.
+pub(super) fn check_cancelled(ctx: &ToolExecutionContext, tool: &str) -> ToolResult<()> {
+    if ctx
+        .cancellation
+        .as_ref()
+        .is_some_and(|token| token.is_cancelled())
+    {
+        return Err(ToolError::Cancelled {
+            tool_id: tool.to_string(),
+        });
+    }
+    Ok(())
 }

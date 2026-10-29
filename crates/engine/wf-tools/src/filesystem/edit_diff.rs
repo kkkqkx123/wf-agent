@@ -211,6 +211,189 @@ pub fn resolve_edit_span(content: &str, old_text: &str) -> Result<EditSpan, Span
     Ok(line_range_to_span(content, start_line, old_lines.len()))
 }
 
+/// One normalized replacement pending application. Shared by execution
+/// and read-only preview so both observe identical matching semantics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditPair {
+    /// Normalized exact text to search for; must resolve to one span.
+    pub old_text: String,
+    /// Normalized replacement text.
+    pub new_text: String,
+}
+
+/// Reason a batch of replacements cannot be applied atomically. The
+/// index identifies the offending entry for caller-side messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditApplyError {
+    /// The indexed old text is empty.
+    Empty { index: usize },
+    /// The indexed old text matches more than once; carries the count.
+    Duplicate { index: usize, count: usize },
+    /// The indexed old text matches nothing.
+    NotFound { index: usize },
+    /// Two entries overlap; carries both entry indices.
+    Overlap { first: usize, second: usize },
+}
+
+/// Resolve every replacement against the same original content, reject
+/// overlaps, then apply in reverse order so offsets stay stable.
+pub fn apply_edits_to_content(content: &str, edits: &[EditPair]) -> Result<String, EditApplyError> {
+    let mut spans: Vec<(usize, EditSpan)> = Vec::with_capacity(edits.len());
+    for (index, edit) in edits.iter().enumerate() {
+        match resolve_edit_span(content, &edit.old_text) {
+            Ok(span) => spans.push((index, span)),
+            Err(SpanError::Empty) => return Err(EditApplyError::Empty { index }),
+            Err(SpanError::Duplicate(count)) => {
+                return Err(EditApplyError::Duplicate { index, count })
+            }
+            Err(SpanError::NotFound) => return Err(EditApplyError::NotFound { index }),
+        }
+    }
+    spans.sort_by_key(|(_, span)| span.start);
+    for window in spans.windows(2) {
+        let (first_index, first) = window[0];
+        let (second_index, second) = window[1];
+        if second.start < first.start + first.len {
+            return Err(EditApplyError::Overlap {
+                first: first_index,
+                second: second_index,
+            });
+        }
+    }
+    let mut result = content.to_string();
+    for (index, span) in spans.iter().rev() {
+        result.replace_range(span.start..span.start + span.len, &edits[*index].new_text);
+    }
+    Ok(result)
+}
+
+/// Read-only application of edits: returns the would-be content plus
+/// both diff views without touching the disk. Execution previews and
+/// approval flows use this so the preview cannot drift from the write.
+pub struct EditPreview {
+    /// Content that would be written if the edits were applied.
+    pub new_content: String,
+    /// Unified diff with line statistics for checkpoint-style display.
+    pub diff: EditDiff,
+    /// Numbered human-readable diff for inline review.
+    pub display: DisplayDiff,
+}
+
+/// Apply edits without writing and report both diff views.
+pub fn preview_edits(before: &str, edits: &[EditPair]) -> Result<EditPreview, EditApplyError> {
+    let new_content = apply_edits_to_content(before, edits)?;
+    let diff = compute_edit_diff(before, &new_content);
+    let display = generate_display_diff(before, &new_content, DISPLAY_CONTEXT_LINES);
+    Ok(EditPreview {
+        new_content,
+        diff,
+        display,
+    })
+}
+
+/// Context lines kept around each change in numbered display diffs.
+pub const DISPLAY_CONTEXT_LINES: usize = 4;
+
+/// Numbered human-readable diff with line numbers and collapsed context.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DisplayDiff {
+    /// Diff text in `+line content` / `-line content` / ` line content`
+    /// form with ` ...` separators for collapsed regions.
+    pub text: String,
+    /// First changed line in the new content, for editor navigation.
+    pub first_changed_line: Option<u32>,
+}
+
+/// Expand tabs for consistent rendering of display diff rows.
+pub fn expand_diff_tabs(text: &str) -> String {
+    text.replace('\t', "   ")
+}
+
+/// Generate a numbered display diff between two text contents. Context
+/// lines around changes are kept, distant regions collapse to ` ...`.
+/// Identical inputs produce an empty diff and no first changed line.
+pub fn generate_display_diff(before: &str, after: &str, context_lines: usize) -> DisplayDiff {
+    use similar::{ChangeTag, TextDiff};
+    if before == after {
+        return DisplayDiff {
+            text: String::new(),
+            first_changed_line: None,
+        };
+    }
+    let diff = TextDiff::from_lines(before, after);
+    let groups = diff.grouped_ops(context_lines);
+    if groups.is_empty() {
+        return DisplayDiff {
+            text: String::new(),
+            first_changed_line: None,
+        };
+    }
+    let width = before
+        .split('\n')
+        .count()
+        .max(after.split('\n').count())
+        .to_string()
+        .len();
+    let mut output: Vec<String> = Vec::new();
+    let mut old_line: u32 = 1;
+    let mut new_line: u32 = 1;
+    let mut first_changed_line: Option<u32> = None;
+    let mark_changed = |line: u32, first: &mut Option<u32>| {
+        if first.is_none() {
+            *first = Some(line.max(1));
+        }
+    };
+    for group in &groups {
+        let group_old_start = group
+            .first()
+            .map(|op| op.old_range().start as u32)
+            .unwrap_or(0);
+        let group_new_start = group
+            .first()
+            .map(|op| op.new_range().start as u32)
+            .unwrap_or(0);
+        // Skipped equal lines between groups collapse to one marker;
+        // cursors resync to absolute positions so numbering stays exact.
+        if group_old_start + 1 > old_line {
+            output.push(format!("{:>width$} ...", ""));
+        }
+        old_line = group_old_start + 1;
+        new_line = group_new_start + 1;
+        for op in group {
+            for change in diff.iter_changes(op) {
+                let content = change.value().strip_suffix('\n').unwrap_or(change.value());
+                let content = expand_diff_tabs(content);
+                match change.tag() {
+                    ChangeTag::Delete => {
+                        mark_changed(new_line, &mut first_changed_line);
+                        output.push(format!("-{:>width$} {}", old_line, content, width = width));
+                        old_line += 1;
+                    }
+                    ChangeTag::Insert => {
+                        mark_changed(new_line, &mut first_changed_line);
+                        output.push(format!("+{:>width$} {}", new_line, content, width = width));
+                        new_line += 1;
+                    }
+                    ChangeTag::Equal => {
+                        output.push(format!(" {:>width$} {}", old_line, content, width = width));
+                        old_line += 1;
+                        new_line += 1;
+                    }
+                }
+            }
+        }
+    }
+    let old_total = before.split('\n').count() as u32;
+    let new_total = after.split('\n').count() as u32;
+    if old_line <= old_total || new_line <= new_total {
+        output.push(format!("{:>width$} ...", ""));
+    }
+    DisplayDiff {
+        text: output.join("\n"),
+        first_changed_line,
+    }
+}
+
 /// Compute the presentation diff between two text contents. Identical
 /// inputs and binary inputs both produce an empty diff; binary inputs are
 /// additionally flagged so callers can report the kind.
@@ -313,5 +496,82 @@ mod tests {
     fn header_without_new_range_yields_no_line() {
         assert_eq!(first_changed_line("@@ -1,2 @@\n-x\n"), None);
         assert_eq!(first_changed_line("no hunks here"), None);
+    }
+
+    fn pair(old: &str, new: &str) -> EditPair {
+        EditPair {
+            old_text: old.to_string(),
+            new_text: new.to_string(),
+        }
+    }
+
+    #[test]
+    fn shared_kernel_applies_disjoint_edits() {
+        let content = "one\ntwo\nthree\n";
+        let result = apply_edits_to_content(content, &[pair("one", "ONE"), pair("three", "THREE")])
+            .expect("disjoint edits apply");
+        assert_eq!(result, "ONE\ntwo\nTHREE\n");
+    }
+
+    #[test]
+    fn shared_kernel_rejects_overlap_and_duplicates() {
+        let content = "aaa\nbbb\n";
+        assert!(matches!(
+            apply_edits_to_content(content, &[pair("aaa\nbbb", "x"), pair("bbb", "y")]),
+            Err(EditApplyError::Overlap { .. })
+        ));
+        assert!(matches!(
+            apply_edits_to_content("a\na\n", &[pair("a", "b")]),
+            Err(EditApplyError::Duplicate { count: 2, .. })
+        ));
+        assert!(matches!(
+            apply_edits_to_content(content, &[pair("zzz", "y")]),
+            Err(EditApplyError::NotFound { .. })
+        ));
+        assert!(matches!(
+            apply_edits_to_content(content, &[pair("", "y")]),
+            Err(EditApplyError::Empty { .. })
+        ));
+    }
+
+    #[test]
+    fn preview_matches_execution_without_writing() {
+        let before = "one\ntwo\nthree\n";
+        let preview = preview_edits(before, &[pair("two", "TWO")]).expect("preview applies");
+        assert_eq!(preview.new_content, "one\nTWO\nthree\n");
+        assert_eq!(
+            preview.new_content,
+            apply_edits_to_content(before, &[pair("two", "TWO")]).expect("same kernel")
+        );
+        assert!(preview.diff.diff.contains("+TWO"));
+        assert!(preview.display.text.contains("+2 TWO"));
+        assert_eq!(preview.display.first_changed_line, Some(2));
+    }
+
+    #[test]
+    fn display_diff_collapses_distant_context() {
+        let old: Vec<String> = (1..=30).map(|i| format!("line{i}")).collect();
+        let mut new = old.clone();
+        new[1] = "line2_edit".to_string();
+        new[28] = "line29_edit".to_string();
+        let display = generate_display_diff(&old.join("\n"), &new.join("\n"), 1);
+        assert!(display.text.contains("..."));
+        assert!(display.text.contains("+ 2 line2_edit"));
+        assert!(display.text.contains("+29 line29_edit"));
+        assert_eq!(display.first_changed_line, Some(2));
+    }
+
+    #[test]
+    fn display_diff_is_empty_without_changes() {
+        let display = generate_display_diff("same\n", "same\n", 4);
+        assert!(display.text.is_empty());
+        assert_eq!(display.first_changed_line, None);
+    }
+
+    #[test]
+    fn display_diff_expands_tabs() {
+        let display = generate_display_diff("a\t\n", "a\tb\n", 1);
+        assert!(!display.text.contains('\t'));
+        assert_eq!(expand_diff_tabs("a\tb"), "a   b");
     }
 }

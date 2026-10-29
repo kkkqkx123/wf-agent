@@ -27,6 +27,11 @@ pub mod tool_schema_formatter;
 
 pub use error::{ToolError, ToolResult};
 pub use filesystem::{FsToolConfig, FsToolHandlers};
+// Shared edit-diff kernel and read-only preview for approval flows.
+pub use filesystem::{
+    apply_edits_to_content, compute_edit_diff, generate_display_diff, preview_edits, DisplayDiff,
+    EditApplyError, EditDiff, EditPair, EditPreview,
+};
 pub use general::{GeneralToolInvoker, GENERAL_TOOL_NAME};
 pub use handlers::{
     create_default_tool_registry, register_builtin_handlers, BuiltinHandlersConfig,

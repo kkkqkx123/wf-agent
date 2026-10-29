@@ -6,9 +6,20 @@
 
 /// Normalize common Unicode punctuation to ASCII equivalents. This allows
 /// patches written with plain ASCII to match source files containing
-/// typographic characters.
+/// typographic characters. Compatibility characters are folded with NFKC
+/// first so fullwidth and composed forms match their ASCII counterparts;
+/// leading and trailing whitespace remains tolerated by the trim passes.
+///
+/// Unlike the reference implementation (trailing whitespace only), the
+/// trim passes below also tolerate leading whitespace differences.
 pub fn normalize_unicode(s: &str) -> String {
-    s.trim().chars().map(normalize_char).collect()
+    use unicode_normalization::UnicodeNormalization;
+    s.nfkc()
+        .collect::<String>()
+        .trim()
+        .chars()
+        .map(normalize_char)
+        .collect()
 }
 
 fn normalize_char(c: char) -> char {
@@ -165,6 +176,14 @@ mod tests {
     fn test_eof_mode_prefers_end() {
         let lines = v(&["x", "pat", "y", "pat"]);
         assert_eq!(seek_sequence(&lines, &v(&["pat"]), 0, true), Some(3));
+    }
+
+    #[test]
+    fn test_nfkc_folding() {
+        let lines = v(&["ｆｏｏ"]);
+        assert_eq!(seek_sequence(&lines, &v(&["foo"]), 0, false), Some(0));
+        let lines = v(&["ﬁle"]);
+        assert_eq!(seek_sequence(&lines, &v(&["file"]), 0, false), Some(0));
     }
 
     #[test]

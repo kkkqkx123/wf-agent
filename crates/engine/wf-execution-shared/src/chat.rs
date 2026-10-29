@@ -132,6 +132,33 @@ impl ChatSession {
         Ok(result)
     }
 
+    /// Move the session to another profile, migrating the history once.
+    ///
+    /// Staying on the same model is a clone-level no-op; a genuine move
+    /// drops foreign thinking signatures and native blocks so the next
+    /// provider never sees them. Fails on a blank profile id and leaves
+    /// the session untouched.
+    pub fn switch_profile(
+        &mut self,
+        gateway: &LlmGateway,
+        new_profile_id: &str,
+    ) -> ExecutionSharedResult<()> {
+        if new_profile_id.trim().is_empty() {
+            return Err(ExecutionSharedError::Internal(
+                "profile switch requires a non-empty profile id".to_string(),
+            ));
+        }
+        let migrated = gateway.migrate_history_for_profile(
+            self.conversation.history(),
+            Some(self.template.profile_id.as_str()),
+            new_profile_id,
+        );
+        let view = self.conversation.active_view().clone();
+        self.conversation.restore_history(migrated, view);
+        self.template.profile_id = new_profile_id.to_string();
+        Ok(())
+    }
+
     /// Full append-only history of the session.
     pub fn history(&self) -> &[Message] {
         self.conversation.history()
@@ -273,5 +300,62 @@ mod tests {
         let request = session.begin_turn("hello", None).expect("request");
         assert!(request.tools.is_none());
         assert!(request.tool_call_protocol.is_none());
+    }
+
+    #[test]
+    fn switch_profile_rewrites_history_for_the_new_model() {
+        use wf_types::message::{MessageContent, MessageContentValue, MessageRole};
+        let gateway = LlmGateway::new();
+        gateway.register_profile(mock_profile("chat-a")).unwrap();
+        let mut other = mock_profile("chat-b");
+        other.model = "other-model".to_string();
+        gateway.register_profile(other).unwrap();
+
+        let mut session = ChatSession::new("chat-a".to_string());
+        session.begin_turn("hello", None).expect("request");
+        // Foreign thinking must not survive the move to another model.
+        let thinking = wf_types::message::Message {
+            id: String::new(),
+            role: MessageRole::Assistant,
+            content: MessageContentValue::Rich(vec![MessageContent::Thinking {
+                thinking: "hmm".to_string(),
+                signature: Some("foreign-sig".to_string()),
+            }]),
+            timestamp: 0,
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: None,
+            thinking: None,
+            thinking_signature: None,
+            metadata: None,
+        };
+        session.restore(vec![thinking]);
+        session
+            .switch_profile(&gateway, "chat-b")
+            .expect("switch must succeed");
+        assert_eq!(session.template().profile_id, "chat-b");
+        for message in session.history() {
+            if let MessageContentValue::Rich(blocks) = &message.content {
+                assert!(
+                    blocks
+                        .iter()
+                        .all(|b| !matches!(b, MessageContent::Thinking { .. })),
+                    "foreign thinking must not leak"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn switch_profile_rejects_blank_ids_without_touching_history() {
+        let gateway = LlmGateway::new();
+        gateway.register_profile(mock_profile("chat-a")).unwrap();
+        let mut session = ChatSession::new("chat-a".to_string());
+        session.begin_turn("hello", None).expect("request");
+        let before = session.history().to_vec();
+        let err = session.switch_profile(&gateway, "   ").unwrap_err();
+        assert!(err.to_string().contains("non-empty"));
+        assert_eq!(session.history(), before.as_slice());
+        assert_eq!(session.template().profile_id, "chat-a");
     }
 }

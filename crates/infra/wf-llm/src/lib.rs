@@ -20,9 +20,9 @@ pub use llm_client::token_stream;
 pub use llm_client::TokenRecordingStream;
 pub use llm_codec::CodecRegistry;
 pub use llm_codec::{
-    apply_anthropic, apply_gemini_generation_config, apply_openai_chat, apply_openai_responses,
-    is_typed_param_key, parse_legacy_generation, resolve_generation, validate_generation,
-    ANTHROPIC_DEFAULT_MAX_TOKENS,
+    apply_anthropic, apply_compat_strict, apply_gemini_generation_config, apply_openai_chat,
+    apply_openai_responses, is_typed_param_key, parse_legacy_generation, resolve_generation,
+    validate_generation, ANTHROPIC_DEFAULT_MAX_TOKENS,
 };
 pub use llm_codec::{
     create_codec, AnthropicCodec, GeminiNativeCodec, LlmCodec, OpenaiChatCodec, OpenaiResponseCodec,

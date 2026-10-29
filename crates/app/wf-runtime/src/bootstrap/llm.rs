@@ -171,10 +171,13 @@ pub fn register_llm_config(gateway: &LlmGateway, config: &LlmConfig) -> RuntimeR
             .map_err(|e| crate::error::RuntimeError::Config(format!("Invalid LLM profile: {e}")))?;
         let transformed = transform_llm_profile(profile, &std::collections::HashMap::new())
             .map_err(|e| crate::error::RuntimeError::Config(format!("Invalid LLM profile: {e}")))?;
+        // Gap-filling stays in the shared catalog helper so the "only fill
+        // what config leaves empty" rule has a single home; costs never
+        // flow here (the pricing resolver remains the single cost path).
         let mut with_catalog = transformed;
         if with_catalog.context_window_size.is_none() {
             if let Some(meta) = metadata.metadata_for(&with_catalog.model) {
-                with_catalog.context_window_size = meta.context_window;
+                with_catalog = wf_llm::apply_catalog_metadata(with_catalog, &[meta]);
             }
         }
         gateway.register_profile(with_catalog).map_err(|e| {

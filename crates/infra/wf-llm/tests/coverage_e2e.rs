@@ -218,9 +218,16 @@ async fn typed_generation_overrides_legacy_profile_parameters() {
     let server =
         MockServer::spawn(|_: &MockRequest| MockResponse::ok_json(OPENAI_CHAT_RESPONSE)).await;
     let gateway = LlmGateway::new();
-    gateway
-        .register_profile(profile(&server, "p1", None))
-        .expect("register");
+    let mut prof = profile(&server, "p1", None);
+    // The mock server listens on a loopback address, which the narrow
+    // compat detection reads as a legacy `max_tokens` gateway; pin the
+    // recommended field explicitly so this test exercises generation
+    // precedence rather than detection.
+    prof.compat = Some(wf_types::llm::ProviderCompat {
+        max_tokens_field: Some(wf_types::llm::generation::LlmMaxTokenField::MaxCompletionTokens),
+        ..Default::default()
+    });
+    gateway.register_profile(prof).expect("register");
 
     let mut req = user_request("p1");
     req.generation = Some(LlmGenerationParams {
@@ -241,6 +248,32 @@ async fn typed_generation_overrides_legacy_profile_parameters() {
     assert!(
         body.get("max_tokens").is_none(),
         "the legacy field is opt-in via max_token_field only"
+    );
+}
+
+#[tokio::test]
+async fn loopback_gateway_defaults_to_legacy_max_tokens_field() {
+    let server =
+        MockServer::spawn(|_: &MockRequest| MockResponse::ok_json(OPENAI_CHAT_RESPONSE)).await;
+    let gateway = LlmGateway::new();
+    // No explicit compat: the mock server URL is loopback, so the narrow
+    // detection supplies the legacy field for the OpenAI-compatible path.
+    gateway
+        .register_profile(profile(&server, "p1", None))
+        .expect("register");
+
+    let mut req = user_request("p1");
+    req.generation = Some(LlmGenerationParams {
+        max_tokens: Some(55),
+        ..Default::default()
+    });
+    gateway.generate(&req, None).await.expect("generate");
+
+    let body: serde_json::Value = serde_json::from_str(&server.requests()[0].body).unwrap();
+    assert_eq!(body["max_tokens"], serde_json::json!(55));
+    assert!(
+        body.get("max_completion_tokens").is_none(),
+        "loopback gateways keep the legacy field unless configured otherwise"
     );
 }
 

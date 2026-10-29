@@ -184,12 +184,14 @@ let result = gateway
   `wf-pricing` 内嵌 LiteLLM 表；
 - **profile 接线**：`LlmProfile` / `LlmProviderDefinition` 各带 `compat: Option<ProviderCompat>`；
   `apply_provider_defaults` 先做 definition→profile 逐字段合并，再在仍为 `None` 时做窄探测（仅 OpenAI Chat
-  本地网关信号 → legacy `max_tokens`，命中打 `debug` 日志），显式配置永远优先；`resolve_generation` 在合并后
+  本地网关信号 → legacy `max_tokens`，无 `provider_id` 的独立 profile 同样参与，命中打 `debug` 日志），显式配置永远优先；`resolve_generation` 在合并后
   回填 `profile.compat.max_tokens_field`；compat 不进传输缓存键（只影响请求体）；
 - **catalog 回填**：`apply_catalog_metadata(profile, &[ModelMetadata])` 只补缺失的 `context_window_size`
   （显式配置必胜，provider 作用域用于同名模型消歧）；运行时 bootstrap 用 LiteLLM resolver 按模型名 best-effort
   回填（其 provider 命名空间与本地注册 id 不同，故只按模型名匹配）；
 - 插件贡献模型元数据时只发结构性字段，不要重复计价；新增 `ProviderCompat` 字段必须附带读取它的 codec 分支与测试。
+  现有 5 字段的消费点：`supports_developer_role`→OpenAI Chat 线角色、`supports_strict_mode`→Chat/Responses strict 标记、
+  `supports_mid_convo_system_messages`→Chat system 前置、`supports_long_cache_retention`→Anthropic ttl、`max_tokens_field`→Chat 输出上限字段。
 
 ## 9. 内置 OAuth 预设
 

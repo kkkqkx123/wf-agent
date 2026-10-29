@@ -42,14 +42,16 @@ Provider = 连接模板（base URL/auth/headers/模型发现），按名引用�
 ### 1.4.1 ProviderCompat 与 ModelMetadata 使用
 
 - `compat`（`LlmProfile`/`LlmProviderDefinition`）：5 个窄字段（`supports_developer_role`、`supports_strict_mode`、
-  `supports_mid_convo_system_messages`、`supports_long_cache_retention`、`max_tokens_field`），全部 `Option`。
+  `supports_mid_convo_system_messages`、`supports_long_cache_retention`、`max_tokens_field`），全部 `Option`，
+  每个字段都有对应 codec 分支（developer 线角色、strict 降级、system 前置、1h ttl 回落、输出上限字段）。
   注册时 `apply_provider_defaults` 做 definition→profile 逐字段合并 + 窄探测（OpenAI Chat 本地网关 → legacy
-  `max_tokens`，打 `debug` 日志），显式值永远优先；`resolve_generation` 回填 `profile.compat.max_tokens_field`；
+  `max_tokens`，含无 `provider_id` 的独立 profile，打 `debug` 日志），显式值永远优先；`resolve_generation` 回填 `profile.compat.max_tokens_field`；
   compat 不进传输缓存键。确需透传无消费者字段时先用 `metadata`/`custom_body` 逃生，待 codec 有分支再转正。
 - `ModelMetadata` 查询：`wf_llm::{model_metadata, model_metadata_for, ModelMetadataResolver}`（数据来自 `wf-pricing`
   内嵌 LiteLLM 表），`supports_image()` 供消息迁移查询；`apply_catalog_metadata(profile, &[ModelMetadata])` 只补
-  缺失 `context_window_size`。会话跨模型迁移由调用方显式调 `transform_for_target(messages, target)`
-  （同模型 no-op，可无条件调用；网关热路径不自动执行）。
+  缺失 `context_window_size`。会话跨模型迁移由持有方显式迁移：`LlmGateway::migrate_history_for_profile`（同模型 no-op，
+  未知目标原样返回）或 `ChatSession::switch_profile`；底层 `transform_for_target(messages, target)` 保持纯函数，
+  网关热路径不自动执行。
 
 ### 1.4.2 图片生成与请求观测
 

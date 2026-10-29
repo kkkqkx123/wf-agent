@@ -9,8 +9,8 @@
 
 use llm_types::llm::{LlmFormat, LlmProviderDefinition, ProviderCompat};
 
-use llm_config::provider::ProviderDefinitionRegistry;
 use llm_codec::error::LlmResult;
+use llm_config::provider::ProviderDefinitionRegistry;
 
 /// Built-in provider definition ids. Stable strings hosts can rely on.
 pub const BUILTIN_OPENAI_ID: &str = "builtin-openai";
@@ -110,10 +110,12 @@ pub fn builtin_provider_definitions() -> Vec<LlmProviderDefinition> {
             no_proxy: None,
             rate_limit: None,
             auth: None,
+            // Explicit legacy field for the local gateway: duplicates what
+            // the narrow auto-detection would guess, so the baseline holds
+            // even if the detection signal ever narrows further. Explicit
+            // config always wins over detection.
             compat: Some(ProviderCompat {
-                max_tokens_field: Some(
-                    llm_types::llm::generation::LlmMaxTokenField::MaxTokens,
-                ),
+                max_tokens_field: Some(llm_types::llm::generation::LlmMaxTokenField::MaxTokens),
                 ..Default::default()
             }),
             identity: None,

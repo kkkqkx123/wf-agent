@@ -142,6 +142,7 @@ pub(super) async fn persist_conversation(
             );
         }
     }
+    crate::agent::agent_loop_registry::ensure_loop_title(ctx, &agent_loop_id, conversation).await;
 }
 
 /// Persist the conversation of a stream-mode agent loop once its terminal
@@ -153,8 +154,9 @@ pub async fn persist_stream_conversation(ctx: &ApiContext, agent_loop_id: &str) 
         return;
     };
     let messages = entity.conversation().read().await.state.messages.clone();
-    for message in messages {
-        let record = crate::entity::message::record(agent_loop_id, Some(agent_loop_id), message);
+    for message in &messages {
+        let record =
+            crate::entity::message::record(agent_loop_id, Some(agent_loop_id), message.clone());
         if let Err(err) = ctx.storage.message.save(&record).await {
             tracing::warn!(
                 target: "wf_api",
@@ -164,4 +166,5 @@ pub async fn persist_stream_conversation(ctx: &ApiContext, agent_loop_id: &str) 
             );
         }
     }
+    crate::agent::agent_loop_registry::ensure_loop_title(ctx, agent_loop_id, &messages).await;
 }

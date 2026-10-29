@@ -319,6 +319,7 @@ async fn test_get_stats_pushdown() {
                 current_iteration: 0,
                 started_at: 1000,
                 updated_at: 1000,
+                title: None,
             })
             .await
             .unwrap();
@@ -331,6 +332,7 @@ async fn test_get_stats_pushdown() {
             current_iteration: 3,
             started_at: 1000,
             updated_at: 1000,
+            title: None,
         })
         .await
         .unwrap();

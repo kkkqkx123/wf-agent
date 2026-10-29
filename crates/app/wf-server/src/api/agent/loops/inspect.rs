@@ -32,6 +32,8 @@ pub(crate) struct LoopSummariesQuery {
     offset: Option<u64>,
     /// Sort by start time: `asc` or `desc`. Absent preserves registry order.
     order: Option<String>,
+    /// Substring filter over id, title and status (case-insensitive).
+    q: Option<String>,
 }
 
 /// Live-first agent loop summaries (live registry merged with persisted
@@ -67,6 +69,7 @@ pub(crate) async fn handle_loop_summaries(
         profile_id: query.profile_id,
         tags: None,
         created_at_range: None,
+        query: query.q,
     };
     match wf_api::agent::agent_loop_registry::summaries(&state.ctx, Some(&filter)).await {
         Ok(mut summaries) => {

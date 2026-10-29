@@ -1098,7 +1098,8 @@ pub struct SessionListView<'a> {
 /// Session list browser overlay: centered floating list of open tabs with
 /// pin/streaming markers, plus a recent-sessions pane. Tabs keys: j/k
 /// move, Enter switch, d close, p pin, x prune, Tab recent. Recent keys:
-/// j/k move, Enter replay in a new tab, typing filters, Tab tabs.
+/// j/k move, Enter continue (switch or open with history), typing filters
+/// over id/title/status, Ctrl+D delete, Ctrl+R rename to filter, Tab tabs.
 /// Esc closes (clearing the recent filter first).
 pub fn draw_session_list(frame: &mut Frame, area: Rect, view: &SessionListView, theme: &Theme) {
     let popup = tui_components::modal::centered_rect(70, 60, area);
@@ -1112,7 +1113,9 @@ pub fn draw_session_list(frame: &mut Frame, area: Rect, view: &SessionListView, 
         ])
         .split(popup);
     let hint = if view.show_recent {
-        Paragraph::new("↑/↓ move · Enter replay · Tab tabs · type to filter · Esc close")
+        Paragraph::new(
+            "↑/↓ move · Enter continue · Ctrl+D delete · Ctrl+R rename to filter · Tab tabs · Esc close",
+        )
     } else {
         Paragraph::new("Enter switch · d close · p pin · x prune · Tab recent · Esc close")
     }
@@ -1135,7 +1138,11 @@ pub fn draw_session_list(frame: &mut Frame, area: Rect, view: &SessionListView, 
         let list =
             List::new(items).block(titled_block("Recent sessions", ColorRole::Accent, theme));
         frame.render_stateful_widget(list, chunks[1], &mut state);
-        let status = if view.recent_filter.is_empty() {
+        let status = if !view.recent_filter.is_empty() && view.recent_rows.is_empty() {
+            format!("no match for '{}' · Tab for open tabs", view.recent_filter)
+        } else if view.recent_filter.is_empty() && view.recent_rows.is_empty() {
+            "no recent sessions yet — send a turn first · Tab for open tabs".to_string()
+        } else if view.recent_filter.is_empty() {
             format!("({}) recent · Tab for open tabs", view.recent_rows.len())
         } else {
             format!("filter: {} · Tab for open tabs", view.recent_filter)
@@ -1410,8 +1417,9 @@ pub fn draw_transcript_overlay(
         width: area.width,
         height: area.height.saturating_sub(1),
     };
-    let block = titled_block("History", ColorRole::Accent, theme);
-    let inner = block.inner(overlay_area);
+    // Flush transcript: no frame block, so text starts at column 0 and uses
+    // the full terminal width like the live chat stream.
+    let inner = overlay_area;
     let capacity = usize::from(inner.height.max(1));
 
     // Reflow every loaded line to the window width and carry its role color
@@ -1451,7 +1459,6 @@ pub fn draw_transcript_overlay(
     let end = rows.len().saturating_sub(view.scroll);
     let start = end.saturating_sub(capacity);
     let top = scrollbar::clamp_top(start, rows.len(), capacity);
-    frame.render_widget(block, overlay_area);
     frame.render_widget(Paragraph::new(rows[start..end].to_vec()), content);
     if let Some(gutter) = gutter {
         scrollbar::render(frame, gutter, rows.len(), capacity, top, theme);
@@ -1514,9 +1521,9 @@ fn history_status(view: &HistoryOverlayView<'_>, at_top: bool) -> String {
         "start of history".to_string()
     };
     if view.scroll > 0 {
-        format!("{session}{state} · PageUp/PageDown scroll · End for latest · Ctrl+T close")
+        format!("History · {session}{state} · PageUp/PageDown scroll · End for latest · Ctrl+T close")
     } else {
-        format!("{session}{state} · PageUp/PageDown scroll · Ctrl+T close")
+        format!("History · {session}{state} · PageUp/PageDown scroll · Ctrl+T close")
     }
 }
 

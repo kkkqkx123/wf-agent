@@ -674,8 +674,8 @@ impl TuiApp {
                 self.invalidate(ScreenKind::Settings);
                 self.copy_on_select = mode;
                 let clear = self.clear_selection_after_copy();
-                if let Some(session) = self.sessions.active_mut() {
-                    session.apply_clear_selection_after_copy(clear);
+                for tab in self.sessions.iter_mut() {
+                    tab.controller.apply_clear_selection_after_copy(clear);
                 }
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
                 self.app.notice.set(format!("copy_on_select {mode:?} (applies instantly)"));

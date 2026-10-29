@@ -33,6 +33,7 @@ interface SummaryDto {
 	id?: string;
 	status?: string;
 	execution_type?: string | null;
+	title?: string | null;
 	current_iteration?: number;
 	tool_call_count?: number;
 	start_time?: number | null;
@@ -99,9 +100,10 @@ function toSessionExecutorType(value: string | null | undefined): SessionExecuto
 
 function toLoop(d: SummaryDto): AgentLoop {
 	const id = d.id ?? '';
+	const title = typeof d.title === 'string' ? d.title.trim() : '';
 	return {
 		id,
-		name: id,
+		name: title || id,
 		status: d.status ?? '',
 		executionType: toSessionExecutorType(d.execution_type),
 		iteration: d.current_iteration ?? 0,
@@ -228,6 +230,7 @@ export async function listAgentLoops(params?: {
 	limit?: number;
 	offset?: number;
 	status?: string;
+	q?: string;
 }): Promise<PageResult<AgentLoop>> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/agent-loops/summaries', {
@@ -334,6 +337,28 @@ export async function cancelAgentLoop(id: string): Promise<void> {
 			params: { path: { id } },
 		}),
 	);
+}
+
+export async function renameAgentLoop(id: string, title: string): Promise<string> {
+	const data = requireData(
+		await call<string>(
+			client.PATCH('/api/v1/agent-loops/{id}/title', {
+				params: { path: { id } },
+				body: { title },
+			}),
+		),
+		`Rename for loop ${id}`,
+	);
+	return data;
+}
+
+export async function deleteAgentLoop(id: string): Promise<boolean> {
+	const data = await call<boolean>(
+		client.DELETE('/api/v1/agent-loops/{id}', {
+			params: { path: { id } },
+		}),
+	);
+	return data ?? true;
 }
 
 export async function appendAgentLoopInput(

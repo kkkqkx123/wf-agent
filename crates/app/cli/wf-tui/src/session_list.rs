@@ -1,5 +1,5 @@
 //! Session list browser state: selection over the open chat tabs plus a
-//! read-only recent-sessions pane.
+//! recent-sessions pane.
 //!
 //! The browser is transient and never enters the navigation stack. It owns
 //! only the selected row so any screen, including the session screen, can
@@ -7,9 +7,10 @@
 //! [`crate::session_tabs::SessionTabs`] snapshot directly; recent sessions
 //! arrive from a background fetch of the agent-loop summaries.
 //!
-//! The recent pane is read-only by design: Enter opens the selected session
-//! as a replay tab (no server writes), matching the phase 2 scope of
-//! read-then-revisit without delete or rename.
+//! The recent pane is continuable: Enter switches to the open tab when the
+//! session is already open, otherwise it opens the session in a new tab and
+//! replays its server conversation into the turn history. Typing filters
+//! over id, title and status; `d` deletes and `r` renames to the filter.
 
 use tui_core::screen_data::short_id;
 
@@ -20,17 +21,36 @@ pub struct RecentSession {
     pub status: String,
     /// Pre-formatted relative age (`5m`, `2h`, `3d`).
     pub started: String,
+    /// Server display title, when the loop has one.
+    pub title: Option<String>,
 }
 
 impl RecentSession {
-    /// Single display line for the recent pane.
+    /// Single display line for the recent pane: title (or short id) first so
+    /// renamed sessions are recognizable, then status and relative age.
     pub fn display(&self) -> String {
-        format!(
-            "{} · {} · {}",
-            short_id(&self.id),
-            self.status,
-            self.started
-        )
+        let label = self
+            .title
+            .as_deref()
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .unwrap_or_default();
+        if label.is_empty() {
+            format!(
+                "{} · {} · {}",
+                short_id(&self.id),
+                self.status,
+                self.started
+            )
+        } else {
+            format!(
+                "{} · {} · {} · {}",
+                short_id(&self.id),
+                label,
+                self.status,
+                self.started
+            )
+        }
     }
 }
 
@@ -152,8 +172,25 @@ impl SessionList {
         self.recent_selected
     }
 
+    /// Whether the recent pane has any fetched rows at all.
+    pub fn recent_is_empty(&self) -> bool {
+        self.recent.is_empty()
+    }
+
+    /// Total fetched recent rows, before filtering.
+    pub fn recent_total(&self) -> usize {
+        self.recent.len()
+    }
+
+    /// Selected recent row, when a visible row exists.
+    pub fn recent_selected_row(&self) -> Option<RecentSession> {
+        self.recent_selected_id().and_then(|id| {
+            self.recent.iter().find(|row| row.id == id).cloned()
+        })
+    }
+
     /// Recent rows matching the current substring filter (case-insensitive
-    /// over id and status).
+    /// over id, title and status). Sorted newest-first by the fetch.
     pub fn recent_visible(&self) -> Vec<&RecentSession> {
         let needle = self.recent_filter.to_lowercase();
         if needle.trim().is_empty() {
@@ -164,6 +201,12 @@ impl SessionList {
             .filter(|row| {
                 row.id.to_lowercase().contains(&needle)
                     || row.status.to_lowercase().contains(&needle)
+                    || row
+                        .title
+                        .as_deref()
+                        .unwrap_or_default()
+                        .to_lowercase()
+                        .contains(&needle)
             })
             .collect()
     }
@@ -278,6 +321,15 @@ mod tests {
             id: id.to_string(),
             status: "completed".to_string(),
             started: "5m".to_string(),
+            title: None,
+        }
+    }
+    fn titled(id: &str, title: &str) -> RecentSession {
+        RecentSession {
+            id: id.to_string(),
+            status: "completed".to_string(),
+            started: "5m".to_string(),
+            title: Some(title.to_string()),
         }
     }
 
@@ -348,6 +400,29 @@ mod tests {
         assert_eq!(list.recent_selected(), 0);
         list.recent_move_next();
         assert_eq!(list.recent_selected(), 1);
+    }
+
+    #[test]
+    fn recent_filter_matches_title() {
+        let mut list = SessionList::new();
+        list.set_recent(vec![titled("exec-alpha", "deploy api"), recent("exec-beta")]);
+        list.recent_filter_push('d');
+        list.recent_filter_push('e');
+        list.recent_filter_push('p');
+        list.recent_filter_push('l');
+        list.recent_filter_push('o');
+        list.recent_filter_push('y');
+        assert_eq!(list.recent_visible().len(), 1);
+        assert_eq!(list.recent_visible()[0].id.as_str(), "exec-alpha");
+    }
+
+    #[test]
+    fn recent_display_prefers_title_when_present() {
+        let row = titled("exec-alpha-long-id", "deploy api");
+        let line = row.display();
+        assert!(line.contains("deploy api"), "{line}");
+        let plain = recent("exec-beta");
+        assert!(!plain.display().contains("·  ·"), "{}", plain.display());
     }
 
     #[test]

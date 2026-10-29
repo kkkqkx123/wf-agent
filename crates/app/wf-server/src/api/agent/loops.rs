@@ -35,6 +35,7 @@ pub(crate) fn routes() -> Router<ApiState> {
             "/agent-loops/{id}/status",
             patch(handle_update_loop_status).get(handle_loop_status),
         )
+        .route("/agent-loops/{id}/title", patch(handle_update_loop_title))
         .route("/agent-loops/{id}/run", post(handle_run_loop))
         .route("/agent-loops/{id}/stream", post(handle_stream_loop))
         .route("/agent-loops/{id}/pause", post(handle_pause_loop))

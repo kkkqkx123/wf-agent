@@ -32,6 +32,15 @@ pub enum SlashCommand {
         node: Option<String>,
     },
     Loops(Option<String>),
+    /// List recent server sessions (`/sessions [filter]`), newest first.
+    Sessions(Option<String>),
+    /// Resume a server session (`/resume [id-or-filter]`), replacing the
+    /// in-memory transcript. Bare `/resume` picks the latest session.
+    Resume(Option<String>),
+    /// Rename the current session (`/rename <title>`).
+    Rename(Option<String>),
+    /// Delete a session (`/delete [id-or-filter]`); bare deletes current.
+    Delete(Option<String>),
 }
 
 /// Split an optional leading `--node <id>` (or `--node=<id>`) flag from
@@ -159,6 +168,38 @@ pub fn parse_command(line: &str) -> Option<SlashCommand> {
                 0 => Some(SlashCommand::Loops(None)),
                 1 => Some(SlashCommand::Loops(Some(args[0].to_string()))),
                 _ => None,
+            }
+        }
+        "/sessions" => {
+            let rest: Vec<&str> = tokens.collect();
+            if rest.is_empty() {
+                Some(SlashCommand::Sessions(None))
+            } else {
+                Some(SlashCommand::Sessions(Some(rest.join(" "))))
+            }
+        }
+        "/resume" => {
+            let rest: Vec<&str> = tokens.collect();
+            if rest.is_empty() {
+                Some(SlashCommand::Resume(None))
+            } else {
+                Some(SlashCommand::Resume(Some(rest.join(" "))))
+            }
+        }
+        "/rename" => {
+            let rest: Vec<&str> = tokens.collect();
+            if rest.is_empty() {
+                Some(SlashCommand::Rename(None))
+            } else {
+                Some(SlashCommand::Rename(Some(rest.join(" "))))
+            }
+        }
+        "/delete" => {
+            let rest: Vec<&str> = tokens.collect();
+            if rest.is_empty() {
+                Some(SlashCommand::Delete(None))
+            } else {
+                Some(SlashCommand::Delete(Some(rest.join(" "))))
             }
         }
         _ => None,

@@ -328,6 +328,7 @@ impl NativeSession {
             SlashCommand::Quit => CommandAction::Exit,
             SlashCommand::Help => {
                 output::diag_line("commands: /help show this help, /clear print a separator, /new start a fresh conversation, /checkpoints list checkpoints, /recap show a one-line recap of the turn, /quit exit (Ctrl-D also exits)");
+                output::diag_line("sessions: /sessions [filter] list recent server sessions (newest first, id · title · status · age), /resume [id-or-filter] continue a session (bare resumes latest), /rename <title> rename current session, /delete [id-or-filter] delete a session (bare deletes current)");
                 output::diag_line("history: /history [prefix] list recent prompts (optional prefix filter), /rerun [n] re-ask prompt n (default: last)");
                 output::diag_line("display: /markdown [raw|plain|styled] set or show stdout rendering, /reasoning [on|off], /usage [on|off], /tools [on|off], /display show all");
                 output::diag_line("nested loops: /loops [execution] list workflow nested targets, /steer [--node <id>] <text> steering input, /followup [--node <id>] <text> follow-up input, /append-mode [--node <id>] steering|followup, /convert-pending [--node <id>]");
@@ -501,6 +502,22 @@ impl NativeSession {
             }
             SlashCommand::Loops(execution) => {
                 self.list_nested_loops(execution).await;
+                CommandAction::Continue
+            }
+            SlashCommand::Sessions(filter) => {
+                self.list_sessions(filter).await;
+                CommandAction::Continue
+            }
+            SlashCommand::Resume(target) => {
+                self.resume_to(target).await;
+                CommandAction::Continue
+            }
+            SlashCommand::Rename(title) => {
+                self.rename_current(title).await;
+                CommandAction::Continue
+            }
+            SlashCommand::Delete(target) => {
+                self.delete_session(target).await;
                 CommandAction::Continue
             }
         }
@@ -989,13 +1006,261 @@ impl NativeSession {
 
     /// File a completed turn into the transcript. The server persists the
     /// run ledger; the transcript only keeps memory for follow-up turns.
-    /// Interrupted and failed turns never enter memory.
+    /// Interrupted and failed turns never enter memory. On success the
+    /// session anchor tracks the latest server loop so `--session <anchor>`
+    /// stays resumable after the process exits.
     fn record_completed_turn(&mut self, question: &str, finished: &FinishedTurn) {
         if !finished.outcome.completed {
             return;
         }
         self.transcript
             .push_pair(question, &finished.outcome.assistant_text);
+        if let Some(id) = self.current_loop_id.clone() {
+            if self.anchor != id {
+                self.anchor = id;
+                self.set_terminal_title();
+            }
+        }
+    }
+
+    /// One fetched session row for the interactive `/sessions` listing.
+    async fn fetch_session_rows(client: &WfClient) -> Vec<MiniSessionRow> {
+        let value: Result<serde_json::Value, _> = client
+            .get_json("/api/v1/agent-loops/summaries?order=desc&limit=50")
+            .await;
+        let items = value
+            .ok()
+            .and_then(|v| {
+                v.get("items")
+                    .and_then(|items| items.as_array().cloned())
+                    .or_else(|| v.as_array().cloned())
+            })
+            .unwrap_or_default();
+        let mut rows: Vec<MiniSessionRow> = items
+            .into_iter()
+            .filter_map(|item| {
+                let id = item.get("id")?.as_str()?.to_string();
+                if id.trim().is_empty() {
+                    return None;
+                }
+                Some(MiniSessionRow {
+                    start_ms: item.get("start_time").and_then(|v| v.as_i64()).unwrap_or(0),
+                    id,
+                    title: item
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .map(str::trim)
+                        .filter(|title| !title.is_empty())
+                        .map(str::to_string),
+                    status: item
+                        .get("status")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?")
+                        .to_string(),
+                })
+            })
+            .collect();
+        rows.sort_by_key(|row| std::cmp::Reverse(row.start_ms));
+        rows.truncate(50);
+        rows
+    }
+
+    /// List recent server sessions newest-first, filtered by a substring
+    /// over id, title and status. Empty servers and empty filters report
+    /// explicitly instead of printing nothing.
+    async fn list_sessions(&self, filter: Option<String>) {
+        let rows = Self::fetch_session_rows(&self.client).await;
+        if rows.is_empty() {
+            output::diag_line("no recent sessions yet — send a turn first");
+            return;
+        }
+        let needle = filter.as_deref().unwrap_or_default().trim().to_lowercase();
+        let shown: Vec<&MiniSessionRow> = if needle.is_empty() {
+            rows.iter().take(20).collect()
+        } else {
+            rows.iter()
+                .filter(|row| {
+                    row.id.to_lowercase().contains(&needle)
+                        || row.status.to_lowercase().contains(&needle)
+                        || row
+                            .title
+                            .as_deref()
+                            .unwrap_or_default()
+                            .to_lowercase()
+                            .contains(&needle)
+                })
+                .take(20)
+                .collect()
+        };
+        if shown.is_empty() {
+            output::diag_line(&format!(
+                "no match for '{}' ({} sessions)",
+                filter.unwrap_or_default(),
+                rows.len()
+            ));
+            return;
+        }
+        for row in shown {
+            let label = row.title.as_deref().unwrap_or("-");
+            output::diag_line(&format!(
+                "{} · {} · {} · {}",
+                short_session_id(&row.id),
+                label,
+                row.status,
+                mini_relative_age(row.start_ms)
+            ));
+        }
+        if needle.is_empty() && rows.len() > 20 {
+            output::diag_line(&format!("… {} more (pass a filter)", rows.len() - 20));
+        }
+    }
+
+    /// Continue a session interactively: bare resumes the latest session,
+    /// an argument resumes an exact id or the newest id/title/status match.
+    /// The transcript is replaced and the anchor tracks the resumed loop so
+    /// the next turn seeds from its conversation.
+    async fn resume_to(&mut self, target: Option<String>) {
+        let needle = target.as_deref().map(str::trim).unwrap_or_default();
+        if needle.is_empty() {
+            match Self::load_latest(&self.client).await {
+                Some((id, stored)) => self.switch_transcript(id, stored),
+                None => output::diag_line("no previous session found; staying here"),
+            }
+            return;
+        }
+        let stored = Self::load_history(&self.client, needle).await;
+        if !stored.is_empty() {
+            self.switch_transcript(needle.to_string(), stored);
+            return;
+        }
+        let rows = Self::fetch_session_rows(&self.client).await;
+        let lower = needle.to_lowercase();
+        let hit = rows
+            .iter()
+            .find(|row| {
+                row.id.to_lowercase().contains(&lower)
+                    || row.status.to_lowercase().contains(&lower)
+                    || row
+                        .title
+                        .as_deref()
+                        .unwrap_or_default()
+                        .to_lowercase()
+                        .contains(&lower)
+            })
+            .map(|row| row.id.clone());
+        match hit {
+            Some(id) => {
+                let stored = Self::load_history(&self.client, &id).await;
+                if stored.is_empty() {
+                    output::diag_line(&format!("session '{id}' has no saved messages"));
+                } else {
+                    self.switch_transcript(id, stored);
+                }
+            }
+            None => output::diag_line(&format!("no session matches '{needle}'")),
+        }
+    }
+
+    /// Replace the in-memory transcript with a resumed conversation.
+    fn switch_transcript(&mut self, id: String, stored: Vec<wf_types::message::Message>) {
+        let mut transcript = Transcript::new();
+        let restored = transcript.restore(stored);
+        self.transcript = transcript;
+        self.anchor = id.clone();
+        self.current_loop_id = None;
+        self.nested_execution_id = None;
+        self.nested_selected_node = None;
+        self.nested_loops = Vec::new();
+        self.note_turn_started();
+        self.set_terminal_title();
+        output::diag_line(&format!("resumed session {id} ({restored} messages) — continue chatting"));
+    }
+
+    /// Rename the current session. Fresh `mini-*` anchors without a server
+    /// turn have nothing to rename yet.
+    async fn rename_current(&mut self, title: Option<String>) {
+        let Some(title) = title.map(|t| t.trim().to_string()).filter(|t| !t.is_empty()) else {
+            output::diag_line("usage: /rename <title>");
+            return;
+        };
+        let target = self
+            .current_loop_id
+            .clone()
+            .or_else(|| {
+                (!self.anchor.starts_with("mini-"))
+                    .then(|| self.anchor.clone())
+            });
+        let Some(id) = target else {
+            output::diag_line("no server session yet — send a turn first, then /rename");
+            return;
+        };
+        match self.client.rename_agent_loop(&id, &title).await {
+            Ok(_) => output::diag_line(&format!("renamed session {id} to {title}")),
+            Err(err) => output::diag_line(&format!("rename failed: {err}")),
+        }
+    }
+
+    /// Delete a session and its conversation. Bare deletes the current
+    /// session anchor (or latest loop); an argument deletes an exact id or
+    /// the newest filter match. Deleting the current session clears the
+    /// transcript and starts a fresh anchor.
+    async fn delete_session(&mut self, target: Option<String>) {
+        let needle = target.as_deref().map(str::trim).unwrap_or_default();
+        let id = if needle.is_empty() {
+            self.current_loop_id.clone().unwrap_or_else(|| self.anchor.clone())
+        } else {
+            let stored = Self::load_history(&self.client, needle).await;
+            if !stored.is_empty() {
+                needle.to_string()
+            } else {
+                let rows = Self::fetch_session_rows(&self.client).await;
+                let lower = needle.to_lowercase();
+                match rows
+                    .iter()
+                    .find(|row| {
+                        row.id.to_lowercase().contains(&lower)
+                            || row.status.to_lowercase().contains(&lower)
+                            || row
+                                .title
+                                .as_deref()
+                                .unwrap_or_default()
+                                .to_lowercase()
+                                .contains(&lower)
+                    })
+                    .map(|row| row.id.clone())
+                {
+                    Some(id) => id,
+                    None => {
+                        output::diag_line(&format!("no session matches '{needle}'"));
+                        return;
+                    }
+                }
+            }
+        };
+        if id.starts_with("mini-") && self.current_loop_id.is_none() {
+            output::diag_line("no server session yet — nothing to delete");
+            return;
+        }
+        match self.client.delete_agent_loop(&id).await {
+            Ok(_) => {
+                output::diag_line(&format!("deleted session {id}"));
+                if id == self.anchor || Some(&id) == self.current_loop_id.as_ref() {
+                    self.transcript.clear();
+                    self.anchor = format!("mini-{}", wf_common::generate_id());
+                    self.current_loop_id = None;
+                    self.nested_execution_id = None;
+                    self.nested_selected_node = None;
+                    self.nested_loops = Vec::new();
+                    self.note_turn_started();
+                    self.set_terminal_title();
+                    output::diag_line(&format!(
+                        "started a new conversation (session {})",
+                        self.anchor
+                    ));
+                }
+            }
+            Err(err) => output::diag_line(&format!("delete failed: {err}")),
+        }
     }
 
     /// Run one turn seeded with the session transcript. Returns `None`
@@ -1207,6 +1472,51 @@ fn terminal_rows() -> u16 {
     crossterm::terminal::size()
         .map(|(_, rows)| rows)
         .unwrap_or(24)
+}
+
+/// One row of the `/sessions` listing: server id plus its title, status
+/// and start time for relative-age display.
+#[derive(Debug, Clone)]
+struct MiniSessionRow {
+    id: String,
+    title: Option<String>,
+    status: String,
+    start_ms: i64,
+}
+
+/// Short session id for diag lines, matching the full TUI short id.
+fn short_session_id(id: &str) -> String {
+    if id.chars().count() <= 8 {
+        id.to_string()
+    } else {
+        format!("{}...", id.chars().take(7).collect::<String>())
+    }
+}
+
+/// Relative age label for a start timestamp, shared with the full TUI
+/// recent pane so both CLIs read the same (`now`, `5m`, `2h`, `3d`).
+fn mini_relative_age(start_ms: i64) -> String {
+    if start_ms <= 0 {
+        return "-".to_string();
+    }
+    let now_ms = wf_common::now().max(0) as u64;
+    let delta_ms = now_ms.saturating_sub(start_ms.max(0) as u64);
+    let minutes = delta_ms / 60_000;
+    if minutes < 1 {
+        return "now".to_string();
+    }
+    if minutes < 60 {
+        return format!("{minutes}m");
+    }
+    let hours = minutes / 60;
+    if hours < 24 {
+        return format!("{hours}h");
+    }
+    let days = hours / 24;
+    if days < 30 {
+        return format!("{days}d");
+    }
+    format!("{}mo", days / 30)
 }
 
 #[cfg(test)]

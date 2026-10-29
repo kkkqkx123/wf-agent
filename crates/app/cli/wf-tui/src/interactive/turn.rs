@@ -955,6 +955,13 @@ impl InteractiveController {
                     .map(|started| started.elapsed())
                     .unwrap_or_default();
                 self.record_completed_turn();
+                // Promote the server-side loop id created by this turn so the
+                // tab keeps pointing at the latest conversation and stays
+                // discoverable from the recent-sessions pane.
+                if let Some(loop_id) = self.active_agent_loop_id.clone() {
+                    self.execution_id = loop_id.clone();
+                    self.footer.state.execution_id = Some(loop_id);
+                }
                 self.maybe_auto_recap(ticket, elapsed, &answer);
                 self.finish_turn();
             }

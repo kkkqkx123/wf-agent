@@ -17,6 +17,8 @@ pub struct AgentLoopFilter {
     pub tags: Option<Vec<String>>,
     /// Inclusive `(start, end)` creation timeframe.
     pub created_at_range: Option<(Option<i64>, Option<i64>)>,
+    /// Substring match over id and title (case-insensitive).
+    pub query: Option<String>,
 }
 
 /// Digest of an agent loop execution.
@@ -38,6 +40,10 @@ pub struct AgentLoopSummary {
     /// Execution this loop was spawned under, absent for a root loop.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_execution_id: Option<String>,
+    /// Display title of the session: explicit rename wins, otherwise the
+    /// first user message snippet recorded at persist time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 /// Iteration detail for agent loop history.

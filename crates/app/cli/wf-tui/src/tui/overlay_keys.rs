@@ -448,12 +448,29 @@ impl TuiApp {
         Ok(LoopAction::Continue)
     }
 
-    /// Recent-sessions pane keys. Arrows move (every printable character
-    /// filters, so there are no plain-letter bindings here) and Enter opens
-    /// the selected session as a replay tab (read-only revisit, no server
-    /// writes). Esc clears the filter first, then closes.
+    /// Recent-sessions pane keys. Arrows move and Enter continues the session
+    /// (switching to its tab when already open, otherwise opening a new tab
+    /// whose history seeds the next turn). Every printable character filters
+    /// over id, title and status, so letter commands live on Ctrl: Ctrl+D
+    /// deletes the selected session, Ctrl+R renames it to the filter text.
+    /// Esc clears the filter first, then closes.
     async fn handle_recent_list_key(&mut self, key: Key) -> CliResult<LoopAction> {
         let plain = !key.ctrl && !key.alt;
+        let ctrl = key.ctrl && !key.alt;
+        // Delete and rename on Ctrl so typing stays a filter.
+        if ctrl {
+            match key.code {
+                CKey::Char('d') | CKey::Char('D') => {
+                    self.delete_recent_session().await;
+                    return Ok(LoopAction::Continue);
+                }
+                CKey::Char('r') | CKey::Char('R') => {
+                    self.rename_recent_session().await;
+                    return Ok(LoopAction::Continue);
+                }
+                _ => {}
+            }
+        }
         match key.code {
             CKey::Esc if plain => {
                 if !self.session_list.recent_filter().is_empty() {
@@ -464,6 +481,13 @@ impl TuiApp {
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
             }
             CKey::Enter if plain => {
+                if self.session_list.recent_is_empty() {
+                    self.app
+                        .notice
+                        .set("no recent sessions yet — send a turn first".to_string());
+                    self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                    return Ok(LoopAction::Continue);
+                }
                 let Some(id) = self.session_list.recent_selected_id() else {
                     self.app.notice.set("recent: nothing selected".to_string());
                     self.pending_scope.request(crate::redraw::RedrawScope::Full);
@@ -471,10 +495,18 @@ impl TuiApp {
                 };
                 let short = crate::screens::short_id(&id);
                 self.overlay = OverlayMode::None;
-                self.open_tab_for_session(id, None, None).await;
-                self.app
-                    .notice
-                    .set(format!("opened replay of {short} in a new tab"));
+                if let Some(index) = self.sessions.index_of_execution(&id) {
+                    self.sessions.switch(index, self.now_ms());
+                    self.save_tabs();
+                    self.app.notice.set(format!(
+                        "switched to tab for {short} — history continues"
+                    ));
+                } else {
+                    self.open_tab_for_session(id, None, None).await;
+                    self.app.notice.set(format!(
+                        "opened {short} — history loaded, continue chatting"
+                    ));
+                }
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
             }
             CKey::Down if plain => {

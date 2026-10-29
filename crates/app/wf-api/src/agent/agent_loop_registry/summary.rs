@@ -29,11 +29,22 @@ pub async fn summaries(
 /// Get a single agent loop summary by id.
 pub async fn summary(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<Option<AgentLoopSummary>> {
     if let Some(entity) = ctx.agent_loop(agent_loop_id) {
-        let summary = live_summary(&entity).await;
+        let mut summary = live_summary(&entity).await;
+        if let Ok(Some(meta)) = ctx.storage.agent_loop.load(agent_loop_id).await {
+            if let Some(title) = normalized_stored_title(meta.title.as_deref()) {
+                summary.title = Some(title);
+            }
+        }
         return Ok(Some(summary));
     }
     if let Some(record) = ctx.storage.agent_execution.load(agent_loop_id).await? {
-        return Ok(Some(persisted_summary(&record)));
+        let mut summary = persisted_summary(&record);
+        if let Ok(Some(meta)) = ctx.storage.agent_loop.load(agent_loop_id).await {
+            if let Some(title) = normalized_stored_title(meta.title.as_deref()) {
+                summary.title = Some(title);
+            }
+        }
+        return Ok(Some(summary));
     }
     if let Some(meta) = ctx.storage.agent_loop.load(agent_loop_id).await? {
         let Some(summary) = meta_summary(&meta) else {
@@ -45,6 +56,165 @@ pub async fn summary(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<Option<
         return Ok(Some(summary));
     }
     Ok(None)
+}
+
+/// Longest stored session title, in characters. Longer input is truncated
+/// rather than rejected so rename stays total.
+const MAX_TITLE_CHARS: usize = 80;
+
+/// Normalize a stored title: trim, collapse to one line and drop empties.
+/// Returns `None` for missing or blank titles so callers fall back to the id.
+fn normalized_stored_title(raw: Option<&str>) -> Option<String> {
+    let trimmed = raw?.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let single: String = trimmed.split_whitespace().collect::<Vec<_>>().join(" ");
+    if single.is_empty() {
+        return None;
+    }
+    let truncated: String = single.chars().take(MAX_TITLE_CHARS).collect();
+    Some(truncated)
+}
+
+/// Validate and normalize a rename payload. Blank titles are rejected;
+/// longer titles are truncated to [`MAX_TITLE_CHARS`] characters.
+pub fn normalize_title(raw: &str) -> ApiResult<String> {
+    let Some(title) = normalized_stored_title(Some(raw)) else {
+        return Err(ApiError::Validation(
+            "title must not be blank".to_string(),
+        ));
+    };
+    Ok(title)
+}
+
+/// Derive a display title from a conversation: the first non-empty user
+/// message, single-lined and truncated. Assistant-only or empty histories
+/// yield `None` so the id stays the fallback label.
+pub fn derive_title_from_messages(messages: &[wf_types::message::Message]) -> Option<String> {
+    for message in messages {
+        if message.role != wf_types::message::MessageRole::User {
+            continue;
+        }
+        let text = match &message.content {
+            wf_types::message::MessageContentValue::Text(text) => text.clone(),
+            wf_types::message::MessageContentValue::Rich(parts) => parts
+                .iter()
+                .filter_map(|part| match part {
+                    wf_types::message::MessageContent::Text { text } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" "),
+        };
+        let Some(title) = normalized_stored_title(Some(&text)) else {
+            continue;
+        };
+        // First-message titles read better short: keep one preview line.
+        let preview: String = title.chars().take(60).collect();
+        return Some(preview);
+    }
+    None
+}
+
+/// Record the derived title for `agent_loop_id` when no explicit title
+/// exists yet. Called after conversation persist so summaries can show a
+/// human label without per-summary message reads. Never overwrites a rename.
+pub async fn ensure_loop_title(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+    messages: &[wf_types::message::Message],
+) {
+    let Ok(existing) = ctx.storage.agent_loop.load(agent_loop_id).await else {
+        return;
+    };
+    if let Some(meta) = existing {
+        if normalized_stored_title(meta.title.as_deref()).is_some() {
+            return;
+        }
+        let Some(title) = derive_title_from_messages(messages) else {
+            return;
+        };
+        let mut updated = meta;
+        updated.title = Some(title);
+        updated.updated_at = wf_common::now();
+        if let Err(err) = ctx.storage.agent_loop.save(&updated).await {
+            tracing::warn!(
+                target: "wf_api",
+                agent_loop_id = %agent_loop_id,
+                error = %err,
+                "failed to persist derived session title"
+            );
+        }
+        return;
+    }
+    let Some(title) = derive_title_from_messages(messages) else {
+        return;
+    };
+    let now = wf_common::now();
+    let status = match ctx.storage.agent_execution.load(agent_loop_id).await {
+        Ok(Some(record)) => crate::workflow::execution_state::status_str(&record.status).to_string(),
+        _ => "completed".to_string(),
+    };
+    let meta = wf_types::AgentLoopStorageMetadata {
+        id: wf_types::Id::from(agent_loop_id.to_string()),
+        definition_id: wf_types::Id::from(String::new()),
+        status,
+        current_iteration: 0,
+        started_at: messages.first().map(|m| m.timestamp).unwrap_or(now),
+        updated_at: now,
+        title: Some(title),
+    };
+    if let Err(err) = ctx.storage.agent_loop.save(&meta).await {
+        tracing::warn!(
+            target: "wf_api",
+            agent_loop_id = %agent_loop_id,
+            error = %err,
+            "failed to persist derived session title"
+        );
+    }
+}
+
+/// Rename a session: validate the title, then upsert the loop metadata.
+/// Unknown loops surface as not-found so clients can fallback to local state.
+pub async fn update_title(ctx: &ApiContext, agent_loop_id: &str, raw: &str) -> ApiResult<()> {
+    let title = normalize_title(raw)?;
+    if let Some(mut meta) = ctx.storage.agent_loop.load(agent_loop_id).await? {
+        meta.title = Some(title);
+        meta.updated_at = wf_common::now();
+        ctx.storage.agent_loop.save(&meta).await?;
+        return Ok(());
+    }
+    if let Some(record) = ctx.storage.agent_execution.load(agent_loop_id).await? {
+        let meta = wf_types::AgentLoopStorageMetadata {
+            id: wf_types::Id::from(agent_loop_id.to_string()),
+            definition_id: record.definition_id.clone(),
+            status: crate::workflow::execution_state::status_str(&record.status).to_string(),
+            current_iteration: record.current_iteration,
+            started_at: record.started_at,
+            updated_at: wf_common::now(),
+            title: Some(title),
+        };
+        ctx.storage.agent_loop.save(&meta).await?;
+        return Ok(());
+    }
+    // A live-only loop has no persisted record yet: create a metadata shell
+    // so the rename survives the next persist without touching the entity.
+    if ctx.agent_loop(agent_loop_id).is_some() {
+        let now = wf_common::now();
+        let meta = wf_types::AgentLoopStorageMetadata {
+            id: wf_types::Id::from(agent_loop_id.to_string()),
+            definition_id: wf_types::Id::from(String::new()),
+            status: "running".to_string(),
+            current_iteration: 0,
+            started_at: now,
+            updated_at: now,
+            title: Some(title),
+        };
+        ctx.storage.agent_loop.save(&meta).await?;
+        return Ok(());
+    }
+    Err(ApiError::execution_not_found(agent_loop_id))
 }
 
 /// List agent loops matching a status.
@@ -134,14 +304,30 @@ pub async fn all_summaries(ctx: &ApiContext) -> Vec<AgentLoopSummary> {
         }
     }
 
+    let mut titles: BTreeMap<String, String> = BTreeMap::new();
+    let mut meta_only: Vec<wf_types::AgentLoopStorageMetadata> = Vec::new();
     if let Ok(metas) = ctx.storage.agent_loop.list(None).await {
         for meta in metas {
+            if let Some(title) = normalized_stored_title(meta.title.as_deref()) {
+                titles.insert(meta.id.to_string(), title);
+            }
             let id = meta.id.to_string();
             if by_id.contains_key(&id) {
                 continue;
             }
-            if let Some(summary) = meta_summary(&meta) {
-                by_id.insert(id, summary);
+            meta_only.push(meta);
+        }
+    }
+    for meta in meta_only {
+        let id = meta.id.to_string();
+        if let Some(summary) = meta_summary(&meta) {
+            by_id.insert(id, summary);
+        }
+    }
+    for (id, title) in titles {
+        if let Some(summary) = by_id.get_mut(&id) {
+            if summary.title.is_none() {
+                summary.title = Some(title);
             }
         }
     }
@@ -198,6 +384,24 @@ fn filter_matches(summary: &AgentLoopSummary, filter: &AgentLoopFilter) -> bool 
             }
         }
     }
+    if let Some(query) = filter.query.as_deref() {
+        let needle = query.trim().to_lowercase();
+        if !needle.is_empty() {
+            let id_hit = summary.id.to_lowercase().contains(&needle);
+            let title_hit = summary
+                .title
+                .as_deref()
+                .unwrap_or_default()
+                .to_lowercase()
+                .contains(&needle);
+            let status_hit = format!("{:?}", summary.status)
+                .to_lowercase()
+                .contains(&needle);
+            if !(id_hit || title_hit || status_hit) {
+                return false;
+            }
+        }
+    }
     true
 }
 
@@ -220,6 +424,7 @@ pub async fn live_summary(entity: &wf_agent::entity::AgentLoopEntity) -> AgentLo
         },
         profile_id: Some(entity.model().to_string()),
         parent_execution_id: entity.parent_execution_id().map(|p| p.to_string()),
+        title: None,
     }
 }
 
@@ -243,6 +448,7 @@ fn persisted_summary(record: &wf_types::AgentExecution) -> AgentLoopSummary {
             .hierarchy
             .as_ref()
             .and_then(|h| h.parent_execution_id()),
+        title: None,
     }
 }
 
@@ -260,5 +466,6 @@ fn meta_summary(meta: &wf_types::AgentLoopStorageMetadata) -> Option<AgentLoopSu
         execution_time: None,
         profile_id: None,
         parent_execution_id: None,
+        title: normalized_stored_title(meta.title.as_deref()),
     })
 }

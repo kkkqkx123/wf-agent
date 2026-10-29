@@ -20,7 +20,8 @@ pub use history::{
     iteration_history_summary,
 };
 pub use summary::{
-    count, get_status, has, list_by_status, statistics, summaries, summary, update_status,
+    count, derive_title_from_messages, ensure_loop_title, get_status, has, list_by_status,
+    normalize_title, statistics, summaries, summary, update_status, update_title,
 };
 pub use timeline::{context_evolution, execution_timeline, variable_history};
 pub use types::{

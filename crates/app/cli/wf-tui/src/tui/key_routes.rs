@@ -34,6 +34,9 @@ impl TuiApp {
                             Some(clean) => {
                                 self.pending_copy =
                                     Some(crate::copy::PendingCopy::new(clean, "viewer"));
+                                if self.clear_selection_after_copy() {
+                                    self.modals.clear_selection();
+                                }
                             }
                             None => self.app.notice.set("copy: viewer is empty".to_string()),
                         }

@@ -631,6 +631,33 @@ impl WfClient {
         self.put(path, body).await
     }
 
+    /// JSON escape hatch for PATCH; used by the session title rename until
+    /// the generated client catches up with the new endpoint.
+    pub async fn patch_json<B, T>(&self, path: &str, body: &B) -> ClientResult<T>
+    where
+        B: Serialize + ?Sized,
+        T: DeserializeOwned,
+    {
+        let body = serde_json::to_value(body)
+            .map_err(|e| ClientError::Invalid(format!("request encode: {e}")))?;
+        self.send(reqwest::Method::PATCH, path, Some(&body)).await
+    }
+
+    /// Rename a session title (`PATCH /api/v1/agent-loops/{id}/title`).
+    pub async fn rename_agent_loop(&self, id: &str, title: &str) -> ClientResult<String> {
+        self.patch_json(
+            &format!("/api/v1/agent-loops/{id}/title"),
+            &serde_json::json!({ "title": title }),
+        )
+        .await
+    }
+
+    /// Delete an agent loop and its conversation (`DELETE /api/v1/agent-loops/{id}`).
+    pub async fn delete_agent_loop(&self, id: &str) -> ClientResult<bool> {
+        self.delete_json(&format!("/api/v1/agent-loops/{id}"))
+            .await
+    }
+
     pub async fn delete_json<T>(&self, path: &str) -> ClientResult<T>
     where
         T: DeserializeOwned,

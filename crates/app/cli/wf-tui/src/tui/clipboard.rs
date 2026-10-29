@@ -127,11 +127,7 @@ impl TuiApp {
         let Some(text) = text else {
             return false;
         };
-        let queued = self.queue_selection_copy(text);
-        if queued && clear_after {
-            // The selection was already cleared by take_*; nothing more to do.
-        }
-        queued
+        self.queue_selection_copy(text)
     }
 
     /// Copy one word from the composer at a click cell.

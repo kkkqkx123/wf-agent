@@ -84,6 +84,7 @@ use utoipa::OpenApi;
         crate::api::agent::loops::handle_update_loop,
         crate::api::agent::loops::handle_delete_loop,
         crate::api::agent::loops::handle_update_loop_status,
+        crate::api::agent::loops::handle_update_loop_title,
         crate::api::agent::loops::handle_loop_status,
         crate::api::agent::loops::handle_loop_status_transition,
         crate::api::agent::loops::handle_cleanup_completed,

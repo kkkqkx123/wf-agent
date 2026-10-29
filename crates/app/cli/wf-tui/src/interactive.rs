@@ -1063,8 +1063,9 @@ impl InteractiveController {
     }
 
     /// Queue the current selection on the controller's pending copy slot so
-    /// the keyboard path shares the shell's clipboard flush.
-    pub fn copy_transcript_selection(&mut self) -> bool {
+    /// the keyboard path shares the shell's clipboard flush. `clear_after`
+    /// overrides the controller's stored preference for this call.
+    pub fn copy_transcript_selection_with_policy(&mut self, clear_after: bool) -> bool {
         let Some(text) = self.selected_transcript_text_all(None) else {
             return false;
         };
@@ -1072,10 +1073,16 @@ impl InteractiveController {
             return false;
         };
         self.pending_copy = Some(crate::copy::PendingCopy::new(clean, "selection"));
-        if self.clear_selection_after_copy {
+        if clear_after {
             self.clear_transcript_selection();
         }
         true
+    }
+
+    /// Queue the current selection on the controller's pending copy slot so
+    /// the keyboard path shares the shell's clipboard flush.
+    pub fn copy_transcript_selection(&mut self) -> bool {
+        self.copy_transcript_selection_with_policy(self.clear_selection_after_copy)
     }
 
     /// Pending drag auto-scroll direction: `-1` scrolls up, `+1` scrolls

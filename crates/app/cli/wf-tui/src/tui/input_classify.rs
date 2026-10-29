@@ -253,6 +253,24 @@ pub(crate) fn load_copy_on_select_mode() -> crate::app_config::CopyOnSelectMode 
     }
 }
 
+/// Best-effort boolean view of selection auto-copy. A missing or unreadable
+/// config means automatic copy is enabled, matching the default mode.
+pub(crate) fn load_copy_on_select() -> bool {
+    !matches!(
+        load_copy_on_select_mode(),
+        crate::app_config::CopyOnSelectMode::Off
+    )
+}
+
+/// Best-effort boolean view of clearing the highlight after a copy. A
+/// missing or unreadable config means the highlight is retained.
+pub(crate) fn load_clear_selection_after_copy() -> bool {
+    matches!(
+        load_copy_on_select_mode(),
+        crate::app_config::CopyOnSelectMode::CopyAndClear
+    )
+}
+
 /// Best-effort session scrollbar opt-in from the user config file. A
 /// missing or unreadable config means off to match the reference main
 /// session default. Unlike mouse capture this takes effect instantly

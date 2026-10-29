@@ -234,6 +234,42 @@ pub(crate) async fn handle_loop_status_transition(
     }
 }
 
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct UpdateLoopTitleBody {
+    /// Display title of the session (1-80 characters, blank rejected).
+    title: String,
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/agent-loops/{id}/title",
+    tag = "agent",
+    params(IdPath),
+    request_body = UpdateLoopTitleBody,
+    responses(
+        (status = 200, description = "Title updated", body = crate::envelope::ApiEnvelope<String>),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 400, description = "Invalid title", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_update_loop_title(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Json(body): Json<UpdateLoopTitleBody>,
+) -> impl IntoResponse {
+    match wf_api::agent::agent_loop_registry::update_title(&state.ctx, &path.id, &body.title).await
+    {
+        Ok(()) => match wf_api::agent::agent_loop_registry::summary(&state.ctx, &path.id).await {
+            Ok(Some(summary)) => ok(summary.title.unwrap_or_default()).into_response(),
+            Ok(None) => error_response(wf_api::ApiError::execution_not_found(&path.id)),
+            Err(e) => error_response(e),
+        },
+        Err(e) => error_response(e),
+    }
+}
+
 /// Remove all terminated (completed/failed/cancelled/stopped) live agent
 /// loops from the in-memory registry.
 #[utoipa::path(

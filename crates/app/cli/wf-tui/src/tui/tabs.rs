@@ -129,7 +129,9 @@ impl TuiApp {
     }
 
     /// Fetch the newest agent-loop summaries for the recent pane. Failures
-    /// surface as a notice; the tabs pane keeps working regardless.
+    /// surface as a notice; the tabs pane keeps working regardless. Rows are
+    /// newest-first with server titles so the pane matches the mini `/sessions`
+    /// listing and empty servers stay explicit instead of silent.
     pub(super) fn request_recent_sessions(&mut self) {
         let client = self.client.clone();
         let tx = self.data_tx.clone();
@@ -160,10 +162,17 @@ impl TuiApp {
                             .unwrap_or("?")
                             .to_string();
                         let start_ms = item.get("start_time").and_then(|v| v.as_i64()).unwrap_or(0);
+                        let title = item
+                            .get("title")
+                            .and_then(|v| v.as_str())
+                            .map(str::trim)
+                            .filter(|title| !title.is_empty())
+                            .map(str::to_string);
                         Some(crate::session_list::RecentSession {
                             id,
                             status,
                             started: crate::session_list::relative_age(start_ms, now_ms),
+                            title,
                         })
                     })
                     .collect())
@@ -173,6 +182,74 @@ impl TuiApp {
                 result: result.map_err(crate::error::CliError::Business),
             });
         }));
+    }
+
+    /// Delete the selected recent session from the server (loop plus its
+    /// conversation). An open tab for the same session is closed so the UI
+    /// never shows a tab without server history; the recent pane refreshes.
+    pub(super) async fn delete_recent_session(&mut self) {
+        let Some(id) = self.session_list.recent_selected_id() else {
+            self.app
+                .notice
+                .set("recent: nothing selected".to_string());
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            return;
+        };
+        let short = crate::screens::short_id(&id);
+        match self.client.delete_agent_loop(&id).await {
+            Ok(_) => {
+                if let Some(index) = self.sessions.index_of_execution(&id) {
+                    self.close_tab(index).await;
+                }
+                self.request_recent_sessions();
+                self.app
+                    .notice
+                    .set(format!("deleted session {short}"));
+            }
+            Err(err) => {
+                self.app
+                    .notice
+                    .set(format!("delete {short} failed: {err}"));
+            }
+        }
+        self.pending_scope.request(crate::redraw::RedrawScope::Full);
+    }
+
+    /// Rename the selected recent session to the current filter text. The
+    /// filter doubles as the rename input so no extra prompt is needed:
+    /// type the new title, then press Ctrl+R. Blank filters are rejected.
+    pub(super) async fn rename_recent_session(&mut self) {
+        let Some(id) = self.session_list.recent_selected_id() else {
+            self.app
+                .notice
+                .set("recent: nothing selected".to_string());
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            return;
+        };
+        let title = self.session_list.recent_filter().trim().to_string();
+        if title.is_empty() {
+            self.app.notice.set(
+                "type a new title first, then press Ctrl+R to rename".to_string(),
+            );
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            return;
+        }
+        let short = crate::screens::short_id(&id);
+        match self.client.rename_agent_loop(&id, &title).await {
+            Ok(_) => {
+                self.session_list.clear_recent_filter();
+                self.request_recent_sessions();
+                self.app
+                    .notice
+                    .set(format!("renamed {short} to {title}"));
+            }
+            Err(err) => {
+                self.app
+                    .notice
+                    .set(format!("rename {short} failed: {err}"));
+            }
+        }
+        self.pending_scope.request(crate::redraw::RedrawScope::Full);
     }
 
     /// Open the session tree browser for the active session and fetch its

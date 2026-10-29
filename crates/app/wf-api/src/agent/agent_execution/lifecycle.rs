@@ -12,8 +12,10 @@ use super::*;
 
 pub async fn run(
     ctx: &ApiContext,
-    params: RunAgentLoopParams,
+    mut params: RunAgentLoopParams,
 ) -> crate::infra::error::ApiResult<AgentLoopOutput> {
+    params.input.conversation =
+        crate::agent::agent_message::normalize_imported_conversation(params.input.conversation);
     gate_agent_config(ctx, &params.config)?;
     let agent_loop_id = params
         .agent_loop_id
@@ -68,8 +70,10 @@ pub async fn run(
 /// returned stream.
 pub async fn stream(
     ctx: Arc<ApiContext>,
-    params: RunAgentLoopParams,
+    mut params: RunAgentLoopParams,
 ) -> crate::infra::error::ApiResult<ExecutionEventStream> {
+    params.input.conversation =
+        crate::agent::agent_message::normalize_imported_conversation(params.input.conversation);
     gate_agent_config(&ctx, &params.config)?;
     // Resolve the loop id up front (instead of inside the coordinator) so
     // the host-default approval handler can scope its interaction records

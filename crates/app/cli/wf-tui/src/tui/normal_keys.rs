@@ -360,6 +360,11 @@ impl TuiApp {
             {
                 self.toggle_mouse_capture();
             }
+            CKey::Char('y')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Settings =>
+            {
+                self.toggle_copy_on_select();
+            }
             CKey::Char('s')
                 if self.app.screen.navigation.current_kind() == ScreenKind::Settings =>
             {

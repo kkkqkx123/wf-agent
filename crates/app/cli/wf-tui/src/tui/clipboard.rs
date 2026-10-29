@@ -111,15 +111,27 @@ impl TuiApp {
     pub(super) fn copy_transcript_selection(
         &mut self,
         selection: crate::interactive::TranscriptSelection,
+        clear_after: bool,
     ) -> bool {
-        let Some(text) = self
-            .sessions
-            .active_mut()
-            .and_then(|session| session.take_transcript_selection_text(Some(selection)))
-        else {
+        let text = {
+            let session = match self.sessions.active_mut() {
+                Some(session) => session,
+                None => return false,
+            };
+            if clear_after {
+                session.take_transcript_selection_text(Some(selection))
+            } else {
+                session.selected_transcript_text_all(Some(selection))
+            }
+        };
+        let Some(text) = text else {
             return false;
         };
-        self.queue_selection_copy(text)
+        let queued = self.queue_selection_copy(text);
+        if queued && clear_after {
+            // The selection was already cleared by take_*; nothing more to do.
+        }
+        queued
     }
 
     /// Copy one word from the composer at a click cell.

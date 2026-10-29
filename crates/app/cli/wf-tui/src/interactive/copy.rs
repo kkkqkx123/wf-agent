@@ -21,6 +21,11 @@ impl InteractiveController {
         self.copy_policy = policy;
     }
 
+    /// Inject the selection copy clear behaviour.
+    pub fn apply_clear_selection_after_copy(&mut self, clear: bool) {
+        self.clear_selection_after_copy = clear;
+    }
+
     /// Drain a queued copy payload, if any.
     pub fn take_pending_copy(&mut self) -> Option<PendingCopy> {
         self.pending_copy.take()

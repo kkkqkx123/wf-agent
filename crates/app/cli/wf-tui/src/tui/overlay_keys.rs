@@ -111,6 +111,9 @@ impl TuiApp {
             match self.history.selection_text() {
                 Some(text) => {
                     self.queue_selection_copy(text);
+                    if self.clear_selection_after_copy() {
+                        self.history.clear_selection();
+                    }
                 }
                 None => self.app.notice.set("copy: no selection".to_string()),
             }

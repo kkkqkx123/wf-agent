@@ -180,6 +180,8 @@ pub struct TuiApp {
     perf_policy: crate::perf::TuiPerfPolicy,
     /// Startup-resolved copy policy (config default x capability x TTY).
     copy_policy: crate::copy::CopyPolicy,
+    /// Selection copy behaviour for mouse-owned selection surfaces.
+    copy_on_select: crate::app_config::CopyOnSelectMode,
     /// Copy payload waiting for the post-frame flush point.
     pending_copy: Option<crate::copy::PendingCopy>,
     /// Whether the terminal advertises synchronized-output support.
@@ -348,6 +350,7 @@ impl TuiApp {
             perf_tier,
             perf_policy,
             copy_policy,
+            copy_on_select: crate::tui::input_classify::load_copy_on_select_mode(),
             pending_copy: None,
             sync_supported: caps.synchronized_output,
             deferred: crate::deferred::DeferredFrameWork::new(),

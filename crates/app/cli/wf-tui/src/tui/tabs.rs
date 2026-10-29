@@ -60,6 +60,7 @@ impl TuiApp {
         session.set_perf_tier(self.perf_tier.marker());
         session.apply_perf_policy(self.perf_policy);
         session.apply_copy_policy(self.copy_policy);
+        session.apply_clear_selection_after_copy(self.clear_selection_after_copy());
         session.set_tool_config(load_tool_output_config());
         session.set_session_scrollbar(load_session_scrollbar_opt_in());
         let workspace = std::env::current_dir()
@@ -577,6 +578,7 @@ impl TuiApp {
         session.set_perf_tier(self.perf_tier.marker());
         session.apply_perf_policy(self.perf_policy);
         session.apply_copy_policy(self.copy_policy);
+        session.apply_clear_selection_after_copy(self.clear_selection_after_copy());
         session.set_tool_config(load_tool_output_config());
         session.set_session_scrollbar(load_session_scrollbar_opt_in());
         session.load_replay(&id);
@@ -665,6 +667,7 @@ impl TuiApp {
             session.set_perf_tier(self.perf_tier.marker());
             session.apply_perf_policy(self.perf_policy);
             session.apply_copy_policy(self.copy_policy);
+        session.apply_clear_selection_after_copy(self.clear_selection_after_copy());
             session.set_tool_config(load_tool_output_config());
             session.set_session_scrollbar(load_session_scrollbar_opt_in());
             session.load_replay(&entry.session_id);

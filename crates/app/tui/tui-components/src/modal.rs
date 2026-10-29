@@ -82,6 +82,9 @@ pub trait Modal {
     fn handle_mouse(&mut self, _kind: ModalMouseKind, _col: u16, _row: u16) -> ModalMouse {
         ModalMouse::Ignored
     }
+
+    /// Drop any mouse selection held by the modal, if applicable.
+    fn clear_selection(&mut self) {}
     /// Transparent modals skip the `Clear` pass so the underlying screen keeps
     /// showing through the overlay. Overlays that must fully hide the screen
     /// (confirmations, pickers) stay opaque.
@@ -189,6 +192,12 @@ impl ModalStack {
         match self.stack.last_mut() {
             Some(entry) => entry.modal.handle_mouse(kind, col, row),
             None => ModalMouse::Ignored,
+        }
+    }
+
+    pub fn clear_selection(&mut self) {
+        if let Some(entry) = self.stack.last_mut() {
+            entry.modal.clear_selection();
         }
     }
 

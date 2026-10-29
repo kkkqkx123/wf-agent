@@ -189,6 +189,9 @@ pub enum InteractiveEvent {
     /// The first replay page landed: it replaces the whole scrollback.
     ReplayLoaded {
         lines: Vec<HistoryLine>,
+        /// Conversation records backing this replay, used to seed future
+        /// turns so a resumed session keeps its context.
+        conversation: Vec<wf_types::message::Message>,
         /// Older records still exist beyond this page.
         has_more: bool,
         /// Cursor for the next older page (see `replay::ReplayPage`).
@@ -324,6 +327,8 @@ pub struct InteractiveController {
     viewer_request: Option<tool_blocks::ToolViewerRequest>,
     /// Startup-resolved copy policy injected by the shell.
     copy_policy: crate::copy::CopyPolicy,
+    /// Whether selection highlight is cleared after a selection copy.
+    clear_selection_after_copy: bool,
     /// Resolved copy payload waiting for the shell flush point.
     pending_copy: Option<crate::copy::PendingCopy>,
     /// Copy failure notice drained by the shell into its notice queue.
@@ -661,6 +666,7 @@ impl InteractiveController {
             todos: Vec::new(),
             viewer_request: None,
             copy_policy: crate::copy::CopyPolicy::disabled(),
+            clear_selection_after_copy: false,
             pending_copy: None,
             pending_copy_notice: None,
             exit_tracker: DoublePressTracker::new(SIGINT_DOUBLE_PRESS_WINDOW),
@@ -1066,7 +1072,9 @@ impl InteractiveController {
             return false;
         };
         self.pending_copy = Some(crate::copy::PendingCopy::new(clean, "selection"));
-        self.clear_transcript_selection();
+        if self.clear_selection_after_copy {
+            self.clear_transcript_selection();
+        }
         true
     }
 
@@ -1444,7 +1452,7 @@ mod tests {
         );
         assert!(ctl.copy_transcript_selection());
         assert!(ctl.take_pending_copy().is_some());
-        assert!(!ctl.has_transcript_selection());
+        assert!(ctl.has_transcript_selection());
     }
 
     #[tokio::test]

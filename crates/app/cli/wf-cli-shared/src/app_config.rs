@@ -51,6 +51,19 @@ pub struct AppConfig {
     pub history: HistoryConfig,
 }
 
+/// How a mouse selection is copied when mouse capture is enabled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CopyOnSelectMode {
+    /// Do not copy automatically; keep the selection highlighted.
+    Off,
+    /// Copy automatically and keep the selection highlighted (pi default).
+    #[default]
+    Copy,
+    /// Copy automatically and clear the selection highlight afterwards.
+    CopyAndClear,
+}
+
 /// Behavioral configuration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BehaviorConfig {
@@ -59,6 +72,10 @@ pub struct BehaviorConfig {
     /// alternate scroll without capture.
     #[serde(default)]
     pub mouse_capture: bool,
+    /// Selection copy behaviour when mouse capture is enabled. Defaults to
+    /// automatic copy while keeping the highlight, matching pi.
+    #[serde(default)]
+    pub copy_on_select: CopyOnSelectMode,
     /// Explicit opt-in for the main session scrollback scrollbar. Defaults
     /// to off to match the reference main session; takes effect instantly
     /// because the width change grades a full frame.
@@ -87,6 +104,16 @@ impl BehaviorConfig {
     /// `/recap` bypasses this switch.
     pub fn recap_enabled(&self) -> bool {
         self.recap.unwrap_or(true)
+    }
+
+    /// Whether mouse selection releases should copy automatically.
+    pub fn copy_on_select_enabled(&self) -> bool {
+        !matches!(self.copy_on_select, CopyOnSelectMode::Off)
+    }
+
+    /// Whether the selection highlight is cleared after an automatic copy.
+    pub fn clear_selection_after_copy(&self) -> bool {
+        matches!(self.copy_on_select, CopyOnSelectMode::CopyAndClear)
     }
 
     /// Double-Esc action, defaulting to opening the session tree.

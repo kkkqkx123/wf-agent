@@ -646,6 +646,44 @@ impl TuiApp {
         }
     }
 
+    pub(crate) fn clear_selection_after_copy(&self) -> bool {
+        matches!(self.copy_on_select, crate::app_config::CopyOnSelectMode::CopyAndClear)
+    }
+
+    pub(crate) fn copy_on_select_enabled(&self) -> bool {
+        !matches!(self.copy_on_select, crate::app_config::CopyOnSelectMode::Off)
+    }
+
+    pub(super) fn toggle_copy_on_select(&mut self) {
+        let Some(path) = crate::app_config::config_file_path() else {
+            self.app.notice.set("Config path unavailable.".to_string());
+            return;
+        };
+        let mut config = crate::app_config::ConfigManager::load(&path)
+            .map(|manager| manager.config().clone())
+            .unwrap_or_default();
+        use crate::app_config::CopyOnSelectMode;
+        config.behavior.copy_on_select = match config.behavior.copy_on_select {
+            CopyOnSelectMode::Off => CopyOnSelectMode::Copy,
+            CopyOnSelectMode::Copy => CopyOnSelectMode::CopyAndClear,
+            CopyOnSelectMode::CopyAndClear => CopyOnSelectMode::Off,
+        };
+        let mode = config.behavior.copy_on_select;
+        match crate::app_config::ConfigManager::save(&path, &config) {
+            Ok(()) => {
+                self.invalidate(ScreenKind::Settings);
+                self.copy_on_select = mode;
+                let clear = self.clear_selection_after_copy();
+                if let Some(session) = self.sessions.active_mut() {
+                    session.apply_clear_selection_after_copy(clear);
+                }
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                self.app.notice.set(format!("copy_on_select {mode:?} (applies instantly)"));
+            }
+            Err(err) => self.app.notice.set(format!("Save failed: {err}")),
+        }
+    }
+
     pub(super) fn toggle_session_scrollbar(&mut self) {
         let Some(path) = crate::app_config::config_file_path() else {
             self.app.notice.set("Config path unavailable.".to_string());

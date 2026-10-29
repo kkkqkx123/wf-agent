@@ -32,6 +32,7 @@ pub(crate) fn routes() -> Router<ApiState> {
             post(handle_dedupe_messages),
         )
         .route("/agent-loops/{id}/conversation", get(handle_conversation))
+        .route("/agent-loops/latest-session-anchor", get(handle_latest_session_anchor))
         // ── agent variables ──
         .route("/agent-loops/{id}/variables", get(handle_list_variables))
         .route(
@@ -591,5 +592,25 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(oversize.status(), StatusCode::BAD_REQUEST);
+    }
+}
+
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/agent-loops/latest-session-anchor",
+    tag = "agent",
+    responses(
+        (status = 200, description = "Latest resumable session anchor", body = crate::envelope::ApiEnvelope<Option<String>>),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_latest_session_anchor(
+    State(state): State<ApiState>,
+) -> impl IntoResponse {
+    match wf_api::agent::agent_message::latest_session_anchor(&state.ctx).await {
+        Ok(anchor) => ok(anchor).into_response(),
+        Err(e) => error_response(e),
     }
 }

@@ -240,6 +240,19 @@ pub(crate) fn load_mouse_opt_in() -> bool {
     }
 }
 
+/// Best-effort selection copy behaviour from the user config file. A missing
+/// or unreadable config means automatic copy while keeping the highlight.
+pub(crate) fn load_copy_on_select_mode() -> crate::app_config::CopyOnSelectMode {
+    let path = match crate::app_config::config_file_path() {
+        Some(path) => path,
+        None => return crate::app_config::CopyOnSelectMode::default(),
+    };
+    match crate::app_config::ConfigManager::load(&path) {
+        Ok(manager) => manager.config().behavior.copy_on_select,
+        Err(_) => crate::app_config::CopyOnSelectMode::default(),
+    }
+}
+
 /// Best-effort session scrollbar opt-in from the user config file. A
 /// missing or unreadable config means off to match the reference main
 /// session default. Unlike mouse capture this takes effect instantly

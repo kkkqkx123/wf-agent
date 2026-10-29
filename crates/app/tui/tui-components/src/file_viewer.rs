@@ -192,6 +192,10 @@ impl Modal for FileViewer {
         )
     }
 
+    fn clear_selection(&mut self) {
+        self.panel.clear_selection();
+    }
+
     fn copy_source(&self) -> Option<String> {
         self.panel
             .selected_text()
@@ -335,6 +339,10 @@ impl Modal for DiffViewer {
             col,
             row,
         )
+    }
+
+    fn clear_selection(&mut self) {
+        self.panel.clear_selection();
     }
 
     fn copy_source(&self) -> Option<String> {

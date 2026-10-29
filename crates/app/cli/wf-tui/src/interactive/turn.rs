@@ -776,6 +776,7 @@ impl InteractiveController {
                 }
                 InteractiveEvent::ReplayLoaded {
                     mut lines,
+                    conversation,
                     has_more,
                     next_before,
                     failed,
@@ -784,6 +785,9 @@ impl InteractiveController {
                         self.pager.fail();
                     } else {
                         self.pager.land_initial(has_more, next_before);
+                    }
+                    if !conversation.is_empty() {
+                        self.history = conversation;
                     }
                     let prompts = user_prompts_from_lines(&lines);
                     if !prompts.is_empty() {

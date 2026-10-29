@@ -40,6 +40,7 @@ impl InteractiveController {
         let session_id = session_id.to_string();
         let tx = self.tx.clone();
         tokio::spawn(async move {
+            let conversation = crate::replay::conversation_records(&client, &session_id).await;
             let (lines, has_more, next_before, failed) = match crate::replay::replay_scrollack_page(
                 &client,
                 &session_id,
@@ -61,6 +62,7 @@ impl InteractiveController {
             };
             let _ = tx.send(InteractiveEvent::ReplayLoaded {
                 lines,
+                conversation,
                 has_more,
                 next_before,
                 failed,

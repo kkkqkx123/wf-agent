@@ -140,7 +140,10 @@ pub(crate) async fn handle_delete_loop(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::agent::delete_agent_loop(&state.ctx.storage, &path.id).await {
-        Ok(deleted) => ok(deleted).into_response(),
+        Ok(deleted) => {
+            let _ = wf_api::agent::agent_message::delete_by_agent_loop(&state.ctx, &path.id).await;
+            ok(deleted).into_response()
+        }
         Err(e) => error_response(e),
     }
 }

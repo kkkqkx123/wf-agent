@@ -129,6 +129,21 @@ pub async fn get_message_count(ctx: &ApiContext, agent_loop_id: &str) -> ApiResu
     count(ctx, agent_loop_id).await
 }
 
+
+/// Anchor (`agent_loop_id`) of the most recently stored resumable session.
+/// Only loops that actually persisted conversation messages are candidates,
+/// so empty turns never become resume targets.
+pub async fn latest_session_anchor(ctx: &ApiContext) -> ApiResult<Option<String>> {
+    let anchor = crate::entity::message::latest_session_anchor(ctx).await?;
+    if let Some(id) = &anchor {
+        let messages = ctx.storage.message.list_by_agent_loop(id, None).await?;
+        if messages.is_empty() {
+            return Ok(None);
+        }
+    }
+    Ok(anchor)
+}
+
 /// Remove stale duplicate messages of an agent loop, keeping the latest
 /// copy per message id; returns the number of records removed.
 ///
@@ -312,4 +327,49 @@ mod tests {
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].message.timestamp, 200);
     }
+}
+
+
+/// Normalize an imported conversation before seeding a new agent turn:
+/// drop empty-text messages, de-duplicate by message id, and order by
+/// timestamp. Roles are preserved; system messages stay in place relative
+/// to their timestamp.
+pub fn normalize_imported_conversation(messages: Vec<Message>) -> Vec<Message> {
+    use std::collections::HashSet;
+
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut normalized: Vec<Message> = Vec::with_capacity(messages.len());
+    for mut message in messages {
+        if message.id.trim().is_empty() {
+            message.id = wf_common::generate_id();
+        }
+        let text = crate::entity::message::message_text(&message);
+        let has_text = !text.trim().is_empty();
+        let has_tool_calls = message
+            .tool_calls
+            .as_ref()
+            .map(|calls| !calls.is_empty())
+            .unwrap_or(false);
+        if !has_text && !has_tool_calls {
+            continue;
+        }
+        if !seen.insert(message.id.clone()) {
+            continue;
+        }
+        normalized.push(message);
+    }
+    normalized.sort_by_key(|m| m.timestamp);
+    normalized
+}
+
+/// Delete all messages scoped to an agent loop. Returns the number removed.
+pub async fn delete_by_agent_loop(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<usize> {
+    let records = ctx.storage.message.list_by_agent_loop(agent_loop_id, None).await?;
+    let mut removed = 0;
+    for record in records {
+        if ctx.storage.message.delete(&record.id).await.is_ok() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
 }

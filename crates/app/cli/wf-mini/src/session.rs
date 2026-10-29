@@ -929,10 +929,28 @@ impl NativeSession {
             .unwrap_or_default()
     }
 
-    /// Most recently active stored session and its messages. Picks the
-    /// newest loop summary and reads its conversation. Returns `None` when
-    /// nothing resumable exists.
+    /// Most recently active stored session and its messages. Prefers the
+    /// server-side latest session anchor (newest persisted conversation);
+    /// falls back to scanning summaries when the anchor endpoint is
+    /// unavailable. Returns `None` when nothing resumable exists.
     async fn load_latest(client: &WfClient) -> Option<(String, Vec<wf_types::message::Message>)> {
+        if let Ok(value) = client
+            .get_json::<serde_json::Value>("/api/v1/agent-loops/latest-session-anchor")
+            .await
+        {
+            let id = value
+                .get("data")
+                .and_then(|v| v.as_str())
+                .or_else(|| value.as_str())
+                .map(str::to_string);
+            if let Some(id) = id {
+                let stored = Self::load_history(client, &id).await;
+                if !stored.is_empty() {
+                    return Some((id, stored));
+                }
+            }
+        }
+
         let summaries: serde_json::Value = client
             .get_json("/api/v1/agent-loops/summaries")
             .await

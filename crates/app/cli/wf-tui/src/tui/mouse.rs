@@ -127,7 +127,13 @@ impl TuiApp {
             ModalMouse::Ignored => MouseOutcome::Ignored,
             ModalMouse::Changed => MouseOutcome::Clicked,
             ModalMouse::Copy(text) => {
+                if !self.copy_on_select_enabled() {
+                    return MouseOutcome::Clicked;
+                }
                 self.queue_selection_copy(text);
+                if self.clear_selection_after_copy() {
+                    self.modals.clear_selection();
+                }
                 MouseOutcome::Clicked
             }
         }
@@ -475,10 +481,18 @@ impl TuiApp {
             // A drag selection only depends on logical positions, so a
             // redraw between press and release never invalidates it.
             if press.history_anchor {
-                return match self.history.finish_selection() {
-                    Some(text) => self.queue_selection_copy(text),
-                    None => false,
-                };
+                let text = self.history.finish_selection();
+                if !self.copy_on_select_enabled() {
+                    return text.is_some();
+                }
+                if let Some(text) = text {
+                    let queued = self.queue_selection_copy(text);
+                    if queued && self.clear_selection_after_copy() {
+                        self.history.clear_selection();
+                    }
+                    return queued;
+                }
+                return false;
             }
             if press.history_gen != self.history_hit_generation {
                 return false;
@@ -564,7 +578,14 @@ impl TuiApp {
                     }
                     return false;
                 }
-                return self.copy_transcript_selection(TranscriptSelection { anchor, head });
+                if !self.copy_on_select_enabled() {
+                    // Keep the selection highlighted; no automatic copy.
+                    return false;
+                }
+                return self.copy_transcript_selection(
+                    TranscriptSelection { anchor, head },
+                    self.clear_selection_after_copy(),
+                );
             }
             return false;
         }

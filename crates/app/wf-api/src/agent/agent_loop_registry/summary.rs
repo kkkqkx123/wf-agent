@@ -81,9 +81,7 @@ fn normalized_stored_title(raw: Option<&str>) -> Option<String> {
 /// longer titles are truncated to [`MAX_TITLE_CHARS`] characters.
 pub fn normalize_title(raw: &str) -> ApiResult<String> {
     let Some(title) = normalized_stored_title(Some(raw)) else {
-        return Err(ApiError::Validation(
-            "title must not be blank".to_string(),
-        ));
+        return Err(ApiError::Validation("title must not be blank".to_string()));
     };
     Ok(title)
 }
@@ -153,7 +151,9 @@ pub async fn ensure_loop_title(
     };
     let now = wf_common::now();
     let status = match ctx.storage.agent_execution.load(agent_loop_id).await {
-        Ok(Some(record)) => crate::workflow::execution_state::status_str(&record.status).to_string(),
+        Ok(Some(record)) => {
+            crate::workflow::execution_state::status_str(&record.status).to_string()
+        }
         _ => "completed".to_string(),
     };
     let meta = wf_types::AgentLoopStorageMetadata {

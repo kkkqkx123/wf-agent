@@ -148,10 +148,17 @@ impl ChatSession {
                 "profile switch requires a non-empty profile id".to_string(),
             ));
         }
-        let migrated = gateway.migrate_history_for_profile(
+        let supports_image = gateway
+            .profile_registry()
+            .get(new_profile_id)
+            .and_then(|profile| wf_llm::model_metadata(&profile.model))
+            .map(|metadata| metadata.supports_image())
+            .unwrap_or(true);
+        let migrated = gateway.migrate_history_for_profile_with_image_support(
             self.conversation.history(),
             Some(self.template.profile_id.as_str()),
             new_profile_id,
+            supports_image,
         );
         let view = self.conversation.active_view().clone();
         self.conversation.restore_history(migrated, view);

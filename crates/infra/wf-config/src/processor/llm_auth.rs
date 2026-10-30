@@ -94,9 +94,8 @@ pub fn expand_auth_presets(
         .iter()
         .cloned()
         .map(|provider| {
-            wf_types::config::llm_auth::expand_auth_preset(provider).map_err(|e| {
-                ConfigError::Validation(format!("invalid auth preset: {e}"))
-            })
+            wf_types::config::llm_auth::expand_auth_preset(provider)
+                .map_err(|e| ConfigError::Validation(format!("invalid auth preset: {e}")))
         })
         .collect()
 }

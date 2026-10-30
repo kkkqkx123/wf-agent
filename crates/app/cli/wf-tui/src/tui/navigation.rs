@@ -117,5 +117,4 @@ impl TuiApp {
             false
         }
     }
-
 }

@@ -189,9 +189,7 @@ impl TuiApp {
     /// never shows a tab without server history; the recent pane refreshes.
     pub(super) async fn delete_recent_session(&mut self) {
         let Some(id) = self.session_list.recent_selected_id() else {
-            self.app
-                .notice
-                .set("recent: nothing selected".to_string());
+            self.app.notice.set("recent: nothing selected".to_string());
             self.pending_scope.request(crate::redraw::RedrawScope::Full);
             return;
         };
@@ -202,14 +200,10 @@ impl TuiApp {
                     self.close_tab(index).await;
                 }
                 self.request_recent_sessions();
-                self.app
-                    .notice
-                    .set(format!("deleted session {short}"));
+                self.app.notice.set(format!("deleted session {short}"));
             }
             Err(err) => {
-                self.app
-                    .notice
-                    .set(format!("delete {short} failed: {err}"));
+                self.app.notice.set(format!("delete {short} failed: {err}"));
             }
         }
         self.pending_scope.request(crate::redraw::RedrawScope::Full);
@@ -220,17 +214,15 @@ impl TuiApp {
     /// type the new title, then press Ctrl+R. Blank filters are rejected.
     pub(super) async fn rename_recent_session(&mut self) {
         let Some(id) = self.session_list.recent_selected_id() else {
-            self.app
-                .notice
-                .set("recent: nothing selected".to_string());
+            self.app.notice.set("recent: nothing selected".to_string());
             self.pending_scope.request(crate::redraw::RedrawScope::Full);
             return;
         };
         let title = self.session_list.recent_filter().trim().to_string();
         if title.is_empty() {
-            self.app.notice.set(
-                "type a new title first, then press Ctrl+R to rename".to_string(),
-            );
+            self.app
+                .notice
+                .set("type a new title first, then press Ctrl+R to rename".to_string());
             self.pending_scope.request(crate::redraw::RedrawScope::Full);
             return;
         }
@@ -239,14 +231,10 @@ impl TuiApp {
             Ok(_) => {
                 self.session_list.clear_recent_filter();
                 self.request_recent_sessions();
-                self.app
-                    .notice
-                    .set(format!("renamed {short} to {title}"));
+                self.app.notice.set(format!("renamed {short} to {title}"));
             }
             Err(err) => {
-                self.app
-                    .notice
-                    .set(format!("rename {short} failed: {err}"));
+                self.app.notice.set(format!("rename {short} failed: {err}"));
             }
         }
         self.pending_scope.request(crate::redraw::RedrawScope::Full);
@@ -744,7 +732,7 @@ impl TuiApp {
             session.set_perf_tier(self.perf_tier.marker());
             session.apply_perf_policy(self.perf_policy);
             session.apply_copy_policy(self.copy_policy);
-        session.apply_clear_selection_after_copy(self.clear_selection_after_copy());
+            session.apply_clear_selection_after_copy(self.clear_selection_after_copy());
             session.set_tool_config(load_tool_output_config());
             session.set_session_scrollbar(load_session_scrollbar_opt_in());
             session.load_replay(&entry.session_id);

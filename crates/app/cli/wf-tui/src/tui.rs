@@ -11,12 +11,12 @@ mod data_cache;
 mod frame;
 pub(crate) mod input_classify;
 mod key_routes;
+pub(crate) mod keymap_config;
 mod leader;
+mod mouse;
 mod navigation;
 mod normal_keys;
 mod overlay_keys;
-pub(crate) mod keymap_config;
-mod mouse;
 mod signals;
 mod tabs;
 

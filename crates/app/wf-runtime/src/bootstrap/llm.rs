@@ -165,7 +165,7 @@ pub fn register_llm_config(gateway: &LlmGateway, config: &LlmConfig) -> RuntimeR
     // only: its provider namespace ("openai", "vertex_ai-...") differs
     // from local registry ids ("builtin-openai", ...), and the fill is a
     // best-effort hint — explicit config always wins.
-    let metadata = wf_llm_catalog::ModelMetadataResolver::from_embedded();
+    let metadata = wf_llm::ModelMetadataResolver::from_embedded();
     for profile in &config.profiles {
         validate_llm_profile(profile)
             .map_err(|e| crate::error::RuntimeError::Config(format!("Invalid LLM profile: {e}")))?;

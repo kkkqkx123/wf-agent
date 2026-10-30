@@ -184,9 +184,8 @@ impl SessionList {
 
     /// Selected recent row, when a visible row exists.
     pub fn recent_selected_row(&self) -> Option<RecentSession> {
-        self.recent_selected_id().and_then(|id| {
-            self.recent.iter().find(|row| row.id == id).cloned()
-        })
+        self.recent_selected_id()
+            .and_then(|id| self.recent.iter().find(|row| row.id == id).cloned())
     }
 
     /// Recent rows matching the current substring filter (case-insensitive
@@ -405,7 +404,10 @@ mod tests {
     #[test]
     fn recent_filter_matches_title() {
         let mut list = SessionList::new();
-        list.set_recent(vec![titled("exec-alpha", "deploy api"), recent("exec-beta")]);
+        list.set_recent(vec![
+            titled("exec-alpha", "deploy api"),
+            recent("exec-beta"),
+        ]);
         list.recent_filter_push('d');
         list.recent_filter_push('e');
         list.recent_filter_push('p');

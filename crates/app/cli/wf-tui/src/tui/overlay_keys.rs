@@ -498,9 +498,9 @@ impl TuiApp {
                 if let Some(index) = self.sessions.index_of_execution(&id) {
                     self.sessions.switch(index, self.now_ms());
                     self.save_tabs();
-                    self.app.notice.set(format!(
-                        "switched to tab for {short} — history continues"
-                    ));
+                    self.app
+                        .notice
+                        .set(format!("switched to tab for {short} — history continues"));
                 } else {
                     self.open_tab_for_session(id, None, None).await;
                     self.app.notice.set(format!(
@@ -545,6 +545,4 @@ impl TuiApp {
         }
         Ok(LoopAction::Continue)
     }
-
-
 }

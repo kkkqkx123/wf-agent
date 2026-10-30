@@ -144,6 +144,31 @@ pub struct PluginLlmProviderDefinition {
     pub model_discovery: Option<PluginModelDiscovery>,
     #[serde(default)]
     pub metadata: Option<HashMap<String, Value>>,
+    /// Optional proxy URL (http/https/socks5) applied to the HTTP client.
+    #[serde(default)]
+    pub proxy: Option<String>,
+    /// Hosts that bypass `proxy`.
+    #[serde(default)]
+    pub no_proxy: Option<Vec<String>>,
+    /// Optional rate-limit policy, mirrored as JSON for host validation.
+    #[serde(default)]
+    pub rate_limit: Option<Value>,
+    /// Optional provider compatibility opinions, mirrored as JSON for host
+    /// validation. Absent keeps the codec defaults.
+    #[serde(default)]
+    pub compat: Option<Value>,
+    /// Optional client identity headers, mirrored as JSON for host
+    /// validation.
+    #[serde(default)]
+    pub identity: Option<Value>,
+    /// Optional connection-level HTTP transport tuning, mirrored as JSON
+    /// for host validation.
+    #[serde(default)]
+    pub transport: Option<Value>,
+    /// Optional per-provider environment overlay shadowing the process
+    /// environment during auth resolution.
+    #[serde(default)]
+    pub env: Option<HashMap<String, String>>,
     /// Authentication declaration binding this provider to a registered
     /// auth implementation (built-in id or the plugin's own `llm-auth`
     /// contribution). Absent means static key authentication.

@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use serde::Deserialize;
 
 use llm_types::llm::{
-    InputModality, LlmFormat, ModelMetadata, ModelType,
+    generation::ThinkingLevel, InputModality, LlmFormat, ModelMetadata, ModelType,
 };
 
 /// Subset of a LiteLLM entry this resolver reads. Unknown fields are
@@ -34,6 +34,8 @@ struct LiteLlmEntry {
     supports_reasoning: bool,
     #[serde(default)]
     supported_modalities: Vec<String>,
+    #[serde(default)]
+    reasoning_effort_levels: Vec<String>,
 }
 
 /// Metadata resolver backed by the embedded LiteLLM public table.
@@ -98,9 +100,26 @@ impl ModelMetadataResolver {
                 vec![InputModality::Text]
             },
             reasoning: entry.supports_reasoning,
-            thinking_levels: Vec::new(),
+            thinking_levels: entry
+                .reasoning_effort_levels
+                .iter()
+                .filter_map(|level| parse_thinking_level(level))
+                .collect(),
             cost: None,
         })
+    }
+}
+
+fn parse_thinking_level(value: &str) -> Option<ThinkingLevel> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "none" => Some(ThinkingLevel::None),
+        "minimal" => Some(ThinkingLevel::Minimal),
+        "low" => Some(ThinkingLevel::Low),
+        "medium" => Some(ThinkingLevel::Medium),
+        "high" => Some(ThinkingLevel::High),
+        "xhigh" => Some(ThinkingLevel::Xhigh),
+        "max" => Some(ThinkingLevel::Max),
+        _ => None,
     }
 }
 

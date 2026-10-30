@@ -1521,7 +1521,9 @@ fn history_status(view: &HistoryOverlayView<'_>, at_top: bool) -> String {
         "start of history".to_string()
     };
     if view.scroll > 0 {
-        format!("History · {session}{state} · PageUp/PageDown scroll · End for latest · Ctrl+T close")
+        format!(
+            "History · {session}{state} · PageUp/PageDown scroll · End for latest · Ctrl+T close"
+        )
     } else {
         format!("History · {session}{state} · PageUp/PageDown scroll · Ctrl+T close")
     }

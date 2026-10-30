@@ -268,9 +268,7 @@ pub mod oauth_presets {
             display_name: "GitHub Copilot".to_string(),
             flow: DeclaredFlow::Device,
             is_subscription: true,
-            device_authorization_url: Some(
-                "https://github.com/login/device/code".to_string(),
-            ),
+            device_authorization_url: Some("https://github.com/login/device/code".to_string()),
             token_url: "https://github.com/login/oauth/access_token".to_string(),
             authorize_url: None,
             client_id: "Iv1.b507a08c87ec2d4b".to_string(),

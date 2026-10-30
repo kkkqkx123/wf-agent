@@ -654,8 +654,7 @@ impl WfClient {
 
     /// Delete an agent loop and its conversation (`DELETE /api/v1/agent-loops/{id}`).
     pub async fn delete_agent_loop(&self, id: &str) -> ClientResult<bool> {
-        self.delete_json(&format!("/api/v1/agent-loops/{id}"))
-            .await
+        self.delete_json(&format!("/api/v1/agent-loops/{id}")).await
     }
 
     pub async fn delete_json<T>(&self, path: &str) -> ClientResult<T>

@@ -57,7 +57,10 @@ impl TuiApp {
     }
 
     /// Execute a command reached through the leader sequence.
-    async fn run_leader_command(&mut self, command: &'static tui_core::command::CommandSpec) -> CliResult<LoopAction> {
+    async fn run_leader_command(
+        &mut self,
+        command: &'static tui_core::command::CommandSpec,
+    ) -> CliResult<LoopAction> {
         match command.id {
             "app.quit" => {
                 if self.app.screen.navigation.current_kind() == ScreenKind::Interactive {

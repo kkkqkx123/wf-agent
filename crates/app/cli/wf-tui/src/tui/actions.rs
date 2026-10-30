@@ -647,11 +647,17 @@ impl TuiApp {
     }
 
     pub(crate) fn clear_selection_after_copy(&self) -> bool {
-        matches!(self.copy_on_select, crate::app_config::CopyOnSelectMode::CopyAndClear)
+        matches!(
+            self.copy_on_select,
+            crate::app_config::CopyOnSelectMode::CopyAndClear
+        )
     }
 
     pub(crate) fn copy_on_select_enabled(&self) -> bool {
-        !matches!(self.copy_on_select, crate::app_config::CopyOnSelectMode::Off)
+        !matches!(
+            self.copy_on_select,
+            crate::app_config::CopyOnSelectMode::Off
+        )
     }
 
     pub(super) fn toggle_copy_on_select(&mut self) {
@@ -678,7 +684,9 @@ impl TuiApp {
                     tab.controller.apply_clear_selection_after_copy(clear);
                 }
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
-                self.app.notice.set(format!("copy_on_select {mode:?} (applies instantly)"));
+                self.app
+                    .notice
+                    .set(format!("copy_on_select {mode:?} (applies instantly)"));
             }
             Err(err) => self.app.notice.set(format!("Save failed: {err}")),
         }

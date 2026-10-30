@@ -1173,23 +1173,25 @@ impl NativeSession {
         self.nested_loops = Vec::new();
         self.note_turn_started();
         self.set_terminal_title();
-        output::diag_line(&format!("resumed session {id} ({restored} messages) — continue chatting"));
+        output::diag_line(&format!(
+            "resumed session {id} ({restored} messages) — continue chatting"
+        ));
     }
 
     /// Rename the current session. Fresh `mini-*` anchors without a server
     /// turn have nothing to rename yet.
     async fn rename_current(&mut self, title: Option<String>) {
-        let Some(title) = title.map(|t| t.trim().to_string()).filter(|t| !t.is_empty()) else {
+        let Some(title) = title
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+        else {
             output::diag_line("usage: /rename <title>");
             return;
         };
         let target = self
             .current_loop_id
             .clone()
-            .or_else(|| {
-                (!self.anchor.starts_with("mini-"))
-                    .then(|| self.anchor.clone())
-            });
+            .or_else(|| (!self.anchor.starts_with("mini-")).then(|| self.anchor.clone()));
         let Some(id) = target else {
             output::diag_line("no server session yet — send a turn first, then /rename");
             return;
@@ -1207,7 +1209,9 @@ impl NativeSession {
     async fn delete_session(&mut self, target: Option<String>) {
         let needle = target.as_deref().map(str::trim).unwrap_or_default();
         let id = if needle.is_empty() {
-            self.current_loop_id.clone().unwrap_or_else(|| self.anchor.clone())
+            self.current_loop_id
+                .clone()
+                .unwrap_or_else(|| self.anchor.clone())
         } else {
             let stored = Self::load_history(&self.client, needle).await;
             if !stored.is_empty() {

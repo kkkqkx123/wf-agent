@@ -178,8 +178,8 @@ pub fn expand_auth_preset(mut provider: AuthProviderConfig) -> Result<AuthProvid
     let Some(preset_name) = provider.preset.clone() else {
         return Ok(provider);
     };
-    let template =
-        oauth_preset_template(&preset_name).ok_or_else(|| format!("unknown auth preset '{preset_name}'"))?;
+    let template = oauth_preset_template(&preset_name)
+        .ok_or_else(|| format!("unknown auth preset '{preset_name}'"))?;
     if provider.flow.is_none() {
         provider.flow = template.flow;
     }
@@ -212,9 +212,7 @@ pub fn expand_auth_preset(mut provider: AuthProviderConfig) -> Result<AuthProvid
     }
     // A preset implies OAuth unless the declaration says otherwise.
     if provider.method == AuthMethodConfig::ApiKey
-        && (provider.flow.is_some()
-            || provider.token_url.is_some()
-            || provider.client_id.is_some())
+        && (provider.flow.is_some() || provider.token_url.is_some() || provider.client_id.is_some())
     {
         provider.method = AuthMethodConfig::OAuth;
     }

@@ -210,14 +210,26 @@ pub(crate) fn convert_provider_definition(
         model_discovery: provider.model_discovery.as_ref().map(convert_discovery),
         api_version: provider.api_version.clone(),
         metadata: provider.metadata.clone(),
-        proxy: None,
-        no_proxy: None,
-        rate_limit: None,
+        proxy: provider.proxy.clone(),
+        no_proxy: provider.no_proxy.clone(),
+        rate_limit: provider
+            .rate_limit
+            .as_ref()
+            .and_then(|value| serde_json::from_value(value.clone()).ok()),
         auth: provider.auth.as_ref().map(convert_auth_ref),
-        compat: None,
-        identity: None,
-        transport: None,
-        env: None,
+        compat: provider
+            .compat
+            .as_ref()
+            .and_then(|value| serde_json::from_value(value.clone()).ok()),
+        identity: provider
+            .identity
+            .as_ref()
+            .and_then(|value| serde_json::from_value(value.clone()).ok()),
+        transport: provider
+            .transport
+            .as_ref()
+            .and_then(|value| serde_json::from_value(value.clone()).ok()),
+        env: provider.env.clone(),
     }
 }
 

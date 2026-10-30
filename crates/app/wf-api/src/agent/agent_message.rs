@@ -129,7 +129,6 @@ pub async fn get_message_count(ctx: &ApiContext, agent_loop_id: &str) -> ApiResu
     count(ctx, agent_loop_id).await
 }
 
-
 /// Anchor (`agent_loop_id`) of the most recently stored resumable session.
 /// Only loops that actually persisted conversation messages are candidates,
 /// so empty turns never become resume targets.
@@ -329,7 +328,6 @@ mod tests {
     }
 }
 
-
 /// Normalize an imported conversation before seeding a new agent turn:
 /// drop empty-text messages, de-duplicate by message id, and order by
 /// timestamp. Roles are preserved; system messages stay in place relative
@@ -364,7 +362,11 @@ pub fn normalize_imported_conversation(messages: Vec<Message>) -> Vec<Message> {
 
 /// Delete all messages scoped to an agent loop. Returns the number removed.
 pub async fn delete_by_agent_loop(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<usize> {
-    let records = ctx.storage.message.list_by_agent_loop(agent_loop_id, None).await?;
+    let records = ctx
+        .storage
+        .message
+        .list_by_agent_loop(agent_loop_id, None)
+        .await?;
     let mut removed = 0;
     for record in records {
         if ctx.storage.message.delete(&record.id).await.is_ok() {

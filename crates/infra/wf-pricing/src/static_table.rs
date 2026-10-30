@@ -26,12 +26,61 @@ struct LiteLlmModel {
     cache_creation_input_token_cost: Option<f64>,
     #[serde(default)]
     cache_creation_input_token_cost_5m: Option<f64>,
+    #[serde(default)]
+    tiered_pricing: Option<Vec<TieredPricingEntry>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct TieredPricingEntry {
+    #[serde(default)]
+    input_cost_per_token: f64,
+    #[serde(default)]
+    output_cost_per_token: f64,
+    #[serde(default)]
+    range: Vec<f64>,
 }
 
 impl LiteLlmModel {
     fn to_resolved(&self) -> ResolvedPricing {
-        let input_per_mtok = self.input_cost_per_token * 1_000_000.0;
-        let output_per_mtok = self.output_cost_per_token * 1_000_000.0;
+        let tiers = self.tiered_pricing.as_ref().map(|entries| {
+            entries
+                .iter()
+                .enumerate()
+                .map(|(index, entry)| {
+                    let up_to_tokens = if index + 1 == entries.len() {
+                        None
+                    } else {
+                        entry
+                            .range
+                            .get(1)
+                            .copied()
+                            .filter(|v| *v > 0.0)
+                            .map(|v| v as u64)
+                    };
+                    llm_token::TokenPricingTier {
+                        up_to_tokens,
+                        input_per_mtok: entry.input_cost_per_token * 1_000_000.0,
+                        output_per_mtok: entry.output_cost_per_token * 1_000_000.0,
+                    }
+                })
+                .collect::<Vec<_>>()
+        });
+        let (base_input, base_output) =
+            if self.input_cost_per_token > 0.0 || self.output_cost_per_token > 0.0 {
+                (
+                    self.input_cost_per_token * 1_000_000.0,
+                    self.output_cost_per_token * 1_000_000.0,
+                )
+            } else if let Some(first) = self.tiered_pricing.as_ref().and_then(|t| t.first()) {
+                (
+                    first.input_cost_per_token * 1_000_000.0,
+                    first.output_cost_per_token * 1_000_000.0,
+                )
+            } else {
+                (0.0, 0.0)
+            };
+        let input_per_mtok = base_input;
+        let output_per_mtok = base_output;
         let cache_read_per_mtok = self.cache_read_input_token_cost.map(|v| v * 1_000_000.0);
         // Prefer the explicit 5m write rate, then the generic creation rate.
         let cache_write_5m_per_mtok = self
@@ -54,7 +103,7 @@ impl LiteLlmModel {
                 cache_read_per_mtok,
                 cache_write_5m_per_mtok,
                 cache_write_1h_per_mtok: cache_write_5m_per_mtok,
-                tiers: None,
+                tiers,
             },
             scope,
         }

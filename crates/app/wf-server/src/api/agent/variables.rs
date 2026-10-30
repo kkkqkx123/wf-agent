@@ -32,7 +32,10 @@ pub(crate) fn routes() -> Router<ApiState> {
             post(handle_dedupe_messages),
         )
         .route("/agent-loops/{id}/conversation", get(handle_conversation))
-        .route("/agent-loops/latest-session-anchor", get(handle_latest_session_anchor))
+        .route(
+            "/agent-loops/latest-session-anchor",
+            get(handle_latest_session_anchor),
+        )
         // ── agent variables ──
         .route("/agent-loops/{id}/variables", get(handle_list_variables))
         .route(
@@ -594,7 +597,6 @@ mod tests {
         assert_eq!(oversize.status(), StatusCode::BAD_REQUEST);
     }
 }
-
 
 #[utoipa::path(
     get,

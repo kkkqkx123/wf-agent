@@ -19,8 +19,10 @@ pub const TITLE_TIMEOUT_MS: u64 = 15_000;
 /// Low-temperature sampling for a deterministic short title.
 pub const TITLE_TEMPERATURE: f64 = 0.2;
 
-/// Instructions for the side call.
-pub const TITLE_INSTRUCTIONS: &str = "Generate a short title (at most six words) for this conversation based on the user's first request. Reply with the title only, no quotes, no punctuation at the end.";
+/// Instructions for the side call. The language clause keeps non-English
+/// conversations from receiving an English title without any detection
+/// logic: the model matches the language of the user request itself.
+pub const TITLE_INSTRUCTIONS: &str = "Generate a short title (at most six words) for this conversation based on the user's first request. Reply with the title only, no quotes, no punctuation at the end. Reply in the same language as the user's request.";
 
 /// Build a compact transcript from the first few messages.
 pub fn title_context(messages: &[Message]) -> Option<String> {
@@ -168,4 +170,25 @@ pub async fn request_title(
 ) -> Option<String> {
     let context = title_context(messages)?;
     generate_title_text(gateway, profile_id, &context, cancel).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn title_instructions_follow_request_language() {
+        assert!(
+            TITLE_INSTRUCTIONS.contains("same language"),
+            "title prompt must ask the model to match the request language"
+        );
+    }
+
+    #[test]
+    fn title_request_carries_instructions_as_system() {
+        let request = build_title_request("profile", "User: hello");
+        let system = request.messages.first().expect("system message");
+        assert_eq!(system.role, MessageRole::System);
+        assert!(system.text_content().contains("six words"));
+    }
 }

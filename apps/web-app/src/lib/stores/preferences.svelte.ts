@@ -13,6 +13,8 @@ import type { LocalPreferencesBackup } from '#lib/services/portability';
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type Density = 'compact' | 'default' | 'comfortable';
 export type MinimapMode = 'auto' | 'on' | 'off';
+/** Automatic session title mode: `truncate` is the default. */
+export type AutoTitleMode = 'off' | 'truncate' | 'llm';
 
 export const SIDEBAR_WIDTH_MIN = 200;
 export const SIDEBAR_WIDTH_MAX = 360;
@@ -43,6 +45,8 @@ interface PersistedPreferences {
 	toolOutputPreviews?: boolean;
 	toolOutputDetail?: ToolOutputDetail;
 	recapEnabled?: boolean;
+	autoTitleMode?: AutoTitleMode;
+	titleModel?: string;
 }
 
 export const EDITOR_FONT_SIZE_MIN = 10;
@@ -85,6 +89,8 @@ class PreferencesStore {
 	toolOutputPreviews = $state(true);
 	toolOutputDetail = $state<ToolOutputDetail>('balanced');
 	recapEnabled = $state(true);
+	autoTitleMode = $state<AutoTitleMode>('truncate');
+	titleModel = $state('');
 
 	constructor() {
 		const stored = read();
@@ -117,10 +123,7 @@ class PreferencesStore {
 		) {
 			this.minimapMode = stored.minimapMode;
 		}
-		if (
-			typeof stored.editorFontSize === 'number' &&
-			Number.isFinite(stored.editorFontSize)
-		) {
+		if (typeof stored.editorFontSize === 'number' && Number.isFinite(stored.editorFontSize)) {
 			this.editorFontSize = clampEditorFontSize(stored.editorFontSize);
 		}
 		if (typeof stored.editorWordWrap === 'boolean') {
@@ -134,6 +137,16 @@ class PreferencesStore {
 		}
 		if (typeof stored.recapEnabled === 'boolean') {
 			this.recapEnabled = stored.recapEnabled;
+		}
+		if (
+			stored.autoTitleMode === 'off' ||
+			stored.autoTitleMode === 'truncate' ||
+			stored.autoTitleMode === 'llm'
+		) {
+			this.autoTitleMode = stored.autoTitleMode;
+		}
+		if (typeof stored.titleModel === 'string') {
+			this.titleModel = stored.titleModel;
 		}
 	}
 
@@ -222,6 +235,16 @@ class PreferencesStore {
 		this.persist();
 	}
 
+	setAutoTitleMode(mode: AutoTitleMode): void {
+		this.autoTitleMode = mode;
+		this.persist();
+	}
+
+	setTitleModel(model: string): void {
+		this.titleModel = model;
+		this.persist();
+	}
+
 	/** Rotate the tool output detail preset: compact, balanced, verbose. */
 	cycleToolOutputDetail(): void {
 		const order: ToolOutputDetail[] = ['compact', 'balanced', 'verbose'];
@@ -261,6 +284,8 @@ class PreferencesStore {
 					toolOutputPreviews: this.toolOutputPreviews,
 					toolOutputDetail: this.toolOutputDetail,
 					recapEnabled: this.recapEnabled,
+					autoTitleMode: this.autoTitleMode,
+					titleModel: this.titleModel,
 				} satisfies PersistedPreferences),
 			);
 		} catch {
@@ -278,10 +303,7 @@ function clampInspectorWidth(width: number): number {
 }
 
 function clampEditorFontSize(size: number): number {
-	return Math.min(
-		EDITOR_FONT_SIZE_MAX,
-		Math.max(EDITOR_FONT_SIZE_MIN, Math.round(size)),
-	);
+	return Math.min(EDITOR_FONT_SIZE_MAX, Math.max(EDITOR_FONT_SIZE_MIN, Math.round(size)));
 }
 
 export const preferences = new PreferencesStore();

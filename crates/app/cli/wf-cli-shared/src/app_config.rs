@@ -351,14 +351,26 @@ pub struct TerminalConfig {
     /// to false to match pi.
     #[serde(default)]
     pub show_terminal_progress: Option<bool>,
-    /// Automatic session title mode: `off`, `truncate`, or `llm`. Defaults
-    /// to `truncate` when unset.
+    /// Automatic session title mode. Defaults to `truncate` when unset.
     #[serde(default)]
-    pub auto_title_mode: Option<String>,
-    /// Optional model/profile id used for LLM title generation. When unset,
-    /// the active session model is used.
+    pub auto_title_mode: Option<AutoTitleMode>,
+    /// Optional profile id used for LLM title generation. When unset, the
+    /// active session profile is used.
     #[serde(default)]
     pub title_model: Option<String>,
+}
+
+/// Automatic session title mode for the config file. Lowercase in TOML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AutoTitleMode {
+    /// Never generate a title automatically.
+    Off,
+    /// Truncate the first user message. This is the default.
+    #[default]
+    Truncate,
+    /// Ask the model for a short title, falling back to truncation.
+    Llm,
 }
 
 impl TerminalConfig {
@@ -366,13 +378,28 @@ impl TerminalConfig {
         self.show_terminal_progress.unwrap_or(false)
     }
 
-    pub fn auto_title_mode(&self) -> &str {
-        match self.auto_title_mode.as_deref() {
-            Some("off") | Some("truncate") | Some("llm") => {
-                self.auto_title_mode.as_deref().unwrap()
-            }
-            _ => "truncate",
+    /// Resolved title mode, defaulting to truncation for unset values.
+    pub fn auto_title_mode(&self) -> AutoTitleMode {
+        self.auto_title_mode.unwrap_or_default()
+    }
+
+    /// Resolve the profile id used for LLM title generation: the
+    /// configured override wins, otherwise the active session profile
+    /// applies. Blank values resolve to `None`.
+    pub fn title_profile(&self, session_profile: Option<&str>) -> Option<String> {
+        let configured = self
+            .title_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        if configured.is_some() {
+            return configured;
         }
+        session_profile
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
     }
 }
 
@@ -785,6 +812,41 @@ debug_socket = false
             Some(ToolDetailLevelName::High)
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn auto_title_mode_defaults_to_truncate() {
+        let empty: AppConfig = toml::from_str("").unwrap();
+        assert_eq!(empty.terminal.auto_title_mode(), AutoTitleMode::Truncate);
+        assert_eq!(empty.terminal.title_profile(None), None);
+        assert_eq!(
+            empty.terminal.title_profile(Some("session-profile")),
+            Some("session-profile".to_string())
+        );
+    }
+
+    #[test]
+    fn auto_title_mode_roundtrip_via_toml() {
+        let parsed: AppConfig =
+            toml::from_str("[terminal]\nauto_title_mode = \"llm\"\ntitle_model = \"tiny\"\n")
+                .unwrap();
+        assert_eq!(parsed.terminal.auto_title_mode(), AutoTitleMode::Llm);
+        assert_eq!(
+            parsed.terminal.title_profile(Some("session-profile")),
+            Some("tiny".to_string())
+        );
+        let off: AppConfig = toml::from_str("[terminal]\nauto_title_mode = \"off\"\n").unwrap();
+        assert_eq!(off.terminal.auto_title_mode(), AutoTitleMode::Off);
+        assert_eq!(
+            off.terminal.title_profile(Some("session-profile")),
+            Some("session-profile".to_string())
+        );
+        let blank: AppConfig = toml::from_str("[terminal]\ntitle_model = \"  \"\n").unwrap();
+        assert_eq!(
+            blank.terminal.title_profile(Some("session-profile")),
+            Some("session-profile".to_string())
+        );
+        assert_eq!(blank.terminal.title_profile(Some("  ")), None);
     }
 
     #[test]

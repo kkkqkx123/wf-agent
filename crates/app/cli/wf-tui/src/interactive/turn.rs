@@ -16,6 +16,12 @@ use super::{InteractiveController, InteractiveEvent, NestedAgentLoopTarget};
 
 /// Truncate a prompt into a short session title.
 fn truncate_title(prompt: &str) -> String {
+    truncate_title_for_title(prompt)
+}
+
+/// Truncate helper shared with the title request path so the LLM fallback
+/// matches the plain truncation mode.
+pub(crate) fn truncate_title_for_title(prompt: &str) -> String {
     let cleaned: String = prompt
         .lines()
         .next()
@@ -37,14 +43,15 @@ fn truncate_title(prompt: &str) -> String {
 }
 
 impl InteractiveController {
-    /// Resolved auto title mode.
-    fn auto_title_mode() -> String {
+    /// Resolved auto title mode, defaulting to truncation.
+    fn auto_title_mode() -> wf_cli_shared::app_config::AutoTitleMode {
+        use wf_cli_shared::app_config::AutoTitleMode;
         let Some(path) = crate::app_config::config_file_path() else {
-            return "truncate".to_string();
+            return AutoTitleMode::Truncate;
         };
         match crate::app_config::ConfigManager::load(&path) {
-            Ok(manager) => manager.config().terminal.auto_title_mode().to_string(),
-            Err(_) => "truncate".to_string(),
+            Ok(manager) => manager.config().terminal.auto_title_mode(),
+            Err(_) => AutoTitleMode::Truncate,
         }
     }
 }
@@ -755,6 +762,16 @@ impl InteractiveController {
                     }
                     if let Some(text) = text.filter(|text| !text.trim().is_empty()) {
                         self.pending_title = Some(text);
+                        self.title_fallback = None;
+                    } else if self.pending_title.is_none() {
+                        // The LLM side call landed empty: fall back to the
+                        // truncation captured at request time so the tab
+                        // still gets a label.
+                        if let Some(fallback) = self.title_fallback.take() {
+                            if !fallback.is_empty() {
+                                self.pending_title = Some(fallback);
+                            }
+                        }
                     }
                 }
                 InteractiveEvent::PanelCandidates { route, payload } => {
@@ -930,17 +947,17 @@ impl InteractiveController {
                     tui_terminal::terminal::state::ProgramStatusState::Done;
                 self.terminal_program_error = None;
                 if self.pending_title.is_none() {
-                    match Self::auto_title_mode().as_str() {
-                        "llm" => {
+                    match Self::auto_title_mode() {
+                        wf_cli_shared::app_config::AutoTitleMode::Llm => {
                             self.request_title_now();
                         }
-                        "truncate" => {
+                        wf_cli_shared::app_config::AutoTitleMode::Truncate => {
                             let title = truncate_title(&self.turn_prompt);
                             if !title.is_empty() {
                                 self.pending_title = Some(title);
                             }
                         }
-                        _ => {}
+                        wf_cli_shared::app_config::AutoTitleMode::Off => {}
                     }
                 }
                 self.flush_activity();

@@ -3,7 +3,12 @@ import { page } from '$app/state';
 import { groupToolCalls } from '#lib/utils/tool-output';
 import { preferences } from '#lib/stores/preferences.svelte';
 import { SvelteDate, SvelteSet } from 'svelte/reactivity';
-import { getLoopGraph, listLoopMessages, type RunLoopMessage } from '#lib/services/agent-loops';
+import {
+	getLoopGraph,
+	listLoopMessages,
+	renameAgentLoop,
+	type RunLoopMessage,
+} from '#lib/services/agent-loops';
 import {
 	applyExecutionOverlay,
 	matchDecisionNodeId,
@@ -14,6 +19,7 @@ import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
 import { streamLoopRun, streamChat, streamWorkflowExecution } from '#lib/services/streaming';
 import { appendAgentLoopInput } from '#lib/services/agent-loops';
 import { postChatRecap, postLoopRecap, shouldRecap } from '#lib/services/recap';
+import { postChatTitle, postLoopTitle } from '#lib/services/title';
 import type { UsageSnapshot } from '#lib/utils/stream-parser';
 import type { StreamFailure } from '#lib/api/stream';
 import { listModelProfiles } from '#lib/services/resources';
@@ -82,6 +88,8 @@ export class ChatSessionController {
 	recapNote = $state<string | null>(null);
 	private recapTicket = 0;
 	private recapAbort: AbortController | null = null;
+	private titleTicket = 0;
+	private titleAbort: AbortController | null = null;
 	private turnBeganAt = 0;
 	private awayThisTurn = false;
 	private recapVisibilityOff: (() => void) | null = null;
@@ -99,6 +107,7 @@ export class ChatSessionController {
 			void this.selectedId;
 			this.openGroups.clear();
 			this.dropRecap();
+			this.dropTitle();
 		});
 
 		$effect(() => {
@@ -408,9 +417,7 @@ export class ChatSessionController {
 				const loopId = this.activeAgentLoopId;
 				void appendAgentLoopInput(loopId, text, 'followup')
 					.then(() => toasts.success('input appended to the running agent'))
-					.catch((e) =>
-						toasts.error('append failed', e instanceof Error ? e.message : undefined),
-					);
+					.catch((e) => toasts.error('append failed', e instanceof Error ? e.message : undefined));
 				return true;
 			}
 			return false;
@@ -538,6 +545,49 @@ export class ChatSessionController {
 		continue: (arg) => this.sendPrompt(arg ? `Continue: ${arg}` : 'Continue'),
 		recap: () => this.requestRecapNow(),
 	};
+
+	/** Drop a pending title read: the ticket moves so a late answer is discarded. */
+	dropTitle(): void {
+		this.titleTicket += 1;
+		this.titleAbort?.abort();
+		this.titleAbort = null;
+	}
+
+	/**
+	 * Automatic LLM title for an adopted draft session. The truncation
+	 * placeholder is already recorded; a landed title upgrades the local
+	 * label and persists to the server. Silent on every miss.
+	 */
+	private maybeAutoTitle(id: string): void {
+		if (this.executionType === 'workflow') return;
+		if (preferences.autoTitleMode !== 'llm') return;
+		const profile = preferences.titleModel.trim() || this.model.trim();
+		if (!id || !profile) return;
+		const ticket = ++this.titleTicket;
+		this.titleAbort?.abort();
+		const controller = new AbortController();
+		this.titleAbort = controller;
+		const read =
+			this.executionType === 'chat'
+				? postChatTitle(id, profile, controller.signal)
+				: postLoopTitle(id, profile, controller.signal);
+		void read.then((text) => {
+			if (ticket !== this.titleTicket) return;
+			if (this.selectedId !== id) return;
+			if (!text) return;
+			sessions.applyTitle(id, text);
+			void (async () => {
+				try {
+					await renameAgentLoop(id, text);
+					await sessions.refresh();
+				} catch {
+					// Best effort: the local label already shows the title;
+					// a rename miss only means the server list keeps the
+					// truncation until the next refresh.
+				}
+			})();
+		});
+	}
 
 	/** Drop a pending recap read: the ticket moves so a late answer is discarded. */
 	dropRecap(): void {
@@ -769,6 +819,21 @@ export class ChatSessionController {
 			if (adopted) {
 				sessions.recordTitle(adopted.id, content);
 				await sessions.open(adopted.id);
+				this.maybeAutoTitle(adopted.id);
+			}
+		} else if (
+			this.executionType === 'chat' &&
+			chatStream.done &&
+			!chatStream.error &&
+			!chatStream.cancelled
+		) {
+			// Chat sessions carry their id up front, so there is no draft
+			// to adopt: the first successful turn names them instead.
+			// Workflows never take part, matching the recap gate.
+			const id = this.selectedId;
+			if (id && !sessions.hasTitle(id)) {
+				sessions.recordTitle(id, content);
+				this.maybeAutoTitle(id);
 			}
 		}
 		this.revision += 1;

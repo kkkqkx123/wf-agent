@@ -146,6 +146,7 @@ impl NativeSession {
             self.record_completed_turn(&question, &finished);
             self.maybe_auto_recap(ticket, turn_started.elapsed(), &finished)
                 .await;
+            self.maybe_auto_title(&finished).await;
         }
         if progress_enabled {
             eprint!("\x1b]9;4;0\x07");
@@ -871,6 +872,78 @@ impl NativeSession {
         }
         if let Some(text) = self.fetch_recap(ticket).await {
             output::diag_line(&format!("※ recap: {text}"));
+        }
+    }
+
+    /// Automatic LLM session title after a completed turn. Only `llm` mode
+    /// fires; truncation is already persisted server-side, so an empty
+    /// answer simply keeps it. Best effort and silent.
+    async fn maybe_auto_title(&self, finished: &FinishedTurn) {
+        if !finished.outcome.completed {
+            return;
+        }
+        if Self::auto_title_mode() != wf_cli_shared::app_config::AutoTitleMode::Llm {
+            return;
+        }
+        let loop_id = self
+            .current_loop_id
+            .clone()
+            .unwrap_or_else(|| self.anchor.clone());
+        if loop_id.trim().is_empty() || loop_id.starts_with("mini-") {
+            return;
+        }
+        let profile = Self::title_profile(self.model.as_deref());
+        let Some(profile) = profile else {
+            return;
+        };
+        let body = serde_json::json!({
+            "session_id": loop_id,
+            "profile_id": profile,
+        });
+        let title: Option<String> = self
+            .client
+            .post_json("/api/v1/chat/title", &body)
+            .await
+            .ok()
+            .and_then(|response: serde_json::Value| {
+                response
+                    .get("data")?
+                    .get("text")?
+                    .as_str()
+                    .map(str::to_string)
+            })
+            .filter(|text| !text.trim().is_empty());
+        let Some(title) = title else {
+            return;
+        };
+        let _ = self.client.rename_agent_loop(&loop_id, &title).await;
+    }
+
+    /// Resolved auto title mode, defaulting to truncation.
+    fn auto_title_mode() -> wf_cli_shared::app_config::AutoTitleMode {
+        let Some(path) = wf_cli_shared::app_config::config_file_path() else {
+            return wf_cli_shared::app_config::AutoTitleMode::Truncate;
+        };
+        match wf_cli_shared::app_config::ConfigManager::load(&path) {
+            Ok(manager) => manager.config().terminal.auto_title_mode(),
+            Err(_) => wf_cli_shared::app_config::AutoTitleMode::Truncate,
+        }
+    }
+
+    /// Resolve the profile id used for LLM title generation.
+    fn title_profile(session_profile: Option<&str>) -> Option<String> {
+        let Some(path) = wf_cli_shared::app_config::config_file_path() else {
+            return session_profile
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+        };
+        match wf_cli_shared::app_config::ConfigManager::load(&path) {
+            Ok(manager) => manager.config().terminal.title_profile(session_profile),
+            Err(_) => session_profile
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
         }
     }
 

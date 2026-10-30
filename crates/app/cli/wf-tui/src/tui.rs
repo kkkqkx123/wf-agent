@@ -467,14 +467,29 @@ impl TuiApp {
 
             // Pump every tab: background tabs keep their stream tasks
             // advancing while only the active tab paints.
+            // Collect auto titles first so the server persist below does
+            // not hold a mutable tab borrow across an await boundary.
+            let mut titled: Vec<(String, String)> = Vec::new();
             for tab in self.sessions.iter_mut() {
                 tab.controller.handle_events();
                 if tab.title_is_default {
                     if let Some(title) = tab.controller.take_pending_title() {
-                        tab.title = title;
+                        tab.title = title.clone();
                         tab.title_is_default = false;
+                        if let Some(loop_id) = tab.execution_id().map(str::to_string) {
+                            titled.push((loop_id, title));
+                        }
                     }
                 }
+            }
+            for (loop_id, title) in titled {
+                let client = self.client.clone();
+                tokio::spawn(async move {
+                    // Best effort: the local tab already shows the title;
+                    // a rename miss only means the server list keeps the
+                    // truncation until the next restart.
+                    let _ = client.rename_agent_loop(&loop_id, &title).await;
+                });
             }
             if self.sessions.background_streaming() {
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);

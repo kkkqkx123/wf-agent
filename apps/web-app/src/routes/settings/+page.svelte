@@ -11,8 +11,13 @@
 	import PageState from '#lib/components/layout/PageState.svelte';
 	import ShortcutsSettings from '#lib/components/layout/ShortcutsSettings.svelte';
 	import UnsavedChangesDialog from '#lib/ui/components/UnsavedChangesDialog.svelte';
-	import { preferences, type Density, type ThemeMode } from '#lib/stores/preferences.svelte';
-import { EDITOR_FONT_SIZE_MIN, EDITOR_FONT_SIZE_MAX } from '#lib/stores/preferences.svelte';
+	import {
+		preferences,
+		type AutoTitleMode,
+		type Density,
+		type ThemeMode,
+	} from '#lib/stores/preferences.svelte';
+	import { EDITOR_FONT_SIZE_MIN, EDITOR_FONT_SIZE_MAX } from '#lib/stores/preferences.svelte';
 	import {
 		describeToolOutputBudgets,
 		resolveToolOutputBudgets,
@@ -102,6 +107,12 @@ import { EDITOR_FONT_SIZE_MIN, EDITOR_FONT_SIZE_MAX } from '#lib/stores/preferen
 		{ value: 'compact', label: message('page.settings.detailCompact') },
 		{ value: 'balanced', label: message('page.settings.detailBalanced') },
 		{ value: 'verbose', label: message('page.settings.detailVerbose') },
+	];
+
+	const TITLE_MODE_OPTIONS = [
+		{ value: 'off', label: message('page.settings.autoTitleOff') },
+		{ value: 'truncate', label: message('page.settings.autoTitleTruncate') },
+		{ value: 'llm', label: message('page.settings.autoTitleLlm') },
 	];
 
 	const toolBudgetsHint = $derived(
@@ -412,10 +423,7 @@ import { EDITOR_FONT_SIZE_MIN, EDITOR_FONT_SIZE_MAX } from '#lib/stores/preferen
 						</div>
 					</Card>
 
-					<Card
-						title={t('page.settings.editor')}
-						description={t('page.settings.editorDesc')}
-					>
+					<Card title={t('page.settings.editor')} description={t('page.settings.editorDesc')}>
 						<div class="flex items-center gap-3">
 							<input
 								type="range"
@@ -620,6 +628,36 @@ import { EDITOR_FONT_SIZE_MIN, EDITOR_FONT_SIZE_MAX } from '#lib/stores/preferen
 							class="mt-2"
 							onchange={() => preferences.toggleInspectorPinned()}
 						/>
+					</Card>
+					<Card
+						title={t('page.settings.sessionTitles')}
+						description={t('page.settings.sessionTitlesDesc')}
+					>
+						<Select
+							value={preferences.autoTitleMode}
+							options={TITLE_MODE_OPTIONS}
+							placeholder={t('page.settings.autoTitleMode')}
+							class="w-56"
+							onchange={(value) => preferences.setAutoTitleMode(value as AutoTitleMode)}
+						/>
+						<div class="mt-3">
+							<label for="title-model" class="block text-caption text-muted-foreground">
+								{t('page.settings.titleModel')}
+							</label>
+							<input
+								id="title-model"
+								type="text"
+								value={preferences.titleModel}
+								placeholder={t('page.settings.titleModelPlaceholder')}
+								disabled={preferences.autoTitleMode !== 'llm'}
+								oninput={(event) =>
+									preferences.setTitleModel((event.currentTarget as HTMLInputElement).value)}
+								class="mt-1 w-56 rounded-md border border-input bg-card px-2.5 py-1.5 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[hsl(var(--ring))] disabled:cursor-not-allowed disabled:opacity-60"
+							/>
+							<p class="mt-2 text-caption text-muted-foreground">
+								{t('page.settings.titleModelDesc')}
+							</p>
+						</div>
 					</Card>
 					<Card
 						title={t('page.settings.sidebarWidth')}

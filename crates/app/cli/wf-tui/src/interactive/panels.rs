@@ -81,26 +81,47 @@ impl InteractiveController {
         });
     }
 
-    /// Request a content-based title from the server (LLM mode). Silence
-    /// on every miss; a late answer is dropped by ticket.
+    /// Request a content-based title from the server (LLM mode). A late
+    /// answer is dropped by ticket; an empty answer falls back to the
+    /// truncation captured here.
     pub(crate) fn request_title_now(&mut self) {
         self.title_ticket = self.title_ticket.wrapping_add(1);
         let ticket = self.title_ticket;
-        let Some(session_id) = self.footer.state.execution_id.clone() else {
+        // Prefer the server-side loop id captured from stream events so a
+        // first turn on a fresh tab addresses the persisted conversation.
+        let session_id = self
+            .active_agent_loop_id
+            .clone()
+            .or_else(|| self.footer.state.execution_id.clone());
+        let Some(session_id) = session_id else {
             return;
         };
-        // Model selection: configured title_model, then session model.
-        let configured = crate::app_config::config_file_path()
-            .and_then(|path| crate::app_config::ConfigManager::load(&path).ok())
-            .and_then(|m| m.config().terminal.title_model.clone());
-        let profile = configured
-            .or_else(|| self.model_override.clone())
+        // Model selection: configured title_model wins, otherwise the
+        // active session profile applies.
+        let session_profile = self
+            .model_override
+            .clone()
             .or_else(|| self.footer.state.model.clone());
+        let profile = crate::app_config::config_file_path()
+            .and_then(|path| crate::app_config::ConfigManager::load(&path).ok())
+            .and_then(|manager| {
+                manager
+                    .config()
+                    .terminal
+                    .title_profile(session_profile.as_deref())
+            })
+            .or_else(|| session_profile.clone());
         let Some(profile) = profile else {
             return;
         };
         if session_id.trim().is_empty() || profile.trim().is_empty() {
             return;
+        }
+        // Capture the truncation fallback before the prompt is consumed by
+        // turn settlement; the TitleReady handler applies it on empty.
+        let fallback = super::turn::truncate_title_for_title(&self.turn_prompt);
+        if !fallback.is_empty() {
+            self.title_fallback = Some(fallback);
         }
         let client = self.client.clone();
         let tx = self.tx.clone();

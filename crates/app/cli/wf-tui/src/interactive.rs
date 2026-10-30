@@ -495,6 +495,9 @@ pub struct InteractiveController {
     away_this_turn: bool,
     /// Ticket for in-flight content-based title requests.
     title_ticket: u64,
+    /// Truncation fallback captured when an LLM title request starts; used
+    /// when the side call lands empty so a session always gets a label.
+    pub(crate) title_fallback: Option<String>,
     /// Last terminal program status state for this session.
     terminal_program_status: tui_terminal::terminal::state::ProgramStatusState,
     /// Last error message for program status reporting.
@@ -726,6 +729,7 @@ impl InteractiveController {
             pending_editor: false,
             recap_ticket: 0,
             title_ticket: 0,
+            title_fallback: None,
             turn_started_at: None,
             away_this_turn: false,
             terminal_program_status: tui_terminal::terminal::state::ProgramStatusState::Idle,

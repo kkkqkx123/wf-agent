@@ -59,9 +59,19 @@ class SessionStore {
 		return this.local.label(id);
 	}
 
+	/** Whether a display title was recorded for the session. */
+	hasTitle(id: string): boolean {
+		return this.local.hasTitle(id);
+	}
+
 	/** First user message names the session; a recorded title is never rewritten. */
 	recordTitle(id: string, content: string): void {
 		this.local.recordTitle(id, content);
+	}
+
+	/** Apply a server-confirmed title, upgrading the truncation placeholder. */
+	applyTitle(id: string, title: string): void {
+		this.local.applyTitle(id, title);
 	}
 
 	isStarred(id: string): boolean {

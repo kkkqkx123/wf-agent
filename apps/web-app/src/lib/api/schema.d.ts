@@ -1197,7 +1197,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        patch: operations["handle_update_loop_title"];
         trace?: never;
     };
     "/api/v1/agent-loops/{id}/variable-history/{name}": {
@@ -11490,7 +11490,7 @@ export interface components {
             policy?: string | null;
             /**
              * @description Audit source label (`user` / `cli` / `tui` / `web` /
-             *     `workflow-console`); absent defaults to `api`.
+             *     `workflow-console` / `api`); absent defaults to `api`.
              */
             source?: string | null;
             /**
@@ -11668,6 +11668,10 @@ export interface components {
         UpdateLoopStatusBody: {
             /** @description New status value (e.g., "running", "paused", "completed", "failed") */
             status: string;
+        };
+        UpdateLoopTitleBody: {
+            /** @description Display title of the session (1-80 characters, blank rejected). */
+            title: string;
         };
         UpdatePtyBody: {
             /** Format: int32 */
@@ -13483,6 +13487,8 @@ export interface operations {
                 offset?: number;
                 /** @description Sort by start time: `asc` or `desc`. Absent preserves registry order. */
                 order?: string;
+                /** @description Substring filter over id, title and status (case-insensitive). */
+                q?: string;
             };
             header?: never;
             path?: never;
@@ -17924,6 +17930,94 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_update_loop_title: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateLoopTitleBody"];
+            };
+        };
+        responses: {
+            /** @description Title updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_String"];
+                };
+            };
+            /** @description Invalid title */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Service unavailable: resource limit reached */
             503: {

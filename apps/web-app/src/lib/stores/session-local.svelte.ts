@@ -61,12 +61,29 @@ export class SessionLocalState {
 		return this.titles[id] ?? id;
 	}
 
+	/** Whether a display title was recorded for the session. */
+	hasTitle(id: string): boolean {
+		return this.titles[id] !== undefined;
+	}
+
 	/** First user message names the session; a recorded title is never rewritten. */
 	recordTitle(id: string, content: string): void {
 		if (this.titles[id]) return;
 		const line = content.trim().split('\n', 1)[0];
 		if (!line) return;
 		this.titles = { ...this.titles, [id]: line.slice(0, 60) };
+		write(TITLES_KEY, this.titles);
+	}
+
+	/**
+	 * Apply a server-confirmed title (LLM generation or manual rename).
+	 * Unlike the truncation placeholder this overwrites, so a late LLM
+	 * answer can upgrade the first-message label.
+	 */
+	applyTitle(id: string, title: string): void {
+		const line = title.trim().split('\n', 1)[0] ?? '';
+		if (!line) return;
+		this.titles = { ...this.titles, [id]: line.slice(0, 80) };
 		write(TITLES_KEY, this.titles);
 	}
 

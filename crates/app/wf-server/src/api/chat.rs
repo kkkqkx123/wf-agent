@@ -4,6 +4,8 @@
 //! session id anchors the conversation, so a session continues where the
 //! previous turn left off and its transcript can be replayed.
 
+pub(crate) mod starters;
+
 use axum::extract::State;
 use axum::response::Response;
 use axum::routing::post;
@@ -16,7 +18,9 @@ use crate::router::ApiState;
 use crate::sse::{execution_frames, sse_response};
 
 pub(crate) fn routes() -> Router<ApiState> {
-    Router::new().route("/chat/stream", post(handle_chat_stream))
+    Router::new()
+        .route("/chat/stream", post(handle_chat_stream))
+        .merge(starters::routes())
 }
 
 /// Wire body of `/chat/stream`.

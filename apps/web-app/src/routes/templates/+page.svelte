@@ -14,6 +14,7 @@
 	import Skeleton from '#lib/ui/components/Skeleton.svelte';
 	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import TemplateImportDialog from '#lib/components/domain/TemplateImportDialog.svelte';
+	import StarterPanel from '#lib/components/domain/StarterPanel.svelte';
 	import {
 		cloneTemplate,
 		importTemplate,
@@ -34,12 +35,15 @@
 		{ id: 'trigger', label: 'Trigger' },
 		{ id: 'agent', label: 'Agent' },
 		{ id: 'workflow', label: 'Workflow' },
+		{ id: 'starter', label: 'Starter' },
 	];
 
 	const requestedTab = parseListParams(page.url as unknown as URL).tab;
 	let kind = $state(
 		requestedTab && TABS.some((item) => item.id === requestedTab) ? requestedTab : 'all',
 	);
+
+	const isStarterTab = $derived(kind === 'starter');
 
 	$effect(() => {
 		gotoWithParams(page.url as unknown as URL, {
@@ -171,95 +175,103 @@
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader title={t('page.templates.title')} description={t('page.templates.description')}>
 		{#snippet actions()}
-			<IconButton icon="refresh" label={t('common.refresh')} onclick={() => void reload()} />
-			<Button variant="outline" size="sm" onclick={() => (importOpen = true)}>
-				<Icon name="upload" size={13} />
-				{t('page.templates.import')}
-			</Button>
-			<Button size="sm" onclick={startCreate}>
-				<Icon name="plus" size={13} />
-				{t('page.templates.newTemplate')}
-			</Button>
+			{#if !isStarterTab}
+				<IconButton icon="refresh" label={t('common.refresh')} onclick={() => void reload()} />
+				<Button variant="outline" size="sm" onclick={() => (importOpen = true)}>
+					<Icon name="upload" size={13} />
+					{t('page.templates.import')}
+				</Button>
+				<Button size="sm" onclick={startCreate}>
+					<Icon name="plus" size={13} />
+					{t('page.templates.newTemplate')}
+				</Button>
+			{/if}
 		{/snippet}
 	</PageHeader>
 
 	<Segmented items={TABS} bind:value={kind} class="px-4">
 		{#snippet trailing()}
-			<Button
-				variant={featuredOnly ? 'secondary' : 'ghost'}
-				size="sm"
-				onclick={() => (featuredOnly = !featuredOnly)}
-			>
-				<Icon name="star" size={13} />
-				Featured
-			</Button>
+			{#if !isStarterTab}
+				<Button
+					variant={featuredOnly ? 'secondary' : 'ghost'}
+					size="sm"
+					onclick={() => (featuredOnly = !featuredOnly)}
+				>
+					<Icon name="star" size={13} />
+					Featured
+				</Button>
+			{/if}
 		{/snippet}
 	</Segmented>
 
-	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-		{#if listLoading}
-			<Skeleton lines={5} class="rounded-lg border border-border bg-card p-4" />
-		{:else if listError}
-			<ErrorState
-				title={t('page.templates.loadFailed')}
-				description={listError}
-				onretry={() => void reload()}
-				class="rounded-lg border border-border bg-card"
-			/>
-		{:else if filtered.length === 0}
-			<EmptyState
-				icon="template"
-				title={t('page.templates.noMatch')}
-				description={t('page.templates.noMatchDesc')}
-				class="rounded-lg border border-border bg-card"
-			/>
-		{:else}
-			<div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-				{#each filtered as template (template.id)}
-					<Card title={template.name}>
-						{#snippet actions()}
-							{#if template.featured}
-								<Badge variant="warning" class="text-[0.625rem]">
-									<Icon name="star" size={10} />
-									featured
-								</Badge>
-							{/if}
-						{/snippet}
-						<p class="text-caption text-muted-foreground">
-							{template.description}
-						</p>
-						<div class="mt-2 flex flex-wrap items-center gap-1.5">
-							<span
-								class="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-micro text-muted-foreground"
-							>
-								<Icon name={KIND_ICON[template.kind]} size={11} />
-								{template.kind}
-							</span>
-							<span class="text-micro text-muted-foreground">{template.category}</span>
-						</div>
-						<div class="mt-2 flex flex-wrap gap-1">
-							{#each template.tags as tag (tag)}
-								<Badge variant="outline" class="text-[0.625rem]">{tag}</Badge>
-							{/each}
-						</div>
-						{#snippet footer()}
-							<div class="flex items-center justify-between">
-								<span class="tabular-nums">{formatNumber(template.usage)} uses</span>
-								<div class="flex items-center gap-1">
-									<Button variant="ghost" size="sm" onclick={() => void runClone(template)}>
-										Clone
-									</Button>
-									<Button variant="ghost" size="sm" onclick={() => void openDetail(template)}>
-										Details
-									</Button>
-								</div>
+	{#if isStarterTab}
+		<StarterPanel />
+	{:else}
+		<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+			{#if listLoading}
+				<Skeleton lines={5} class="rounded-lg border border-border bg-card p-4" />
+			{:else if listError}
+				<ErrorState
+					title={t('page.templates.loadFailed')}
+					description={listError}
+					onretry={() => void reload()}
+					class="rounded-lg border border-border bg-card"
+				/>
+			{:else if filtered.length === 0}
+				<EmptyState
+					icon="template"
+					title={t('page.templates.noMatch')}
+					description={t('page.templates.noMatchDesc')}
+					class="rounded-lg border border-border bg-card"
+				/>
+			{:else}
+				<div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+					{#each filtered as template (template.id)}
+						<Card title={template.name}>
+							{#snippet actions()}
+								{#if template.featured}
+									<Badge variant="warning" class="text-[0.625rem]">
+										<Icon name="star" size={10} />
+										featured
+									</Badge>
+								{/if}
+							{/snippet}
+							<p class="text-caption text-muted-foreground">
+								{template.description}
+							</p>
+							<div class="mt-2 flex flex-wrap items-center gap-1.5">
+								<span
+									class="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-micro text-muted-foreground"
+								>
+									<Icon name={KIND_ICON[template.kind]} size={11} />
+									{template.kind}
+								</span>
+								<span class="text-micro text-muted-foreground">{template.category}</span>
 							</div>
-						{/snippet}
-					</Card>
-				{/each}
-			</div>
-		{/if}
-	</div>
+							<div class="mt-2 flex flex-wrap gap-1">
+								{#each template.tags as tag (tag)}
+									<Badge variant="outline" class="text-[0.625rem]">{tag}</Badge>
+								{/each}
+							</div>
+							{#snippet footer()}
+								<div class="flex items-center justify-between">
+									<span class="tabular-nums">{formatNumber(template.usage)} uses</span>
+									<div class="flex items-center gap-1">
+										<Button variant="ghost" size="sm" onclick={() => void runClone(template)}>
+											Clone
+										</Button>
+										<Button variant="ghost" size="sm" onclick={() => void openDetail(template)}>
+											Details
+										</Button>
+									</div>
+								</div>
+							{/snippet}
+						</Card>
+					{/each}
+				</div>
+			{/if}
+		</div>
+	{/if}
 </div>
 
 <TemplateImportDialog

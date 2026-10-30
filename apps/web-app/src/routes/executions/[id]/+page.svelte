@@ -21,7 +21,7 @@
 		type UnifiedExecutionDetail,
 	} from '#lib/services/executions';
 	import { rerunWorkflowRun } from '#lib/services/run';
-	import { appendAgentLoopInput, cancelAgentLoop, convertPendingToSteering, pauseAgentLoop, resumeAgentLoop, setAgentLoopAppendMode } from '#lib/services/agent-loops';
+	import { appendAgentLoopInput, cancelAgentLoop, convertPendingToSteering, pauseAgentLoop, resumeAgentLoop } from '#lib/services/agent-loops';
 	import type { Execution } from '#lib/types/models';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';

@@ -19,6 +19,7 @@
 		type ExecutionType,
 	} from '#lib/components/chat/ExecutionTypePicker.svelte';
 	import type { MessageAttachment, OutgoingMessage } from '#lib/types/models';
+	import type { StarterSuggestion } from '#lib/services/starters';
 	import { entityMention, textRuns } from '#lib/utils/mentions';
 	import { mentionClass, mentionIcon } from '#lib/utils/mention-style';
 	import { t } from '#lib/i18n';
@@ -60,11 +61,12 @@
 		executionType?: ExecutionType;
 		busy?: boolean;
 		draftKey?: string;
-		suggestions?: string[];
+		suggestions?: StarterSuggestion[];
 		showSuggestions?: boolean;
 		onsend?: (message: OutgoingMessage) => boolean;
 		onstop?: () => void;
 		oncommand?: (action: CommandAction, arg: string) => void;
+		onSuggestionSelect?: (suggestion: StarterSuggestion) => void;
 	}
 
 	let {
@@ -79,6 +81,7 @@
 		onsend,
 		onstop,
 		oncommand,
+		onSuggestionSelect,
 	}: Props = $props();
 
 	let draft = $state('');
@@ -524,16 +527,18 @@
 <div>
 	{#if showSuggestions && suggestions.length > 0}
 		<div class="mb-2 flex flex-wrap gap-1.5">
-			{#each suggestions as suggestion (suggestion)}
+			{#each suggestions as suggestion (suggestion.id ?? suggestion.title)}
 				<button
 					type="button"
+					title={suggestion.title}
 					onclick={() => {
-						draft = suggestion;
+						draft = suggestion.content;
+						onSuggestionSelect?.(suggestion);
 						box?.focus();
 					}}
 					class="rounded-full border border-border bg-muted/50 px-2.5 py-1 text-caption text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 				>
-					{suggestion}
+					{suggestion.title}
 				</button>
 			{/each}
 		</div>

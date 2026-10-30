@@ -6,6 +6,8 @@
 //! chat primitive: no tools, no iterations, no checkpoints and no agent loop
 //! events are published.
 
+pub mod starter;
+
 use std::sync::Arc;
 
 use serde_json::Value;

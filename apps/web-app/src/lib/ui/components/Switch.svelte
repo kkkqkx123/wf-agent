@@ -43,7 +43,7 @@
 		>
 			<span
 				class={cn(
-					'absolute top-0.5 h-3.5 w-3.5 rounded-full bg-card shadow-sm transition-transform duration-150',
+					'absolute top-0.5 h-3.5 w-3.5 rounded-full bg-card shadow-sm transition-transform duration-150 dark:bg-card-foreground',
 					checked ? 'translate-x-4.5' : 'translate-x-0.5',
 				)}
 			></span>
@@ -65,7 +65,7 @@
 	>
 		<span
 			class={cn(
-				'absolute top-0.5 h-3.5 w-3.5 rounded-full bg-card shadow-sm transition-transform duration-150',
+				'absolute top-0.5 h-3.5 w-3.5 rounded-full bg-card shadow-sm transition-transform duration-150 dark:bg-card-foreground',
 				checked ? 'translate-x-4.5' : 'translate-x-0.5',
 			)}
 		></span>

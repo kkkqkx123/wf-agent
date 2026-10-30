@@ -174,8 +174,11 @@ pub async fn refresh_filtered(
 ///
 /// - Discovery failure: warn and proceed, never block registration.
 /// - Model missing from a non-empty catalog: warn (stale or custom model).
-/// - Catalog entry carries `context_window_size` while the profile has
-///   none: backfill it and return the enriched profile.
+/// - Catalog entry carries `context_window_size`/`max_output_tokens` while
+///   the profile has none: backfill the missing gaps and return the enriched
+///   profile. The live discovery table only carries the context window, so
+///   a still-missing `max_output_tokens` falls back to the static LiteLLM
+///   table (`wf_llm::model_metadata`); `format` is never auto-filled.
 pub async fn assemble_check(ctx: &ApiContext, profile: &LlmProfile) -> LlmProfile {
     let Some(provider_id) = profile.provider_id.as_deref() else {
         return profile.clone();
@@ -203,6 +206,14 @@ pub async fn assemble_check(ctx: &ApiContext, profile: &LlmProfile) -> LlmProfil
     if enriched.context_window_size.is_none() {
         if let Some(entry) = models.iter().find(|m| m.id == profile.model) {
             enriched.context_window_size = entry.context_window_size;
+        }
+    }
+    if enriched.max_output_tokens.is_none() {
+        if let Some(meta) = wf_llm::model_metadata(&profile.model) {
+            if enriched.context_window_size.is_none() {
+                enriched.context_window_size = meta.context_window;
+            }
+            enriched.max_output_tokens = meta.max_output_tokens;
         }
     }
     enriched

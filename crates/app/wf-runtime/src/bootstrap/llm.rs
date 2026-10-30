@@ -137,9 +137,10 @@ pub fn create_llm_gateway(
 ///
 /// Built-in connection templates (`wf-llm`) register first as the static
 /// baseline; file-layer definitions win on id collision. Profiles then
-/// merge connection defaults once at registration time and fill a missing
-/// `context_window_size` from the LiteLLM table (`wf-pricing`, best
-/// effort, model-name match), so the request hot path never merges again.
+/// merge connection defaults once at registration time and fill missing
+/// `context_window_size`/`max_output_tokens` from the LiteLLM table
+/// (`wf-pricing`, best effort, model-name match), so the request hot path
+/// never merges again.
 /// Costs are never filled here: the pricing resolver remains the single
 /// cost path. Plugin codecs and providers must already be synced (fixed
 /// startup order, no lazy backfill).
@@ -174,8 +175,9 @@ pub fn register_llm_config(gateway: &LlmGateway, config: &LlmConfig) -> RuntimeR
         // Gap-filling stays in the shared catalog helper so the "only fill
         // what config leaves empty" rule has a single home; costs never
         // flow here (the pricing resolver remains the single cost path).
+        // `format` is never auto-filled: a mismatch only warns downstream.
         let mut with_catalog = transformed;
-        if with_catalog.context_window_size.is_none() {
+        if with_catalog.context_window_size.is_none() || with_catalog.max_output_tokens.is_none() {
             if let Some(meta) = metadata.metadata_for(&with_catalog.model) {
                 with_catalog = wf_llm::apply_catalog_metadata(with_catalog, &[meta]);
             }

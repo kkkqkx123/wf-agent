@@ -55,6 +55,32 @@ pub struct McpRuntimeConfig {
     pub project_root: Option<std::path::PathBuf>,
 }
 
+/// Opt-in online catalog refresh (revision: disabled by default, no persistence).
+///
+/// When `enabled` is false (the default, including `None` on `LlmConfig`),
+/// bootstrap keeps the current behavior: static LiteLLM table only. When
+/// true, bootstrap may call `ModelCatalog::refresh_filtered` in the
+/// background; failures degrade to the static table with a warning and
+/// explicit profile fields always win (`explicit > network > static`).
+/// No `wf-storage` persistence in the first cut; results stay in memory.
+/// TLS/timeout tuning reuses `LlmHttpTransport`, so no `allow_insecure` lives here.
+#[derive(Debug, Clone, Default)]
+pub struct CatalogRefreshConfig {
+    /// Master switch. `false` (default) keeps static-table-only behavior.
+    pub enabled: bool,
+    /// Provider ids to refresh; `None` means all registered definitions.
+    pub provider_ids: Option<Vec<String>>,
+    /// Per-provider refresh timeout in seconds; `None` uses the client default.
+    pub timeout_secs: Option<u64>,
+}
+
+impl CatalogRefreshConfig {
+    /// Whether an online refresh should run. `false` keeps zero behavior change.
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct LlmConfig {
     pub profiles: Vec<LlmProfile>,
@@ -62,6 +88,8 @@ pub struct LlmConfig {
     /// Declarative authentication: credential store location plus the
     /// provider auth surfaces. Empty keeps the static-key behavior.
     pub auth: wf_types::config::llm_auth::AuthConfig,
+    /// Opt-in online catalog refresh. `None` (default) disables it.
+    pub catalog_refresh: Option<CatalogRefreshConfig>,
 }
 
 /// File-layer infrastructure config sources resolved through the
@@ -415,4 +443,26 @@ pub fn adjust_log_config(mut config: LogConfig, mode_info: &ModeInfo) -> LogConf
     }
 
     config
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn catalog_refresh_is_disabled_by_default() {
+        assert!(LlmConfig::default().catalog_refresh.is_none());
+        assert!(!CatalogRefreshConfig::default().is_enabled());
+        assert!(!CatalogRefreshConfig {
+            enabled: false,
+            provider_ids: Some(vec!["p".to_string()]),
+            timeout_secs: Some(5),
+        }
+        .is_enabled());
+        assert!(CatalogRefreshConfig {
+            enabled: true,
+            ..Default::default()
+        }
+        .is_enabled());
+    }
 }

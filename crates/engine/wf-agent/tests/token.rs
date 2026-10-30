@@ -132,6 +132,7 @@ async fn token_events_emitted_when_limit_crossed() {
             query_params: None,
             stream_options: None,
             context_window_size: Some(1000),
+            max_output_tokens: None,
             proxy: None,
             no_proxy: None,
             circuit_breaker: None,

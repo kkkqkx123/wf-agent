@@ -137,6 +137,23 @@ pub(crate) fn live_entity(
         .ok_or_else(|| ApiError::execution_not_found(agent_loop_id))
 }
 
+pub(crate) fn gate_agent_input(input: &AgentLoopInput) -> crate::ApiResult<()> {
+    match wf_agent::validation::AgentLoopValidator::validate_or_fail_input(input) {
+        Ok(()) => Ok(()),
+        Err(errors) => {
+            let detail = errors
+                .iter()
+                .map(|e| format!("{}: {}", e.field, e.message))
+                .collect::<Vec<_>>()
+                .join("; ");
+            Err(ApiError::Validation(format!(
+                "agent input validation failed ({} error(s)): {detail}",
+                errors.len()
+            )))
+        }
+    }
+}
+
 pub(crate) fn gate_agent_config(
     ctx: &ApiContext,
     config: &AgentLoopConfig,

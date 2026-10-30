@@ -197,6 +197,32 @@ impl Runtime {
 
         let pricing_resolver =
             wf_pricing::build_composite_resolver(storage_manager.shared_context().as_deref()).await;
+
+        // Map local provider ids to LiteLLM provider namespaces so pricing
+        // can resolve provider-specific table entries instead of only the
+        // canonical model-only entry.
+        let mut provider_mapping = std::collections::HashMap::new();
+        for id in wf_llm::builtin_provider_ids() {
+            if let Some(litellm_provider) = wf_llm::litellm_provider_for(&id) {
+                provider_mapping.insert(id, litellm_provider.to_string());
+            }
+        }
+        for definition in &config.llm.provider_definitions {
+            if let Some(value) = definition
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("litellm_provider"))
+                .and_then(|value| value.as_str())
+            {
+                provider_mapping.insert(definition.id.clone(), value.to_string());
+            }
+        }
+        let pricing_resolver = std::sync::Arc::new(
+            crate::bootstrap::llm::ProviderMappedPricingResolver::new(
+                pricing_resolver,
+                provider_mapping,
+            ),
+        );
         // Declarative auth surfaces attach to the gateway before plugin
         // activation: plugin-provided surfaces register on the same registry
         // (fixed startup order, no lazy backfill) and file-layer profiles can

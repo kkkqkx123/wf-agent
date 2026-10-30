@@ -1,9 +1,30 @@
+use serde::Deserialize;
 use serde_json::Value;
 
 use crate::resource_assembler::AssemblerConfig;
 
 pub(crate) const DEFAULT_SPEC_DIR: &str = "openspec/changes";
 pub(crate) const DEFAULT_WRITER_PROFILE_ID: &str = "gpt-4o-mini";
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SpecWorkflowRaw {
+    pub requirement: String,
+    #[serde(default)]
+    pub change_id: Option<String>,
+    #[serde(default)]
+    pub spec_dir: Option<String>,
+    #[serde(default)]
+    pub spec_profile_id: Option<String>,
+    #[serde(default)]
+    pub plan_profile_id: Option<String>,
+    #[serde(default)]
+    pub tasks_profile_id: Option<String>,
+    #[serde(default)]
+    pub require_spec_gate: Option<bool>,
+    #[serde(default)]
+    pub require_plan_gate: Option<bool>,
+}
 
 #[derive(Debug, Clone)]
 pub struct SpecWorkflowConfig {
@@ -37,51 +58,26 @@ fn slugify(requirement: &str) -> String {
     }
 }
 
-fn profile(value: &Value, key: &str, default: &str) -> String {
-    value
-        .get(key)
-        .and_then(|v| v.as_str())
-        .unwrap_or(default)
-        .to_string()
-}
-
-fn flag(value: &Value, key: &str, default: bool) -> Result<bool, String> {
-    match value.get(key) {
-        None => Ok(default),
-        Some(v) => v
-            .as_bool()
-            .ok_or_else(|| format!("'{key}' must be a boolean")),
-    }
-}
-
 impl AssemblerConfig for SpecWorkflowConfig {
     fn from_value(value: &Value) -> Result<Self, String> {
-        let requirement = value
-            .get("requirement")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                "SpecWorkflowResourceAssembler config requires 'requirement' (string)".to_string()
-            })?
-            .to_string();
-        let change_id = value
-            .get("change_id")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| slugify(&requirement));
-
+        let raw = serde_json::from_value::<SpecWorkflowRaw>(value.clone())
+            .map_err(|e| format!("SpecWorkflowResourceAssembler config invalid: {e}"))?;
+        let change_id = raw.change_id.unwrap_or_else(|| slugify(&raw.requirement));
         Ok(Self {
-            requirement,
+            requirement: raw.requirement,
             change_id,
-            spec_dir: value
-                .get("spec_dir")
-                .and_then(|v| v.as_str())
-                .unwrap_or(DEFAULT_SPEC_DIR)
-                .to_string(),
-            spec_profile_id: profile(value, "spec_profile_id", DEFAULT_WRITER_PROFILE_ID),
-            plan_profile_id: profile(value, "plan_profile_id", DEFAULT_WRITER_PROFILE_ID),
-            tasks_profile_id: profile(value, "tasks_profile_id", DEFAULT_WRITER_PROFILE_ID),
-            require_spec_gate: flag(value, "require_spec_gate", true)?,
-            require_plan_gate: flag(value, "require_plan_gate", true)?,
+            spec_dir: raw.spec_dir.unwrap_or_else(|| DEFAULT_SPEC_DIR.to_string()),
+            spec_profile_id: raw
+                .spec_profile_id
+                .unwrap_or_else(|| DEFAULT_WRITER_PROFILE_ID.to_string()),
+            plan_profile_id: raw
+                .plan_profile_id
+                .unwrap_or_else(|| DEFAULT_WRITER_PROFILE_ID.to_string()),
+            tasks_profile_id: raw
+                .tasks_profile_id
+                .unwrap_or_else(|| DEFAULT_WRITER_PROFILE_ID.to_string()),
+            require_spec_gate: raw.require_spec_gate.unwrap_or(true),
+            require_plan_gate: raw.require_plan_gate.unwrap_or(true),
         })
     }
 
@@ -143,10 +139,12 @@ mod tests {
     fn config_parse_rejects_bad_shapes() {
         let err = SpecWorkflowConfig::parse(&json!({"requirement": "  "})).unwrap_err();
         assert!(err.contains("requirement"));
+        // Serde reports the expected shape; the field-named wording lives
+        // in the assembler metadata gate covered by the assembler tests.
         let err =
             SpecWorkflowConfig::parse(&json!({"requirement": "ok", "require_spec_gate": "yes"}))
                 .unwrap_err();
-        assert!(err.contains("require_spec_gate"));
+        assert!(err.contains("boolean"), "{err}");
     }
 
     #[test]

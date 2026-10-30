@@ -203,6 +203,52 @@ impl AgentLoopValidator {
         result
     }
 
+    /// Validate one agent loop input: message text, context keys and
+    /// imported conversation size. Context values stay untyped JSON; only
+    /// key shapes are checked here so prompt rendering keeps its own
+    /// type errors at the template boundary.
+    pub fn validate_input(input: &wf_tools::callback::AgentLoopInput) -> Vec<ValidationIssue> {
+        let mut issues = Vec::new();
+        if input.message.trim().is_empty() {
+            issues.push(ValidationIssue::error(
+                "message",
+                "agent message must not be empty",
+            ));
+        }
+        for key in input.context.keys() {
+            if wf_types::template::validate_template_path(key).is_some() {
+                issues.push(ValidationIssue::error(
+                    format!("context.{key}"),
+                    format!("context key '{key}' is not a valid template path"),
+                ));
+            }
+        }
+        if input.conversation.len() > 4096 {
+            issues.push(ValidationIssue::error(
+                "conversation",
+                format!(
+                    "conversation holds {} messages, exceeding the 4096-message import limit",
+                    input.conversation.len()
+                ),
+            ));
+        }
+        issues
+    }
+
+    pub fn validate_or_fail_input(
+        input: &wf_tools::callback::AgentLoopInput,
+    ) -> Result<(), Vec<ValidationIssue>> {
+        let errors: Vec<ValidationIssue> = Self::validate_input(input)
+            .into_iter()
+            .filter(|i| i.severity == ValidationSeverity::Error)
+            .collect();
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
     /// Convenience entry point used before agent execution: returns Err with
     /// the first error-level issue or Ok(()) when only warnings exist.
     pub fn validate_or_fail(
@@ -619,6 +665,39 @@ mod tests {
         assert!(issues.iter().any(
             |i| i.field == "token_warning_threshold" && i.severity == ValidationSeverity::Error
         ));
+    }
+
+    fn valid_input() -> wf_tools::callback::AgentLoopInput {
+        wf_tools::callback::AgentLoopInput {
+            message: "do it".to_string(),
+            context: std::collections::HashMap::new(),
+            conversation: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_validate_input_accepts_minimal() {
+        assert!(AgentLoopValidator::validate_input(&valid_input()).is_empty());
+        assert!(AgentLoopValidator::validate_or_fail_input(&valid_input()).is_ok());
+    }
+
+    #[test]
+    fn test_validate_input_rejects_empty_message() {
+        let mut input = valid_input();
+        input.message = "   ".to_string();
+        let issues = AgentLoopValidator::validate_input(&input);
+        assert!(issues.iter().any(|i| i.field == "message"));
+        assert!(AgentLoopValidator::validate_or_fail_input(&input).is_err());
+    }
+
+    #[test]
+    fn test_validate_input_rejects_bad_context_key() {
+        let mut input = valid_input();
+        input
+            .context
+            .insert("bad key".to_string(), serde_json::json!(1));
+        let issues = AgentLoopValidator::validate_input(&input);
+        assert!(issues.iter().any(|i| i.field.starts_with("context.")));
     }
 
     #[test]

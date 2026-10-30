@@ -119,6 +119,13 @@ impl ResourceAssembler for SpecWorkflowResourceAssembler {
     }
 
     fn assemble(&self, config: &Value) -> Result<ResourceBundle, String> {
+        let metadata_errors = crate::resource_assembler::validate_config_value_against_metadata(
+            config,
+            &self.metadata(),
+        );
+        if !metadata_errors.is_empty() {
+            return Err(metadata_errors.join("; "));
+        }
         let config = SpecWorkflowConfig::parse(config)?;
         let mut builder = ResourceBundle::builder().workflow(build_workflow(&config)?);
         for prompt in build_stage_prompts(&config) {
@@ -250,6 +257,19 @@ mod tests {
         let assembler = SpecWorkflowResourceAssembler::new();
         assert!(assembler.assemble(&json!({})).is_err());
         assert!(assembler.assemble(&json!({"requirement": "  "})).is_err());
+    }
+
+    #[test]
+    fn assemble_reports_metadata_field_names() {
+        let assembler = SpecWorkflowResourceAssembler::new();
+        let err = assembler
+            .assemble(&json!({"requirement": "ok", "require_spec_gate": "yes"}))
+            .expect_err("bool mismatch must fail");
+        assert!(err.contains("require_spec_gate"), "{err}");
+        let err = assembler
+            .assemble(&json!({"requirement": "ok", "unknown_field": 1}))
+            .expect_err("unknown fields must fail");
+        assert!(err.contains("unknown_field"), "{err}");
     }
 
     #[test]

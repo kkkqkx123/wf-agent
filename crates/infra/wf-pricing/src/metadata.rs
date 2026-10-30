@@ -62,6 +62,11 @@ impl ModelMetadataResolver {
         for (model, entry) in raw {
             let entry: LiteLlmEntry = serde_json::from_value(entry)
                 .expect("litellm entry must match the metadata schema");
+            // Keep only chat/image metadata; other modes are never exposed
+            // through `ModelMetadata` and would only waste resident memory.
+            if !matches!(entry.mode.as_str(), "chat" | "image_generation") {
+                continue;
+            }
             table.insert(model, entry);
         }
         Self { table }

@@ -128,6 +128,23 @@ impl AgentLoopExecutor {
         self
     }
 
+    fn gate_input(input: &AgentLoopInput) -> AgentResult<()> {
+        match crate::validation::AgentLoopValidator::validate_or_fail_input(input) {
+            Ok(()) => Ok(()),
+            Err(errors) => {
+                let detail = errors
+                    .iter()
+                    .map(|e| format!("{}: {}", e.field, e.message))
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                Err(AgentError::Validation(format!(
+                    "agent input validation failed ({} error(s)): {detail}",
+                    errors.len()
+                )))
+            }
+        }
+    }
+
     /// Execution gate: reject error-level config issues before the loop
     /// starts instead of failing piecemeal mid-execution. Warnings pass.
     fn gate_config(config: &AgentLoopConfig, registry: &ToolRegistry, cap: u32) -> AgentResult<()> {
@@ -235,6 +252,7 @@ impl AgentLoopExecutor {
         parent: Option<ParentLink>,
     ) -> AgentResult<AgentLoopOutput> {
         Self::gate_config(&config, &self.registry, self.max_iterations_cap)?;
+        Self::gate_input(&input)?;
         self.check_sub_agent_depth(parent.as_ref())?;
         let config = Self::inherit_file_scope(config, parent.as_ref())?;
         // Pre-allocate the child id so the parent stream can attribute the
@@ -298,6 +316,7 @@ impl AgentLoopExecutor {
         parent: Option<ParentLink>,
     ) -> AgentResult<SpawnedAgentLoop> {
         Self::gate_config(&config, &self.registry, self.max_iterations_cap)?;
+        Self::gate_input(&input)?;
         let config = Self::inherit_file_scope(config, parent.as_ref())?;
         let execution_id = Id::from(wf_common::generate_id());
 

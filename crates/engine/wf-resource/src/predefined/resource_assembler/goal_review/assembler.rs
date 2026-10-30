@@ -55,6 +55,26 @@ impl ResourceAssembler for GoalReviewResourceAssembler {
             dependencies: None,
             configurable: Some(HashMap::from([
                 (
+                    "root_requirement".into(),
+                    ResourceAssemblerConfigField {
+                        r#type: ResourceAssemblerConfigFieldType::String,
+                        description: "Goal text the review loop works toward".into(),
+                        default: None,
+                        required: Some(true),
+                        allowed_functions: None,
+                    },
+                ),
+                (
+                    "target_path".into(),
+                    ResourceAssemblerConfigField {
+                        r#type: ResourceAssemblerConfigFieldType::String,
+                        description: "Repository path under review".into(),
+                        default: None,
+                        required: None,
+                        allowed_functions: None,
+                    },
+                ),
+                (
                     "max_iterations".into(),
                     ResourceAssemblerConfigField {
                         r#type: ResourceAssemblerConfigFieldType::Number,
@@ -145,11 +165,48 @@ impl ResourceAssembler for GoalReviewResourceAssembler {
                         allowed_functions: None,
                     },
                 ),
+                (
+                    "executor_max_iterations".into(),
+                    ResourceAssemblerConfigField {
+                        r#type: ResourceAssemblerConfigFieldType::Number,
+                        description: "Maximum executor agent iterations".into(),
+                        default: None,
+                        required: None,
+                        allowed_functions: None,
+                    },
+                ),
+                (
+                    "reviewer_max_iterations".into(),
+                    ResourceAssemblerConfigField {
+                        r#type: ResourceAssemblerConfigFieldType::Number,
+                        description: "Maximum reviewer agent iterations".into(),
+                        default: None,
+                        required: None,
+                        allowed_functions: None,
+                    },
+                ),
+                (
+                    "initial_messages".into(),
+                    ResourceAssemblerConfigField {
+                        r#type: ResourceAssemblerConfigFieldType::Array,
+                        description: "Seed conversation imported into the review loop".into(),
+                        default: None,
+                        required: None,
+                        allowed_functions: None,
+                    },
+                ),
             ])),
         }
     }
 
     fn assemble(&self, config: &Value) -> Result<ResourceBundle, String> {
+        let metadata_errors = crate::resource_assembler::validate_config_value_against_metadata(
+            config,
+            &self.metadata(),
+        );
+        if !metadata_errors.is_empty() {
+            return Err(metadata_errors.join("; "));
+        }
         let config = GoalReviewConfig::parse(config)?;
         Ok(ResourceBundle::builder()
             .workflow(build_workflow(&config)?)
@@ -175,7 +232,8 @@ mod tests {
         assert_eq!(metadata.version, "1.0.0");
         assert_eq!(metadata.category.as_deref(), Some("code-review"));
         let configurable = metadata.configurable.unwrap();
-        assert_eq!(configurable.len(), 9);
+        assert_eq!(configurable.len(), 14);
+        assert!(configurable.contains_key("root_requirement"));
         assert!(configurable.contains_key("max_iterations"));
         assert!(configurable.contains_key("reviewer_tools"));
     }

@@ -47,6 +47,9 @@ pub(crate) struct StarterView {
     title: String,
     content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<Vec<serde_json::Value>>)]
+    variables: Option<Vec<wf_types::TemplateVariableDefinition>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
     locale: String,
     tags: Vec<String>,
@@ -64,6 +67,7 @@ impl From<wf_api::chat::starter::StarterEntry> for StarterView {
             id: entry.id,
             title: entry.title,
             content: entry.content,
+            variables: entry.variables,
             description: entry.description,
             locale: entry.locale,
             tags: entry.tags,
@@ -154,6 +158,8 @@ pub(crate) struct CreateStarterBody {
     id: Option<String>,
     title: String,
     content: String,
+    #[schema(value_type = Option<Vec<serde_json::Value>>)]
+    variables: Option<Vec<wf_types::TemplateVariableDefinition>>,
     #[schema(value_type = Option<String>)]
     description: Option<String>,
     #[schema(value_type = Option<String>)]
@@ -179,6 +185,7 @@ pub(crate) async fn handle_create_starter(
         id: body.id,
         title: body.title,
         content: body.content,
+        variables: body.variables,
         description: body.description,
         locale: body.locale,
         tags: body.tags,
@@ -199,6 +206,9 @@ pub(crate) struct UpdateStarterBody {
     #[serde(default)]
     #[schema(value_type = Option<String>)]
     content: Option<String>,
+    #[serde(default)]
+    #[schema(value_type = Option<Vec<serde_json::Value>>)]
+    variables: Option<Option<Vec<wf_types::TemplateVariableDefinition>>>,
     #[serde(default)]
     description: Option<Option<String>>,
     #[serde(default)]
@@ -229,6 +239,7 @@ pub(crate) async fn handle_update_starter(
     let input = wf_api::chat::starter::UpdateStarterInput {
         title: body.title,
         content: body.content,
+        variables: body.variables,
         description: body.description,
         locale: body.locale,
         tags: body.tags,

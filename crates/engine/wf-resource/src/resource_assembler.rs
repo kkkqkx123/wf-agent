@@ -529,6 +529,92 @@ pub enum ResourceAssemblerConfigFieldType {
     Object,
 }
 
+impl ResourceAssemblerConfigFieldType {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Self::String => "string",
+            Self::Number => "number",
+            Self::Boolean => "boolean",
+            Self::Expression => "expression",
+            Self::Array => "array",
+            Self::Object => "object",
+        }
+    }
+
+    pub fn matches_value(&self, value: &Value) -> bool {
+        match self {
+            Self::String => value.is_string(),
+            Self::Number => value.is_number(),
+            Self::Boolean => value.is_boolean(),
+            Self::Expression => value.is_string(),
+            Self::Array => value.is_array(),
+            Self::Object => value.is_object(),
+        }
+    }
+}
+
+pub fn validate_config_value_against_metadata(
+    value: &Value,
+    metadata: &ResourceAssemblerMetadata,
+) -> Vec<String> {
+    let mut errors = Vec::new();
+    let Some(configurable) = metadata.configurable.as_ref() else {
+        return errors;
+    };
+    let object = match value {
+        Value::Null => return errors,
+        Value::Object(map) => map,
+        _ => {
+            errors.push("assembler config must be a JSON object".to_string());
+            return errors;
+        }
+    };
+    for (name, field) in configurable {
+        match object.get(name) {
+            None => {
+                if field.required == Some(true) && field.default.is_none() {
+                    errors.push(format!("assembler config missing required '{name}'"));
+                }
+            }
+            Some(provided) => {
+                if !field.r#type.matches_value(provided) {
+                    errors.push(format!(
+                        "assembler config '{name}' expects {}, got {}",
+                        field.r#type.type_name(),
+                        config_value_kind(provided),
+                    ));
+                }
+            }
+        }
+        if let Some(default) = field.default.as_ref() {
+            if !field.r#type.matches_value(default) {
+                errors.push(format!(
+                    "assembler metadata default for '{name}' expects {}, got {}",
+                    field.r#type.type_name(),
+                    config_value_kind(default),
+                ));
+            }
+        }
+    }
+    errors
+}
+
+fn config_value_kind(value: &Value) -> &'static str {
+    if value.is_null() {
+        "null"
+    } else if value.is_array() {
+        "array"
+    } else if value.is_string() {
+        "string"
+    } else if value.is_number() {
+        "number"
+    } else if value.is_boolean() {
+        "boolean"
+    } else {
+        "object"
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ResourceAssemblerConfigField {
     pub r#type: ResourceAssemblerConfigFieldType,
@@ -1071,6 +1157,49 @@ mod tests {
         assert_eq!(back.target_node_id, "loop_start");
         assert_eq!(back.r#type, EdgeType::Conditional);
         assert_eq!(back.condition.as_deref(), Some("eq(nextIteration,true)"));
+    }
+
+    #[test]
+    fn config_field_types_match_json_shapes() {
+        use serde_json::json;
+        assert!(ResourceAssemblerConfigFieldType::String.matches_value(&json!("x")));
+        assert!(!ResourceAssemblerConfigFieldType::String.matches_value(&json!(1)));
+        assert!(ResourceAssemblerConfigFieldType::Number.matches_value(&json!(1)));
+        assert!(ResourceAssemblerConfigFieldType::Boolean.matches_value(&json!(true)));
+        assert!(ResourceAssemblerConfigFieldType::Array.matches_value(&json!([1])));
+        assert!(ResourceAssemblerConfigFieldType::Object.matches_value(&json!({})));
+        assert!(ResourceAssemblerConfigFieldType::Expression.matches_value(&json!("a + 1")));
+        assert!(!ResourceAssemblerConfigFieldType::Expression.matches_value(&json!(1)));
+    }
+
+    #[test]
+    fn metadata_gate_reports_required_and_types() {
+        use serde_json::json;
+        let metadata = ResourceAssemblerMetadata {
+            id: "test".into(),
+            name: "test".into(),
+            version: "1".into(),
+            description: "test".into(),
+            author: None,
+            tags: None,
+            category: None,
+            dependencies: None,
+            configurable: Some(HashMap::from([(
+                "count".into(),
+                ResourceAssemblerConfigField {
+                    r#type: ResourceAssemblerConfigFieldType::Number,
+                    description: "count".into(),
+                    default: None,
+                    required: Some(true),
+                    allowed_functions: None,
+                },
+            )])),
+        };
+        assert!(validate_config_value_against_metadata(&json!({"count": 1}), &metadata).is_empty());
+        let errors = validate_config_value_against_metadata(&json!({}), &metadata);
+        assert!(errors.iter().any(|e| e.contains("count")));
+        let errors = validate_config_value_against_metadata(&json!({"count": "many"}), &metadata);
+        assert!(errors.iter().any(|e| e.contains("count")));
     }
 
     #[test]

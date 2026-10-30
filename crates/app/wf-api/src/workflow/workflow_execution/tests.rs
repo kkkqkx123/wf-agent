@@ -7,7 +7,7 @@ use super::checkpoint::{create_checkpoint, restore_and_resume, restore_checkpoin
 use super::graph::definition_to_graph;
 use super::lifecycle::{
     default_options, entry_timeout_ms, execute, resume, status, validate_workflow_input,
-    ExecuteWorkflowParams, DEFAULT_EXECUTION_TIMEOUT_MS,
+    validate_workflow_input_with_variables, ExecuteWorkflowParams, DEFAULT_EXECUTION_TIMEOUT_MS,
 };
 use super::summary::execution_summaries;
 use crate::infra::context::ApiContext;
@@ -286,6 +286,34 @@ fn workflow_input_shape_gate() {
     assert!(validate_workflow_input(Some(&serde_json::json!([1]))).is_err());
     assert!(validate_workflow_input(Some(&serde_json::json!("x"))).is_err());
     assert!(validate_workflow_input(Some(&serde_json::json!(1))).is_err());
+}
+
+#[test]
+fn workflow_input_typed_gate_checks_declared_types() {
+    use wf_types::workflow_execution::{VariableDefinition, VariableValueType};
+    let variables = vec![VariableDefinition {
+        name: "count".to_string(),
+        value: serde_json::Value::Null,
+        r#type: Some(VariableValueType::Number),
+        scope: None,
+        readonly: None,
+        metadata: None,
+    }];
+    assert!(validate_workflow_input_with_variables(
+        Some(&serde_json::json!({"count": 1})),
+        Some(&variables)
+    )
+    .is_ok());
+    assert!(validate_workflow_input_with_variables(
+        Some(&serde_json::json!({"count": "many"})),
+        Some(&variables)
+    )
+    .is_err());
+    assert!(validate_workflow_input_with_variables(
+        Some(&serde_json::json!({"other": "anything"})),
+        Some(&variables)
+    )
+    .is_ok());
 }
 
 #[tokio::test]

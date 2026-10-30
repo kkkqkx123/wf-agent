@@ -57,7 +57,7 @@ pub use llm_discovery::{
     DEFAULT_MODELS_JSON_PATH, DEFAULT_MODELS_PATH,
 };
 pub use llm_gateway::{LlmGateway, RequestProbe};
-pub use wf_llm_catalog::{model_metadata, model_metadata_for, ModelMetadataResolver};
+pub use wf_llm_catalog::{litellm_provider_for, model_metadata, model_metadata_for, ModelMetadataResolver};
 // Credential storage and provider-owned authentication: the gateway's
 // optional auth registry, the store contract and the OAuth/login
 // primitives hosts wire into it.

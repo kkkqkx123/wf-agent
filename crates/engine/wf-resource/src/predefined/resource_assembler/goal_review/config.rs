@@ -1,3 +1,4 @@
+use serde::Deserialize;
 use serde_json::Value;
 use wf_types::message::Message;
 
@@ -7,21 +8,43 @@ use crate::resource_assembler::AssemblerConfig;
 pub(crate) const DEFAULT_MAX_ITERATIONS: u32 = 10;
 pub(crate) const DEFAULT_PLANNER_PROFILE_ID: &str = "gpt-4o-mini";
 
-#[derive(Debug, Clone)]
+fn default_max_iterations() -> u32 {
+    DEFAULT_MAX_ITERATIONS
+}
+
+fn default_planner_profile_id() -> String {
+    DEFAULT_PLANNER_PROFILE_ID.to_string()
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GoalReviewConfig {
     pub root_requirement: String,
+    #[serde(default)]
     pub target_path: Option<String>,
+    #[serde(default = "default_max_iterations")]
     pub max_iterations: u32,
+    #[serde(default = "default_planner_profile_id")]
     pub planner_profile_id: String,
+    #[serde(default)]
     pub executor_profile_id: Option<String>,
+    #[serde(default)]
     pub reviewer_profile_id: Option<String>,
+    #[serde(default)]
     pub planner_system_prompt_template_id: Option<String>,
+    #[serde(default)]
     pub executor_system_prompt_template_id: Option<String>,
+    #[serde(default)]
     pub reviewer_system_prompt_template_id: Option<String>,
+    #[serde(default)]
     pub executor_tools: Option<Vec<String>>,
+    #[serde(default)]
     pub reviewer_tools: Option<Vec<String>>,
+    #[serde(default)]
     pub executor_max_iterations: Option<u32>,
+    #[serde(default)]
     pub reviewer_max_iterations: Option<u32>,
+    #[serde(default)]
     pub initial_messages: Option<Vec<Message>>,
 }
 
@@ -41,101 +64,8 @@ impl GoalReviewConfig {
 
 impl AssemblerConfig for GoalReviewConfig {
     fn from_value(value: &Value) -> Result<Self, String> {
-        let root_requirement = value
-            .get("root_requirement")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                "GoalReviewResourceAssembler config requires 'root_requirement' (string)"
-                    .to_string()
-            })?
-            .to_string();
-
-        let executor_tools = value
-            .get("executor_tools")
-            .map(|v| {
-                v.as_array()
-                    .ok_or_else(|| "'executor_tools' must be an array of tool names".to_string())?
-                    .iter()
-                    .map(|t| {
-                        t.as_str()
-                            .map(|s| s.to_string())
-                            .ok_or_else(|| "'executor_tools' entries must be strings".to_string())
-                    })
-                    .collect::<Result<Vec<_>, _>>()
-            })
-            .transpose()?;
-
-        let reviewer_tools = value
-            .get("reviewer_tools")
-            .map(|v| {
-                v.as_array()
-                    .ok_or_else(|| "'reviewer_tools' must be an array of tool names".to_string())?
-                    .iter()
-                    .map(|t| {
-                        t.as_str()
-                            .map(|s| s.to_string())
-                            .ok_or_else(|| "'reviewer_tools' entries must be strings".to_string())
-                    })
-                    .collect::<Result<Vec<_>, _>>()
-            })
-            .transpose()?;
-
-        let initial_messages = value
-            .get("initial_messages")
-            .map(|v| {
-                serde_json::from_value::<Vec<Message>>(v.clone())
-                    .map_err(|e| format!("invalid 'initial_messages': {e}"))
-            })
-            .transpose()?;
-
-        Ok(Self {
-            root_requirement,
-            target_path: value
-                .get("target_path")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            max_iterations: value
-                .get("max_iterations")
-                .and_then(|v| v.as_u64())
-                .map(|n| n as u32)
-                .unwrap_or(DEFAULT_MAX_ITERATIONS),
-            planner_profile_id: value
-                .get("planner_profile_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or(DEFAULT_PLANNER_PROFILE_ID)
-                .to_string(),
-            executor_profile_id: value
-                .get("executor_profile_id")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            reviewer_profile_id: value
-                .get("reviewer_profile_id")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            planner_system_prompt_template_id: value
-                .get("planner_system_prompt_template_id")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            executor_system_prompt_template_id: value
-                .get("executor_system_prompt_template_id")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            reviewer_system_prompt_template_id: value
-                .get("reviewer_system_prompt_template_id")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            executor_tools,
-            reviewer_tools,
-            executor_max_iterations: value
-                .get("executor_max_iterations")
-                .and_then(|v| v.as_u64())
-                .map(|n| n as u32),
-            reviewer_max_iterations: value
-                .get("reviewer_max_iterations")
-                .and_then(|v| v.as_u64())
-                .map(|n| n as u32),
-            initial_messages,
-        })
+        serde_json::from_value::<Self>(value.clone())
+            .map_err(|e| format!("GoalReviewResourceAssembler config invalid: {e}"))
     }
 
     fn validate(&self) -> Result<(), String> {

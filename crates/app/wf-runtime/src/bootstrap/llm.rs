@@ -231,7 +231,12 @@ pub fn register_llm_config(gateway: &LlmGateway, config: &LlmConfig) -> RuntimeR
     // only: its provider namespace ("openai", "vertex_ai-...") differs
     // from local registry ids ("builtin-openai", ...), and the fill is a
     // best-effort hint — explicit config always wins.
-    let metadata = wf_llm::ModelMetadataResolver::from_embedded();
+    // Warm the model-metadata cache once for every configured profile
+    // model, so the per-profile loop below does not re-parse the embedded
+    // LiteLLM table for each entry.
+    let profile_models: Vec<&str> = config.profiles.iter().map(|p| p.model.as_str()).collect();
+    let _ = wf_llm::model_metadata_for(&profile_models);
+
     for profile in &config.profiles {
         validate_llm_profile(profile)
             .map_err(|e| crate::error::RuntimeError::Config(format!("Invalid LLM profile: {e}")))?;
@@ -243,7 +248,7 @@ pub fn register_llm_config(gateway: &LlmGateway, config: &LlmConfig) -> RuntimeR
         // `format` is never auto-filled: a mismatch only warns downstream.
         let mut with_catalog = transformed;
         if with_catalog.context_window_size.is_none() || with_catalog.max_output_tokens.is_none() {
-            if let Some(meta) = metadata.metadata_for(&with_catalog.model) {
+            if let Some(meta) = wf_llm::model_metadata(&with_catalog.model) {
                 with_catalog = wf_llm::apply_catalog_metadata(with_catalog, &[meta]);
             }
         }
@@ -338,5 +343,55 @@ mod tests {
         );
         assert_eq!(params.client_id, "custom-id");
         assert_eq!(params.scope, wf_llm::provider_flows::GITHUB_COPILOT_SCOPE);
+    }
+}
+
+/// Pricing resolver wrapper that translates local provider ids into LiteLLM
+/// provider namespaces before consulting the underlying resolver.
+///
+/// The embedded LiteLLM table stores provider-specific variants under keys
+/// such as `azure/gpt-4o`. Local provider ids (`builtin-azure`) are not
+/// valid LiteLLM namespaces, so this wrapper maps them first and tries the
+/// provider-qualified model key before falling back to the canonical
+/// model-only entry.
+pub struct ProviderMappedPricingResolver {
+    inner: Arc<dyn PricingResolver>,
+    mapping: std::collections::HashMap<String, String>,
+}
+
+impl ProviderMappedPricingResolver {
+    pub fn new(
+        inner: Arc<dyn PricingResolver>,
+        mapping: std::collections::HashMap<String, String>,
+    ) -> Self {
+        Self { inner, mapping }
+    }
+}
+
+impl PricingResolver for ProviderMappedPricingResolver {
+    fn resolve(&self, provider: Option<&str>, model: &str) -> Option<wf_pricing::resolver::ResolvedPricing> {
+        // Provider-specific LiteLLM entry first.
+        if let Some(provider) = provider {
+            if let Some(litellm_provider) = self.mapping.get(provider) {
+                if let Some(resolved) = self
+                    .inner
+                    .resolve(None, &format!("{}/{}", litellm_provider, model))
+                {
+                    return Some(resolved);
+                }
+            }
+        }
+
+        // Already a LiteLLM-style provider-qualified model name.
+        if model.contains('/') {
+            if let Some(resolved) = self.inner.resolve(None, model) {
+                return Some(resolved);
+            }
+        }
+
+        // Fall back to the original provider and then the canonical model.
+        self.inner
+            .resolve(provider, model)
+            .or_else(|| self.inner.resolve(None, model))
     }
 }

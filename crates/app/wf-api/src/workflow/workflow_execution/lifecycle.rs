@@ -79,11 +79,23 @@ async fn resolve_definition(
     }
 }
 
+/// Typed input gate against the workflow variable declarations.
+/// Unknown keys pass for forward compatibility; keys with a declared
+/// `VariableValueType` must match it. Shape errors reuse the W1-W3 wording.
+pub fn validate_workflow_input_with_variables(
+    input: Option<&Value>,
+    variables: Option<&[wf_types::workflow_execution::VariableDefinition]>,
+) -> Result<(), crate::infra::error::ApiError> {
+    wf_types::workflow_execution::validate_workflow_input_against_variables(input, variables)
+        .map_err(crate::infra::error::ApiError::Validation)
+}
+
 /// Shared workflow input shape gate (rules W1-W3): missing or null is no
 /// input, a JSON object passes through, anything else (array, string,
-/// number, boolean) is a validation error. Per-workflow input contracts
-/// (`input_schema`) are a later stage; this gate only enforces the top-level
-/// shape so free-form strings can never reach the engine as `input`.
+/// number, boolean) is a validation error. Per-workflow variable types are
+/// checked separately by `validate_workflow_input_with_variables` after the
+/// definition is loaded; this gate only enforces the top-level shape so
+/// free-form strings can never reach the engine as `input`.
 pub fn validate_workflow_input(input: Option<&Value>) -> Result<(), crate::infra::error::ApiError> {
     match input {
         None | Some(Value::Null) => Ok(()),
@@ -154,6 +166,7 @@ pub async fn execute(
     validate_runtime_options(params.options.as_ref())?;
     let mut definition =
         resolve_definition(ctx, &params.workflow_id, params.version.as_deref()).await?;
+    validate_workflow_input_with_variables(params.input.as_ref(), definition.variables.as_deref())?;
     let graph =
         super::graph::resolve_graph_for_definition(ctx, &params.workflow_id, &mut definition)
             .await?;
@@ -228,6 +241,7 @@ pub async fn stream(
     validate_runtime_options(params.options.as_ref())?;
     let mut definition =
         resolve_definition(&ctx, &params.workflow_id, params.version.as_deref()).await?;
+    validate_workflow_input_with_variables(params.input.as_ref(), definition.variables.as_deref())?;
     let graph =
         super::graph::resolve_graph_for_definition(&ctx, &params.workflow_id, &mut definition)
             .await?;

@@ -31,11 +31,16 @@ const MAX_ID_LEN: usize = 192;
 const MAX_LOCALE_LEN: usize = 16;
 
 /// One chat starter: a suggestion chip filling the composer draft.
+/// `variables` optionally declares the `{{name}}` placeholders used in
+/// `content`, mirroring the template system so chips can be parameterized
+/// without drifting into untyped string interpolation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StarterEntry {
     pub id: String,
     pub title: String,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variables: Option<Vec<wf_types::TemplateVariableDefinition>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// BCP-47-ish locale of the row (`en`, `zh`); customs carry the locale
@@ -75,6 +80,8 @@ pub struct CreateStarterInput {
     pub title: String,
     pub content: String,
     #[serde(default)]
+    pub variables: Option<Vec<wf_types::TemplateVariableDefinition>>,
+    #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
     pub locale: Option<String>,
@@ -95,6 +102,8 @@ pub struct UpdateStarterInput {
     #[serde(default)]
     pub content: Option<String>,
     #[serde(default)]
+    pub variables: Option<Option<Vec<wf_types::TemplateVariableDefinition>>>,
+    #[serde(default)]
     pub description: Option<Option<String>>,
     #[serde(default)]
     pub locale: Option<String>,
@@ -106,11 +115,73 @@ pub struct UpdateStarterInput {
     pub is_default: Option<bool>,
 }
 
+pub fn validate_starter_variables(
+    content: &str,
+    variables: Option<&[wf_types::TemplateVariableDefinition]>,
+) -> ApiResult<()> {
+    let variables: &[wf_types::TemplateVariableDefinition] = variables.unwrap_or(&[]);
+    let mut seen = std::collections::HashSet::new();
+    for variable in variables {
+        if let Some(reason) = wf_types::template::validate_template_path(&variable.name) {
+            return Err(ApiError::Validation(format!(
+                "starter variable '{}' is invalid: {reason}",
+                variable.name
+            )));
+        }
+        if !seen.insert(variable.name.clone()) {
+            return Err(ApiError::Validation(format!(
+                "starter variable '{}' is declared twice",
+                variable.name
+            )));
+        }
+    }
+    for name in wf_common::template::extract_placeholder_names(content) {
+        if name == "fragments" {
+            continue;
+        }
+        if variables.iter().all(|v| v.name != name) {
+            return Err(ApiError::Validation(format!(
+                "starter content placeholder '{{{{{name}}}}}' has no variable declaration"
+            )));
+        }
+    }
+    Ok(())
+}
+
+pub fn render_starter_content(
+    entry: &StarterEntry,
+    values: &std::collections::HashMap<String, serde_json::Value>,
+) -> Result<String, String> {
+    if let Some(variables) = entry.variables.as_deref() {
+        for variable in variables {
+            if let Some(value) = values.get(&variable.name) {
+                if !wf_types::template::variable_value_matches(&variable.r#type, value) {
+                    return Err(format!(
+                        "starter variable '{}' expects {:?}, got {}",
+                        variable.name, variable.r#type, value
+                    ));
+                }
+            } else if variable.required && variable.default_value.is_none() {
+                return Err(format!("starter variable '{}' is required", variable.name));
+            }
+        }
+    }
+    let flat: std::collections::HashMap<String, String> = values
+        .iter()
+        .map(|(k, v)| (k.clone(), wf_common::template::value_to_display_string(v)))
+        .collect();
+    Ok(wf_common::template::apply_template_variables(
+        &entry.content,
+        &flat,
+    ))
+}
+
 fn seed_row(id: &str, title: &str, content: &str, locale: &str, stamp: &str) -> StarterEntry {
     StarterEntry {
         id: id.to_string(),
         title: title.to_string(),
         content: content.to_string(),
+        variables: None,
         description: None,
         locale: locale.to_string(),
         tags: vec!["general".to_string()],
@@ -359,6 +430,7 @@ pub async fn create(ctx: &ApiContext, input: CreateStarterInput) -> ApiResult<St
         &locale,
         &tags,
     )?;
+    validate_starter_variables(&input.content, input.variables.as_deref())?;
     let mut entries = load_all(ctx).await?;
     if entries.iter().any(|e| e.id == id) {
         return Err(ApiError::already_exists("starter", &id));
@@ -368,6 +440,7 @@ pub async fn create(ctx: &ApiContext, input: CreateStarterInput) -> ApiResult<St
         id,
         title: input.title,
         content: input.content,
+        variables: input.variables,
         description: input.description,
         locale,
         tags,
@@ -409,6 +482,7 @@ pub async fn update(
             }
             entry.title = title;
         }
+        let content_changed = input.content.is_some();
         if let Some(content) = input.content {
             if content.trim().is_empty() || content.len() > MAX_CONTENT_LEN {
                 return Err(ApiError::Validation(format!(
@@ -445,11 +519,18 @@ pub async fn update(
             }
             entry.tags = tags;
         }
+        if let Some(variables) = input.variables {
+            validate_starter_variables(&entry.content, variables.as_deref())?;
+            entry.variables = variables;
+        }
         if let Some(enabled) = input.enabled {
             entry.enabled = enabled;
         }
         if let Some(is_default) = input.is_default {
             entry.is_default = is_default;
+        }
+        if content_changed {
+            validate_starter_variables(&entry.content, entry.variables.as_deref())?;
         }
         entry.updated_at = timestamp_to_iso(now());
     }
@@ -588,6 +669,7 @@ mod tests {
                 id: Some("starter.custom.demo".to_string()),
                 title: "Demo".to_string(),
                 content: "do the demo".to_string(),
+                variables: None,
                 description: None,
                 locale: Some("en".to_string()),
                 tags: Some(vec!["demo".to_string()]),
@@ -647,6 +729,7 @@ mod tests {
                 id: Some("starter.custom.bad".to_string()),
                 title: "  ".to_string(),
                 content: "x".to_string(),
+                variables: None,
                 description: None,
                 locale: None,
                 tags: None,
@@ -662,6 +745,7 @@ mod tests {
                 id: Some("starter.summary-en".to_string()),
                 title: "clash".to_string(),
                 content: "x".to_string(),
+                variables: None,
                 description: None,
                 locale: None,
                 tags: None,
@@ -684,6 +768,7 @@ mod tests {
                 id: Some("starter.custom.plan2".to_string()),
                 title: "Release plan".to_string(),
                 content: "plan the release".to_string(),
+                variables: None,
                 description: None,
                 locale: Some("en".to_string()),
                 tags: Some(vec!["release".to_string()]),
@@ -711,5 +796,71 @@ mod tests {
         assert!(!imported.is_system);
         assert_ne!(imported.id, "starter.plan-en");
         assert_eq!(imported.title, "Draft a plan before making changes");
+    }
+
+    #[tokio::test]
+    async fn undeclared_placeholder_is_rejected() {
+        let ctx = ctx();
+        let result = create(
+            &ctx,
+            CreateStarterInput {
+                id: Some("starter.custom.var".to_string()),
+                title: "Var".to_string(),
+                content: "Summarize {{path}}".to_string(),
+                variables: None,
+                description: None,
+                locale: None,
+                tags: None,
+                enabled: None,
+                is_default: None,
+            },
+        )
+        .await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn starter_variables_render_with_types() {
+        let entry = StarterEntry {
+            id: "starter.custom.var".to_string(),
+            title: "Var".to_string(),
+            content: "Summarize {{path}} {{count}} times".to_string(),
+            variables: Some(vec![
+                wf_types::TemplateVariableDefinition {
+                    name: "path".to_string(),
+                    r#type: wf_types::TemplateVariableType::String,
+                    required: true,
+                    description: None,
+                    default_value: None,
+                },
+                wf_types::TemplateVariableDefinition {
+                    name: "count".to_string(),
+                    r#type: wf_types::TemplateVariableType::Number,
+                    required: false,
+                    description: None,
+                    default_value: None,
+                },
+            ]),
+            description: None,
+            locale: "en".to_string(),
+            tags: Vec::new(),
+            enabled: true,
+            is_default: false,
+            is_system: false,
+            usage_count: 0,
+            created_at: "now".to_string(),
+            updated_at: "now".to_string(),
+        };
+        let values = std::collections::HashMap::from([
+            ("path".to_string(), serde_json::json!("src")),
+            ("count".to_string(), serde_json::json!(3)),
+        ]);
+        let rendered = render_starter_content(&entry, &values).unwrap();
+        assert_eq!(rendered, "Summarize src 3 times");
+        let bad = std::collections::HashMap::from([
+            ("path".to_string(), serde_json::json!("src")),
+            ("count".to_string(), serde_json::json!("many")),
+        ]);
+        assert!(render_starter_content(&entry, &bad).is_err());
     }
 }

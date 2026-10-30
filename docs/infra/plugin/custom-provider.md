@@ -180,7 +180,7 @@ let result = gateway
   pricing resolver），`supports_image()` 由 `input_modalities` 派生；
 - **内置目录**（`wf-llm-catalog`）：`builtin_provider_definitions()` 返回 5 个连接模板（OpenAI / Anthropic /
   Gemini / Ollama / OpenRouter），`register_builtin_providers()` 复用既有 `ProviderDefinitionRegistry`
-  （文件层定义按 id 覆盖）；模型元数据经 `model_metadata(name)` / `model_metadata_for(names)` 查询，数据来自
+  （文件层定义按 id 覆盖）；模型元数据经 `model_metadata(name)` 查询，数据来自
   `wf-pricing` 内嵌 LiteLLM 表；
 - **profile 接线**：`LlmProfile` / `LlmProviderDefinition` 各带 `compat: Option<ProviderCompat>`；
   `apply_provider_defaults` 先做 definition→profile 逐字段合并，再在仍为 `None` 时做窄探测（仅 OpenAI Chat

@@ -66,5 +66,6 @@
 	"config.executionTabs.state": "State",
 	"config.executionTabs.hierarchy": "Hierarchy",
 	"config.executionTabs.history": "History",
-	"config.executionTabs.checkpoints": "Checkpoints"
+	"config.executionTabs.checkpoints": "Checkpoints",
+	"config.commands.resume": "Open a stored session and continue it"
 }

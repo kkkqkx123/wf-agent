@@ -48,6 +48,7 @@ import { toasts } from '#lib/stores/toast.svelte';
 import { isInteractionEventType, watchExecutionActivity } from '#lib/services/inspector-activity';
 import type { StreamState } from '#lib/api/sse';
 import { gotoWithParams } from '#lib/utils/route';
+import { t } from '#lib/i18n';
 import { isSessionTab, type SessionTab } from '#lib/config/session-tabs';
 
 /** Burst throttle for event-driven interaction refreshes; pushes arrive
@@ -544,7 +545,39 @@ export class ChatSessionController {
 		retry: () => this.retryLast(),
 		continue: (arg) => this.sendPrompt(arg ? `Continue: ${arg}` : 'Continue'),
 		recap: () => this.requestRecapNow(),
+		resume: (arg) => this.resumeSession(arg),
 	};
+
+	/**
+	 * Open a stored session and continue it there. Bare input reopens the
+	 * newest session, an exact id wins, otherwise the newest id-or-title
+	 * match opens. Already standing on the target is a no-op.
+	 */
+	resumeSession(filter: string): void {
+		void (async () => {
+			if (sessions.sessions.length === 0) {
+				await sessions.refresh();
+			}
+			const rows = sessions.sessions;
+			if (rows.length === 0) {
+				toasts.info(t('chat.resume.noSessions'));
+				return;
+			}
+			const needle = filter.trim().toLowerCase();
+			const hit = !needle
+				? rows[0]
+				: (rows.find((row) => row.id === filter.trim()) ??
+					rows.find((row) =>
+						[sessions.label(row.id), row.id].join(' ').toLowerCase().includes(needle),
+					));
+			if (!hit) {
+				toasts.info(t('chat.resume.noMatch', { term: filter.trim() }));
+				return;
+			}
+			if (hit.id === this.selectedId) return;
+			void sessions.open(hit.id);
+		})();
+	}
 
 	/** Drop a pending title read: the ticket moves so a late answer is discarded. */
 	dropTitle(): void {

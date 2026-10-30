@@ -66,5 +66,6 @@
 	"config.executionTabs.state": "状态",
 	"config.executionTabs.hierarchy": "层级",
 	"config.executionTabs.history": "历史",
-	"config.executionTabs.checkpoints": "检查点"
+	"config.executionTabs.checkpoints": "检查点",
+	"config.commands.resume": "打开已存会话并继续"
 }

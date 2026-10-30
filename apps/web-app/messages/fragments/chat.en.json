@@ -137,5 +137,7 @@
 	"chat.sessionRail.empty": "No sessions yet",
 	"chat.sessionRail.openSession": "Open {name}",
 	"chat.sessionRail.refresh": "Refresh session list",
-	"chat.sessionRail.loadMore": "Load more"
+	"chat.sessionRail.loadMore": "Load more",
+	"chat.resume.noSessions": "No stored sessions yet",
+	"chat.resume.noMatch": "No session matches “{term}”. Pick one from the session list."
 }

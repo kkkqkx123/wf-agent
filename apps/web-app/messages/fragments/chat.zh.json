@@ -137,5 +137,7 @@
 	"chat.sessionRail.empty": "暂无会话",
 	"chat.sessionRail.openSession": "打开 {name}",
 	"chat.sessionRail.refresh": "刷新会话列表",
-	"chat.sessionRail.loadMore": "加载更多"
+	"chat.sessionRail.loadMore": "加载更多",
+	"chat.resume.noSessions": "暂无已存会话",
+	"chat.resume.noMatch": "没有匹配“{term}”的会话，请从会话列表中选择。"
 }

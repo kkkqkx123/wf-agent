@@ -24,10 +24,22 @@ describe('parseCommand', () => {
 
 describe('matchCommands', () => {
 	it('filters by the typed prefix', () => {
-		expect(matchCommands('re').map((command) => command.name)).toEqual(['retry', 'recap']);
+		expect(matchCommands('re').map((command) => command.name)).toEqual([
+			'retry',
+			'recap',
+			'resume',
+		]);
 	});
 
 	it('parses the recap command', () => {
 		expect(parseCommand('/recap')?.command.name).toBe('recap');
+	});
+
+	it('parses the resume command with an optional filter', () => {
+		expect(parseCommand('/resume')?.command.name).toBe('resume');
+		expect(parseCommand('/resume migration guide')).toEqual({
+			command: expect.objectContaining({ name: 'resume' }),
+			arg: 'migration guide',
+		});
 	});
 });

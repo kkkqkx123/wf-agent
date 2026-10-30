@@ -1,6 +1,6 @@
 import { message } from '#lib/i18n';
 
-export type CommandAction = 'new' | 'retry' | 'continue' | 'recap';
+export type CommandAction = 'new' | 'retry' | 'continue' | 'recap' | 'resume';
 
 export interface SlashCommand {
 	name: string;
@@ -35,6 +35,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 		arg: null,
 		description: message('config.commands.recap'),
 		action: 'recap',
+	},
+	{
+		name: 'resume',
+		arg: '[filter]',
+		description: message('config.commands.resume'),
+		action: 'resume',
 	},
 ];
 

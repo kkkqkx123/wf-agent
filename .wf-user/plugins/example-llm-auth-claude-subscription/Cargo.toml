@@ -1,10 +1,10 @@
 [package]
-name = "llm-auth-claude-subscription"
+name = "example-llm-auth-claude-subscription"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.88"
 publish = false
-description = "Reference wf-agent native plugin: Claude Pro/Max subscription login (OAuth 2.0 PKCE paste flow)"
+description = "Sample wf-agent native plugin: Claude Pro/Max subscription login (OAuth 2.0 PKCE paste flow). Contract teaching sample, not a product runtime dependency."
 
 # Standalone workspace: the plugin ships as an independently buildable
 # cdylib and must not join the wf-agent workspace (its dependency set is
@@ -12,10 +12,11 @@ description = "Reference wf-agent native plugin: Claude Pro/Max subscription log
 [workspace]
 
 [lib]
+name = "example_llm_auth_claude_subscription"
 crate-type = ["cdylib"]
 
 [dependencies]
-wf-plugin-sdk = { path = "../../crates/foundation/wf-plugin-sdk" }
+wf-plugin-sdk = { path = "../../../crates/foundation/wf-plugin-sdk" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "blocking", "form"] }

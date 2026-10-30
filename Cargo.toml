@@ -55,7 +55,7 @@ members = [
     "crates/app/tui/tui-render",
     "crates/app/tui/tui-debug",
 ]
-exclude = ["crates/infra/llm-suite", ".wf-user/plugins/llm-auth-claude-subscription"]
+exclude = ["crates/infra/llm-suite", ".wf-user/plugins/example-llm-auth-claude-subscription"]
 
 [workspace.package]
 version = "0.1.0"

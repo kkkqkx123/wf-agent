@@ -231,6 +231,7 @@ mod tests {
             scope: None,
             redirect_uri: None,
             loopback: None,
+            token_content_type: None,
             preset: None,
         }
     }
@@ -251,6 +252,7 @@ mod tests {
             scope: None,
             redirect_uri: None,
             loopback: None,
+            token_content_type: None,
             preset: None,
         }
     }
@@ -444,6 +446,7 @@ mod tests {
             scope: None,
             redirect_uri: None,
             loopback: None,
+            token_content_type: None,
             preset: Some("openai-codex".to_string()),
         };
         let expanded = expand_auth_presets(&[preset]).expect("expand");
@@ -471,6 +474,7 @@ mod tests {
             scope: None,
             redirect_uri: Some("http://127.0.0.1:9999/cb".to_string()),
             loopback: None,
+            token_content_type: None,
             preset: Some("openai-codex".to_string()),
         };
         let expanded = expand_auth_presets(&[preset]).expect("expand");
@@ -503,6 +507,7 @@ mod tests {
             scope: None,
             redirect_uri: None,
             loopback: None,
+            token_content_type: None,
             preset: Some("nope".to_string()),
         };
         assert!(expand_auth_presets(&[preset]).is_err());

@@ -20,6 +20,7 @@ fn device_config(token_url: String) -> DeclaredOAuthConfig {
         scope: Some("api".to_string()),
         redirect_uri: None,
         loopback: false,
+        token_content_type: wf_llm::llm_auth::TokenRequestContentType::Form,
         login_label: Some("Sign in".to_string()),
     }
 }
@@ -90,4 +91,32 @@ async fn refresh_stores_verbatim_expiry_without_safety_margin() {
     let refreshed = auth.refresh(&credential).await.expect("refresh");
     assert!(refreshed.expires >= before + 3_600_000);
     assert!(refreshed.expires <= before + 3_600_000 + 5_000);
+}
+
+#[tokio::test]
+async fn refresh_with_json_content_type_sends_json_body() {
+    let server = MockServer::spawn(|req: &MockRequest| {
+        let body: serde_json::Value =
+            serde_json::from_str(&req.body).expect("refresh body must be JSON");
+        assert_eq!(body["grant_type"], "refresh_token");
+        assert_eq!(body["refresh_token"], "rt-old");
+        assert_eq!(body["client_id"], "cid");
+        MockResponse::ok_json(
+            r#"{"access_token":"at2","refresh_token":"rt2","token_type":"Bearer","expires_in":3600}"#,
+        )
+    })
+    .await;
+    let mut config = device_config(server.url("/token"));
+    config.token_content_type = wf_llm::llm_auth::TokenRequestContentType::Json;
+    let auth = DeclaredOAuth::new(config);
+    let credential = OAuthCredential {
+        refresh: "rt-old".to_string(),
+        access: "at1".to_string(),
+        expires: 0,
+        is_subscription: true,
+        extra: Default::default(),
+    };
+    let refreshed = auth.refresh(&credential).await.expect("refresh");
+    assert_eq!(refreshed.access, "at2");
+    assert_eq!(server.call_count(), 1);
 }

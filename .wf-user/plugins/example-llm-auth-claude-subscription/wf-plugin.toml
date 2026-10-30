@@ -1,4 +1,11 @@
+# CONTRACT SAMPLE - not a product runtime dependency.
+#
 # Reference plugin: Claude Pro/Max subscription login (provider bundle, form B).
+# This directory is a contract teaching sample and test fixture: it is
+# excluded from the root workspace, never installed by default, and no
+# built-in login path depends on it. The production implementation is the
+# in-tree `anthropic` preset (wf-llm provider flows). Keep the login logic
+# here frozen; the OAuth values below are historical illustrative values.
 #
 # One plugin contributes everything a subscription provider needs:
 #   - an `llm-auth` contribution: the login / refresh / resolve
@@ -15,23 +22,27 @@
 # This file must stay in sync with the typed manifest in src/lib.rs; the
 # `manifest_snapshot_matches_toml_file` test asserts the two agree.
 
-id = "llm-auth-claude-subscription"
+id = "example-llm-auth-claude-subscription"
 version = "0.1.0"
-name = "Claude Subscription Auth"
-description = "Claude Pro/Max subscription login through the host's llm-auth contribution point (PKCE paste flow)."
+name = "Example: Claude Subscription Auth"
+description = "Sample plugin: Claude Pro/Max subscription login through the host's llm-auth contribution point (PKCE paste flow). Contract teaching sample, not for production use."
 plugin_type = "native"
-entry_point = "target/release/libllm_auth_claude_subscription.so"
+entry_point = "target/release/libexample_llm_auth_claude_subscription.so"
 versioned_entry_points = {}
 dependencies = {}
 optional_dependencies = {}
-contributions = ["claude-subscription"]
+contributions = ["example-claude-subscription"]
+# No declarative tools contributed by this sample; the keys exist so the
+# typed manifest snapshot test stays in sync with this file.
+tools = []
+tool_descriptions = []
 
 # `llm_auth` implies network access to the provider's OAuth endpoints;
 # credentials are persisted by the host's credential store, never here.
 permissions = ["llm_auth", "network"]
 
 [[llm_providers]]
-id = "claude-subscription"
+id = "example-claude-subscription"
 name = "Claude (Pro/Max Subscription)"
 description = "Anthropic Messages API reached through a Claude Pro/Max subscription."
 format = "ANTHROPIC"
@@ -40,7 +51,7 @@ auth_type = "bearer"
 
 [llm_providers.auth]
 # Points at the `llm-auth` contribution name registered by this plugin.
-provider = "claude-subscription"
+provider = "example-claude-subscription"
 method = "oauth"
 is_subscription = true
 

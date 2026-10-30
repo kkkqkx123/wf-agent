@@ -14,6 +14,7 @@ use llm_auth::error::{AuthError, AuthResult};
 use llm_auth::interaction::AuthPrompt;
 use llm_auth::oauth::device_flow::{self, DeviceFlowConfig};
 use llm_auth::oauth::pkce::{self, PkceConfig};
+use llm_auth::oauth::{token_request, TokenRequestContentType};
 use llm_auth::session::LoginFlow;
 
 /// API-key authentication backed by one environment variable.
@@ -106,6 +107,9 @@ pub struct DeclaredOAuthConfig {
     pub redirect_uri: Option<String>,
     /// Bind a loopback listener instead of asking for a pasted callback.
     pub loopback: bool,
+    /// Token endpoint body encoding. `Form` is the RFC default; `Json`
+    /// covers providers that require a JSON token request.
+    pub token_content_type: TokenRequestContentType,
     /// Selector label for the login option.
     pub login_label: Option<String>,
 }
@@ -139,6 +143,7 @@ impl DeclaredOAuth {
             client_id: self.config.client_id.clone(),
             scope: self.config.scope.clone(),
             is_subscription: self.config.is_subscription,
+            token_content_type: self.config.token_content_type,
         })
     }
 
@@ -155,6 +160,7 @@ impl DeclaredOAuth {
             scope: self.config.scope.clone(),
             loopback: self.config.loopback,
             is_subscription: self.config.is_subscription,
+            token_content_type: self.config.token_content_type,
         })
     }
 }
@@ -195,13 +201,15 @@ impl OAuthAuth for DeclaredOAuth {
             ("refresh_token", credential.refresh.as_str()),
             ("client_id", self.config.client_id.as_str()),
         ];
-        let response = reqwest::Client::new()
-            .post(&self.config.token_url)
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .body(llm_auth::oauth::form_body(&form))
-            .send()
-            .await
-            .map_err(|e| AuthError::Transport(e.to_string()))?;
+        let response = token_request(
+            &reqwest::Client::new(),
+            &self.config.token_url,
+            self.config.token_content_type,
+            &form,
+        )
+        .send()
+        .await
+        .map_err(|e| AuthError::Transport(e.to_string()))?;
         let status = response.status();
         let body = response
             .text()
@@ -244,6 +252,7 @@ pub fn api_key_prompt(display_name: &str) -> AuthPrompt {
 /// constructors over [`DeclaredOAuthConfig`].
 pub mod oauth_presets {
     use super::{DeclaredFlow, DeclaredOAuthConfig};
+    use llm_auth::TokenRequestContentType;
 
     /// OpenAI Codex (ChatGPT subscription) OAuth preset (PKCE, loopback).
     pub fn openai_codex() -> DeclaredOAuthConfig {
@@ -255,14 +264,19 @@ pub mod oauth_presets {
             token_url: "https://auth.openai.com/oauth/token".to_string(),
             authorize_url: Some("https://auth.openai.com/authorize".to_string()),
             client_id: "codex-cli".to_string(),
-            scope: Some("openid profile email".to_string()),
+            scope: Some("openid profile email offline_access".to_string()),
             redirect_uri: Some("http://localhost:1455/auth/callback".to_string()),
             loopback: true,
+            token_content_type: TokenRequestContentType::Form,
             login_label: Some("Sign in with ChatGPT".to_string()),
         }
     }
 
     /// GitHub Copilot OAuth preset (device flow, subscription-backed).
+    ///
+    /// The device flow yields a GitHub OAuth token; the second exchange for
+    /// the Copilot API token lives in the dedicated in-tree driver selected
+    /// by this preset name at bootstrap (see `provider_flows`).
     pub fn github_copilot() -> DeclaredOAuthConfig {
         DeclaredOAuthConfig {
             display_name: "GitHub Copilot".to_string(),
@@ -275,6 +289,7 @@ pub mod oauth_presets {
             scope: Some("read:user".to_string()),
             redirect_uri: None,
             loopback: false,
+            token_content_type: TokenRequestContentType::Form,
             login_label: Some("Sign in with GitHub".to_string()),
         }
     }
@@ -294,24 +309,126 @@ pub mod oauth_presets {
             scope: Some("https://www.googleapis.com/auth/cloud-platform".to_string()),
             redirect_uri: Some("http://localhost:8085/oauth/callback".to_string()),
             loopback: false,
+            token_content_type: TokenRequestContentType::Form,
             login_label: Some("Sign in with Google".to_string()),
+        }
+    }
+
+    /// xAI device-flow preset (RFC 8628, form bodies).
+    pub fn xai() -> DeclaredOAuthConfig {
+        DeclaredOAuthConfig {
+            display_name: "xAI".to_string(),
+            flow: DeclaredFlow::Device,
+            is_subscription: true,
+            device_authorization_url: Some("https://auth.x.ai/oauth2/device/code".to_string()),
+            token_url: "https://auth.x.ai/oauth2/token".to_string(),
+            authorize_url: None,
+            client_id: "b1a00492-073a-47ea-816f-4c329264a828".to_string(),
+            scope: Some(
+                "openid profile email offline_access grok-cli:access api:access".to_string(),
+            ),
+            redirect_uri: None,
+            loopback: false,
+            token_content_type: TokenRequestContentType::Form,
+            login_label: Some("Sign in with xAI".to_string()),
+        }
+    }
+
+    /// Anthropic PKCE preset (Claude Pro/Max). Endpoints and client follow
+    /// the Claude Code client; the JSON token body and browser / copy-code
+    /// choice live in the dedicated in-tree driver selected by this preset
+    /// name at bootstrap, not in the generic PKCE flow.
+    pub fn anthropic() -> DeclaredOAuthConfig {
+        DeclaredOAuthConfig {
+            display_name: "Anthropic".to_string(),
+            flow: DeclaredFlow::Pkce,
+            is_subscription: true,
+            device_authorization_url: None,
+            token_url: "https://platform.claude.com/v1/oauth/token".to_string(),
+            authorize_url: Some("https://claude.ai/oauth/authorize".to_string()),
+            client_id: "0d1c250a-e61b-44d9-88ed-5944d1962f5e".to_string(),
+            scope: Some("org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload".to_string()),
+            redirect_uri: Some("https://platform.claude.com/oauth/code/callback".to_string()),
+            loopback: false,
+            token_content_type: TokenRequestContentType::Json,
+            login_label: Some("Sign in with Claude Pro/Max".to_string()),
+        }
+    }
+
+    /// Meta device-flow preset (Muse subscription). The mint step lives in
+    /// the dedicated in-tree driver selected by this preset name.
+    pub fn meta_muse() -> DeclaredOAuthConfig {
+        DeclaredOAuthConfig {
+            display_name: "Meta".to_string(),
+            flow: DeclaredFlow::Device,
+            is_subscription: true,
+            device_authorization_url: Some(
+                "https://auth.meta.com/oidc/device/authorization/".to_string(),
+            ),
+            token_url: "https://auth.meta.com/oidc/device/token/".to_string(),
+            authorize_url: None,
+            client_id: "1031625952748946".to_string(),
+            scope: None,
+            redirect_uri: None,
+            loopback: false,
+            token_content_type: TokenRequestContentType::Form,
+            login_label: Some("Sign in with Meta".to_string()),
+        }
+    }
+
+    /// Kimi device-flow preset (RFC 8628, form bodies, no scope).
+    pub fn kimi_coding() -> DeclaredOAuthConfig {
+        DeclaredOAuthConfig {
+            display_name: "Kimi Coding".to_string(),
+            flow: DeclaredFlow::Device,
+            is_subscription: true,
+            device_authorization_url: Some(
+                "https://auth.kimi.com/api/oauth/device_authorization".to_string(),
+            ),
+            token_url: "https://auth.kimi.com/api/oauth/token".to_string(),
+            authorize_url: None,
+            client_id: "17e5f671-d194-4dfb-9706-5516cb48c098".to_string(),
+            scope: None,
+            redirect_uri: None,
+            loopback: false,
+            token_content_type: TokenRequestContentType::Form,
+            login_label: Some("Sign in with Kimi".to_string()),
         }
     }
 
     /// Resolve a preset name to its declarative config.
     /// Returns `None` for unknown names so callers can fail loudly.
+    /// Presets whose provider deviates from the generic RFC flow
+    /// (`github-copilot`, `anthropic`, `meta-muse`) additionally select a
+    /// dedicated in-tree driver by preset name at bootstrap; the remaining
+    /// entries are pure generic-flow data. Providers needing custom token
+    /// handling without an in-tree driver (OpenRouter `key` exchange, Codex
+    /// JWT account extraction, ChatGPT dynamic client ids) belong in
+    /// plugins, not in this table.
     pub fn preset_named(name: &str) -> Option<DeclaredOAuthConfig> {
         match name {
             "openai-codex" => Some(openai_codex()),
             "github-copilot" => Some(github_copilot()),
             "google-vertex" => Some(google_vertex()),
+            "xai" => Some(xai()),
+            "kimi-coding" => Some(kimi_coding()),
+            "anthropic" => Some(anthropic()),
+            "meta-muse" => Some(meta_muse()),
             _ => None,
         }
     }
 
     /// All built-in preset names in stable order.
     pub fn preset_names() -> Vec<&'static str> {
-        vec!["openai-codex", "github-copilot", "google-vertex"]
+        vec![
+            "openai-codex",
+            "github-copilot",
+            "google-vertex",
+            "xai",
+            "kimi-coding",
+            "anthropic",
+            "meta-muse",
+        ]
     }
 }
 
@@ -340,6 +457,7 @@ mod tests {
             scope: Some("api".to_string()),
             redirect_uri: None,
             loopback: false,
+            token_content_type: TokenRequestContentType::Form,
             login_label: Some("Sign in with Example Sub".to_string()),
         }
     }
@@ -423,6 +541,14 @@ mod tests {
         let codex = oauth_presets::openai_codex();
         assert_eq!(codex.flow, DeclaredFlow::Pkce);
         assert!(codex.is_subscription);
+        assert!(
+            codex
+                .scope
+                .as_deref()
+                .unwrap_or_default()
+                .contains("offline_access"),
+            "codex scope must cover refresh"
+        );
 
         let copilot = oauth_presets::github_copilot();
         assert_eq!(copilot.flow, DeclaredFlow::Device);
@@ -431,5 +557,41 @@ mod tests {
 
         let vertex = oauth_presets::google_vertex();
         assert_eq!(vertex.flow, DeclaredFlow::Pkce);
+
+        let xai = oauth_presets::xai();
+        assert_eq!(xai.flow, DeclaredFlow::Device);
+        assert!(xai
+            .device_authorization_url
+            .as_deref()
+            .unwrap_or_default()
+            .contains("x.ai"));
+        assert!(xai
+            .scope
+            .as_deref()
+            .unwrap_or_default()
+            .contains("grok-cli:access"));
+
+        let kimi = oauth_presets::kimi_coding();
+        assert_eq!(kimi.flow, DeclaredFlow::Device);
+        assert!(kimi
+            .device_authorization_url
+            .as_deref()
+            .unwrap_or_default()
+            .contains("kimi.com"));
+        assert!(kimi.scope.is_none());
+
+        let anthropic = oauth_presets::anthropic();
+        assert_eq!(anthropic.flow, DeclaredFlow::Pkce);
+        assert!(anthropic.is_subscription);
+        assert_eq!(anthropic.token_content_type, TokenRequestContentType::Json);
+
+        let meta = oauth_presets::meta_muse();
+        assert_eq!(meta.flow, DeclaredFlow::Device);
+        assert!(meta.is_subscription);
+        assert!(meta
+            .device_authorization_url
+            .as_deref()
+            .unwrap_or_default()
+            .contains("meta.com"));
     }
 }

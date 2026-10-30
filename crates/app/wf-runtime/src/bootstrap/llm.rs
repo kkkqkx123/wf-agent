@@ -8,6 +8,7 @@ use wf_config::processor::llm_profile::{
     transform_llm_profile, validate_llm_profile, validate_provider_definition,
 };
 use wf_llm::auth::{DeclaredFlow, DeclaredOAuth, DeclaredOAuthConfig, EnvApiKeyAuth};
+use wf_llm::llm_auth::TokenRequestContentType;
 use wf_llm::LlmGateway;
 use wf_pricing::PricingResolver;
 use wf_types::config::llm_auth::{AuthMethodConfig, AuthProviderConfig};
@@ -67,20 +68,34 @@ pub fn create_auth_registry(
     let store_path = resolve_store_path(config.store_path.as_deref(), project_root);
     let store = Arc::new(wf_llm::FileCredentialStore::new(&store_path));
     let registry = wf_llm::AuthRegistry::new(store, Arc::new(wf_llm::StdAuthContext));
-    for provider in &providers {
-        registry.register_provider(&provider.id, provider_auth_surface(provider));
+    // The preset marker is cleared by expansion, so the original
+    // declaration supplies it for drivers selected by preset name.
+    for (original, provider) in config.providers.iter().zip(providers.iter()) {
+        registry.register_provider(
+            &provider.id,
+            provider_auth_surface(provider, original.preset.as_deref()),
+        );
     }
     Ok(Arc::new(registry))
 }
 
-/// Turn one declaration into its provider auth surface.
-fn provider_auth_surface(provider: &AuthProviderConfig) -> wf_llm::ProviderAuth {
+/// Turn one declaration into its provider auth surface. Presets backed by a
+/// dedicated in-tree driver (`github-copilot`, `anthropic`, `meta-muse`)
+/// resolve to that driver; everything else keeps the generic declaration
+/// flow. Explicit endpoint fields still win inside each driver.
+fn provider_auth_surface(
+    provider: &AuthProviderConfig,
+    preset: Option<&str>,
+) -> wf_llm::ProviderAuth {
     match provider.method {
         AuthMethodConfig::ApiKey => EnvApiKeyAuth::provider_auth(
             provider.env.clone().unwrap_or_default(),
             provider.display_name.clone(),
         ),
         AuthMethodConfig::OAuth => {
+            if let Some(driver) = provider_flow_surface(provider, preset) {
+                return driver;
+            }
             let flow = match provider.flow {
                 Some(wf_types::config::llm_auth::OAuthFlowConfig::Pkce) => DeclaredFlow::Pkce,
                 _ => DeclaredFlow::Device,
@@ -96,10 +111,60 @@ fn provider_auth_surface(provider: &AuthProviderConfig) -> wf_llm::ProviderAuth 
                 scope: provider.scope.clone(),
                 redirect_uri: provider.redirect_uri.clone(),
                 loopback: provider.loopback.unwrap_or(false),
+                token_content_type: match provider.token_content_type {
+                    Some(wf_types::config::llm_auth::OAuthTokenContentTypeConfig::Json) => {
+                        TokenRequestContentType::Json
+                    }
+                    _ => TokenRequestContentType::Form,
+                },
                 login_label: provider.login_label.clone(),
             })
         }
     }
+}
+
+/// Dedicated in-tree drivers selected by preset name. Returns `None` for
+/// presets (and explicit declarations) served by the generic flow above.
+fn provider_flow_surface(
+    provider: &AuthProviderConfig,
+    preset: Option<&str>,
+) -> Option<wf_llm::ProviderAuth> {
+    match preset {
+        Some("github-copilot") => Some(wf_llm::provider_flows::GithubCopilotAuth::provider_auth(
+            provider.display_name.clone(),
+            provider.login_label.clone(),
+            wf_llm::provider_flows::GithubCopilotParams::from_declared(
+                provider.client_id.clone(),
+                provider.scope.clone(),
+            ),
+        )),
+        Some("anthropic") => Some(wf_llm::provider_flows::AnthropicAuth::provider_auth(
+            provider.display_name.clone(),
+            provider.login_label.clone(),
+            wf_llm::provider_flows::AnthropicParams::from_declared(
+                provider.authorize_url.clone(),
+                provider.token_url.clone(),
+                provider.client_id.clone(),
+                provider.redirect_uri.clone(),
+                provider.scope.clone(),
+            ),
+        )),
+        Some("meta-muse") => Some(wf_llm::provider_flows::MetaMuseAuth::provider_auth(
+            provider.display_name.clone(),
+            provider.login_label.clone(),
+            meta_muse_params(provider),
+        )),
+        _ => None,
+    }
+}
+
+/// Build Meta driver params from the expanded declaration.
+fn meta_muse_params(provider: &AuthProviderConfig) -> wf_llm::provider_flows::MetaMuseParams {
+    wf_llm::provider_flows::MetaMuseParams::from_declared(
+        provider.device_authorization_url.clone(),
+        provider.token_url.clone(),
+        provider.client_id.clone(),
+    )
 }
 
 /// Create an empty LLM gateway (no providers, no profiles). Plugins are
@@ -198,4 +263,80 @@ pub fn init_llm_gateway(
     let gateway = create_llm_gateway(metrics, pricing, auth);
     register_llm_config(&gateway, config)?;
     Ok(gateway)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn provider_with_preset(preset: &str) -> AuthProviderConfig {
+        AuthProviderConfig {
+            id: format!("{preset}-test"),
+            method: AuthMethodConfig::OAuth,
+            display_name: preset.to_owned(),
+            login_label: None,
+            env: None,
+            flow: None,
+            is_subscription: None,
+            device_authorization_url: None,
+            authorize_url: None,
+            token_url: None,
+            client_id: None,
+            scope: None,
+            redirect_uri: None,
+            loopback: None,
+            token_content_type: None,
+            preset: Some(preset.to_owned()),
+        }
+    }
+
+    /// Preset-backed providers resolve to their dedicated in-tree driver
+    /// (external flow), not to the generic declaration flow.
+    #[tokio::test]
+    async fn preset_drivers_own_their_login_entry() {
+        for preset in ["github-copilot", "anthropic", "meta-muse"] {
+            let original = provider_with_preset(preset);
+            let expanded = wf_types::config::llm_auth::expand_auth_preset(original.clone())
+                .expect("preset expands");
+            let surface = provider_auth_surface(&expanded, original.preset.as_deref());
+            let flow = surface.oauth.expect("oauth surface");
+            let login = flow.begin_login().await.expect("begin login");
+            assert!(
+                matches!(login, wf_llm::llm_auth::session::LoginFlow::External(_)),
+                "{preset} must use its dedicated driver"
+            );
+        }
+    }
+
+    /// Unknown presets keep the generic declaration flow.
+    #[tokio::test]
+    async fn explicit_declaration_keeps_generic_device_flow() {
+        let provider = AuthProviderConfig {
+            device_authorization_url: Some("https://example.test/device".to_owned()),
+            token_url: Some("https://example.test/token".to_owned()),
+            client_id: Some("cid".to_owned()),
+            flow: Some(wf_types::config::llm_auth::OAuthFlowConfig::Device),
+            ..provider_with_preset("custom")
+        };
+        let surface = provider_auth_surface(&provider, None);
+        let flow = surface.oauth.expect("oauth surface");
+        let login = flow.begin_login().await;
+        // No mock server backs the device start, so only the flow variant
+        // is asserted here; the error itself proves the generic path ran.
+        assert!(matches!(
+            login,
+            Err(wf_llm::llm_auth::AuthError::Transport(_))
+                | Ok(wf_llm::llm_auth::session::LoginFlow::Device(_))
+        ));
+    }
+
+    #[test]
+    fn copilot_driver_params_prefer_explicit_fields() {
+        let params = wf_llm::provider_flows::GithubCopilotParams::from_declared(
+            Some("custom-id".to_owned()),
+            None,
+        );
+        assert_eq!(params.client_id, "custom-id");
+        assert_eq!(params.scope, wf_llm::provider_flows::GITHUB_COPILOT_SCOPE);
+    }
 }

@@ -2,8 +2,10 @@
 // assembly child), HTTP client and shared error type.
 pub mod auth;
 pub mod auth_plugin;
+// First-party provider-specific OAuth drivers (in-process, no cdylib).
 pub mod codecs_plugin;
 pub mod images_plugin;
+pub mod provider_flows;
 // Generic-to-concrete metrics adapter wired by the facade layer.
 pub mod token_stream_adapter;
 

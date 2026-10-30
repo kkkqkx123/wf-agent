@@ -1,12 +1,17 @@
 //! Reference native plugin: Claude Pro/Max subscription login.
 //!
-//! Demonstrates the "provider bundle" integration path for a
-//! subscription-backed LLM provider: the plugin contributes one `llm-auth`
-//! implementation (OAuth 2.0 authorization code flow with PKCE, S256) and
-//! the matching declarative provider definition in its manifest. The host
-//! owns the login session, the credential store and the request pipeline;
-//! this crate only speaks the synchronous JSON contract of
-//! [`PluginLlmAuth`].
+//! CONTRACT SAMPLE, not the product login path. This crate exists to teach
+//! the "provider bundle" integration path for a subscription-backed LLM
+//! provider: the plugin contributes one `llm-auth` implementation (OAuth
+//! 2.0 authorization code flow with PKCE, S256) and the matching
+//! declarative provider definition in its manifest. The host owns the login
+//! session, the credential store and the request pipeline; this crate only
+//! speaks the synchronous JSON contract of [`PluginLlmAuth`].
+//!
+//! The production Claude Pro/Max login (plus the browser variant) ships as
+//! the in-tree `anthropic` preset in `wf-llm`'s provider flows, which is a
+//! strict superset of the paste-only flow implemented here. Keep this
+//! crate's login logic frozen; extend the in-tree driver instead.
 //!
 //! Flow implemented here is the "paste" variant (`flow = "pkce_paste"`):
 //! the authorize URL is rendered to the user, the provider redirects to a
@@ -29,18 +34,18 @@ use wf_plugin_sdk::{
 
 /// Contribution name of the auth implementation. The manifest's provider
 /// definition binds to this exact name, and the host dispatches ops as
-/// `"llm-auth"` / `"claude-subscription/<op>"`.
-const AUTH_NAME: &str = "claude-subscription";
+/// `"llm-auth"` / `"example-claude-subscription/<op>"`.
+const AUTH_NAME: &str = "example-claude-subscription";
 
 /// The only OAuth flow variant this plugin implements.
 const FLOW_PKCE_PASTE: &str = "pkce_paste";
 
 /// Plugin id; must match `wf-plugin.toml` (the host cross-checks the
 /// manifest exported over the C ABI against the on-disk one).
-const PLUGIN_ID: &str = "llm-auth-claude-subscription";
+const PLUGIN_ID: &str = "example-llm-auth-claude-subscription";
 
 /// Shared object the host loads; must match `wf-plugin.toml`.
-const ENTRY_POINT: &str = "target/release/libllm_auth_claude_subscription.so";
+const ENTRY_POINT: &str = "target/release/libexample_llm_auth_claude_subscription.so";
 
 /// Subtracted from `expires_in` when computing the credential expiry so a
 /// token near its boundary is refreshed one request early.
@@ -628,9 +633,9 @@ impl WfNativePlugin for ClaudeSubscriptionPlugin {
         PluginManifest {
             id: PLUGIN_ID.to_owned(),
             version: "0.1.0".to_owned(),
-            name: Some("Claude Subscription Auth".to_owned()),
+            name: Some("Example: Claude Subscription Auth".to_owned()),
             description: Some(
-                "Claude Pro/Max subscription login through the host's llm-auth contribution point (PKCE paste flow)."
+                "Sample plugin: Claude Pro/Max subscription login through the host's llm-auth contribution point (PKCE paste flow). Contract teaching sample, not for production use."
                     .to_owned(),
             ),
             plugin_type: Some(PluginType::Native),
@@ -643,6 +648,8 @@ impl WfNativePlugin for ClaudeSubscriptionPlugin {
             config_schema: None,
             config: None,
             hooks: None,
+            tools: Vec::new(),
+            tool_descriptions: Vec::new(),
             llm_providers: vec![wf_plugin_sdk::PluginLlmProviderDefinition {
                 id: AUTH_NAME.to_owned(),
                 format: "ANTHROPIC".to_owned(),
@@ -657,6 +664,13 @@ impl WfNativePlugin for ClaudeSubscriptionPlugin {
                 api_version: None,
                 model_discovery: None,
                 metadata: None,
+                proxy: None,
+                no_proxy: None,
+                rate_limit: None,
+                compat: None,
+                identity: None,
+                transport: None,
+                env: None,
                 auth: Some(PluginProviderAuthRef {
                     provider: AUTH_NAME.to_owned(),
                     method: Some("oauth".to_owned()),
@@ -944,7 +958,7 @@ mod tests {
         let resolved = auth().resolve(credential).expect("resolve");
         assert_eq!(resolved["api_key"], "at-1");
         assert_eq!(resolved["is_subscription"], true);
-        assert_eq!(resolved["source"], "plugin:claude-subscription");
+        assert_eq!(resolved["source"], "plugin:example-claude-subscription");
         assert_eq!(resolved["headers"]["anthropic-version"], "2023-06-01");
         assert_eq!(resolved["headers"]["anthropic-beta"], "oauth-2025-04-20");
     }
@@ -953,14 +967,14 @@ mod tests {
     fn dispatch_routes_registered_ops() {
         let plugin = ClaudeSubscriptionPlugin::new();
         let described: Value = plugin
-            .dispatch("llm-auth", "claude-subscription/describe", &json!({}))
+            .dispatch("llm-auth", "example-claude-subscription/describe", &json!({}))
             .expect("describe");
         assert_eq!(described["name"], "Claude (Pro/Max Subscription)");
 
         let started: Value = plugin
             .dispatch(
                 "llm-auth",
-                "claude-subscription/login_start",
+                "example-claude-subscription/login_start",
                 &json!({ "config": test_config() }),
             )
             .expect("login_start");
@@ -970,18 +984,18 @@ mod tests {
         let polled: Value = plugin
             .dispatch(
                 "llm-auth",
-                "claude-subscription/login_poll",
+                "example-claude-subscription/login_poll",
                 &json!({ "session": started["session"].clone() }),
             )
             .expect("login_poll");
         assert_eq!(polled["next"]["next"], "pending");
 
         let error = plugin
-            .dispatch("llm-auth", "claude-subscription/nope", &json!({}))
+            .dispatch("llm-auth", "example-claude-subscription/nope", &json!({}))
             .expect_err("unknown op");
         assert!(error.to_string().contains("unknown auth op"));
         let error = plugin
-            .dispatch("llm-codec", "claude-subscription/describe", &json!({}))
+            .dispatch("llm-codec", "example-claude-subscription/describe", &json!({}))
             .expect_err("wrong kind");
         assert!(error.to_string().contains("unexpected handler type"));
     }

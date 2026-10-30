@@ -17,7 +17,7 @@ _DEFAULT_SO = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "target",
     "release",
-    "libllm_auth_claude_subscription.so",
+    "libexample_llm_auth_claude_subscription.so",
 )
 SO_PATH = os.environ.get("WF_PLUGIN_ARTIFACT_PATH") or (
     sys.argv[1] if len(sys.argv) > 1 else _DEFAULT_SO
@@ -101,7 +101,7 @@ print(f"manifest id           : {manifest['id']}")
 print(f"manifest plugin_type  : {manifest['plugin_type']}")
 print(f"manifest permissions  : {manifest['permissions']}")
 print(f"manifest llm_providers: {[p['id'] for p in manifest['llm_providers']]}")
-assert manifest["id"] == "llm-auth-claude-subscription"
+assert manifest["id"] == "example-llm-auth-claude-subscription"
 assert manifest["plugin_type"] == "native"
 assert manifest["permissions"] == ["llm_auth", "network"]
 
@@ -123,18 +123,18 @@ print(f"supported abi versions: {versions}")
 assert versions == [1], versions
 
 # 3. lifecycle: on_load then dispatch, finally on_unload
-ctx = PluginContextC(1, b"llm-auth-claude-subscription", b"{}")
+ctx = PluginContextC(1, b"example-llm-auth-claude-subscription", b"{}")
 assert lib.wf_plugin_on_load(ctypes.byref(ctx)) == 0, "on_load failed"
 
 # 4. describe
-described = json.loads(dispatch("llm-auth", "claude-subscription/describe", {}))
+described = json.loads(dispatch("llm-auth", "example-claude-subscription/describe", {}))
 print(f"describe name         : {described['name']}")
 assert described["name"] == "Claude (Pro/Max Subscription)"
 assert described["is_subscription"] is True
 
 # 5. login_start: params come from the manifest's auth.params verbatim
 auth_params = manifest["llm_providers"][0]["auth"]["params"]
-started = json.loads(dispatch("llm-auth", "claude-subscription/login_start", {"config": auth_params}))
+started = json.loads(dispatch("llm-auth", "example-claude-subscription/login_start", {"config": auth_params}))
 print(f"login_start next      : {started['next']['next']}")
 print(f"login_start stage     : {started['session']['stage']}")
 assert started["next"]["next"] == "awaiting_input"
@@ -146,13 +146,13 @@ auth_urls = [e for e in started["events"] if e["kind"] == "auth_url"]
 assert auth_urls and "code_challenge_method=S256" in auth_urls[0]["url"]
 
 # 6. login_poll: pending heartbeat with the session echoed back
-polled = json.loads(dispatch("llm-auth", "claude-subscription/login_poll", {"session": started["session"]}))
+polled = json.loads(dispatch("llm-auth", "example-claude-subscription/login_poll", {"session": started["session"]}))
 assert polled["next"]["next"] == "pending"
 assert polled["session"] == started["session"]
 
 # 7. login_submit: state mismatch must fail loudly, no network involved
 bad = json.loads(dispatch(
-    "llm-auth", "claude-subscription/login_submit",
+    "llm-auth", "example-claude-subscription/login_submit",
     {"session": started["session"], "input": "https://console.anthropic.com/oauth/code/callback?code=x&state=wrong"},
 ))
 print(f"login_submit (mismatch): {bad['next']['next']} - {bad['next']['error'][:60]}...")
@@ -161,7 +161,7 @@ assert "state mismatch" in bad["next"]["error"]
 
 # 8. unknown op rejected
 try:
-    dispatch("llm-auth", "claude-subscription/bogus", {})
+    dispatch("llm-auth", "example-claude-subscription/bogus", {})
     raise AssertionError("unknown op should fail")
 except AssertionError as error:
     if "should fail" in str(error):

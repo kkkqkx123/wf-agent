@@ -32,7 +32,7 @@ provider 集成有两种形态，由 manifest 声明与运行时注册共同决�
   - 一个 `llm-auth` 实现（`PluginLlmAuth`：`describe` / `login_start` / `login_poll` / `login_submit` / `refresh` / `resolve`）；
   - 一个 `[[llm_providers]]` 条目，其 `[llm_providers.auth]` 的 `provider` 指向该 `llm-auth` 贡献名，`method = "oauth"`，`is_subscription = true`，并把 OAuth 公开参数放进 `[llm_providers.auth.params]`。
 - 宿主在插件激活时：先 `sync_llm`（注册 provider 定义），再 `sync_auth`（把 `llm-auth` 贡献适配为 `ProviderAuth` 注册进 gateway 的 auth registry，键 = **auth 贡献名**，而非 provider definition id），随后校验"声明了 `auth` 的 provider 必须引用一个已注册的同名 `llm_auth` 贡献，否则激活失败（大声报错）"。
-- 参考实现：`.wf-user/plugins/llm-auth-claude-subscription/`（native，PKCE 粘贴流），随仓库分发，是唯一官方样板。
+- 参考实现：`.wf-user/plugins/example-llm-auth-claude-subscription/`（native，PKCE 粘贴流），随仓库分发，是唯一官方样板。**该包是契约样板**：仅用于教授契约写法与测试夹具，不随产品分发、不作为运行时依赖；同类登录能力的产品实现收进进程内驱动（如 `anthropic` preset + `wf-llm` provider flows，其能力是本样板登录逻辑的超集，详见其 README“样板定位”节）。新增登录能力一律走进程内驱动，不要扩展样板。
 
 ## 3. 登录流程（llm-auth 契约）
 
@@ -55,7 +55,7 @@ provider 集成有两种形态，由 manifest 声明与运行时注册共同决�
 | `login_poll` | `{ "session": <上一步 session> }` | `next = Pending`（心跳），`session` 原样回显 |
 | `login_submit` | `{ "session": …, "input": <粘贴的回调 URL 或裸 code> }` | 成功 `next = Completed{ credential }`；失败 `next = Failed{ error }` |
 | `refresh` | `{ "credential": <已存凭据> }` | 同 `login_submit` 输出形状 |
-| `resolve` | `{ "credential": … }` | `ModelAuth{ api_key, is_subscription, source, … }` 供请求管线使用 |
+| `resolve` | `{ "credential": … }` | `ModelAuth{ api_key, headers?, is_subscription, source, … }` 供请求管线使用；订阅类 provider 所需的固定请求头（如 Anthropic 的 `anthropic-beta: oauth-2025-04-20`）在此携带，宿主会将其并入最终请求头 |
 
 凭据 JSON 为扁平结构：`{ access, refresh, expires, is_subscription, extra? }`，宿主解析为 `OAuthCredential` 再包成 `Credential::OAuth` 持久化；插件 **不** 写盘。
 
@@ -63,20 +63,20 @@ provider 集成有两种形态，由 manifest 声明与运行时注册共同决�
 
 ```toml
 # wf-plugin.toml
-id = "llm-auth-claude-subscription"
+id = "example-llm-auth-claude-subscription"
 plugin_type = "native"
 entry_point = "target/release/lib<name>.so"
-contributions = ["claude-subscription"]
+contributions = ["example-claude-subscription"]
 permissions = ["llm_auth", "network"]
 
 [[llm_providers]]
-id = "claude-subscription"
+id = "example-claude-subscription"
 format = "ANTHROPIC"
 base_url = "https://api.anthropic.com"
 auth_type = "bearer"
 
 [llm_providers.auth]
-provider = "claude-subscription"   # 指向本插件的 llm-auth 贡献名
+provider = "example-claude-subscription"   # 指向本插件的 llm-auth 贡献名
 method = "oauth"
 is_subscription = true
 
@@ -97,7 +97,7 @@ struct ClaudeSubscriptionPlugin;
 impl WfNativePlugin for ClaudeSubscriptionPlugin {
     fn manifest() -> PluginManifest { /* 与 wf-plugin.toml 对齐 */ }
     fn register(registrar: &NativeRegistrar) {
-        registrar.register_llm_auth("claude-subscription");
+        registrar.register_llm_auth("example-claude-subscription");
     }
 }
 impl PluginLlmAuth for ClaudeSubscriptionAuth {
@@ -198,9 +198,13 @@ let result = gateway
 三处同一数据源，保持同步：
 
 - `wf_types::config::llm_auth::oauth_preset_template(name)`：配置层模板（`openai-codex` / `github-copilot` /
-  `google-vertex`），`expand_auth_preset()` 在校验前把 `preset = "..."` 展开为完整声明，显式字段永远覆盖模板；
-- `wf_llm::auth::oauth_presets::{openai_codex, github_copilot, google_vertex}()`：运行时的
-  `DeclaredOAuthConfig` 纯数据构造，`preset_named(name)` 按名解析；
+  `google-vertex` / `xai` / `kimi-coding` / `anthropic` / `meta-muse`），`expand_auth_preset()`
+  在校验前把 `preset = "..."` 展开为完整声明，显式字段永远覆盖模板；
+- `wf_llm::auth::oauth_presets::{openai_codex, github_copilot, google_vertex, xai, kimi_coding, anthropic, meta_muse}()`：
+  运行时的 `DeclaredOAuthConfig` 纯数据构造，`preset_named(name)` 按名解析；
 - `wf-config::processor::llm_auth::expand_auth_presets()`：批量展开 + 未知名即配置错误。
 
-自定义端点/作用域时在声明中显式覆盖对应字段即可，preset 只填缺失项。
+自定义端点/作用域时在声明中显式覆盖对应字段即可，preset 只填缺失项。其中
+`github-copilot` / `anthropic` / `meta-muse` 三个 preset 在 bootstrap 按名选中
+`wf_llm::provider_flows` 的专用进程内驱动（第二段交换 / JSON 交换 / mint），
+其余 preset 走通用声明式流程。

@@ -13,8 +13,8 @@ use crate::keymap::{CKey, Key, KeyAction, KeymapContext};
 
 /// The key that starts a leader sequence.
 ///
-/// `Ctrl-X` is already the transcript decision-anchor shortcut and
-/// `Ctrl-P` cycles user prompts, so the leader uses the free `Ctrl-W`.
+/// `Ctrl-X` is already the transcript decision-anchor shortcut, so the
+/// leader uses the free `Ctrl-W`.
 pub const LEADER: Key = Key::ctrl(CKey::Char('w'));
 
 /// Leader sequence timeout in milliseconds.
@@ -152,7 +152,7 @@ pub static COMMANDS: &[CommandSpec] = &[
         group: "App",
         description: "Search and run a command",
         action: Some(KeyAction::Palette),
-        scopes: &[],
+        scopes: &[scope(KeymapContext::Global, &[ctrl('p')])],
         leader: &[key(CKey::Char('p'))],
         slash: None,
         palette: false,

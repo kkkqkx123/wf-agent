@@ -106,6 +106,8 @@ pub struct TuiApp {
     history: crate::history_overlay::HistoryOverlay,
     /// Transient global search state backing the search palette overlay.
     search_palette: crate::search_palette::SearchPalette,
+    /// Transient command palette backing the Ctrl-P overlay.
+    command_palette: crate::command_palette::CommandPalette,
     /// Transient session list browser backing the session list overlay.
     session_list: crate::session_list::SessionList,
     /// Transient session tree browser backing the session tree overlay.
@@ -309,6 +311,7 @@ impl TuiApp {
             overlay: OverlayMode::None,
             history: crate::history_overlay::HistoryOverlay::default(),
             search_palette: crate::search_palette::SearchPalette::new(),
+            command_palette: crate::command_palette::CommandPalette::new(),
             session_list: crate::session_list::SessionList::new(),
             session_tree: crate::session_tree::SessionTree::new(),
             data_tx,
@@ -1009,6 +1012,35 @@ impl TuiApp {
                     error: self.search_palette.error(),
                 };
                 crate::screen_draw::draw_search_palette(frame, area, &palette, &self.theme);
+            }
+            OverlayMode::CommandPalette => {
+                let filtered = self.command_palette.filtered();
+                let rows: Vec<String> = filtered
+                    .iter()
+                    .map(|spec| {
+                        let mut label = match spec.slash {
+                            Some(slash) => format!("/{}", slash.name),
+                            None => spec.title.to_string(),
+                        };
+                        if let Some(slash) = spec.slash {
+                            if !slash.argument.is_empty() {
+                                label.push(' ');
+                                label.push_str(slash.argument);
+                            }
+                        }
+                        let mut row = format!("{} — {}", label, spec.title);
+                        if let Some(shortcut) = spec.shortcut() {
+                            row.push_str(&format!(" ({shortcut})"));
+                        }
+                        row
+                    })
+                    .collect();
+                let view = crate::screen_draw::CommandPaletteView {
+                    input: self.command_palette.filter(),
+                    rows: &rows,
+                    selected: self.command_palette.selected(),
+                };
+                crate::screen_draw::draw_command_palette(frame, area, &view, &self.theme);
             }
             OverlayMode::SessionList => {
                 let active = self.sessions.active_index();

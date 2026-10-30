@@ -35,6 +35,7 @@ pub use tui_terminal::{
 };
 
 // Facade-only modules (application shell) remain in this crate.
+pub mod command_palette;
 pub mod fetch;
 pub mod history_overlay;
 pub mod interactive;

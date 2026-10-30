@@ -65,6 +65,14 @@ impl TuiApp {
             self.search_palette.append_paste(&normalized);
             return true;
         }
+        if self.overlay == crate::overlay::OverlayMode::CommandPalette {
+            let normalized = crate::interactive::keys::normalize_paste(text);
+            if normalized.is_empty() {
+                return false;
+            }
+            self.command_palette.append_paste(&normalized);
+            return true;
+        }
         match classify_paste(false, self.app.screen.navigation.current_kind()) {
             PasteTarget::Swallowed | PasteTarget::Ignored => false,
             PasteTarget::Session => {

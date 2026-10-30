@@ -61,6 +61,17 @@ impl TuiApp {
         &mut self,
         command: &'static tui_core::command::CommandSpec,
     ) -> CliResult<LoopAction> {
+        self.run_palette_command(command, "").await
+    }
+
+    /// Execute a command chosen in the shell command palette with the
+    /// argument typed after the command word. Session commands run on the
+    /// active session; the overlay is already closed by the caller.
+    pub(super) async fn run_palette_command(
+        &mut self,
+        command: &'static tui_core::command::CommandSpec,
+        argument: &str,
+    ) -> CliResult<LoopAction> {
         match command.id {
             "app.quit" => {
                 if self.app.screen.navigation.current_kind() == ScreenKind::Interactive {
@@ -75,14 +86,7 @@ impl TuiApp {
                 Ok(LoopAction::Continue)
             }
             "command.palette" => {
-                if self.sessions.active_mut().is_none() {
-                    self.app.notice.set("no active session for the palette");
-                    return Ok(LoopAction::Continue);
-                }
-                self.goto(ScreenKind::Interactive);
-                if let Some(session) = self.sessions.active_mut() {
-                    session.open_command_panel();
-                }
+                self.open_command_palette();
                 Ok(LoopAction::Continue)
             }
             _ => {
@@ -92,11 +96,21 @@ impl TuiApp {
                         .set(format!("{} needs an active session", command.title));
                     return Ok(LoopAction::Continue);
                 }
+                // Blocking footer views own their keys: running a panel
+                // command now would drop the pending approval or question.
+                if self.sessions.active().is_some_and(|session| {
+                    session.approval_active() || session.footer.question.is_some()
+                }) {
+                    self.app
+                        .notice
+                        .set("finish the pending approval or question first".to_string());
+                    return Ok(LoopAction::Continue);
+                }
                 self.goto(ScreenKind::Interactive);
                 let action = self
                     .sessions
                     .active_mut()
-                    .map(|session| session.run_command(command, ""));
+                    .map(|session| session.run_command(command, argument));
                 match action {
                     Some(InteractiveAction::Exit) => self.interactive_exit = true,
                     Some(InteractiveAction::ShowHelp) => {

@@ -34,6 +34,8 @@ pub enum OverlayMode {
     History,
     /// Search palette for global search
     SearchPalette,
+    /// Command palette for searching and running commands
+    CommandPalette,
     /// Session list browser for open chat tabs
     SessionList,
     /// Session tree browser for the active session (double-Esc)

@@ -1255,6 +1255,55 @@ pub fn draw_search_palette(
     frame.render_stateful_widget(list, chunks[1], &mut state);
 }
 
+/// Snapshot of the shell command palette: the typed filter plus the
+/// preformatted command rows. The shell builds rows from the command
+/// registry so this draw entry point stays a pure list renderer.
+pub struct CommandPaletteView<'a> {
+    pub input: &'a str,
+    pub rows: &'a [String],
+    pub selected: usize,
+}
+
+/// Command palette overlay: centered floating input plus command list.
+/// The overlay never touches the session composer: it paints over the
+/// current screen and closes back to the untouched draft.
+pub fn draw_command_palette(
+    frame: &mut Frame,
+    area: Rect,
+    palette: &CommandPaletteView<'_>,
+    theme: &Theme,
+) {
+    use ratatui::layout::{Constraint, Direction, Layout};
+    let popup = tui_components::modal::centered_rect(70, 60, area);
+    frame.render_widget(Clear, popup);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(3)])
+        .split(popup);
+    let input_block = titled_block("Commands (Enter run, Esc close)", ColorRole::Accent, theme);
+    frame.render_widget(
+        Paragraph::new(format!("> {}", palette.input)).block(input_block),
+        chunks[0],
+    );
+    let mut rows: Vec<String> = palette.rows.to_vec();
+    if rows.is_empty() {
+        rows.push("No matching command.".to_string());
+    }
+    let items: Vec<ListItem> = rows
+        .iter()
+        .enumerate()
+        .map(|(idx, text)| {
+            ListItem::new(text.as_str()).style(selected_style(idx == palette.selected, theme))
+        })
+        .collect();
+    let mut state = ListState::default();
+    if !rows.is_empty() {
+        state.select(Some(palette.selected.min(rows.len() - 1)));
+    }
+    let list = List::new(items).block(titled_block("Commands", ColorRole::Accent, theme));
+    frame.render_stateful_widget(list, chunks[1], &mut state);
+}
+
 /// Session tree placeholder overlay: centered floating panel naming the
 /// session the tree belongs to, shown while the tree model loads or when
 /// the fetch failed (`note` carries the loading/error text).

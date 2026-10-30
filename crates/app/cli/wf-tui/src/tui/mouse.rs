@@ -153,7 +153,10 @@ impl TuiApp {
         }
         matches!(
             self.overlay,
-            OverlayMode::Sidebar | OverlayMode::SearchPalette | OverlayMode::SessionList
+            OverlayMode::Sidebar
+                | OverlayMode::SearchPalette
+                | OverlayMode::CommandPalette
+                | OverlayMode::SessionList
         )
     }
 

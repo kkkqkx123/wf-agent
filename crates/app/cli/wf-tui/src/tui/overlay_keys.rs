@@ -14,6 +14,9 @@ impl TuiApp {
         if self.overlay == OverlayMode::SearchPalette {
             return Ok(self.handle_search_palette_key(key));
         }
+        if self.overlay == OverlayMode::CommandPalette {
+            return self.handle_command_palette_key(key).await;
+        }
         if self.overlay == OverlayMode::SessionList {
             return self.handle_session_list_key(key).await;
         }
@@ -359,6 +362,72 @@ impl TuiApp {
             _ => {}
         }
         LoopAction::Continue
+    }
+
+    /// Shell command palette keys. The overlay owns its filter, so every
+    /// printable character types into the palette and never reaches the
+    /// session composer. `Ctrl-P`/`Esc` close back to the untouched draft;
+    /// `Enter` runs the selected command with the typed argument.
+    async fn handle_command_palette_key(&mut self, key: Key) -> CliResult<LoopAction> {
+        match key.code {
+            CKey::Esc => {
+                self.overlay = OverlayMode::None;
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Char('p') | CKey::Char('P') if key.ctrl && !key.alt => {
+                self.overlay = OverlayMode::None;
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Enter => {
+                let Some(command) = self.command_palette.selected_command() else {
+                    self.app.notice.set("No matching command.".to_string());
+                    self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                    return Ok(LoopAction::Continue);
+                };
+                let argument = self.command_palette.argument();
+                self.overlay = OverlayMode::None;
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                return self.run_palette_command(command, &argument).await;
+            }
+            CKey::Backspace if !key.ctrl && !key.alt => {
+                self.command_palette.pop();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Char('u') | CKey::Char('U') if key.ctrl && !key.alt => {
+                self.command_palette.clear();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Char('j') if key.ctrl || key.alt => {
+                self.command_palette.move_next();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Char('k') if key.ctrl || key.alt => {
+                self.command_palette.move_prev();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Down => {
+                self.command_palette.move_next();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Up => {
+                self.command_palette.move_prev();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::PageDown => {
+                self.command_palette.page_down();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::PageUp => {
+                self.command_palette.page_up();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Char(c) if !key.ctrl && !key.alt => {
+                self.command_palette.push_char(c);
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            _ => {}
+        }
+        Ok(LoopAction::Continue)
     }
 
     async fn handle_session_list_key(&mut self, key: Key) -> CliResult<LoopAction> {

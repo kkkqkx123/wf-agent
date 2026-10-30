@@ -42,11 +42,11 @@ impl InteractiveController {
         // Tool-output keys are transcript context too: Ctrl+O toggles the
         // most recent expandable block, Ctrl+V opens its full output,
         // Ctrl+D cycles the detail level, Ctrl+E expands or collapses all,
-        // Ctrl+G jumps between sub-agent start rows newest-first, Ctrl+P
-        // cycles user prompts, Ctrl+U cycles todo updates, Ctrl+F cycles
-        // tool failures, Ctrl+N cycles checkpoints, Ctrl+X cycles human
-        // decisions, Ctrl+I lists the anchor timeline, Alt+N/Alt+P move to
-        // the next/previous anchor.
+        // Ctrl+G jumps between sub-agent start rows newest-first, Ctrl+U
+        // cycles todo updates, Ctrl+F cycles tool failures, Ctrl+N cycles
+        // checkpoints, Ctrl+X cycles human decisions, Ctrl+I lists the anchor
+        // timeline, Alt+N/Alt+P move to the next/previous anchor (Alt+P also
+        // reaches user prompts; Ctrl+P opens the shell command palette).
         // High level expands retrieval bodies by default and can flood the
         // transcript on large reads; prefer medium for daily use and switch
         // to high only when inspecting retrieval behavior.
@@ -94,10 +94,6 @@ impl InteractiveController {
             }
             CKey::Char('g') | CKey::Char('G') if key.ctrl && !key.alt => {
                 self.jump_to_subagent();
-                return InteractiveAction::Continue;
-            }
-            CKey::Char('p') | CKey::Char('P') if key.ctrl && !key.alt => {
-                self.jump_to_anchor_kind(AnchorKind::UserPrompt);
                 return InteractiveAction::Continue;
             }
             CKey::Char('u') | CKey::Char('U') if key.ctrl && !key.alt => {

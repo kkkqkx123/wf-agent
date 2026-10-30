@@ -351,7 +351,7 @@ impl HighlightCache {
         line: &str,
         _state: &mut HighlightBlockState,
     ) -> Vec<CodeSpan> {
-        let key = fnv1a(format!("{:?}:{}", language, line).as_bytes());
+        let key = highlight_line_key(language, line);
         if let Some(cached) = self.entries.get(&key) {
             self.hits += 1;
             return cached.clone();
@@ -368,12 +368,44 @@ impl HighlightCache {
         spans
     }
 
+    /// Block highlight with cache participation: a fully cached block is
+    /// served from the per-line entries (counted as hits), otherwise the
+    /// block is parsed once for cross-line accuracy and every line result
+    /// is recorded under its per-line key (counted as misses) so the cache
+    /// stats and the preparation budget observe the work.
     pub fn highlight_block(
         &mut self,
         language: Option<&str>,
         lines: &[String],
     ) -> Vec<Vec<CodeSpan>> {
-        highlight_block(language, lines)
+        if lines.is_empty() {
+            return Vec::new();
+        }
+        let keys: Vec<u64> = lines
+            .iter()
+            .map(|line| highlight_line_key(language, line))
+            .collect();
+        if keys.iter().all(|key| self.entries.contains_key(key)) {
+            self.hits += keys.len() as u64;
+            return keys
+                .iter()
+                .map(|key| self.entries.get(key).cloned().unwrap_or_default())
+                .collect();
+        }
+        let rendered = highlight_block(language, lines);
+        for (key, spans) in keys.into_iter().zip(rendered.iter()) {
+            if !self.entries.contains_key(&key) {
+                self.misses += 1;
+                if self.entries.len() >= HIGHLIGHT_CACHE_CAPACITY {
+                    if let Some(oldest) = self.order.pop_front() {
+                        self.entries.remove(&oldest);
+                    }
+                }
+                self.order.push_back(key);
+            }
+            self.entries.insert(key, spans.clone());
+        }
+        rendered
     }
 
     pub fn len(&self) -> usize {
@@ -400,7 +432,12 @@ impl HighlightCache {
             entries: self.entries.len(),
             lines: self.entries.len(),
             spans: self.entries.values().map(|v| v.len()).sum(),
-            text_bytes: 0,
+            text_bytes: self
+                .entries
+                .values()
+                .flat_map(|spans| spans.iter())
+                .map(|span| span.text.len())
+                .sum(),
             estimated_bytes: self.bytes(),
         }
     }
@@ -415,6 +452,12 @@ pub struct HighlightMemoryProfile {
     pub spans: usize,
     pub text_bytes: usize,
     pub estimated_bytes: usize,
+}
+
+/// Per-line cache key shared by the single-line and block highlight paths
+/// so block results populate the same namespace single lines read.
+fn highlight_line_key(language: Option<&str>, line: &str) -> u64 {
+    fnv1a(format!("{language:?}:{line}").as_bytes())
 }
 
 fn fnv1a(bytes: &[u8]) -> u64 {

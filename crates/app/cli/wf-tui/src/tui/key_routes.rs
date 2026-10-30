@@ -60,6 +60,15 @@ impl TuiApp {
             return Ok(action);
         }
 
+        // Shell command palette: global, owns its filter, leaves the
+        // session composer draft untouched. Resolved through the keymap so
+        // user overrides apply; checked before the session sees the key so
+        // the chord never leaks into the composer or anchor jumps.
+        if self.keymap.resolve_action(KeymapContext::Global, key) == Some(KeyAction::Palette) {
+            self.open_command_palette();
+            return Ok(LoopAction::Continue);
+        }
+
         match key.code {
             CKey::Char('t') if key.ctrl => {
                 let Some(session_id) = self.history_session_id() else {

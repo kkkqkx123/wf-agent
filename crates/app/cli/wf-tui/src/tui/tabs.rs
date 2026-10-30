@@ -118,6 +118,15 @@ impl TuiApp {
         }
     }
 
+    /// Open the shell command palette over the current screen. The overlay
+    /// owns its filter, so the session composer draft stays untouched while
+    /// the palette is open.
+    pub(super) fn open_command_palette(&mut self) {
+        self.command_palette.clear();
+        self.overlay = OverlayMode::CommandPalette;
+        self.pending_scope.request(crate::redraw::RedrawScope::Full);
+    }
+
     /// Open the session list browser over the current tab set and refresh
     /// the recent-sessions pane on a background task.
     pub(super) fn open_session_list(&mut self) {

@@ -63,7 +63,7 @@
 	filterPlaceholder={t('chat.modelPicker.filterPlaceholder')}
 	emptyLabel={t('chat.modelPicker.emptyLabel')}
 	icon="cpu"
-	triggerClass="w-44"
+	triggerClass="w-40"
 	{activePicker}
 	{pickerKey}
 	{onActivate}

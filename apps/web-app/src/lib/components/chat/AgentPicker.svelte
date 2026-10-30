@@ -61,7 +61,7 @@
 	filterPlaceholder={t('chat.agentPicker.filterPlaceholder')}
 	emptyLabel={t('chat.agentPicker.emptyLabel')}
 	icon="cpu"
-	triggerClass="w-40"
+	triggerClass="w-36"
 	{activePicker}
 	{pickerKey}
 	{onActivate}

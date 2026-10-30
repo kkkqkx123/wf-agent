@@ -60,7 +60,7 @@
 	filterPlaceholder={t('chat.workflowPicker.filterPlaceholder')}
 	emptyLabel={t('chat.workflowPicker.emptyLabel')}
 	icon="workflow"
-	triggerClass="w-40"
+	triggerClass="w-36"
 	{activePicker}
 	{pickerKey}
 	{onActivate}

@@ -119,7 +119,7 @@
 		aria-expanded={open}
 		aria-label={t('chat.executionTypePicker.ariaLabel')}
 		onclick={() => (open ? close() : openPanel())}
-		class="flex h-9 w-36 items-center gap-1.5 rounded-md border border-input bg-card px-2 text-caption text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
+		class="flex h-9 w-32 items-center gap-1.5 rounded-md border border-input bg-card px-2 text-caption text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 	>
 		<Icon name={selected.icon} size={13} class="shrink-0 text-muted-foreground" />
 		<span class="min-w-0 flex-1 truncate text-left">{selected.label}</span>

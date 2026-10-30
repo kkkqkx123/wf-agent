@@ -15,6 +15,8 @@
 	import ModelPicker from '#lib/components/chat/ModelPicker.svelte';
 	import AgentPicker from '#lib/components/chat/AgentPicker.svelte';
 	import WorkflowPicker from '#lib/components/chat/WorkflowPicker.svelte';
+	import StarterRow from '#lib/components/chat/StarterRow.svelte';
+	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import ExecutionTypePicker, {
 		type ExecutionType,
 	} from '#lib/components/chat/ExecutionTypePicker.svelte';
@@ -63,6 +65,9 @@
 		draftKey?: string;
 		suggestions?: StarterSuggestion[];
 		showSuggestions?: boolean;
+		fullscreen?: boolean;
+		onToggleFullscreen?: () => void;
+		onResetHeight?: () => void;
 		onsend?: (message: OutgoingMessage) => boolean;
 		onstop?: () => void;
 		oncommand?: (action: CommandAction, arg: string) => void;
@@ -78,6 +83,9 @@
 		draftKey = 'new',
 		suggestions = [],
 		showSuggestions = false,
+		fullscreen = false,
+		onToggleFullscreen,
+		onResetHeight,
 		onsend,
 		onstop,
 		oncommand,
@@ -524,24 +532,16 @@
 
 <svelte:window onkeydown={onGlobalKeydown} />
 
-<div>
+<div class="flex h-full min-h-0 flex-col gap-2">
 	{#if showSuggestions && suggestions.length > 0}
-		<div class="mb-2 flex flex-wrap gap-1.5">
-			{#each suggestions as suggestion (suggestion.id ?? suggestion.title)}
-				<button
-					type="button"
-					title={suggestion.title}
-					onclick={() => {
-						draft = suggestion.content;
-						onSuggestionSelect?.(suggestion);
-						box?.focus();
-					}}
-					class="rounded-full border border-border bg-muted/50 px-2.5 py-1 text-caption text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-				>
-					{suggestion.title}
-				</button>
-			{/each}
-		</div>
+		<StarterRow
+			{suggestions}
+			onSelect={(suggestion) => {
+				draft = suggestion.content;
+				onSuggestionSelect?.(suggestion);
+				box?.focus();
+			}}
+		/>
 	{/if}
 
 	{#if queue.length > 0}
@@ -783,7 +783,11 @@
 		</div>
 	{/if}
 
-	<div class="flex items-center gap-2">
+	<div
+		class="flex flex-wrap items-center gap-2"
+		role="toolbar"
+		aria-label={t('chat.composer.ariaLabel')}
+	>
 		<ExecutionTypePicker
 			bind:value={executionType}
 			class="shrink-0"
@@ -831,19 +835,47 @@
 				box?.focus();
 			}}
 		/>
-		<textarea
-			bind:this={box}
-			bind:value={draft}
-			oninput={onInput}
-			onkeydown={onKey}
-			onpaste={onPaste}
-			ondrop={onDrop}
-			ondragover={(event) => event.preventDefault()}
-			rows={2}
-			placeholder={t('chat.composer.placeholder')}
-			aria-label={t('chat.composer.ariaLabel')}
-			class="max-h-36 min-h-9 flex-1 resize-y rounded-md border border-input bg-card px-2.5 py-2 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
-		></textarea>
+		<span class="min-w-2 flex-1"></span>
+		{#if onResetHeight}
+			<IconButton
+				icon="history"
+				label={t('chat.composer.resetHeight')}
+				onclick={() => onResetHeight?.()}
+				compact
+			/>
+		{/if}
+		{#if onToggleFullscreen}
+			<IconButton
+				icon={fullscreen ? 'minimize' : 'maximize'}
+				label={fullscreen ? t('chat.composer.collapseComposer') : t('chat.composer.expandComposer')}
+				onclick={() => onToggleFullscreen?.()}
+				compact
+				active={fullscreen}
+			/>
+		{/if}
+	</div>
+	<textarea
+		bind:this={box}
+		bind:value={draft}
+		oninput={onInput}
+		onkeydown={onKey}
+		onpaste={onPaste}
+		ondrop={onDrop}
+		ondragover={(event) => event.preventDefault()}
+		rows={4}
+		placeholder={t('chat.composer.placeholder')}
+		aria-label={t('chat.composer.ariaLabel')}
+		class={fullscreen
+			? 'min-h-48 w-full flex-1 resize-none overflow-y-auto rounded-md border border-input bg-card px-2.5 py-2 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring'
+			: 'max-h-[32vh] min-h-28 w-full resize-none overflow-y-auto rounded-md border border-input bg-card px-2.5 py-2 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring'}
+	></textarea>
+	<div class="flex flex-wrap items-center gap-2">
+		<p class="min-w-0 flex-1 text-micro text-muted-foreground">
+			{t('chat.composer.hintsEnter')}{#if busy}
+				· {t('chat.composer.hintsQueue')}{/if} · {SLASH_COMMANDS.map(
+				(command) => `/${command.name}`,
+			).join(' ')} · {t('chat.composer.hintsMentions')} · {t('chat.composer.hintsAttach')}
+		</p>
 		{#if busy}
 			<Button size="sm" variant="outline" onclick={() => onstop?.()}>
 				<Icon name="square" size={13} />
@@ -865,10 +897,4 @@
 			</Button>
 		{/if}
 	</div>
-	<p class="mt-1 text-micro text-muted-foreground">
-		{t('chat.composer.hintsEnter')}{#if busy}
-			· {t('chat.composer.hintsQueue')}{/if} · {SLASH_COMMANDS.map(
-			(command) => `/${command.name}`,
-		).join(' ')} · {t('chat.composer.hintsMentions')} · {t('chat.composer.hintsAttach')}
-	</p>
 </div>

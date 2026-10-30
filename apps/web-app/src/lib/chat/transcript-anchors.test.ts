@@ -30,19 +30,25 @@ describe('resolveTranscriptAnchorKind', () => {
 		).toBe('todo');
 	});
 
-	it('ignores ordinary assistant and tool messages', () => {
-		expect(resolveTranscriptAnchorKind(message({}))).toBeNull();
+	it('treats tool messages as tool anchors', () => {
 		expect(
 			resolveTranscriptAnchorKind(message({ role: 'tool', toolName: 'shell.exec' })),
-		).toBeNull();
+		).toBe('tool');
+	});
+
+	it('ignores ordinary assistant messages', () => {
+		expect(resolveTranscriptAnchorKind(message({}))).toBeNull();
 	});
 });
 
 describe('isTranscriptAnchor', () => {
-	it('enables prompts and todos by default', () => {
-		expect(TRANSCRIPT_ANCHOR_KINDS).toEqual(['prompt', 'todo']);
+	it('enables prompts, todos and tools by default', () => {
+		expect(TRANSCRIPT_ANCHOR_KINDS).toEqual(['prompt', 'todo', 'tool']);
 		expect(isTranscriptAnchor(message({ role: 'user' }))).toBe(true);
 		expect(isTranscriptAnchor(message({ toolName: 'update_todo_list' }))).toBe(true);
+		expect(
+			isTranscriptAnchor(message({ role: 'tool', toolName: 'shell.exec' })),
+		).toBe(true);
 		expect(isTranscriptAnchor(message({}))).toBe(false);
 	});
 

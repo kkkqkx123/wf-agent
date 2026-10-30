@@ -112,7 +112,7 @@ pub fn format_program_status(status: &ProgramStatus) -> String {
     }
     let raw_message = status.message.clone().unwrap_or_default();
     let message = truncate_utf8(
-        &replace_control_chars(&raw_message).trim(),
+        replace_control_chars(&raw_message).trim(),
         MAX_MESSAGE_BYTES,
     );
     if !message.is_empty() {

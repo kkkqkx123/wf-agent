@@ -4,17 +4,24 @@ import type { LoopMessage } from '#lib/types/models';
  * Transcript anchor kinds shared by every transcript view. Names describe
  * the behaviour behind the message, not the component that renders it.
  * Failure-like kinds stay out until the message model carries an outcome;
- * guessing from content would misfire on ordinary prose.
+ * guessing from content would misfire on ordinary prose. Tool activity is
+ * anchorable without guessing: any persisted tool-role message marks a
+ * point of tool activity, mirroring the activity anchors on the TUI side.
  */
-export type TranscriptAnchorKind = 'prompt' | 'todo';
+export type TranscriptAnchorKind = 'prompt' | 'todo' | 'tool';
 
 /** Anchor kinds enabled when the caller passes no explicit selection. */
-export const TRANSCRIPT_ANCHOR_KINDS: readonly TranscriptAnchorKind[] = ['prompt', 'todo'];
+export const TRANSCRIPT_ANCHOR_KINDS: readonly TranscriptAnchorKind[] = [
+	'prompt',
+	'todo',
+	'tool',
+];
 
 /** Kind of anchor behind one message, or null when it jumps nowhere. */
 export function resolveTranscriptAnchorKind(message: LoopMessage): TranscriptAnchorKind | null {
 	if (message.role === 'user') return 'prompt';
 	if (message.toolName === 'update_todo_list') return 'todo';
+	if (message.role === 'tool') return 'tool';
 	return null;
 }
 

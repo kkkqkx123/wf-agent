@@ -706,6 +706,10 @@ impl InteractiveController {
                 self.request_copy_with_arg(argument);
                 InteractiveAction::Continue
             }
+            "session.web" => {
+                self.request_web_link();
+                InteractiveAction::Continue
+            }
             "session.executions" => {
                 InteractiveAction::OpenScreen(crate::screens::ScreenKind::Executions)
             }

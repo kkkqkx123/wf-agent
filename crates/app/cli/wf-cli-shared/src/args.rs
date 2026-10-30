@@ -166,9 +166,7 @@ impl Cli {
                 }
             }
             if let Some(input_str) = input {
-                if let Err(e) = crate::turn::parse_workflow_input(Some(input_str)) {
-                    return Err(e);
-                }
+                crate::turn::parse_workflow_input(Some(input_str))?;
             }
         }
         Ok(())

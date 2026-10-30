@@ -297,6 +297,21 @@ pub static COMMANDS: &[CommandSpec] = &[
         palette: true,
     },
     CommandSpec {
+        id: "session.web",
+        title: "Web link",
+        group: "Session",
+        description: "Copy the web conversation link for this session",
+        action: None,
+        scopes: &[],
+        leader: &[key(CKey::Char('o'))],
+        slash: Some(SlashSpec {
+            name: "web",
+            aliases: &["open-web"],
+            argument: "",
+        }),
+        palette: true,
+    },
+    CommandSpec {
         id: "session.resume",
         title: "Resume",
         group: "Session",
@@ -1127,7 +1142,7 @@ pub fn slash_suggestions(typed: &str, limit: usize) -> Vec<String> {
             if prefix || distance <= 2 {
                 let rank = usize::from(!prefix);
                 let candidate = (distance.min(u8::MAX as usize) as u8, rank);
-                if best.map_or(true, |current| candidate < current) {
+                if best.is_none_or(|current| candidate < current) {
                     best = Some(candidate);
                 }
             }

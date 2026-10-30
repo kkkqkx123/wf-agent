@@ -11,7 +11,7 @@ use crate::copy::{
     last_assistant_text, resolve_copy_text, spec_or_default, CopyPolicy, CopyResolveError,
     CopySourceLine, PendingCopy,
 };
-use crate::transcript::Role;
+use crate::transcript::{HistoryLine, Role};
 
 use super::InteractiveController;
 
@@ -67,6 +67,35 @@ impl InteractiveController {
             },
             Err(err) => {
                 self.pending_copy_notice = Some(err.notice());
+            }
+        }
+    }
+
+    /// Copy the web conversation link for the active session.
+    ///
+    /// The address mirrors the web chat route (`/chat?id=<session>`), the
+    /// reverse bridge of the web header detail link. The scrollback row
+    /// and the notice never depend on the copy gate; only the clipboard
+    /// write does, so a denied policy still leaves the address visible.
+    pub fn request_web_link(&mut self) {
+        let Some(id) = self.session_id().map(str::to_string) else {
+            self.footer.show_notice("no active session");
+            return;
+        };
+        let url = format!("/chat?id={id}");
+        self.pending_scroll
+            .push(HistoryLine::new_role(format!("web: {url}"), Role::Muted));
+        if !self.copy_policy.allowed {
+            self.footer.show_notice(format!("web: {url}"));
+            return;
+        }
+        match crate::terminal::sanitize_copy_text(&url) {
+            Some(clean) => {
+                self.pending_copy = Some(PendingCopy::new(clean, "web link"));
+                self.footer.show_notice(format!("web: {url}"));
+            }
+            None => {
+                self.pending_copy_notice = Some(CopyResolveError::EmptyReply.notice());
             }
         }
     }

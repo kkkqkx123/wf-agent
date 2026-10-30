@@ -538,7 +538,6 @@ impl TuiApp {
         let short_source = crate::screens::short_id(&source);
         let short_cp = crate::screens::short_id(&checkpoint_id);
         let mut notices: Vec<String> = Vec::new();
-        let mut state_ok = true;
         let mut new_id: Option<String> = None;
 
         // History restore (state) unless workspace-only.
@@ -551,7 +550,6 @@ impl TuiApp {
                     ));
                 }
                 Err(err) => {
-                    state_ok = false;
                     self.app.notice.set(format!("branch failed: {err}"));
                     self.pending_scope.request(crate::redraw::RedrawScope::Full);
                     return;
@@ -615,7 +613,6 @@ impl TuiApp {
             self.overlay = OverlayMode::None;
         }
         self.app.notice.set(notices.join("; "));
-        let _ = state_ok;
         self.pending_scope.request(crate::redraw::RedrawScope::Full);
     }
 

@@ -26,9 +26,11 @@
 
 	interface Props {
 		controller: ChatSessionController;
+		fullscreen?: boolean;
+		onToggleFullscreen?: () => void;
 	}
 
-	let { controller }: Props = $props();
+	let { controller, fullscreen = $bindable(false), onToggleFullscreen }: Props = $props();
 
 	const selectedId = $derived(controller.selectedId);
 	const locale = $derived(getLocale());
@@ -36,7 +38,6 @@
 	let starters = $state<StarterSuggestion[] | null>(null);
 	let backendOk = $state(true);
 	let request = 0;
-	let fullscreen = $state(false);
 	let composerHeight = $state<number | null>(null);
 	let dragging = $state(false);
 	let dragStartY = 0;
@@ -134,55 +135,26 @@
 	}
 
 	function toggleFullscreen(): void {
-		fullscreen = !fullscreen;
+		if (onToggleFullscreen) onToggleFullscreen();
+		else fullscreen = !fullscreen;
 	}
 
 	function onkeydown(event: KeyboardEvent): void {
 		if (event.key === 'Escape' && fullscreen) {
 			event.stopPropagation();
-			fullscreen = false;
+			toggleFullscreen();
 		}
 	}
-
-	$effect(() => {
-		document.body.style.overflow = fullscreen ? 'hidden' : '';
-		return () => {
-			document.body.style.overflow = '';
-		};
-	});
 </script>
 
 <svelte:window {onkeydown} />
 
-{#if fullscreen}
-	<div class="fixed inset-0 z-50 flex flex-col bg-background/95 p-4 backdrop-blur-sm">
-		<div class="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
-			<DecisionMap {controller} />
-			<div class="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-muted/30 p-2.5">
-				<Composer
-					bind:model={controller.model}
-					bind:agent={controller.agentId}
-					bind:workflow={controller.workflowId}
-					bind:executionType={controller.executionType}
-					busy={chatStream.active}
-					draftKey={selectedId ?? NEW_SESSION}
-					{suggestions}
-					showSuggestions={controller.bubbles.length === 0}
-					fullscreen={true}
-					onToggleFullscreen={toggleFullscreen}
-					onResetHeight={resetHeight}
-					onsend={handleSend}
-					onstop={() => chatStream.stop()}
-					oncommand={(action, arg) => controller.COMMANDS[action](arg)}
-					onSuggestionSelect={(suggestion) => {
-						pendingStarterId = suggestion.id ?? null;
-					}}
-				/>
-			</div>
-		</div>
-	</div>
-{:else}
-	<div class="relative shrink-0 border-t border-border px-3 pt-1 pb-2.5">
+<div
+	class="relative border-t border-border px-3 pt-1 pb-2.5 {fullscreen
+		? 'min-h-0 flex-1 overflow-y-auto'
+		: 'shrink-0'}"
+>
+	{#if !fullscreen}
 		<!-- Focusable ARIA separator: standard pattern for a resizable splitter handle -->
 		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -214,36 +186,39 @@
 					: 'bg-border hover:bg-primary/50'}"
 			></span>
 		</div>
+	{/if}
+	<div
+		class="w-full {composerHeight !== null && !fullscreen ? 'min-h-0' : ''} {fullscreen
+			? 'h-full min-h-0'
+			: ''}"
+		style:height={composerHeight !== null && !fullscreen ? `${composerHeight}px` : undefined}
+	>
+		<DecisionMap {controller} />
 		<div
-			class="mx-auto max-w-4xl {composerHeight !== null ? 'min-h-0' : ''}"
-			style:height={composerHeight !== null ? `${composerHeight}px` : undefined}
+			class="rounded-xl border border-border bg-muted/30 p-2.5 {composerHeight !== null &&
+			!fullscreen
+				? 'h-full min-h-0 overflow-y-auto'
+				: ''} {fullscreen ? 'flex h-full min-h-0 flex-col' : ''}"
 		>
-			<DecisionMap {controller} />
-			<div
-				class="rounded-xl border border-border bg-muted/30 p-2.5 {composerHeight !== null
-					? 'h-full min-h-0 overflow-y-auto'
-					: ''}"
-			>
-				<Composer
-					bind:model={controller.model}
-					bind:agent={controller.agentId}
-					bind:workflow={controller.workflowId}
-					bind:executionType={controller.executionType}
-					busy={chatStream.active}
-					draftKey={selectedId ?? NEW_SESSION}
-					{suggestions}
-					showSuggestions={controller.bubbles.length === 0}
-					fullscreen={false}
-					onToggleFullscreen={toggleFullscreen}
-					onResetHeight={resetHeight}
-					onsend={handleSend}
-					onstop={() => chatStream.stop()}
-					oncommand={(action, arg) => controller.COMMANDS[action](arg)}
-					onSuggestionSelect={(suggestion) => {
-						pendingStarterId = suggestion.id ?? null;
-					}}
-				/>
-			</div>
+			<Composer
+				bind:model={controller.model}
+				bind:agent={controller.agentId}
+				bind:workflow={controller.workflowId}
+				bind:executionType={controller.executionType}
+				busy={chatStream.active}
+				draftKey={selectedId ?? NEW_SESSION}
+				{suggestions}
+				showSuggestions={controller.bubbles.length === 0}
+				{fullscreen}
+				onToggleFullscreen={toggleFullscreen}
+				onResetHeight={resetHeight}
+				onsend={handleSend}
+				onstop={() => chatStream.stop()}
+				oncommand={(action, arg) => controller.COMMANDS[action](arg)}
+				onSuggestionSelect={(suggestion) => {
+					pendingStarterId = suggestion.id ?? null;
+				}}
+			/>
 		</div>
 	</div>
-{/if}
+</div>

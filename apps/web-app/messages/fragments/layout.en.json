@@ -55,5 +55,6 @@
 	"layout.shortcuts.savedWithConflict": "{action} saved, but it conflicts with an active binding.",
 	"layout.shortcuts.remapped": "{action} remapped to {keys}.",
 	"layout.shortcuts.restored": "{action} restored to its default binding.",
-	"layout.shortcuts.disabledMessage": "{action} disabled."
+	"layout.shortcuts.disabledMessage": "{action} disabled.",
+	"layout.sidebar.resize": "Resize sidebar"
 }

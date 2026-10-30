@@ -8,6 +8,7 @@ import {
 	dependencies,
 	diagnostics,
 } from '#lib/fixtures/insights';
+import { agentLoops } from '#lib/fixtures/agentLoops';
 import { FIXTURE_EPOCH } from '#lib/fixtures/clock';
 import { camelToSnakeDeep, pageView, type MockRouter } from '../router';
 
@@ -35,11 +36,33 @@ export function registerInsights(router: MockRouter): void {
 		version: '1.0.0',
 		name: 'wf-agent',
 	}));
-	router.on('GET', '/api/v1/favorites', (_p, query) =>
-		pageView([], +(query.limit ?? 50), +(query.offset ?? 0)),
+	// Preview star set seeded from starred fixtures; toggles mutate it so
+	// the session rail stays interactive without a live backend.
+	const previewStars = new Set(
+		agentLoops.filter((loop) => loop.starred).map((loop) => `agent_loop:${loop.id}`),
 	);
-	router.on('PUT', '/api/v1/favorites/{kind}/{id}', () => ({ ok: true }));
-	router.on('DELETE', '/api/v1/favorites/{kind}/{id}', () => ({ ok: true }));
+	const toFavorite = (key: string) => {
+		const separator = key.indexOf(':');
+		return {
+			kind: key.slice(0, separator),
+			id: key.slice(separator + 1),
+			pinned: false,
+			tags: [],
+		};
+	};
+	router.on('GET', '/api/v1/favorites', (_p, query) => {
+		const kind = String(query.kind ?? '').trim();
+		const keys = [...previewStars].filter((key) => !kind || key.startsWith(`${kind}:`));
+		return pageView(keys.map(toFavorite), +(query.limit ?? 50), +(query.offset ?? 0));
+	});
+	router.on('PUT', '/api/v1/favorites/{kind}/{id}', (params) => {
+		previewStars.add(`${params.kind}:${params.id}`);
+		return { ok: true };
+	});
+	router.on('DELETE', '/api/v1/favorites/{kind}/{id}', (params) => {
+		previewStars.delete(`${params.kind}:${params.id}`);
+		return { ok: true };
+	});
 	router.on('GET', '/api/v1/storage/diagnose', () => camelToSnakeDeep(diagnostics));
 	router.on('GET', '/api/v1/storage/stats', () => ({
 		files: 128,

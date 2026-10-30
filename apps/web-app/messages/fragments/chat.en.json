@@ -126,5 +126,16 @@
 	"pty.ptyPanel.restart": "Restart",
 	"pty.ptyPanel.dismiss": "Dismiss",
 	"pty.ptyPanel.closeActive": "Close active",
-	"pty.ptyPanel.hidePanel": "Hide panel"
+	"pty.ptyPanel.hidePanel": "Hide panel",
+	"chat.sessionRail.newSession": "New session",
+	"chat.sessionRail.searchPlaceholder": "Search sessions",
+	"chat.sessionRail.starred": "Starred",
+	"chat.sessionRail.recent": "Recent",
+	"chat.sessionRail.allSessions": "All sessions",
+	"chat.sessionRail.collapse": "Collapse session list",
+	"chat.sessionRail.expand": "Expand session list",
+	"chat.sessionRail.empty": "No sessions yet",
+	"chat.sessionRail.openSession": "Open {name}",
+	"chat.sessionRail.refresh": "Refresh session list",
+	"chat.sessionRail.loadMore": "Load more"
 }

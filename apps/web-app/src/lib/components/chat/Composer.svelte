@@ -838,7 +838,7 @@
 		<span class="min-w-2 flex-1"></span>
 		{#if onResetHeight}
 			<IconButton
-				icon="history"
+				icon="undo"
 				label={t('chat.composer.resetHeight')}
 				onclick={() => onResetHeight?.()}
 				compact

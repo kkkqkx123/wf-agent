@@ -55,5 +55,6 @@
 	"layout.shortcuts.savedWithConflict": "{action} 已保存，但与现有绑定冲突。",
 	"layout.shortcuts.remapped": "{action} 已重新映射为 {keys}。",
 	"layout.shortcuts.restored": "{action} 已恢复为默认绑定。",
-	"layout.shortcuts.disabledMessage": "{action} 已禁用。"
+	"layout.shortcuts.disabledMessage": "{action} 已禁用。",
+	"layout.sidebar.resize": "调整侧边栏宽度"
 }

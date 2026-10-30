@@ -13,6 +13,8 @@ export function registerAgentLoops(router: MockRouter): void {
 		return {
 			id: loop.id,
 			status: loop.status,
+			execution_type: loop.executionType,
+			title: loop.name,
 			current_iteration: loop.iteration,
 			tool_call_count: 0,
 			start_time: Date.parse(loop.startedAt),
@@ -22,7 +24,16 @@ export function registerAgentLoops(router: MockRouter): void {
 		};
 	}
 	router.on('GET', '/api/v1/agent-loops/summaries', (_p, query) => {
-		return pageView(agentLoops.map(loopSummary), +(query.limit ?? 50), +(query.offset ?? 0));
+		const term = String(query.q ?? '')
+			.trim()
+			.toLowerCase();
+		const status = String(query.status ?? '').trim();
+		const filtered = agentLoops.filter((loop) => {
+			if (status && loop.status !== status) return false;
+			if (!term) return true;
+			return [loop.id, loop.name, loop.status].join(' ').toLowerCase().includes(term);
+		});
+		return pageView(filtered.map(loopSummary), +(query.limit ?? 50), +(query.offset ?? 0));
 	});
 	router.on('GET', '/api/v1/agent-loops', (_p, query) => {
 		return pageView(camelToSnakeDeep(agentLoops), +(query.limit ?? 50), +(query.offset ?? 0));

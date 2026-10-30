@@ -12,6 +12,34 @@
 	import { t } from '#lib/i18n';
 
 	const RAIL_WIDTH = '3.5rem';
+	const SIDEBAR_DEFAULT_WIDTH = 212;
+
+	let sidebarDragging = $state(false);
+
+	function startSidebarResize(event: PointerEvent): void {
+		const handle = event.currentTarget as HTMLElement | null;
+		if (!handle) return;
+		sidebarDragging = true;
+		event.preventDefault();
+		handle.setPointerCapture(event.pointerId);
+		const onMove = (moveEvent: PointerEvent): void => {
+			preferences.setSidebarWidth(moveEvent.clientX);
+		};
+		const onUp = (upEvent: PointerEvent): void => {
+			sidebarDragging = false;
+			handle.releasePointerCapture(upEvent.pointerId);
+			handle.removeEventListener('pointermove', onMove);
+			handle.removeEventListener('pointerup', onUp);
+			handle.removeEventListener('pointercancel', onUp);
+		};
+		handle.addEventListener('pointermove', onMove);
+		handle.addEventListener('pointerup', onUp);
+		handle.addEventListener('pointercancel', onUp);
+	}
+
+	function resetSidebarWidth(): void {
+		preferences.setSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
+	}
 
 	const activeItem = $derived(navItemFor(page.url.pathname));
 
@@ -91,9 +119,29 @@
 	</aside>
 {:else}
 	<aside
-		class="flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar"
+		class="relative flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar"
 		style:width="{preferences.sidebarWidth}px"
 	>
+		<button
+			type="button"
+			aria-label={t('layout.sidebar.resize')}
+			class="absolute top-0 right-0 z-10 h-full w-1.5 cursor-col-resize bg-transparent hover:bg-primary/20 {sidebarDragging
+				? 'bg-primary/20'
+				: ''}"
+			onpointerdown={startSidebarResize}
+			ondblclick={resetSidebarWidth}
+			onkeydown={(event) => {
+				if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+					event.preventDefault();
+					preferences.setSidebarWidth(
+						preferences.sidebarWidth + (event.key === 'ArrowRight' ? 8 : -8),
+					);
+				} else if (event.key === 'Home') {
+					event.preventDefault();
+					resetSidebarWidth();
+				}
+			}}
+		></button>
 		<div class="flex h-12 items-center justify-between gap-2 border-b border-sidebar-border px-3">
 			<a href={resolve('/')} class="flex min-w-0 items-center gap-2" onclick={navigate}>
 				<span

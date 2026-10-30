@@ -80,7 +80,7 @@ class PreferencesStore {
 	theme = $state<ThemeMode>('system');
 	density = $state<Density>('default');
 	sidebarCollapsed = $state(false);
-	sidebarWidth = $state(240);
+	sidebarWidth = $state(212);
 	inspectorWidth = $state(INSPECTOR_WIDTH_DEFAULT);
 	inspectorPinned = $state(false);
 	minimapMode = $state<MinimapMode>('auto');

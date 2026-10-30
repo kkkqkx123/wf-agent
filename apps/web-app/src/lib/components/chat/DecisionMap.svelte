@@ -24,7 +24,7 @@
 </script>
 
 {#if selectedId}
-	<div class="mx-auto mb-2 max-w-4xl">
+	<div class="mb-2 w-full">
 		<button
 			type="button"
 			class="text-micro text-muted-foreground underline-offset-2 hover:underline"

@@ -126,5 +126,16 @@
 	"pty.ptyPanel.restart": "重启",
 	"pty.ptyPanel.dismiss": "忽略",
 	"pty.ptyPanel.closeActive": "关闭当前",
-	"pty.ptyPanel.hidePanel": "隐藏面板"
+	"pty.ptyPanel.hidePanel": "隐藏面板",
+	"chat.sessionRail.newSession": "新建会话",
+	"chat.sessionRail.searchPlaceholder": "搜索会话",
+	"chat.sessionRail.starred": "已收藏",
+	"chat.sessionRail.recent": "最近",
+	"chat.sessionRail.allSessions": "全部会话",
+	"chat.sessionRail.collapse": "收起会话列表",
+	"chat.sessionRail.expand": "展开会话列表",
+	"chat.sessionRail.empty": "暂无会话",
+	"chat.sessionRail.openSession": "打开 {name}",
+	"chat.sessionRail.refresh": "刷新会话列表",
+	"chat.sessionRail.loadMore": "加载更多"
 }

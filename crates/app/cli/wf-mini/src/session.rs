@@ -113,6 +113,12 @@ pub struct NativeSession {
     /// Window-title heartbeat frame index, advanced once per tick while a
     /// turn runs. A frozen frame in the title signals a stalled process.
     title_frame: usize,
+    /// Cached rows of the last `/sessions` listing (display order) backing
+    /// numeric `/resume <n>` and `/delete <n>` targets.
+    last_session_rows: Vec<MiniSessionRow>,
+    /// Session id armed by a first `/delete`: repeating the same command
+    /// confirms, any other outcome clears it.
+    pending_delete: Option<String>,
 }
 
 /// What a slash command asks the loop to do.
@@ -189,6 +195,8 @@ impl NativeSession {
             cancel_rx: tokio::sync::watch::channel(false).1,
             recap_ticket: 0,
             title_frame: 0,
+            last_session_rows: Vec::new(),
+            pending_delete: None,
         })
     }
 
@@ -328,7 +336,7 @@ impl NativeSession {
             SlashCommand::Quit => CommandAction::Exit,
             SlashCommand::Help => {
                 output::diag_line("commands: /help show this help, /clear print a separator, /new start a fresh conversation, /checkpoints list checkpoints, /recap show a one-line recap of the turn, /quit exit (Ctrl-D also exits)");
-                output::diag_line("sessions: /sessions [filter] list recent server sessions (newest first, id · title · status · age), /resume [id-or-filter] continue a session (bare resumes latest), /rename <title> rename current session, /delete [id-or-filter] delete a session (bare deletes current)");
+                output::diag_line("sessions: /sessions [--named] [filter] list recent server sessions newest-first as [n] id · title · status · age (quoted \"phrase\" matches exactly, --named hides untitled), /resume [n|id-or-filter] continue a session (bare resumes latest, number reuses the last listing), /rename <title> rename current session, /delete [n|id-or-filter] delete a session in two steps (repeat the same command to confirm, bare deletes current)");
                 output::diag_line("history: /history [prefix] list recent prompts (optional prefix filter), /rerun [n] re-ask prompt n (default: last)");
                 output::diag_line("display: /markdown [raw|plain|styled] set or show stdout rendering, /reasoning [on|off], /usage [on|off], /tools [on|off], /display show all");
                 output::diag_line("nested loops: /loops [execution] list workflow nested targets, /steer [--node <id>] <text> steering input, /followup [--node <id>] <text> follow-up input, /append-mode [--node <id>] steering|followup, /convert-pending [--node <id>]");
@@ -374,6 +382,7 @@ impl NativeSession {
             SlashCommand::New => {
                 self.transcript.clear();
                 self.anchor = format!("mini-{}", wf_common::generate_id());
+                self.pending_delete = None;
                 self.nested_execution_id = None;
                 self.nested_selected_node = None;
                 self.nested_loops = Vec::new();
@@ -1065,88 +1074,105 @@ impl NativeSession {
         rows
     }
 
-    /// List recent server sessions newest-first, filtered by a substring
-    /// over id, title and status. Empty servers and empty filters report
+    /// List recent server sessions newest-first as numbered rows, filtered
+    /// by an AND of whitespace-separated tokens over id, title and
+    /// status (`"phrase"` matches exactly, `--named` hides untitled
+    /// sessions). The shown rows back numeric `/resume <n>` and
+    /// `/delete <n>` targets. Empty servers and empty filters report
     /// explicitly instead of printing nothing.
-    async fn list_sessions(&self, filter: Option<String>) {
+    async fn list_sessions(&mut self, filter: Option<String>) {
         let rows = Self::fetch_session_rows(&self.client).await;
         if rows.is_empty() {
+            self.last_session_rows = Vec::new();
             output::diag_line("no recent sessions yet — send a turn first");
             return;
         }
-        let needle = filter.as_deref().unwrap_or_default().trim().to_lowercase();
-        let shown: Vec<&MiniSessionRow> = if needle.is_empty() {
-            rows.iter().take(20).collect()
-        } else {
+        let (named_only, query) = strip_named_flag(filter);
+        let query = query.as_deref().unwrap_or_default();
+        let tokens = parse_session_tokens(query);
+        let scoped: Vec<&MiniSessionRow> = if named_only {
             rows.iter()
-                .filter(|row| {
-                    row.id.to_lowercase().contains(&needle)
-                        || row.status.to_lowercase().contains(&needle)
-                        || row
-                            .title
-                            .as_deref()
-                            .unwrap_or_default()
-                            .to_lowercase()
-                            .contains(&needle)
-                })
-                .take(20)
+                .filter(|row| row.title.as_deref().is_some_and(|t| !t.trim().is_empty()))
                 .collect()
+        } else {
+            rows.iter().collect()
         };
-        if shown.is_empty() {
+        if named_only && scoped.is_empty() {
+            self.last_session_rows = Vec::new();
             output::diag_line(&format!(
-                "no match for '{}' ({} sessions)",
-                filter.unwrap_or_default(),
+                "no named sessions ({} sessions) — drop --named to list all",
                 rows.len()
             ));
             return;
         }
-        for row in shown {
+        let shown = filter_session_rows(scoped, &tokens);
+        if shown.is_empty() {
+            self.last_session_rows = Vec::new();
+            output::diag_line(&format!("no match for '{query}' ({} sessions)", rows.len()));
+            return;
+        }
+        let total = shown.len();
+        let page: Vec<&MiniSessionRow> = shown.into_iter().take(20).collect();
+        self.last_session_rows = page.iter().map(|row| (*row).clone()).collect();
+        for (index, row) in page.iter().enumerate() {
             let label = row.title.as_deref().unwrap_or("-");
             output::diag_line(&format!(
-                "{} · {} · {} · {}",
+                "[{}] {} · {} · {} · {}",
+                index + 1,
                 short_session_id(&row.id),
                 label,
                 row.status,
                 mini_relative_age(row.start_ms)
             ));
         }
-        if needle.is_empty() && rows.len() > 20 {
-            output::diag_line(&format!("… {} more (pass a filter)", rows.len() - 20));
+        if tokens.is_empty() && !named_only && total > 20 {
+            output::diag_line(&format!("… {} more (pass a filter)", total - 20));
         }
     }
 
     /// Continue a session interactively: bare resumes the latest session,
-    /// an argument resumes an exact id or the newest id/title/status match.
-    /// The transcript is replaced and the anchor tracks the resumed loop so
-    /// the next turn seeds from its conversation.
+    /// a number reuses the last `/sessions` listing, otherwise an exact id
+    /// wins and a quoted-phrase-aware filter falls back to the best
+    /// id/title/status match. The transcript is replaced and the anchor
+    /// tracks the resumed loop so the next turn seeds from its conversation.
     async fn resume_to(&mut self, target: Option<String>) {
-        let needle = target.as_deref().map(str::trim).unwrap_or_default();
-        if needle.is_empty() {
+        let (named_only, query) = strip_named_flag(target);
+        let needle = query.as_deref().map(str::trim).unwrap_or_default();
+        if needle.is_empty() && !named_only {
             match Self::load_latest(&self.client).await {
                 Some((id, stored)) => self.switch_transcript(id, stored),
                 None => output::diag_line("no previous session found; staying here"),
             }
             return;
         }
-        let stored = Self::load_history(&self.client, needle).await;
-        if !stored.is_empty() {
-            self.switch_transcript(needle.to_string(), stored);
+        if let Some(id) = resolve_numbered_target(needle, &self.last_session_rows) {
+            let stored = Self::load_history(&self.client, &id).await;
+            if stored.is_empty() {
+                output::diag_line(&format!("session '{id}' has no saved messages"));
+            } else {
+                self.switch_transcript(id, stored);
+            }
             return;
         }
+        if !named_only {
+            let stored = Self::load_history(&self.client, needle).await;
+            if !stored.is_empty() {
+                self.switch_transcript(needle.to_string(), stored);
+                return;
+            }
+        }
         let rows = Self::fetch_session_rows(&self.client).await;
-        let lower = needle.to_lowercase();
-        let hit = rows
-            .iter()
-            .find(|row| {
-                row.id.to_lowercase().contains(&lower)
-                    || row.status.to_lowercase().contains(&lower)
-                    || row
-                        .title
-                        .as_deref()
-                        .unwrap_or_default()
-                        .to_lowercase()
-                        .contains(&lower)
-            })
+        let tokens = parse_session_tokens(needle);
+        let scoped: Vec<&MiniSessionRow> = if named_only {
+            rows.iter()
+                .filter(|row| row.title.as_deref().is_some_and(|t| !t.trim().is_empty()))
+                .collect()
+        } else {
+            rows.iter().collect()
+        };
+        let hit = filter_session_rows(scoped, &tokens)
+            .into_iter()
+            .next()
             .map(|row| row.id.clone());
         match hit {
             Some(id) => {
@@ -1162,12 +1188,15 @@ impl NativeSession {
     }
 
     /// Replace the in-memory transcript with a resumed conversation.
+    /// Any armed `/delete` confirmation is dropped: resuming signals the
+    /// operator moved on.
     fn switch_transcript(&mut self, id: String, stored: Vec<wf_types::message::Message>) {
         let mut transcript = Transcript::new();
         let restored = transcript.restore(stored);
         self.transcript = transcript;
         self.anchor = id.clone();
         self.current_loop_id = None;
+        self.pending_delete = None;
         self.nested_execution_id = None;
         self.nested_selected_node = None;
         self.nested_loops = Vec::new();
@@ -1202,39 +1231,47 @@ impl NativeSession {
         }
     }
 
-    /// Delete a session and its conversation. Bare deletes the current
-    /// session anchor (or latest loop); an argument deletes an exact id or
-    /// the newest filter match. Deleting the current session clears the
-    /// transcript and starts a fresh anchor.
+    /// Delete a session and its conversation in two steps: the first
+    /// `/delete` only arms the resolved target (number from the last
+    /// `/sessions` listing, exact id, or best filter match), repeating the
+    /// same command confirms. Bare deletes the current session anchor (or
+    /// latest loop). Deleting the current session clears the transcript
+    /// and starts a fresh anchor.
     async fn delete_session(&mut self, target: Option<String>) {
-        let needle = target.as_deref().map(str::trim).unwrap_or_default();
-        let id = if needle.is_empty() {
+        let (named_only, query) = strip_named_flag(target);
+        let needle = query.as_deref().map(str::trim).unwrap_or_default();
+        let id = if needle.is_empty() && !named_only {
             self.current_loop_id
                 .clone()
                 .unwrap_or_else(|| self.anchor.clone())
+        } else if let Some(id) = resolve_numbered_target(needle, &self.last_session_rows) {
+            id
         } else {
-            let stored = Self::load_history(&self.client, needle).await;
-            if !stored.is_empty() {
+            let exact = if named_only {
+                Vec::new()
+            } else {
+                Self::load_history(&self.client, needle).await
+            };
+            if !exact.is_empty() {
                 needle.to_string()
             } else {
                 let rows = Self::fetch_session_rows(&self.client).await;
-                let lower = needle.to_lowercase();
-                match rows
-                    .iter()
-                    .find(|row| {
-                        row.id.to_lowercase().contains(&lower)
-                            || row.status.to_lowercase().contains(&lower)
-                            || row
-                                .title
-                                .as_deref()
-                                .unwrap_or_default()
-                                .to_lowercase()
-                                .contains(&lower)
-                    })
+                let tokens = parse_session_tokens(needle);
+                let scoped: Vec<&MiniSessionRow> = if named_only {
+                    rows.iter()
+                        .filter(|row| row.title.as_deref().is_some_and(|t| !t.trim().is_empty()))
+                        .collect()
+                } else {
+                    rows.iter().collect()
+                };
+                match filter_session_rows(scoped, &tokens)
+                    .into_iter()
+                    .next()
                     .map(|row| row.id.clone())
                 {
                     Some(id) => id,
                     None => {
+                        self.pending_delete = None;
                         output::diag_line(&format!("no session matches '{needle}'"));
                         return;
                     }
@@ -1245,6 +1282,25 @@ impl NativeSession {
             output::diag_line("no server session yet — nothing to delete");
             return;
         }
+        if self.pending_delete.as_deref() != Some(id.as_str()) {
+            self.pending_delete = Some(id.clone());
+            let label = self
+                .last_session_rows
+                .iter()
+                .find(|row| row.id == id)
+                .and_then(|row| row.title.clone())
+                .unwrap_or_default();
+            let what = if label.trim().is_empty() {
+                id
+            } else {
+                format!("{id} ({label})")
+            };
+            output::diag_line(&format!(
+                "confirm delete session {what}: repeat the same /delete command to confirm"
+            ));
+            return;
+        }
+        self.pending_delete = None;
         match self.client.delete_agent_loop(&id).await {
             Ok(_) => {
                 output::diag_line(&format!("deleted session {id}"));
@@ -1497,6 +1553,190 @@ fn short_session_id(id: &str) -> String {
     }
 }
 
+/// One parsed session filter token: a phrase requires a normalized
+/// exact hit, a word a case-insensitive substring hit. All tokens of a
+/// query must match (AND).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SessionToken {
+    phrase: bool,
+    value: String,
+}
+
+/// Split a filter into tokens, honoring double quotes for exact phrases.
+/// Unbalanced quotes fall back to plain whitespace splitting.
+fn parse_session_tokens(query: &str) -> Vec<SessionToken> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut in_quote = false;
+    for ch in trimmed.chars() {
+        if ch == '"' {
+            if in_quote {
+                let value = current.trim().to_string();
+                if !value.is_empty() {
+                    tokens.push(SessionToken {
+                        phrase: true,
+                        value,
+                    });
+                }
+                current.clear();
+                in_quote = false;
+            } else {
+                let value = current.trim().to_string();
+                if !value.is_empty() {
+                    tokens.push(SessionToken {
+                        phrase: false,
+                        value,
+                    });
+                }
+                current.clear();
+                in_quote = true;
+            }
+            continue;
+        }
+        if !in_quote && ch.is_whitespace() {
+            let value = current.trim().to_string();
+            if !value.is_empty() {
+                tokens.push(SessionToken {
+                    phrase: false,
+                    value,
+                });
+            }
+            current.clear();
+            continue;
+        }
+        current.push(ch);
+    }
+    if in_quote {
+        // Unbalanced quote: the quote characters were literal typing,
+        // split the whole query on whitespace instead.
+        return trimmed
+            .split_whitespace()
+            .map(|part| SessionToken {
+                phrase: false,
+                value: part.to_string(),
+            })
+            .collect();
+    }
+    let value = current.trim().to_string();
+    if !value.is_empty() {
+        tokens.push(SessionToken {
+            phrase: false,
+            value,
+        });
+    }
+    tokens
+}
+
+/// Lowercase and collapse whitespace so `"deploy  api"` matches
+/// titles with different spacing.
+fn normalize_session_text(value: &str) -> String {
+    value
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Strip a leading `--named` flag from a `/sessions`/`/resume`/`/delete`
+/// filter. Returns the flag and the remaining query.
+fn strip_named_flag(filter: Option<String>) -> (bool, Option<String>) {
+    let Some(raw) = filter else {
+        return (false, None);
+    };
+    let trimmed = raw.trim();
+    if trimmed == "--named" {
+        return (true, None);
+    }
+    if let Some(rest) = trimmed.strip_prefix("--named ") {
+        let rest = rest.trim();
+        if rest.is_empty() {
+            return (true, None);
+        }
+        return (true, Some(rest.to_string()));
+    }
+    if trimmed.is_empty() {
+        return (false, None);
+    }
+    (false, Some(trimmed.to_string()))
+}
+
+/// Score of one row for one token: title hits rank first, then id,
+/// then status. `None` means no hit.
+fn session_token_score(row: &MiniSessionRow, token: &SessionToken) -> Option<u32> {
+    if token.phrase {
+        let needle = normalize_session_text(&token.value);
+        if needle.is_empty() {
+            return Some(0);
+        }
+        if let Some(title) = row.title.as_deref() {
+            if normalize_session_text(title).contains(&needle as &str) {
+                return Some(0);
+            }
+        }
+        if normalize_session_text(&row.id).contains(&needle as &str) {
+            return Some(1);
+        }
+        if normalize_session_text(&row.status).contains(&needle as &str) {
+            return Some(2);
+        }
+        return None;
+    }
+    let needle = token.value.to_lowercase();
+    if let Some(title) = row.title.as_deref() {
+        if title.to_lowercase().contains(&needle as &str) {
+            return Some(0);
+        }
+    }
+    if row.id.to_lowercase().contains(&needle as &str) {
+        return Some(1);
+    }
+    if row.status.to_lowercase().contains(&needle as &str) {
+        return Some(2);
+    }
+    None
+}
+
+/// Total score of one row for all tokens, or `None` when any token
+/// misses (AND semantics).
+fn session_row_score(row: &MiniSessionRow, tokens: &[SessionToken]) -> Option<u32> {
+    let mut total = 0u32;
+    for token in tokens {
+        total += session_token_score(row, token)?;
+    }
+    Some(total)
+}
+
+/// Filter rows by all tokens and rank title hits before id/status hits.
+/// An empty query keeps the fetch order (newest first). The sort is
+/// stable so ties keep the fetch order.
+fn filter_session_rows<'a>(
+    rows: Vec<&'a MiniSessionRow>,
+    tokens: &[SessionToken],
+) -> Vec<&'a MiniSessionRow> {
+    if tokens.is_empty() {
+        return rows;
+    }
+    let mut scored: Vec<(&'a MiniSessionRow, u32)> = rows
+        .into_iter()
+        .filter_map(|row| session_row_score(row, tokens).map(|score| (row, score)))
+        .collect();
+    scored.sort_by_key(|(_, score)| *score);
+    scored.into_iter().map(|(row, _)| row).collect()
+}
+
+/// Resolve a numeric `/resume <n>` or `/delete <n>` target against the
+/// last `/sessions` listing (1-based display order).
+fn resolve_numbered_target(target: &str, last: &[MiniSessionRow]) -> Option<String> {
+    let index: usize = target.trim().parse().ok()?;
+    if index == 0 {
+        return None;
+    }
+    last.get(index - 1).map(|row| row.id.clone())
+}
 /// Relative age label for a start timestamp, shared with the full TUI
 /// recent pane so both CLIs read the same (`now`, `5m`, `2h`, `3d`).
 fn mini_relative_age(start_ms: i64) -> String {
@@ -1550,5 +1790,104 @@ mod tests {
         assert!(!armer.note_press(start));
         armer.reset();
         assert!(!armer.note_press(start + Duration::from_secs(1)));
+    }
+
+    fn mini_row(id: &str, title: Option<&str>, status: &str) -> MiniSessionRow {
+        MiniSessionRow {
+            id: id.to_string(),
+            title: title.map(str::to_string),
+            status: status.to_string(),
+            start_ms: 1,
+        }
+    }
+
+    #[test]
+    fn session_tokens_split_plain_words() {
+        let tokens = parse_session_tokens("deploy api");
+        assert_eq!(
+            tokens,
+            vec![
+                SessionToken {
+                    phrase: false,
+                    value: "deploy".to_string(),
+                },
+                SessionToken {
+                    phrase: false,
+                    value: "api".to_string(),
+                },
+            ]
+        );
+        assert!(parse_session_tokens("   ").is_empty());
+    }
+
+    #[test]
+    fn session_tokens_honor_quoted_phrase() {
+        let tokens = parse_session_tokens("fix \"deploy api\" now");
+        assert_eq!(tokens.len(), 3);
+        assert!(!tokens[0].phrase);
+        assert!(tokens[1].phrase);
+        assert_eq!(tokens[1].value, "deploy api");
+        assert!(!tokens[2].phrase);
+    }
+
+    #[test]
+    fn session_tokens_unbalanced_quote_falls_back() {
+        let tokens = parse_session_tokens("fix \"deploy api");
+        assert!(tokens.iter().all(|token| !token.phrase));
+        assert_eq!(tokens.len(), 3);
+    }
+
+    #[test]
+    fn session_row_phrase_matches_across_spacing() {
+        let row = mini_row("abc", Some("deploy   API hotfix"), "completed");
+        let tokens = parse_session_tokens("\"deploy api\"");
+        assert_eq!(session_row_score(&row, &tokens), Some(0));
+        let miss = parse_session_tokens("\"api deploy\"");
+        assert_eq!(session_row_score(&row, &miss), None);
+    }
+
+    #[test]
+    fn session_row_tokens_require_all() {
+        let row = mini_row("abc", Some("deploy api"), "completed");
+        let both = parse_session_tokens("deploy completed");
+        assert!(session_row_score(&row, &both).is_some());
+        let missing = parse_session_tokens("deploy failed");
+        assert_eq!(session_row_score(&row, &missing), None);
+    }
+
+    #[test]
+    fn filter_session_rows_ranks_title_before_status() {
+        let titled = mini_row("id-1", Some("deploy api"), "running");
+        let status_hit = mini_row("id-2", Some("other work"), "deploying");
+        let rows = vec![&status_hit, &titled];
+        let shown = filter_session_rows(rows, &parse_session_tokens("deploy"));
+        assert_eq!(shown.len(), 2);
+        assert_eq!(shown[0].id, "id-1");
+    }
+
+    #[test]
+    fn strip_named_flag_parses_prefix() {
+        assert_eq!(strip_named_flag(None), (false, None));
+        assert_eq!(strip_named_flag(Some("--named".to_string())), (true, None));
+        assert_eq!(
+            strip_named_flag(Some("--named deploy".to_string())),
+            (true, Some("deploy".to_string()))
+        );
+        assert_eq!(
+            strip_named_flag(Some("deploy".to_string())),
+            (false, Some("deploy".to_string()))
+        );
+    }
+
+    #[test]
+    fn resolve_numbered_target_uses_display_order() {
+        let rows = vec![
+            mini_row("id-1", None, "completed"),
+            mini_row("id-2", None, "completed"),
+        ];
+        assert_eq!(resolve_numbered_target("2", &rows).as_deref(), Some("id-2"));
+        assert_eq!(resolve_numbered_target("0", &rows), None);
+        assert_eq!(resolve_numbered_target("3", &rows), None);
+        assert_eq!(resolve_numbered_target("abc", &rows), None);
     }
 }

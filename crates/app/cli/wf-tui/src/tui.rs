@@ -1026,6 +1026,8 @@ impl TuiApp {
                     recent_rows: &recent,
                     recent_selected: self.session_list.recent_selected(),
                     recent_filter: self.session_list.recent_filter(),
+                    recent_named_only: self.session_list.named_only(),
+                    recent_pending: self.session_list.pending_delete_id(),
                 };
                 crate::screen_draw::draw_session_list(frame, area, &view, &self.theme);
             }

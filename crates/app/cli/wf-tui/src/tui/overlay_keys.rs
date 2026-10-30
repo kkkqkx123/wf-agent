@@ -451,21 +451,47 @@ impl TuiApp {
     /// Recent-sessions pane keys. Arrows move and Enter continues the session
     /// (switching to its tab when already open, otherwise opening a new tab
     /// whose history seeds the next turn). Every printable character filters
-    /// over id, title and status, so letter commands live on Ctrl: Ctrl+D
-    /// deletes the selected session, Ctrl+R renames it to the filter text.
-    /// Esc clears the filter first, then closes.
+    /// over id, title and status (`"phrase"` matches exactly), so letter
+    /// commands live on Ctrl: Ctrl+D deletes the selected session in two
+    /// steps (arm, then repeat to confirm), Ctrl+R renames it to the filter
+    /// text, Ctrl+N toggles the named-only filter. Esc cancels an armed
+    /// delete first, then clears the filter, then closes.
     async fn handle_recent_list_key(&mut self, key: Key) -> CliResult<LoopAction> {
         let plain = !key.ctrl && !key.alt;
         let ctrl = key.ctrl && !key.alt;
-        // Delete and rename on Ctrl so typing stays a filter.
+        // Delete, rename and named-filter on Ctrl so typing stays a filter.
         if ctrl {
             match key.code {
                 CKey::Char('d') | CKey::Char('D') => {
-                    self.delete_recent_session().await;
+                    let Some(id) = self.session_list.recent_selected_id() else {
+                        self.app.notice.set("recent: nothing selected".to_string());
+                        self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                        return Ok(LoopAction::Continue);
+                    };
+                    if self.session_list.confirm_delete(&id) {
+                        self.delete_recent_session().await;
+                    } else {
+                        let short = crate::screens::short_id(&id);
+                        self.session_list.arm_delete(id);
+                        self.app.notice.set(format!(
+                            "press Ctrl+D again to confirm delete {short}, Esc cancels"
+                        ));
+                        self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                    }
                     return Ok(LoopAction::Continue);
                 }
                 CKey::Char('r') | CKey::Char('R') => {
                     self.rename_recent_session().await;
+                    return Ok(LoopAction::Continue);
+                }
+                CKey::Char('n') | CKey::Char('N') => {
+                    self.session_list.toggle_named_only();
+                    self.app.notice.set(if self.session_list.named_only() {
+                        "recent: named sessions only (Ctrl+N for all)".to_string()
+                    } else {
+                        "recent: all sessions".to_string()
+                    });
+                    self.pending_scope.request(crate::redraw::RedrawScope::Full);
                     return Ok(LoopAction::Continue);
                 }
                 _ => {}
@@ -473,7 +499,9 @@ impl TuiApp {
         }
         match key.code {
             CKey::Esc if plain => {
-                if !self.session_list.recent_filter().is_empty() {
+                if self.session_list.cancel_pending_delete() {
+                    self.app.notice.set("delete cancelled".to_string());
+                } else if !self.session_list.recent_filter().is_empty() {
                     self.session_list.clear_recent_filter();
                 } else {
                     self.overlay = OverlayMode::None;

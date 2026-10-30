@@ -1093,14 +1093,19 @@ pub struct SessionListView<'a> {
     pub recent_rows: &'a [String],
     pub recent_selected: usize,
     pub recent_filter: &'a str,
+    /// Whether the recent pane hides untitled sessions.
+    pub recent_named_only: bool,
+    /// Session id armed for deletion (two-step confirm), if any.
+    pub recent_pending: Option<&'a str>,
 }
 
 /// Session list browser overlay: centered floating list of open tabs with
 /// pin/streaming markers, plus a recent-sessions pane. Tabs keys: j/k
 /// move, Enter switch, d close, p pin, x prune, Tab recent. Recent keys:
 /// j/k move, Enter continue (switch or open with history), typing filters
-/// over id/title/status, Ctrl+D delete, Ctrl+R rename to filter, Tab tabs.
-/// Esc closes (clearing the recent filter first).
+/// over id/title/status (`"phrase"` matches exactly), Ctrl+D deletes in
+/// two steps, Ctrl+R renames to filter, Ctrl+N toggles named-only, Tab tabs.
+/// Esc cancels an armed delete first, then clears the filter, then closes.
 pub fn draw_session_list(frame: &mut Frame, area: Rect, view: &SessionListView, theme: &Theme) {
     let popup = tui_components::modal::centered_rect(70, 60, area);
     frame.render_widget(Clear, popup);
@@ -1114,7 +1119,7 @@ pub fn draw_session_list(frame: &mut Frame, area: Rect, view: &SessionListView, 
         .split(popup);
     let hint = if view.show_recent {
         Paragraph::new(
-            "↑/↓ move · Enter continue · Ctrl+D delete · Ctrl+R rename to filter · Tab tabs · Esc close",
+            "↑/↓ move · Enter continue · Ctrl+D delete (x2) · Ctrl+R rename · Ctrl+N named · Tab tabs · Esc close",
         )
     } else {
         Paragraph::new("Enter switch · d close · p pin · x prune · Tab recent · Esc close")
@@ -1138,10 +1143,22 @@ pub fn draw_session_list(frame: &mut Frame, area: Rect, view: &SessionListView, 
         let list =
             List::new(items).block(titled_block("Recent sessions", ColorRole::Accent, theme));
         frame.render_stateful_widget(list, chunks[1], &mut state);
-        let status = if !view.recent_filter.is_empty() && view.recent_rows.is_empty() {
+        let status = if let Some(pending) = view.recent_pending {
+            format!(
+                "confirm delete {}: Ctrl+D again (Esc cancels) · Tab for open tabs",
+                short_id(pending)
+            )
+        } else if view.recent_named_only && view.recent_rows.is_empty() {
+            "no named sessions — Ctrl+N for all · Tab for open tabs".to_string()
+        } else if !view.recent_filter.is_empty() && view.recent_rows.is_empty() {
             format!("no match for '{}' · Tab for open tabs", view.recent_filter)
         } else if view.recent_filter.is_empty() && view.recent_rows.is_empty() {
             "no recent sessions yet — send a turn first · Tab for open tabs".to_string()
+        } else if view.recent_named_only {
+            format!(
+                "named only ({} shown) · Ctrl+N for all · Tab for open tabs",
+                view.recent_rows.len()
+            )
         } else if view.recent_filter.is_empty() {
             format!("({}) recent · Tab for open tabs", view.recent_rows.len())
         } else {

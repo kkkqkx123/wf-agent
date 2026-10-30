@@ -98,6 +98,8 @@ pub struct SessionList {
     recent_selected: usize,
     recent_id: Option<String>,
     recent_filter: String,
+    named_only: bool,
+    pending_delete_id: Option<String>,
 }
 
 impl SessionList {
@@ -149,8 +151,10 @@ impl SessionList {
         }
     }
 
-    /// Switch between the tabs and recent panes.
+    /// Switch between the tabs and recent panes. A pending delete
+    /// confirmation never survives the switch.
     pub fn toggle_pane(&mut self) {
+        self.pending_delete_id = None;
         self.pane = match self.pane {
             SessionListPane::Tabs => SessionListPane::Recent,
             SessionListPane::Recent => SessionListPane::Tabs,
@@ -159,7 +163,10 @@ impl SessionList {
 
     /// Replace the recent rows (already newest-first from the fetch),
     /// keeping the selection on the same session id when listed.
+    /// A refresh drops any pending delete confirmation: the rows the
+    /// operator armed may be gone.
     pub fn set_recent(&mut self, rows: Vec<RecentSession>) {
+        self.pending_delete_id = None;
         self.recent = rows;
         self.restore_recent_selection();
     }
@@ -188,26 +195,77 @@ impl SessionList {
             .and_then(|id| self.recent.iter().find(|row| row.id == id).cloned())
     }
 
-    /// Recent rows matching the current substring filter (case-insensitive
-    /// over id, title and status). Sorted newest-first by the fetch.
-    pub fn recent_visible(&self) -> Vec<&RecentSession> {
-        let needle = self.recent_filter.to_lowercase();
-        if needle.trim().is_empty() {
-            return self.recent.iter().collect();
+    /// Whether only titled sessions are shown in the recent pane.
+    pub fn named_only(&self) -> bool {
+        self.named_only
+    }
+
+    /// Toggle the named-only filter, dropping any pending delete.
+    pub fn toggle_named_only(&mut self) {
+        self.named_only = !self.named_only;
+        self.pending_delete_id = None;
+        self.restore_recent_selection();
+    }
+
+    /// Session id armed for deletion by a first Ctrl+D, if any.
+    pub fn pending_delete_id(&self) -> Option<&str> {
+        self.pending_delete_id.as_deref()
+    }
+
+    /// Arm a deletion: the next Ctrl+D on the same id confirms.
+    pub fn arm_delete(&mut self, id: String) {
+        self.pending_delete_id = Some(id);
+    }
+
+    /// Confirm a deletion when the armed id matches, clearing the arm
+    /// either way the caller proceeds.
+    pub fn confirm_delete(&mut self, id: &str) -> bool {
+        if self.pending_delete_id.as_deref() == Some(id) {
+            self.pending_delete_id = None;
+            true
+        } else {
+            false
         }
-        self.recent
-            .iter()
-            .filter(|row| {
-                row.id.to_lowercase().contains(&needle)
-                    || row.status.to_lowercase().contains(&needle)
-                    || row
-                        .title
+    }
+
+    /// Cancel an armed deletion. Returns true when one was armed.
+    pub fn cancel_pending_delete(&mut self) -> bool {
+        if self.pending_delete_id.is_some() {
+            self.pending_delete_id = None;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Recent rows matching the current filter: whitespace-separated
+    /// tokens over id, title and status (`"phrase"` matches exactly),
+    /// all tokens required. An empty filter keeps the fetch order
+    /// (newest first); otherwise title hits rank before id/status hits
+    /// with a stable sort. `named_only` hides untitled sessions.
+    pub fn recent_visible(&self) -> Vec<&RecentSession> {
+        let scoped: Vec<&RecentSession> = if self.named_only {
+            self.recent
+                .iter()
+                .filter(|row| {
+                    row.title
                         .as_deref()
-                        .unwrap_or_default()
-                        .to_lowercase()
-                        .contains(&needle)
-            })
-            .collect()
+                        .is_some_and(|title| !title.trim().is_empty())
+                })
+                .collect()
+        } else {
+            self.recent.iter().collect()
+        };
+        let tokens = parse_recent_tokens(&self.recent_filter);
+        if tokens.is_empty() {
+            return scoped;
+        }
+        let mut scored: Vec<(&RecentSession, u32)> = scoped
+            .into_iter()
+            .filter_map(|row| recent_row_score(row, &tokens).map(|score| (row, score)))
+            .collect();
+        scored.sort_by_key(|(_, score)| *score);
+        scored.into_iter().map(|(row, _)| row).collect()
     }
 
     /// Selected recent session id, if any row is visible.
@@ -271,11 +329,13 @@ impl SessionList {
         if c.is_control() {
             return;
         }
+        self.pending_delete_id = None;
         self.recent_filter.push(c);
         self.restore_recent_selection();
     }
 
     pub fn recent_filter_backspace(&mut self) {
+        self.pending_delete_id = None;
         self.recent_filter.pop();
         self.restore_recent_selection();
     }
@@ -284,6 +344,7 @@ impl SessionList {
         if self.recent_filter.is_empty() {
             return;
         }
+        self.pending_delete_id = None;
         self.recent_filter.clear();
         self.restore_recent_selection();
     }
@@ -291,7 +352,6 @@ impl SessionList {
     fn remember_recent(&mut self) {
         self.recent_id = self.recent_selected_id();
     }
-
     /// Restore the recent selection after the rows or filter changed: same
     /// session id when still visible, else clamp into range.
     fn restore_recent_selection(&mut self) {
@@ -309,6 +369,137 @@ impl SessionList {
         self.recent_selected = self.recent_selected.min(len - 1);
         self.remember_recent();
     }
+}
+
+/// One parsed recent filter token: a phrase requires a normalized exact
+/// hit, a word a case-insensitive substring hit. All tokens must match.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RecentToken {
+    phrase: bool,
+    value: String,
+}
+
+/// Split a filter into tokens, honoring double quotes for exact phrases.
+/// Unbalanced quotes fall back to plain whitespace splitting.
+fn parse_recent_tokens(query: &str) -> Vec<RecentToken> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut in_quote = false;
+    for ch in trimmed.chars() {
+        if ch == '"' {
+            if in_quote {
+                let value = current.trim().to_string();
+                if !value.is_empty() {
+                    tokens.push(RecentToken {
+                        phrase: true,
+                        value,
+                    });
+                }
+                current.clear();
+                in_quote = false;
+            } else {
+                let value = current.trim().to_string();
+                if !value.is_empty() {
+                    tokens.push(RecentToken {
+                        phrase: false,
+                        value,
+                    });
+                }
+                current.clear();
+                in_quote = true;
+            }
+            continue;
+        }
+        if !in_quote && ch.is_whitespace() {
+            let value = current.trim().to_string();
+            if !value.is_empty() {
+                tokens.push(RecentToken {
+                    phrase: false,
+                    value,
+                });
+            }
+            current.clear();
+            continue;
+        }
+        current.push(ch);
+    }
+    if in_quote {
+        return trimmed
+            .split_whitespace()
+            .map(|part| RecentToken {
+                phrase: false,
+                value: part.to_string(),
+            })
+            .collect();
+    }
+    let value = current.trim().to_string();
+    if !value.is_empty() {
+        tokens.push(RecentToken {
+            phrase: false,
+            value,
+        });
+    }
+    tokens
+}
+
+/// Lowercase and collapse whitespace so `"deploy  api"` matches titles
+/// with different spacing.
+fn normalize_recent_text(value: &str) -> String {
+    value
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Score of one row for one token: title hits rank first, then id, then
+/// status. `None` means no hit.
+fn recent_token_score(row: &RecentSession, token: &RecentToken) -> Option<u32> {
+    if token.phrase {
+        let needle = normalize_recent_text(&token.value);
+        if needle.is_empty() {
+            return Some(0);
+        }
+        if let Some(title) = row.title.as_deref() {
+            if normalize_recent_text(title).contains(needle.as_str()) {
+                return Some(0);
+            }
+        }
+        if normalize_recent_text(&row.id).contains(needle.as_str()) {
+            return Some(1);
+        }
+        if normalize_recent_text(&row.status).contains(needle.as_str()) {
+            return Some(2);
+        }
+        return None;
+    }
+    let needle = token.value.to_lowercase();
+    if let Some(title) = row.title.as_deref() {
+        if title.to_lowercase().contains(needle.as_str()) {
+            return Some(0);
+        }
+    }
+    if row.id.to_lowercase().contains(needle.as_str()) {
+        return Some(1);
+    }
+    if row.status.to_lowercase().contains(needle.as_str()) {
+        return Some(2);
+    }
+    None
+}
+
+/// Total score of one row for all tokens, or `None` when any token
+/// misses (AND semantics).
+fn recent_row_score(row: &RecentSession, tokens: &[RecentToken]) -> Option<u32> {
+    let mut total = 0u32;
+    for token in tokens {
+        total += recent_token_score(row, token)?;
+    }
+    Some(total)
 }
 
 #[cfg(test)]
@@ -435,5 +626,96 @@ mod tests {
         assert_eq!(relative_age(1_000, 301_000), "5m");
         assert_eq!(relative_age(1_000, 7_201_000), "2h");
         assert_eq!(relative_age(1_000, 259_201_000), "3d");
+    }
+
+    fn push_filter(list: &mut SessionList, text: &str) {
+        for ch in text.chars() {
+            list.recent_filter_push(ch);
+        }
+    }
+
+    #[test]
+    fn recent_phrase_matches_exact_spacing_insensitive() {
+        let mut list = SessionList::new();
+        list.set_recent(vec![
+            titled("a", "deploy   API hotfix"),
+            titled("b", "api deploy reversed"),
+        ]);
+        push_filter(&mut list, "\"deploy api\"");
+        let visible = list.recent_visible();
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].id.as_str(), "a");
+    }
+
+    #[test]
+    fn recent_tokens_require_all_terms() {
+        let mut list = SessionList::new();
+        list.set_recent(vec![
+            titled("a", "deploy api"),
+            titled("b", "deploy worker"),
+        ]);
+        push_filter(&mut list, "deploy api");
+        let visible = list.recent_visible();
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].id.as_str(), "a");
+    }
+
+    #[test]
+    fn recent_ranks_title_before_status() {
+        let mut list = SessionList::new();
+        list.set_recent(vec![titled("a", "other work"), titled("b", "deploy api")]);
+        // Make the first row match on status instead of title.
+        list.set_recent(vec![
+            RecentSession {
+                id: "a".to_string(),
+                status: "deploying".to_string(),
+                started: "5m".to_string(),
+                title: Some("other work".to_string()),
+            },
+            titled("b", "deploy api"),
+        ]);
+        push_filter(&mut list, "deploy");
+        let visible = list.recent_visible();
+        assert_eq!(visible.len(), 2);
+        assert_eq!(visible[0].id.as_str(), "b");
+    }
+
+    #[test]
+    fn recent_named_only_hides_untitled() {
+        let mut list = SessionList::new();
+        list.set_recent(vec![titled("a", "deploy"), recent("b")]);
+        assert_eq!(list.recent_visible().len(), 2);
+        list.toggle_named_only();
+        assert!(list.named_only());
+        let visible = list.recent_visible();
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].id.as_str(), "a");
+        list.toggle_named_only();
+        assert_eq!(list.recent_visible().len(), 2);
+    }
+
+    #[test]
+    fn recent_delete_needs_confirm_and_esc_cancels() {
+        let mut list = SessionList::new();
+        list.set_recent(vec![recent("a"), recent("b")]);
+        // First arm does not delete: confirm on another id fails.
+        list.arm_delete("a".to_string());
+        assert_eq!(list.pending_delete_id(), Some("a"));
+        assert!(!list.confirm_delete("b"));
+        assert!(list.confirm_delete("a"));
+        assert_eq!(list.pending_delete_id(), None);
+        // Arm again, then cancel.
+        list.arm_delete("b".to_string());
+        assert!(list.cancel_pending_delete());
+        assert!(!list.cancel_pending_delete());
+    }
+
+    #[test]
+    fn recent_filter_change_cancels_armed_delete() {
+        let mut list = SessionList::new();
+        list.set_recent(vec![recent("a")]);
+        list.arm_delete("a".to_string());
+        list.recent_filter_push('x');
+        assert_eq!(list.pending_delete_id(), None);
     }
 }

@@ -160,12 +160,16 @@ pub fn validate_runtime_options(
 /// raised to the engine budget. An elapse maps onto `ApiError::Timeout`.
 pub async fn execute(
     ctx: &ApiContext,
-    params: ExecuteWorkflowParams,
+    mut params: ExecuteWorkflowParams,
 ) -> crate::infra::error::ApiResult<WorkflowOutput> {
     validate_workflow_input(params.input.as_ref())?;
     validate_runtime_options(params.options.as_ref())?;
     let mut definition =
         resolve_definition(ctx, &params.workflow_id, params.version.as_deref()).await?;
+    params.input = crate::workflow::composition::apply_input_defaults(
+        params.input,
+        definition.variables.as_deref(),
+    );
     validate_workflow_input_with_variables(params.input.as_ref(), definition.variables.as_deref())?;
     let graph =
         super::graph::resolve_graph_for_definition(ctx, &params.workflow_id, &mut definition)
@@ -235,12 +239,16 @@ pub async fn rerun(
 /// can `pause` / `cancel` the backing execution.
 pub async fn stream(
     ctx: Arc<ApiContext>,
-    params: ExecuteWorkflowParams,
+    mut params: ExecuteWorkflowParams,
 ) -> crate::infra::error::ApiResult<(Id, ExecutionEventStream)> {
     validate_workflow_input(params.input.as_ref())?;
     validate_runtime_options(params.options.as_ref())?;
     let mut definition =
         resolve_definition(&ctx, &params.workflow_id, params.version.as_deref()).await?;
+    params.input = crate::workflow::composition::apply_input_defaults(
+        params.input,
+        definition.variables.as_deref(),
+    );
     validate_workflow_input_with_variables(params.input.as_ref(), definition.variables.as_deref())?;
     let graph =
         super::graph::resolve_graph_for_definition(&ctx, &params.workflow_id, &mut definition)
@@ -350,10 +358,30 @@ pub async fn resume(
     let workflow_id = entity.workflow_id().to_string();
     let mut definition =
         resolve_definition(ctx, &workflow_id, entity.workflow_version().as_deref()).await?;
+    let options = execution_options(ctx, &entity).await;
+    let persisted_input: Option<Value> = options
+        .input
+        .clone()
+        .or_else(|| entity.get_variable("input"));
+    let resume_report = wf_types::workflow_execution::validate_resumed_workflow_input(
+        persisted_input.as_ref(),
+        definition.variables.as_deref(),
+    );
+    if !resume_report.hard_errors.is_empty() {
+        return Err(ApiError::Validation(format!(
+            "execution {execution_id} cannot resume: {}",
+            resume_report.hard_errors.join("; ")
+        )));
+    }
+    if !resume_report.warnings.is_empty() {
+        tracing::warn!(
+            execution_id = %execution_id,
+            warnings = ?resume_report.warnings,
+            "resumed workflow input differs from the current definition; continuing with persisted input"
+        );
+    }
     let graph =
         super::graph::resolve_graph_for_definition(ctx, &workflow_id, &mut definition).await?;
-
-    let options = execution_options(ctx, &entity).await;
     let checkpoints_enabled = options.enable_checkpoints.unwrap_or(true);
     let mut exec_ctx = ExecutorContext::new(
         entity.id().clone(),

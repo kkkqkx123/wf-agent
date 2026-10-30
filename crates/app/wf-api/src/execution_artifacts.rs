@@ -296,6 +296,7 @@ mod tests {
                 r#type: None,
                 scope: None,
                 readonly: None,
+                required: None,
                 metadata: None,
             }]),
             input: Some(serde_json::json!({"q": "hi"})),

@@ -148,6 +148,58 @@ pub fn validate_starter_variables(
     Ok(())
 }
 
+/// One-click fill failure: missing required variables vs. a shape
+/// mismatch on a provided value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StarterFillError {
+    Missing(Vec<String>),
+    Invalid(String),
+}
+
+impl std::fmt::Display for StarterFillError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Missing(names) => write!(f, "missing starter variable(s): {}", names.join(", ")),
+            Self::Invalid(reason) => write!(f, "{reason}"),
+        }
+    }
+}
+
+/// Required variables (declared `required` without a default) absent from
+/// the provided values, in declaration order and deduplicated.
+pub fn missing_starter_variables(
+    entry: &StarterEntry,
+    values: &std::collections::HashMap<String, serde_json::Value>,
+) -> Vec<String> {
+    let Some(variables) = entry.variables.as_deref() else {
+        return Vec::new();
+    };
+    let mut missing = Vec::new();
+    for variable in variables {
+        if variable.required
+            && variable.default_value.is_none()
+            && !values.contains_key(&variable.name)
+            && !missing.contains(&variable.name)
+        {
+            missing.push(variable.name.clone());
+        }
+    }
+    missing
+}
+
+/// Resolve a starter for one-click fill: report every missing required
+/// variable at once, otherwise render with shape checks.
+pub fn resolve_starter_for_fill(
+    entry: &StarterEntry,
+    values: &std::collections::HashMap<String, serde_json::Value>,
+) -> Result<String, StarterFillError> {
+    let missing = missing_starter_variables(entry, values);
+    if !missing.is_empty() {
+        return Err(StarterFillError::Missing(missing));
+    }
+    render_starter_content(entry, values).map_err(StarterFillError::Invalid)
+}
+
 pub fn render_starter_content(
     entry: &StarterEntry,
     values: &std::collections::HashMap<String, serde_json::Value>,
@@ -862,5 +914,78 @@ mod tests {
             ("count".to_string(), serde_json::json!("many")),
         ]);
         assert!(render_starter_content(&entry, &bad).is_err());
+    }
+
+    #[test]
+    fn starter_fill_reports_all_missing_at_once() {
+        let entry = StarterEntry {
+            id: "starter.custom.fill".to_string(),
+            title: "Fill".to_string(),
+            content: "Do {{a}} and {{b}}".to_string(),
+            variables: Some(vec![
+                wf_types::TemplateVariableDefinition {
+                    name: "a".to_string(),
+                    r#type: wf_types::TemplateVariableType::String,
+                    required: true,
+                    description: None,
+                    default_value: None,
+                },
+                wf_types::TemplateVariableDefinition {
+                    name: "b".to_string(),
+                    r#type: wf_types::TemplateVariableType::String,
+                    required: true,
+                    description: None,
+                    default_value: None,
+                },
+                wf_types::TemplateVariableDefinition {
+                    name: "opt".to_string(),
+                    r#type: wf_types::TemplateVariableType::String,
+                    required: false,
+                    description: None,
+                    default_value: None,
+                },
+            ]),
+            description: None,
+            locale: "en".to_string(),
+            tags: Vec::new(),
+            enabled: true,
+            is_default: false,
+            is_system: false,
+            usage_count: 0,
+            created_at: "now".to_string(),
+            updated_at: "now".to_string(),
+        };
+        let empty = std::collections::HashMap::new();
+        assert_eq!(
+            missing_starter_variables(&entry, &empty),
+            vec!["a".to_string(), "b".to_string()]
+        );
+        match resolve_starter_for_fill(&entry, &empty) {
+            Err(StarterFillError::Missing(names)) => {
+                assert_eq!(names, vec!["a".to_string(), "b".to_string()]);
+            }
+            other => panic!("expected Missing, got {other:?}"),
+        }
+        let partial = std::collections::HashMap::from([("a".to_string(), serde_json::json!("x"))]);
+        match resolve_starter_for_fill(&entry, &partial) {
+            Err(StarterFillError::Missing(names)) => assert_eq!(names, vec!["b".to_string()]),
+            other => panic!("expected Missing, got {other:?}"),
+        }
+        let bad = std::collections::HashMap::from([
+            ("a".to_string(), serde_json::json!(1)),
+            ("b".to_string(), serde_json::json!("y")),
+        ]);
+        assert!(matches!(
+            resolve_starter_for_fill(&entry, &bad),
+            Err(StarterFillError::Invalid(_))
+        ));
+        let good = std::collections::HashMap::from([
+            ("a".to_string(), serde_json::json!("x")),
+            ("b".to_string(), serde_json::json!("y")),
+        ]);
+        assert_eq!(
+            resolve_starter_for_fill(&entry, &good).unwrap(),
+            "Do x and y"
+        );
     }
 }

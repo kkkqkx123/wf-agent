@@ -51,6 +51,11 @@ pub struct RunAgentLoopBody {
     context: HashMap<String, Value>,
     #[schema(value_type = Option<Vec<Value>>)]
     conversation: Option<Vec<Message>>,
+    /// Optional shape contract for `context`. Unknown keys stay accepted;
+    /// declared keys must match their shape.
+    #[serde(default)]
+    #[schema(value_type = Option<Vec<Value>>)]
+    context_schema: Option<Vec<wf_types::TemplateVariableDefinition>>,
 }
 
 pub(crate) async fn params_from_body(
@@ -105,6 +110,7 @@ pub(crate) async fn params_from_body(
         general_description: None,
         discoverable_metadata_block: None,
         history_normalization: false,
+        context_schema: body.context_schema,
         checkpoint_message_interval: body.checkpoint_message_interval.filter(|n| *n > 0),
     };
     // Composition boundary: resolve the agent template (built-in

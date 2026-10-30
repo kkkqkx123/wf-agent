@@ -383,6 +383,7 @@ fn test_workflow_variables_validation() {
         r#type: None,
         scope: None,
         readonly: None,
+        required: None,
         metadata: None,
     }]);
     assert!(validate_workflow_definition(&wf).is_err());
@@ -393,6 +394,7 @@ fn test_workflow_variables_validation() {
         r#type: None,
         scope: None,
         readonly: None,
+        required: None,
         metadata: None,
     }]);
     assert!(validate_workflow_definition(&wf).is_ok());

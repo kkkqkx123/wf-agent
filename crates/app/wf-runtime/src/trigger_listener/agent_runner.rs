@@ -165,6 +165,7 @@ impl TriggerActionRunner for AgentTriggerRunner {
             general_description: None,
             discoverable_metadata_block: None,
             history_normalization: false,
+            context_schema: None,
             checkpoint_message_interval: checkpoint_message_interval
                 .and_then(|n| (n > 0).then_some(n)),
         };
@@ -224,6 +225,19 @@ impl TriggerActionRunner for AgentTriggerRunner {
                     context: HashMap::new(),
                     conversation,
                 };
+                if let Err(errors) =
+                    wf_agent::validation::AgentLoopValidator::validate_or_fail_input(&child_input)
+                {
+                    let detail = errors
+                        .iter()
+                        .map(|e| format!("{}: {}", e.field, e.message))
+                        .collect::<Vec<_>>()
+                        .join("; ");
+                    return Err(WorkflowError::TriggerError(format!(
+                        "trigger '{}' child input invalid: {detail}",
+                        template.name
+                    )));
+                }
                 let config = TriggeredAgentExecutionConfig {
                     parent,
                     result_variable: result_variable.clone().unwrap_or_else(|| {
@@ -387,6 +401,7 @@ impl AgentTriggerRunner {
             general_description: None,
             discoverable_metadata_block: None,
             history_normalization: false,
+            context_schema: None,
             checkpoint_message_interval: checkpoint_message_interval
                 .and_then(|n| (n > 0).then_some(n)),
         };
@@ -395,6 +410,19 @@ impl AgentTriggerRunner {
             context: input.clone().unwrap_or_default(),
             conversation: Vec::new(),
         };
+        if let Err(errors) =
+            wf_agent::validation::AgentLoopValidator::validate_or_fail_input(&child_input)
+        {
+            let detail = errors
+                .iter()
+                .map(|e| format!("{}: {}", e.field, e.message))
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(WorkflowError::TriggerError(format!(
+                "trigger '{}' cold-start input invalid: {detail}",
+                template.name
+            )));
+        }
         let executor = self.executor.clone();
         let shutdown = self.shutdown.clone();
         let ledger = self.ledger.clone();

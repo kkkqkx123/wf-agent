@@ -32,6 +32,7 @@ fn variable(
         r#type: Some(value_type),
         scope: None,
         readonly: Some(readonly),
+        required: None,
         metadata: Some(HashMap::from([(
             "description".into(),
             Value::String(description.into()),

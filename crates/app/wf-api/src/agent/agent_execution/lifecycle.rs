@@ -17,7 +17,7 @@ pub async fn run(
     params.input.conversation =
         crate::agent::agent_message::normalize_imported_conversation(params.input.conversation);
     gate_agent_config(ctx, &params.config)?;
-    gate_agent_input(&params.input)?;
+    gate_agent_input(&params.input, Some(&params.config))?;
     let agent_loop_id = params
         .agent_loop_id
         .clone()
@@ -76,7 +76,7 @@ pub async fn stream(
     params.input.conversation =
         crate::agent::agent_message::normalize_imported_conversation(params.input.conversation);
     gate_agent_config(&ctx, &params.config)?;
-    gate_agent_input(&params.input)?;
+    gate_agent_input(&params.input, Some(&params.config))?;
     // Resolve the loop id up front (instead of inside the coordinator) so
     // the host-default approval handler can scope its interaction records
     // to the same execution.

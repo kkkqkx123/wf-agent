@@ -86,6 +86,7 @@ fn discovery_config_with_general(
         general_description,
         discoverable_metadata_block: None,
         history_normalization: false,
+        context_schema: None,
         checkpoint_message_interval: None,
     }
 }

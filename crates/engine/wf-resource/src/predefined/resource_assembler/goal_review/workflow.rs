@@ -33,6 +33,7 @@ pub(crate) fn build_workflow(config: &GoalReviewConfig) -> Result<WorkflowTempla
             r#type: Some(VariableValueType::String),
             scope: None,
             readonly: Some(true),
+            required: None,
             metadata: Some(HashMap::from([(
                 "description".into(),
                 Value::String(
@@ -46,6 +47,7 @@ pub(crate) fn build_workflow(config: &GoalReviewConfig) -> Result<WorkflowTempla
             r#type: Some(VariableValueType::String),
             scope: None,
             readonly: None,
+            required: None,
             metadata: Some(HashMap::from([(
                 "description".into(),
                 Value::String(
@@ -60,6 +62,7 @@ pub(crate) fn build_workflow(config: &GoalReviewConfig) -> Result<WorkflowTempla
             r#type: Some(VariableValueType::Boolean),
             scope: None,
             readonly: None,
+            required: None,
             metadata: Some(HashMap::from([(
                 "description".into(),
                 Value::String("Loop exit flag, set by reviewer agent".into()),
@@ -71,6 +74,7 @@ pub(crate) fn build_workflow(config: &GoalReviewConfig) -> Result<WorkflowTempla
             r#type: Some(VariableValueType::Array),
             scope: None,
             readonly: None,
+            required: None,
             metadata: Some(HashMap::from([(
                 "description".into(),
                 Value::String("Review judgment records, appended each iteration".into()),
@@ -82,6 +86,7 @@ pub(crate) fn build_workflow(config: &GoalReviewConfig) -> Result<WorkflowTempla
             r#type: Some(VariableValueType::Number),
             scope: None,
             readonly: None,
+            required: None,
             metadata: Some(HashMap::from([(
                 "description".into(),
                 Value::String("Current iteration counter".into()),

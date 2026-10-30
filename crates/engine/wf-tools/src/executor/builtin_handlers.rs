@@ -147,6 +147,7 @@ impl BuiltinToolHandler for CallAgentHandler {
             general_description: None,
             discoverable_metadata_block: None,
             history_normalization: false,
+            context_schema: None,
             checkpoint_message_interval: None,
             initial_tool_names: params.initial_tool_names,
             discoverable_tool_names: params.discoverable_tool_names,

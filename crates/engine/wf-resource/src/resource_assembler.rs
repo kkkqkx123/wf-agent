@@ -553,6 +553,34 @@ impl ResourceAssemblerConfigFieldType {
     }
 }
 
+/// Declared-but-unset contract for assembler configs.
+///
+/// Two layers share the work: the metadata gate below reports missing
+/// required keys and type mismatches with field names (and warns on
+/// unknown keys via [`unknown_assembler_config_keys`]), while each
+/// assembler's `AssemblerConfig::from_value` parses with `serde` and
+/// `deny_unknown_fields` so misspelled keys fail fast with a path.
+/// Third-party assemblers that only use the metadata gate stay forward
+/// compatible: unknown keys warn instead of failing.
+pub fn unknown_assembler_config_keys(
+    value: &Value,
+    metadata: &ResourceAssemblerMetadata,
+) -> Vec<String> {
+    let Some(configurable) = metadata.configurable.as_ref() else {
+        return Vec::new();
+    };
+    let Value::Object(map) = value else {
+        return Vec::new();
+    };
+    let mut unknown: Vec<String> = map
+        .keys()
+        .filter(|key| !configurable.contains_key(*key))
+        .cloned()
+        .collect();
+    unknown.sort();
+    unknown
+}
+
 pub fn validate_config_value_against_metadata(
     value: &Value,
     metadata: &ResourceAssemblerMetadata,
@@ -1200,6 +1228,37 @@ mod tests {
         assert!(errors.iter().any(|e| e.contains("count")));
         let errors = validate_config_value_against_metadata(&json!({"count": "many"}), &metadata);
         assert!(errors.iter().any(|e| e.contains("count")));
+    }
+
+    #[test]
+    fn unknown_config_keys_are_reported_in_order() {
+        use serde_json::json;
+        let metadata = ResourceAssemblerMetadata {
+            id: "test".into(),
+            name: "test".into(),
+            version: "1".into(),
+            description: "test".into(),
+            author: None,
+            tags: None,
+            category: None,
+            dependencies: None,
+            configurable: Some(HashMap::from([(
+                "known".into(),
+                ResourceAssemblerConfigField {
+                    r#type: ResourceAssemblerConfigFieldType::String,
+                    description: "known".into(),
+                    default: None,
+                    required: None,
+                    allowed_functions: None,
+                },
+            )])),
+        };
+        assert!(unknown_assembler_config_keys(&json!({"known": "x"}), &metadata).is_empty());
+        assert!(unknown_assembler_config_keys(&json!(null), &metadata).is_empty());
+        assert_eq!(
+            unknown_assembler_config_keys(&json!({"known": "x", "zeta": 1, "alpha": 2}), &metadata),
+            vec!["alpha".to_string(), "zeta".to_string()]
+        );
     }
 
     #[test]

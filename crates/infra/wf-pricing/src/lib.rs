@@ -6,16 +6,19 @@
 //! depend on it without knowing about this host crate); this crate supplies the
 //! concrete implementations and the runtime factory.
 
+pub mod mapped;
 pub mod metadata;
 pub mod resolver;
 pub mod static_table;
 pub mod storage_table;
 
+pub use mapped::ProviderMappedPricingResolver;
 pub use metadata::ModelMetadataResolver;
 pub use resolver::{CompositePricingResolver, PricingResolver};
 pub use static_table::StaticPricingResolver;
 pub use storage_table::StoragePricingResolver;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use wf_storage::context::StorageContext;
@@ -34,4 +37,23 @@ pub async fn build_composite_resolver(
         None => Arc::new(StaticPricingResolver::empty()),
     };
     Arc::new(CompositePricingResolver::new(custom, public))
+}
+
+/// Build the provider-mapped resolver used at runtime.
+///
+/// Same tables as [`build_composite_resolver`], but the custom and public
+/// tables stay separate inside a [`ProviderMappedPricingResolver`] so
+/// every custom rule wins over every public entry. `mapping` translates
+/// local provider ids to LiteLLM namespaces for provider-specific pricing.
+pub async fn build_mapped_resolver(
+    storage: Option<&StorageContext>,
+    mapping: HashMap<String, String>,
+) -> Arc<dyn llm_token::PricingResolver> {
+    let public: Arc<dyn llm_token::PricingResolver> =
+        Arc::new(StaticPricingResolver::from_embedded());
+    let custom: Arc<dyn llm_token::PricingResolver> = match storage {
+        Some(ctx) => Arc::new(StoragePricingResolver::from_context(ctx).await),
+        None => Arc::new(StaticPricingResolver::empty()),
+    };
+    Arc::new(ProviderMappedPricingResolver::new(custom, public, mapping))
 }

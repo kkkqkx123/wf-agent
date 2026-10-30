@@ -99,4 +99,9 @@ pub struct AgentLoopConfig {
     pub discoverable_metadata_block: Option<String>,
     #[serde(default)]
     pub history_normalization: bool,
+    /// Optional shape contract for `AgentLoopInput.context`.
+    /// `None` (including all persisted configs) means untyped values with
+    /// key-shape checks only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_schema: Option<Vec<crate::TemplateVariableDefinition>>,
 }

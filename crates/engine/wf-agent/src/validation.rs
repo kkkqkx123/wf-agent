@@ -203,6 +203,57 @@ impl AgentLoopValidator {
         result
     }
 
+    /// Validate one context map against an optional shape contract.
+    ///
+    /// Key names always pass `validate_template_path`; declared keys must
+    /// match their shape (`variable_value_matches`) and required keys
+    /// without a default must be present. Unknown keys pass for forward
+    /// compatibility.
+    pub fn validate_context_with_schema(
+        context: &std::collections::HashMap<String, serde_json::Value>,
+        schema: &[wf_types::TemplateVariableDefinition],
+    ) -> Vec<ValidationIssue> {
+        let mut issues = Vec::new();
+        for declared in schema {
+            match &context.get(&declared.name) {
+                None => {
+                    if declared.required && declared.default_value.is_none() {
+                        issues.push(ValidationIssue::error(
+                            format!("context.{}", declared.name),
+                            format!("context key '{}' is required", declared.name),
+                        ));
+                    }
+                }
+                Some(value) => {
+                    if !wf_types::template::variable_value_matches(&declared.r#type, value) {
+                        issues.push(ValidationIssue::error(
+                            format!("context.{}", declared.name),
+                            format!(
+                                "context key '{}' expects {:?}, got {}",
+                                declared.name, declared.r#type, value
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+        issues
+    }
+
+    /// Validate one agent loop input with an optional context shape
+    /// contract: message text, context keys, imported conversation size,
+    /// plus declared context value shapes when a schema is present.
+    pub fn validate_input_with_schema(
+        input: &wf_tools::callback::AgentLoopInput,
+        schema: Option<&[wf_types::TemplateVariableDefinition]>,
+    ) -> Vec<ValidationIssue> {
+        let mut issues = Self::validate_input(input);
+        if let Some(schema) = schema {
+            issues.extend(Self::validate_context_with_schema(&input.context, schema));
+        }
+        issues
+    }
+
     /// Validate one agent loop input: message text, context keys and
     /// imported conversation size. Context values stay untyped JSON; only
     /// key shapes are checked here so prompt rendering keeps its own
@@ -238,7 +289,14 @@ impl AgentLoopValidator {
     pub fn validate_or_fail_input(
         input: &wf_tools::callback::AgentLoopInput,
     ) -> Result<(), Vec<ValidationIssue>> {
-        let errors: Vec<ValidationIssue> = Self::validate_input(input)
+        Self::validate_or_fail_input_with_schema(input, None)
+    }
+
+    pub fn validate_or_fail_input_with_schema(
+        input: &wf_tools::callback::AgentLoopInput,
+        schema: Option<&[wf_types::TemplateVariableDefinition]>,
+    ) -> Result<(), Vec<ValidationIssue>> {
+        let errors: Vec<ValidationIssue> = Self::validate_input_with_schema(input, schema)
             .into_iter()
             .filter(|i| i.severity == ValidationSeverity::Error)
             .collect();
@@ -449,6 +507,7 @@ mod tests {
             general_description: None,
             discoverable_metadata_block: None,
             history_normalization: false,
+            context_schema: None,
             checkpoint_message_interval: None,
         }
     }
@@ -698,6 +757,47 @@ mod tests {
             .insert("bad key".to_string(), serde_json::json!(1));
         let issues = AgentLoopValidator::validate_input(&input);
         assert!(issues.iter().any(|i| i.field.starts_with("context.")));
+    }
+
+    fn context_schema() -> Vec<wf_types::TemplateVariableDefinition> {
+        vec![
+            wf_types::TemplateVariableDefinition {
+                name: "count".to_string(),
+                r#type: wf_types::TemplateVariableType::Number,
+                required: true,
+                description: None,
+                default_value: None,
+            },
+            wf_types::TemplateVariableDefinition {
+                name: "label".to_string(),
+                r#type: wf_types::TemplateVariableType::String,
+                required: false,
+                description: None,
+                default_value: None,
+            },
+        ]
+    }
+
+    #[test]
+    fn test_validate_context_schema_accepts_declared_shapes() {
+        let schema = context_schema();
+        let context = std::collections::HashMap::from([
+            ("count".to_string(), serde_json::json!(3)),
+            ("extra".to_string(), serde_json::json!("anything")),
+        ]);
+        assert!(AgentLoopValidator::validate_context_with_schema(&context, &schema).is_empty());
+    }
+
+    #[test]
+    fn test_validate_context_schema_reports_missing_and_mismatch() {
+        let schema = context_schema();
+        let empty = std::collections::HashMap::new();
+        let issues = AgentLoopValidator::validate_context_with_schema(&empty, &schema);
+        assert!(issues.iter().any(|i| i.field == "context.count"));
+        let bad =
+            std::collections::HashMap::from([("count".to_string(), serde_json::json!("many"))]);
+        let issues = AgentLoopValidator::validate_context_with_schema(&bad, &schema);
+        assert!(issues.iter().any(|i| i.field == "context.count"));
     }
 
     #[test]

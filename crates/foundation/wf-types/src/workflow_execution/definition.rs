@@ -71,6 +71,7 @@ impl From<WorkflowExecutionStateSnapshot> for WorkflowExecution {
                     r#type: None,
                     scope: None,
                     readonly: None,
+                    required: None,
                     metadata: None,
                 })
                 .collect(),

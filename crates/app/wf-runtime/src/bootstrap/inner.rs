@@ -195,34 +195,17 @@ impl Runtime {
             tool_registry.set_tool_metrics(metrics.registry().tool());
         }
 
-        let pricing_resolver =
-            wf_pricing::build_composite_resolver(storage_manager.shared_context().as_deref()).await;
-
         // Map local provider ids to LiteLLM provider namespaces so pricing
         // can resolve provider-specific table entries instead of only the
-        // canonical model-only entry.
-        let mut provider_mapping = std::collections::HashMap::new();
-        for id in wf_llm::builtin_provider_ids() {
-            if let Some(litellm_provider) = wf_llm::litellm_provider_for(&id) {
-                provider_mapping.insert(id, litellm_provider.to_string());
-            }
-        }
-        for definition in &config.llm.provider_definitions {
-            if let Some(value) = definition
-                .metadata
-                .as_ref()
-                .and_then(|metadata| metadata.get("litellm_provider"))
-                .and_then(|value| value.as_str())
-            {
-                provider_mapping.insert(definition.id.clone(), value.to_string());
-            }
-        }
-        let pricing_resolver = std::sync::Arc::new(
-            crate::bootstrap::llm::ProviderMappedPricingResolver::new(
-                pricing_resolver,
-                provider_mapping,
-            ),
-        );
+        // canonical model-only entry. The mapped resolver keeps custom rules
+        // ahead of every public entry, so explicit configuration stays
+        // authoritative. The same table feeds metadata lookups.
+        let provider_mapping = wf_llm::provider_mapping_for(&config.llm.provider_definitions);
+        let pricing_resolver = wf_pricing::build_mapped_resolver(
+            storage_manager.shared_context().as_deref(),
+            provider_mapping,
+        )
+        .await;
         // Declarative auth surfaces attach to the gateway before plugin
         // activation: plugin-provided surfaces register on the same registry
         // (fixed startup order, no lazy backfill) and file-layer profiles can

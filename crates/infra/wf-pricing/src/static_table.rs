@@ -130,8 +130,11 @@ impl StaticPricingResolver {
     }
 
     fn from_json(json: &str) -> Self {
-        let parsed: HashMap<String, LiteLlmModel> =
+        let mut parsed: HashMap<String, LiteLlmModel> =
             serde_json::from_str(json).expect("embedded litellm_public.json must be valid");
+        // `sample_spec` documents the schema, not a priced model. Drop it
+        // so lookups for it yield `None`, matching the metadata resolver.
+        parsed.remove("sample_spec");
         let mut table = HashMap::new();
         for (model, entry) in parsed {
             // Public table is keyed by model name only.

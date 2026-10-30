@@ -137,8 +137,14 @@ pub(crate) fn live_entity(
         .ok_or_else(|| ApiError::execution_not_found(agent_loop_id))
 }
 
-pub(crate) fn gate_agent_input(input: &AgentLoopInput) -> crate::ApiResult<()> {
-    match wf_agent::validation::AgentLoopValidator::validate_or_fail_input(input) {
+pub(crate) fn gate_agent_input(
+    input: &AgentLoopInput,
+    config: Option<&AgentLoopConfig>,
+) -> crate::ApiResult<()> {
+    let schema = config.and_then(|c| c.context_schema.as_deref());
+    match wf_agent::validation::AgentLoopValidator::validate_or_fail_input_with_schema(
+        input, schema,
+    ) {
         Ok(()) => Ok(()),
         Err(errors) => {
             let detail = errors

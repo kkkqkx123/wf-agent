@@ -22,6 +22,7 @@ pub struct AgentLoopConfigBuilder<S> {
     token_warning_threshold: Option<u32>,
     enable_token_tracking: Option<bool>,
     history_normalization: bool,
+    context_schema: Option<Vec<wf_types::TemplateVariableDefinition>>,
     file_scope: Option<wf_types::config::file_scope::ExecutionFileScope>,
     _marker: PhantomData<S>,
 }
@@ -45,6 +46,7 @@ impl AgentLoopConfigBuilder<LoopEmpty> {
             token_warning_threshold: None,
             enable_token_tracking: None,
             history_normalization: false,
+            context_schema: None,
             file_scope: None,
             _marker: PhantomData,
         }
@@ -69,6 +71,7 @@ impl AgentLoopConfigBuilder<LoopEmpty> {
             token_warning_threshold: self.token_warning_threshold,
             enable_token_tracking: self.enable_token_tracking,
             history_normalization: self.history_normalization,
+            context_schema: self.context_schema,
             file_scope: self.file_scope,
             _marker: PhantomData,
         }
@@ -125,6 +128,13 @@ impl<S> AgentLoopConfigBuilder<S> {
         self
     }
 
+    /// Declare the shape contract for `AgentLoopInput.context`. Unknown
+    /// keys stay accepted; declared keys must match their shape.
+    pub fn context_schema(mut self, schema: Vec<wf_types::TemplateVariableDefinition>) -> Self {
+        self.context_schema = Some(schema);
+        self
+    }
+
     /// Set the full tool call format config. Besides the format name, the
     /// config can carry `include_description` / `description_style`, which
     /// control the discoverable tool metadata verbosity injected into the
@@ -172,6 +182,7 @@ impl AgentLoopConfigBuilder<LoopConfigured> {
             general_description: None,
             discoverable_metadata_block: None,
             history_normalization: self.history_normalization,
+            context_schema: self.context_schema,
             checkpoint_message_interval: None,
         }
     }

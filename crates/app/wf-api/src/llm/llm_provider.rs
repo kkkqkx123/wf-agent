@@ -178,7 +178,8 @@ pub async fn refresh_filtered(
 ///   the profile has none: backfill the missing gaps and return the enriched
 ///   profile. The live discovery table only carries the context window, so
 ///   a still-missing `max_output_tokens` falls back to the static LiteLLM
-///   table (`wf_llm::model_metadata`); `format` is never auto-filled.
+///   table (provider-aware `wf_llm::model_metadata_for_provider`);
+///   `format` is never auto-filled.
 pub async fn assemble_check(ctx: &ApiContext, profile: &LlmProfile) -> LlmProfile {
     let Some(provider_id) = profile.provider_id.as_deref() else {
         return profile.clone();
@@ -209,7 +210,10 @@ pub async fn assemble_check(ctx: &ApiContext, profile: &LlmProfile) -> LlmProfil
         }
     }
     if enriched.max_output_tokens.is_none() {
-        if let Some(meta) = wf_llm::model_metadata(&profile.model) {
+        let definition = ctx.llm_gateway.provider_registry().get(provider_id);
+        let custom = definition.as_ref().and_then(wf_llm::custom_litellm_of);
+        let namespace = wf_llm::resolve_litellm_namespace(provider_id, custom);
+        if let Some(meta) = wf_llm::model_metadata_for_namespace(namespace, &profile.model) {
             if enriched.context_window_size.is_none() {
                 enriched.context_window_size = meta.context_window;
             }

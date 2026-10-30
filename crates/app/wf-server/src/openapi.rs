@@ -138,6 +138,7 @@ use utoipa::OpenApi;
         crate::api::chat::starters::handle_record_starter_usage,
         crate::api::chat::starters::handle_import_starter,
         crate::api::chat::starters::handle_export_starter,
+        crate::api::chat::starters::handle_resolve_starter,
         crate::api::recap::handle_chat_recap,
         crate::api::title::handle_chat_title,
         // ── workflow ──
@@ -833,6 +834,9 @@ use utoipa::OpenApi;
         crate::api::chat::starters::CreateStarterBody,
         crate::api::chat::starters::UpdateStarterBody,
         crate::api::chat::starters::ImportStarterBody,
+        crate::api::chat::starters::ResolveStarterView,
+        crate::api::chat::starters::ResolveStarterBody,
+        crate::api::chat::starters::ResolveStarterMissing,
         crate::api::workflow::workflows::ValidateNodeBody,
         crate::api::llm::tools::ValidateToolParamsBody,
         crate::api::entity::variables::VariableBody,

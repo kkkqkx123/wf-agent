@@ -44,6 +44,21 @@ pub fn empty_options() -> WorkflowExecutionOptions {
     }
 }
 
+/// Fill absent input keys from the declared variable defaults.
+///
+/// Caller values always win; a declared `value` of `Null` means no
+/// default. Non-object inputs pass through untouched.
+pub fn apply_input_defaults(
+    input: Option<Value>,
+    variables: Option<&[wf_types::workflow_execution::VariableDefinition]>,
+) -> Option<Value> {
+    let filled = wf_types::workflow_execution::apply_workflow_input_defaults(input, variables);
+    match filled {
+        Value::Null => None,
+        other => Some(other),
+    }
+}
+
 /// Pure merge: caller options over stored definition defaults plus input
 /// fallback. No storage or entity access here.
 pub fn resolve_options(
@@ -56,12 +71,13 @@ pub fn resolve_options(
         if let Some(config) = definition.config.as_ref() {
             apply_workflow_config_defaults(&mut merged, config);
         }
+        merged.input =
+            apply_input_defaults(merged.input.or(input), definition.variables.as_deref());
+    } else if merged.input.is_none() {
+        merged.input = input;
     }
     if merged.enable_checkpoints.is_none() {
         merged.enable_checkpoints = Some(true);
-    }
-    if merged.input.is_none() {
-        merged.input = input;
     }
     merged
 }
@@ -143,6 +159,29 @@ mod tests {
         let merged = resolve_options(Some(&definition), None, Some(caller));
         assert_eq!(merged.timeout, Some(5));
         assert_eq!(merged.max_steps, Some(9));
+    }
+
+    #[test]
+    fn input_defaults_backfill_missing_keys() {
+        use wf_types::workflow_execution::{VariableDefinition, VariableValueType};
+        let mut definition = definition_with(None, None, None);
+        definition.variables = Some(vec![VariableDefinition {
+            name: "city".to_string(),
+            value: serde_json::json!("paris"),
+            r#type: Some(VariableValueType::String),
+            scope: None,
+            readonly: None,
+            required: None,
+            metadata: None,
+        }]);
+        let merged = resolve_options(Some(&definition), None, None);
+        assert_eq!(merged.input, Some(serde_json::json!({"city": "paris"})));
+        let merged = resolve_options(
+            Some(&definition),
+            Some(serde_json::json!({"city": "london"})),
+            None,
+        );
+        assert_eq!(merged.input, Some(serde_json::json!({"city": "london"})));
     }
 
     #[test]

@@ -174,6 +174,7 @@ impl AgentLoopHandler {
             // normalization above covers the loop-entry shapes, and per-turn
             // rewrites would churn the KV-cache-friendly request prefix.
             history_normalization: false,
+            context_schema: None,
         };
 
         let loop_input = AgentLoopInput {

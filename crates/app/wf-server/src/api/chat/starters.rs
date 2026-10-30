@@ -37,6 +37,7 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
         .route("/chat/starters/import", post(handle_import_starter))
         .route("/chat/starters/{id}/export", get(handle_export_starter))
+        .route("/chat/starters/{id}/resolve", post(handle_resolve_starter))
 }
 
 /// Wire view of one starter. The domain type stays out of the OpenAPI
@@ -360,6 +361,54 @@ pub(crate) async fn handle_export_starter(
     }
 }
 
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub(crate) struct ResolveStarterView {
+    content: String,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct ResolveStarterBody {
+    #[schema(value_type = Object)]
+    values: std::collections::HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub(crate) struct ResolveStarterMissing {
+    missing: Vec<String>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/chat/starters/{id}/resolve",
+    tag = "chat",
+    params(IdPath),
+    request_body = ResolveStarterBody,
+    responses((status = 200, description = "Resolved starter content", body = crate::envelope::ApiEnvelope<ResolveStarterView>), (status = 400, description = "Missing variables or invalid values", body = crate::envelope::ErrorResponse), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_resolve_starter(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Json(body): Json<ResolveStarterBody>,
+) -> impl IntoResponse {
+    match wf_api::chat::starter::get(&state.ctx, &path.id).await {
+        Ok(entry) => match wf_api::chat::starter::resolve_starter_for_fill(&entry, &body.values) {
+            Ok(content) => ok(ResolveStarterView { content }).into_response(),
+            Err(wf_api::chat::starter::StarterFillError::Missing(missing)) => {
+                crate::envelope::error_response(wf_api::ApiError::Validation(format!(
+                    "starter [{id}] is missing variable(s): {missing}",
+                    id = path.id,
+                    missing = missing.join(", ")
+                )))
+            }
+            Err(wf_api::chat::starter::StarterFillError::Invalid(reason)) => {
+                crate::envelope::error_response(wf_api::ApiError::Validation(reason))
+            }
+        },
+        Err(e) => error_response(e),
+    }
+}
+
 #[derive(Deserialize, ToSchema)]
 pub(crate) struct ImportStarterBody {
     json: String,
@@ -537,5 +586,41 @@ mod tests {
         let ctx = make_ctx();
         let response = send(ctx, get("/api/v1/chat/starters/starter.missing")).await;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn starter_resolve_reports_missing_then_renders() {
+        let ctx = make_ctx();
+        let response = send(
+            ctx.clone(),
+            post(
+                "/api/v1/chat/starters",
+                r#"{"title":"Fill","content":"Do {{task}}","locale":"en","variables":[{"name":"task","type":"string","required":true}]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let created = json_body(response).await;
+        let id = created["data"]["id"].as_str().unwrap().to_string();
+        let response = send(
+            ctx.clone(),
+            post(
+                &format!("/api/v1/chat/starters/{id}/resolve"),
+                r#"{"values":{}}"#,
+            ),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let response = send(
+            ctx.clone(),
+            post(
+                &format!("/api/v1/chat/starters/{id}/resolve"),
+                r#"{"values":{"task":"the thing"}}"#,
+            ),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let resolved = json_body(response).await;
+        assert_eq!(resolved["data"]["content"], "Do the thing");
     }
 }

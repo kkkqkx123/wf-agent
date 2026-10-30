@@ -297,6 +297,7 @@ fn workflow_input_typed_gate_checks_declared_types() {
         r#type: Some(VariableValueType::Number),
         scope: None,
         readonly: None,
+        required: None,
         metadata: None,
     }];
     assert!(validate_workflow_input_with_variables(

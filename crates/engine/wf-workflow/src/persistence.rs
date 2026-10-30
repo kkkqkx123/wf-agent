@@ -70,6 +70,7 @@ pub async fn build_workflow_execution(
             r#type: None,
             scope: None,
             readonly: None,
+            required: None,
             metadata: None,
         })
         .collect();

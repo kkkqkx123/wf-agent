@@ -151,7 +151,20 @@ impl ChatSession {
         let supports_image = gateway
             .profile_registry()
             .get(new_profile_id)
-            .and_then(|profile| wf_llm::model_metadata(&profile.model))
+            .and_then(|profile| {
+                let definition = profile
+                    .provider_id
+                    .as_deref()
+                    .and_then(|id| gateway.provider_registry().get(id));
+                let namespace = match profile.provider_id.as_deref() {
+                    Some(id) => wf_llm::resolve_litellm_namespace(
+                        id,
+                        definition.as_ref().and_then(wf_llm::custom_litellm_of),
+                    ),
+                    None => None,
+                };
+                wf_llm::model_metadata_for_namespace(namespace, &profile.model)
+            })
             .map(|metadata| metadata.supports_image())
             .unwrap_or(true);
         let migrated = gateway.migrate_history_for_profile_with_image_support(

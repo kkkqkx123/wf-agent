@@ -33,6 +33,7 @@ pub fn build_agent_loop_config(
         general_description: None,
         discoverable_metadata_block: None,
         history_normalization: false,
+        context_schema: None,
         checkpoint_message_interval: None,
     }
 }

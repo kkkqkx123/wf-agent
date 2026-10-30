@@ -204,8 +204,8 @@ pub fn create_llm_gateway(
 /// baseline; file-layer definitions win on id collision. Profiles then
 /// merge connection defaults once at registration time and fill missing
 /// `context_window_size`/`max_output_tokens` from the LiteLLM table
-/// (`wf-pricing`, best effort, model-name match), so the request hot path
-/// never merges again.
+/// (best effort, provider-aware lookup with canonical fallback), so the
+/// request hot path never merges again.
 /// Costs are never filled here: the pricing resolver remains the single
 /// cost path. Plugin codecs and providers must already be synced (fixed
 /// startup order, no lazy backfill).
@@ -227,29 +227,51 @@ pub fn register_llm_config(gateway: &LlmGateway, config: &LlmConfig) -> RuntimeR
             })?;
     }
 
-    // Model metadata comes from the LiteLLM table, matched by model name
-    // only: its provider namespace ("openai", "vertex_ai-...") differs
-    // from local registry ids ("builtin-openai", ...), and the fill is a
+    // Model metadata comes from the LiteLLM table through a
+    // provider-aware lookup: each local provider id resolves to its
+    // upstream LiteLLM namespace (built-in mapping, custom declarations
+    // win), falling back to the canonical short name. The fill is a
     // best-effort hint — explicit config always wins.
-    // Warm the model-metadata cache once for every configured profile
-    // model, so the per-profile loop below does not re-parse the embedded
-    // LiteLLM table for each entry.
-    let profile_models: Vec<&str> = config.profiles.iter().map(|p| p.model.as_str()).collect();
-    let _ = wf_llm::model_metadata_for(&profile_models);
+    // Warm the model-metadata cache once for every configured profile, so
+    // the per-profile loop below does not re-parse the embedded LiteLLM
+    // table for each entry.
+    let provider_mapping = wf_llm::provider_mapping_for(&config.provider_definitions);
+    let namespace_of = |provider_id: Option<&str>| {
+        provider_id.and_then(|id| provider_mapping.get(id).map(String::as_str))
+    };
+    let profile_pairs: Vec<(Option<&str>, &str)> = config
+        .profiles
+        .iter()
+        .map(|p| (namespace_of(p.provider_id.as_deref()), p.model.as_str()))
+        .collect();
+    let _ = wf_llm::model_metadata_for_namespaces(&profile_pairs);
 
     for profile in &config.profiles {
         validate_llm_profile(profile)
             .map_err(|e| crate::error::RuntimeError::Config(format!("Invalid LLM profile: {e}")))?;
         let transformed = transform_llm_profile(profile, &std::collections::HashMap::new())
             .map_err(|e| crate::error::RuntimeError::Config(format!("Invalid LLM profile: {e}")))?;
-        // Gap-filling stays in the shared catalog helper so the "only fill
-        // what config leaves empty" rule has a single home; costs never
-        // flow here (the pricing resolver remains the single cost path).
-        // `format` is never auto-filled: a mismatch only warns downstream.
+        // Only fill what config leaves empty; costs never flow here (the
+        // pricing resolver remains the single cost path). `format` is
+        // never auto-filled: a mismatch only warns downstream.
         let mut with_catalog = transformed;
         if with_catalog.context_window_size.is_none() || with_catalog.max_output_tokens.is_none() {
-            if let Some(meta) = wf_llm::model_metadata(&with_catalog.model) {
-                with_catalog = wf_llm::apply_catalog_metadata(with_catalog, &[meta]);
+            if let Some(meta) = wf_llm::model_metadata_for_namespace(
+                namespace_of(with_catalog.provider_id.as_deref()),
+                &with_catalog.model,
+            ) {
+                // The lookup already selected the provider-specific entry,
+                // so gaps fill directly from it.
+                if with_catalog.context_window_size.is_none() {
+                    if let Some(window) = meta.context_window {
+                        with_catalog.context_window_size = Some(window);
+                    }
+                }
+                if with_catalog.max_output_tokens.is_none() {
+                    if let Some(max_output) = meta.max_output_tokens {
+                        with_catalog.max_output_tokens = Some(max_output);
+                    }
+                }
             }
         }
         gateway.register_profile(with_catalog).map_err(|e| {
@@ -343,55 +365,5 @@ mod tests {
         );
         assert_eq!(params.client_id, "custom-id");
         assert_eq!(params.scope, wf_llm::provider_flows::GITHUB_COPILOT_SCOPE);
-    }
-}
-
-/// Pricing resolver wrapper that translates local provider ids into LiteLLM
-/// provider namespaces before consulting the underlying resolver.
-///
-/// The embedded LiteLLM table stores provider-specific variants under keys
-/// such as `azure/gpt-4o`. Local provider ids (`builtin-azure`) are not
-/// valid LiteLLM namespaces, so this wrapper maps them first and tries the
-/// provider-qualified model key before falling back to the canonical
-/// model-only entry.
-pub struct ProviderMappedPricingResolver {
-    inner: Arc<dyn PricingResolver>,
-    mapping: std::collections::HashMap<String, String>,
-}
-
-impl ProviderMappedPricingResolver {
-    pub fn new(
-        inner: Arc<dyn PricingResolver>,
-        mapping: std::collections::HashMap<String, String>,
-    ) -> Self {
-        Self { inner, mapping }
-    }
-}
-
-impl PricingResolver for ProviderMappedPricingResolver {
-    fn resolve(&self, provider: Option<&str>, model: &str) -> Option<wf_pricing::resolver::ResolvedPricing> {
-        // Provider-specific LiteLLM entry first.
-        if let Some(provider) = provider {
-            if let Some(litellm_provider) = self.mapping.get(provider) {
-                if let Some(resolved) = self
-                    .inner
-                    .resolve(None, &format!("{}/{}", litellm_provider, model))
-                {
-                    return Some(resolved);
-                }
-            }
-        }
-
-        // Already a LiteLLM-style provider-qualified model name.
-        if model.contains('/') {
-            if let Some(resolved) = self.inner.resolve(None, model) {
-                return Some(resolved);
-            }
-        }
-
-        // Fall back to the original provider and then the canonical model.
-        self.inner
-            .resolve(provider, model)
-            .or_else(|| self.inner.resolve(None, model))
     }
 }

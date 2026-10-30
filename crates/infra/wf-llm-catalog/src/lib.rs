@@ -36,7 +36,9 @@ static MODEL_METADATA_CACHE: Mutex<Option<HashMap<String, Option<ModelMetadata>>
     Mutex::new(None);
 
 fn cache() -> std::sync::MutexGuard<'static, Option<HashMap<String, Option<ModelMetadata>>>> {
-    let mut guard = MODEL_METADATA_CACHE.lock().expect("model metadata cache lock");
+    let mut guard = MODEL_METADATA_CACHE
+        .lock()
+        .expect("model metadata cache lock");
     if guard.is_none() {
         *guard = Some(HashMap::new());
     }
@@ -62,6 +64,133 @@ pub fn model_metadata(model: &str) -> Option<ModelMetadata> {
         map.insert(model.to_string(), value.clone());
     }
     value
+}
+
+/// Metadata for one model with an optional local provider id.
+///
+/// The provider id is translated through [`litellm_provider_for`] and the
+/// provider-qualified table key is tried before the canonical short name,
+/// so gateway-hosted models without a canonical entry still resolve.
+/// Results share the same process cache as [`model_metadata`], keyed by
+/// the qualified name when a mapping exists. Provider ids unknown to the
+/// built-in mapping fall back to the canonical short name; callers that
+/// resolved a custom `litellm_provider` declaration should use
+/// [`model_metadata_for_namespace`] directly.
+pub fn model_metadata_for_provider(
+    provider_id: Option<&str>,
+    model: &str,
+) -> Option<ModelMetadata> {
+    let namespace = if model.contains('/') {
+        None
+    } else {
+        provider_id.and_then(litellm_provider_for)
+    };
+    model_metadata_for_namespace(namespace, model)
+}
+
+/// Metadata for one model with an already-resolved LiteLLM namespace.
+///
+/// Lower-level counterpart of [`model_metadata_for_provider`] for callers
+/// holding a custom mapping (such as file-layer `litellm_provider`
+/// declarations): the namespace is used as given, with no built-in
+/// translation. Cache keys match the provider-based entry, so both paths
+/// share entries for the same effective namespace.
+pub fn model_metadata_for_namespace(
+    litellm_provider: Option<&str>,
+    model: &str,
+) -> Option<ModelMetadata> {
+    let key = cache_key_for_namespace(litellm_provider, model);
+    {
+        let cache = cache();
+        if let Some(value) = cache.as_ref().and_then(|m| m.get(&key)) {
+            return value.clone();
+        }
+    }
+    let value = fetch_uncached_with(litellm_provider, model);
+    let mut cache = cache();
+    if let Some(map) = cache.as_mut() {
+        map.insert(key, value.clone());
+    }
+    value
+}
+
+/// Cache key for a namespace-resolved lookup.
+fn cache_key_for_namespace(litellm_provider: Option<&str>, model: &str) -> String {
+    if model.contains('/') {
+        return model.to_string();
+    }
+    match litellm_provider {
+        Some(namespace) => format!("{namespace}/{model}"),
+        None => model.to_string(),
+    }
+}
+
+/// Resolve one namespace-resolved lookup with a fresh table parse.
+fn fetch_uncached_with(litellm_provider: Option<&str>, model: &str) -> Option<ModelMetadata> {
+    ModelMetadataResolver::from_embedded().metadata_for_provider(litellm_provider, model)
+}
+
+/// Metadata for every `(provider, model)` pair in input order.
+///
+/// Provider-aware counterpart of [`model_metadata_for`]: unknown models
+/// are skipped and all misses share a single parse of the embedded table.
+/// Callers processing a configuration file should prefer this over
+/// repeated [`model_metadata_for_provider`] calls.
+pub fn model_metadata_for_providers(pairs: &[(Option<&str>, &str)]) -> Vec<ModelMetadata> {
+    let resolved: Vec<(Option<&str>, &str)> = pairs
+        .iter()
+        .map(|(provider_id, model)| {
+            let namespace = if model.contains('/') {
+                None
+            } else {
+                provider_id.and_then(litellm_provider_for)
+            };
+            (namespace, *model)
+        })
+        .collect();
+    model_metadata_for_namespaces(&resolved)
+}
+
+/// Metadata for every `(namespace, model)` pair in input order.
+///
+/// Batch counterpart of [`model_metadata_for_namespace`] for callers
+/// holding a custom mapping: namespaces are used as given, unknown models
+/// are skipped, and all misses share a single parse of the embedded table.
+pub fn model_metadata_for_namespaces(pairs: &[(Option<&str>, &str)]) -> Vec<ModelMetadata> {
+    let mut missing: Vec<(String, Option<String>, String)> = Vec::new();
+    {
+        let cache = cache();
+        if let Some(map) = cache.as_ref() {
+            for (namespace, model) in pairs {
+                let key = cache_key_for_namespace(*namespace, model);
+                if !map.contains_key(&key) && !missing.iter().any(|(k, _, _)| k == &key) {
+                    missing.push((key, namespace.map(str::to_string), model.to_string()));
+                }
+            }
+        }
+    }
+
+    if !missing.is_empty() {
+        let resolver = ModelMetadataResolver::from_embedded();
+        let mut cache = cache();
+        if let Some(map) = cache.as_mut() {
+            for (key, namespace, model) in missing {
+                map.insert(
+                    key,
+                    resolver.metadata_for_provider(namespace.as_deref(), &model),
+                );
+            }
+        }
+    }
+
+    pairs
+        .iter()
+        .filter_map(|(namespace, model)| {
+            let cache = cache();
+            let key = cache_key_for_namespace(*namespace, model);
+            cache.as_ref()?.get(&key).cloned().flatten()
+        })
+        .collect()
 }
 
 /// Metadata for every model in `models`, in input order.
@@ -102,6 +231,55 @@ pub fn model_metadata_for(models: &[&str]) -> Vec<ModelMetadata> {
         .collect()
 }
 
+/// Extract a custom `litellm_provider` declaration from a provider definition.
+///
+/// Returns the declared upstream namespace, if any. No validation is done
+/// here: unknown namespaces simply miss the qualified lookup and fall back
+/// to the canonical entry downstream.
+pub fn custom_litellm_of(definition: &llm_types::llm::LlmProviderDefinition) -> Option<&str> {
+    definition
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get("litellm_provider"))
+        .and_then(|value| value.as_str())
+}
+
+/// Resolve the effective LiteLLM namespace for a local provider id.
+///
+/// An explicit custom declaration always wins over the built-in mapping,
+/// matching the file-layer-wins registration order.
+pub fn resolve_litellm_namespace<'a>(
+    provider_id: &str,
+    custom: Option<&'a str>,
+) -> Option<&'a str> {
+    custom.or_else(|| litellm_provider_for(provider_id))
+}
+
+/// Assemble the local-id to LiteLLM-namespace mapping for pricing and
+/// metadata lookups.
+///
+/// Built-in ids contribute their upstream namespace first; file-layer
+/// definitions then override by id when they declare `litellm_provider`.
+/// A definition that overrides an id without a declaration keeps the
+/// built-in mapping, since such overrides normally only adjust connection
+/// fields while staying with the same vendor.
+pub fn provider_mapping_for(
+    definitions: &[llm_types::llm::LlmProviderDefinition],
+) -> HashMap<String, String> {
+    let mut mapping = HashMap::new();
+    for id in builtin_provider_ids() {
+        if let Some(namespace) = litellm_provider_for(&id) {
+            mapping.insert(id, namespace.to_string());
+        }
+    }
+    for definition in definitions {
+        if let Some(namespace) = custom_litellm_of(definition) {
+            mapping.insert(definition.id.clone(), namespace.to_string());
+        }
+    }
+    mapping
+}
+
 /// Map a local provider id to the LiteLLM provider namespace used by the
 /// embedded pricing/metadata table, when known.
 ///
@@ -112,8 +290,14 @@ pub fn litellm_provider_for(provider_id: &str) -> Option<&'static str> {
     match provider_id {
         "builtin-openai" | "builtin-openai-responses" | "builtin-openai-codex" => Some("openai"),
         "builtin-anthropic" => Some("anthropic"),
-        "builtin-gemini" | "builtin-google-vertex" => Some("gemini"),
+        "builtin-gemini" => Some("gemini"),
+        // Vertex serves its own model family under `vertex_ai/*`; sharing
+        // the Gemini namespace would miss vertex-only models.
+        "builtin-google-vertex" => Some("vertex_ai"),
         "builtin-ollama" => Some("ollama"),
+        // The embedded table tracks no openrouter-specific entries today;
+        // kept so a future table with `openrouter/*` keys resolves
+        // without a code change. Canonical fallback covers current models.
         "builtin-openrouter" => Some("openrouter"),
         "builtin-deepseek" => Some("deepseek"),
         "builtin-groq" => Some("groq"),
@@ -140,10 +324,130 @@ pub fn litellm_provider_for(provider_id: &str) -> Option<&'static str> {
         "builtin-vercel-ai-gateway" => Some("vercel_ai_gateway"),
         "builtin-meta" => Some("meta"),
         "builtin-xai" => Some("xai"),
+        // Bedrock entries in the embedded table use unprefixed model ids,
+        // so this mapping currently misses and the canonical fallback
+        // covers them. Kept for forward compatibility with qualified keys.
         "builtin-amazon-bedrock" => Some("bedrock_converse"),
         "builtin-ant-ling" => None,
         "builtin-huggingface" => None,
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vertex_maps_to_vertex_namespace() {
+        assert_eq!(litellm_provider_for("builtin-gemini"), Some("gemini"));
+        assert_eq!(
+            litellm_provider_for("builtin-google-vertex"),
+            Some("vertex_ai")
+        );
+        assert_eq!(litellm_provider_for("builtin-huggingface"), None);
+    }
+
+    #[test]
+    fn provider_aware_lookup_resolves_gateway_models() {
+        // No canonical short name exists for this model.
+        assert!(model_metadata("codestral-latest").is_none());
+        let meta = model_metadata_for_provider(Some("builtin-mistral"), "codestral-latest")
+            .expect("mistral qualified entry");
+        assert_eq!(meta.id, "codestral-latest");
+        assert!(meta.context_window.is_some());
+        // Canonical models resolve with or without a provider scope.
+        assert!(model_metadata_for_provider(Some("builtin-openai"), "gpt-4o").is_some());
+        assert!(model_metadata_for_provider(None, "gpt-4o").is_some());
+        assert!(model_metadata_for_provider(None, "no-such-model-xyz").is_none());
+    }
+
+    fn test_definition(
+        id: &str,
+        litellm_provider: Option<&str>,
+    ) -> llm_types::llm::LlmProviderDefinition {
+        llm_types::llm::LlmProviderDefinition {
+            id: id.to_string(),
+            name: None,
+            description: None,
+            base_url: None,
+            auth_type: None,
+            default_headers: None,
+            format: llm_types::llm::LlmFormat::OpenaiChat,
+            model_discovery: None,
+            api_version: None,
+            metadata: litellm_provider.map(|namespace| {
+                [("litellm_provider".to_string(), serde_json::json!(namespace))]
+                    .into_iter()
+                    .collect()
+            }),
+            proxy: None,
+            no_proxy: None,
+            rate_limit: None,
+            auth: None,
+            compat: None,
+            identity: None,
+            transport: None,
+            env: None,
+        }
+    }
+
+    #[test]
+    fn mapping_assembly_prefers_custom_declarations() {
+        let definitions = vec![
+            test_definition("my-mistral-proxy", Some("mistral")),
+            test_definition("builtin-azure", Some("custom_azure")),
+            test_definition("plain-proxy", None),
+        ];
+        let mapping = provider_mapping_for(&definitions);
+        // Custom-only id gains a namespace.
+        assert_eq!(
+            mapping.get("my-mistral-proxy").map(String::as_str),
+            Some("mistral")
+        );
+        // Explicit declaration wins over the built-in mapping.
+        assert_eq!(
+            mapping.get("builtin-azure").map(String::as_str),
+            Some("custom_azure")
+        );
+        // No declaration leaves the id unmapped.
+        assert!(!mapping.contains_key("plain-proxy"));
+        // Untouched built-ins keep their mapping.
+        assert_eq!(
+            mapping.get("builtin-mistral").map(String::as_str),
+            Some("mistral")
+        );
+    }
+
+    #[test]
+    fn namespace_lookup_serves_custom_providers() {
+        // A custom proxy id has no built-in mapping, so the provider-based
+        // entry falls back to the canonical short name and misses.
+        assert!(
+            model_metadata_for_provider(Some("my-mistral-proxy"), "codestral-latest").is_none()
+        );
+        // With the declared namespace the qualified entry resolves and the
+        // id echoes the requested short name.
+        let meta = model_metadata_for_namespace(Some("mistral"), "codestral-latest")
+            .expect("mistral qualified entry");
+        assert_eq!(meta.id, "codestral-latest");
+        assert!(meta.context_window.is_some());
+        let warmed = model_metadata_for_namespaces(&[(Some("mistral"), "codestral-latest")]);
+        assert_eq!(warmed.len(), 1);
+        assert_eq!(warmed[0].id, "codestral-latest");
+    }
+
+    #[test]
+    fn batch_providers_warms_cache_in_order() {
+        let pairs: &[(Option<&str>, &str)] = &[
+            (Some("builtin-mistral"), "codestral-latest"),
+            (None, "gpt-4o"),
+            (None, "no-such-model-xyz"),
+        ];
+        let warmed = model_metadata_for_providers(pairs);
+        assert_eq!(warmed.len(), 2);
+        assert_eq!(warmed[0].id, "codestral-latest");
+        assert_eq!(warmed[1].id, "gpt-4o");
     }
 }
 

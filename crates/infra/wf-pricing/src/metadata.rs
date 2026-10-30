@@ -62,9 +62,14 @@ impl ModelMetadataResolver {
         for (model, entry) in raw {
             let entry: LiteLlmEntry = serde_json::from_value(entry)
                 .expect("litellm entry must match the metadata schema");
-            // Keep only chat/image metadata; other modes are never exposed
-            // through `ModelMetadata` and would only waste resident memory.
-            if !matches!(entry.mode.as_str(), "chat" | "image_generation") {
+            // Keep only conversational metadata; other modes are never
+            // exposed through `ModelMetadata` and would only waste resident
+            // memory. `responses` shares the chat shape (prompt in,
+            // message out), so vendors serving it still get window hints.
+            if !matches!(
+                entry.mode.as_str(),
+                "chat" | "responses" | "image_generation"
+            ) {
                 continue;
             }
             table.insert(model, entry);
@@ -73,46 +78,81 @@ impl ModelMetadataResolver {
     }
 
     /// Metadata for one model name, or `None` when LiteLLM does not know
-    /// it or it is not a chat/image model. Cost is intentionally left
+    /// it or it is not a conversational model. Cost is intentionally left
     /// empty: the pricing resolver remains the single cost path.
     pub fn metadata_for(&self, model: &str) -> Option<ModelMetadata> {
-        let entry = self.table.get(model)?;
-        let model_type = match entry.mode.as_str() {
-            "chat" => ModelType::Chat,
-            "image_generation" => ModelType::Image,
-            _ => return None,
-        };
-        let image = entry.supports_vision
-            || entry
-                .supported_modalities
-                .iter()
-                .any(|m| m.eq_ignore_ascii_case("image"));
-        let provider = entry.litellm_provider.clone();
-        Some(ModelMetadata {
-            id: model.to_string(),
-            provider_id: if provider.is_empty() {
-                "litellm".to_string()
-            } else {
-                provider.clone()
-            },
-            model_type,
-            format: Some(format_for_provider(&provider)),
-            context_window: nonzero_u32(entry.max_input_tokens),
-            max_output_tokens: nonzero_u32(entry.max_output_tokens),
-            input_modalities: if image {
-                vec![InputModality::Text, InputModality::Image]
-            } else {
-                vec![InputModality::Text]
-            },
-            reasoning: entry.supports_reasoning,
-            thinking_levels: entry
-                .reasoning_effort_levels
-                .iter()
-                .filter_map(|level| parse_thinking_level(level))
-                .collect(),
-            cost: None,
-        })
+        self.metadata_for_provider(None, model)
     }
+
+    /// Metadata for one model with an optional LiteLLM provider namespace.
+    ///
+    /// Gateway-hosted models often exist only under a provider-qualified
+    /// key (such as `mistral/codestral-latest`) with no canonical short
+    /// name, so the qualified key is tried first when a namespace is given
+    /// (or when the model itself is already qualified), falling back to the
+    /// canonical short name. The returned id echoes the requested model
+    /// name rather than the table key so callers can match it directly.
+    pub fn metadata_for_provider(
+        &self,
+        litellm_provider: Option<&str>,
+        model: &str,
+    ) -> Option<ModelMetadata> {
+        if model.contains('/') {
+            if let Some(meta) = build_metadata(model, self.table.get(model)?) {
+                return Some(meta);
+            }
+        }
+        if let Some(namespace) = litellm_provider {
+            if !model.contains('/') {
+                let qualified = format!("{namespace}/{model}");
+                if let Some(entry) = self.table.get(&qualified) {
+                    if let Some(meta) = build_metadata(model, entry) {
+                        return Some(meta);
+                    }
+                }
+            }
+        }
+        let entry = self.table.get(model)?;
+        build_metadata(model, entry)
+    }
+}
+
+fn build_metadata(model: &str, entry: &LiteLlmEntry) -> Option<ModelMetadata> {
+    let model_type = match entry.mode.as_str() {
+        "chat" | "responses" => ModelType::Chat,
+        "image_generation" => ModelType::Image,
+        _ => return None,
+    };
+    let image = entry.supports_vision
+        || entry
+            .supported_modalities
+            .iter()
+            .any(|m| m.eq_ignore_ascii_case("image"));
+    let provider = entry.litellm_provider.clone();
+    Some(ModelMetadata {
+        id: model.to_string(),
+        provider_id: if provider.is_empty() {
+            "litellm".to_string()
+        } else {
+            provider.clone()
+        },
+        model_type,
+        format: Some(format_for_provider(&provider)),
+        context_window: nonzero_u32(entry.max_input_tokens),
+        max_output_tokens: nonzero_u32(entry.max_output_tokens),
+        input_modalities: if image {
+            vec![InputModality::Text, InputModality::Image]
+        } else {
+            vec![InputModality::Text]
+        },
+        reasoning: entry.supports_reasoning,
+        thinking_levels: entry
+            .reasoning_effort_levels
+            .iter()
+            .filter_map(|level| parse_thinking_level(level))
+            .collect(),
+        cost: None,
+    })
 }
 
 fn parse_thinking_level(value: &str) -> Option<ThinkingLevel> {
@@ -191,5 +231,37 @@ mod tests {
         assert!(resolver.metadata_for("sample_spec").is_none());
         // Embedding models are not chat/image metadata.
         assert!(resolver.metadata_for("text-embedding-3-small").is_none());
+    }
+
+    #[test]
+    fn responses_mode_maps_to_chat() {
+        let resolver = resolver();
+        let meta = resolver
+            .metadata_for("azure/codex-mini")
+            .expect("azure/codex-mini");
+        assert_eq!(meta.model_type, ModelType::Chat);
+        assert_eq!(meta.context_window, Some(200_000));
+    }
+
+    #[test]
+    fn provider_qualified_lookup_falls_back_to_canonical() {
+        let resolver = resolver();
+        // Gateway-hosted models exist only under the qualified key.
+        assert!(resolver.metadata_for("codestral-latest").is_none());
+        let meta = resolver
+            .metadata_for_provider(Some("mistral"), "codestral-latest")
+            .expect("mistral/codestral-latest");
+        assert_eq!(meta.id, "codestral-latest");
+        assert!(meta.context_window.is_some());
+        // Already-qualified names resolve directly.
+        let direct = resolver
+            .metadata_for("mistral/codestral-latest")
+            .expect("direct qualified");
+        assert_eq!(direct.context_window, meta.context_window);
+        // Canonical short names still resolve without a namespace.
+        assert!(resolver.metadata_for("gpt-4o").is_some());
+        assert!(resolver
+            .metadata_for_provider(Some("openai"), "gpt-4o")
+            .is_some());
     }
 }

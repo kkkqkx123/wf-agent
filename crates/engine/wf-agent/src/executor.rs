@@ -128,8 +128,17 @@ impl AgentLoopExecutor {
         self
     }
 
-    fn gate_input(input: &AgentLoopInput) -> AgentResult<()> {
-        match crate::validation::AgentLoopValidator::validate_or_fail_input(input) {
+    fn gate_input_with_config(config: &AgentLoopConfig, input: &AgentLoopInput) -> AgentResult<()> {
+        Self::gate_input_with_config_and_schema(input, config.context_schema.as_deref())
+    }
+
+    fn gate_input_with_config_and_schema(
+        input: &AgentLoopInput,
+        schema: Option<&[wf_types::TemplateVariableDefinition]>,
+    ) -> AgentResult<()> {
+        match crate::validation::AgentLoopValidator::validate_or_fail_input_with_schema(
+            input, schema,
+        ) {
             Ok(()) => Ok(()),
             Err(errors) => {
                 let detail = errors
@@ -252,7 +261,7 @@ impl AgentLoopExecutor {
         parent: Option<ParentLink>,
     ) -> AgentResult<AgentLoopOutput> {
         Self::gate_config(&config, &self.registry, self.max_iterations_cap)?;
-        Self::gate_input(&input)?;
+        Self::gate_input_with_config(&config, &input)?;
         self.check_sub_agent_depth(parent.as_ref())?;
         let config = Self::inherit_file_scope(config, parent.as_ref())?;
         // Pre-allocate the child id so the parent stream can attribute the
@@ -316,7 +325,7 @@ impl AgentLoopExecutor {
         parent: Option<ParentLink>,
     ) -> AgentResult<SpawnedAgentLoop> {
         Self::gate_config(&config, &self.registry, self.max_iterations_cap)?;
-        Self::gate_input(&input)?;
+        Self::gate_input_with_config(&config, &input)?;
         let config = Self::inherit_file_scope(config, parent.as_ref())?;
         let execution_id = Id::from(wf_common::generate_id());
 
@@ -739,6 +748,7 @@ mod tests {
             general_description: None,
             discoverable_metadata_block: None,
             history_normalization: false,
+            context_schema: None,
             checkpoint_message_interval: None,
         }
     }

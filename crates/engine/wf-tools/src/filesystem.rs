@@ -12,7 +12,7 @@ mod handlers_write;
 mod ignore;
 mod mutation_queue;
 mod patch_ops;
-mod scope;
+pub(crate) mod scope;
 
 #[cfg(test)]
 mod tests;

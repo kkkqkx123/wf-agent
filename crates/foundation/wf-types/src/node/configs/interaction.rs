@@ -27,6 +27,7 @@ pub struct UserInteractionNodeConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<WorkflowMessageConfig>,
     pub prompt: String,
+    /// Timeout in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]

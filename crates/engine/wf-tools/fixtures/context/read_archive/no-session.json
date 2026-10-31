@@ -1,0 +1,7 @@
+{
+  "tool": "read_archive",
+  "description": "Archive tools fail closed without a checkpoint session; the harness runs session-less",
+  "tier": "stub",
+  "parameters": { "archive_ref": "a:abc123" },
+  "expect": { "success": false, "error_contains": "checkpoint session" }
+}

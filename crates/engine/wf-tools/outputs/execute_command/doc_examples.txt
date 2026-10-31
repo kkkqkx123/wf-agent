@@ -2,7 +2,7 @@
 Execute a shell command and capture its output. Supports configurable timeout, working directory and an optional one-shot stdin input.
 
 tips:
-- Use absolute paths for safety
+- Prefer relative paths anchored at the working directory
 - Avoid interactive commands
 
 examples:

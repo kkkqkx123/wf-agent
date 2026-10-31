@@ -937,3 +937,69 @@ fn closed_channel_denies_writes_but_allows_reads() {
     assert!(err.is_scope_violation());
     assert!(err.to_string().contains("file channel is closed"));
 }
+
+#[test]
+fn tilde_expansion_only_covers_home_forms() {
+    assert!(super::scope::expand_tilde("relative/path").is_none());
+    assert!(super::scope::expand_tilde("/absolute/path").is_none());
+    assert!(super::scope::expand_tilde("~other/path").is_none());
+    match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+        Ok(home) => {
+            let base = std::path::PathBuf::from(home);
+            assert_eq!(
+                super::scope::expand_tilde("~/sub/file.txt"),
+                Some(base.join("sub/file.txt"))
+            );
+            assert_eq!(super::scope::expand_tilde("~"), Some(base));
+        }
+        Err(_) => {
+            assert!(super::scope::expand_tilde("~/sub/file.txt").is_none());
+        }
+    }
+}
+
+#[test]
+fn resolve_scoped_prefers_tilde_then_workdir() {
+    let root = tempfile::tempdir().unwrap();
+    let handlers = FsToolHandlers::new(FsToolConfig {
+        workspace_dir: Some(root.path().to_path_buf()),
+        ..Default::default()
+    });
+    let ctx = scoped_ctx("exec-resolve", root.path(), "work");
+    assert_eq!(
+        handlers.resolve_scoped("sub/file.txt", &ctx),
+        root.path().join("sub/file.txt")
+    );
+    let absolute = root.path().join("elsewhere.txt");
+    assert_eq!(
+        handlers.resolve_scoped(absolute.to_str().unwrap(), &ctx),
+        absolute
+    );
+}
+
+#[test]
+fn relative_paths_execute_against_workdir() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join("work")).unwrap();
+    std::fs::write(root.path().join("work/note.txt"), "hello\n").unwrap();
+    let handlers = FsToolHandlers::new(FsToolConfig {
+        workspace_dir: Some(root.path().to_path_buf()),
+        enable_ignore: false,
+        ..Default::default()
+    });
+    let ctx = scoped_ctx("exec-relative", root.path(), "work");
+    let read = handlers
+        .read_file(&serde_json::json!({ "path": "work/note.txt" }), &ctx)
+        .unwrap();
+    assert!(read.as_str().unwrap().contains("hello"));
+    handlers
+        .write_file(
+            &serde_json::json!({ "path": "work/created.txt", "content": "new" }),
+            &ctx,
+        )
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("work/created.txt")).unwrap(),
+        "new"
+    );
+}

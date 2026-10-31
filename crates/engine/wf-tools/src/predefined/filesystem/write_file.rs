@@ -13,7 +13,7 @@ pub static WRITE_FILE: ToolDefinition = ToolDefinition {
     tags: &["write", "file"],
     description: "Write content to a file at the given path. Creates the file and any missing parent directories; overwrites existing content.",
     parameters: &[
-        ToolParameter { name: "path", r#type: "string", required: true, description: "Absolute path to the file", default_json: None, constraints: None },
+        ToolParameter { name: "path", r#type: "string", required: true, description: "Path to the file (relative paths resolve against the execution working directory)", default_json: None, constraints: None },
         ToolParameter { name: "content", r#type: "string", required: true, description: "Content to write to the file", default_json: None, constraints: None },
     ],
     tips: Some(&["Always read the file first before overwriting"]),

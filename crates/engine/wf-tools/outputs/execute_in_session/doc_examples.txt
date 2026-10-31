@@ -6,4 +6,4 @@ tips:
 
 examples:
 - execute_in_session("abc123", "npm install")
-- execute_in_session("abc123", "npm test", timeout=30000)
+- execute_in_session("abc123", "npm test", timeout=30)

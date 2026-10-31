@@ -29,7 +29,7 @@
         "type": "number"
       },
       "path": {
-        "description": "Absolute path to the file",
+        "description": "Path to the file (relative paths resolve against the execution working directory)",
         "type": "string"
       }
     },

@@ -11,14 +11,18 @@ pub struct WorkflowExecutionOptions {
     pub input: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_steps: Option<u32>,
+    /// Wall-clock timeout in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
+    /// Wall-clock execution budget in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_execution_time: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enable_checkpoints: Option<bool>,
+    /// Default per-node timeout in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub node_timeout: Option<u64>,
+    /// Maximum time the execution may stay paused in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_pause_duration: Option<u64>,
     /// Navigation-budget multiplier for the infinite-loop backstop: the

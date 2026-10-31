@@ -1,5 +1,5 @@
 {
-  "cases": 29,
+  "cases": 31,
   "tools": {
     "apply_diff": {
       "cases": [
@@ -166,6 +166,16 @@
       ],
       "tier": "stub"
     },
+    "read_archive": {
+      "cases": [
+        {
+          "case": "no-session",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "stub"
+    },
     "read_file": {
       "cases": [
         {
@@ -215,6 +225,16 @@
         }
       ],
       "tier": "offline"
+    },
+    "search_history": {
+      "cases": [
+        {
+          "case": "no-session",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "stub"
     },
     "session_note": {
       "cases": [

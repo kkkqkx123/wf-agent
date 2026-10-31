@@ -2,7 +2,7 @@
 Read the contents of a file at the given path. Returns the file content as text. Supports line-range and offset-based slicing. Direct reads bypass discovery ignore rules; execution scope still applies.
 
 tips:
-- Use absolute paths whenever possible
+- Prefer relative paths anchored at the working directory
 
 examples:
 - read_file("/home/user/project/src/main.rs")

@@ -1,0 +1,33 @@
+{
+  "description": "Search the compacted conversation archive index by keyword or topic. Returns matching block ids, topics and archive pointers without loading the archived content.",
+  "enabled": true,
+  "id": "search_history",
+  "metadata": {
+    "category": "context",
+    "risk_level": "read_only",
+    "tags": [
+      "history",
+      "archive",
+      "compaction"
+    ]
+  },
+  "name": "search_history",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "limit": {
+        "description": "Maximum entries to return",
+        "type": "number"
+      },
+      "query": {
+        "description": "Keyword or topic to search for",
+        "type": "string"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateless"
+}

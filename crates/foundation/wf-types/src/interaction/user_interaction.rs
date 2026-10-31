@@ -13,6 +13,7 @@ pub struct UserInteractionRequest {
     pub interaction_id: super::super::Id,
     pub operation_type: UserInteractionOperationType,
     pub prompt: String,
+    /// Timeout in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -13,7 +13,7 @@ pub static APPLY_DIFF: ToolDefinition = ToolDefinition {
     tags: &["diff", "search-replace"],
     description: "Apply SEARCH/REPLACE blocks to modify a file. Each block contains a SEARCH section and a REPLACE section delimited by '<<<<<<< SEARCH' and '>>>>>>> REPLACE'.",
     parameters: &[
-        ToolParameter { name: "path", r#type: "string", required: true, description: "Absolute path to the file to modify", default_json: None, constraints: None },
+        ToolParameter { name: "path", r#type: "string", required: true, description: "Path to the file to modify (relative paths resolve against the execution working directory)", default_json: None, constraints: None },
         ToolParameter { name: "diff", r#type: "string", required: true, description: "The SEARCH/REPLACE diff content", default_json: None, constraints: None },
     ],
     tips: None,

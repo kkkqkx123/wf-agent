@@ -2,7 +2,7 @@
 Read a file with optional symbol-skeleton folding. Without folding behaves like read_file; with folding large contents are reduced to signatures and structure. Folding is skipped silently when the code-context service is unavailable.
 
 tips:
-- Use absolute paths whenever possible
+- Prefer relative paths anchored at the working directory
 
 examples:
 - read_file_folded("/home/user/project/src/main.rs", {"fold": true})

@@ -1,0 +1,37 @@
+{
+  "description": "Read archived block content by archive pointer (a:<blob-id>). Supports line-range slicing. Use after search_history to recover cold context.",
+  "enabled": true,
+  "id": "read_archive",
+  "metadata": {
+    "category": "context",
+    "risk_level": "read_only",
+    "tags": [
+      "history",
+      "archive",
+      "compaction"
+    ]
+  },
+  "name": "read_archive",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "archive_ref": {
+        "description": "Archive pointer as returned by search_history",
+        "type": "string"
+      },
+      "end_line": {
+        "description": "Last line to return (inclusive)",
+        "type": "number"
+      },
+      "start_line": {
+        "description": "First line to return (1-indexed)",
+        "type": "number"
+      }
+    },
+    "required": [
+      "archive_ref"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateless"
+}

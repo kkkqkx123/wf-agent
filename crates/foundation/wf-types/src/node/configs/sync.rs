@@ -17,6 +17,7 @@ pub struct SyncNodeConfig {
     pub variable_mappings: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wait_for_completion: Option<bool>,
+    /// Timeout in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]

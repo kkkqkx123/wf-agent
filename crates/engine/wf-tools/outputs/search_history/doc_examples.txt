@@ -1,0 +1,5 @@
+# search_history (context)
+Search the compacted conversation archive index by keyword or topic. Returns matching block ids, topics and archive pointers without loading the archived content.
+
+examples:
+- search_history("storage layout")

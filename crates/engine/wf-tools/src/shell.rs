@@ -15,15 +15,19 @@ use crate::error::{ToolError, ToolResult};
 use crate::executor::stateless::StatelessAsyncHandler;
 use crate::executor::trait_def::ToolExecutionContext;
 
-/// Resolve the observer scope dir from the final cwd string: absolute
-/// paths are used as-is, relative paths resolve against the tool default
-/// workspace dir (or the process cwd when no default exists). Returns
-/// `None` when no cwd information exists at all.
+/// Resolve the observer scope dir from the final cwd string: `~`-prefixed
+/// paths expand against the home directory, absolute paths are used as-is,
+/// relative paths resolve against the tool default workspace dir (or the
+/// process cwd when no default exists). Returns `None` when no cwd
+/// information exists at all.
 pub(crate) fn resolve_scope_dir(
     cwd: Option<&str>,
     default_dir: Option<&std::path::PathBuf>,
 ) -> Option<std::path::PathBuf> {
     let cwd = cwd.filter(|s| !s.trim().is_empty())?;
+    if let Some(expanded) = crate::filesystem::scope::expand_tilde(cwd) {
+        return Some(wf_types::effect::normalize_effect_path(&expanded));
+    }
     let candidate = std::path::Path::new(cwd);
     let absolute = if candidate.is_absolute() {
         candidate.to_path_buf()
@@ -337,9 +341,7 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                 )));
             }
 
-            let timeout_ms = parameters
-                .get("timeout")
-                .and_then(|v| v.as_u64())
+            let timeout_ms = crate::predefined::shell::timeout_secs_to_ms(&parameters)
                 .unwrap_or(DEFAULT_TIMEOUT_MS)
                 .clamp(1000, config.max_timeout_ms);
 
@@ -645,7 +647,7 @@ mod tests {
         let handler = execute_command_handler(config);
         let ctx = ToolExecutionContext::new("exec-1".into());
         let result = handler(
-            serde_json::json!({ "command": "sleep 10", "timeout": 200 }),
+            serde_json::json!({ "command": "sleep 10", "timeout": 2 }),
             ctx,
         )
         .await;

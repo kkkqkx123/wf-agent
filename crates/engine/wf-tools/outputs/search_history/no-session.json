@@ -1,0 +1,15 @@
+{
+  "case": "no-session",
+  "description": "Archive tools fail closed without a checkpoint session; the harness runs session-less",
+  "parameters": {
+    "query": "storage layout"
+  },
+  "result": {
+    "error": "Execution error: context archive tools need a checkpoint session; the execution runs without file checkpointing",
+    "execution_time": 0,
+    "retry_count": 0,
+    "success": false
+  },
+  "tier": "stub",
+  "tool": "search_history"
+}

@@ -81,6 +81,12 @@ impl AgentLoopHandler {
             &*ctx,
             &env,
             &settings.available_tool_names,
+            wf_execution_shared::agent_prompt::normalize_prompt_workdir(
+                ctx.file_scope
+                    .as_ref()
+                    .and_then(|scope| scope.workdir.as_deref()),
+            )
+            .as_deref(),
         );
 
         let artifacts = wf_execution_shared::agent_prompt::build_exposure_artifacts(

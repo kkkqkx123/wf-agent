@@ -119,6 +119,7 @@ pub struct CheckpointMetadata {
 pub struct CheckpointOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync: Option<bool>,
+    /// Sync timeout in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_timeout: Option<u64>,
 }

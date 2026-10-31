@@ -30,6 +30,7 @@ pub struct RestToolConfig {
     pub base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<crate::Metadata>,
+    /// Per-call timeout in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -46,6 +47,7 @@ pub struct RestToolConfig {
 pub struct McpToolConfig {
     pub server_name: String,
     pub tool_name: String,
+    /// Per-call timeout in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
 }

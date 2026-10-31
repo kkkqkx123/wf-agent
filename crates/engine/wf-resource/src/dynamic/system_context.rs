@@ -9,6 +9,11 @@ pub struct SystemConfig {
     pub skills: Vec<String>,
     pub workflows: Vec<String>,
     pub custom_sections: Vec<(String, String)>,
+    /// Execution working directory shown as `Working directory`. Takes
+    /// precedence over the process cwd so server-side executions report
+    /// the scoped workdir instead of the server's own cwd. `None` keeps
+    /// the historical process-cwd fallback.
+    pub working_directory: Option<String>,
 }
 
 impl Default for SystemConfig {
@@ -20,6 +25,7 @@ impl Default for SystemConfig {
             skills: Vec::new(),
             workflows: Vec::new(),
             custom_sections: Vec::new(),
+            working_directory: None,
         }
     }
 }
@@ -56,7 +62,9 @@ pub fn build_system_context(cfg: &SystemConfig) -> String {
         let mut env_parts: Vec<String> = Vec::new();
         env_parts.push(format!("Platform: {}", std::env::consts::OS));
         env_parts.push(format!("Architecture: {}", std::env::consts::ARCH));
-        if let Ok(cwd) = std::env::current_dir() {
+        if let Some(workdir) = cfg.working_directory.as_deref() {
+            env_parts.push(format!("Working directory: {workdir}"));
+        } else if let Ok(cwd) = std::env::current_dir() {
             env_parts.push(format!("Working directory: {}", cwd.display()));
         }
         if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
@@ -96,6 +104,7 @@ mod tests {
             skills: Vec::new(),
             workflows: Vec::new(),
             custom_sections: Vec::new(),
+            working_directory: None,
         };
         let ctx = build_system_context(&cfg);
         assert!(!ctx.contains("current_time"));
@@ -110,9 +119,25 @@ mod tests {
             skills: Vec::new(),
             workflows: Vec::new(),
             custom_sections: Vec::new(),
+            working_directory: None,
         };
         let ctx = build_system_context(&cfg);
         assert!(ctx.contains("environment"));
+    }
+
+    #[test]
+    fn explicit_working_directory_beats_process_cwd() {
+        let cfg = SystemConfig {
+            include_env: true,
+            include_skills: false,
+            include_workflows: false,
+            skills: Vec::new(),
+            workflows: Vec::new(),
+            custom_sections: Vec::new(),
+            working_directory: Some("/sessions/abc".to_string()),
+        };
+        let ctx = build_system_context(&cfg);
+        assert!(ctx.contains("Working directory: /sessions/abc"));
     }
 
     #[test]

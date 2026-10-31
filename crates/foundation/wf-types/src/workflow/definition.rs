@@ -104,6 +104,7 @@ impl DefinitionDerivation {
 pub struct TriggeredSubworkflowConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enable_checkpoints: Option<bool>,
+    /// Wall-clock execution budget in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
     /// Terminal-failure fallback for compression runs of this workflow

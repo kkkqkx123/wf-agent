@@ -25,12 +25,12 @@ pub static EXECUTE_IN_SESSION: ToolDefinition = ToolDefinition {
     parameters: &[
         ToolParameter { name: "session_id", r#type: "string", required: true, description: "The session ID returned by get_or_create_shell or backend_shell", default_json: None, constraints: None },
         ToolParameter { name: "command", r#type: "string", required: true, description: "The command to execute inside the session", default_json: None, constraints: None },
-        ToolParameter { name: "timeout", r#type: "number", required: false, description: "Timeout in milliseconds (default 120000); on timeout the command is terminated gracefully", default_json: Some("120000"), constraints: None },
+        ToolParameter { name: "timeout", r#type: "number", required: false, description: "Timeout in seconds (default 300); on timeout the command is terminated gracefully", default_json: Some("300"), constraints: None },
     ],
     tips: Some(&["Reuse one session for a sequence of related commands"]),
     examples: Some(&[
         "execute_in_session(\"abc123\", \"npm install\")",
-        "execute_in_session(\"abc123\", \"npm test\", timeout=30000)",
+        "execute_in_session(\"abc123\", \"npm test\", timeout=30)",
     ]),
 };
 
@@ -85,7 +85,7 @@ impl StatefulInstance for ExecuteInSessionInstance {
             .ok_or_else(|| {
                 ToolError::ValidationFailed("Missing or invalid 'command' parameter".into())
             })?;
-        let timeout = params.get("timeout").and_then(|v| v.as_u64());
+        let timeout = super::timeout_secs_to_ms(params);
 
         let scope_dir = self.store.get(session_id).and_then(|s| s.cwd());
         let effect = self.store.policy().effect(command);

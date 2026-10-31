@@ -23,6 +23,8 @@ pub struct AgentConfig {
     pub max_iterations: Option<u32>,
     /// Wall-clock execution budget for the agent loop in milliseconds; `0`
     /// disables the limit.
+    /// Wall-clock execution budget for the agent loop in milliseconds; `0`
+    /// disables the limit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_execution_time: Option<u64>,
     /// Maximum LLM call retries on transient failures.

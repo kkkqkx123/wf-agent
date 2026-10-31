@@ -8,6 +8,7 @@ pub struct AgentLoopNodeConfig {
     pub agent_loop_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inline_definition: Option<AgentDefinition>,
+    /// Wall-clock execution budget in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execution_timeout: Option<u64>,
 }

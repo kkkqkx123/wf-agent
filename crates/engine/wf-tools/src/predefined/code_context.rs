@@ -122,12 +122,12 @@ pub static READ_FILE_FOLDED: ToolDefinition = ToolDefinition {
     tags: &["read", "file", "fold"],
     description: "Read a file with optional symbol-skeleton folding. Without folding behaves like read_file; with folding large contents are reduced to signatures and structure. Folding is skipped silently when the code-context service is unavailable.",
     parameters: &[
-        ToolParameter { name: "path", r#type: "string", required: true, description: "Absolute path to the file", default_json: None, constraints: None },
+        ToolParameter { name: "path", r#type: "string", required: true, description: "Path to the file (relative paths resolve against the execution working directory)", default_json: None, constraints: None },
         ToolParameter { name: "offset", r#type: "number", required: false, description: "Line number to start reading from (1-indexed)", default_json: None, constraints: None },
         ToolParameter { name: "limit", r#type: "number", required: false, description: "Maximum number of lines to read", default_json: None, constraints: None },
         ToolParameter { name: "fold", r#type: "boolean", required: false, description: "Fold the content into a symbol skeleton when the service is available (default false)", default_json: Some("false"), constraints: None },
     ],
-    tips: Some(&["Use absolute paths whenever possible"]),
+    tips: Some(&["Prefer relative paths anchored at the working directory"]),
     examples: Some(&["read_file_folded(\"/home/user/project/src/main.rs\", {\"fold\": true})"]),
 };
 

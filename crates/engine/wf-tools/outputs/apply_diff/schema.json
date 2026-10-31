@@ -20,7 +20,7 @@
         "type": "string"
       },
       "path": {
-        "description": "Absolute path to the file to modify",
+        "description": "Path to the file to modify (relative paths resolve against the execution working directory)",
         "type": "string"
       }
     },

@@ -245,7 +245,7 @@ async fn shell_wait_returns_background_branch_when_preempted() {
     let waited = registry
         .execute_tool(
             "shell_wait",
-            &serde_json::json!({ "session_id": session_id, "timeout": 5000 }),
+            &serde_json::json!({ "session_id": session_id, "timeout": 5 }),
             &make_options(),
             &ctx,
         )

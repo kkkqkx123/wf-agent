@@ -7,6 +7,7 @@ use crate::result::Summary;
 
 use super::explorer::explorer_agent_template;
 use super::main_agent::main_agent_template;
+use super::pi_coding::pi_coding_agent_template;
 use super::worker::worker_agent_template;
 
 pub fn builtin_agent_templates() -> Vec<AgentTemplate> {
@@ -14,6 +15,7 @@ pub fn builtin_agent_templates() -> Vec<AgentTemplate> {
         main_agent_template(),
         explorer_agent_template(),
         worker_agent_template(),
+        pi_coding_agent_template(),
     ]
 }
 

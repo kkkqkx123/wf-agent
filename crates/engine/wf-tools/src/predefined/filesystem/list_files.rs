@@ -17,7 +17,7 @@ pub static LIST_FILES: ToolDefinition = ToolDefinition {
             name: "path",
             r#type: "string",
             required: true,
-            description: "Absolute path to the directory",
+            description: "Path to the directory (relative paths resolve against the execution working directory)",
             default_json: None,
             constraints: None,
         },

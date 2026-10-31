@@ -64,6 +64,18 @@ pub const ALL: &[&ToolDefinition] = &[
     &SHELL_ACK,
 ];
 
+/// Read a model-facing `timeout` parameter expressed in seconds and convert
+/// it to milliseconds for the internal shell engine. Fractional seconds
+/// keep their sub-second part; missing or non-numeric values fall back to
+/// the caller's default. Negative and NaN inputs saturate to zero so the
+/// caller's clamp still applies.
+pub(crate) fn timeout_secs_to_ms(params: &serde_json::Value) -> Option<u64> {
+    params
+        .get("timeout")
+        .and_then(|v| v.as_f64())
+        .map(|secs| (secs * 1000.0) as u64)
+}
+
 /// Register shell handlers: execute_command (stateless) plus the background
 /// shell stateful factories.
 ///

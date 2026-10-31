@@ -195,7 +195,7 @@ async fn test_execute_in_session_busy_rejected() {
             busy_registry
                 .execute_tool(
                     "execute_in_session",
-                    &serde_json::json!({ "session_id": sid, "command": "sleep 2", "timeout": 10000 }),
+                    &serde_json::json!({ "session_id": sid, "command": "sleep 2", "timeout": 10 }),
                     &busy_options,
                     &busy_ctx,
                 )
@@ -265,7 +265,7 @@ async fn test_execute_in_session_does_not_occupy_worker() {
         busy_registry
             .execute_tool(
                 "execute_in_session",
-                &serde_json::json!({ "session_id": sid, "command": "sleep 2", "timeout": 10000 }),
+                &serde_json::json!({ "session_id": sid, "command": "sleep 2", "timeout": 10 }),
                 &busy_options,
                 &busy_ctx,
             )

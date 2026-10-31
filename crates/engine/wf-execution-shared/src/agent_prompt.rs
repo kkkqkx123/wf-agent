@@ -119,17 +119,42 @@ pub enum DynamicTailBearing {
     SeparateUserMessage,
 }
 
-/// Assemble both outputs for one run.
+/// Assemble both outputs for one run. `working_directory` carries the
+/// execution workdir into the stable environment section so relative
+/// tool paths resolve against a model-visible base; `None` keeps the
+/// historical process-cwd fallback.
 pub fn assemble_agent_prompt(
     agent_config: Option<&wf_types::agent::AgentConfig>,
     vars: &impl VariableSource,
     env: &PromptEnvironment,
     available_tool_names: &[String],
+    working_directory: Option<&str>,
 ) -> AssembledPrompt {
     AssembledPrompt {
-        stable_header: build_stable_header(agent_config, env, available_tool_names),
+        stable_header: build_stable_header(
+            agent_config,
+            env,
+            available_tool_names,
+            working_directory,
+        ),
         volatile_tail: build_volatile_tail(agent_config, vars),
     }
+}
+
+/// Normalize a scope workdir for prompt display: absolute paths pass
+/// through, relative paths anchor against the process cwd, and missing or
+/// unresolvable values fall back to `None` (the renderer then reports the
+/// process cwd itself).
+
+pub fn normalize_prompt_workdir(raw: Option<&str>) -> Option<String> {
+    let raw = raw?;
+    let candidate = std::path::Path::new(raw);
+    if candidate.is_absolute() {
+        return Some(raw.to_string());
+    }
+    std::env::current_dir()
+        .ok()
+        .map(|base| base.join(candidate).to_string_lossy().to_string())
 }
 
 /// Build the stable system header. Returns `None` when no base prompt and no
@@ -138,6 +163,7 @@ pub fn build_stable_header(
     agent_config: Option<&wf_types::agent::AgentConfig>,
     env: &PromptEnvironment,
     available_tool_names: &[String],
+    working_directory: Option<&str>,
 ) -> Option<String> {
     let template_metrics = env.template_metrics();
     let base = resolve_configured_system_prompt(
@@ -145,7 +171,8 @@ pub fn build_stable_header(
         env.resource_registries,
         template_metrics.as_deref(),
     );
-    let dynamic = build_dynamic_system_context(agent_config, env, available_tool_names);
+    let dynamic =
+        build_dynamic_system_context(agent_config, env, available_tool_names, working_directory);
     let prompt = match (base, dynamic) {
         (Some(sp), Some(block)) => Some(format!("{}\n\n{}", block, sp)),
         (Some(sp), None) => Some(sp),
@@ -207,6 +234,7 @@ fn build_dynamic_system_context(
     agent_config: Option<&wf_types::agent::AgentConfig>,
     env: &PromptEnvironment,
     available_tool_names: &[String],
+    working_directory: Option<&str>,
 ) -> Option<String> {
     let dyn_cfg = agent_config?.dynamic_context.as_ref()?;
     let has_any = dyn_cfg.include_environment_info.unwrap_or(false)
@@ -223,6 +251,7 @@ fn build_dynamic_system_context(
 
     let mut system_cfg = wf_resource::SystemConfig {
         include_env: dyn_cfg.include_environment_info.unwrap_or(false),
+        working_directory: working_directory.map(str::to_string),
         ..Default::default()
     };
     if dyn_cfg.include_skills.unwrap_or(false) {
@@ -766,8 +795,9 @@ mod tests {
     fn stable_header_skips_static_skills_when_skill_tool_present() {
         let (dir, registry) = registry_with_one_skill("skill-tool");
         let env = PromptEnvironment::new(None, Some(&registry), None);
-        let header = build_stable_header(Some(&skills_config()), &env, &["skill".to_string()])
-            .expect("header");
+        let header =
+            build_stable_header(Some(&skills_config()), &env, &["skill".to_string()], None)
+                .expect("header");
         let _ = std::fs::remove_dir_all(&dir);
         assert!(
             header.contains("Available skills:"),
@@ -783,7 +813,7 @@ mod tests {
     fn stable_header_keeps_static_skills_without_skill_tool() {
         let (dir, registry) = registry_with_one_skill("no-skill-tool");
         let env = PromptEnvironment::new(None, Some(&registry), None);
-        let header = build_stable_header(Some(&skills_config()), &env, &[]).expect("header");
+        let header = build_stable_header(Some(&skills_config()), &env, &[], None).expect("header");
         let _ = std::fs::remove_dir_all(&dir);
         assert!(
             header.contains("<skills>"),
@@ -804,7 +834,7 @@ mod tests {
             "system_prompt": "inline",
             "system_prompt_template_id": "missing",
         }));
-        let assembled = assemble_agent_prompt(Some(&config), &vars, &env, &[]);
+        let assembled = assemble_agent_prompt(Some(&config), &vars, &env, &[], None);
         assert_eq!(assembled.stable_header.as_deref(), Some("inline"));
         assert!(assembled.volatile_tail.is_none());
     }
@@ -833,7 +863,7 @@ mod tests {
             "system_prompt_template_id": "tpl-1",
             "system_prompt_template_variables": {"name": "world"},
         }));
-        let assembled = assemble_agent_prompt(Some(&config), &vars, &env, &[]);
+        let assembled = assemble_agent_prompt(Some(&config), &vars, &env, &[], None);
         assert_eq!(assembled.stable_header.as_deref(), Some("hello world"));
     }
 
@@ -845,10 +875,25 @@ mod tests {
             "system_prompt": "base",
             "dynamic_context": {"include_current_time": true},
         }));
-        let assembled = assemble_agent_prompt(Some(&config), &vars, &env, &[]);
+        let assembled = assemble_agent_prompt(Some(&config), &vars, &env, &[], None);
         assert_eq!(assembled.stable_header.as_deref(), Some("base"));
         assert!(assembled.volatile_tail.is_some());
         assert!(assembled.volatile_tail.unwrap().contains("Current time:"));
+    }
+
+    #[test]
+    fn stable_header_reports_execution_workdir() {
+        let env = PromptEnvironment::empty();
+        let vars = HashMap::new();
+        let config = agent_config_with(serde_json::json!({
+            "system_prompt": "base",
+            "dynamic_context": {"include_environment_info": true},
+        }));
+        let assembled =
+            assemble_agent_prompt(Some(&config), &vars, &env, &[], Some("/sessions/abc"));
+        let header = assembled.stable_header.expect("header");
+        assert!(header.contains("Working directory: /sessions/abc"));
+        assert!(assembled.volatile_tail.is_none());
     }
 
     #[test]
@@ -1001,8 +1046,8 @@ mod tests {
         let from_node = build_volatile_tail(Some(&config), &node_ctx).expect("node tail");
         assert_eq!(from_map, from_node);
         let env = PromptEnvironment::empty();
-        let stable_map = build_stable_header(Some(&config), &env, &[]);
-        let stable_node = build_stable_header(Some(&config), &env, &[]);
+        let stable_map = build_stable_header(Some(&config), &env, &[], None);
+        let stable_node = build_stable_header(Some(&config), &env, &[], None);
         assert_eq!(stable_map, stable_node);
         assert!(!stable_map.unwrap().contains("TODO"));
     }

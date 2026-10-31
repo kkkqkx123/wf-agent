@@ -12,6 +12,7 @@ pub struct LlmExecutionConfig {
     pub max_tool_calls_per_request: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_interactions: Option<u32>,
+    /// Per-request timeout in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]

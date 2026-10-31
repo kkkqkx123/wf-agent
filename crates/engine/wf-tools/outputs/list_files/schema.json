@@ -19,7 +19,7 @@
         "type": "boolean"
       },
       "path": {
-        "description": "Absolute path to the directory",
+        "description": "Path to the directory (relative paths resolve against the execution working directory)",
         "type": "string"
       },
       "recursive": {

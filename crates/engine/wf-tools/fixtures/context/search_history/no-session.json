@@ -1,0 +1,7 @@
+{
+  "tool": "search_history",
+  "description": "Archive tools fail closed without a checkpoint session; the harness runs session-less",
+  "tier": "stub",
+  "parameters": { "query": "storage layout" },
+  "expect": { "success": false, "error_contains": "checkpoint session" }
+}

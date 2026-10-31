@@ -24,8 +24,8 @@
         "type": "string"
       },
       "timeout": {
-        "default": 120000,
-        "description": "Timeout in milliseconds (default 120000); on timeout the command is terminated gracefully",
+        "default": 300,
+        "description": "Timeout in seconds (default 300); on timeout the command is terminated gracefully",
         "type": "number"
       }
     },

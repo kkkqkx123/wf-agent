@@ -499,6 +499,7 @@ pub struct EventHandler {
 pub struct ListenerOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i32>,
+    /// Per-listener timeout in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]

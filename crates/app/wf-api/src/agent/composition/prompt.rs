@@ -49,13 +49,18 @@ pub fn attach_prompt_assembly(
     input: &mut wf_tools::callback::AgentLoopInput,
 ) {
     use wf_execution_shared::agent_prompt::{
-        apply_assembled_prompt, assemble_agent_prompt, DynamicTailBearing,
+        apply_assembled_prompt, assemble_agent_prompt, normalize_prompt_workdir, DynamicTailBearing,
     };
+    let workdir = config
+        .file_scope
+        .as_ref()
+        .and_then(|scope| scope.workdir.as_deref());
     let assembled = assemble_agent_prompt(
         agent_config,
         &input.context,
         env,
         &config.available_tool_names.clone().unwrap_or_default(),
+        normalize_prompt_workdir(workdir).as_deref(),
     );
     apply_assembled_prompt(
         &mut input.conversation,

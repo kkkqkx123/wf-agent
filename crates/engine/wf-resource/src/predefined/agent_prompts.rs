@@ -26,6 +26,7 @@ pub const LLM_SUMMARY_PROMPT_KEY: &str = "@standard/llm-summary";
 pub const LLM_SUMMARY_REPRESS_PROMPT_KEY: &str = "@standard/llm-summary-repress";
 pub const CODE_CONTEXT_PREFETCH_PROMPT_KEY: &str = "@standard/code-context-prefetch";
 pub const HANDOFF_PROMPT_KEY: &str = "@standard/handoff";
+pub const PI_CODING_AGENT_PROMPT_KEY: &str = "@standard/pi-coding";
 /// Version stamp of the handoff prompt text. Bump together with the
 /// `@standard/handoff` asset: the handoff flow records it in the
 /// artifact validation note so documents stay attributable to the prompt
@@ -52,6 +53,7 @@ pub const AGENT_PROMPT_KEYS: &[&str] = &[
     LLM_SUMMARY_REPRESS_PROMPT_KEY,
     CODE_CONTEXT_PREFETCH_PROMPT_KEY,
     HANDOFF_PROMPT_KEY,
+    PI_CODING_AGENT_PROMPT_KEY,
 ];
 
 /// Human-readable names for the registered prompt templates, keyed by
@@ -68,6 +70,7 @@ fn display_name(key: &str) -> &'static str {
         LLM_SUMMARY_REPRESS_PROMPT_KEY => "LLM Summary Re-compression Prompt",
         CODE_CONTEXT_PREFETCH_PROMPT_KEY => "Code Context Prefetch Prompt",
         HANDOFF_PROMPT_KEY => "Handoff Document Prompt",
+        PI_CODING_AGENT_PROMPT_KEY => "Pi-compatible Coding Prompt",
         _ => "Built-in Agent Prompt",
     }
 }

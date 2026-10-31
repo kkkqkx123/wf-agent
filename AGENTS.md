@@ -71,6 +71,7 @@ cargo clippy --all-targets --all-features            # full compile check
 
 - Rust standard formatting (`cargo fmt`)
 - Modular design following Rust conventions
+- Time unit clarity: model-facing tool parameter descriptions must state the unit explicitly; new duration fields use `_ms` / `_secs` suffix or a unit comment; new code prefers `Duration` over bare numbers
 
 ## Testing
 

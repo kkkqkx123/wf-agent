@@ -64,6 +64,7 @@ pub struct InteractiveScriptNodeConfig {
     pub interaction_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_rounds: Option<u32>,
+    /// Per-round timeout in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub round_timeout: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]

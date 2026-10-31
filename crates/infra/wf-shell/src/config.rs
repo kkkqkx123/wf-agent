@@ -8,7 +8,7 @@ use crate::event_sink::ShellEventSink;
 use crate::shell_detector::ShellType;
 
 pub const DEFAULT_MAX_TIMEOUT_MS: u64 = 600_000;
-pub const DEFAULT_TIMEOUT_MS: u64 = 120_000;
+pub const DEFAULT_TIMEOUT_MS: u64 = 300_000;
 pub const DEFAULT_GRACEFUL_KILL_TIMEOUT_MS: u64 = 5000;
 pub const DEFAULT_PTY_SIZE: (u16, u16) = (24, 80);
 

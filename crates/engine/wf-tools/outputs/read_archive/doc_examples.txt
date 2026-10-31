@@ -1,0 +1,5 @@
+# read_archive (context)
+Read archived block content by archive pointer (a:<blob-id>). Supports line-range slicing. Use after search_history to recover cold context.
+
+examples:
+- read_archive("a:abc123")

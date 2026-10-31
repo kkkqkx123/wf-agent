@@ -33,7 +33,7 @@ use crate::terminal_session::{SessionStatus, TerminalSession, TerminalSessionCon
 const MAX_SESSIONS: usize = 64;
 const DEFAULT_GRACEFUL_KILL_TIMEOUT_MS: u64 = 5000;
 const DEFAULT_PTY_SIZE: (u16, u16) = (24, 80);
-const DEFAULT_EXECUTE_TIMEOUT_MS: u64 = 120_000;
+const DEFAULT_EXECUTE_TIMEOUT_MS: u64 = 300_000;
 const DEFAULT_MAX_TIMEOUT_MS: u64 = 600_000;
 /// Bounded wait of the store-level monitor thread that detects process exits
 /// and finalizes busy sessions (push-based completion). The wait doubles as a

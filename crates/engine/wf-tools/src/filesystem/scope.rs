@@ -9,6 +9,26 @@ use crate::executor::trait_def::ToolExecutionContext;
 
 use super::FsToolHandlers;
 
+/// Expand a leading `~` or `~/` against the home directory (`HOME`,
+/// falling back to `USERPROFILE`). Returns `None` for non-tilde paths or
+/// when no home directory is known, letting the caller fall through to the
+/// normal absolute/relative handling. Other-user forms (`~other/...`)
+/// are never expanded.
+pub(crate) fn expand_tilde(path: &str) -> Option<PathBuf> {
+    let rest = path
+        .strip_prefix("~/")
+        .or_else(|| (path == "~").then_some(""))?;
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok()?;
+    let base = PathBuf::from(home);
+    if rest.is_empty() {
+        Some(base)
+    } else {
+        Some(base.join(rest))
+    }
+}
+
 impl FsToolHandlers {
     pub(super) fn scoped_base(&self, ctx: &ToolExecutionContext) -> Option<PathBuf> {
         ctx.file_scope
@@ -18,6 +38,9 @@ impl FsToolHandlers {
     }
 
     pub(super) fn resolve_scoped(&self, path: &str, ctx: &ToolExecutionContext) -> PathBuf {
+        if let Some(expanded) = expand_tilde(path) {
+            return expanded;
+        }
         let candidate = Path::new(path);
         if candidate.is_absolute() {
             candidate.to_path_buf()

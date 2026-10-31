@@ -130,8 +130,7 @@ impl AgentIterationCoordinator {
         let handoff_prompt = wf_resource::embedded_assets::agent_prompt(
             wf_resource::predefined::agent_prompts::HANDOFF_PROMPT_KEY,
         );
-        let handoff_prompt_version =
-            wf_resource::predefined::agent_prompts::HANDOFF_PROMPT_VERSION;
+        let handoff_prompt_version = wf_resource::predefined::agent_prompts::HANDOFF_PROMPT_VERSION;
         let request = LlmRequest {
             profile_id: wf_resource::predefined::agent_prompts::COMPRESSION_DEFAULT_PROFILE
                 .to_string(),

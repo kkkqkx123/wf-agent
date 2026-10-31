@@ -27,8 +27,8 @@
         "type": "string"
       },
       "timeout": {
-        "default": 120000,
-        "description": "Timeout in milliseconds",
+        "default": 300,
+        "description": "Timeout in seconds (default 300)",
         "type": "number"
       }
     },

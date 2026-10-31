@@ -22,9 +22,9 @@ pub static SHELL_WAIT: ToolDefinition = ToolDefinition {
     description: "Wait for a background shell session command to finish or for its output to match a pattern. Returns the current status, exit code and full output; 'timed_out' is true when the deadline elapsed first. When the session is moved to the background while waiting, the wait returns immediately with 'backgrounded' true instead of waiting out the deadline. Provide 'pattern' (a regex) to stop early once matching output appears. Absolute byte cursors from shell_output window responses stay valid across truncation; incremental reads are a convenience over the same cursor.",
     parameters: &[
         ToolParameter { name: "session_id", r#type: "string", required: true, description: "The session ID returned by backend_shell", default_json: None, constraints: None },
-        ToolParameter { name: "timeout", r#type: "number", required: false, description: "Timeout in milliseconds (default 30000)", default_json: Some("30000"), constraints: None },
+        ToolParameter { name: "timeout", r#type: "number", required: false, description: "Timeout in seconds (default 300)", default_json: Some("300"), constraints: None },
         ToolParameter { name: "pattern", r#type: "string", required: false, description: "Regex; stop waiting once output contains a match", default_json: None, constraints: None },
-        ToolParameter { name: "settle_ms", r#type: "number", required: false, description: "After a pattern match, keep polling until output is quiet for this long before returning (debounces output jitter; default 0)", default_json: Some("0"), constraints: None },
+        ToolParameter { name: "settle_ms", r#type: "number", required: false, description: "After a pattern match, keep polling until output is quiet for this long in milliseconds before returning (debounces output jitter; default 0)", default_json: Some("0"), constraints: None },
         ToolParameter { name: "max_output_bytes", r#type: "number", required: false, description: "Cap the returned output at this many bytes (tail-kept); sets 'output_truncated' when cut", default_json: None, constraints: None },
     ],
     tips: None,
@@ -44,10 +44,7 @@ impl StatefulInstance for ShellWaitInstance {
             .ok_or_else(|| {
                 ToolError::ValidationFailed("Missing or invalid 'session_id' parameter".into())
             })?;
-        let timeout_ms = params
-            .get("timeout")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(30_000);
+        let timeout_ms = super::timeout_secs_to_ms(params).unwrap_or(300_000);
         let settle_ms = params
             .get("settle_ms")
             .and_then(|v| v.as_u64())

@@ -83,7 +83,7 @@ async fn test_shell_wait_completion_and_pattern() {
     let matched = registry
         .execute_tool(
             "shell_wait",
-            &serde_json::json!({ "session_id": session_id, "pattern": "done-marker", "timeout": 8000 }),
+            &serde_json::json!({ "session_id": session_id, "pattern": "done-marker", "timeout": 8 }),
             &options,
             &ctx,
         )
@@ -96,7 +96,7 @@ async fn test_shell_wait_completion_and_pattern() {
     let completed = registry
         .execute_tool(
             "shell_wait",
-            &serde_json::json!({ "session_id": session_id, "timeout": 8000 }),
+            &serde_json::json!({ "session_id": session_id, "timeout": 8 }),
             &options,
             &ctx,
         )
@@ -108,7 +108,7 @@ async fn test_shell_wait_completion_and_pattern() {
     let missing = registry
         .execute_tool(
             "shell_wait",
-            &serde_json::json!({ "session_id": "nope", "timeout": 100 }),
+            &serde_json::json!({ "session_id": "nope", "timeout": 10 }),
             &options,
             &ctx,
         )

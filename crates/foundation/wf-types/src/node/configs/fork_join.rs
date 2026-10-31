@@ -21,8 +21,10 @@ pub struct ForkNodeConfig {
     pub failure_strategy: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_failed_branches: Option<u32>,
+    /// Per-branch execution timeout in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub child_execution_timeout: Option<u64>,
+    /// Total timeout for all branches in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_branch_timeout: Option<u64>,
     /// Whether the fork handler waits for every branch to settle before
@@ -64,6 +66,7 @@ pub struct JoinNodeConfig {
     pub join_strategy: JoinStrategy,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub threshold: Option<u32>,
+    /// Timeout in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]

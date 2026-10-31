@@ -458,6 +458,7 @@ async fn run_workflow(
             handlers: Some(handlers),
             hooks: Vec::new(),
             resource_registries: None,
+            variables: None,
         })
         .await
 }

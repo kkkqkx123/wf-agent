@@ -179,6 +179,7 @@ async fn checkpoint_pause_and_resume_completes_linear_workflow() {
             resource_registries: None,
             input: None,
             hooks: Vec::new(),
+            variables: None,
         })
         .await
         .expect_err("first run must pause on the script body");
@@ -233,6 +234,7 @@ async fn checkpoint_disabled_runs_without_store() {
             resource_registries: None,
             input: None,
             hooks: Vec::new(),
+            variables: None,
         })
         .await
         .expect("checkpoint-disabled run must complete directly");

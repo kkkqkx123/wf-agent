@@ -128,6 +128,7 @@ async fn prefetch_template_executes_as_subgraph_child() {
             handlers: Some(reg.into_arc()),
             hooks: Vec::new(),
             resource_registries: None,
+            variables: None,
         })
         .await
         .expect("parent workflow must complete");

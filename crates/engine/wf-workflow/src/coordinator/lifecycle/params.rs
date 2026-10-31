@@ -23,4 +23,8 @@ pub struct WorkflowExecutionParams {
     pub resource_registries: Option<Arc<ResourceRegistries>>,
     pub input: Option<Value>,
     pub hooks: Vec<HookDefinition>,
+    /// Optional variable declarations for input defaults and typed checks.
+    /// `None` keeps the historical unchecked behavior for definitions
+    /// without declarations.
+    pub variables: Option<Vec<wf_types::workflow_execution::VariableDefinition>>,
 }

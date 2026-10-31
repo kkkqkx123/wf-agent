@@ -152,8 +152,11 @@ impl WorkflowLifecycleCoordinator {
             resource_registries,
             input,
             hooks,
+            variables,
         } = params;
         let workflow_id_metrics = workflow_id.clone();
+
+        crate::input_gate::gate_workflow_request(&options, input.as_ref())?;
 
         // Reject structurally invalid graphs before execution starts.
         let _validated =
@@ -175,9 +178,14 @@ impl WorkflowLifecycleCoordinator {
             .start()
             .map_err(|e| WorkflowError::StateTransitionError(e.to_string()))?;
 
-        if options.input.is_none() {
-            options.input = input;
-        }
+        // Options input wins, top-level input is the fallback. Declared
+        // defaults backfill missing keys and typed checks run once over
+        // the merged value so engine-direct paths match the API behavior.
+        options.input = crate::input_gate::resolve_typed_input(
+            options.input.take(),
+            input,
+            variables.as_deref(),
+        )?;
 
         let entity = WorkflowExecutionEntity::new(execution_id.clone(), workflow_id.clone());
 

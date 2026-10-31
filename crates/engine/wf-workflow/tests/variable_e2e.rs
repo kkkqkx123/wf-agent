@@ -110,6 +110,7 @@ async fn run_with_capture(
             handlers: Some(reg.into_arc()),
             hooks: Vec::new(),
             resource_registries: None,
+            variables: None,
         })
         .await?;
     let result = captured.lock().unwrap().clone();
@@ -211,6 +212,7 @@ async fn variable_rejects_readonly_names() {
             handlers: Some(reg.into_arc()),
             hooks: Vec::new(),
             resource_registries: None,
+            variables: None,
         })
         .await
         .expect_err("read-only variable write must fail");

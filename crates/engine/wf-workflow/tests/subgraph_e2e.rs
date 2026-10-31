@@ -151,6 +151,7 @@ async fn subgraph_maps_variables_in_and_out() {
             handlers: Some(reg.into_arc()),
             hooks: Vec::new(),
             resource_registries: None,
+            variables: None,
         })
         .await
         .expect("subgraph workflow must complete");
@@ -186,6 +187,7 @@ async fn subgraph_missing_id_fails() {
             handlers: Some(reg.into_arc()),
             hooks: Vec::new(),
             resource_registries: None,
+            variables: None,
         })
         .await
         .expect_err("unknown subgraph must fail");

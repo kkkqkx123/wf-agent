@@ -118,6 +118,7 @@ async fn test_execute_then_resume() {
         resource_registries: None,
         input: None,
         hooks: Vec::new(),
+        variables: None,
     };
 
     let first = lifecycle
@@ -203,6 +204,7 @@ async fn test_checkpoints_disabled_execution_skips_checkpointing() {
         resource_registries: None,
         input: None,
         hooks: Vec::new(),
+        variables: None,
     };
 
     let output = lifecycle
@@ -302,6 +304,7 @@ async fn test_workflow_hooks_publish_events_per_node() {
         resource_registries: None,
         input: None,
         hooks,
+        variables: None,
     };
 
     let output = lifecycle
@@ -449,6 +452,7 @@ async fn test_workflow_scope_and_error_hooks_fire() {
         resource_registries: None,
         input: None,
         hooks,
+        variables: None,
     };
 
     let result = lifecycle.execute_workflow(params).await;
@@ -536,6 +540,7 @@ async fn test_max_execution_timeout_interrupts_workflow() {
         resource_registries: None,
         input: None,
         hooks: Vec::new(),
+        variables: None,
     };
 
     let err = lifecycle
@@ -608,6 +613,7 @@ async fn test_before_node_checkpoint_persisted() {
         resource_registries: None,
         input: None,
         hooks: Vec::new(),
+        variables: None,
     };
 
     lifecycle
@@ -686,6 +692,7 @@ async fn test_hook_opt_in_forces_checkpoint_under_triggerless_strategy() {
             resource_registries: None,
             input: None,
             hooks,
+            variables: None,
         }
     }
 
@@ -831,6 +838,7 @@ async fn test_node_force_flags_checkpoint_under_triggerless_strategy() {
             resource_registries: None,
             input: None,
             hooks: Vec::new(),
+            variables: None,
         }
     }
 
@@ -977,6 +985,7 @@ async fn test_node_checkpoint_config_skips_disabled_node_snapshots() {
         resource_registries: None,
         input: None,
         hooks: Vec::new(),
+        variables: None,
     };
 
     lifecycle
@@ -1053,6 +1062,7 @@ async fn test_resume_from_before_node_checkpoint() {
         resource_registries: None,
         input: None,
         hooks: Vec::new(),
+        variables: None,
     };
     lifecycle
         .execute_workflow(params)
@@ -1140,6 +1150,7 @@ async fn test_resume_from_before_node_checkpoint_reruns_incomplete_node() {
         resource_registries: None,
         input: None,
         hooks: Vec::new(),
+        variables: None,
     };
     lifecycle
         .execute_workflow(params)

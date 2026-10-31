@@ -642,6 +642,7 @@ async fn suspend_parks_and_resumes_from_branch_target() {
         resource_registries: None,
         input: None,
         hooks: Vec::new(),
+        variables: None,
     };
     let err = lifecycle
         .execute_workflow(params)

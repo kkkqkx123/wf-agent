@@ -92,6 +92,9 @@ fn apply_agent_config_defaults(config: &mut AgentLoopConfig, cfg: &AgentConfig) 
             config.hooks = super::hooks::agent_hooks_to_loop(hooks);
         }
     }
+    if config.context_schema.is_none() {
+        config.context_schema.clone_from(&cfg.context_schema);
+    }
 }
 
 fn apply_tool_defaults(config: &mut AgentLoopConfig, tools: &AvailableTools) {

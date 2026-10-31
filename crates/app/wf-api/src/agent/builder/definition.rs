@@ -135,6 +135,7 @@ fn empty_agent_config() -> AgentConfig {
         dynamic_context: None,
         checkpoint: None,
         violation_policy: None,
+        context_schema: None,
     }
 }
 

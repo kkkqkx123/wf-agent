@@ -556,12 +556,13 @@ impl ResourceAssemblerConfigFieldType {
 /// Declared-but-unset contract for assembler configs.
 ///
 /// Two layers share the work: the metadata gate below reports missing
-/// required keys and type mismatches with field names (and warns on
-/// unknown keys via [`unknown_assembler_config_keys`]), while each
+/// required keys and type mismatches with field names, while each
 /// assembler's `AssemblerConfig::from_value` parses with `serde` and
 /// `deny_unknown_fields` so misspelled keys fail fast with a path.
-/// Third-party assemblers that only use the metadata gate stay forward
-/// compatible: unknown keys warn instead of failing.
+/// The strict entry [`gate_assembler_config`] additionally rejects
+/// unknown keys; the lenient [`unknown_assembler_config_keys`] helper
+/// stays for third-party assemblers that prefer warn-and-ignore forward
+/// compatibility.
 pub fn unknown_assembler_config_keys(
     value: &Value,
     metadata: &ResourceAssemblerMetadata,
@@ -625,6 +626,32 @@ pub fn validate_config_value_against_metadata(
         }
     }
     errors
+}
+
+/// Strict pre-assemble gate shared by built-in assemblers and the
+/// runtime bridge. Merges metadata type and required errors with
+/// unknown-key rejections; an empty object stands in for `Null` so a
+/// missing config reports its missing required keys instead of a late
+/// parse error.
+pub fn gate_assembler_config(
+    config: &Value,
+    metadata: &ResourceAssemblerMetadata,
+) -> Result<(), String> {
+    let effective: Value = match config {
+        Value::Null => Value::Object(Default::default()),
+        other => other.clone(),
+    };
+    let mut errors = validate_config_value_against_metadata(&effective, metadata);
+    let mut unknown = unknown_assembler_config_keys(&effective, metadata);
+    unknown.sort();
+    for key in unknown {
+        errors.push(format!("assembler config has unknown key '{key}'"));
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
 }
 
 fn config_value_kind(value: &Value) -> &'static str {
@@ -1259,6 +1286,43 @@ mod tests {
             unknown_assembler_config_keys(&json!({"known": "x", "zeta": 1, "alpha": 2}), &metadata),
             vec!["alpha".to_string(), "zeta".to_string()]
         );
+    }
+
+    #[test]
+    fn strict_gate_rejects_unknown_missing_and_mismatch() {
+        use serde_json::json;
+        let metadata = ResourceAssemblerMetadata {
+            id: "test".into(),
+            name: "test".into(),
+            version: "1".into(),
+            description: "test".into(),
+            author: None,
+            tags: None,
+            category: None,
+            dependencies: None,
+            configurable: Some(HashMap::from([(
+                "count".into(),
+                ResourceAssemblerConfigField {
+                    r#type: ResourceAssemblerConfigFieldType::Number,
+                    description: "count".into(),
+                    default: None,
+                    required: Some(true),
+                    allowed_functions: None,
+                },
+            )])),
+        };
+        assert!(gate_assembler_config(&json!({"count": 1}), &metadata).is_ok());
+        let err = gate_assembler_config(&json!({"count": 1, "extra": 1}), &metadata)
+            .expect_err("unknown keys fail");
+        assert!(err.contains("extra"), "{err}");
+        let err = gate_assembler_config(&json!({}), &metadata).expect_err("missing required fails");
+        assert!(err.contains("count"), "{err}");
+        let err = gate_assembler_config(&json!(null), &metadata)
+            .expect_err("null reports missing required");
+        assert!(err.contains("count"), "{err}");
+        let err = gate_assembler_config(&json!({"count": "many"}), &metadata)
+            .expect_err("type mismatch fails");
+        assert!(err.contains("count"), "{err}");
     }
 
     #[test]

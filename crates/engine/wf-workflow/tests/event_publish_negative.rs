@@ -109,6 +109,7 @@ async fn execution_completes_when_event_publish_fails() {
             handlers: Some(handlers()),
             hooks: Vec::new(),
             resource_registries: None,
+            variables: None,
         })
         .await;
     assert!(
@@ -145,6 +146,7 @@ async fn execution_completes_with_live_subscriber() {
             handlers: Some(handlers()),
             hooks: Vec::new(),
             resource_registries: None,
+            variables: None,
         })
         .await
         .map(|o| o.result);

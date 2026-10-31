@@ -80,6 +80,7 @@ pub fn prefetch_inline_definition_with_prompt(system_prompt: Option<String>) -> 
             dynamic_context: None,
             checkpoint: None,
             violation_policy: None,
+            context_schema: None,
         }),
         metadata: None,
         created_at: wf_common::now(),

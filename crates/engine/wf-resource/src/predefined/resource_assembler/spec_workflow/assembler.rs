@@ -120,19 +120,7 @@ impl ResourceAssembler for SpecWorkflowResourceAssembler {
 
     fn assemble(&self, config: &Value) -> Result<ResourceBundle, String> {
         let metadata = self.metadata();
-        let metadata_errors =
-            crate::resource_assembler::validate_config_value_against_metadata(config, &metadata);
-        if !metadata_errors.is_empty() {
-            return Err(metadata_errors.join("; "));
-        }
-        let unknown = crate::resource_assembler::unknown_assembler_config_keys(config, &metadata);
-        if !unknown.is_empty() {
-            tracing::warn!(
-                assembler = metadata.id.as_str(),
-                keys = unknown.join(", ").as_str(),
-                "assembler config carries unknown keys; they were ignored"
-            );
-        }
+        crate::resource_assembler::gate_assembler_config(config, &metadata)?;
         let config = SpecWorkflowConfig::parse(config)?;
         let mut builder = ResourceBundle::builder().workflow(build_workflow(&config)?);
         for prompt in build_stage_prompts(&config) {

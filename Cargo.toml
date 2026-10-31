@@ -92,7 +92,7 @@ rmcp = { version = "3.4", default-features = false, features = [
 # Pinned to 0.13 so the workspace and rmcp share a single reqwest major line.
 # `query` is required by wf-llm (RequestBuilder::query), which became an
 # explicit opt-in feature in reqwest 0.13.
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "stream", "query"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "stream", "query", "socks"] }
 once_cell = "1"
 eventsource-stream = "0.2"
 futures = "0.3"

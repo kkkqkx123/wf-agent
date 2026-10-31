@@ -43,6 +43,9 @@ pub struct WorkflowRunRequest {
     pub handlers: Option<Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>>,
     pub hooks: Vec<HookDefinition>,
     pub resource_registries: Option<Arc<wf_resource::registry::ResourceRegistries>>,
+    /// Optional variable declarations for input defaults and typed checks.
+    /// `None` keeps the historical unchecked behavior.
+    pub variables: Option<Vec<wf_types::workflow_execution::VariableDefinition>>,
 }
 
 impl WorkflowExecutor {
@@ -108,6 +111,7 @@ impl WorkflowExecutor {
             handlers,
             hooks,
             resource_registries,
+            variables,
         } = request;
 
         let handlers = handlers.unwrap_or_else(|| {
@@ -128,6 +132,7 @@ impl WorkflowExecutor {
             resource_registries,
             input: None,
             hooks,
+            variables,
         };
 
         let mut lifecycle = WorkflowLifecycleCoordinator::new(self.event_bus.clone());

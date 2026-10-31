@@ -202,6 +202,7 @@ async fn fork_completion_snapshot_carries_live_aggregation() {
             resource_registries: None,
             input: None,
             hooks: Vec::new(),
+            variables: None,
         })
         .await
         .expect("fork workflow completes");
@@ -310,6 +311,7 @@ async fn subgraph_completion_snapshot_preserves_child_linkage() {
             resource_registries: None,
             input: None,
             hooks: Vec::new(),
+            variables: None,
         })
         .await
         .expect("subgraph workflow completes");

@@ -7,6 +7,7 @@ use crate::llm::request::ToolCallProtocolViolationPolicy;
 use crate::message::Message;
 use crate::tool::AvailableTools;
 use crate::Metadata;
+use crate::TemplateVariableDefinition;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AgentConfig {
@@ -60,4 +61,8 @@ pub struct AgentConfig {
     pub checkpoint: Option<AgentCheckpointConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub violation_policy: Option<ToolCallProtocolViolationPolicy>,
+    /// Optional shape contract for loop input context. `None` keeps the
+    /// historical untyped behavior; declared keys are checked on execution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_schema: Option<Vec<TemplateVariableDefinition>>,
 }

@@ -155,6 +155,7 @@ async fn run(
             handlers: Some(reg.into_arc()),
             hooks: Vec::new(),
             resource_registries: None,
+            variables: None,
         })
         .await?;
     Ok(output.result)

@@ -135,6 +135,7 @@ async fn run_workflow(
             handlers: Some(handlers),
             hooks: Vec::new(),
             resource_registries: None,
+            variables: None,
         })
         .await?;
     Ok(output.result)
@@ -318,6 +319,7 @@ async fn embed_graph_publishes_no_subgraph_events() {
             handlers: Some(handlers),
             hooks: Vec::new(),
             resource_registries: None,
+            variables: None,
         })
         .await
         .expect("workflow must complete");

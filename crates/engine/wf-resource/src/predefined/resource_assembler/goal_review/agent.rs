@@ -54,6 +54,7 @@ pub fn goal_review_executor() -> AgentTemplate {
                 dynamic_context: None,
                 checkpoint: None,
                 violation_policy: None,
+                context_schema: None,
             }),
             metadata: Some(AgentMetadata {
                 author: Some("system".into()),
@@ -116,6 +117,7 @@ pub fn goal_review_reviewer() -> AgentTemplate {
                 dynamic_context: None,
                 checkpoint: None,
                 violation_policy: None,
+                context_schema: None,
             }),
             metadata: Some(AgentMetadata {
                 author: Some("system".into()),

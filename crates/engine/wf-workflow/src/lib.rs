@@ -16,6 +16,7 @@ pub mod factory;
 pub mod graph;
 pub mod handler;
 pub mod hook;
+pub mod input_gate;
 pub mod interaction;
 pub mod interactive_script_session;
 pub mod loop_state;

@@ -125,6 +125,7 @@ async fn run_visibility(
             handlers: Some(reg.into_arc()),
             hooks: Vec::new(),
             resource_registries: None,
+            variables: None,
         })
         .await?;
     let result = captured.lock().unwrap().clone();

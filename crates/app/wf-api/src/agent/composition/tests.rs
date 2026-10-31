@@ -264,6 +264,34 @@ fn template_with_config(id: &str, config: serde_json::Value) -> AgentTemplate {
 }
 
 #[test]
+fn template_context_schema_is_inherited_and_caller_wins() {
+    let regs = ResourceRegistries::new();
+    register_item_skip(
+        &regs.agent_templates,
+        "agent-schema".into(),
+        template_with_config(
+            "agent-schema",
+            serde_json::json!({
+                "system_prompt": "stable",
+                "context_schema": [
+                    {"name": "count", "type": "number", "required": true},
+                ],
+            }),
+        ),
+    );
+    let env = env_for(&regs);
+    let (applied, _) =
+        resolve_and_apply(&env, empty_config("agent-schema"), input_with("hi")).expect("apply");
+    let schema = applied.context_schema.expect("schema inherited");
+    assert_eq!(schema.len(), 1);
+    assert_eq!(schema[0].name, "count");
+    let mut caller = empty_config("agent-schema");
+    caller.context_schema = Some(Vec::new());
+    let (applied, _) = resolve_and_apply(&env, caller, input_with("hi")).expect("apply");
+    assert_eq!(applied.context_schema, Some(Vec::new()));
+}
+
+#[test]
 fn direct_path_renders_system_prompt_template_id() {
     use wf_core::registry::MutableRegistry;
     let regs = ResourceRegistries::new();

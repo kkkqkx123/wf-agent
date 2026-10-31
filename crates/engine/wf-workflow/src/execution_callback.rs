@@ -54,6 +54,10 @@ pub struct WorkflowExecutionCallback {
     /// Per-workflow hooks, keyed by workflow id (from the workflow
     /// definition); overrides the shared `hooks` for that workflow.
     workflow_hooks: std::sync::RwLock<HashMap<String, Vec<HookDefinition>>>,
+    /// Per-workflow variable declarations for input defaults and typed
+    /// checks. `None` entries keep the historical unchecked behavior.
+    workflow_variables:
+        std::sync::RwLock<HashMap<String, Vec<wf_types::workflow_execution::VariableDefinition>>>,
     /// Shared sandbox runtime (global profiles + routing rules); injected
     /// into the script handlers of executions launched here. `None` uses
     /// per-handler defaults.
@@ -80,6 +84,7 @@ impl WorkflowExecutionCallback {
             hook_handler_registry: None,
             hooks: Vec::new(),
             workflow_hooks: std::sync::RwLock::new(HashMap::new()),
+            workflow_variables: std::sync::RwLock::new(HashMap::new()),
             sandbox: None,
             agent_loop_registry: None,
         }
@@ -168,6 +173,19 @@ impl WorkflowExecutionCallback {
         graph: WorkflowGraphStructure,
         hooks: Vec<HookDefinition>,
     ) -> bool {
+        self.register_workflow_full(workflow_id, graph, hooks, None)
+    }
+
+    /// Register a workflow graph with hooks and variable declarations.
+    /// Declarations drive input defaults and typed checks at launch;
+    /// `None` keeps the historical unchecked behavior.
+    pub fn register_workflow_full(
+        &self,
+        workflow_id: Id,
+        graph: WorkflowGraphStructure,
+        hooks: Vec<HookDefinition>,
+        variables: Option<Vec<wf_types::workflow_execution::VariableDefinition>>,
+    ) -> bool {
         let registered = self
             .graphs
             .register(workflow_id.to_string(), Arc::new(graph))
@@ -175,12 +193,24 @@ impl WorkflowExecutionCallback {
         if registered {
             wf_common::lock::write_ok(self.workflow_hooks.write())
                 .insert(workflow_id.to_string(), hooks);
+            match variables {
+                Some(declarations) => {
+                    wf_common::lock::write_ok(self.workflow_variables.write())
+                        .insert(workflow_id.to_string(), declarations);
+                }
+                None => {
+                    wf_common::lock::write_ok(self.workflow_variables.write())
+                        .remove(workflow_id.as_str());
+                }
+            }
         }
         registered
     }
 
     pub fn unregister_workflow(&self, workflow_id: &Id) {
         self.graphs.unregister(&workflow_id.to_string());
+        wf_common::lock::write_ok(self.workflow_hooks.write()).remove(workflow_id.as_str());
+        wf_common::lock::write_ok(self.workflow_variables.write()).remove(workflow_id.as_str());
     }
 
     pub fn has_workflow(&self, workflow_id: &str) -> bool {
@@ -227,6 +257,9 @@ impl WorkflowExecutionCallback {
             .get(workflow_id)
             .cloned()
             .unwrap_or_else(|| self.hooks.clone());
+        let variables = wf_common::lock::read_ok(self.workflow_variables.read())
+            .get(workflow_id)
+            .cloned();
 
         Ok(WorkflowExecutionParams {
             execution_id,
@@ -238,6 +271,7 @@ impl WorkflowExecutionCallback {
             resource_registries: None,
             input,
             hooks,
+            variables,
         })
     }
 

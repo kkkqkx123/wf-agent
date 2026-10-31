@@ -830,18 +830,6 @@ pub fn file_pointer_text(path: &str, commit: &str, seq: u64) -> String {
     }
 }
 
-/// Handoff system prompt sourced from the `@standard/handoff` asset: one
-/// source of truth instead of a duplicated constant. Returns the prompt
-/// text plus its version stamp for the handoff validation note.
-pub fn handoff_system_prompt() -> (&'static str, &'static str) {
-    (
-        wf_resource::embedded_assets::agent_prompt(
-            wf_resource::predefined::agent_prompts::HANDOFF_PROMPT_KEY,
-        ),
-        wf_resource::predefined::agent_prompts::HANDOFF_PROMPT_VERSION,
-    )
-}
-
 /// Re-export outcome and entry types for event, session and ingest layers.
 pub use wf_types::message::{BlockOutcome, CompactionMode, CompactionThresholds, FileReadEntry};
 

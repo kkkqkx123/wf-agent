@@ -6,10 +6,6 @@ use wf_types::message::{IndexEntry, Message};
 use super::AgentIterationCoordinator;
 use crate::entity::AgentLoopEntity;
 
-/// Profile the handoff document call runs against. The summary chain uses
-/// the same default profile, so handoff quality tracks summary quality.
-pub const HANDOFF_PROFILE_ID: &str = "DEFAULT";
-
 const HANDOFF_RETRY_NOTE: &str =
     "\nThe previous draft missed these KEEP facts; include every one of them:";
 
@@ -128,13 +124,17 @@ impl AgentIterationCoordinator {
             .map(|(_, _, text)| text.clone())
             .collect::<Vec<_>>()
             .join("\n");
-        // Single source of truth: the `@standard/handoff` asset, not a
-        // duplicated constant. The version travels into the validation
-        // note with the artifact.
-        let (handoff_prompt, handoff_prompt_version) =
-            wf_execution_shared::compaction::handoff_system_prompt();
+        // Single source of truth: the `@standard/handoff` asset owned by
+        // the resource layer, not a duplicated constant. The version
+        // travels into the validation note with the artifact.
+        let handoff_prompt = wf_resource::embedded_assets::agent_prompt(
+            wf_resource::predefined::agent_prompts::HANDOFF_PROMPT_KEY,
+        );
+        let handoff_prompt_version =
+            wf_resource::predefined::agent_prompts::HANDOFF_PROMPT_VERSION;
         let request = LlmRequest {
-            profile_id: HANDOFF_PROFILE_ID.to_string(),
+            profile_id: wf_resource::predefined::agent_prompts::COMPRESSION_DEFAULT_PROFILE
+                .to_string(),
             messages: vec![
                 Message::system_text(handoff_prompt.to_string()),
                 Message::user_text(handoff_user_text(&summaries, reason)),
@@ -173,7 +173,8 @@ impl AgentIterationCoordinator {
         let mut missing = keep_fact_gaps(&sources, &document);
         if !missing.is_empty() {
             let retry = LlmRequest {
-                profile_id: HANDOFF_PROFILE_ID.to_string(),
+                profile_id: wf_resource::predefined::agent_prompts::COMPRESSION_DEFAULT_PROFILE
+                    .to_string(),
                 messages: vec![
                     Message::system_text(handoff_prompt.to_string()),
                     Message::user_text(format!(

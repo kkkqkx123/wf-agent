@@ -8,13 +8,13 @@ use crate::embedded_assets;
 
 pub use crate::predefined::agent_prompts::LLM_SUMMARY_PROMPT_KEY as DEFAULT_LLM_SUMMARY_PROMPT_KEY;
 
-pub const DEFAULT_LLM_SUMMARY_PROFILE: &str = "DEFAULT";
+use crate::predefined::agent_prompts::COMPRESSION_DEFAULT_PROFILE;
 
 pub const SUMMARY_NODE_TIMEOUT_SECS: u64 = 150;
 pub const COMPRESSION_CHAIN_TIMEOUT_MS: u64 = 240_000;
 
 pub fn summary_llm_config(compression_prompt: Option<String>, profile_id: Option<String>) -> Value {
-    let profile = profile_id.unwrap_or_else(|| DEFAULT_LLM_SUMMARY_PROFILE.to_string());
+    let profile = profile_id.unwrap_or_else(|| COMPRESSION_DEFAULT_PROFILE.to_string());
     json!({
         "profile_id": profile,
         "context_id": "current",

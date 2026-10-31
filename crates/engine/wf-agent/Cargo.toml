@@ -12,6 +12,7 @@ wf-llm = { path = "../../infra/wf-llm" }
 wf-checkpoint = { path = "../../infra/checkpoint/wf-checkpoint" }
 wf-storage = { path = "../../infra/wf-storage" }
 wf-execution-shared = { path = "../wf-execution-shared" }
+wf-resource = { path = "../wf-resource" }
 wf-metrics = { path = "../../infra/wf-metrics" }
 wf-sandbox = { path = "../../infra/wf-sandbox", optional = true }
 

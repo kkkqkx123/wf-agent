@@ -32,6 +32,10 @@ pub const HANDOFF_PROMPT_KEY: &str = "@standard/handoff";
 /// that produced them.
 pub const HANDOFF_PROMPT_VERSION: &str = "1";
 
+/// Default LLM profile for compression work: summary, re-compression
+/// and handoff document calls share it so quality tracks one profile.
+pub const COMPRESSION_DEFAULT_PROFILE: &str = "DEFAULT";
+
 /// Prompt id of the built-in tool-call safety reviewer (separate asset file,
 /// not part of `agent_prompts.json`).
 pub const APPROVAL_REVIEWER_PROMPT_KEY: &str = "@standard/approval-reviewer";

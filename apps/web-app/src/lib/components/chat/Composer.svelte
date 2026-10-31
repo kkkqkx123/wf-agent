@@ -16,6 +16,8 @@
 	import AgentPicker from '#lib/components/chat/AgentPicker.svelte';
 	import WorkflowPicker from '#lib/components/chat/WorkflowPicker.svelte';
 	import StarterRow from '#lib/components/chat/StarterRow.svelte';
+	import ComposerQueue from '#lib/components/chat/ComposerQueue.svelte';
+	import ComposerAttachments from '#lib/components/chat/ComposerAttachments.svelte';
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import ExecutionTypePicker, {
 		type ExecutionType,
@@ -544,78 +546,17 @@
 		/>
 	{/if}
 
-	{#if queue.length > 0}
-		<ul class="mb-2 space-y-1">
-			{#each queue as item, index (index)}
-				<li
-					class="flex items-center gap-2 rounded-md border border-border bg-muted/50 px-2 py-1 text-caption text-muted-foreground"
-				>
-					<span class="font-mono text-micro">#{index + 1}</span>
-					<span class="min-w-0 flex-1 truncate">{item.text}</span>
-					{#if item.attachments.length > 0}
-						<span class="shrink-0 font-mono text-micro">
-							{t('chat.composer.fileCount', { count: item.attachments.length })}
-						</span>
-					{/if}
-					<button
-						type="button"
-						aria-label={t('chat.composer.moveQueuedUp')}
-						disabled={index === 0}
-						class="shrink-0 hover:text-foreground disabled:opacity-40"
-						onclick={() => moveQueued(index, -1)}
-					>
-						<Icon name="chevron-up" size={13} />
-					</button>
-					<button
-						type="button"
-						aria-label={t('chat.composer.moveQueuedDown')}
-						disabled={index === queue.length - 1}
-						class="shrink-0 hover:text-foreground disabled:opacity-40"
-						onclick={() => moveQueued(index, 1)}
-					>
-						<Icon name="chevron-down" size={13} />
-					</button>
-					<button
-						type="button"
-						aria-label={t('chat.composer.editQueued')}
-						class="shrink-0 hover:text-foreground"
-						onclick={() => editQueued(index)}
-					>
-						<Icon name="pencil" size={13} />
-					</button>
-					<button
-						type="button"
-						aria-label={t('chat.composer.removeQueued')}
-						class="shrink-0 hover:text-foreground"
-						onclick={() => (queue = queue.filter((_, i) => i !== index))}
-					>
-						<Icon name="x" size={13} />
-					</button>
-				</li>
-			{/each}
-		</ul>
-	{/if}
+	<ComposerQueue
+		{queue}
+		onmove={moveQueued}
+		onedit={editQueued}
+		onremove={(index) => (queue = queue.filter((_, i) => i !== index))}
+	/>
 
-	{#if attachments.length > 0}
-		<div class="mb-2 flex flex-wrap gap-1.5">
-			{#each attachments as file, index (index)}
-				<span
-					class="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 font-mono text-micro text-muted-foreground"
-				>
-					<Icon name="file" size={12} />
-					{file.name}
-					<button
-						type="button"
-						aria-label={t('chat.composer.removeAttachment')}
-						class="hover:text-foreground"
-						onclick={() => (attachments = attachments.filter((_, i) => i !== index))}
-					>
-						<Icon name="x" size={12} />
-					</button>
-				</span>
-			{/each}
-		</div>
-	{/if}
+	<ComposerAttachments
+		{attachments}
+		onremove={(index) => (attachments = attachments.filter((_, i) => i !== index))}
+	/>
 
 	{#if mentionVisible}
 		<div

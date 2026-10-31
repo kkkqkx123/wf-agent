@@ -301,7 +301,7 @@
 										onclick={() => (hookName = hook.name)}
 										class="w-full rounded-md border px-2.5 py-2 text-left transition-colors {hookName ===
 										hook.name
-											? 'border-[hsl(var(--ring))] bg-accent'
+											? 'border-ring bg-accent'
 											: 'border-transparent hover:bg-accent/60'}"
 									>
 										<span class="block font-mono text-caption">{hook.name}</span>

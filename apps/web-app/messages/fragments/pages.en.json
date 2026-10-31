@@ -198,6 +198,7 @@
 	"page.ide.searchFailed": "Search failed",
 	"page.ide.toggleMaximize": "Maximize terminal",
 	"page.ide.restoreTerminal": "Restore terminal size",
+	"page.ide.resizeTerminal": "Resize terminal",
 	"page.ide.cut": "Cut",
 	"page.ide.copy": "Copy",
 	"page.ide.paste": "Paste",

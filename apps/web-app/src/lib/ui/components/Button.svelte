@@ -32,7 +32,7 @@
 {#if href}
 	<a
 		href={resolveHref(href)}
-		class={cn(buttonClass(variant, size), active && 'ring-1 ring-[hsl(var(--ring))]', className)}
+		class={cn(buttonClass(variant, size), active && 'ring-1 ring-ring', className)}
 		{...anchorRest}
 	>
 		{@render children()}
@@ -40,7 +40,7 @@
 {:else}
 	<button
 		type="button"
-		class={cn(buttonClass(variant, size), active && 'ring-1 ring-[hsl(var(--ring))]', className)}
+		class={cn(buttonClass(variant, size), active && 'ring-1 ring-ring', className)}
 		{...rest}
 	>
 		{@render children()}

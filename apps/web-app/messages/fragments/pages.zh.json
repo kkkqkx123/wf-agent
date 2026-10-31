@@ -198,6 +198,7 @@
 	"page.ide.searchFailed": "搜索失败",
 	"page.ide.toggleMaximize": "最大化终端",
 	"page.ide.restoreTerminal": "恢复终端大小",
+	"page.ide.resizeTerminal": "调整终端高度",
 	"page.ide.cut": "剪切",
 	"page.ide.copy": "复制",
 	"page.ide.paste": "粘贴",

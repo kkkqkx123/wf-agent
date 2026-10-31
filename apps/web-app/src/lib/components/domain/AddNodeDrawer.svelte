@@ -191,7 +191,7 @@
 				bind:value={query}
 				placeholder={t('domain.addNode.searchPlaceholder')}
 				aria-label={t('domain.addNode.searchPlaceholder')}
-				class="h-9 w-full rounded-md border border-input bg-card pl-8 pr-2 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[hsl(var(--ring))]"
+				class="h-9 w-full rounded-md border border-input bg-card pl-8 pr-2 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
 		</div>
 		{#if position}
@@ -262,7 +262,7 @@
 		<button
 			type="button"
 			aria-label={t('common.close')}
-			class="absolute inset-0 bg-[hsl(var(--overlay))]"
+			class="absolute inset-0 bg-overlay"
 			onclick={() => {
 				open = false;
 				onclose?.();

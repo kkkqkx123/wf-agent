@@ -63,7 +63,7 @@
 	class={cn(
 		'group rounded-lg border px-3 py-2.5 transition-colors duration-150',
 		selected
-			? 'border-[hsl(var(--ring))] bg-accent'
+			? 'border-ring bg-accent'
 			: rowError
 				? 'border-destructive/40 bg-destructive/[0.04] hover:border-destructive/60 hover:bg-destructive/[0.07]'
 				: 'border-border bg-card hover:border-ring/40 hover:bg-accent/40',

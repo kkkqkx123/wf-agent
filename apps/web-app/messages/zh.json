@@ -1389,6 +1389,7 @@
 	"page.ide.resetMode": "重置模式",
 	"page.ide.resetSoft": "软重置（保留暂存改动）",
 	"page.ide.resetToHere": "重置到此处",
+	"page.ide.resizeTerminal": "调整终端高度",
 	"page.ide.restoreTerminal": "恢复终端大小",
 	"page.ide.saveAll": "全部保存",
 	"page.ide.saveAndClose": "保存并关闭",

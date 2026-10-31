@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Composer from '#lib/components/chat/Composer.svelte';
+	import ResizeHandle from '#lib/components/layout/ResizeHandle.svelte';
 	import DecisionMap from '#lib/components/chat/DecisionMap.svelte';
 	import { chatStream } from '#lib/stores/stream-run.svelte';
 	import { NEW_SESSION } from '#lib/stores/sessions.svelte';
@@ -39,9 +40,6 @@
 	let backendOk = $state(true);
 	let request = 0;
 	let composerHeight = $state<number | null>(null);
-	let dragging = $state(false);
-	let dragStartY = 0;
-	let dragStartHeight = 0;
 
 	$effect(() => {
 		try {
@@ -116,22 +114,8 @@
 		return Math.min(Math.max(next, MIN_HEIGHT), Math.max(max, MIN_HEIGHT));
 	}
 
-	function startDrag(event: PointerEvent): void {
-		if (fullscreen) return;
-		dragging = true;
-		dragStartY = event.clientY;
-		dragStartHeight = composerHeight ?? 240;
-		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-		event.preventDefault();
-	}
-
-	function onDrag(event: PointerEvent): void {
-		if (!dragging) return;
-		persistHeight(clampHeight(dragStartHeight + (dragStartY - event.clientY)));
-	}
-
-	function endDrag(): void {
-		dragging = false;
+	function onResizeHandle(delta: number): void {
+		persistHeight(clampHeight((composerHeight ?? 240) + delta));
 	}
 
 	function toggleFullscreen(): void {
@@ -155,37 +139,15 @@
 		: 'shrink-0'}"
 >
 	{#if !fullscreen}
-		<!-- Focusable ARIA separator: standard pattern for a resizable splitter handle -->
-		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-		<div
-			role="separator"
-			aria-orientation="horizontal"
-			aria-label={t('chat.composer.resizeHandle')}
-			tabindex="0"
-			class="absolute top-0 right-0 left-0 flex h-3 cursor-ns-resize items-center justify-center text-muted-foreground hover:text-foreground"
-			onpointerdown={startDrag}
-			onpointermove={onDrag}
-			onpointerup={endDrag}
-			onpointercancel={endDrag}
-			ondblclick={resetHeight}
-			onkeydown={(event) => {
-				if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-					event.preventDefault();
-					const base = composerHeight ?? 240;
-					persistHeight(clampHeight(base + (event.key === 'ArrowUp' ? 20 : -20)));
-				} else if (event.key === 'Home') {
-					event.preventDefault();
-					resetHeight();
-				}
-			}}
-		>
-			<span
-				class="h-1 w-12 rounded-full transition-colors {dragging
-					? 'bg-primary'
-					: 'bg-border hover:bg-primary/50'}"
-			></span>
-		</div>
+		<ResizeHandle
+			label={t('chat.composer.resizeHandle')}
+			disabled={fullscreen}
+			class="absolute top-0 right-0 left-0 h-3 text-muted-foreground hover:text-foreground"
+			pillClass="h-1 w-12 bg-border hover:bg-primary/50"
+			pillActiveClass="bg-primary"
+			onResize={onResizeHandle}
+			onReset={resetHeight}
+		/>
 	{/if}
 	<div
 		class="w-full {composerHeight !== null && !fullscreen ? 'min-h-0' : ''} {fullscreen

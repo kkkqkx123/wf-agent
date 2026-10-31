@@ -57,7 +57,7 @@
 		<button
 			type="button"
 			aria-label="Close dialog"
-			class="animate-overlay-in absolute inset-0 bg-[hsl(var(--overlay))] backdrop-blur-[2px]"
+			class="animate-overlay-in absolute inset-0 bg-overlay backdrop-blur-[2px]"
 			onclick={close}
 		></button>
 		<div

@@ -48,7 +48,7 @@
 				aria-label={t('domain.git.filter')}
 				placeholder={t('domain.git.filterPlaceholder')}
 				bind:value={workbench.filters.files}
-				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[hsl(var(--ring))]"
+				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
 			<ul class="max-h-72 overflow-y-auto">
 				{#each files as file (file.path)}
@@ -102,7 +102,7 @@
 				aria-label={t('domain.git.filter')}
 				placeholder={t('domain.git.filterPlaceholder')}
 				bind:value={workbench.filters.branches}
-				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[hsl(var(--ring))]"
+				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
 			<ul class="max-h-72 overflow-y-auto">
 				{#each branches as branch (branch.name)}
@@ -147,7 +147,7 @@
 				aria-label={t('domain.git.filter')}
 				placeholder={t('domain.git.filterPlaceholder')}
 				bind:value={workbench.filters.commits}
-				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[hsl(var(--ring))]"
+				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
 			<ul class="max-h-72 overflow-y-auto">
 				{#each commits as commit (commit.id)}
@@ -186,7 +186,7 @@
 				aria-label={t('domain.git.filter')}
 				placeholder={t('domain.git.filterPlaceholder')}
 				bind:value={workbench.filters.stash}
-				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[hsl(var(--ring))]"
+				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
 			<ul class="max-h-72 overflow-y-auto">
 				{#each stash as entry (entry.name)}

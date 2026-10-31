@@ -4,7 +4,7 @@ import { cn } from '../cn';
 export type Size = 'sm' | 'md' | 'lg';
 
 const BASE_FOCUS =
-	'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))]';
+	'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring';
 
 const BUTTON_VARIANT = {
 	default: 'bg-primary text-primary-foreground hover:bg-primary/90',
@@ -59,8 +59,14 @@ export function badgeClass(variant: BadgeVariant = 'neutral', extra?: string): s
 }
 
 export const INPUT_BASE =
-	'w-full rounded-md border border-input bg-card px-2.5 text-body text-foreground placeholder:text-muted-foreground transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[hsl(var(--ring))] disabled:cursor-not-allowed disabled:opacity-60';
+	'w-full rounded-md border border-input bg-card px-2.5 text-body text-foreground placeholder:text-muted-foreground transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60';
 
+/**
+ * Radius convention. Panels and floating layers use rounded-lg, controls
+ * use rounded-md, pills and badges use rounded-full. The bare `rounded`
+ * utility (4px) is reserved for micro inline chips such as mention tokens,
+ * kbd hints and table status fragments; do not "upgrade" those to rounded-md.
+ */
 export const SURFACE_PANEL =
 	'rounded-lg border border-border bg-card text-card-foreground shadow-sm';
 

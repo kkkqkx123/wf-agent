@@ -1389,6 +1389,7 @@
 	"page.ide.resetMode": "Reset mode",
 	"page.ide.resetSoft": "Soft (keep changes staged)",
 	"page.ide.resetToHere": "Reset to here",
+	"page.ide.resizeTerminal": "Resize terminal",
 	"page.ide.restoreTerminal": "Restore terminal size",
 	"page.ide.saveAll": "Save all",
 	"page.ide.saveAndClose": "Save and close",

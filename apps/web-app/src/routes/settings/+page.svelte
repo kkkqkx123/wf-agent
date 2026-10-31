@@ -435,7 +435,7 @@
 									preferences.setEditorFontSize(
 										Number((event.currentTarget as HTMLInputElement).value),
 									)}
-								class="w-full accent-[hsl(var(--primary))]"
+								class="w-full accent-primary"
 							/>
 							<span
 								class="w-16 shrink-0 text-right text-caption tabular-nums text-muted-foreground"
@@ -652,7 +652,7 @@
 								disabled={preferences.autoTitleMode !== 'llm'}
 								oninput={(event) =>
 									preferences.setTitleModel((event.currentTarget as HTMLInputElement).value)}
-								class="mt-1 w-56 rounded-md border border-input bg-card px-2.5 py-1.5 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[hsl(var(--ring))] disabled:cursor-not-allowed disabled:opacity-60"
+								class="mt-1 w-56 rounded-md border border-input bg-card px-2.5 py-1.5 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60"
 							/>
 							<p class="mt-2 text-caption text-muted-foreground">
 								{t('page.settings.titleModelDesc')}
@@ -674,7 +674,7 @@
 									preferences.setSidebarWidth(
 										Number((event.currentTarget as HTMLInputElement).value),
 									)}
-								class="w-full accent-[hsl(var(--primary))]"
+								class="w-full accent-primary"
 							/>
 							<span
 								class="w-12 shrink-0 text-right text-caption tabular-nums text-muted-foreground"

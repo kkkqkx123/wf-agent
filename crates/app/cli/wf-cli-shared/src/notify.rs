@@ -379,26 +379,42 @@ fn find_event_file(dir: &std::path::Path, event: SoundEvent) -> Option<std::path
         .find(|path| path.is_file())
 }
 
-/// External audio players per platform, in preference order. Windows has
-/// none: shelling out to a helper has been observed to break fullscreen
-/// TUI sessions, so sound stays silent there until proven safe.
+/// External audio players. ffplay is the unified primary on every OS for
+/// identical volume scale, format support and flags; the natives below are
+/// purely availability fallbacks for machines without ffmpeg. Variants are
+/// gated per OS so every target builds warning-free. The banner channel
+/// stays off on Windows (its NotifyIcon helper breaks fullscreen TUI
+/// sessions), but windowless wav playback through SoundPlayer is safe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SoundPlayer {
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    #[cfg(target_os = "macos")]
     Afplay,
+    #[cfg(target_os = "linux")]
     Paplay,
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
     Ffplay,
+    #[cfg(target_os = "linux")]
     Aplay,
+    #[cfg(target_os = "windows")]
+    PowerShell,
 }
 
 /// Look up one executable on PATH without spawning a shell.
-#[cfg(not(target_os = "windows"))]
 fn find_on_path(name: &str) -> Option<std::path::PathBuf> {
     let path = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path) {
         let candidate = dir.join(name);
         if candidate.is_file() {
             return Some(candidate);
+        }
+        // Windows executables carry an extension that callers omit, so
+        // probe the suffixed name too (mirrors CreateProcess lookup).
+        #[cfg(target_os = "windows")]
+        {
+            let suffixed = dir.join(format!("{name}.exe"));
+            if suffixed.is_file() {
+                return Some(suffixed);
+            }
         }
     }
     None
@@ -412,13 +428,17 @@ fn cached_sound_player() -> Option<SoundPlayer> {
 }
 
 fn detect_sound_player() -> Option<SoundPlayer> {
+    // Unified primary first: wherever ffmpeg exists, behavior (volume
+    // scale, formats, flags) is identical across platforms. The per-OS
+    // natives below only cover machines without it.
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+    if find_on_path("ffplay").is_some() {
+        return Some(SoundPlayer::Ffplay);
+    }
     #[cfg(target_os = "macos")]
     {
         if find_on_path("afplay").is_some() {
             return Some(SoundPlayer::Afplay);
-        }
-        if find_on_path("ffplay").is_some() {
-            return Some(SoundPlayer::Ffplay);
         }
         None
     }
@@ -427,17 +447,21 @@ fn detect_sound_player() -> Option<SoundPlayer> {
         if find_on_path("paplay").is_some() {
             return Some(SoundPlayer::Paplay);
         }
-        if find_on_path("ffplay").is_some() {
-            return Some(SoundPlayer::Ffplay);
-        }
         if find_on_path("aplay").is_some() {
             return Some(SoundPlayer::Aplay);
         }
         None
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(target_os = "windows")]
     {
-        return None;
+        if find_on_path("powershell.exe").is_some() {
+            return Some(SoundPlayer::PowerShell);
+        }
+        None
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        None
     }
 }
 
@@ -447,14 +471,18 @@ fn detect_sound_player() -> Option<SoundPlayer> {
 fn player_command(
     player: SoundPlayer,
     file: &std::path::Path,
-    volume: f64,
+    // Windows playback has no volume control; the parameter only feeds
+    // the Unix players, so silence the unused warning on that target.
+    #[cfg_attr(target_os = "windows", allow(unused_variables))] volume: f64,
 ) -> (String, Vec<String>) {
     let file = file.to_string_lossy().into_owned();
     match player {
+        #[cfg(target_os = "macos")]
         SoundPlayer::Afplay => (
             "afplay".to_string(),
             vec!["-v".to_string(), format!("{volume:.2}"), file],
         ),
+        #[cfg(target_os = "linux")]
         SoundPlayer::Paplay => {
             let level = (volume * 65536.0).round().clamp(0.0, 65536.0) as u32;
             (
@@ -462,6 +490,7 @@ fn player_command(
                 vec![format!("--volume={level}"), file],
             )
         }
+        #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
         SoundPlayer::Ffplay => {
             let level = (volume * 100.0).round().clamp(0.0, 100.0) as u32;
             (
@@ -477,17 +506,43 @@ fn player_command(
                 ],
             )
         }
+        #[cfg(target_os = "linux")]
         SoundPlayer::Aplay => ("aplay".to_string(), vec![file]),
+        #[cfg(target_os = "windows")]
+        SoundPlayer::PowerShell => {
+            // Windowless wav playback: unlike the NotifyIcon banner, no
+            // window is ever created, so the fullscreen TUI is undisturbed.
+            // SoundPlayer has no volume control; playback uses the system
+            // volume and a zero volume skips playback before this point.
+            let script = format!(
+                "(New-Object System.Media.SoundPlayer '{}').PlaySync();",
+                powershell_quote(&file)
+            );
+            (
+                "powershell.exe".to_string(),
+                vec![
+                    "-NoProfile".to_string(),
+                    "-NonInteractive".to_string(),
+                    "-WindowStyle".to_string(),
+                    "Hidden".to_string(),
+                    "-Command".to_string(),
+                    script,
+                ],
+            )
+        }
     }
+}
+
+/// Quote one string as a PowerShell single-quoted literal.
+#[cfg(target_os = "windows")]
+fn powershell_quote(text: &str) -> String {
+    text.replace('\'', "''")
 }
 
 /// Play one pack cue in a detached thread. Every miss (no pack, no file,
 /// no player, failed spawn) is silent: sound is best-effort decoration
 /// that must never disturb the turn pipeline.
 fn play_sound(pack: Option<&str>, event: SoundEvent, volume: f64) {
-    if cfg!(target_os = "windows") {
-        return;
-    }
     if volume <= 0.0 {
         return;
     }
@@ -713,7 +768,8 @@ mod tests {
     }
 
     #[test]
-    fn player_commands_carry_scaled_volumes() {
+    #[cfg(target_os = "linux")]
+    fn linux_player_commands_carry_scaled_volumes() {
         let file = std::path::Path::new("/tmp/cue.wav");
         let (program, args) = player_command(SoundPlayer::Paplay, file, 0.5);
         assert_eq!(program, "paplay");
@@ -726,12 +782,40 @@ mod tests {
         assert!(args.contains(&"-volume".to_string()));
         assert!(args.contains(&"50".to_string()));
         assert!(args.contains(&"-nodisp".to_string()));
-        let (program, args) = player_command(SoundPlayer::Afplay, file, 0.5);
-        assert_eq!(program, "afplay");
-        assert!(args.contains(&"-v".to_string()));
         let (program, args) = player_command(SoundPlayer::Aplay, file, 0.5);
         assert_eq!(program, "aplay");
         assert_eq!(args, vec!["/tmp/cue.wav".to_string()]);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn macos_player_commands_carry_scaled_volumes() {
+        let file = std::path::Path::new("/tmp/cue.wav");
+        let (program, args) = player_command(SoundPlayer::Afplay, file, 0.5);
+        assert_eq!(program, "afplay");
+        assert!(args.contains(&"-v".to_string()));
+        let (program, args) = player_command(SoundPlayer::Ffplay, file, 0.5);
+        assert_eq!(program, "ffplay");
+        assert!(args.contains(&"50".to_string()));
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn windows_player_plays_wav_without_a_window() {
+        let file = std::path::Path::new("C:\\sounds\\done.wav");
+        let (program, args) = player_command(SoundPlayer::PowerShell, file, 0.5);
+        assert_eq!(program, "powershell.exe");
+        assert!(args.contains(&"-Command".to_string()));
+        assert!(args.contains(&"Hidden".to_string()));
+        let script = args.last().expect("player script");
+        assert!(script.contains("System.Media.SoundPlayer"));
+        assert!(script.contains("C:\\sounds\\done.wav"));
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn powershell_quote_doubles_single_quotes() {
+        assert_eq!(powershell_quote("it's"), "it''s");
     }
 
     /// Scratch pack directory under the system temp dir, removed on drop.

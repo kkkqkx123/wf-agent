@@ -4,12 +4,12 @@
 	import ErrorState from '#lib/ui/components/ErrorState.svelte';
 	import Skeleton from '#lib/ui/components/Skeleton.svelte';
 	import PageHeader from '#lib/components/layout/PageHeader.svelte';
-	import ModelsPanel from './ModelsPanel.svelte';
-	import ToolsPanel from './ToolsPanel.svelte';
-	import ScriptsPanel from './ScriptsPanel.svelte';
-	import SkillsPanel from './SkillsPanel.svelte';
-	import ToolRunDialog from './ToolRunDialog.svelte';
-	import SkillContentDialog from './SkillContentDialog.svelte';
+	import ModelsPanel from '#lib/components/domain/resources/ModelsPanel.svelte';
+	import ToolsPanel from '#lib/components/domain/resources/ToolsPanel.svelte';
+	import ScriptsPanel from '#lib/components/domain/resources/ScriptsPanel.svelte';
+	import SkillsPanel from '#lib/components/domain/resources/SkillsPanel.svelte';
+	import ToolRunDialog from '#lib/components/domain/resources/ToolRunDialog.svelte';
+	import SkillContentDialog from '#lib/components/domain/resources/SkillContentDialog.svelte';
 	import {
 		listModelProfiles,
 		listProviders,
@@ -20,8 +20,8 @@
 		setToolEnabled,
 	} from '#lib/services/resources';
 	import { listAuthProviders, logoutAuth, type AuthProviderStatus } from '#lib/services/auth';
-	import AuthLoginDialog from './AuthLoginDialog.svelte';
-	import AuthProvidersPanel from './AuthProvidersPanel.svelte';
+	import AuthLoginDialog from '#lib/components/domain/resources/AuthLoginDialog.svelte';
+	import AuthProvidersPanel from '#lib/components/domain/resources/AuthProvidersPanel.svelte';
 	import type { ModelProfile, Provider, Script, Skill, Tool } from '#lib/types/models';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';

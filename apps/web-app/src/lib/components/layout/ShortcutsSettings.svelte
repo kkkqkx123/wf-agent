@@ -106,18 +106,18 @@
 		{#each rows as row (row.id)}
 			<div class="flex items-center justify-between gap-3 rounded px-2 py-1.5">
 				<div class="min-w-0">
-					<p class="truncate text-sm" class:opacity-50={row.disabled}>
+					<p class="truncate text-body" class:opacity-50={row.disabled}>
 						{row.label}
 					</p>
 					<p class="text-caption text-muted-foreground">{row.scope}</p>
 				</div>
 				<div class="flex shrink-0 items-center gap-2">
 					{#if recordingId === row.id}
-						<kbd class="animate-pulse rounded border px-2 py-0.5 text-xs"
+						<kbd class="animate-pulse rounded border border-border px-2 py-0.5 text-micro"
 							>{t('layout.shortcuts.recording')}</kbd
 						>
 					{:else}
-						<kbd class="rounded border px-2 py-0.5 text-xs" class:opacity-50={row.disabled}>
+						<kbd class="rounded border border-border px-2 py-0.5 text-micro" class:opacity-50={row.disabled}>
 							{row.disabled ? t('layout.shortcuts.disabled') : row.keys}
 						</kbd>
 					{/if}

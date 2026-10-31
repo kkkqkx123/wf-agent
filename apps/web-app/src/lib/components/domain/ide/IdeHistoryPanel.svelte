@@ -249,7 +249,7 @@
 			</div>
 		{:else}
 			{#if meta && isDetached}
-				<div class="m-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-micro">
+				<div class="m-2 rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-micro">
 					{t('page.ide.detachedHead', {
 						sha: meta.head.slice(0, 7),
 						branch: branches[0]?.name ?? 'main',

@@ -26,6 +26,7 @@
 	import ExecutionHierarchyBreadcrumb from './ExecutionHierarchyBreadcrumb.svelte';
 	import ExecutionHierarchyTree from './ExecutionHierarchyTree.svelte';
 	import StreamMarkdown from '#lib/components/chat/LazyStreamMarkdown.svelte';
+	import Select from '#lib/ui/components/Select.svelte';
 	import { extractMarkdownText } from '#lib/utils/markdown';
 	import type { GraphOverlay } from '#lib/graph/display-model';
 	import { getExecutionHistory, getExecutionToolCalls } from '#lib/services/executions';
@@ -880,16 +881,22 @@
 						</button>
 						<label class="text-micro text-muted-foreground">
 							{t('domain.inspector.speed')}
-							<select
-								bind:value={replaySpeed}
-								class="ml-1 rounded border border-border bg-card text-micro text-foreground"
+							<Select
+								value={String(replaySpeed)}
+								size="sm"
+								class="ml-1 w-24"
 								aria-label={t('domain.inspector.replaySpeed')}
-							>
-								<option value={0.5}>0.5×</option>
-								<option value={1}>1×</option>
-								<option value={2}>2×</option>
-								<option value={4}>4×</option>
-							</select>
+								options={[
+									{ value: '0.5', label: '0.5×' },
+									{ value: '1', label: '1×' },
+									{ value: '2', label: '2×' },
+									{ value: '4', label: '4×' },
+								]}
+								onchange={(next) => {
+									const parsed = Number(next);
+									replaySpeed = Number.isFinite(parsed) ? parsed : 1;
+								}}
+							/>
 						</label>
 						<button
 							type="button"

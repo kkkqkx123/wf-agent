@@ -19,6 +19,9 @@
 		detail?: string;
 		/** Short marker on the label line. */
 		badge?: string;
+		/** Optional leading icon for the entry. When present the row and
+		 * trigger prefer it over the shared fallback icon. */
+		icon?: IconName;
 	}
 
 	interface Props {
@@ -108,6 +111,7 @@
 
 	/** The selected entry, so the trigger can show its label. */
 	const selected = $derived(options.find((option) => option.id === value));
+	const triggerIcon = $derived(selected?.icon ?? icon);
 
 	function isPinned(id: string): boolean {
 		return pinnedIds.includes(id);
@@ -174,6 +178,9 @@
 			class="flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-md px-1 py-1.5 text-left"
 		>
 			<span class="flex w-full items-center gap-2">
+				{#if option.icon}
+					<Icon name={option.icon} size={13} class="shrink-0 text-muted-foreground" />
+				{/if}
 				<span class="min-w-0 flex-1 truncate text-caption text-foreground">
 					{option.label}
 				</span>
@@ -214,7 +221,7 @@
 		onclick={() => (open ? close() : openPanel())}
 		class="flex h-9 w-full items-center gap-1.5 rounded-md border border-input bg-card px-2 text-caption text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 	>
-		<Icon name={icon} size={13} class="shrink-0 text-muted-foreground" />
+		<Icon name={triggerIcon} size={13} class="shrink-0 text-muted-foreground" />
 		<span class={cn('min-w-0 flex-1 truncate text-left', !value && 'text-muted-foreground')}>
 			{selected?.label ?? (value || placeholder)}
 		</span>

@@ -33,7 +33,7 @@ describe('mentionClass', () => {
 		expect(mentionClass('file', 'src/a.ts')).toContain('text-info');
 		expect(mentionClass('file', 'src/')).toContain('text-success');
 		expect(mentionClass('skill', 'pdf')).toContain('text-primary');
-		expect(mentionClass('resource', 'file:///tmp')).toContain('text-accent');
+		expect(mentionClass('resource', 'file:///tmp')).toContain('text-brand');
 		expect(mentionClass('unknown', 'x')).toContain('text-muted-foreground');
 	});
 });

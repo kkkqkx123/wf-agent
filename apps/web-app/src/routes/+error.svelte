@@ -27,10 +27,10 @@
 <div class="flex h-full min-h-0 flex-col">
 	<div class="flex flex-1 items-center justify-center px-4 py-12">
 		<div class="max-w-md text-center">
-			<p class="font-mono text-sm tabular-nums text-muted-foreground">
+			<p class="font-mono text-caption tabular-nums text-muted-foreground">
 				{status || 500}
 			</p>
-			<h1 class="mt-2 text-xl font-semibold text-foreground">{errorTitle}</h1>
+			<h1 class="mt-2 text-title font-semibold text-foreground">{errorTitle}</h1>
 			<p class="mt-2 text-caption text-muted-foreground">{errorMessage}</p>
 			<div class="mt-6 flex items-center justify-center gap-2">
 				<Button variant="outline" size="sm" onclick={reload}>{t('common.retry')}</Button>

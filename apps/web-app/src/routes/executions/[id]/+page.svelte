@@ -7,6 +7,8 @@
 	import Button from '#lib/ui/components/Button.svelte';
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import Badge from '#lib/ui/components/Badge.svelte';
+	import Select from '#lib/ui/components/Select.svelte';
+	import Input from '#lib/ui/components/Input.svelte';
 	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import PageState from '#lib/components/layout/PageState.svelte';
 	import ExecutionInspector from '#lib/components/domain/ExecutionInspector.svelte';
@@ -21,7 +23,13 @@
 		type UnifiedExecutionDetail,
 	} from '#lib/services/executions';
 	import { rerunWorkflowRun } from '#lib/services/run';
-	import { appendAgentLoopInput, cancelAgentLoop, convertPendingToSteering, pauseAgentLoop, resumeAgentLoop } from '#lib/services/agent-loops';
+	import {
+		appendAgentLoopInput,
+		cancelAgentLoop,
+		convertPendingToSteering,
+		pauseAgentLoop,
+		resumeAgentLoop,
+	} from '#lib/services/agent-loops';
 	import type { Execution } from '#lib/types/models';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
@@ -33,9 +41,9 @@
 	let loading = $state(false);
 	let controlBusy = $state(false);
 	let cancelArmed = $state(false);
-let appendText = $state('');
-let appendMode = $state<'steering' | 'followup'>('followup');
-let appendBusy = $state(false);
+	let appendText = $state('');
+	let appendMode = $state<'steering' | 'followup'>('followup');
+	let appendBusy = $state(false);
 	let rerunning = $state(false);
 
 	const requestedTab = parseListParams(page.url as unknown as URL).tab ?? null;
@@ -280,19 +288,30 @@ let appendBusy = $state(false);
 			{/if}
 			{#if unified && unified.executionType === 'agent'}
 				<div class="flex items-center gap-2">
-					<select bind:value={appendMode} class="text-sm border rounded px-2 py-1">
-						<option value="followup">followup</option>
-						<option value="steering">steering</option>
-					</select>
-					<input
-						class="text-sm border rounded px-2 py-1 flex-1"
-						bind:value={appendText}
-						placeholder="append input"
+					<Select
+						bind:value={appendMode}
+						size="sm"
+						class="w-32"
+						aria-label="Append mode"
+						options={[
+							{ value: 'followup', label: 'followup' },
+							{ value: 'steering', label: 'steering' },
+						]}
 					/>
-					<Button size="sm" disabled={appendBusy || !appendText.trim()} onclick={() => void runAppend()}>
+					<Input size="sm" class="flex-1" bind:value={appendText} placeholder="append input" />
+					<Button
+						size="sm"
+						disabled={appendBusy || !appendText.trim()}
+						onclick={() => void runAppend()}
+					>
 						append
 					</Button>
-					<Button size="sm" variant="outline" disabled={controlBusy} onclick={() => void runConvertPending()}>
+					<Button
+						size="sm"
+						variant="outline"
+						disabled={controlBusy}
+						onclick={() => void runConvertPending()}
+					>
 						convert
 					</Button>
 				</div>

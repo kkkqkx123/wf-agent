@@ -17,9 +17,7 @@
 	const surfaceClass = $derived(
 		surface === 'primary'
 			? 'border-primary-foreground/30 bg-primary-foreground/10 text-primary-foreground'
-			: surface === 'muted'
-				? 'border-border/70 bg-muted/60 text-muted-foreground'
-				: 'border-border/70 bg-muted/60 text-muted-foreground',
+			: 'border-border/70 bg-muted/60 text-muted-foreground',
 	);
 
 	const classes = $derived(
@@ -29,7 +27,7 @@
 			surfaceClass,
 			mentionClass(kind, text),
 			href
-				? 'cursor-pointer underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[hsl(var(--ring))]'
+				? 'cursor-pointer underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring'
 				: '',
 		),
 	);
@@ -37,7 +35,7 @@
 
 {#if href}
 	<a
-		href={href}
+		{href}
 		class={classes}
 		title={t('chat.mentionBadge.openInIde', { kind, text })}
 		aria-label={t('chat.mentionBadge.openInIde', { kind, text })}
@@ -46,11 +44,7 @@
 		{text}
 	</a>
 {:else}
-	<span
-		class={classes}
-		title={text}
-		aria-label={t('chat.mentionBadge.aria', { kind, text })}
-	>
+	<span class={classes} title={text} aria-label={t('chat.mentionBadge.aria', { kind, text })}>
 		<Icon name={mentionIcon(kind, text)} size={size === 'micro' ? 11 : 12} />
 		{text}
 	</span>

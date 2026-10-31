@@ -542,7 +542,7 @@
 						ondrop={(e) => void onEditorDrop(e)}
 					>
 						{#if dropNotice}
-							<div class="flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1 text-micro">
+							<div class="flex items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-1 text-micro">
 								<span class="min-w-0 flex-1">{dropNotice}</span>
 								<button type="button" class="cursor-pointer underline" onclick={() => (dropNotice = null)}>
 									{t('common.close')}

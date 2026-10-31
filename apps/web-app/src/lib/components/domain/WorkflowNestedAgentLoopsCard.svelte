@@ -4,6 +4,8 @@
 	import Button from '#lib/ui/components/Button.svelte';
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import StatusBadge from '#lib/ui/components/StatusBadge.svelte';
+	import Select from '#lib/ui/components/Select.svelte';
+	import Input from '#lib/ui/components/Input.svelte';
 	import {
 		appendWorkflowNestedAgentLoopInput,
 		convertWorkflowNestedAgentLoopPending,
@@ -216,16 +218,17 @@
 						</span>
 					</div>
 					<div class="mt-2 flex flex-wrap items-center gap-2">
-						<select
-							class="rounded border border-border bg-card px-2 py-1 text-caption text-foreground"
-							aria-label={`Append mode for ${nodeId}`}
+						<Select
 							value={modeOf(loop)}
-							onchange={(event) =>
-								modes.set(nodeId, event.currentTarget.value as WorkflowNestedAppendMode)}
-						>
-							<option value="followup">followup</option>
-							<option value="steering">steering</option>
-						</select>
+							size="sm"
+							class="w-32"
+							aria-label={`Append mode for ${nodeId}`}
+							options={[
+								{ value: 'followup', label: 'followup' },
+								{ value: 'steering', label: 'steering' },
+							]}
+							onchange={(next) => modes.set(nodeId, next as WorkflowNestedAppendMode)}
+						/>
 						<Button
 							size="sm"
 							variant="outline"
@@ -238,15 +241,18 @@
 							size="sm"
 							variant="outline"
 							disabled={rowBusy || loop.followupPending === 0}
-							title={loop.followupPending === 0 ? 'No followup input pending' : 'Convert followup input to steering'}
+							title={loop.followupPending === 0
+								? 'No followup input pending'
+								: 'Convert followup input to steering'}
 							onclick={() => void runConvert(loop)}
 						>
 							Convert pending
 						</Button>
 					</div>
 					<div class="mt-2 flex items-center gap-2">
-						<input
-							class="min-w-0 flex-1 rounded border border-border bg-card px-2 py-1 text-caption text-foreground placeholder:text-muted-foreground"
+						<Input
+							size="sm"
+							class="min-w-0 flex-1"
 							placeholder={`Append input for ${nodeId}`}
 							aria-label={`Append input for ${nodeId}`}
 							value={draft}

@@ -178,14 +178,14 @@
 					{/if}
 					{#if active.truncated}
 						<p
-							class="border-b border-amber-500/30 bg-amber-500/10 px-3 py-1 text-micro text-amber-700 dark:text-amber-300"
+							class="border-b border-warning/30 bg-warning/10 px-3 py-1 text-micro text-warning"
 						>
 							{t('domain.files.truncatedPath', { path: active.path })}
 						</p>
 					{/if}
 					{#if diffOverflow}
 						<div
-							class="flex flex-wrap items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1 text-micro text-amber-700 dark:text-amber-300"
+							class="flex flex-wrap items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-1 text-micro text-warning"
 						>
 							<span class="min-w-0 flex-1">{t('page.ide.diffOverflow')}</span>
 							<button

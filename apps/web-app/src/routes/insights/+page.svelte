@@ -386,7 +386,7 @@
 									{#if error.similar.length > 0}
 										<span class="text-micro text-muted-foreground">similar:</span>
 										{#each error.similar as id (id)}
-											<Badge variant="outline" class="text-[0.625rem]">{id}</Badge>
+											<Badge variant="outline">{id}</Badge>
 										{/each}
 									{:else}
 										<span class="text-micro text-muted-foreground">no similar errors</span>

@@ -227,7 +227,7 @@
 					<Card title={starter.title}>
 						{#snippet actions()}
 							{#if starter.isSystem}
-								<Badge variant="warning" class="text-[0.625rem]">
+								<Badge variant="warning">
 									{t('page.starters.builtin')}
 								</Badge>
 							{/if}
@@ -249,12 +249,12 @@
 								{starter.locale}
 							</span>
 							{#if starter.isDefault}
-								<Badge variant="outline" class="text-[0.625rem]">
+								<Badge variant="outline">
 									{t('page.starters.defaultBadge')}
 								</Badge>
 							{/if}
 							{#each starter.tags as tag (tag)}
-								<Badge variant="outline" class="text-[0.625rem]">{tag}</Badge>
+								<Badge variant="outline">{tag}</Badge>
 							{/each}
 						</div>
 						{#snippet footer()}

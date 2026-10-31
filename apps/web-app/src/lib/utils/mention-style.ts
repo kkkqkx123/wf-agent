@@ -79,7 +79,7 @@ export function mentionClass(kind: string, label?: string): string {
 		case 'script':
 			return 'text-warning border-warning/40';
 		case 'resource':
-			return 'text-accent border-accent/40';
+			return 'text-brand border-brand/40';
 		default:
 			return 'text-muted-foreground border-border/70';
 	}

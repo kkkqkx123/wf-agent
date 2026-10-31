@@ -211,7 +211,7 @@
 										{event.source}
 									</span>
 									{#if event.executionId}
-										<Badge variant="outline" class="shrink-0 text-[0.625rem]"
+										<Badge variant="outline" class="shrink-0"
 											>{event.executionId}</Badge
 										>
 									{/if}

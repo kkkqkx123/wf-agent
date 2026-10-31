@@ -1,4 +1,10 @@
 <script lang="ts">
+	/**
+	 * Terminal-style panel for dense operational surfaces (git, terminal).
+	 * Business cards should use Card instead: Card carries rounded corners
+	 * and a header/footer rhythm, while TuiPanel keeps square corners and
+	 * an overlapped mono title for a terminal look.
+	 */
 	import type { Snippet } from 'svelte';
 	import { cn } from '../cn';
 

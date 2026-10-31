@@ -230,7 +230,7 @@
 						<Card title={template.name}>
 							{#snippet actions()}
 								{#if template.featured}
-									<Badge variant="warning" class="text-[0.625rem]">
+									<Badge variant="warning">
 										<Icon name="star" size={10} />
 										featured
 									</Badge>
@@ -250,7 +250,7 @@
 							</div>
 							<div class="mt-2 flex flex-wrap gap-1">
 								{#each template.tags as tag (tag)}
-									<Badge variant="outline" class="text-[0.625rem]">{tag}</Badge>
+									<Badge variant="outline">{tag}</Badge>
 								{/each}
 							</div>
 							{#snippet footer()}

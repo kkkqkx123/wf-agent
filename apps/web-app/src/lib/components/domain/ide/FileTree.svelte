@@ -55,12 +55,12 @@
 	const treeRowHeightStyle = `--ide-tree-row-height: ${IDE_TREE_ROW_HEIGHT_PX}px`;
 
 	const BADGE_DOT: Record<GitBadgeLevel, string> = {
-		added: 'bg-emerald-500',
-		modified: 'bg-amber-500',
-		deleted: 'bg-red-500',
-		renamed: 'bg-sky-500',
-		conflicted: 'bg-red-600 ring-2 ring-red-600/40',
-		untracked: 'bg-zinc-400',
+		added: 'bg-success',
+		modified: 'bg-warning',
+		deleted: 'bg-destructive',
+		renamed: 'bg-info',
+		conflicted: 'bg-destructive ring-2 ring-destructive/40',
+		untracked: 'bg-muted-foreground',
 	};
 
 	function badgeLabel(level: GitBadgeLevel): string {
@@ -687,7 +687,7 @@
 						<span class="min-w-0 flex-1 truncate">{entry.name}</span>
 						{#if dirty}
 							<span
-								class="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500"
+								class="h-1.5 w-1.5 shrink-0 rounded-full bg-warning"
 								title={t('page.ide.unsaved')}
 							></span>
 						{/if}

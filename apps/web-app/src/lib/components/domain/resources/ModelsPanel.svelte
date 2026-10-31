@@ -108,7 +108,7 @@
 	<span class="flex items-center gap-1.5">
 		<span class="truncate">{profile.name}</span>
 		{#if profile.isDefault}
-			<Badge variant="info" class="text-[0.625rem]">default</Badge>
+			<Badge variant="info">default</Badge>
 		{/if}
 	</span>
 {/snippet}

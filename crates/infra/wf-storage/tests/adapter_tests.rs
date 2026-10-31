@@ -23,6 +23,7 @@ fn make_wf(i: u32) -> wf_types::WorkflowDefinition {
         edges: vec![],
         config: None,
         variables: None,
+        input_strict: None,
         triggered_subworkflow_config: None,
         metadata: None,
         created_at: 1000,

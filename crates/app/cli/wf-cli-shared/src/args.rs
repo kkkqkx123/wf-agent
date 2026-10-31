@@ -86,6 +86,15 @@ pub struct Cli {
     /// Also implied when stdin is not a TTY (scripted/CI mode).
     #[arg(long, global = true)]
     pub yes: bool,
+    /// Structured agent context as a JSON object (agent turns only).
+    /// Global so headless, mini and TUI share one flag; interactive forms
+    /// seed their session context from it.
+    #[arg(long, global = true, value_name = "JSON")]
+    pub context: Option<String>,
+    /// Read structured agent context from a JSON file holding an object;
+    /// merged under `--context` (agent turns only). Global for all forms.
+    #[arg(long = "context-file", global = true, value_name = "PATH")]
+    pub context_file: Option<std::path::PathBuf>,
     /// Subcommand; absent selects an interactive form.
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -138,20 +147,23 @@ impl Cli {
         if let Some(Command::Run {
             workflow,
             input,
+            input_file,
+            vars,
             prompt,
             interactive,
             approval_timeout,
             assume_yes,
-            context,
-            context_file,
             ..
         }) = &self.command
         {
-            if input.is_some() && workflow.is_none() {
-                return Err("--input requires --workflow".to_string());
+            if (input.is_some() || input_file.is_some() || !vars.is_empty()) && workflow.is_none() {
+                return Err("--input/--input-file/--var require --workflow".to_string());
             }
-            if (context.is_some() || context_file.is_some()) && workflow.is_some() {
+            if (self.context.is_some() || self.context_file.is_some()) && workflow.is_some() {
                 return Err("--context/--context-file apply to agent turns, not --workflow".to_string());
+            }
+            for var in vars {
+                crate::turn::parse_workflow_var_arg(var)?;
             }
             if workflow.is_some() && prompt.is_some() {
                 return Err(
@@ -173,7 +185,7 @@ impl Cli {
             if let Some(input_str) = input {
                 crate::turn::parse_workflow_input(Some(input_str))?;
             }
-            if let Some(context_str) = context {
+            if let Some(context_str) = self.context.as_deref() {
                 crate::turn::parse_agent_context(Some(context_str), None)?;
             }
         }
@@ -254,13 +266,16 @@ pub enum Command {
         /// Workflow input as JSON (requires --workflow).
         #[arg(long)]
         input: Option<String>,
-        /// Structured agent context as a JSON object (agent turns only).
-        #[arg(long, value_name = "JSON")]
-        context: Option<String>,
-        /// Read structured agent context from a JSON file holding an
-        /// object; merged under `--context` (agent turns only).
-        #[arg(long = "context-file", value_name = "PATH")]
-        context_file: Option<std::path::PathBuf>,
+        /// Workflow input from a JSON file holding an object
+        /// (requires --workflow); merged under `--input`.
+        #[arg(long = "input-file", value_name = "PATH")]
+        input_file: Option<std::path::PathBuf>,
+        /// One workflow variable assignment `KEY=VALUE` (requires
+        /// --workflow, repeatable); merged over `--input-file` and
+        /// `--input` with the highest priority. Values parse as JSON when
+        /// possible and fall back to plain strings.
+        #[arg(long = "var", value_name = "KEY=VALUE")]
+        vars: Vec<String>,
         /// Remote server URL for this run (overrides --remote / WF_REMOTE).
         #[arg(long)]
         remote: Option<String>,

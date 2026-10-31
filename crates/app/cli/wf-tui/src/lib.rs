@@ -7,7 +7,7 @@
 // Re-export shared modules from wf-cli-shared.
 pub use wf_cli_shared::run as shared_run;
 pub use wf_cli_shared::{
-    app_config, args, cmd, connection, error, mode, notify, output, sanitize, turn, Cli, CliError,
+    app_config, args, cmd, connection, error, mode, notify, output, turn, Cli, CliError,
     CliResult, ClientHandle, Command, DiagWriter, HeadlessFileSink, OutputEnvelope, OutputFormat,
     OutputMessage, RunIo, RunOptions, RunOutcome, TeeSink,
 };
@@ -103,6 +103,12 @@ async fn run_interactive(
         CliMode::Tui => {
             let handle = ClientHandle::from_cli(cli).await?;
             let mut app = crate::tui::TuiApp::new(handle.into_client());
+            let initial = crate::turn::parse_agent_context(
+                cli.context.as_deref(),
+                cli.context_file.as_deref(),
+            )
+            .map_err(CliError::Arguments)?;
+            app.set_initial_context(initial);
             if cli.session.is_some() || cli.resume {
                 app.queue_session_restore(cli.session.clone(), cli.resume)
                     .await;

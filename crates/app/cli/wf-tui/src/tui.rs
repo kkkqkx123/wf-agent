@@ -229,6 +229,9 @@ pub struct TuiApp {
     /// Tab strip hit rectangle published by the last full frame. Clicking
     /// a cell switches to that tab.
     tab_strip_area: Option<Rect>,
+    /// Initial session-level agent context for new tabs: parsed once from
+    /// `--context` / `--context-file` and cloned into every tab.
+    initial_context: serde_json::Map<String, serde_json::Value>,
 }
 
 impl TuiApp {
@@ -375,7 +378,14 @@ impl TuiApp {
             last_click_row: None,
             last_click_count: 0,
             tab_strip_area: None,
+            initial_context: serde_json::Map::new(),
         }
+    }
+
+    /// Seed for the session-level agent context of subsequently created
+    /// tabs. Parsed once from the global `--context` / `--context-file`.
+    pub fn set_initial_context(&mut self, context: serde_json::Map<String, serde_json::Value>) {
+        self.initial_context = context;
     }
 
     pub async fn run(mut self) -> CliResult<()> {

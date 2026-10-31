@@ -55,6 +55,7 @@ pub fn goal_review_executor() -> AgentTemplate {
                 checkpoint: None,
                 violation_policy: None,
                 context_schema: None,
+                context_strict: None,
             }),
             metadata: Some(AgentMetadata {
                 author: Some("system".into()),
@@ -118,6 +119,7 @@ pub fn goal_review_reviewer() -> AgentTemplate {
                 checkpoint: None,
                 violation_policy: None,
                 context_schema: None,
+                context_strict: None,
             }),
             metadata: Some(AgentMetadata {
                 author: Some("system".into()),

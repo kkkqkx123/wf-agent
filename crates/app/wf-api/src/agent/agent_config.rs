@@ -34,6 +34,7 @@ pub fn build_agent_loop_config(
         discoverable_metadata_block: None,
         history_normalization: false,
         context_schema: None,
+        context_strict: None,
         checkpoint_message_interval: None,
     }
 }

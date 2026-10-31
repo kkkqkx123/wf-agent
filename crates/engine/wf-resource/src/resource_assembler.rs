@@ -622,6 +622,7 @@ pub fn validate_config_value_against_metadata(
                         field.r#type,
                         ResourceAssemblerConfigFieldType::Expression
                     ) {
+                        errors.extend(expression_syntax_violations(name, provided));
                         errors.extend(expression_allowlist_violations(name, provided, field));
                     }
                     errors.extend(assembler_nested_violations(name, provided, field));
@@ -635,6 +636,13 @@ pub fn validate_config_value_against_metadata(
                     field.r#type.type_name(),
                     config_value_kind(default),
                 ));
+            } else if matches!(
+                field.r#type,
+                ResourceAssemblerConfigFieldType::Expression
+            ) {
+                errors.extend(
+                    expression_syntax_violations(&format!("{name} default"), default),
+                );
             }
         }
     }
@@ -743,6 +751,23 @@ fn expression_called_functions(value: &str) -> Vec<String> {
         }
     }
     names
+}
+
+/// Syntax violations for an expression-typed config value. The expression
+/// language is the shared condition language (`wf_core::condition`), so the
+/// gate reuses its static syntax check and rejects unparsable configs before
+/// assembly instead of failing at use time.
+fn expression_syntax_violations(name: &str, provided: &Value) -> Vec<String> {
+    let Value::String(text) = provided else {
+        return Vec::new();
+    };
+    if text.trim().is_empty() {
+        return vec![format!("assembler config '{name}' expression must not be empty")];
+    }
+    match wf_core::condition::ConditionEvaluator::validate_syntax(text) {
+        Ok(()) => Vec::new(),
+        Err(reason) => vec![format!("assembler config '{name}' expression invalid: {reason}")],
+    }
 }
 
 /// Allowlist violations for an expression-typed config value. No
@@ -1442,6 +1467,38 @@ mod tests {
         assert!(errors.iter().any(|e| e.contains("count")));
         let errors = validate_config_value_against_metadata(&json!({"count": "many"}), &metadata);
         assert!(errors.iter().any(|e| e.contains("count")));
+    }
+
+    #[test]
+    fn expression_syntax_rejected_before_allowlist() {
+        use serde_json::json;
+        let metadata = ResourceAssemblerMetadata {
+            id: "test".into(),
+            name: "test".into(),
+            version: "1".into(),
+            description: "test".into(),
+            author: None,
+            tags: None,
+            category: None,
+            dependencies: None,
+            configurable: Some(HashMap::from([(
+                "when".into(),
+                ResourceAssemblerConfigField {
+                    r#type: ResourceAssemblerConfigFieldType::Expression,
+                    description: "when".into(),
+                    default: None,
+                    required: None,
+                    allowed_functions: Some(vec!["eq".into()]),
+                    properties: None,
+                    element_type: None,
+                },
+            )])),
+        };
+        assert!(validate_config_value_against_metadata(&json!({"when": "eq(a, 1)"}), &metadata).is_empty());
+        let errors = validate_config_value_against_metadata(&json!({"when": "eq(a,"}), &metadata);
+        assert!(errors.iter().any(|e| e.contains("invalid")), "{errors:?}");
+        let empty = validate_config_value_against_metadata(&json!({"when": "  "}), &metadata);
+        assert!(empty.iter().any(|e| e.contains("must not be empty")), "{empty:?}");
     }
 
     #[test]

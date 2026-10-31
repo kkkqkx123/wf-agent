@@ -56,6 +56,7 @@ fn workflow_template(id: &str, category: &str) -> WorkflowTemplate {
             }],
             config: None,
             variables: None,
+            input_strict: None,
             triggered_subworkflow_config: None,
             metadata: Some(WorkflowMetadata {
                 author: Some("system".into()),

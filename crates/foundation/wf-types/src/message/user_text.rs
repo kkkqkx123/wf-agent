@@ -8,6 +8,35 @@ pub fn is_blank_user_text(text: &str) -> bool {
     text.trim().is_empty()
 }
 
+/// Strip ANSI CSI escape sequences from user-provided text, preserving
+/// `\n` and `\t`. Single owner for input cleaning so every server entry
+/// washes identically; clients pass raw text through and never wash.
+pub fn sanitize_user_text(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let len = bytes.len();
+    let mut out: Vec<u8> = Vec::with_capacity(len);
+    let mut i = 0;
+    while i < len {
+        if bytes[i] == 0x1b && i + 1 < len && bytes[i + 1] == b'[' {
+            let mut j = i + 2;
+            while j < len && (bytes[j] & 0xe0 == 0x20 || bytes[j] & 0xf0 == 0x30) {
+                j += 1;
+            }
+            if j < len && bytes[j] & 0x80 == 0 && bytes[j] >= 0x40 {
+                j += 1;
+            }
+            i = j;
+            continue;
+        }
+        let b = bytes[i];
+        if b == b'\n' || b == b'\t' || b >= 0x20 || b == 0x1b {
+            out.push(b);
+        }
+        i += 1;
+    }
+    String::from_utf8(out).unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).into_owned())
+}
+
 /// Non-empty user text. Construction rejects blank input so holders never
 /// re-check emptiness downstream. The server gate stays authoritative;
 /// clients use the same predicate for early failure.
@@ -122,5 +151,15 @@ mod tests {
             UserMessage::try_new("hi").expect("valid").as_str(),
             "hi"
         );
+    }
+
+    #[test]
+    fn sanitize_strips_csi_but_keeps_text_layout() {
+        assert_eq!(sanitize_user_text("hello world"), "hello world");
+        assert_eq!(sanitize_user_text("line1\nline2\tend"), "line1\nline2\tend");
+        assert_eq!(sanitize_user_text("\x1b[31mred\x1b[0m"), "red");
+        assert_eq!(sanitize_user_text("\x1b[2J\x1b[H"), "");
+        assert_eq!(sanitize_user_text("a\x07b"), "ab");
+        assert_eq!(sanitize_user_text(""), "");
     }
 }

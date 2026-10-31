@@ -152,6 +152,7 @@ fn build_template(
             edges,
             config: None,
             variables: None,
+            input_strict: None,
             triggered_subworkflow_config: Some(chain_subworkflow_config()),
             metadata: Some(chain_metadata(&[])),
             available_tools: None,

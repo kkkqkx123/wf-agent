@@ -104,4 +104,8 @@ pub struct AgentLoopConfig {
     /// key-shape checks only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_schema: Option<Vec<crate::TemplateVariableDefinition>>,
+    /// Unknown context key policy. `None` keeps lenient acceptance;
+    /// `Some(true)` rejects unknown non-null keys.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_strict: Option<bool>,
 }

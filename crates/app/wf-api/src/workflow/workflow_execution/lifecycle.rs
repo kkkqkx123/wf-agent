@@ -86,8 +86,20 @@ pub fn validate_workflow_input_with_variables(
     input: Option<&Value>,
     variables: Option<&[wf_types::workflow_execution::VariableDefinition]>,
 ) -> Result<(), crate::infra::error::ApiError> {
-    wf_types::workflow_execution::validate_workflow_input_against_variables(input, variables)
-        .map_err(crate::infra::error::ApiError::Validation)
+    validate_workflow_input_with_variables_and_policy(input, variables, false)
+}
+
+/// Policy variant of [`validate_workflow_input_with_variables`]. `strict`
+/// rejects unknown top-level keys; the definition side owns the switch.
+pub fn validate_workflow_input_with_variables_and_policy(
+    input: Option<&Value>,
+    variables: Option<&[wf_types::workflow_execution::VariableDefinition]>,
+    strict: bool,
+) -> Result<(), crate::infra::error::ApiError> {
+    wf_types::workflow_execution::validate_workflow_input_against_variables_with_policy(
+        input, variables, strict,
+    )
+    .map_err(crate::infra::error::ApiError::Validation)
 }
 
 /// Shared workflow input shape gate (rules W1-W3): missing or null is no
@@ -184,7 +196,11 @@ pub async fn execute(
         params.input,
         definition.variables.as_deref(),
     );
-    validate_workflow_input_with_variables(params.input.as_ref(), definition.variables.as_deref())?;
+    validate_workflow_input_with_variables_and_policy(
+        params.input.as_ref(),
+        definition.variables.as_deref(),
+        definition.input_strict == Some(true),
+    )?;
     let graph =
         super::graph::resolve_graph_for_definition(ctx, &params.workflow_id, &mut definition)
             .await?;
@@ -262,7 +278,11 @@ pub async fn stream(
         params.input,
         definition.variables.as_deref(),
     );
-    validate_workflow_input_with_variables(params.input.as_ref(), definition.variables.as_deref())?;
+    validate_workflow_input_with_variables_and_policy(
+        params.input.as_ref(),
+        definition.variables.as_deref(),
+        definition.input_strict == Some(true),
+    )?;
     let graph =
         super::graph::resolve_graph_for_definition(&ctx, &params.workflow_id, &mut definition)
             .await?;

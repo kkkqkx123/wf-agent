@@ -23,6 +23,7 @@ pub struct AgentLoopConfigBuilder<S> {
     enable_token_tracking: Option<bool>,
     history_normalization: bool,
     context_schema: Option<Vec<wf_types::TemplateVariableDefinition>>,
+    context_strict: Option<bool>,
     file_scope: Option<wf_types::config::file_scope::ExecutionFileScope>,
     _marker: PhantomData<S>,
 }
@@ -47,6 +48,7 @@ impl AgentLoopConfigBuilder<LoopEmpty> {
             enable_token_tracking: None,
             history_normalization: false,
             context_schema: None,
+            context_strict: None,
             file_scope: None,
             _marker: PhantomData,
         }
@@ -72,6 +74,7 @@ impl AgentLoopConfigBuilder<LoopEmpty> {
             enable_token_tracking: self.enable_token_tracking,
             history_normalization: self.history_normalization,
             context_schema: self.context_schema,
+            context_strict: self.context_strict,
             file_scope: self.file_scope,
             _marker: PhantomData,
         }
@@ -135,6 +138,13 @@ impl<S> AgentLoopConfigBuilder<S> {
         self
     }
 
+    /// Reject unknown non-null context keys. Declaration side owns the
+    /// switch; callers never set it directly.
+    pub fn context_strict(mut self, strict: bool) -> Self {
+        self.context_strict = Some(strict);
+        self
+    }
+
     /// Set the full tool call format config. Besides the format name, the
     /// config can carry `include_description` / `description_style`, which
     /// control the discoverable tool metadata verbosity injected into the
@@ -183,6 +193,7 @@ impl AgentLoopConfigBuilder<LoopConfigured> {
             discoverable_metadata_block: None,
             history_normalization: self.history_normalization,
             context_schema: self.context_schema,
+            context_strict: self.context_strict,
             checkpoint_message_interval: None,
         }
     }

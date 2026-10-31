@@ -1720,6 +1720,7 @@ fn template_with_nodes() -> WorkflowTemplate {
             ],
             config: None,
             variables: None,
+            input_strict: None,
             triggered_subworkflow_config: Some(TriggeredSubworkflowConfig {
                 enable_checkpoints: Some(false),
                 timeout: Some(5000),

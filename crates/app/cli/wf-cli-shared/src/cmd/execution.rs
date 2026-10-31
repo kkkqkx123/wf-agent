@@ -145,11 +145,39 @@ pub(crate) async fn run_with_client(
         ExecutionSub::Run {
             workflow,
             input,
+            input_file,
+            vars,
             background,
             stream,
         } => {
+            for var in vars {
+                crate::turn::parse_workflow_var_arg(var).map_err(CliError::Arguments)?;
+            }
             let input_value: Option<serde_json::Value> =
-                crate::turn::parse_workflow_input(input.as_deref()).map_err(CliError::Arguments)?;
+                crate::turn::resolve_workflow_input(input.as_deref(), input_file.as_deref(), vars)
+                    .map_err(CliError::Arguments)?;
+            if let Ok(definition) = client
+                .get_json::<serde_json::Value>(&format!("/api/v1/workflows/{workflow}"))
+                .await
+            {
+                let variables: Option<Vec<wf_types::workflow_execution::VariableDefinition>> =
+                    definition
+                        .get("variables")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok());
+                let strict = definition
+                    .get("input_strict")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                if let Err(reason) =
+                    crate::turn::prevalidate_workflow_input_locally_with_policy(
+                        input_value.as_ref(),
+                        variables.as_deref(),
+                        strict,
+                    )
+                {
+                    return Err(CliError::Arguments(reason));
+                }
+            }
             if *background || *stream {
                 run_workflow_streaming(cli, client, workflow, input_value, *background).await
             } else {

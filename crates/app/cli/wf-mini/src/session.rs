@@ -119,6 +119,9 @@ pub struct NativeSession {
     /// Session id armed by a first `/delete`: repeating the same command
     /// confirms, any other outcome clears it.
     pending_delete: Option<String>,
+    /// Session-level structured agent context: set once via `--context` /
+    /// `--context-file` or `/context`, carried on every subsequent turn.
+    session_context: serde_json::Map<String, serde_json::Value>,
 }
 
 /// What a slash command asks the loop to do.
@@ -174,6 +177,11 @@ impl NativeSession {
         let stderr_tty = std::io::stderr().is_terminal();
         let display = DisplayConfig::resolve(cli, stdout_tty, stderr_tty);
         let raw_prompt = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
+        let session_context = wf_cli_shared::turn::parse_agent_context(
+            cli.context.as_deref(),
+            cli.context_file.as_deref(),
+        )
+        .map_err(CliError::Arguments)?;
         Ok(Self {
             client,
             timeout_ms: cli.timeout,
@@ -199,6 +207,7 @@ impl NativeSession {
             title_frame: 0,
             last_session_rows: Vec::new(),
             pending_delete: None,
+            session_context,
         })
     }
 
@@ -342,6 +351,7 @@ impl NativeSession {
                 output::diag_line("history: /history [prefix] list recent prompts (optional prefix filter), /rerun [n] re-ask prompt n (default: last)");
                 output::diag_line("display: /markdown [raw|plain|styled] set or show stdout rendering, /reasoning [on|off], /usage [on|off], /tools [on|off], /display show all");
                 output::diag_line("nested loops: /loops [execution] list workflow nested targets, /steer [--node <id>] <text> steering input, /followup [--node <id>] <text> follow-up input, /append-mode [--node <id>] steering|followup, /convert-pending [--node <id>]");
+                output::diag_line("context: /context show keys, /context clear, /context {json} replace, /context-file <path> load");
                 output::diag_line("keys: Tab or Right-arrow (at line end) accept the suggestion, Ctrl-Right or Alt-f accept one word, Up/Down browse history by prefix, Alt-b/Alt-f word motion, Alt-d/Alt-Backspace kill word, Alt-. insert history tail word, Ctrl-C cancels the running turn, Ctrl-C twice at the prompt quits, Ctrl-D quits");
                 output::diag_line(
                     "notes: the full history stays in memory; prompt history is plain text on disk (see --history-file/--no-history); workflows run via `wf run --workflow` and the management subcommands",
@@ -484,6 +494,54 @@ impl NativeSession {
             }
             SlashCommand::Display => {
                 output::diag_line(&format!("display: {}", self.display.describe()));
+                CommandAction::Continue
+            }
+            SlashCommand::Context(arg) => {
+                match arg.as_deref().map(str::trim) {
+                    None | Some("") => {
+                        if self.session_context.is_empty() {
+                            output::diag_line("context: (empty)");
+                        } else {
+                            let keys: Vec<&String> =
+                                self.session_context.keys().collect();
+                            output::diag_line(&format!(
+                                "context: {} key(s): {}",
+                                keys.len(),
+                                keys.iter().map(|k| k.as_str()).collect::<Vec<_>>().join(", ")
+                            ));
+                        }
+                    }
+                    Some("clear") => {
+                        self.session_context.clear();
+                        output::diag_line("context cleared");
+                    }
+                    Some(json) => {
+                        match wf_cli_shared::turn::parse_agent_context(Some(json), None) {
+                            Ok(map) => {
+                                self.session_context = map;
+                                output::diag_line(&format!(
+                                    "context set: {} key(s)",
+                                    self.session_context.len()
+                                ));
+                            }
+                            Err(err) => output::diag_line(&format!("invalid context: {err}")),
+                        }
+                    }
+                }
+                CommandAction::Continue
+            }
+            SlashCommand::ContextFile(path) => {
+                let path = std::path::PathBuf::from(&path);
+                match wf_cli_shared::turn::parse_agent_context(None, Some(&path)) {
+                    Ok(map) => {
+                        self.session_context = map;
+                        output::diag_line(&format!(
+                            "context loaded: {} key(s)",
+                            self.session_context.len()
+                        ));
+                    }
+                    Err(err) => output::diag_line(&format!("invalid context file: {err}")),
+                }
                 CommandAction::Continue
             }
             SlashCommand::Recap => {
@@ -1427,7 +1485,7 @@ impl NativeSession {
             model: self.model.clone(),
             approve_prefixes: Vec::new(),
             timeout_ms: self.timeout_ms,
-            context: Default::default(),
+            context: self.session_context.clone(),
             conversation: self.transcript.messages().to_vec(),
             kind: TurnKind::Agent { prompt },
         };

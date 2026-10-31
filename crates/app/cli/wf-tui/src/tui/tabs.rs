@@ -56,6 +56,7 @@ impl TuiApp {
         }
         let id = wf_common::generate_id();
         let mut session = InteractiveController::start(self.client.clone(), id.clone()).await;
+        session.set_session_context(self.initial_context.clone());
         session.set_keymap(self.keymap.clone());
         session.set_perf_tier(self.perf_tier.marker());
         session.apply_perf_policy(self.perf_policy);
@@ -645,6 +646,7 @@ impl TuiApp {
             }
         }
         let mut session = InteractiveController::start(self.client.clone(), id.clone()).await;
+        session.set_session_context(self.initial_context.clone());
         session.set_keymap(self.keymap.clone());
         session.set_perf_tier(self.perf_tier.marker());
         session.apply_perf_policy(self.perf_policy);
@@ -734,6 +736,7 @@ impl TuiApp {
             }
             let mut session =
                 InteractiveController::start(self.client.clone(), entry.session_id.clone()).await;
+            session.set_session_context(self.initial_context.clone());
             session.set_keymap(self.keymap.clone());
             session.set_perf_tier(self.perf_tier.marker());
             session.apply_perf_policy(self.perf_policy);

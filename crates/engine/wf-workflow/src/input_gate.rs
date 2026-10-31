@@ -74,6 +74,17 @@ pub fn resolve_typed_input(
     fallback_input: Option<Value>,
     variables: Option<&[wf_types::workflow_execution::VariableDefinition]>,
 ) -> WorkflowResult<Option<Value>> {
+    resolve_typed_input_with_policy(options_input, fallback_input, variables, false)
+}
+
+/// Policy variant of [`resolve_typed_input`]. `strict` rejects unknown
+/// top-level keys; the declaration side owns the switch.
+pub fn resolve_typed_input_with_policy(
+    options_input: Option<Value>,
+    fallback_input: Option<Value>,
+    variables: Option<&[wf_types::workflow_execution::VariableDefinition]>,
+    strict: bool,
+) -> WorkflowResult<Option<Value>> {
     let merged = options_input.or(fallback_input);
     let Some(declarations) = variables else {
         return Ok(merged);
@@ -87,9 +98,10 @@ pub fn resolve_typed_input(
         Value::Null => None,
         other => Some(other),
     };
-    wf_types::workflow_execution::validate_workflow_input_against_variables(
+    wf_types::workflow_execution::validate_workflow_input_against_variables_with_policy(
         filled_option.as_ref(),
         Some(declarations),
+        strict,
     )
     .map_err(WorkflowError::VariableError)?;
     Ok(filled_option)

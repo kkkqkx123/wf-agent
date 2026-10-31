@@ -81,6 +81,7 @@ pub fn worker_agent_template() -> AgentTemplate {
                 checkpoint: None,
                 violation_policy: None,
                 context_schema: None,
+                context_strict: None,
             }),
             metadata: Some(AgentMetadata {
                 author: Some("system".into()),

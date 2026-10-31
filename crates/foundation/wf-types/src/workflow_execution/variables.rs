@@ -269,7 +269,15 @@ pub fn validate_workflow_input_against_variables(
     input: Option<&serde_json::Value>,
     variables: Option<&[VariableDefinition]>,
 ) -> Result<(), String> {
-    let issues = collect_workflow_input_issues(input, variables);
+    validate_workflow_input_against_variables_with_policy(input, variables, false)
+}
+
+pub fn validate_workflow_input_against_variables_with_policy(
+    input: Option<&serde_json::Value>,
+    variables: Option<&[VariableDefinition]>,
+    strict: bool,
+) -> Result<(), String> {
+    let issues = collect_workflow_input_issues_with_policy(input, variables, strict);
     if issues.is_empty() {
         return Ok(());
     }

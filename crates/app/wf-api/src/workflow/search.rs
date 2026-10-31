@@ -209,6 +209,7 @@ mod tests {
             }],
             config: None,
             variables: None,
+            input_strict: None,
             triggered_subworkflow_config: None,
             metadata,
             available_tools: None,

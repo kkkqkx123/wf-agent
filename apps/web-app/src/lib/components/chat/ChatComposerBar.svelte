@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Composer from '#lib/components/chat/Composer.svelte';
+	import WorkflowInputForm from '#lib/components/chat/WorkflowInputForm.svelte';
 	import ResizeHandle from '#lib/components/layout/ResizeHandle.svelte';
 	import DecisionMap from '#lib/components/chat/DecisionMap.svelte';
 	import { chatStream } from '#lib/stores/stream-run.svelte';
@@ -40,6 +41,13 @@
 	let backendOk = $state(true);
 	let request = 0;
 	let composerHeight = $state<number | null>(null);
+
+	$effect(() => {
+		if (controller.executionType !== 'workflow') return;
+		const id = controller.workflowId.trim();
+		if (!id) return;
+		void controller.loadWorkflowVariables(id);
+	});
 
 	$effect(() => {
 		try {
@@ -162,6 +170,7 @@
 				? 'h-full min-h-0 overflow-y-auto'
 				: ''} {fullscreen ? 'flex h-full min-h-0 flex-col' : ''}"
 		>
+			<WorkflowInputForm {controller} />
 			<Composer
 				bind:model={controller.model}
 				bind:agent={controller.agentId}

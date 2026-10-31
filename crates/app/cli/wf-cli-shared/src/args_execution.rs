@@ -60,6 +60,16 @@ pub enum ExecutionSub {
         /// Workflow input as JSON.
         #[arg(long, value_name = "JSON")]
         input: Option<String>,
+        /// Workflow input from a JSON file holding an object;
+        /// merged under `--input`.
+        #[arg(long = "input-file", value_name = "PATH")]
+        input_file: Option<std::path::PathBuf>,
+        /// One workflow variable assignment `KEY=VALUE`
+        /// (repeatable); merged over `--input-file` and `--input`
+        /// with the highest priority. Values parse as JSON when
+        /// possible and fall back to plain strings.
+        #[arg(long = "var", value_name = "KEY=VALUE")]
+        vars: Vec<String>,
         /// Return the execution id immediately and wait quietly for the
         /// terminal result instead of streaming progress. The CLI process
         /// still owns the runtime; true detach needs the server background

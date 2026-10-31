@@ -229,6 +229,7 @@ mod tests {
             checkpoint: None,
             violation_policy: None,
             context_schema: None,
+            context_strict: None,
         });
         assert!(validate_agent_definition(&def).is_err());
     }
@@ -258,6 +259,7 @@ mod tests {
             checkpoint: None,
             violation_policy: None,
             context_schema: None,
+            context_strict: None,
         });
         assert!(validate_agent_definition(&def).is_ok());
     }
@@ -287,6 +289,7 @@ mod tests {
             checkpoint: None,
             violation_policy: None,
             context_schema: None,
+            context_strict: None,
         });
 
         let runtime = transform_to_agent_loop_config(&def);
@@ -328,6 +331,7 @@ mod tests {
             checkpoint: None,
             violation_policy: None,
             context_schema: None,
+            context_strict: None,
         });
 
         let mut known = HashSet::new();
@@ -562,6 +566,7 @@ mod tests {
             checkpoint: None,
             violation_policy: None,
             context_schema: None,
+            context_strict: None,
         }
     }
 }

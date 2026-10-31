@@ -32,7 +32,6 @@ pub mod run_interaction;
 pub mod run_render;
 pub mod run_stream;
 pub mod run_summary;
-pub mod sanitize;
 pub mod stdio_prompt;
 pub mod turn;
 
@@ -220,11 +219,11 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         approve_prefixes,
         workflow,
         input,
+        input_file,
+        vars,
         interactive,
         approval_timeout,
         assume_yes,
-        context,
-        context_file,
     ) = match &cli.command {
         Some(Command::Run {
             prompt,
@@ -233,11 +232,11 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             approve_prefixes,
             workflow,
             input,
+            input_file,
+            vars,
             interactive,
             approval_timeout,
             assume_yes,
-            context,
-            context_file,
             remote: _,
         }) => (
             prompt.clone(),
@@ -246,11 +245,11 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             approve_prefixes.clone(),
             workflow.clone(),
             input.clone(),
+            input_file.clone(),
+            vars.clone(),
             *interactive,
             *approval_timeout,
             *assume_yes,
-            context.clone(),
-            context_file.clone(),
         ),
         _ => (
             None,
@@ -259,11 +258,11 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             Vec::new(),
             None,
             None,
+            None,
+            Vec::new(),
             false,
             None,
             false,
-            None,
-            None,
         ),
     };
     // Stdin doubles as the answer channel with `--interactive`, so it must
@@ -282,8 +281,11 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         .or(arg_prompt)
         .unwrap_or_default();
 
-    let context = crate::turn::parse_agent_context(context.as_deref(), context_file.as_deref())
-        .map_err(CliError::Arguments)?;
+    let context = crate::turn::parse_agent_context(
+        cli.context.as_deref(),
+        cli.context_file.as_deref(),
+    )
+    .map_err(CliError::Arguments)?;
     let opts = RunOptions {
         prompt,
         agent_id: agent,
@@ -291,6 +293,8 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         approve_prefixes,
         workflow,
         workflow_input: input,
+        workflow_input_file: input_file,
+        workflow_vars: vars,
         interactive,
         approval_timeout_secs: approval_timeout
             .unwrap_or(crate::stdio_prompt::DEFAULT_APPROVAL_TIMEOUT_SECS),

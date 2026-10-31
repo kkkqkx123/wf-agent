@@ -187,6 +187,10 @@ pub struct WorkflowDefinition {
     pub config: Option<WorkflowConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub variables: Option<Vec<VariableDefinition>>,
+    /// Unknown top-level input key policy. `None` keeps lenient acceptance
+    /// for forward compatibility; `Some(true)` rejects unknown keys.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_strict: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub triggered_subworkflow_config: Option<TriggeredSubworkflowConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]

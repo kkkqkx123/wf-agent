@@ -188,6 +188,7 @@ mod tests {
             edges: Vec::new(),
             config: None,
             variables: None,
+            input_strict: None,
             triggered_subworkflow_config: None,
             metadata: None,
             created_at: 0,

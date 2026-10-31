@@ -136,6 +136,10 @@ impl AgentLoopValidator {
 
         validate_tool_lists(config, registry, &mut issues);
 
+        if let Some(protocol) = config.tool_call_protocol.as_ref() {
+            issues.extend(validate_tool_call_protocol_config(protocol));
+        }
+
         issues
     }
 
@@ -236,9 +240,21 @@ impl AgentLoopValidator {
         input: &wf_tools::callback::AgentLoopInput,
         schema: Option<&[wf_types::TemplateVariableDefinition]>,
     ) -> Vec<ValidationIssue> {
+        Self::validate_input_with_schema_and_policy(input, schema, false)
+    }
+
+    /// Policy variant of [`validate_input_with_schema`]. `strict` rejects
+    /// unknown non-null context keys; the template side owns the switch.
+    pub fn validate_input_with_schema_and_policy(
+        input: &wf_tools::callback::AgentLoopInput,
+        schema: Option<&[wf_types::TemplateVariableDefinition]>,
+        strict: bool,
+    ) -> Vec<ValidationIssue> {
         let mut issues = Self::validate_input(input);
         if let Some(schema) = schema {
-            issues.extend(Self::validate_context_with_schema(&input.context, schema));
+            issues.extend(Self::validate_context_with_schema_with_policy(
+                &input.context, schema, strict,
+            ));
         }
         issues
     }
@@ -282,7 +298,15 @@ impl AgentLoopValidator {
         input: &wf_tools::callback::AgentLoopInput,
         schema: Option<&[wf_types::TemplateVariableDefinition]>,
     ) -> Result<(), Vec<ValidationIssue>> {
-        let errors: Vec<ValidationIssue> = Self::validate_input_with_schema(input, schema)
+        Self::validate_or_fail_input_with_schema_and_policy(input, schema, false)
+    }
+
+    pub fn validate_or_fail_input_with_schema_and_policy(
+        input: &wf_tools::callback::AgentLoopInput,
+        schema: Option<&[wf_types::TemplateVariableDefinition]>,
+        strict: bool,
+    ) -> Result<(), Vec<ValidationIssue>> {
+        let errors: Vec<ValidationIssue> = Self::validate_input_with_schema_and_policy(input, schema, strict)
             .into_iter()
             .filter(|i| i.severity == ValidationSeverity::Error)
             .collect();
@@ -455,6 +479,16 @@ fn validate_tool_lists(
         .iter()
         .map(String::as_str)
         .collect();
+    let discoverable_set: std::collections::HashSet<&str> = config
+        .discoverable_tool_names
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let hidden_set: std::collections::HashSet<&str> = config
+        .hidden_tool_names
+        .iter()
+        .map(String::as_str)
+        .collect();
     let mut contradictions: Vec<&str> = config
         .hidden_tool_names
         .iter()
@@ -469,6 +503,87 @@ fn validate_tool_lists(
             format!(
                 "tool '{name}' is listed as both initially visible and hidden; hidden wins, so remove it from one list",
             ),
+        ));
+    }
+    // Initially visible and discoverable are exclusive buckets: the
+    // discoverable entry wins at resolution, so an overlap silently removes
+    // the tool from the schema.
+    let mut initial_discoverable: Vec<&str> = initial_set
+        .intersection(&discoverable_set)
+        .copied()
+        .collect();
+    initial_discoverable.sort_unstable();
+    for name in initial_discoverable {
+        issues.push(ValidationIssue::error(
+            "discoverable_tool_names",
+            format!(
+                "tool '{name}' is listed as both initially visible and discoverable; discoverable wins, so remove it from one list",
+            ),
+        ));
+    }
+    // Discoverable and hidden are exclusive: hidden wins and the tool never
+    // reaches the metadata injection nor enables the general proxy.
+    let mut discoverable_hidden: Vec<&str> = discoverable_set
+        .intersection(&hidden_set)
+        .copied()
+        .collect();
+    discoverable_hidden.sort_unstable();
+    for name in discoverable_hidden {
+        issues.push(ValidationIssue::error(
+            "hidden_tool_names",
+            format!(
+                "tool '{name}' is listed as both discoverable and hidden; hidden wins, so remove it from one list",
+            ),
+        ));
+    }
+    // Available pool subset: a non-empty available list is the whitelist,
+    // so entries outside it are filtered silently at resolution time.
+    if let Some(pool) = config.available_tool_names.as_ref() {
+        if !pool.is_empty() {
+            let pool_set: std::collections::HashSet<&str> =
+                pool.iter().map(String::as_str).collect();
+            for (field, names) in [
+                ("initial_tool_names", &config.initial_tool_names),
+                ("discoverable_tool_names", &config.discoverable_tool_names),
+                ("hidden_tool_names", &config.hidden_tool_names),
+            ] {
+                let mut outside: Vec<&str> = names
+                    .iter()
+                    .map(String::as_str)
+                    .filter(|name| !pool_set.contains(name))
+                    .collect();
+                outside.sort_unstable();
+                outside.dedup();
+                for name in outside {
+                    // Unknown names already error above; only report pool
+                    // misses for registered tools.
+                    if !known.contains(name) {
+                        continue;
+                    }
+                    issues.push(ValidationIssue::error(
+                        field,
+                        format!(
+                            "tool '{name}' is listed in '{field}' but not in the available pool; add it to available or remove it",
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+    // General proxy consistency: explicitly disabling the proxy while
+    // discoverable tools exist leaves them unreachable; explicitly enabling
+    // it without discoverable entries is only suspicious (metadata may still
+    // supply discoverability), so it stays a warning.
+    if config.enable_general_tool == Some(false) && !config.discoverable_tool_names.is_empty() {
+        issues.push(ValidationIssue::error(
+            "enable_general_tool",
+            "enable_general_tool is disabled while discoverable tools exist; discoverable tools need the general proxy, so enable it or clear the list",
+        ));
+    }
+    if config.enable_general_tool == Some(true) && config.discoverable_tool_names.is_empty() {
+        issues.push(ValidationIssue::warning(
+            "enable_general_tool",
+            "enable_general_tool is enabled without discoverable tools; the proxy stays hidden until a discoverable tool appears",
         ));
     }
 }
@@ -520,6 +635,7 @@ mod tests {
             discoverable_metadata_block: None,
             history_normalization: false,
             context_schema: None,
+            context_strict: None,
             checkpoint_message_interval: None,
         }
     }
@@ -847,6 +963,39 @@ mod tests {
         assert_eq!(overlap.len(), 2);
         assert!(overlap[0].message.contains("a_tool"));
         assert!(overlap[1].message.contains("b_tool"));
+    }
+
+    #[test]
+    fn test_initial_discoverable_and_pool_contradictions() {
+        let registry = ToolRegistry::new();
+        for (id, name) in [("a", "a_tool"), ("b", "b_tool"), ("c", "c_tool")] {
+            registry.register_tool(wf_types::tool::Tool {
+                id: id.into(),
+                name: name.into(),
+                description: name.into(),
+                tool_type: wf_types::tool::ToolType::Stateless,
+                parameters: None,
+                metadata: None,
+                config: None,
+                enabled: Some(true),
+                strict: None,
+                default_timeout_ms: None,
+            });
+        }
+        let config = AgentLoopConfig {
+            file_scope: None,
+            available_tool_names: Some(vec!["a_tool".to_string()]),
+            initial_tool_names: vec!["a_tool".to_string(), "b_tool".to_string()],
+            discoverable_tool_names: vec!["a_tool".to_string()],
+            hidden_tool_names: vec!["c_tool".to_string()],
+            enable_general_tool: Some(false),
+            ..base_config()
+        };
+        let issues = AgentLoopValidator::validate_config(&config, &registry);
+        assert!(issues.iter().any(|i| i.field == "discoverable_tool_names" && i.severity == ValidationSeverity::Error));
+        assert!(issues.iter().any(|i| i.field == "initial_tool_names" && i.message.contains("available")));
+        // discoverable non-empty with the proxy disabled is a hard error.
+        assert!(issues.iter().any(|i| i.field == "enable_general_tool" && i.severity == ValidationSeverity::Error));
     }
 
     #[test]

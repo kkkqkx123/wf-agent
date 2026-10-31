@@ -142,8 +142,9 @@ pub(crate) fn gate_agent_input(
     config: Option<&AgentLoopConfig>,
 ) -> crate::ApiResult<()> {
     let schema = config.and_then(|c| c.context_schema.as_deref());
-    match wf_agent::validation::AgentLoopValidator::validate_or_fail_input_with_schema(
-        input, schema,
+    let strict = config.and_then(|c| c.context_strict).unwrap_or(false);
+    match wf_agent::validation::AgentLoopValidator::validate_or_fail_input_with_schema_and_policy(
+        input, schema, strict,
     ) {
         Ok(()) => Ok(()),
         Err(errors) => {
@@ -165,20 +166,50 @@ pub(crate) fn gate_agent_config(
     config: &AgentLoopConfig,
 ) -> crate::ApiResult<()> {
     match wf_agent::validation::AgentLoopValidator::validate_or_fail(config, &ctx.tool_registry) {
-        Ok(_) => Ok(()),
+        Ok(_) => {},
         Err(errors) => {
             let detail = errors
                 .iter()
                 .map(|e| format!("{}: {}", e.field, e.message))
                 .collect::<Vec<_>>()
                 .join("; ");
-            Err(ApiError::Validation(format!(
+            return Err(ApiError::Validation(format!(
                 "agent config validation failed ({} error(s)): {}",
                 errors.len(),
                 detail
-            )))
+            )));
         }
     }
+    // Tool-call protocol compatibility is a hard server gate: incompatible
+    // agent/profile pairs never start, compatible-but-different pairs only
+    // warn and run. The profile format comes from the live gateway registry,
+    // so callers cannot bypass it by copying client-side checks.
+    if let Some(agent_format) = config.tool_call_protocol.as_ref() {
+        let profile_format = ctx
+            .llm_gateway
+            .profile_registry()
+            .list()
+            .into_iter()
+            .find(|profile| profile.id == config.model)
+            .and_then(|profile| profile.tool_call_protocol)
+            .map(|protocol| protocol.format);
+        let outcome =
+            wf_agent::validation::AgentLoopValidator::validate_tool_call_protocol(
+                Some(agent_format),
+                profile_format,
+            );
+        if !outcome.valid {
+            return Err(ApiError::Validation(format!(
+                "agent config validation failed ({} error(s)): {}",
+                outcome.errors.len(),
+                outcome.errors.join("; "),
+            )));
+        }
+        for warning in outcome.warnings {
+            tracing::warn!(target: "wf_api", "tool_call_protocol: {warning}");
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn agent_timeout_ms(config: &AgentLoopConfig) -> u64 {

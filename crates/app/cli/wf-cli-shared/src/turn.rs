@@ -58,7 +58,8 @@ impl TurnParams {
     /// names cannot drift between the two paths.
     pub fn agent_typed_body(&self) -> wf_client::models::RunAgentLoopBody {
         let prompt = self.prompt().unwrap_or_default();
-        let sanitized = crate::sanitize::sanitize_user_text(prompt);
+        // Client passes raw text through; the server is the single washing
+        // point and the single fallback owner for empty agent and model.
         let conversation: Vec<serde_json::Value> = self
             .conversation
             .iter()
@@ -66,11 +67,8 @@ impl TurnParams {
             .collect();
         wf_client::models::RunAgentLoopBody {
             agent_id: self.agent.clone(),
-            model: self
-                .model
-                .clone()
-                .unwrap_or_else(|| DEFAULT_MODEL.to_string()),
-            message: sanitized,
+            model: self.model.clone().unwrap_or_default(),
+            message: prompt.to_string(),
             context: self.context.clone(),
             conversation: Some(conversation),
             max_execution_time: self.timeout_ms.map(|v| v as i64),
@@ -91,11 +89,9 @@ impl TurnParams {
     }
 
     /// Translate into the `POST /api/v1/agent-loops/{id}/run|stream` body.
-    /// The server defaults empty ids to the built-in agent, so `None` stays
-    /// empty rather than baking the default in here. `model` uses the shared
-    /// sentinel because the wire body requires the field; the server treats
-    /// the sentinel the same as empty and lets the template win. Iteration
-    /// budget is intentionally omitted: the server applies its default when
+    /// The server defaults empty ids and empty models to the built-in agent
+    /// and model template, so `None` stays empty rather than baking defaults
+    /// in here. Iteration budget is intentionally omitted: the server applies its default when
     /// neither the request nor the template sets one, so a hardcoded value
     /// here would override template configuration.
     pub fn agent_request_body(&self) -> Value {
@@ -192,6 +188,125 @@ pub fn parse_agent_context(
     }
 }
 
+/// Parse one `--var KEY=VALUE` assignment. The key must be non-empty;
+/// the value parses as JSON when possible and falls back to a plain
+/// string so `--var city=paris` stays ergonomic while `--var n=42`
+/// keeps its numeric shape.
+pub fn parse_workflow_var_arg(arg: &str) -> Result<(String, Value), String> {
+    let (key, raw) = arg.split_once('=').ok_or_else(|| {
+        format!("invalid --var '{arg}': expected KEY=VALUE")
+    })?;
+    let key = key.trim();
+    if key.is_empty() {
+        return Err(format!("invalid --var '{arg}': key must not be empty"));
+    }
+    let value: Value = serde_json::from_str(raw.trim()).unwrap_or(Value::String(raw.trim().to_string()));
+    Ok((key.to_string(), value))
+}
+
+/// Parse every `--var` assignment into a top-level map. Duplicate keys
+/// resolve last-wins so repeated flags behave like repeated query params.
+pub fn parse_workflow_var_args(args: &[String]) -> Result<serde_json::Map<String, Value>, String> {
+    let mut map = serde_json::Map::new();
+    for arg in args {
+        let (key, value) = parse_workflow_var_arg(arg)?;
+        map.insert(key, value);
+    }
+    Ok(map)
+}
+
+/// Load workflow input from `--input-file`. Blank files count as no input;
+/// non-object JSON is a hard error matching the inline `--input` rules.
+pub fn load_workflow_input_file(path: Option<&std::path::Path>) -> Result<Option<Value>, String> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("cannot read --input-file '{}': {e}", path.display()))?;
+    if text.trim().is_empty() {
+        return Ok(None);
+    }
+    let value: Value =
+        serde_json::from_str(&text).map_err(|e| format!("invalid --input-file JSON: {e}"))?;
+    validate_workflow_input_value(Some(&value))?;
+    if value.is_null() {
+        Ok(None)
+    } else {
+        Ok(Some(value))
+    }
+}
+
+/// Merge the three workflow input channels with `file < inline < vars`
+/// priority at the top level. All three are objects when present; the
+/// merged object keeps the shared shape contract (object or empty).
+pub fn merge_workflow_inputs(
+    file: Option<Value>,
+    inline: Option<Value>,
+    vars: &serde_json::Map<String, Value>,
+) -> Option<Value> {
+    let mut merged = serde_json::Map::new();
+    for source in [file, inline] {
+        if let Some(Value::Object(map)) = source {
+            merged.extend(map);
+        }
+    }
+    merged.extend(vars.clone());
+    if merged.is_empty() {
+        None
+    } else {
+        Some(Value::Object(merged))
+    }
+}
+
+/// Resolve the three workflow input channels into one merged value.
+/// Parse failures in any channel are hard errors; nothing degrades to
+/// empty silently.
+pub fn resolve_workflow_input(
+    inline: Option<&str>,
+    file: Option<&std::path::Path>,
+    vars: &[String],
+) -> Result<Option<Value>, String> {
+    let file_value = load_workflow_input_file(file)?;
+    let inline_value = parse_workflow_input(inline)?;
+    let var_map = parse_workflow_var_args(vars)?;
+    Ok(merge_workflow_inputs(file_value, inline_value, &var_map))
+}
+
+/// Local pre-check of merged workflow input against the declared
+/// variables fetched from the server. Mirrors the server gate
+/// (backfill defaults, then type plus required) and reports every issue
+/// together so one round fixes all keys.
+pub fn prevalidate_workflow_input_locally(
+    input: Option<&Value>,
+    variables: Option<&[wf_types::workflow_execution::VariableDefinition]>,
+) -> Result<(), String> {
+    prevalidate_workflow_input_locally_with_policy(input, variables, false)
+}
+
+/// Policy variant of [`prevalidate_workflow_input_locally`]. `strict`
+/// rejects unknown top-level keys; the definition side owns the switch.
+pub fn prevalidate_workflow_input_locally_with_policy(
+    input: Option<&Value>,
+    variables: Option<&[wf_types::workflow_execution::VariableDefinition]>,
+    strict: bool,
+) -> Result<(), String> {
+    let issues = wf_types::workflow_execution::collect_workflow_input_issues_with_policy(
+        input, variables, strict,
+    );
+    if issues.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "invalid workflow input ({} error(s)): {}",
+        issues.len(),
+        issues
+            .iter()
+            .map(|issue| issue.message.as_str())
+            .collect::<Vec<_>>()
+            .join("; "),
+    ))
+}
+
 /// Helper to parse workflow input JSON string.
 pub fn parse_workflow_input(input: Option<&str>) -> Result<Option<Value>, String> {
     match input {
@@ -276,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_body_sanitizes_input() {
+    fn agent_body_passes_raw_text_for_server_wash() {
         let params = TurnParams {
             agent: None,
             model: None,
@@ -289,8 +404,8 @@ mod tests {
             },
         };
         let body = params.agent_request_body();
-        assert_eq!(body["message"], "hi");
-        assert_eq!(body["model"], DEFAULT_MODEL);
+        assert_eq!(body["message"], "\x1b[31mhi\x1b[0m");
+        assert_eq!(body["model"], "");
     }
 
     #[test]
@@ -309,6 +424,49 @@ mod tests {
         };
         let body = params.agent_request_body();
         assert_eq!(body["context"]["city"], "paris");
+    }
+
+    #[test]
+    fn workflow_var_args_parse_and_merge_with_priority() {
+        let vars = parse_workflow_var_args(&[
+            "city=paris".to_string(),
+            "count=42".to_string(),
+            "raw=hello world".to_string(),
+        ])
+        .expect("vars parse");
+        assert_eq!(vars["city"], serde_json::json!("paris"));
+        assert_eq!(vars["count"], serde_json::json!(42));
+        let merged = merge_workflow_inputs(
+            Some(serde_json::json!({"city": "london", "other": 1})),
+            Some(serde_json::json!({"city": "berlin"})),
+            &vars,
+        )
+        .expect("merged");
+        assert_eq!(merged["city"], serde_json::json!("paris"));
+        assert_eq!(merged["count"], serde_json::json!(42));
+        assert_eq!(merged["other"], serde_json::json!(1));
+        assert!(parse_workflow_var_arg("novalue").is_err());
+        assert!(parse_workflow_var_arg("=x").is_err());
+    }
+
+    #[test]
+    fn workflow_input_file_and_resolve_merge() {
+        let dir = std::env::temp_dir();
+        let file = dir.join(format!("wf-input-{}.json", std::process::id()));
+        std::fs::write(&file, r#"{"a": 1, "b": 2}"#).expect("fixture");
+        let loaded = load_workflow_input_file(Some(&file)).expect("file loads").expect("object");
+        assert_eq!(loaded["a"], 1);
+        let merged = resolve_workflow_input(
+            Some(r#"{"b": 3}"#),
+            Some(&file),
+            &["c=4".to_string()],
+        )
+        .expect("resolve")
+        .expect("merged");
+        assert_eq!(merged["a"], 1);
+        assert_eq!(merged["b"], 3);
+        assert_eq!(merged["c"], 4);
+        let _ = std::fs::remove_file(&file);
     }
 
     #[test]

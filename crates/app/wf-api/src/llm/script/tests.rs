@@ -98,6 +98,7 @@ async fn script_delete_reference_check() {
         edges: vec![],
         config: None,
         variables: None,
+        input_strict: None,
         triggered_subworkflow_config: None,
         metadata: None,
         available_tools: None,

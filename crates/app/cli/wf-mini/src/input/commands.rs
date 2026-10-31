@@ -41,6 +41,12 @@ pub enum SlashCommand {
     Rename(Option<String>),
     /// Delete a session (`/delete [id-or-filter]`); bare deletes current.
     Delete(Option<String>),
+    /// Show or replace the session-level agent context (`/context`,
+    /// `/context clear`, `/context {json}`). Carried on every turn.
+    Context(Option<String>),
+    /// Load the session-level agent context from a JSON file
+    /// (`/context-file <path>`), replacing the current map.
+    ContextFile(String),
 }
 
 /// Split an optional leading `--node <id>` (or `--node=<id>`) flag from
@@ -200,6 +206,22 @@ pub fn parse_command(line: &str) -> Option<SlashCommand> {
                 Some(SlashCommand::Delete(None))
             } else {
                 Some(SlashCommand::Delete(Some(rest.join(" "))))
+            }
+        }
+        "/context" => {
+            let rest: Vec<&str> = tokens.collect();
+            if rest.is_empty() {
+                Some(SlashCommand::Context(None))
+            } else {
+                Some(SlashCommand::Context(Some(rest.join(" "))))
+            }
+        }
+        "/context-file" => {
+            let rest: Vec<&str> = tokens.collect();
+            if rest.len() == 1 {
+                Some(SlashCommand::ContextFile(rest[0].to_string()))
+            } else {
+                None
             }
         }
         _ => None,

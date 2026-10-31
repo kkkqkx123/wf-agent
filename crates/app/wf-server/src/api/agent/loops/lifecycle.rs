@@ -62,9 +62,12 @@ pub(crate) async fn params_from_body(
     state: &ApiState,
     body: RunAgentLoopBody,
 ) -> Result<wf_api::agent::agent_execution::RunAgentLoopParams, wf_api::ApiError> {
+    // Server is the single washing point: raw client text is cleaned here
+    // before the blank check so ANSI-only messages are rejected as empty.
+    let message = wf_types::message::sanitize_user_text(&body.message);
     // Rule A1: an empty message is a hard error on every entry path; the
     // CLI/TUI forms and the web panel all converge here.
-    if wf_types::message::is_blank_user_text(&body.message) {
+    if wf_types::message::is_blank_user_text(&message) {
         return Err(wf_api::ApiError::Validation(
             "agent message must not be empty".to_string(),
         ));
@@ -111,6 +114,7 @@ pub(crate) async fn params_from_body(
         discoverable_metadata_block: None,
         history_normalization: false,
         context_schema: body.context_schema,
+        context_strict: None,
         checkpoint_message_interval: body.checkpoint_message_interval.filter(|n| *n > 0),
     };
     // Composition boundary: resolve the agent template (built-in
@@ -124,9 +128,9 @@ pub(crate) async fn params_from_body(
         state.ctx.metrics.as_deref(),
     );
     let mention_messages =
-        wf_api::agent::composition::resolve_mentions(&state.ctx, &body.message).await;
+        wf_api::agent::composition::resolve_mentions(&state.ctx, &message).await;
     let input = wf_api::AgentLoopInput {
-        message: body.message,
+        message,
         context: body.context,
         conversation: body.conversation.unwrap_or_default(),
     };

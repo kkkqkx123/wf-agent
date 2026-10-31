@@ -181,6 +181,7 @@ impl AgentLoopHandler {
             // rewrites would churn the KV-cache-friendly request prefix.
             history_normalization: false,
             context_schema: None,
+            context_strict: None,
         };
 
         let loop_input = AgentLoopInput {

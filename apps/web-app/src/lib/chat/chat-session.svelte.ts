@@ -50,6 +50,13 @@ import type { StreamState } from '#lib/api/sse';
 import { gotoWithParams } from '#lib/utils/route';
 import { t } from '#lib/i18n';
 import { isSessionTab, type SessionTab } from '#lib/config/session-tabs';
+import {
+	applyWorkflowInputDefaults,
+	getWorkflowInputStrict,
+	getWorkflowVariables,
+	validateWorkflowInput,
+	type WorkflowVariableDefinition,
+} from '#lib/services/run';
 
 /** Burst throttle for event-driven interaction refreshes; pushes arrive
  * sparsely, so this only coalesces approval/follow-up storms. The 30s
@@ -72,6 +79,16 @@ export class ChatSessionController {
 	agentId = $state(DEFAULT_AGENT_ID);
 	/** Workflow template to run when the workflow execution type is active. */
 	workflowId = $state('');
+	/** Declared workflow input variables for the selected workflow. */
+	workflowVariables = $state<WorkflowVariableDefinition[]>([]);
+	/** Unknown-key policy for the selected workflow. */
+	workflowStrict = $state(false);
+	/** Workflow id the loaded declaration belongs to. */
+	workflowLoadedId = $state('');
+	/** Form values for the declared workflow variables, keyed by name. */
+	workflowInputs = $state<Record<string, unknown>>({});
+	/** true while the workflow variable declaration is loading. */
+	workflowVariablesLoading = $state(false);
 	/** Execution type for this composer turn. */
 	executionType = $state<ChatExecutionType>('agent');
 	/** Active agent loop id for the running turn, when known. */
@@ -812,9 +829,54 @@ export class ChatSessionController {
 		await this.settleRun(false, new SvelteSet<string>(), '', content);
 	}
 
+	/** Load the declared input variables for one workflow and prefill
+	 * defaults into the form. Switching workflows clears stale inputs;
+	 * fetch failures clear the declaration so the next send refetches
+	 * instead of validating against the previous workflow. */
+	async loadWorkflowVariables(workflowId: string): Promise<void> {
+		const id = workflowId.trim();
+		if (!id) {
+			this.workflowVariables = [];
+			this.workflowStrict = false;
+			this.workflowLoadedId = '';
+			return;
+		}
+		if (this.workflowLoadedId !== '' && this.workflowLoadedId !== id) {
+			this.workflowVariables = [];
+			this.workflowStrict = false;
+			this.workflowInputs = {};
+		}
+		this.workflowVariablesLoading = true;
+		try {
+			const variables = await getWorkflowVariables(id);
+			const strict = await getWorkflowInputStrict(id);
+			if (this.workflowId.trim() !== id) return;
+			this.workflowVariables = variables;
+			this.workflowStrict = strict;
+			this.workflowLoadedId = id;
+			const next: Record<string, unknown> = {};
+			for (const variable of variables) {
+				if (variable.name in this.workflowInputs) {
+					next[variable.name] = this.workflowInputs[variable.name];
+				} else if (variable.value !== undefined && variable.value !== null) {
+					next[variable.name] = variable.value;
+				}
+			}
+			this.workflowInputs = next;
+		} catch {
+			if (this.workflowId.trim() !== id) return;
+			this.workflowVariables = [];
+			this.workflowStrict = false;
+			this.workflowLoadedId = '';
+		} finally {
+			this.workflowVariablesLoading = false;
+		}
+	}
+
 	/**
-	 * Run the message through a workflow. The graph is resolved from the
-	 * template on the server; the composer only hands over the message.
+	 * Run the message through a workflow. Merges the composer message with
+	 * the variable form, backfills defaults and validates locally before
+	 * sending; the server re-checks authoritatively.
 	 */
 	async runWorkflow(content: string, files: MessageAttachment[]): Promise<void> {
 		const workflowId = this.workflowId.trim();
@@ -822,12 +884,28 @@ export class ChatSessionController {
 			executionType: 'workflow',
 			model: this.model.trim(),
 		});
+		if (!workflowId) {
+			toasts.error('Choose a workflow before sending');
+			return;
+		}
+		if (this.workflowLoadedId !== workflowId) {
+			await this.loadWorkflowVariables(workflowId);
+		}
+		const merged = applyWorkflowInputDefaults({ ...this.workflowInputs }, this.workflowVariables);
+		if (!('message' in merged) || merged['message'] === undefined || merged['message'] === null) {
+			merged['message'] = withAttachments(content, files);
+		}
+		const problems = validateWorkflowInput(merged, this.workflowVariables, this.workflowStrict);
+		if (problems.length > 0) {
+			toasts.error(problems[0]);
+			return;
+		}
 		pickerState.recordUsed('workflow', workflowId);
 		pickerState.recordUsed('model', this.model.trim());
 		this.beginRecapTurn();
 		await streamWorkflowExecution(
 			workflowId,
-			{ input: { message: withAttachments(content, files) } },
+			{ input: merged },
 			this.streamCallbacks(),
 			signal,
 		);

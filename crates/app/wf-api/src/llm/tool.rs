@@ -380,6 +380,7 @@ mod tests {
             edges: vec![],
             config: None,
             variables: None,
+            input_strict: None,
             triggered_subworkflow_config: None,
             metadata: None,
             available_tools: Some(wf_types::tool::AvailableTools {

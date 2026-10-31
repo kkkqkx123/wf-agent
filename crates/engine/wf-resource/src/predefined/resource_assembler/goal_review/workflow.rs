@@ -314,6 +314,7 @@ pub(crate) fn build_workflow(config: &GoalReviewConfig) -> Result<WorkflowTempla
                 error_default: None,
             }),
             variables: Some(variables),
+            input_strict: None,
             triggered_subworkflow_config: None,
             metadata: Some(WorkflowMetadata {
                 author: Some("system".into()),

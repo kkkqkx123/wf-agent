@@ -311,6 +311,7 @@ pub(crate) fn build_workflow(config: &SpecWorkflowConfig) -> Result<WorkflowTemp
             edges,
             config: None,
             variables: Some(variables),
+            input_strict: None,
             triggered_subworkflow_config: None,
             metadata: Some(WorkflowMetadata {
                 author: None,

@@ -82,6 +82,7 @@ fn make_workflow(id: &str) -> WorkflowDefinition {
         ],
         config: None,
         variables: None,
+        input_strict: None,
         triggered_subworkflow_config: None,
         metadata: None,
         available_tools: None,

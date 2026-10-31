@@ -206,6 +206,7 @@ mod tests {
                     checkpoint: None,
                     violation_policy: None,
                     context_schema: None,
+                    context_strict: None,
                 }),
                 metadata: Some(AgentMetadata {
                     author: Some("author-x".into()),

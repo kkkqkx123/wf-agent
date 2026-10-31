@@ -14,6 +14,7 @@ pub async fn run(
     ctx: &ApiContext,
     mut params: RunAgentLoopParams,
 ) -> crate::infra::error::ApiResult<AgentLoopOutput> {
+    params.input.message = wf_types::message::sanitize_user_text(&params.input.message);
     params.input.conversation =
         crate::agent::agent_message::normalize_imported_conversation(params.input.conversation);
     gate_agent_config(ctx, &params.config)?;
@@ -73,6 +74,7 @@ pub async fn stream(
     ctx: Arc<ApiContext>,
     mut params: RunAgentLoopParams,
 ) -> crate::infra::error::ApiResult<ExecutionEventStream> {
+    params.input.message = wf_types::message::sanitize_user_text(&params.input.message);
     params.input.conversation =
         crate::agent::agent_message::normalize_imported_conversation(params.input.conversation);
     gate_agent_config(&ctx, &params.config)?;

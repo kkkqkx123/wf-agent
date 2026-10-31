@@ -81,6 +81,7 @@ pub fn prefetch_inline_definition_with_prompt(system_prompt: Option<String>) -> 
             checkpoint: None,
             violation_policy: None,
             context_schema: None,
+            context_strict: None,
         }),
         metadata: None,
         created_at: wf_common::now(),
@@ -167,6 +168,7 @@ pub fn create_prefetch_workflow_with_prompt(system_prompt: Option<String>) -> Wo
             ],
             config: None,
             variables: None,
+            input_strict: None,
             triggered_subworkflow_config: None,
             metadata: Some(workflow_metadata(&[
                 "context",

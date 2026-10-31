@@ -43,6 +43,7 @@ fn make_workflow_template(id: &str, name: &str, tags: Option<Vec<String>>) -> Wo
             edges: vec![],
             config: None,
             variables: None,
+            input_strict: None,
             triggered_subworkflow_config: None,
             metadata: Some(WorkflowMetadata {
                 author: None,

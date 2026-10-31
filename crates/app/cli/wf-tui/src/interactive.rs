@@ -481,6 +481,9 @@ pub struct InteractiveController {
     append_mode: String,
     /// Session-level model override applied to the next turn.
     model_override: Option<String>,
+    /// Session-level structured agent context: set once, carried on every
+    /// subsequent turn until replaced or cleared.
+    session_context: serde_json::Map<String, serde_json::Value>,
     /// Key resolution table for the footer panel routes.
     keymap: tui_core::keymap::Keymap,
     /// Whether the user asked to edit the composer draft in `$EDITOR`.
@@ -730,6 +733,7 @@ impl InteractiveController {
             nested_selected: None,
             append_mode: "followup".to_string(),
             model_override: None,
+            session_context: serde_json::Map::new(),
             keymap: tui_core::keymap::Keymap::new(),
             pending_editor: false,
             recap_ticket: 0,
@@ -753,6 +757,16 @@ impl InteractiveController {
     /// the same overrides as the rest of the interface.
     pub fn set_keymap(&mut self, keymap: tui_core::keymap::Keymap) {
         self.keymap = keymap;
+    }
+
+    /// Replace the session-level agent context carried on every turn.
+    pub fn set_session_context(&mut self, context: serde_json::Map<String, serde_json::Value>) {
+        self.session_context = context;
+    }
+
+    /// Current session-level agent context (clone for turn assembly).
+    pub fn session_context(&self) -> &serde_json::Map<String, serde_json::Value> {
+        &self.session_context
     }
 
     /// Take the pending external-editor request, if any. The shell runs the

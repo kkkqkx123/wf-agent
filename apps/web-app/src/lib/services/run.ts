@@ -254,6 +254,136 @@ export function isRerunnableType(kind: string): boolean {
 	return kind === 'workflow';
 }
 
+/** One workflow input variable as declared on the definition. */
+export interface WorkflowVariableDefinition {
+	name: string;
+	type?: 'number' | 'string' | 'boolean' | 'array' | 'object' | null;
+	required?: boolean | null;
+	value?: unknown;
+	properties?: Record<string, { type: WorkflowVariableDefinition['type']; required?: boolean | null }> | null;
+	element_type?: WorkflowVariableDefinition['type'] | null;
+}
+
+function workflowValueKind(value: unknown): string {
+	if (value === null || value === undefined) return 'null';
+	if (Array.isArray(value)) return 'array';
+	switch (typeof value) {
+		case 'string': return 'string';
+		case 'number': return 'number';
+		case 'boolean': return 'boolean';
+		default: return 'object';
+	}
+}
+
+function workflowValueMatches(
+	expected: NonNullable<WorkflowVariableDefinition['type']>,
+	value: unknown,
+): boolean {
+	if (value === null || value === undefined) return false;
+	if (expected === 'array') return Array.isArray(value);
+	if (expected === 'object') return typeof value === 'object' && !Array.isArray(value);
+	return typeof value === expected;
+}
+
+/** Fetch the declared workflow input variables for one definition. */
+export async function getWorkflowVariables(id: string): Promise<WorkflowVariableDefinition[]> {
+	const data = await call<Record<string, unknown> | null>(
+		client.GET('/api/v1/workflows/{id}', { params: { path: { id } } }),
+	);
+	const doc = (data ?? {}) as Record<string, unknown>;
+	const variables = (doc as { variables?: unknown }).variables;
+	if (!Array.isArray(variables)) return [];
+	return (variables as WorkflowVariableDefinition[]).filter(
+		(variable) => variable && typeof variable.name === 'string',
+	);
+}
+
+/** Fetch the unknown-key policy for one workflow definition. `true` rejects
+ * unknown top-level keys; missing or falsy keeps lenient acceptance. */
+export async function getWorkflowInputStrict(id: string): Promise<boolean> {
+	try {
+		const data = await call<Record<string, unknown> | null>(
+			client.GET('/api/v1/workflows/{id}', { params: { path: { id } } }),
+		);
+		const doc = (data ?? {}) as Record<string, unknown>;
+		return (doc as { input_strict?: unknown }).input_strict === true;
+	} catch {
+		return false;
+	}
+}
+
+/** Backfill absent workflow input keys from declared defaults. Caller
+ * non-null values always win; missing and null entries take the default
+ * when one exists, matching the server gate. */
+export function applyWorkflowInputDefaults(
+	input: Record<string, unknown>,
+	variables: WorkflowVariableDefinition[],
+): Record<string, unknown> {
+	const merged: Record<string, unknown> = { ...(input ?? {}) };
+	for (const variable of variables) {
+		const provided = merged[variable.name];
+		if (provided !== undefined && provided !== null) continue;
+		if (variable.value === undefined || variable.value === null) continue;
+		merged[variable.name] = variable.value as WorkflowInputValue;
+	}
+	return merged;
+}
+
+/** Validate a workflow input object against its declarations: defaults
+ * backfill first, then top-level kinds plus one level of nesting
+ * (object properties, array element type) and required keys. Returns
+ * every problem so the form can fix all keys in one round. */
+export function validateWorkflowInput(
+	input: Record<string, unknown>,
+	variables: WorkflowVariableDefinition[],
+	strict = false,
+): string[] {
+	const merged = applyWorkflowInputDefaults(input ?? {}, variables);
+	const issues: string[] = [];
+	for (const [key, value] of Object.entries(merged)) {
+		if (value === null || value === undefined) continue;
+		const declared = variables.find((variable) => variable.name === key);
+		if (!declared) {
+			if (strict) issues.push(`workflow input has unknown variable '${key}'`);
+			continue;
+		}
+		if (!declared.type) continue;
+		if (!workflowValueMatches(declared.type, value)) {
+			issues.push(`variable '${key}' expects ${declared.type}, got ${workflowValueKind(value)}`);
+			continue;
+		}
+		if (declared.type === 'object' && declared.properties && typeof value === 'object' && !Array.isArray(value)) {
+			const record = value as Record<string, unknown>;
+			for (const [propName, rule] of Object.entries(declared.properties)) {
+				const propValue = record[propName];
+				if (propValue === null || propValue === undefined) {
+					if (rule.required) issues.push(`variable '${key}.${propName}' is missing required property`);
+					continue;
+				}
+					if (rule.type && !workflowValueMatches(rule.type, propValue)) {
+						issues.push(`variable '${key}.${propName}' expects ${rule.type}, got ${workflowValueKind(propValue)}`);
+					}
+			}
+		}
+		if (declared.type === 'array' && declared.element_type && Array.isArray(value)) {
+			value.forEach((item, index) => {
+				if (item === null || item === undefined) return;
+				if (declared.element_type && !workflowValueMatches(declared.element_type, item)) {
+					issues.push(`variable '${key}[${index}]' expects ${declared.element_type}, got ${workflowValueKind(item)}`);
+				}
+			});
+		}
+	}
+	for (const variable of variables) {
+		if (!variable.required) continue;
+		const provided = merged[variable.name];
+		if (provided === undefined || provided === null) {
+			issues.push(`workflow input is missing required variable '${variable.name}'`);
+		}
+	}
+	return issues;
+}
+
 export type {
 	WorkflowInput,
 	WorkflowInputValue,

@@ -45,6 +45,10 @@ pub struct RunOptions {
     pub workflow: Option<String>,
     /// Workflow input JSON string (requires workflow).
     pub workflow_input: Option<String>,
+    /// Workflow input from `--input-file` (requires workflow).
+    pub workflow_input_file: Option<std::path::PathBuf>,
+    /// Workflow variable assignments from repeatable `--var KEY=VALUE`.
+    pub workflow_vars: Vec<String>,
     /// Read approval/follow-up answers from stdin (`--interactive`).
     pub interactive: bool,
     /// Wait bound for one stdin answer line (`--approval-timeout`).
@@ -66,6 +70,8 @@ impl Default for RunOptions {
             approve_prefixes: Vec::new(),
             workflow: None,
             workflow_input: None,
+            workflow_input_file: None,
+            workflow_vars: Vec::new(),
             interactive: false,
             approval_timeout_secs: DEFAULT_APPROVAL_TIMEOUT_SECS,
             assume_yes: false,
@@ -83,8 +89,12 @@ impl RunOptions {
     pub fn try_as_turn_params(&self) -> CliResult<TurnParams> {
         let kind = match self.workflow.clone() {
             Some(workflow_id) => {
-                let input = crate::turn::parse_workflow_input(self.workflow_input.as_deref())
-                    .map_err(CliError::Arguments)?;
+                let input = crate::turn::resolve_workflow_input(
+                    self.workflow_input.as_deref(),
+                    self.workflow_input_file.as_deref(),
+                    &self.workflow_vars,
+                )
+                .map_err(CliError::Arguments)?;
                 TurnKind::Workflow { workflow_id, input }
             }
             None => TurnKind::Agent {
@@ -154,8 +164,37 @@ async fn run_workflow(
 ) -> CliResult<RunOutcome> {
     use std::time::Instant;
     let started = Instant::now();
-    let input = crate::turn::parse_workflow_input(opts.workflow_input.as_deref())
-        .map_err(CliError::Arguments)?;
+    let input = crate::turn::resolve_workflow_input(
+        opts.workflow_input.as_deref(),
+        opts.workflow_input_file.as_deref(),
+        &opts.workflow_vars,
+    )
+    .map_err(CliError::Arguments)?;
+    // Local pre-check against the declared variables: fetch the
+    // definition once, validate the merged input, and fail fast with the
+    // same wording the server gate uses. A fetch miss skips the check
+    // and leaves the decision to the server instead of blocking the run.
+    if let Ok(definition) = handle
+        .client()
+        .get_json::<serde_json::Value>(&format!("/api/v1/workflows/{workflow_id}"))
+        .await
+    {
+        let variables: Option<Vec<wf_types::workflow_execution::VariableDefinition>> =
+            definition
+                .get("variables")
+                .and_then(|v| serde_json::from_value(v.clone()).ok());
+        let strict = definition
+            .get("input_strict")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if let Err(reason) = crate::turn::prevalidate_workflow_input_locally_with_policy(
+            input.as_ref(),
+            variables.as_deref(),
+            strict,
+        ) {
+            return Err(CliError::Arguments(reason));
+        }
+    }
     if !io.format.is_silent() {
         io.sink.write_message(&crate::output::OutputMessage::new(
             "user",

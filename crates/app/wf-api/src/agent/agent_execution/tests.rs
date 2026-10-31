@@ -53,6 +53,7 @@ async fn runs_agent_loop_to_completion() {
                 discoverable_metadata_block: None,
                 history_normalization: false,
                 context_schema: None,
+                context_strict: None,
                 checkpoint_message_interval: None,
             },
             AgentLoopInput {
@@ -134,6 +135,7 @@ async fn persisted_agent_execution_readable_after_restart() {
                 discoverable_metadata_block: None,
                 history_normalization: false,
                 context_schema: None,
+                context_strict: None,
                 checkpoint_message_interval: None,
             },
             AgentLoopInput {
@@ -195,6 +197,7 @@ async fn streams_agent_loop_events() {
                 discoverable_metadata_block: None,
                 history_normalization: false,
                 context_schema: None,
+                context_strict: None,
                 checkpoint_message_interval: None,
             },
             AgentLoopInput {
@@ -276,6 +279,7 @@ fn resume_config() -> AgentLoopConfig {
         discoverable_metadata_block: None,
         history_normalization: false,
         context_schema: None,
+        context_strict: None,
         checkpoint_message_interval: Some(1),
     }
 }

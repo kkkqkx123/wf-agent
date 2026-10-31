@@ -99,6 +99,9 @@ fn apply_agent_config_defaults(config: &mut AgentLoopConfig, cfg: &AgentConfig) 
     if config.context_schema.is_none() {
         config.context_schema.clone_from(&cfg.context_schema);
     }
+    if config.context_strict.is_none() {
+        config.context_strict = cfg.context_strict;
+    }
 }
 
 fn apply_tool_defaults(config: &mut AgentLoopConfig, tools: &AvailableTools) {

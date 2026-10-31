@@ -1099,6 +1099,79 @@ impl InteractiveController {
                 self.select_nested_target(tokens[0]);
                 return Some(InteractiveAction::Continue);
             }
+            "/context" => {
+                // Per-key edits mirror the mini session: whole-object
+                // replacement stays for copy flows, set/remove cover
+                // single entries. Edits apply to later turns only.
+                let tokens: Vec<&str> = argument.split_whitespace().collect();
+                match tokens.as_slice() {
+                    [] => {
+                        if self.session_context.is_empty() {
+                            self.footer.show_notice("context: (empty)");
+                        } else {
+                            let mut keys: Vec<&String> = self.session_context.keys().collect();
+                            keys.sort();
+                            self.footer.show_notice(format!(
+                                "context: {} key(s): {}",
+                                keys.len(),
+                                keys.iter()
+                                    .map(|k| k.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ));
+                        }
+                    }
+                    ["clear"] => {
+                        self.session_context.clear();
+                        self.footer.show_notice("context cleared");
+                    }
+                    ["set", key, value @ ..] if !value.is_empty() => {
+                        match wf_cli_shared::turn::parse_context_key_value(key, &value.join(" ")) {
+                            Ok((name, parsed)) => {
+                                self.session_context.insert(name.clone(), parsed);
+                                self.footer.show_notice(format!(
+                                    "context set: key='{name}' ({} key(s))",
+                                    self.session_context.len()
+                                ));
+                            }
+                            Err(err) => {
+                                self.footer
+                                    .show_notice(format!("invalid context set: {err}"));
+                            }
+                        }
+                    }
+                    ["remove", key] | ["unset", key] => {
+                        if self.session_context.remove(*key).is_some() {
+                            self.footer.show_notice(format!(
+                                "context removed: key='{key}' ({} key(s))",
+                                self.session_context.len()
+                            ));
+                        } else {
+                            self.footer
+                                .show_notice(format!("context has no key '{key}'"));
+                        }
+                    }
+                    ["set"] => {
+                        self.footer.show_notice("usage: /context set KEY VALUE");
+                    }
+                    ["remove"] | ["unset"] => {
+                        self.footer.show_notice("usage: /context remove KEY");
+                    }
+                    _ => match wf_cli_shared::turn::parse_agent_context(Some(argument), None) {
+                        Ok(map) => {
+                            self.set_session_context(map);
+                            self.footer.show_notice(format!(
+                                "context set: {} key(s)",
+                                self.session_context.len()
+                            ));
+                        }
+                        Err(err) => {
+                            self.footer.show_notice(format!("invalid context: {err}"));
+                        }
+                    },
+                }
+                return Some(InteractiveAction::Continue);
+            }
             _ => {}
         }
 

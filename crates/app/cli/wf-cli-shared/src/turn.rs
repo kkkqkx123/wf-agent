@@ -188,10 +188,17 @@ pub fn parse_agent_context(
     }
 }
 
+/// Parse a loose scalar value: JSON when possible, plain string otherwise.
+/// Shared by workflow `--var` values and per-key context edits so both
+/// surfaces keep the same ergonomic shape (`--var n=42` stays numeric
+/// while `--var city=paris` stays a string).
+pub fn parse_loose_value(raw: &str) -> Value {
+    let trimmed = raw.trim();
+    serde_json::from_str(trimmed).unwrap_or(Value::String(trimmed.to_string()))
+}
+
 /// Parse one `--var KEY=VALUE` assignment. The key must be non-empty;
-/// the value parses as JSON when possible and falls back to a plain
-/// string so `--var city=paris` stays ergonomic while `--var n=42`
-/// keeps its numeric shape.
+/// the value follows [`parse_loose_value`].
 pub fn parse_workflow_var_arg(arg: &str) -> Result<(String, Value), String> {
     let (key, raw) = arg.split_once('=').ok_or_else(|| {
         format!("invalid --var '{arg}': expected KEY=VALUE")
@@ -200,8 +207,22 @@ pub fn parse_workflow_var_arg(arg: &str) -> Result<(String, Value), String> {
     if key.is_empty() {
         return Err(format!("invalid --var '{arg}': key must not be empty"));
     }
-    let value: Value = serde_json::from_str(raw.trim()).unwrap_or(Value::String(raw.trim().to_string()));
-    Ok((key.to_string(), value))
+    Ok((key.to_string(), parse_loose_value(raw)))
+}
+
+/// Parse one per-key context assignment for the TUI context commands.
+/// The key follows the same template path rule the server enforces on
+/// agent input, so typos fail locally with the reason instead of costing
+/// a server round trip. The value follows [`parse_loose_value`].
+pub fn parse_context_key_value(key: &str, raw_value: &str) -> Result<(String, Value), String> {
+    let trimmed = key.trim();
+    if trimmed.is_empty() {
+        return Err("context key must not be empty".to_string());
+    }
+    if let Some(reason) = wf_types::template::validate_template_path(trimmed) {
+        return Err(format!("invalid context key '{trimmed}': {reason}"));
+    }
+    Ok((trimmed.to_string(), parse_loose_value(raw_value)))
 }
 
 /// Parse every `--var` assignment into a top-level map. Duplicate keys
@@ -447,6 +468,32 @@ mod tests {
         assert_eq!(merged["other"], serde_json::json!(1));
         assert!(parse_workflow_var_arg("novalue").is_err());
         assert!(parse_workflow_var_arg("=x").is_err());
+    }
+
+    #[test]
+    fn loose_values_keep_json_shapes_with_string_fallback() {
+        assert_eq!(parse_loose_value("42"), serde_json::json!(42));
+        assert_eq!(parse_loose_value("true"), serde_json::json!(true));
+        assert_eq!(parse_loose_value("{\"a\": 1}"), serde_json::json!({"a": 1}));
+        assert_eq!(parse_loose_value("paris"), serde_json::json!("paris"));
+        assert_eq!(
+            parse_loose_value("  hello world  "),
+            serde_json::json!("hello world")
+        );
+    }
+
+    #[test]
+    fn context_key_values_check_paths_and_parse_values() {
+        let (key, value) = parse_context_key_value("city", "paris").expect("pair parses");
+        assert_eq!(key, "city");
+        assert_eq!(value, serde_json::json!("paris"));
+        let (key, value) = parse_context_key_value("count", "42").expect("pair parses");
+        assert_eq!(key, "count");
+        assert_eq!(value, serde_json::json!(42));
+        let (key, _) = parse_context_key_value("  user.name  ", "x").expect("pair parses");
+        assert_eq!(key, "user.name");
+        assert!(parse_context_key_value("", "x").is_err());
+        assert!(parse_context_key_value("bad key", "x").is_err());
     }
 
     #[test]

@@ -87,6 +87,8 @@ export class ChatSessionController {
 	workflowLoadedId = $state('');
 	/** Form values for the declared workflow variables, keyed by name. */
 	workflowInputs = $state<Record<string, unknown>>({});
+	/** Pending JSON tab syntax error from the workflow input form; blocks send until fixed. */
+	workflowJsonError = $state<string | null>(null);
 	/** true while the workflow variable declaration is loading. */
 	workflowVariablesLoading = $state(false);
 	/** Execution type for this composer turn. */
@@ -845,6 +847,7 @@ export class ChatSessionController {
 			this.workflowVariables = [];
 			this.workflowStrict = false;
 			this.workflowInputs = {};
+			this.workflowJsonError = null;
 		}
 		this.workflowVariablesLoading = true;
 		try {
@@ -891,13 +894,17 @@ export class ChatSessionController {
 		if (this.workflowLoadedId !== workflowId) {
 			await this.loadWorkflowVariables(workflowId);
 		}
+		if (this.workflowJsonError) {
+			toasts.error(this.workflowJsonError);
+			return;
+		}
 		const merged = applyWorkflowInputDefaults({ ...this.workflowInputs }, this.workflowVariables);
 		if (!('message' in merged) || merged['message'] === undefined || merged['message'] === null) {
 			merged['message'] = withAttachments(content, files);
 		}
 		const problems = validateWorkflowInput(merged, this.workflowVariables, this.workflowStrict);
 		if (problems.length > 0) {
-			toasts.error(problems[0]);
+			toasts.error(problems.join('; '));
 			return;
 		}
 		pickerState.recordUsed('workflow', workflowId);

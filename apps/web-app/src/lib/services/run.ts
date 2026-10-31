@@ -68,8 +68,9 @@ export function parseWorkflowInputText(text: string): WorkflowInput | null {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(trimmed) as unknown;
-	} catch {
-		throw new Error('Workflow input must be valid JSON.');
+	} catch (e) {
+		const detail = e instanceof Error ? e.message : String(e);
+		throw new Error(`Workflow input must be valid JSON: ${detail}.`);
 	}
 	return assertWorkflowInput(parsed);
 }
@@ -103,8 +104,9 @@ export function parseFileScopeText(text: string): ExecutionFileScope | null {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(trimmed) as unknown;
-	} catch {
-		throw new Error('File scope must be valid JSON or empty.');
+	} catch (e) {
+		const detail = e instanceof Error ? e.message : String(e);
+		throw new Error(`File scope must be valid JSON or empty: ${detail}.`);
 	}
 	return assertFileScope(parsed);
 }

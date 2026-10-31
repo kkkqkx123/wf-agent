@@ -18,11 +18,15 @@
 	import {
 		assertConversationSeed,
 		assertRuntimeOptions,
+		getWorkflowInputStrict,
+		getWorkflowVariables,
 		parseFileScopeText,
 		parseWorkflowInputText,
 		runDefinition,
+		validateWorkflowInput,
 		type RunnableKind,
 		type WorkflowRuntimeOptions,
+		type WorkflowVariableDefinition,
 	} from '#lib/services/run';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { t } from '#lib/i18n';
@@ -59,6 +63,9 @@
 	let fileScope = $state('');
 	let fileScopeError = $state<string | null>(null);
 	let inputError = $state<string | null>(null);
+	let inputVariables = $state<WorkflowVariableDefinition[]>([]);
+	let inputStrict = $state(false);
+	let inputLoadedId = $state('');
 	let debugRun = $state(false);
 	let runtimeError = $state<string | null>(null);
 	let maxSteps = $state('');
@@ -171,11 +178,12 @@
 		fileScopeError = null;
 		conversationSeedError = null;
 		inputError = null;
+		let valid = true;
 		try {
 			parseWorkflowInputText(input);
 		} catch (e) {
 			inputError = e instanceof Error ? e.message : 'Workflow input must be a JSON object or empty.';
-			return false;
+			valid = false;
 		}
 		if (fileScope.trim() !== '') {
 			try {
@@ -183,7 +191,7 @@
 			} catch (e) {
 				fileScopeError =
 					e instanceof Error ? e.message : 'File scope must be a JSON object or empty.';
-				return false;
+				valid = false;
 			}
 		}
 		if (conversationSeed.trim() !== '') {
@@ -192,10 +200,10 @@
 			} catch (e) {
 				conversationSeedError =
 					e instanceof Error ? e.message : 'Conversation seed must be a JSON array or empty.';
-				return false;
+				valid = false;
 			}
 		}
-		return true;
+		return valid;
 	}
 
 	async function loadDefinitions(): Promise<void> {
@@ -271,6 +279,59 @@
 		void loadVersions(selectedDefinition.id);
 	});
 
+	/** Declared input variables for the selected workflow. Switching
+	 * definitions clears the stale declaration first so the text is never
+	 * validated against the previous workflow; fetch failures clear it so
+	 * the server stays the authoritative gate. */
+	async function loadInputVariables(definitionId: string): Promise<void> {
+		const id = definitionId.trim();
+		if (!id) {
+			inputVariables = [];
+			inputStrict = false;
+			inputLoadedId = '';
+			return;
+		}
+		if (inputLoadedId !== '' && inputLoadedId !== id) {
+			inputVariables = [];
+			inputStrict = false;
+		}
+		try {
+			const [variables, strict] = await Promise.all([
+				getWorkflowVariables(id),
+				getWorkflowInputStrict(id),
+			]);
+			if (selectedDefinition?.id !== id) return;
+			inputVariables = variables;
+			inputStrict = strict;
+			inputLoadedId = id;
+		} catch {
+			if (selectedDefinition?.id !== id) return;
+			inputVariables = [];
+			inputStrict = false;
+			inputLoadedId = '';
+		}
+	}
+
+	$effect(() => {
+		if (selectedDefinition?.kind !== 'workflow') return;
+		void loadInputVariables(selectedDefinition.id);
+	});
+
+	/** Semantic issues of the parsed input against the loaded declaration.
+	 * Shape failures already surface through the preview error, so only
+	 * successfully parsed objects reach the declaration check. */
+	const inputIssues = $derived.by((): string[] => {
+		if (selectedDefinition?.kind !== 'workflow') return [];
+		if (selectedDefinition.id !== inputLoadedId) return [];
+		let parsed: Record<string, unknown>;
+		try {
+			parsed = (parseWorkflowInputText(input) ?? {}) as Record<string, unknown>;
+		} catch {
+			return [];
+		}
+		return validateWorkflowInput(parsed, inputVariables, inputStrict);
+	});
+
 	async function start(): Promise<void> {
 		const definition = selectedDefinition;
 		if (!definition || starting) return;
@@ -278,6 +339,10 @@
 			if (inputError) toasts.error(inputError);
 			if (fileScopeError) toasts.error(fileScopeError);
 			if (conversationSeedError) toasts.error(conversationSeedError);
+			return;
+		}
+		if (definition.kind === 'workflow' && inputIssues.length > 0) {
+			toasts.error(inputIssues.join('; '));
 			return;
 		}
 		if (definition.kind === 'agent' && message.trim() === '') {
@@ -419,6 +484,13 @@
 							<JsonViewer value={parsedInputPreview.value} collapsed />
 						</div>
 					{/if}
+				{/if}
+				{#if inputIssues.length > 0}
+					<ul class="space-y-1 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5">
+						{#each inputIssues as issue (issue)}
+							<li class="text-micro text-destructive">{issue}</li>
+						{/each}
+					</ul>
 				{/if}
 				<Textarea
 					bind:value={fileScope}

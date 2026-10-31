@@ -44,6 +44,18 @@ pub enum SlashCommand {
     /// Show or replace the session-level agent context (`/context`,
     /// `/context clear`, `/context {json}`). Carried on every turn.
     Context(Option<String>),
+    /// Set one session-level agent context entry (`/context set KEY VALUE`).
+    /// The value parses as JSON when possible and falls back to a plain
+    /// string, matching workflow `--var` ergonomics.
+    ContextSet {
+        key: String,
+        value: String,
+    },
+    /// Remove one session-level agent context entry (`/context remove KEY`,
+    /// `/context unset KEY`).
+    ContextRemove {
+        key: String,
+    },
     /// Load the session-level agent context from a JSON file
     /// (`/context-file <path>`), replacing the current map.
     ContextFile(String),
@@ -211,9 +223,19 @@ pub fn parse_command(line: &str) -> Option<SlashCommand> {
         "/context" => {
             let rest: Vec<&str> = tokens.collect();
             if rest.is_empty() {
-                Some(SlashCommand::Context(None))
-            } else {
-                Some(SlashCommand::Context(Some(rest.join(" "))))
+                return Some(SlashCommand::Context(None));
+            }
+            match rest[0] {
+                "set" if rest.len() >= 3 => Some(SlashCommand::ContextSet {
+                    key: rest[1].to_string(),
+                    value: rest[2..].join(" "),
+                }),
+                "remove" | "unset" if rest.len() == 2 => Some(SlashCommand::ContextRemove {
+                    key: rest[1].to_string(),
+                }),
+                // Malformed subcommands stay generic so the session layer
+                // reports usage instead of mistaking them for JSON.
+                _ => Some(SlashCommand::Context(Some(rest.join(" ")))),
             }
         }
         "/context-file" => {
@@ -260,6 +282,51 @@ mod tests {
         assert_eq!(parse_command("/quit now"), None);
         assert_eq!(parse_command("/recap"), Some(SlashCommand::Recap));
         assert_eq!(parse_command("/recap now"), None);
+        assert_eq!(parse_command("/context"), Some(SlashCommand::Context(None)));
+        assert_eq!(
+            parse_command("/context clear"),
+            Some(SlashCommand::Context(Some("clear".to_string())))
+        );
+        assert_eq!(
+            parse_command("/context set city paris"),
+            Some(SlashCommand::ContextSet {
+                key: "city".to_string(),
+                value: "paris".to_string(),
+            })
+        );
+        assert_eq!(
+            parse_command("/context set greeting hello world"),
+            Some(SlashCommand::ContextSet {
+                key: "greeting".to_string(),
+                value: "hello world".to_string(),
+            })
+        );
+        assert_eq!(
+            parse_command("/context remove city"),
+            Some(SlashCommand::ContextRemove {
+                key: "city".to_string(),
+            })
+        );
+        assert_eq!(
+            parse_command("/context unset city"),
+            Some(SlashCommand::ContextRemove {
+                key: "city".to_string(),
+            })
+        );
+        // Malformed subcommands stay generic so the session layer reports
+        // usage instead of mistaking them for JSON.
+        assert_eq!(
+            parse_command("/context set city"),
+            Some(SlashCommand::Context(Some("set city".to_string())))
+        );
+        assert_eq!(
+            parse_command("/context remove"),
+            Some(SlashCommand::Context(Some("remove".to_string())))
+        );
+        assert_eq!(
+            parse_command("/context {\"a\": 1}"),
+            Some(SlashCommand::Context(Some("{\"a\": 1}".to_string())))
+        );
         assert_eq!(parse_command("hello"), None);
         assert_eq!(parse_command("/unknown"), None);
     }

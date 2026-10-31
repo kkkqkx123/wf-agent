@@ -351,7 +351,7 @@ impl NativeSession {
                 output::diag_line("history: /history [prefix] list recent prompts (optional prefix filter), /rerun [n] re-ask prompt n (default: last)");
                 output::diag_line("display: /markdown [raw|plain|styled] set or show stdout rendering, /reasoning [on|off], /usage [on|off], /tools [on|off], /display show all");
                 output::diag_line("nested loops: /loops [execution] list workflow nested targets, /steer [--node <id>] <text> steering input, /followup [--node <id>] <text> follow-up input, /append-mode [--node <id>] steering|followup, /convert-pending [--node <id>]");
-                output::diag_line("context: /context show keys, /context clear, /context {json} replace, /context-file <path> load");
+                output::diag_line("context: /context show keys, /context clear, /context {json} replace, /context set KEY VALUE, /context remove KEY, /context-file <path> load");
                 output::diag_line("keys: Tab or Right-arrow (at line end) accept the suggestion, Ctrl-Right or Alt-f accept one word, Up/Down browse history by prefix, Alt-b/Alt-f word motion, Alt-d/Alt-Backspace kill word, Alt-. insert history tail word, Ctrl-C cancels the running turn, Ctrl-C twice at the prompt quits, Ctrl-D quits");
                 output::diag_line(
                     "notes: the full history stays in memory; prompt history is plain text on disk (see --history-file/--no-history); workflows run via `wf run --workflow` and the management subcommands",
@@ -515,6 +515,19 @@ impl NativeSession {
                         self.session_context.clear();
                         output::diag_line("context cleared");
                     }
+                    // Well-formed subcommands parse into typed variants;
+                    // reaching here means wrong arity, so report usage.
+                    Some(text) if text.split_whitespace().next() == Some("set") => {
+                        output::diag_line("usage: /context set KEY VALUE");
+                    }
+                    Some(text)
+                        if matches!(
+                            text.split_whitespace().next(),
+                            Some("remove") | Some("unset")
+                        ) =>
+                    {
+                        output::diag_line("usage: /context remove KEY");
+                    }
                     Some(json) => {
                         match wf_cli_shared::turn::parse_agent_context(Some(json), None) {
                             Ok(map) => {
@@ -527,6 +540,31 @@ impl NativeSession {
                             Err(err) => output::diag_line(&format!("invalid context: {err}")),
                         }
                     }
+                }
+                CommandAction::Continue
+            }
+            SlashCommand::ContextSet { key, value } => {
+                match wf_cli_shared::turn::parse_context_key_value(key.as_str(), value.as_str()) {
+                    Ok((name, parsed)) => {
+                        self.session_context.insert(name.clone(), parsed);
+                        output::diag_line(&format!(
+                            "context set: key='{name}' ({} key(s))",
+                            self.session_context.len()
+                        ));
+                    }
+                    Err(err) => output::diag_line(&format!("invalid context set: {err}")),
+                }
+                CommandAction::Continue
+            }
+            SlashCommand::ContextRemove { key } => {
+                let name = key.trim();
+                if self.session_context.remove(name).is_some() {
+                    output::diag_line(&format!(
+                        "context removed: key='{name}' ({} key(s))",
+                        self.session_context.len()
+                    ));
+                } else {
+                    output::diag_line(&format!("context has no key '{name}'"));
                 }
                 CommandAction::Continue
             }

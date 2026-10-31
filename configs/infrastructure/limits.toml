@@ -39,3 +39,19 @@ max_retries = 1                       # additional runs after the first attempt
 timeout_ms = 240000                   # outer wall-clock budget per attempt (run + write-back)
 settle_timeout_ms = 300000            # emitter-side wait budget for the compression chain to settle
 tail_keep = 2                         # recent pre-existing messages kept beside the summary
+
+# Budget-driven compaction tuning parameters (never a strategy selector:
+# the pipeline stays single, the summary workflow resource stays the
+# replaceable unit). Ratios derive absolute thresholds from the model
+# window and must strictly increase h_target < t_handoff < t_compact < t_hard.
+[compaction]
+h_target_ratio = 0.30                 # deep-compact target resident size
+t_handoff_ratio = 0.55                # handoff evaluation line after compaction
+t_compact_ratio = 0.70                # compression trigger line
+t_hard_ratio = 0.85                   # hard-limit safety valve
+r_repress = 5000                      # smallest re-compressible summary size in tokens
+r_min_range = 2000                    # smallest first-time compressible interval in tokens
+k_repress = 2                         # maximum re-compressions of a single block
+recent_raw_turns = 2                  # recent rounds always kept visible in the hot view
+tool_distill = true                   # distill tool output before it enters history
+file_dedup = true                     # deduplicate file reads by content hash

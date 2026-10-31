@@ -10,6 +10,8 @@ pub struct LimitsConfig {
     pub execution_defaults: Option<ExecutionDefaults>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compression: Option<CompressionLimits>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compaction: Option<CompactionLimits>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -44,6 +46,37 @@ pub struct ExecutionDefaults {
     pub node_timeout_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_execution_time_ms: Option<u64>,
+}
+
+/// Budget-driven compaction parameters. Ratios derive absolute thresholds
+/// from the model window and must strictly increase
+/// `h_target < t_handoff < t_compact < t_hard`; the absolute token values
+/// gate first-time compression, re-compression and per-block sealing.
+/// These are tuning parameters only: they never select between compression
+/// strategies, the pipeline stays single and the summary workflow resource
+/// stays the replaceable unit.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct CompactionLimits {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub h_target_ratio: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub t_handoff_ratio: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub t_compact_ratio: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub t_hard_ratio: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r_repress: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r_min_range: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub k_repress: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recent_raw_turns: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_distill: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_dedup: Option<bool>,
 }
 
 /// Compression service policy for the context-compression chain.

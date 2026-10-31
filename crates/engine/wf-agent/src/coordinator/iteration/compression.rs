@@ -174,6 +174,7 @@ impl AgentIterationCoordinator {
             version,
             true,
             &messages,
+            &[],
         );
         // Snapshot the pre-compression state before the safety-net summary
         // workflow runs; the compressed view is checkpointed on write-back.
@@ -314,6 +315,7 @@ impl AgentIterationCoordinator {
                 version,
                 false,
                 &messages,
+                &[],
             );
             // Release the session lock: the pre-compression
             // checkpoint below reads the session back.

@@ -118,6 +118,10 @@ pub(crate) struct CompressionRequest {
     pub(super) array_version: u64,
     pub(super) depth: u64,
     pub(super) messages: Vec<Message>,
+    /// Compaction work plan over `messages`. Empty means the legacy
+    /// single-summary mode; non-empty runs the summary chain once per item
+    /// and writes back one aggregated result.
+    pub(super) plan: Vec<wf_execution_shared::CompactionPlanItem>,
     pub(super) agent_loop_id: Option<String>,
 }
 
@@ -235,6 +239,7 @@ impl CompressionPipeline {
                 ))
             })?;
         let messages = wf_execution_shared::compression_routed_messages(event);
+        let plan = wf_execution_shared::compression_routed_plan(event);
         if messages.is_empty() {
             debug!(
                 "Trigger '{}' routed a snapshot-less compression handoff for {execution_id}:{}:{}; skipping",
@@ -255,6 +260,7 @@ impl CompressionPipeline {
             array_version: meta.array_version,
             depth,
             messages,
+            plan,
             agent_loop_id: event.agent_loop_id.as_ref().map(|id| id.to_string()),
         });
         Ok(())
@@ -328,6 +334,7 @@ impl CompressionPipeline {
         // summary LLM must not receive it whole. Trim the oldest part to the
         // input headroom (this covers forced safety-net re-emissions, whose
         // real request was rejected by the provider).
+        let plan = request.plan;
         let snapshot = if token_limit > 0 {
             trim_messages_to_budget(
                 request.messages,
@@ -337,17 +344,24 @@ impl CompressionPipeline {
         } else {
             request.messages
         };
-        // File folding runs inside the compression chain template
-        // (processor fold node before the summary node), so the trimmed
-        // snapshot feeds the chain untouched here. The emission version and
-        // run identity travel alongside so the summary run can be linked back
-        // to its request version and claim in traces.
-        let input = serde_json::json!({
-            "conversationHistory": snapshot.clone(),
-            "compressionDepth": depth,
-            "arrayVersion": array_version,
-            "compressionRunId": run_id,
-        });
+        // Work items over the headroom-trimmed snapshot: an empty plan is
+        // the legacy single-summary mode (one item over the whole snapshot);
+        // a non-empty plan slices the snapshot per item (snapshot indices
+        // clamp, empty slices drop out). Either way one aggregated
+        // write-back follows, so the version anchor and the completion
+        // event stay single. File folding runs inside the compression chain
+        // template (processor fold node before the summary node), so each
+        // slice feeds the chain untouched here.
+        let work_items: Vec<(String, Vec<Message>)> = if plan.is_empty() {
+            vec![(String::new(), snapshot.clone())]
+        } else {
+            plan.iter()
+                .filter_map(|item| {
+                    let (start, end) = item.clamped_range(snapshot.len())?;
+                    Some((item.block_id.clone(), snapshot[start..end].to_vec()))
+                })
+                .collect()
+        };
         let start = wf_common::now();
         let service_handled = Arc::clone(&self.handled);
         let callback = async move {
@@ -359,87 +373,149 @@ impl CompressionPipeline {
                 key,
                 expected_version: array_version,
             };
+            // The retry budget is shared across the batch so the timeout
+            // nesting contract keeps holding for plan mode: the whole batch
+            // costs at most what one legacy run costs. An empty plan is one
+            // item, so its behavior is unchanged.
             let max_attempts = policy.max_retries.saturating_add(1);
             let mut attempts = 0u32;
-            let status: ChainStatus = loop {
-                attempts += 1;
-                let attempt: Result<(), String> = tokio::select! {
-                    _ = shutdown.cancelled() => {
-                        debug!(
-                            "Compression sub-workflow '{}' aborted at shutdown (attempt {})",
-                            workflow_id, attempts
-                        );
-                        break ChainStatus::Aborted;
-                    }
-                    output = tokio::time::timeout(
-                        std::time::Duration::from_millis(policy.run_timeout_ms),
-                        runner.run(&workflow_id, input.clone()),
-                    ) => {
-                        match output {
-                            Err(_elapsed) => Err(format!(
-                                "compression summary run timed out after {} ms",
-                                policy.run_timeout_ms
-                            )),
-                            Ok(Ok(output)) => {
-                                match handle_subworkflow_output(
-                                    &contexts,
-                                    &bus,
-                                    &CompressionWriteBack {
-                                        execution_id: &execution_id_str,
-                                        agent_loop_id: agent_loop_id.as_deref(),
-                                        target_context_id: &target_context_id,
-                                        expected_version: array_version,
-                                        tail_keep: policy.tail_keep,
-                                        token_limit,
-                                        degraded: false,
-                                        degraded_dropped: 0,
-                                        run_id: Some(run_id.clone()),
-                                    },
-                                    &output,
-                                )
-                                .await
-                                {
-                                    Ok(()) => Ok(()),
-                                    Err(CompressionWriteBackError::Expired(detail)) => {
-                                        break ChainStatus::Expired(detail);
-                                    }
-                                    Err(CompressionWriteBackError::Failed(error)) => {
-                                        let detail = error.to_string();
-                                        warn!(
-                                            "Compression sub-workflow '{}' write-back failed: {}",
-                                            workflow_id, detail
-                                        );
-                                        Err(detail)
+            let mut aggregated: Vec<Message> = Vec::new();
+            enum ItemOutcome {
+                Messages(Vec<Message>),
+                Failed(String),
+                Aborted,
+            }
+            let mut status: Option<ChainStatus> = if work_items.is_empty() {
+                Some(ChainStatus::Failed(
+                    "compression plan covers no messages".to_string(),
+                ))
+            } else {
+                None
+            };
+            'items: for (block_id, slice) in &work_items {
+                if status.is_some() {
+                    break;
+                }
+                // File folding runs inside the chain template (processor
+                // fold node before the summary node), so each slice feeds
+                // the chain untouched here. The emission version and run
+                // identity travel alongside so the summary run can be linked
+                // back to its request version and claim in traces.
+                let item_input = serde_json::json!({
+                    "conversationHistory": slice.clone(),
+                    "compressionDepth": depth,
+                    "arrayVersion": array_version,
+                    "compressionRunId": run_id.clone(),
+                    "blockId": block_id.clone(),
+                });
+                loop {
+                    attempts += 1;
+                    let outcome: ItemOutcome = tokio::select! {
+                        _ = shutdown.cancelled() => {
+                            debug!(
+                                "Compression sub-workflow '{}' aborted at shutdown (attempt {})",
+                                workflow_id, attempts
+                            );
+                            ItemOutcome::Aborted
+                        }
+                        output = tokio::time::timeout(
+                            std::time::Duration::from_millis(policy.run_timeout_ms),
+                            runner.run(&workflow_id, item_input.clone()),
+                        ) => {
+                            match output {
+                                Err(_elapsed) => ItemOutcome::Failed(format!(
+                                    "compression summary run timed out after {} ms",
+                                    policy.run_timeout_ms
+                                )),
+                                Ok(Err(e)) => {
+                                    warn!(
+                                        "Compression sub-workflow '{}' failed: {}",
+                                        workflow_id, e
+                                    );
+                                    ItemOutcome::Failed(e.to_string())
+                                }
+                                Ok(Ok(output)) => {
+                                    match serde_json::from_value::<Vec<Message>>(output) {
+                                        Ok(messages) if !messages.is_empty() => {
+                                            ItemOutcome::Messages(messages)
+                                        }
+                                        _ => ItemOutcome::Failed(
+                                            "compression sub-workflow returned no messages"
+                                                .to_string(),
+                                        ),
                                     }
                                 }
                             }
-                            Ok(Err(e)) => {
-                                warn!(
-                                    "Compression sub-workflow '{}' failed: {}",
-                                    workflow_id, e
-                                );
-                                Err(e.to_string())
+                        }
+                    };
+                    match outcome {
+                        ItemOutcome::Messages(messages) => {
+                            aggregated.extend(messages);
+                            break;
+                        }
+                        ItemOutcome::Aborted => {
+                            status = Some(ChainStatus::Aborted);
+                            break 'items;
+                        }
+                        ItemOutcome::Failed(error) => {
+                            if attempts >= max_attempts {
+                                status = Some(ChainStatus::Failed(error));
+                                break 'items;
+                            }
+                            debug!(
+                                "Compression attempt {attempts}/{max_attempts} for \
+                                 {execution_id_str}:{target_context_id} failed: {error}; retrying"
+                            );
+                            tokio::select! {
+                                _ = tokio::time::sleep(std::time::Duration::from_millis(
+                                    COMPRESSION_RETRY_BASE_DELAY_MS << (attempts - 1).min(6),
+                                )) => {}
+                                _ = shutdown.cancelled() => {
+                                    status = Some(ChainStatus::Aborted);
+                                    break 'items;
+                                }
                             }
                         }
                     }
-                };
-                match attempt {
-                    Ok(()) => break ChainStatus::Completed,
-                    Err(error) => {
-                        if attempts >= max_attempts {
-                            break ChainStatus::Failed(error);
+                }
+            }
+            let status: ChainStatus = match status {
+                Some(finished) => finished,
+                None => {
+                    // Every item produced its summary: one aggregated
+                    // write-back, so the version anchor advances once and a
+                    // single completion event lands for the whole batch.
+                    let output =
+                        serde_json::to_value(&aggregated).unwrap_or(serde_json::Value::Null);
+                    match handle_subworkflow_output(
+                        &contexts,
+                        &bus,
+                        &CompressionWriteBack {
+                            execution_id: &execution_id_str,
+                            agent_loop_id: agent_loop_id.as_deref(),
+                            target_context_id: &target_context_id,
+                            expected_version: array_version,
+                            tail_keep: policy.tail_keep,
+                            token_limit,
+                            degraded: false,
+                            degraded_dropped: 0,
+                            run_id: Some(run_id.clone()),
+                        },
+                        &output,
+                    )
+                    .await
+                    {
+                        Ok(()) => ChainStatus::Completed,
+                        Err(CompressionWriteBackError::Expired(detail)) => {
+                            ChainStatus::Expired(detail)
                         }
-                        debug!(
-                            "Compression attempt {attempts}/{max_attempts} for \
-                             {execution_id_str}:{target_context_id} failed: {error}; retrying"
-                        );
-                        tokio::select! {
-                            _ = tokio::time::sleep(std::time::Duration::from_millis(
-                                COMPRESSION_RETRY_BASE_DELAY_MS << (attempts - 1).min(6),
-                            )) => {}
-                            _ = shutdown.cancelled() => {
-                                break ChainStatus::Aborted;
-                            }
+                        Err(CompressionWriteBackError::Failed(error)) => {
+                            let detail = error.to_string();
+                            warn!(
+                                "Compression sub-workflow '{}' write-back failed: {}",
+                                workflow_id, detail
+                            );
+                            ChainStatus::Failed(detail)
                         }
                     }
                 }

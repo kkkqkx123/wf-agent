@@ -2,6 +2,7 @@ pub mod agent_prompt;
 pub mod approval;
 pub mod chat;
 pub mod checkpoint_scope;
+pub mod compaction;
 pub mod context;
 pub mod context_store;
 pub mod conversation_session;
@@ -59,6 +60,12 @@ pub use wf_shell::background_task::{
 // Conversation and token-usage engine contract: session state, message-array
 // operations, usage tracking and event builders relocated from the LLM
 // transport crate, which now only owns transport, config and estimation.
+pub use compaction::{
+    compaction_ratios_valid, resolve_compaction_thresholds, CompactionPlanItem,
+    CompactionThresholds, H_TARGET_RATIO_DEFAULT, K_REPRESS_DEFAULT, RECENT_RAW_TURNS_DEFAULT,
+    R_MIN_RANGE_DEFAULT, R_REPRESS_DEFAULT, T_COMPACT_RATIO_DEFAULT, T_HANDOFF_RATIO_DEFAULT,
+    T_HARD_RATIO_DEFAULT,
+};
 pub use context_store::{
     check_anchor, compression_event, compression_request, dispatch_compression_signal,
     dynamic_request_overhead, flight_expired, over_budget, wait_for_version_shift, WritebackOp,
@@ -79,17 +86,18 @@ pub use token_events::{
     build_llm_failed_event, build_llm_requested_event, build_llm_responded_event,
     build_llm_stream_aborted_event, build_llm_stream_error_event, build_token_limit_exceeded_event,
     build_token_usage_warning_event, compression_request_hook_data, compression_routed_messages,
-    compression_run_id, compression_settle_timeout_ms, is_compression_routed_event,
-    is_stream_abort, set_compression_run_id, set_compression_settle_timeout_ms,
-    ContextCompressionCompleted, ContextCompressionCompletedMeta, ContextCompressionDiscardedMeta,
-    ContextCompressionFailedMeta, ContextCompressionRequest, ContextCompressionRequestedMeta,
-    ConversationWritebackCompletedMeta, TokenEventMetaError, TokenLimitExceededMeta,
-    TokenUsageWarningMeta, COMPRESSION_SETTLE_POLL_MS, DEFAULT_COMPRESSION_SETTLE_TIMEOUT_MS,
-    DEFAULT_COMPRESSION_TAIL_KEEP, DEFAULT_TOKEN_WARNING_THRESHOLD, KEY_ARRAY_VERSION,
-    KEY_BUDGET_UNKNOWN, KEY_COMPLETION_TOKENS, KEY_COMPRESSION_ATTEMPTS, KEY_COMPRESSION_DEPTH,
-    KEY_COMPRESSION_ERROR, KEY_COMPRESSION_ROUTED, KEY_COMPRESSION_RUN_ID, KEY_CURRENT_VERSION,
-    KEY_DEGRADED, KEY_DEGRADED_DROPPED, KEY_DISCARD_REASON, KEY_FORCED, KEY_INJECTED_MESSAGE_COUNT,
-    KEY_MESSAGES, KEY_MESSAGE_COUNT, KEY_MODEL, KEY_NO_TAKER, KEY_PROFILE_ID, KEY_PROMPT_TOKENS,
+    compression_routed_plan, compression_run_id, compression_settle_timeout_ms,
+    is_compression_routed_event, is_stream_abort, set_compression_run_id,
+    set_compression_settle_timeout_ms, ContextCompressionCompleted,
+    ContextCompressionCompletedMeta, ContextCompressionDiscardedMeta, ContextCompressionFailedMeta,
+    ContextCompressionRequest, ContextCompressionRequestedMeta, ConversationWritebackCompletedMeta,
+    TokenEventMetaError, TokenLimitExceededMeta, TokenUsageWarningMeta, COMPRESSION_SETTLE_POLL_MS,
+    DEFAULT_COMPRESSION_SETTLE_TIMEOUT_MS, DEFAULT_COMPRESSION_TAIL_KEEP,
+    DEFAULT_TOKEN_WARNING_THRESHOLD, KEY_ARRAY_VERSION, KEY_BUDGET_UNKNOWN, KEY_COMPLETION_TOKENS,
+    KEY_COMPRESSION_ATTEMPTS, KEY_COMPRESSION_DEPTH, KEY_COMPRESSION_ERROR, KEY_COMPRESSION_ROUTED,
+    KEY_COMPRESSION_RUN_ID, KEY_CURRENT_VERSION, KEY_DEGRADED, KEY_DEGRADED_DROPPED,
+    KEY_DISCARD_REASON, KEY_FORCED, KEY_INJECTED_MESSAGE_COUNT, KEY_MESSAGES, KEY_MESSAGE_COUNT,
+    KEY_MODEL, KEY_NO_TAKER, KEY_PLAN, KEY_PLAN_COUNT, KEY_PROFILE_ID, KEY_PROMPT_TOKENS,
     KEY_STILL_OVER_BUDGET, KEY_STREAM_ABORT_REASON, KEY_STREAM_ERROR, KEY_SUMMARY, KEY_TAIL_KEEP,
     KEY_TARGET_CONTEXT_ID, KEY_TOKENS_AFTER, KEY_TOKENS_USED, KEY_TOKEN_LIMIT, KEY_TOOL_COUNT,
     KEY_USAGE_PERCENTAGE, KEY_WRITEBACK_OPERATION, WRITEBACK_OPERATION_APPEND,

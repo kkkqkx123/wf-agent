@@ -85,10 +85,18 @@ pub const KEY_COMPRESSION_RUN_ID: &str = "compression_run_id";
 /// Metadata key: number of transform_context-injected messages included in
 /// the array budget check (informational; only present when > 0).
 pub const KEY_INJECTED_MESSAGE_COUNT: &str = "injected_message_count";
+/// Payload key: compaction work plan carried by the compression signal's
+/// hook data and the routed handoff. Empty means the legacy single-summary
+/// mode, so old emitters stay valid without a plan.
+/// Audit copies carry only the plan length under [`KEY_PLAN_COUNT`].
 /// Payload key: serialized conversation messages carried by the compression
 /// signal's hook data (the functional snapshot for the taking-over service)
 /// and by the compression completed event (the compressed array). The audit
 /// copy of a requested event never carries it.
+pub const KEY_PLAN: &str = "plan";
+/// Metadata key: number of compaction work items on an audit copy.
+pub const KEY_PLAN_COUNT: &str = "plan_count";
+/// Payload key: serialized conversation messages carried by the compression
 pub const KEY_MESSAGES: &str = "messages";
 /// Metadata key: write-back operation of a `CONVERSATION_WRITEBACK_COMPLETED`
 /// event (only `append`; history is append-only).
@@ -230,6 +238,10 @@ pub struct ContextCompressionRequest<'a> {
     pub forced: bool,
     /// Snapshot of the messages the compression will summarize.
     pub messages: &'a [Message],
+    /// Compaction work plan over the snapshot. Empty means the legacy
+    /// single-summary mode; a non-empty plan makes the service run the
+    /// summary chain once per item and write back one aggregated result.
+    pub plan: &'a [crate::compaction::CompactionPlanItem],
 }
 
 /// Convert a [`ContextCompressionRequest`] into the hook payload map shared
@@ -266,6 +278,11 @@ pub fn compression_request_hook_data(
     }
     if let Ok(value) = serde_json::to_value(request.messages) {
         data.insert(KEY_MESSAGES.to_string(), value);
+    }
+    if !request.plan.is_empty() {
+        if let Ok(value) = serde_json::to_value(request.plan) {
+            data.insert(KEY_PLAN.to_string(), value);
+        }
     }
     data
 }
@@ -311,6 +328,9 @@ pub fn build_context_compression_requested_event(
     if request.forced && request.token_limit == 0 {
         pairs.push((KEY_BUDGET_UNKNOWN, serde_json::json!(true)));
     }
+    if !request.plan.is_empty() {
+        pairs.push((KEY_PLAN_COUNT, serde_json::json!(request.plan.len())));
+    }
     event.metadata = Some(metadata(pairs));
     event
 }
@@ -337,6 +357,11 @@ pub fn build_context_compression_routed_event(
     let meta = event.metadata.get_or_insert_with(Default::default);
     if let Ok(value) = serde_json::to_value(request.messages) {
         meta.insert(KEY_MESSAGES.to_string(), value);
+    }
+    if !request.plan.is_empty() {
+        if let Ok(value) = serde_json::to_value(request.plan) {
+            meta.insert(KEY_PLAN.to_string(), value);
+        }
     }
     meta.insert(KEY_COMPRESSION_ROUTED.to_string(), serde_json::json!(true));
     if depth > 0 {
@@ -366,6 +391,18 @@ pub fn compression_routed_messages(event: &BaseEvent) -> Vec<Message> {
         .metadata
         .as_ref()
         .map(get_messages)
+        .unwrap_or_default()
+}
+
+/// Work plan embedded on a routed compression event under [`KEY_PLAN`];
+/// absent or malformed plans degrade to an empty plan (legacy
+/// single-summary mode) rather than failing the handoff.
+pub fn compression_routed_plan(event: &BaseEvent) -> Vec<crate::compaction::CompactionPlanItem> {
+    event
+        .metadata
+        .as_ref()
+        .and_then(|meta| meta.get(KEY_PLAN))
+        .and_then(|value| serde_json::from_value(value.clone()).ok())
         .unwrap_or_default()
 }
 
@@ -680,6 +717,9 @@ pub struct ContextCompressionRequestedMeta {
     pub forced: bool,
     pub budget_unknown: bool,
     pub no_taker: bool,
+    /// Work plan carried by routed handoffs; empty on audit copies and on
+    /// old events predating the key (legacy single-summary mode).
+    pub plan: Vec<crate::compaction::CompactionPlanItem>,
 }
 
 /// Typed metadata of a [`EventType::ContextCompressionCompleted`] event.
@@ -879,6 +919,10 @@ impl TryFrom<&BaseEvent> for ContextCompressionRequestedMeta {
                 .get(KEY_NO_TAKER)
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false),
+            plan: meta
+                .get(KEY_PLAN)
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default(),
         })
     }
 }
@@ -1014,6 +1058,7 @@ mod tests {
                 array_version: 7,
                 forced: false,
                 messages: &[],
+                plan: &[],
             },
         );
         assert_eq!(event.r#type, EventType::ContextCompressionRequested);
@@ -1036,6 +1081,7 @@ mod tests {
                 array_version: 7,
                 forced: true,
                 messages: &[],
+                plan: &[],
             },
         );
         let forced_meta = forced.metadata.unwrap();
@@ -1055,6 +1101,7 @@ mod tests {
                 array_version: 7,
                 forced: true,
                 messages: &[],
+                plan: &[],
             },
         );
         let unknown_meta = unknown.metadata.unwrap();
@@ -1083,6 +1130,7 @@ mod tests {
             array_version: 1,
             forced: false,
             messages: std::slice::from_ref(&msg),
+            plan: &[],
         };
         let event = build_context_compression_requested_event("exec-1", None, &request);
         let meta = event.metadata.unwrap();
@@ -1225,6 +1273,7 @@ mod tests {
                 array_version: 5,
                 forced: true,
                 messages: std::slice::from_ref(&msg),
+                plan: &[],
             },
         );
         let meta = ContextCompressionRequestedMeta::try_from(&event).unwrap();
@@ -1254,12 +1303,67 @@ mod tests {
                 array_version: 0,
                 forced: false,
                 messages: &[],
+                plan: &[],
             },
         );
         let meta = ContextCompressionRequestedMeta::try_from(&bare).unwrap();
         assert_eq!(meta.message_count, 0);
         assert_eq!(meta.array_version, 0);
         assert!(!meta.forced);
+    }
+
+    #[test]
+    fn test_compression_plan_roundtrips_through_routed_event() {
+        let msg = wf_types::message::Message {
+            id: "m1".to_string(),
+            role: wf_types::message::MessageRole::User,
+            content: wf_types::message::MessageContentValue::Text("hello".to_string()),
+            timestamp: 0,
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: None,
+            thinking: None,
+            thinking_signature: None,
+            metadata: None,
+        };
+        let plan = [crate::compaction::CompactionPlanItem {
+            block_id: "b0001".to_string(),
+            start: 0,
+            end: 1,
+            depth: 0,
+        }];
+        let request = ContextCompressionRequest {
+            target_context_id: "chat",
+            tokens_used: 1200,
+            token_limit: 1000,
+            message_count: 1,
+            array_version: 5,
+            forced: false,
+            messages: std::slice::from_ref(&msg),
+            plan: &plan,
+        };
+        // The audit copy carries the plan length, never the plan itself.
+        let audit = build_context_compression_requested_event("exec-1", None, &request);
+        let audit_meta = audit.metadata.as_ref().unwrap();
+        assert_eq!(audit_meta[KEY_PLAN_COUNT], serde_json::json!(1));
+        assert!(!audit_meta.contains_key(KEY_PLAN));
+        // The routed handoff carries the full plan; the meta parses it back.
+        let routed = build_context_compression_routed_event("exec-1", None, &request, 0);
+        assert_eq!(compression_routed_plan(&routed), plan);
+        let meta = ContextCompressionRequestedMeta::try_from(&routed).unwrap();
+        assert_eq!(meta.plan, plan);
+        // Empty plans stay absent everywhere (legacy single-summary mode).
+        let bare = ContextCompressionRequest {
+            plan: &[],
+            ..request
+        };
+        let bare_audit = build_context_compression_requested_event("exec-1", None, &bare);
+        assert!(!bare_audit
+            .metadata
+            .as_ref()
+            .is_some_and(|m| m.contains_key(KEY_PLAN_COUNT)));
+        let hook_data = compression_request_hook_data(&bare);
+        assert!(!hook_data.contains_key(KEY_PLAN));
     }
 
     #[test]
@@ -1359,6 +1463,7 @@ mod tests {
                 array_version: 0,
                 forced: false,
                 messages: &[],
+                plan: &[],
             },
         );
         let err = ConversationWritebackCompletedMeta::try_from(&compression).unwrap_err();

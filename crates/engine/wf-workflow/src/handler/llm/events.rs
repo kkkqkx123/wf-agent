@@ -143,6 +143,7 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
         array_version,
         true,
         &request.messages,
+        &[],
     );
     let dispatched = dispatch_compression_signal(ctx, &compression_request).await;
     let mut audit = wf_execution_shared::context_store::compression_event(

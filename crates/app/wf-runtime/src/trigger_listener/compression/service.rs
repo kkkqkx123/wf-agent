@@ -119,6 +119,7 @@ impl CompressionService {
             array_version: signal.array_version,
             forced: signal.forced,
             messages: &signal.messages,
+            plan: &signal.plan,
         };
         let event = wf_execution_shared::build_context_compression_routed_event(
             execution_id,
@@ -173,6 +174,7 @@ impl HookHandler for CompressionService {
                     array_version: signal.array_version,
                     depth: signal.depth,
                     messages: signal.messages,
+                    plan: signal.plan,
                     agent_loop_id: signal.agent_loop_id,
                 });
             }

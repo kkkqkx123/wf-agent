@@ -38,6 +38,7 @@ pub fn over_budget(estimated_tokens: u64, token_limit: u64) -> bool {
 /// Build one compression request over a message snapshot. Pure
 /// constructor shared by the agent and workflow emitters so both sides
 /// agree on the payload shape.
+#[allow(clippy::too_many_arguments)]
 pub fn compression_request<'a>(
     target_context_id: &'a str,
     tokens_used: u64,
@@ -46,6 +47,7 @@ pub fn compression_request<'a>(
     array_version: u64,
     forced: bool,
     messages: &'a [Message],
+    plan: &'a [crate::CompactionPlanItem],
 ) -> crate::ContextCompressionRequest<'a> {
     crate::ContextCompressionRequest {
         target_context_id,
@@ -55,6 +57,7 @@ pub fn compression_request<'a>(
         array_version,
         forced,
         messages,
+        plan,
     }
 }
 
@@ -250,7 +253,7 @@ mod tests {
     #[test]
     fn compression_request_carries_snapshot() {
         let messages = vec![msg(MessageRole::User, "hi")];
-        let request = compression_request("chat", 1200, 1000, 1, 7, false, &messages);
+        let request = compression_request("chat", 1200, 1000, 1, 7, false, &messages, &[]);
         assert_eq!(request.target_context_id, "chat");
         assert_eq!(request.array_version, 7);
         assert!(!request.forced);

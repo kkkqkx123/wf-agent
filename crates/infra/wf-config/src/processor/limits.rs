@@ -15,7 +15,8 @@ use crate::error::{ConfigError, ConfigResult};
 use crate::validator::validate_min;
 
 use wf_types::config::limits::{
-    AgentLimits, CompressionLimits, ExecutionDefaults, LimitsConfig, WorkflowLimits,
+    AgentLimits, CompactionLimits, CompressionLimits, ExecutionDefaults, LimitsConfig,
+    WorkflowLimits,
 };
 
 pub const AGENT_MAX_ITERATIONS_CAP_DEFAULT: u32 = 1000;
@@ -36,6 +37,15 @@ pub const COMPRESSION_TAIL_KEEP_DEFAULT: usize = 2;
 pub const COMPRESSION_MAX_RETRIES_DEFAULT: u32 = 1;
 pub const COMPRESSION_TIMEOUT_MS_DEFAULT: u64 = 240_000;
 pub const COMPRESSION_SETTLE_TIMEOUT_MS_DEFAULT: u64 = 300_000;
+
+pub const COMPACTION_H_TARGET_RATIO_DEFAULT: f64 = 0.30;
+pub const COMPACTION_T_HANDOFF_RATIO_DEFAULT: f64 = 0.55;
+pub const COMPACTION_T_COMPACT_RATIO_DEFAULT: f64 = 0.70;
+pub const COMPACTION_T_HARD_RATIO_DEFAULT: f64 = 0.85;
+pub const COMPACTION_R_REPRESS_DEFAULT: u64 = 5000;
+pub const COMPACTION_R_MIN_RANGE_DEFAULT: u64 = 2000;
+pub const COMPACTION_K_REPRESS_DEFAULT: u32 = 2;
+pub const COMPACTION_RECENT_RAW_TURNS_DEFAULT: usize = 2;
 
 /// Merge user limits with defaults, filling every absent field so the
 /// returned config carries concrete values (never `None`).
@@ -102,11 +112,42 @@ pub fn merge_limits_with_defaults(user: &LimitsConfig) -> LimitsConfig {
             .or(Some(COMPRESSION_SETTLE_TIMEOUT_MS_DEFAULT)),
     };
 
+    let user_compaction = user.compaction.as_ref();
+    let compaction = CompactionLimits {
+        h_target_ratio: user_compaction
+            .and_then(|c| c.h_target_ratio)
+            .or(Some(COMPACTION_H_TARGET_RATIO_DEFAULT)),
+        t_handoff_ratio: user_compaction
+            .and_then(|c| c.t_handoff_ratio)
+            .or(Some(COMPACTION_T_HANDOFF_RATIO_DEFAULT)),
+        t_compact_ratio: user_compaction
+            .and_then(|c| c.t_compact_ratio)
+            .or(Some(COMPACTION_T_COMPACT_RATIO_DEFAULT)),
+        t_hard_ratio: user_compaction
+            .and_then(|c| c.t_hard_ratio)
+            .or(Some(COMPACTION_T_HARD_RATIO_DEFAULT)),
+        r_repress: user_compaction
+            .and_then(|c| c.r_repress)
+            .or(Some(COMPACTION_R_REPRESS_DEFAULT)),
+        r_min_range: user_compaction
+            .and_then(|c| c.r_min_range)
+            .or(Some(COMPACTION_R_MIN_RANGE_DEFAULT)),
+        k_repress: user_compaction
+            .and_then(|c| c.k_repress)
+            .or(Some(COMPACTION_K_REPRESS_DEFAULT)),
+        recent_raw_turns: user_compaction
+            .and_then(|c| c.recent_raw_turns)
+            .or(Some(COMPACTION_RECENT_RAW_TURNS_DEFAULT)),
+        tool_distill: user_compaction.and_then(|c| c.tool_distill).or(Some(true)),
+        file_dedup: user_compaction.and_then(|c| c.file_dedup).or(Some(true)),
+    };
+
     LimitsConfig {
         agent: Some(agent),
         workflow: Some(workflow),
         execution_defaults: Some(execution_defaults),
         compression: Some(compression),
+        compaction: Some(compaction),
     }
 }
 
@@ -171,6 +212,62 @@ pub fn validate_limits_config(config: &LimitsConfig) -> ConfigResult<()> {
             validate_min(settle, 1, "limits.compression.settle_timeout_ms")?;
         }
     }
+    if let Some(ref compaction) = config.compaction {
+        let ratios = [
+            (
+                "limits.compaction.h_target_ratio",
+                compaction.h_target_ratio,
+            ),
+            (
+                "limits.compaction.t_handoff_ratio",
+                compaction.t_handoff_ratio,
+            ),
+            (
+                "limits.compaction.t_compact_ratio",
+                compaction.t_compact_ratio,
+            ),
+            ("limits.compaction.t_hard_ratio", compaction.t_hard_ratio),
+        ];
+        for (name, value) in ratios {
+            match value {
+                Some(r) if r > 0.0 && r < 1.0 => {}
+                _ => {
+                    return Err(ConfigError::Validation(format!(
+                        "{name} must be within (0, 1)"
+                    )));
+                }
+            }
+        }
+        let h = compaction.h_target_ratio.unwrap_or(0.0);
+        let ho = compaction.t_handoff_ratio.unwrap_or(0.0);
+        let c = compaction.t_compact_ratio.unwrap_or(0.0);
+        let hard = compaction.t_hard_ratio.unwrap_or(0.0);
+        if !(h < ho && ho < c && c < hard) {
+            return Err(ConfigError::Validation(
+                "limits.compaction ratios must strictly increase: h_target < t_handoff < t_compact < t_hard"
+                    .to_string(),
+            ));
+        }
+        if let Some(r_min) = compaction.r_min_range {
+            validate_min(r_min, 1, "limits.compaction.r_min_range")?;
+        }
+        if let Some(r_repress) = compaction.r_repress {
+            validate_min(r_repress, 1, "limits.compaction.r_repress")?;
+        }
+        if let (Some(r_min), Some(r_repress)) = (compaction.r_min_range, compaction.r_repress) {
+            if r_min >= r_repress {
+                return Err(ConfigError::Validation(
+                    "limits.compaction.r_min_range must be smaller than r_repress".to_string(),
+                ));
+            }
+        }
+        if let Some(k) = compaction.k_repress {
+            validate_min(k, 1, "limits.compaction.k_repress")?;
+        }
+        if let Some(turns) = compaction.recent_raw_turns {
+            validate_min(turns as u64, 1, "limits.compaction.recent_raw_turns")?;
+        }
+    }
     Ok(())
 }
 
@@ -200,6 +297,17 @@ mod tests {
         assert_eq!(compression.max_retries, Some(1));
         assert_eq!(compression.timeout_ms, Some(240_000));
         assert_eq!(compression.settle_timeout_ms, Some(300_000));
+        let compaction = merged.compaction.unwrap();
+        assert_eq!(compaction.h_target_ratio, Some(0.30));
+        assert_eq!(compaction.t_handoff_ratio, Some(0.55));
+        assert_eq!(compaction.t_compact_ratio, Some(0.70));
+        assert_eq!(compaction.t_hard_ratio, Some(0.85));
+        assert_eq!(compaction.r_repress, Some(5000));
+        assert_eq!(compaction.r_min_range, Some(2000));
+        assert_eq!(compaction.k_repress, Some(2));
+        assert_eq!(compaction.recent_raw_turns, Some(2));
+        assert_eq!(compaction.tool_distill, Some(true));
+        assert_eq!(compaction.file_dedup, Some(true));
     }
 
     #[test]
@@ -222,6 +330,7 @@ mod tests {
                 tail_keep: Some(5),
                 ..Default::default()
             }),
+            ..Default::default()
         };
         let merged = merge_limits_with_defaults(&user);
         let agent = merged.agent.clone().unwrap();
@@ -231,6 +340,43 @@ mod tests {
         assert_eq!(agent.default_max_iterations, Some(20));
         assert_eq!(workflow.loop_max_iterations_cap, Some(5000));
         assert_eq!(defaults.node_timeout_ms, Some(60000));
+    }
+
+    #[test]
+    fn test_validate_compaction_rejects_unordered_ratios() {
+        let bad = LimitsConfig {
+            compaction: Some(CompactionLimits {
+                h_target_ratio: Some(0.70),
+                t_handoff_ratio: Some(0.55),
+                t_compact_ratio: Some(0.70),
+                t_hard_ratio: Some(0.85),
+                r_repress: Some(5000),
+                r_min_range: Some(2000),
+                k_repress: Some(2),
+                recent_raw_turns: Some(2),
+                tool_distill: Some(true),
+                file_dedup: Some(true),
+            }),
+            ..Default::default()
+        };
+        assert!(validate_limits_config(&bad).is_err());
+
+        let bad_range = LimitsConfig {
+            compaction: Some(CompactionLimits {
+                h_target_ratio: Some(0.30),
+                t_handoff_ratio: Some(0.55),
+                t_compact_ratio: Some(0.70),
+                t_hard_ratio: Some(0.85),
+                r_repress: Some(2000),
+                r_min_range: Some(5000),
+                k_repress: Some(2),
+                recent_raw_turns: Some(2),
+                tool_distill: Some(true),
+                file_dedup: Some(true),
+            }),
+            ..Default::default()
+        };
+        assert!(validate_limits_config(&bad_range).is_err());
     }
 
     #[test]

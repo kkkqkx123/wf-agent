@@ -11,6 +11,9 @@ pub(super) struct CompressionSignal {
     pub(super) forced: bool,
     pub(super) depth: u64,
     pub(super) messages: Vec<Message>,
+    /// Compaction work plan; empty means the legacy single-summary mode.
+    /// Malformed plans degrade to empty rather than failing the signal.
+    pub(super) plan: Vec<wf_execution_shared::CompactionPlanItem>,
     /// Present when the emitting execution is an agent loop (its conversation
     /// self-consumes the completed event); absent for workflow targets.
     pub(super) agent_loop_id: Option<String>,
@@ -35,6 +38,9 @@ pub(super) fn parse_compression_signal(ctx: &HookContext) -> Option<CompressionS
             .and_then(|v| v.as_u64())
             .unwrap_or(0),
         messages: get(KEY_MESSAGES)
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default(),
+        plan: get(wf_execution_shared::KEY_PLAN)
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default(),
         agent_loop_id: ctx

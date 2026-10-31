@@ -1322,6 +1322,7 @@ async fn run_routed_rejects_non_handoff_without_spawn() {
             array_version: 7,
             forced: false,
             messages: &messages,
+            plan: &[],
         },
     );
     let template = super::compression::builtin_compression_template();
@@ -2040,4 +2041,69 @@ async fn listener_subscription_exists_synchronously_after_start() {
     );
 
     stop_trigger_listener(listener).await;
+}
+
+#[tokio::test]
+async fn compression_plan_runs_per_item_and_writes_back_once() {
+    // Plan mode over one pipeline: two items run the summary chain serially
+    // and a single aggregated completion lands for the whole batch (the
+    // version anchor advances once). An empty plan keeps the legacy
+    // single-summary behavior; this test covers the non-empty path.
+    let bus = Arc::new(EventBus::new(64));
+    let mut sub = bus.subscribe();
+    let contexts = Arc::new(ExecutionContextRegistry::new());
+    let registry = Arc::new(HookHandlerRegistry::new());
+    let runner = Arc::new(FlakySummaryRunner {
+        fail_first: 0,
+        calls: std::sync::atomic::AtomicU32::new(0),
+    });
+    register_compression_handler(
+        &registry,
+        CompressionHandlerDeps {
+            event_bus: bus.clone(),
+            runner: runner.clone(),
+            contexts,
+            summary_workflow_id: "stub/llm-summary".to_string(),
+            shutdown: CancellationToken::new(),
+            ledger: None,
+            policy: stub_compression_policy(
+                1,
+                5_000,
+                wf_types::workflow::CompressionFallbackMode::Fail,
+            ),
+        },
+    );
+
+    let messages = vec![
+        text_message(MessageRole::User, "first"),
+        text_message(MessageRole::User, "second"),
+        text_message(MessageRole::User, "third"),
+        text_message(MessageRole::User, "fourth"),
+    ];
+    let mut ctx = agent_compression_signal(&messages);
+    let plan = vec![
+        wf_execution_shared::CompactionPlanItem {
+            block_id: "b0001".to_string(),
+            start: 0,
+            end: 2,
+            depth: 0,
+        },
+        wf_execution_shared::CompactionPlanItem {
+            block_id: "b0002".to_string(),
+            start: 2,
+            end: 99,
+            depth: 0,
+        },
+    ];
+    ctx.data.insert(
+        wf_execution_shared::KEY_PLAN.to_string(),
+        serde_json::to_value(&plan).expect("plan serializes"),
+    );
+    fire_compression_signal(&registry, &bus, &ctx).await;
+    let completed = next_compression_event(&mut sub, EventType::ContextCompressionCompleted).await;
+    let meta = wf_execution_shared::ContextCompressionCompletedMeta::try_from(&completed).unwrap();
+    assert_eq!(meta.target_context_id, "chat");
+    assert_eq!(meta.array_version, 7);
+    assert_eq!(meta.messages.len(), 2);
+    assert_eq!(runner.calls.load(std::sync::atomic::Ordering::SeqCst), 2);
 }

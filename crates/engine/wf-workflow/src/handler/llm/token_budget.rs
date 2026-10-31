@@ -159,6 +159,7 @@ pub async fn emit_token_usage_events(
                 version,
                 false,
                 &context_messages,
+                &[],
             );
             // Synchronous signal delivery first so the audit copy can persist
             // the taker outcome. A missing registry is already warned inside

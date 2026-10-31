@@ -1072,6 +1072,8 @@ mod tests {
                     variables: Some(vec![wf_types::TemplateVariableDefinition {
                         name: "who".into(),
                         r#type: wf_types::TemplateVariableType::String,
+                        properties: None,
+                        element_type: None,
                         required: true,
                         description: None,
                         default_value: None,
@@ -1105,6 +1107,8 @@ mod tests {
                     variables: Some(vec![wf_types::TemplateVariableDefinition {
                         name: "who".into(),
                         r#type: wf_types::TemplateVariableType::String,
+                        properties: None,
+                        element_type: None,
                         required: true,
                         description: None,
                         default_value: Some(serde_json::Value::String("fallback".into())),
@@ -1149,6 +1153,8 @@ mod tests {
                     variables: Some(vec![wf_types::TemplateVariableDefinition {
                         name: "count".into(),
                         r#type: wf_types::TemplateVariableType::Number,
+                        properties: None,
+                        element_type: None,
                         required: true,
                         description: None,
                         default_value: None,
@@ -1180,6 +1186,8 @@ mod tests {
                     variables: Some(vec![wf_types::TemplateVariableDefinition {
                         name: "who".into(),
                         r#type: wf_types::TemplateVariableType::String,
+                        properties: None,
+                        element_type: None,
                         required: true,
                         description: None,
                         default_value: Some(serde_json::Value::String(String::new())),
@@ -1208,6 +1216,8 @@ mod tests {
                     variables: Some(vec![wf_types::TemplateVariableDefinition {
                         name: "user".into(),
                         r#type: wf_types::TemplateVariableType::Object,
+                        properties: None,
+                        element_type: None,
                         required: true,
                         description: None,
                         default_value: None,
@@ -1249,6 +1259,8 @@ mod tests {
                     variables: Some(vec![wf_types::TemplateVariableDefinition {
                         name: "count".into(),
                         r#type: wf_types::TemplateVariableType::Number,
+                        properties: None,
+                        element_type: None,
                         required: true,
                         description: None,
                         default_value: None,
@@ -1284,6 +1296,8 @@ mod tests {
                     variables: Some(vec![wf_types::TemplateVariableDefinition {
                         name: "user.name".into(),
                         r#type: wf_types::TemplateVariableType::String,
+                        properties: None,
+                        element_type: None,
                         required: false,
                         description: None,
                         default_value: Some(serde_json::Value::String("fallback".into())),

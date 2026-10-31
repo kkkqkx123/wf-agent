@@ -196,6 +196,8 @@ mod tests {
         template.variables = Some(vec![wf_types::TemplateVariableDefinition {
             name: "unused".to_string(),
             r#type: wf_types::TemplateVariableType::String,
+            properties: None,
+            element_type: None,
             required: false,
             description: None,
             default_value: None,
@@ -211,6 +213,8 @@ mod tests {
         template.variables = Some(vec![wf_types::TemplateVariableDefinition {
             name: "code".to_string(),
             r#type: wf_types::TemplateVariableType::String,
+            properties: None,
+            element_type: None,
             required: true,
             description: None,
             default_value: None,
@@ -227,6 +231,8 @@ mod tests {
         template.variables = Some(vec![wf_types::TemplateVariableDefinition {
             name: "cutoff_date".to_string(),
             r#type: wf_types::TemplateVariableType::String,
+            properties: None,
+            element_type: None,
             required: false,
             description: None,
             default_value: None,
@@ -252,6 +258,8 @@ mod tests {
         template.variables = Some(vec![wf_types::TemplateVariableDefinition {
             name: "count".to_string(),
             r#type: wf_types::TemplateVariableType::Number,
+            properties: None,
+            element_type: None,
             required: false,
             description: None,
             default_value: Some(serde_json::json!("not-a-number")),
@@ -267,6 +275,8 @@ mod tests {
         template.variables = Some(vec![wf_types::TemplateVariableDefinition {
             name: "user".to_string(),
             r#type: wf_types::TemplateVariableType::Object,
+            properties: None,
+            element_type: None,
             required: true,
             description: None,
             default_value: None,
@@ -281,6 +291,8 @@ mod tests {
         template.variables = Some(vec![wf_types::TemplateVariableDefinition {
             name: "9bad".to_string(),
             r#type: wf_types::TemplateVariableType::String,
+            properties: None,
+            element_type: None,
             required: false,
             description: None,
             default_value: None,
@@ -307,6 +319,8 @@ mod tests {
         template.variables = Some(vec![wf_types::TemplateVariableDefinition {
             name: "tone".to_string(),
             r#type: wf_types::TemplateVariableType::String,
+            properties: None,
+            element_type: None,
             required: false,
             description: None,
             default_value: None,
@@ -314,6 +328,8 @@ mod tests {
         let fragment_vars = vec![wf_types::TemplateVariableDefinition {
             name: "tone".to_string(),
             r#type: wf_types::TemplateVariableType::Number,
+            properties: None,
+            element_type: None,
             required: false,
             description: None,
             default_value: None,
@@ -331,6 +347,8 @@ mod tests {
         template.variables = Some(vec![wf_types::TemplateVariableDefinition {
             name: "user.name".to_string(),
             r#type: wf_types::TemplateVariableType::String,
+            properties: None,
+            element_type: None,
             required: false,
             description: None,
             default_value: None,

@@ -210,7 +210,7 @@ async fn run_agent(
     io: &mut RunIo,
 ) -> CliResult<RunOutcome> {
     use std::time::Instant;
-    if opts.prompt.trim().is_empty() {
+    if wf_types::message::is_blank_user_text(&opts.prompt) {
         return Err(CliError::Arguments(
             "no prompt given: pass a positional argument or pipe stdin".into(),
         ));

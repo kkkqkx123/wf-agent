@@ -97,26 +97,8 @@ pub fn validate_workflow_input_with_variables(
 /// definition is loaded; this gate only enforces the top-level shape so
 /// free-form strings can never reach the engine as `input`.
 pub fn validate_workflow_input(input: Option<&Value>) -> Result<(), crate::infra::error::ApiError> {
-    match input {
-        None | Some(Value::Null) => Ok(()),
-        Some(Value::Object(_)) => Ok(()),
-        Some(other) => Err(crate::infra::error::ApiError::Validation(format!(
-            "workflow input must be a JSON object or empty, got {}",
-            input_shape_kind(other)
-        ))),
-    }
-}
-
-fn input_shape_kind(value: &Value) -> &'static str {
-    if value.is_array() {
-        "array"
-    } else if value.is_string() {
-        "string"
-    } else if value.is_number() {
-        "number"
-    } else {
-        "boolean"
-    }
+    wf_types::workflow_execution::validate_workflow_input_shape(input)
+        .map_err(crate::infra::error::ApiError::Validation)
 }
 
 /// Shared runtime budget gate: numeric budgets must be positive when set.
@@ -410,6 +392,19 @@ pub async fn resume(
             warnings = ?resume_report.warnings,
             "resumed workflow input differs from the current definition; continuing with persisted input"
         );
+        let _ = ctx.event_bus.publish(wf_types::events::BaseEvent {
+            id: wf_common::generate_id(),
+            r#type: wf_types::events::EventType::WorkflowExecutionResumed,
+            timestamp: wf_common::now(),
+            workflow_id: Some(wf_types::Id::from(workflow_id.clone())),
+            execution_id: Some(wf_types::Id::from(execution_id.to_string())),
+            agent_loop_id: None,
+            event_name: Some("resume_input_warnings".to_string()),
+            metadata: Some(std::collections::HashMap::from([(
+                "warnings".to_string(),
+                serde_json::json!(resume_report.warnings),
+            )])),
+        });
     }
     let graph =
         super::graph::resolve_graph_for_definition(ctx, &workflow_id, &mut definition).await?;

@@ -25,6 +25,8 @@ pub fn register_custom_prompts(
                 .map(|v| wf_types::TemplateVariableDefinition {
                     name: v.name,
                     r#type: v.var_type,
+                    properties: None,
+                    element_type: None,
                     required: v.required.unwrap_or(false),
                     description: v.description,
                     default_value: v.default_value,

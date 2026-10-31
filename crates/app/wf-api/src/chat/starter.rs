@@ -881,6 +881,8 @@ mod tests {
                 wf_types::TemplateVariableDefinition {
                     name: "path".to_string(),
                     r#type: wf_types::TemplateVariableType::String,
+                    properties: None,
+                    element_type: None,
                     required: true,
                     description: None,
                     default_value: None,
@@ -888,6 +890,8 @@ mod tests {
                 wf_types::TemplateVariableDefinition {
                     name: "count".to_string(),
                     r#type: wf_types::TemplateVariableType::Number,
+                    properties: None,
+                    element_type: None,
                     required: false,
                     description: None,
                     default_value: None,
@@ -926,6 +930,8 @@ mod tests {
                 wf_types::TemplateVariableDefinition {
                     name: "a".to_string(),
                     r#type: wf_types::TemplateVariableType::String,
+                    properties: None,
+                    element_type: None,
                     required: true,
                     description: None,
                     default_value: None,
@@ -933,6 +939,8 @@ mod tests {
                 wf_types::TemplateVariableDefinition {
                     name: "b".to_string(),
                     r#type: wf_types::TemplateVariableType::String,
+                    properties: None,
+                    element_type: None,
                     required: true,
                     description: None,
                     default_value: None,
@@ -940,6 +948,8 @@ mod tests {
                 wf_types::TemplateVariableDefinition {
                     name: "opt".to_string(),
                     r#type: wf_types::TemplateVariableType::String,
+                    properties: None,
+                    element_type: None,
                     required: false,
                     description: None,
                     default_value: None,

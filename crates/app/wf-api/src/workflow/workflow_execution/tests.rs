@@ -295,6 +295,8 @@ fn workflow_input_typed_gate_checks_declared_types() {
         name: "count".to_string(),
         value: serde_json::Value::Null,
         r#type: Some(VariableValueType::Number),
+        properties: None,
+        element_type: None,
         scope: None,
         readonly: None,
         required: None,

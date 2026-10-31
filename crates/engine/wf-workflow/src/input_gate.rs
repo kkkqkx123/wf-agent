@@ -4,29 +4,9 @@ use wf_types::workflow_execution::WorkflowExecutionOptions;
 
 use crate::error::{WorkflowError, WorkflowResult};
 
-fn input_shape_kind(value: &Value) -> &'static str {
-    if value.is_array() {
-        "array"
-    } else if value.is_string() {
-        "string"
-    } else if value.is_number() {
-        "number"
-    } else if value.is_boolean() {
-        "boolean"
-    } else {
-        "object"
-    }
-}
-
 pub fn validate_input_shape(input: Option<&Value>) -> WorkflowResult<()> {
-    match input {
-        None | Some(Value::Null) => Ok(()),
-        Some(Value::Object(_)) => Ok(()),
-        Some(other) => Err(WorkflowError::VariableError(format!(
-            "workflow input must be a JSON object or empty, got {}",
-            input_shape_kind(other)
-        ))),
-    }
+    wf_types::workflow_execution::validate_workflow_input_shape(input)
+        .map_err(WorkflowError::VariableError)
 }
 
 /// Collect every non-positive runtime budget without stopping at the
@@ -210,6 +190,8 @@ mod tests {
             name: name.to_string(),
             value: default,
             r#type,
+            properties: None,
+            element_type: None,
             scope: None,
             readonly: None,
             required,

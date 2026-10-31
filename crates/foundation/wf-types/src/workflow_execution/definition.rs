@@ -69,6 +69,8 @@ impl From<WorkflowExecutionStateSnapshot> for WorkflowExecution {
                     name,
                     value,
                     r#type: None,
+                    properties: None,
+                    element_type: None,
                     scope: None,
                     readonly: None,
                     required: None,

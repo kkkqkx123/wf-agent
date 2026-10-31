@@ -62,6 +62,8 @@ impl ResourceAssembler for GoalReviewResourceAssembler {
                         default: None,
                         required: Some(true),
                         allowed_functions: None,
+                        properties: None,
+                        element_type: None,
                     },
                 ),
                 (
@@ -72,6 +74,8 @@ impl ResourceAssembler for GoalReviewResourceAssembler {
                         default: None,
                         required: None,
                         allowed_functions: None,
+                        properties: None,
+                        element_type: None,
                     },
                 ),
                 (
@@ -82,6 +86,8 @@ impl ResourceAssembler for GoalReviewResourceAssembler {
                         default: Some(json!(DEFAULT_MAX_ITERATIONS)),
                         required: None,
                         allowed_functions: None,
+                        properties: None,
+                        element_type: None,
                     },
                 ),
                 (
@@ -92,6 +98,8 @@ impl ResourceAssembler for GoalReviewResourceAssembler {
                         default: Some(json!(DEFAULT_PLANNER_PROFILE_ID)),
                         required: None,
                         allowed_functions: None,
+                        properties: None,
+                        element_type: None,
                     },
                 ),
                 (
@@ -102,6 +110,8 @@ impl ResourceAssembler for GoalReviewResourceAssembler {
                         default: None,
                         required: None,
                         allowed_functions: None,
+                        properties: None,
+                        element_type: None,
                     },
                 ),
                 (
@@ -112,6 +122,8 @@ impl ResourceAssembler for GoalReviewResourceAssembler {
                         default: None,
                         required: None,
                         allowed_functions: None,
+                        properties: None,
+                        element_type: None,
                     },
                 ),
                 (
@@ -122,6 +134,8 @@ impl ResourceAssembler for GoalReviewResourceAssembler {
                         default: None,
                         required: None,
                         allowed_functions: None,
+                        properties: None,
+                        element_type: None,
                     },
                 ),
                 (
@@ -132,6 +146,8 @@ impl ResourceAssembler for GoalReviewResourceAssembler {
                         default: None,
                         required: None,
                         allowed_functions: None,
+                        properties: None,
+                        element_type: None,
                     },
                 ),
                 (
@@ -142,6 +158,8 @@ impl ResourceAssembler for GoalReviewResourceAssembler {
                         default: None,
                         required: None,
                         allowed_functions: None,
+                        properties: None,
+                        element_type: None,
                     },
                 ),
                 (
@@ -152,6 +170,8 @@ impl ResourceAssembler for GoalReviewResourceAssembler {
                         default: None,
                         required: None,
                         allowed_functions: None,
+                        properties: None,
+                        element_type: None,
                     },
                 ),
                 (
@@ -163,6 +183,8 @@ impl ResourceAssembler for GoalReviewResourceAssembler {
                         default: None,
                         required: None,
                         allowed_functions: None,
+                        properties: None,
+                        element_type: None,
                     },
                 ),
                 (
@@ -173,6 +195,8 @@ impl ResourceAssembler for GoalReviewResourceAssembler {
                         default: None,
                         required: None,
                         allowed_functions: None,
+                        properties: None,
+                        element_type: None,
                     },
                 ),
                 (
@@ -183,6 +207,8 @@ impl ResourceAssembler for GoalReviewResourceAssembler {
                         default: None,
                         required: None,
                         allowed_functions: None,
+                        properties: None,
+                        element_type: None,
                     },
                 ),
                 (
@@ -193,6 +219,8 @@ impl ResourceAssembler for GoalReviewResourceAssembler {
                         default: None,
                         required: None,
                         allowed_functions: None,
+                        properties: None,
+                        element_type: None,
                     },
                 ),
             ])),

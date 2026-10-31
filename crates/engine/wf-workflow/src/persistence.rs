@@ -68,6 +68,8 @@ pub async fn build_workflow_execution(
             name: entry.key().clone(),
             value: entry.value().clone(),
             r#type: None,
+            properties: None,
+            element_type: None,
             scope: None,
             readonly: None,
             required: None,

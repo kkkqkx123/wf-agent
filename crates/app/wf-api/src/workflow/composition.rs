@@ -169,6 +169,8 @@ mod tests {
             name: "city".to_string(),
             value: serde_json::json!("paris"),
             r#type: Some(VariableValueType::String),
+            properties: None,
+            element_type: None,
             scope: None,
             readonly: None,
             required: None,

@@ -30,6 +30,8 @@ fn variable(
         name: name.into(),
         value,
         r#type: Some(value_type),
+        properties: None,
+        element_type: None,
         scope: None,
         readonly: Some(readonly),
         required: None,

@@ -36,6 +36,8 @@ fn string_field(description: &str, default: Option<Value>) -> ResourceAssemblerC
         default,
         required: None,
         allowed_functions: None,
+        properties: None,
+        element_type: None,
     }
 }
 
@@ -59,6 +61,8 @@ impl ResourceAssembler for SpecWorkflowResourceAssembler {
                         default: None,
                         required: Some(true),
                         allowed_functions: None,
+                        properties: None,
+                        element_type: None,
                     },
                 ),
                 (
@@ -101,6 +105,8 @@ impl ResourceAssembler for SpecWorkflowResourceAssembler {
                         default: Some(json!(true)),
                         required: None,
                         allowed_functions: None,
+                        properties: None,
+                        element_type: None,
                     },
                 ),
                 (
@@ -112,6 +118,8 @@ impl ResourceAssembler for SpecWorkflowResourceAssembler {
                         default: Some(json!(true)),
                         required: None,
                         allowed_functions: None,
+                        properties: None,
+                        element_type: None,
                     },
                 ),
             ])),

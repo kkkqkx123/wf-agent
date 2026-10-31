@@ -206,38 +206,27 @@ impl AgentLoopValidator {
     /// Validate one context map against an optional shape contract.
     ///
     /// Key names always pass `validate_template_path`; declared keys must
-    /// match their shape (`variable_value_matches`) and required keys
-    /// without a default must be present. Unknown keys pass for forward
-    /// compatibility.
+    /// match their kind plus one level of nesting and required keys
+    /// without a default must be present. Explicit null counts as missing.
+    /// Unknown keys pass for forward compatibility.
     pub fn validate_context_with_schema(
         context: &std::collections::HashMap<String, serde_json::Value>,
         schema: &[wf_types::TemplateVariableDefinition],
     ) -> Vec<ValidationIssue> {
-        let mut issues = Vec::new();
-        for declared in schema {
-            match &context.get(&declared.name) {
-                None => {
-                    if declared.required && declared.default_value.is_none() {
-                        issues.push(ValidationIssue::error(
-                            format!("context.{}", declared.name),
-                            format!("context key '{}' is required", declared.name),
-                        ));
-                    }
-                }
-                Some(value) => {
-                    if !wf_types::template::variable_value_matches(&declared.r#type, value) {
-                        issues.push(ValidationIssue::error(
-                            format!("context.{}", declared.name),
-                            format!(
-                                "context key '{}' expects {:?}, got {}",
-                                declared.name, declared.r#type, value
-                            ),
-                        ));
-                    }
-                }
-            }
-        }
-        issues
+        Self::validate_context_with_schema_with_policy(context, schema, false)
+    }
+
+    /// Policy variant of [`validate_context_with_schema`](Self::validate_context_with_schema).
+    /// `strict` rejects unknown non-null keys.
+    pub fn validate_context_with_schema_with_policy(
+        context: &std::collections::HashMap<String, serde_json::Value>,
+        schema: &[wf_types::TemplateVariableDefinition],
+        strict: bool,
+    ) -> Vec<ValidationIssue> {
+        wf_types::template::collect_template_context_issues(context, schema, strict)
+            .into_iter()
+            .map(|issue| ValidationIssue::error(issue.field, issue.message))
+            .collect()
     }
 
     /// Validate one agent loop input with an optional context shape
@@ -255,12 +244,14 @@ impl AgentLoopValidator {
     }
 
     /// Validate one agent loop input: message text, context keys and
-    /// imported conversation size. Context values stay untyped JSON; only
-    /// key shapes are checked here so prompt rendering keeps its own
-    /// type errors at the template boundary.
+    /// imported conversation size plus basic role legitimacy. Message
+    /// emptiness shares the foundation predicate with the server and CLI
+    /// entries so all three reject the same blank inputs. Context values
+    /// stay untyped JSON here; declared shapes are checked by
+    /// `validate_context_with_schema` after defaults are backfilled.
     pub fn validate_input(input: &wf_tools::callback::AgentLoopInput) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
-        if input.message.trim().is_empty() {
+        if wf_types::message::is_blank_user_text(&input.message) {
             issues.push(ValidationIssue::error(
                 "message",
                 "agent message must not be empty",
@@ -274,14 +265,9 @@ impl AgentLoopValidator {
                 ));
             }
         }
-        if input.conversation.len() > 4096 {
-            issues.push(ValidationIssue::error(
-                "conversation",
-                format!(
-                    "conversation holds {} messages, exceeding the 4096-message import limit",
-                    input.conversation.len()
-                ),
-            ));
+        for issue in wf_types::message::validate_imported_conversation(&input.conversation) {
+            let severity = ValidationIssue::error(issue.field, issue.message);
+            issues.push(severity);
         }
         issues
     }
@@ -793,6 +779,8 @@ mod tests {
                 required: true,
                 description: None,
                 default_value: None,
+                properties: None,
+                element_type: None,
             },
             wf_types::TemplateVariableDefinition {
                 name: "label".to_string(),
@@ -800,6 +788,8 @@ mod tests {
                 required: false,
                 description: None,
                 default_value: None,
+                properties: None,
+                element_type: None,
             },
         ]
     }

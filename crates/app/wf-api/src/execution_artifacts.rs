@@ -294,6 +294,8 @@ mod tests {
                 name: "city".to_string(),
                 value: serde_json::Value::String("paris".to_string()),
                 r#type: None,
+                properties: None,
+                element_type: None,
                 scope: None,
                 readonly: None,
                 required: None,

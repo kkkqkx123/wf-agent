@@ -47,6 +47,10 @@ pub fn apply_template_defaults(
     };
     apply_agent_config_defaults(&mut config, cfg);
     super::prompt::seed_initial_messages(&mut input.conversation, cfg);
+    if let Some(schema) = config.context_schema.as_deref() {
+        input.context =
+            wf_types::template::apply_template_context_defaults(&input.context, schema);
+    }
     config
 }
 

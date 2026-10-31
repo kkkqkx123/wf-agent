@@ -64,7 +64,7 @@ pub(crate) async fn params_from_body(
 ) -> Result<wf_api::agent::agent_execution::RunAgentLoopParams, wf_api::ApiError> {
     // Rule A1: an empty message is a hard error on every entry path; the
     // CLI/TUI forms and the web panel all converge here.
-    if body.message.trim().is_empty() {
+    if wf_types::message::is_blank_user_text(&body.message) {
         return Err(wf_api::ApiError::Validation(
             "agent message must not be empty".to_string(),
         ));

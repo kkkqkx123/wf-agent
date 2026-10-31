@@ -130,14 +130,8 @@ impl TurnParams {
 /// shape rules (W1-W3): null/missing is no input, an object passes
 /// through, anything else (array, string, number, bool) is a hard error.
 pub fn validate_workflow_input_value(input: Option<&Value>) -> Result<(), String> {
-    match input {
-        None | Some(Value::Null) => Ok(()),
-        Some(Value::Object(_)) => Ok(()),
-        Some(other) => Err(format!(
-            "invalid --input: must be a JSON object or empty, got {}",
-            input_kind(other)
-        )),
-    }
+    wf_types::workflow_execution::validate_workflow_input_shape(input)
+        .map_err(|reason| format!("invalid --input: {reason}"))
 }
 
 fn input_kind(value: &Value) -> &'static str {

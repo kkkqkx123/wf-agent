@@ -605,6 +605,11 @@ pub fn validate_config_value_against_metadata(
                     errors.push(format!("assembler config missing required '{name}'"));
                 }
             }
+            Some(provided) if provided.is_null() => {
+                if field.required == Some(true) && field.default.is_none() {
+                    errors.push(format!("assembler config missing required '{name}'"));
+                }
+            }
             Some(provided) => {
                 if !field.r#type.matches_value(provided) {
                     errors.push(format!(
@@ -612,11 +617,14 @@ pub fn validate_config_value_against_metadata(
                         field.r#type.type_name(),
                         config_value_kind(provided),
                     ));
-                } else if matches!(
-                    field.r#type,
-                    ResourceAssemblerConfigFieldType::Expression
-                ) {
-                    errors.extend(expression_allowlist_violations(name, provided, field));
+                } else {
+                    if matches!(
+                        field.r#type,
+                        ResourceAssemblerConfigFieldType::Expression
+                    ) {
+                        errors.extend(expression_allowlist_violations(name, provided, field));
+                    }
+                    errors.extend(assembler_nested_violations(name, provided, field));
                 }
             }
         }
@@ -657,6 +665,37 @@ pub fn gate_assembler_config(
     } else {
         Err(errors.join("; "))
     }
+}
+
+/// Fill absent assembler keys from declared defaults. Explicit null
+/// counts as missing: a configured default backfills it, otherwise the
+/// key is dropped so the required check reports it once.
+pub fn apply_assembler_config_defaults(
+    config: &Value,
+    metadata: &ResourceAssemblerMetadata,
+) -> Value {
+    let Some(configurable) = metadata.configurable.as_ref() else {
+        return config.clone();
+    };
+    let mut object = match config {
+        Value::Null => serde_json::Map::new(),
+        Value::Object(map) => map.clone(),
+        other => return other.clone(),
+    };
+    for (name, field) in configurable {
+        let missing = object.get(name).is_none_or(|v| v.is_null());
+        if !missing {
+            continue;
+        }
+        if let Some(default) = field.default.as_ref() {
+            if !default.is_null() {
+                object.insert(name.clone(), default.clone());
+                continue;
+            }
+        }
+        object.remove(name);
+    }
+    Value::Object(object)
 }
 
 /// Function names called in an expression value: identifiers directly
@@ -732,6 +771,57 @@ fn expression_allowlist_violations(
         .collect()
 }
 
+/// One level of nesting for an already kind-matched assembler value:
+/// object properties and array element types.
+fn assembler_nested_violations(
+    name: &str,
+    provided: &Value,
+    field: &ResourceAssemblerConfigField,
+) -> Vec<String> {
+    let mut errors = Vec::new();
+    if let Some(properties) = field.properties.as_ref() {
+        if let Value::Object(map) = provided {
+            for (prop_name, prop_rule) in properties {
+                match map.get(prop_name) {
+                    None | Some(Value::Null) => {
+                        if prop_rule.required == Some(true) {
+                            errors.push(format!(
+                                "assembler config '{name}.{prop_name}' is missing required property"
+                            ));
+                        }
+                    }
+                    Some(prop_value) => {
+                        if !prop_rule.r#type.matches_value(prop_value) {
+                            errors.push(format!(
+                                "assembler config '{name}.{prop_name}' expects {}, got {}",
+                                prop_rule.r#type.type_name(),
+                                config_value_kind(prop_value),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if let Some(element_type) = field.element_type.as_ref() {
+        if let Value::Array(items) = provided {
+            for (index, item) in items.iter().enumerate() {
+                if item.is_null() {
+                    continue;
+                }
+                if !element_type.matches_value(item) {
+                    errors.push(format!(
+                        "assembler config '{name}[{index}]' expects {}, got {}",
+                        element_type.type_name(),
+                        config_value_kind(item),
+                    ));
+                }
+            }
+        }
+    }
+    errors
+}
+
 fn config_value_kind(value: &Value) -> &'static str {
     if value.is_null() {
         "null"
@@ -748,6 +838,15 @@ fn config_value_kind(value: &Value) -> &'static str {
     }
 }
 
+/// Nested property rule for an object-typed assembler field. One level
+/// only; deeper nesting is checked as the top-level kind.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ResourceAssemblerNestedField {
+    pub r#type: ResourceAssemblerConfigFieldType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ResourceAssemblerConfigField {
     pub r#type: ResourceAssemblerConfigFieldType,
@@ -758,6 +857,14 @@ pub struct ResourceAssemblerConfigField {
     pub required: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_functions: Option<Vec<String>>,
+    /// One level of object property rules. `None` keeps the top-level
+    /// kind check only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub properties: Option<HashMap<String, ResourceAssemblerNestedField>>,
+    /// Expected element kind for array values. Explicit null elements
+    /// count as missing and skip the check.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub element_type: Option<ResourceAssemblerConfigFieldType>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1325,6 +1432,8 @@ mod tests {
                     default: None,
                     required: Some(true),
                     allowed_functions: None,
+                    properties: None,
+                    element_type: None,
                 },
             )])),
         };
@@ -1355,6 +1464,8 @@ mod tests {
                     default: None,
                     required: None,
                     allowed_functions: Some(vec!["eq".into()]),
+                    properties: None,
+                    element_type: None,
                 },
             )])),
         };
@@ -1382,6 +1493,8 @@ mod tests {
                     default: None,
                     required: None,
                     allowed_functions: None,
+                    properties: None,
+                    element_type: None,
                 },
             )])),
             ..metadata
@@ -1411,6 +1524,8 @@ mod tests {
                     default: None,
                     required: None,
                     allowed_functions: None,
+                    properties: None,
+                    element_type: None,
                 },
             )])),
         };
@@ -1442,6 +1557,8 @@ mod tests {
                     default: None,
                     required: Some(true),
                     allowed_functions: None,
+                    properties: None,
+                    element_type: None,
                 },
             )])),
         };
@@ -1457,6 +1574,78 @@ mod tests {
         let err = gate_assembler_config(&json!({"count": "many"}), &metadata)
             .expect_err("type mismatch fails");
         assert!(err.contains("count"), "{err}");
+    }
+
+    #[test]
+    fn nested_and_null_assembler_rules() {
+        use serde_json::json;
+        let metadata = ResourceAssemblerMetadata {
+            id: "test".into(),
+            name: "test".into(),
+            version: "1".into(),
+            description: "test".into(),
+            author: None,
+            tags: None,
+            category: None,
+            dependencies: None,
+            configurable: Some(HashMap::from([
+                (
+                    "conn".into(),
+                    ResourceAssemblerConfigField {
+                        r#type: ResourceAssemblerConfigFieldType::Object,
+                        description: "conn".into(),
+                        default: None,
+                        required: None,
+                        allowed_functions: None,
+                        properties: Some(HashMap::from([(
+                            "port".into(),
+                            ResourceAssemblerNestedField {
+                                r#type: ResourceAssemblerConfigFieldType::Number,
+                                required: Some(true),
+                            },
+                        )])),
+                        element_type: None,
+                    },
+                ),
+                (
+                    "tags".into(),
+                    ResourceAssemblerConfigField {
+                        r#type: ResourceAssemblerConfigFieldType::Array,
+                        description: "tags".into(),
+                        default: None,
+                        required: None,
+                        allowed_functions: None,
+                        properties: None,
+                        element_type: Some(ResourceAssemblerConfigFieldType::String),
+                    },
+                ),
+                (
+                    "label".into(),
+                    ResourceAssemblerConfigField {
+                        r#type: ResourceAssemblerConfigFieldType::String,
+                        description: "label".into(),
+                        default: Some(json!("hi")),
+                        required: None,
+                        allowed_functions: None,
+                        properties: None,
+                        element_type: None,
+                    },
+                ),
+            ])),
+        };
+        let errors = validate_config_value_against_metadata(
+            &json!({"conn": {"port": "many"}, "tags": ["a", 1]}),
+            &metadata,
+        );
+        assert!(errors.iter().any(|e| e.contains("conn.port")), "{errors:?}");
+        assert!(errors.iter().any(|e| e.contains("tags[1]")), "{errors:?}");
+        assert!(validate_config_value_against_metadata(
+            &json!({"conn": {"port": 1}, "tags": [], "label": null}),
+            &metadata,
+        )
+        .is_empty());
+        let filled = apply_assembler_config_defaults(&json!({"label": null}), &metadata);
+        assert_eq!(filled["label"], "hi");
     }
 
     #[test]

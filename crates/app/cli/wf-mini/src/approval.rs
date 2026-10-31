@@ -99,6 +99,11 @@ impl MiniApprover {
             .and_then(|v| v.as_str())
             .unwrap_or("tool");
         let risk = request.get("risk_level").and_then(|v| v.as_str());
+        wf_cli_shared::notify::ResolvedNotifications::load().notify_approval(
+            tool_name,
+            risk,
+            wf_cli_shared::notify::FocusState::Unknown,
+        );
         {
             let stderr = io::stderr();
             let mut err = stderr.lock();

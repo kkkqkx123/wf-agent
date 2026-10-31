@@ -22,6 +22,7 @@ pub mod connection;
 pub mod display;
 pub mod error;
 pub mod mode;
+pub mod notify;
 pub mod output;
 pub mod paths;
 pub mod recap;

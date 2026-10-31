@@ -493,6 +493,11 @@ pub struct InteractiveController {
     turn_started_at: Option<std::time::Instant>,
     /// Whether terminal focus left during the current turn.
     away_this_turn: bool,
+    /// Last observed focus presence: true when input or a focus event
+    /// proved the window focused, false after a focus loss, unknown
+    /// before any focus report. Survives turn boundaries; the away flag
+    /// above still decides the in-turn background call.
+    focus_visible: Option<bool>,
     /// Ticket for in-flight content-based title requests.
     title_ticket: u64,
     /// Truncation fallback captured when an LLM title request starts; used
@@ -732,6 +737,7 @@ impl InteractiveController {
             title_fallback: None,
             turn_started_at: None,
             away_this_turn: false,
+            focus_visible: None,
             terminal_program_status: tui_terminal::terminal::state::ProgramStatusState::Idle,
             terminal_program_error: None,
             pending_title: None,

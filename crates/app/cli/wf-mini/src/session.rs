@@ -144,6 +144,7 @@ impl NativeSession {
         }
         if let Some(finished) = self.run_turn(question.clone()).await {
             self.record_completed_turn(&question, &finished);
+            self.notify_turn_finished(&finished.outcome, turn_started.elapsed());
             self.maybe_auto_recap(ticket, turn_started.elapsed(), &finished)
                 .await;
             self.maybe_auto_title(&finished).await;
@@ -852,6 +853,27 @@ impl NativeSession {
         }
     }
 
+    /// Nudge the user that a turn ended. Short turns stay silent under
+    /// the duration gate; the iteration count rides along as context.
+    fn notify_turn_finished(&self, outcome: &TurnOutcome, elapsed: Duration) {
+        let end = if outcome.completed {
+            wf_cli_shared::notify::TurnEnd::Completed
+        } else if outcome.interrupted {
+            wf_cli_shared::notify::TurnEnd::Interrupted
+        } else {
+            wf_cli_shared::notify::TurnEnd::Failed
+        };
+        let detail = outcome
+            .iterations
+            .map(|count| format!("{count} iterations"));
+        wf_cli_shared::notify::ResolvedNotifications::load().notify_turn_finished(
+            elapsed,
+            end,
+            detail.as_deref(),
+            wf_cli_shared::notify::FocusState::Unknown,
+        );
+    }
+
     /// Automatic recap after a completed turn. Only normal completions
     /// qualify; failures and interrupts already have their own notice.
     async fn maybe_auto_recap(&self, ticket: u64, elapsed: Duration, finished: &FinishedTurn) {
@@ -1486,9 +1508,15 @@ impl NativeSession {
                                 self.current_loop_id = Some(id);
                             }
                         }
+                        let iterations = match &event {
+                            ExecutionStreamEvent::Completed { iterations, .. } => {
+                                Some(*iterations)
+                            }
+                            _ => None,
+                        };
                         if let Some(completed) = renderer.on_event(&event) {
                             let text = renderer.assistant_text();
-                            break TurnOutcome::finished(completed, text);
+                            break TurnOutcome::finished(completed, text, iterations);
                         }
                     }
                     Some(Err(Some(err))) => {
@@ -1558,14 +1586,16 @@ fn map_frames(
 struct TurnOutcome {
     completed: bool,
     interrupted: bool,
+    iterations: Option<u32>,
     assistant_text: String,
 }
 
 impl TurnOutcome {
-    fn finished(completed: bool, assistant_text: String) -> Self {
+    fn finished(completed: bool, assistant_text: String, iterations: Option<u32>) -> Self {
         Self {
             completed,
             interrupted: false,
+            iterations,
             assistant_text,
         }
     }
@@ -1574,6 +1604,7 @@ impl TurnOutcome {
         Self {
             completed: false,
             interrupted: true,
+            iterations: None,
             assistant_text,
         }
     }
@@ -1582,6 +1613,7 @@ impl TurnOutcome {
         Self {
             completed: false,
             interrupted: false,
+            iterations: None,
             assistant_text,
         }
     }

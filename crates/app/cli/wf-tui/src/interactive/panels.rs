@@ -158,6 +158,27 @@ impl InteractiveController {
     /// Record that terminal focus left during the current turn.
     pub(crate) fn note_focus_lost(&mut self) {
         self.away_this_turn = true;
+        self.focus_visible = Some(false);
+    }
+
+    /// Record observed focus presence from a focus event or delivered
+    /// input. Idempotent; never clears the in-turn away flag.
+    pub(crate) fn note_focus_gained(&mut self) {
+        self.focus_visible = Some(true);
+    }
+
+    /// Focus state for notifications: blurred when the user stepped away
+    /// during this turn, focused when presence was observed since the
+    /// last loss, unknown before any focus report.
+    pub(crate) fn notify_focus(&self) -> crate::notify::FocusState {
+        if self.away_this_turn {
+            return crate::notify::FocusState::Blurred;
+        }
+        match self.focus_visible {
+            Some(true) => crate::notify::FocusState::Focused,
+            Some(false) => crate::notify::FocusState::Blurred,
+            None => crate::notify::FocusState::Unknown,
+        }
     }
 
     /// Whether automatic recap notes are enabled in the config file.

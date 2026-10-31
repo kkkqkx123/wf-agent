@@ -215,6 +215,9 @@ impl TuiApp {
         let _ = guard.reassert();
         let (focused, frame) = focus_transition(self.app.focused, FocusInput::Gained);
         self.app.focused = focused;
+        if let Some(controller) = self.sessions.active_mut() {
+            controller.note_focus_gained();
+        }
         if frame {
             self.pending_scope
                 .request(crate::redraw::RedrawScope::BottomOnly);
@@ -255,6 +258,9 @@ impl TuiApp {
     pub(super) fn mark_client_focused(&mut self) -> bool {
         let (focused, frame) = focus_transition(self.app.focused, FocusInput::Stream);
         self.app.focused = focused;
+        if let Some(controller) = self.sessions.active_mut() {
+            controller.note_focus_gained();
+        }
         if frame {
             self.pending_scope
                 .request(crate::redraw::RedrawScope::BottomOnly);

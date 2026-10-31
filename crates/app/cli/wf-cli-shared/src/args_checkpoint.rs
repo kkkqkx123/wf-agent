@@ -197,7 +197,7 @@ pub enum CheckpointSub {
         #[arg(value_name = "EXECUTION")]
         execution: String,
         /// Optional scope prefix override (repeatable).
-        #[arg(long, value_name = "PREFIX")]
+        #[arg(long = "prefix", value_name = "PREFIX")]
         checkpoint_prefixes: Vec<String>,
     },
     /// Apply undo of the last input boundary for an execution.
@@ -206,7 +206,7 @@ pub enum CheckpointSub {
         #[arg(value_name = "EXECUTION")]
         execution: String,
         /// Optional scope prefix override (repeatable).
-        #[arg(long, value_name = "PREFIX")]
+        #[arg(long = "prefix", value_name = "PREFIX")]
         checkpoint_prefixes: Vec<String>,
     },
     /// Restore the bound workspace from a file checkpoint as new content

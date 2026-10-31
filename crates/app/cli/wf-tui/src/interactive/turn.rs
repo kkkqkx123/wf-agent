@@ -703,6 +703,12 @@ impl InteractiveController {
                         self.post_approval_answer(&interaction_id, answer);
                         continue;
                     }
+                    let focus = self.notify_focus();
+                    crate::notify::ResolvedNotifications::load().notify_approval(
+                        &request.tool_name,
+                        request.risk_level.as_deref(),
+                        focus,
+                    );
                     self.footer.approval =
                         Some(crate::approval_overlay::ApprovalView::new(request));
                     self.pending_approval = Some(interaction_id);
@@ -979,6 +985,10 @@ impl InteractiveController {
                     self.execution_id = loop_id.clone();
                     self.footer.state.execution_id = Some(loop_id);
                 }
+                self.notify_turn_end(
+                    crate::notify::TurnEnd::Completed,
+                    Some(format!("{iterations} iterations")),
+                );
                 self.maybe_auto_recap(ticket, elapsed, &answer);
                 self.finish_turn();
             }
@@ -996,6 +1006,7 @@ impl InteractiveController {
                 }
                 self.turn_text.clear();
                 self.turn_prompt.clear();
+                self.notify_turn_end(crate::notify::TurnEnd::Failed, None);
                 self.finish_turn();
             }
             ExecutionStreamEvent::Interrupted { reason } => {
@@ -1012,6 +1023,7 @@ impl InteractiveController {
                 }
                 self.turn_text.clear();
                 self.turn_prompt.clear();
+                self.notify_turn_end(crate::notify::TurnEnd::Interrupted, None);
                 self.finish_turn();
             }
             ExecutionStreamEvent::LlmDelta { content } => {
@@ -1187,6 +1199,23 @@ impl InteractiveController {
         if self.pending_scroll.len() != pending_before {
             self.flush_activity();
         }
+    }
+
+    /// Nudge the user that a turn ended. The turn clock feeds the
+    /// duration gate and the away flag feeds the background-only gate,
+    /// so foreground turns stay silent.
+    fn notify_turn_end(&self, end: crate::notify::TurnEnd, detail: Option<String>) {
+        let elapsed = self
+            .turn_started_at
+            .map(|started| started.elapsed())
+            .unwrap_or_default();
+        let focus = self.notify_focus();
+        crate::notify::ResolvedNotifications::load().notify_turn_finished(
+            elapsed,
+            end,
+            detail.as_deref(),
+            focus,
+        );
     }
 
     fn finish_turn(&mut self) {

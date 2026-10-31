@@ -18,12 +18,22 @@ impl AgentIterationCoordinator {
             .create_checkpoint_gated(entity, trigger.clone(), None)
             .await
         {
-            tracing::warn!(
-                error = %e,
-                entity_id = %entity.id(),
-                trigger = ?trigger,
-                "failed to create boundary checkpoint"
-            );
+            if e.is_disk_full() {
+                tracing::error!(
+                    error = %e,
+                    entity_id = %entity.id(),
+                    trigger = ?trigger,
+                    disk_full = true,
+                    "failed to create boundary checkpoint: storage disk full, freeing space recovers without a restart"
+                );
+            } else {
+                tracing::warn!(
+                    error = %e,
+                    entity_id = %entity.id(),
+                    trigger = ?trigger,
+                    "failed to create boundary checkpoint"
+                );
+            }
         }
     }
 

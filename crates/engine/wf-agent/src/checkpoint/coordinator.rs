@@ -194,12 +194,22 @@ impl AgentCheckpointIntegration {
             .create_checkpoint(entity, trigger.clone(), description)
             .await
         {
-            tracing::warn!(
-                error = %e,
-                entity_id = %entity.id(),
-                trigger = ?trigger,
-                "hook-requested checkpoint failed"
-            );
+            if e.is_disk_full() {
+                tracing::error!(
+                    error = %e,
+                    entity_id = %entity.id(),
+                    trigger = ?trigger,
+                    disk_full = true,
+                    "hook-requested checkpoint failed: storage disk full"
+                );
+            } else {
+                tracing::warn!(
+                    error = %e,
+                    entity_id = %entity.id(),
+                    trigger = ?trigger,
+                    "hook-requested checkpoint failed"
+                );
+            }
         }
     }
 
@@ -225,6 +235,7 @@ impl AgentCheckpointIntegration {
                 error = %e,
                 entity_id = %entity.id(),
                 trigger = ?trigger,
+                disk_full = e.is_disk_full(),
                 "lifecycle checkpoint failed"
             );
             return false;
@@ -309,6 +320,7 @@ impl AgentCheckpointIntegration {
                     checkpoint = %checkpoint.id,
                     entity = %entity.id(),
                     error = %err,
+                    disk_full = err.is_disk_full(),
                     "checkpoint persisted but file snapshot failed; file history for this checkpoint is incomplete"
                 );
                 format!("failed: {err}")

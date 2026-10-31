@@ -7,7 +7,25 @@ use super::repository::StorageResult;
 use checkpoint_base::error::CheckpointError;
 
 fn db_err(e: rusqlite::Error) -> CheckpointError {
+    if is_rusqlite_disk_full(&e) {
+        return CheckpointError::Storage(wf_storage::error::StorageError::disk_full(
+            "file_checkpoint",
+            e.to_string(),
+        ));
+    }
     CheckpointError::Internal(format!("sqlite error: {e}"))
+}
+
+fn is_rusqlite_disk_full(e: &rusqlite::Error) -> bool {
+    if let rusqlite::Error::SqliteFailure(err, _) = e {
+        if err.code == rusqlite::ErrorCode::DiskFull {
+            return true;
+        }
+    }
+    let lower = e.to_string().to_lowercase();
+    lower.contains("database or disk is full")
+        || lower.contains("disk is full")
+        || lower.contains("disk full")
 }
 
 #[derive(Debug, Clone)]

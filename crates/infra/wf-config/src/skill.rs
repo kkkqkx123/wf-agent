@@ -167,7 +167,9 @@ pub fn write_skill_config(file_path: &Path, config: &SkillConfig) -> ConfigResul
         serde_json::Value::Bool(config.auto_scan.unwrap_or(true)),
     );
     let content = serde_json::to_string_pretty(&serde_json::Value::Object(obj))?;
-    std::fs::write(file_path, content)?;
+    // Atomic sibling-plus-rename write: a full disk must not truncate the
+    // previous settings file.
+    wf_common::fs::write_atomic_sync(file_path, content.as_bytes())?;
     Ok(())
 }
 

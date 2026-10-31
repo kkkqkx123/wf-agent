@@ -37,11 +37,7 @@ impl Store for PostgresStorage {
             .bind(now)
             .execute(&self.pool)
             .await
-            .map_err(|e| StorageError::General {
-                operation: "save".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "save"))?;
         Ok(())
     }
 
@@ -54,11 +50,7 @@ impl Store for PostgresStorage {
             .bind(id)
             .fetch_optional(&self.pool)
             .await
-            .map_err(|e| StorageError::General {
-                operation: "load".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "load"))?;
 
         match result {
             Some((data, metadata, hash)) => {
@@ -75,11 +67,7 @@ impl Store for PostgresStorage {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| StorageError::General {
-                operation: "delete".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "delete"))?;
         Ok(())
     }
 
@@ -100,11 +88,7 @@ impl Store for PostgresStorage {
         let rows = query
             .fetch_all(&self.pool)
             .await
-            .map_err(|e| StorageError::General {
-                operation: "list".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "list"))?;
 
         Ok(rows)
     }
@@ -126,11 +110,7 @@ impl Store for PostgresStorage {
         let rows = query
             .fetch_all(&self.pool)
             .await
-            .map_err(|e| StorageError::General {
-                operation: "list_data".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "list_data"))?;
 
         rows.into_iter()
             .map(|(id, data, metadata, hash)| {
@@ -157,11 +137,7 @@ impl Store for PostgresStorage {
         let count = query
             .fetch_one(&self.pool)
             .await
-            .map_err(|e| StorageError::General {
-                operation: "count".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "count"))?;
         Ok(count as u64)
     }
 
@@ -171,11 +147,7 @@ impl Store for PostgresStorage {
             .bind(id)
             .fetch_optional(&self.pool)
             .await
-            .map_err(|e| StorageError::General {
-                operation: "exists".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "exists"))?;
         Ok(result.is_some())
     }
 
@@ -187,11 +159,7 @@ impl Store for PostgresStorage {
         sqlx::query(&sql)
             .execute(&self.pool)
             .await
-            .map_err(|e| StorageError::General {
-                operation: "clear".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "clear"))?;
         Ok(())
     }
 }

@@ -19,6 +19,7 @@ rusqlite.workspace = true
 parking_lot.workspace = true
 
 wf-types = { path = "../../../foundation/wf-types" }
+wf-storage = { path = "../../wf-storage" }
 wf-common = { path = "../../../foundation/wf-common" }
 wf-core = { path = "../../../foundation/wf-core" }
 wf-metrics = { path = "../../wf-metrics" }

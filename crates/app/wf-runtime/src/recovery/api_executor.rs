@@ -6,6 +6,19 @@ use tracing::info;
 use crate::error::{RuntimeError, RuntimeResult};
 use crate::recovery::{RecoveryExecutor, RecoveryItem};
 
+/// True when a recovery failure message describes an exhausted filesystem
+/// rather than a damaged or absent checkpoint. Disk-full must fail the
+/// recovery loudly instead of being reported as a skipped execution.
+fn is_disk_full_message(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    lower.contains("disk full")
+        || lower.contains("no space")
+        || lower.contains("enospc")
+        || lower.contains("storage disk full")
+        || lower.contains("storage full")
+        || lower.contains("quota exceeded")
+}
+
 /// Recovers an execution by restoring its latest checkpoint and resuming it
 /// to completion (`restore_checkpoint` + `resume`). The shared `ApiContext`
 /// is passed per call; restored executions register into the live registry
@@ -46,6 +59,12 @@ impl ApiRecoveryExecutor {
             .list_latest_by_entities(std::slice::from_ref(&execution.id))
             .await
             .map_err(|e| {
+                if e.is_disk_full() {
+                    return RuntimeError::Storage(wf_storage::error::StorageError::disk_full(
+                        "recovery.list_latest_by_entities",
+                        e.to_string(),
+                    ));
+                }
                 RuntimeError::Storage(wf_storage::error::StorageError::General {
                     operation: "recovery.list_latest_by_entities".into(),
                     message: e.to_string(),
@@ -103,6 +122,14 @@ impl ApiRecoveryExecutor {
             }),
             Err(e) => {
                 let message = e.to_string();
+                // A full disk is never a skip: recovery cannot proceed and
+                // the operator must free space and retry the boot.
+                if is_disk_full_message(&message) {
+                    return Err(RuntimeError::Config(format!(
+                        "checkpoint restore/resume failed for {}: storage disk full, free space and retry ({e})",
+                        execution.id
+                    )));
+                }
                 let lower = message.to_lowercase();
                 // Corrupted, missing or broken-chain checkpoints are not
                 // retryable within this boot: report the execution as skipped
@@ -148,6 +175,11 @@ impl ApiRecoveryExecutor {
             }),
             Err(e) => {
                 let message = e.to_string();
+                if is_disk_full_message(&message) {
+                    return Err(RuntimeError::Config(format!(
+                        "agent auto-resume failed for {execution_id}: storage disk full, free space and retry ({e})"
+                    )));
+                }
                 let lower = message.to_lowercase();
                 if matches!(e, wf_api::infra::error::ApiError::Validation(_))
                     || lower.contains("no checkpoint")

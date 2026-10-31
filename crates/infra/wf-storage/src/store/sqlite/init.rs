@@ -187,11 +187,7 @@ impl SqliteStorage {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| StorageError::General {
-                operation: "update_status".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "update_status"))?;
         Ok(())
     }
 
@@ -205,11 +201,10 @@ impl SqliteStorage {
         if operations.is_empty() {
             return Ok(());
         }
-        let mut tx = pool.begin().await.map_err(|e| StorageError::General {
-            operation: "apply_cross_table".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
-        })?;
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "apply_cross_table"))?;
 
         let now = chrono::Utc::now().timestamp_millis();
         for operation in operations {
@@ -223,11 +218,9 @@ impl SqliteStorage {
             }
         }
 
-        tx.commit().await.map_err(|e| StorageError::General {
-            operation: "apply_cross_table".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
-        })?;
+        tx.commit()
+            .await
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "apply_cross_table"))?;
         Ok(())
     }
 
@@ -243,11 +236,10 @@ impl SqliteStorage {
         if tables.is_empty() {
             return Ok(());
         }
-        let mut tx = pool.begin().await.map_err(|e| StorageError::General {
-            operation: "clear_cross_table".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
-        })?;
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "clear_cross_table"))?;
 
         for table in tables {
             let sql = format!(
@@ -257,18 +249,12 @@ impl SqliteStorage {
             sqlx::query(&sql)
                 .execute(&mut *tx)
                 .await
-                .map_err(|e| StorageError::General {
-                    operation: "clear_cross_table".into(),
-                    message: e.to_string(),
-                    source: Some(Box::new(e)),
-                })?;
+                .map_err(|e| StorageError::from_sqlx_with_operation(e, "clear_cross_table"))?;
         }
 
-        tx.commit().await.map_err(|e| StorageError::General {
-            operation: "clear_cross_table".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
-        })?;
+        tx.commit()
+            .await
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "clear_cross_table"))?;
         Ok(())
     }
 }
@@ -312,11 +298,7 @@ where
         .bind(now)
         .execute(executor)
         .await
-        .map_err(|e| StorageError::General {
-            operation: "apply_batch.save".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
-        })?;
+        .map_err(|e| StorageError::from_sqlx_with_operation(e, "apply_batch.save"))?;
     Ok(())
 }
 
@@ -330,10 +312,6 @@ where
         .bind(id)
         .execute(executor)
         .await
-        .map_err(|e| StorageError::General {
-            operation: "apply_batch.delete".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
-        })?;
+        .map_err(|e| StorageError::from_sqlx_with_operation(e, "apply_batch.delete"))?;
     Ok(())
 }

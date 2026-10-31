@@ -174,12 +174,22 @@ impl WorkflowCheckpointIntegration {
             .create_checkpoint(entity, timing.clone(), description)
             .await
         {
-            tracing::warn!(
-                execution_id = %entity.id(),
-                timing = ?timing,
-                error = %e,
-                "hook-requested checkpoint failed"
-            );
+            if e.is_disk_full() {
+                tracing::error!(
+                    execution_id = %entity.id(),
+                    timing = ?timing,
+                    error = %e,
+                    disk_full = true,
+                    "hook-requested checkpoint failed: storage disk full"
+                );
+            } else {
+                tracing::warn!(
+                    execution_id = %entity.id(),
+                    timing = ?timing,
+                    error = %e,
+                    "hook-requested checkpoint failed"
+                );
+            }
         }
     }
 
@@ -211,12 +221,22 @@ impl WorkflowCheckpointIntegration {
             )
             .await
         {
-            tracing::warn!(
-                execution_id = %entity.id(),
-                node_count = self.node_count,
-                error = %e,
-                "Failed to create checkpoint after node completion"
-            );
+            if e.is_disk_full() {
+                tracing::error!(
+                    execution_id = %entity.id(),
+                    node_count = self.node_count,
+                    error = %e,
+                    disk_full = true,
+                    "Failed to create checkpoint after node completion: storage disk full"
+                );
+            } else {
+                tracing::warn!(
+                    execution_id = %entity.id(),
+                    node_count = self.node_count,
+                    error = %e,
+                    "Failed to create checkpoint after node completion"
+                );
+            }
         }
     }
 
@@ -248,11 +268,20 @@ impl WorkflowCheckpointIntegration {
             )
             .await
         {
-            tracing::warn!(
-                execution_id = %entity.id(),
-                error = %e,
-                "Failed to create checkpoint before node execution"
-            );
+            if e.is_disk_full() {
+                tracing::error!(
+                    execution_id = %entity.id(),
+                    error = %e,
+                    disk_full = true,
+                    "Failed to create checkpoint before node execution: storage disk full"
+                );
+            } else {
+                tracing::warn!(
+                    execution_id = %entity.id(),
+                    error = %e,
+                    "Failed to create checkpoint before node execution"
+                );
+            }
         }
     }
 
@@ -278,11 +307,20 @@ impl WorkflowCheckpointIntegration {
             )
             .await
         {
-            tracing::warn!(
-                execution_id = %entity.id(),
-                error = %e,
-                "Failed to create checkpoint on node failure"
-            );
+            if e.is_disk_full() {
+                tracing::error!(
+                    execution_id = %entity.id(),
+                    error = %e,
+                    disk_full = true,
+                    "Failed to create checkpoint on node failure: storage disk full"
+                );
+            } else {
+                tracing::warn!(
+                    execution_id = %entity.id(),
+                    error = %e,
+                    "Failed to create checkpoint on node failure"
+                );
+            }
         }
     }
 
@@ -297,6 +335,7 @@ impl WorkflowCheckpointIntegration {
             tracing::error!(
                 execution_id = %entity.id(),
                 error = %e,
+                disk_full = e.is_disk_full(),
                 "Failed to create checkpoint at workflow start"
             );
         }
@@ -313,6 +352,7 @@ impl WorkflowCheckpointIntegration {
             tracing::error!(
                 execution_id = %entity.id(),
                 error = %e,
+                disk_full = e.is_disk_full(),
                 "Failed to create checkpoint at workflow end"
             );
         }
@@ -332,6 +372,7 @@ impl WorkflowCheckpointIntegration {
             tracing::error!(
                 execution_id = %entity.id(),
                 error = %e,
+                disk_full = e.is_disk_full(),
                 "Failed to create interruption checkpoint"
             );
         }
@@ -352,6 +393,7 @@ impl WorkflowCheckpointIntegration {
             tracing::error!(
                 execution_id = %entity.id(),
                 error = %e,
+                disk_full = e.is_disk_full(),
                 "Failed to create pause checkpoint"
             );
         }
@@ -372,6 +414,7 @@ impl WorkflowCheckpointIntegration {
             tracing::error!(
                 execution_id = %entity.id(),
                 error = %e,
+                disk_full = e.is_disk_full(),
                 "Failed to create timeout checkpoint"
             );
         }
@@ -440,6 +483,7 @@ impl WorkflowCheckpointIntegration {
                     checkpoint = %checkpoint.id,
                     entity = %entity.id().as_str(),
                     error = %err,
+                    disk_full = err.is_disk_full(),
                     "checkpoint persisted but file snapshot failed; file history for this checkpoint is incomplete"
                 );
                 format!("failed: {err}")

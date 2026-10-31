@@ -29,11 +29,7 @@ impl StoreExt for SqliteStorage {
         let rows: Vec<(Option<String>, i64)> = sqlx::query_as(&sql)
             .fetch_all(&self.pool)
             .await
-            .map_err(|e| StorageError::General {
-                operation: "count_by_field".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "count_by_field"))?;
         Ok(rows
             .into_iter()
             .filter_map(|(key, count)| key.map(|k| (k, count as u64)))
@@ -44,11 +40,11 @@ impl StoreExt for SqliteStorage {
         if operations.is_empty() {
             return Ok(());
         }
-        let mut tx = self.pool.begin().await.map_err(|e| StorageError::General {
-            operation: "apply_batch".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
-        })?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "apply_batch"))?;
 
         let now = chrono::Utc::now().timestamp_millis();
         for operation in operations {
@@ -62,11 +58,9 @@ impl StoreExt for SqliteStorage {
             }
         }
 
-        tx.commit().await.map_err(|e| StorageError::General {
-            operation: "apply_batch".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
-        })?;
+        tx.commit()
+            .await
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "apply_batch"))?;
         Ok(())
     }
 
@@ -93,11 +87,7 @@ impl StoreExt for SqliteStorage {
             let rows = query
                 .fetch_all(&self.pool)
                 .await
-                .map_err(|e| StorageError::General {
-                    operation: "load_batch".into(),
-                    message: e.to_string(),
-                    source: Some(Box::new(e)),
-                })?;
+                .map_err(|e| StorageError::from_sqlx_with_operation(e, "load_batch"))?;
             for (id, data, metadata_str, hash) in rows {
                 crate::util::hash::verify_integrity(&id, &data, &hash)?;
                 let metadata: Value = serde_json::from_str(&metadata_str)?;
@@ -111,11 +101,11 @@ impl StoreExt for SqliteStorage {
         if items.is_empty() {
             return Ok(());
         }
-        let mut tx = self.pool.begin().await.map_err(|e| StorageError::General {
-            operation: "save_batch".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
-        })?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "save_batch"))?;
 
         // Eight bound values per row: chunks of 100 stay under the SQLite
         // variable limit with margin.
@@ -159,18 +149,12 @@ impl StoreExt for SqliteStorage {
             query
                 .execute(&mut *tx)
                 .await
-                .map_err(|e| StorageError::General {
-                    operation: "save_batch".into(),
-                    message: e.to_string(),
-                    source: Some(Box::new(e)),
-                })?;
+                .map_err(|e| StorageError::from_sqlx_with_operation(e, "save_batch"))?;
         }
 
-        tx.commit().await.map_err(|e| StorageError::General {
-            operation: "save_batch".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
-        })?;
+        tx.commit()
+            .await
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "save_batch"))?;
         Ok(())
     }
 
@@ -178,11 +162,11 @@ impl StoreExt for SqliteStorage {
         if ids.is_empty() {
             return Ok(());
         }
-        let mut tx = self.pool.begin().await.map_err(|e| StorageError::General {
-            operation: "delete_batch".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
-        })?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "delete_batch"))?;
 
         for chunk in ids.chunks(999) {
             let placeholders: Vec<String> = (1..=chunk.len()).map(|i| format!("?{}", i)).collect();
@@ -198,18 +182,12 @@ impl StoreExt for SqliteStorage {
             query
                 .execute(&mut *tx)
                 .await
-                .map_err(|e| StorageError::General {
-                    operation: "delete_batch".into(),
-                    message: e.to_string(),
-                    source: Some(Box::new(e)),
-                })?;
+                .map_err(|e| StorageError::from_sqlx_with_operation(e, "delete_batch"))?;
         }
 
-        tx.commit().await.map_err(|e| StorageError::General {
-            operation: "delete_batch".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
-        })?;
+        tx.commit()
+            .await
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "delete_batch"))?;
         Ok(())
     }
 }
@@ -220,11 +198,7 @@ impl Maintainable for SqliteStorage {
         sqlx::query("VACUUM")
             .execute(&self.pool)
             .await
-            .map_err(|e| StorageError::General {
-                operation: "vacuum".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "vacuum"))?;
         Ok(())
     }
 
@@ -232,11 +206,7 @@ impl Maintainable for SqliteStorage {
         sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
             .execute(&self.pool)
             .await
-            .map_err(|e| StorageError::General {
-                operation: "wal_checkpoint".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "wal_checkpoint"))?;
         Ok(())
     }
 
@@ -244,11 +214,7 @@ impl Maintainable for SqliteStorage {
         sqlx::query("PRAGMA wal_checkpoint(PASSIVE)")
             .execute(&self.pool)
             .await
-            .map_err(|e| StorageError::General {
-                operation: "sync".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "sync"))?;
         Ok(())
     }
 }

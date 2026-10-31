@@ -50,11 +50,7 @@ async fn run_sqlite_maintenance(pool: &SqlitePool) -> Result<(), StorageError> {
     sqlx::query("PRAGMA optimize")
         .execute(pool)
         .await
-        .map_err(|e| StorageError::General {
-            operation: "sqlite_maintenance".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
-        })?;
+        .map_err(|e| StorageError::from_sqlx_with_operation(e, "sqlite_maintenance"))?;
     Ok(())
 }
 
@@ -62,10 +58,6 @@ async fn run_postgres_maintenance(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query("ANALYZE")
         .execute(pool)
         .await
-        .map_err(|e| StorageError::General {
-            operation: "postgres_maintenance".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
-        })?;
+        .map_err(|e| StorageError::from_sqlx_with_operation(e, "postgres_maintenance"))?;
     Ok(())
 }

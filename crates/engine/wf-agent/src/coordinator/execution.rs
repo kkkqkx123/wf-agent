@@ -255,7 +255,15 @@ impl AgentExecutionCoordinator {
                         cp.create_checkpoint_gated(entity, CheckpointTiming::AfterExecute, None)
                             .await
                             .unwrap_or_else(|e| {
-                                tracing::warn!("Failed to create iteration checkpoint: {}", e);
+                                if e.is_disk_full() {
+                                    tracing::error!(
+                                        error = %e,
+                                        disk_full = true,
+                                        "Failed to create iteration checkpoint: storage disk full"
+                                    );
+                                } else {
+                                    tracing::warn!("Failed to create iteration checkpoint: {}", e);
+                                }
                                 false
                             });
                     }
@@ -462,7 +470,15 @@ impl AgentExecutionCoordinator {
             cp.create_checkpoint_gated(entity, CheckpointTiming::OnError, None)
                 .await
                 .unwrap_or_else(|ce| {
-                    tracing::warn!("Failed to create error checkpoint: {}", ce);
+                    if ce.is_disk_full() {
+                        tracing::error!(
+                            error = %ce,
+                            disk_full = true,
+                            "Failed to create error checkpoint: storage disk full"
+                        );
+                    } else {
+                        tracing::warn!("Failed to create error checkpoint: {}", ce);
+                    }
                     false
                 });
         }

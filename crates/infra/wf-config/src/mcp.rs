@@ -82,10 +82,12 @@ pub fn try_load_and_merge_mcp_settings(settings_dir: &Path, project_root: &Path)
     load_and_merge_mcp_settings(settings_dir, project_root).unwrap_or_default()
 }
 
-/// Write MCP settings to a JSON file.
+/// Write MCP settings to a JSON file atomically (temporary sibling plus
+/// rename), so a full disk leaves the previous file intact instead of a
+/// truncated one.
 pub fn write_mcp_settings(file_path: &Path, settings: &McpSettings) -> ConfigResult<()> {
     let content = serde_json::to_string_pretty(settings)?;
-    std::fs::write(file_path, content)?;
+    wf_common::fs::write_atomic_sync(file_path, content.as_bytes())?;
     Ok(())
 }
 

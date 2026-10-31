@@ -63,6 +63,26 @@ impl From<serde_json::Error> for CheckpointError {
     }
 }
 
+impl CheckpointError {
+    /// True when the failure means the backing filesystem ran out of space.
+    /// Disk-full is a persistent fault: freeing space recovers without a
+    /// restart, while retrying on a full disk cannot succeed.
+    pub fn is_disk_full(&self) -> bool {
+        match self {
+            CheckpointError::Storage(storage) => storage.is_disk_full(),
+            CheckpointError::Io(io) => {
+                io.kind() == std::io::ErrorKind::StorageFull || io.raw_os_error() == Some(28) || {
+                    let lower = io.to_string().to_lowercase();
+                    lower.contains("no space")
+                        || lower.contains("disk full")
+                        || lower.contains("enospc")
+                }
+            }
+            _ => false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,6 +144,25 @@ mod tests {
 
         let e = CheckpointError::Internal("impossible state".into());
         assert!(e.to_string().contains("internal: impossible state"));
+    }
+
+    #[test]
+    fn disk_full_classifies_through_storage_and_io() {
+        let storage = CheckpointError::Storage(wf_storage::error::StorageError::disk_full(
+            "save",
+            "database or disk is full",
+        ));
+        assert!(storage.is_disk_full());
+        let io = CheckpointError::Io(std::io::Error::from_raw_os_error(28));
+        assert!(io.is_disk_full());
+        let other = CheckpointError::Coordinator("boom".to_string());
+        assert!(!other.is_disk_full());
+        let readonly = CheckpointError::Storage(wf_storage::error::StorageError::General {
+            operation: "save".into(),
+            message: "attempt to write a readonly database (8)".into(),
+            source: None,
+        });
+        assert!(!readonly.is_disk_full());
     }
 
     #[test]

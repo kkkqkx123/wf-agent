@@ -308,6 +308,10 @@ async fn disk_full_write_fails_visibly_and_preserves_prior_state() {
         !matches!(err, CheckpointError::Corrupted { .. }),
         "disk-full is a write error, not corruption"
     );
+    assert!(
+        !err.is_disk_full(),
+        "a read-only mount is a permission failure, never disk-full: {err:?}"
+    );
 
     // Prior checkpoints stay readable.
     let loaded = manager.load("cp-1").await.unwrap().unwrap();

@@ -26,11 +26,7 @@ impl StoreExt for PostgresStorage {
         let rows: Vec<(Option<String>, i64)> = sqlx::query_as(&sql)
             .fetch_all(&self.pool)
             .await
-            .map_err(|e| StorageError::General {
-                operation: "count_by_field".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "count_by_field"))?;
         Ok(rows
             .into_iter()
             .filter_map(|(key, count)| key.map(|k| (k, count as u64)))
@@ -41,11 +37,11 @@ impl StoreExt for PostgresStorage {
         if operations.is_empty() {
             return Ok(());
         }
-        let mut tx = self.pool.begin().await.map_err(|e| StorageError::General {
-            operation: "apply_batch".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
-        })?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "apply_batch"))?;
 
         let now = chrono::Utc::now().timestamp_millis();
         for operation in operations {
@@ -59,11 +55,9 @@ impl StoreExt for PostgresStorage {
             }
         }
 
-        tx.commit().await.map_err(|e| StorageError::General {
-            operation: "apply_batch".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
-        })?;
+        tx.commit()
+            .await
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "apply_batch"))?;
         Ok(())
     }
 
@@ -82,11 +76,7 @@ impl StoreExt for PostgresStorage {
             .bind(ids)
             .fetch_all(&self.pool)
             .await
-            .map_err(|e| StorageError::General {
-                operation: "load_batch".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "load_batch"))?;
         rows.into_iter()
             .map(|(id, data, metadata, hash)| {
                 crate::util::hash::verify_integrity(&id, &data, &hash)?;
@@ -101,11 +91,11 @@ impl StoreExt for PostgresStorage {
         }
         // Chunked UNNEST transfers inside one transaction: the batch stays
         // atomic however large it grows.
-        let mut tx = self.pool.begin().await.map_err(|e| StorageError::General {
-            operation: "save_batch".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
-        })?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "save_batch"))?;
         let now = chrono::Utc::now().timestamp_millis();
         for chunk in items.chunks(1000) {
             let ids: Vec<&str> = chunk.iter().map(|i| i.id.as_str()).collect();
@@ -144,17 +134,11 @@ impl StoreExt for PostgresStorage {
                 .bind(&nows)
                 .execute(&mut *tx)
                 .await
-                .map_err(|e| StorageError::General {
-                    operation: "save_batch".into(),
-                    message: e.to_string(),
-                    source: Some(Box::new(e)),
-                })?;
+                .map_err(|e| StorageError::from_sqlx_with_operation(e, "save_batch"))?;
         }
-        tx.commit().await.map_err(|e| StorageError::General {
-            operation: "save_batch".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
-        })?;
+        tx.commit()
+            .await
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "save_batch"))?;
         Ok(())
     }
 
@@ -167,11 +151,7 @@ impl StoreExt for PostgresStorage {
             .bind(ids)
             .execute(&self.pool)
             .await
-            .map_err(|e| StorageError::General {
-                operation: "delete_batch".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "delete_batch"))?;
         Ok(())
     }
 }
@@ -195,11 +175,7 @@ impl Maintainable for PostgresStorage {
         sqlx::query(&sql)
             .execute(&self.pool)
             .await
-            .map_err(|e| StorageError::General {
-                operation: "vacuum".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
+            .map_err(|e| StorageError::from_sqlx_with_operation(e, "vacuum"))?;
         Ok(())
     }
 

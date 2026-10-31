@@ -145,7 +145,7 @@ impl RmcpClient {
                     .map_err(|e| map_init_error(&self.server_name, e))?
             }
             McpServerConfig::StreamableHttp(c) => {
-                let client = build_http_client(c)?;
+                let client = build_http_client(c, None)?;
                 let transport_config = StreamableHttpClientTransportConfig::with_uri(c.url.clone());
                 let transport =
                     StreamableHttpClientTransport::with_client(client, transport_config);
@@ -303,6 +303,55 @@ impl RmcpClient {
         }
     }
 
+    /// Build the transport with an explicitly resolved proxy credential.
+    ///
+    /// `proxy_credential` carries the stored username and password for the
+    /// configured route; `None` means anonymous. Hosts resolve it from the
+    /// shared credential store before calling, so this client never reads
+    /// the store itself.
+    pub async fn connect_with_proxy_credential(
+        &self,
+        config: &McpServerConfig,
+        proxy_credential: Option<(String, String)>,
+    ) -> ToolResult<()> {
+        let (notify_tx, notify_rx) = mpsc::channel(64);
+        let handler = WfClientHandler::new(notify_tx);
+        let lifecycle = ClientLifecycleMode::Auto {
+            preferred_versions: vec![ProtocolVersion::LATEST],
+            legacy_version: Some(ProtocolVersion::V_2024_11_05),
+        };
+        let service = match config {
+            McpServerConfig::Stdio(c) => {
+                let command = build_stdio_command(c)?;
+                let child = TokioChildProcess::new(command).map_err(|e| {
+                    ToolError::TransportError(format!("failed to spawn MCP server process: {e}"))
+                })?;
+                serve_client_with_lifecycle(handler, child, lifecycle)
+                    .await
+                    .map_err(|e| map_init_error(&self.server_name, e))?
+            }
+            McpServerConfig::StreamableHttp(c) => {
+                let client = build_http_client(
+                    c,
+                    proxy_credential
+                        .as_ref()
+                        .map(|(u, p)| (u.as_str(), p.as_str())),
+                )?;
+                let transport_config = StreamableHttpClientTransportConfig::with_uri(c.url.clone());
+                let transport =
+                    StreamableHttpClientTransport::with_client(client, transport_config);
+                serve_client_with_lifecycle(handler, transport, lifecycle)
+                    .await
+                    .map_err(|e| map_init_error(&self.server_name, e))?
+            }
+        };
+        self.service
+            .set(Arc::new(service))
+            .map_err(|_| ToolError::Internal("MCP client already connected".into()))?;
+        *self.notify_rx.lock().unwrap() = Some(notify_rx);
+        Ok(())
+    }
+
     fn require_connected(&self) -> ToolResult<&Arc<RmcpService>> {
         self.service.get().ok_or_else(|| {
             ToolError::McpError(format!("MCP server '{}' not connected", self.server_name))
@@ -328,8 +377,34 @@ fn build_stdio_command(c: &McpStdioConfig) -> ToolResult<Command> {
     Ok(command)
 }
 
-/// Build a reqwest client carrying the configured default headers.
-fn build_http_client(c: &McpStreamableHttpConfig) -> ToolResult<reqwest::Client> {
+/// Build a reqwest client carrying the configured default headers and the
+/// explicit proxy route. Persisted routes are route-only; a stored
+/// credential composes transiently when supplied.
+fn build_http_client(
+    c: &McpStreamableHttpConfig,
+    proxy_credential: Option<(&str, &str)>,
+) -> ToolResult<reqwest::Client> {
+    if let Some(route) = c.proxy.as_deref() {
+        llm_proxy::reject_userinfo(route).map_err(|_| {
+            ToolError::TransportError(
+                "MCP proxy must be route-only; store credentials as a proxy credential instead"
+                    .to_string(),
+            )
+        })?;
+    }
+    let effective_proxy: Option<String> = match (c.proxy.as_deref(), proxy_credential) {
+        (Some(route), Some((username, password))) => Some(
+            llm_proxy::compose_proxy_url(route, username, password).map_err(|_| {
+                ToolError::TransportError("invalid MCP proxy configuration".to_string())
+            })?,
+        ),
+        (Some(route), None) => Some(route.to_string()),
+        (None, _) => None,
+    };
+    let no_proxy: Vec<String> = c.no_proxy.clone().unwrap_or_default();
+    // Funnel through the shared proxy construction so scheme support and
+    // credential-hiding match the LLM transports instead of drifting.
+    let mut proxy_error: Option<String> = None;
     let mut builder = reqwest::Client::builder();
     if let Some(headers) = &c.headers {
         let mut header_map = reqwest::header::HeaderMap::new();
@@ -342,6 +417,13 @@ fn build_http_client(c: &McpStreamableHttpConfig) -> ToolResult<reqwest::Client>
             }
         }
         builder = builder.default_headers(header_map);
+    }
+    if let Some(proxy_url) = effective_proxy.as_deref() {
+        let proxy = llm_proxy::build_proxy(proxy_url, &no_proxy).map_err(|err| {
+            proxy_error = Some(err.to_string());
+            ToolError::TransportError(proxy_error.clone().unwrap_or_default())
+        })?;
+        builder = builder.proxy(proxy);
     }
     builder.build().map_err(ToolError::HttpError)
 }

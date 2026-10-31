@@ -81,6 +81,14 @@ pub(crate) fn routes() -> Router<ApiState> {
             post(handle_auth_login_cancel),
         )
         .route("/llm/auth/logout", post(handle_auth_logout))
+        .route(
+            "/llm/proxy-credentials",
+            get(handle_list_proxy_credentials).post(handle_set_proxy_credential),
+        )
+        .route(
+            "/llm/proxy-credentials/{id}",
+            delete(handle_delete_proxy_credential),
+        )
 }
 
 // ── LLM generation ────────────────────────────────────────────────
@@ -574,6 +582,13 @@ pub(crate) struct AuthLogoutBody {
     provider_id: String,
 }
 
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct ProxyCredentialBody {
+    route: String,
+    username: String,
+    password: String,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/llm/auth",
@@ -712,6 +727,66 @@ pub(crate) async fn handle_auth_logout(
 ) -> impl IntoResponse {
     match wf_api::llm::llm_auth::logout(&state.ctx, &body.provider_id).await {
         Ok(()) => ok(serde_json::json!({"logged_out": body.provider_id})).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/llm/proxy-credentials",
+    tag = "llm",
+    responses((status = 200, description = "Stored proxy credentials, metadata only (never passwords)", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_list_proxy_credentials(
+    State(state): State<ApiState>,
+) -> impl IntoResponse {
+    match wf_api::llm::llm_auth::list_proxy_credentials(&state.ctx).await {
+        Ok(credentials) => ok(credentials).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/llm/proxy-credentials",
+    tag = "llm",
+    request_body = ProxyCredentialBody,
+    responses((status = 200, description = "Proxy credential stored", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_set_proxy_credential(
+    State(state): State<ApiState>,
+    Json(body): Json<ProxyCredentialBody>,
+) -> impl IntoResponse {
+    match wf_api::llm::llm_auth::set_proxy_credential(
+        &state.ctx,
+        &body.route,
+        &body.username,
+        &body.password,
+    )
+    .await
+    {
+        Ok(()) => ok(serde_json::json!({"stored": body.route})).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/llm/proxy-credentials/{id}",
+    tag = "llm",
+    responses((status = 200, description = "Proxy credential removed", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_delete_proxy_credential(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    // The path id carries the proxy route with slashes encoded by the
+    // frontend; query by exact route keeps one lookup path.
+    match wf_api::llm::llm_auth::delete_proxy_credential(&state.ctx, &path.id).await {
+        Ok(()) => ok(serde_json::json!({"deleted": path.id})).into_response(),
         Err(e) => error_response(e),
     }
 }

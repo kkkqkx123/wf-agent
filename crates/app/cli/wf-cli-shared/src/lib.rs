@@ -77,6 +77,9 @@ pub async fn run(cli: Cli) -> CliResult<()> {
         Some(Command::Llm { sub }) => {
             return cmd::llm::run_auth(&cli, sub).await;
         }
+        Some(Command::LlmProxy { sub }) => {
+            return cmd::llm::run_proxy(&cli, sub).await;
+        }
         Some(Command::Skill { sub }) => {
             return cmd::skill::run(&cli, sub).await;
         }

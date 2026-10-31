@@ -10,7 +10,7 @@ use crate::output::OutputFormat;
 pub use crate::args_checkpoint::{ApprovalSub, CheckpointDomain, CheckpointSub};
 pub use crate::args_entity::{MessageSub, SkillSub, TaskSub, VariableSub};
 pub use crate::args_execution::ExecutionSub;
-pub use crate::args_llm::{LlmAuthSub, LlmProfileSub, LlmProviderSub, LlmTemplateSub};
+pub use crate::args_llm::{LlmAuthSub, LlmProfileSub, LlmProviderSub, LlmProxySub, LlmTemplateSub};
 pub use crate::args_observe::{AnalysisSub, AuditSub, EventSub, MetricsSub};
 pub use crate::args_remote::RemoteSub;
 pub use crate::args_tooling::{ScriptSub, TemplateSub, ToolSub, TriggerSub};
@@ -290,6 +290,12 @@ pub enum Command {
     Llm {
         #[command(subcommand)]
         sub: LlmAuthSub,
+    },
+    /// Proxy credential management (passwords stay in the credential store).
+    #[command(name = "llm-proxy")]
+    LlmProxy {
+        #[command(subcommand)]
+        sub: LlmProxySub,
     },
     /// Skill management commands (read-only subset).
     Skill {

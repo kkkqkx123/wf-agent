@@ -70,7 +70,8 @@ pub use llm_auth;
 pub use llm_auth::{
     ApiKeyAuth, AuthContext, AuthMethod, AuthRegistry, AuthSurfaceInfo, Credential, CredentialInfo,
     CredentialStore, FileCredentialStore, MemoryCredentialStore, ModelAuth, OAuthAuth,
-    OAuthCredential, OverlayAuthContext, ProviderAuth, ResolvedAuth, StdAuthContext,
+    OAuthCredential, OverlayAuthContext, ProviderAuth, ProxyCredential, ResolvedAuth,
+    StdAuthContext,
 };
 pub use llm_message::helper::extract_text_content;
 pub use llm_message::history_converter::{
@@ -80,6 +81,8 @@ pub use llm_message::history_converter::{
 pub use llm_message::history_text::{summarize_counts, to_plain_text};
 pub use llm_message::transform::{transform_for_target, TransformTarget, MAX_TOOL_CALL_ID_LEN};
 pub use llm_message::{helper, history_converter, history_text, message_builder, transform};
+pub use llm_proxy as proxy;
+pub use llm_proxy::{compose_proxy_url, credential_key, has_userinfo, reject_userinfo};
 pub use llm_token::count;
 pub use llm_token::count::{
     estimate_image_tokens, estimate_message_tokens, estimate_messages, estimate_request_tokens,

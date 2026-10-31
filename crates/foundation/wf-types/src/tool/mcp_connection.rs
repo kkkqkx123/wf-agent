@@ -80,6 +80,14 @@ pub struct McpStreamableHttpConfig {
     pub url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<crate::Metadata>,
+    /// Route-only proxy address; embeds no credentials. Absent keeps the
+    /// environment proxy behavior. The password lives in the credential
+    /// store under the route-derived key and is composed transiently.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<String>,
+    /// Hosts bypassing `proxy`, same spelling as the standard `NO_PROXY`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_proxy: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

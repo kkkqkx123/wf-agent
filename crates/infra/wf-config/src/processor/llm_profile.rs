@@ -11,7 +11,25 @@ pub fn validate_llm_profile(profile: &LlmProfile) -> ConfigResult<()> {
     validate_not_empty(&profile.id, "id")?;
     validate_not_empty(&profile.name, "name")?;
     validate_not_empty(&profile.model, "model")?;
+    if let Some(proxy) = profile.proxy.as_deref() {
+        if has_proxy_userinfo(proxy) {
+            return Err(crate::error::ConfigError::Validation(
+                "proxy must be route-only; store credentials as a proxy credential instead"
+                    .to_string(),
+            ));
+        }
+    }
     Ok(())
+}
+
+/// Route-only guard mirroring the shared proxy helper, kept inline so this
+/// network-free config crate gains no transport dependency.
+fn has_proxy_userinfo(url: &str) -> bool {
+    let Some((_, rest)) = url.trim().split_once("://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    authority.contains('@')
 }
 
 /// Validate a provider definition's required fields at load time.
@@ -19,6 +37,14 @@ pub fn validate_provider_definition(definition: &LlmProviderDefinition) -> Confi
     validate_not_empty(&definition.id, "id")?;
     if let wf_types::llm::LlmFormat::Custom(name) = &definition.format {
         validate_not_empty(name, "format")?;
+    }
+    if let Some(proxy) = definition.proxy.as_deref() {
+        if has_proxy_userinfo(proxy) {
+            return Err(crate::error::ConfigError::Validation(
+                "proxy must be route-only; store credentials as a proxy credential instead"
+                    .to_string(),
+            ));
+        }
     }
     Ok(())
 }

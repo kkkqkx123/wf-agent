@@ -202,6 +202,116 @@ pub async fn logout(ctx: &ApiContext, provider_id: &str) -> ApiResult<()> {
     Ok(())
 }
 
+/// One stored proxy credential, metadata only. Never carries the password.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ProxyCredentialStatus {
+    /// Credential store key, derived from the proxy route.
+    pub id: String,
+    /// Proxy route address the credential belongs to.
+    pub route: String,
+    /// Stored proxy username, safe to display.
+    pub username: String,
+}
+
+/// List stored proxy credentials, metadata only.
+///
+/// Only entries shaped as proxy credentials are reported; model keys and
+/// OAuth tokens never appear here.
+pub async fn list_proxy_credentials(ctx: &ApiContext) -> ApiResult<Vec<ProxyCredentialStatus>> {
+    let registry = auth_registry(ctx)?;
+    let infos = registry.list_credentials().await.map_err(auth_error)?;
+    let mut out = Vec::new();
+    for info in infos {
+        if info.method != wf_llm::AuthMethod::Proxy {
+            continue;
+        }
+        let route = info
+            .provider_id
+            .strip_prefix("proxy:")
+            .unwrap_or(info.provider_id.as_str())
+            .to_string();
+        let username = match registry.store().read(&info.provider_id).await {
+            Ok(Some(credential)) => credential
+                .as_proxy()
+                .map(|proxy| proxy.username.clone())
+                .unwrap_or_default(),
+            _ => String::new(),
+        };
+        out.push(ProxyCredentialStatus {
+            id: info.provider_id,
+            route,
+            username,
+        });
+    }
+    out.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(out)
+}
+
+/// Store a proxy credential for a route address. The route must be
+/// route-only; passwords never enter profile or definition files. Cached
+/// clients for profiles pointing at the route are evicted so the next
+/// request composes the new password.
+pub async fn set_proxy_credential(
+    ctx: &ApiContext,
+    route: &str,
+    username: &str,
+    password: &str,
+) -> ApiResult<()> {
+    if username.trim().is_empty() || password.is_empty() {
+        return Err(ApiError::Validation(
+            "proxy username and password must not be empty".to_string(),
+        ));
+    }
+    wf_llm::reject_userinfo(route).map_err(|_| {
+        ApiError::Validation(
+            "proxy route must be route-only; credentials belong in the credential store"
+                .to_string(),
+        )
+    })?;
+    let registry = auth_registry(ctx)?;
+    let key = wf_llm::credential_key(route);
+    let credential = wf_llm::Credential::Proxy(wf_llm::ProxyCredential {
+        username: username.to_string(),
+        password: password.to_string(),
+    });
+    registry
+        .store()
+        .modify(
+            &key,
+            Box::new(move |_| Box::pin(async move { Ok(Some(credential)) })),
+        )
+        .await
+        .map_err(auth_error)?;
+    evict_clients_for_proxy_route(ctx, route);
+    Ok(())
+}
+
+/// Remove the proxy credential for a route address and evict clients that
+/// pointed at it. Unknown routes are not an error.
+pub async fn delete_proxy_credential(ctx: &ApiContext, route: &str) -> ApiResult<()> {
+    let registry = auth_registry(ctx)?;
+    let key = wf_llm::credential_key(route);
+    registry.store().delete(&key).await.map_err(auth_error)?;
+    evict_clients_for_proxy_route(ctx, route);
+    Ok(())
+}
+
+/// Drop cached clients whose effective proxy route matches, after a proxy
+/// credential rotation or removal.
+fn evict_clients_for_proxy_route(ctx: &ApiContext, route: &str) {
+    let affected: Vec<String> = ctx
+        .llm_gateway
+        .profile_registry()
+        .list()
+        .into_iter()
+        .filter(|profile| profile.proxy.as_deref() == Some(route))
+        .map(|profile| profile.id.clone())
+        .collect();
+    for profile_id in affected {
+        ctx.llm_gateway.evict_client(&profile_id);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

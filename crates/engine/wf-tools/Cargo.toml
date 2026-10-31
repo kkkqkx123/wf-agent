@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 wf-integration = { path = "../../infra/wf-integration" }
 wf-llm = { path = "../../infra/wf-llm" }
+llm-proxy = { package = "llm-suite-proxy", path = "../../infra/llm-suite/crates/llm-suite-proxy" }
 wf-core = { path = "../../foundation/wf-core" }
 wf-types = { path = "../../foundation/wf-types" }
 wf-common = { path = "../../foundation/wf-common" }

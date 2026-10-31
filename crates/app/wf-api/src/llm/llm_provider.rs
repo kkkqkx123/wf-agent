@@ -61,6 +61,40 @@ pub async fn delete(ctx: &ApiContext, id: &str) -> ApiResult<()> {
 /// provider (when any); definitions without remote discovery return
 /// without using it. Discovery failures surface as errors to the caller;
 /// assembly-time checks degrade them to warnings instead.
+/// Collect stored proxy credentials for every distinct proxy route in use.
+///
+/// Keys follow the shared route-derived naming so discovery composes the
+/// transient address without reading the store itself. Missing entries mean
+/// anonymous routes and are simply absent from the map.
+async fn proxy_creds(
+    ctx: &ApiContext,
+) -> std::collections::HashMap<String, wf_llm::ProxyCredential> {
+    let Some(registry) = ctx.llm_gateway.auth_registry() else {
+        return Default::default();
+    };
+    let mut routes = std::collections::HashSet::new();
+    for definition in ctx.llm_gateway.provider_registry().list() {
+        if let Some(proxy) = definition.proxy.as_deref() {
+            routes.insert(proxy.to_string());
+        }
+    }
+    for profile in ctx.llm_gateway.profile_registry().list() {
+        if let Some(proxy) = profile.proxy.as_deref() {
+            routes.insert(proxy.to_string());
+        }
+    }
+    let mut out = std::collections::HashMap::new();
+    for route in routes {
+        let key = wf_llm::credential_key(&route);
+        if let Ok(Some(credential)) = registry.store().read(&key).await {
+            if let Ok(proxy) = credential.as_proxy() {
+                out.insert(key, proxy.clone());
+            }
+        }
+    }
+    out
+}
+
 pub async fn list_models(ctx: &ApiContext, provider_id: &str) -> ApiResult<Vec<ModelInfo>> {
     let definition = get(ctx, provider_id).await?;
     let api_key = ctx
@@ -70,9 +104,10 @@ pub async fn list_models(ctx: &ApiContext, provider_id: &str) -> ApiResult<Vec<M
         .into_iter()
         .find(|p| p.provider_id.as_deref() == Some(provider_id))
         .and_then(|p| p.api_key);
+    let proxy_creds = proxy_creds(ctx).await;
     ctx.llm_gateway
         .model_catalog()
-        .list_models(&definition, api_key.as_deref())
+        .list_models(&definition, api_key.as_deref(), &proxy_creds)
         .await
         .map_err(ApiError::from)
 }
@@ -127,10 +162,11 @@ pub async fn refresh_all(
             Some((provider_id, api_key))
         })
         .collect();
+    let proxy_creds = proxy_creds(ctx).await;
     let refreshed = ctx
         .llm_gateway
         .model_catalog()
-        .refresh_all(&definitions, &api_keys)
+        .refresh_all(&definitions, &api_keys, &proxy_creds)
         .await;
     Ok(refreshed
         .into_iter()
@@ -159,10 +195,11 @@ pub async fn refresh_filtered(
             Some((provider_id, api_key))
         })
         .collect();
+    let proxy_creds = proxy_creds(ctx).await;
     let refreshed = ctx
         .llm_gateway
         .model_catalog()
-        .refresh_filtered(&definitions, &api_keys, predicate)
+        .refresh_filtered(&definitions, &api_keys, &proxy_creds, predicate)
         .await;
     Ok(refreshed
         .into_iter()

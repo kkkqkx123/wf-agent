@@ -38,6 +38,9 @@ llm-images = { package = "llm-suite-images", path = "../llm-suite/crates/llm-sui
 # Network model discovery (split from llm-suite-config so profile-only
 # hosts never pay for the TLS stack).
 llm-discovery = { package = "llm-suite-discovery", path = "../llm-suite/crates/llm-suite-discovery" }
+# Shared proxy construction and route helpers, re-exported so hosts validate
+# persisted routes and derive credential keys without a second copy.
+llm-proxy = { package = "llm-suite-proxy", path = "../llm-suite/crates/llm-suite-proxy" }
 
 async-trait.workspace = true
 serde.workspace = true

@@ -3,7 +3,7 @@ use std::path::Path;
 
 use wf_client::WfClient;
 
-use crate::args::{Cli, LlmAuthSub, LlmProfileSub, LlmProviderSub, LlmTemplateSub};
+use crate::args::{Cli, LlmAuthSub, LlmProfileSub, LlmProviderSub, LlmProxySub, LlmTemplateSub};
 use crate::cmd::render::render_envelope;
 use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
@@ -284,6 +284,90 @@ pub async fn run_auth(cli: &Cli, sub: &LlmAuthSub) -> CliResult<()> {
             render_envelope(cli.output, OutputEnvelope::success("llm-auth-status", data))
         }
     }
+}
+
+/// Run a proxy credential subcommand: passwords never appear in output.
+/// A missing password flag reads one line from stdin so secrets stay out
+/// of shell history and process lists.
+pub async fn run_proxy(cli: &Cli, sub: &LlmProxySub) -> CliResult<()> {
+    let handle = ClientHandle::from_cli(cli).await?;
+    let client = handle.client();
+    match sub {
+        LlmProxySub::Set {
+            route,
+            username,
+            password,
+        } => {
+            let password = match password.clone() {
+                Some(password) => password,
+                None => read_proxy_password()?,
+            };
+            client
+                .post_json::<_, serde_json::Value>(
+                    "/api/v1/llm/proxy-credentials",
+                    &serde_json::json!({
+                        "route": route,
+                        "username": username,
+                        "password": password,
+                    }),
+                )
+                .await?;
+            let data = serde_json::json!({"stored": route});
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("llm-proxy-set", data).with_entity(route.clone()),
+            )
+        }
+        LlmProxySub::Delete { route } => {
+            let encoded: String = url_encode_route(route);
+            client
+                .delete_json::<serde_json::Value>(&format!(
+                    "/api/v1/llm/proxy-credentials/{encoded}"
+                ))
+                .await?;
+            let data = serde_json::json!({"deleted": route});
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("llm-proxy-delete", data).with_entity(route.clone()),
+            )
+        }
+        LlmProxySub::Status => {
+            let data: serde_json::Value = client.get_json("/api/v1/llm/proxy-credentials").await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("llm-proxy-status", data),
+            )
+        }
+    }
+}
+
+fn read_proxy_password() -> CliResult<String> {
+    use std::io::{self, BufRead};
+    let stdin = io::stdin();
+    let mut line = String::new();
+    stdin
+        .lock()
+        .read_line(&mut line)
+        .map_err(|e| CliError::Configuration(format!("read password failed: {e}")))?;
+    let password = line.trim_end_matches(['\r', '\n']).to_string();
+    if password.is_empty() {
+        return Err(CliError::Configuration(
+            "proxy password must not be empty".to_string(),
+        ));
+    }
+    Ok(password)
+}
+
+fn url_encode_route(route: &str) -> String {
+    let mut out = String::with_capacity(route.len());
+    for b in route.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }
 
 /// Default seconds between login polls when the server does not advertise

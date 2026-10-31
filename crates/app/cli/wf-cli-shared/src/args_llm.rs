@@ -107,6 +107,32 @@ pub enum LlmTemplateSub {
     },
 }
 
+/// Proxy credential subcommands: passwords live only in the credential
+/// store under the route-derived key, never in profile or definition files.
+#[derive(Debug, Clone, Subcommand)]
+pub enum LlmProxySub {
+    /// Store the credential for a route-only proxy address.
+    Set {
+        /// Route-only proxy address.
+        #[arg(value_name = "ROUTE")]
+        route: String,
+        /// Proxy username.
+        #[arg(long, value_name = "USERNAME")]
+        username: String,
+        /// Proxy password; omit to read one line from stdin.
+        #[arg(long, value_name = "PASSWORD")]
+        password: Option<String>,
+    },
+    /// Remove the stored credential for a proxy route.
+    Delete {
+        /// Route-only proxy address.
+        #[arg(value_name = "ROUTE")]
+        route: String,
+    },
+    /// List stored proxy credentials, metadata only.
+    Status,
+}
+
 /// LLM authentication subcommands: login (device / PKCE / API-key entry),
 /// logout and status. Login drives the host-side session state machine over
 /// HTTP; secrets never appear in output.

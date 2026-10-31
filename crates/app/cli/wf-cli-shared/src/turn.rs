@@ -34,6 +34,10 @@ pub struct TurnParams {
     pub approve_prefixes: Vec<String>,
     /// Server-side run budget in milliseconds (`--timeout`).
     pub timeout_ms: Option<u64>,
+    /// Structured agent context (`--context` / `--context-file`).
+    /// The server validates it against the agent `context_schema` when the
+    /// template declares one; empty maps skip that gate.
+    pub context: serde_json::Map<String, Value>,
     /// Prior conversation seeding the run. Headless single-shot turns leave
     /// this empty; the mini session fills it from its transcript.
     pub conversation: Vec<wf_types::message::Message>,
@@ -67,7 +71,7 @@ impl TurnParams {
                 .clone()
                 .unwrap_or_else(|| DEFAULT_MODEL.to_string()),
             message: sanitized,
-            context: Default::default(),
+            context: self.context.clone(),
             conversation: Some(conversation),
             max_execution_time: self.timeout_ms.map(|v| v as i64),
             max_iterations: None,
@@ -148,6 +152,52 @@ fn input_kind(value: &Value) -> &'static str {
     }
 }
 
+/// Parse the structured agent context from `--context` (inline JSON
+/// object) and `--context-file` (JSON file holding an object). File
+/// content loads first so inline keys win on conflict; both must be JSON
+/// objects when present. Failures are hard errors: context silently
+/// degrading to empty would hide a typo from the user.
+pub fn parse_agent_context(
+    inline: Option<&str>,
+    file: Option<&std::path::Path>,
+) -> Result<serde_json::Map<String, Value>, String> {
+    let mut merged = serde_json::Map::new();
+    if let Some(path) = file {
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| format!("cannot read --context-file '{}': {e}", path.display()))?;
+        match serde_json::from_str::<Value>(&text)
+            .map_err(|e| format!("invalid --context-file JSON: {e}"))?
+        {
+            Value::Object(map) => merged.extend(map),
+            other => {
+                return Err(format!(
+                    "invalid --context-file: must be a JSON object, got {}",
+                    input_kind(&other),
+                ));
+            }
+        }
+    }
+    match inline {
+        None => Ok(merged),
+        Some(s) if s.trim().is_empty() => Ok(merged),
+        Some(s) => {
+            match serde_json::from_str::<Value>(s)
+                .map_err(|e| format!("invalid --context JSON: {e}"))?
+            {
+                Value::Object(map) => {
+                    merged.extend(map);
+                    Ok(merged)
+                }
+                Value::Null => Ok(merged),
+                other => Err(format!(
+                    "invalid --context: must be a JSON object, got {}",
+                    input_kind(&other),
+                )),
+            }
+        }
+    }
+}
+
 /// Helper to parse workflow input JSON string.
 pub fn parse_workflow_input(input: Option<&str>) -> Result<Option<Value>, String> {
     match input {
@@ -217,6 +267,7 @@ mod tests {
             model: Some("m".into()),
             approve_prefixes: vec![],
             timeout_ms: Some(5000),
+            context: Default::default(),
             conversation: Vec::new(),
             kind: TurnKind::Agent {
                 prompt: "hi".to_string(),
@@ -237,6 +288,7 @@ mod tests {
             model: None,
             approve_prefixes: vec![],
             timeout_ms: None,
+            context: Default::default(),
             conversation: Vec::new(),
             kind: TurnKind::Agent {
                 prompt: "\x1b[31mhi\x1b[0m".to_string(),
@@ -245,5 +297,44 @@ mod tests {
         let body = params.agent_request_body();
         assert_eq!(body["message"], "hi");
         assert_eq!(body["model"], DEFAULT_MODEL);
+    }
+
+    #[test]
+    fn agent_body_carries_context() {
+        let params = TurnParams {
+            agent: None,
+            model: None,
+            approve_prefixes: vec![],
+            timeout_ms: None,
+            context: parse_agent_context(Some(r#"{"city": "paris"}"#), None)
+                .expect("context parses"),
+            conversation: Vec::new(),
+            kind: TurnKind::Agent {
+                prompt: "hi".to_string(),
+            },
+        };
+        let body = params.agent_request_body();
+        assert_eq!(body["context"]["city"], "paris");
+    }
+
+    #[test]
+    fn agent_context_rejects_non_objects_and_merges_file() {
+        assert!(parse_agent_context(Some("[1]"), None).is_err());
+        assert!(parse_agent_context(Some("42"), None).is_err());
+        assert!(parse_agent_context(None, None).expect("empty").is_empty());
+        assert!(
+            parse_agent_context(Some("  "), None)
+                .expect("blank")
+                .is_empty()
+        );
+        let dir = std::env::temp_dir();
+        let file = dir.join(format!("wf-context-{}.json", std::process::id()));
+        std::fs::write(&file, r#"{"a": 1, "b": 2}"#).expect("fixture");
+        let merged = parse_agent_context(Some(r#"{"b": 3}"#), Some(&file))
+            .expect("file plus inline");
+        assert_eq!(merged["a"], 1);
+        assert_eq!(merged["b"], 3);
+        let _ = std::fs::remove_file(&file);
+        assert!(parse_agent_context(None, Some(&file)).is_err());
     }
 }

@@ -142,11 +142,16 @@ impl Cli {
             interactive,
             approval_timeout,
             assume_yes,
+            context,
+            context_file,
             ..
         }) = &self.command
         {
             if input.is_some() && workflow.is_none() {
                 return Err("--input requires --workflow".to_string());
+            }
+            if (context.is_some() || context_file.is_some()) && workflow.is_some() {
+                return Err("--context/--context-file apply to agent turns, not --workflow".to_string());
             }
             if workflow.is_some() && prompt.is_some() {
                 return Err(
@@ -167,6 +172,9 @@ impl Cli {
             }
             if let Some(input_str) = input {
                 crate::turn::parse_workflow_input(Some(input_str))?;
+            }
+            if let Some(context_str) = context {
+                crate::turn::parse_agent_context(Some(context_str), None)?;
             }
         }
         Ok(())
@@ -246,6 +254,13 @@ pub enum Command {
         /// Workflow input as JSON (requires --workflow).
         #[arg(long)]
         input: Option<String>,
+        /// Structured agent context as a JSON object (agent turns only).
+        #[arg(long, value_name = "JSON")]
+        context: Option<String>,
+        /// Read structured agent context from a JSON file holding an
+        /// object; merged under `--context` (agent turns only).
+        #[arg(long = "context-file", value_name = "PATH")]
+        context_file: Option<std::path::PathBuf>,
         /// Remote server URL for this run (overrides --remote / WF_REMOTE).
         #[arg(long)]
         remote: Option<String>,

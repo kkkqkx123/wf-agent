@@ -559,6 +559,7 @@ impl InteractiveController {
             model,
             approve_prefixes: Vec::new(),
             timeout_ms: None,
+            context: Default::default(),
             conversation: self.history.clone(),
             kind: TurnKind::Agent { prompt },
         };

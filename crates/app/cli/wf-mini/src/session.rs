@@ -1427,6 +1427,7 @@ impl NativeSession {
             model: self.model.clone(),
             approve_prefixes: Vec::new(),
             timeout_ms: self.timeout_ms,
+            context: Default::default(),
             conversation: self.transcript.messages().to_vec(),
             kind: TurnKind::Agent { prompt },
         };

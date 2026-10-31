@@ -121,7 +121,8 @@ fn input_shape_kind(value: &Value) -> &'static str {
 
 /// Shared runtime budget gate: numeric budgets must be positive when set.
 /// Zero would clamp the run below any useful budget instead of meaning
-/// "unset", so it fails fast rather than degrading silently.
+/// "unset", so every zero budget is reported together rather than one
+/// at a time.
 pub fn validate_runtime_options(
     options: Option<&WorkflowExecutionOptions>,
 ) -> Result<(), crate::infra::error::ApiError> {
@@ -143,14 +144,46 @@ pub fn validate_runtime_options(
             options.loop_max_iterations_cap.map(|v| v as u64),
         ),
     ];
-    for (name, value) in positive {
-        if value == Some(0) {
-            return Err(crate::infra::error::ApiError::Validation(format!(
-                "workflow {name} must be a positive number when set"
-            )));
-        }
+    let issues: Vec<String> = positive
+        .into_iter()
+        .filter(|(_, value)| *value == Some(0))
+        .map(|(name, _)| format!("workflow {name} must be a positive number when set"))
+        .collect();
+    if issues.is_empty() {
+        return Ok(());
     }
-    Ok(())
+    Err(crate::infra::error::ApiError::Validation(format!(
+        "workflow budgets validation failed ({} error(s)): {}",
+        issues.len(),
+        issues.join("; "),
+    )))
+}
+
+/// Combined entry gate for the definition-independent checks: top-level
+/// input shape plus runtime budgets. Both are reported together so one
+/// round trip surfaces the whole entry problem set; the declared-variable
+/// gate runs after the definition loads and reports its own complete set.
+pub fn validate_workflow_entry(
+    input: Option<&Value>,
+    options: Option<&WorkflowExecutionOptions>,
+) -> Result<(), crate::infra::error::ApiError> {
+    let mut issues = Vec::new();
+    if let Err(crate::infra::error::ApiError::Validation(reason)) = validate_workflow_input(input)
+    {
+        issues.push(reason);
+    }
+    if let Err(crate::infra::error::ApiError::Validation(reason)) = validate_runtime_options(options)
+    {
+        issues.push(reason);
+    }
+    if issues.is_empty() {
+        return Ok(());
+    }
+    Err(crate::infra::error::ApiError::Validation(format!(
+        "workflow request validation failed ({} error(s)): {}",
+        issues.len(),
+        issues.join("; "),
+    )))
 }
 
 /// Execute a workflow to completion and await its output.
@@ -162,8 +195,7 @@ pub async fn execute(
     ctx: &ApiContext,
     mut params: ExecuteWorkflowParams,
 ) -> crate::infra::error::ApiResult<WorkflowOutput> {
-    validate_workflow_input(params.input.as_ref())?;
-    validate_runtime_options(params.options.as_ref())?;
+    validate_workflow_entry(params.input.as_ref(), params.options.as_ref())?;
     let mut definition =
         resolve_definition(ctx, &params.workflow_id, params.version.as_deref()).await?;
     params.input = crate::workflow::composition::apply_input_defaults(
@@ -241,8 +273,7 @@ pub async fn stream(
     ctx: Arc<ApiContext>,
     mut params: ExecuteWorkflowParams,
 ) -> crate::infra::error::ApiResult<(Id, ExecutionEventStream)> {
-    validate_workflow_input(params.input.as_ref())?;
-    validate_runtime_options(params.options.as_ref())?;
+    validate_workflow_entry(params.input.as_ref(), params.options.as_ref())?;
     let mut definition =
         resolve_definition(&ctx, &params.workflow_id, params.version.as_deref()).await?;
     params.input = crate::workflow::composition::apply_input_defaults(

@@ -29,7 +29,9 @@ pub fn validate_input_shape(input: Option<&Value>) -> WorkflowResult<()> {
     }
 }
 
-pub fn validate_runtime_budgets(options: &WorkflowExecutionOptions) -> WorkflowResult<()> {
+/// Collect every non-positive runtime budget without stopping at the
+/// first so callers can fix the whole entry in one round.
+pub fn collect_budget_issues(options: &WorkflowExecutionOptions) -> Vec<String> {
     let positive: [(&str, Option<u64>); 7] = [
         ("max_steps", options.max_steps.map(|v| v as u64)),
         ("timeout", options.timeout),
@@ -45,14 +47,23 @@ pub fn validate_runtime_budgets(options: &WorkflowExecutionOptions) -> WorkflowR
             options.loop_max_iterations_cap.map(|v| v as u64),
         ),
     ];
-    for (name, value) in positive {
-        if value == Some(0) {
-            return Err(WorkflowError::VariableError(format!(
-                "workflow {name} must be a positive number when set"
-            )));
-        }
+    positive
+        .into_iter()
+        .filter(|(_, value)| *value == Some(0))
+        .map(|(name, _)| format!("workflow {name} must be a positive number when set"))
+        .collect()
+}
+
+pub fn validate_runtime_budgets(options: &WorkflowExecutionOptions) -> WorkflowResult<()> {
+    let issues = collect_budget_issues(options);
+    if issues.is_empty() {
+        return Ok(());
     }
-    Ok(())
+    Err(WorkflowError::VariableError(format!(
+        "workflow budgets validation failed ({} error(s)): {}",
+        issues.len(),
+        issues.join("; "),
+    )))
 }
 
 pub fn gate_workflow_request(
@@ -60,9 +71,19 @@ pub fn gate_workflow_request(
     input: Option<&Value>,
 ) -> WorkflowResult<()> {
     let effective = options.input.as_ref().or(input);
-    validate_input_shape(effective)?;
-    validate_runtime_budgets(options)?;
-    Ok(())
+    let mut issues = Vec::new();
+    if let Err(WorkflowError::VariableError(reason)) = validate_input_shape(effective) {
+        issues.push(reason);
+    }
+    issues.extend(collect_budget_issues(options));
+    if issues.is_empty() {
+        return Ok(());
+    }
+    Err(WorkflowError::VariableError(format!(
+        "workflow request validation failed ({} error(s)): {}",
+        issues.len(),
+        issues.join("; "),
+    )))
 }
 
 /// Merge the two input channels, backfill declared defaults and enforce
@@ -140,6 +161,25 @@ mod tests {
         options.timeout = Some(100);
         options.max_steps = Some(0);
         assert!(validate_runtime_budgets(&options).is_err());
+    }
+
+    #[test]
+    fn budgets_report_every_zero_together() {
+        let mut options = empty_options();
+        options.timeout = Some(0);
+        options.max_steps = Some(0);
+        options.node_timeout = Some(0);
+        let err = validate_runtime_budgets(&options).expect_err("zeros must fail");
+        let text = err.to_string();
+        assert!(text.contains("3 error(s)"), "{text}");
+        for name in ["timeout", "max_steps", "node_timeout"] {
+            assert!(text.contains(name), "{text}");
+        }
+        let err = gate_workflow_request(&options, Some(&json!([1])))
+            .expect_err("shape plus budgets must fail together");
+        let text = err.to_string();
+        assert!(text.contains("must be a JSON object"), "{text}");
+        assert!(text.contains("max_steps"), "{text}");
     }
 
     #[test]

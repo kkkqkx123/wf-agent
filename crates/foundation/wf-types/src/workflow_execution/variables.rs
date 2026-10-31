@@ -39,12 +39,91 @@ impl VariableValueType {
             return Ok(());
         }
         Err(format!(
-            "variable '{}' expects {}, got {}",
-            name,
+            "variable '{name}' expects {}, got {}",
             self.type_name(),
             workflow_value_kind(value),
         ))
     }
+}
+
+/// One workflow input problem with a structured field reference.
+///
+/// The backend always reports the full set collected by
+/// `collect_workflow_input_issues` so callers can fix every problem in
+/// one round instead of resubmitting per error.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowInputIssue {
+    pub field: String,
+    pub message: String,
+}
+
+impl WorkflowInputIssue {
+    pub fn new(field: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            field: field.into(),
+            message: message.into(),
+        }
+    }
+}
+
+/// Collect every workflow input problem without stopping at the first.
+///
+/// A top-level shape violation makes per-key checks meaningless, so it
+/// is reported alone; otherwise all declared-key type mismatches and all
+/// missing required variables are reported together. Unknown keys keep
+/// passing for forward compatibility.
+pub fn collect_workflow_input_issues(
+    input: Option<&serde_json::Value>,
+    variables: Option<&[VariableDefinition]>,
+) -> Vec<WorkflowInputIssue> {
+    let mut issues = Vec::new();
+    let Some(variables) = variables else {
+        return issues;
+    };
+    if variables.is_empty() {
+        return issues;
+    }
+    let object = match input {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::Object(map)) => Some(map),
+        Some(other) => {
+            issues.push(WorkflowInputIssue::new(
+                "input",
+                format!(
+                    "workflow input must be a JSON object or empty, got {}",
+                    workflow_value_kind(other),
+                ),
+            ));
+            return issues;
+        }
+    };
+    if let Some(object) = object {
+        for (key, value) in object {
+            let Some(declared) = variables.iter().find(|v| v.name == *key) else {
+                continue;
+            };
+            let Some(expected) = declared.r#type.as_ref() else {
+                continue;
+            };
+            if !expected.matches(value) {
+                issues.push(WorkflowInputIssue::new(
+                    key.clone(),
+                    format!(
+                        "variable '{key}' expects {}, got {}",
+                        expected.type_name(),
+                        workflow_value_kind(value),
+                    ),
+                ));
+            }
+        }
+    }
+    for name in missing_required_variables(input, Some(variables)) {
+        issues.push(WorkflowInputIssue::new(
+            name.clone(),
+            format!("workflow input is missing required variable '{name}'"),
+        ));
+    }
+    issues
 }
 
 fn workflow_value_kind(value: &serde_json::Value) -> &'static str {
@@ -67,41 +146,19 @@ pub fn validate_workflow_input_against_variables(
     input: Option<&serde_json::Value>,
     variables: Option<&[VariableDefinition]>,
 ) -> Result<(), String> {
-    let Some(variables) = variables else {
-        return Ok(());
-    };
-    if variables.is_empty() {
+    let issues = collect_workflow_input_issues(input, variables);
+    if issues.is_empty() {
         return Ok(());
     }
-    let object = match input {
-        None | Some(serde_json::Value::Null) => None,
-        Some(serde_json::Value::Object(map)) => Some(map),
-        Some(other) => {
-            return Err(format!(
-                "workflow input must be a JSON object or empty, got {}",
-                workflow_value_kind(other),
-            ));
-        }
-    };
-    if let Some(object) = object {
-        for (key, value) in object {
-            let Some(declared) = variables.iter().find(|v| v.name == *key) else {
-                continue;
-            };
-            let Some(expected) = declared.r#type.as_ref() else {
-                continue;
-            };
-            expected.validate_value(key, value)?;
-        }
-    }
-    let missing = missing_required_variables(input, Some(variables));
-    if !missing.is_empty() {
-        return Err(format!(
-            "workflow input is missing required variable(s): {}",
-            missing.join(", ")
-        ));
-    }
-    Ok(())
+    Err(format!(
+        "workflow input validation failed ({} error(s)): {}",
+        issues.len(),
+        issues
+            .iter()
+            .map(|issue| issue.message.as_str())
+            .collect::<Vec<_>>()
+            .join("; "),
+    ))
 }
 
 /// Names of `required` variables absent from the input.
@@ -399,5 +456,41 @@ mod tests {
             Some(&variables)
         )
         .is_ok());
+    }
+
+    #[test]
+    fn all_input_problems_are_reported_together() {
+        let variables = vec![
+            definition("count", Some(VariableValueType::Number)),
+            definition("name", Some(VariableValueType::String)),
+            required_definition(
+                "city",
+                Some(VariableValueType::String),
+                serde_json::Value::Null,
+            ),
+            required_definition(
+                "token",
+                Some(VariableValueType::String),
+                serde_json::Value::Null,
+            ),
+        ];
+        let issues = collect_workflow_input_issues(
+            Some(&json!({"count": "many", "name": 1})),
+            Some(&variables),
+        );
+        let fields: Vec<&str> = issues.iter().map(|issue| issue.field.as_str()).collect();
+        assert_eq!(fields, vec!["count", "name", "city", "token"]);
+        let err = validate_workflow_input_against_variables(
+            Some(&json!({"count": "many", "name": 1})),
+            Some(&variables),
+        )
+        .expect_err("combined problems must fail");
+        assert!(err.contains("4 error(s)"), "{err}");
+        for field in ["count", "name", "city", "token"] {
+            assert!(err.contains(field), "{err}");
+        }
+        let shape = collect_workflow_input_issues(Some(&json!([1])), Some(&variables));
+        assert_eq!(shape.len(), 1);
+        assert_eq!(shape[0].field, "input");
     }
 }

@@ -612,6 +612,11 @@ pub fn validate_config_value_against_metadata(
                         field.r#type.type_name(),
                         config_value_kind(provided),
                     ));
+                } else if matches!(
+                    field.r#type,
+                    ResourceAssemblerConfigFieldType::Expression
+                ) {
+                    errors.extend(expression_allowlist_violations(name, provided, field));
                 }
             }
         }
@@ -652,6 +657,79 @@ pub fn gate_assembler_config(
     } else {
         Err(errors.join("; "))
     }
+}
+
+/// Function names called in an expression value: identifiers directly
+/// followed by an opening parenthesis. String literals are skipped so
+/// text like `"call me (later)"` is never mistaken for a call.
+fn expression_called_functions(value: &str) -> Vec<String> {
+    let bytes = value.as_bytes();
+    let mut names = Vec::new();
+    let mut index = 0;
+    let mut quote: Option<u8> = None;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if let Some(open) = quote {
+            if byte == open {
+                quote = None;
+            }
+            index += 1;
+            continue;
+        }
+        if byte == b'"' || byte == b'\'' {
+            quote = Some(byte);
+            index += 1;
+            continue;
+        }
+        let starts_name = byte.is_ascii_alphabetic() || byte == b'_';
+        if !starts_name {
+            index += 1;
+            continue;
+        }
+        let start = index;
+        while index < bytes.len()
+            && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
+        {
+            index += 1;
+        }
+        let mut cursor = index;
+        while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+        if cursor < bytes.len() && bytes[cursor] == b'(' {
+            let name = value[start..index].to_string();
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+    }
+    names
+}
+
+/// Allowlist violations for an expression-typed config value. No
+/// allowlist means no restriction; otherwise every called function name
+/// must appear in it. All violations are returned together.
+fn expression_allowlist_violations(
+    name: &str,
+    provided: &Value,
+    field: &ResourceAssemblerConfigField,
+) -> Vec<String> {
+    let Some(allowed) = field.allowed_functions.as_ref() else {
+        return Vec::new();
+    };
+    let Value::String(text) = provided else {
+        return Vec::new();
+    };
+    expression_called_functions(text)
+        .into_iter()
+        .filter(|called| !allowed.contains(called))
+        .map(|called| {
+            format!(
+                "assembler config '{name}' calls unknown function '{called}' (allowed: {})",
+                allowed.join(", "),
+            )
+        })
+        .collect()
 }
 
 fn config_value_kind(value: &Value) -> &'static str {
@@ -1255,6 +1333,62 @@ mod tests {
         assert!(errors.iter().any(|e| e.contains("count")));
         let errors = validate_config_value_against_metadata(&json!({"count": "many"}), &metadata);
         assert!(errors.iter().any(|e| e.contains("count")));
+    }
+
+    #[test]
+    fn expression_allowlist_reports_every_unknown_call() {
+        use serde_json::json;
+        let metadata = ResourceAssemblerMetadata {
+            id: "test".into(),
+            name: "test".into(),
+            version: "1".into(),
+            description: "test".into(),
+            author: None,
+            tags: None,
+            category: None,
+            dependencies: None,
+            configurable: Some(HashMap::from([(
+                "when".into(),
+                ResourceAssemblerConfigField {
+                    r#type: ResourceAssemblerConfigFieldType::Expression,
+                    description: "when".into(),
+                    default: None,
+                    required: None,
+                    allowed_functions: Some(vec!["eq".into()]),
+                },
+            )])),
+        };
+        assert!(
+            validate_config_value_against_metadata(&json!({"when": "eq(a, 1)"}), &metadata)
+                .is_empty()
+        );
+        let errors = validate_config_value_against_metadata(
+            &json!({"when": "eq(a, 1) && hasRole(user) || \"call (x)\""}),
+            &metadata,
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("hasRole"), "{}", errors[0]);
+        let errors = validate_config_value_against_metadata(
+            &json!({"when": "nope(a) || other(b)"}),
+            &metadata,
+        );
+        assert_eq!(errors.len(), 2);
+        let open = ResourceAssemblerMetadata {
+            configurable: Some(HashMap::from([(
+                "when".into(),
+                ResourceAssemblerConfigField {
+                    r#type: ResourceAssemblerConfigFieldType::Expression,
+                    description: "when".into(),
+                    default: None,
+                    required: None,
+                    allowed_functions: None,
+                },
+            )])),
+            ..metadata
+        };
+        assert!(
+            validate_config_value_against_metadata(&json!({"when": "any(a)"}), &open).is_empty()
+        );
     }
 
     #[test]

@@ -53,6 +53,8 @@ pub struct RunOptions {
     pub assume_yes: bool,
     /// Server-side run budget in milliseconds (`--timeout`).
     pub timeout_ms: Option<u64>,
+    /// Structured agent context for agent turns (`--context` / `--context-file`).
+    pub context: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Default for RunOptions {
@@ -68,6 +70,7 @@ impl Default for RunOptions {
             approval_timeout_secs: DEFAULT_APPROVAL_TIMEOUT_SECS,
             assume_yes: false,
             timeout_ms: None,
+            context: serde_json::Map::new(),
         }
     }
 }
@@ -93,6 +96,7 @@ impl RunOptions {
             model: self.model.clone(),
             approve_prefixes: self.approve_prefixes.clone(),
             timeout_ms: self.timeout_ms,
+            context: self.context.clone(),
             conversation: Vec::new(),
             kind,
         })

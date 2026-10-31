@@ -459,6 +459,32 @@ fn validate_tool_lists(
             }
         }
     }
+
+    // Contradictory visibility: the hidden blocklist wins at resolution
+    // time, so a tool listed as both initially visible and hidden would
+    // silently disappear from the schema. Report every overlap together
+    // instead of failing on the first one.
+    let initial_set: std::collections::HashSet<&str> = config
+        .initial_tool_names
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let mut contradictions: Vec<&str> = config
+        .hidden_tool_names
+        .iter()
+        .map(String::as_str)
+        .filter(|name| initial_set.contains(name))
+        .collect();
+    contradictions.sort_unstable();
+    contradictions.dedup();
+    for name in contradictions {
+        issues.push(ValidationIssue::error(
+            "hidden_tool_names",
+            format!(
+                "tool '{name}' is listed as both initially visible and hidden; hidden wins, so remove it from one list",
+            ),
+        ));
+    }
 }
 
 /// Validate that a tool call format config is structurally sound (markers
@@ -798,6 +824,39 @@ mod tests {
             std::collections::HashMap::from([("count".to_string(), serde_json::json!("many"))]);
         let issues = AgentLoopValidator::validate_context_with_schema(&bad, &schema);
         assert!(issues.iter().any(|i| i.field == "context.count"));
+    }
+
+    #[test]
+    fn test_initial_hidden_overlap_reports_every_tool() {
+        let registry = ToolRegistry::new();
+        for (id, name) in [("a", "a_tool"), ("b", "b_tool")] {
+            registry.register_tool(wf_types::tool::Tool {
+                id: id.into(),
+                name: name.into(),
+                description: name.into(),
+                tool_type: wf_types::tool::ToolType::Stateless,
+                parameters: None,
+                metadata: None,
+                config: None,
+                enabled: Some(true),
+                strict: None,
+                default_timeout_ms: None,
+            });
+        }
+        let config = AgentLoopConfig {
+            file_scope: None,
+            initial_tool_names: vec!["b_tool".to_string(), "a_tool".to_string()],
+            hidden_tool_names: vec!["a_tool".to_string(), "b_tool".to_string()],
+            ..base_config()
+        };
+        let issues = AgentLoopValidator::validate_config(&config, &registry);
+        let overlap: Vec<&ValidationIssue> = issues
+            .iter()
+            .filter(|i| i.field == "hidden_tool_names")
+            .collect();
+        assert_eq!(overlap.len(), 2);
+        assert!(overlap[0].message.contains("a_tool"));
+        assert!(overlap[1].message.contains("b_tool"));
     }
 
     #[test]

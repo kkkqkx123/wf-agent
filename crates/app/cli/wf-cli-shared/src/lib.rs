@@ -223,6 +223,8 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         interactive,
         approval_timeout,
         assume_yes,
+        context,
+        context_file,
     ) = match &cli.command {
         Some(Command::Run {
             prompt,
@@ -234,6 +236,8 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             interactive,
             approval_timeout,
             assume_yes,
+            context,
+            context_file,
             remote: _,
         }) => (
             prompt.clone(),
@@ -245,8 +249,22 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             *interactive,
             *approval_timeout,
             *assume_yes,
+            context.clone(),
+            context_file.clone(),
         ),
-        _ => (None, None, None, Vec::new(), None, None, false, None, false),
+        _ => (
+            None,
+            None,
+            None,
+            Vec::new(),
+            None,
+            None,
+            false,
+            None,
+            false,
+            None,
+            None,
+        ),
     };
     // Stdin doubles as the answer channel with `--interactive`, so it must
     // not have been consumed as the prompt: require a positional prompt
@@ -264,6 +282,8 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         .or(arg_prompt)
         .unwrap_or_default();
 
+    let context = crate::turn::parse_agent_context(context.as_deref(), context_file.as_deref())
+        .map_err(CliError::Arguments)?;
     let opts = RunOptions {
         prompt,
         agent_id: agent,
@@ -276,6 +296,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             .unwrap_or(crate::stdio_prompt::DEFAULT_APPROVAL_TIMEOUT_SECS),
         assume_yes,
         timeout_ms: cli.timeout,
+        context,
     };
 
     let handle = ClientHandle::from_cli(cli).await?;

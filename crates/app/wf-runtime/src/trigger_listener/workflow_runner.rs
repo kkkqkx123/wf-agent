@@ -569,6 +569,7 @@ impl TriggerActionRunner for SubworkflowActionRunner {
                                         degraded: false,
                                         degraded_dropped: 0,
                                         run_id: None,
+                                        block_outcomes: &[],
                                     },
                                     &output,
                                 )
@@ -668,6 +669,7 @@ impl SubworkflowActionRunner {
                 degraded: false,
                 degraded_dropped: 0,
                 run_id: None,
+                block_outcomes: &[],
             },
             &output,
         )

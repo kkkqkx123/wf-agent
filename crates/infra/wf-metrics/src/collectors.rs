@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod agent_loop;
 pub mod checkpoint;
+pub mod compaction;
 pub mod config;
 pub mod error;
 pub mod event;
@@ -18,6 +19,7 @@ pub mod workflow;
 pub use agent::{AgentMetricsCollector, AgentUsageStats};
 pub use agent_loop::AgentLoopMetricsCollector;
 pub use checkpoint::{CheckpointMetricsCollector, CheckpointUsageStats};
+pub use compaction::CompactionMetricsCollector;
 pub use config::{ConfigMetricsCollector, ConfigStats};
 pub use error::{ErrorMetricsCollector, ErrorStats};
 pub use event::{EventMetricsCollector, EventStats};

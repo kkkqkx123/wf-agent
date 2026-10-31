@@ -485,6 +485,12 @@ impl AgentCheckpointIntegration {
                 })
             })
             .transpose()?;
+        let mut compaction = snapshot.conversation_compaction.clone().unwrap_or_default();
+        if !compaction.is_empty() {
+            // Restored bookkeeping recomputes the hot estimate on next
+            // read; thresholds persist with the window they derive from.
+            compaction.dirty = true;
+        }
         Ok(ConversationState {
             messages,
             seqs,
@@ -499,6 +505,7 @@ impl AgentCheckpointIntegration {
             // Recomputed once by `restore_state` for snapshots predating
             // the incremental view estimate.
             view_stable_estimate: 0,
+            compaction,
         })
     }
 
@@ -661,7 +668,16 @@ impl AgentCheckpointIntegration {
         let hierarchy = Self::entity_hierarchy(entity).await;
         let state = entity.state.read().await;
         let session = entity.conversation().read().await.snapshot_state();
-        let (messages, conversation_view, seq_start, seq_end, next_seq, ledger, tracker) = {
+        let (
+            messages,
+            conversation_view,
+            seq_start,
+            seq_end,
+            next_seq,
+            ledger,
+            tracker,
+            compaction,
+        ) = {
             let msgs = session.messages.clone();
             let view = session.active_view.clone();
             let seqs = session.seqs.clone();
@@ -680,6 +696,11 @@ impl AgentCheckpointIntegration {
                     .tracker
                     .clone()
                     .and_then(|t| serde_json::to_value(t).ok()),
+                if session.compaction.is_empty() {
+                    None
+                } else {
+                    Some(session.compaction.clone())
+                },
             )
         };
 
@@ -731,6 +752,7 @@ impl AgentCheckpointIntegration {
             message_next_seq: next_seq,
             conversation_ledger: ledger,
             conversation_tracker: tracker,
+            conversation_compaction: compaction,
             tool_call_history: None,
             is_streaming: Some(state.is_streaming()),
             variable_snapshots: vars,

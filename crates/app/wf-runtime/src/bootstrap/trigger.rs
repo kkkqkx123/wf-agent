@@ -79,11 +79,23 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
     {
         wf_execution_shared::set_compression_settle_timeout_ms(settle_timeout_ms);
     }
+    // Compaction tuning parameters are process-wide like the settle
+    // budget; thresholds resolve from them at decision time. Absent
+    // config keeps the built-in defaults.
+    if let Some(compaction) = limits.compaction.clone() {
+        wf_execution_shared::set_process_compaction_limits(compaction);
+    }
     // The terminal-failure handling strategy is declared by the summary
     // workflow resource itself (`compression_fallback` on its
     // triggered-subworkflow config); an absent declaration means `fail`.
     let summary_workflow_id =
         wf_resource::predefined::workflow::FOLD_SUMMARY_WORKFLOW_ID.to_string();
+    // The repress chain is optional: older registries may only carry the
+    // main chain, and the pipeline falls back to it for re-compressions.
+    let repress_workflow_id = registries
+        .workflows
+        .get(wf_resource::predefined::workflow::FOLD_SUMMARY_REPRESS_WORKFLOW_ID)
+        .map(|template| template.id.clone());
     let compression_fallback = registries
         .workflows
         .get(&summary_workflow_id)
@@ -154,6 +166,7 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
         // sharing this lifecycle and policy.
         compression_route: Some(crate::trigger_listener::CompressionRouteConfig {
             summary_workflow_id: summary_workflow_id.clone(),
+            repress_workflow_id: repress_workflow_id.clone(),
             policy: compression_policy.clone(),
         }),
     });
@@ -173,6 +186,7 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
             runner: subworkflow_runner,
             contexts: execution_contexts.clone(),
             summary_workflow_id,
+            repress_workflow_id,
             shutdown: trigger_shutdown,
             ledger: Some(ledger),
             policy: compression_policy,

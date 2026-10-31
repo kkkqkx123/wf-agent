@@ -36,9 +36,10 @@ pub use child::prefetch::{
 };
 
 pub use child::fold_summary::{
-    create_fold_summary_workflow, create_fold_summary_workflow_with_policy,
-    create_fold_summary_workflow_with_service, FOLD_SUMMARY_END_NODE_ID, FOLD_SUMMARY_FOLD_NODE_ID,
-    FOLD_SUMMARY_LLM_NODE_ID, FOLD_SUMMARY_START_NODE_ID, FOLD_SUMMARY_WORKFLOW_ID,
+    create_fold_summary_repress_workflow, create_fold_summary_workflow,
+    create_fold_summary_workflow_with_policy, create_fold_summary_workflow_with_service,
+    FOLD_SUMMARY_END_NODE_ID, FOLD_SUMMARY_FOLD_NODE_ID, FOLD_SUMMARY_LLM_NODE_ID,
+    FOLD_SUMMARY_REPRESS_WORKFLOW_ID, FOLD_SUMMARY_START_NODE_ID, FOLD_SUMMARY_WORKFLOW_ID,
 };
 
 pub use registration::register;

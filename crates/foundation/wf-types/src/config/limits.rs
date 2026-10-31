@@ -77,6 +77,15 @@ pub struct CompactionLimits {
     pub tool_distill: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_dedup: Option<bool>,
+    /// Maximum summary-chain calls in one compaction round; overflow
+    /// waits for the next settlement round.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan_max_items: Option<usize>,
+    /// Token budget of one summary call; oversized raw blocks split and
+    /// adjacent small items merge against it. Absent means derived from
+    /// the model window at use time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary_call_budget_tokens: Option<u64>,
 }
 
 /// Compression service policy for the context-compression chain.

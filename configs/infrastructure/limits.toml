@@ -54,4 +54,6 @@ r_min_range = 2000                    # smallest first-time compressible interva
 k_repress = 2                         # maximum re-compressions of a single block
 recent_raw_turns = 2                  # recent rounds always kept visible in the hot view
 tool_distill = true                   # distill tool output before it enters history
+plan_max_items = 8                  # summary-chain calls per compaction round at most
+# summary_call_budget_tokens = 16000 # one summary call budget; unset derives from the model window
 file_dedup = true                     # deduplicate file reads by content hash

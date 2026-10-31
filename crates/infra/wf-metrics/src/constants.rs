@@ -235,6 +235,13 @@ pub mod http_metrics {
     pub const ERROR_COUNT: &str = "http.error.count";
 }
 
+pub mod compaction_metrics {
+    pub const PLANS_EMITTED: &str = "compaction.plans.emitted.count";
+    pub const HANDOFFS_ENTERED: &str = "compaction.handoffs.entered.count";
+    pub const KEEP_FACTS_APPENDED: &str = "compaction.handoff.keep_facts.appended.count";
+    pub const PLAN_CAPPED: &str = "compaction.plan.capped.count";
+}
+
 pub mod timeout_metrics {
     pub const REGISTRATION_COUNT: &str = "timeout.registration.count";
     pub const DURATION_CONFIGURED: &str = "timeout.duration.configured";

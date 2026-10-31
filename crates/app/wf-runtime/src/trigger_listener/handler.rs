@@ -19,6 +19,9 @@ pub struct CompressionHandlerDeps {
     pub contexts: Arc<super::ExecutionContextRegistry>,
     /// Summary workflow id resolved from the resource registries.
     pub summary_workflow_id: String,
+    /// Re-compression chain id for `depth >= 1` plan items (`None` reuses
+    /// the summary chain, keeping single-summary behavior unchanged).
+    pub repress_workflow_id: Option<String>,
     /// Listener shutdown token; in-flight summary runs race against it.
     pub shutdown: CancellationToken,
     /// Optional durable trigger-execution ledger and state registry
@@ -44,11 +47,12 @@ pub fn register_compression_handler(
         runner,
         contexts,
         summary_workflow_id,
+        repress_workflow_id,
         shutdown,
         ledger,
         policy,
     } = deps;
-    let service = CompressionService::with_ledger(
+    let mut service = CompressionService::with_ledger(
         event_bus,
         runner,
         contexts,
@@ -57,6 +61,9 @@ pub fn register_compression_handler(
         ledger,
     )
     .with_policy(policy);
+    if let Some(repress_workflow_id) = repress_workflow_id {
+        service = service.with_repress_workflow_id(repress_workflow_id);
+    }
     let service = Arc::new(service);
     // The builtin handler runs first (priority above any user handler): the
     // takeover must be immediate once the engine fires.
@@ -89,11 +96,12 @@ pub fn register_routed_compression_handler(
         runner,
         contexts,
         summary_workflow_id,
+        repress_workflow_id,
         shutdown,
         ledger,
         policy,
     } = deps;
-    let service = CompressionService::routed_with_ledger(
+    let mut service = CompressionService::routed_with_ledger(
         event_bus,
         runner,
         contexts,
@@ -102,6 +110,9 @@ pub fn register_routed_compression_handler(
         ledger,
     )
     .with_policy(policy);
+    if let Some(repress_workflow_id) = repress_workflow_id {
+        service = service.with_repress_workflow_id(repress_workflow_id);
+    }
     let service = Arc::new(service);
     // The builtin handler runs first (priority above any user handler): the
     // handoff must publish synchronously once the engine fires.

@@ -517,6 +517,122 @@ async fn blocking_iteration_advances_the_iteration_counter() {
     assert_eq!(after, before + 1);
 }
 
+fn big_user_message(text: &str) -> Message {
+    Message {
+        id: wf_common::generate_id(),
+        role: wf_types::message::MessageRole::User,
+        content: MessageContentValue::Text(format!("{text} {}", "x".repeat(8000))),
+        timestamp: wf_common::now(),
+        tool_call_id: None,
+        tool_name: None,
+        tool_calls: None,
+        thinking: None,
+        thinking_signature: None,
+        metadata: None,
+    }
+}
+
+#[tokio::test]
+async fn in_flight_plan_coalesces_new_compaction_signal() {
+    let gateway = Arc::new(LlmGateway::new());
+    let registry = Arc::new(wf_tools::registry::ToolRegistry::new());
+    let coordinator = AgentIterationCoordinator::new(gateway, registry, None);
+    let entity =
+        AgentLoopEntity::new(Id::from("agent-coalesce-1".to_string())).with_model("mock".into());
+    {
+        let mut session = entity.conversation().write().await;
+        session.set_compaction_window(
+            100_000,
+            &wf_execution_shared::compaction::builtin_compaction_limits(),
+        );
+        for i in 0..40 {
+            session.add_message(big_user_message(&format!("pad {i}")));
+        }
+        session.refresh_hot_estimate();
+    }
+    // Sanity: without a flight the hot session compacts instead of holding.
+    {
+        let session = entity.conversation().read().await;
+        let hot = session.compaction_state().hot_tokens;
+        let decision = session.decide_compaction(
+            hot,
+            &wf_execution_shared::compaction::builtin_compaction_limits(),
+        );
+        assert!(
+            matches!(
+                decision,
+                wf_execution_shared::compaction::CompactionDecision::Compact { .. }
+            ),
+            "hot session must decide Compact, got {decision:?}"
+        );
+    }
+    // Anchor a flight at the current version: the next decision must not
+    // stack a second plan signal (no hook registry is wired, so any
+    // emission would take the no-taker path and clear the pending plan).
+    let version = entity.conversation().read().await.conversation_version();
+    entity
+        .conversation()
+        .write()
+        .await
+        .begin_compression_flight(version, false);
+    coordinator
+        .record_compaction_decision(&entity, 90_000, 100_000, 100)
+        .await;
+    let session = entity.conversation().read().await;
+    assert!(
+        session.compression_flight().is_some(),
+        "the in-flight plan must survive the coalesced decision"
+    );
+    assert!(
+        session.compaction_state().pending_plan.is_empty(),
+        "no second plan may be recorded while one is in flight"
+    );
+}
+
+#[tokio::test]
+async fn undispatched_emission_counts_nothing() {
+    use wf_metrics::metric::{MetricFilter, MetricType};
+    let gateway = Arc::new(LlmGateway::new());
+    let registry = Arc::new(wf_tools::registry::ToolRegistry::new());
+    let metrics = Arc::new(wf_metrics::MetricsRegistry::new());
+    let coordinator = AgentIterationCoordinator::new(gateway, registry, Some(metrics.clone()));
+    let entity =
+        AgentLoopEntity::new(Id::from("agent-metrics-1".to_string())).with_model("mock".into());
+    {
+        let mut session = entity.conversation().write().await;
+        session.set_compaction_window(
+            100_000,
+            &wf_execution_shared::compaction::builtin_compaction_limits(),
+        );
+        for i in 0..40 {
+            session.add_message(big_user_message(&format!("pad {i}")));
+        }
+        session.refresh_hot_estimate();
+    }
+    // No hook registry is wired, so the signal takes the no-taker path:
+    // the flight never anchors, the pending plan dies, and nothing is
+    // counted as emitted.
+    coordinator
+        .record_compaction_decision(&entity, 90_000, 100_000, 100)
+        .await;
+    let session = entity.conversation().read().await;
+    assert!(session.compression_flight().is_none());
+    assert!(session.compaction_state().pending_plan.is_empty());
+    let emitted: f64 = metrics
+        .compaction()
+        .collector()
+        .query(&MetricFilter {
+            name: Some("compaction.plans.emitted.count".to_string()),
+            metric_type: Some(MetricType::Counter),
+            ..Default::default()
+        })
+        .metrics
+        .iter()
+        .map(|m| m.value)
+        .sum();
+    assert_eq!(emitted, 0.0);
+}
+
 #[tokio::test]
 async fn pre_call_interruption_settles_without_hitting_the_llm() {
     let mock = Arc::new(MockLlmClient::new());

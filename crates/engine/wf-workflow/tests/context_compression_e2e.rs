@@ -20,7 +20,7 @@ use wf_execution_shared::TokenUsageTracker;
 use wf_llm::{LlmGateway, LlmResponseSpec, MockLlmClient};
 use wf_tools::registry::ToolRegistry;
 use wf_types::events::EventType;
-use wf_types::message::{Message, MessageContent, MessageContentValue, MessageRole};
+use wf_types::message::{Message, MessageContentValue, MessageRole};
 use wf_types::node::StaticNodeType;
 use wf_types::workflow::EdgeType;
 use wf_types::workflow_execution::{
@@ -199,13 +199,22 @@ impl HookHandler for CompressionHandler {
         else {
             return HookOutcome::Continue;
         };
-        let Some(messages) = ctx
-            .data
-            .get(KEY_MESSAGES)
-            .and_then(|v| serde_json::from_value::<Vec<Message>>(v.clone()).ok())
-        else {
+        // The snapshot rides the context attachment on the producer path
+        // (hook data keeps the audit fields only); the JSON field stays as
+        // the fallback for foreign emitters.
+        let messages: Vec<Message> = ctx
+            .attachment
+            .as_ref()
+            .map(|attachment| attachment.messages.as_ref().clone())
+            .or_else(|| {
+                ctx.data
+                    .get(KEY_MESSAGES)
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+            })
+            .unwrap_or_default();
+        if messages.is_empty() {
             return HookOutcome::Continue;
-        };
+        }
         let array_version = ctx
             .data
             .get(KEY_ARRAY_VERSION)
@@ -236,13 +245,6 @@ impl HookHandler for CompressionHandler {
                     array_version,
                 )
                 .await;
-            let summary = compressed.last().and_then(|m| match &m.content {
-                MessageContentValue::Text(text) => Some(text.clone()),
-                MessageContentValue::Rich(parts) => parts.iter().find_map(|part| match part {
-                    MessageContent::Text { text } => Some(text.clone()),
-                    _ => None,
-                }),
-            });
             bus.publish(
                 wf_execution_shared::build_context_compression_completed_event(
                     execution_id.as_str(),
@@ -250,12 +252,12 @@ impl HookHandler for CompressionHandler {
                     &wf_execution_shared::ContextCompressionCompleted {
                         target_context_id: &target_context_id,
                         array_version,
-                        summary: summary.as_deref(),
                         tokens_after: wf_llm::estimate_messages(&compressed) as u64,
                         messages: Some(&compressed),
                         tail_keep: 0,
                         degraded: false,
                         still_over_budget: false,
+                        blocks: &[],
                     },
                 ),
             )

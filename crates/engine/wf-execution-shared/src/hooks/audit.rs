@@ -352,6 +352,7 @@ mod tests {
             hook_type: "test".to_string(),
             data,
             cancellation: tokio_util::sync::CancellationToken::new(),
+            attachment: None,
         }
     }
 
@@ -413,6 +414,7 @@ mod tests {
             hook_type: "BEFORE_EXECUTE".to_string(),
             data: HashMap::new(),
             cancellation: tokio_util::sync::CancellationToken::new(),
+            attachment: None,
         };
         let mut sub = bus.subscribe();
 
@@ -522,6 +524,7 @@ mod tests {
             hook_type: "CONTEXT_COMPRESSION_REQUESTED".to_string(),
             data: HashMap::new(),
             cancellation: tokio_util::sync::CancellationToken::new(),
+            attachment: None,
         };
         assert_eq!(
             publish_hook_audit_event(Some(&bus), &ctx, &[], &[], &[], 0),
@@ -538,6 +541,7 @@ mod tests {
             hook_type: "BEFORE_EXECUTE".to_string(),
             data: HashMap::new(),
             cancellation: tokio_util::sync::CancellationToken::new(),
+            attachment: None,
         };
         assert_eq!(
             publish_hook_audit_event(Some(&bus), &ctx, &[Value::Null], &[1], &[], 1),

@@ -107,6 +107,18 @@ impl CompressionService {
         self
     }
 
+    /// Re-compression chain for `depth >= 1` plan items; absent reuses the
+    /// summary chain.
+    pub fn with_repress_workflow_id(mut self, repress_workflow_id: String) -> Self {
+        self.pipeline = Arc::new(
+            self.pipeline
+                .as_ref()
+                .clone()
+                .with_repress_workflow_id(repress_workflow_id),
+        );
+        self
+    }
+
     /// Publish the routed handoff copy for a parsed signal: same audit
     /// fields as the emitter's copy plus the message snapshot, the routed
     /// marker and the nesting depth. Only the builtin template matches it.

@@ -16,6 +16,7 @@ pub(super) fn make_snapshot() -> AgentStateSnapshot {
         message_next_seq: None,
         conversation_ledger: None,
         conversation_tracker: None,
+        conversation_compaction: None,
         tool_call_history: None,
         is_streaming: None,
         variable_snapshots: None,

@@ -40,6 +40,11 @@ pub struct AgentStateSnapshot {
     /// Stored opaquely here to avoid a foundation-to-infra dependency.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conversation_tracker: Option<serde_json::Value>,
+    /// Budget-driven compaction state at capture time. Absent for
+    /// checkpoints written before compaction; restore starts from an
+    /// empty state and marks it dirty so the hot estimate is recomputed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation_compaction: Option<crate::message::CompactionState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_history: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -136,13 +136,6 @@ impl HookHandler for AgentCompressionHandler {
                 return;
             };
             let compressed: Vec<Message> = serde_json::from_value(output).unwrap_or_default();
-            let summary = compressed.last().and_then(|m| match &m.content {
-                MessageContentValue::Text(text) => Some(text.clone()),
-                MessageContentValue::Rich(parts) => parts.iter().find_map(|part| match part {
-                    MessageContent::Text { text } => Some(text.clone()),
-                    _ => None,
-                }),
-            });
             bus.publish(
                 wf_execution_shared::build_context_compression_completed_event(
                     execution_id.as_str(),
@@ -150,12 +143,12 @@ impl HookHandler for AgentCompressionHandler {
                     &wf_execution_shared::ContextCompressionCompleted {
                         target_context_id: &target_context_id,
                         array_version,
-                        summary: summary.as_deref(),
                         tokens_after: wf_llm::estimate_messages(&compressed) as u64,
                         messages: Some(&compressed),
                         tail_keep: 0,
                         degraded: false,
                         still_over_budget: false,
+                        blocks: &[],
                     },
                 ),
             )
@@ -194,6 +187,7 @@ fn agent_compression_signal(snapshot: &[Message], version: u64) -> HookContext {
         hook_type: wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
         data,
         cancellation: tokio_util::sync::CancellationToken::new(),
+        attachment: None,
     }
 }
 
@@ -351,12 +345,12 @@ async fn agent_consumer_discards_stale_compression_result() {
             &wf_execution_shared::ContextCompressionCompleted {
                 target_context_id: wf_execution_shared::CONVERSATION_CONTEXT_ID,
                 array_version: stale_version,
-                summary: Some("compressed"),
                 tokens_after: 5,
                 messages: Some(&messages),
                 tail_keep: 0,
                 degraded: false,
                 still_over_budget: false,
+                blocks: &[],
             },
         ),
     )

@@ -1,7 +1,11 @@
 use crate::token_tracker::{RequestUsage, TokenTrackerState, TokenUsageTracker};
 use wf_llm::count::estimate_message_tokens;
+use wf_types::config::limits::CompactionLimits;
 use wf_types::llm::{MessageStreamUsage, TokenLedger, TokenUsageStats};
-use wf_types::message::{Message, MessageView};
+use wf_types::message::{
+    BlockOutcome, BlockState, CompactionMode, CompactionState, FileReadEntry, IndexEntry, Message,
+    MessageView, ViewSegment,
+};
 
 /// Name of the default agent conversation message array.
 pub const CONVERSATION_CONTEXT_ID: &str = "conversation";
@@ -35,6 +39,10 @@ pub struct ConversationState {
     /// were introduced (defaults to showing the whole history).
     #[serde(default, skip_serializing_if = "MessageView::is_full")]
     pub active_view: MessageView,
+    /// Budget-driven compaction bookkeeping. Absent in checkpoints written
+    /// before compaction; restore starts from an empty state marked dirty.
+    #[serde(default)]
+    pub compaction: CompactionState,
     /// Incremental estimate of the active view (stable array content only;
     /// per-request dynamic overhead is added fresh at each decision point).
     /// Maintained on every append and compression so view reads stay O(1).
@@ -47,17 +55,8 @@ pub struct ConversationState {
 fn projected_view_estimate(history: &[Message], seqs: &[u64], view: &MessageView) -> u64 {
     match view {
         MessageView::Full => wf_llm::count::estimate_messages(history) as u64,
-        MessageView::Compressed {
-            summary,
-            tail_begin,
-        } => {
-            let mut total = estimate_message_tokens(summary) as u64;
-            for message in history.iter().skip(*tail_begin) {
-                if message.id != summary.id {
-                    total = total.saturating_add(estimate_message_tokens(message) as u64);
-                }
-            }
-            total
+        MessageView::Compacted { .. } => {
+            wf_llm::count::estimate_messages(&view.project_with_seqs(history, seqs)) as u64
         }
         MessageView::Tail { last_n } => {
             let start = history.len().saturating_sub(*last_n);
@@ -105,6 +104,7 @@ impl ConversationSession {
                 ledger: TokenLedger::default(),
                 active_view: MessageView::Full,
                 view_stable_estimate: 0,
+                compaction: CompactionState::default(),
             },
             tracker: TokenUsageTracker::new(token_limit),
         }
@@ -123,6 +123,26 @@ impl ConversationSession {
         self.state.seqs.push(self.state.next_seq);
         self.state.next_seq = self.state.next_seq.saturating_add(1);
         self.state.messages.push(message);
+        // Block sync skips known summaries internally, so compaction
+        // write-backs can append through this path without absorbing
+        // their own summaries into the trailing raw block.
+        crate::compaction::sync_blocks(
+            &mut self.state.compaction,
+            &self.state.messages,
+            &self.state.seqs,
+        );
+        // The hot tail always includes later appends: extend a trailing
+        // range to the new sequence, or open one after a summary segment.
+        if let MessageView::Compacted { segments } = &mut self.state.active_view {
+            let new_seq = self.state.next_seq.saturating_sub(1);
+            match segments.last_mut() {
+                Some(ViewSegment::Range { end_seq, .. }) => *end_seq = new_seq,
+                _ => segments.push(ViewSegment::Range {
+                    start_seq: new_seq,
+                    end_seq: new_seq,
+                }),
+            }
+        }
     }
 
     /// Switch the read projection to a compressed view over the current
@@ -144,24 +164,372 @@ impl ConversationSession {
         if summary_messages.is_empty() {
             return;
         }
-        let pre_len = self.state.messages.len();
-        let tail_begin = pre_len.saturating_sub(tail_keep);
-        let summary = Box::new(summary_messages[0].clone());
         for message in summary_messages {
             self.add_message(message);
         }
-        let view = MessageView::Compressed {
-            summary,
-            tail_begin,
-        };
+        // Legacy single-summary shape expressed as segments: one summary
+        // plus the retained tail as a sequence range.
+        let mut segments = Vec::with_capacity(2);
+        if let Some(summary) = self.state.messages.last() {
+            segments.push(ViewSegment::Summary {
+                message_id: summary.id.clone(),
+            });
+        }
+        let tail_start = self.state.messages.len().saturating_sub(tail_keep + 1);
+        if tail_keep > 0 && tail_start < self.state.seqs.len() {
+            let start_seq = self.state.seqs[tail_start];
+            if let Some(end_seq) = self.state.seqs.last().copied() {
+                if start_seq < end_seq {
+                    segments.push(ViewSegment::Range { start_seq, end_seq });
+                }
+            }
+        }
+        let view = MessageView::Compacted { segments };
         // Recompute from the retained tail plus the summary batch, mirroring
-        // the projection (the appended batch is deduplicated by id so the
-        // summary is never double counted). Bounded by the tail plus the
-        // batch, never by the full history.
+        // the projection (the summary resolves by id so it is never double
+        // counted). Bounded by the tail plus the batch, never by the full
+        // history.
         self.state.view_stable_estimate =
             projected_view_estimate(&self.state.messages, &self.state.seqs, &view);
         self.state.active_view = view;
         self.tracker.reset_preflight_warning();
+    }
+
+    /// Configure the model window compaction derives thresholds from. The
+    /// thresholds resolve eagerly so decisions stay O(1); a zero window
+    /// disables compaction and the legacy single-summary path applies.
+    pub fn set_compaction_window(&mut self, window_tokens: u64, limits: &CompactionLimits) {
+        let compaction = &mut self.state.compaction;
+        compaction.window_tokens = window_tokens;
+        compaction.thresholds =
+            crate::compaction::resolve_compaction_thresholds(window_tokens, limits);
+        compaction.dirty = true;
+    }
+
+    /// Refresh the cached hot-view estimate from the current projection.
+    pub fn refresh_hot_estimate(&mut self) {
+        self.state.compaction.hot_tokens = projected_view_estimate(
+            &self.state.messages,
+            &self.state.seqs,
+            &self.state.active_view,
+        );
+        self.state.compaction.dirty = false;
+    }
+
+    /// Record the plan a compaction signal was emitted with, consumed by
+    /// its write-back to deactivate dropped blocks.
+    pub fn set_pending_compaction(
+        &mut self,
+        plan: Vec<crate::compaction::CompactionPlanItem>,
+        drops: Vec<String>,
+    ) {
+        self.state.compaction.pending_plan = plan;
+        self.state.compaction.pending_drops = drops;
+    }
+
+    /// Mark that the next settlement must enter handoff (a still-over
+    /// budget completion landed in `Normal` mode).
+    pub fn mark_handoff_requested(&mut self) {
+        self.state.compaction.handoff_requested = true;
+    }
+
+    /// Take and clear the pending handoff request.
+    pub fn take_handoff_requested(&mut self) -> bool {
+        std::mem::replace(&mut self.state.compaction.handoff_requested, false)
+    }
+
+    /// Current compaction lifecycle mode.
+    pub fn compaction_mode(&self) -> CompactionMode {
+        self.state.compaction.mode
+    }
+
+    /// Model window compaction derives thresholds from (0 disables).
+    pub fn compaction_window(&self) -> u64 {
+        self.state.compaction.window_tokens
+    }
+
+    /// Active compression blocks in creation order.
+    pub fn compaction_blocks(&self) -> &[wf_types::message::CompressionBlock] {
+        &self.state.compaction.blocks
+    }
+
+    /// Read-only access to the compaction bookkeeping.
+    pub fn compaction_state(&self) -> &CompactionState {
+        &self.state.compaction
+    }
+
+    /// Decide the next compaction step for a calibrated hot estimate.
+    pub fn decide_compaction(
+        &self,
+        hot_tokens: u64,
+        limits: &CompactionLimits,
+    ) -> crate::compaction::CompactionDecision {
+        crate::compaction::decide_compaction(hot_tokens, &self.state.compaction, limits)
+    }
+
+    /// Build the emission plan for a compact decision. The snapshot is
+    /// the current view projection so plan indices stay valid for the
+    /// service run.
+    pub fn build_compaction_plan(
+        &self,
+        hot_tokens: u64,
+        limits: &CompactionLimits,
+        aggressive: bool,
+    ) -> crate::compaction::CompactionPlan {
+        let snapshot = self.view_messages();
+        crate::compaction::build_plan(
+            &self.state.compaction,
+            &self.state.active_view,
+            &snapshot,
+            &self.state.messages,
+            &self.state.seqs,
+            hot_tokens,
+            limits,
+            aggressive,
+        )
+    }
+
+    /// Drop a pending plan without applying it (terminal stale paths).
+    pub fn clear_pending_compaction(&mut self) {
+        self.state.compaction.pending_plan.clear();
+        self.state.compaction.pending_drops.clear();
+    }
+
+    /// Look up a file-read entry by path.
+    pub fn file_read_entry(&self, path: &str) -> Option<&FileReadEntry> {
+        self.state.compaction.file_reads.get(path)
+    }
+
+    /// Record a file-read entry.
+    pub fn record_file_read(&mut self, entry: FileReadEntry) {
+        self.state
+            .compaction
+            .file_reads
+            .insert(entry.path.clone(), entry);
+    }
+
+    /// Rebuild the hot view from active block summaries plus the recent
+    /// tail. Summaries resolve by id; the tail covers the newest messages.
+    fn refresh_compacted_view(&mut self, recent_messages: usize) {
+        let mut segments = Vec::new();
+        // Merged blocks share one summary message: emit it once so the
+        // segment walk stays aligned with the deduplicated projection.
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for block in &self.state.compaction.blocks {
+            if block.active
+                && !block.summary_message_id.is_empty()
+                && seen.insert(block.summary_message_id.as_str())
+                && self
+                    .state
+                    .messages
+                    .iter()
+                    .any(|m| m.id == block.summary_message_id)
+            {
+                segments.push(ViewSegment::Summary {
+                    message_id: block.summary_message_id.clone(),
+                });
+            }
+        }
+        let total = self.state.messages.len();
+        if total > 0 {
+            let take = recent_messages.max(1).min(total);
+            let start = total.saturating_sub(take);
+            if start < self.state.seqs.len() {
+                if let Some(end_seq) = self.state.seqs.last().copied() {
+                    let start_seq = self.state.seqs[start];
+                    if start_seq <= end_seq {
+                        segments.push(ViewSegment::Range { start_seq, end_seq });
+                    }
+                }
+            }
+        }
+        self.state.active_view = MessageView::Compacted { segments };
+    }
+
+    fn summary_text_of(message: &Message) -> String {
+        use wf_types::message::{MessageContent, MessageContentValue};
+        match &message.content {
+            MessageContentValue::Text(text) => text.clone(),
+            MessageContentValue::Rich(parts) => parts
+                .iter()
+                .filter_map(|part| match part {
+                    MessageContent::Text { text } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        }
+    }
+
+    /// Apply one aggregated compaction result: append the summaries,
+    /// transition the planned blocks, deactivate planned drops, and cut
+    /// the hot view. The caller version-checked the anchor already.
+    pub fn apply_compaction_result(&mut self, summaries: Vec<Message>, outcomes: &[BlockOutcome]) {
+        if summaries.is_empty() {
+            return;
+        }
+        // Pre-mark so block sync skips the incoming summaries.
+        for outcome in outcomes {
+            if let Some(block) = self.state.compaction.active_block_mut(&outcome.block_id) {
+                block.summary_message_id = outcome.summary_message_id.clone();
+            }
+        }
+        for summary in &summaries {
+            self.add_message(summary.clone());
+        }
+        let pending = std::mem::take(&mut self.state.compaction.pending_plan);
+        let drops = std::mem::take(&mut self.state.compaction.pending_drops);
+        let limits = crate::compaction::process_compaction_limits();
+        let k_repress = limits
+            .k_repress
+            .unwrap_or(crate::compaction::K_REPRESS_DEFAULT);
+        let now = wf_common::now();
+        for outcome in outcomes {
+            let depth = pending
+                .iter()
+                .find(|item| item.block_id == outcome.block_id)
+                .map(|item| item.depth)
+                .unwrap_or(0);
+            let Some(block) = self.state.compaction.active_block_mut(&outcome.block_id) else {
+                continue;
+            };
+            if depth > 0 {
+                block.repress_count = block.repress_count.saturating_add(1);
+            }
+            block.state = if block.repress_count >= k_repress {
+                BlockState::Sealed
+            } else {
+                BlockState::Compressed
+            };
+            block.compressed_at = Some(now);
+            if let Some(summary) = self
+                .state
+                .messages
+                .iter()
+                .find(|m| m.id == outcome.summary_message_id)
+            {
+                block.size_tokens = wf_llm::count::estimate_message_tokens(summary) as u64;
+                let topic: String = Self::summary_text_of(summary)
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .chars()
+                    .take(80)
+                    .collect();
+                if !topic.is_empty() {
+                    block.topic = topic;
+                }
+            }
+            if !outcome.archive_refs.is_empty() {
+                if let Some(summary) = self
+                    .state
+                    .messages
+                    .iter_mut()
+                    .find(|m| m.id == outcome.summary_message_id)
+                {
+                    let metadata = summary.metadata.get_or_insert_with(Default::default);
+                    metadata.insert(
+                        crate::compaction::ARCHIVE_REF_KEY.to_string(),
+                        serde_json::json!(outcome.archive_refs),
+                    );
+                }
+            }
+        }
+        for block_id in &drops {
+            if let Some(block) = self.state.compaction.active_block_mut(block_id) {
+                block.active = false;
+            }
+        }
+        // Dropped blocks carry nothing the hot view needs: history itself
+        // is their archive, so they leave the table instead of lingering
+        // as dead weight for every later plan and checkpoint.
+        self.state.compaction.blocks.retain(|block| block.active);
+        let recent = limits
+            .recent_raw_turns
+            .unwrap_or(crate::compaction::RECENT_RAW_TURNS_DEFAULT)
+            .saturating_mul(2);
+        self.refresh_compacted_view(recent);
+        self.refresh_hot_estimate();
+        self.state.compaction.growth_baseline = self.state.compaction.hot_tokens;
+        // Post-compaction handoff evaluation: still high with no room to
+        // shrink means the next settlement enters handoff directly.
+        let thresholds = self.state.compaction.thresholds;
+        let ceiling = thresholds
+            .t_handoff
+            .min(thresholds.h_target.saturating_add(thresholds.h_target / 2));
+        if self.state.compaction.hot_tokens > ceiling {
+            self.state.compaction.handoff_requested = true;
+        }
+        self.tracker.reset_preflight_warning();
+    }
+
+    /// Enter handoff: append the handoff document, deactivate every block,
+    /// and cut the view to the document plus the recent tail.
+    pub fn enter_handoff(
+        &mut self,
+        document: Message,
+        index: Vec<IndexEntry>,
+        reason: &str,
+        validation_note: Option<String>,
+        recent_messages: usize,
+    ) {
+        let handoff_id = document.id.clone();
+        self.add_message(document);
+        // Every block deactivates at handoff and the index now carries the
+        // recoverable content: the table clears instead of accumulating
+        // dead blocks. History sync stays anchored on `synced_through_seq`,
+        // so later appends sync as fresh raw blocks without resurrecting
+        // the archived intervals.
+        self.state.compaction.blocks.clear();
+        self.state.compaction.pending_plan.clear();
+        self.state.compaction.pending_drops.clear();
+        self.state.compaction.handoff_requested = false;
+        self.state.compaction.handoff = Some(wf_types::message::HandoffArtifact {
+            handoff_message_id: handoff_id.clone(),
+            index,
+            reason: reason.to_string(),
+            created_at: wf_common::now(),
+            validation_note,
+        });
+        self.state.compaction.mode = CompactionMode::Handoff;
+        self.refresh_compacted_view(recent_messages);
+        // The document leads the hot view even when the tail range covers
+        // it (projection deduplicates by id).
+        if let MessageView::Compacted { segments } = &mut self.state.active_view {
+            segments.retain(|segment| {
+                !matches!(segment, ViewSegment::Summary { message_id } if message_id == &handoff_id)
+            });
+            segments.insert(
+                0,
+                ViewSegment::Summary {
+                    message_id: handoff_id,
+                },
+            );
+        }
+        self.refresh_hot_estimate();
+        self.state.compaction.growth_baseline = self.state.compaction.hot_tokens;
+        self.tracker.reset_preflight_warning();
+    }
+
+    /// Deactivate the oldest active block (handoff-mode hard-limit guard).
+    /// Returns whether a block was deactivated.
+    pub fn drop_oldest_active_block(&mut self, recent_messages: usize) -> bool {
+        let oldest = self
+            .state
+            .compaction
+            .blocks
+            .iter()
+            .find(|b| b.active)
+            .map(|b| b.block_id.clone());
+        let Some(block_id) = oldest else {
+            return false;
+        };
+        if let Some(block) = self.state.compaction.active_block_mut(&block_id) {
+            block.active = false;
+        }
+        self.refresh_compacted_view(recent_messages);
+        self.refresh_hot_estimate();
+        true
     }
 
     /// Drop the compressed projection and show the whole history again.
@@ -231,8 +599,16 @@ impl ConversationSession {
         let mut state = self.state.clone();
         state.messages = state.messages[..=pos].to_vec();
         state.seqs = state.seqs[..=pos].to_vec();
-        state.active_view = view;
+        let _ = view;
+        // A branch restarts with the full prefix visible; block sync
+        // rebuilds from the truncated coordinates.
+        state.active_view = MessageView::Full;
         state.ledger.replace(CONVERSATION_CONTEXT_ID);
+        crate::compaction::rebuild_after_truncate(
+            &mut state.compaction,
+            &state.messages,
+            &state.seqs,
+        );
         Some(state)
     }
 
@@ -509,6 +885,7 @@ impl ConversationSession {
         self.state.active_view = MessageView::Full;
         self.state.view_stable_estimate = 0;
         self.state.ledger = TokenLedger::default();
+        self.state.compaction = CompactionState::default();
         let mut tracker = TokenUsageTracker::new(self.tracker.token_limit());
         tracker.set_context_limit(self.tracker.context_limit());
         self.tracker = tracker;
@@ -549,6 +926,12 @@ impl ConversationSession {
                 state.view_stable_estimate
             };
         self.state.ledger = state.ledger;
+        self.state.compaction = state.compaction;
+        if !self.state.compaction.is_empty() {
+            // Restored bookkeeping recomputes the hot estimate on next
+            // read; thresholds persist with the window they derive from.
+            self.state.compaction.dirty = true;
+        }
         if let Some(tracker_state) = state.tracker {
             self.tracker.restore(tracker_state);
         } else {
@@ -581,6 +964,7 @@ mod tests {
     use super::*;
     use wf_llm::message_builder::{system_text, tool_result_message, user_text};
     use wf_types::llm::TokenUsageStats;
+    use wf_types::message::{CompressionBlock, SeqRange};
 
     fn user(text: &str) -> Message {
         user_text(text)
@@ -659,7 +1043,7 @@ mod tests {
         assert_ne!(session.view_messages().len(), session.history().len());
         assert!(matches!(
             session.active_view(),
-            MessageView::Compressed { .. }
+            MessageView::Compacted { .. }
         ));
     }
 
@@ -742,6 +1126,7 @@ mod tests {
             ledger: TokenLedger::default(),
             active_view: MessageView::Full,
             view_stable_estimate: 0,
+            compaction: CompactionState::default(),
         };
         let mut session = ConversationSession::with_token_limit(500);
         session.restore_state(state);
@@ -853,6 +1238,83 @@ mod tests {
             session.billed_total(),
             150,
             "task-budget track prefers the provider usage"
+        );
+    }
+
+    fn raw_block(id: &str, start: u64, end: u64) -> CompressionBlock {
+        CompressionBlock {
+            block_id: id.to_string(),
+            state: BlockState::Raw,
+            topic: String::new(),
+            summary_message_id: String::new(),
+            spans: vec![SeqRange { start, end }],
+            merged_blocks: Vec::new(),
+            size_tokens: 3000,
+            source_tokens: 3000,
+            repress_count: 0,
+            active: true,
+            created_at: 0,
+            compressed_at: None,
+        }
+    }
+
+    #[test]
+    fn applied_drops_leave_the_block_table() {
+        let mut session = ConversationSession::new();
+        for i in 0..6 {
+            session.add_message(user(&format!("message {i}")));
+        }
+        session.state.compaction.blocks = vec![raw_block("b0000", 0, 2), raw_block("b0001", 3, 5)];
+        session.state.compaction.synced_through_seq = 5;
+        session.set_pending_compaction(Vec::new(), vec!["b0001".to_string()]);
+        let summary = Message::system_text("summary of b0000".to_string());
+        let outcome = BlockOutcome {
+            block_id: "b0000".to_string(),
+            summary_message_id: summary.id.clone(),
+            archive_refs: Vec::new(),
+        };
+        session.apply_compaction_result(vec![summary], std::slice::from_ref(&outcome));
+        let blocks = &session.state.compaction.blocks;
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].block_id, "b0000");
+        assert_eq!(blocks[0].state, BlockState::Compressed);
+    }
+
+    #[test]
+    fn handoff_clears_inactive_blocks_but_keeps_index() {
+        let mut session = ConversationSession::new();
+        for i in 0..4 {
+            session.add_message(user(&format!("message {i}")));
+        }
+        session.state.compaction.blocks = vec![raw_block("b0000", 0, 3)];
+        session.state.compaction.synced_through_seq = 3;
+        let document = Message::system_text("handoff document".to_string());
+        let index = vec![IndexEntry {
+            block_id: "b0000".to_string(),
+            topic: "t".to_string(),
+            time_range: "0..=3".to_string(),
+            archive_ref: "a:blob".to_string(),
+            keywords: Vec::new(),
+            size_tokens: 3000,
+        }];
+        session.enter_handoff(document, index, "TEST", None, 2);
+        assert!(session.state.compaction.blocks.is_empty());
+        let handoff = session
+            .state
+            .compaction
+            .handoff
+            .as_ref()
+            .expect("handoff artifact stays");
+        assert_eq!(handoff.index.len(), 1);
+        assert_eq!(handoff.index[0].archive_ref, "a:blob");
+        assert_eq!(session.compaction_mode(), CompactionMode::Handoff);
+        // Later appends sync as fresh raw blocks without resurrecting
+        // the archived intervals.
+        session.add_message(user("after handoff"));
+        assert_eq!(session.state.compaction.blocks.len(), 1);
+        assert_eq!(
+            session.state.compaction.blocks[0].spans,
+            vec![SeqRange { start: 5, end: 5 }]
         );
     }
 

@@ -12,6 +12,7 @@ pub use llm_types::message::{
 
 pub mod batch_management_operation;
 pub mod batch_snapshot;
+pub mod compaction_state;
 pub mod message_array;
 pub mod message_context;
 pub mod message_mark_map;
@@ -21,6 +22,7 @@ pub mod named_message_context;
 
 pub use batch_management_operation::*;
 pub use batch_snapshot::*;
+pub use compaction_state::*;
 pub use message_array::*;
 pub use message_context::*;
 pub use message_mark_map::*;

@@ -16,6 +16,7 @@
 //! diffs, timelines, conflict enumeration) with an index fast path and a
 //! bounded commit-graph fallback.
 pub mod approval;
+pub mod archive;
 pub(crate) mod branch;
 pub mod event;
 pub mod file;

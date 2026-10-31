@@ -231,6 +231,15 @@ impl AgentLoopCoordinator {
                 .write()
                 .await
                 .set_context_limit(context_budget);
+            // Compaction derives its thresholds from the same model
+            // window; a zero limit leaves compaction disabled and the
+            // legacy single-summary path applies.
+            if let Some(window) = profile.as_ref().and_then(|p| p.context_window_size) {
+                entity.conversation().write().await.set_compaction_window(
+                    u64::from(window),
+                    &wf_execution_shared::process_compaction_limits(),
+                );
+            }
         }
 
         if !input.message.is_empty() {

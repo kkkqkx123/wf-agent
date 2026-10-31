@@ -88,12 +88,15 @@ impl HookOutcome {
 
 /// The context a handler observes at a hook point: the execution id, the
 /// named hook point, the parsed payload data, and the owning execution's
-/// cancellation signal.
+/// cancellation signal. Heavy structured payloads travel in `attachment`
+/// (process-local, never serialized); `data` keeps the JSON-serializable
+/// audit vocabulary for conditions, templates and routed copies.
 #[derive(Debug, Clone)]
 pub struct HookContext {
     pub execution_id: Id,
     pub hook_type: String,
     pub data: HashMap<String, Value>,
+    pub attachment: Option<crate::token_events::CompressionAttachment>,
     /// Abort signal of the owning execution. The pipeline enforces the
     /// handler-declared timeout and races every notification against this
     /// token so a misbehaving handler cannot outlive the execution, but a
@@ -136,8 +139,21 @@ impl HookContext {
             execution_id,
             hook_type,
             data,
+            attachment: None,
             cancellation,
         }
+    }
+
+    /// Attach a process-local structured payload (e.g. a compression
+    /// snapshot plus its plan). The attachment never enters `data`, so
+    /// conditions, templates and routed copies stay JSON-serializable
+    /// while the synchronous handler skips the JSON round-trip.
+    pub fn with_attachment(
+        mut self,
+        attachment: crate::token_events::CompressionAttachment,
+    ) -> Self {
+        self.attachment = Some(attachment);
+        self
     }
 
     /// Agent loop base payload: execution id, status text, iteration count,

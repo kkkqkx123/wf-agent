@@ -5,9 +5,21 @@
 //! keys follow a fixed schema (see constants below) so trigger conditions and
 //! external consumers can match on them.
 
+use std::sync::Arc;
+
 use wf_llm::LlmError;
 use wf_types::events::{BaseEvent, EventType};
 use wf_types::message::Message;
+
+/// Process-local compression payload carried on a hook context alongside
+/// the JSON audit fields. The synchronous (Direct) handler takes over from
+/// the attachment and skips the snapshot/plan JSON round-trip entirely;
+/// the routed handoff serializes from it once at publish time.
+#[derive(Debug, Clone)]
+pub struct CompressionAttachment {
+    pub messages: Arc<Vec<Message>>,
+    pub plan: Arc<Vec<crate::compaction::CompactionPlanItem>>,
+}
 
 /// Metadata key: tokens used so far.
 pub const KEY_TOKENS_USED: &str = "tokens_used";
@@ -17,8 +29,6 @@ pub const KEY_TOKEN_LIMIT: &str = "token_limit";
 pub const KEY_USAGE_PERCENTAGE: &str = "usage_percentage";
 /// Metadata key: conversation message count (compression requested).
 pub const KEY_MESSAGE_COUNT: &str = "message_count";
-/// Metadata key: summary produced by compression.
-pub const KEY_SUMMARY: &str = "summary";
 /// Metadata key: token count after compression.
 pub const KEY_TOKENS_AFTER: &str = "tokens_after";
 /// Metadata key: name of the message array targeted by compression
@@ -98,6 +108,9 @@ pub const KEY_PLAN: &str = "plan";
 pub const KEY_PLAN_COUNT: &str = "plan_count";
 /// Payload key: serialized conversation messages carried by the compression
 pub const KEY_MESSAGES: &str = "messages";
+/// Metadata key: per-block outcomes of a plan-mode compression completion.
+/// Absent on legacy single-summary completions.
+pub const KEY_BLOCKS: &str = "blocks";
 /// Metadata key: write-back operation of a `CONVERSATION_WRITEBACK_COMPLETED`
 /// event (only `append`; history is append-only).
 pub const KEY_WRITEBACK_OPERATION: &str = "operation";
@@ -245,7 +258,11 @@ pub struct ContextCompressionRequest<'a> {
 }
 
 /// Convert a [`ContextCompressionRequest`] into the hook payload map shared
-/// by the agent and workflow compression dispatchers.
+/// by the agent and workflow compression dispatchers. The map carries the
+/// audit vocabulary only (identity, accounting, plan length); the snapshot
+/// and plan travel in the hook context attachment (see
+/// [`CompressionAttachment`]) so the synchronous handler skips the JSON
+/// round-trip. Routed copies serialize from the attachment at publish time.
 pub fn compression_request_hook_data(
     request: &ContextCompressionRequest<'_>,
 ) -> std::collections::HashMap<String, serde_json::Value> {
@@ -276,13 +293,11 @@ pub fn compression_request_hook_data(
     if request.forced && request.token_limit == 0 {
         data.insert(KEY_BUDGET_UNKNOWN.to_string(), serde_json::json!(true));
     }
-    if let Ok(value) = serde_json::to_value(request.messages) {
-        data.insert(KEY_MESSAGES.to_string(), value);
-    }
     if !request.plan.is_empty() {
-        if let Ok(value) = serde_json::to_value(request.plan) {
-            data.insert(KEY_PLAN.to_string(), value);
-        }
+        data.insert(
+            KEY_PLAN_COUNT.to_string(),
+            serde_json::json!(request.plan.len()),
+        );
     }
     data
 }
@@ -413,11 +428,12 @@ pub struct ContextCompressionCompleted<'a> {
     pub target_context_id: &'a str,
     /// Array version the compression was produced from.
     pub array_version: u64,
-    /// Summary text extracted from the compressed result.
-    pub summary: Option<&'a str>,
     /// Estimated token count after compression.
     pub tokens_after: u64,
-    /// Compressed message array for versioned write-back.
+    /// Compressed message array for versioned write-back. Carried only
+    /// when the completed event is the write-back transport (agent
+    /// targets); workflow targets write back through the registry and
+    /// the consumer there reads outcomes plus the anchor only.
     pub messages: Option<&'a [wf_types::message::Message]>,
     /// Recent pre-existing messages kept visible beside the summary.
     pub tail_keep: usize,
@@ -426,16 +442,20 @@ pub struct ContextCompressionCompleted<'a> {
     pub degraded: bool,
     /// True when the compressed result is still over the emission budget.
     pub still_over_budget: bool,
+    /// Per-block outcomes for plan-mode completions; empty on legacy
+    /// single-summary completions.
+    pub blocks: &'a [wf_types::message::BlockOutcome],
 }
 
 /// Build a CONTEXT_COMPRESSION_COMPLETED event.
 ///
-/// Carries the target array name, the compressed message array and the array
+/// Carries the target array name, the per-block outcomes and the array
 /// version the compression was produced from (the version of the matching
 /// REQUESTED event), so any consumer (the main workflow execution, an agent
 /// loop) can reproduce the write-back and version-check it without extra
 /// lookups: an array that moved past `array_version` must discard the
-/// compressed result.
+/// compressed result. The compressed message array travels only when the
+/// event is the write-back transport (agent targets).
 pub fn build_context_compression_completed_event(
     execution_id: &str,
     agent_loop_id: Option<&str>,
@@ -455,9 +475,6 @@ pub fn build_context_compression_completed_event(
         (KEY_TOKENS_AFTER, serde_json::json!(payload.tokens_after)),
         (KEY_TAIL_KEEP, serde_json::json!(payload.tail_keep as u64)),
     ];
-    if let Some(summary) = payload.summary {
-        pairs.push((KEY_SUMMARY, serde_json::json!(summary)));
-    }
     if payload.degraded {
         pairs.push((KEY_DEGRADED, serde_json::json!(true)));
     }
@@ -467,6 +484,11 @@ pub fn build_context_compression_completed_event(
     if let Some(messages) = payload.messages {
         if let Ok(value) = serde_json::to_value(messages) {
             pairs.push((KEY_MESSAGES, value));
+        }
+    }
+    if !payload.blocks.is_empty() {
+        if let Ok(value) = serde_json::to_value(payload.blocks) {
+            pairs.push((KEY_BLOCKS, value));
         }
     }
     event.metadata = Some(metadata(pairs));
@@ -724,17 +746,17 @@ pub struct ContextCompressionRequestedMeta {
 
 /// Typed metadata of a [`EventType::ContextCompressionCompleted`] event.
 ///
-/// `messages` is the compressed message array; `summary` is the optional
-/// summary text extracted from it. `array_version` is the version of the
-/// target array the compression was produced from: a consumer applies the
-/// compressed array only when its own array is still at that version.
-/// `tail_keep` is how many recent pre-existing messages stay visible
-/// alongside the summary.
+/// `messages` is the compressed message array (present only when the
+/// completed event is the write-back transport, i.e. agent targets;
+/// workflow targets write back through the registry instead).
+/// `array_version` is the version of the target array the compression was
+/// produced from: a consumer applies the compressed array only when its
+/// own array is still at that version. `tail_keep` is how many recent
+/// pre-existing messages stay visible alongside the summary.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContextCompressionCompletedMeta {
     pub target_context_id: String,
     pub array_version: u64,
-    pub summary: Option<String>,
     pub tokens_after: u64,
     pub messages: Vec<Message>,
     pub tail_keep: usize,
@@ -747,6 +769,9 @@ pub struct ContextCompressionCompletedMeta {
     /// Run identity stamped by the compression service (`None` on old
     /// events predating the key).
     pub run_id: Option<String>,
+    /// Per-block outcomes for plan-mode completions; empty on legacy
+    /// single-summary completions and old events predating the key.
+    pub blocks: Vec<wf_types::message::BlockOutcome>,
 }
 
 /// Typed metadata of a [`EventType::ContextCompressionFailed`] event.
@@ -936,9 +961,6 @@ impl TryFrom<&BaseEvent> for ContextCompressionCompletedMeta {
         Ok(Self {
             target_context_id: get_string(meta, KEY_TARGET_CONTEXT_ID)?,
             array_version: get_u64(meta, KEY_ARRAY_VERSION)?,
-            summary: meta
-                .get(KEY_SUMMARY)
-                .and_then(|value| value.as_str().map(String::from)),
             tokens_after: get_u64(meta, KEY_TOKENS_AFTER)?,
             messages: get_messages(meta),
             tail_keep: meta
@@ -958,6 +980,10 @@ impl TryFrom<&BaseEvent> for ContextCompressionCompletedMeta {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false),
             run_id: get_optional_run_id(meta),
+            blocks: meta
+                .get(KEY_BLOCKS)
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default(),
         })
     }
 }
@@ -1135,10 +1161,10 @@ mod tests {
         let event = build_context_compression_requested_event("exec-1", None, &request);
         let meta = event.metadata.unwrap();
         assert!(!meta.contains_key(KEY_MESSAGES));
+        // The hook data map stays slim: the snapshot rides the context
+        // attachment, never the JSON map.
         let hook_data = compression_request_hook_data(&request);
-        let messages: Vec<wf_types::message::Message> =
-            serde_json::from_value(hook_data[KEY_MESSAGES].clone()).unwrap();
-        assert_eq!(messages, vec![msg]);
+        assert!(!hook_data.contains_key(KEY_MESSAGES));
     }
 
     #[test]
@@ -1161,19 +1187,18 @@ mod tests {
             &ContextCompressionCompleted {
                 target_context_id: "chat",
                 array_version: 42,
-                summary: Some("summary"),
                 tokens_after: 300,
                 messages: Some(std::slice::from_ref(&msg)),
                 tail_keep: 2,
                 degraded: false,
                 still_over_budget: false,
+                blocks: &[],
             },
         );
         assert_eq!(event.r#type, EventType::ContextCompressionCompleted);
         let meta = event.metadata.unwrap();
         assert_eq!(meta[KEY_TARGET_CONTEXT_ID], serde_json::json!("chat"));
         assert_eq!(meta[KEY_ARRAY_VERSION], serde_json::json!(42));
-        assert_eq!(meta[KEY_SUMMARY], serde_json::json!("summary"));
         assert_eq!(meta[KEY_TOKENS_AFTER], serde_json::json!(300));
         assert_eq!(meta[KEY_TAIL_KEEP], serde_json::json!(2));
         assert!(!meta.contains_key(KEY_DEGRADED));
@@ -1188,16 +1213,15 @@ mod tests {
             &ContextCompressionCompleted {
                 target_context_id: "chat",
                 array_version: 0,
-                summary: None,
                 tokens_after: 0,
                 messages: None,
                 tail_keep: 0,
                 degraded: false,
                 still_over_budget: false,
+                blocks: &[],
             },
         );
         let meta = no_summary.metadata.unwrap();
-        assert!(!meta.contains_key(KEY_SUMMARY));
         assert!(!meta.contains_key(KEY_MESSAGES));
     }
 
@@ -1331,6 +1355,7 @@ mod tests {
             start: 0,
             end: 1,
             depth: 0,
+            extra_block_ids: Vec::new(),
         }];
         let request = ContextCompressionRequest {
             target_context_id: "chat",
@@ -1386,18 +1411,17 @@ mod tests {
             &ContextCompressionCompleted {
                 target_context_id: "chat",
                 array_version: 7,
-                summary: Some("summarized"),
                 tokens_after: 12,
                 messages: Some(&[msg]),
                 tail_keep: DEFAULT_COMPRESSION_TAIL_KEEP,
                 degraded: true,
                 still_over_budget: true,
+                blocks: &[],
             },
         );
         let meta = ContextCompressionCompletedMeta::try_from(&event).unwrap();
         assert_eq!(meta.target_context_id, "chat");
         assert_eq!(meta.array_version, 7);
-        assert_eq!(meta.summary.as_deref(), Some("summarized"));
         assert_eq!(meta.tokens_after, 12);
         assert!(meta.degraded);
         assert!(meta.still_over_budget);
@@ -1523,12 +1547,12 @@ mod tests {
             &ContextCompressionCompleted {
                 target_context_id: "chat",
                 array_version: 7,
-                summary: Some("summary"),
                 tokens_after: 100,
                 messages: None,
                 tail_keep: 0,
                 degraded: false,
                 still_over_budget: false,
+                blocks: &[],
             },
         );
         assert_eq!(compression_run_id(&completed), None);

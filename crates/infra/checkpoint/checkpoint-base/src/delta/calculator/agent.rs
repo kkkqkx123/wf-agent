@@ -243,6 +243,12 @@ impl
                     .and_then(|v| (!v.is_null()).then(|| v.clone()))
                     .and_then(|v| serde_json::from_value(v).ok());
             }
+            if other.contains_key("conversation_compaction") {
+                result.conversation_compaction = other
+                    .get("conversation_compaction")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| serde_json::from_value(v).ok());
+            }
         }
 
         Ok(result)
@@ -380,6 +386,7 @@ impl AgentDiffCalculator {
             "message_next_seq",
             "conversation_ledger",
             "conversation_tracker",
+            "conversation_compaction",
         ] {
             let prev_val = match key {
                 "message_seq_start" => serde_json::to_value(previous.message_seq_start),
@@ -387,6 +394,9 @@ impl AgentDiffCalculator {
                 "message_next_seq" => serde_json::to_value(previous.message_next_seq),
                 "conversation_ledger" => serde_json::to_value(&previous.conversation_ledger),
                 "conversation_tracker" => serde_json::to_value(&previous.conversation_tracker),
+                "conversation_compaction" => {
+                    serde_json::to_value(&previous.conversation_compaction)
+                }
                 _ => Ok(serde_json::Value::Null),
             }
             .unwrap_or(serde_json::Value::Null);
@@ -396,6 +406,7 @@ impl AgentDiffCalculator {
                 "message_next_seq" => serde_json::to_value(current.message_next_seq),
                 "conversation_ledger" => serde_json::to_value(&current.conversation_ledger),
                 "conversation_tracker" => serde_json::to_value(&current.conversation_tracker),
+                "conversation_compaction" => serde_json::to_value(&current.conversation_compaction),
                 _ => Ok(serde_json::Value::Null),
             }
             .unwrap_or(serde_json::Value::Null);

@@ -68,6 +68,7 @@ fn hook_context_carries_execution_data() {
         hook_type: "BEFORE_EXECUTE".to_string(),
         data,
         cancellation: tokio_util::sync::CancellationToken::new(),
+        attachment: None,
     };
     assert_eq!(ctx.execution_id, "exec-1");
     assert_eq!(ctx.hook_type, "BEFORE_EXECUTE");

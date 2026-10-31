@@ -186,6 +186,7 @@ fn empty_snapshot(agent_loop_id: &str) -> wf_types::checkpoint::agent::AgentStat
         message_next_seq: None,
         conversation_ledger: None,
         conversation_tracker: None,
+        conversation_compaction: None,
         tool_call_history: None,
         is_streaming: None,
         variable_snapshots: None,

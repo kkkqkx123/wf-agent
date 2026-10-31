@@ -106,6 +106,13 @@ pub async fn dispatch_compression_signal(
             Value::String(loop_id.to_string()),
         );
     }
+    // The snapshot and plan ride the context attachment (process-local
+    // shared ownership, never serialized); the hook data map keeps the
+    // JSON audit vocabulary only.
+    let attachment = crate::CompressionAttachment {
+        messages: std::sync::Arc::new(request.messages.to_vec()),
+        plan: std::sync::Arc::new(request.plan.to_vec()),
+    };
     fire(
         registry,
         &[],
@@ -115,7 +122,8 @@ pub async fn dispatch_compression_signal(
             crate::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
             data,
             cancellation,
-        ),
+        )
+        .with_attachment(attachment),
         bus,
     )
     .await;

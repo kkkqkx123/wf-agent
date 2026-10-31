@@ -278,6 +278,9 @@ pub(crate) struct ListenerDeps {
 pub(crate) struct CompressionRouteConfig {
     /// Summary workflow id resolved from the resource registries.
     pub(crate) summary_workflow_id: String,
+    /// Re-compression chain id for `depth >= 1` plan items (`None` reuses
+    /// the summary chain).
+    pub(crate) repress_workflow_id: Option<String>,
     /// Cross-attempt policy for the route's pipeline.
     pub(crate) policy: CompressionPolicy,
 }
@@ -306,17 +309,19 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
     // The route's pipeline shares the listener lifecycle (bus, runner,
     // contexts, shutdown, ledger) and the caller-resolved summary policy.
     let routed_pipeline = compression_route.as_ref().map(|route| {
-        Arc::new(
-            compression::CompressionPipeline::with_ledger(
-                event_bus.clone(),
-                runner.clone(),
-                contexts.clone(),
-                route.summary_workflow_id.clone(),
-                shutdown.clone(),
-                ledger.clone(),
-            )
-            .with_policy(route.policy.clone()),
+        let mut pipeline = compression::CompressionPipeline::with_ledger(
+            event_bus.clone(),
+            runner.clone(),
+            contexts.clone(),
+            route.summary_workflow_id.clone(),
+            shutdown.clone(),
+            ledger.clone(),
         )
+        .with_policy(route.policy.clone());
+        if let Some(repress_workflow_id) = route.repress_workflow_id.clone() {
+            pipeline = pipeline.with_repress_workflow_id(repress_workflow_id);
+        }
+        Arc::new(pipeline)
     });
     // Read-time chaining: the builtin template is visible exactly when the
     // route is armed, so the listener subscribes the routed signal copy and

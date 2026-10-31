@@ -72,6 +72,7 @@ pub fn spawn_conversation_compression_consumer(
                     let anchor = meta.array_version;
                     let still_over = meta.still_over_budget;
                     let run_id = meta.run_id.clone();
+                    let has_blocks = !meta.blocks.is_empty();
                     if !apply_compression(&conversation, meta).await {
                         // Stale results still release the backpressure
                         // anchor so later iterations do not wait on a run
@@ -104,7 +105,19 @@ pub fn spawn_conversation_compression_consumer(
                         let mut session = conversation.write().await;
                         let new_version = session.conversation_version();
                         session.mark_compression_emitted(new_version);
-                        let streak = session.record_still_over_budget();
+                        // A still-high plan-mode result in `Normal` mode
+                        // enters handoff directly instead of counting toward
+                        // the parking streak (the streak stays the guard for
+                        // forced and handoff-mode results).
+                        if has_blocks
+                            && session.compaction_mode()
+                                == wf_execution_shared::CompactionMode::Normal
+                        {
+                            session.mark_handoff_requested();
+                        } else {
+                            let _ = session.record_still_over_budget();
+                        }
+                        let streak = session.still_over_budget_streak();
                         if streak
                             >= wf_execution_shared::TokenUsageTracker::STILL_OVER_BUDGET_ESCALATION_THRESHOLD
                         {
@@ -147,11 +160,11 @@ pub fn spawn_conversation_compression_consumer(
                     }
                     // Terminal failure releases the backpressure anchor; the
                     // emission guard stays, so the version re-arms only when
-                    // new messages advance it.
-                    conversation
-                        .write()
-                        .await
-                        .end_compression_flight(meta.array_version);
+                    // new messages advance it. A pending plan dies with its
+                    // run so a late completion can never apply it.
+                    let mut session = conversation.write().await;
+                    session.clear_pending_compaction();
+                    session.end_compression_flight(meta.array_version);
                 }
                 EventType::ContextCompressionDiscarded => {
                     let meta = match wf_execution_shared::ContextCompressionDiscardedMeta::try_from(
@@ -163,10 +176,9 @@ pub fn spawn_conversation_compression_consumer(
                     if meta.target_context_id != CONVERSATION_CONTEXT_ID {
                         continue;
                     }
-                    conversation
-                        .write()
-                        .await
-                        .end_compression_flight(meta.array_version);
+                    let mut session = conversation.write().await;
+                    session.clear_pending_compaction();
+                    session.end_compression_flight(meta.array_version);
                 }
                 EventType::ConversationWritebackCompleted => {
                     let meta = match ConversationWritebackCompletedMeta::try_from(&event) {
@@ -217,7 +229,14 @@ pub async fn apply_compression(
         );
         return false;
     }
-    session.compress_with_tail(meta.messages, meta.tail_keep);
+    // Plan-mode completions carry block outcomes: transition the planned
+    // blocks and cut the segmented view. Legacy completions keep the
+    // single-summary path.
+    if !meta.blocks.is_empty() {
+        session.apply_compaction_result(meta.messages, &meta.blocks);
+    } else {
+        session.compress_with_tail(meta.messages, meta.tail_keep);
+    }
     session.end_compression_flight(meta.array_version);
     true
 }
@@ -280,12 +299,12 @@ mod tests {
             &wf_execution_shared::ContextCompressionCompleted {
                 target_context_id: CONVERSATION_CONTEXT_ID,
                 array_version: version,
-                summary: Some("summary"),
                 tokens_after: 5,
                 messages: Some(messages),
                 tail_keep: 0,
                 degraded: false,
                 still_over_budget: false,
+                blocks: &[],
             },
         )
     }
@@ -556,12 +575,12 @@ mod tests {
             &wf_execution_shared::ContextCompressionCompleted {
                 target_context_id: CONVERSATION_CONTEXT_ID,
                 array_version: version,
-                summary: Some("summary"),
                 tokens_after: 5,
                 messages: Some(&[text_message(MessageRole::Assistant, "compressed")]),
                 tail_keep: 1,
                 degraded: false,
                 still_over_budget: false,
+                blocks: &[],
             },
         );
         bus.publish(event).unwrap();

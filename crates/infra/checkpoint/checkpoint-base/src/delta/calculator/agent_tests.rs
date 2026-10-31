@@ -49,9 +49,10 @@ mod tests {
             stream_message: Some("partial".to_string()),
             pending_tool_call_ids: Some(vec!["tc-1".to_string()]),
             messages: Some(vec![make_message("m1", "hi")]),
-            conversation_view: Some(wf_types::message::MessageView::Compressed {
-                summary: Box::new(make_message("s1", "summary")),
-                tail_begin: 1,
+            conversation_view: Some(wf_types::message::MessageView::Compacted {
+                segments: vec![wf_types::message::ViewSegment::Summary {
+                    message_id: "s1".to_string(),
+                }],
             }),
             ..prev.clone()
         };

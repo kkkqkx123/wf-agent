@@ -140,6 +140,9 @@ pub(crate) struct CompressionPipeline {
     shutdown: CancellationToken,
     ledger: Option<Arc<TriggerLedger>>,
     summary_workflow_id: String,
+    /// Re-compression chain for `depth >= 1` plan items; `None` reuses the
+    /// summary chain so single-summary and unconfigured runs never change.
+    repress_workflow_id: Option<String>,
     policy: CompressionPolicy,
     handled: Arc<DashMap<String, CompressionAttempt>>,
 }
@@ -160,9 +163,15 @@ impl CompressionPipeline {
             shutdown,
             ledger,
             summary_workflow_id,
+            repress_workflow_id: None,
             policy: CompressionPolicy::default(),
             handled: Arc::new(DashMap::new()),
         }
+    }
+
+    pub(crate) fn with_repress_workflow_id(mut self, repress_workflow_id: String) -> Self {
+        self.repress_workflow_id = Some(repress_workflow_id);
+        self
     }
 
     pub(crate) fn with_policy(mut self, policy: CompressionPolicy) -> Self {
@@ -314,6 +323,7 @@ impl CompressionPipeline {
         // runs are stopped.
         let policy = self.policy.clone();
         let workflow_id = self.summary_workflow_id.clone();
+        let repress_workflow_id = self.repress_workflow_id.clone();
         let runner = self.runner.clone();
         let contexts = self.contexts.clone();
         let bus = self.bus.clone();
@@ -352,13 +362,15 @@ impl CompressionPipeline {
         // event stay single. File folding runs inside the compression chain
         // template (processor fold node before the summary node), so each
         // slice feeds the chain untouched here.
-        let work_items: Vec<(String, Vec<Message>)> = if plan.is_empty() {
-            vec![(String::new(), snapshot.clone())]
+        let work_items: Vec<(Vec<String>, u32, Vec<Message>)> = if plan.is_empty() {
+            vec![(Vec::new(), 0, snapshot.clone())]
         } else {
             plan.iter()
                 .filter_map(|item| {
                     let (start, end) = item.clamped_range(snapshot.len())?;
-                    Some((item.block_id.clone(), snapshot[start..end].to_vec()))
+                    let mut covered = vec![item.block_id.clone()];
+                    covered.extend(item.extra_block_ids.iter().cloned());
+                    Some((covered, item.depth, snapshot[start..end].to_vec()))
                 })
                 .collect()
         };
@@ -380,6 +392,7 @@ impl CompressionPipeline {
             let max_attempts = policy.max_retries.saturating_add(1);
             let mut attempts = 0u32;
             let mut aggregated: Vec<Message> = Vec::new();
+            let mut outcomes: Vec<wf_execution_shared::BlockOutcome> = Vec::new();
             enum ItemOutcome {
                 Messages(Vec<Message>),
                 Failed(String),
@@ -392,7 +405,7 @@ impl CompressionPipeline {
             } else {
                 None
             };
-            'items: for (block_id, slice) in &work_items {
+            'items: for (covered_ids, item_depth, slice) in &work_items {
                 if status.is_some() {
                     break;
                 }
@@ -401,12 +414,23 @@ impl CompressionPipeline {
                 // the chain untouched here. The emission version and run
                 // identity travel alongside so the summary run can be linked
                 // back to its request version and claim in traces.
+                // Re-compression items run the repress chain variant, whose
+                // baked prompt shrinks summaries instead of re-summarizing
+                // history; unconfigured setups fall back to the main chain.
+                let chain_workflow_id: String = if *item_depth > 0 {
+                    repress_workflow_id
+                        .clone()
+                        .unwrap_or_else(|| workflow_id.clone())
+                } else {
+                    workflow_id.clone()
+                };
                 let item_input = serde_json::json!({
                     "conversationHistory": slice.clone(),
                     "compressionDepth": depth,
                     "arrayVersion": array_version,
                     "compressionRunId": run_id.clone(),
-                    "blockId": block_id.clone(),
+                    "blockId": covered_ids.first().cloned().unwrap_or_default(),
+                    "itemDepth": item_depth,
                 });
                 loop {
                     attempts += 1;
@@ -414,13 +438,13 @@ impl CompressionPipeline {
                         _ = shutdown.cancelled() => {
                             debug!(
                                 "Compression sub-workflow '{}' aborted at shutdown (attempt {})",
-                                workflow_id, attempts
+                                chain_workflow_id, attempts
                             );
                             ItemOutcome::Aborted
                         }
                         output = tokio::time::timeout(
                             std::time::Duration::from_millis(policy.run_timeout_ms),
-                            runner.run(&workflow_id, item_input.clone()),
+                            runner.run(&chain_workflow_id, item_input.clone()),
                         ) => {
                             match output {
                                 Err(_elapsed) => ItemOutcome::Failed(format!(
@@ -430,7 +454,7 @@ impl CompressionPipeline {
                                 Ok(Err(e)) => {
                                     warn!(
                                         "Compression sub-workflow '{}' failed: {}",
-                                        workflow_id, e
+                                        chain_workflow_id, e
                                     );
                                     ItemOutcome::Failed(e.to_string())
                                 }
@@ -450,6 +474,18 @@ impl CompressionPipeline {
                     };
                     match outcome {
                         ItemOutcome::Messages(messages) => {
+                            // A merged item shares its summary across every
+                            // covered block: one outcome per block id so the
+                            // agent transitions each of them.
+                            if let Some(last) = messages.last() {
+                                for covered in covered_ids {
+                                    outcomes.push(wf_execution_shared::BlockOutcome {
+                                        block_id: covered.clone(),
+                                        summary_message_id: last.id.clone(),
+                                        archive_refs: Vec::new(),
+                                    });
+                                }
+                            }
                             aggregated.extend(messages);
                             break;
                         }
@@ -500,6 +536,7 @@ impl CompressionPipeline {
                             degraded: false,
                             degraded_dropped: 0,
                             run_id: Some(run_id.clone()),
+                            block_outcomes: &outcomes,
                         },
                         &output,
                     )
@@ -575,6 +612,7 @@ impl CompressionPipeline {
                                 degraded: true,
                                 degraded_dropped: dropped,
                                 run_id: Some(run_id.clone()),
+                                block_outcomes: &[],
                             },
                             &output,
                         )

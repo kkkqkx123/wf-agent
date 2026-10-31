@@ -301,86 +301,240 @@ impl AgentIterationCoordinator {
             wf_execution_shared::context_store::dynamic_request_overhead(prompt_est as u64, stable);
         let estimated = conversation.calibrated_estimate(stable.saturating_add(dynamic));
         let version = conversation.conversation_version();
+        // Compaction path when a model window is known: sync blocks,
+        // decide by thresholds, emit a plan. Without a window the legacy
+        // single-summary path below applies (unknown budget, not a mode).
+        if conversation.compaction_window() > 0 {
+            drop(conversation);
+            self.record_compaction_decision(entity, estimated, context_limit, prompt_est)
+                .await;
+            return;
+        }
         if wf_execution_shared::context_store::over_budget(estimated, context_limit)
             && conversation.should_emit_compression(version)
         {
             // Budget, count and snapshot share the active view
             // so the summary input matches the controlled size.
             let messages = conversation.view_messages();
-            let compression_request = wf_execution_shared::context_store::compression_request(
-                wf_execution_shared::CONVERSATION_CONTEXT_ID,
-                estimated,
-                context_limit,
-                messages.len(),
-                version,
-                false,
-                &messages,
-                &[],
-            );
-            // Release the session lock: the pre-compression
-            // checkpoint below reads the session back.
             drop(conversation);
-            // Snapshot the pre-compression state; the compressed
-            // view lands in a post-compression checkpoint when the
-            // summary workflow writes back.
-            self.boundary_checkpoint(
-                entity,
-                wf_types::checkpoint::CheckpointTiming::BeforeCompression,
-            )
-            .await;
-            // The event-bus copy stays the audit / persistence /
-            // user-rule channel; delivery is the synchronous hook
-            // dispatch (the compression service takes over here). Dispatch
-            // first so the audit copy can persist the taker outcome.
-            let dispatched = wf_execution_shared::context_store::dispatch_compression_signal(
-                self.hook_handler_registry.as_deref(),
-                self.event_bus.as_deref(),
-                entity.id(),
-                Some(entity.id()),
-                entity.get_abort_signal(),
-                &compression_request,
-            )
-            .await;
-            let mut audit = wf_execution_shared::context_store::compression_event(
-                &execution_id,
-                Some(entity.id()),
-                &compression_request,
-            );
-            if !dispatched {
-                if let Some(meta) = audit.metadata.as_mut() {
-                    meta.insert(
-                        wf_execution_shared::KEY_NO_TAKER.to_string(),
-                        serde_json::Value::Bool(true),
-                    );
+            if self
+                .emit_compaction_signal(
+                    entity,
+                    version,
+                    estimated,
+                    context_limit,
+                    messages,
+                    Vec::new(),
+                )
+                .await
+            {
+                self.record_plan_emitted(true, false);
+            }
+        }
+    }
+}
+
+impl AgentIterationCoordinator {
+    /// Budget-driven compaction decision for one settlement point. Syncs
+    /// blocks, refreshes the hot estimate, and either holds, drops the
+    /// oldest active block, enters handoff, or emits a planned compaction.
+    pub(super) async fn record_compaction_decision(
+        &self,
+        entity: &AgentLoopEntity,
+        estimated: u64,
+        context_limit: u64,
+        prompt_est: u32,
+    ) {
+        if entity.conversation().write().await.take_handoff_requested() {
+            self.enter_handoff_flow(entity, wf_execution_shared::REASON_POST_COMPACT_STILL_HIGH)
+                .await;
+            return;
+        }
+        let limits = wf_execution_shared::process_compaction_limits();
+        let mut conversation = entity.conversation().write().await;
+        conversation.refresh_hot_estimate();
+        let dynamic = wf_execution_shared::context_store::dynamic_request_overhead(
+            prompt_est as u64,
+            conversation.estimated_view_tokens(),
+        );
+        let hot = conversation.calibrated_estimate(
+            conversation
+                .compaction_state()
+                .hot_tokens
+                .saturating_add(dynamic),
+        );
+        match conversation.decide_compaction(hot, &limits) {
+            wf_execution_shared::CompactionDecision::Hold => {}
+            wf_execution_shared::CompactionDecision::DropOldestActive => {
+                let recent = limits
+                    .recent_raw_turns
+                    .unwrap_or(wf_execution_shared::RECENT_RAW_TURNS_DEFAULT)
+                    .saturating_mul(2);
+                conversation.drop_oldest_active_block(recent);
+            }
+            wf_execution_shared::CompactionDecision::Handoff { reason } => {
+                drop(conversation);
+                self.enter_handoff_flow(entity, reason).await;
+            }
+            wf_execution_shared::CompactionDecision::Compact { aggressive } => {
+                // Backpressure coalescing: one in-flight plan settles
+                // first. The newer version re-decides on the next
+                // settlement instead of stacking a second plan signal.
+                if conversation.compression_flight().is_some() {
+                    return;
+                }
+                let plan = conversation.build_compaction_plan(hot, &limits, aggressive);
+                if plan.is_empty() {
+                    return;
+                }
+                if aggressive
+                    && hot.saturating_sub(plan.freed_tokens)
+                        >= conversation.compaction_state().thresholds.t_hard
+                {
+                    drop(conversation);
+                    self.enter_handoff_flow(entity, wf_execution_shared::REASON_HARD_LIMIT)
+                        .await;
+                    return;
+                }
+                let version = conversation.conversation_version();
+                if !conversation.should_emit_compression(version) {
+                    return;
+                }
+                // Budget, count and snapshot share the active view so the
+                // plan indices stay valid for the service run.
+                let messages = conversation.view_messages();
+                let items = plan.items.clone();
+                let capped = plan.capped;
+                conversation.set_pending_compaction(plan.items, plan.drops);
+                drop(conversation);
+                if self
+                    .emit_compaction_signal(
+                        entity,
+                        version,
+                        estimated,
+                        context_limit,
+                        messages,
+                        items,
+                    )
+                    .await
+                {
+                    self.record_plan_emitted(false, aggressive);
+                    if capped {
+                        self.record_plan_capped();
+                    }
                 }
             }
+        }
+    }
+
+    /// Emit one compaction signal with an optional plan, then anchor
+    /// backpressure exactly like the legacy path. An empty plan is the
+    /// legacy single-summary mode; a non-empty plan makes the service run
+    /// the summary chain once per item and write back one result. Returns
+    /// whether the signal reached a taker (only then is the flight
+    /// anchored and the emission counted).
+    async fn emit_compaction_signal(
+        &self,
+        entity: &AgentLoopEntity,
+        version: u64,
+        tokens_used: u64,
+        context_limit: u64,
+        messages: Vec<wf_types::message::Message>,
+        plan: Vec<wf_execution_shared::CompactionPlanItem>,
+    ) -> bool {
+        let execution_id = entity.id().clone();
+        let compression_request = wf_execution_shared::context_store::compression_request(
+            wf_execution_shared::CONVERSATION_CONTEXT_ID,
+            tokens_used,
+            context_limit,
+            messages.len(),
+            version,
+            false,
+            &messages,
+            &plan,
+        );
+        // Snapshot the pre-compression state; the compacted view lands in
+        // a post-compression checkpoint when the summary workflow writes
+        // back.
+        self.boundary_checkpoint(
+            entity,
+            wf_types::checkpoint::CheckpointTiming::BeforeCompression,
+        )
+        .await;
+        // The event-bus copy stays the audit / persistence / user-rule
+        // channel; delivery is the synchronous hook dispatch (the
+        // compression service takes over here). Dispatch first so the audit
+        // copy can persist the taker outcome.
+        let dispatched = wf_execution_shared::context_store::dispatch_compression_signal(
+            self.hook_handler_registry.as_deref(),
+            self.event_bus.as_deref(),
+            entity.id(),
+            Some(entity.id()),
+            entity.get_abort_signal(),
+            &compression_request,
+        )
+        .await;
+        let mut audit = wf_execution_shared::context_store::compression_event(
+            &execution_id.to_string(),
+            Some(entity.id()),
+            &compression_request,
+        );
+        if !dispatched {
+            if let Some(meta) = audit.metadata.as_mut() {
+                meta.insert(
+                    wf_execution_shared::KEY_NO_TAKER.to_string(),
+                    serde_json::Value::Bool(true),
+                );
+            }
+        }
+        if let Some(ref bus) = self.event_bus {
             let _ = bus.publish(audit);
-            let mut session = entity.conversation().write().await;
-            session.mark_compression_emitted(version);
-            // Backpressure only anchors when the signal was
-            // actually dispatched; without a taker nothing
-            // settles the flight and later iterations would wait
-            // in vain.
-            if dispatched {
-                session.reset_compression_no_taker();
-                session.begin_compression_flight(version, false);
+        }
+        let mut session = entity.conversation().write().await;
+        session.mark_compression_emitted(version);
+        // Backpressure only anchors when the signal was actually
+        // dispatched; without a taker nothing settles the flight and later
+        // iterations would wait in vain. A pending plan dies with the
+        // undelivered signal so a late completion can never apply it.
+        if dispatched {
+            session.reset_compression_no_taker();
+            session.begin_compression_flight(version, false);
+        } else {
+            session.clear_pending_compaction();
+            let streak = session.record_compression_no_taker();
+            if streak >= wf_execution_shared::TokenUsageTracker::NO_TAKER_ESCALATION_THRESHOLD {
+                tracing::error!(
+                    entity_id = %entity.id(),
+                    version = version,
+                    streak = streak,
+                    "compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
+                );
             } else {
-                let streak = session.record_compression_no_taker();
-                if streak >= wf_execution_shared::TokenUsageTracker::NO_TAKER_ESCALATION_THRESHOLD {
-                    tracing::error!(
-                        entity_id = %entity.id(),
-                        version = version,
-                        streak = streak,
-                        "compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
-                    );
-                } else {
-                    tracing::warn!(
-                        entity_id = %entity.id(),
-                        version = version,
-                        "compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
-                    );
-                }
+                tracing::warn!(
+                    entity_id = %entity.id(),
+                    version = version,
+                    "compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
+                );
             }
+        }
+        dispatched
+    }
+
+    /// Count one emitted compaction signal on the shared metrics registry
+    /// (`legacy` marks the empty-plan single-summary path). Absent when
+    /// the runtime runs without metrics.
+    pub(super) fn record_plan_emitted(&self, legacy: bool, aggressive: bool) {
+        if let Some(ref metrics) = self.metrics {
+            metrics
+                .compaction()
+                .record_plan_emitted(if legacy { "legacy" } else { "plan" }, aggressive);
+        }
+    }
+
+    /// Count one plan round truncated by the per-round item cap.
+    pub(super) fn record_plan_capped(&self) {
+        if let Some(ref metrics) = self.metrics {
+            metrics.compaction().record_plan_capped();
         }
     }
 }

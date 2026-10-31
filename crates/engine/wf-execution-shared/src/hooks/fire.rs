@@ -385,6 +385,7 @@ mod tests {
             hook_type: hook_type.to_string(),
             data: HashMap::new(),
             cancellation: tokio_util::sync::CancellationToken::new(),
+            attachment: None,
         }
     }
 
@@ -578,6 +579,7 @@ mod tests {
             hook_type: "TEST".to_string(),
             data,
             cancellation: tokio_util::sync::CancellationToken::new(),
+            attachment: None,
         };
         let allowed = fire(&registry, &[], "TEST", &allowed_ctx, None).await;
         assert_eq!(allowed.handler_results.len(), 1);
@@ -677,6 +679,7 @@ mod tests {
             hook_type: "TEST".to_string(),
             data,
             cancellation: tokio_util::sync::CancellationToken::new(),
+            attachment: None,
         };
 
         fire(&registry, &hooks, "TEST", &ctx, Some(&bus)).await;
@@ -731,6 +734,7 @@ mod tests {
             hook_type: "BEFORE_EXECUTE".to_string(),
             data: HashMap::new(),
             cancellation: tokio_util::sync::CancellationToken::new(),
+            attachment: None,
         };
         let summary = fire(&registry, &hooks, "BEFORE_EXECUTE", &ctx, Some(&bus)).await;
         assert_eq!(summary.handler_results.len(), 0);
@@ -870,6 +874,7 @@ mod tests {
             hook_type: "BEFORE_EXECUTE".to_string(),
             data: HashMap::new(),
             cancellation: tokio_util::sync::CancellationToken::new(),
+            attachment: None,
         };
         let exec_summary = fire(&registry, &[], "BEFORE_EXECUTE", &exec_ctx, None).await;
         assert_eq!(
@@ -931,6 +936,7 @@ mod tests {
             hook_type: "TIE".to_string(),
             data: HashMap::new(),
             cancellation: tokio_util::sync::CancellationToken::new(),
+            attachment: None,
         };
         let hooks = vec![hook_def("TIE", 5, Some("static-target"))];
         let summary = fire(&registry, &hooks, "TIE", &tie_ctx, None).await;

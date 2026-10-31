@@ -113,6 +113,7 @@ mod tests {
             hook_type: "AFTER_AGENT".to_string(),
             data: HashMap::new(),
             cancellation: tokio_util::sync::CancellationToken::new(),
+            attachment: None,
         }
     }
 

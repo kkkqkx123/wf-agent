@@ -151,6 +151,30 @@ pub async fn emit_token_usage_events(
         if wf_execution_shared::context_store::over_budget(estimated, context_limit)
             && message_context::should_emit_compression(&ctx.variables, &context_id, version)
         {
+            // Hard-limit guard: moderately over-budget arrays keep the
+            // single summary; far over-budget ones reuse the plan pipeline
+            // through a one-shot stateless plan (no block table).
+            let limits = wf_execution_shared::compaction::process_compaction_limits();
+            let hard_line = (context_limit as f64
+                * wf_execution_shared::compaction::stateless_plan_factor(&limits))
+                as u64;
+            let mut stateless_plan = Vec::new();
+            if estimated > hard_line {
+                let budget = wf_execution_shared::compaction::resolve_summary_call_budget(
+                    context_limit,
+                    &limits,
+                );
+                let cap = limits
+                    .plan_max_items
+                    .unwrap_or(wf_execution_shared::compaction::PLAN_MAX_ITEMS_DEFAULT)
+                    .max(1);
+                let costs: Vec<u64> = context_messages
+                    .iter()
+                    .map(|message| wf_llm::count::estimate_message_tokens(message) as u64)
+                    .collect();
+                stateless_plan =
+                    wf_execution_shared::compaction::build_stateless_plan(&costs, budget, cap);
+            }
             let compression_request = wf_execution_shared::context_store::compression_request(
                 &context_id,
                 estimated,
@@ -159,7 +183,7 @@ pub async fn emit_token_usage_events(
                 version,
                 false,
                 &context_messages,
-                &[],
+                &stateless_plan,
             );
             // Synchronous signal delivery first so the audit copy can persist
             // the taker outcome. A missing registry is already warned inside

@@ -11,6 +11,10 @@ use super::summary_stage::{
 };
 
 pub const FOLD_SUMMARY_WORKFLOW_ID: &str = "@standard/fold-summary";
+/// Same fold-then-summarize shape as [`FOLD_SUMMARY_WORKFLOW_ID`] baked with
+/// the re-compression prompt variant; the pipeline runs `depth >= 1` plan
+/// items on this chain.
+pub const FOLD_SUMMARY_REPRESS_WORKFLOW_ID: &str = "@standard/fold-summary-repress";
 
 pub const FOLD_SUMMARY_START_NODE_ID: &str = "fold-summary-start";
 pub const FOLD_SUMMARY_FOLD_NODE_ID: &str = "fold-summary-fold";
@@ -21,11 +25,34 @@ pub fn create_fold_summary_workflow(compression_prompt: Option<String>) -> Workf
     create_fold_summary_workflow_with_policy(compression_prompt, FoldPolicy::default())
 }
 
+/// Re-compression chain: identical shape to the first-compression chain,
+/// only the baked system prompt differs (the repress variant keeps
+/// established summaries while shrinking them).
+pub fn create_fold_summary_repress_workflow(
+    compression_prompt: Option<String>,
+) -> WorkflowTemplate {
+    build_template(
+        FOLD_SUMMARY_REPRESS_WORKFLOW_ID,
+        "Fold Summary Repress Workflow",
+        compression_prompt,
+        &FoldPolicy::default(),
+        None,
+        60_000,
+    )
+}
+
 pub fn create_fold_summary_workflow_with_policy(
     compression_prompt: Option<String>,
     fold: FoldPolicy,
 ) -> WorkflowTemplate {
-    build_template(compression_prompt, &fold, None, 60_000)
+    build_template(
+        FOLD_SUMMARY_WORKFLOW_ID,
+        "Fold Summary Workflow",
+        compression_prompt,
+        &fold,
+        None,
+        60_000,
+    )
 }
 
 pub fn create_fold_summary_workflow_with_service(
@@ -36,7 +63,14 @@ pub fn create_fold_summary_workflow_with_service(
         Some(url) if service.enabled => (Some(url), service.transport.timeout_ms),
         _ => (None, service.transport.timeout_ms),
     };
-    build_template(compression_prompt, &service.fold, base_url, timeout_ms)
+    build_template(
+        FOLD_SUMMARY_WORKFLOW_ID,
+        "Fold Summary Workflow",
+        compression_prompt,
+        &service.fold,
+        base_url,
+        timeout_ms,
+    )
 }
 
 fn fold_node(
@@ -70,6 +104,8 @@ fn fold_node(
 }
 
 fn build_template(
+    workflow_id: &str,
+    workflow_name: &str,
     compression_prompt: Option<String>,
     fold: &FoldPolicy,
     service_base_url: Option<String>,
@@ -103,12 +139,12 @@ fn build_template(
     ];
 
     WorkflowTemplate {
-        id: FOLD_SUMMARY_WORKFLOW_ID.into(),
-        name: "Fold Summary Workflow".into(),
+        id: workflow_id.into(),
+        name: workflow_name.into(),
         description: "Builtin compression chain: fold tool results -> summarize -> replace original context with summary".into(),
         definition: WorkflowDefinition {
-            id: FOLD_SUMMARY_WORKFLOW_ID.into(),
-            name: "Fold Summary Workflow".into(),
+            id: workflow_id.into(),
+            name: workflow_name.into(),
             description: Some("Fold-then-summarize compression chain".into()),
             r#type: Some(WorkflowDefinitionType::TriggeredSubworkflow),
             version: Some("1.0.0".into()),

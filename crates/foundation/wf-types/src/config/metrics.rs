@@ -57,6 +57,7 @@ pub struct MetricsConfig {
     pub retry_budget_metrics: Option<MetricCollectorConfig>,
     pub timeout_metrics: Option<MetricCollectorConfig>,
     pub checkpoint_metrics: Option<MetricCollectorConfig>,
+    pub compaction_metrics: Option<MetricCollectorConfig>,
     pub http_metrics: Option<MetricCollectorConfig>,
     pub enable_periodic_reporting: Option<bool>,
     pub reporting_interval: Option<i64>,

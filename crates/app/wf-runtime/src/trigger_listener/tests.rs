@@ -465,6 +465,7 @@ async fn context_compression_chain_end_to_end() {
             contexts: contexts.clone(),
             summary_workflow_id: wf_resource::predefined::workflow::FOLD_SUMMARY_WORKFLOW_ID
                 .to_string(),
+            repress_workflow_id: None,
             shutdown: CancellationToken::new(),
             ledger: None,
             policy: CompressionPolicy::default(),
@@ -587,8 +588,9 @@ async fn context_compression_chain_end_to_end() {
         assert_eq!(tail.role, MessageRole::User);
     }
 
-    // 5d. CONTEXT_COMPRESSION_COMPLETED carries the compressed array
-    // (summary only; tail retention is a write-back concern).
+    // 5d. CONTEXT_COMPRESSION_COMPLETED carries the version anchor and
+    // accounting; the message array travels through the registry
+    // write-back for workflow targets, not the event.
     let completed = loop {
         match sub.recv().await {
             Ok(event) if event.r#type == EventType::ContextCompressionCompleted => break event,
@@ -599,10 +601,9 @@ async fn context_compression_chain_end_to_end() {
     let completed_meta =
         wf_execution_shared::ContextCompressionCompletedMeta::try_from(&completed).unwrap();
     assert_eq!(completed_meta.target_context_id, "chat");
-    assert_eq!(completed_meta.messages.len(), 1);
-    assert_eq!(
-        completed_meta.messages[0].content,
-        MessageContentValue::Text("compressed summary".to_string())
+    assert!(
+        completed_meta.messages.is_empty(),
+        "workflow-target completions must not repeat the array on the event"
     );
     assert_eq!(
         completed_meta.tail_keep,
@@ -611,6 +612,12 @@ async fn context_compression_chain_end_to_end() {
     assert!(
         completed_meta.tokens_after < 1000,
         "compressed array must be far below the limit"
+    );
+    let landed = wf_workflow::message_context::get_context(&variables, "chat");
+    assert!(
+        landed.iter().any(|message| message.content
+            == MessageContentValue::Text("compressed summary".to_string())),
+        "the compressed summary must land in the registry array"
     );
 
     contexts.unregister(&execution_id);
@@ -1012,6 +1019,7 @@ async fn no_compression_event_when_named_array_within_limit() {
             contexts: contexts.clone(),
             summary_workflow_id: wf_resource::predefined::workflow::FOLD_SUMMARY_WORKFLOW_ID
                 .to_string(),
+            repress_workflow_id: None,
             shutdown: CancellationToken::new(),
             ledger: None,
             policy: CompressionPolicy::default(),
@@ -1123,6 +1131,7 @@ async fn compression_fire_takes_over_immediately() {
             contexts: contexts.clone(),
             summary_workflow_id: wf_resource::predefined::workflow::FOLD_SUMMARY_WORKFLOW_ID
                 .to_string(),
+            repress_workflow_id: None,
             shutdown: CancellationToken::new(),
             ledger: None,
             policy: CompressionPolicy::default(),
@@ -1146,6 +1155,7 @@ async fn compression_fire_takes_over_immediately() {
         hook_type: wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
         data,
         cancellation: tokio_util::sync::CancellationToken::new(),
+        attachment: None,
     };
 
     // Fire returns as soon as the summary sub-workflow is spawned,
@@ -1239,6 +1249,7 @@ fn agent_compression_signal(messages: &[Message]) -> HookContext {
         hook_type: wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
         data,
         cancellation: tokio_util::sync::CancellationToken::new(),
+        attachment: None,
     }
 }
 
@@ -1384,6 +1395,7 @@ async fn routed_compression_end_to_end_via_listener() {
         shutdown: CancellationToken::new(),
         compression_route: Some(CompressionRouteConfig {
             summary_workflow_id: "stub/llm-summary".to_string(),
+            repress_workflow_id: None,
             policy: policy.clone(),
         }),
     });
@@ -1394,6 +1406,7 @@ async fn routed_compression_end_to_end_via_listener() {
             runner: runner.clone(),
             contexts,
             summary_workflow_id: "stub/llm-summary".to_string(),
+            repress_workflow_id: None,
             shutdown: CancellationToken::new(),
             ledger: None,
             policy,
@@ -1442,6 +1455,7 @@ async fn compression_retry_recovers_before_terminal_failure() {
             runner: runner.clone(),
             contexts,
             summary_workflow_id: "stub/llm-summary".to_string(),
+            repress_workflow_id: None,
             shutdown: CancellationToken::new(),
             ledger: None,
             policy: stub_compression_policy(
@@ -1476,6 +1490,7 @@ async fn compression_attempt_timeout_is_bounded_and_retried() {
             runner: runner.clone(),
             contexts,
             summary_workflow_id: "stub/llm-summary".to_string(),
+            repress_workflow_id: None,
             shutdown: CancellationToken::new(),
             ledger: None,
             // A hung attempt must be cut at 300ms, not stall the chain.
@@ -1514,6 +1529,7 @@ async fn compression_duplicate_signal_same_version_runs_once() {
             runner: runner.clone(),
             contexts,
             summary_workflow_id: "stub/llm-summary".to_string(),
+            repress_workflow_id: None,
             shutdown: CancellationToken::new(),
             ledger: None,
             policy: stub_compression_policy(
@@ -1551,6 +1567,7 @@ async fn compression_terminal_failure_publishes_failed_and_releases_claim() {
             runner: runner.clone(),
             contexts,
             summary_workflow_id: "stub/llm-summary".to_string(),
+            repress_workflow_id: None,
             shutdown: CancellationToken::new(),
             ledger: None,
             // `fail` (the default mode): a terminal failure publishes
@@ -1599,6 +1616,7 @@ async fn compression_terminal_failure_partial_summary_lands_visible_window() {
             runner: runner.clone(),
             contexts,
             summary_workflow_id: "stub/llm-summary".to_string(),
+            repress_workflow_id: None,
             shutdown: CancellationToken::new(),
             ledger: None,
             policy: stub_compression_policy(
@@ -2064,6 +2082,7 @@ async fn compression_plan_runs_per_item_and_writes_back_once() {
             runner: runner.clone(),
             contexts,
             summary_workflow_id: "stub/llm-summary".to_string(),
+            repress_workflow_id: None,
             shutdown: CancellationToken::new(),
             ledger: None,
             policy: stub_compression_policy(
@@ -2087,12 +2106,14 @@ async fn compression_plan_runs_per_item_and_writes_back_once() {
             start: 0,
             end: 2,
             depth: 0,
+            extra_block_ids: Vec::new(),
         },
         wf_execution_shared::CompactionPlanItem {
             block_id: "b0002".to_string(),
             start: 2,
             end: 99,
             depth: 0,
+            extra_block_ids: Vec::new(),
         },
     ];
     ctx.data.insert(
@@ -2106,4 +2127,97 @@ async fn compression_plan_runs_per_item_and_writes_back_once() {
     assert_eq!(meta.array_version, 7);
     assert_eq!(meta.messages.len(), 2);
     assert_eq!(runner.calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
+
+/// Stub summary runner recording which chain served each item.
+struct RecordingChainRunner {
+    calls: std::sync::atomic::AtomicU32,
+    workflow_ids: std::sync::Mutex<Vec<String>>,
+}
+
+#[async_trait::async_trait]
+impl SubworkflowRunner for RecordingChainRunner {
+    async fn run(&self, workflow_id: &str, _input: Value) -> WorkflowResult<Value> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.workflow_ids
+            .lock()
+            .unwrap()
+            .push(workflow_id.to_string());
+        Ok(serde_json::to_value(vec![text_message(
+            MessageRole::Assistant,
+            "repressed summary",
+        )])
+        .expect("message array serializes"))
+    }
+}
+
+#[tokio::test]
+async fn recompression_items_run_the_repress_chain() {
+    // A depth-1 plan item runs the repress chain variant while a depth-0
+    // item stays on the main chain; one aggregated completion lands.
+    let bus = Arc::new(EventBus::new(64));
+    let mut sub = bus.subscribe();
+    let contexts = Arc::new(ExecutionContextRegistry::new());
+    let registry = Arc::new(HookHandlerRegistry::new());
+    let runner = Arc::new(RecordingChainRunner {
+        calls: std::sync::atomic::AtomicU32::new(0),
+        workflow_ids: std::sync::Mutex::new(Vec::new()),
+    });
+    register_compression_handler(
+        &registry,
+        CompressionHandlerDeps {
+            event_bus: bus.clone(),
+            runner: runner.clone(),
+            contexts,
+            summary_workflow_id: "stub/llm-summary".to_string(),
+            repress_workflow_id: Some("stub/llm-summary-repress".to_string()),
+            shutdown: CancellationToken::new(),
+            ledger: None,
+            policy: stub_compression_policy(
+                1,
+                5_000,
+                wf_types::workflow::CompressionFallbackMode::Fail,
+            ),
+        },
+    );
+
+    let messages = vec![
+        text_message(MessageRole::User, "first"),
+        text_message(MessageRole::User, "second"),
+        text_message(MessageRole::User, "third"),
+        text_message(MessageRole::User, "fourth"),
+    ];
+    let mut ctx = agent_compression_signal(&messages);
+    let plan = vec![
+        wf_execution_shared::CompactionPlanItem {
+            block_id: "b0001".to_string(),
+            start: 0,
+            end: 2,
+            depth: 0,
+            extra_block_ids: Vec::new(),
+        },
+        wf_execution_shared::CompactionPlanItem {
+            block_id: "b0002".to_string(),
+            start: 2,
+            end: 4,
+            depth: 1,
+            extra_block_ids: Vec::new(),
+        },
+    ];
+    ctx.data.insert(
+        wf_execution_shared::KEY_PLAN.to_string(),
+        serde_json::to_value(&plan).expect("plan serializes"),
+    );
+    fire_compression_signal(&registry, &bus, &ctx).await;
+    let completed = next_compression_event(&mut sub, EventType::ContextCompressionCompleted).await;
+    let meta = wf_execution_shared::ContextCompressionCompletedMeta::try_from(&completed).unwrap();
+    assert_eq!(runner.calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_eq!(
+        *runner.workflow_ids.lock().unwrap(),
+        vec![
+            "stub/llm-summary".to_string(),
+            "stub/llm-summary-repress".to_string()
+        ]
+    );
+    assert_eq!(meta.blocks.len(), 2);
 }

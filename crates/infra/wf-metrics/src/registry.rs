@@ -6,10 +6,10 @@ use wf_types::config::metrics::MetricsConfig;
 use crate::collector::{BaseMetricCollector, CollectorConfig};
 use crate::collectors::{
     AgentLoopMetricsCollector, AgentMetricsCollector, CheckpointMetricsCollector,
-    ConfigMetricsCollector, ErrorMetricsCollector, EventMetricsCollector, HttpMetricsCollector,
-    NodeMetricsCollector, ResourceMetricsCollector, RetryBudgetMetricsCollector,
-    SubgraphMetricsCollector, TemplateMetricsCollector, TimeoutMetricsCollector,
-    TokenMetricsCollector, ToolMetricsCollector, WorkflowMetricsCollector,
+    CompactionMetricsCollector, ConfigMetricsCollector, ErrorMetricsCollector,
+    EventMetricsCollector, HttpMetricsCollector, NodeMetricsCollector, ResourceMetricsCollector,
+    RetryBudgetMetricsCollector, SubgraphMetricsCollector, TemplateMetricsCollector,
+    TimeoutMetricsCollector, TokenMetricsCollector, ToolMetricsCollector, WorkflowMetricsCollector,
 };
 use crate::constants::{
     agent_loop_metrics, agent_metrics, checkpoint_metrics, config_metrics, node_metrics,
@@ -64,6 +64,7 @@ pub struct MetricsRegistry {
     retry_budget: Arc<RetryBudgetMetricsCollector>,
     timeout: Arc<TimeoutMetricsCollector>,
     checkpoint: Arc<CheckpointMetricsCollector>,
+    compaction: Arc<CompactionMetricsCollector>,
     http: Arc<HttpMetricsCollector>,
     subscribers: Mutex<Vec<(usize, ReportCallback)>>,
     next_subscription_id: AtomicUsize,
@@ -139,6 +140,9 @@ impl MetricsRegistry {
             ))),
             checkpoint: Arc::new(CheckpointMetricsCollector::new(resolve(
                 config.checkpoint_metrics.as_ref(),
+            ))),
+            compaction: Arc::new(CompactionMetricsCollector::new(resolve(
+                config.compaction_metrics.as_ref(),
             ))),
             http: Arc::new(HttpMetricsCollector::new(resolve(
                 config.http_metrics.as_ref(),
@@ -235,6 +239,10 @@ impl MetricsRegistry {
         self.checkpoint.clone()
     }
 
+    pub fn compaction(&self) -> Arc<CompactionMetricsCollector> {
+        self.compaction.clone()
+    }
+
     pub fn http(&self) -> Arc<HttpMetricsCollector> {
         self.http.clone()
     }
@@ -258,6 +266,7 @@ impl MetricsRegistry {
             "retry_budget",
             "timeout",
             "checkpoint",
+            "compaction",
             "http",
         ]
     }
@@ -289,6 +298,7 @@ impl MetricsRegistry {
             self.retry_budget.collector(),
             self.timeout.collector(),
             self.checkpoint.collector(),
+            self.compaction.collector(),
             self.http.collector(),
         ]
     }
@@ -544,7 +554,7 @@ mod tests {
     #[test]
     fn registry_provides_all_collectors() {
         let registry = MetricsRegistry::new();
-        assert_eq!(registry.collectors().len(), 16);
+        assert_eq!(registry.collectors().len(), 17);
         registry.workflow().record_execution_start("wf-1");
         registry.node().record_execution_start("n1", "Llm");
         registry.event().record_event("NodeStarted", None, None);
@@ -578,6 +588,7 @@ mod tests {
         registry
             .checkpoint()
             .record_creation("exec-1", 10.0, 1024, true);
+        registry.compaction().record_plan_emitted("plan", false);
         registry
             .http()
             .record_request("GET", "/metrics", "2xx", 2.0);
@@ -665,6 +676,10 @@ mod tests {
                 buffer_size: Some(15),
                 ..Default::default()
             }),
+            compaction_metrics: Some(MetricCollectorConfig {
+                buffer_size: Some(17),
+                ..Default::default()
+            }),
             http_metrics: Some(MetricCollectorConfig {
                 buffer_size: Some(16),
                 ..Default::default()
@@ -687,6 +702,7 @@ mod tests {
         assert_eq!(registry.retry_budget().collector().config().buffer_size, 13);
         assert_eq!(registry.timeout().collector().config().buffer_size, 14);
         assert_eq!(registry.checkpoint().collector().config().buffer_size, 15);
+        assert_eq!(registry.compaction().collector().config().buffer_size, 17);
         assert_eq!(registry.http().collector().config().buffer_size, 16);
     }
 

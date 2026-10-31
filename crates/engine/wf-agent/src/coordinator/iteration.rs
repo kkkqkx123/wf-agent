@@ -5,6 +5,8 @@
 
 mod checkpoint;
 mod compression;
+mod handoff;
+mod ingest;
 mod llm_call;
 mod outcome;
 mod streaming;
@@ -621,6 +623,20 @@ impl AgentIterationCoordinator {
             }
         }
 
+        // Pre-history ingest: distill tool outputs and deduplicate file
+        // reads before they enter history; originals land in the context
+        // archive with pointers left behind.
+        let tool_messages = {
+            let archive = self.tool_coordinator.checkpoint_session_config();
+            let mut session = entity.conversation().write().await;
+            ingest::prepare_tool_messages(
+                &tool_calls,
+                tool_messages,
+                &mut session,
+                archive.as_ref(),
+                &wf_execution_shared::process_compaction_limits(),
+            )
+        };
         for msg in &tool_messages {
             entity.conversation().write().await.add_message(msg.clone());
         }

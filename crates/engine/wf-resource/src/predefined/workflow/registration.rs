@@ -1,12 +1,16 @@
 use wf_core::registry::Registry;
 
-use crate::predefined::agent_prompts::{CODE_CONTEXT_PREFETCH_PROMPT_KEY, LLM_SUMMARY_PROMPT_KEY};
+use crate::predefined::agent_prompts::{
+    CODE_CONTEXT_PREFETCH_PROMPT_KEY, LLM_SUMMARY_PROMPT_KEY, LLM_SUMMARY_REPRESS_PROMPT_KEY,
+};
 use crate::registry::{
     register_item_skip, register_item_strict, RegisterOptions, ResourceRegistries,
 };
 use crate::result::Summary;
 
-use super::child::fold_summary::create_fold_summary_workflow;
+use super::child::fold_summary::{
+    create_fold_summary_repress_workflow, create_fold_summary_workflow,
+};
 use super::child::prefetch::create_prefetch_workflow_with_prompt;
 
 pub fn register(regs: &ResourceRegistries, opts: &RegisterOptions) -> Summary {
@@ -23,6 +27,18 @@ pub fn register(regs: &ResourceRegistries, opts: &RegisterOptions) -> Summary {
         register_item_skip(&regs.workflows, chain_key, chain)
     } else {
         register_item_strict(&regs.workflows, chain_key, chain)
+    });
+    // Re-compression chain: same shape, baked with the repress variant.
+    let repress = create_fold_summary_repress_workflow(
+        regs.templates
+            .get(LLM_SUMMARY_REPRESS_PROMPT_KEY)
+            .map(|template| template.content.clone()),
+    );
+    let repress_key = repress.id.clone();
+    summary.merge(if opts.skip_if_exists {
+        register_item_skip(&regs.workflows, repress_key, repress)
+    } else {
+        register_item_strict(&regs.workflows, repress_key, repress)
     });
     let prefetch = create_prefetch_workflow_with_prompt(
         regs.templates

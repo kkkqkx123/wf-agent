@@ -46,6 +46,7 @@ pub const COMPACTION_R_REPRESS_DEFAULT: u64 = 5000;
 pub const COMPACTION_R_MIN_RANGE_DEFAULT: u64 = 2000;
 pub const COMPACTION_K_REPRESS_DEFAULT: u32 = 2;
 pub const COMPACTION_RECENT_RAW_TURNS_DEFAULT: usize = 2;
+pub const COMPACTION_PLAN_MAX_ITEMS_DEFAULT: usize = 8;
 
 /// Merge user limits with defaults, filling every absent field so the
 /// returned config carries concrete values (never `None`).
@@ -140,6 +141,10 @@ pub fn merge_limits_with_defaults(user: &LimitsConfig) -> LimitsConfig {
             .or(Some(COMPACTION_RECENT_RAW_TURNS_DEFAULT)),
         tool_distill: user_compaction.and_then(|c| c.tool_distill).or(Some(true)),
         file_dedup: user_compaction.and_then(|c| c.file_dedup).or(Some(true)),
+        plan_max_items: user_compaction
+            .and_then(|c| c.plan_max_items)
+            .or(Some(COMPACTION_PLAN_MAX_ITEMS_DEFAULT)),
+        summary_call_budget_tokens: user_compaction.and_then(|c| c.summary_call_budget_tokens),
     };
 
     LimitsConfig {
@@ -267,6 +272,12 @@ pub fn validate_limits_config(config: &LimitsConfig) -> ConfigResult<()> {
         if let Some(turns) = compaction.recent_raw_turns {
             validate_min(turns as u64, 1, "limits.compaction.recent_raw_turns")?;
         }
+        if let Some(max_items) = compaction.plan_max_items {
+            validate_min(max_items as u64, 1, "limits.compaction.plan_max_items")?;
+        }
+        if let Some(budget) = compaction.summary_call_budget_tokens {
+            validate_min(budget, 1, "limits.compaction.summary_call_budget_tokens")?;
+        }
     }
     Ok(())
 }
@@ -308,6 +319,8 @@ mod tests {
         assert_eq!(compaction.recent_raw_turns, Some(2));
         assert_eq!(compaction.tool_distill, Some(true));
         assert_eq!(compaction.file_dedup, Some(true));
+        assert_eq!(compaction.plan_max_items, Some(8));
+        assert_eq!(compaction.summary_call_budget_tokens, None);
     }
 
     #[test]
@@ -356,6 +369,8 @@ mod tests {
                 recent_raw_turns: Some(2),
                 tool_distill: Some(true),
                 file_dedup: Some(true),
+                plan_max_items: Some(8),
+                summary_call_budget_tokens: None,
             }),
             ..Default::default()
         };
@@ -373,6 +388,8 @@ mod tests {
                 recent_raw_turns: Some(2),
                 tool_distill: Some(true),
                 file_dedup: Some(true),
+                plan_max_items: Some(8),
+                summary_call_budget_tokens: None,
             }),
             ..Default::default()
         };

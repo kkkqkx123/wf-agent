@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use wf_core::EventBus;
-use wf_types::message::{Message, MessageContent, MessageContentValue};
+use wf_types::message::Message;
 use wf_workflow::error::WorkflowError;
 
 use super::budget_tracker::{
@@ -39,6 +39,9 @@ pub(crate) struct CompressionWriteBack<'a> {
     /// completed and discarded events so offline analysis can link each
     /// terminal event back to its summary run.
     pub run_id: Option<String>,
+    /// Per-block outcomes for plan-mode completions; empty on legacy
+    /// single-summary and degraded-fallback write-backs.
+    pub block_outcomes: &'a [wf_execution_shared::BlockOutcome],
 }
 
 /// Typed outcome of a compression write-back: stale-version expiry is normal
@@ -218,25 +221,22 @@ fn build_compression_completed_event(
     messages: &[Message],
     tokens_after: u64,
 ) -> wf_types::events::BaseEvent {
-    let summary = messages.last().and_then(|message| match &message.content {
-        MessageContentValue::Text(text) => Some(text.clone()),
-        MessageContentValue::Rich(parts) => parts.iter().find_map(|part| match part {
-            MessageContent::Text { text } => Some(text.clone()),
-            _ => None,
-        }),
-    });
+    // The message array travels only when the completed event is the
+    // write-back transport (agent targets self-consume it); workflow
+    // targets already landed through the registry write above.
+    let transport_messages = target.agent_loop_id.is_some().then_some(messages);
     wf_execution_shared::build_context_compression_completed_event(
         target.execution_id,
         target.agent_loop_id,
         &wf_execution_shared::ContextCompressionCompleted {
             target_context_id: target.target_context_id,
             array_version: target.expected_version,
-            summary: summary.as_deref(),
             tokens_after,
-            messages: Some(messages),
+            messages: transport_messages,
             tail_keep: target.tail_keep,
             degraded: target.degraded,
             still_over_budget: target.token_limit > 0 && tokens_after > target.token_limit,
+            blocks: target.block_outcomes,
         },
     )
 }

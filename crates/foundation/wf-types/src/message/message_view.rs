@@ -5,7 +5,7 @@ use super::Message;
 /// Read projection over an append-only message history.
 ///
 /// The history array itself is never truncated: compression appends a
-/// summary message to it and switches the active view to `Compressed`.
+/// summary messages to it and switches the active view to `Compacted`.
 /// Readers assembling LLM requests use the view; checkpoints persist the
 /// full history plus the view so restore reproduces both.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -14,16 +14,10 @@ pub enum MessageView {
     /// Show the whole history.
     #[default]
     Full,
-    /// Show the summary followed by the history tail starting at
-    /// `tail_begin`. The tail slice excludes the summary message itself
-    /// (matched by id) so the appended summary is never duplicated.
-    /// `tail_begin` is an index into the history at compression time;
-    /// kept for stored checkpoints. New code preferring stable coordinates
-    /// should use `Range` with sequence numbers.
-    Compressed {
-        summary: Box<Message>,
-        tail_begin: usize,
-    },
+    /// Hot view: an ordered segment list projected in order. Summary
+    /// segments resolve by message id against the history; range segments
+    /// resolve by stable sequence coordinates.
+    Compacted { segments: Vec<ViewSegment> },
     /// Show the last `last_n` messages. Pure read projection used for
     /// previews and request assembly; never mutates history.
     Tail { last_n: usize },
@@ -35,26 +29,35 @@ pub enum MessageView {
     Range { start_seq: u64, end_seq: u64 },
 }
 
+/// One hot-view segment of a [`MessageView::Compacted`] projection.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum ViewSegment {
+    /// A summary message already appended to the history.
+    Summary { message_id: String },
+    /// An original history interval by stable sequence coordinates.
+    Range { start_seq: u64, end_seq: u64 },
+}
+
 impl MessageView {
     /// True when the view shows the whole history.
     pub fn is_full(&self) -> bool {
         matches!(self, Self::Full)
     }
 
-    /// Project the view over a history slice.
+    /// Project the view over a history slice. Summaries resolve by id;
+    /// range segments need coordinates (see [`Self::project_with_seqs`])
+    /// and stay empty here.
     pub fn project(&self, history: &[Message]) -> Vec<Message> {
         match self {
             Self::Full => history.to_vec(),
-            Self::Compressed {
-                summary,
-                tail_begin,
-            } => {
-                let mut projected =
-                    Vec::with_capacity(history.len().saturating_sub(*tail_begin) + 1);
-                projected.push(summary.as_ref().clone());
-                for message in history.iter().skip(*tail_begin) {
-                    if message.id != summary.id {
-                        projected.push(message.clone());
+            Self::Compacted { segments } => {
+                let mut projected = Vec::with_capacity(history.len());
+                for segment in segments {
+                    if let ViewSegment::Summary { message_id } = segment {
+                        if let Some(found) = history.iter().find(|m| &m.id == message_id) {
+                            projected.push(found.clone());
+                        }
                     }
                 }
                 projected
@@ -77,9 +80,39 @@ impl MessageView {
 
     /// Project the view over a history slice with parallel sequence
     /// coordinates. Sequence-independent variants ignore `seqs`; `Range`
-    /// selects entries whose coordinate falls in the interval.
+    /// and compacted range segments select entries whose coordinate falls
+    /// in the interval.
     pub fn project_with_seqs(&self, history: &[Message], seqs: &[u64]) -> Vec<Message> {
         match self {
+            Self::Compacted { segments } => {
+                if history.len() != seqs.len() {
+                    return Vec::new();
+                }
+                let mut projected = Vec::with_capacity(history.len());
+                let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+                for segment in segments {
+                    match segment {
+                        ViewSegment::Summary { message_id } => {
+                            if seen.insert(message_id.as_str()) {
+                                if let Some(found) = history.iter().find(|m| &m.id == message_id) {
+                                    projected.push(found.clone());
+                                }
+                            }
+                        }
+                        ViewSegment::Range { start_seq, end_seq } => {
+                            for (message, seq) in history.iter().zip(seqs.iter()) {
+                                if *seq >= *start_seq
+                                    && *seq <= *end_seq
+                                    && seen.insert(message.id.as_str())
+                                {
+                                    projected.push(message.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+                projected
+            }
             Self::Range { start_seq, end_seq } => {
                 if history.len() != seqs.len() {
                     return Vec::new();
@@ -128,32 +161,41 @@ mod tests {
     }
 
     #[test]
-    fn compressed_view_prepends_summary_without_duplication() {
+    fn compacted_view_shows_summary_segment() {
         let old = vec![msg("a"), msg("b")];
         let summary = msg("summary");
         let mut history = old.clone();
         history.push(summary.clone());
-        let view = MessageView::Compressed {
-            summary: Box::new(summary.clone()),
-            tail_begin: old.len(),
+        let view = MessageView::Compacted {
+            segments: vec![ViewSegment::Summary {
+                message_id: summary.id.clone(),
+            }],
         };
         let projected = view.project(&history);
         assert_eq!(projected, vec![summary]);
     }
 
     #[test]
-    fn compressed_view_keeps_tail_and_new_appends() {
+    fn compacted_view_orders_summary_before_range() {
         let old = vec![msg("a"), msg("b")];
         let summary = msg("summary");
         let mut history = old.clone();
         history.push(summary.clone());
         let tail_new = msg("c");
         history.push(tail_new.clone());
-        let view = MessageView::Compressed {
-            summary: Box::new(summary.clone()),
-            tail_begin: 1,
+        let seqs = vec![0u64, 1, 2, 3];
+        let view = MessageView::Compacted {
+            segments: vec![
+                ViewSegment::Summary {
+                    message_id: summary.id.clone(),
+                },
+                ViewSegment::Range {
+                    start_seq: 1,
+                    end_seq: 3,
+                },
+            ],
         };
-        let projected = view.project(&history);
+        let projected = view.project_with_seqs(&history, &seqs);
         assert_eq!(projected, vec![summary, old[1].clone(), tail_new]);
     }
 

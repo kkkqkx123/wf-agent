@@ -127,6 +127,38 @@ impl CheckpointSession {
         self.workspace_root.as_ref()
     }
 
+    /// Archive ref backing this execution's context archive.
+    pub fn context_archive_ref(&self) -> String {
+        crate::archive::context_archive_ref(&self.entity_id)
+    }
+
+    /// Append files to this execution's context archive. Used by
+    /// compaction ingest (tool output originals) and handoff (block
+    /// sources plus the index). Returns the new ref head and per-path
+    /// blob ids for pointer construction.
+    pub fn archive_write_files(
+        &self,
+        files: &std::collections::HashMap<String, Vec<u8>>,
+    ) -> Result<crate::archive::ArchiveWriteOutcome, checkpoint_base::CheckpointError> {
+        self.manager.archive_write_files(&self.entity_id, files)
+    }
+
+    /// Read one archived blob by id.
+    pub fn archive_read_blob(
+        &self,
+        blob_id: &str,
+    ) -> Result<Vec<u8>, checkpoint_base::CheckpointError> {
+        self.manager.archive_read_blob(blob_id)
+    }
+
+    /// Read one archived path at this execution's archive ref head.
+    pub fn archive_read_file(
+        &self,
+        path: &str,
+    ) -> Result<Vec<u8>, checkpoint_base::CheckpointError> {
+        self.manager.archive_read_file(&self.entity_id, path)
+    }
+
     // ---- direct tool-layer API (replaces notify_*) ----
 
     /// Replace `notify_precise`. Writes a precise file event into the actor

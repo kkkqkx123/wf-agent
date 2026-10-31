@@ -16,6 +16,7 @@
 
 pub mod agent;
 pub mod code_context;
+pub mod context;
 pub mod display;
 pub mod filesystem;
 pub mod fold;
@@ -40,6 +41,7 @@ pub use schema::{ToolDefinition, ToolParameter};
 pub fn all_definitions() -> Vec<&'static ToolDefinition> {
     let mut out: Vec<&'static ToolDefinition> = Vec::new();
     for group in [
+        context::ALL,
         filesystem::ALL,
         shell::ALL,
         memory::ALL,

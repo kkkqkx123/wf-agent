@@ -53,6 +53,7 @@ pub fn register_builtin_handlers(
     predefined::filesystem::register(registry, &handlers)?;
 
     predefined::shell::register(registry, &config.shell)?;
+    predefined::context::register(registry)?;
     predefined::memory::register(registry)?;
     predefined::utility::register(registry)?;
     predefined::web::register(registry, &config.web)?;

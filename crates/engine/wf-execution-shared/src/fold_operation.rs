@@ -38,6 +38,28 @@ impl Default for FoldParams {
     }
 }
 
+impl FoldParams {
+    /// Clamp every numeric field to its executable minimum so a zero or
+    /// undersized config can never produce an empty batch or a zero
+    /// retry loop. Callers pass raw config; execution normalizes once.
+    pub fn normalized(&self) -> Self {
+        Self {
+            base_url: self.base_url.clone(),
+            timeout_ms: self.timeout_ms.max(1),
+            min_tokens: self.min_tokens,
+            max_tokens: self.max_tokens.max(1),
+            max_items: self.max_items.max(1),
+            max_retries: self.max_retries.max(1),
+        }
+    }
+
+    /// True when no remote service is configured and only the local shell
+    /// fold applies. Makes the skip path explicit at the call site.
+    pub fn is_local_only(&self) -> bool {
+        self.base_url.as_ref().is_none_or(|url| url.trim().is_empty())
+    }
+}
+
 /// Outcome of one fold operation over a message snapshot.
 #[derive(Debug, Clone)]
 pub struct FoldOutcome {
@@ -60,6 +82,7 @@ pub struct FoldOutcome {
 /// maps to a skip with the context preserved; only the returned outcome
 /// tells the shell what happened.
 pub async fn execute_fold(messages: &[Message], params: &FoldParams) -> FoldOutcome {
+    let params = params.normalized();
     let before = wf_llm::estimate_messages(messages) as usize;
     let finish = |messages: Vec<Message>,
                   folded_count: usize,
@@ -231,6 +254,29 @@ async fn call_fold(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fold_params_normalize_and_mark_local_only() {
+        let raw = FoldParams {
+            base_url: None,
+            timeout_ms: 0,
+            min_tokens: 5,
+            max_tokens: 0,
+            max_items: 0,
+            max_retries: 0,
+        };
+        let fixed = raw.normalized();
+        assert_eq!(fixed.timeout_ms, 1);
+        assert_eq!(fixed.max_tokens, 1);
+        assert_eq!(fixed.max_items, 1);
+        assert_eq!(fixed.max_retries, 1);
+        assert!(fixed.is_local_only());
+        let remote = FoldParams {
+            base_url: Some("http://127.0.0.1:9".to_string()),
+            ..FoldParams::default()
+        };
+        assert!(!remote.is_local_only());
+    }
 
     #[tokio::test]
     async fn fold_skips_without_service_address() {

@@ -233,7 +233,8 @@ pub async fn apply_compression(
     // blocks and cut the segmented view. Legacy completions keep the
     // single-summary path.
     if !meta.blocks.is_empty() {
-        session.apply_compaction_result(meta.messages, &meta.blocks);
+        let limits = wf_execution_shared::process_compaction_limits();
+        session.apply_compaction_result(meta.messages, &meta.blocks, &limits);
     } else {
         session.compress_with_tail(meta.messages, meta.tail_keep);
     }

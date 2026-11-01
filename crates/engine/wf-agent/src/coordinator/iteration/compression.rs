@@ -300,37 +300,14 @@ impl AgentIterationCoordinator {
         let dynamic =
             wf_execution_shared::context_store::dynamic_request_overhead(prompt_est as u64, stable);
         let estimated = conversation.calibrated_estimate(stable.saturating_add(dynamic));
-        let version = conversation.conversation_version();
-        // Compaction path when a model window is known: sync blocks,
-        // decide by thresholds, emit a plan. Without a window the legacy
-        // single-summary path below applies (unknown budget, not a mode).
-        if conversation.compaction_window() > 0 {
-            drop(conversation);
-            self.record_compaction_decision(entity, estimated, context_limit, prompt_est)
-                .await;
+        // Compaction requires a known model window. Without one the
+        // decision holds and the forced safety-net owns recovery.
+        if conversation.compaction_window() == 0 {
             return;
         }
-        if wf_execution_shared::context_store::over_budget(estimated, context_limit)
-            && conversation.should_emit_compression(version)
-        {
-            // Budget, count and snapshot share the active view
-            // so the summary input matches the controlled size.
-            let messages = conversation.view_messages();
-            drop(conversation);
-            if self
-                .emit_compaction_signal(
-                    entity,
-                    version,
-                    estimated,
-                    context_limit,
-                    messages,
-                    Vec::new(),
-                )
-                .await
-            {
-                self.record_plan_emitted(true, false);
-            }
-        }
+        drop(conversation);
+        self.record_compaction_decision(entity, estimated, context_limit, prompt_est)
+            .await;
     }
 }
 

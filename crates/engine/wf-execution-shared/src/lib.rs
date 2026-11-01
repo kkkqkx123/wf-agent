@@ -14,6 +14,7 @@ pub mod fold_operation;
 pub mod fork;
 pub mod handler;
 pub mod hooks;
+pub mod ingest_preprocess;
 pub mod interaction;
 pub mod interactive_script_session;
 pub mod interruption;
@@ -61,15 +62,21 @@ pub use wf_shell::background_task::{
 // operations, usage tracking and event builders relocated from the LLM
 // transport crate, which now only owns transport, config and estimation.
 pub use compaction::{
-    blake3_hex, build_plan, builtin_compaction_limits, classify_tool, compaction_ratios_valid,
-    decide_compaction, distill_tool_output, file_pointer_text, process_compaction_limits,
-    rebuild_after_truncate, resolve_compaction_thresholds, set_process_compaction_limits,
-    sync_blocks, BlockOutcome, CompactionDecision, CompactionMode, CompactionPlan,
-    CompactionPlanItem, CompactionThresholds, ToolOutputKind, ARCHIVE_REF_KEY, ARCHIVE_REF_PREFIX,
+    build_plan, builtin_compaction_limits, compaction_ratios_valid, context_budget_from_profile,
+    context_budget_from_window, context_budget_from_window_with_percent,
+    context_budget_percent_from_metadata, decide_compaction, outcomes_match_plan,
+    plan_covers_snapshot, process_compaction_limits, rebuild_after_truncate,
+    resolve_compaction_thresholds, set_process_compaction_limits, sync_blocks, BlockOutcome,
+    CompactionDecision, CompactionMode, CompactionPlan,
+    CompactionPlanItem, CompactionThresholds, CONTEXT_BUDGET_METADATA_KEY, CONTEXT_BUDGET_PERCENT,
     H_TARGET_RATIO_DEFAULT, K_REPRESS_DEFAULT, REASON_ALL_BLOCKS_SMALL, REASON_HARD_LIMIT,
     REASON_NO_COMPRESSIBLE_TARGET, REASON_POST_COMPACT_STILL_HIGH, RECENT_RAW_TURNS_DEFAULT,
     R_MIN_RANGE_DEFAULT, R_REPRESS_DEFAULT, T_COMPACT_RATIO_DEFAULT, T_HANDOFF_RATIO_DEFAULT,
     T_HARD_RATIO_DEFAULT,
+};
+pub use ingest_preprocess::{
+    blake3_hex, classify_tool, distill_tool_output, file_pointer_text, ToolOutputKind,
+    ARCHIVE_REF_KEY, ARCHIVE_REF_PREFIX,
 };
 pub use context_store::{
     check_anchor, compression_event, compression_request, dispatch_compression_signal,
@@ -78,6 +85,7 @@ pub use context_store::{
 pub use conversation_session::{ConversationSession, ConversationState, CONVERSATION_CONTEXT_ID};
 pub use message_ops::{
     apply as apply_message_operation, extract_by_role, is_agent_safe, merge_compressed_with_tail,
+    select_tail_start,
 };
 pub use script_router::{RoutedScriptResult, ScriptRouter};
 pub use single_shot::{
@@ -108,8 +116,5 @@ pub use token_events::{
     KEY_TOOL_COUNT, KEY_USAGE_PERCENTAGE, KEY_WRITEBACK_OPERATION, WRITEBACK_OPERATION_APPEND,
 };
 pub use token_tracker::{
-    context_budget_from_profile, context_budget_from_window,
-    context_budget_from_window_with_percent, context_budget_percent_from_metadata,
     CompressionFlight, RequestUsage, TokenTrackerState, TokenUsageTracker,
-    CONTEXT_BUDGET_METADATA_KEY, CONTEXT_BUDGET_PERCENT,
 };

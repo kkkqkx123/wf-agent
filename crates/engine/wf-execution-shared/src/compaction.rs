@@ -31,10 +31,50 @@ pub const SUMMARY_CALL_BUDGET_DEFAULT: u64 = 16_000;
 pub const SUMMARY_CALL_BUDGET_MIN: u64 = 8_000;
 pub const SUMMARY_CALL_BUDGET_MAX: u64 = 64_000;
 
-/// Metadata key carrying an archive pointer on a distilled message.
-pub const ARCHIVE_REF_KEY: &str = "archive_ref";
-/// Archive pointer prefix: `a:<blob-id>`.
-pub const ARCHIVE_REF_PREFIX: &str = "a:";
+/// Share of a model's context window usable for a single request input.
+/// The remainder reserves headroom for the model output and local
+/// estimation error. Single home for every context-budget derivation;
+/// the tracker only stores the resolved limit.
+/// Per-profile overrides live in the profile metadata map under
+/// [`CONTEXT_BUDGET_METADATA_KEY`] so no struct change is needed.
+pub const CONTEXT_BUDGET_PERCENT: u64 = 85;
+
+/// Profile metadata key carrying a per-model budget percent override
+/// (integer 1-100). Values outside the range fall back to the default.
+pub const CONTEXT_BUDGET_METADATA_KEY: &str = "context_budget_percent";
+
+/// Resolve the effective budget percent from a profile metadata map.
+pub fn context_budget_percent_from_metadata(
+    metadata: Option<&std::collections::HashMap<String, serde_json::Value>>,
+) -> u64 {
+    metadata
+        .and_then(|m| m.get(CONTEXT_BUDGET_METADATA_KEY))
+        .and_then(|v| v.as_u64())
+        .filter(|p| (1..=100).contains(p))
+        .unwrap_or(CONTEXT_BUDGET_PERCENT)
+}
+
+/// Derive the per-request context budget from a model window size.
+/// Returns 0 (compression disabled) when the window is absent.
+pub fn context_budget_from_window(window: Option<u32>) -> u64 {
+    context_budget_from_window_with_percent(window, CONTEXT_BUDGET_PERCENT)
+}
+
+/// Derive the per-request context budget with an explicit percent.
+/// Returns 0 (compression disabled) when the window is absent.
+pub fn context_budget_from_window_with_percent(window: Option<u32>, percent: u64) -> u64 {
+    let percent = percent.clamp(1, 100);
+    window.map(|w| u64::from(w) * percent / 100).unwrap_or(0)
+}
+
+/// Derive the per-request context budget from a window plus an optional
+/// profile metadata map (per-model percent override).
+pub fn context_budget_from_profile(
+    window: Option<u32>,
+    metadata: Option<&std::collections::HashMap<String, serde_json::Value>>,
+) -> u64 {
+    context_budget_from_window_with_percent(window, context_budget_percent_from_metadata(metadata))
+}
 
 /// Handoff reason: the hard limit still holds after aggressive compaction.
 pub const REASON_HARD_LIMIT: &str = "HARD_LIMIT";
@@ -67,17 +107,20 @@ pub fn builtin_compaction_limits() -> CompactionLimits {
 static PROCESS_LIMITS: OnceLock<CompactionLimits> = OnceLock::new();
 
 /// Inject the process-wide compaction parameters once at bootstrap, mirroring
-/// the compression settle-budget injection.
-pub fn set_process_compaction_limits(limits: CompactionLimits) {
-    let _ = PROCESS_LIMITS.set(limits);
+/// the compression settle-budget injection. Returns true on the first
+/// write and false when a previous bootstrap already installed a value.
+pub fn set_process_compaction_limits(limits: CompactionLimits) -> bool {
+    PROCESS_LIMITS.set(limits).is_ok()
 }
 
-/// Effective process-wide compaction parameters.
+/// Effective process-wide compaction parameters. Bootstrap must install
+/// them before any execution emits; missing installation fails loudly
+/// instead of silently falling back to built-in defaults.
 pub fn process_compaction_limits() -> CompactionLimits {
     PROCESS_LIMITS
         .get()
         .cloned()
-        .unwrap_or_else(builtin_compaction_limits)
+        .expect("compaction limits not installed")
 }
 
 /// Resolve absolute thresholds from a model window and the configured
@@ -256,15 +299,12 @@ fn snapshot_seq_map(
 }
 
 /// Resolve the single summary-call budget: an explicit configured value
-/// wins, otherwise one tenth of the model window clamped into a sane
-/// band; a zero window means compaction is disabled and the default
-/// applies so planning never divides by zero.
+/// wins, otherwise one tenth of the model window clamped into a sane band.
+/// Callers must provide a known window; unknown windows hold upstream and
+/// never reach planning.
 pub fn resolve_summary_call_budget(window_tokens: u64, limits: &CompactionLimits) -> u64 {
     if let Some(explicit) = limits.summary_call_budget_tokens {
         return explicit.max(1);
-    }
-    if window_tokens == 0 {
-        return SUMMARY_CALL_BUDGET_DEFAULT;
     }
     (window_tokens / 10).clamp(SUMMARY_CALL_BUDGET_MIN, SUMMARY_CALL_BUDGET_MAX)
 }
@@ -580,6 +620,27 @@ pub fn build_plan(
     plan
 }
 
+/// Whether a plan covers its snapshot: every item names a non-empty block
+/// and stays inside the snapshot bounds. Pure validator for the string-id
+/// contract between emitters, templates and services.
+pub fn plan_covers_snapshot(plan: &CompactionPlan, snapshot_len: usize) -> bool {
+    plan.items.iter().all(|item| {
+        !item.block_id.is_empty() && item.start < item.end && item.end <= snapshot_len
+    })
+}
+
+/// Whether every outcome names a block from the pending plan. An empty
+/// plan means the legacy single-summary path with no block contract, so it
+/// matches any outcome batch.
+pub fn outcomes_match_plan(outcomes: &[BlockOutcome], plan: &[CompactionPlanItem]) -> bool {
+    if plan.is_empty() {
+        return true;
+    }
+    outcomes
+        .iter()
+        .all(|outcome| plan.iter().any(|item| item.block_id == outcome.block_id))
+}
+
 /// Compaction decision for one settlement point.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompactionDecision {
@@ -688,148 +749,8 @@ pub fn rebuild_after_truncate(state: &mut CompactionState, history: &[Message], 
     state.dirty = true;
 }
 
-/// Tool output class driving pre-history distillation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToolOutputKind {
-    Test,
-    Search,
-    Diff,
-    File,
-    Command,
-}
-
-/// Classify a tool result by tool name for distillation.
-pub fn classify_tool(tool_name: &str) -> ToolOutputKind {
-    let name = tool_name.to_lowercase();
-    if name == "read_file" || name == "read-file" {
-        return ToolOutputKind::File;
-    }
-    if name.contains("test") || name.contains("build") {
-        return ToolOutputKind::Test;
-    }
-    if name.contains("search") || name.contains("grep") || name.contains("code_") {
-        return ToolOutputKind::Search;
-    }
-    if name.contains("diff") {
-        return ToolOutputKind::Diff;
-    }
-    ToolOutputKind::Command
-}
-
-fn take_head_tail(text: &str, head: usize, tail: usize) -> String {
-    if text.len() <= head.saturating_add(tail).saturating_add(128) {
-        return text.to_string();
-    }
-    let head_part: String = text.chars().take(head).collect();
-    let tail_part: String = text
-        .chars()
-        .rev()
-        .take(tail)
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect();
-    format!(
-        "{head_part}\n…[truncated {0} chars]…\n{tail_part}",
-        text.len()
-    )
-}
-
-fn important_lines<'a>(lines: &[&'a str]) -> Vec<&'a str> {
-    lines
-        .iter()
-        .copied()
-        .filter(|line| {
-            let lower = line.to_lowercase();
-            lower.contains("error")
-                || lower.contains("fail")
-                || lower.contains("panic")
-                || lower.contains("assert")
-                || lower.contains("traceback")
-                || line.contains(".rs:")
-                || line.contains(".ts:")
-                || line.contains(".py:")
-        })
-        .collect()
-}
-
-/// Distill one tool result before it enters history: keep conclusions,
-/// errors and file references, drop bulk output. Returns the replacement
-/// text; the original is archived by the caller.
-pub fn distill_tool_output(kind: ToolOutputKind, text: &str) -> String {
-    if text.len() < 2000 {
-        return text.to_string();
-    }
-    let lines: Vec<&str> = text.lines().collect();
-    match kind {
-        ToolOutputKind::File => text.to_string(),
-        ToolOutputKind::Test => {
-            let hits = important_lines(&lines);
-            let kept: Vec<&str> = hits.into_iter().take(60).collect();
-            let tail: Vec<&str> = lines
-                .iter()
-                .rev()
-                .take(25)
-                .copied()
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect();
-            format!(
-                "[distilled test output: {0} lines -> {1} kept]\n{2}\n--- tail ---\n{3}",
-                lines.len(),
-                kept.len(),
-                kept.join("\n"),
-                tail.join("\n")
-            )
-        }
-        ToolOutputKind::Search => {
-            let kept: Vec<&str> = lines.iter().take(40).copied().collect();
-            format!(
-                "[distilled search output: {0} hits]\n{1}",
-                lines.len(),
-                kept.join("\n")
-            )
-        }
-        ToolOutputKind::Diff => {
-            let files: Vec<&&str> = lines
-                .iter()
-                .filter(|l| l.starts_with("diff --git") || l.starts_with("+++ b/"))
-                .take(64)
-                .collect();
-            let added = lines.iter().filter(|l| l.starts_with('+')).count();
-            let removed = lines.iter().filter(|l| l.starts_with('-')).count();
-            format!(
-                "[distilled diff: {0} files, +{1}/-{2}]\n{3}\n{4}",
-                files.len(),
-                added,
-                removed,
-                files
-                    .into_iter()
-                    .map(|s| s.to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-                take_head_tail(text, 1500, 1000)
-            )
-        }
-        ToolOutputKind::Command => take_head_tail(text, 3000, 1500),
-    }
-}
-
-/// Content hash for file-read deduplication.
-pub fn blake3_hex(text: &str) -> String {
-    blake3::hash(text.as_bytes()).to_hex().to_string()
-}
-
-/// Pointer text replacing a repeated file read.
-pub fn file_pointer_text(path: &str, commit: &str, seq: u64) -> String {
-    if commit.is_empty() {
-        format!("[file {path} already read, see m{seq}]")
-    } else {
-        format!("[file {path} @ {commit} already read, see m{seq}]")
-    }
-}
-
+/// Ingest shaping lives in [`crate::ingest_preprocess`]; compaction keeps
+/// only budget, plan and block bookkeeping and never touches raw tool text.
 /// Re-export outcome and entry types for event, session and ingest layers.
 pub use wf_types::message::{BlockOutcome, CompactionMode, CompactionThresholds, FileReadEntry};
 
@@ -897,22 +818,6 @@ mod tests {
             extra_block_ids: Vec::new(),
         };
         assert_eq!(empty.clamped_range(5), None);
-    }
-
-    #[test]
-    fn short_tool_output_passes_through() {
-        assert_eq!(
-            distill_tool_output(ToolOutputKind::Command, "ok"),
-            "ok".to_string()
-        );
-    }
-
-    #[test]
-    fn long_command_output_truncates() {
-        let text = "x\n".repeat(5000);
-        let out = distill_tool_output(ToolOutputKind::Command, &text);
-        assert!(out.len() < text.len());
-        assert!(out.contains("truncated"));
     }
 
     #[test]
@@ -1016,7 +921,7 @@ mod tests {
         assert_eq!(resolve_summary_call_budget(100_000, &limits()), 10_000);
         assert_eq!(
             resolve_summary_call_budget(0, &limits()),
-            SUMMARY_CALL_BUDGET_DEFAULT
+            SUMMARY_CALL_BUDGET_MIN
         );
         let mut explicit = limits();
         explicit.summary_call_budget_tokens = Some(3000);
@@ -1101,6 +1006,37 @@ mod tests {
     #[test]
     fn stateless_plan_factor_above_one() {
         assert!(stateless_plan_factor(&limits()) > 1.0);
+    }
+
+    #[test]
+    fn plan_validators_enforce_snapshot_and_id_contract() {
+        let good = CompactionPlan {
+            items: vec![CompactionPlanItem {
+                block_id: "b0000".to_string(),
+                start: 0,
+                end: 2,
+                depth: 0,
+                extra_block_ids: Vec::new(),
+            }],
+            drops: Vec::new(),
+            freed_tokens: 0,
+            capped: false,
+        };
+        assert!(plan_covers_snapshot(&good, 2));
+        assert!(!plan_covers_snapshot(&good, 1));
+        let outcome = BlockOutcome {
+            block_id: "b0000".to_string(),
+            summary_message_id: "s".to_string(),
+            archive_refs: Vec::new(),
+        };
+        assert!(outcomes_match_plan(std::slice::from_ref(&outcome), &good.items));
+        let foreign = BlockOutcome {
+            block_id: "b9999".to_string(),
+            summary_message_id: "s".to_string(),
+            archive_refs: Vec::new(),
+        };
+        assert!(!outcomes_match_plan(std::slice::from_ref(&foreign), &good.items));
+        assert!(outcomes_match_plan(std::slice::from_ref(&foreign), &[]));
     }
 
     fn assert_full_coverage(items: &[CompactionPlanItem], len: usize) {

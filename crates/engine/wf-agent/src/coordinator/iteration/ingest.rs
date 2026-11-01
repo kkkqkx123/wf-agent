@@ -5,7 +5,7 @@ use wf_types::message::{FileReadEntry, LlmToolCall, Message, MessageContent, Mes
 use wf_types::Metadata;
 
 use wf_checkpoint::CheckpointSession;
-use wf_execution_shared::compaction::{
+use wf_execution_shared::ingest_preprocess::{
     blake3_hex, classify_tool, distill_tool_output, file_pointer_text, ToolOutputKind,
     ARCHIVE_REF_KEY, ARCHIVE_REF_PREFIX,
 };

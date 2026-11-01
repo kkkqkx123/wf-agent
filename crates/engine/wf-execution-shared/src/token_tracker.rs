@@ -98,50 +98,8 @@ impl RequestUsage {
 /// Default cap for the per-request usage history.
 pub const DEFAULT_HISTORY_LIMIT: usize = 100;
 
-/// Share of a model's context window usable for a single request input.
-/// The remainder reserves headroom for the model output and local
-/// estimation error. Single source for every context-budget derivation.
-/// Per-profile overrides live in the profile metadata map under
-/// [`CONTEXT_BUDGET_METADATA_KEY`] so no struct change is needed.
-pub const CONTEXT_BUDGET_PERCENT: u64 = 85;
-
-/// Profile metadata key carrying a per-model budget percent override
-/// (integer 1-100). Values outside the range fall back to the default.
-pub const CONTEXT_BUDGET_METADATA_KEY: &str = "context_budget_percent";
-
-/// Resolve the effective budget percent from a profile metadata map.
-pub fn context_budget_percent_from_metadata(
-    metadata: Option<&std::collections::HashMap<String, serde_json::Value>>,
-) -> u64 {
-    metadata
-        .and_then(|m| m.get(CONTEXT_BUDGET_METADATA_KEY))
-        .and_then(|v| v.as_u64())
-        .filter(|p| (1..=100).contains(p))
-        .unwrap_or(CONTEXT_BUDGET_PERCENT)
-}
-
-/// Derive the per-request context budget from a model window size.
-/// Returns 0 (compression disabled) when the window is absent.
-pub fn context_budget_from_window(window: Option<u32>) -> u64 {
-    context_budget_from_window_with_percent(window, CONTEXT_BUDGET_PERCENT)
-}
-
-/// Derive the per-request context budget with an explicit percent.
-/// Returns 0 (compression disabled) when the window is absent.
-pub fn context_budget_from_window_with_percent(window: Option<u32>, percent: u64) -> u64 {
-    let percent = percent.clamp(1, 100);
-    window.map(|w| u64::from(w) * percent / 100).unwrap_or(0)
-}
-
-/// Derive the per-request context budget from a window plus an optional
-/// profile metadata map (per-model percent override).
-pub fn context_budget_from_profile(
-    window: Option<u32>,
-    metadata: Option<&std::collections::HashMap<String, serde_json::Value>>,
-) -> u64 {
-    context_budget_from_window_with_percent(window, context_budget_percent_from_metadata(metadata))
-}
-
+/// Budget derivation lives in [`crate::compaction`]; the tracker only
+/// stores the resolved per-request context limit.
 /// One in-flight compression run over a named message array.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct CompressionFlight {
@@ -153,14 +111,10 @@ pub struct CompressionFlight {
     pub forced: bool,
 }
 
-/// Serialized state of a [`TokenUsageTracker`] for checkpointing.
-///
-/// New fields are `#[serde(default)]`: checkpoints written before the
-/// dual-track split restore with an empty decision track, which only delays
-/// the next decision event, never corrupts cost accounting. In-flight
-/// compression records are never restored: a resumed execution re-derives
-/// them from the version guard instead of waiting on a run that may no
-/// longer exist.
+/// Serialized state of a [`TokenUsageTracker`] for checkpointing. Every
+/// field is required; snapshots must carry the full decision, budget and
+/// escalation state. In-flight compression records are never restored: a
+/// resumed execution re-derives them from the version guard.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct TokenTrackerState {
     pub cumulative: RequestUsage,
@@ -168,46 +122,28 @@ pub struct TokenTrackerState {
     pub current_request: RequestUsage,
     pub history: Vec<TokenUsageHistory>,
     pub warning_emitted: bool,
-    /// Single-shot guard for pre-request budget warnings (defaults to
-    /// false when restored from checkpoints written before this field).
-    #[serde(default)]
+    /// Single-shot guard for pre-request budget warnings.
     pub preflight_warning_emitted: bool,
     /// Decision track: cumulative estimated tokens across finalized requests.
-    #[serde(default)]
     pub estimated_cumulative: u64,
     /// Task-budget track: per-request actual totals when the provider
-    /// reported usage, estimated totals otherwise (actual-first with
-    /// estimation fallback).
-    #[serde(default)]
+    /// reported usage, estimated totals otherwise.
     pub billed_cumulative: u64,
     /// Whole-request calibration bias (actual minus estimated, EWMA):
     /// added to stable array estimates before a compression decision.
-    #[serde(default)]
     pub calibration_bias: i64,
     /// Highest limit-exceeded tier already reported (task-budget track).
-    #[serde(default)]
     pub last_limit_tier: u32,
-    /// Per-request context budget derived from the model window
-    /// (compression denominator; 0 disables compression decisions).
-    #[serde(default)]
+    /// Per-request context budget derived from the model window.
     pub context_limit: u64,
-    /// Compressed-context ids the agent/execution consumed a write-back for
-    /// (ledger reset bookkeeping, informational).
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    /// Compressed-context ids the agent/execution consumed a write-back for.
     pub compressed_contexts: HashMap<String, u64>,
-    /// In-flight compression runs by target array name. Runtime-only:
-    /// cleared on restore (never carried across checkpoints).
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    /// In-flight compression runs by target array name. Runtime-only and
+    /// cleared on restore.
     pub compression_flights: HashMap<String, CompressionFlight>,
-    /// Consecutive compression signals without a taker per target. Reset on
-    /// the first successful dispatch; reaching the escalation threshold
-    /// surfaces the missing compression service as an error.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    /// Consecutive compression signals without a taker per target.
     pub no_taker_counts: HashMap<String, u32>,
-    /// Consecutive still-over-budget completions per target. Reset when a
-    /// compressed result fits the budget; reaching the threshold escalates
-    /// the loop to external handling instead of compressing forever.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    /// Consecutive still-over-budget completions per target.
     pub still_over_budget_counts: HashMap<String, u32>,
 }
 
@@ -664,8 +600,6 @@ impl TokenUsageTracker {
 
     /// Restore from a checkpointed state. In-flight compression records are
     /// dropped: a resumed execution re-derives them from the version guard.
-    /// Snapshots predating the billed track seed it from the estimate so the
-    /// task budget does not collapse to zero on resume.
     pub fn restore(&mut self, state: TokenTrackerState) {
         self.cumulative = state.cumulative;
         self.lifetime = state.lifetime;
@@ -674,11 +608,7 @@ impl TokenUsageTracker {
         self.warning_emitted = state.warning_emitted;
         self.preflight_warning_emitted = state.preflight_warning_emitted;
         self.estimated_cumulative = state.estimated_cumulative;
-        self.billed_cumulative = if state.billed_cumulative == 0 && state.estimated_cumulative > 0 {
-            state.estimated_cumulative
-        } else {
-            state.billed_cumulative
-        };
+        self.billed_cumulative = state.billed_cumulative;
         self.calibration_bias = state.calibration_bias;
         self.last_limit_tier = state.last_limit_tier;
         self.context_limit = state.context_limit;
@@ -980,27 +910,10 @@ mod tests {
     }
 
     #[test]
-    fn test_old_checkpoint_without_decision_track_restores() {
-        // A checkpoint written before the dual-track split lacks the new
-        // fields; serde defaults keep it compatible.
-        let old_state = serde_json::json!({
-            "cumulative": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
-            "lifetime": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
-            "current_request": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            "history": [],
-            "warning_emitted": true,
-            "preflight_warning_emitted": true
-        });
-        let state: TokenTrackerState = serde_json::from_value(old_state).unwrap();
-        let mut restored = TokenUsageTracker::new(100);
-        restored.restore(state);
-        assert_eq!(restored.estimated_total(), 0);
-        assert_eq!(restored.cumulative_usage().total_tokens, 15);
-        assert!(restored.state().preflight_warning_emitted);
-    }
-
-    #[test]
     fn test_context_budget_derives_from_window_only() {
+        use crate::compaction::{
+            context_budget_from_window, CONTEXT_BUDGET_PERCENT,
+        };
         assert_eq!(context_budget_from_window(None), 0);
         assert_eq!(
             context_budget_from_window(Some(128_000)),
@@ -1022,6 +935,10 @@ mod tests {
 
     #[test]
     fn test_budget_percent_override_from_metadata() {
+        use crate::compaction::{
+            context_budget_from_profile, context_budget_percent_from_metadata,
+            CONTEXT_BUDGET_METADATA_KEY, CONTEXT_BUDGET_PERCENT,
+        };
         assert_eq!(
             context_budget_percent_from_metadata(None),
             CONTEXT_BUDGET_PERCENT

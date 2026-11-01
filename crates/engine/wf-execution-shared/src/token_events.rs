@@ -157,11 +157,14 @@ static COMPRESSION_SETTLE_TIMEOUT_MS: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(DEFAULT_COMPRESSION_SETTLE_TIMEOUT_MS);
 
 /// Inject the configured settle timeout (milliseconds). Non-zero values only;
-/// a zero or absent configuration keeps the built-in default.
-pub fn set_compression_settle_timeout_ms(timeout_ms: u64) {
-    if timeout_ms > 0 {
-        COMPRESSION_SETTLE_TIMEOUT_MS.store(timeout_ms, std::sync::atomic::Ordering::Relaxed);
+/// a zero or absent configuration keeps the built-in default. Returns true
+/// when the value was stored and false when the input was ignored.
+pub fn set_compression_settle_timeout_ms(timeout_ms: u64) -> bool {
+    if timeout_ms == 0 {
+        return false;
     }
+    COMPRESSION_SETTLE_TIMEOUT_MS.store(timeout_ms, std::sync::atomic::Ordering::Relaxed);
+    true
 }
 
 /// Effective settle budget for compression waits.
@@ -287,18 +290,15 @@ pub fn compression_request_hook_data(
         KEY_ARRAY_VERSION.to_string(),
         serde_json::json!(request.array_version),
     );
-    if request.forced {
-        data.insert(KEY_FORCED.to_string(), serde_json::json!(true));
-    }
-    if request.forced && request.token_limit == 0 {
-        data.insert(KEY_BUDGET_UNKNOWN.to_string(), serde_json::json!(true));
-    }
-    if !request.plan.is_empty() {
-        data.insert(
-            KEY_PLAN_COUNT.to_string(),
-            serde_json::json!(request.plan.len()),
-        );
-    }
+    data.insert(KEY_FORCED.to_string(), serde_json::json!(request.forced));
+    data.insert(
+        KEY_BUDGET_UNKNOWN.to_string(),
+        serde_json::json!(request.forced && request.token_limit == 0),
+    );
+    data.insert(
+        KEY_PLAN_COUNT.to_string(),
+        serde_json::json!(request.plan.len()),
+    );
     data
 }
 
@@ -337,15 +337,13 @@ pub fn build_context_compression_requested_event(
         (KEY_MESSAGE_COUNT, serde_json::json!(request.message_count)),
         (KEY_ARRAY_VERSION, serde_json::json!(request.array_version)),
     ];
-    if request.forced {
-        pairs.push((KEY_FORCED, serde_json::json!(true)));
-    }
-    if request.forced && request.token_limit == 0 {
-        pairs.push((KEY_BUDGET_UNKNOWN, serde_json::json!(true)));
-    }
-    if !request.plan.is_empty() {
-        pairs.push((KEY_PLAN_COUNT, serde_json::json!(request.plan.len())));
-    }
+    pairs.push((KEY_FORCED, serde_json::json!(request.forced)));
+    pairs.push((
+        KEY_BUDGET_UNKNOWN,
+        serde_json::json!(request.forced && request.token_limit == 0),
+    ));
+    pairs.push((KEY_NO_TAKER, serde_json::json!(false)));
+    pairs.push((KEY_PLAN_COUNT, serde_json::json!(request.plan.len())));
     event.metadata = Some(metadata(pairs));
     event
 }
@@ -359,9 +357,7 @@ pub fn build_context_compression_requested_event(
 /// builtin compression template matches this copy; the emitter's audit copy
 /// carries identity and accounting only and never matches.
 ///
-/// `depth` is the emitting execution's compression nesting depth (absent
-/// means zero); the key is omitted then so old consumers see a plain audit
-/// shape.
+/// `depth` is the emitting execution's compression nesting depth.
 pub fn build_context_compression_routed_event(
     execution_id: &str,
     agent_loop_id: Option<&str>,
@@ -379,9 +375,7 @@ pub fn build_context_compression_routed_event(
         }
     }
     meta.insert(KEY_COMPRESSION_ROUTED.to_string(), serde_json::json!(true));
-    if depth > 0 {
-        meta.insert(KEY_COMPRESSION_DEPTH.to_string(), serde_json::json!(depth));
-    }
+    meta.insert(KEY_COMPRESSION_DEPTH.to_string(), serde_json::json!(depth));
     event
 }
 
@@ -475,12 +469,11 @@ pub fn build_context_compression_completed_event(
         (KEY_TOKENS_AFTER, serde_json::json!(payload.tokens_after)),
         (KEY_TAIL_KEEP, serde_json::json!(payload.tail_keep as u64)),
     ];
-    if payload.degraded {
-        pairs.push((KEY_DEGRADED, serde_json::json!(true)));
-    }
-    if payload.still_over_budget {
-        pairs.push((KEY_STILL_OVER_BUDGET, serde_json::json!(true)));
-    }
+    pairs.push((KEY_DEGRADED, serde_json::json!(payload.degraded)));
+    pairs.push((
+        KEY_STILL_OVER_BUDGET,
+        serde_json::json!(payload.still_over_budget),
+    ));
     if let Some(messages) = payload.messages {
         if let Ok(value) = serde_json::to_value(messages) {
             pairs.push((KEY_MESSAGES, value));
@@ -881,6 +874,13 @@ fn get_string(meta: &wf_types::Metadata, key: &'static str) -> Result<String, To
         .ok_or_else(|| TokenEventMetaError::InvalidValue(key, value.to_string()))
 }
 
+fn get_bool(meta: &wf_types::Metadata, key: &'static str) -> Result<bool, TokenEventMetaError> {
+    let value = meta.get(key).ok_or(TokenEventMetaError::MissingKey(key))?;
+    value
+        .as_bool()
+        .ok_or_else(|| TokenEventMetaError::InvalidValue(key, value.to_string()))
+}
+
 /// Messages embedded on an event under [`KEY_MESSAGES`]; absent or malformed
 /// snapshots degrade to an empty array (the event type itself is still
 /// validated by the `TryFrom` impls).
@@ -928,22 +928,10 @@ impl TryFrom<&BaseEvent> for ContextCompressionRequestedMeta {
             tokens_used: get_u64(meta, KEY_TOKENS_USED)?,
             token_limit: get_u64(meta, KEY_TOKEN_LIMIT)?,
             message_count: get_u64(meta, KEY_MESSAGE_COUNT)? as usize,
-            array_version: meta
-                .get(KEY_ARRAY_VERSION)
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0),
-            forced: meta
-                .get(KEY_FORCED)
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
-            budget_unknown: meta
-                .get(KEY_BUDGET_UNKNOWN)
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
-            no_taker: meta
-                .get(KEY_NO_TAKER)
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
+            array_version: get_u64(meta, KEY_ARRAY_VERSION)?,
+            forced: get_bool(meta, KEY_FORCED)?,
+            budget_unknown: get_bool(meta, KEY_BUDGET_UNKNOWN)?,
+            no_taker: get_bool(meta, KEY_NO_TAKER)?,
             plan: meta
                 .get(KEY_PLAN)
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
@@ -963,22 +951,13 @@ impl TryFrom<&BaseEvent> for ContextCompressionCompletedMeta {
             array_version: get_u64(meta, KEY_ARRAY_VERSION)?,
             tokens_after: get_u64(meta, KEY_TOKENS_AFTER)?,
             messages: get_messages(meta),
-            tail_keep: meta
-                .get(KEY_TAIL_KEEP)
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize,
-            degraded: meta
-                .get(KEY_DEGRADED)
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
+            tail_keep: get_u64(meta, KEY_TAIL_KEEP)? as usize,
+            degraded: get_bool(meta, KEY_DEGRADED)?,
             degraded_dropped: meta
                 .get(KEY_DEGRADED_DROPPED)
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0),
-            still_over_budget: meta
-                .get(KEY_STILL_OVER_BUDGET)
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
+            still_over_budget: get_bool(meta, KEY_STILL_OVER_BUDGET)?,
             run_id: get_optional_run_id(meta),
             blocks: meta
                 .get(KEY_BLOCKS)
@@ -997,15 +976,8 @@ impl TryFrom<&BaseEvent> for ContextCompressionFailedMeta {
         Ok(Self {
             target_context_id: get_string(meta, KEY_TARGET_CONTEXT_ID)?,
             array_version: get_u64(meta, KEY_ARRAY_VERSION)?,
-            attempts: meta
-                .get(KEY_COMPRESSION_ATTEMPTS)
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32,
-            error: meta
-                .get(KEY_COMPRESSION_ERROR)
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
+            attempts: get_u64(meta, KEY_COMPRESSION_ATTEMPTS)? as u32,
+            error: get_string(meta, KEY_COMPRESSION_ERROR)?,
             run_id: get_optional_run_id(meta),
         })
     }
@@ -1020,15 +992,8 @@ impl TryFrom<&BaseEvent> for ContextCompressionDiscardedMeta {
         Ok(Self {
             target_context_id: get_string(meta, KEY_TARGET_CONTEXT_ID)?,
             array_version: get_u64(meta, KEY_ARRAY_VERSION)?,
-            current_version: meta
-                .get(KEY_CURRENT_VERSION)
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0),
-            reason: meta
-                .get(KEY_DISCARD_REASON)
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
+            current_version: get_u64(meta, KEY_CURRENT_VERSION)?,
+            reason: get_string(meta, KEY_DISCARD_REASON)?,
             run_id: get_optional_run_id(meta),
         })
     }
@@ -1092,7 +1057,8 @@ mod tests {
         assert_eq!(meta[KEY_TARGET_CONTEXT_ID], serde_json::json!("chat"));
         assert_eq!(meta[KEY_MESSAGE_COUNT], serde_json::json!(42));
         assert_eq!(meta[KEY_ARRAY_VERSION], serde_json::json!(7));
-        assert!(!meta.contains_key(KEY_FORCED));
+        assert_eq!(meta[KEY_FORCED], serde_json::json!(false));
+        assert_eq!(meta[KEY_BUDGET_UNKNOWN], serde_json::json!(false));
         assert!(!meta.contains_key(KEY_MESSAGES));
 
         // Forced emission is marked.
@@ -1112,7 +1078,7 @@ mod tests {
         );
         let forced_meta = forced.metadata.unwrap();
         assert_eq!(forced_meta[KEY_FORCED], serde_json::json!(true));
-        assert!(!forced_meta.contains_key(KEY_BUDGET_UNKNOWN));
+        assert_eq!(forced_meta[KEY_BUDGET_UNKNOWN], serde_json::json!(false));
 
         // Forced emission without a known budget reports zero limit plus
         // the unknown-budget marker instead of a fabricated ratio.
@@ -1201,8 +1167,8 @@ mod tests {
         assert_eq!(meta[KEY_ARRAY_VERSION], serde_json::json!(42));
         assert_eq!(meta[KEY_TOKENS_AFTER], serde_json::json!(300));
         assert_eq!(meta[KEY_TAIL_KEEP], serde_json::json!(2));
-        assert!(!meta.contains_key(KEY_DEGRADED));
-        assert!(!meta.contains_key(KEY_STILL_OVER_BUDGET));
+        assert_eq!(meta[KEY_DEGRADED], serde_json::json!(false));
+        assert_eq!(meta[KEY_STILL_OVER_BUDGET], serde_json::json!(false));
         let messages: Vec<wf_types::message::Message> =
             serde_json::from_value(meta[KEY_MESSAGES].clone()).unwrap();
         assert_eq!(messages, vec![msg]);
@@ -1315,7 +1281,7 @@ mod tests {
             "the audit copy must not carry the snapshot"
         );
 
-        // Absent version/forced degrade gracefully, not an error.
+        // Required version and flags parse back explicitly.
         let bare = build_context_compression_requested_event(
             "exec-1",
             None,
@@ -1377,16 +1343,16 @@ mod tests {
         assert_eq!(compression_routed_plan(&routed), plan);
         let meta = ContextCompressionRequestedMeta::try_from(&routed).unwrap();
         assert_eq!(meta.plan, plan);
-        // Empty plans stay absent everywhere (legacy single-summary mode).
+        // Empty plans report an explicit zero length on the audit copy.
         let bare = ContextCompressionRequest {
             plan: &[],
             ..request
         };
         let bare_audit = build_context_compression_requested_event("exec-1", None, &bare);
-        assert!(!bare_audit
-            .metadata
-            .as_ref()
-            .is_some_and(|m| m.contains_key(KEY_PLAN_COUNT)));
+        assert_eq!(
+            bare_audit.metadata.as_ref().unwrap()[KEY_PLAN_COUNT],
+            serde_json::json!(0)
+        );
         let hook_data = compression_request_hook_data(&bare);
         assert!(!hook_data.contains_key(KEY_PLAN));
     }

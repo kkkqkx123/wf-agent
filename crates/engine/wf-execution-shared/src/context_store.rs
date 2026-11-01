@@ -181,26 +181,6 @@ where
     }
 }
 
-/// Apply a versioned write-back to a plain message vector. Returns true
-/// when the write took effect (anchor matched), false when the stale result
-/// was discarded. Backends holding ledgers (agent session, workflow
-/// variable map) perform their own ledger bookkeeping around this.
-pub fn apply_to_vec(
-    current: &mut Vec<Message>,
-    current_version: u64,
-    anchor_version: u64,
-    operation: WritebackOp,
-    messages: Vec<Message>,
-) -> bool {
-    if !check_anchor(current_version, anchor_version) {
-        return false;
-    }
-    match operation {
-        WritebackOp::Append => current.extend(messages),
-    }
-    true
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -240,22 +220,6 @@ mod tests {
             None,
             "replace wire name is rejected: history is append-only"
         );
-    }
-
-    #[test]
-    fn apply_to_vec_discards_stale_results() {
-        let mut current = vec![
-            msg(MessageRole::User, "old"),
-            msg(MessageRole::User, "newer"),
-        ];
-        assert!(!apply_to_vec(
-            &mut current,
-            4,
-            3,
-            WritebackOp::Append,
-            vec![msg(MessageRole::Assistant, "stale")],
-        ));
-        assert_eq!(current.len(), 2);
     }
 
     #[test]

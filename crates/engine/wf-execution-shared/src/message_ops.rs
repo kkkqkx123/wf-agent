@@ -162,6 +162,13 @@ fn apply_rollback(
     (messages.to_vec(), unchanged_stats(messages.len()))
 }
 
+/// Start index of the retained tail inside an array of `total` entries.
+/// Single source for recent-tail arithmetic shared by workflow write-back
+/// and agent view construction so both sides keep the same tail.
+pub fn select_tail_start(total: usize, keep: usize) -> usize {
+    total.saturating_sub(keep)
+}
+
 /// Merge a compressed summary batch with the retained tail of the active
 /// array. Shared by workflow write-back and agent view construction so both
 /// sides keep the same tail semantics: summary first, then the last
@@ -175,7 +182,7 @@ pub fn merge_compressed_with_tail(
         return summary;
     }
     let known: std::collections::HashSet<String> = summary.iter().map(|m| m.id.clone()).collect();
-    let start = active.len().saturating_sub(tail_keep);
+    let start = select_tail_start(active.len(), tail_keep);
     for message in active.iter().skip(start) {
         if !known.contains(&message.id) {
             summary.push(message.clone());
@@ -334,6 +341,13 @@ mod tests {
             extract_by_role(&base, MessageRole::User, true)[0].role,
             MessageRole::Assistant
         );
+    }
+
+    #[test]
+    fn tail_start_counts_from_the_end() {
+        assert_eq!(select_tail_start(5, 2), 3);
+        assert_eq!(select_tail_start(2, 8), 0);
+        assert_eq!(select_tail_start(0, 2), 0);
     }
 
     #[test]

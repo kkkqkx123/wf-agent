@@ -77,13 +77,22 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
         .as_ref()
         .and_then(|c| c.settle_timeout_ms)
     {
-        wf_execution_shared::set_compression_settle_timeout_ms(settle_timeout_ms);
+        if !wf_execution_shared::set_compression_settle_timeout_ms(settle_timeout_ms) {
+            tracing::warn!("compression settle timeout ignored: non-positive value");
+        }
     }
     // Compaction tuning parameters are process-wide like the settle
     // budget; thresholds resolve from them at decision time. Absent
-    // config keeps the built-in defaults.
-    if let Some(compaction) = limits.compaction.clone() {
-        wf_execution_shared::set_process_compaction_limits(compaction);
+    // config installs the built-in defaults explicitly. A second bootstrap
+    // attempt is reported instead of silently ignored.
+    {
+        let compaction = limits
+            .compaction
+            .clone()
+            .unwrap_or_else(wf_execution_shared::compaction::builtin_compaction_limits);
+        if !wf_execution_shared::set_process_compaction_limits(compaction) {
+            tracing::warn!("compaction limits already installed: second bootstrap ignored");
+        }
     }
     // The terminal-failure handling strategy is declared by the summary
     // workflow resource itself (`compression_fallback` on its

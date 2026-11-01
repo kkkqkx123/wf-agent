@@ -15,38 +15,26 @@ pub struct ConversationState {
     pub messages: Vec<Message>,
     /// Monotonic message sequence numbers parallel to `messages`.
     /// Entry `seqs[i]` is the stable coordinate of `messages[i]` within one
-    /// execution. Absent in checkpoints written before sequencing.
-    #[serde(default)]
+    /// execution.
     pub seqs: Vec<u64>,
     /// Next sequence number to assign. Restored from checkpoints so resumed
     /// runs never reuse a coordinate.
-    #[serde(default)]
     pub next_seq: u64,
-    /// Cumulative token usage (kept in sync with the tracker for
-    /// checkpointing compatibility).
+    /// Cumulative token usage kept in sync with the tracker.
     pub token_usage: u64,
-    /// Serialized tracker state; absent in checkpoints written before
-    /// token tracking was introduced.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Serialized tracker state.
     pub tracker: Option<TokenTrackerState>,
-    /// Per-array estimation ledger (decision track); absent in checkpoints
-    /// written before the ledger was introduced.
-    #[serde(default, skip_serializing_if = "TokenLedger::is_empty")]
+    /// Per-array estimation ledger for the decision track.
     pub ledger: TokenLedger,
     /// Read projection over the history. The history array is append-only;
     /// compression appends a summary and switches this view instead of
-    /// replacing the array. Absent in checkpoints written before views
-    /// were introduced (defaults to showing the whole history).
-    #[serde(default, skip_serializing_if = "MessageView::is_full")]
+    /// replacing the array.
     pub active_view: MessageView,
-    /// Budget-driven compaction bookkeeping. Absent in checkpoints written
-    /// before compaction; restore starts from an empty state marked dirty.
-    #[serde(default)]
+    /// Budget-driven compaction bookkeeping.
     pub compaction: CompactionState,
     /// Incremental estimate of the active view (stable array content only;
     /// per-request dynamic overhead is added fresh at each decision point).
     /// Maintained on every append and compression so view reads stay O(1).
-    #[serde(default)]
     pub view_stable_estimate: u64,
 }
 
@@ -333,7 +321,7 @@ impl ConversationSession {
         let total = self.state.messages.len();
         if total > 0 {
             let take = recent_messages.max(1).min(total);
-            let start = total.saturating_sub(take);
+            let start = crate::message_ops::select_tail_start(total, take);
             if start < self.state.seqs.len() {
                 if let Some(end_seq) = self.state.seqs.last().copied() {
                     let start_seq = self.state.seqs[start];
@@ -364,7 +352,12 @@ impl ConversationSession {
     /// Apply one aggregated compaction result: append the summaries,
     /// transition the planned blocks, deactivate planned drops, and cut
     /// the hot view. The caller version-checked the anchor already.
-    pub fn apply_compaction_result(&mut self, summaries: Vec<Message>, outcomes: &[BlockOutcome]) {
+    pub fn apply_compaction_result(
+        &mut self,
+        summaries: Vec<Message>,
+        outcomes: &[BlockOutcome],
+        limits: &CompactionLimits,
+    ) {
         if summaries.is_empty() {
             return;
         }
@@ -379,12 +372,15 @@ impl ConversationSession {
         }
         let pending = std::mem::take(&mut self.state.compaction.pending_plan);
         let drops = std::mem::take(&mut self.state.compaction.pending_drops);
-        let limits = crate::compaction::process_compaction_limits();
         let k_repress = limits
             .k_repress
             .unwrap_or(crate::compaction::K_REPRESS_DEFAULT);
         let now = wf_common::now();
         for outcome in outcomes {
+            if !crate::compaction::outcomes_match_plan(std::slice::from_ref(outcome), &pending)
+            {
+                continue;
+            }
             let depth = pending
                 .iter()
                 .find(|item| item.block_id == outcome.block_id)
@@ -429,7 +425,7 @@ impl ConversationSession {
                 {
                     let metadata = summary.metadata.get_or_insert_with(Default::default);
                     metadata.insert(
-                        crate::compaction::ARCHIVE_REF_KEY.to_string(),
+                        crate::ingest_preprocess::ARCHIVE_REF_KEY.to_string(),
                         serde_json::json!(outcome.archive_refs),
                     );
                 }
@@ -453,6 +449,11 @@ impl ConversationSession {
         self.state.compaction.growth_baseline = self.state.compaction.hot_tokens;
         // Post-compaction handoff evaluation: still high with no room to
         // shrink means the next settlement enters handoff directly.
+        self.evaluate_handoff_request();
+        self.tracker.reset_preflight_warning();
+    }
+
+    fn evaluate_handoff_request(&mut self) {
         let thresholds = self.state.compaction.thresholds;
         let ceiling = thresholds
             .t_handoff
@@ -460,7 +461,6 @@ impl ConversationSession {
         if self.state.compaction.hot_tokens > ceiling {
             self.state.compaction.handoff_requested = true;
         }
-        self.tracker.reset_preflight_warning();
     }
 
     /// Enter handoff: append the handoff document, deactivate every block,
@@ -542,9 +542,7 @@ impl ConversationSession {
 
     /// Restore an authoritative history with its view (checkpoint resume
     /// path). The ledger entry is marked dirty so the next read recomputes
-    /// the estimate exactly once, mirroring a fresh replacement without
-    /// ever deleting checkpointed history. Sequence coordinates are rebuilt
-    /// from zero so legacy snapshots without them stay addressable.
+    /// the estimate exactly once without deleting checkpointed history.
     pub fn restore_history(&mut self, messages: Vec<Message>, active_view: MessageView) {
         let len = messages.len() as u64;
         self.state.messages = messages;
@@ -599,10 +597,9 @@ impl ConversationSession {
         let mut state = self.state.clone();
         state.messages = state.messages[..=pos].to_vec();
         state.seqs = state.seqs[..=pos].to_vec();
-        let _ = view;
-        // A branch restarts with the full prefix visible; block sync
-        // rebuilds from the truncated coordinates.
-        state.active_view = MessageView::Full;
+        // The caller selects the branch view; block sync rebuilds from the
+        // truncated coordinates.
+        state.active_view = view;
         state.ledger.replace(CONVERSATION_CONTEXT_ID);
         crate::compaction::rebuild_after_truncate(
             &mut state.compaction,
@@ -610,17 +607,6 @@ impl ConversationSession {
             &state.seqs,
         );
         Some(state)
-    }
-
-    /// Backfill coordinates for histories restored from legacy snapshots
-    /// that carry no sequence data.
-    pub fn backfill_seqs(&mut self) {
-        if self.state.seqs.len() == self.state.messages.len() {
-            return;
-        }
-        let len = self.state.messages.len() as u64;
-        self.state.seqs = (0..len).collect();
-        self.state.next_seq = len;
     }
 
     /// Full append-only history (checkpointing, auditing, resume output).
@@ -903,41 +889,28 @@ impl ConversationSession {
     }
 
     /// Restore the full session state (messages + seqs + view + tracker +
-    /// ledger) from a snapshot. Snapshots predating the incremental view
-    /// estimate recompute it once here.
-    pub fn restore_state(&mut self, mut state: ConversationState) {
-        if state.seqs.len() != state.messages.len() {
-            let len = state.messages.len() as u64;
-            state.seqs = (0..len).collect();
-            state.next_seq = len;
-        }
+    /// ledger) from a snapshot. Snapshots must carry matching sequences,
+    /// a stored view estimate and tracker state.
+    pub fn restore_state(&mut self, state: ConversationState) {
+        assert_eq!(
+            state.seqs.len(),
+            state.messages.len(),
+            "snapshot seq length mismatch"
+        );
         self.state.messages = state.messages;
         self.state.seqs = state.seqs;
         self.state.next_seq = state.next_seq;
         self.state.active_view = state.active_view;
-        self.state.view_stable_estimate =
-            if state.view_stable_estimate == 0 && !self.state.messages.is_empty() {
-                projected_view_estimate(
-                    &self.state.messages,
-                    &self.state.seqs,
-                    &self.state.active_view,
-                )
-            } else {
-                state.view_stable_estimate
-            };
+        self.state.view_stable_estimate = state.view_stable_estimate;
         self.state.ledger = state.ledger;
         self.state.compaction = state.compaction;
         if !self.state.compaction.is_empty() {
-            // Restored bookkeeping recomputes the hot estimate on next
-            // read; thresholds persist with the window they derive from.
             self.state.compaction.dirty = true;
         }
         if let Some(tracker_state) = state.tracker {
             self.tracker.restore(tracker_state);
         } else {
-            let mut tracker = TokenUsageTracker::new(self.tracker.token_limit());
-            tracker.set_context_limit(self.tracker.context_limit());
-            self.tracker = tracker;
+            panic!("snapshot misses tracker state");
         }
         self.state.token_usage = self.tracker.cumulative_usage().total_tokens as u64;
         self.state.tracker = Some(self.tracker.state());
@@ -1116,27 +1089,6 @@ mod tests {
     }
 
     #[test]
-    fn restore_old_checkpoint_without_tracker_state() {
-        let state = ConversationState {
-            messages: vec![user("legacy")],
-            seqs: vec![0],
-            next_seq: 1,
-            token_usage: 0,
-            tracker: None,
-            ledger: TokenLedger::default(),
-            active_view: MessageView::Full,
-            view_stable_estimate: 0,
-            compaction: CompactionState::default(),
-        };
-        let mut session = ConversationSession::with_token_limit(500);
-        session.restore_state(state);
-        assert_eq!(session.messages().len(), 1);
-        assert_eq!(session.estimated_total(), 0);
-        assert_eq!(session.token_limit(), 500);
-        assert!(session.token_usage_stats().is_none());
-    }
-
-    #[test]
     fn token_limit_flow_drives_decisions() {
         let mut session = ConversationSession::with_token_limit(100);
         session.update_estimated_usage(60, 30);
@@ -1273,7 +1225,11 @@ mod tests {
             summary_message_id: summary.id.clone(),
             archive_refs: Vec::new(),
         };
-        session.apply_compaction_result(vec![summary], std::slice::from_ref(&outcome));
+        session.apply_compaction_result(
+            vec![summary],
+            std::slice::from_ref(&outcome),
+            &crate::compaction::builtin_compaction_limits(),
+        );
         let blocks = &session.state.compaction.blocks;
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0].block_id, "b0000");

@@ -1,0 +1,40 @@
+# Prompt Template Example
+#
+# Schema: wf_types::Template
+#         wf_types::template::TemplateVariableDefinition
+#
+# Prompt templates define reusable prompt content with typed variables
+# that can be injected at runtime.
+
+id = "code-review-system"
+name = "Code Review System Prompt"
+description = "System-level prompt for code review AI assistant"
+category = "system"
+content = """
+You are a senior code reviewer. Analyze the provided code diff and:
+1. Identify potential bugs, security issues, and performance problems
+2. Suggest improvements for code quality and maintainability
+3. Check for adherence to best practices
+
+Diff to review:
+{{diff}}
+"""
+
+[[variables]]
+name = "diff"
+type = "string"
+required = true
+description = "The code diff to review"
+
+[[variables]]
+name = "language"
+type = "string"
+required = false
+description = "Programming language"
+default_value = "unknown"
+
+[[variables]]
+name = "styleGuide"
+type = "string"
+required = false
+description = "Style guide URL or reference"

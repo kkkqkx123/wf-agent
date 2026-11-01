@@ -1,0 +1,17 @@
+# Rate-limit middleware configuration (per-IP sliding window).
+#
+# Schema:    wf_server::middleware::ServerMiddlewareConfig file layer (rate_limit section).
+# Sample: copy to `{settings_dir}/server/` or `{project}/.wf/server/`.
+# Priority (high to low): `RATE_LIMIT_ENABLED` / `RATE_LIMIT_WINDOW_MS` /
+# `RATE_LIMIT_MAX_REQUESTS` env > project `.wf/server/` >
+# settings-dir `server/` > built-in defaults.
+#
+# Naming is frozen: the `RATE_LIMIT_*` names predate the `WF_` prefix
+# convention and stay as-is so deployed environments keep working.
+#
+# `excluded_paths` bypass rate limiting (health probes only).
+
+enabled = false
+window_ms = 60000
+max_requests = 100
+excluded_paths = ["/health", "/api/v1/info", "/"]

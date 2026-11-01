@@ -1,0 +1,10 @@
+# LLM Auth: third-party gateway with an ambient environment API key
+#
+# Schema: wf_types::config::llm_auth::AuthProviderConfig (method = "api_key")
+# No secret in this file: the key comes from the credential store (set via
+# `wf llm login`) or falls back to the environment variable below.
+
+id = "acme"
+method = "api_key"
+display_name = "Acme API key"
+env = "ACME_API_KEY"

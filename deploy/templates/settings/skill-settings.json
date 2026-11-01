@@ -1,0 +1,6 @@
+{
+  "paths": [
+    "./skills"
+  ],
+  "autoScan": true
+}

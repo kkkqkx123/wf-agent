@@ -1,0 +1,42 @@
+# LLM Profile: Claude Sonnet 4.5 (Anthropic)
+#
+# Schema:  wf_types::llm::profile::LlmProfile
+# Format: LlmFormat::ANTHROPIC
+#
+# Sonnet 4.5 uses legacy budget thinking: set
+# [generation.thinking] budget_tokens (< max_tokens, >= 1024) to enable it.
+# Newer models (Opus 4.6+/Sonnet 4.6+) prefer adaptive thinking with effort:
+#   [generation.thinking]
+#   level = "high"   # low | medium | high | xhigh | max
+#   adaptive = true
+
+id = "claude-sonnet-4-5"
+name = "Claude Sonnet 4.5"
+format = "ANTHROPIC"
+model = "claude-sonnet-4-5"
+api_key = "${ANTHROPIC_API_KEY}"
+base_url = "https://api.anthropic.com/v1"
+auth_type = "native"
+[tool_call_protocol]
+format = "native"
+context_window_size = 200000
+
+timeout = 120000
+max_retries = 3
+retry_delay = 2000
+
+[generation]
+temperature = 0.5
+max_tokens = 12800
+# Thinking (optional, pick ONE style):
+# Budget style (Sonnet 4.5 / Opus 4.x):
+# [generation.thinking]
+# budget_tokens = 8000
+# Adaptive style (Opus 4.6+ / Sonnet 4.6+):
+# [generation.thinking]
+# level = "high"
+# adaptive = true
+
+[metadata]
+tags = ["anthropic", "claude-sonnet", "balanced", "production"]
+context_budget_percent = 85

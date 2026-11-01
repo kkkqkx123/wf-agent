@@ -1,0 +1,34 @@
+# Storage Configuration
+#
+# Configures the storage backend for workflow/checkpoint/task persistence.
+#
+# Processor: crate::processor::infrastructure::merge_storage_with_defaults()
+# Schema:    wf_types::config::storage::StorageConfig
+
+type = "sqlite"                         # Storage backend: sqlite | postgres | memory
+
+# Application name used for default db path derivation.
+app_name = "wf-agent"
+
+# --- SQLite storage options (used when type = "sqlite") ---
+[sqlite]
+db_path = "./data/workflow.db"
+enable_wal = true
+enable_logging = false
+readonly = false
+file_must_exist = false
+timeout = 5000                          # Connection timeout in ms
+auto_vacuum = "NONE"                    # NONE | FULL | INCREMENTAL
+
+# --- PostgreSQL storage options (used when type = "postgres") ---
+[postgres]
+host = "localhost"
+port = 5432
+username = "postgres"
+password = "${DB_PASSWORD:postgres}"    # Supports env var injection
+database = "wf_agent"
+ssl = false
+pool_size = 20
+min_connections = 1
+idle_timeout = 30000
+connection_timeout = 5000

@@ -1,0 +1,2 @@
+# User-level (demo) config. Mirrors ~/.wf/config.toml.
+# LLM provider/profile/auth declarations live under sibling directories.

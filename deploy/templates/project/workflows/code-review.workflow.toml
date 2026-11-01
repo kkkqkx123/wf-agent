@@ -1,0 +1,112 @@
+# Workflow Definition Example: Code Review Pipeline
+#
+# Schema:  wf_types::workflow::definition::WorkflowDefinition
+#           wf_types::workflow::definition::WorkflowConfig
+#           wf_types::workflow::definition::BaseStaticNode
+#           wf_types::workflow::definition::Edge
+#
+# This file is a development example — copy it to a non-`.example` name
+# (e.g. `code-review.workflow.toml`) and adjust the values for your use case.
+
+id = "wf-code-review"
+name = "Code Review Pipeline"
+type = "STANDALONE"
+description = "Automated code review workflow that analyzes PR diffs"
+version = "1.0.0"
+created_at = 0
+updated_at = 0
+
+# Workflow-level variables (can be injected on trigger).
+[[variables]]
+name = "prNumber"
+type = "string"
+required = true
+description = "Pull request number to review"
+
+[[variables]]
+name = "repoPath"
+type = "string"
+required = true
+description = "Repository path"
+
+# --- Nodes ---
+[[nodes]]
+id = "start"
+node_type = "START"
+
+[[nodes]]
+id = "fetch-changes"
+node_type = "CUSTOM"
+[nodes.config]
+category = "code"
+action = "git diff HEAD~1"
+timeout = 30000
+
+[[nodes]]
+id = "analyze"
+node_type = "LLM"
+[nodes.config]
+provider_id = "llm-default"
+prompt_template_id = "code-review-system"
+inputs = { diff = "$ref:fetch-changes.output" }
+temperature = 0.3
+max_tokens = 4096
+
+[[nodes]]
+id = "post-comment"
+node_type = "CUSTOM"
+[nodes.config]
+category = "github"
+action = "createReviewComment"
+inputs = { review = "$ref:analyze.output", pr = "$var:prNumber" }
+
+[[nodes]]
+id = "end"
+node_type = "END"
+
+# --- Edges ---
+[[edges]]
+source_node_id = "start"
+target_node_id = "fetch-changes"
+source_port = "default"
+target_port = "default"
+
+[[edges]]
+source_node_id = "fetch-changes"
+target_node_id = "analyze"
+
+[[edges]]
+source_node_id = "analyze"
+target_node_id = "post-comment"
+
+[[edges]]
+source_node_id = "post-comment"
+target_node_id = "end"
+
+# --- Workflow Config ---
+[config]
+timeout = 600000
+max_steps = 100
+
+[config.checkpoint]
+enabled = true
+
+[config.retry_policy]
+max_retries = 2
+initial_delay_ms = 1000
+
+# [config.tool_approval]
+# enabled = true
+# policy = "manual"
+
+# [config.available_tools]
+# available = []
+
+# [config.initial_messages]
+# [config.static_contexts]
+
+# --- Metadata ---
+[metadata]
+author = "platform-team"
+tags = ["code-review", "automation", "github"]
+category = "development"

@@ -1,0 +1,11 @@
+# Output & Logging Configuration
+#
+# Controls how the application outputs logs and data.
+#
+# Processor: infrastructure → merge_output_with_defaults()
+
+dir = "./outputs"                       # Base output directory
+log_file_pattern = "app-{date}.log"    # Log file naming pattern
+enable_log_terminal = true              # Also write logs to terminal
+enable_sdk_logs = true                  # Include SDK-internal logs
+sdk_log_level = "warn"                 # SDK log verbosity: silent | error | warn | info | debug

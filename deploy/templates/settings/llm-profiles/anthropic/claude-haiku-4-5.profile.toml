@@ -1,0 +1,30 @@
+# LLM Profile: Claude Haiku 4.5 (Anthropic)
+#
+# Schema:  wf_types::llm::profile::LlmProfile
+# Format: LlmFormat::ANTHROPIC
+
+id = "claude-haiku-4-5"
+name = "Claude Haiku 4.5"
+format = "ANTHROPIC"
+model = "claude-haiku-4-5"
+api_key = "${ANTHROPIC_API_KEY}"
+base_url = "https://api.anthropic.com/v1"
+auth_type = "native"
+[tool_call_protocol]
+format = "native"
+context_window_size = 200000
+
+timeout = 30000
+max_retries = 2
+retry_delay = 1000
+
+[generation]
+temperature = 0.3
+max_tokens = 8192
+# Thinking (optional, budget style on Haiku; must be < max_tokens):
+# [generation.thinking]
+# budget_tokens = 4000
+
+[metadata]
+tags = ["anthropic", "claude-haiku", "fast", "cheap"]
+context_budget_percent = 85

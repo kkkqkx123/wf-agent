@@ -1,0 +1,125 @@
+# Agent Loop Configuration Example
+#
+# Schema:  wf_types::agent::definition::AgentDefinition
+#           wf_types::agent::definition::AgentConfig
+#           wf_types::agent::definition::AvailableTools
+#           wf_types::agent::definition::AgentCheckpointConfig
+#           wf_types::agent::definition::AgentHookConfig
+#
+# This file is a development example — copy it to a non-`.example` name
+# (e.g. `code-agent.agent.toml`) and adjust the values for your use case.
+
+id = "code-assistant"
+name = "Code Assistant Agent"
+description = "Interactive coding assistant with file read/write and shell access"
+version = "1.0.0"
+created_at = 0
+updated_at = 0
+
+[config]
+# LLM profile to use (must match an id in llm-profiles/).
+profile_id = "gpt-4o"
+
+# Static system prompt prepended to the per-request prompt.
+system_prompt = "You are a senior software engineer. Use the available tools to complete the user's task."
+
+# Optional template reference for the system prompt.
+# system_prompt_template_id = "code-review-system"
+
+# Variables to inject into the system prompt template.
+# system_prompt_template_variables = { language = "rust" }
+
+# Maximum number of LLM call iterations before the agent stops.
+max_iterations = 50
+
+# Wall-clock execution budget for the whole agent loop in milliseconds.
+# 0 disables the limit.
+# max_execution_time = 180000
+
+# Maximum LLM call retries on transient failures.
+# max_retries = 3
+
+# Single LLM call timeout in milliseconds.
+# execution_timeout = 120000
+
+# Max duration the loop may stay paused before it is stopped, in
+# milliseconds. 0 disables the limit.
+# max_pause_duration = 600000
+
+# Cumulative conversation token limit; 0 disables limit checks.
+# token_limit = 200000
+
+# Warning threshold percentage of the token limit (default 80).
+# token_warning_threshold = 80
+
+# Token usage tracking switch (enabled by default unless disabled).
+# enable_token_tracking = true
+
+# Whether to stream LLM responses in real-time.
+stream = true
+
+# Tool call serialization format.
+tool_call_protocol = "native"
+
+# Initial messages to seed the conversation history.
+# [[config.initial_messages]]
+# role = "system"
+# content = "Hello, how can I help you today?"
+
+# --- Available Tools ---
+[config.available_tools]
+# Tools that can be selected.
+available = ["read_file", "write_file", "edit_file", "execute_command", "glob_search", "grep_search", "list_files"]
+
+# Tools initially loaded (subset of available).
+initial = ["read_file", "grep_search", "glob_search", "list_files"]
+
+# Tools the agent can discover at runtime.
+discoverable = ["execute_command", "write_file", "edit_file"]
+
+# Tools hidden from the agent but usable programmatically.
+# hidden = []
+
+# --- Checkpoint Configuration ---
+[config.checkpoint]
+enabled = true
+interval_iterations = 10
+on_error = true
+on_tool_call = false
+
+[config.checkpoint.content]
+include_state = true
+include_messages = true
+include_tool_calls = true
+tool_call_limit = 50
+
+# --- Hooks ---
+[[config.hooks]]
+hook_type = "AFTER_ITERATION"
+condition = { iteration = { modulo = 10, remainder = 0 } }
+event_name = "checkpoint.create"
+create_checkpoint = true
+checkpoint_description = "Periodic checkpoint at iteration {{iteration}}"
+
+[[config.hooks]]
+hook_type = "AFTER_LLM_CALL"
+condition = { token_usage = { total = { gt = 100000 } } }
+event_name = "token.usage.high"
+enabled = true
+
+# --- Violation Policy ---
+# [config.violation_policy]
+# max_violations = 3
+# action = "terminate"
+
+# --- Dynamic Context ---
+# [config.dynamic_context]
+# enabled = true
+# max_tokens = 4096
+# template = "Current context: {{context}}"
+
+# --- Metadata ---
+[metadata]
+author = "platform-team"
+tags = ["coding", "assistant", "production"]
+category = "development"

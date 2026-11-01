@@ -1,0 +1,48 @@
+# LLM Profile: GPT-4o (OpenAI)
+#
+# Schema:  wf_types::llm::profile::LlmProfile
+# Format: LlmFormat::OPENAI_CHAT
+#
+# Format values: OPENAI_CHAT | OPENAI_RESPONSE | ANTHROPIC | GEMINI_NATIVE | Custom(String)
+#
+# Generation params live under [generation] (typed, validated, mapped per
+# provider). The legacy [parameters] table still works as a passthrough for
+# format-specific keys (e.g. logit_bias, logprobs).
+
+id = "gpt-4o"
+name = "GPT-4o"
+format = "OPENAI_CHAT"
+model = "gpt-4o"
+api_key = "${OPENAI_API_KEY}"
+base_url = "https://api.openai.com/v1"
+
+# Authentication type for the HTTP client.
+# Options: "native" (provider-specific), "bearer", "basic", "header", "custom"
+auth_type = "native"
+
+# Format to use for tool call serialization.
+# Options: "native" (default) | "json_wrapped" | "json_unwrapped" | "json_schema" | "strict_json_schema"
+[tool_call_protocol]
+format = "native"
+
+# Model's maximum input context window (tokens).
+context_window_size = 128000
+
+timeout = 30000
+max_retries = 2
+retry_delay = 5000
+
+[generation]
+temperature = 0.5
+max_tokens = 12800
+# GPT-4o is not a reasoning model: omit [generation.thinking].
+# Tool control (optional):
+# tool_choice = { mode = "auto" }
+# parallel_tool_calls = true
+
+[stream_options]
+include_usage = true
+
+[metadata]
+tags = ["openai", "gpt-4o", "fast", "cheap"]
+context_budget_percent = 85

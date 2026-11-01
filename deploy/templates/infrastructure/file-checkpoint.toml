@@ -1,0 +1,65 @@
+# File Checkpoint Configuration
+#
+# Controls workspace file state checkpointing.
+# When enabled, file checkpoints are created alongside execution checkpoints
+# to capture workspace file state for restoration.
+#
+# Processor: crate::processor::file_checkpoint::merge_file_checkpoint_with_defaults()
+# Schema:    wf_types::config::file_checkpoint::FileCheckpointConfig
+
+enabled = false                         # Enable workspace file snapshotting
+workspace_root = ""                     # Override workspace root (default: process.cwd())
+
+# Custom ignore patterns (appended to .gitignore and hardcoded ignores)
+custom_ignore_patterns = [
+  "node_modules/**",
+  ".git/**",
+  "dist/**",
+]
+
+[storage]
+type = "sqlite"                         # Backend: sqlite
+db_path = ""                            # Override DB path (default: {workspace_root}/data/file-checkpoints.db)
+
+# Failure behavior when file checkpoint operations fail.
+# Options: "warn" (default) | "error" | "ignore"
+failure_behavior = "warn"
+
+# Layered approval policy for agent file changes.
+# Options: "none" (default) | "auto" | "llm" | "manual"
+approval_policy = "none"
+
+# Three-way merge conflict strategy.
+# Options: "marker" (default) | "fail" | "approval"
+conflict_behavior = "marker"
+
+# Enable manual file watcher (only when both enabled and workspace_root are set).
+manual_watch = false
+
+# Manual watcher poll interval in milliseconds (unset = built-in default).
+# Raise this on large workspaces to trade detection latency for scan cost.
+# Zero is rejected at startup.
+# manual_poll_ms = 10000
+
+# Physical GC auto-run interval in seconds (unset = explicit runs only).
+# gc_interval_secs = 3600
+
+# Default execution file scope, applied when an execution carries no explicit
+# scope. Every field is optional: a missing field inherits the built-in
+# default (enabled, workspace root range), while an explicit empty list
+# denies everything. Checkpoint prefixes must stay inside the write prefixes.
+# [default_scope]
+# enabled = true
+# read_prefixes = ["/workspace"]
+# write_prefixes = ["/workspace"]
+# checkpoint_prefixes = ["/workspace"]
+# workdir = "/workspace"
+
+# Shell sampling-window serialization (optional section, all fields optional).
+# Shell tools capture before/after file hashes around each command; the
+# exclusive permit serializes those windows process-wide so concurrent
+# shells cannot interleave scans and misattribute writes. Missing section
+# keeps the default (enabled with the built-in wait budget).
+# [scope_serialization]
+# enabled = true              # false restores fully parallel sampling
+# lock_timeout_ms = 300000    # wait budget; expiry proceeds degraded

@@ -1,0 +1,29 @@
+# System service for wf-server (hosted / shared deployment).
+#
+# Rendered by deploy/scripts/render-config.sh --to managed, which fills
+# the @@PLACEHOLDER@@ values below (double-at style avoids clashes with
+# the ${VAR} interpolation done by the process itself and with systemd
+# specifiers). Installed to /etc/systemd/system/wf-server.service.
+#
+# Principal: shared service. Reads the managed directory plus the business
+# project .wf/ only; it never reads ambient home-directory state.
+
+[Unit]
+Description=wf-agent server (managed)
+After=network.target
+
+[Service]
+Type=simple
+User=wf
+WorkingDirectory=@@PROJECT_ROOT@@
+EnvironmentFile=@@MANAGED_DIR@@/wf-server.env
+ExecStart=/usr/local/bin/wf-server --config @@PROJECT_ROOT@@ --settings-dir @@MANAGED_DIR@@
+Restart=on-failure
+RestartSec=5
+# Restrict write access to the managed config, the project tree and the
+# configured data directory; adjust to the local storage backend.
+ProtectSystem=strict
+ReadWritePaths=@@MANAGED_DIR@@ @@PROJECT_ROOT@@
+
+[Install]
+WantedBy=multi-user.target

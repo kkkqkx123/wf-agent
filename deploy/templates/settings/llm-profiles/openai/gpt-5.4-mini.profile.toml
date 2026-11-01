@@ -1,0 +1,30 @@
+# GPT-5.4-mini — Fast
+#
+# Use for high-volume, low-complexity tasks: classification, extraction,
+# simple Q&A, or as a cost-effective fallback model.
+#
+# GPT-5.4 supports reasoning effort none/low/medium/high/xhigh over Chat
+# Completions (top-level reasoning_effort) plus verbosity low/medium/high.
+# Do NOT set temperature/top_p together with thinking: reasoning models
+# ignore them (a warning is logged).
+
+id = "gpt-5.4-mini"
+name = "GPT-5.4-mini"
+format = "OPENAI_CHAT"
+model = "gpt-5.4-mini"
+api_key = "${OPENAI_API_KEY}"
+base_url = "https://api.openai.com/v1"
+timeout = 30000
+max_retries = 2
+retry_delay = 5000
+
+[generation]
+max_tokens = 12800
+verbosity = "medium"
+
+[generation.thinking]
+level = "medium"
+
+[metadata]
+tags = ["openai", "gpt-4o-mini", "fast", "cheap"]
+context_budget_percent = 85

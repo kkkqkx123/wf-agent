@@ -13,13 +13,17 @@
 - 代码默认值：以上全缺席时的底线（开发 Development、生产 Production
   两套环境默认，见 `wf-config::processor::infrastructure`）。
 
-## 规划中的布局（真文件补充时按此落位）
+## 落位布局（详见 `docs/plan/deploy-design.md`）
 
-- `deploy/systemd/`：服务单元模板。`EnvironmentFile` 给密钥、
-  `WorkingDirectory` 指向业务项目、显式传参，不写死任何路径。
-- `deploy/scripts/render-config.sh`：以 `config-examples/` 为唯一来源做变量替换，
-  渲染到目标路径；凭据相邻文件 `0600`；密钥只从环境变量来。
+- `deploy/templates/`：由 `scripts/sync-deploy.sh` 从 `config-examples/`、
+  `.wf/`、`.wf-user/` 单向同步生成，可评审、不可手改。
+- `deploy/scripts/render-config.sh`：目标机按层渲染
+ （`--to managed|settings|project`），部署期占位符用 `@@NAME@@`，
+  `${VAR}` 一律透传给进程启动时展开；环境文件 `0600`。
 - `deploy/scripts/bootstrap-dev.sh`：开发自举渲染（开发环境默认不足时补齐）。
+- `deploy/systemd/`：系统服务与个人单元模板。`EnvironmentFile` 给密钥、
+  `WorkingDirectory` 指向业务项目、显式传参，不写死任何路径。
+- `deploy/env/wf-server.env.template`：环境文件模板，只留空键、不带值。
 
 ## 禁忌
 

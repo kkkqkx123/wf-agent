@@ -1,0 +1,59 @@
+# Resource limits configuration.
+#
+# All values are optional; an absent section or field falls back to the
+# engine defaults below. `0` means "no explicit limit" and preserves the
+# engine's built-in behavior (CPU-core-derived concurrency, unbounded pause
+# duration).
+
+# Agent resource limits.
+[agent]
+max_iterations_cap = 1000             # hard cap on per-agent max_iterations
+default_max_iterations = 10           # fallback when an agent omits max_iterations
+max_concurrent = 0                    # 0 = derive from CPU core count
+max_sub_agent_depth = 8               # maximum sub-agent recursion depth
+max_pause_duration_ms = 0             # 0 = unbounded pause duration
+
+# Workflow resource limits.
+[workflow]
+loop_max_iterations_cap = 10000       # hard cap on LOOP_START max_iterations
+loop_default_max_iterations = 100     # fallback when LOOP_START omits max_iterations
+max_navigation_multiplier = 5         # dead-loop detection: nodes * multiplier
+max_concurrent = 0                    # 0 = no concurrency budget (reserved)
+
+# Execution timeout defaults applied when neither the workflow options nor
+# the node config specify a value.
+[execution_defaults]
+node_timeout_ms = 30000               # per-node execution timeout fallback
+max_execution_time_ms = 0             # whole-workflow timeout fallback, 0 = unlimited
+
+# Context-compression service cross-attempt policy (retries share the same
+# array version). What a terminal failure does is not configured here: the
+# compression workflow resource declares it via its triggered-subworkflow
+# compression_fallback (fail = pause the emitting execution for external
+# handling; partial_summary = land a visibly trimmed degraded window).
+# Timeout nesting contract: settle_timeout_ms >= (1 + max_retries) *
+# timeout_ms + backoffs, and timeout_ms covers one summary run (node wrap
+# 150s < LLM call budget chain < run budget) plus its write-back.
+[compression]
+max_retries = 1                       # additional runs after the first attempt
+timeout_ms = 240000                   # outer wall-clock budget per attempt (run + write-back)
+settle_timeout_ms = 300000            # emitter-side wait budget for the compression chain to settle
+tail_keep = 2                         # recent pre-existing messages kept beside the summary
+
+# Budget-driven compaction tuning parameters (never a strategy selector:
+# the pipeline stays single, the summary workflow resource stays the
+# replaceable unit). Ratios derive absolute thresholds from the model
+# window and must strictly increase h_target < t_handoff < t_compact < t_hard.
+[compaction]
+h_target_ratio = 0.30                 # deep-compact target resident size
+t_handoff_ratio = 0.55                # handoff evaluation line after compaction
+t_compact_ratio = 0.70                # compression trigger line
+t_hard_ratio = 0.85                   # hard-limit safety valve
+r_repress = 5000                      # smallest re-compressible summary size in tokens
+r_min_range = 2000                    # smallest first-time compressible interval in tokens
+k_repress = 2                         # maximum re-compressions of a single block
+recent_raw_turns = 2                  # recent rounds always kept visible in the hot view
+tool_distill = true                   # distill tool output before it enters history
+plan_max_items = 8                  # summary-chain calls per compaction round at most
+# summary_call_budget_tokens = 16000 # one summary call budget; unset derives from the model window
+file_dedup = true                     # deduplicate file reads by content hash

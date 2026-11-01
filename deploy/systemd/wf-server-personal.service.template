@@ -1,0 +1,24 @@
+# User service for wf-server (personal use).
+#
+# Rendered by deploy/scripts/render-config.sh --to settings, which fills
+# the @@PLACEHOLDER@@ values below. Installed as
+# ~/.config/systemd/user/wf-server.service and managed with
+# systemctl --user.
+#
+# Principal: single user. Reads the XDG settings directory only; enable
+# lingering (loginctl enable-linger) to keep it running after logout.
+
+[Unit]
+Description=wf-agent server (personal)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+EnvironmentFile=-%h/.config/wf/wf-server.env
+ExecStart=/usr/local/bin/wf-server --config @@PROJECT_ROOT@@ --settings-dir @@SETTINGS_DIR@@
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

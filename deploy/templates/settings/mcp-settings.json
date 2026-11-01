@@ -1,0 +1,6 @@
+{
+  "paths": ["./mcp/*.json"],
+  "autoScan": true,
+  "maxConcurrency": 5,
+  "defaultTimeout": 60
+}

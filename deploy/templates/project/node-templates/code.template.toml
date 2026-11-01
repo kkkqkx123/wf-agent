@@ -1,0 +1,54 @@
+# Node Template Examples
+#
+# Schema: wf_types::workflow::node_template::NodeTemplate
+#
+# Node templates provide reusable node configurations for workflow builders.
+# Each template is separated by a `---` delimiter.
+
+---
+name = "git-clone"
+node_type = "CUSTOM"
+description = "Clone a git repository"
+created_at = 0
+updated_at = 0
+
+[nodes.config]
+category = "code"
+action = "git clone {{repoUrl}} {{targetDir}}"
+timeout = 120000
+
+[metadata]
+tags = ["git", "vcs", "utility"]
+category = "code"
+
+---
+name = "lint-check"
+node_type = "CUSTOM"
+description = "Run ESLint on target directory"
+created_at = 0
+updated_at = 0
+
+[nodes.config]
+category = "code"
+action = "npx eslint {{targetDir}} --format json"
+timeout = 60000
+
+[metadata]
+tags = ["lint", "quality", "javascript"]
+category = "code"
+
+---
+name = "llm-chat"
+node_type = "LLM"
+description = "General purpose LLM chat node"
+created_at = 0
+updated_at = 0
+
+[nodes.config]
+provider_id = "llm-default"
+temperature = 0.7
+max_tokens = 2048
+
+[metadata]
+tags = ["llm", "chat", "general"]
+category = "ai"

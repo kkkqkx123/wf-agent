@@ -1,0 +1,14 @@
+# Presets Configuration
+#
+# Controls which predefined resources are enabled at startup.
+#
+# Processor: crate::processor::presets::transform_presets_config()
+# Schema:    wf_types::config::presets::PresetsConfig
+
+[predefined_tools]
+enabled = true
+# tools = []                       # Optional: explicitly list tool names
+
+[predefined_prompts]
+enabled = true
+# prompts = []                     # Optional: explicitly list prompt ids

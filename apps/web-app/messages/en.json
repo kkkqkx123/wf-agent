@@ -55,8 +55,6 @@
 	"chat.composer.moveQueuedUp": "Move queued message up",
 	"chat.composer.noResults": "No {kind} results for “{term}”.",
 	"chat.composer.placeholder": "Message the agent… (Enter to send, Shift+Enter for newline)",
-	"chat.composer.presetRows": "Preset rows",
-	"chat.composer.presetRowsOption": "{count} rows",
 	"chat.composer.readFailed": "Could not read {name}",
 	"chat.composer.removeAttachment": "Remove attachment",
 	"chat.composer.removeMention": "Remove {name}",

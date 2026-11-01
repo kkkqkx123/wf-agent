@@ -2,7 +2,7 @@ import { tick } from 'svelte';
 import { page } from '$app/state';
 import { groupToolCalls } from '#lib/utils/tool-output';
 import { preferences } from '#lib/stores/preferences.svelte';
-import { SvelteDate, SvelteSet } from 'svelte/reactivity';
+import { SvelteDate, SvelteMap, SvelteSet } from 'svelte/reactivity';
 import {
 	getLoopGraph,
 	listLoopMessages,
@@ -39,7 +39,7 @@ function toAttachmentPayload(file: MessageAttachment): AttachmentPayload {
  * (memory plus localStorage by content hash) and `retryLast` restores it
  * instead of minting a placeholder. Content and media stay authoritative;
  * the name is display-only. */
-const imageNameCache = new Map<string, { name: string; mediaType?: string }>();
+const imageNameCache = new SvelteMap<string, { name: string; mediaType?: string }>();
 const IMAGE_NAME_STORE_KEY = 'wf-image-names-v1';
 
 function imageCacheKey(dataUrl: string): string {
@@ -364,6 +364,9 @@ export class ChatSessionController {
 	);
 
 	showTranscript = $derived(this.bubbles.length > 0 || this.showLive);
+
+	/** Empty-state gate for starter chips: hidden while history loads and while a live tail exists. */
+	showStarters = $derived(!this.showTranscript && !this.transcript.loading);
 
 	session = $derived(
 		this.selectedId

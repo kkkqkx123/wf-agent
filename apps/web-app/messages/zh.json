@@ -55,8 +55,6 @@
 	"chat.composer.moveQueuedUp": "上移排队消息",
 	"chat.composer.noResults": "没有与“{term}”匹配的{kind}结果。",
 	"chat.composer.placeholder": "给智能体发消息…（Enter 发送，Shift+Enter 换行）",
-	"chat.composer.presetRows": "预设行数",
-	"chat.composer.presetRowsOption": "{count} 行",
 	"chat.composer.readFailed": "无法读取 {name}",
 	"chat.composer.removeAttachment": "移除附件",
 	"chat.composer.removeMention": "移除 {name}",

@@ -46,6 +46,14 @@ export function toSuggestion(starter: ChatStarter): StarterSuggestion {
 	return { id: starter.id, title: starter.title, content: starter.content };
 }
 
+/** Base language for starter lookup: region suffixes fold to their base
+ * (`zh-TW` -> `zh`), casing and whitespace collapse. Empty stays empty
+ * so callers can default it explicitly. */
+export function normalizeStarterLocale(raw: string): string {
+	const base = raw.trim().toLowerCase().split(/[-_]/)[0] ?? '';
+	return base.trim();
+}
+
 function toStarter(d: StarterDto): ChatStarter {
 	return {
 		id: d.id ?? '',

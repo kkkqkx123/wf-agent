@@ -94,8 +94,6 @@
 	"chat.composer.resizeHandle": "Drag to resize composer, double-click to reset",
 	"chat.composer.showAllSuggestions": "Show all ({count})",
 	"chat.composer.showLessSuggestions": "Show less",
-	"chat.composer.presetRows": "Preset rows",
-	"chat.composer.presetRowsOption": "{count} rows",
 	"chat.codeBlock.sourceOnly": "source only",
 	"chat.codeBlock.copyCode": "Copy code",
 	"chat.decisionMap.hide": "Hide decision map",

@@ -686,14 +686,16 @@
 
 <div class="flex h-full min-h-0 flex-col gap-2">
 	{#if showSuggestions && suggestions.length > 0}
-		<StarterRow
-			{suggestions}
-			onSelect={(suggestion) => {
-				draft = suggestion.content;
-				onSuggestionSelect?.(suggestion);
-				box?.focus();
-			}}
-		/>
+		{#key draftKey}
+			<StarterRow
+				{suggestions}
+				onSelect={(suggestion) => {
+					draft = suggestion.content;
+					onSuggestionSelect?.(suggestion);
+					box?.focus();
+				}}
+			/>
+		{/key}
 	{/if}
 
 	<ComposerQueue

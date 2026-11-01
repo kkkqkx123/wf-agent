@@ -8,6 +8,7 @@
 	import { getLocale, t, type MessageKey } from '#lib/i18n';
 	import {
 		listStarters,
+		normalizeStarterLocale,
 		recordStarterUsage,
 		toSuggestion,
 		type StarterSuggestion,
@@ -61,14 +62,41 @@
 
 	/** Backend chips for the active locale; null while loading, so the
 	 *  composer renders nothing instead of a layout-shifting skeleton.
-	 *  An unreachable backend keeps the i18n fallback (older servers
-	 *  lack the endpoint); an intentionally empty backend hides the row. */
-	async function loadStarters(activeLocale: string, attempt: number): Promise<void> {
+	 *  Probing includes disabled rows so an intentional hide (rows exist
+	 *  but all disabled) stays hidden instead of falling back to English;
+	 *  only a locale with no rows at all falls back. An unreachable
+	 *  backend keeps the i18n fallback (older servers lack the endpoint). */
+	async function loadStarters(rawLocale: string, attempt: number): Promise<void> {
+		const locale = normalizeStarterLocale(rawLocale) || 'en';
 		try {
-			const items = await listStarters({ locale: activeLocale });
+			const all = await listStarters({ locale, includeDisabled: true });
 			if (attempt !== request) return;
-			starters = items.map(toSuggestion);
-			backendOk = true;
+			const enabled = all.filter((item) => item.enabled);
+			if (enabled.length > 0) {
+				starters = enabled.map(toSuggestion);
+				backendOk = true;
+				return;
+			}
+			if (all.length > 0) {
+				starters = [];
+				backendOk = true;
+				return;
+			}
+			if (locale === 'en') {
+				starters = [];
+				backendOk = true;
+				return;
+			}
+			try {
+				const englishAll = await listStarters({ locale: 'en', includeDisabled: true });
+				if (attempt !== request) return;
+				starters = englishAll.filter((item) => item.enabled).map(toSuggestion);
+				backendOk = true;
+			} catch {
+				if (attempt !== request) return;
+				starters = [];
+				backendOk = false;
+			}
 		} catch {
 			if (attempt !== request) return;
 			starters = [];
@@ -179,7 +207,7 @@
 				busy={chatStream.active}
 				draftKey={selectedId ?? NEW_SESSION}
 				{suggestions}
-				showSuggestions={controller.bubbles.length === 0}
+				showSuggestions={controller.showStarters}
 				{fullscreen}
 				onToggleFullscreen={toggleFullscreen}
 				onResetHeight={resetHeight}

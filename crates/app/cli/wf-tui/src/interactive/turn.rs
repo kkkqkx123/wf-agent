@@ -554,6 +554,15 @@ impl InteractiveController {
 
         let tx = self.tx.clone();
         let client = self.client.clone();
+        let staged = self.staged_images.clone();
+        self.staged_images.clear();
+        if !staged.is_empty() {
+            self.footer.show_notice(format!(
+                "sending {} staged image{} with this turn",
+                staged.len(),
+                if staged.len() == 1 { "" } else { "s" }
+            ));
+        }
         let params = TurnParams {
             agent,
             model,
@@ -563,7 +572,7 @@ impl InteractiveController {
             conversation: self.history.clone(),
             kind: TurnKind::Agent {
                 prompt,
-                images: Vec::new(),
+                images: staged,
             },
         };
         let body = params.agent_request_body();

@@ -11,7 +11,9 @@ use llm_types::message::{ImageDetail, ImageUrlContent, MessageContent, MessageCo
 
 /// Media types accepted for inline image data. Kept to the formats every
 /// served provider renders; anything else is rejected at the entry.
-const ALLOWED_MEDIA_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+/// Public so CLI forms and documentation reference one whitelist instead
+/// of redefining it per surface.
+pub const ALLOWED_MEDIA_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
 /// Upper bound of images carried by one turn.
 pub const MAX_USER_IMAGES_PER_TURN: usize = 8;
@@ -97,6 +99,30 @@ pub fn media_type_for_image_path(path: &str) -> Option<&'static str> {
 /// Whether a workspace path names an image by extension.
 pub fn is_image_path(path: &str) -> bool {
     media_type_for_image_path(path).is_some()
+}
+
+/// Shared whitelist accessor for CLI and frontend capability notes.
+pub fn allowed_image_media_types() -> &'static [&'static str] {
+    &ALLOWED_MEDIA_TYPES
+}
+
+/// Whether a media type passes the inline whitelist.
+pub fn is_allowed_image_media_type(media: &str) -> bool {
+    ALLOWED_MEDIA_TYPES.contains(&media.trim())
+}
+
+/// Parse a render detail hint (`auto` / `low` / `high` / `original`).
+/// Case-insensitive; anything else is a hard error so typos fail locally.
+pub fn parse_image_detail(raw: &str) -> Result<ImageDetail, String> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "auto" => Ok(ImageDetail::Auto),
+        "low" => Ok(ImageDetail::Low),
+        "high" => Ok(ImageDetail::High),
+        "original" => Ok(ImageDetail::Original),
+        other => Err(format!(
+            "invalid image detail '{other}': use auto, low, high or original"
+        )),
+    }
 }
 
 /// Decode the inline payload size in bytes. Remote images report `None`
@@ -360,6 +386,16 @@ mod tests {
         assert!(
             validate_user_images(&[UserImageInput::remote("data:image/png;base64,aGk=")]).is_ok()
         );
+    }
+
+    #[test]
+    fn whitelist_and_detail_parse_from_one_source() {
+        assert_eq!(allowed_image_media_types().len(), 4);
+        assert!(is_allowed_image_media_type("image/png"));
+        assert!(!is_allowed_image_media_type("image/svg+xml"));
+        assert!(parse_image_detail("high").is_ok());
+        assert!(parse_image_detail("AUTO").is_ok());
+        assert!(parse_image_detail("nope").is_err());
     }
 
     #[test]

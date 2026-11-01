@@ -160,8 +160,18 @@ impl Cli {
             if (input.is_some() || input_file.is_some() || !vars.is_empty()) && workflow.is_none() {
                 return Err("--input/--input-file/--var require --workflow".to_string());
             }
-            if !image.is_empty() && workflow.is_some() {
-                return Err("--image applies to agent turns, not --workflow".to_string());
+            if (!image.is_empty() || !image_urls.is_empty()) && workflow.is_some() {
+                return Err("--image/--image-url apply to agent turns, not --workflow".to_string());
+            }
+            if let Some(detail) = image_detail.as_deref() {
+                crate::turn::parse_image_detail_arg(Some(detail))?;
+            }
+            for url in image_urls {
+                if !crate::turn::is_remote_image_spec(url) {
+                    return Err(format!(
+                        "invalid --image-url '{url}': use https, http or data"
+                    ));
+                }
             }
             if (self.context.is_some() || self.context_file.is_some()) && workflow.is_some() {
                 return Err(
@@ -288,6 +298,16 @@ pub enum Command {
         /// referenced through `@file:` mentions instead.
         #[arg(long = "image", value_name = "PATH")]
         image: Vec<std::path::PathBuf>,
+        /// Remote image address to attach (repeatable, agent turns only).
+        /// Accepts `https://`, `http://` or `data:` URLs; travels verbatim
+        /// in the structured payload and merges with `--image` under one
+        /// limit check. Text files are referenced via `@file:` instead.
+        #[arg(long = "image-url", value_name = "URL")]
+        image_urls: Vec<String>,
+        /// Render detail hint applied to every image of the turn
+        /// (`auto` / `low` / `high` / `original`); empty means provider default.
+        #[arg(long = "image-detail", value_name = "DETAIL")]
+        image_detail: Option<String>,
         /// Remote server URL for this run (overrides --remote / WF_REMOTE).
         #[arg(long)]
         remote: Option<String>,
@@ -720,7 +740,35 @@ mod tests {
         assert_eq!(image.len(), 2);
         assert!(cli.validate().is_ok());
 
+        let cli = parse(&[
+            "run",
+            "hi",
+            "--image-url",
+            "https://example.com/shot.png",
+            "--image-detail",
+            "high",
+        ])
+        .unwrap();
+        assert!(cli.validate().is_ok());
+
+        let cli = parse(&["run", "hi", "--image-detail", "nope"]).unwrap();
+        assert!(cli.validate().is_err());
+
+        let cli = parse(&["run", "hi", "--image-url", "ftp://x/y.png"]).unwrap();
+        assert!(cli.validate().is_err());
+
         let cli = parse(&["run", "--workflow", "wf-1", "--image", "a.png"]).unwrap();
+        let err = cli.validate().unwrap_err();
+        assert!(err.contains("--image"), "{err}");
+
+        let cli = parse(&[
+            "run",
+            "--workflow",
+            "wf-1",
+            "--image-url",
+            "https://example.com/shot.png",
+        ])
+        .unwrap();
         let err = cli.validate().unwrap_err();
         assert!(err.contains("--image"), "{err}");
     }

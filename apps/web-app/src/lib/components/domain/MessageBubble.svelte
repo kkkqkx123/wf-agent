@@ -40,6 +40,10 @@
 	let expandedIndex = $state<number | null>(null);
 	let enlargedImage = $state<string | null>(null);
 
+	function toggleEnlarged(image: string): void {
+		enlargedImage = enlargedImage === image ? null : image;
+	}
+
 	const isUser = $derived(message.role === 'user');
 	/** The small label every inline reference in a bubble shares. */
 	const TAG = $derived(
@@ -190,13 +194,20 @@
 				{#each (message.images ?? []) as image, index (`image-${index}`)}
 					<button
 						type="button"
-						onclick={() => (enlargedImage = enlargedImage === image ? null : image)}
+						onclick={() => toggleEnlarged(image)}
+						onkeydown={(event) => {
+							if (event.key === 'Escape') enlargedImage = null;
+						}}
 						class={cn('overflow-hidden rounded-md border border-border', enlargedImage === image && 'border-info/60')}
 						title={t('domain.messageBubble.enlargeImage')}
+						aria-pressed={enlargedImage === image}
+						aria-label={t('domain.messageBubble.attachedImage')}
 					>
 						<img
 							src={image}
 							alt={t('domain.messageBubble.attachedImage')}
+							loading="lazy"
+							decoding="async"
 							class={cn('object-cover', enlargedImage === image ? 'max-h-96' : 'h-16 w-16')}
 						/>
 					</button>

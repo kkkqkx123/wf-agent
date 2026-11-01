@@ -372,6 +372,21 @@ pub static COMMANDS: &[CommandSpec] = &[
         palette: true,
     },
     CommandSpec {
+        id: "session.image",
+        title: "Images",
+        group: "Session",
+        description: "Stage images for the next turn (/image <path-or-url>...)",
+        action: None,
+        scopes: &[],
+        leader: &[],
+        slash: Some(SlashSpec {
+            name: "image",
+            aliases: &["images"],
+            argument: "<path-or-url>... | clear",
+        }),
+        palette: true,
+    },
+    CommandSpec {
         id: "agent.append_mode_steering",
         title: "Append Mode: Steering",
         group: "Agent",

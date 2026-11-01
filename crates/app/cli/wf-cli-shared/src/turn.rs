@@ -381,6 +381,93 @@ pub fn load_user_images(
     Ok(images)
 }
 
+/// Whether a free-form image spec names a remote payload rather than a
+/// local file. Remote specs travel verbatim; anything else is read from disk.
+pub fn is_remote_image_spec(spec: &str) -> bool {
+    let trimmed = spec.trim();
+    trimmed.starts_with("https://")
+        || trimmed.starts_with("http://")
+        || trimmed.starts_with("data:")
+}
+
+/// Parse an optional `--image-detail` value. Empty means provider default.
+pub fn parse_image_detail_arg(raw: Option<&str>) -> Result<Option<llm_types::message::ImageDetail>, String> {
+    match raw.map(str::trim).filter(|value| !value.is_empty()) {
+        None => Ok(None),
+        Some(value) => wf_types::message::parse_image_detail(value).map(Some),
+    }
+}
+
+/// Load mixed local-path and remote-URL image specs with one detail hint.
+/// Remote specs travel verbatim; local paths are read and inlined. The
+/// combined stage is validated so oversized or mistyped stages fail here.
+pub fn load_user_image_specs(
+    specs: &[String],
+    detail: Option<llm_types::message::ImageDetail>,
+) -> Result<Vec<wf_types::message::UserImageInput>, String> {
+    use base64::Engine as _;
+    let mut images = Vec::with_capacity(specs.len());
+    for spec in specs {
+        let trimmed = spec.trim();
+        if trimmed.is_empty() {
+            return Err("cannot attach an empty image spec".to_string());
+        }
+        if is_remote_image_spec(trimmed) {
+            let mut input =
+                wf_types::message::UserImageInput::remote(trimmed.to_string());
+            input.detail = detail;
+            images.push(input);
+            continue;
+        }
+        let path = std::path::PathBuf::from(trimmed);
+        let Some(media) = wf_types::message::media_type_for_image_path(&path.to_string_lossy())
+        else {
+            return Err(format!(
+                "cannot attach '{}': not a served image file (png, jpg, gif, webp) or remote https/http/data URL",
+                path.display()
+            ));
+        };
+        let bytes = std::fs::read(&path)
+            .map_err(|e| format!("cannot read image '{}': {e}", path.display()))?;
+        if bytes.len() > wf_types::message::MAX_USER_IMAGE_BYTES {
+            return Err(format!(
+                "cannot attach '{}': {} bytes exceed the per-image limit of {} bytes",
+                path.display(),
+                bytes.len(),
+                wf_types::message::MAX_USER_IMAGE_BYTES
+            ));
+        }
+        let mut input = wf_types::message::UserImageInput::inline(
+            base64::engine::general_purpose::STANDARD.encode(&bytes),
+            media,
+        );
+        input.detail = detail;
+        images.push(input);
+    }
+    wf_types::message::validate_user_images(&images)
+        .map_err(|reason| format!("invalid image payload: {reason}"))?;
+    Ok(images)
+}
+
+/// Load `--image` paths plus `--image-url` remotes with one detail hint.
+/// Both channels merge into one validated stage so headless and
+/// interactive forms share a single limit check.
+pub fn load_all_user_images(
+    paths: &[std::path::PathBuf],
+    urls: &[String],
+    detail: Option<llm_types::message::ImageDetail>,
+) -> Result<Vec<wf_types::message::UserImageInput>, String> {
+    let mut specs: Vec<String> = paths
+        .iter()
+        .map(|path| path.to_string_lossy().to_string())
+        .collect();
+    specs.extend(urls.iter().cloned());
+    if specs.is_empty() {
+        return Ok(Vec::new());
+    }
+    load_user_image_specs(&specs, detail)
+}
+
 /// Short display summary of one staged image for diagnostics: remote
 /// addresses show the address, inline payloads show the decoded size.
 pub fn describe_user_image(image: &wf_types::message::UserImageInput) -> String {
@@ -557,6 +644,26 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert!(load_user_images(&[dir.join("missing.png")]).is_err());
         assert!(load_user_images(&[dir.join("notes.txt")]).is_err());
+    }
+
+    #[test]
+    fn image_specs_accept_remote_urls_with_detail() {
+        let detail = parse_image_detail_arg(Some("high")).expect("detail parses");
+        let images = load_user_image_specs(
+            &["https://example.com/shot.png".to_string()],
+            detail,
+        )
+        .expect("remote loads");
+        assert_eq!(images.len(), 1);
+        assert_eq!(
+            images[0].url.as_deref(),
+            Some("https://example.com/shot.png")
+        );
+        assert!(parse_image_detail_arg(None).expect("empty").is_none());
+        assert!(parse_image_detail_arg(Some("nope")).is_err());
+        assert!(!is_remote_image_spec("shot.png"));
+        assert!(is_remote_image_spec("https://example.com/a.png"));
+        assert!(load_user_image_specs(&["ftp://x/y.png".to_string()], None).is_err());
     }
 
     #[test]

@@ -477,6 +477,10 @@ export class ChatSessionController {
 			toasts.error('Choose a workflow before sending');
 			return false;
 		}
+		if (this.executionType === 'workflow' && message.images.length > 0) {
+			toasts.error('Remove staged images before running a workflow; switch to an agent turn to send them');
+			return false;
+		}
 		if (this.executionType === 'chat') {
 			void this.runChat(text, message.attachments, message.images);
 		} else if (this.executionType === 'workflow') {
@@ -498,10 +502,17 @@ export class ChatSessionController {
 				const bubble = bubbles[index];
 				this.sendText({
 					...splitAttachments(bubble.content),
-					images: (bubble.images ?? []).map((dataUrl, position) => ({
-						name: `retried-image-${position + 1}`,
-						dataUrl,
-					})),
+					images: (bubble.images ?? []).map((dataUrl, position) => {
+						const media = dataUrl.startsWith('data:')
+							? dataUrl.slice('data:'.length).split(';')[0] || undefined
+							: undefined;
+						const ext = media?.split('/')[1] ?? 'png';
+						return {
+							name: `retried-image-${position + 1}.${ext}`,
+							...(media ? { mediaType: media } : {}),
+							dataUrl,
+						};
+					}),
 				});
 				return;
 			}
@@ -933,7 +944,8 @@ export class ChatSessionController {
 	): Promise<void> {
 		const workflowId = this.workflowId.trim();
 		if (images.length > 0) {
-			toasts.info('Images are not sent to workflows; send them as an agent turn');
+			toasts.error('Remove staged images before running a workflow; switch to an agent turn to send them');
+			return;
 		}
 		const signal = chatStream.start(this.selectedId ?? NEW_SESSION, {
 			executionType: 'workflow',

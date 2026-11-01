@@ -484,6 +484,9 @@ pub struct InteractiveController {
     /// Session-level structured agent context: set once, carried on every
     /// subsequent turn until replaced or cleared.
     session_context: serde_json::Map<String, serde_json::Value>,
+    /// Image specs staged by `/image` for the next turn. Taken when the
+    /// turn starts; a turn that never starts leaves them staged.
+    staged_images: Vec<wf_types::message::UserImageInput>,
     /// Key resolution table for the footer panel routes.
     keymap: tui_core::keymap::Keymap,
     /// Whether the user asked to edit the composer draft in `$EDITOR`.
@@ -734,6 +737,7 @@ impl InteractiveController {
             append_mode: "followup".to_string(),
             model_override: None,
             session_context: serde_json::Map::new(),
+            staged_images: Vec::new(),
             keymap: tui_core::keymap::Keymap::new(),
             pending_editor: false,
             recap_ticket: 0,
@@ -767,6 +771,57 @@ impl InteractiveController {
     /// Current session-level agent context (clone for turn assembly).
     pub fn session_context(&self) -> &serde_json::Map<String, serde_json::Value> {
         &self.session_context
+    }
+
+    /// List staged images for the next turn.
+    pub fn staged_image_lines(&self) -> Vec<String> {
+        if self.staged_images.is_empty() {
+            return vec!["no staged images (usage: /image <path-or-url>...)".to_string()];
+        }
+        self.staged_images
+            .iter()
+            .enumerate()
+            .map(|(index, image)| {
+                format!(
+                    "[{}] {} ({})",
+                    index + 1,
+                    image.media_type.as_deref().unwrap_or("image"),
+                    wf_cli_shared::turn::describe_user_image(image)
+                )
+            })
+            .collect()
+    }
+
+    /// Stage local paths or remote URLs for the next turn. Failures leave
+    /// the existing stage untouched; the combined stage is validated.
+    pub fn stage_tui_images(&mut self, specs: &[String]) -> String {
+        match wf_cli_shared::turn::load_user_image_specs(specs, None) {
+            Err(err) => format!("cannot stage images: {err}"),
+            Ok(loaded) => {
+                let mut combined = self.staged_images.clone();
+                combined.extend(loaded);
+                match wf_types::message::validate_user_images(&combined) {
+                    Err(reason) => {
+                        format!("cannot stage images: {reason} (stage unchanged)")
+                    }
+                    Ok(()) => {
+                        let added = combined.len() - self.staged_images.len();
+                        self.staged_images = combined;
+                        format!(
+                            "staged {added} image{} ({} total, sent with the next turn)",
+                            if added == 1 { "" } else { "s" },
+                            self.staged_images.len()
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /// Drop staged images without sending them.
+    pub fn clear_staged_images(&mut self) -> String {
+        self.staged_images.clear();
+        "staged images cleared".to_string()
     }
 
     /// Take the pending external-editor request, if any. The shell runs the

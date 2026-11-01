@@ -18,3 +18,4 @@ futures.workspace = true
 wf-common = { path = "../../../foundation/wf-common" }
 wf-types = { path = "../../../foundation/wf-types" }
 wf-client = { path = "../../wf-client" }
+llm-types = { package = "llm-suite-types", path = "../../../infra/llm-suite/crates/llm-suite-types" }

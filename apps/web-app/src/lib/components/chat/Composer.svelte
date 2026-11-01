@@ -29,14 +29,24 @@
 	import { t } from '#lib/i18n';
 	import { SvelteSet } from 'svelte/reactivity';
 
-	/** Largest inlined attachment per file; larger files are truncated. */
+	/** Largest inlined attachment per file; larger files are truncated. Mirrors the server text-mention budget. */
 	const ATTACHMENT_LIMIT = 64_000;
+
+	/** Total text attachments the composer stages per turn; beyond this the user picks fewer files. */
+	const ATTACHMENT_MAX_COUNT = 8;
+
+	/** Total inlined attachment bytes per turn; larger stages must drop files first. */
+	const ATTACHMENT_TOTAL_LIMIT = 256_000;
 
 	/** Largest staged image; mirrors the server per-image limit. */
 	const IMAGE_LIMIT = 10 * 1024 * 1024;
 
 	/** Largest staged image payload the composer accepts per turn. */
 	const IMAGE_TOTAL_LIMIT = 20 * 1024 * 1024;
+
+	/** Served image formats; mirrors the backend whitelist so unsupported types fail locally. */
+	const ALLOWED_IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+	const ALLOWED_IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
 
 	/** Entity kinds the mention picker resolves through the search channel. */
 	const MENTION_KINDS = [
@@ -106,6 +116,8 @@
 	let images = $state<ImageAttachment[]>([]);
 	let queue = $state<OutgoingMessage[]>([]);
 	let box: HTMLTextAreaElement | null = $state(null);
+	let attachInput: HTMLInputElement | null = $state(null);
+	let imageInput: HTMLInputElement | null = $state(null);
 	let activeKey = $state('');
 	let candidates = $state<MentionCandidate[]>([]);
 	let mentionSelectedIndex = $state(0);
@@ -139,12 +151,19 @@
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let latestRequest = 0;
 
+	function persistDraft(): void {
+		if (!activeKey) return;
+		sessions.setDraft(activeKey, draft);
+		sessions.setDraftAttachments(activeKey, attachments);
+		sessions.setDraftImages(activeKey, images);
+	}
+
 	function switchDraft(nextKey: string): void {
-		if (activeKey) sessions.setDraft(activeKey, draft);
+		if (activeKey) persistDraft();
 		activeKey = nextKey;
 		draft = sessions.draft(nextKey);
-		attachments = [];
-		images = [];
+		attachments = sessions.draftAttachments(nextKey);
+		images = sessions.draftImages(nextKey);
 	}
 
 	$effect(() => {
@@ -159,7 +178,9 @@
 		draft = '';
 		attachments = [];
 		images = [];
+		if (!activeKey) return;
 		sessions.setDraft(activeKey, '');
+		sessions.clearDraftFiles(activeKey);
 	}
 
 	function removeMention(token: string): void {
@@ -170,7 +191,7 @@
 
 	function removeMentionAt(start: number, length: number): void {
 		draft = draft.slice(0, start) + draft.slice(start + length);
-		sessions.setDraft(activeKey, draft);
+		persistDraft();
 		box?.focus();
 		box?.setSelectionRange(start, start);
 	}
@@ -192,10 +213,10 @@
 	}
 
 	function sendNext(): void {
-		const next = queue.shift();
+		const next = queue[0];
 		if (next === undefined) return;
-		queue = [...queue];
-		submit(next, false);
+		if (!onsend?.(next)) return;
+		queue = queue.slice(1);
 	}
 
 	function onSubmit(): void {
@@ -331,17 +352,44 @@
 
 	function onInput(): void {
 		mentionDismissed = false;
-		sessions.setDraft(activeKey, draft);
+		persistDraft();
+	}
+
+	function imageMimeAllowed(file: File): boolean {
+		if (file.type && ALLOWED_IMAGE_MIMES.includes(file.type.toLowerCase())) return true;
+		const ext = (file.name.split('.').pop() ?? '').toLowerCase();
+		return ALLOWED_IMAGE_EXTS.includes(ext);
+	}
+
+	function persistFiles(): void {
+		persistDraft();
 	}
 
 	async function addFiles(files: FileList | File[]): Promise<void> {
 		for (const file of Array.from(files)) {
-			if (file.type.startsWith('image/')) {
+			if (file.type.startsWith('image/') || imageMimeAllowed(file)) {
+				if (!imageMimeAllowed(file)) {
+					toasts.error(`Unsupported image type: ${file.name || 'pasted image'} (use png, jpg, gif, webp)`);
+					continue;
+			}
 				stageImage(file);
 			continue;
 		}
+			if (attachments.length >= ATTACHMENT_MAX_COUNT) {
+				toasts.error(`Too many attachments (max ${ATTACHMENT_MAX_COUNT}); remove one first`);
+				continue;
+			}
+			const stagedBytes = attachments.reduce((total, item) => total + item.content.length, 0);
+			if (stagedBytes >= ATTACHMENT_TOTAL_LIMIT) {
+				toasts.error('Attachments exceed the per-turn budget; remove one first');
+				continue;
+			}
 		try {
 				const text = await file.text();
+			if (text.includes('\0')) {
+					toasts.error(`Binary file skipped: ${file.name || 'pasted text'} (send images via the image button)`);
+					continue;
+				}
 			const truncated = text.length > ATTACHMENT_LIMIT;
 			attachments = [
 				...attachments,
@@ -351,6 +399,7 @@
 					...(truncated ? { truncated: true } : {}),
 				},
 			];
+				persistFiles();
 			} catch {
 				toasts.error(
 					t('chat.composer.readFailed', {
@@ -363,6 +412,10 @@
 
 	/** Stage one image file: type-checked, size-capped, previewable. */
 	function stageImage(file: File): void {
+		if (!imageMimeAllowed(file)) {
+			toasts.error(`Unsupported image type: ${file.name || 'pasted image'} (use png, jpg, gif, webp)`);
+			return;
+		}
 		if (file.size > IMAGE_LIMIT) {
 			toasts.error(
 				t('chat.composer.imageTooLarge', {
@@ -388,6 +441,7 @@
 				return;
 			}
 			images = [...images, { name: file.name || 'pasted-image', dataUrl }];
+			persistFiles();
 		};
 		reader.onerror = () => {
 			toasts.error(
@@ -398,6 +452,32 @@
 		};
 		reader.readAsDataURL(file);
 	}
+
+	function triggerAttachPicker(): void {
+		attachInput?.click();
+	}
+
+	function triggerImagePicker(): void {
+		imageInput?.click();
+	}
+
+	function onAttachInput(event: Event): void {
+		const input = event.target as HTMLInputElement | null;
+		if (input?.files && input.files.length > 0) void addFiles(input.files);
+		if (input) input.value = '';
+	}
+
+	function onImageInput(event: Event): void {
+		const input = event.target as HTMLInputElement | null;
+		if (input?.files && input.files.length > 0) void addFiles(input.files);
+		if (input) input.value = '';
+	}
+
+	const stagedBudget = $derived.by(() => {
+		const imageBytes = images.reduce((total, image) => total + image.dataUrl.length, 0);
+		const attachmentBytes = attachments.reduce((total, item) => total + item.content.length, 0);
+		return { imageBytes, attachmentBytes, imageCount: images.length, attachmentCount: attachments.length };
+	});
 
 	function onPaste(event: ClipboardEvent): void {
 		const files = event.clipboardData?.files;
@@ -581,7 +661,7 @@
 		attachments = [...attachments, ...item.attachments];
 		images = [...images, ...(item.images ?? [])];
 		queue = queue.filter((_, current) => current !== index);
-		sessions.setDraft(activeKey, draft);
+		persistDraft();
 		box?.focus();
 	}
 </script>
@@ -610,9 +690,22 @@
 	<ComposerAttachments
 		{attachments}
 		{images}
-		onremove={(index) => (attachments = attachments.filter((_, i) => i !== index))}
-		onremoveImage={(index) => (images = images.filter((_, i) => i !== index))}
+		onremove={(index) => {
+			attachments = attachments.filter((_, i) => i !== index);
+			persistFiles();
+		}}
+		onremoveImage={(index) => {
+			images = images.filter((_, i) => i !== index);
+			persistFiles();
+		}}
 	/>
+
+	{#if executionType === 'workflow' && images.length > 0}
+		<p class="text-micro text-warning">Images are not sent to workflows; remove them or switch back to an agent turn.</p>
+	{/if}
+	{#if stagedBudget.imageCount > 0 || stagedBudget.attachmentCount > 0}
+		<p class="text-micro text-muted-foreground">Staged: {stagedBudget.imageCount} images · {stagedBudget.attachmentCount} files</p>
+	{/if}
 
 	{#if mentionVisible}
 		<div
@@ -831,6 +924,23 @@
 				activePicker = null;
 				box?.focus();
 			}}
+		/>
+		<IconButton icon="file" label="Attach files" onclick={triggerAttachPicker} compact />
+		<IconButton
+			icon="image"
+			label="Attach images"
+			onclick={triggerImagePicker}
+			compact
+			disabled={executionType === 'workflow'}
+		/>
+		<input bind:this={attachInput} type="file" multiple class="hidden" onchange={onAttachInput} />
+		<input
+			bind:this={imageInput}
+			type="file"
+			multiple
+			accept="image/png,image/jpeg,image/gif,image/webp"
+			class="hidden"
+			onchange={onImageInput}
 		/>
 		<span class="min-w-2 flex-1"></span>
 		{#if onResetHeight}

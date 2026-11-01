@@ -222,6 +222,8 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         input_file,
         vars,
         image_paths,
+        image_urls,
+        image_detail,
         interactive,
         approval_timeout,
         assume_yes,
@@ -236,6 +238,8 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             input_file,
             vars,
             image,
+            image_urls,
+            image_detail,
             interactive,
             approval_timeout,
             assume_yes,
@@ -250,6 +254,8 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             input_file.clone(),
             vars.clone(),
             image.clone(),
+            image_urls.clone(),
+            image_detail.clone(),
             *interactive,
             *approval_timeout,
             *assume_yes,
@@ -264,6 +270,8 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             None,
             Vec::new(),
             Vec::new(),
+            Vec::new(),
+            None,
             false,
             None,
             false,
@@ -288,7 +296,10 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
     let context =
         crate::turn::parse_agent_context(cli.context.as_deref(), cli.context_file.as_deref())
             .map_err(CliError::Arguments)?;
-    let images = crate::turn::load_user_images(&image_paths).map_err(CliError::Arguments)?;
+    let detail = crate::turn::parse_image_detail_arg(image_detail.as_deref())
+        .map_err(CliError::Arguments)?;
+    let images = crate::turn::load_all_user_images(&image_paths, &image_urls, detail)
+        .map_err(CliError::Arguments)?;
     let opts = RunOptions {
         prompt,
         images,

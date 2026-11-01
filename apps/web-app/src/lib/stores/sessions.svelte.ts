@@ -109,6 +109,26 @@ class SessionStore {
 		this.local.setDraft(id, text);
 	}
 
+	draftAttachments(id: string) {
+		return this.local.draftAttachments(id);
+	}
+
+	setDraftAttachments(id: string, files: import('#lib/types/models').MessageAttachment[]): void {
+		this.local.setDraftAttachments(id, files);
+	}
+
+	draftImages(id: string) {
+		return this.local.draftImages(id);
+	}
+
+	setDraftImages(id: string, images: import('#lib/types/models').ImageAttachment[]): void {
+		this.local.setDraftImages(id, images);
+	}
+
+	clearDraftFiles(id: string): void {
+		this.local.clearDraftFiles(id);
+	}
+
 	async refresh(): Promise<void> {
 		await this.remote.refresh();
 	}

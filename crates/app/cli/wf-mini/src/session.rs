@@ -372,7 +372,7 @@ impl NativeSession {
                     "notes: the full history stays in memory; prompt history is plain text on disk (see --history-file/--no-history); workflows run via `wf run --workflow` and the management subcommands",
                 );
                 output::diag_line(
-                    "images: /image <path>... stage images for the next turn, /image lists staged, /image clear drops them; `@file:<path>` mentions resolve images server-side",
+                    "images: /image <path-or-url>... stage images for the next turn, /image lists staged, /image clear drops them; `@file:<path>` mentions resolve images server-side",
                 );
                 CommandAction::Continue
             }
@@ -825,14 +825,14 @@ impl NativeSession {
     }
 
     /// Handle the `/image` staging command: list staged images, drop them,
-    /// or load new paths onto the stage. Loading failures leave the
+    /// or load new paths or remote URLs onto the stage. Loading failures leave the
     /// existing stage untouched; the combined stage is validated so an
     /// oversized stage is reported at stage time, not at send time.
     fn stage_images(&mut self, args: ImageArgs) {
         match args {
             ImageArgs::List => {
                 if self.staged_images.is_empty() {
-                    output::diag_line("no staged images (usage: /image <path>...)");
+                    output::diag_line("no staged images (usage: /image <path-or-url>...)");
                 } else {
                     for (index, image) in self.staged_images.iter().enumerate() {
                         output::diag_line(&format!(
@@ -849,9 +849,7 @@ impl NativeSession {
                 output::diag_line("staged images cleared");
             }
             ImageArgs::Stage(paths) => {
-                let paths: Vec<std::path::PathBuf> =
-                    paths.iter().map(std::path::PathBuf::from).collect();
-                match wf_cli_shared::turn::load_user_images(&paths) {
+                match wf_cli_shared::turn::load_user_image_specs(&paths, None) {
                     Err(err) => output::diag_line(&format!("cannot stage images: {err}")),
                     Ok(loaded) => {
                         let mut combined = self.staged_images.clone();

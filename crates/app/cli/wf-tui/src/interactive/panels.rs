@@ -759,6 +759,25 @@ impl InteractiveController {
                 self.request_recap_now();
                 InteractiveAction::Continue
             }
+            "session.image" => {
+                let trimmed = argument.trim();
+                if trimmed.is_empty() {
+                    for line in self.staged_image_lines() {
+                        self.footer.show_notice(line);
+                    }
+                } else if trimmed == "clear" {
+                    let notice = self.clear_staged_images();
+                    self.footer.show_notice(notice);
+                } else {
+                    let specs: Vec<String> = trimmed
+                        .split_whitespace()
+                        .map(str::to_string)
+                        .collect();
+                    let notice = self.stage_tui_images(&specs);
+                    self.footer.show_notice(notice);
+                }
+                InteractiveAction::Continue
+            }
 
             "agent.append_mode_steering" => {
                 self.append_mode = "steering".to_string();

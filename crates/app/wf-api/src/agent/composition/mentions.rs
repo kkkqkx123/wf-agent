@@ -96,12 +96,20 @@ pub async fn resolve_mentions(ctx: &ApiContext, text: &str) -> (Vec<Message>, Ve
                 }),
             "file" => {
                 // Image references bypass the text snippet path: the bytes
-                // travel as a structured image input instead.
-                if let Some(image) = resolve_image_mention(ctx, id) {
-                    images.push(image);
-                    continue;
+                // travel as a structured image input instead. Image paths never
+                // fall through to text reading so binary bytes cannot enter the
+                // prompt and oversized or unreadable images stay visible.
+                if wf_types::message::is_image_path(id) {
+                    if let Some(image) = resolve_image_mention(ctx, id) {
+                        images.push(image);
+                        continue;
+                    }
+                    Some(format!(
+                        "image: {id} (skipped: unreadable, outside the workspace, or exceeds the size limit)"
+                    ))
+                } else {
+                    resolve_file_mention(ctx, id)
                 }
-                resolve_file_mention(ctx, id)
             }
             "skill" => resolve_skill_mention(ctx, id),
             "tool" => resolve_tool_mention(ctx, id),

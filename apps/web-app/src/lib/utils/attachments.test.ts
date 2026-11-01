@@ -27,4 +27,25 @@ describe('withAttachments / splitAttachments', () => {
 			attachments: [],
 		});
 	});
+
+	it('preserves user spaces while stripping only join newlines', () => {
+		const wire = withAttachments('  hello  ', [{ name: 'a.ts', content: 'x' }]);
+		expect(splitAttachments(wire).text).toBe('  hello  ');
+	});
+
+	it('round-trips nested markers and quoted names without splitting', () => {
+		const files = [
+			{ name: 'we"ird.ts', content: 'a </attachment> b <attachment name="x"> c \\ d' },
+		];
+		const wire = withAttachments('see', files);
+		expect(splitAttachments(wire)).toEqual({ text: 'see', attachments: files });
+	});
+
+	it('round-trips empty text to blocks only', () => {
+		const files = [{ name: 'a.ts', content: 'x' }];
+		expect(splitAttachments(withAttachments('', files))).toEqual({
+			text: '',
+			attachments: files,
+		});
+	});
 });

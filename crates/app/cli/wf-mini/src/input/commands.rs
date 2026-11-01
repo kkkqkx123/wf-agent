@@ -59,9 +59,10 @@ pub enum SlashCommand {
     /// Load the session-level agent context from a JSON file
     /// (`/context-file <path>`), replacing the current map.
     ContextFile(String),
-    /// Stage image files for the next turn (`/image <path>...`); bare
+    /// Stage image files for the next turn (`/image <path-or-url>...`); bare
     /// `/image` lists staged images, `/image clear` drops them. Staged
-    /// images ride the next prompt as a structured payload.
+    /// images ride the next prompt as a structured payload. Local paths are
+    /// inlined, `https:`/`http:`/`data:` URLs travel verbatim.
     Image(ImageArgs),
 }
 

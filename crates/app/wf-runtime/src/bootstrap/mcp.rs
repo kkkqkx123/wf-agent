@@ -7,13 +7,13 @@ pub async fn init_mcp(
 ) -> Option<Arc<wf_tools::mcp::connection::McpConnectionManager>> {
     use wf_tools::mcp::connection::{McpConnectionManager, McpServerRegistry};
 
-    let (Some(settings_dir), Some(project_root)) = (&config.settings_dir, &config.project_root)
-    else {
+    let (settings_dir, project_root) = (&config.settings_dir, &config.project_root);
+
+    let Some(project_root) = project_root else {
         return None;
     };
-
     let settings =
-        wf_config::mcp::load_and_merge_mcp_settings(settings_dir, project_root).unwrap_or_default();
+        wf_config::mcp::try_load_and_merge_mcp_settings(settings_dir.as_deref(), project_root);
     if settings.mcp_servers.is_empty() {
         return None;
     }

@@ -5,7 +5,7 @@ use std::sync::Mutex;
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn setup_test_project(dir: &Path) {
-    let infra = dir.join("configs").join("infrastructure");
+    let infra = dir.join("baselines").join("infrastructure");
     std::fs::create_dir_all(&infra).unwrap();
 
     let mut f = std::fs::File::create(infra.join("storage.toml")).unwrap();
@@ -19,38 +19,6 @@ fn setup_test_project(dir: &Path) {
 
     let mut f = std::fs::File::create(infra.join("output.toml")).unwrap();
     writeln!(f, "dir = \"./test-outputs\"\nlog_file_pattern = \"test.log\"\nenable_log_terminal = false\nenable_sdk_logs = false\nsdk_log_level = \"info\"").unwrap();
-}
-
-/// Project with a preset index + development preset whose `files` mapping
-/// points at custom filenames.
-fn setup_preset_project(dir: &Path) {
-    let infra = dir.join("configs").join("infrastructure");
-    std::fs::create_dir_all(&infra).unwrap();
-
-    write_json(
-        &infra.join("index.json"),
-        r#"{"version": "1.0", "type": "infrastructure_presets", "paths": ["./*.json"]}"#,
-    );
-    write_json(
-        &infra.join("development.json"),
-        r#"{"id": "development", "name": "Development", "files": {"storage": "./custom-storage.toml", "timeout": "./custom-timeout.toml", "metrics": "./custom-metrics.toml", "output": "./custom-output.toml", "file_checkpoint": "./custom-checkpoint.toml", "presets": "./custom-presets.toml", "tools": "./custom-tools.toml", "sandbox": "./custom-sandbox.toml"}}"#,
-    );
-
-    let mut f = std::fs::File::create(infra.join("custom-storage.toml")).unwrap();
-    writeln!(f, "type = \"postgres\"\n[postgres]\nhost = \"localhost\"\nport = 5432\nusername = \"u\"\npassword = \"p\"\ndatabase = \"d\"").unwrap();
-    let mut f = std::fs::File::create(infra.join("custom-timeout.toml")).unwrap();
-    writeln!(f, "default = 42000").unwrap();
-    let mut f = std::fs::File::create(infra.join("custom-metrics.toml")).unwrap();
-    writeln!(f, "enabled = false").unwrap();
-    let mut f = std::fs::File::create(infra.join("custom-output.toml")).unwrap();
-    writeln!(f, "dir = \"./preset-outputs\"\nlog_file_pattern = \"p.log\"\nenable_log_terminal = false\nenable_sdk_logs = false\nsdk_log_level = \"info\"").unwrap();
-}
-
-fn write_json(path: &Path, content: &str) {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).unwrap();
-    }
-    std::fs::write(path, content).unwrap();
 }
 
 fn clear_wf_env_vars() {
@@ -102,14 +70,14 @@ fn test_assemble_from_project_dir() {
 
 #[test]
 fn repo_metrics_toml_matches_schema() {
-    // The checked-in `configs/infrastructure/metrics.toml`
+    // The checked-in `baselines/infrastructure/metrics.toml`
     // parses against the current `MetricsConfig` schema (no removed
     // `template_metrics` section, new fields present). Skipped when the
-    // workspace `configs/` dir is absent (vendored/standalone builds).
+    // workspace `baselines/` dir is absent (vendored/standalone builds).
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..");
-    if !repo_root.join("configs").join("infrastructure").exists() {
+    if !repo_root.join("baselines").join("infrastructure").exists() {
         return;
     }
     let _lock = ENV_LOCK.lock().unwrap();
@@ -233,63 +201,16 @@ fn test_builder_custom_infra_dir() {
 }
 
 #[test]
-fn test_assemble_with_preset_hits_preset() {
-    let _lock = ENV_LOCK.lock().unwrap();
-    clear_wf_env_vars();
-
-    let dir = std::env::temp_dir().join(format!("wf-orch-preset-hit-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    setup_preset_project(&dir);
-
-    let config = ConfigOrchestrator::assemble_with_preset(
-        &dir,
-        Some(DEFAULT_INFRA_PRESET),
-        Some(default_infra_file_mapping()),
-        None,
-    )
-    .unwrap();
-
-    // The development preset maps storage to custom-storage.toml.
-    assert_eq!(config.storage.storage_type, StorageType::Postgres);
-    assert_eq!(config.metrics.enabled, Some(false));
-    assert_eq!(config.output.dir, "./preset-outputs");
-
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn test_assemble_with_preset_fails_on_missing_preset() {
-    let _lock = ENV_LOCK.lock().unwrap();
-    clear_wf_env_vars();
-
-    let dir = std::env::temp_dir().join(format!("wf-orch-preset-miss-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    setup_preset_project(&dir);
-
-    // An explicitly requested preset that cannot be resolved fails instead
-    // of silently falling back to unrelated files.
-    let result = ConfigOrchestrator::assemble_with_preset(
-        &dir,
-        Some("nonexistent"),
-        Some(default_infra_file_mapping()),
-        None,
-    );
-    assert!(result.is_err());
-
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn test_load_default_infrastructure_configs_resolves_default_preset() {
+fn test_load_default_infrastructure_configs_uses_fixed_filenames() {
     let _lock = ENV_LOCK.lock().unwrap();
     clear_wf_env_vars();
 
     let dir = std::env::temp_dir().join(format!("wf-orch-default-preset-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    setup_preset_project(&dir);
+    setup_test_project(&dir);
 
     let config = load_default_infrastructure_configs(&dir).unwrap();
-    assert_eq!(config.storage.storage_type, StorageType::Postgres);
+    assert_eq!(config.storage.storage_type, StorageType::Sqlite);
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -341,12 +262,11 @@ fn test_assemble_new_domain_overrides() {
 
 #[test]
 fn test_full_bundle_assembly_from_repo_configs() {
-    // The checked-in `configs/infrastructure/` preset
-    // bundle (development.json + all domain files) assembles fully.
+    // The checked-in `baselines/infrastructure/` fixed files assemble fully.
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..");
-    if !repo_root.join("configs").join("infrastructure").exists() {
+    if !repo_root.join("baselines").join("infrastructure").exists() {
         return;
     }
     let _lock = ENV_LOCK.lock().unwrap();
@@ -354,7 +274,7 @@ fn test_full_bundle_assembly_from_repo_configs() {
 
     let config = load_default_infrastructure_configs(&repo_root).unwrap();
 
-    // storage/metrics come from the preset mapping (same files).
+    // storage/metrics come from the fixed filenames.
     assert_eq!(config.metrics.enabled, Some(true));
     assert!(config.sandbox.is_some(), "repo sandbox.toml must load");
     assert_eq!(config.output.dir, "./outputs");

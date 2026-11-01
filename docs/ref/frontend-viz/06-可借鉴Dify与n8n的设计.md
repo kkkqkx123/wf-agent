@@ -41,7 +41,7 @@ W 的**工程化底座（受控编辑、纯函数图模块、shadcn 式令牌、
 ### 2.2 借鉴 n8n + Dify：可视节点创建/搜索面板
 - **n8n 有**：节点面板、双击/上下文创建、搜索过滤；**Dify 有**：节点市场/模板一键插入。
 - **W 缺**：仅「双击空白加节点 + hotspot 连线」（`workflows/[id]/+page.svelte` 调 `handleAddNode`），无节点选择面板，`templates` 是注册表而非可视化插入器。
-- **落地建议**：复用 `CommandPalette` 的 UI 模式，新增「**Add Node**」抽屉：列出 `configs/node-templates` 的模板，选中后落到双击坐标（`onbackgrounddoubleclick` 已传 position，`GraphCanvas.svelte:96`、`959`）；从 `templates` 页可「插入到当前画布」。
+- **落地建议**：复用 `CommandPalette` 的 UI 模式，新增「**Add Node**」抽屉：列出 `baselines/node-templates` 的模板，选中后落到双击坐标（`onbackgrounddoubleclick` 已传 position，`GraphCanvas.svelte:96`、`959`）；从 `templates` 页可「插入到当前画布」。
 
 ### 2.3 借鉴 Dify：实时协作光标
 - **Dify 有**：画布协作光标（`docs/02`）。

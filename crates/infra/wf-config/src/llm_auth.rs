@@ -14,22 +14,33 @@ use crate::index::{expand_index_paths, load_index_file};
 use crate::layout;
 use crate::processor::llm_auth::{transform_auth_providers, validate_auth_config};
 
-/// Candidate user-level / project-level roots for the `llm-auth` family,
-/// in precedence order (highest first). `~/.wf` is the global user root;
-/// `.wf-user` is its in-repository demo stand-in.
-pub fn candidate_auth_dirs(project_root: &Path) -> Vec<PathBuf> {
+/// Candidate roots for the `llm-auth` family, in precedence order (highest
+/// first). Only explicitly provided sources are considered: the project
+/// override, the caller-provided settings directory, and — when the caller
+/// opts into ambient workstation state — the home-directory roots and the
+/// in-repository demo stand-in. Services leave ambient disabled so process
+/// environment can never inject providers.
+pub fn candidate_auth_dirs(
+    project_root: &Path,
+    settings_dir: Option<&Path>,
+    include_ambient: bool,
+) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
-    // In-repository user-level demo directory.
-    dirs.push(project_root.join(".wf-user").join(layout::family::LLM_AUTH));
     // Project-level override (tracked config).
     dirs.push(
         project_root
             .join(layout::PROJECT_WF_DIR)
             .join(layout::family::LLM_AUTH),
     );
-    // Legacy project-root configs directory.
-    dirs.push(layout::family_dir(project_root, layout::family::LLM_AUTH));
-    // Global user root.
+    // Explicitly provided global settings directory.
+    if let Some(settings) = settings_dir {
+        dirs.push(settings.join(layout::family::LLM_AUTH));
+    }
+    if !include_ambient {
+        return dirs;
+    }
+    // Ambient workstation state below: the home-directory user root and
+    // the in-repository demo stand-in.
     if let Some(home) = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .filter(|value| !value.is_empty())
@@ -40,6 +51,8 @@ pub fn candidate_auth_dirs(project_root: &Path) -> Vec<PathBuf> {
                 .join(layout::family::LLM_AUTH),
         );
     }
+    // In-repository user-level demo directory.
+    dirs.push(project_root.join(".wf-user").join(layout::family::LLM_AUTH));
     dirs
 }
 
@@ -62,7 +75,7 @@ pub fn load_auth_config_from_dir(dir: &Path) -> ConfigResult<Option<AuthConfig>>
     }
 
     let mut providers = Vec::new();
-    let index_path = dir.join(crate::preset::INDEX_FILE_NAME);
+    let index_path = dir.join(crate::layout::INDEX_FILE_NAME);
     if index_path.exists() {
         let index = load_index_file(dir)?;
         let file_paths = expand_index_paths(&index, dir);
@@ -72,7 +85,7 @@ pub fn load_auth_config_from_dir(dir: &Path) -> ConfigResult<Option<AuthConfig>>
             if path
                 .file_name()
                 .and_then(|n| n.to_str())
-                .map(|n| n.eq_ignore_ascii_case(crate::preset::INDEX_FILE_NAME))
+                .map(|n| n.eq_ignore_ascii_case(crate::layout::INDEX_FILE_NAME))
                 .unwrap_or(false)
             {
                 continue;
@@ -86,9 +99,13 @@ pub fn load_auth_config_from_dir(dir: &Path) -> ConfigResult<Option<AuthConfig>>
         }
     } else {
         // Fall back to a flat glob of *.toml / *.json in the directory.
+        // Documentation samples never match (see `is_example_path`).
         let pattern = dir.join("*.toml");
         if let Ok(paths) = crate::loader::expand_glob_paths(&pattern.to_string_lossy()) {
             for path in paths {
+                if crate::layout::is_example_path(&path) {
+                    continue;
+                }
                 if let Ok(provider) = load_auth_provider(&path) {
                     providers.push(provider);
                 }
@@ -97,6 +114,9 @@ pub fn load_auth_config_from_dir(dir: &Path) -> ConfigResult<Option<AuthConfig>>
         let pattern = dir.join("*.json");
         if let Ok(paths) = crate::loader::expand_glob_paths(&pattern.to_string_lossy()) {
             for path in paths {
+                if crate::layout::is_example_path(&path) {
+                    continue;
+                }
                 if let Ok(provider) = load_auth_provider(&path) {
                     providers.push(provider);
                 }
@@ -116,8 +136,14 @@ pub fn load_auth_config_from_dir(dir: &Path) -> ConfigResult<Option<AuthConfig>>
 
 /// Load an [`AuthConfig`] from the first candidate directory that yields
 /// providers. Returns the default (empty) config when none is found.
-pub fn load_llm_auth_config(project_root: &Path) -> ConfigResult<AuthConfig> {
-    for dir in candidate_auth_dirs(project_root) {
+/// Ambient home-directory sources are only consulted when the caller opts
+/// in; services keep them disabled.
+pub fn load_llm_auth_config(
+    project_root: &Path,
+    settings_dir: Option<&Path>,
+    include_ambient: bool,
+) -> ConfigResult<AuthConfig> {
+    for dir in candidate_auth_dirs(project_root, settings_dir, include_ambient) {
         if let Some(auth) = load_auth_config_from_dir(&dir)? {
             return Ok(auth);
         }
@@ -137,4 +163,44 @@ pub fn get_project_llm_auth_path(project_root: &Path) -> PathBuf {
 /// known.
 pub fn get_global_llm_auth_path(settings_dir: &Path) -> PathBuf {
     settings_dir.join(layout::family::LLM_AUTH)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ambient_disabled_yields_explicit_sources_only() {
+        let project = std::path::Path::new("/repo");
+        let settings = std::path::Path::new("/global");
+        let dirs = candidate_auth_dirs(project, Some(settings), false);
+        assert_eq!(dirs.len(), 2);
+        assert_eq!(dirs[0], get_project_llm_auth_path(project));
+        assert_eq!(dirs[1], get_global_llm_auth_path(settings));
+    }
+
+    #[test]
+    fn ambient_disabled_without_settings_dir_is_project_only() {
+        let project = std::path::Path::new("/repo");
+        let dirs = candidate_auth_dirs(project, None, false);
+        assert_eq!(dirs, vec![get_project_llm_auth_path(project)]);
+    }
+
+    #[test]
+    fn example_declarations_never_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let family = dir.path().join("llm-auth");
+        std::fs::create_dir_all(&family).unwrap();
+        std::fs::write(
+            family.join("index.json"),
+            r#"{"version": "1.0", "type": "llm_auth", "paths": ["./*.toml"]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            family.join("demo.auth.example.toml"),
+            "id = \"demo\"\nmethod = \"api_key\"\n",
+        )
+        .unwrap();
+        assert!(load_auth_config_from_dir(&family).unwrap().is_none());
+    }
 }

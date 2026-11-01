@@ -5,7 +5,7 @@
 //! priority chain:
 //!
 //! CLI `--addr` flag > `*_ENABLED` / `API_KEYS` / `WF_SERVER_BIND_ADDR` env >
-//! `configs/server/*.toml` file layer > built-in defaults.
+//! `baselines/server/*.toml` file layer > built-in defaults.
 //!
 //! Secrets never live in files: API keys come from the `API_KEYS`
 //! environment variable only. The file layer is lenient: missing files fall
@@ -30,7 +30,7 @@ pub const BIND_ADDR_ENV_VAR: &str = "WF_SERVER_BIND_ADDR";
 pub const STATIC_DIR_ENV_VAR: &str = "WF_SERVER_STATIC_DIR";
 
 /// File name of the server transport config inside the server directory
-/// (`{project_root}/configs/server/server.toml`).
+/// (`{project_root}/baselines/server/server.toml`).
 pub const SERVER_CONFIG_FILE: &str = "server.toml";
 
 /// Owned server configuration: transport plus middleware.
@@ -167,7 +167,7 @@ mod tests {
     use super::*;
 
     fn server_dir(root: &Path) -> std::path::PathBuf {
-        root.join("configs").join("server")
+        root.join("baselines").join("server")
     }
 
     #[test]

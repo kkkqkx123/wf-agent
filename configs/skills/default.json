@@ -1,9 +1,0 @@
-{
-  "id": "default",
-  "name": "Default Skills Collection",
-  "description": "Standard skill definitions for general use",
-  "tags": ["general"],
-  "paths": [
-    "./default.json"
-  ]
-}

@@ -79,18 +79,11 @@ async fn resolve_definition(
     }
 }
 
-/// Typed input gate against the workflow variable declarations.
-/// Unknown keys pass for forward compatibility; keys with a declared
-/// `VariableValueType` must match it. Shape errors reuse the W1-W3 wording.
-pub fn validate_workflow_input_with_variables(
-    input: Option<&Value>,
-    variables: Option<&[wf_types::workflow_execution::VariableDefinition]>,
-) -> Result<(), crate::infra::error::ApiError> {
-    validate_workflow_input_with_variables_and_policy(input, variables, false)
-}
-
-/// Policy variant of [`validate_workflow_input_with_variables`]. `strict`
+/// Typed input gate against the workflow variable declarations. `strict`
 /// rejects unknown top-level keys; the definition side owns the switch.
+/// Unknown keys pass for forward compatibility when `strict` is false;
+/// keys with a declared `VariableValueType` must match it. Shape errors
+/// reuse the W1-W3 wording.
 pub fn validate_workflow_input_with_variables_and_policy(
     input: Option<&Value>,
     variables: Option<&[wf_types::workflow_execution::VariableDefinition]>,

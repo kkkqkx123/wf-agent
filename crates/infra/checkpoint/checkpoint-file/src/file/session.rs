@@ -538,7 +538,7 @@ mod tests {
         let concurrent = git
             .write_commit(
                 &tree,
-                &[head.clone()],
+                std::slice::from_ref(&head),
                 actor.as_str(),
                 SYSTEM_COMMITTER,
                 1,

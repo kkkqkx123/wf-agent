@@ -413,6 +413,7 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
 /// `handlers`/`tool_registry` come from the same wiring used for triggered
 /// sub-workflows: a default handler set with the shared gateway/sandbox and
 /// the shared tool registry when present.
+#[allow(clippy::too_many_arguments)]
 fn context_runner(
     event_bus: &Arc<EventBus>,
     contexts: &Arc<ExecutionContextRegistry>,

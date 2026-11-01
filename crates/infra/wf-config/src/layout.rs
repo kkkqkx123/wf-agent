@@ -8,37 +8,45 @@
 /// Per-project hidden state directory: `{project_root}/.wf`.
 pub const PROJECT_WF_DIR: &str = ".wf";
 
-/// Project-root-relative root of all bundled config families:
-/// `{project_root}/configs`.
-pub const CONFIGS_DIR: &str = "configs";
+/// Project-root-relative root of all bundled project defaults:
+/// `{project_root}/baselines`. These files are versioned team-shared
+/// deployment baselines, not per-user configuration.
+///
+/// Index file name shared by index-based families (`index.json`).
+pub const BASELINES_DIR: &str = "baselines";
 
-/// Directory name of each config family under `configs/`.
+/// Index file name shared by index-based config families.
+pub const INDEX_FILE_NAME: &str = "index.json";
+
+/// Directory name of each config family under `baselines/`.
 pub mod family {
-    /// MCP preset definitions (`configs/mcp`).
+    /// MCP settings family name (`mcp`). Effective files live in the
+    /// explicit settings directory and `.wf/mcp.json`; `baselines/`
+    /// holds only documentation samples.
     pub const MCP: &str = "mcp";
-    /// Skill collection definitions (`configs/skills`).
+    /// Skill settings family name (`skills`). Effective files live in the
+    /// explicit settings directory and `.wf/skills.json`; `baselines/`
+    /// holds only documentation samples.
     pub const SKILLS: &str = "skills";
-    /// Infrastructure config files and presets (`configs/infrastructure`).
+    /// Infrastructure domain files with fixed filenames
+    /// (`baselines/infrastructure/*.toml`).
     pub const INFRASTRUCTURE: &str = "infrastructure";
-    /// Server transport and middleware config (`configs/server`).
+    /// Server transport and middleware files (`baselines/server/*.toml`).
     pub const SERVER: &str = "server";
-    /// LLM provider definitions (`configs/llm-providers`).
-    pub const LLM_PROVIDERS: &str = "llm-providers";
-    /// LLM profile definitions (`configs/llm-profiles`).
-    pub const LLM_PROFILES: &str = "llm-profiles";
-    /// LLM authentication declarations (`configs/llm-auth` / user-level `llm-auth`).
+    /// LLM authentication declarations (`baselines/llm-auth` legacy path /
+    /// user-level `llm-auth`).
     pub const LLM_AUTH: &str = "llm-auth";
-    /// Workflow definitions (`configs/workflows`).
+    /// Workflow definitions (`baselines/workflows`).
     pub const WORKFLOWS: &str = "workflows";
-    /// Agent loop definitions (`configs/agent-loops`).
+    /// Agent loop definitions (`baselines/agent-loops`).
     pub const AGENT_LOOPS: &str = "agent-loops";
-    /// Decision profile definitions (`configs/decision-profiles`).
+    /// Decision profile definitions (`baselines/decision-profiles`).
     pub const DECISION_PROFILES: &str = "decision-profiles";
-    /// Node template definitions (`configs/node-templates`).
+    /// Node template definitions (`baselines/node-templates`).
     pub const NODE_TEMPLATES: &str = "node-templates";
-    /// Prompt template definitions (`configs/prompt-templates`).
+    /// Prompt template definitions (`baselines/prompt-templates`).
     pub const PROMPT_TEMPLATES: &str = "prompt-templates";
-    /// Script definitions (`configs/scripts`).
+    /// Script definitions (`baselines/scripts`).
     pub const SCRIPTS: &str = "scripts";
 }
 
@@ -83,10 +91,20 @@ pub fn ensure_project_wf_volatile_dirs(project_root: &std::path::Path) -> std::i
     Ok(())
 }
 
-/// Join a project root with a config family directory:
-/// `{project_root}/configs/{family}`.
+/// Join a project root with a baselines family directory:
+/// `{project_root}/baselines/{family}`.
 pub fn family_dir(project_root: &std::path::Path, family: &str) -> std::path::PathBuf {
-    project_root.join(CONFIGS_DIR).join(family)
+    project_root.join(BASELINES_DIR).join(family)
+}
+
+/// Documentation samples are never loaded: any file whose name contains
+/// `.example.` is skipped by index expansion and family globs so checked-in
+/// samples cannot leak into a running configuration.
+pub fn is_example_path(path: &std::path::Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.contains(".example."))
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -134,5 +152,16 @@ mod tests {
             .unwrap(),
             VOLATILE_GITIGNORE_CONTENT
         );
+    }
+
+    #[test]
+    fn example_files_are_recognized_by_name() {
+        use std::path::Path;
+        assert!(is_example_path(Path::new(
+            "llm-auth/api-key-provider.auth.example.toml"
+        )));
+        assert!(is_example_path(Path::new("workflows/code.review.example.toml")));
+        assert!(!is_example_path(Path::new("llm-auth/custom.auth.toml")));
+        assert!(!is_example_path(Path::new("index.json")));
     }
 }

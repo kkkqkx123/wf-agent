@@ -7,7 +7,7 @@ use super::checkpoint::{create_checkpoint, restore_and_resume, restore_checkpoin
 use super::graph::definition_to_graph;
 use super::lifecycle::{
     default_options, entry_timeout_ms, execute, resume, status, validate_workflow_input,
-    validate_workflow_input_with_variables, ExecuteWorkflowParams, DEFAULT_EXECUTION_TIMEOUT_MS,
+    validate_workflow_input_with_variables_and_policy, ExecuteWorkflowParams, DEFAULT_EXECUTION_TIMEOUT_MS,
 };
 use super::summary::execution_summaries;
 use crate::infra::context::ApiContext;
@@ -304,19 +304,22 @@ fn workflow_input_typed_gate_checks_declared_types() {
         required: None,
         metadata: None,
     }];
-    assert!(validate_workflow_input_with_variables(
+    assert!(validate_workflow_input_with_variables_and_policy(
         Some(&serde_json::json!({"count": 1})),
-        Some(&variables)
+        Some(&variables),
+        false
     )
     .is_ok());
-    assert!(validate_workflow_input_with_variables(
+    assert!(validate_workflow_input_with_variables_and_policy(
         Some(&serde_json::json!({"count": "many"})),
-        Some(&variables)
+        Some(&variables),
+        false
     )
     .is_err());
-    assert!(validate_workflow_input_with_variables(
+    assert!(validate_workflow_input_with_variables_and_policy(
         Some(&serde_json::json!({"other": "anything"})),
-        Some(&variables)
+        Some(&variables),
+        false
     )
     .is_ok());
 }

@@ -20,7 +20,7 @@ pub fn create_index_resolver(
             let index = load_index_file(&owned_path)?;
             // Glob patterns resolve relative to the index file's directory.
             let index_file_path = if owned_path.is_dir() {
-                owned_path.join(crate::preset::INDEX_FILE_NAME)
+                owned_path.join(crate::layout::INDEX_FILE_NAME)
             } else {
                 owned_path
             };
@@ -34,7 +34,7 @@ pub fn create_index_resolver(
                 let is_index = Path::new(file_path)
                     .file_name()
                     .and_then(|n| n.to_str())
-                    .map(|n| n.eq_ignore_ascii_case(crate::preset::INDEX_FILE_NAME))
+                    .map(|n| n.eq_ignore_ascii_case(crate::layout::INDEX_FILE_NAME))
                     .unwrap_or(false);
                 if is_index {
                     continue;

@@ -488,7 +488,7 @@ pub struct InteractiveController {
     /// turn starts; a turn that never starts leaves them staged.
     staged_images: Vec<wf_types::message::UserImageInput>,
     /// Render detail applied to newly staged images. Empty means default.
-    staged_image_detail: Option<llm_types::message::ImageDetail>,
+    staged_image_detail: Option<wf_types::message::ImageDetail>,
     /// Key resolution table for the footer panel routes.
     keymap: tui_core::keymap::Keymap,
     /// Whether the user asked to edit the composer draft in `$EDITOR`.
@@ -797,13 +797,13 @@ impl InteractiveController {
         lines
     }
 
-    fn image_detail_label(detail: Option<llm_types::message::ImageDetail>) -> &'static str {
+    fn image_detail_label(detail: Option<wf_types::message::ImageDetail>) -> &'static str {
         match detail {
             None => "provider default",
-            Some(llm_types::message::ImageDetail::Auto) => "auto",
-            Some(llm_types::message::ImageDetail::Low) => "low",
-            Some(llm_types::message::ImageDetail::High) => "high",
-            Some(llm_types::message::ImageDetail::Original) => "original",
+            Some(wf_types::message::ImageDetail::Auto) => "auto",
+            Some(wf_types::message::ImageDetail::Low) => "low",
+            Some(wf_types::message::ImageDetail::High) => "high",
+            Some(wf_types::message::ImageDetail::Original) => "original",
         }
     }
 

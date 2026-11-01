@@ -3,9 +3,7 @@ use std::sync::Arc;
 use tracing::warn;
 
 use wf_config::file_layer::{load_user_file_layer, FileLayerConfig};
-use wf_config::orchestrator::{
-    default_infra_file_mapping, ConfigOrchestratorBuilder, ConfigOverrides,
-};
+use wf_config::orchestrator::{ConfigOrchestratorBuilder, ConfigOverrides};
 use wf_types::config::file_checkpoint::FileCheckpointConfig;
 use wf_types::config::limits::LimitsConfig;
 use wf_types::config::metrics::MetricsConfig;
@@ -99,16 +97,16 @@ pub struct LlmConfig {
 /// stay the highest priority.
 #[derive(Debug, Clone, Default)]
 pub struct InfraSourceConfig {
-    /// Project root (contains `configs/infrastructure`, `configs/skills`, ...).
+    /// Project root (contains `baselines/infrastructure`).
     pub project_root: Option<std::path::PathBuf>,
-    /// Infrastructure preset name (defaults to the `development` preset).
-    pub preset_name: Option<String>,
     /// Global settings directory (contains `mcp-settings.json`,
-    /// `skill-settings.json`, `infrastructure-settings.json`).
+    /// `skill-settings.json`).
     pub settings_dir: Option<std::path::PathBuf>,
-    /// Skill collection name (skill presets index mode); `None` falls back to
-    /// the legacy global/project skill settings chain.
-    pub skills_collection: Option<String>,
+    /// Opt into ambient workstation state (XDG config home, `~/.wf`, the
+    /// in-repository demo directory). Workstation CLIs enable this;
+    /// services keep the default (`false`) so process environment can
+    /// never inject configuration and tenants stay isolated.
+    pub allow_ambient: bool,
     /// Runtime environment used to select environment-optimized defaults when
     /// an infrastructure config file is missing/unparseable. `None` keeps the
     /// orchestrator default (`Development`).
@@ -235,8 +233,9 @@ fn apply_shell_tool_config(
 /// fields (log level needs the runtime-owned `LogConfig`).
 ///
 /// Precedence across the whole resolution (highest first): programmatic
-/// `RuntimeConfig` > `WF_*` environment > user file layer (`~/.wf` +
-/// project `.wf/config.toml`) > preset files (`configs/infrastructure`) >
+/// `RuntimeConfig` > `WF_*` environment > explicit settings dir plus
+/// project `.wf/config.toml` (ambient workstation state joins only when
+/// the caller opts in) > fixed files (`baselines/infrastructure`) >
 /// built-in defaults. The environment check below exists because the file
 /// layer runs before the orchestrator bakes `WF_*` overrides into the
 /// assembled config: without it a dotfile `storage` would silently beat an
@@ -279,20 +278,23 @@ pub async fn resolve_infra_config(
     }
 
     // User/project config-file layer fills unset fields first, so the
-    // infrastructure preset below and any caller-supplied values
+    // fixed infrastructure files below and any caller-supplied values
     // (CLI parameters) keep their higher priority. `WF_*` environment
-    // overrides beat the file layer (see `apply_file_layer`).
-    let file_layer = load_user_file_layer(&project_root);
+    // overrides beat the file layer (see `apply_file_layer`). The global
+    // side is the explicit settings dir; ambient workstation state only
+    // joins when the caller opts in, so services never read the daemon
+    // home directory by default.
+    let file_global = infra.settings_dir.clone().or_else(|| {
+        if infra.allow_ambient {
+            wf_config::file_layer::user_config_dir()
+        } else {
+            None
+        }
+    });
+    let file_layer = load_user_file_layer(file_global, &project_root);
     apply_file_layer(&mut config, &file_layer);
 
-    let preset_name = infra
-        .preset_name
-        .clone()
-        .unwrap_or_else(|| wf_config::orchestrator::DEFAULT_INFRA_PRESET.to_string());
-
     let mut builder = ConfigOrchestratorBuilder::new(&project_root)
-        .preset_name(Some(&preset_name))
-        .default_paths(Some(default_infra_file_mapping()))
         .runtime_env(
             infra
                 .runtime_env
@@ -306,7 +308,7 @@ pub async fn resolve_infra_config(
         .assemble(Some(infra.overrides.clone()))
         .map_err(|e| {
             crate::error::RuntimeError::Config(format!(
-                "Infrastructure config resolution failed (preset `{preset_name}`): {e}"
+                "Infrastructure config resolution failed: {e}"
             ))
         })?;
 
@@ -349,7 +351,7 @@ pub async fn resolve_infra_config(
     if config.tool_approval == wf_types::config::tool_approval::ToolApprovalConfig::default() {
         config.tool_approval = assembled.tool_approval;
     }
-    // User git has no dedicated infrastructure preset file yet; the
+    // User git has no dedicated infrastructure domain file yet; the
     // programmatic value wins when present, otherwise a disabled default
     // keeps the domain off until the host configures a repo root.
     if config.user_git.is_none() {
@@ -359,19 +361,14 @@ pub async fn resolve_infra_config(
         config.limits = assembled.limits;
     }
 
-    // Skill settings chain (global -> project, or collection mode). Lenient:
+    // Skill settings chain (global -> project). Lenient:
     // a missing/invalid skill config falls back to the defaults. Without a
     // global settings dir the chain runs project-only.
     if config.skills == wf_types::skill::SkillConfig::default() {
         let skills = match infra.settings_dir.as_deref() {
-            Some(settings_dir) => match &infra.skills_collection {
-                Some(name) => wf_config::skill::load_and_merge_skill_config_with_collection(
-                    settings_dir,
-                    &project_root,
-                    Some(name),
-                ),
-                None => wf_config::skill::load_and_merge_skill_config(settings_dir, &project_root),
-            },
+            Some(settings_dir) => {
+                wf_config::skill::load_and_merge_skill_config(settings_dir, &project_root)
+            }
             None => {
                 // No global settings dir configured: load only the project
                 // layer instead of passing an empty sentinel path.
@@ -395,39 +392,43 @@ pub async fn resolve_infra_config(
         config.mcp.project_root = infra.project_root.clone();
     }
 
-    // Load declarative LLM auth surfaces from the user-level/project-level
-    // `llm-auth` family so `LlmConfig.auth` can be driven by config files
-    // instead of programmatic defaults. An explicitly populated auth config
-    // keeps its higher priority. Project roots win; when they yield nothing
-    // the global settings dir is the fallback so global-only hosts still
-    // pick up declarations.
-    if config.llm.auth == wf_types::config::llm_auth::AuthConfig::default() {
-        if !project_root.as_os_str().is_empty() {
-            match wf_config::llm_auth::load_llm_auth_config(&project_root) {
-                Ok(auth) => {
-                    if !auth.providers.is_empty() {
-                        config.llm.auth = auth;
-                    }
-                }
-                Err(e) => warn!(error = %e, "failed to load llm-auth config; keeping defaults"),
-            }
-        }
-        if config.llm.auth == wf_types::config::llm_auth::AuthConfig::default() {
-            if let Some(settings_dir) = infra.settings_dir.as_deref() {
-                let dir = wf_config::llm_auth::get_global_llm_auth_path(settings_dir);
-                match wf_config::llm_auth::load_auth_config_from_dir(&dir) {
-                    Ok(Some(auth)) => {
-                        if !auth.providers.is_empty() {
-                            config.llm.auth = auth;
-                        }
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        warn!(error = %e, "failed to load global llm-auth config; keeping defaults")
-                    }
+    // Load declarative LLM auth surfaces from the explicit project and
+    // settings-dir `llm-auth` families so `LlmConfig.auth` can be driven
+    // by config files instead of programmatic defaults. Ambient
+    // home-directory sources only join when the caller opts in. An
+    // explicitly populated auth config keeps its higher priority.
+    if config.llm.auth == wf_types::config::llm_auth::AuthConfig::default()
+        && !project_root.as_os_str().is_empty()
+    {
+        match wf_config::llm_auth::load_llm_auth_config(
+            &project_root,
+            infra.settings_dir.as_deref(),
+            infra.allow_ambient,
+        ) {
+            Ok(auth) => {
+                if !auth.providers.is_empty() {
+                    config.llm.auth = auth;
                 }
             }
+            Err(e) => warn!(error = %e, "failed to load llm-auth config; keeping defaults"),
         }
+    }
+    // Credential store placement: with ambient disabled the store resolves
+    // next to the project so tenants never share the daemon home
+    // directory. Workstation CLIs keep the home-directory default by
+    // leaving ambient enabled. An explicitly configured store path always
+    // wins.
+    if !infra.allow_ambient
+        && config.llm.auth.store_path.is_none()
+        && !project_root.as_os_str().is_empty()
+    {
+        config.llm.auth.store_path = Some(
+            project_root
+                .join(wf_config::layout::PROJECT_WF_DIR)
+                .join("auth.json")
+                .to_string_lossy()
+                .into_owned(),
+        );
     }
 
     Ok(config)

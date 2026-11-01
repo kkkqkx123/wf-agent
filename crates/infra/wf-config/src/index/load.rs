@@ -4,7 +4,7 @@ use super::*;
 /// `index.json` is used).
 pub fn load_index_file(path: &Path) -> ConfigResult<ConfigIndexFile> {
     let file_path = if path.is_dir() {
-        path.join(crate::preset::INDEX_FILE_NAME)
+        path.join(crate::layout::INDEX_FILE_NAME)
     } else {
         path.to_path_buf()
     };
@@ -27,7 +27,7 @@ pub fn load_index_file(path: &Path) -> ConfigResult<ConfigIndexFile> {
 /// Check if an index file exists at the given path (or directory).
 pub fn index_file_exists(path: &Path) -> bool {
     let file_path = if path.is_dir() {
-        path.join(crate::preset::INDEX_FILE_NAME)
+        path.join(crate::layout::INDEX_FILE_NAME)
     } else {
         path.to_path_buf()
     };
@@ -35,7 +35,8 @@ pub fn index_file_exists(path: &Path) -> bool {
 }
 
 /// Expand all glob patterns in the index file into absolute file paths
-/// (deduplicated).
+/// (deduplicated). Documentation samples (`*.example.*`) never match:
+/// they describe schemas and must not leak into a running configuration.
 pub fn expand_index_paths(index: &ConfigIndexFile, base_dir: &Path) -> Vec<String> {
     let mut result = Vec::new();
     for pattern in &index.paths {
@@ -44,6 +45,9 @@ pub fn expand_index_paths(index: &ConfigIndexFile, base_dir: &Path) -> Vec<Strin
         if full_str.contains('*') {
             if let Ok(entries) = crate::loader::expand_glob_paths(&full_str) {
                 for entry in entries {
+                    if crate::layout::is_example_path(&entry) {
+                        continue;
+                    }
                     result.push(entry.to_string_lossy().to_string());
                 }
             }

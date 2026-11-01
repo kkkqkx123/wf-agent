@@ -1,13 +1,16 @@
-//! User-level config file layer (global + project dotfile).
+//! User-level config file layer (explicit global plus project dotfile).
 //!
-//! Loads `$XDG_CONFIG_HOME/wf/config.toml` then `<project>/.wf/config.toml`
-//! (project wins) leniently: absent files yield defaults and a malformed
-//! file is skipped with a warning instead of failing bootstrap. This layer
+//! Loads the caller-provided global `config.toml` then
+//! `<project>/.wf/config.toml` (project wins) leniently: absent files yield
+//! defaults and a malformed file is skipped with a warning instead of
+//! failing bootstrap. Workstation CLIs pass `user_config_dir()` as the
+//! global dir; services pass an explicit `--settings-dir` or `None` to
+//! disable the ambient layer entirely. This layer
 //! covers only the small set of host knobs operators expect in a dotfile
-//! (`storage`, `log_level`, `tool_approval`); infrastructure presets stay in
+//! (`storage`, `log_level`, `tool_approval`); fixed infrastructure files stay in
 //! the orchestrator, which applies on top with higher priority. File
 //! checkpoint and sandbox settings are deliberately excluded here so the
-//! dotfile layer can never shadow the infrastructure preset mapping with a
+//! dotfile layer can never shadow the fixed infrastructure files with a
 //! partial sibling value.
 //!
 //! The CLI frontend display knobs live in the sibling `tui.toml` file and
@@ -47,10 +50,17 @@ pub fn user_config_dir() -> Option<PathBuf> {
     Some(base.join("wf"))
 }
 
-/// Layer paths in precedence order (low to high): global file then project
-/// file, so the project dotfile wins.
-pub fn user_layer_paths(project_root: &Path) -> Vec<PathBuf> {
-    layer_paths(user_config_dir(), project_root)
+/// Layer paths in precedence order (low to high): explicit global file
+/// then project file, so the project dotfile wins. A `None` global dir
+/// disables the ambient layer entirely: only the project file is read.
+/// Callers resolve the global dir themselves (`user_config_dir` for
+/// workstation CLIs, an explicit `--settings-dir` for services) so loaders
+/// never read process environment on their own.
+pub fn user_layer_paths(
+    global_config_dir: Option<PathBuf>,
+    project_root: &Path,
+) -> Vec<PathBuf> {
+    layer_paths(global_config_dir, project_root)
 }
 
 fn layer_paths(global_config_dir: Option<PathBuf>, project_root: &Path) -> Vec<PathBuf> {
@@ -65,11 +75,15 @@ fn layer_paths(global_config_dir: Option<PathBuf>, project_root: &Path) -> Vec<P
         .collect()
 }
 
-/// Load the user config-file layer (global then project, project wins).
-/// Returns defaults when no file exists; a malformed file is skipped with a
-/// warning rather than failing the caller.
-pub fn load_user_file_layer(project_root: &Path) -> FileLayerConfig {
-    load_file_layer(user_config_dir(), project_root)
+/// Load the user config-file layer (explicit global then project, project
+/// wins). Returns defaults when no file exists; a malformed file is skipped
+/// with a warning rather than failing the caller. Passing `None` as the
+/// global dir reads the project file only.
+pub fn load_user_file_layer(
+    global_config_dir: Option<PathBuf>,
+    project_root: &Path,
+) -> FileLayerConfig {
+    load_file_layer(global_config_dir, project_root)
 }
 
 fn load_file_layer(global_config_dir: Option<PathBuf>, project_root: &Path) -> FileLayerConfig {
@@ -120,6 +134,20 @@ mod tests {
         .unwrap();
 
         let layer = load_file_layer(Some(global_dir.path().to_path_buf()), project_dir.path());
+        assert_eq!(layer.log_level.as_deref(), Some("info"));
+    }
+
+    #[test]
+    fn absent_global_dir_reads_project_only() {
+        let project_dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(project_dir.path().join(".wf")).unwrap();
+        std::fs::write(
+            project_dir.path().join(".wf").join("config.toml"),
+            "log_level = \"info\"\n",
+        )
+        .unwrap();
+
+        let layer = load_user_file_layer(None, project_dir.path());
         assert_eq!(layer.log_level.as_deref(), Some("info"));
     }
 }

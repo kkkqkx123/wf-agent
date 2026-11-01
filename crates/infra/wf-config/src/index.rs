@@ -77,6 +77,24 @@ mod tests {
     }
 
     #[test]
+    fn test_index_expansion_skips_example_files() {
+        let path = std::env::temp_dir().join(format!("wf-index-examples-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).unwrap();
+        write_json(
+            &path.join("index.json"),
+            r#"{"version": "1.0", "type": "llm_auth", "paths": ["./*.toml"]}"#,
+        );
+        write_json(&path.join("custom.auth.toml"), "id = \"x\"\n");
+        write_json(&path.join("sample.auth.example.toml"), "id = \"y\"\n");
+        let index = load_index_file(&path).unwrap();
+        let expanded = expand_index_paths(&index, &path);
+        assert_eq!(expanded.len(), 1);
+        assert!(expanded[0].ends_with("custom.auth.toml"));
+        let _ = std::fs::remove_dir_all(&path);
+    }
+
+    #[test]
     fn test_index_registry_idempotent() {
         let mut registry = IndexRegistry::new();
         assert!(!registry.has_resolver(&IndexType::LlmProfiles));

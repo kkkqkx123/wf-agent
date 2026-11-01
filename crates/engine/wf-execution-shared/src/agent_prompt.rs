@@ -145,7 +145,6 @@ pub fn assemble_agent_prompt(
 /// through, relative paths anchor against the process cwd, and missing or
 /// unresolvable values fall back to `None` (the renderer then reports the
 /// process cwd itself).
-
 pub fn normalize_prompt_workdir(raw: Option<&str>) -> Option<String> {
     let raw = raw?;
     let candidate = std::path::Path::new(raw);

@@ -20,7 +20,7 @@ use wf_config::env::{env_parse_bool, env_parse_int, env_parse_list, EnvValue};
 // Config
 // ---------------------------------------------------------------------------
 ///
-/// File layer (`configs/server/*.toml`) fills non-secret fields; environment
+/// File layer (`baselines/server/*.toml`) fills non-secret fields; environment
 /// overrides the fields it supports; API keys come from the `API_KEYS`
 /// environment variable only and never from files.
 /// File name of the auth middleware config inside the server directory.

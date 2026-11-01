@@ -127,7 +127,7 @@ pub struct NativeSession {
     staged_images: Vec<wf_types::message::UserImageInput>,
     /// Render detail applied to newly staged images (`/image-detail`).
     /// Empty means the provider default; kept across turns until changed.
-    staged_image_detail: Option<llm_types::message::ImageDetail>,
+    staged_image_detail: Option<wf_types::message::ImageDetail>,
 }
 
 /// What a slash command asks the loop to do.
@@ -883,13 +883,13 @@ impl NativeSession {
         }
     }
 
-    fn detail_label(detail: Option<llm_types::message::ImageDetail>) -> &'static str {
+    fn detail_label(detail: Option<wf_types::message::ImageDetail>) -> &'static str {
         match detail {
             None => "provider default",
-            Some(llm_types::message::ImageDetail::Auto) => "auto",
-            Some(llm_types::message::ImageDetail::Low) => "low",
-            Some(llm_types::message::ImageDetail::High) => "high",
-            Some(llm_types::message::ImageDetail::Original) => "original",
+            Some(wf_types::message::ImageDetail::Auto) => "auto",
+            Some(wf_types::message::ImageDetail::Low) => "low",
+            Some(wf_types::message::ImageDetail::High) => "high",
+            Some(wf_types::message::ImageDetail::Original) => "original",
         }
     }
 

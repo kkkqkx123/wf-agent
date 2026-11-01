@@ -355,7 +355,7 @@ pub fn is_remote_image_spec(spec: &str) -> bool {
 }
 
 /// Parse an optional `--image-detail` value. Empty means provider default.
-pub fn parse_image_detail_arg(raw: Option<&str>) -> Result<Option<llm_types::message::ImageDetail>, String> {
+pub fn parse_image_detail_arg(raw: Option<&str>) -> Result<Option<wf_types::message::ImageDetail>, String> {
     match raw.map(str::trim).filter(|value| !value.is_empty()) {
         None => Ok(None),
         Some(value) => wf_types::message::parse_image_detail(value).map(Some),
@@ -367,7 +367,7 @@ pub fn parse_image_detail_arg(raw: Option<&str>) -> Result<Option<llm_types::mes
 /// combined stage is validated so oversized or mistyped stages fail here.
 pub fn load_user_image_specs(
     specs: &[String],
-    detail: Option<llm_types::message::ImageDetail>,
+    detail: Option<wf_types::message::ImageDetail>,
 ) -> Result<Vec<wf_types::message::UserImageInput>, String> {
     use base64::Engine as _;
     let mut images = Vec::with_capacity(specs.len());
@@ -419,7 +419,7 @@ pub fn load_user_image_specs(
 pub fn load_all_user_images(
     paths: &[std::path::PathBuf],
     urls: &[String],
-    detail: Option<llm_types::message::ImageDetail>,
+    detail: Option<wf_types::message::ImageDetail>,
 ) -> Result<Vec<wf_types::message::UserImageInput>, String> {
     let mut specs: Vec<String> = paths
         .iter()

@@ -3,8 +3,9 @@
 # =============================================================================
 #
 # This directory contains project-specific configuration that overrides
-# global defaults. Files here are loaded on top of any global config
-# found at default system locations.
+# shared defaults. Files here are loaded on top of the explicit global
+# settings directory (if the host provides one) and the versioned
+# `baselines/` directory.
 #
 # File layout:
 #
@@ -28,9 +29,12 @@
 # force-overwritten once customized.
 #
 # Priority (lower number = higher priority):
-#   1. CLI flags / SDK Options
-#   2. .wf/ files (project-level)
-#   3. Global config at system default location
-#   4. Processor hardcoded defaults
+#   1. CLI flags / SDK Options (incl. programmatic ConfigOverrides)
+#   2. WF_* environment variables
+#   3. .wf/ files (project-level) + explicit settings dir
+#      (ambient workstation state joins only with an explicit opt-in;
+#      services never read it)
+#   4. baselines/ fixed files (project-owned deployment baselines)
+#   5. Built-in code defaults
 #
 # =============================================================================

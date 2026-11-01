@@ -19,15 +19,15 @@ struct Args {
     #[arg(long)]
     addr: Option<SocketAddr>,
 
-    /// Project root for file-layer config (configs/infrastructure)
+    /// Project root for file-layer config (baselines/infrastructure)
     #[arg(long)]
     config: Option<PathBuf>,
 
-    /// Infrastructure preset name from the server-owned registry
-    /// (`configs/infrastructure/index.json`). Registry names only;
-    /// file paths are never accepted here.
+    /// Explicit global settings directory (mcp-settings.json,
+    /// skill-settings.json, llm-auth/). Absent means project-only:
+    /// the server never reads ambient home-directory state.
     #[arg(long)]
-    preset: Option<String>,
+    settings_dir: Option<PathBuf>,
 
     /// Web frontend build directory served with SPA fallback. Wins over
     /// `WF_SERVER_STATIC_DIR` env and the `server.toml` file layer.
@@ -61,11 +61,11 @@ fn build_runtime_config(args: &Args) -> (RuntimeConfig, Option<InfraSourceConfig
         config.log_config = config.log_config.with_level(normalized.to_string());
     }
 
-    let source = match (args.config.clone(), args.preset.clone()) {
-        (None, None) => None,
-        (project_root, preset_name) => Some(InfraSourceConfig {
+    let source = match args.config.clone() {
+        None => None,
+        project_root => Some(InfraSourceConfig {
             project_root,
-            preset_name,
+            settings_dir: args.settings_dir.clone(),
             ..Default::default()
         }),
     };

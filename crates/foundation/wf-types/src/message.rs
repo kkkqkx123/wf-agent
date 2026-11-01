@@ -6,8 +6,8 @@
 //! describe the agent conversation surface.
 
 pub use llm_types::message::{
-    ImageUrlContent, LlmFunctionCall, LlmToolCall, Message, MessageContent, MessageContentValue,
-    MessageRole, ToolResultContent, ToolUseContent,
+    ImageDetail, ImageUrlContent, LlmFunctionCall, LlmToolCall, Message, MessageContent,
+    MessageContentValue, MessageRole, ToolResultContent, ToolUseContent,
 };
 
 pub mod batch_management_operation;

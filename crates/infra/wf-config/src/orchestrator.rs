@@ -1,13 +1,9 @@
 //! Configuration assembly orchestrator.
 //!
 //! Provides a single entry point for loading infrastructure configs from
-//! project/global directories, applying env var overrides, and producing
-//! a fully assembled configuration.
-//!
-//! Infrastructure presets: when
-//! `configs/infrastructure/index.json` exists and a preset name is given,
-//! the preset's `files` mapping drives which file backs each config domain.
-//! Without an index/preset, fixed default filenames are used (legacy mode).
+//! the fixed filenames under `baselines/infrastructure/`, applying env var
+//! overrides, and producing a fully assembled configuration. Missing files
+//! fall back to code defaults; overrides and environment win over files.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -15,7 +11,7 @@ use std::path::{Path, PathBuf};
 use crate::env::apply_env_overrides;
 use crate::error::{ConfigError, ConfigResult};
 use crate::layered;
-use crate::orchestrator_loader::{load_domain_config_with_metrics, resolve_file_mapping};
+use crate::orchestrator_loader::load_domain_config_with_metrics;
 use crate::processor::file_checkpoint::{
     merge_file_checkpoint_with_defaults, validate_file_checkpoint_config,
 };
@@ -43,10 +39,7 @@ use wf_types::config::storage::{StorageConfig, StorageType};
 use wf_types::config::tool_approval::ToolApprovalConfig;
 use wf_types::script::sandbox::{SandboxGlobalConfig, SandboxMode};
 
-/// Default infrastructure preset used when no explicit preset is provided.
-pub const DEFAULT_INFRA_PRESET: &str = "development";
-
-/// File names backing each infrastructure config domain.
+/// Fixed file names backing each infrastructure config domain.
 #[derive(Debug, Clone, Default)]
 pub struct InfrastructurePresetFiles {
     pub storage: String,
@@ -61,7 +54,7 @@ pub struct InfrastructurePresetFiles {
 }
 
 impl InfrastructurePresetFiles {
-    /// Fixed default filenames (legacy mode, used when no preset is resolved).
+    /// Fixed filenames under `baselines/infrastructure/`.
     pub fn default_filenames() -> Self {
         Self {
             storage: "storage.toml".to_string(),
@@ -163,30 +156,11 @@ impl ConfigOrchestrator {
             .assemble(overrides)
     }
 
-    /// Assemble configuration with an infrastructure preset (TS
-    /// `loadInfrastructureConfigs`). When `preset_name` is given and
-    /// `configs/infrastructure/index.json` exists, the preset's `files`
-    /// mapping selects the config files per domain; otherwise `default_paths`
-    /// (or the fixed default filenames) are used.
-    pub fn assemble_with_preset(
-        project_dir: &Path,
-        preset_name: Option<&str>,
-        default_paths: Option<InfrastructurePresetFiles>,
-        overrides: Option<ConfigOverrides>,
-    ) -> ConfigResult<AssembledConfig> {
-        ConfigOrchestratorBuilder::new(project_dir)
-            .preset_name(preset_name)
-            .default_paths(default_paths)
-            .build()
-            .assemble(overrides)
-    }
 }
 
 /// Builder for [`ConfigOrchestrator`] with non-default paths.
 pub struct ConfigOrchestratorBuilder {
     infra_dir: PathBuf,
-    preset_name: Option<String>,
-    default_paths: Option<InfrastructurePresetFiles>,
     runtime_env: RuntimeEnvironment,
     config_metrics: Option<std::sync::Arc<wf_metrics::ConfigMetricsCollector>>,
 }
@@ -198,8 +172,6 @@ impl ConfigOrchestratorBuilder {
                 project_dir,
                 crate::layout::family::INFRASTRUCTURE,
             ),
-            preset_name: None,
-            default_paths: None,
             runtime_env: RuntimeEnvironment::Development,
             config_metrics: None,
         }
@@ -221,18 +193,6 @@ impl ConfigOrchestratorBuilder {
         self
     }
 
-    /// Set the infrastructure preset name (e.g. "development").
-    pub fn preset_name(mut self, name: Option<&str>) -> Self {
-        self.preset_name = name.map(|s| s.to_string());
-        self
-    }
-
-    /// Set the fallback file mapping used when no preset is resolved.
-    pub fn default_paths(mut self, paths: Option<InfrastructurePresetFiles>) -> Self {
-        self.default_paths = paths;
-        self
-    }
-
     /// Set the runtime environment used to select environment-optimized
     /// defaults when a config file is missing or unparseable.
     pub fn runtime_env(mut self, env: RuntimeEnvironment) -> Self {
@@ -243,8 +203,6 @@ impl ConfigOrchestratorBuilder {
     pub fn build(self) -> ConfigOrchestratorLoaded {
         ConfigOrchestratorLoaded {
             infra_dir: self.infra_dir,
-            preset_name: self.preset_name,
-            default_paths: self.default_paths,
             runtime_env: self.runtime_env,
             config_metrics: self.config_metrics,
         }
@@ -254,8 +212,6 @@ impl ConfigOrchestratorBuilder {
 /// Orchestrator with resolved paths, ready to assemble.
 pub struct ConfigOrchestratorLoaded {
     infra_dir: PathBuf,
-    preset_name: Option<String>,
-    default_paths: Option<InfrastructurePresetFiles>,
     runtime_env: RuntimeEnvironment,
     config_metrics: Option<std::sync::Arc<wf_metrics::ConfigMetricsCollector>>,
 }
@@ -284,11 +240,7 @@ impl ConfigOrchestratorLoaded {
     }
 
     fn assemble_inner(self, overrides: Option<ConfigOverrides>) -> ConfigResult<AssembledConfig> {
-        let files = resolve_file_mapping(
-            &self.infra_dir,
-            self.preset_name.as_deref(),
-            self.default_paths,
-        )?;
+        let files = default_infra_file_mapping();
         let mut config = Self::load_infrastructure_configs(
             &self.infra_dir,
             &files,
@@ -761,15 +713,10 @@ pub fn load_tool_configs(
     Ok(tools)
 }
 
-/// Load infrastructure configs using the default preset
-/// (`development`), with the fixed default filenames as fallback.
+/// Load infrastructure configs from the fixed filenames under
+/// `baselines/infrastructure/`, falling back to code defaults per domain.
 pub fn load_default_infrastructure_configs(project_dir: &Path) -> ConfigResult<AssembledConfig> {
-    ConfigOrchestrator::assemble_with_preset(
-        project_dir,
-        Some(DEFAULT_INFRA_PRESET),
-        Some(default_infra_file_mapping()),
-        None,
-    )
+    ConfigOrchestrator::assemble(project_dir, None)
 }
 
 #[cfg(test)]

@@ -152,7 +152,7 @@ async fn poll_until_completed(runtime: &Runtime, execution_id: &str) -> serde_js
     query_status_via_tool(runtime, execution_id).await
 }
 
-/// The checked-in `configs/infrastructure/` bundle (development preset)
+/// The checked-in `baselines/infrastructure/` fixed files
 /// fills the runtime config where programmatic values are absent, while
 /// programmatic values keep priority.
 #[test]
@@ -160,7 +160,7 @@ fn test_resolve_infra_config_from_repo_configs() {
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..");
-    if !repo_root.join("configs").join("infrastructure").exists() {
+    if !repo_root.join("baselines").join("infrastructure").exists() {
         return;
     }
 
@@ -176,7 +176,7 @@ fn test_resolve_infra_config_from_repo_configs() {
     let config = config.unwrap();
 
     // File layer fills storage/metrics/output/sandbox/presets/
-    // tools/file_checkpoint from the development preset.
+    // tools/file_checkpoint from the fixed domain files.
     assert_ne!(config.storage, StorageConfig::default());
     assert!(config.metrics.is_some());
     assert_eq!(config.output.dir, "./outputs");
@@ -214,9 +214,9 @@ fn test_resolve_infra_config_from_repo_configs() {
     assert_ne!(config.storage, StorageConfig::default());
 }
 
-/// The user/project config-file layer (global XDG file then project
-/// `.wf/config.toml`, project wins) fills unset fields; explicit
-/// programmatic values (CLI parameters) still take priority.
+/// The workstation file layer (explicit ambient opt-in: global XDG file
+/// then project `.wf/config.toml`, project wins) fills unset fields;
+/// explicit programmatic values (CLI parameters) still take priority.
 #[test]
 fn test_resolve_infra_config_user_file_layer() {
     let global_dir = tempfile::tempdir().unwrap();
@@ -253,6 +253,7 @@ db_path = "./layer-test.db"
         RuntimeConfig::default(),
         &InfraSourceConfig {
             project_root: Some(project_dir.path().to_path_buf()),
+            allow_ambient: true,
             ..Default::default()
         },
         None,
@@ -269,6 +270,7 @@ db_path = "./layer-test.db"
         },
         &InfraSourceConfig {
             project_root: Some(project_dir.path().to_path_buf()),
+            allow_ambient: true,
             ..Default::default()
         },
         None,
@@ -276,6 +278,54 @@ db_path = "./layer-test.db"
     let config = config.unwrap();
     assert_eq!(config.log_config.level, "off");
     assert_eq!(config.storage.storage_type, StorageType::Sqlite);
+
+    std::env::remove_var("XDG_CONFIG_HOME");
+}
+
+/// Services keep ambient disabled by default: the XDG global file is
+/// ignored while the project file still applies, and the credential store
+/// resolves next to the project instead of the daemon home directory.
+#[test]
+fn test_resolve_infra_config_ambient_disabled_by_default() {
+    let global_dir = tempfile::tempdir().unwrap();
+    let project_dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(global_dir.path().join("wf")).unwrap();
+    std::fs::create_dir_all(project_dir.path().join(".wf")).unwrap();
+    std::env::set_var("XDG_CONFIG_HOME", global_dir.path());
+    std::fs::write(
+        global_dir.path().join("wf").join("config.toml"),
+        "log_level = \"debug\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        project_dir.path().join(".wf").join("config.toml"),
+        "log_level = \"info\"\n",
+    )
+    .unwrap();
+
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let config = runtime
+        .block_on(resolve_infra_config(
+            RuntimeConfig::default(),
+            &InfraSourceConfig {
+                project_root: Some(project_dir.path().to_path_buf()),
+                ..Default::default()
+            },
+            None,
+        ))
+        .unwrap();
+    assert_eq!(config.log_config.level, "info");
+    assert_eq!(
+        config.llm.auth.store_path,
+        Some(
+            project_dir
+                .path()
+                .join(".wf")
+                .join("auth.json")
+                .to_string_lossy()
+                .into_owned()
+        )
+    );
 
     std::env::remove_var("XDG_CONFIG_HOME");
 }
@@ -290,7 +340,7 @@ fn test_resolve_infra_config_explicit_close_survives() {
     std::env::remove_var("WF_FILE_CHECKPOINT_MANUAL_POLL_MS");
 
     let project_dir = tempfile::tempdir().unwrap();
-    let infra_dir = project_dir.path().join("configs").join("infrastructure");
+    let infra_dir = project_dir.path().join("baselines").join("infrastructure");
     std::fs::create_dir_all(&infra_dir).unwrap();
     std::fs::write(
         infra_dir.join("file-checkpoint.toml"),

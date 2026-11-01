@@ -230,7 +230,9 @@ pub fn validate_limits_config(config: &LimitsConfig) -> ConfigResult<()> {
                 let shift = attempt.min(6);
                 backoff_sum = backoff_sum.saturating_add(1_000u64.saturating_mul(1u64 << shift));
             }
-            let worst = (u64::from(retries).saturating_add(1)).saturating_mul(timeout).saturating_add(backoff_sum);
+            let worst = (u64::from(retries).saturating_add(1))
+                .saturating_mul(timeout)
+                .saturating_add(backoff_sum);
             if settle < worst {
                 return Err(ConfigError::Validation(format!(
                     "limits.compression.settle_timeout_ms ({settle}) must cover the worst run budget ({worst}): (1 + max_retries) * timeout_ms plus backoff"

@@ -70,6 +70,16 @@ impl AgentLoopHandler {
     ) -> WorkflowResult<NodeExecutionResult> {
         let settings = settings::load_settings(ctx, &self.gateway)?;
         let agent_config = settings.agent_config();
+        if matches!(
+            settings.action_policy,
+            wf_types::agent::config::AgentActionPolicy::Decision
+        ) {
+            tracing::debug!(
+                node_id = %ctx.node_id,
+                has_decision_profile = settings.decision_policy.as_ref().and_then(|p| p.decision_profile_id.as_ref()).is_some(),
+                "agent loop parsed a decision action policy; the chat tool-call loop still drives execution"
+            );
+        }
 
         let env = wf_execution_shared::agent_prompt::PromptEnvironment::new(
             ctx.resource_registries.as_deref(),

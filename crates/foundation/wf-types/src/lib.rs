@@ -1,5 +1,6 @@
 pub mod common;
 pub mod condition;
+pub mod decision_profile;
 pub mod dynamic_context;
 pub mod effect;
 pub mod enums;

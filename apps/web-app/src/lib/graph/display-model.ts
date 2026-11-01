@@ -64,7 +64,7 @@ const TERMINAL_TYPES = new Set<StaticNodeType>([
 const DECISION_TYPES = new Set<StaticNodeType>(['ROUTE']);
 
 /** Model-invoking types; drawn as hexagons outside the workflow preset. */
-const TOOL_TYPES = new Set<StaticNodeType>(['LLM']);
+const TOOL_TYPES = new Set<StaticNodeType>(['LLM', 'DECISION']);
 
 /**
  * Canonical render role for a backend node kind.

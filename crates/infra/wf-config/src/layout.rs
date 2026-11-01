@@ -32,6 +32,8 @@ pub mod family {
     pub const WORKFLOWS: &str = "workflows";
     /// Agent loop definitions (`configs/agent-loops`).
     pub const AGENT_LOOPS: &str = "agent-loops";
+    /// Decision profile definitions (`configs/decision-profiles`).
+    pub const DECISION_PROFILES: &str = "decision-profiles";
     /// Node template definitions (`configs/node-templates`).
     pub const NODE_TEMPLATES: &str = "node-templates";
     /// Prompt template definitions (`configs/prompt-templates`).

@@ -71,4 +71,38 @@ pub struct AgentConfig {
     /// `Some(true)` rejects unknown non-null keys.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_strict: Option<bool>,
+    /// Per-iteration action chooser. `None` keeps the historical chat
+    /// tool-call loop; `Decision` routes the choice through a decision
+    /// model before executing tools.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_policy: Option<AgentActionPolicy>,
+    /// Decision-model connection used when `action_policy` is `Decision`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_policy: Option<AgentDecisionPolicy>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentActionPolicy {
+    #[default]
+    Chat,
+    Decision,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentDecisionPolicy {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decision_profile_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_steps: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub safety_identifier: Option<String>,
 }

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-mock = []
+mock = ["llm-decision/mock"]
 
 [dependencies]
 wf-types = { path = "../../foundation/wf-types" }
@@ -35,6 +35,9 @@ llm-auth = { package = "llm-suite-auth", path = "../llm-suite/crates/llm-suite-a
 # Image generation capability (OpenAI-compatible images + mock), kept in
 # the same facade so hosts use one `wf_llm` import for all LLM abilities.
 llm-images = { package = "llm-suite-images", path = "../llm-suite/crates/llm-suite-images", features = ["mock"] }
+# Decision capability (OpenAI decisions + Jev systemone), kept in the same
+# facade so workflow handlers use one `wf_llm` import for all abilities.
+llm-decision = { package = "llm-suite-decision", path = "../llm-suite/crates/llm-suite-decision", features = ["mock"] }
 # Network model discovery (split from llm-suite-config so profile-only
 # hosts never pay for the TLS stack).
 llm-discovery = { package = "llm-suite-discovery", path = "../llm-suite/crates/llm-suite-discovery" }

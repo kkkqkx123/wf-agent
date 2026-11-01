@@ -1,6 +1,7 @@
 pub mod agent_loop;
 pub mod context;
 pub mod control;
+pub mod decision;
 
 pub mod fork_join;
 pub mod interaction;
@@ -16,6 +17,7 @@ pub mod variable_operation;
 pub use agent_loop::*;
 pub use context::*;
 pub use control::*;
+pub use decision::*;
 pub use fork_join::*;
 pub use interaction::*;
 pub use llm::*;

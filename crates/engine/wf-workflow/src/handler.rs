@@ -1,5 +1,6 @@
 pub mod agent_loop;
 pub mod context_processor;
+pub mod decision;
 pub mod embed_boundary;
 pub mod fork_join;
 pub mod interaction_keys;
@@ -52,6 +53,10 @@ pub struct HandlerRegistry {
     /// default set is registered. Nested loops register through it and become
     /// addressable at runtime.
     agent_loop_registry: Option<Arc<wf_agent::registry::AgentLoopRegistry>>,
+    /// Shared decision profile registry handed to the DECISION handler.
+    /// Absent registries keep node-level profile references failing fast
+    /// instead of resolving against an empty set.
+    decision_registry: Option<wf_llm::SharedDecisionProfileRegistry>,
 }
 
 impl HandlerRegistry {
@@ -61,6 +66,7 @@ impl HandlerRegistry {
         Self {
             handlers: HashMap::new(),
             agent_loop_registry: None,
+            decision_registry: None,
         }
     }
 
@@ -71,6 +77,16 @@ impl HandlerRegistry {
         registry: Arc<wf_agent::registry::AgentLoopRegistry>,
     ) -> Self {
         self.agent_loop_registry = Some(registry);
+        self
+    }
+
+    /// Attach the shared decision profile registry consumed by the DECISION
+    /// handler registered by `register_defaults*`.
+    pub fn with_decision_registry(
+        mut self,
+        registry: wf_llm::SharedDecisionProfileRegistry,
+    ) -> Self {
+        self.decision_registry = Some(registry);
         self
     }
 
@@ -129,6 +145,9 @@ impl HandlerRegistry {
         self.register(Box::new(start_end::StartHandler));
         self.register(Box::new(start_end::EndHandler));
         self.register(Box::new(route::RouteHandler));
+        self.register(Box::new(
+            decision::DecisionHandler::new().with_registry_opt(self.decision_registry.clone()),
+        ));
         self.register(Box::new(variable::VariableHandler));
         self.register(Box::new(loop_handler::LoopStartHandler));
         self.register(Box::new(loop_handler::LoopEndHandler));

@@ -58,6 +58,7 @@ pub fn validate_agent_definition(definition: &AgentDefinition) -> ConfigResult<(
             }
         }
         validate_available_tools_intersection(config)?;
+        validate_agent_action_policy(config)?;
         if let Some(ref checkpoint) = config.checkpoint {
             validate_agent_checkpoint_config(checkpoint)?;
         }
@@ -66,6 +67,61 @@ pub fn validate_agent_definition(definition: &AgentDefinition) -> ConfigResult<(
         }
     }
     Ok(())
+}
+
+fn validate_agent_action_policy(config: &wf_types::agent::config::AgentConfig) -> ConfigResult<()> {
+    let is_decision = matches!(
+        config.action_policy,
+        Some(wf_types::agent::config::AgentActionPolicy::Decision)
+    );
+    match (&config.decision_policy, is_decision) {
+        (None, false) => Ok(()),
+        (Some(_), false) => Err(ConfigError::Validation(
+            "config.decision_policy requires config.action_policy 'decision'".to_string(),
+        )),
+        (None, true) => Err(ConfigError::Validation(
+            "config.action_policy 'decision' requires config.decision_policy".to_string(),
+        )),
+        (Some(policy), true) => {
+            let has_profile = policy
+                .decision_profile_id
+                .as_deref()
+                .is_some_and(|s| !s.trim().is_empty());
+            let has_inline = policy
+                .base_url
+                .as_deref()
+                .is_some_and(|s| !s.trim().is_empty())
+                && policy
+                    .model
+                    .as_deref()
+                    .is_some_and(|s| !s.trim().is_empty());
+            if !has_profile && !has_inline {
+                return Err(ConfigError::Validation(
+                    "config.decision_policy must define decision_profile_id or inline base_url and model"
+                        .to_string(),
+                ));
+            }
+            if let Some(protocol) = policy.protocol.as_deref() {
+                let normalized = protocol.to_lowercase();
+                if !matches!(
+                    normalized.as_str(),
+                    "openai" | "jev" | "typesafe" | "systemone"
+                ) {
+                    return Err(ConfigError::Validation(format!(
+                        "config.decision_policy has unknown protocol '{protocol}'; expected openai or jev"
+                    )));
+                }
+            }
+            if let Some(max_steps) = policy.max_steps {
+                if max_steps == 0 {
+                    return Err(ConfigError::Validation(
+                        "config.decision_policy.max_steps must be >= 1".to_string(),
+                    ));
+                }
+            }
+            Ok(())
+        }
+    }
 }
 
 fn validate_available_tools_intersection(
@@ -230,6 +286,8 @@ mod tests {
             violation_policy: None,
             context_schema: None,
             context_strict: None,
+            action_policy: None,
+            decision_policy: None,
         });
         assert!(validate_agent_definition(&def).is_err());
     }
@@ -260,6 +318,8 @@ mod tests {
             violation_policy: None,
             context_schema: None,
             context_strict: None,
+            action_policy: None,
+            decision_policy: None,
         });
         assert!(validate_agent_definition(&def).is_ok());
     }
@@ -290,6 +350,8 @@ mod tests {
             violation_policy: None,
             context_schema: None,
             context_strict: None,
+            action_policy: None,
+            decision_policy: None,
         });
 
         let runtime = transform_to_agent_loop_config(&def);
@@ -332,6 +394,8 @@ mod tests {
             violation_policy: None,
             context_schema: None,
             context_strict: None,
+            action_policy: None,
+            decision_policy: None,
         });
 
         let mut known = HashSet::new();
@@ -567,6 +631,8 @@ mod tests {
             violation_policy: None,
             context_schema: None,
             context_strict: None,
+            action_policy: None,
+            decision_policy: None,
         }
     }
 }

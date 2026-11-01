@@ -167,6 +167,8 @@ describe('renderKind', () => {
 	it('classifies route nodes as decisions and model calls as tools', () => {
 		expect(renderKind('ROUTE')).toBe('decision');
 		expect(renderKind('llm')).toBe('tool');
+		expect(renderKind('DECISION')).toBe('tool');
+		expect(renderKind('decision')).toBe('tool');
 	});
 	it('treats every other builtin type as a step', () => {
 		expect(renderKind('SCRIPT')).toBe('step');

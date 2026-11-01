@@ -31,6 +31,8 @@ pub(crate) struct AgentLoopSettings {
     pub token_warning_threshold: Option<u32>,
     pub enable_token_tracking: Option<bool>,
     pub checkpoint_message_interval: Option<u32>,
+    pub action_policy: wf_types::agent::config::AgentActionPolicy,
+    pub decision_policy: Option<wf_types::agent::config::AgentDecisionPolicy>,
 }
 
 impl AgentLoopSettings {
@@ -195,6 +197,8 @@ pub(crate) fn load_settings(
         wf_agent::visibility::collect_activated_tools(&ctx.variables)
             .into_iter()
             .collect();
+    let action_policy = wf_agent::decision_policy::resolve_action_policy(agent_config);
+    let decision_policy = agent_config.and_then(|c| c.decision_policy.clone());
 
     let input_text = if let Value::String(s) = &ctx.input {
         s.clone()
@@ -237,6 +241,8 @@ pub(crate) fn load_settings(
         enable_general_tool,
         activated_tool_names,
         input_text,
+        action_policy,
+        decision_policy,
     })
 }
 

@@ -2,6 +2,7 @@
 // assembly child), HTTP client and shared error type.
 pub mod auth;
 pub mod auth_plugin;
+pub mod decision;
 // First-party provider-specific OAuth drivers (in-process, no cdylib).
 pub mod codecs_plugin;
 pub mod images_plugin;
@@ -106,6 +107,21 @@ pub use llm_images;
 pub use llm_images::{
     ImageData, ImageGenerationProvider, ImageModel, ImagesContext, ImagesOptions, ImagesResult,
     OpenAiCompatibleImagesProvider,
+};
+// Decision capability (OpenAI `/decisions` and Jev `/v1/systemone`),
+// kept beside images so hosts use one `wf_llm` import for all abilities.
+pub use decision::{
+    AnyDecisionProvider, DecisionProfileRegistry, DecisionProtocol, DecisionProviderConfig,
+    SharedDecisionProfileRegistry,
+};
+pub use llm_decision;
+#[cfg(feature = "mock")]
+pub use llm_decision::MockDecisionProvider;
+pub use llm_decision::{
+    BoxCoordinates, ChoiceProbability, ChoiceValue, ContentPart, DecisionAnswer, DecisionConfig,
+    DecisionError, DecisionMessage, DecisionModelMetadata, DecisionProvider, DecisionQuestion,
+    DecisionRequest, DecisionResponse, DecisionState, DecisionUsage, ImageAsset, MessageContent,
+    MessageRole, NamedAnswer, NamedQuestion, ResolvedImage, ScoreLevel, ScoreProbability,
 };
 #[cfg(feature = "mock")]
 pub use llm_images::{MockImageGenerationProvider, MockImagesStep};

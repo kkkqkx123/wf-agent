@@ -8,6 +8,7 @@
 /// - `infrastructure` — `merge_*_with_defaults` for storage/metrics/output/sandbox
 /// - `limits` — merge/validate agent/workflow resource limits
 /// - `llm_profile` — validate/transform LLM profiles
+/// - `decision_profile` — validate/transform decision profiles
 /// - `workflow` — validate workflow definitions, transform nodes/edges
 /// - `node_config` — validate per-node-type config (LLM, Script, Variable, Route, Fork, Join, etc.)
 /// - `agent_loop` — validate/transform agent definitions
@@ -26,6 +27,7 @@
 /// - `prompt` — validate/merge/transform prompt templates
 pub mod agent_loop;
 pub mod checkpoint;
+pub mod decision_profile;
 pub mod file_checkpoint;
 pub mod file_scope;
 pub mod hook;

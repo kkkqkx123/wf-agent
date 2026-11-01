@@ -177,3 +177,16 @@ pub(crate) fn load_agent_loop(path: &Path) -> ConfigResult<serde_json::Value> {
     crate::processor::agent_loop::validate_agent_definition(&agent)?;
     Ok(value)
 }
+
+pub(crate) fn load_decision_profile(path: &Path) -> ConfigResult<serde_json::Value> {
+    let value = crate::parser::parse_config_file::<serde_json::Value>(path)?;
+    let profile: wf_types::decision_profile::DecisionProfile =
+        serde_json::from_value(value.clone())
+            .map_err(|e| ConfigError::Parse(format!("invalid decision profile: {e}")))?;
+    crate::processor::decision_profile::validate_decision_profile(&profile)?;
+    crate::processor::decision_profile::transform_decision_profile(
+        &profile,
+        &std::collections::HashMap::new(),
+    )?;
+    Ok(value)
+}

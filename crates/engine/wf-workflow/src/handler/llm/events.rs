@@ -147,7 +147,8 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
             as u64;
         if !wf_execution_shared::is_single_summary_strategy(
             &wf_execution_shared::compaction_strategy_name(&limits),
-        ) && tokens_used > hard_line {
+        ) && tokens_used > hard_line
+        {
             let budget = wf_execution_shared::compaction::resolve_summary_call_budget(
                 effective_limit,
                 &limits,

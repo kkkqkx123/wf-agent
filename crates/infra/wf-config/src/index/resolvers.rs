@@ -250,7 +250,7 @@ pub(crate) fn sync_resolver(f: fn(&Path) -> ConfigResult<ResolvedIndex>) -> Inde
 
 /// Create the resolver for a supported index type.
 ///
-/// Supported types (10 of the 11 index types; `trigger_templates` is not
+/// Supported types (11 of the 12 index types; `trigger_templates` is not
 /// supported).
 pub fn create_index_resolver_for_type(ty: &IndexType) -> ConfigResult<IndexResolver> {
     let (loader, extract): (IndexConfigLoader, IndexMetadataExtractor) = match ty {
@@ -268,6 +268,10 @@ pub fn create_index_resolver_for_type(ty: &IndexType) -> ConfigResult<IndexResol
             extract_prompt_template_metadata,
         ),
         IndexType::AgentLoops => (Arc::new(load_agent_loop), extract_agent_loop_metadata),
+        IndexType::DecisionProfiles => (
+            Arc::new(load_decision_profile),
+            extract_decision_profile_metadata,
+        ),
         _ => {
             return Err(ConfigError::Index(format!(
                 "unsupported index type: {}",
@@ -290,6 +294,7 @@ pub fn register_all_index_resolvers(registry: &mut IndexRegistry) -> ConfigResul
         IndexType::Scripts,
         IndexType::PromptTemplates,
         IndexType::AgentLoops,
+        IndexType::DecisionProfiles,
         IndexType::McpPresets,
         IndexType::SkillPresets,
         IndexType::InfrastructurePresets,

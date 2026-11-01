@@ -20,6 +20,7 @@ wf-script = { path = "../../infra/wf-script" }
 wf-shell = { path = "../../infra/wf-shell" }
 wf-storage = { path = "../../infra/wf-storage" }
 wf-resource = { path = "../wf-resource" }
+base64.workspace = true
 
 async-trait.workspace = true
 serde.workspace = true

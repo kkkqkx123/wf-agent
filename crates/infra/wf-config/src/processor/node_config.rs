@@ -1,5 +1,6 @@
 mod agent_loop;
 mod common;
+mod decision;
 mod fork_join;
 mod interaction;
 mod llm;
@@ -13,6 +14,7 @@ pub use common::{is_valid_identifier, NodeConfigIssue};
 use serde_json::Value;
 
 use self::agent_loop::validate_agent_loop_node;
+use self::decision::validate_decision_node;
 use self::fork_join::{validate_fork_node, validate_join_node};
 use self::interaction::{validate_tool_visibility_node, validate_user_interaction_node};
 use self::llm::validate_llm_node;
@@ -49,6 +51,7 @@ pub fn validate_node_config(
         "SUBGRAPH" => validate_subgraph_node(node_id, node_type, effective),
         "USER_INTERACTION" => validate_user_interaction_node(node_id, node_type, effective),
         "AGENT_LOOP" => validate_agent_loop_node(node_id, node_type, effective),
+        "DECISION" => validate_decision_node(node_id, node_type, effective),
         "TOOL_VISIBILITY" => validate_tool_visibility_node(node_id, node_type, effective),
         "CONTEXT_PROCESSOR" => validate_context_processor_node(node_id, node_type, config),
         "START"

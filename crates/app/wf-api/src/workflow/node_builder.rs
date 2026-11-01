@@ -11,10 +11,11 @@ use std::marker::PhantomData;
 use serde_json::Value;
 
 use wf_types::node::configs::{
-    AgentLoopNodeConfig, ForkNodeConfig, ForkPath, ForkStrategy, InteractionOperationType,
-    JoinNodeConfig, JoinStrategy, LlmNodeConfig, LoopEndNodeConfig, LoopStartNodeConfig,
-    RouteCondition, RouteNodeConfig, ScriptNodeConfig, ScriptRisk, SubgraphNodeConfig,
-    SyncNodeConfig, UserInteractionNodeConfig, VariableNodeConfig, VariableNodeType,
+    AgentLoopNodeConfig, DecisionNodeConfig, ForkNodeConfig, ForkPath, ForkStrategy,
+    InteractionOperationType, JoinNodeConfig, JoinStrategy, LlmNodeConfig, LoopEndNodeConfig,
+    LoopStartNodeConfig, RouteCondition, RouteNodeConfig, ScriptNodeConfig, ScriptRisk,
+    SubgraphNodeConfig, SyncNodeConfig, UserInteractionNodeConfig, VariableNodeConfig,
+    VariableNodeType,
 };
 use wf_types::node::{BaseStaticNode, NodeExecutionConfig, StaticNodeType};
 
@@ -300,6 +301,13 @@ impl NodeBuilder<NoType> {
         };
         Self::new(id)
             .type_(StaticNodeType::AgentLoop)
+            .with_config(to_value(config))
+    }
+
+    /// DECISION node running a single decision-model call.
+    pub fn decision(id: impl Into<String>, config: DecisionNodeConfig) -> NodeBuilder<Typed> {
+        Self::new(id)
+            .type_(StaticNodeType::Decision)
             .with_config(to_value(config))
     }
 }

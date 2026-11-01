@@ -67,6 +67,8 @@ pub fn explorer_agent_template() -> AgentTemplate {
                 violation_policy: None,
                 context_schema: None,
                 context_strict: None,
+                action_policy: None,
+                decision_policy: None,
             }),
             metadata: Some(AgentMetadata {
                 author: Some("system".into()),

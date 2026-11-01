@@ -82,6 +82,8 @@ pub fn prefetch_inline_definition_with_prompt(system_prompt: Option<String>) -> 
             violation_policy: None,
             context_schema: None,
             context_strict: None,
+            action_policy: None,
+            decision_policy: None,
         }),
         metadata: None,
         created_at: wf_common::now(),

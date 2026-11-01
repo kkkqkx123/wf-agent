@@ -163,7 +163,8 @@ pub async fn emit_token_usage_events(
             let mut stateless_plan = Vec::new();
             if !wf_execution_shared::is_single_summary_strategy(
                 &wf_execution_shared::compaction_strategy_name(&limits),
-            ) && estimated > hard_line {
+            ) && estimated > hard_line
+            {
                 let budget = wf_execution_shared::compaction::resolve_summary_call_budget(
                     context_limit,
                     &limits,

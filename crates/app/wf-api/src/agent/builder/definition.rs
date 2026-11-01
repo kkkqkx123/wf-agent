@@ -137,6 +137,8 @@ fn empty_agent_config() -> AgentConfig {
         violation_policy: None,
         context_schema: None,
         context_strict: None,
+        action_policy: None,
+        decision_policy: None,
     }
 }
 

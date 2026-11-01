@@ -6,6 +6,7 @@ pub mod checkpoint;
 pub mod constants;
 pub mod conversation_compression;
 pub mod coordinator;
+pub mod decision_policy;
 pub mod entity;
 pub mod error;
 pub mod error_analysis;

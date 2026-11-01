@@ -183,3 +183,27 @@ pub fn extract_agent_loop_metadata(
         serde_json::Value::Null,
     )
 }
+
+/// Extract metadata from a Decision Profile config (`id` / `name` /
+/// `description` / `tags` / `protocol` / `model`).
+pub fn extract_decision_profile_metadata(
+    value: &serde_json::Value,
+    file_path: &str,
+) -> ResolvedIndexEntry {
+    let mut extra = serde_json::Map::new();
+    if let Some(p) = optional_string(value, "protocol") {
+        extra.insert("protocol".to_string(), serde_json::Value::String(p));
+    }
+    if let Some(m) = optional_string(value, "model") {
+        extra.insert("model".to_string(), serde_json::Value::String(m));
+    }
+    build_entry(
+        optional_string(value, "id").unwrap_or_default(),
+        optional_string(value, "name"),
+        optional_string(value, "description"),
+        optional_tags(value, "tags"),
+        None,
+        file_path,
+        serde_json::Value::Object(extra),
+    )
+}

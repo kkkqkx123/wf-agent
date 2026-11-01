@@ -402,7 +402,7 @@ async fn test_trigger_execute_subworkflow() {
         reg.into_arc()
     };
     let parent_manager =
-        std::sync::Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+        std::sync::Arc::new(wf_core::hierarchy::ExecutionHierarchyManager::new(
             "parent-exec-1".to_string(),
             wf_types::execution::ExecutionType::Workflow,
         ));

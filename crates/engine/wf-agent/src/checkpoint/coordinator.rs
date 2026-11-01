@@ -64,16 +64,16 @@ impl RestoredAgentLoop {
     /// gone, so no live abort signal travels with it.
     pub fn restored_source_manager(
         &self,
-    ) -> Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager> {
+    ) -> Arc<wf_core::hierarchy::ExecutionHierarchyManager> {
         use wf_types::execution::ExecutionType;
         match self.lineage.as_ref() {
-            Some(hierarchy) => wf_core::hierarchy::manager::ExecutionHierarchyManager::restore(
+            Some(hierarchy) => wf_core::hierarchy::ExecutionHierarchyManager::restore(
                 self.agent_loop_id.clone(),
                 ExecutionType::Agent,
                 hierarchy,
                 ExecutionType::Agent,
             ),
-            None => Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+            None => Arc::new(wf_core::hierarchy::ExecutionHierarchyManager::new(
                 self.agent_loop_id.clone(),
                 ExecutionType::Agent,
             )),

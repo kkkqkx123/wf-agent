@@ -188,7 +188,7 @@ where
 
     fn hierarchy_manager(
         &self,
-    ) -> Option<std::sync::Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>> {
+    ) -> Option<std::sync::Arc<wf_core::hierarchy::ExecutionHierarchyManager>> {
         match self {
             Self::AgentLoop(entity) => entity.hierarchy_manager(),
             Self::Workflow(entity) => entity.hierarchy_manager(),

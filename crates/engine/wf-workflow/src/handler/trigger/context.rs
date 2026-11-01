@@ -59,7 +59,7 @@ pub struct TriggerContext {
     pub parent_max_execution_time_ms: Option<u64>,
     /// Hierarchy manager of the owning execution; triggered sub-workflows
     /// derive their child manager from it instead of copying ancestry.
-    pub hierarchy_manager: Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
+    pub hierarchy_manager: Option<Arc<wf_core::hierarchy::ExecutionHierarchyManager>>,
     /// Checkpoint wiring inherited from the owning execution (see
     /// [`wf_execution_shared::CheckpointScope`]).
     pub checkpoint_scope: Option<wf_execution_shared::CheckpointScope>,
@@ -175,7 +175,7 @@ impl TriggerContext {
 
     pub fn with_hierarchy_manager(
         mut self,
-        manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+        manager: Arc<wf_core::hierarchy::ExecutionHierarchyManager>,
     ) -> Self {
         self.hierarchy_manager = Some(manager);
         self
@@ -198,7 +198,7 @@ impl TriggerContext {
     /// sub-workflows cannot link ancestry without it.
     pub fn require_hierarchy_manager(
         &self,
-    ) -> crate::error::WorkflowResult<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>
+    ) -> crate::error::WorkflowResult<Arc<wf_core::hierarchy::ExecutionHierarchyManager>>
     {
         self.hierarchy_manager.clone().ok_or_else(|| {
             crate::error::WorkflowError::TriggerError(

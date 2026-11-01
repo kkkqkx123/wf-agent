@@ -52,7 +52,7 @@ pub struct AgentLoopEntity {
     interruption: InterruptionState,
     conversation: Arc<tokio::sync::RwLock<ConversationSession>>,
     cancellation: tokio_util::sync::CancellationToken,
-    hierarchy: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+    hierarchy: Arc<wf_core::hierarchy::ExecutionHierarchyManager>,
     effective_config: Option<wf_types::agent_execution::AgentLoopConfig>,
     hooks: Vec<HookDefinition>,
     model: String,
@@ -98,7 +98,7 @@ pub struct AgentLoopEntity {
 impl AgentLoopEntity {
     pub fn new(id: Id) -> Self {
         let definition_id = id.clone();
-        let hierarchy = Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+        let hierarchy = Arc::new(wf_core::hierarchy::ExecutionHierarchyManager::new(
             id.clone(),
             wf_types::execution::ExecutionType::Agent,
         ));
@@ -135,13 +135,13 @@ impl AgentLoopEntity {
         }
     }
 
-    pub fn hierarchy_manager(&self) -> Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager> {
+    pub fn hierarchy_manager(&self) -> Arc<wf_core::hierarchy::ExecutionHierarchyManager> {
         self.hierarchy.clone()
     }
 
     pub fn with_hierarchy_manager(
         mut self,
-        manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+        manager: Arc<wf_core::hierarchy::ExecutionHierarchyManager>,
     ) -> Self {
         self.hierarchy = manager;
         self
@@ -516,7 +516,7 @@ impl ExecutionEntity for AgentLoopEntity {
 
     fn hierarchy_manager(
         &self,
-    ) -> Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>> {
+    ) -> Option<Arc<wf_core::hierarchy::ExecutionHierarchyManager>> {
         Some(self.hierarchy.clone())
     }
 }

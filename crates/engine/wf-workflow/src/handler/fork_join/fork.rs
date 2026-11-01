@@ -115,7 +115,7 @@ struct ForkRuntime {
     fork_registry: Option<Arc<wf_execution_shared::fork::ForkRegistry>>,
     branch_ctx: BranchContext,
     execution_id: wf_types::Id,
-    parent_manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+    parent_manager: Arc<wf_core::hierarchy::ExecutionHierarchyManager>,
     checkpoint_scope: Option<wf_execution_shared::CheckpointScope>,
     file_scope: wf_types::config::file_scope::ResolvedExecutionScope,
     parent_checkpoints_enabled: Option<bool>,

@@ -693,7 +693,7 @@ async fn execution_summaries_project_persisted_records() {
 #[tokio::test]
 async fn build_hierarchy_carries_depth_root_and_fork_path() {
     let root_manager =
-        std::sync::Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+        std::sync::Arc::new(wf_core::hierarchy::ExecutionHierarchyManager::new(
             "root".to_string(),
             wf_types::execution::ExecutionType::Workflow,
         ));

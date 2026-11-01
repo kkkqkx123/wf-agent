@@ -23,13 +23,13 @@ pub struct InteractiveScriptSessionEntity {
     interruption: InterruptionState,
     pub(super) cancellation: tokio_util::sync::CancellationToken,
     shell_session_id: std::sync::RwLock<Option<String>>,
-    hierarchy: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+    hierarchy: Arc<wf_core::hierarchy::ExecutionHierarchyManager>,
 }
 
 impl InteractiveScriptSessionEntity {
     pub fn new(id: Id, config: InteractiveScriptSessionConfig) -> Self {
         let command = config.command.clone();
-        let hierarchy = Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+        let hierarchy = Arc::new(wf_core::hierarchy::ExecutionHierarchyManager::new(
             id.clone(),
             wf_types::execution::ExecutionType::Workflow,
         ));
@@ -49,7 +49,7 @@ impl InteractiveScriptSessionEntity {
 
     pub fn with_hierarchy_manager(
         mut self,
-        manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+        manager: Arc<wf_core::hierarchy::ExecutionHierarchyManager>,
     ) -> Self {
         self.hierarchy = manager;
         self
@@ -192,7 +192,7 @@ impl ExecutionEntity for InteractiveScriptSessionEntity {
 
     fn hierarchy_manager(
         &self,
-    ) -> Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>> {
+    ) -> Option<Arc<wf_core::hierarchy::ExecutionHierarchyManager>> {
         Some(self.hierarchy.clone())
     }
 }

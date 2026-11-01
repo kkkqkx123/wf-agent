@@ -18,7 +18,7 @@ pub struct ExecutorContext {
     pub execution_id: Id,
     pub workflow_id: Id,
     pub event_bus: Option<Arc<EventBus>>,
-    pub hierarchy_manager: Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
+    pub hierarchy_manager: Option<Arc<wf_core::hierarchy::ExecutionHierarchyManager>>,
     pub tool_registry: Arc<ToolRegistry>,
     /// Shared resource registries (templates, fragments, tool descriptions);
     /// injected by the workflow executor when configured. Handlers render
@@ -106,7 +106,7 @@ impl ExecutorContext {
 
     pub fn with_hierarchy_manager(
         mut self,
-        manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+        manager: Arc<wf_core::hierarchy::ExecutionHierarchyManager>,
     ) -> Self {
         self.hierarchy_manager = Some(manager);
         self
@@ -234,7 +234,7 @@ pub enum NodeInputShape {
 
 pub struct NodeExecutionContext {
     pub execution_id: Id,
-    pub hierarchy_manager: Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
+    pub hierarchy_manager: Option<Arc<wf_core::hierarchy::ExecutionHierarchyManager>>,
     pub node_id: String,
     pub node_type: wf_types::node::StaticNodeType,
     pub node_name: Option<String>,
@@ -385,7 +385,7 @@ impl NodeExecutionContext {
 
     pub fn with_hierarchy_manager(
         mut self,
-        manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+        manager: Arc<wf_core::hierarchy::ExecutionHierarchyManager>,
     ) -> Self {
         self.hierarchy_manager = Some(manager);
         self

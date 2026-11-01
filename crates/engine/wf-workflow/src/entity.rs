@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use serde_json::Value;
-use wf_core::hierarchy::manager::ExecutionHierarchyManager;
+use wf_core::hierarchy::ExecutionHierarchyManager;
 use wf_core::interruption::{InterruptionSignal, InterruptionState};
 use wf_execution_shared::types::execution_entity::{ExecutionEntity, ExecutionStatus};
 use wf_types::Id;
@@ -519,7 +519,7 @@ impl ExecutionEntity for WorkflowExecutionEntity {
 
     fn hierarchy_manager(
         &self,
-    ) -> Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>> {
+    ) -> Option<Arc<wf_core::hierarchy::ExecutionHierarchyManager>> {
         Some(self.hierarchy.clone())
     }
 }
@@ -612,7 +612,7 @@ mod tests {
     #[test]
     fn root_execution_id_falls_back_through_the_hierarchy() {
         use std::sync::Arc;
-        use wf_core::hierarchy::manager::ExecutionHierarchyManager;
+        use wf_core::hierarchy::ExecutionHierarchyManager;
         use wf_types::execution::ExecutionHierarchy;
         // Root: no parent -> self.
         let root = WorkflowExecutionEntity::new("root".to_string(), "wf-1".to_string());

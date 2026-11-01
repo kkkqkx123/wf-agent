@@ -5,7 +5,7 @@ pub struct WorkflowExecutionBuilder {
     id: Option<wf_types::Id>,
     workflow_id: Option<wf_types::Id>,
     hierarchy_manager:
-        Option<std::sync::Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
+        Option<std::sync::Arc<wf_core::hierarchy::ExecutionHierarchyManager>>,
     execution_type: Option<wf_types::workflow_execution::WorkflowExecutionType>,
 }
 
@@ -37,7 +37,7 @@ impl WorkflowExecutionBuilder {
 
     pub fn with_hierarchy_manager(
         mut self,
-        manager: std::sync::Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+        manager: std::sync::Arc<wf_core::hierarchy::ExecutionHierarchyManager>,
     ) -> Self {
         self.hierarchy_manager = Some(manager);
         self

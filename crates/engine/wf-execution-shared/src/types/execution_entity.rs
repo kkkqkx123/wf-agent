@@ -81,7 +81,7 @@ pub trait ExecutionEntity: Send + Sync {
     fn get_root_execution_id(&self) -> Option<Id>;
     fn hierarchy_manager(
         &self,
-    ) -> Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>> {
+    ) -> Option<Arc<wf_core::hierarchy::ExecutionHierarchyManager>> {
         None
     }
     /// Root-to-parent execution id chain (oldest first, excluding self).
@@ -162,7 +162,7 @@ where
 
     fn hierarchy_manager(
         &self,
-    ) -> Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>> {
+    ) -> Option<Arc<wf_core::hierarchy::ExecutionHierarchyManager>> {
         self.as_ref().hierarchy_manager()
     }
 }

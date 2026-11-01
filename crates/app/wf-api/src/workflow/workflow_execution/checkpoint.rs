@@ -150,7 +150,7 @@ pub async fn restore_checkpoint(
     let mut entity =
         WorkflowExecutionEntity::new(snapshot.execution_id.clone(), workflow_id.clone());
     if let Some(hierarchy) = snapshot.hierarchy.as_ref() {
-        let manager = wf_core::hierarchy::manager::ExecutionHierarchyManager::restore(
+        let manager = wf_core::hierarchy::ExecutionHierarchyManager::restore(
             entity.id().clone(),
             wf_types::execution::ExecutionType::Workflow,
             hierarchy,

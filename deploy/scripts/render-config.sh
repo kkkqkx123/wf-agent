@@ -118,6 +118,14 @@ case "$TO" in
     managed)
         render_tree "$TEMPLATES/infrastructure" "$MANAGED_DIR/infrastructure"
         render_tree "$TEMPLATES/server" "$MANAGED_DIR/server"
+        # The managed directory acts as the service settings_dir, so it
+        # carries the same live settings family the loader reads there.
+        # llm-profiles/llm-providers stay out: import seeds only, the
+        # gateway source of truth is the API/storage registry.
+        render_file "$TEMPLATES/settings/config.toml" "$MANAGED_DIR/config.toml"
+        render_file "$TEMPLATES/settings/mcp-settings.json" "$MANAGED_DIR/mcp-settings.json"
+        render_file "$TEMPLATES/settings/skill-settings.json" "$MANAGED_DIR/skill-settings.json"
+        render_tree "$TEMPLATES/settings/llm-auth" "$MANAGED_DIR/llm-auth"
         # Environment file carries the secrets (0600); rendered once with
         # empty values when absent, filled by ops on the target machine.
         if [[ ! -e "$MANAGED_DIR/wf-server.env" ]]; then
@@ -147,8 +155,12 @@ case "$TO" in
         render_tree "$TEMPLATES/server" "$SETTINGS_DIR/server"
         ;;
     project)
-        render_file "$TEMPLATES/project/mcp.json" "$PROJECT_ROOT/.wf/mcp.json"
-        render_file "$TEMPLATES/project/skills.json" "$PROJECT_ROOT/.wf/skills.json"
+        # Render every family present under templates/project (mcp/skills
+        # plus the resource index families as import starting points, never
+        # as live config: the loader auto-reads only mcp/skills here).
+        # infrastructure/server stay opt-in so business repos never inherit
+        # ops tuning by accident.
+        render_tree "$TEMPLATES/project" "$PROJECT_ROOT/.wf"
         if [[ "$WITH_PROJECT_OVERRIDES" == "1" ]]; then
             render_tree "$TEMPLATES/infrastructure" "$PROJECT_ROOT/.wf/infrastructure"
             render_tree "$TEMPLATES/server" "$PROJECT_ROOT/.wf/server"

@@ -73,7 +73,7 @@ async fn executor_context_with_token_limit_updates_tracker() {
 
 #[test]
 fn executor_context_builder_chain_sets_parent_and_readonly() {
-    use wf_core::hierarchy::manager::ExecutionHierarchyManager;
+    use wf_core::hierarchy::ExecutionHierarchyManager;
     let mut names = HashSet::new();
     names.insert("api_key".to_string());
     let manager = Arc::new(ExecutionHierarchyManager::new(
@@ -132,7 +132,7 @@ fn node_context_internal_variable_bypass_writes_engine_state() {
 
 #[test]
 fn node_context_builder_chain_sets_identity_fields() {
-    use wf_core::hierarchy::manager::ExecutionHierarchyManager;
+    use wf_core::hierarchy::ExecutionHierarchyManager;
     let cache = Arc::new(std::sync::Mutex::new(HashMap::<String, Value>::new()));
     let manager = Arc::new(ExecutionHierarchyManager::new(
         "exec-1".to_string(),

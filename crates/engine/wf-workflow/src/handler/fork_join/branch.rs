@@ -49,7 +49,7 @@ pub struct BranchContext {
 /// environment shared by every branch of the fork.
 pub struct BranchRunContext {
     pub parent_execution_id: wf_types::Id,
-    pub parent_manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+    pub parent_manager: Arc<wf_core::hierarchy::ExecutionHierarchyManager>,
     pub checkpoint_scope: Option<wf_execution_shared::CheckpointScope>,
     pub file_scope: wf_types::config::file_scope::ResolvedExecutionScope,
     pub parent_checkpoints_enabled: Option<bool>,
@@ -228,7 +228,7 @@ async fn run_branch_inner(
 /// Execution-hierarchy context inherited by a fork branch from its parent.
 struct BranchHierarchy {
     execution_id: wf_types::Id,
-    parent_manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+    parent_manager: Arc<wf_core::hierarchy::ExecutionHierarchyManager>,
     checkpoint_scope: Option<wf_execution_shared::CheckpointScope>,
     file_scope: wf_types::config::file_scope::ResolvedExecutionScope,
     parent_checkpoints_enabled: Option<bool>,

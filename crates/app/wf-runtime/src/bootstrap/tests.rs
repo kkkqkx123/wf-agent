@@ -72,7 +72,7 @@ fn dispatch_tool_context() -> (
     wf_tools::executor::trait_def::ToolExecutionContext,
     wf_types::tool::ToolExecutionOptions,
 ) {
-    let manager = Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+    let manager = Arc::new(wf_core::hierarchy::ExecutionHierarchyManager::new(
         wf_types::Id::from("test-host".to_string()),
         wf_types::execution::ExecutionType::Agent,
     ));

@@ -67,7 +67,7 @@ pub struct AgentLoopCoordinator {
     /// parent agent/workflow). The sole parent channel alongside
     /// `parent_hierarchy_manager`; the input context carries no parentage.
     parent_execution_id: Option<Id>,
-    parent_hierarchy_manager: Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
+    parent_hierarchy_manager: Option<Arc<wf_core::hierarchy::ExecutionHierarchyManager>>,
     /// Shared hook receiver registry: hook points dispatch through it
     /// (synchronous notification). `None` degrades to audit-only behavior.
     hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
@@ -243,7 +243,7 @@ impl AgentLoopCoordinator {
 
     pub fn with_parent_hierarchy_manager(
         mut self,
-        manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+        manager: Arc<wf_core::hierarchy::ExecutionHierarchyManager>,
     ) -> Self {
         self.parent_hierarchy_manager = Some(manager);
         self
@@ -251,7 +251,7 @@ impl AgentLoopCoordinator {
 
     pub fn parent_hierarchy_manager(
         &self,
-    ) -> Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>> {
+    ) -> Option<Arc<wf_core::hierarchy::ExecutionHierarchyManager>> {
         self.parent_hierarchy_manager.clone()
     }
 

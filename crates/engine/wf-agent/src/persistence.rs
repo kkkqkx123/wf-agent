@@ -189,7 +189,7 @@ mod tests {
     #[tokio::test]
     async fn child_hierarchy_reaches_the_record() {
         let root_manager =
-            std::sync::Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+            std::sync::Arc::new(wf_core::hierarchy::ExecutionHierarchyManager::new(
                 Id::from("loop-root".to_string()),
                 wf_types::execution::ExecutionType::Agent,
             ));

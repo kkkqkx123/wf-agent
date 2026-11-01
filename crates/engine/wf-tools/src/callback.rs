@@ -17,7 +17,7 @@ pub use wf_types::agent_execution::{AgentLoopConfig, HookConfig};
 #[derive(Clone)]
 pub struct ParentLink {
     pub execution_id: Id,
-    pub manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+    pub manager: Arc<wf_core::hierarchy::ExecutionHierarchyManager>,
     /// Abort signal of the parent execution; stopping the parent stops the
     /// child. `None` keeps plain behavior with no cross-execution cancel.
     pub cancellation: Option<tokio_util::sync::CancellationToken>,
@@ -145,7 +145,7 @@ pub struct SpawnedWorkflow {
 /// manager from the parent's, so one comparison covers agent-to-agent,
 /// workflow-to-workflow and cross-engine pairs alike.
 pub fn require_same_subtree(
-    target_manager: &wf_core::hierarchy::manager::ExecutionHierarchyManager,
+    target_manager: &wf_core::hierarchy::ExecutionHierarchyManager,
     caller_root: &Id,
 ) -> ToolResult<()> {
     let target_root = target_manager.root_execution_id();

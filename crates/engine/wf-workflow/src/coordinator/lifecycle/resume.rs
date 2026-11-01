@@ -114,7 +114,7 @@ impl WorkflowLifecycleCoordinator {
             workflow_id.clone(),
         );
         if let Some(hierarchy) = snapshot.hierarchy.as_ref() {
-            let manager = wf_core::hierarchy::manager::ExecutionHierarchyManager::restore(
+            let manager = wf_core::hierarchy::ExecutionHierarchyManager::restore(
                 entity.id().clone(),
                 wf_types::execution::ExecutionType::Workflow,
                 hierarchy,

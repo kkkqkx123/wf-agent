@@ -513,7 +513,7 @@ fn status_string(status: &wf_execution_shared::types::execution_entity::Executio
 struct ChildRunReclaim {
     registry: Arc<AgentLoopRegistry>,
     child_id: Id,
-    parent_manager: Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
+    parent_manager: Option<Arc<wf_core::hierarchy::ExecutionHierarchyManager>>,
     armed: bool,
 }
 
@@ -521,7 +521,7 @@ impl ChildRunReclaim {
     fn arm(
         registry: Arc<AgentLoopRegistry>,
         child_id: Id,
-        parent_manager: Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
+        parent_manager: Option<Arc<wf_core::hierarchy::ExecutionHierarchyManager>>,
     ) -> Self {
         Self {
             registry,
@@ -1442,7 +1442,7 @@ mod tests {
 
         // A registered parent at depth 1 would push the child to depth 2.
         let parent_manager =
-            std::sync::Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+            std::sync::Arc::new(wf_core::hierarchy::ExecutionHierarchyManager::new(
                 Id::from("depth-root".to_string()),
                 wf_types::execution::ExecutionType::Agent,
             ));
@@ -1642,7 +1642,7 @@ mod tests {
         use wf_types::execution::ExecutionType;
 
         let executor = make_executor().await;
-        let parent_manager = Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+        let parent_manager = Arc::new(wf_core::hierarchy::ExecutionHierarchyManager::new(
             Id::from("wf-parent".to_string()),
             ExecutionType::Workflow,
         ));
@@ -1711,7 +1711,7 @@ mod tests {
         let link = ParentLink {
             file_scope: wf_types::config::file_scope::ResolvedExecutionScope::none(),
             execution_id: Id::from("foreign-parent".to_string()),
-            manager: Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+            manager: Arc::new(wf_core::hierarchy::ExecutionHierarchyManager::new(
                 Id::from("foreign-parent".to_string()),
                 ExecutionType::Workflow,
             )),
@@ -1761,7 +1761,7 @@ mod tests {
             .with_max_concurrent(16);
 
         let parent_manager =
-            std::sync::Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+            std::sync::Arc::new(wf_core::hierarchy::ExecutionHierarchyManager::new(
                 Id::from("sync-depth-root".to_string()),
                 wf_types::execution::ExecutionType::Agent,
             ));
@@ -1808,7 +1808,7 @@ mod tests {
             checkpoint_prefixes: vec!["/repo/frontend".to_string()],
             workdir: None,
         };
-        let manager = wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+        let manager = wf_core::hierarchy::ExecutionHierarchyManager::new(
             "p".to_string(),
             wf_types::execution::ExecutionType::Agent,
         );

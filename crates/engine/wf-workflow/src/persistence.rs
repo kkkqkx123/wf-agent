@@ -209,7 +209,7 @@ mod tests {
     #[tokio::test]
     async fn child_record_carries_depth_root_and_children() {
         let root_manager =
-            std::sync::Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+            std::sync::Arc::new(wf_core::hierarchy::ExecutionHierarchyManager::new(
                 "root".to_string(),
                 wf_types::execution::ExecutionType::Workflow,
             ));

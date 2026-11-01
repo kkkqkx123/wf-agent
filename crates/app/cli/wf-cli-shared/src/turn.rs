@@ -345,42 +345,6 @@ pub fn prevalidate_workflow_input_locally_with_policy(
     ))
 }
 
-/// Load image files into structured turn payloads. Every path must name
-/// an image file; oversized or mistyped inputs are hard errors. The server
-/// re-validates the payload, so this is an early local failure only.
-pub fn load_user_images(
-    paths: &[std::path::PathBuf],
-) -> Result<Vec<wf_types::message::UserImageInput>, String> {
-    use base64::Engine as _;
-    let mut images = Vec::with_capacity(paths.len());
-    for path in paths {
-        let Some(media) = wf_types::message::media_type_for_image_path(&path.to_string_lossy())
-        else {
-            return Err(format!(
-                "cannot attach '{}': not a served image file (png, jpg, gif, webp)",
-                path.display()
-            ));
-        };
-        let bytes = std::fs::read(path)
-            .map_err(|e| format!("cannot read image '{}': {e}", path.display()))?;
-        if bytes.len() > wf_types::message::MAX_USER_IMAGE_BYTES {
-            return Err(format!(
-                "cannot attach '{}': {} bytes exceed the per-image limit of {} bytes",
-                path.display(),
-                bytes.len(),
-                wf_types::message::MAX_USER_IMAGE_BYTES
-            ));
-        }
-        images.push(wf_types::message::UserImageInput::inline(
-            base64::engine::general_purpose::STANDARD.encode(&bytes),
-            media,
-        ));
-    }
-    wf_types::message::validate_user_images(&images)
-        .map_err(|reason| format!("invalid image payload: {reason}"))?;
-    Ok(images)
-}
-
 /// Whether a free-form image spec names a remote payload rather than a
 /// local file. Remote specs travel verbatim; anything else is read from disk.
 pub fn is_remote_image_spec(spec: &str) -> bool {
@@ -634,7 +598,8 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join(format!("wf-image-{}.png", std::process::id()));
         std::fs::write(&path, [137u8, 80, 78, 71]).expect("fixture");
-        let images = load_user_images(std::slice::from_ref(&path)).expect("image loads");
+        let spec = path.to_string_lossy().to_string();
+        let images = load_user_image_specs(std::slice::from_ref(&spec), None).expect("image loads");
         assert_eq!(images.len(), 1);
         assert_eq!(
             images[0].media_type.as_deref(),
@@ -642,8 +607,10 @@ mod tests {
             "media type follows the extension"
         );
         let _ = std::fs::remove_file(&path);
-        assert!(load_user_images(&[dir.join("missing.png")]).is_err());
-        assert!(load_user_images(&[dir.join("notes.txt")]).is_err());
+        let missing = dir.join("missing.png").to_string_lossy().to_string();
+        assert!(load_user_image_specs(std::slice::from_ref(&missing), None).is_err());
+        let text = dir.join("notes.txt").to_string_lossy().to_string();
+        assert!(load_user_image_specs(std::slice::from_ref(&text), None).is_err());
     }
 
     #[test]

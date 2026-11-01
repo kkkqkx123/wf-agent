@@ -20,8 +20,84 @@ import {
 	streamLoopRun,
 	streamChat,
 	streamWorkflowExecution,
+	type AttachmentPayload,
 	type ImagePayload,
 } from '#lib/services/streaming';
+
+/** Wire form of a staged text attachment: truncated content plus marker. */
+function toAttachmentPayload(file: MessageAttachment): AttachmentPayload {
+	return {
+		name: file.name,
+		content: file.content,
+		...(file.truncated ? { truncated: true } : {}),
+		...(typeof file.originalChars === 'number' ? { original_chars: file.originalChars } : {}),
+	};
+}
+
+/** Best-effort original image name cache for retry. History carries only
+ * URLs, so the send path remembers `dataUrl -> {name, mediaType}` here
+ * (memory plus localStorage by content hash) and `retryLast` restores it
+ * instead of minting a placeholder. Content and media stay authoritative;
+ * the name is display-only. */
+const imageNameCache = new Map<string, { name: string; mediaType?: string }>();
+const IMAGE_NAME_STORE_KEY = 'wf-image-names-v1';
+
+function imageCacheKey(dataUrl: string): string {
+	const head = dataUrl.slice(0, 48);
+	const tail = dataUrl.length > 48 ? dataUrl.slice(-32) : '';
+	return `${dataUrl.length}:${head}:${tail}`;
+}
+
+function loadImageNameCache(): void {
+	try {
+		const raw = localStorage.getItem(IMAGE_NAME_STORE_KEY);
+		if (!raw) return;
+		const parsed = JSON.parse(raw) as Record<string, { name?: unknown; mediaType?: unknown }>;
+		for (const [key, value] of Object.entries(parsed)) {
+			if (typeof value?.name === 'string') {
+				imageNameCache.set(key, {
+					name: value.name,
+					...(typeof value.mediaType === 'string' ? { mediaType: value.mediaType } : {}),
+				});
+			}
+			if (imageNameCache.size > 200) break;
+		}
+	} catch {
+		// Best-effort only; a corrupt entry never blocks the turn.
+	}
+}
+
+function rememberImageNames(images: ImageAttachment[]): void {
+	if (images.length === 0) return;
+	if (imageNameCache.size === 0) loadImageNameCache();
+	let touched = false;
+	for (const image of images) {
+		if (!image.dataUrl || !image.name) continue;
+		const key = imageCacheKey(image.dataUrl);
+		if (!imageNameCache.has(key)) {
+			imageNameCache.set(key, {
+				name: image.name,
+				...(image.mediaType ? { mediaType: image.mediaType } : {}),
+			});
+			touched = true;
+		}
+	}
+	if (!touched) return;
+	try {
+		const snapshot: Record<string, { name: string; mediaType?: string }> = {};
+		for (const [key, value] of imageNameCache.entries()) snapshot[key] = value;
+		localStorage.setItem(IMAGE_NAME_STORE_KEY, JSON.stringify(snapshot));
+	} catch {
+		// Quota or privacy mode: memory cache still serves this session.
+	}
+}
+
+function restoreImageName(dataUrl: string, fallback: string, media?: string): { name: string; mediaType?: string } {
+	if (imageNameCache.size === 0) loadImageNameCache();
+	const hit = imageNameCache.get(imageCacheKey(dataUrl));
+	if (hit) return hit;
+	return media ? { name: fallback, mediaType: media } : { name: fallback };
+}
 
 /** Wire form of a staged composer image: inline data or remote address. */
 function toImagePayload(image: ImageAttachment): ImagePayload {
@@ -507,9 +583,11 @@ export class ChatSessionController {
 							? dataUrl.slice('data:'.length).split(';')[0] || undefined
 							: undefined;
 						const ext = media?.split('/')[1] ?? 'png';
+						const fallback = `retried-image-${position + 1}.${ext}`;
+						const restored = restoreImageName(dataUrl, fallback, media);
 						return {
-							name: `retried-image-${position + 1}.${ext}`,
-							...(media ? { mediaType: media } : {}),
+							name: restored.name,
+							...(restored.mediaType ?? media ? { mediaType: (restored.mediaType ?? media) as string } : {}),
 							dataUrl,
 						};
 					}),
@@ -796,6 +874,7 @@ export class ChatSessionController {
 		images: ImageAttachment[] = [],
 	): Promise<void> {
 		this.activeAgentLoopId = null;
+		rememberImageNames(images);
 		const draft = !this.selectedId;
 		this.beginRecapTurn();
 		const baseline = new SvelteSet(sessions.list.items.map((item) => item.id));
@@ -817,9 +896,10 @@ export class ChatSessionController {
 			{
 				model: this.model.trim(),
 				agentId: this.agentId.trim(),
-				message: withAttachments(content, files),
+				message: content,
 				conversation: history,
 				...(images.length > 0 ? { images: images.map(toImagePayload) } : {}),
+				...(files.length > 0 ? { attachments: files.map(toAttachmentPayload) } : {}),
 			},
 			{
 				...this.streamCallbacks(),
@@ -868,6 +948,7 @@ export class ChatSessionController {
 			await tick();
 		}
 		pickerState.recordUsed('model', this.model.trim());
+		rememberImageNames(images);
 		this.beginRecapTurn();
 		const signal = chatStream.start(sessionId, {
 			executionType: 'chat',
@@ -876,9 +957,10 @@ export class ChatSessionController {
 		await streamChat(
 			{
 				profileId: this.model.trim(),
-				message: withAttachments(content, files),
+				message: content,
 				sessionId,
 				...(images.length > 0 ? { images: images.map(toImagePayload) } : {}),
+				...(files.length > 0 ? { attachments: files.map(toAttachmentPayload) } : {}),
 			},
 			this.streamCallbacks(),
 			signal,

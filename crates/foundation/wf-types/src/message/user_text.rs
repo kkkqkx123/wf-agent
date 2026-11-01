@@ -1,5 +1,138 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// Upper bound of text attachments carried by one turn.
+/// Mirrors the frontend composer budget so both sides reject the same
+/// oversized stages locally instead of failing only at the server gate.
+///
+/// Counted in Unicode scalar values to match the frontend `text.length`
+/// truncation point closely enough for a budget gate; exact byte
+/// accounting happens per provider codec downstream.
+pub const MAX_TEXT_ATTACHMENTS_PER_TURN: usize = 8;
+
+/// Upper bound of characters kept per text attachment (64K). Larger files
+/// must arrive truncated with an explicit marker and original size.
+pub const MAX_TEXT_ATTACHMENT_CHARS: usize = 64_000;
+
+/// Upper bound of staged attachment characters across one turn (256K).
+pub const MAX_TEXT_ATTACHMENTS_TOTAL_CHARS: usize = 256_000;
+
+/// One text file attached to a user turn. Transport carries the possibly
+/// truncated `content` plus an explicit marker and original size so the
+/// server never mistakes truncated content for the full file.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserTextAttachment {
+    /// Original filename for display and retry.
+    pub name: String,
+    /// Possibly truncated file text, already validated for control chars.
+    pub content: String,
+    /// True when `content` was cut to the per-file limit.
+    #[serde(default)]
+    pub truncated: bool,
+    /// Original character count before truncation. Present when truncated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_chars: Option<usize>,
+}
+
+impl UserTextAttachment {
+    /// Whether the entry carries any usable payload.
+    pub fn is_empty(&self) -> bool {
+        self.name.trim().is_empty() && self.content.is_empty()
+    }
+}
+
+/// Validate one turn of text attachments. Every problem is a hard error:
+/// oversized or over-count stages must never degrade into silent drops.
+pub fn validate_user_attachments(attachments: &[UserTextAttachment]) -> Result<(), String> {
+    if attachments.len() > MAX_TEXT_ATTACHMENTS_PER_TURN {
+        return Err(format!(
+            "too many attachments: {} exceed the {MAX_TEXT_ATTACHMENTS_PER_TURN}-file per-turn limit",
+            attachments.len()
+        ));
+    }
+    let mut total = 0usize;
+    for (index, attachment) in attachments.iter().enumerate() {
+        let field = format!("attachments[{index}]");
+        if attachment.name.trim().is_empty() {
+            return Err(format!("{field} needs a filename"));
+        }
+        let chars = attachment.content.chars().count();
+        if chars > MAX_TEXT_ATTACHMENT_CHARS && !attachment.truncated {
+            return Err(format!(
+                "{field} '{}' holds {chars} chars, exceeding the per-file limit of {MAX_TEXT_ATTACHMENT_CHARS} chars without a truncation marker",
+                attachment.name.trim()
+            ));
+        }
+        if chars > MAX_TEXT_ATTACHMENT_CHARS && attachment.truncated && attachment.original_chars.is_none_or(|n| n <= MAX_TEXT_ATTACHMENT_CHARS) {
+            return Err(format!(
+                "{field} '{}' is marked truncated but carries no larger original size",
+                attachment.name.trim()
+            ));
+        }
+        if attachment.content.contains('\0') {
+            return Err(format!(
+                "{field} '{}' looks like a binary file; send images via the image channel instead",
+                attachment.name.trim()
+            ));
+        }
+        total += chars;
+    }
+    if total > MAX_TEXT_ATTACHMENTS_TOTAL_CHARS {
+        return Err(format!(
+            "attachments hold {total} chars in total, exceeding the per-turn limit of {MAX_TEXT_ATTACHMENTS_TOTAL_CHARS} chars"
+        ));
+    }
+    Ok(())
+}
+
+/// Escape an attachment filename for the inline block header. Mirrors the
+/// frontend `escapeAttachmentName` so both sides produce identical wire.
+fn escape_attachment_name(name: &str) -> String {
+    name.replace('&', "&amp;").replace('"', "&quot;")
+}
+
+/// Escape attachment content for the inline block body. Mirrors the frontend
+/// `escapeAttachmentContent` so nested markers never split on either side.
+fn escape_attachment_content(content: &str) -> String {
+    content
+        .replace('\\', "\\\\")
+        .replace("<attachment ", "<\\attachment ")
+        .replace("</attachment>", "<\\/attachment>")
+}
+
+/// Format structured attachments into inline blocks with truncation
+/// attributes for storage and the model prompt. The frontend sends raw text
+/// plus structured attachments; the server re-inlines them here so history
+/// stays a single user bubble and old readers that ignore attributes keep
+/// working. Truncation is explicit in the wire so the model never mistakes
+/// cut content for the full file.
+pub fn format_attachments_for_storage(
+    text: &str,
+    attachments: &[UserTextAttachment],
+) -> String {
+    if attachments.is_empty() {
+        return text.to_string();
+    }
+    let mut blocks = Vec::with_capacity(attachments.len());
+    for file in attachments {
+        let mut attrs = String::new();
+        if file.truncated {
+            attrs.push_str(" truncated=\"true\"");
+        }
+        if let Some(original) = file.original_chars {
+            attrs.push_str(&format!(" original=\"{original}\""));
+        }
+        blocks.push(format!(
+            "<attachment name=\"{}\"{attrs}>\n{}\n</attachment>",
+            escape_attachment_name(&file.name),
+            escape_attachment_content(&file.content)
+        ));
+    }
+    if text.is_empty() {
+        return blocks.join("\n\n");
+    }
+    format!("{text}\n\n{}", blocks.join("\n\n"))
+}
+
 /// Upper bound for an imported conversation seeding a new turn.
 pub const MAX_IMPORTED_CONVERSATION_MESSAGES: usize = 4096;
 
@@ -156,5 +289,63 @@ mod tests {
         assert_eq!(sanitize_user_text("\x1b[2J\x1b[H"), "");
         assert_eq!(sanitize_user_text("a\x07b"), "ab");
         assert_eq!(sanitize_user_text(""), "");
+    }
+
+    fn attachment(name: &str, content: &str) -> UserTextAttachment {
+        UserTextAttachment {
+            name: name.to_string(),
+            content: content.to_string(),
+            truncated: false,
+            original_chars: None,
+        }
+    }
+
+    #[test]
+    fn attachment_limits_reject_over_count_and_binary() {
+        let many = (0..MAX_TEXT_ATTACHMENTS_PER_TURN + 1)
+            .map(|i| attachment(&format!("f{i}.txt"), "x"))
+            .collect::<Vec<_>>();
+        assert!(validate_user_attachments(&many).is_err());
+        let binary = UserTextAttachment {
+            name: "bin".to_string(),
+            content: "a\0b".to_string(),
+            truncated: false,
+            original_chars: None,
+        };
+        assert!(validate_user_attachments(&[binary]).is_err());
+    }
+
+    #[test]
+    fn attachment_truncation_needs_marker_and_original() {
+        let big = "x".repeat(MAX_TEXT_ATTACHMENT_CHARS + 1);
+        assert!(validate_user_attachments(&[attachment("a.txt", &big)]).is_err());
+        let marked = UserTextAttachment {
+            name: "a.txt".to_string(),
+            content: "x".repeat(MAX_TEXT_ATTACHMENT_CHARS),
+            truncated: true,
+            original_chars: Some(MAX_TEXT_ATTACHMENT_CHARS + 10),
+        };
+        assert!(validate_user_attachments(&[marked]).is_ok());
+        let missing_original = UserTextAttachment {
+            name: "a.txt".to_string(),
+            content: "x".repeat(MAX_TEXT_ATTACHMENT_CHARS + 1),
+            truncated: true,
+            original_chars: None,
+        };
+        assert!(validate_user_attachments(&[missing_original]).is_err());
+    }
+
+    #[test]
+    fn attachment_storage_format_carries_truncation_attributes() {
+        let files = vec![UserTextAttachment {
+            name: "a.txt".to_string(),
+            content: "hello".to_string(),
+            truncated: true,
+            original_chars: Some(99999),
+        }];
+        let wire = format_attachments_for_storage("see", &files);
+        assert!(wire.contains("truncated=\"true\""));
+        assert!(wire.contains("original=\"99999\""));
+        assert!(format_attachments_for_storage("", &[]).is_empty());
     }
 }

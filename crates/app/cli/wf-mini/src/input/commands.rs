@@ -64,6 +64,9 @@ pub enum SlashCommand {
     /// images ride the next prompt as a structured payload. Local paths are
     /// inlined, `https:`/`http:`/`data:` URLs travel verbatim.
     Image(ImageArgs),
+    /// Show or set the render detail for newly staged images
+    /// (`/image-detail [auto|low|high|original|clear]`). Empty shows current.
+    ImageDetail(Option<String>),
 }
 
 /// Arguments of the `/image` staging command.
@@ -274,6 +277,14 @@ pub fn parse_command(line: &str) -> Option<SlashCommand> {
                 )))
             }
         }
+        "/image-detail" => {
+            let rest: Vec<&str> = tokens.collect();
+            match rest.as_slice() {
+                [] => Some(SlashCommand::ImageDetail(None)),
+                [one] => Some(SlashCommand::ImageDetail(Some((*one).to_string()))),
+                _ => None,
+            }
+        }
         _ => None,
     }
 }
@@ -458,5 +469,11 @@ mod tests {
                 "b.jpg".to_string(),
             ])))
         );
+        assert_eq!(parse_command("/image-detail"), Some(SlashCommand::ImageDetail(None)));
+        assert_eq!(
+            parse_command("/image-detail high"),
+            Some(SlashCommand::ImageDetail(Some("high".to_string())))
+        );
+        assert_eq!(parse_command("/image-detail a b"), None);
     }
 }

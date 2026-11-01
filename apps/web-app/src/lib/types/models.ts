@@ -722,6 +722,8 @@ export interface MessageAttachment {
 	content: string;
 	/** The composer marks truncated text instead of cutting silently. */
 	truncated?: boolean;
+	/** Original character count before truncation. Present when truncated. */
+	originalChars?: number;
 }
 
 /** One staged image: inline base64 payload or a remote address. */

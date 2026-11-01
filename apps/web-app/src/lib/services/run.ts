@@ -76,9 +76,9 @@ export function parseWorkflowInputText(text: string): WorkflowInput | null {
 }
 
 /** Assert an agent message is non-blank (rule A1), unless images ride along. */
-export function assertAgentMessage(message: string, images?: unknown[]): string {
+export function assertAgentMessage(message: string, images?: unknown[], attachments?: unknown[]): string {
 	const trimmed = message.trim();
-	if (trimmed === '' && (!images || images.length === 0))
+	if (trimmed === '' && (!images || images.length === 0) && (!attachments || attachments.length === 0))
 		throw new Error('Agent message must not be empty.');
 	return trimmed;
 }

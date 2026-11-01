@@ -139,6 +139,10 @@ export const loopMessages: LoopMessage[] = [
 		content: 'Make checkpoint restore idempotent when the branch already exists.',
 		createdAt: minutesAgo(38),
 		tokens: 24,
+		images: [
+			'data:image/png;base64,iVBORw0KGgo=',
+			'https://example.com/preview-shot.png',
+		],
 	},
 	{
 		id: 'msg-02',

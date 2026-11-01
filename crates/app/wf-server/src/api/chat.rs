@@ -37,6 +37,11 @@ pub struct ChatRunBody {
     #[serde(default)]
     #[schema(value_type = Option<Vec<serde_json::Value>>)]
     images: Option<Vec<wf_types::message::UserImageInput>>,
+    /// Structured text attachments of the turn. Validated like the agent
+    /// channel, then re-inlined with attributes for storage.
+    #[serde(default)]
+    #[schema(value_type = Option<Vec<serde_json::Value>>)]
+    attachments: Option<Vec<wf_types::message::UserTextAttachment>>,
 }
 
 #[utoipa::path(
@@ -55,9 +60,16 @@ pub(crate) async fn handle_chat_stream(
     State(state): State<ApiState>,
     Json(body): Json<ChatRunBody>,
 ) -> Response {
+    let attachments = body.attachments.unwrap_or_default();
+    if let Err(reason) = wf_types::message::validate_user_attachments(&attachments) {
+        return error_response(wf_api::ApiError::Validation(format!(
+            "chat attachments are invalid: {reason}"
+        )));
+    }
+    let message = wf_types::message::format_attachments_for_storage(&body.message, &attachments);
     let params = wf_api::chat::ChatTurnParams {
         profile_id: body.profile_id,
-        message: body.message,
+        message,
         images: body.images.unwrap_or_default(),
         session_id: body.session_id,
     };

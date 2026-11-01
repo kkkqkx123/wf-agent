@@ -125,6 +125,9 @@ pub struct NativeSession {
     /// Image files staged by `/image` for the next turn. Taken when the
     /// turn starts; a turn that never starts hands them back.
     staged_images: Vec<wf_types::message::UserImageInput>,
+    /// Render detail applied to newly staged images (`/image-detail`).
+    /// Empty means the provider default; kept across turns until changed.
+    staged_image_detail: Option<llm_types::message::ImageDetail>,
 }
 
 /// What a slash command asks the loop to do.
@@ -223,6 +226,7 @@ impl NativeSession {
             pending_delete: None,
             session_context,
             staged_images: Vec::new(),
+            staged_image_detail: None,
         })
     }
 
@@ -372,7 +376,7 @@ impl NativeSession {
                     "notes: the full history stays in memory; prompt history is plain text on disk (see --history-file/--no-history); workflows run via `wf run --workflow` and the management subcommands",
                 );
                 output::diag_line(
-                    "images: /image <path-or-url>... stage images for the next turn, /image lists staged, /image clear drops them; `@file:<path>` mentions resolve images server-side",
+                    "images: /image <path-or-url>... stage images for the next turn, /image lists staged, /image clear drops them; /image-detail [auto|low|high|original|clear] sets detail for newly staged images; `@file:<path>` mentions resolve images server-side",
                 );
                 CommandAction::Continue
             }
@@ -607,6 +611,10 @@ impl NativeSession {
                 self.stage_images(args);
                 CommandAction::Continue
             }
+            SlashCommand::ImageDetail(raw) => {
+                self.set_image_detail(raw);
+                CommandAction::Continue
+            }
             SlashCommand::Recap => {
                 self.request_recap_now().await;
                 CommandAction::Continue
@@ -828,6 +836,7 @@ impl NativeSession {
     /// or load new paths or remote URLs onto the stage. Loading failures leave the
     /// existing stage untouched; the combined stage is validated so an
     /// oversized stage is reported at stage time, not at send time.
+    /// Newly staged images inherit the session detail (`/image-detail`).
     fn stage_images(&mut self, args: ImageArgs) {
         match args {
             ImageArgs::List => {
@@ -843,13 +852,14 @@ impl NativeSession {
                         ));
                     }
                 }
+                output::diag_line(&format!("image detail for new stages: {}", Self::detail_label(self.staged_image_detail)));
             }
             ImageArgs::Clear => {
                 self.staged_images.clear();
                 output::diag_line("staged images cleared");
             }
             ImageArgs::Stage(paths) => {
-                match wf_cli_shared::turn::load_user_image_specs(&paths, None) {
+                match wf_cli_shared::turn::load_user_image_specs(&paths, self.staged_image_detail) {
                     Err(err) => output::diag_line(&format!("cannot stage images: {err}")),
                     Ok(loaded) => {
                         let mut combined = self.staged_images.clone();
@@ -870,6 +880,35 @@ impl NativeSession {
                     }
                 }
             }
+        }
+    }
+
+    fn detail_label(detail: Option<llm_types::message::ImageDetail>) -> &'static str {
+        match detail {
+            None => "provider default",
+            Some(llm_types::message::ImageDetail::Auto) => "auto",
+            Some(llm_types::message::ImageDetail::Low) => "low",
+            Some(llm_types::message::ImageDetail::High) => "high",
+            Some(llm_types::message::ImageDetail::Original) => "original",
+        }
+    }
+
+    fn set_image_detail(&mut self, raw: Option<String>) {
+        match raw.as_deref().map(str::trim) {
+            None | Some("") => {
+                output::diag_line(&format!("image detail: {}", Self::detail_label(self.staged_image_detail)));
+            }
+            Some("clear") | Some("default") => {
+                self.staged_image_detail = None;
+                output::diag_line("image detail cleared (provider default)");
+            }
+            Some(value) => match wf_cli_shared::turn::parse_image_detail_arg(Some(value)) {
+                Ok(detail) => {
+                    self.staged_image_detail = detail;
+                    output::diag_line(&format!("image detail: {}", Self::detail_label(self.staged_image_detail)));
+                }
+                Err(err) => output::diag_line(&format!("invalid image detail: {err} (usage: /image-detail [auto|low|high|original|clear])")),
+            },
         }
     }
 

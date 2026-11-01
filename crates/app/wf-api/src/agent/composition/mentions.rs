@@ -102,6 +102,9 @@ pub async fn resolve_mentions(ctx: &ApiContext, text: &str) -> (Vec<Message>, Ve
                 if wf_types::message::is_image_path(id) {
                     if let Some(image) = resolve_image_mention(ctx, id) {
                         images.push(image);
+                        out.push(crate::dynamic_context_message(format!(
+                            "image: {id} (attached as structured image)"
+                        )));
                         continue;
                     }
                     Some(format!(

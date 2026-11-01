@@ -762,9 +762,8 @@ impl InteractiveController {
             "session.image" => {
                 let trimmed = argument.trim();
                 if trimmed.is_empty() {
-                    for line in self.staged_image_lines() {
-                        self.footer.show_notice(line);
-                    }
+                    let lines = self.staged_image_lines();
+                    self.footer.show_notice(lines.join(" | "));
                 } else if trimmed == "clear" {
                     let notice = self.clear_staged_images();
                     self.footer.show_notice(notice);
@@ -776,6 +775,16 @@ impl InteractiveController {
                     let notice = self.stage_tui_images(&specs);
                     self.footer.show_notice(notice);
                 }
+                InteractiveAction::Continue
+            }
+            "session.image_detail" => {
+                let trimmed = argument.trim();
+                let notice = if trimmed.is_empty() {
+                    self.set_tui_image_detail(None)
+                } else {
+                    self.set_tui_image_detail(Some(trimmed))
+                };
+                self.footer.show_notice(notice);
                 InteractiveAction::Continue
             }
 

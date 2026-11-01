@@ -28,25 +28,12 @@
 	import { mentionClass, mentionIcon } from '#lib/utils/mention-style';
 	import { t } from '#lib/i18n';
 	import { SvelteSet } from 'svelte/reactivity';
+	import {
+		currentMediaLimits,
+		loadMediaLimits,
+	} from '#lib/config/media';
 
-	/** Largest inlined attachment per file; larger files are truncated. Mirrors the server text-mention budget. */
-	const ATTACHMENT_LIMIT = 64_000;
-
-	/** Total text attachments the composer stages per turn; beyond this the user picks fewer files. */
-	const ATTACHMENT_MAX_COUNT = 8;
-
-	/** Total inlined attachment bytes per turn; larger stages must drop files first. */
-	const ATTACHMENT_TOTAL_LIMIT = 256_000;
-
-	/** Largest staged image; mirrors the server per-image limit. */
-	const IMAGE_LIMIT = 10 * 1024 * 1024;
-
-	/** Largest staged image payload the composer accepts per turn. */
-	const IMAGE_TOTAL_LIMIT = 20 * 1024 * 1024;
-
-	/** Served image formats; mirrors the backend whitelist so unsupported types fail locally. */
-	const ALLOWED_IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
-	const ALLOWED_IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
+	let mediaLimits = $state(currentMediaLimits());
 
 	/** Entity kinds the mention picker resolves through the search channel. */
 	const MENTION_KINDS = [
@@ -127,6 +114,12 @@
 	let searching = $state(false);
 	let searchError = $state(false);
 	let activePicker = $state<string | null>(null);
+
+	$effect(() => {
+		void loadMediaLimits().then((next) => {
+			mediaLimits = next;
+		});
+	});
 
 	$effect(() => {
 		// Touch `candidates` so this effect re-runs whenever the list changes.
@@ -356,9 +349,9 @@
 	}
 
 	function imageMimeAllowed(file: File): boolean {
-		if (file.type && ALLOWED_IMAGE_MIMES.includes(file.type.toLowerCase())) return true;
+		if (file.type && mediaLimits.allowedImageMimes.includes(file.type.toLowerCase())) return true;
 		const ext = (file.name.split('.').pop() ?? '').toLowerCase();
-		return ALLOWED_IMAGE_EXTS.includes(ext);
+		return mediaLimits.allowedImageExts.includes(ext);
 	}
 
 	function persistFiles(): void {
@@ -375,13 +368,17 @@
 				stageImage(file);
 			continue;
 		}
-			if (attachments.length >= ATTACHMENT_MAX_COUNT) {
-				toasts.error(`Too many attachments (max ${ATTACHMENT_MAX_COUNT}); remove one first`);
+			if (attachments.length >= mediaLimits.attachmentMaxCount) {
+				toasts.error(`Too many attachments (max ${mediaLimits.attachmentMaxCount}); remove one first`);
 				continue;
 			}
 			const stagedBytes = attachments.reduce((total, item) => total + item.content.length, 0);
-			if (stagedBytes >= ATTACHMENT_TOTAL_LIMIT) {
+			if (stagedBytes >= mediaLimits.attachmentTotalLimit) {
 				toasts.error('Attachments exceed the per-turn budget; remove one first');
+				continue;
+			}
+			if (file.size > 1024 * 1024) {
+				toasts.error(`File too large to inline: ${file.name || 'pasted text'} (over 1 MB)`);
 				continue;
 			}
 		try {
@@ -390,13 +387,14 @@
 					toasts.error(`Binary file skipped: ${file.name || 'pasted text'} (send images via the image button)`);
 					continue;
 				}
-			const truncated = text.length > ATTACHMENT_LIMIT;
+			const truncated = text.length > mediaLimits.attachmentLimit;
+			const originalChars = truncated ? text.length : undefined;
 			attachments = [
 				...attachments,
 				{
 					name: file.name || 'pasted-text',
-					content: text.slice(0, ATTACHMENT_LIMIT),
-					...(truncated ? { truncated: true } : {}),
+					content: text.slice(0, mediaLimits.attachmentLimit),
+					...(truncated ? { truncated: true, originalChars } : {}),
 				},
 			];
 				persistFiles();
@@ -416,7 +414,11 @@
 			toasts.error(`Unsupported image type: ${file.name || 'pasted image'} (use png, jpg, gif, webp)`);
 			return;
 		}
-		if (file.size > IMAGE_LIMIT) {
+		if (images.length >= mediaLimits.maxImagesPerTurn) {
+			toasts.error(`Too many images (max ${mediaLimits.maxImagesPerTurn}); remove one first`);
+			return;
+		}
+		if (file.size > mediaLimits.imageLimit) {
 			toasts.error(
 				t('chat.composer.imageTooLarge', {
 					name: file.name || t('chat.composer.attachment'),
@@ -425,7 +427,7 @@
 			return;
 		}
 		const staged = images.reduce((total, image) => total + image.dataUrl.length, 0);
-		if (staged + file.size > IMAGE_TOTAL_LIMIT) {
+		if (staged + file.size > mediaLimits.imageTotalLimit) {
 			toasts.error(t('chat.composer.imagesTooLarge'));
 			return;
 		}
@@ -440,7 +442,9 @@
 				);
 				return;
 			}
-			images = [...images, { name: file.name || 'pasted-image', dataUrl }];
+			const ext = (file.name.split('.').pop() ?? '').toLowerCase();
+			const mime = file.type || (ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : undefined);
+			images = [...images, { name: file.name || 'pasted-image', dataUrl, ...(mime ? { mediaType: mime } : {}) }];
 			persistFiles();
 		};
 		reader.onerror = () => {
@@ -476,7 +480,7 @@
 	const stagedBudget = $derived.by(() => {
 		const imageBytes = images.reduce((total, image) => total + image.dataUrl.length, 0);
 		const attachmentBytes = attachments.reduce((total, item) => total + item.content.length, 0);
-		return { imageBytes, attachmentBytes, imageCount: images.length, attachmentCount: attachments.length };
+		return { imageBytes, attachmentBytes, imageCount: images.length, attachmentCount: attachments.length, imageRemaining: Math.max(0, mediaLimits.imageTotalLimit - imageBytes), attachmentRemaining: Math.max(0, mediaLimits.attachmentTotalLimit - attachmentBytes) };
 	});
 
 	function onPaste(event: ClipboardEvent): void {
@@ -704,7 +708,7 @@
 		<p class="text-micro text-warning">Images are not sent to workflows; remove them or switch back to an agent turn.</p>
 	{/if}
 	{#if stagedBudget.imageCount > 0 || stagedBudget.attachmentCount > 0}
-		<p class="text-micro text-muted-foreground">Staged: {stagedBudget.imageCount} images · {stagedBudget.attachmentCount} files</p>
+		<p class="text-micro text-muted-foreground">Staged: {stagedBudget.imageCount}/{mediaLimits.maxImagesPerTurn} images · {stagedBudget.attachmentCount}/{mediaLimits.attachmentMaxCount} files · {(stagedBudget.imageRemaining / 1024).toFixed(0)} KB image budget left</p>
 	{/if}
 
 	{#if mentionVisible}

@@ -62,6 +62,12 @@ pub struct RunAgentLoopBody {
     #[serde(default)]
     #[schema(value_type = Option<Vec<Value>>)]
     images: Option<Vec<wf_types::message::UserImageInput>>,
+    /// Structured text attachments of the turn. The server validates
+    /// counts, sizes and truncation markers, then re-inlines them with
+    /// attributes for storage so history stays a single user bubble.
+    #[serde(default)]
+    #[schema(value_type = Option<Vec<Value>>)]
+    attachments: Option<Vec<wf_types::message::UserTextAttachment>>,
 }
 
 pub(crate) async fn params_from_body(
@@ -77,10 +83,19 @@ pub(crate) async fn params_from_body(
             "agent images are invalid: {reason}"
         )));
     }
+    let attachments = body.attachments.unwrap_or_default();
+    if let Err(reason) = wf_types::message::validate_user_attachments(&attachments) {
+        return Err(wf_api::ApiError::Validation(format!(
+            "agent attachments are invalid: {reason}"
+        )));
+    }
+    // Structured attachments ride separately so truncation stays explicit;
+    // storage keeps a single user bubble by re-inlining with attributes.
+    let message = wf_types::message::format_attachments_for_storage(&message, &attachments);
     // Rule A1: an empty message is a hard error on every entry path, unless
-    // images ride along; the CLI/TUI forms and the web panel all converge
-    // here.
-    if wf_types::message::is_blank_user_text(&message) && images.is_empty() {
+    // images or attachments ride along; the CLI/TUI forms and the web panel
+    // all converge here.
+    if wf_types::message::is_blank_user_text(&message) && images.is_empty() && attachments.is_empty() {
         return Err(wf_api::ApiError::Validation(
             "agent message must not be empty".to_string(),
         ));

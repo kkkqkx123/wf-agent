@@ -35,6 +35,13 @@ export function registerInsights(router: MockRouter): void {
 		apiVersion: 'v1',
 		version: '1.0.0',
 		name: 'wf-agent',
+		max_images_per_turn: 8,
+		max_image_bytes: 10 * 1024 * 1024,
+		max_images_total_bytes: 20 * 1024 * 1024,
+		allowed_image_media_types: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
+		max_attachments_per_turn: 8,
+		max_attachment_chars: 64000,
+		max_attachments_total_chars: 256000,
 	}));
 	// Preview star set seeded from starred fixtures; toggles mutate it so
 	// the session rail stays interactive without a live backend.

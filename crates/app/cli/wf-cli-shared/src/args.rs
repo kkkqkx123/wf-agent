@@ -151,6 +151,8 @@ impl Cli {
             vars,
             prompt,
             image,
+            image_urls,
+            image_detail,
             interactive,
             approval_timeout,
             assume_yes,

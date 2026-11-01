@@ -487,6 +487,8 @@ pub struct InteractiveController {
     /// Image specs staged by `/image` for the next turn. Taken when the
     /// turn starts; a turn that never starts leaves them staged.
     staged_images: Vec<wf_types::message::UserImageInput>,
+    /// Render detail applied to newly staged images. Empty means default.
+    staged_image_detail: Option<llm_types::message::ImageDetail>,
     /// Key resolution table for the footer panel routes.
     keymap: tui_core::keymap::Keymap,
     /// Whether the user asked to edit the composer draft in `$EDITOR`.
@@ -738,6 +740,7 @@ impl InteractiveController {
             model_override: None,
             session_context: serde_json::Map::new(),
             staged_images: Vec::new(),
+            staged_image_detail: None,
             keymap: tui_core::keymap::Keymap::new(),
             pending_editor: false,
             recap_ticket: 0,
@@ -776,9 +779,9 @@ impl InteractiveController {
     /// List staged images for the next turn.
     pub fn staged_image_lines(&self) -> Vec<String> {
         if self.staged_images.is_empty() {
-            return vec!["no staged images (usage: /image <path-or-url>...)".to_string()];
+            return vec![format!("no staged images (usage: /image <path-or-url>...) [detail: {}]", Self::image_detail_label(self.staged_image_detail))];
         }
-        self.staged_images
+        let mut lines: Vec<String> = self.staged_images
             .iter()
             .enumerate()
             .map(|(index, image)| {
@@ -789,13 +792,43 @@ impl InteractiveController {
                     wf_cli_shared::turn::describe_user_image(image)
                 )
             })
-            .collect()
+            .collect();
+        lines.push(format!("detail for new stages: {}", Self::image_detail_label(self.staged_image_detail)));
+        lines
+    }
+
+    fn image_detail_label(detail: Option<llm_types::message::ImageDetail>) -> &'static str {
+        match detail {
+            None => "provider default",
+            Some(llm_types::message::ImageDetail::Auto) => "auto",
+            Some(llm_types::message::ImageDetail::Low) => "low",
+            Some(llm_types::message::ImageDetail::High) => "high",
+            Some(llm_types::message::ImageDetail::Original) => "original",
+        }
+    }
+
+    /// Show or set the render detail for newly staged images.
+    pub fn set_tui_image_detail(&mut self, raw: Option<&str>) -> String {
+        match raw.map(str::trim) {
+            None | Some("") => format!("image detail: {}", Self::image_detail_label(self.staged_image_detail)),
+            Some("clear") | Some("default") => {
+                self.staged_image_detail = None;
+                "image detail cleared (provider default)".to_string()
+            }
+            Some(value) => match wf_cli_shared::turn::parse_image_detail_arg(Some(value)) {
+                Ok(detail) => {
+                    self.staged_image_detail = detail;
+                    format!("image detail: {}", Self::image_detail_label(self.staged_image_detail))
+                }
+                Err(err) => format!("invalid image detail: {err} (usage: /image-detail [auto|low|high|original|clear])"),
+            },
+        }
     }
 
     /// Stage local paths or remote URLs for the next turn. Failures leave
     /// the existing stage untouched; the combined stage is validated.
     pub fn stage_tui_images(&mut self, specs: &[String]) -> String {
-        match wf_cli_shared::turn::load_user_image_specs(specs, None) {
+        match wf_cli_shared::turn::load_user_image_specs(specs, self.staged_image_detail) {
             Err(err) => format!("cannot stage images: {err}"),
             Ok(loaded) => {
                 let mut combined = self.staged_images.clone();

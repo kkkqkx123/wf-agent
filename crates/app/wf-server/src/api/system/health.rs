@@ -24,6 +24,16 @@ pub(crate) struct InfoView {
     #[serde(rename = "apiVersion")]
     api_version: &'static str,
     timestamp: String,
+    /// Single source for image limits: mirrors the unified validation
+    /// in `wf-types::message`. Frontend reads these at runtime and falls
+    /// back to builtins when talking to an older server.
+    max_images_per_turn: usize,
+    max_image_bytes: usize,
+    max_images_total_bytes: usize,
+    allowed_image_media_types: Vec<String>,
+    max_attachments_per_turn: usize,
+    max_attachment_chars: usize,
+    max_attachments_total_chars: usize,
 }
 
 pub(crate) fn routes() -> Router<ApiState> {
@@ -80,6 +90,16 @@ pub(crate) async fn handle_info() -> impl IntoResponse {
         version: env!("CARGO_PKG_VERSION"),
         api_version: API_VERSION,
         timestamp: wf_api::timestamp_to_iso(wf_api::now()),
+        max_images_per_turn: wf_types::message::MAX_USER_IMAGES_PER_TURN,
+        max_image_bytes: wf_types::message::MAX_USER_IMAGE_BYTES,
+        max_images_total_bytes: wf_types::message::MAX_USER_IMAGES_TOTAL_BYTES,
+        allowed_image_media_types: wf_types::message::ALLOWED_MEDIA_TYPES
+            .iter()
+            .map(|item| (*item).to_string())
+            .collect(),
+        max_attachments_per_turn: wf_types::message::MAX_TEXT_ATTACHMENTS_PER_TURN,
+        max_attachment_chars: wf_types::message::MAX_TEXT_ATTACHMENT_CHARS,
+        max_attachments_total_chars: wf_types::message::MAX_TEXT_ATTACHMENTS_TOTAL_CHARS,
     })
     .into_response()
 }

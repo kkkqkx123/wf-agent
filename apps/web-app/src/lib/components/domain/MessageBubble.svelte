@@ -196,11 +196,16 @@
 						type="button"
 						onclick={() => toggleEnlarged(image)}
 						onkeydown={(event) => {
-							if (event.key === 'Escape') enlargedImage = null;
+							if (event.key === 'Escape' && enlargedImage !== null) {
+								event.stopPropagation();
+								enlargedImage = null;
+								(event.currentTarget as HTMLElement | null)?.focus();
+							}
 						}}
 						class={cn('overflow-hidden rounded-md border border-border', enlargedImage === image && 'border-info/60')}
 						title={t('domain.messageBubble.enlargeImage')}
 						aria-pressed={enlargedImage === image}
+						aria-expanded={enlargedImage === image}
 						aria-label={t('domain.messageBubble.attachedImage')}
 					>
 						<img

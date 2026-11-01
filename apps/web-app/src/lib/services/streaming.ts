@@ -30,6 +30,13 @@ export interface ImagePayload {
 	detail?: 'auto' | 'low' | 'high';
 }
 
+export interface AttachmentPayload {
+	name: string;
+	content: string;
+	truncated?: boolean;
+	original_chars?: number;
+}
+
 export interface LoopStreamBody {
 	model: string;
 	message: string;
@@ -40,6 +47,8 @@ export interface LoopStreamBody {
 	fileScope?: ExecutionFileScope | null;
 	/** Structured image payload of the turn. */
 	images?: ImagePayload[];
+	/** Structured text attachments of the turn. */
+	attachments?: AttachmentPayload[];
 }
 
 /**
@@ -52,7 +61,7 @@ export function streamLoopRun(
 	callbacks: StreamCallbacks,
 	signal: AbortSignal,
 ): Promise<void> {
-	const message = assertAgentMessage(body.message, body.images);
+	const message = assertAgentMessage(body.message, body.images, body.attachments);
 	const model = assertAgentModel(body.model);
 	const fileScope = assertFileScope(body.fileScope ?? null);
 	return openPostStream({
@@ -65,6 +74,7 @@ export function streamLoopRun(
 			conversation: body.conversation ?? [],
 			file_scope: fileScope,
 			...(body.images && body.images.length > 0 ? { images: body.images } : {}),
+			...(body.attachments && body.attachments.length > 0 ? { attachments: body.attachments } : {}),
 		},
 		signal,
 		onFrame: (event, data) => handleExecutionFrame(event, data, callbacks),
@@ -82,6 +92,8 @@ export interface ChatTurnBody {
 	sessionId?: string;
 	/** Structured image payload of the turn. */
 	images?: ImagePayload[];
+	/** Structured text attachments of the turn. */
+	attachments?: AttachmentPayload[];
 }
 
 /**
@@ -101,6 +113,7 @@ export function streamChat(
 			message: body.message,
 			...(body.sessionId ? { session_id: body.sessionId } : {}),
 			...(body.images && body.images.length > 0 ? { images: body.images } : {}),
+			...(body.attachments && body.attachments.length > 0 ? { attachments: body.attachments } : {}),
 		},
 		signal,
 		onFrame: (event, data) => handleExecutionFrame(event, data, callbacks),

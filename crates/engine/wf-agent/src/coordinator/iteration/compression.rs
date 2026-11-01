@@ -357,14 +357,30 @@ impl AgentIterationCoordinator {
                 // Backpressure coalescing: one in-flight plan settles
                 // first. The newer version re-decides on the next
                 // settlement instead of stacking a second plan signal.
-                if conversation.compression_flight().is_some() {
-                    return;
+                // An expired flight releases itself so a lost completion
+                // never blocks later compressions forever.
+                if let Some(flight) = conversation.compression_flight() {
+                    let settle_ms = wf_execution_shared::compression_settle_timeout_ms();
+                    if wf_execution_shared::context_store::flight_expired(
+                        flight.started_at_ms,
+                        wf_common::now(),
+                        settle_ms,
+                    ) {
+                        conversation.end_compression_flight(flight.version);
+                        conversation.clear_pending_compaction();
+                    } else {
+                        return;
+                    }
                 }
+                let single_summary = wf_execution_shared::is_single_summary_strategy(
+                    &wf_execution_shared::compaction_strategy_name(&limits),
+                );
                 let plan = conversation.build_compaction_plan(hot, &limits, aggressive);
-                if plan.is_empty() {
+                if plan.is_empty() && !single_summary {
                     return;
                 }
-                if aggressive
+                if !single_summary
+                    && aggressive
                     && hot.saturating_sub(plan.freed_tokens)
                         >= conversation.compaction_state().thresholds.t_hard
                 {
@@ -382,6 +398,7 @@ impl AgentIterationCoordinator {
                 let messages = conversation.view_messages();
                 let items = plan.items.clone();
                 let capped = plan.capped;
+                let legacy = items.is_empty();
                 conversation.set_pending_compaction(plan.items, plan.drops);
                 drop(conversation);
                 if self
@@ -395,7 +412,7 @@ impl AgentIterationCoordinator {
                     )
                     .await
                 {
-                    self.record_plan_emitted(false, aggressive);
+                    self.record_plan_emitted(legacy, aggressive);
                     if capped {
                         self.record_plan_capped();
                     }

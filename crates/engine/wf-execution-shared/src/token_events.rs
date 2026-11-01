@@ -147,7 +147,7 @@ pub const COMPRESSION_SETTLE_POLL_MS: u64 = 50;
 /// event. The runtime replaces this default from
 /// `limits.compression.settle_timeout_ms` at bootstrap (see
 /// [`set_compression_settle_timeout_ms`]).
-pub const DEFAULT_COMPRESSION_SETTLE_TIMEOUT_MS: u64 = 300_000;
+pub const DEFAULT_COMPRESSION_SETTLE_TIMEOUT_MS: u64 = 600_000;
 
 /// Process-wide settle budget, seeded from the runtime execution config.
 /// Written exactly once during bootstrap (before any execution can run) and

@@ -97,14 +97,47 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
     // The terminal-failure handling strategy is declared by the summary
     // workflow resource itself (`compression_fallback` on its
     // triggered-subworkflow config); an absent declaration means `fail`.
-    let summary_workflow_id =
-        wf_resource::predefined::workflow::FOLD_SUMMARY_WORKFLOW_ID.to_string();
+    // A named compression strategy selects its summary workflows: the
+    // built-in name keeps the fold-summary chains, any other name resolves
+    // to a contributed summary workflow id with `-repress` suffixed for
+    // the re-compression chain. Missing workflows fall back to built-in.
+    let strategy = limits
+        .compaction
+        .as_ref()
+        .and_then(|c| c.strategy.clone())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            wf_execution_shared::BUILTIN_COMPRESSION_STRATEGY_NAME.to_string()
+        });
+    let (candidate_summary, candidate_repress) =
+        if wf_execution_shared::is_builtin_strategy(&strategy)
+            || wf_execution_shared::is_single_summary_strategy(&strategy)
+        {
+            (
+                wf_resource::predefined::workflow::FOLD_SUMMARY_WORKFLOW_ID.to_string(),
+                Some(
+                    wf_resource::predefined::workflow::FOLD_SUMMARY_REPRESS_WORKFLOW_ID
+                        .to_string(),
+                ),
+            )
+        } else {
+            (strategy.clone(), Some(format!("{strategy}-repress")))
+        };
+    let summary_workflow_id = if registries.workflows.has(&candidate_summary) {
+        candidate_summary
+    } else {
+        tracing::error!(
+            strategy = %strategy,
+            candidate = %candidate_summary,
+            "compression strategy summary workflow missing; falling back to built-in"
+        );
+        wf_resource::predefined::workflow::FOLD_SUMMARY_WORKFLOW_ID.to_string()
+    };
     // The repress chain is optional: older registries may only carry the
     // main chain, and the pipeline falls back to it for re-compressions.
-    let repress_workflow_id = registries
-        .workflows
-        .get(wf_resource::predefined::workflow::FOLD_SUMMARY_REPRESS_WORKFLOW_ID)
-        .map(|template| template.id.clone());
+    let repress_workflow_id = candidate_repress
+        .and_then(|id| registries.workflows.get(&id).map(|template| template.id.clone()));
     let compression_fallback = registries
         .workflows
         .get(&summary_workflow_id)

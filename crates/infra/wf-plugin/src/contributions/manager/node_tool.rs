@@ -16,4 +16,15 @@ impl ContributionManager {
     pub fn all_tool_types(&self) -> Vec<(String, String)> {
         self.tool_type_registry.all()
     }
+
+    pub fn get_compaction_advisor(
+        &self,
+        name: &str,
+    ) -> Option<Arc<dyn PluginCompactionAdvisor>> {
+        self.compaction_advisor_registry.get(name)
+    }
+
+    pub fn all_compaction_advisors(&self) -> Vec<(String, String)> {
+        self.compaction_advisor_registry.all()
+    }
 }

@@ -173,8 +173,6 @@ pub struct CompactionState {
     #[serde(default)]
     pub hot_tokens: u64,
     #[serde(default)]
-    pub growth_baseline: u64,
-    #[serde(default)]
     pub window_tokens: u64,
     #[serde(default)]
     pub thresholds: CompactionThresholds,

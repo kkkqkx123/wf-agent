@@ -204,6 +204,37 @@ impl WfPluginBridge {
             }
         }
     }
+
+    /// Sync plugin compaction advisors into the process-wide engine
+    /// registry. Advisors are pure shaping hooks; the engine validates
+    /// every suggestion, so a failing registration fails activation
+    /// loudly instead of running with a missing strategy.
+    fn sync_advisors(&self, plugin_id: &str, manager: &ContributionManager) -> PluginResult<()> {
+        for (name, owner) in manager.all_compaction_advisors() {
+            if owner != plugin_id {
+                continue;
+            }
+            let Some(advisor) = manager.get_compaction_advisor(&name) else {
+                continue;
+            };
+            if !wf_execution_shared::register_compaction_advisor(&name, advisor) {
+                return Err(PluginError::LoadFailed(format!(
+                    "plugin '{plugin_id}' compaction advisor '{name}' conflicts with an existing strategy"
+                )));
+            }
+            tracing::debug!("  compaction-advisor (engine-registered): {}", name);
+        }
+        Ok(())
+    }
+
+    fn unsync_advisors(&self, plugin_id: &str, manager: &ContributionManager) {
+        for (name, owner) in manager.all_compaction_advisors() {
+            if owner == plugin_id {
+                wf_execution_shared::unregister_compaction_advisor(&name);
+                tracing::debug!("  compaction-advisor (engine-removed): {}", name);
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -382,6 +413,7 @@ impl ContributionBridge for WfPluginBridge {
         self.sync_llm(plugin_id, manager)?;
         self.sync_auth(plugin_id, manager)?;
         self.sync_images(plugin_id, manager);
+        self.sync_advisors(plugin_id, manager)?;
 
         Ok(())
     }
@@ -394,6 +426,7 @@ impl ContributionBridge for WfPluginBridge {
         self.unsync_llm(plugin_id, manager);
         self.unsync_auth(plugin_id, manager);
         self.unsync_images(plugin_id, manager);
+        self.unsync_advisors(plugin_id, manager);
 
         // Symmetric teardown of `sync_all` through the shared
         // `uninstall_bundle` helper.

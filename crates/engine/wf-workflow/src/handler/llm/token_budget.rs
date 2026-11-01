@@ -154,12 +154,16 @@ pub async fn emit_token_usage_events(
             // Hard-limit guard: moderately over-budget arrays keep the
             // single summary; far over-budget ones reuse the plan pipeline
             // through a one-shot stateless plan (no block table).
+            // Single-summary mode never upgrades: it always keeps the
+            // legacy single summary.
             let limits = wf_execution_shared::compaction::process_compaction_limits();
             let hard_line = (context_limit as f64
                 * wf_execution_shared::compaction::stateless_plan_factor(&limits))
                 as u64;
             let mut stateless_plan = Vec::new();
-            if estimated > hard_line {
+            if !wf_execution_shared::is_single_summary_strategy(
+                &wf_execution_shared::compaction_strategy_name(&limits),
+            ) && estimated > hard_line {
                 let budget = wf_execution_shared::compaction::resolve_summary_call_budget(
                     context_limit,
                     &limits,

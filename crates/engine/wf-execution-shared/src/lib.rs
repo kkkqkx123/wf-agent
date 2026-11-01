@@ -62,17 +62,19 @@ pub use wf_shell::background_task::{
 // operations, usage tracking and event builders relocated from the LLM
 // transport crate, which now only owns transport, config and estimation.
 pub use compaction::{
-    build_plan, builtin_compaction_limits, compaction_ratios_valid, context_budget_from_profile,
-    context_budget_from_window, context_budget_from_window_with_percent,
-    context_budget_percent_from_metadata, decide_compaction, outcomes_match_plan,
-    plan_covers_snapshot, process_compaction_limits, rebuild_after_truncate,
-    resolve_compaction_thresholds, set_process_compaction_limits, sync_blocks, BlockOutcome,
-    CompactionDecision, CompactionMode, CompactionPlan,
-    CompactionPlanItem, CompactionThresholds, CONTEXT_BUDGET_METADATA_KEY, CONTEXT_BUDGET_PERCENT,
-    H_TARGET_RATIO_DEFAULT, K_REPRESS_DEFAULT, REASON_ALL_BLOCKS_SMALL, REASON_HARD_LIMIT,
-    REASON_NO_COMPRESSIBLE_TARGET, REASON_POST_COMPACT_STILL_HIGH, RECENT_RAW_TURNS_DEFAULT,
-    R_MIN_RANGE_DEFAULT, R_REPRESS_DEFAULT, T_COMPACT_RATIO_DEFAULT, T_HANDOFF_RATIO_DEFAULT,
-    T_HARD_RATIO_DEFAULT,
+    build_plan, builtin_compaction_limits, compaction_ratios_valid, compaction_strategy_name,
+    context_budget_from_profile, context_budget_from_window,
+    context_budget_from_window_with_percent, context_budget_percent_from_metadata,
+    decide_compaction, get_compaction_advisor, is_builtin_strategy, is_single_summary_strategy,
+    outcomes_match_plan, plan_covers_snapshot, process_compaction_limits, rebuild_after_truncate,
+    register_compaction_advisor, resolve_compaction_thresholds, set_process_compaction_limits,
+    sync_blocks, unregister_compaction_advisor, BlockOutcome, CompactionDecision, CompactionMode,
+    CompactionPlan, CompactionPlanItem, CompactionThresholds, BUILTIN_COMPRESSION_STRATEGY_NAME,
+    CONTEXT_BUDGET_METADATA_KEY, CONTEXT_BUDGET_PERCENT, H_TARGET_RATIO_DEFAULT, K_REPRESS_DEFAULT,
+    REASON_ALL_BLOCKS_SMALL, REASON_HARD_LIMIT, REASON_NO_COMPRESSIBLE_TARGET,
+    REASON_POST_COMPACT_STILL_HIGH, RECENT_RAW_TURNS_DEFAULT, R_MIN_RANGE_DEFAULT,
+    R_REPRESS_DEFAULT, SINGLE_SUMMARY_STRATEGY_NAME, T_COMPACT_RATIO_DEFAULT,
+    T_HANDOFF_RATIO_DEFAULT, T_HARD_RATIO_DEFAULT,
 };
 pub use ingest_preprocess::{
     blake3_hex, classify_tool, distill_tool_output, file_pointer_text, ToolOutputKind,

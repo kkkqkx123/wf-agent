@@ -138,13 +138,16 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
     // Same hard-limit guard as the budget path: a far over-budget forced
     // snapshot splits into a one-shot stateless plan. With an unknown
     // budget there is no line to compare against, so it stays single.
+    // Single-summary mode never upgrades.
     let mut stateless_plan = Vec::new();
     if effective_limit > 0 {
         let limits = wf_execution_shared::compaction::process_compaction_limits();
         let hard_line = (effective_limit as f64
             * wf_execution_shared::compaction::stateless_plan_factor(&limits))
             as u64;
-        if tokens_used > hard_line {
+        if !wf_execution_shared::is_single_summary_strategy(
+            &wf_execution_shared::compaction_strategy_name(&limits),
+        ) && tokens_used > hard_line {
             let budget = wf_execution_shared::compaction::resolve_summary_call_budget(
                 effective_limit,
                 &limits,

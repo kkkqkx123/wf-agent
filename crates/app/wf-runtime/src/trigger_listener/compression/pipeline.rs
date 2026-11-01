@@ -43,9 +43,22 @@ fn trim_messages_to_budget(
     budget_tokens: u64,
     min_keep: usize,
 ) -> Vec<Message> {
+    if messages.is_empty() {
+        return messages;
+    }
     let min_keep = min_keep.max(1).min(messages.len());
-    while messages.len() > min_keep && wf_llm::estimate_messages(&messages) as u64 > budget_tokens {
-        messages.remove(0);
+    let costs: Vec<u64> = messages
+        .iter()
+        .map(|message| wf_llm::count::estimate_message_tokens(message) as u64)
+        .collect();
+    let mut total: u64 = costs.iter().fold(0, |acc, cost| acc.saturating_add(*cost));
+    let mut drop_count = 0usize;
+    while messages.len() - drop_count > min_keep && total > budget_tokens {
+        total = total.saturating_sub(costs[drop_count]);
+        drop_count += 1;
+    }
+    if drop_count > 0 {
+        messages.drain(..drop_count);
     }
     messages
 }

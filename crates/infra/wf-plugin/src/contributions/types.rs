@@ -8,6 +8,7 @@ pub use wf_plugin_sdk::contributions::{
     PluginEventHandler, PluginExecutionContext, PluginLlmAuth, PluginLlmCodec, PluginLlmImages,
     PluginLoginChallenge, PluginLoginStep, PluginMiddlewareHandler, PluginNodeHandler,
     PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult,
+    PluginCompactionAdvisor,
 };
 
 // ============================================================
@@ -40,6 +41,10 @@ pub enum ContributionType {
     Trigger,
     ToolDescription,
     Tool,
+    /// Compaction planning advice (`compaction-advisor`). Pure shaping
+    /// hook; the engine validates every suggestion and falls back to the
+    /// built-in planner on any failure.
+    CompactionAdvisor,
 }
 
 impl ContributionType {
@@ -61,6 +66,7 @@ impl ContributionType {
             Self::Trigger => "trigger",
             Self::ToolDescription => "tool-description",
             Self::Tool => "tool",
+            Self::CompactionAdvisor => "compaction-advisor",
         }
     }
 
@@ -82,6 +88,7 @@ impl ContributionType {
             Self::Trigger,
             Self::ToolDescription,
             Self::Tool,
+            Self::CompactionAdvisor,
         ]
     }
 }

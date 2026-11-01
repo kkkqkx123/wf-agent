@@ -8,6 +8,7 @@ wf-integration = { path = "../../infra/wf-integration" }
 wf-types = { path = "../../foundation/wf-types" }
 wf-common = { path = "../../foundation/wf-common" }
 wf-core = { path = "../../foundation/wf-core" }
+wf-plugin-sdk = { path = "../../foundation/wf-plugin-sdk" }
 wf-llm = { path = "../../infra/wf-llm" }
 wf-tools = { path = "../wf-tools" }
 wf-resource = { path = "../wf-resource" }

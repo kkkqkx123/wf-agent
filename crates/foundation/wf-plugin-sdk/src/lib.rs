@@ -20,7 +20,7 @@ pub use contributions::{
     PluginAuthEvent, PluginAuthNext, PluginAuthOption, PluginAuthPrompt, PluginEventHandler,
     PluginExecutionContext, PluginLlmAuth, PluginLlmCodec, PluginLlmImages, PluginLoginChallenge,
     PluginLoginStep, PluginMiddlewareHandler, PluginNodeHandler, PluginNodeResult,
-    PluginToolContext, PluginToolExecutor, PluginToolResult,
+    PluginToolContext, PluginToolExecutor, PluginToolResult, PluginCompactionAdvisor,
 };
 pub use error::{PluginError, PluginResult};
 pub use manifest::{

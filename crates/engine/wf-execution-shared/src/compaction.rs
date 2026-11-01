@@ -101,7 +101,79 @@ pub fn builtin_compaction_limits() -> CompactionLimits {
         file_dedup: Some(true),
         plan_max_items: Some(PLAN_MAX_ITEMS_DEFAULT),
         summary_call_budget_tokens: None,
+        strategy: None,
     }
+}
+
+/// Built-in compression strategy name. Empty config normalizes here.
+pub const BUILTIN_COMPRESSION_STRATEGY_NAME: &str = "builtin";
+/// Built-in single-summary mode name. Selects the legacy single summary
+/// without layered blocks: thresholds still gate emission, but no block
+/// planning, re-compression or block-based handoff applies.
+pub const SINGLE_SUMMARY_STRATEGY_NAME: &str = "single-summary";
+
+/// Effective strategy name for compaction limits. Trims the configured
+/// value; absent or blank means the built-in strategy.
+pub fn compaction_strategy_name(limits: &CompactionLimits) -> String {
+    limits
+        .strategy
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(BUILTIN_COMPRESSION_STRATEGY_NAME)
+        .to_string()
+}
+
+/// Whether a strategy name selects the built-in planner and chains.
+pub fn is_builtin_strategy(name: &str) -> bool {
+    let trimmed = name.trim();
+    trimmed.is_empty() || trimmed == BUILTIN_COMPRESSION_STRATEGY_NAME
+}
+
+/// Whether a strategy name selects the legacy single summary without
+/// layered blocks. The engine still owns thresholds, version anchors
+/// and write-back; planning and block-based handoff are bypassed.
+pub fn is_single_summary_strategy(name: &str) -> bool {
+    name.trim() == SINGLE_SUMMARY_STRATEGY_NAME
+}
+
+/// Process-wide compaction advisor registry backing named strategies.
+/// Advisors are pure shaping hooks contributed by plugins; the engine
+/// validates every suggestion and falls back to the built-in planner.
+static COMPACTION_ADVISORS: OnceLock<
+    dashmap::DashMap<String, std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor>>,
+> = OnceLock::new();
+
+fn compaction_advisors(
+) -> &'static dashmap::DashMap<String, std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor>>
+{
+    COMPACTION_ADVISORS.get_or_init(dashmap::DashMap::new)
+}
+
+/// Register planning advice for a named strategy. Returns false when the
+/// name is already taken; unregister first to replace it.
+pub fn register_compaction_advisor(
+    name: &str,
+    advisor: std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor>,
+) -> bool {
+    let key = name.trim().to_string();
+    if key.is_empty() || compaction_advisors().contains_key(&key) {
+        return false;
+    }
+    compaction_advisors().insert(key, advisor);
+    true
+}
+
+/// Remove planning advice for a named strategy.
+pub fn unregister_compaction_advisor(name: &str) -> bool {
+    compaction_advisors().remove(name.trim()).is_some()
+}
+
+/// Planning advice for a named strategy, if registered.
+pub fn get_compaction_advisor(
+    name: &str,
+) -> Option<std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor>> {
+    compaction_advisors().get(name.trim()).map(|e| e.clone())
 }
 
 static PROCESS_LIMITS: OnceLock<CompactionLimits> = OnceLock::new();
@@ -400,6 +472,140 @@ fn plan_max_items(limits: &CompactionLimits) -> usize {
         .max(1)
 }
 
+/// Consult the registered planning advice for a named strategy. Returns the
+/// validated plan when the advisor is present and its suggestion survives
+/// engine checks; returns `None` to fall back to the built-in planner for
+/// built-in strategies, missing advisors, failures and invalid output.
+fn try_advisor_plan(
+    state: &CompactionState,
+    snapshot: &[Message],
+    hot_tokens: u64,
+    limits: &CompactionLimits,
+    aggressive: bool,
+) -> Option<CompactionPlan> {
+    let strategy = compaction_strategy_name(limits);
+    if is_builtin_strategy(&strategy) {
+        return None;
+    }
+    let advisor = get_compaction_advisor(&strategy)?;
+    let thresholds = resolve_compaction_thresholds(state.window_tokens, limits);
+    let target_freed = hot_tokens.saturating_sub(thresholds.h_target);
+    let item_cap = plan_max_items(limits);
+    let costs: Vec<u64> = snapshot
+        .iter()
+        .map(|message| wf_llm::count::estimate_message_tokens(message) as u64)
+        .collect();
+    let blocks: Vec<serde_json::Value> = state
+        .blocks
+        .iter()
+        .filter(|b| b.active)
+        .map(|b| {
+            serde_json::json!({
+                "block_id": b.block_id,
+                "state": format!("{:?}", b.state),
+                "size_tokens": b.size_tokens,
+                "repress_count": b.repress_count,
+            })
+        })
+        .collect();
+    let input = serde_json::json!({
+        "strategy": strategy,
+        "hot_tokens": hot_tokens,
+        "aggressive": aggressive,
+        "item_cap": item_cap,
+        "target_freed": target_freed,
+        "snapshot_len": snapshot.len(),
+        "costs": costs,
+        "blocks": blocks,
+        "thresholds": {
+            "h_target": thresholds.h_target,
+            "t_handoff": thresholds.t_handoff,
+            "t_compact": thresholds.t_compact,
+            "t_hard": thresholds.t_hard,
+        },
+    });
+    let output = match advisor.advise(input) {
+        Ok(output) => output,
+        Err(error) => {
+            tracing::warn!(strategy = %strategy, error = %error, "compaction advisor failed; falling back to built-in plan");
+            return None;
+        }
+    };
+    let mut plan = CompactionPlan::empty();
+    let known: std::collections::HashSet<&str> = state
+        .blocks
+        .iter()
+        .filter(|b| b.active)
+        .map(|b| b.block_id.as_str())
+        .collect();
+    let raw_ids: std::collections::HashSet<&str> = state
+        .blocks
+        .iter()
+        .filter(|b| b.active && b.state == BlockState::Raw)
+        .map(|b| b.block_id.as_str())
+        .collect();
+    if let Some(items) = output.get("items").and_then(|v| v.as_array()) {
+        for item in items {
+            if plan.items.len() >= item_cap {
+                break;
+            }
+            let block_id = item
+                .get("block_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if block_id.is_empty() || !known.contains(block_id) {
+                continue;
+            }
+            let start = item.get("start").and_then(|v| v.as_u64()).unwrap_or(u64::MAX) as usize;
+            let end = item.get("end").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            if start >= end || end > snapshot.len() {
+                continue;
+            }
+            let depth = item.get("depth").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            let mut extras = Vec::new();
+            if let Some(extra_ids) = item.get("extra_block_ids").and_then(|v| v.as_array()) {
+                for extra in extra_ids {
+                    if let Some(id) = extra.as_str() {
+                        if !id.is_empty() && known.contains(id) && id != block_id && !extras.contains(&id.to_string()) {
+                            extras.push(id.to_string());
+                        }
+                    }
+                }
+            }
+            let covered: u64 = (start..end).map(|i| costs.get(i).copied().unwrap_or(0)).sum();
+            plan.freed_tokens = plan.freed_tokens.saturating_add(covered);
+            plan.items.push(CompactionPlanItem {
+                block_id: block_id.to_string(),
+                start,
+                end,
+                depth,
+                extra_block_ids: extras,
+            });
+        }
+    }
+    if let Some(drops) = output.get("drops").and_then(|v| v.as_array()) {
+        for drop in drops {
+            if let Some(id) = drop.as_str() {
+                if id.is_empty() || raw_ids.contains(id) || plan.drops.iter().any(|d| d == id) {
+                    continue;
+                }
+                if !known.contains(id) {
+                    continue;
+                }
+                if let Some(block) = state.blocks.iter().find(|b| b.block_id == id) {
+                    plan.freed_tokens = plan.freed_tokens.saturating_add(block.size_tokens);
+                    plan.drops.push(id.to_string());
+                }
+            }
+        }
+    }
+    if plan.is_empty() {
+        return None;
+    }
+    plan.capped = plan.items.len() >= item_cap && plan.freed_tokens < target_freed;
+    Some(plan)
+}
+
 /// Merge adjacent first-compression items in snapshot order while the
 /// merged slice fits the single-call budget. Only `depth == 0` items
 /// merge; re-compressions keep their identity. Merged coverage beyond the
@@ -472,6 +678,8 @@ impl CompactionPlan {
 /// summaries, then smallest compressed blocks for deactivation. `Raw`
 /// blocks are never deactivated. Aggressive mode (past the hard limit)
 /// ignores the minimum interval and deactivates small blocks too.
+/// Named strategies consult their registered planning advice first; any
+/// missing, failing or invalid advice falls back to the built-in planner.
 #[allow(clippy::too_many_arguments)]
 pub fn build_plan(
     state: &CompactionState,
@@ -486,6 +694,15 @@ pub fn build_plan(
     let thresholds = resolve_compaction_thresholds(state.window_tokens, limits);
     if state.window_tokens == 0 || hot_tokens <= thresholds.h_target {
         return CompactionPlan::empty();
+    }
+    // Single-summary mode keeps no layered plan: the empty plan is the
+    // legacy single-summary signal, validated by the emitter holding a
+    // Compact decision.
+    if is_single_summary_strategy(&compaction_strategy_name(limits)) {
+        return CompactionPlan::empty();
+    }
+    if let Some(advised) = try_advisor_plan(state, snapshot, hot_tokens, limits, aggressive) {
+        return advised;
     }
     let r_min = if aggressive { 0 } else { r_min_range(limits) };
     let r_rep = r_repress(limits);
@@ -675,6 +892,11 @@ pub fn decide_compaction(
     if hot_tokens >= thresholds.t_compact {
         return CompactionDecision::Compact { aggressive: false };
     }
+    // Single-summary mode gates only on thresholds: no block-based
+    // handoff applies without a block table.
+    if is_single_summary_strategy(&compaction_strategy_name(limits)) {
+        return CompactionDecision::Hold;
+    }
     let r_min = r_min_range(limits);
     let r_rep = r_repress(limits);
     let k_rep = k_repress(limits);
@@ -773,6 +995,7 @@ mod tests {
             file_dedup: None,
             plan_max_items: None,
             summary_call_budget_tokens: None,
+            strategy: None,
         }
     }
 

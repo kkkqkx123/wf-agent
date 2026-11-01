@@ -261,6 +261,23 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
             .register(id.into(), plugin_id, Arc::new(tool));
         Ok(())
     }
+    fn register_compaction_advisor(
+        &mut self,
+        name: &str,
+        advisor: Arc<dyn PluginCompactionAdvisor>,
+    ) -> PluginResult<()> {
+        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
+        self.validate(&plugin_id, ContributionType::CompactionAdvisor, name)?;
+        self.manager.check_conflict(
+            ContributionType::CompactionAdvisor.as_str(),
+            name,
+            || self.manager.compaction_advisor_registry.get_owner(name),
+        )?;
+        self.manager
+            .compaction_advisor_registry
+            .register(name.into(), plugin_id, advisor);
+        Ok(())
+    }
     fn register_middleware(
         &mut self,
         phase: MiddlewarePhase,

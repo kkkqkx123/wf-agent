@@ -5,7 +5,7 @@
 //! agent iteration cap 1000, default agent iterations 10, sub-agent depth 8,
 //! workflow loop cap 10000, default loop iterations 100, navigation
 //! multiplier 5, node timeout fallback 30000ms, compression run timeout
-//! 240000ms with 1 retry, a settle budget of 300000ms and tail_keep 2. The
+//! 240000ms with 1 retry, a settle budget of 600000ms and tail_keep 2. The
 //! terminal-failure fallback is not a global limit: it is declared per
 //! compression workflow resource. `max_concurrent = 0` and
 //! `max_pause_duration_ms = 0` mean "no explicit limit" and preserve the
@@ -36,7 +36,7 @@ pub const EXEC_MAX_EXECUTION_TIME_MS_DEFAULT: u64 = 0;
 pub const COMPRESSION_TAIL_KEEP_DEFAULT: usize = 2;
 pub const COMPRESSION_MAX_RETRIES_DEFAULT: u32 = 1;
 pub const COMPRESSION_TIMEOUT_MS_DEFAULT: u64 = 240_000;
-pub const COMPRESSION_SETTLE_TIMEOUT_MS_DEFAULT: u64 = 300_000;
+pub const COMPRESSION_SETTLE_TIMEOUT_MS_DEFAULT: u64 = 600_000;
 
 pub const COMPACTION_H_TARGET_RATIO_DEFAULT: f64 = 0.30;
 pub const COMPACTION_T_HANDOFF_RATIO_DEFAULT: f64 = 0.55;
@@ -145,6 +145,10 @@ pub fn merge_limits_with_defaults(user: &LimitsConfig) -> LimitsConfig {
             .and_then(|c| c.plan_max_items)
             .or(Some(COMPACTION_PLAN_MAX_ITEMS_DEFAULT)),
         summary_call_budget_tokens: user_compaction.and_then(|c| c.summary_call_budget_tokens),
+        strategy: user_compaction
+            .and_then(|c| c.strategy.clone())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
     };
 
     LimitsConfig {
@@ -216,6 +220,23 @@ pub fn validate_limits_config(config: &LimitsConfig) -> ConfigResult<()> {
         if let Some(settle) = compression.settle_timeout_ms {
             validate_min(settle, 1, "limits.compression.settle_timeout_ms")?;
         }
+        if let (Some(timeout), Some(settle), Some(retries)) = (
+            compression.timeout_ms,
+            compression.settle_timeout_ms,
+            compression.max_retries,
+        ) {
+            let mut backoff_sum: u64 = 0;
+            for attempt in 0..retries {
+                let shift = attempt.min(6);
+                backoff_sum = backoff_sum.saturating_add(1_000u64.saturating_mul(1u64 << shift));
+            }
+            let worst = (u64::from(retries).saturating_add(1)).saturating_mul(timeout).saturating_add(backoff_sum);
+            if settle < worst {
+                return Err(ConfigError::Validation(format!(
+                    "limits.compression.settle_timeout_ms ({settle}) must cover the worst run budget ({worst}): (1 + max_retries) * timeout_ms plus backoff"
+                )));
+            }
+        }
     }
     if let Some(ref compaction) = config.compaction {
         let ratios = [
@@ -278,6 +299,13 @@ pub fn validate_limits_config(config: &LimitsConfig) -> ConfigResult<()> {
         if let Some(budget) = compaction.summary_call_budget_tokens {
             validate_min(budget, 1, "limits.compaction.summary_call_budget_tokens")?;
         }
+        if let Some(strategy) = compaction.strategy.as_ref() {
+            if strategy.trim().is_empty() {
+                return Err(ConfigError::Validation(
+                    "limits.compaction.strategy must not be empty".to_string(),
+                ));
+            }
+        }
     }
     Ok(())
 }
@@ -307,7 +335,7 @@ mod tests {
         assert_eq!(compression.tail_keep, Some(2));
         assert_eq!(compression.max_retries, Some(1));
         assert_eq!(compression.timeout_ms, Some(240_000));
-        assert_eq!(compression.settle_timeout_ms, Some(300_000));
+        assert_eq!(compression.settle_timeout_ms, Some(600_000));
         let compaction = merged.compaction.unwrap();
         assert_eq!(compaction.h_target_ratio, Some(0.30));
         assert_eq!(compaction.t_handoff_ratio, Some(0.55));
@@ -371,6 +399,7 @@ mod tests {
                 file_dedup: Some(true),
                 plan_max_items: Some(8),
                 summary_call_budget_tokens: None,
+                strategy: None,
             }),
             ..Default::default()
         };
@@ -390,6 +419,7 @@ mod tests {
                 file_dedup: Some(true),
                 plan_max_items: Some(8),
                 summary_call_budget_tokens: None,
+                strategy: None,
             }),
             ..Default::default()
         };

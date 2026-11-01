@@ -52,9 +52,9 @@ pub struct ExecutionDefaults {
 /// from the model window and must strictly increase
 /// `h_target < t_handoff < t_compact < t_hard`; the absolute token values
 /// gate first-time compression, re-compression and per-block sealing.
-/// These are tuning parameters only: they never select between compression
-/// strategies, the pipeline stays single and the summary workflow resource
-/// stays the replaceable unit.
+/// The pipeline stays single; `strategy` selects the named summary
+/// workflows and planning advice, the engine still owns version anchors
+/// and write-back. Absent means the built-in strategy.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct CompactionLimits {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -86,6 +86,13 @@ pub struct CompactionLimits {
     /// the model window at use time.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary_call_budget_tokens: Option<u64>,
+    /// Named compression strategy selecting summary workflows and planning
+    /// advice. Absent or `builtin` means the built-in fold-summary chains.
+    /// Any other name resolves to a summary workflow id contributed by
+    /// configuration or plugins, with `-repress` suffixed for the
+    /// re-compression chain when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<String>,
 }
 
 /// Compression service policy for the context-compression chain.

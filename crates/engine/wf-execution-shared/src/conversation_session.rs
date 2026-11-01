@@ -446,7 +446,6 @@ impl ConversationSession {
             .saturating_mul(2);
         self.refresh_compacted_view(recent);
         self.refresh_hot_estimate();
-        self.state.compaction.growth_baseline = self.state.compaction.hot_tokens;
         // Post-compaction handoff evaluation: still high with no room to
         // shrink means the next settlement enters handoff directly.
         self.evaluate_handoff_request();
@@ -507,7 +506,6 @@ impl ConversationSession {
             );
         }
         self.refresh_hot_estimate();
-        self.state.compaction.growth_baseline = self.state.compaction.hot_tokens;
         self.tracker.reset_preflight_warning();
     }
 

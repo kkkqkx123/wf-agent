@@ -42,10 +42,10 @@ pub use contributions::{
     parse_middleware_outcome, AuthDescriptor, CodecHttpRequest, ContributionBridge,
     ContributionManager, ContributionRegistrar, ContributionType, MiddlewareOutcome, NextFn,
     OverridePolicy, PluginAuthEvent, PluginAuthNext, PluginAuthOption, PluginAuthPrompt,
-    PluginEventData, PluginEventHandler, PluginExecutionContext, PluginLlmAuth, PluginLlmCodec,
-    PluginLlmImages, PluginLoginChallenge, PluginLoginStep, PluginMiddlewareHandler,
-    PluginNodeHandler, PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult,
-    RegistrarGuard,
+    PluginCompactionAdvisor, PluginEventData, PluginEventHandler, PluginExecutionContext,
+    PluginLlmAuth, PluginLlmCodec, PluginLlmImages, PluginLoginChallenge, PluginLoginStep,
+    PluginMiddlewareHandler, PluginNodeHandler, PluginNodeResult, PluginToolContext,
+    PluginToolExecutor, PluginToolResult, RegistrarGuard,
 };
 pub use dependency::{resolve_dependencies, ResolvedGraph};
 pub use engine::{PluginEngine, PluginSystemConfig};

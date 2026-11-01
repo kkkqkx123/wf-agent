@@ -48,6 +48,7 @@ interface MessageContentPartDto {
 	thinking?: string;
 	tool_result?: { content?: string };
 	tool_use?: { name?: string; input?: unknown };
+	image_url?: { url?: string };
 }
 
 interface MessageDto {
@@ -123,7 +124,8 @@ function toLoop(d: SummaryDto): AgentLoop {
 	};
 }
 
-/** Rich content parts collapse to the text the transcript can show. */
+/** Rich content parts collapse to the text the transcript can show. Image
+ * blocks collapse to a placeholder where no image renderer exists. */
 function flattenContent(content: string | MessageContentPartDto[] | undefined): string {
 	if (typeof content === 'string') return content;
 	if (!Array.isArray(content)) return '';
@@ -132,10 +134,30 @@ function flattenContent(content: string | MessageContentPartDto[] | undefined): 
 			if (part.type === 'text') return part.text ?? '';
 			if (part.type === 'tool_result') return part.tool_result?.content ?? '';
 			if (part.type === 'tool_use') return part.tool_use?.name ?? '';
+			if (part.type === 'image_url' && part.image_url?.url)
+				return imagePlaceholder(part.image_url.url);
 			return '';
 		})
 		.filter(Boolean)
 		.join('\n');
+}
+
+/** Image payloads of rich content, data URLs or remote addresses. */
+function imageUrls(content: string | MessageContentPartDto[] | undefined): string[] {
+	if (!Array.isArray(content)) return [];
+	return content
+		.filter((part) => part.type === 'image_url')
+		.map((part) => part.image_url?.url ?? '')
+		.filter((url) => url.length > 0);
+}
+
+/** Text fallback for an image block where no image renderer exists. */
+function imagePlaceholder(url: string): string {
+	if (url.startsWith('data:')) {
+		const media = url.slice('data:'.length).split(';')[0] || 'image';
+		return `[image: ${media} inline]`;
+	}
+	return `[image: ${url}]`;
 }
 
 function toMessage(d: MessageDto): LoopMessage {
@@ -147,6 +169,7 @@ function toMessage(d: MessageDto): LoopMessage {
 		tokens: null,
 		toolName: d.tool_name ?? null,
 		thinking: d.thinking ?? null,
+		images: imageUrls(d.content),
 	} satisfies LoopMessage;
 }
 

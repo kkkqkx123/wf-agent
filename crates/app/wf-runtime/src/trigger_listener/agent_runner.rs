@@ -225,6 +225,7 @@ impl TriggerActionRunner for AgentTriggerRunner {
                     message: prompt.clone().unwrap_or_else(|| template.name.clone()),
                     context: HashMap::new(),
                     conversation,
+                    images: Vec::new(),
                 };
                 if let Err(errors) =
                     wf_agent::validation::AgentLoopValidator::validate_or_fail_input(&child_input)
@@ -275,6 +276,7 @@ impl TriggerActionRunner for AgentTriggerRunner {
                     message: prompt.clone().unwrap_or_else(|| template.name.clone()),
                     context: HashMap::new(),
                     conversation: Vec::new(),
+                    images: Vec::new(),
                 };
                 let executor = self.executor.clone();
                 let shutdown = self.shutdown.clone();
@@ -411,6 +413,7 @@ impl AgentTriggerRunner {
             message: prompt.clone().unwrap_or_else(|| template.name.clone()),
             context: input.clone().unwrap_or_default(),
             conversation: Vec::new(),
+            images: Vec::new(),
         };
         if let Err(errors) =
             wf_agent::validation::AgentLoopValidator::validate_or_fail_input(&child_input)

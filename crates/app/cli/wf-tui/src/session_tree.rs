@@ -150,6 +150,8 @@ pub fn checkpoint_points(value: &serde_json::Value) -> Vec<CheckpointPoint> {
 }
 
 /// Plain-text content of a message, skipping tool/image payloads.
+/// Image blocks collapse to a placeholder so image-carrying turns stay
+/// visible where no image renderer exists.
 fn message_text(message: &Message) -> String {
     match &message.content {
         MessageContentValue::Text(text) => text.clone(),
@@ -159,8 +161,10 @@ fn message_text(message: &Message) -> String {
                 MessageContent::Text { text } => Some(text.clone()),
                 MessageContent::Thinking { thinking, .. } => Some(thinking.clone()),
                 MessageContent::ToolResult { tool_result } => Some(tool_result.content.clone()),
+                MessageContent::ImageUrl { image_url } => {
+                    Some(wf_types::message::image_block_label(image_url))
+                }
                 MessageContent::ToolUse { .. }
-                | MessageContent::ImageUrl { .. }
                 | MessageContent::InputAudio { .. }
                 | MessageContent::FileInput { .. }
                 | MessageContent::RedactedThinking { .. }

@@ -116,6 +116,7 @@ fn input(message: &str) -> AgentLoopInput {
         message: message.to_string(),
         context: std::collections::HashMap::new(),
         conversation: Vec::new(),
+        images: Vec::new(),
     }
 }
 
@@ -182,6 +183,9 @@ async fn resume_sources(store: &Arc<StorageBackend>, entity_id: &str) -> (String
 
 #[tokio::test]
 async fn resume_from_checkpoint_replays_idempotent_tool_calls() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     let echo_runs = Arc::new(AtomicUsize::new(0));
@@ -287,6 +291,9 @@ async fn checkpoint_message_interval_produces_interval_checkpoints() {
 
 #[tokio::test]
 async fn in_place_resume_continues_under_source_execution_id() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use wf_agent::AgentCheckpointStrategy;
@@ -407,6 +414,9 @@ async fn in_place_resume_continues_under_source_execution_id() {
 /// loudly instead of silently re-driving a settled run.
 #[tokio::test]
 async fn resume_rejects_terminal_snapshot() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     use wf_agent::error::AgentError;
     use wf_types::Id;
 

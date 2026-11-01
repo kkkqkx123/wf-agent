@@ -50,6 +50,7 @@ fn child_input() -> AgentLoopInput {
         message: "run".to_string(),
         context: HashMap::new(),
         conversation: Vec::new(),
+        images: Vec::new(),
     }
 }
 

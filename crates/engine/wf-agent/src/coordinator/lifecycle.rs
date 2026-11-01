@@ -480,6 +480,7 @@ impl AgentLoopCoordinator {
             message: String::new(),
             context: std::collections::HashMap::new(),
             conversation: Vec::new(),
+            images: Vec::new(),
         };
         resume_input.context.insert(
             "resume_source_checkpoint".to_string(),

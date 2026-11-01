@@ -330,7 +330,8 @@ pub(crate) fn role_name(role: &MessageRole) -> &'static str {
     }
 }
 
-/// All text pieces of a message content value.
+/// All text pieces of a message content value. Image blocks collapse to a
+/// placeholder so image-carrying turns stay visible in search and stats.
 pub(crate) fn message_text(message: &Message) -> String {
     match &message.content {
         MessageContentValue::Text(text) => text.clone(),
@@ -340,8 +341,10 @@ pub(crate) fn message_text(message: &Message) -> String {
                 MessageContent::Text { text } => Some(text.clone()),
                 MessageContent::Thinking { thinking, .. } => Some(thinking.clone()),
                 MessageContent::ToolResult { tool_result } => Some(tool_result.content.clone()),
+                MessageContent::ImageUrl { image_url } => {
+                    Some(wf_types::message::image_block_label(image_url))
+                }
                 MessageContent::ToolUse { .. }
-                | MessageContent::ImageUrl { .. }
                 | MessageContent::InputAudio { .. }
                 | MessageContent::FileInput { .. }
                 | MessageContent::RedactedThinking { .. }
@@ -353,12 +356,30 @@ pub(crate) fn message_text(message: &Message) -> String {
 }
 
 /// Heuristic token estimate: whitespace words plus one token per 4 remaining
-/// characters (approximates both latin and CJK text).
+/// characters (approximates both latin and CJK text). Image blocks add
+/// their own scaled budget so multimodal turns are not costed as textless.
 pub(crate) fn estimate_tokens(message: &Message) -> usize {
     let text = message_text(message);
     let words = text.split_whitespace().count();
     let chars = text.chars().count();
-    words + chars.saturating_sub(words * 5) / 4
+    let text_tokens = words + chars.saturating_sub(words * 5) / 4;
+    text_tokens + estimate_image_tokens(message) as usize
+}
+
+/// Token budget of the image blocks carried by a message.
+fn estimate_image_tokens(message: &Message) -> u64 {
+    let MessageContentValue::Rich(parts) = &message.content else {
+        return 0;
+    };
+    parts
+        .iter()
+        .filter_map(|part| match part {
+            MessageContent::ImageUrl { image_url } => Some(
+                wf_types::message::estimate_image_block_tokens(&image_url.url),
+            ),
+            _ => None,
+        })
+        .sum()
 }
 
 #[cfg(test)]

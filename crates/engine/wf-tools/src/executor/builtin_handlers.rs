@@ -165,6 +165,7 @@ impl BuiltinToolHandler for CallAgentHandler {
             // conversation to the sub-agent's target exposure once at entity
             // build, so parent bucket shapes never leak into the child schema.
             conversation: params.conversation,
+            images: Vec::new(),
         };
         // The parent association travels as a typed link captured at the
         // call site, never as a bare id string: the child links to the

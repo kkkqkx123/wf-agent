@@ -34,6 +34,7 @@ fn input(message: &str) -> AgentLoopInput {
         message: message.to_string(),
         context: std::collections::HashMap::new(),
         conversation: Vec::new(),
+        images: Vec::new(),
     }
 }
 
@@ -109,6 +110,9 @@ fn tool_text(msg: &wf_types::message::Message) -> String {
 
 #[tokio::test]
 async fn discoverable_tool_invoked_via_general_without_schema_injection() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
         "call_1",
@@ -186,6 +190,9 @@ async fn general_description_override_reaches_the_schema() {
 
 #[tokio::test]
 async fn gated_tool_rejected_via_general_until_activated() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
         "call_1",
@@ -214,6 +221,9 @@ async fn gated_tool_rejected_via_general_until_activated() {
 
 #[tokio::test]
 async fn activated_gated_tool_enters_schema_and_is_callable() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
         "call_1",
@@ -246,6 +256,9 @@ async fn activated_gated_tool_enters_schema_and_is_callable() {
 
 #[tokio::test]
 async fn unactivated_loop_keeps_prefix_stable_across_turns() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
         "call_1",

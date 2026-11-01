@@ -641,6 +641,7 @@ mod tests {
                     message: "run".to_string(),
                     context: std::collections::HashMap::new(),
                     conversation: Vec::new(),
+                    images: Vec::new(),
                 },
             )
             .await
@@ -675,6 +676,7 @@ mod tests {
                     message: "run".to_string(),
                     context: std::collections::HashMap::new(),
                     conversation: Vec::new(),
+                    images: Vec::new(),
                 },
             )
             .await
@@ -713,6 +715,7 @@ mod tests {
                     message: "run".to_string(),
                     context: std::collections::HashMap::new(),
                     conversation: Vec::new(),
+                    images: Vec::new(),
                 },
             )
             .await;
@@ -759,6 +762,7 @@ mod tests {
                     message: "run".to_string(),
                     context: std::collections::HashMap::new(),
                     conversation: Vec::new(),
+                    images: Vec::new(),
                 },
             )
             .await
@@ -811,6 +815,7 @@ mod tests {
                     message: "run".to_string(),
                     context: std::collections::HashMap::new(),
                     conversation: Vec::new(),
+                    images: Vec::new(),
                 },
             )
             .await;
@@ -912,6 +917,7 @@ mod tests {
                     message: "summarize the hook".to_string(),
                     context: std::collections::HashMap::new(),
                     conversation: Vec::new(),
+                    images: Vec::new(),
                 },
             )
             .await
@@ -994,6 +1000,7 @@ mod tests {
                     message: "run".to_string(),
                     context: std::collections::HashMap::new(),
                     conversation: Vec::new(),
+                    images: Vec::new(),
                 },
             )
             .await;
@@ -1042,6 +1049,7 @@ mod tests {
                     message: "run".to_string(),
                     context: std::collections::HashMap::new(),
                     conversation: Vec::new(),
+                    images: Vec::new(),
                 },
             )
             .await
@@ -1130,6 +1138,7 @@ mod tests {
                     message: "run".to_string(),
                     context: std::collections::HashMap::new(),
                     conversation: Vec::new(),
+                    images: Vec::new(),
                 },
             )
             .await
@@ -1201,6 +1210,7 @@ mod tests {
                     message: "run".to_string(),
                     context: std::collections::HashMap::new(),
                     conversation: Vec::new(),
+                    images: Vec::new(),
                 },
             )
             .await
@@ -1271,6 +1281,7 @@ mod tests {
                     message: "run".to_string(),
                     context: std::collections::HashMap::new(),
                     conversation: Vec::new(),
+                    images: Vec::new(),
                 },
             )
             .await

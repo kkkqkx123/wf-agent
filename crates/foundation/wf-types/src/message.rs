@@ -19,6 +19,7 @@ pub mod message_mark_map;
 pub mod message_operations;
 pub mod message_view;
 pub mod named_message_context;
+pub mod user_image;
 pub mod user_text;
 
 pub use batch_management_operation::*;
@@ -30,4 +31,5 @@ pub use message_mark_map::*;
 pub use message_operations::*;
 pub use message_view::*;
 pub use named_message_context::*;
+pub use user_image::*;
 pub use user_text::*;

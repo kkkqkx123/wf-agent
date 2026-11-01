@@ -87,6 +87,7 @@ fn input(message: &str) -> AgentLoopInput {
         message: message.to_string(),
         context: std::collections::HashMap::new(),
         conversation: Vec::new(),
+        images: Vec::new(),
     }
 }
 
@@ -109,6 +110,9 @@ async fn stream_execution_emits_completed_event() {
 
 #[tokio::test]
 async fn stream_tool_loop_emits_iteration_and_tool_lifecycle() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
         "call_1",

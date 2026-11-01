@@ -53,6 +53,10 @@ pub struct AgentLoopInput {
     pub context: HashMap<String, Value>,
     /// Initial conversation imported into the agent session.
     pub conversation: Vec<wf_types::message::Message>,
+    /// Structured image payload of the turn. Inline data and remote
+    /// addresses travel here so binary bytes never pass through text
+    /// decoding; the session entry turns them into `ImageUrl` blocks.
+    pub images: Vec<wf_types::message::UserImageInput>,
 }
 
 /// Why an agent loop run ended. Machine-readable terminal classification that

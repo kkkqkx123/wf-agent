@@ -90,6 +90,7 @@ fn input(message: &str) -> AgentLoopInput {
         message: message.to_string(),
         context: std::collections::HashMap::new(),
         conversation: Vec::new(),
+        images: Vec::new(),
     }
 }
 
@@ -117,6 +118,9 @@ fn tool_texts(conversation: &[wf_types::message::Message]) -> Vec<String> {
 
 #[tokio::test]
 async fn blocked_tool_is_rejected_without_execution() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     let counter = Arc::new(AtomicUsize::new(0));
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
@@ -152,6 +156,9 @@ async fn blocked_tool_is_rejected_without_execution() {
 
 #[tokio::test]
 async fn unblocked_tool_executes_normally() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     let counter = Arc::new(AtomicUsize::new(0));
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
@@ -176,6 +183,9 @@ async fn unblocked_tool_executes_normally() {
 
 #[tokio::test]
 async fn variable_backed_store_blocks_marked_tools() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     use dashmap::DashMap;
     use wf_agent::visibility::{VariableBackedVisibilityStore, BLOCKED_VARIABLE_PREFIX};
 

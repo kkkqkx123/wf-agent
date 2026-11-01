@@ -150,6 +150,7 @@ impl Cli {
             input_file,
             vars,
             prompt,
+            image,
             interactive,
             approval_timeout,
             assume_yes,
@@ -158,6 +159,9 @@ impl Cli {
         {
             if (input.is_some() || input_file.is_some() || !vars.is_empty()) && workflow.is_none() {
                 return Err("--input/--input-file/--var require --workflow".to_string());
+            }
+            if !image.is_empty() && workflow.is_some() {
+                return Err("--image applies to agent turns, not --workflow".to_string());
             }
             if (self.context.is_some() || self.context_file.is_some()) && workflow.is_some() {
                 return Err(
@@ -278,6 +282,12 @@ pub enum Command {
         /// possible and fall back to plain strings.
         #[arg(long = "var", value_name = "KEY=VALUE")]
         vars: Vec<String>,
+        /// Image file to attach to the turn (repeatable, agent turns only).
+        /// The file must use a served image format; its bytes travel inline
+        /// as a structured payload, never as prompt text. Text files are
+        /// referenced through `@file:` mentions instead.
+        #[arg(long = "image", value_name = "PATH")]
+        image: Vec<std::path::PathBuf>,
         /// Remote server URL for this run (overrides --remote / WF_REMOTE).
         #[arg(long)]
         remote: Option<String>,
@@ -699,6 +709,20 @@ mod tests {
 
         let cli = parse(&["run", "--workflow", "wf-1", "--input", "[1,2]"]).unwrap();
         assert!(cli.validate().is_err());
+    }
+
+    #[test]
+    fn image_flags_parse_and_reject_workflow() {
+        let cli = parse(&["run", "hi", "--image", "a.png", "--image", "b.jpg"]).unwrap();
+        let Some(Command::Run { image, .. }) = &cli.command else {
+            panic!("expected run");
+        };
+        assert_eq!(image.len(), 2);
+        assert!(cli.validate().is_ok());
+
+        let cli = parse(&["run", "--workflow", "wf-1", "--image", "a.png"]).unwrap();
+        let err = cli.validate().unwrap_err();
+        assert!(err.contains("--image"), "{err}");
     }
 
     #[test]

@@ -59,6 +59,21 @@ pub enum SlashCommand {
     /// Load the session-level agent context from a JSON file
     /// (`/context-file <path>`), replacing the current map.
     ContextFile(String),
+    /// Stage image files for the next turn (`/image <path>...`); bare
+    /// `/image` lists staged images, `/image clear` drops them. Staged
+    /// images ride the next prompt as a structured payload.
+    Image(ImageArgs),
+}
+
+/// Arguments of the `/image` staging command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImageArgs {
+    /// List staged images.
+    List,
+    /// Drop staged images.
+    Clear,
+    /// Stage these paths for the next turn.
+    Stage(Vec<String>),
 }
 
 /// Split an optional leading `--node <id>` (or `--node=<id>`) flag from
@@ -246,6 +261,18 @@ pub fn parse_command(line: &str) -> Option<SlashCommand> {
                 None
             }
         }
+        "/image" => {
+            let rest: Vec<&str> = tokens.collect();
+            if rest.is_empty() {
+                Some(SlashCommand::Image(ImageArgs::List))
+            } else if rest == ["clear"] {
+                Some(SlashCommand::Image(ImageArgs::Clear))
+            } else {
+                Some(SlashCommand::Image(ImageArgs::Stage(
+                    rest.iter().map(|item| (*item).to_string()).collect(),
+                )))
+            }
+        }
         _ => None,
     }
 }
@@ -411,5 +438,24 @@ mod tests {
             Some(SlashCommand::Loops(Some("exec-1".to_string())))
         );
         assert_eq!(parse_command("/loops a b"), None);
+    }
+
+    #[test]
+    fn parses_image_staging_commands() {
+        assert_eq!(
+            parse_command("/image"),
+            Some(SlashCommand::Image(ImageArgs::List))
+        );
+        assert_eq!(
+            parse_command("/image clear"),
+            Some(SlashCommand::Image(ImageArgs::Clear))
+        );
+        assert_eq!(
+            parse_command("/image a.png b.jpg"),
+            Some(SlashCommand::Image(ImageArgs::Stage(vec![
+                "a.png".to_string(),
+                "b.jpg".to_string(),
+            ])))
+        );
     }
 }

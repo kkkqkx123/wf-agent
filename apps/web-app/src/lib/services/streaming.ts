@@ -19,6 +19,17 @@ export type {
 	StreamMetadata,
 } from '#lib/utils/stream-parser';
 
+export interface ImagePayload {
+	/** Inline base64 payload. Empty when `url` carries the image. */
+	data?: string;
+	/** IANA media type of `data`. Required for inline payloads. */
+	media_type?: string;
+	/** Remote address or `data:` URI. Takes precedence over `data`. */
+	url?: string;
+	/** Render detail hint forwarded to the provider codec. */
+	detail?: 'auto' | 'low' | 'high';
+}
+
 export interface LoopStreamBody {
 	model: string;
 	message: string;
@@ -27,6 +38,8 @@ export interface LoopStreamBody {
 	agentId?: string;
 	/** Optional per-run filesystem scope; absent inherits the global default. */
 	fileScope?: ExecutionFileScope | null;
+	/** Structured image payload of the turn. */
+	images?: ImagePayload[];
 }
 
 /**
@@ -39,7 +52,7 @@ export function streamLoopRun(
 	callbacks: StreamCallbacks,
 	signal: AbortSignal,
 ): Promise<void> {
-	const message = assertAgentMessage(body.message);
+	const message = assertAgentMessage(body.message, body.images);
 	const model = assertAgentModel(body.model);
 	const fileScope = assertFileScope(body.fileScope ?? null);
 	return openPostStream({
@@ -51,6 +64,7 @@ export function streamLoopRun(
 			tool_call_protocol: { format: 'json' },
 			conversation: body.conversation ?? [],
 			file_scope: fileScope,
+			...(body.images && body.images.length > 0 ? { images: body.images } : {}),
 		},
 		signal,
 		onFrame: (event, data) => handleExecutionFrame(event, data, callbacks),
@@ -66,6 +80,8 @@ export interface ChatTurnBody {
 	message: string;
 	/** Session anchor of the conversation; absent starts a new session. */
 	sessionId?: string;
+	/** Structured image payload of the turn. */
+	images?: ImagePayload[];
 }
 
 /**
@@ -84,6 +100,7 @@ export function streamChat(
 			profile_id: body.profileId,
 			message: body.message,
 			...(body.sessionId ? { session_id: body.sessionId } : {}),
+			...(body.images && body.images.length > 0 ? { images: body.images } : {}),
 		},
 		signal,
 		onFrame: (event, data) => handleExecutionFrame(event, data, callbacks),

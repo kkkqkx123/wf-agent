@@ -911,9 +911,7 @@ mod tests {
 
     #[test]
     fn test_context_budget_derives_from_window_only() {
-        use crate::compaction::{
-            context_budget_from_window, CONTEXT_BUDGET_PERCENT,
-        };
+        use crate::compaction::{context_budget_from_window, CONTEXT_BUDGET_PERCENT};
         assert_eq!(context_budget_from_window(None), 0);
         assert_eq!(
             context_budget_from_window(Some(128_000)),

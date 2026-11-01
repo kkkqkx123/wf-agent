@@ -16,7 +16,27 @@ import {
 	projectExecutionOverlay,
 } from '#lib/graph/execution-projection';
 import type { DisplayEdge, DisplayNode } from '#lib/graph/display-model';
-import { streamLoopRun, streamChat, streamWorkflowExecution } from '#lib/services/streaming';
+import {
+	streamLoopRun,
+	streamChat,
+	streamWorkflowExecution,
+	type ImagePayload,
+} from '#lib/services/streaming';
+
+/** Wire form of a staged composer image: inline data or remote address. */
+function toImagePayload(image: ImageAttachment): ImagePayload {
+	if (image.dataUrl.startsWith('data:')) {
+		const header = image.dataUrl.slice('data:'.length);
+		const comma = header.indexOf(',');
+		const meta = comma >= 0 ? header.slice(0, comma) : header;
+		const media = meta.split(';')[0] || image.mediaType;
+		return {
+			data: comma >= 0 ? header.slice(comma + 1) : '',
+			...(media ? { media_type: media } : {}),
+		};
+	}
+	return { url: image.dataUrl };
+}
 import { appendAgentLoopInput } from '#lib/services/agent-loops';
 import { postChatRecap, postLoopRecap, shouldRecap } from '#lib/services/recap';
 import { postChatTitle, postLoopTitle } from '#lib/services/title';
@@ -35,6 +55,7 @@ import {
 } from '#lib/services/interactions';
 import type { CommandAction } from '#lib/config/commands';
 import type {
+	ImageAttachment,
 	LoopMessage,
 	MessageAttachment,
 	OutgoingMessage,
@@ -425,20 +446,26 @@ export class ChatSessionController {
 
 	sendText(message: OutgoingMessage): boolean {
 		const text = message.text.trim();
-		if (!text && message.attachments.length === 0) return false;
+		if (!text && message.attachments.length === 0 && message.images.length === 0)
+			return false;
 		if (chatStream.active) {
 			// Runtime append to a running agent loop instead of starting a
-			// new turn; defaults to follow-up semantics.
+			// new turn; defaults to follow-up semantics. Structured payloads
+			// cannot ride the append channel, so they wait for the turn.
 			if (
 				this.executionType === 'agent' &&
 				this.activeAgentLoopId &&
-				message.attachments.length === 0
+				message.attachments.length === 0 &&
+				message.images.length === 0
 			) {
 				const loopId = this.activeAgentLoopId;
 				void appendAgentLoopInput(loopId, text, 'followup')
 					.then(() => toasts.success('input appended to the running agent'))
 					.catch((e) => toasts.error('append failed', e instanceof Error ? e.message : undefined));
 				return true;
+			}
+			if (message.attachments.length > 0 || message.images.length > 0) {
+				toasts.info('The turn is still running; files wait for it to finish');
 			}
 			return false;
 		}
@@ -451,24 +478,31 @@ export class ChatSessionController {
 			return false;
 		}
 		if (this.executionType === 'chat') {
-			void this.runChat(text, message.attachments);
+			void this.runChat(text, message.attachments, message.images);
 		} else if (this.executionType === 'workflow') {
-			void this.runWorkflow(text, message.attachments);
+			void this.runWorkflow(text, message.attachments, message.images);
 		} else {
-			void this.runAgent(text, message.attachments);
+			void this.runAgent(text, message.attachments, message.images);
 		}
 		return true;
 	}
 
 	sendPrompt(text: string): boolean {
-		return this.sendText({ text, attachments: [] });
+		return this.sendText({ text, attachments: [], images: [] });
 	}
 
 	retryLast(): void {
 		const bubbles = this.bubbles;
 		for (let index = bubbles.length - 1; index >= 0; index -= 1) {
 			if (bubbles[index].role === 'user') {
-				this.sendText(splitAttachments(bubbles[index].content));
+				const bubble = bubbles[index];
+				this.sendText({
+					...splitAttachments(bubble.content),
+					images: (bubble.images ?? []).map((dataUrl, position) => ({
+						name: `retried-image-${position + 1}`,
+						dataUrl,
+					})),
+				});
 				return;
 			}
 		}
@@ -745,7 +779,11 @@ export class ChatSessionController {
 	}
 
 	/** Run the message through the agent loop. */
-	async runAgent(content: string, files: MessageAttachment[]): Promise<void> {
+	async runAgent(
+		content: string,
+		files: MessageAttachment[],
+		images: ImageAttachment[] = [],
+	): Promise<void> {
 		this.activeAgentLoopId = null;
 		const draft = !this.selectedId;
 		this.beginRecapTurn();
@@ -770,6 +808,7 @@ export class ChatSessionController {
 				agentId: this.agentId.trim(),
 				message: withAttachments(content, files),
 				conversation: history,
+				...(images.length > 0 ? { images: images.map(toImagePayload) } : {}),
 			},
 			{
 				...this.streamCallbacks(),
@@ -805,7 +844,11 @@ export class ChatSessionController {
 	 * conversation, so the turn only carries the new message and the anchor
 	 * of the session it continues.
 	 */
-	async runChat(content: string, files: MessageAttachment[]): Promise<void> {
+	async runChat(
+		content: string,
+		files: MessageAttachment[],
+		images: ImageAttachment[] = [],
+	): Promise<void> {
 		const sessionId = this.selectedId ?? `chat-${crypto.randomUUID()}`;
 		if (!this.selectedId) {
 			// The address has to carry the session before the run starts, so
@@ -824,6 +867,7 @@ export class ChatSessionController {
 				profileId: this.model.trim(),
 				message: withAttachments(content, files),
 				sessionId,
+				...(images.length > 0 ? { images: images.map(toImagePayload) } : {}),
 			},
 			this.streamCallbacks(),
 			signal,
@@ -879,10 +923,18 @@ export class ChatSessionController {
 	/**
 	 * Run the message through a workflow. Merges the composer message with
 	 * the variable form, backfills defaults and validates locally before
-	 * sending; the server re-checks authoritatively.
+	 * sending; the server re-checks authoritatively. Images do not enter
+	 * workflow input: they would silently mix into business variables.
 	 */
-	async runWorkflow(content: string, files: MessageAttachment[]): Promise<void> {
+	async runWorkflow(
+		content: string,
+		files: MessageAttachment[],
+		images: ImageAttachment[] = [],
+	): Promise<void> {
 		const workflowId = this.workflowId.trim();
+		if (images.length > 0) {
+			toasts.info('Images are not sent to workflows; send them as an agent turn');
+		}
 		const signal = chatStream.start(this.selectedId ?? NEW_SESSION, {
 			executionType: 'workflow',
 			model: this.model.trim(),

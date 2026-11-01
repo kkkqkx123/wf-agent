@@ -33,6 +33,10 @@ pub struct ChatRunBody {
     /// Session anchor of the conversation. Absent starts a new session.
     #[serde(default)]
     session_id: Option<String>,
+    /// Structured image payload of the turn. Absent stays a pure-text turn.
+    #[serde(default)]
+    #[schema(value_type = Option<Vec<serde_json::Value>>)]
+    images: Option<Vec<wf_types::message::UserImageInput>>,
 }
 
 #[utoipa::path(
@@ -54,6 +58,7 @@ pub(crate) async fn handle_chat_stream(
     let params = wf_api::chat::ChatTurnParams {
         profile_id: body.profile_id,
         message: body.message,
+        images: body.images.unwrap_or_default(),
         session_id: body.session_id,
     };
     match wf_api::chat::stream(&state.ctx, params).await {

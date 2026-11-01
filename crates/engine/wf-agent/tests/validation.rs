@@ -50,6 +50,7 @@ fn input() -> AgentLoopInput {
         message: "run".to_string(),
         context: std::collections::HashMap::new(),
         conversation: Vec::new(),
+        images: Vec::new(),
     }
 }
 

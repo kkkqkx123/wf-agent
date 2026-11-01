@@ -38,6 +38,9 @@ pub struct ChatTurnParams {
     pub profile_id: String,
     /// The user text of this turn.
     pub message: String,
+    /// Structured image payload of the turn; textless turns are accepted
+    /// only when images ride along.
+    pub images: Vec<wf_types::message::UserImageInput>,
     /// Session anchor. Absent starts a new chat session.
     pub session_id: Option<String>,
 }
@@ -54,7 +57,12 @@ pub async fn stream(ctx: &ApiContext, params: ChatTurnParams) -> ApiResult<Execu
         ));
     }
     let message = params.message.trim().to_string();
-    if message.is_empty() {
+    if let Err(reason) = wf_types::message::validate_user_images(&params.images) {
+        return Err(ApiError::Validation(format!(
+            "chat turn carries invalid images: {reason}"
+        )));
+    }
+    if message.is_empty() && params.images.is_empty() {
         return Err(ApiError::Validation("chat turn requires a message".into()));
     }
     let session_id = resolve_session_id(params.session_id.as_deref());
@@ -72,7 +80,7 @@ pub async fn stream(ctx: &ApiContext, params: ChatTurnParams) -> ApiResult<Execu
     let mut session = ChatSession::new(profile_id.clone());
     session.restore(history);
     let request = session
-        .begin_turn(&message, Some(&session_id))
+        .begin_turn(&message, &params.images, Some(&session_id))
         .map_err(|e| ApiError::Validation(e.to_string()))?;
 
     let mut provider_stream = ctx
@@ -414,6 +422,7 @@ mod tests {
             ChatTurnParams {
                 profile_id: profile_id.to_string(),
                 message: message.to_string(),
+                images: Vec::new(),
                 session_id: session_id.map(str::to_string),
             },
         )
@@ -544,6 +553,7 @@ mod tests {
             ChatTurnParams {
                 profile_id: "mock".to_string(),
                 message: "hi".to_string(),
+                images: Vec::new(),
                 session_id: None,
             },
         )
@@ -572,6 +582,7 @@ mod tests {
             ChatTurnParams {
                 profile_id: "mock".to_string(),
                 message: "   ".to_string(),
+                images: Vec::new(),
                 session_id: Some("chat-session".to_string()),
             },
         )
@@ -591,6 +602,7 @@ mod tests {
             ChatTurnParams {
                 profile_id: "  ".to_string(),
                 message: "hi".to_string(),
+                images: Vec::new(),
                 session_id: Some("chat-session".to_string()),
             },
         )

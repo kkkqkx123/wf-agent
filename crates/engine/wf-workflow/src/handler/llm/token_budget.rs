@@ -661,6 +661,12 @@ mod tests {
     /// once the request-level overhead crosses the threshold.
     #[tokio::test]
     async fn emission_counts_system_prompt_and_inline_messages() {
+        // The engine under test reads the bootstrap-owned compaction
+        // global; unit tests run without a bootstrap, so install the
+        // built-in limits first.
+        wf_execution_shared::set_process_compaction_limits(
+            wf_execution_shared::builtin_compaction_limits(),
+        );
         let bus = Arc::new(EventBus::new(16));
         let mut sub = bus.subscribe();
         let vars = Arc::new(dashmap::DashMap::new());

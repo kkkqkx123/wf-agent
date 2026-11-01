@@ -38,6 +38,7 @@
 	};
 
 	let expandedIndex = $state<number | null>(null);
+	let enlargedImage = $state<string | null>(null);
 
 	const isUser = $derived(message.role === 'user');
 	/** The small label every inline reference in a bubble shares. */
@@ -184,8 +185,22 @@
 			{/if}
 		</div>
 
-		{#if body.attachments.length > 0}
+		{#if body.attachments.length > 0 || (message.images?.length ?? 0) > 0}
 			<div class="mt-1 flex flex-wrap gap-1.5 {isUser ? 'justify-end' : ''}">
+				{#each (message.images ?? []) as image, index (`image-${index}`)}
+					<button
+						type="button"
+						onclick={() => (enlargedImage = enlargedImage === image ? null : image)}
+						class={cn('overflow-hidden rounded-md border border-border', enlargedImage === image && 'border-info/60')}
+						title={t('domain.messageBubble.enlargeImage')}
+					>
+						<img
+							src={image}
+							alt={t('domain.messageBubble.attachedImage')}
+							class={cn('object-cover', enlargedImage === image ? 'max-h-96' : 'h-16 w-16')}
+						/>
+					</button>
+				{/each}
 				{#each body.attachments as file, index (`${file.name}-${index}`)}
 					<button
 						type="button"

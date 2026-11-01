@@ -9,6 +9,7 @@ pub struct AgentExecutionBuilder {
     config: AgentLoopConfig,
     message: String,
     context: std::collections::HashMap<String, serde_json::Value>,
+    images: Vec<wf_types::message::UserImageInput>,
     on_completed: Option<AgentCompletedCallback>,
 }
 
@@ -22,6 +23,7 @@ impl AgentExecutionBuilder {
             config,
             message: String::new(),
             context: Default::default(),
+            images: Vec::new(),
             on_completed: None,
         }
     }
@@ -29,6 +31,12 @@ impl AgentExecutionBuilder {
     /// Set the initial user message driving the loop.
     pub fn with_input(mut self, message: impl Into<String>) -> Self {
         self.message = message.into();
+        self
+    }
+
+    /// Attach structured image payload to the opening turn.
+    pub fn with_images(mut self, images: Vec<wf_types::message::UserImageInput>) -> Self {
+        self.images = images;
         self
     }
 
@@ -50,6 +58,7 @@ impl AgentExecutionBuilder {
             message: self.message,
             context: self.context,
             conversation: Vec::new(),
+            images: self.images,
         };
         let env = wf_execution_shared::agent_prompt::PromptEnvironment::new(
             Some(ctx.registries.as_ref()),

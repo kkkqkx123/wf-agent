@@ -89,6 +89,7 @@ fn input(message: &str) -> AgentLoopInput {
         message: message.to_string(),
         context: std::collections::HashMap::new(),
         conversation: Vec::new(),
+        images: Vec::new(),
     }
 }
 
@@ -142,6 +143,9 @@ impl ToolApprovalHandler for EditingHandler {
 
 #[tokio::test]
 async fn default_without_handler_auto_approves_and_executes() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     let counter = Arc::new(AtomicUsize::new(0));
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
@@ -162,6 +166,9 @@ async fn default_without_handler_auto_approves_and_executes() {
 
 #[tokio::test]
 async fn rejecting_handler_blocks_tool_without_execution() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     let counter = Arc::new(AtomicUsize::new(0));
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
@@ -201,6 +208,9 @@ async fn rejecting_handler_blocks_tool_without_execution() {
 
 #[tokio::test]
 async fn approving_handler_allows_execution() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     let counter = Arc::new(AtomicUsize::new(0));
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
@@ -222,6 +232,9 @@ async fn approving_handler_allows_execution() {
 
 #[tokio::test]
 async fn approval_edited_parameters_reach_the_tool() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     let counter = Arc::new(AtomicUsize::new(0));
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(

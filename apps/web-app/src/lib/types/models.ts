@@ -440,6 +440,8 @@ export interface LoopMessage {
 	tokens?: number | null;
 	toolName?: string | null;
 	thinking?: string | null;
+	/** Image payloads of a rich user turn, data URLs or remote addresses. */
+	images?: string[];
 }
 
 export interface LoopVariable {
@@ -718,11 +720,21 @@ export interface Metric {
 export interface MessageAttachment {
 	name: string;
 	content: string;
+	/** The composer marks truncated text instead of cutting silently. */
+	truncated?: boolean;
+}
+
+/** One staged image: inline base64 payload or a remote address. */
+export interface ImageAttachment {
+	name: string;
+	mediaType?: string;
+	dataUrl: string;
 }
 
 export interface OutgoingMessage {
 	text: string;
 	attachments: MessageAttachment[];
+	images: ImageAttachment[];
 }
 
 export interface TimelineEntry {

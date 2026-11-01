@@ -776,6 +776,7 @@ pub(crate) async fn handle_set_proxy_credential(
     delete,
     path = "/api/v1/llm/proxy-credentials/{id}",
     tag = "llm",
+    params(IdPath),
     responses((status = 200, description = "Proxy credential removed", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]

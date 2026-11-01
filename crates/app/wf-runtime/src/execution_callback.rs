@@ -234,6 +234,7 @@ mod tests {
                 message: "x".to_string(),
                 context: std::collections::HashMap::new(),
                 conversation: Vec::new(),
+                images: Vec::new(),
             },
         ));
         assert!(matches!(err, Err(ToolError::ExecutionError(_))));

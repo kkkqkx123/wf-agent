@@ -19,6 +19,8 @@ pub const DEFAULT_MODEL: &str = "default";
 pub enum TurnKind {
     Agent {
         prompt: String,
+        /// Structured image payload of the turn.
+        images: Vec<wf_types::message::UserImageInput>,
     },
     Workflow {
         workflow_id: String,
@@ -47,8 +49,16 @@ pub struct TurnParams {
 impl TurnParams {
     pub fn prompt(&self) -> Option<&str> {
         match &self.kind {
-            TurnKind::Agent { prompt } => Some(prompt.as_str()),
+            TurnKind::Agent { prompt, .. } => Some(prompt.as_str()),
             TurnKind::Workflow { .. } => None,
+        }
+    }
+
+    /// Structured image payload of the turn; empty for workflow turns.
+    pub fn images(&self) -> &[wf_types::message::UserImageInput] {
+        match &self.kind {
+            TurnKind::Agent { images, .. } => images,
+            TurnKind::Workflow { .. } => &[],
         }
     }
 
@@ -65,10 +75,16 @@ impl TurnParams {
             .iter()
             .map(|m| serde_json::to_value(m).unwrap_or(Value::Null))
             .collect();
+        let images: Vec<serde_json::Value> = self
+            .images()
+            .iter()
+            .map(|image| serde_json::to_value(image).unwrap_or(Value::Null))
+            .collect();
         wf_client::models::RunAgentLoopBody {
             agent_id: self.agent.clone(),
             model: self.model.clone().unwrap_or_default(),
             message: prompt.to_string(),
+            images: Some(images),
             context: self.context.clone(),
             conversation: Some(conversation),
             max_execution_time: self.timeout_ms.map(|v| v as i64),
@@ -76,6 +92,7 @@ impl TurnParams {
             tool_call_protocol: Value::Null,
             available_tool_names: None,
             checkpoint_message_interval: None,
+            context_schema: None,
             discoverable_tool_names: None,
             enable_general_tool: None,
             enable_token_tracking: None,
@@ -328,6 +345,59 @@ pub fn prevalidate_workflow_input_locally_with_policy(
     ))
 }
 
+/// Load image files into structured turn payloads. Every path must name
+/// an image file; oversized or mistyped inputs are hard errors. The server
+/// re-validates the payload, so this is an early local failure only.
+pub fn load_user_images(
+    paths: &[std::path::PathBuf],
+) -> Result<Vec<wf_types::message::UserImageInput>, String> {
+    use base64::Engine as _;
+    let mut images = Vec::with_capacity(paths.len());
+    for path in paths {
+        let Some(media) = wf_types::message::media_type_for_image_path(&path.to_string_lossy())
+        else {
+            return Err(format!(
+                "cannot attach '{}': not a served image file (png, jpg, gif, webp)",
+                path.display()
+            ));
+        };
+        let bytes = std::fs::read(path)
+            .map_err(|e| format!("cannot read image '{}': {e}", path.display()))?;
+        if bytes.len() > wf_types::message::MAX_USER_IMAGE_BYTES {
+            return Err(format!(
+                "cannot attach '{}': {} bytes exceed the per-image limit of {} bytes",
+                path.display(),
+                bytes.len(),
+                wf_types::message::MAX_USER_IMAGE_BYTES
+            ));
+        }
+        images.push(wf_types::message::UserImageInput::inline(
+            base64::engine::general_purpose::STANDARD.encode(&bytes),
+            media,
+        ));
+    }
+    wf_types::message::validate_user_images(&images)
+        .map_err(|reason| format!("invalid image payload: {reason}"))?;
+    Ok(images)
+}
+
+/// Short display summary of one staged image for diagnostics: remote
+/// addresses show the address, inline payloads show the decoded size.
+pub fn describe_user_image(image: &wf_types::message::UserImageInput) -> String {
+    if let Some(url) = image
+        .url
+        .as_deref()
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+    {
+        return url.to_string();
+    }
+    match wf_types::message::user_image_bytes(image) {
+        Some(bytes) => format!("{bytes} bytes inline"),
+        None => "empty payload".to_string(),
+    }
+}
+
 /// Helper to parse workflow input JSON string.
 pub fn parse_workflow_input(input: Option<&str>) -> Result<Option<Value>, String> {
     match input {
@@ -401,6 +471,7 @@ mod tests {
             conversation: Vec::new(),
             kind: TurnKind::Agent {
                 prompt: "hi".to_string(),
+                images: Vec::new(),
             },
         };
         let body = params.agent_request_body();
@@ -422,6 +493,7 @@ mod tests {
             conversation: Vec::new(),
             kind: TurnKind::Agent {
                 prompt: "\x1b[31mhi\x1b[0m".to_string(),
+                images: Vec::new(),
             },
         };
         let body = params.agent_request_body();
@@ -441,10 +513,50 @@ mod tests {
             conversation: Vec::new(),
             kind: TurnKind::Agent {
                 prompt: "hi".to_string(),
+                images: Vec::new(),
             },
         };
         let body = params.agent_request_body();
         assert_eq!(body["context"]["city"], "paris");
+    }
+
+    #[test]
+    fn agent_body_carries_images_as_structured_payload() {
+        let params = TurnParams {
+            agent: None,
+            model: None,
+            approve_prefixes: vec![],
+            timeout_ms: None,
+            context: Default::default(),
+            conversation: Vec::new(),
+            kind: TurnKind::Agent {
+                prompt: String::new(),
+                images: vec![wf_types::message::UserImageInput::remote(
+                    "https://example.com/shot.png",
+                )],
+            },
+        };
+        let body = params.agent_request_body();
+        let images = body["images"].as_array().expect("images array");
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0]["url"], "https://example.com/shot.png");
+    }
+
+    #[test]
+    fn image_files_load_with_media_detection() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("wf-image-{}.png", std::process::id()));
+        std::fs::write(&path, [137u8, 80, 78, 71]).expect("fixture");
+        let images = load_user_images(std::slice::from_ref(&path)).expect("image loads");
+        assert_eq!(images.len(), 1);
+        assert_eq!(
+            images[0].media_type.as_deref(),
+            Some("image/png"),
+            "media type follows the extension"
+        );
+        let _ = std::fs::remove_file(&path);
+        assert!(load_user_images(&[dir.join("missing.png")]).is_err());
+        assert!(load_user_images(&[dir.join("notes.txt")]).is_err());
     }
 
     #[test]

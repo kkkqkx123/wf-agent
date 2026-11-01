@@ -198,6 +198,7 @@ impl AgentLoopHandler {
             message,
             context: std::collections::HashMap::new(),
             conversation: initial_conversation,
+            images: Vec::new(),
         };
 
         if settings.stream_enabled {

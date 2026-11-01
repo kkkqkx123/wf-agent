@@ -149,10 +149,7 @@ pub fn strategy_workflow_ids(strategy: &str) -> (String, Option<String>) {
     if is_builtin_strategy(strategy) || is_single_summary_strategy(strategy) {
         (
             wf_resource::predefined::workflow::FOLD_SUMMARY_WORKFLOW_ID.to_string(),
-            Some(
-                wf_resource::predefined::workflow::FOLD_SUMMARY_REPRESS_WORKFLOW_ID
-                    .to_string(),
-            ),
+            Some(wf_resource::predefined::workflow::FOLD_SUMMARY_REPRESS_WORKFLOW_ID.to_string()),
         )
     } else {
         let trimmed = strategy.trim().to_string();
@@ -169,8 +166,7 @@ static COMPACTION_ADVISORS: OnceLock<
 > = OnceLock::new();
 
 fn compaction_advisors(
-) -> &'static dashmap::DashMap<String, std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor>>
-{
+) -> &'static dashmap::DashMap<String, std::sync::Arc<dyn wf_plugin_sdk::PluginCompactionAdvisor>> {
     COMPACTION_ADVISORS.get_or_init(dashmap::DashMap::new)
 }
 
@@ -206,7 +202,9 @@ static PROCESS_LIMITS: RwLock<Option<CompactionLimits>> = RwLock::new(None);
 /// the compression settle-budget injection. Later installs overwrite
 /// earlier ones so tests and re-bootstrap observe the newest config.
 pub fn set_process_compaction_limits(limits: CompactionLimits) {
-    *PROCESS_LIMITS.write().expect("compaction limits lock poisoned") = Some(limits);
+    *PROCESS_LIMITS
+        .write()
+        .expect("compaction limits lock poisoned") = Some(limits);
 }
 
 /// Effective process-wide compaction parameters. Bootstrap must install
@@ -578,14 +576,14 @@ fn try_advisor_plan(
             if plan.items.len() >= item_cap {
                 break;
             }
-            let block_id = item
-                .get("block_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let block_id = item.get("block_id").and_then(|v| v.as_str()).unwrap_or("");
             if block_id.is_empty() || !known.contains(block_id) {
                 continue;
             }
-            let start = item.get("start").and_then(|v| v.as_u64()).unwrap_or(u64::MAX) as usize;
+            let start = item
+                .get("start")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(u64::MAX) as usize;
             let end = item.get("end").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
             if start >= end || end > snapshot.len() {
                 continue;
@@ -595,13 +593,19 @@ fn try_advisor_plan(
             if let Some(extra_ids) = item.get("extra_block_ids").and_then(|v| v.as_array()) {
                 for extra in extra_ids {
                     if let Some(id) = extra.as_str() {
-                        if !id.is_empty() && known.contains(id) && id != block_id && !extras.contains(&id.to_string()) {
+                        if !id.is_empty()
+                            && known.contains(id)
+                            && id != block_id
+                            && !extras.contains(&id.to_string())
+                        {
                             extras.push(id.to_string());
                         }
                     }
                 }
             }
-            let covered: u64 = (start..end).map(|i| costs.get(i).copied().unwrap_or(0)).sum();
+            let covered: u64 = (start..end)
+                .map(|i| costs.get(i).copied().unwrap_or(0))
+                .sum();
             plan.freed_tokens = plan.freed_tokens.saturating_add(covered);
             plan.items.push(CompactionPlanItem {
                 block_id: block_id.to_string(),
@@ -870,9 +874,9 @@ pub fn build_plan(
 /// and stays inside the snapshot bounds. Pure validator for the string-id
 /// contract between emitters, templates and services.
 pub fn plan_covers_snapshot(plan: &CompactionPlan, snapshot_len: usize) -> bool {
-    plan.items.iter().all(|item| {
-        !item.block_id.is_empty() && item.start < item.end && item.end <= snapshot_len
-    })
+    plan.items
+        .iter()
+        .all(|item| !item.block_id.is_empty() && item.start < item.end && item.end <= snapshot_len)
 }
 
 /// Whether every outcome names a block from the pending plan. An empty
@@ -1281,13 +1285,19 @@ mod tests {
             summary_message_id: "s".to_string(),
             archive_refs: Vec::new(),
         };
-        assert!(outcomes_match_plan(std::slice::from_ref(&outcome), &good.items));
+        assert!(outcomes_match_plan(
+            std::slice::from_ref(&outcome),
+            &good.items
+        ));
         let foreign = BlockOutcome {
             block_id: "b9999".to_string(),
             summary_message_id: "s".to_string(),
             archive_refs: Vec::new(),
         };
-        assert!(!outcomes_match_plan(std::slice::from_ref(&foreign), &good.items));
+        assert!(!outcomes_match_plan(
+            std::slice::from_ref(&foreign),
+            &good.items
+        ));
         assert!(outcomes_match_plan(std::slice::from_ref(&foreign), &[]));
     }
 

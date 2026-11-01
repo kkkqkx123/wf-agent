@@ -94,6 +94,7 @@ fn input(message: &str) -> AgentLoopInput {
         message: message.to_string(),
         context: std::collections::HashMap::new(),
         conversation: Vec::new(),
+        images: Vec::new(),
     }
 }
 
@@ -238,6 +239,9 @@ async fn wall_clock_timeout_settles_timeout_state() {
 
 #[tokio::test]
 async fn pause_then_resume_converges_to_completed() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     use wf_core::internal_signal::{InternalSignal, InternalSignalBus};
 
     let loop_id = "lifecycle-pause-1".to_string();
@@ -337,6 +341,9 @@ async fn pause_then_resume_converges_to_completed() {
 
 #[tokio::test]
 async fn iteration_cap_terminates_with_max_iterations_reason() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     let mock = Arc::new(MockLlmClient::new());
     mock.default(LlmResponseSpec::tool_calls(vec![tool_call(
         "call_1",

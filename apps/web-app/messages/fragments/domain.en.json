@@ -658,6 +658,8 @@
 	"domain.messageBubble.showFullOutput": "Show full output",
 	"domain.messageBubble.showFullOutputLines": "Show full output ({count} lines)",
 	"domain.messageBubble.showOutput": "Show output",
+	"domain.messageBubble.attachedImage": "Attached image",
+	"domain.messageBubble.enlargeImage": "Toggle full-size image",
 	"domain.nodeTrace.allNodes": "All nodes",
 	"domain.nodeTrace.contextFailed": "Node context failed to load",
 	"domain.nodeTrace.emptyDescription": "Node-level records appear once the workflow has executed a node.",

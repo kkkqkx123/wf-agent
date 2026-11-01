@@ -658,6 +658,8 @@
 	"domain.messageBubble.showFullOutput": "查看完整输出",
 	"domain.messageBubble.showFullOutputLines": "查看完整输出（{count} 行）",
 	"domain.messageBubble.showOutput": "显示输出",
+	"domain.messageBubble.attachedImage": "附加图片",
+	"domain.messageBubble.enlargeImage": "切换图片全尺寸",
 	"domain.nodeTrace.allNodes": "全部节点",
 	"domain.nodeTrace.contextFailed": "节点上下文加载失败",
 	"domain.nodeTrace.emptyDescription": "工作流执行节点后，节点级记录会显示在这里。",

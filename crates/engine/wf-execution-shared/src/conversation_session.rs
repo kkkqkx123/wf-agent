@@ -377,8 +377,7 @@ impl ConversationSession {
             .unwrap_or(crate::compaction::K_REPRESS_DEFAULT);
         let now = wf_common::now();
         for outcome in outcomes {
-            if !crate::compaction::outcomes_match_plan(std::slice::from_ref(outcome), &pending)
-            {
+            if !crate::compaction::outcomes_match_plan(std::slice::from_ref(outcome), &pending) {
                 continue;
             }
             let depth = pending

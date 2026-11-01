@@ -1,6 +1,6 @@
 use wf_execution_shared::hooks::types::HookDefinition;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput};
-use wf_types::message::{Message, MessageContentValue, MessageRole};
+use wf_types::message::{Message, MessageRole};
 use wf_types::Id;
 
 use super::AgentLoopCoordinator;
@@ -242,11 +242,21 @@ impl AgentLoopCoordinator {
             }
         }
 
-        if !input.message.is_empty() {
+        // The opening user turn: plain text when the turn carries no
+        // images, rich blocks (text plus `ImageUrl` entries) otherwise.
+        // Images are re-validated here so direct engine entries (workflow
+        // dispatch, triggers) fail loudly instead of storing a broken turn;
+        // the API gates report the same failure earlier with field detail.
+        if let Err(reason) = wf_types::message::validate_user_images(&input.images) {
+            return Err(crate::error::AgentError::Validation(format!(
+                "invalid agent images: {reason}"
+            )));
+        }
+        if let Some(content) = wf_types::message::user_content(&input.message, &input.images) {
             let msg = Message {
                 id: wf_common::generate_id(),
                 role: MessageRole::User,
-                content: MessageContentValue::Text(input.message),
+                content,
                 timestamp: wf_common::now(),
                 tool_call_id: None,
                 tool_name: None,

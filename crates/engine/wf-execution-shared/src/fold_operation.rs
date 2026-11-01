@@ -56,7 +56,9 @@ impl FoldParams {
     /// True when no remote service is configured and only the local shell
     /// fold applies. Makes the skip path explicit at the call site.
     pub fn is_local_only(&self) -> bool {
-        self.base_url.as_ref().is_none_or(|url| url.trim().is_empty())
+        self.base_url
+            .as_ref()
+            .is_none_or(|url| url.trim().is_empty())
     }
 }
 

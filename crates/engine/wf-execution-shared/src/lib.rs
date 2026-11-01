@@ -73,19 +73,18 @@ pub use compaction::{
     ADVISOR_PROTOCOL_VERSION, BUILTIN_COMPRESSION_STRATEGY_NAME, CONTEXT_BUDGET_METADATA_KEY,
     CONTEXT_BUDGET_PERCENT, H_TARGET_RATIO_DEFAULT, K_REPRESS_DEFAULT, REASON_ALL_BLOCKS_SMALL,
     REASON_HARD_LIMIT, REASON_NO_COMPRESSIBLE_TARGET, REASON_POST_COMPACT_STILL_HIGH,
-    RECENT_RAW_TURNS_DEFAULT, R_MIN_RANGE_DEFAULT, R_REPRESS_DEFAULT,
-    SINGLE_SUMMARY_STRATEGY_NAME, T_COMPACT_RATIO_DEFAULT, T_HANDOFF_RATIO_DEFAULT,
-    T_HARD_RATIO_DEFAULT,
-};
-pub use ingest_preprocess::{
-    blake3_hex, classify_tool, distill_tool_output, file_pointer_text, ToolOutputKind,
-    ARCHIVE_REF_KEY, ARCHIVE_REF_PREFIX,
+    RECENT_RAW_TURNS_DEFAULT, R_MIN_RANGE_DEFAULT, R_REPRESS_DEFAULT, SINGLE_SUMMARY_STRATEGY_NAME,
+    T_COMPACT_RATIO_DEFAULT, T_HANDOFF_RATIO_DEFAULT, T_HARD_RATIO_DEFAULT,
 };
 pub use context_store::{
     check_anchor, compression_event, compression_request, dispatch_compression_signal,
     dynamic_request_overhead, flight_expired, over_budget, wait_for_version_shift, WritebackOp,
 };
 pub use conversation_session::{ConversationSession, ConversationState, CONVERSATION_CONTEXT_ID};
+pub use ingest_preprocess::{
+    blake3_hex, classify_tool, distill_tool_output, file_pointer_text, ToolOutputKind,
+    ARCHIVE_REF_KEY, ARCHIVE_REF_PREFIX,
+};
 pub use message_ops::{
     apply as apply_message_operation, extract_by_role, is_agent_safe, merge_compressed_with_tail,
     select_tail_start,
@@ -118,6 +117,4 @@ pub use token_events::{
     KEY_TAIL_KEEP, KEY_TARGET_CONTEXT_ID, KEY_TOKENS_AFTER, KEY_TOKENS_USED, KEY_TOKEN_LIMIT,
     KEY_TOOL_COUNT, KEY_USAGE_PERCENTAGE, KEY_WRITEBACK_OPERATION, WRITEBACK_OPERATION_APPEND,
 };
-pub use token_tracker::{
-    CompressionFlight, RequestUsage, TokenTrackerState, TokenUsageTracker,
-};
+pub use token_tracker::{CompressionFlight, RequestUsage, TokenTrackerState, TokenUsageTracker};

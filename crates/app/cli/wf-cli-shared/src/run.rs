@@ -35,6 +35,8 @@ use crate::turn::{TurnKind, TurnParams};
 pub struct RunOptions {
     /// Initial user message (required, non-empty for agent turns).
     pub prompt: String,
+    /// Structured image payload attached to an agent turn.
+    pub images: Vec<wf_types::message::UserImageInput>,
     /// Agent definition id (defaults to the built-in agent, server-side).
     pub agent_id: Option<String>,
     /// LLM profile id (defaults to `default`).
@@ -65,6 +67,7 @@ impl Default for RunOptions {
     fn default() -> Self {
         Self {
             prompt: String::new(),
+            images: Vec::new(),
             agent_id: None,
             model: None,
             approve_prefixes: Vec::new(),
@@ -99,6 +102,7 @@ impl RunOptions {
             }
             None => TurnKind::Agent {
                 prompt: self.prompt.clone(),
+                images: self.images.clone(),
             },
         };
         Ok(TurnParams {
@@ -248,9 +252,9 @@ async fn run_agent(
     io: &mut RunIo,
 ) -> CliResult<RunOutcome> {
     use std::time::Instant;
-    if wf_types::message::is_blank_user_text(&opts.prompt) {
+    if wf_types::message::is_blank_user_text(&opts.prompt) && opts.images.is_empty() {
         return Err(CliError::Arguments(
-            "no prompt given: pass a positional argument or pipe stdin".into(),
+            "no prompt given: pass a positional argument, pipe stdin, or attach --image".into(),
         ));
     }
     let started = Instant::now();

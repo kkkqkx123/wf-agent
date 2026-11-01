@@ -27,7 +27,7 @@ use wf_cli_shared::turn::{TurnKind, TurnParams};
 use crate::approval::MiniApprover;
 use crate::display::DisplayConfig;
 use crate::editor::{terminal_cols, EditorSnapshot, PromptEvent};
-use crate::input::{self, History, LineReader, SlashCommand};
+use crate::input::{self, History, ImageArgs, LineReader, SlashCommand};
 use crate::output::{self};
 use crate::suggest::{SuggestBroker, SuggestEngine};
 use crate::transcript::Transcript;
@@ -122,6 +122,9 @@ pub struct NativeSession {
     /// Session-level structured agent context: set once via `--context` /
     /// `--context-file` or `/context`, carried on every subsequent turn.
     session_context: serde_json::Map<String, serde_json::Value>,
+    /// Image files staged by `/image` for the next turn. Taken when the
+    /// turn starts; a turn that never starts hands them back.
+    staged_images: Vec<wf_types::message::UserImageInput>,
 }
 
 /// What a slash command asks the loop to do.
@@ -135,6 +138,17 @@ enum CommandAction {
 impl NativeSession {
     /// Run one prompt as a question: record, stream, memorize, drain.
     async fn ask(&mut self, question: String) {
+        if !self.staged_images.is_empty() {
+            output::diag_line(&format!(
+                "sending {} staged image{} with this turn",
+                self.staged_images.len(),
+                if self.staged_images.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            ));
+        }
         self.history.push(&question);
         self.prev_prompt = Some(question.clone());
         output::diag_line(&format!("user: {question}"));
@@ -208,6 +222,7 @@ impl NativeSession {
             last_session_rows: Vec::new(),
             pending_delete: None,
             session_context,
+            staged_images: Vec::new(),
         })
     }
 
@@ -356,6 +371,9 @@ impl NativeSession {
                 output::diag_line(
                     "notes: the full history stays in memory; prompt history is plain text on disk (see --history-file/--no-history); workflows run via `wf run --workflow` and the management subcommands",
                 );
+                output::diag_line(
+                    "images: /image <path>... stage images for the next turn, /image lists staged, /image clear drops them; `@file:<path>` mentions resolve images server-side",
+                );
                 CommandAction::Continue
             }
             SlashCommand::Clear => {
@@ -398,6 +416,7 @@ impl NativeSession {
                 self.nested_execution_id = None;
                 self.nested_selected_node = None;
                 self.nested_loops = Vec::new();
+                self.staged_images.clear();
                 self.note_turn_started();
                 self.set_terminal_title();
                 output::diag_line(&format!(
@@ -582,6 +601,10 @@ impl NativeSession {
                     }
                     Err(err) => output::diag_line(&format!("invalid context file: {err}")),
                 }
+                CommandAction::Continue
+            }
+            SlashCommand::Image(args) => {
+                self.stage_images(args);
                 CommandAction::Continue
             }
             SlashCommand::Recap => {
@@ -798,6 +821,57 @@ impl NativeSession {
             }
         } else {
             output::diag_line("no active agent loop");
+        }
+    }
+
+    /// Handle the `/image` staging command: list staged images, drop them,
+    /// or load new paths onto the stage. Loading failures leave the
+    /// existing stage untouched; the combined stage is validated so an
+    /// oversized stage is reported at stage time, not at send time.
+    fn stage_images(&mut self, args: ImageArgs) {
+        match args {
+            ImageArgs::List => {
+                if self.staged_images.is_empty() {
+                    output::diag_line("no staged images (usage: /image <path>...)");
+                } else {
+                    for (index, image) in self.staged_images.iter().enumerate() {
+                        output::diag_line(&format!(
+                            "[{}] {} ({})",
+                            index + 1,
+                            image.media_type.as_deref().unwrap_or("image"),
+                            wf_cli_shared::turn::describe_user_image(image)
+                        ));
+                    }
+                }
+            }
+            ImageArgs::Clear => {
+                self.staged_images.clear();
+                output::diag_line("staged images cleared");
+            }
+            ImageArgs::Stage(paths) => {
+                let paths: Vec<std::path::PathBuf> =
+                    paths.iter().map(std::path::PathBuf::from).collect();
+                match wf_cli_shared::turn::load_user_images(&paths) {
+                    Err(err) => output::diag_line(&format!("cannot stage images: {err}")),
+                    Ok(loaded) => {
+                        let mut combined = self.staged_images.clone();
+                        combined.extend(loaded);
+                        if let Err(reason) = wf_types::message::validate_user_images(&combined) {
+                            output::diag_line(&format!(
+                                "cannot stage images: {reason} (stage unchanged)"
+                            ));
+                            return;
+                        }
+                        let added = combined.len() - self.staged_images.len();
+                        self.staged_images = combined;
+                        output::diag_line(&format!(
+                            "staged {added} image{} ({} total, sent with the next turn)",
+                            if added == 1 { "" } else { "s" },
+                            self.staged_images.len()
+                        ));
+                    }
+                }
+            }
         }
     }
 
@@ -1518,7 +1592,8 @@ impl NativeSession {
 
     /// Run one turn seeded with the session transcript. Returns `None`
     /// when the turn never started; the outcome tells whether the round
-    /// counts as memory.
+    /// counts as memory. Staged images ride the turn and are consumed by
+    /// a started turn; a turn that never starts leaves them staged.
     async fn run_turn(&mut self, prompt: String) -> Option<FinishedTurn> {
         let params = TurnParams {
             agent: self.agent.clone(),
@@ -1527,7 +1602,10 @@ impl NativeSession {
             timeout_ms: self.timeout_ms,
             context: self.session_context.clone(),
             conversation: self.transcript.messages().to_vec(),
-            kind: TurnKind::Agent { prompt },
+            kind: TurnKind::Agent {
+                prompt,
+                images: self.staged_images.clone(),
+            },
         };
         let body = params.agent_request_body();
         // The stream carries no execution id, so mint a local correlation
@@ -1555,6 +1633,8 @@ impl NativeSession {
                 let normalized = map_frames(stream);
                 let outcome = self.pump_stream(&execution_id, normalized).await;
                 approver_task.abort();
+                // A started turn consumes its staged images, win or lose.
+                self.staged_images.clear();
                 Some(FinishedTurn { outcome })
             }
             Err(err) => {

@@ -86,11 +86,15 @@ fn input(message: &str) -> AgentLoopInput {
         message: message.to_string(),
         context: std::collections::HashMap::new(),
         conversation: Vec::new(),
+        images: Vec::new(),
     }
 }
 
 #[tokio::test]
 async fn token_events_emitted_when_limit_crossed() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     let mock = Arc::new(MockLlmClient::new());
     // Reported usage tracks the oversized request size: the task budget is
     // actual-first, so a fabricated tiny usage would miscalibrate the

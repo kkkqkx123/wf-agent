@@ -61,24 +61,35 @@ impl ChatSession {
 
     /// Append the user turn and build the tool-free request for it.
     ///
-    /// Fails on blank text or on a missing profile id. The request carries
-    /// no tools, so the model cannot call back into the host.
+    /// Fails on blank text (unless images ride along), on invalid image
+    /// payloads and on a missing profile id. The request carries no
+    /// tools, so the model cannot call back into the host.
     pub fn begin_turn(
         &mut self,
         text: &str,
+        images: &[wf_types::message::UserImageInput],
         execution_id: Option<&str>,
     ) -> ExecutionSharedResult<LlmRequest> {
-        if text.trim().is_empty() {
+        if text.trim().is_empty() && images.is_empty() {
             return Err(ExecutionSharedError::Internal(
                 "chat turn requires non-empty text".to_string(),
             ));
+        }
+        if let Err(reason) = wf_types::message::validate_user_images(images) {
+            return Err(ExecutionSharedError::Internal(format!(
+                "chat turn carries invalid images: {reason}"
+            )));
         }
         if self.template.profile_id.is_empty() {
             return Err(ExecutionSharedError::Internal(
                 "chat turn requires a profile id".to_string(),
             ));
         }
-        self.conversation.add_message(user_text(text));
+        let content =
+            wf_types::message::user_content(text, images).expect("turn carries text or images");
+        let mut turn = user_text("");
+        turn.content = content;
+        self.conversation.add_message(turn);
         Ok(LlmRequest {
             profile_id: self.template.profile_id.clone(),
             messages: self.conversation.view_messages(),
@@ -123,7 +134,7 @@ impl ChatSession {
         execution_id: Option<&str>,
         cancel: Option<tokio_util::sync::CancellationToken>,
     ) -> ExecutionSharedResult<LlmResult> {
-        let request = self.begin_turn(text, execution_id)?;
+        let request = self.begin_turn(text, &[], execution_id)?;
         let result = gateway
             .generate(&request, cancel)
             .await
@@ -310,7 +321,9 @@ mod tests {
         let mut session = ChatSession::new("mock-chat".to_string());
         session.restore(vec![user_text("earlier question")]);
         assert_eq!(session.history().len(), 1);
-        let request = session.begin_turn("next question", None).expect("request");
+        let request = session
+            .begin_turn("next question", &[], None)
+            .expect("request");
         assert_eq!(request.messages.len(), 2);
         assert!(request.tools.is_none());
     }
@@ -318,9 +331,28 @@ mod tests {
     #[test]
     fn a_turn_never_carries_tools() {
         let mut session = ChatSession::new("mock-chat".to_string());
-        let request = session.begin_turn("hello", None).expect("request");
+        let request = session.begin_turn("hello", &[], None).expect("request");
         assert!(request.tools.is_none());
         assert!(request.tool_call_protocol.is_none());
+    }
+
+    #[test]
+    fn a_textless_image_turn_builds_rich_content() {
+        use wf_types::message::{MessageContent, MessageContentValue, UserImageInput};
+        let mut session = ChatSession::new("mock-chat".to_string());
+        let request = session
+            .begin_turn(
+                "   ",
+                &[UserImageInput::remote("https://example.com/shot.png")],
+                None,
+            )
+            .expect("request");
+        let MessageContentValue::Rich(blocks) = &request.messages[0].content else {
+            panic!("image turn must be rich");
+        };
+        assert!(blocks
+            .iter()
+            .any(|b| matches!(b, MessageContent::ImageUrl { .. })));
     }
 
     #[test]
@@ -333,7 +365,7 @@ mod tests {
         gateway.register_profile(other).unwrap();
 
         let mut session = ChatSession::new("chat-a".to_string());
-        session.begin_turn("hello", None).expect("request");
+        session.begin_turn("hello", &[], None).expect("request");
         // Foreign thinking must not survive the move to another model.
         let thinking = wf_types::message::Message {
             id: String::new(),
@@ -372,7 +404,7 @@ mod tests {
         let gateway = LlmGateway::new();
         gateway.register_profile(mock_profile("chat-a")).unwrap();
         let mut session = ChatSession::new("chat-a".to_string());
-        session.begin_turn("hello", None).expect("request");
+        session.begin_turn("hello", &[], None).expect("request");
         let before = session.history().to_vec();
         let err = session.switch_profile(&gateway, "   ").unwrap_err();
         assert!(err.to_string().contains("non-empty"));

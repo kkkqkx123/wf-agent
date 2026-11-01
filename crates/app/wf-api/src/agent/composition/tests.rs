@@ -63,6 +63,7 @@ fn input_with(message: &str) -> wf_tools::callback::AgentLoopInput {
         message: message.into(),
         context: Default::default(),
         conversation: Vec::new(),
+        images: Vec::new(),
     }
 }
 

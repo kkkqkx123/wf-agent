@@ -221,6 +221,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         input,
         input_file,
         vars,
+        image_paths,
         interactive,
         approval_timeout,
         assume_yes,
@@ -234,6 +235,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             input,
             input_file,
             vars,
+            image,
             interactive,
             approval_timeout,
             assume_yes,
@@ -247,6 +249,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             input.clone(),
             input_file.clone(),
             vars.clone(),
+            image.clone(),
             *interactive,
             *approval_timeout,
             *assume_yes,
@@ -259,6 +262,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             None,
             None,
             None,
+            Vec::new(),
             Vec::new(),
             false,
             None,
@@ -284,8 +288,10 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
     let context =
         crate::turn::parse_agent_context(cli.context.as_deref(), cli.context_file.as_deref())
             .map_err(CliError::Arguments)?;
+    let images = crate::turn::load_user_images(&image_paths).map_err(CliError::Arguments)?;
     let opts = RunOptions {
         prompt,
+        images,
         agent_id: agent,
         model,
         approve_prefixes,

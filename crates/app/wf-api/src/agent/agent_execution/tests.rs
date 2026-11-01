@@ -60,6 +60,7 @@ async fn runs_agent_loop_to_completion() {
                 message: "hi".to_string(),
                 context: Default::default(),
                 conversation: Vec::new(),
+                images: Vec::new(),
             },
         ),
     )
@@ -142,6 +143,7 @@ async fn persisted_agent_execution_readable_after_restart() {
                 message: "hi".to_string(),
                 context: Default::default(),
                 conversation: Vec::new(),
+                images: Vec::new(),
             },
         ),
     )
@@ -204,6 +206,7 @@ async fn streams_agent_loop_events() {
                 message: "hi".to_string(),
                 context: Default::default(),
                 conversation: Vec::new(),
+                images: Vec::new(),
             },
         ),
     )
@@ -289,6 +292,7 @@ fn resume_input(message: &str) -> AgentLoopInput {
         message: message.to_string(),
         context: Default::default(),
         conversation: Vec::new(),
+        images: Vec::new(),
     }
 }
 

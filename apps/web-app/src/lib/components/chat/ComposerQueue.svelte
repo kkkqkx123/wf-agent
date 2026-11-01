@@ -26,6 +26,15 @@
 						{t('chat.composer.fileCount', { count: item.attachments.length })}
 					</span>
 				{/if}
+				{#if (item.images?.length ?? 0) > 0}
+					<span
+						class="flex shrink-0 items-center gap-1 font-mono text-micro"
+						title={t('domain.messageBubble.attachedImage')}
+					>
+						<Icon name="image" size={12} />
+						{item.images?.length ?? 0}
+					</span>
+				{/if}
 				<button
 					type="button"
 					aria-label={t('chat.composer.moveQueuedUp')}

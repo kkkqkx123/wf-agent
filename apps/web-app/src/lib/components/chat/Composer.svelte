@@ -22,7 +22,7 @@
 	import ExecutionTypePicker, {
 		type ExecutionType,
 	} from '#lib/components/chat/ExecutionTypePicker.svelte';
-	import type { MessageAttachment, OutgoingMessage } from '#lib/types/models';
+	import type { ImageAttachment, MessageAttachment, OutgoingMessage } from '#lib/types/models';
 	import type { StarterSuggestion } from '#lib/services/starters';
 	import { entityMention, textRuns } from '#lib/utils/mentions';
 	import { mentionClass, mentionIcon } from '#lib/utils/mention-style';
@@ -31,6 +31,12 @@
 
 	/** Largest inlined attachment per file; larger files are truncated. */
 	const ATTACHMENT_LIMIT = 64_000;
+
+	/** Largest staged image; mirrors the server per-image limit. */
+	const IMAGE_LIMIT = 10 * 1024 * 1024;
+
+	/** Largest staged image payload the composer accepts per turn. */
+	const IMAGE_TOTAL_LIMIT = 20 * 1024 * 1024;
 
 	/** Entity kinds the mention picker resolves through the search channel. */
 	const MENTION_KINDS = [
@@ -97,6 +103,7 @@
 	let draft = $state('');
 	const mentionChips = $derived(textRuns(draft).filter((run) => run.kind !== null));
 	let attachments = $state<MessageAttachment[]>([]);
+	let images = $state<ImageAttachment[]>([]);
 	let queue = $state<OutgoingMessage[]>([]);
 	let box: HTMLTextAreaElement | null = $state(null);
 	let activeKey = $state('');
@@ -137,6 +144,7 @@
 		activeKey = nextKey;
 		draft = sessions.draft(nextKey);
 		attachments = [];
+		images = [];
 	}
 
 	$effect(() => {
@@ -150,6 +158,7 @@
 	function clearEditor(): void {
 		draft = '';
 		attachments = [];
+		images = [];
 		sessions.setDraft(activeKey, '');
 	}
 
@@ -191,7 +200,7 @@
 
 	function onSubmit(): void {
 		const text = draft.trim();
-		if (!text) {
+		if (!text && attachments.length === 0 && images.length === 0) {
 			if (queue.length > 0 && !busy) sendNext();
 			return;
 		}
@@ -201,7 +210,7 @@
 			oncommand?.(parsed.command.action, parsed.arg);
 			return;
 		}
-		const message: OutgoingMessage = { text: draft, attachments };
+		const message: OutgoingMessage = { text: draft, attachments, images };
 		if (busy) {
 			queue = [...queue, message];
 			clearEditor();
@@ -327,15 +336,21 @@
 
 	async function addFiles(files: FileList | File[]): Promise<void> {
 		for (const file of Array.from(files)) {
-			try {
+			if (file.type.startsWith('image/')) {
+				stageImage(file);
+			continue;
+		}
+		try {
 				const text = await file.text();
-				attachments = [
-					...attachments,
-					{
-						name: file.name || 'pasted-text',
-						content: text.slice(0, ATTACHMENT_LIMIT),
-					},
-				];
+			const truncated = text.length > ATTACHMENT_LIMIT;
+			attachments = [
+				...attachments,
+				{
+					name: file.name || 'pasted-text',
+					content: text.slice(0, ATTACHMENT_LIMIT),
+					...(truncated ? { truncated: true } : {}),
+				},
+			];
 			} catch {
 				toasts.error(
 					t('chat.composer.readFailed', {
@@ -344,6 +359,44 @@
 				);
 			}
 		}
+	}
+
+	/** Stage one image file: type-checked, size-capped, previewable. */
+	function stageImage(file: File): void {
+		if (file.size > IMAGE_LIMIT) {
+			toasts.error(
+				t('chat.composer.imageTooLarge', {
+					name: file.name || t('chat.composer.attachment'),
+				}),
+			);
+			return;
+		}
+		const staged = images.reduce((total, image) => total + image.dataUrl.length, 0);
+		if (staged + file.size > IMAGE_TOTAL_LIMIT) {
+			toasts.error(t('chat.composer.imagesTooLarge'));
+			return;
+		}
+		const reader = new FileReader();
+		reader.onload = () => {
+			const dataUrl = typeof reader.result === 'string' ? reader.result : '';
+			if (!dataUrl) {
+				toasts.error(
+					t('chat.composer.readFailed', {
+						name: file.name || t('chat.composer.attachment'),
+					}),
+				);
+				return;
+			}
+			images = [...images, { name: file.name || 'pasted-image', dataUrl }];
+		};
+		reader.onerror = () => {
+			toasts.error(
+				t('chat.composer.readFailed', {
+					name: file.name || t('chat.composer.attachment'),
+				}),
+			);
+		};
+		reader.readAsDataURL(file);
 	}
 
 	function onPaste(event: ClipboardEvent): void {
@@ -520,12 +573,13 @@
 	}
 
 	/** Pull a queued message back into the editor for editing; its
-	 * attachments return with it so nothing is lost. */
+	 * attachments and images return with it so nothing is lost. */
 	function editQueued(index: number): void {
 		const item = queue[index];
 		if (!item) return;
 		draft = draft.trim() ? `${draft}\n${item.text}` : item.text;
 		attachments = [...attachments, ...item.attachments];
+		images = [...images, ...(item.images ?? [])];
 		queue = queue.filter((_, current) => current !== index);
 		sessions.setDraft(activeKey, draft);
 		box?.focus();
@@ -555,7 +609,9 @@
 
 	<ComposerAttachments
 		{attachments}
+		{images}
 		onremove={(index) => (attachments = attachments.filter((_, i) => i !== index))}
+		onremoveImage={(index) => (images = images.filter((_, i) => i !== index))}
 	/>
 
 	{#if mentionVisible}
@@ -826,13 +882,15 @@
 			<Button
 				variant="brand"
 				size="sm"
-				disabled={!draft.trim() && queue.length === 0}
+				disabled={!draft.trim() && attachments.length === 0 && images.length === 0 && queue.length === 0}
 				onclick={onSubmit}
 			>
 				<Icon name="arrow-up" size={14} />
 				{queue.length > 0
 					? t('chat.composer.sendQueued', {
-							count: queue.length + (draft.trim() ? 1 : 0),
+							count:
+								queue.length +
+								(draft.trim() || attachments.length > 0 || images.length > 0 ? 1 : 0),
 						})
 					: t('chat.composer.send')}
 			</Button>

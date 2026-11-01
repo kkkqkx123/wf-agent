@@ -261,19 +261,23 @@ impl AgentLoopValidator {
         issues
     }
 
-    /// Validate one agent loop input: message text, context keys and
+    /// Validate one agent loop input: message text, image payload, context keys and
     /// imported conversation size plus basic role legitimacy. Message
     /// emptiness shares the foundation predicate with the server and CLI
-    /// entries so all three reject the same blank inputs. Context values
-    /// stay untyped JSON here; declared shapes are checked by
+    /// entries so all three reject the same blank inputs; a textless turn
+    /// is accepted only when it carries images. Context values stay
+    /// untyped JSON here; declared shapes are checked by
     /// `validate_context_with_schema` after defaults are backfilled.
     pub fn validate_input(input: &wf_tools::callback::AgentLoopInput) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
-        if wf_types::message::is_blank_user_text(&input.message) {
+        if wf_types::message::is_blank_user_text(&input.message) && input.images.is_empty() {
             issues.push(ValidationIssue::error(
                 "message",
                 "agent message must not be empty",
             ));
+        }
+        if let Err(reason) = wf_types::message::validate_user_images(&input.images) {
+            issues.push(ValidationIssue::error("images", reason));
         }
         for key in input.context.keys() {
             if wf_types::template::validate_template_path(key).is_some() {
@@ -862,6 +866,7 @@ mod tests {
             message: "do it".to_string(),
             context: std::collections::HashMap::new(),
             conversation: Vec::new(),
+            images: Vec::new(),
         }
     }
 
@@ -878,6 +883,27 @@ mod tests {
         let issues = AgentLoopValidator::validate_input(&input);
         assert!(issues.iter().any(|i| i.field == "message"));
         assert!(AgentLoopValidator::validate_or_fail_input(&input).is_err());
+    }
+
+    #[test]
+    fn test_validate_input_accepts_textless_image_turn() {
+        let mut input = valid_input();
+        input.message = "   ".to_string();
+        input.images = vec![wf_types::message::UserImageInput::remote(
+            "https://example.com/shot.png",
+        )];
+        assert!(AgentLoopValidator::validate_input(&input).is_empty());
+    }
+
+    #[test]
+    fn test_validate_input_rejects_bad_image() {
+        let mut input = valid_input();
+        input.images = vec![wf_types::message::UserImageInput::inline(
+            "!!!",
+            "image/png",
+        )];
+        let issues = AgentLoopValidator::validate_input(&input);
+        assert!(issues.iter().any(|i| i.field == "images"));
     }
 
     #[test]

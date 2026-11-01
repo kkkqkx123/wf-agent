@@ -13,6 +13,16 @@ use crate::entity::AgentLoopEntity;
 use crate::error::AgentResult;
 use crate::stream::{AgentEventSink, AgentStreamEvent};
 
+/// Install the built-in compaction limits for tests that drive the
+/// coordinator: the process global is bootstrap-owned, and unit tests
+/// run without a bootstrap. Later installs overwrite earlier ones, so
+/// per-test installation stays safe under parallel execution.
+fn install_test_compaction_limits() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
+}
+
 fn tool_call_message(tool_call_id: &str) -> Message {
     Message {
         id: Id::from(wf_common::generate_id()),
@@ -172,6 +182,7 @@ async fn test_stream_events_text_only() {
 
 #[tokio::test]
 async fn test_stream_events_with_tool_call() {
+    install_test_compaction_limits();
     let executed = Arc::new(std::sync::atomic::AtomicU32::new(0));
     let registry = mock_tool_registry(&executed);
     let mock = Arc::new(MockLlmClient::new());
@@ -412,6 +423,7 @@ async fn blocking_text_response_completes_the_iteration() {
 
 #[tokio::test]
 async fn blocking_tool_call_executes_and_continues() {
+    install_test_compaction_limits();
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![LlmToolCall {
         id: "call-1".to_string(),
@@ -447,6 +459,7 @@ async fn blocking_tool_call_executes_and_continues() {
 
 #[tokio::test]
 async fn blocking_attempt_completion_ends_the_loop() {
+    install_test_compaction_limits();
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![LlmToolCall {
         id: "call-2".to_string(),
@@ -534,6 +547,7 @@ fn big_user_message(text: &str) -> Message {
 
 #[tokio::test]
 async fn in_flight_plan_coalesces_new_compaction_signal() {
+    install_test_compaction_limits();
     let gateway = Arc::new(LlmGateway::new());
     let registry = Arc::new(wf_tools::registry::ToolRegistry::new());
     let coordinator = AgentIterationCoordinator::new(gateway, registry, None);
@@ -591,6 +605,7 @@ async fn in_flight_plan_coalesces_new_compaction_signal() {
 
 #[tokio::test]
 async fn undispatched_emission_counts_nothing() {
+    install_test_compaction_limits();
     use wf_metrics::metric::{MetricFilter, MetricType};
     let gateway = Arc::new(LlmGateway::new());
     let registry = Arc::new(wf_tools::registry::ToolRegistry::new());

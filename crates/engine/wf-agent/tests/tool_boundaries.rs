@@ -93,6 +93,7 @@ fn input(message: &str) -> AgentLoopInput {
         message: message.to_string(),
         context: std::collections::HashMap::new(),
         conversation: Vec::new(),
+        images: Vec::new(),
     }
 }
 
@@ -120,6 +121,9 @@ fn tool_texts(conversation: &[wf_types::message::Message]) -> Vec<String> {
 
 #[tokio::test]
 async fn approval_rejection_reports_tool_end_failure_and_continues() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
         "call_1",
@@ -177,6 +181,9 @@ async fn approval_rejection_reports_tool_end_failure_and_continues() {
 
 #[tokio::test]
 async fn tool_handler_error_becomes_tool_message_without_stopping_loop() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     let calls = Arc::new(AtomicUsize::new(0));
@@ -224,6 +231,9 @@ async fn tool_handler_error_becomes_tool_message_without_stopping_loop() {
 
 #[tokio::test]
 async fn tool_timeout_surfaces_as_error_message_and_continues() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     let registry = Arc::new(ToolRegistry::new());
     registry.register_stateless_async_handler(
         "slow",
@@ -262,6 +272,9 @@ async fn tool_timeout_surfaces_as_error_message_and_continues() {
 
 #[tokio::test]
 async fn permanently_failed_tool_listed_in_failed_event() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     let registry = Arc::new(ToolRegistry::new());
     registry.register_stateless_handler(
         "broken",
@@ -306,6 +319,9 @@ async fn permanently_failed_tool_listed_in_failed_event() {
 
 #[tokio::test]
 async fn streaming_tool_events_match_blocking_conversation() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     fn script(mock: &MockLlmClient) {
         mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
             "call_1",

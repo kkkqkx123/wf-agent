@@ -759,6 +759,7 @@ mod tests {
             message: message.to_string(),
             context: std::collections::HashMap::new(),
             conversation: Vec::new(),
+            images: Vec::new(),
         }
     }
 

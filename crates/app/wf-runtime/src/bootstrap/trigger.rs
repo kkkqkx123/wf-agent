@@ -105,9 +105,7 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
         .and_then(|c| c.strategy.clone())
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| {
-            wf_execution_shared::BUILTIN_COMPRESSION_STRATEGY_NAME.to_string()
-        });
+        .unwrap_or_else(|| wf_execution_shared::BUILTIN_COMPRESSION_STRATEGY_NAME.to_string());
     let (candidate_summary, candidate_repress) =
         wf_execution_shared::compaction::strategy_workflow_ids(&strategy);
     let summary_workflow_id = if registries.workflows.has(&candidate_summary) {
@@ -122,8 +120,12 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
     };
     // The repress chain is optional: older registries may only carry the
     // main chain, and the pipeline falls back to it for re-compressions.
-    let repress_workflow_id = candidate_repress
-        .and_then(|id| registries.workflows.get(&id).map(|template| template.id.clone()));
+    let repress_workflow_id = candidate_repress.and_then(|id| {
+        registries
+            .workflows
+            .get(&id)
+            .map(|template| template.id.clone())
+    });
     let compression_fallback = registries
         .workflows
         .get(&summary_workflow_id)

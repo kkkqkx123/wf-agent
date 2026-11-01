@@ -1,22 +1,27 @@
 use std::collections::HashSet;
 
+use base64::Engine as _;
 use wf_storage::adapter::base::BaseStorageAdapter;
-use wf_types::message::Message;
+use wf_types::message::{Message, UserImageInput};
 
 use crate::infra::context::ApiContext;
 
 use super::*;
 
-pub async fn resolve_mentions(ctx: &ApiContext, text: &str) -> Vec<Message> {
+/// Inline mentions resolved from one turn: supplemental text messages plus
+/// image payloads. Image references (`@file:` pointing at an image file)
+/// travel as structured inputs so binary bytes never pass text decoding.
+pub async fn resolve_mentions(ctx: &ApiContext, text: &str) -> (Vec<Message>, Vec<UserImageInput>) {
     let Ok(re) = regex::Regex::new(
         r"@(?:(?P<kind>[a-z][a-z0-9_]*):(?P<value>[\w./-]+(?:#\d+(?:-\d+)?)?)|(?P<path>[\w./-]*[./][\w./-]*(?:#\d+(?:-\d+)?)?))",
     ) else {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     };
     let mut seen = HashSet::new();
     let mut out = Vec::new();
+    let mut images = Vec::new();
     for capture in re.captures_iter(text) {
-        if out.len() >= 8 {
+        if out.len() + images.len() >= 8 {
             break;
         }
         let (kind, id) = if let Some(kind_match) = capture.name("kind") {
@@ -89,7 +94,15 @@ pub async fn resolve_mentions(ctx: &ApiContext, text: &str) -> Vec<Message> {
                         record.id, record.execution_id, snippet
                     )
                 }),
-            "file" => resolve_file_mention(ctx, id),
+            "file" => {
+                // Image references bypass the text snippet path: the bytes
+                // travel as a structured image input instead.
+                if let Some(image) = resolve_image_mention(ctx, id) {
+                    images.push(image);
+                    continue;
+                }
+                resolve_file_mention(ctx, id)
+            }
             "skill" => resolve_skill_mention(ctx, id),
             "tool" => resolve_tool_mention(ctx, id),
             "script" => resolve_script_mention(ctx, id).await,
@@ -104,7 +117,7 @@ pub async fn resolve_mentions(ctx: &ApiContext, text: &str) -> Vec<Message> {
             )));
         }
     }
-    out
+    (out, images)
 }
 
 fn parse_file_mention(raw: &str) -> (String, Option<(u32, u32)>) {
@@ -120,6 +133,46 @@ fn parse_file_mention(raw: &str) -> (String, Option<(u32, u32)>) {
     } else {
         (raw.to_string(), None)
     }
+}
+
+/// Resolve an `@file:` reference pointing at an image file into a
+/// structured image input. Line ranges never apply to images, oversized
+/// files are skipped (the entry validator would reject the turn), and
+/// path traversal outside the workspace root resolves to nothing.
+fn resolve_image_mention(ctx: &ApiContext, raw: &str) -> Option<UserImageInput> {
+    if raw.contains('#') {
+        return None;
+    }
+    let media = wf_types::message::media_type_for_image_path(raw)?;
+    let root = ctx
+        .user_git_config()
+        .and_then(|config| config.repo_root.clone())
+        .filter(|value| !value.trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::current_dir().ok())?;
+    let root_canonical = root.canonicalize().ok()?;
+    let full = if std::path::Path::new(raw).is_absolute() {
+        std::path::PathBuf::from(raw)
+    } else {
+        root.join(raw)
+    };
+    let canonical = full.canonicalize().ok()?;
+    if !canonical.starts_with(&root_canonical) || !canonical.is_file() {
+        return None;
+    }
+    let bytes = std::fs::read(&canonical).ok()?;
+    if bytes.len() > wf_types::message::MAX_USER_IMAGE_BYTES {
+        tracing::warn!(
+            path = raw,
+            bytes = bytes.len(),
+            "image mention exceeds the per-image limit and is skipped"
+        );
+        return None;
+    }
+    Some(UserImageInput::inline(
+        base64::engine::general_purpose::STANDARD.encode(&bytes),
+        media,
+    ))
 }
 
 fn resolve_file_mention(ctx: &ApiContext, raw: &str) -> Option<String> {

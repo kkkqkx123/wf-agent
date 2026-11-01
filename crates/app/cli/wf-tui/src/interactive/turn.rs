@@ -561,7 +561,10 @@ impl InteractiveController {
             timeout_ms: None,
             context: self.session_context.clone(),
             conversation: self.history.clone(),
-            kind: TurnKind::Agent { prompt },
+            kind: TurnKind::Agent {
+                prompt,
+                images: Vec::new(),
+            },
         };
         let body = params.agent_request_body();
 

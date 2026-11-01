@@ -340,8 +340,10 @@ fn message_text(message: &Message) -> String {
                 MessageContent::Text { text } => Some(text.clone()),
                 MessageContent::Thinking { thinking, .. } => Some(thinking.clone()),
                 MessageContent::ToolResult { tool_result } => Some(tool_result.content.clone()),
+                MessageContent::ImageUrl { image_url } => {
+                    Some(wf_types::message::image_block_label(image_url))
+                }
                 MessageContent::ToolUse { .. }
-                | MessageContent::ImageUrl { .. }
                 | MessageContent::InputAudio { .. }
                 | MessageContent::FileInput { .. }
                 | MessageContent::RedactedThinking { .. }

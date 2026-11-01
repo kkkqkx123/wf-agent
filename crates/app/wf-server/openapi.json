@@ -9827,6 +9827,96 @@
         ]
       }
     },
+    "/api/v1/chat/starters/{id}/resolve": {
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "operationId": "handle_resolve_starter",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveStarterBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Resolved starter content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ResolveStarterView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing variables or invalid values",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/chat/starters/{id}/usage": {
       "post": {
         "tags": [
@@ -27773,6 +27863,184 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/llm/proxy-credentials": {
+      "get": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "handle_list_proxy_credentials",
+        "responses": {
+          "200": {
+            "description": "Stored proxy credentials, metadata only (never passwords)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "handle_set_proxy_credential",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProxyCredentialBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Proxy credential stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/llm/proxy-credentials/{id}": {
+      "delete": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "handle_delete_proxy_credential",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Proxy credential removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
           },
           "429": {
             "description": "Too many requests: rate limit exceeded (see Retry-After)"
@@ -49070,6 +49338,13 @@
                       "type": "integer",
                       "format": "int64",
                       "minimum": 0
+                    },
+                    "variables": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {}
                     }
                   }
                 }
@@ -49471,6 +49746,38 @@
           }
         }
       },
+      "ApiEnvelope_ResolveStarterView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "content"
+            ],
+            "properties": {
+              "content": {
+                "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_RestoreCheckpointResponse": {
         "type": "object",
         "required": [
@@ -49728,6 +50035,13 @@
                 "type": "integer",
                 "format": "int64",
                 "minimum": 0
+              },
+              "variables": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {}
               }
             }
           },
@@ -51744,6 +52058,14 @@
           "message"
         ],
         "properties": {
+          "images": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {},
+            "description": "Structured image payload of the turn. Absent stays a pure-text turn."
+          },
           "message": {
             "type": "string",
             "description": "The user text of this turn."
@@ -52210,6 +52532,13 @@
           },
           "title": {
             "type": "string"
+          },
+          "variables": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {}
           }
         }
       },
@@ -54752,6 +55081,25 @@
           }
         }
       },
+      "ProxyCredentialBody": {
+        "type": "object",
+        "required": [
+          "route",
+          "username",
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "route": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
       "PtySession": {
         "type": "object",
         "required": [
@@ -55099,6 +55447,42 @@
           }
         }
       },
+      "ResolveStarterBody": {
+        "type": "object",
+        "required": [
+          "values"
+        ],
+        "properties": {
+          "values": {
+            "type": "object"
+          }
+        }
+      },
+      "ResolveStarterMissing": {
+        "type": "object",
+        "required": [
+          "missing"
+        ],
+        "properties": {
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ResolveStarterView": {
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          }
+        }
+      },
       "RespondBody": {
         "type": "object",
         "properties": {
@@ -55325,6 +55709,14 @@
               "type": "string"
             }
           },
+          "context_schema": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {},
+            "description": "Optional shape contract for `context`. Unknown keys stay accepted;\ndeclared keys must match their shape."
+          },
           "conversation": {
             "type": [
               "array",
@@ -55371,6 +55763,14 @@
               "null"
             ],
             "items": {}
+          },
+          "images": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {},
+            "description": "Structured image payload of the turn: inline base64 entries (with\na media type), remote addresses or `data:` URIs. Absent stays a\npure-text turn. The server validates media types, sizes and counts."
           },
           "initial_tool_names": {
             "type": [
@@ -55622,6 +56022,13 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "variables": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {}
           }
         }
       },
@@ -56417,6 +56824,13 @@
               "string",
               "null"
             ]
+          },
+          "variables": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {}
           }
         }
       },

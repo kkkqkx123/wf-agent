@@ -56,6 +56,12 @@ pub struct RunAgentLoopBody {
     #[serde(default)]
     #[schema(value_type = Option<Vec<Value>>)]
     context_schema: Option<Vec<wf_types::TemplateVariableDefinition>>,
+    /// Structured image payload of the turn: inline base64 entries (with
+    /// a media type), remote addresses or `data:` URIs. Absent stays a
+    /// pure-text turn. The server validates media types, sizes and counts.
+    #[serde(default)]
+    #[schema(value_type = Option<Vec<Value>>)]
+    images: Option<Vec<wf_types::message::UserImageInput>>,
 }
 
 pub(crate) async fn params_from_body(
@@ -65,9 +71,16 @@ pub(crate) async fn params_from_body(
     // Server is the single washing point: raw client text is cleaned here
     // before the blank check so ANSI-only messages are rejected as empty.
     let message = wf_types::message::sanitize_user_text(&body.message);
-    // Rule A1: an empty message is a hard error on every entry path; the
-    // CLI/TUI forms and the web panel all converge here.
-    if wf_types::message::is_blank_user_text(&message) {
+    let images = body.images.unwrap_or_default();
+    if let Err(reason) = wf_types::message::validate_user_images(&images) {
+        return Err(wf_api::ApiError::Validation(format!(
+            "agent images are invalid: {reason}"
+        )));
+    }
+    // Rule A1: an empty message is a hard error on every entry path, unless
+    // images ride along; the CLI/TUI forms and the web panel all converge
+    // here.
+    if wf_types::message::is_blank_user_text(&message) && images.is_empty() {
         return Err(wf_api::ApiError::Validation(
             "agent message must not be empty".to_string(),
         ));
@@ -127,11 +140,13 @@ pub(crate) async fn params_from_body(
         Some(state.ctx.tool_registry.as_ref()),
         state.ctx.metrics.as_deref(),
     );
-    let mention_messages = wf_api::agent::composition::resolve_mentions(&state.ctx, &message).await;
+    let (mention_messages, mention_images) =
+        wf_api::agent::composition::resolve_mentions(&state.ctx, &message).await;
     let input = wf_api::AgentLoopInput {
         message,
         context: body.context,
         conversation: body.conversation.unwrap_or_default(),
+        images,
     };
     let mut params = wf_api::agent::composition::resolve_run_params(
         &env,
@@ -142,6 +157,9 @@ pub(crate) async fn params_from_body(
         // Supplemental context from inline mentions.
         params.input.conversation.push(message);
     }
+    // Image references resolve beside the text mentions and ride the
+    // structured payload, never the message text.
+    params.input.images.extend(mention_images);
     Ok(params)
 }
 

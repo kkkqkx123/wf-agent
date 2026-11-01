@@ -91,6 +91,7 @@ fn input(message: &str) -> AgentLoopInput {
         message: message.to_string(),
         context: std::collections::HashMap::new(),
         conversation: Vec::new(),
+        images: Vec::new(),
     }
 }
 
@@ -283,6 +284,9 @@ async fn bus_mirror_maps_every_stream_variant() {
 
 #[tokio::test]
 async fn streaming_run_mirrors_lifecycle_to_bus() {
+    wf_execution_shared::set_process_compaction_limits(
+        wf_execution_shared::builtin_compaction_limits(),
+    );
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
         "call_1",

@@ -7,8 +7,8 @@
 // Re-export shared modules from wf-cli-shared.
 pub use wf_cli_shared::run as shared_run;
 pub use wf_cli_shared::{
-    app_config, args, cmd, connection, error, mode, notify, output, turn, Cli, CliError,
-    CliResult, ClientHandle, Command, DiagWriter, HeadlessFileSink, OutputEnvelope, OutputFormat,
+    app_config, args, cmd, connection, error, mode, notify, output, turn, Cli, CliError, CliResult,
+    ClientHandle, Command, DiagWriter, HeadlessFileSink, OutputEnvelope, OutputFormat,
     OutputMessage, RunIo, RunOptions, RunOutcome, TeeSink,
 };
 

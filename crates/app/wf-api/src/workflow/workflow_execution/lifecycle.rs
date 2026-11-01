@@ -162,11 +162,11 @@ pub fn validate_workflow_entry(
     options: Option<&WorkflowExecutionOptions>,
 ) -> Result<(), crate::infra::error::ApiError> {
     let mut issues = Vec::new();
-    if let Err(crate::infra::error::ApiError::Validation(reason)) = validate_workflow_input(input)
-    {
+    if let Err(crate::infra::error::ApiError::Validation(reason)) = validate_workflow_input(input) {
         issues.push(reason);
     }
-    if let Err(crate::infra::error::ApiError::Validation(reason)) = validate_runtime_options(options)
+    if let Err(crate::infra::error::ApiError::Validation(reason)) =
+        validate_runtime_options(options)
     {
         issues.push(reason);
     }

@@ -166,7 +166,7 @@ pub(crate) fn gate_agent_config(
     config: &AgentLoopConfig,
 ) -> crate::ApiResult<()> {
     match wf_agent::validation::AgentLoopValidator::validate_or_fail(config, &ctx.tool_registry) {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(errors) => {
             let detail = errors
                 .iter()
@@ -193,11 +193,10 @@ pub(crate) fn gate_agent_config(
             .find(|profile| profile.id == config.model)
             .and_then(|profile| profile.tool_call_protocol)
             .map(|protocol| protocol.format);
-        let outcome =
-            wf_agent::validation::AgentLoopValidator::validate_tool_call_protocol(
-                Some(agent_format),
-                profile_format,
-            );
+        let outcome = wf_agent::validation::AgentLoopValidator::validate_tool_call_protocol(
+            Some(agent_format),
+            profile_format,
+        );
         if !outcome.valid {
             return Err(ApiError::Validation(format!(
                 "agent config validation failed ({} error(s)): {}",

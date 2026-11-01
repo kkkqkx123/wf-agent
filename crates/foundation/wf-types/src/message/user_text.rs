@@ -110,13 +110,11 @@ pub fn validate_imported_conversation(
         ));
     }
     for (index, message) in messages.iter().enumerate() {
-        if matches!(
-            message.role,
-            crate::message::MessageRole::Tool
-        ) && message
-            .tool_call_id
-            .as_ref()
-            .is_none_or(|id| id.trim().is_empty())
+        if matches!(message.role, crate::message::MessageRole::Tool)
+            && message
+                .tool_call_id
+                .as_ref()
+                .is_none_or(|id| id.trim().is_empty())
         {
             issues.push(ConversationIssue::new(
                 format!("conversation[{index}]"),
@@ -147,10 +145,7 @@ mod tests {
         assert!(is_blank_user_text("   "));
         assert!(!is_blank_user_text("hi"));
         assert!(UserMessage::try_new("   ").is_err());
-        assert_eq!(
-            UserMessage::try_new("hi").expect("valid").as_str(),
-            "hi"
-        );
+        assert_eq!(UserMessage::try_new("hi").expect("valid").as_str(), "hi");
     }
 
     #[test]

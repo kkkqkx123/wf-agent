@@ -195,7 +195,11 @@ pub fn collect_template_context_issues(
                     ));
                     continue;
                 }
-                issues.extend(collect_template_nested_issues(&declared.name, value, declared));
+                issues.extend(collect_template_nested_issues(
+                    &declared.name,
+                    value,
+                    declared,
+                ));
             }
         }
     }

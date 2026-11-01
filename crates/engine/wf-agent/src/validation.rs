@@ -253,7 +253,9 @@ impl AgentLoopValidator {
         let mut issues = Self::validate_input(input);
         if let Some(schema) = schema {
             issues.extend(Self::validate_context_with_schema_with_policy(
-                &input.context, schema, strict,
+                &input.context,
+                schema,
+                strict,
             ));
         }
         issues
@@ -306,10 +308,11 @@ impl AgentLoopValidator {
         schema: Option<&[wf_types::TemplateVariableDefinition]>,
         strict: bool,
     ) -> Result<(), Vec<ValidationIssue>> {
-        let errors: Vec<ValidationIssue> = Self::validate_input_with_schema_and_policy(input, schema, strict)
-            .into_iter()
-            .filter(|i| i.severity == ValidationSeverity::Error)
-            .collect();
+        let errors: Vec<ValidationIssue> =
+            Self::validate_input_with_schema_and_policy(input, schema, strict)
+                .into_iter()
+                .filter(|i| i.severity == ValidationSeverity::Error)
+                .collect();
         if errors.is_empty() {
             Ok(())
         } else {
@@ -992,10 +995,16 @@ mod tests {
             ..base_config()
         };
         let issues = AgentLoopValidator::validate_config(&config, &registry);
-        assert!(issues.iter().any(|i| i.field == "discoverable_tool_names" && i.severity == ValidationSeverity::Error));
-        assert!(issues.iter().any(|i| i.field == "initial_tool_names" && i.message.contains("available")));
+        assert!(issues.iter().any(
+            |i| i.field == "discoverable_tool_names" && i.severity == ValidationSeverity::Error
+        ));
+        assert!(issues
+            .iter()
+            .any(|i| i.field == "initial_tool_names" && i.message.contains("available")));
         // discoverable non-empty with the proxy disabled is a hard error.
-        assert!(issues.iter().any(|i| i.field == "enable_general_tool" && i.severity == ValidationSeverity::Error));
+        assert!(issues
+            .iter()
+            .any(|i| i.field == "enable_general_tool" && i.severity == ValidationSeverity::Error));
     }
 
     #[test]

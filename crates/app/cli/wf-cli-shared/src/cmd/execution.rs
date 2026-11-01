@@ -168,13 +168,11 @@ pub(crate) async fn run_with_client(
                     .get("input_strict")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
-                if let Err(reason) =
-                    crate::turn::prevalidate_workflow_input_locally_with_policy(
-                        input_value.as_ref(),
-                        variables.as_deref(),
-                        strict,
-                    )
-                {
+                if let Err(reason) = crate::turn::prevalidate_workflow_input_locally_with_policy(
+                    input_value.as_ref(),
+                    variables.as_deref(),
+                    strict,
+                ) {
                     return Err(CliError::Arguments(reason));
                 }
             }

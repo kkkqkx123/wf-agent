@@ -127,8 +127,7 @@ pub(crate) async fn params_from_body(
         Some(state.ctx.tool_registry.as_ref()),
         state.ctx.metrics.as_deref(),
     );
-    let mention_messages =
-        wf_api::agent::composition::resolve_mentions(&state.ctx, &message).await;
+    let mention_messages = wf_api::agent::composition::resolve_mentions(&state.ctx, &message).await;
     let input = wf_api::AgentLoopInput {
         message,
         context: body.context,

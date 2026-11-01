@@ -200,9 +200,9 @@ pub fn parse_loose_value(raw: &str) -> Value {
 /// Parse one `--var KEY=VALUE` assignment. The key must be non-empty;
 /// the value follows [`parse_loose_value`].
 pub fn parse_workflow_var_arg(arg: &str) -> Result<(String, Value), String> {
-    let (key, raw) = arg.split_once('=').ok_or_else(|| {
-        format!("invalid --var '{arg}': expected KEY=VALUE")
-    })?;
+    let (key, raw) = arg
+        .split_once('=')
+        .ok_or_else(|| format!("invalid --var '{arg}': expected KEY=VALUE"))?;
     let key = key.trim();
     if key.is_empty() {
         return Err(format!("invalid --var '{arg}': key must not be empty"));
@@ -501,15 +501,13 @@ mod tests {
         let dir = std::env::temp_dir();
         let file = dir.join(format!("wf-input-{}.json", std::process::id()));
         std::fs::write(&file, r#"{"a": 1, "b": 2}"#).expect("fixture");
-        let loaded = load_workflow_input_file(Some(&file)).expect("file loads").expect("object");
+        let loaded = load_workflow_input_file(Some(&file))
+            .expect("file loads")
+            .expect("object");
         assert_eq!(loaded["a"], 1);
-        let merged = resolve_workflow_input(
-            Some(r#"{"b": 3}"#),
-            Some(&file),
-            &["c=4".to_string()],
-        )
-        .expect("resolve")
-        .expect("merged");
+        let merged = resolve_workflow_input(Some(r#"{"b": 3}"#), Some(&file), &["c=4".to_string()])
+            .expect("resolve")
+            .expect("merged");
         assert_eq!(merged["a"], 1);
         assert_eq!(merged["b"], 3);
         assert_eq!(merged["c"], 4);
@@ -521,16 +519,14 @@ mod tests {
         assert!(parse_agent_context(Some("[1]"), None).is_err());
         assert!(parse_agent_context(Some("42"), None).is_err());
         assert!(parse_agent_context(None, None).expect("empty").is_empty());
-        assert!(
-            parse_agent_context(Some("  "), None)
-                .expect("blank")
-                .is_empty()
-        );
+        assert!(parse_agent_context(Some("  "), None)
+            .expect("blank")
+            .is_empty());
         let dir = std::env::temp_dir();
         let file = dir.join(format!("wf-context-{}.json", std::process::id()));
         std::fs::write(&file, r#"{"a": 1, "b": 2}"#).expect("fixture");
-        let merged = parse_agent_context(Some(r#"{"b": 3}"#), Some(&file))
-            .expect("file plus inline");
+        let merged =
+            parse_agent_context(Some(r#"{"b": 3}"#), Some(&file)).expect("file plus inline");
         assert_eq!(merged["a"], 1);
         assert_eq!(merged["b"], 3);
         let _ = std::fs::remove_file(&file);

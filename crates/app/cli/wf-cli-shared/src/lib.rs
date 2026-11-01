@@ -281,11 +281,9 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         .or(arg_prompt)
         .unwrap_or_default();
 
-    let context = crate::turn::parse_agent_context(
-        cli.context.as_deref(),
-        cli.context_file.as_deref(),
-    )
-    .map_err(CliError::Arguments)?;
+    let context =
+        crate::turn::parse_agent_context(cli.context.as_deref(), cli.context_file.as_deref())
+            .map_err(CliError::Arguments)?;
     let opts = RunOptions {
         prompt,
         agent_id: agent,

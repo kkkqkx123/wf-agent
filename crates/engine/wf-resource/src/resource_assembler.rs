@@ -618,10 +618,7 @@ pub fn validate_config_value_against_metadata(
                         config_value_kind(provided),
                     ));
                 } else {
-                    if matches!(
-                        field.r#type,
-                        ResourceAssemblerConfigFieldType::Expression
-                    ) {
+                    if matches!(field.r#type, ResourceAssemblerConfigFieldType::Expression) {
                         errors.extend(expression_syntax_violations(name, provided));
                         errors.extend(expression_allowlist_violations(name, provided, field));
                     }
@@ -636,13 +633,11 @@ pub fn validate_config_value_against_metadata(
                     field.r#type.type_name(),
                     config_value_kind(default),
                 ));
-            } else if matches!(
-                field.r#type,
-                ResourceAssemblerConfigFieldType::Expression
-            ) {
-                errors.extend(
-                    expression_syntax_violations(&format!("{name} default"), default),
-                );
+            } else if matches!(field.r#type, ResourceAssemblerConfigFieldType::Expression) {
+                errors.extend(expression_syntax_violations(
+                    &format!("{name} default"),
+                    default,
+                ));
             }
         }
     }
@@ -734,8 +729,7 @@ fn expression_called_functions(value: &str) -> Vec<String> {
             continue;
         }
         let start = index;
-        while index < bytes.len()
-            && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
+        while index < bytes.len() && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
         {
             index += 1;
         }
@@ -762,11 +756,15 @@ fn expression_syntax_violations(name: &str, provided: &Value) -> Vec<String> {
         return Vec::new();
     };
     if text.trim().is_empty() {
-        return vec![format!("assembler config '{name}' expression must not be empty")];
+        return vec![format!(
+            "assembler config '{name}' expression must not be empty"
+        )];
     }
     match wf_core::condition::ConditionEvaluator::validate_syntax(text) {
         Ok(()) => Vec::new(),
-        Err(reason) => vec![format!("assembler config '{name}' expression invalid: {reason}")],
+        Err(reason) => vec![format!(
+            "assembler config '{name}' expression invalid: {reason}"
+        )],
     }
 }
 
@@ -1494,11 +1492,17 @@ mod tests {
                 },
             )])),
         };
-        assert!(validate_config_value_against_metadata(&json!({"when": "eq(a, 1)"}), &metadata).is_empty());
+        assert!(
+            validate_config_value_against_metadata(&json!({"when": "eq(a, 1)"}), &metadata)
+                .is_empty()
+        );
         let errors = validate_config_value_against_metadata(&json!({"when": "eq(a,"}), &metadata);
         assert!(errors.iter().any(|e| e.contains("invalid")), "{errors:?}");
         let empty = validate_config_value_against_metadata(&json!({"when": "  "}), &metadata);
-        assert!(empty.iter().any(|e| e.contains("must not be empty")), "{empty:?}");
+        assert!(
+            empty.iter().any(|e| e.contains("must not be empty")),
+            "{empty:?}"
+        );
     }
 
     #[test]

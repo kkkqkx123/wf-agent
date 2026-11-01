@@ -160,7 +160,9 @@ impl Cli {
                 return Err("--input/--input-file/--var require --workflow".to_string());
             }
             if (self.context.is_some() || self.context_file.is_some()) && workflow.is_some() {
-                return Err("--context/--context-file apply to agent turns, not --workflow".to_string());
+                return Err(
+                    "--context/--context-file apply to agent turns, not --workflow".to_string(),
+                );
             }
             for var in vars {
                 crate::turn::parse_workflow_var_arg(var)?;

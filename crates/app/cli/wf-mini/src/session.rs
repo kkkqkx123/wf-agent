@@ -502,12 +502,14 @@ impl NativeSession {
                         if self.session_context.is_empty() {
                             output::diag_line("context: (empty)");
                         } else {
-                            let keys: Vec<&String> =
-                                self.session_context.keys().collect();
+                            let keys: Vec<&String> = self.session_context.keys().collect();
                             output::diag_line(&format!(
                                 "context: {} key(s): {}",
                                 keys.len(),
-                                keys.iter().map(|k| k.as_str()).collect::<Vec<_>>().join(", ")
+                                keys.iter()
+                                    .map(|k| k.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
                             ));
                         }
                     }

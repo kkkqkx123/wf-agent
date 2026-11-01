@@ -205,9 +205,7 @@ fn nested_workflow_issues(
                     if prop_rule.required == Some(true) {
                         issues.push(WorkflowInputIssue::new(
                             format!("{key}.{prop_name}"),
-                            format!(
-                                "variable '{key}.{prop_name}' is missing required property"
-                            ),
+                            format!("variable '{key}.{prop_name}' is missing required property"),
                         ));
                     }
                 }
@@ -319,9 +317,7 @@ pub fn missing_required_variables(
     };
     required
         .into_iter()
-        .filter(|v| {
-            object.is_none_or(|map| map.get(&v.name).is_none_or(|value| value.is_null()))
-        })
+        .filter(|v| object.is_none_or(|map| map.get(&v.name).is_none_or(|value| value.is_null())))
         .map(|v| v.name.clone())
         .collect()
 }
@@ -703,10 +699,8 @@ mod tests {
         let fields: Vec<&str> = issues.iter().map(|issue| issue.field.as_str()).collect();
         assert!(fields.contains(&"user.age"), "{fields:?}");
         assert!(fields.contains(&"tags[1]"), "{fields:?}");
-        let missing = collect_workflow_input_issues(
-            Some(&json!({"user": {}, "tags": []})),
-            Some(&variables),
-        );
+        let missing =
+            collect_workflow_input_issues(Some(&json!({"user": {}, "tags": []})), Some(&variables));
         assert!(missing.iter().any(|issue| issue.field == "user.age"));
     }
 
@@ -721,15 +715,13 @@ mod tests {
             missing_required_variables(Some(&json!({"city": null})), Some(&variables)),
             vec!["city".to_string()]
         );
-        let filled =
-            apply_workflow_input_defaults(Some(json!({"city": null})), Some(&variables));
+        let filled = apply_workflow_input_defaults(Some(json!({"city": null})), Some(&variables));
         assert_eq!(filled, json!({"city": "paris"}));
-        assert!(collect_workflow_input_issues(
-            Some(&json!({"city": null})),
-            Some(&variables),
-        )
-        .iter()
-        .all(|issue| issue.field == "city" && issue.message.contains("missing")));
+        assert!(
+            collect_workflow_input_issues(Some(&json!({"city": null})), Some(&variables),)
+                .iter()
+                .all(|issue| issue.field == "city" && issue.message.contains("missing"))
+        );
     }
 
     #[test]

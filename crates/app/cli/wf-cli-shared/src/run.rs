@@ -179,10 +179,9 @@ async fn run_workflow(
         .get_json::<serde_json::Value>(&format!("/api/v1/workflows/{workflow_id}"))
         .await
     {
-        let variables: Option<Vec<wf_types::workflow_execution::VariableDefinition>> =
-            definition
-                .get("variables")
-                .and_then(|v| serde_json::from_value(v.clone()).ok());
+        let variables: Option<Vec<wf_types::workflow_execution::VariableDefinition>> = definition
+            .get("variables")
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
         let strict = definition
             .get("input_strict")
             .and_then(|v| v.as_bool())

@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::OnceLock;
+use std::sync::{OnceLock, RwLock};
 
 use wf_types::config::limits::CompactionLimits;
 use wf_types::message::{
@@ -137,6 +137,30 @@ pub fn is_single_summary_strategy(name: &str) -> bool {
     name.trim() == SINGLE_SUMMARY_STRATEGY_NAME
 }
 
+/// Version of the advisor planning protocol. Sent with every advisor
+/// input so future protocol evolution can branch on it.
+pub const ADVISOR_PROTOCOL_VERSION: u32 = 1;
+
+/// Candidate summary workflow ids for a strategy name, before registry
+/// lookup. Built-in names keep the fold-summary chains; any other name
+/// resolves to the strategy id with `-repress` suffixed for the
+/// re-compression chain when present.
+pub fn strategy_workflow_ids(strategy: &str) -> (String, Option<String>) {
+    if is_builtin_strategy(strategy) || is_single_summary_strategy(strategy) {
+        (
+            wf_resource::predefined::workflow::FOLD_SUMMARY_WORKFLOW_ID.to_string(),
+            Some(
+                wf_resource::predefined::workflow::FOLD_SUMMARY_REPRESS_WORKFLOW_ID
+                    .to_string(),
+            ),
+        )
+    } else {
+        let trimmed = strategy.trim().to_string();
+        let repress = format!("{trimmed}-repress");
+        (trimmed, Some(repress))
+    }
+}
+
 /// Process-wide compaction advisor registry backing named strategies.
 /// Advisors are pure shaping hooks contributed by plugins; the engine
 /// validates every suggestion and falls back to the built-in planner.
@@ -176,13 +200,13 @@ pub fn get_compaction_advisor(
     compaction_advisors().get(name.trim()).map(|e| e.clone())
 }
 
-static PROCESS_LIMITS: OnceLock<CompactionLimits> = OnceLock::new();
+static PROCESS_LIMITS: RwLock<Option<CompactionLimits>> = RwLock::new(None);
 
-/// Inject the process-wide compaction parameters once at bootstrap, mirroring
-/// the compression settle-budget injection. Returns true on the first
-/// write and false when a previous bootstrap already installed a value.
-pub fn set_process_compaction_limits(limits: CompactionLimits) -> bool {
-    PROCESS_LIMITS.set(limits).is_ok()
+/// Inject the process-wide compaction parameters at bootstrap, mirroring
+/// the compression settle-budget injection. Later installs overwrite
+/// earlier ones so tests and re-bootstrap observe the newest config.
+pub fn set_process_compaction_limits(limits: CompactionLimits) {
+    *PROCESS_LIMITS.write().expect("compaction limits lock poisoned") = Some(limits);
 }
 
 /// Effective process-wide compaction parameters. Bootstrap must install
@@ -190,8 +214,9 @@ pub fn set_process_compaction_limits(limits: CompactionLimits) -> bool {
 /// instead of silently falling back to built-in defaults.
 pub fn process_compaction_limits() -> CompactionLimits {
     PROCESS_LIMITS
-        .get()
-        .cloned()
+        .read()
+        .expect("compaction limits lock poisoned")
+        .clone()
         .expect("compaction limits not installed")
 }
 
@@ -487,7 +512,10 @@ fn try_advisor_plan(
     if is_builtin_strategy(&strategy) {
         return None;
     }
-    let advisor = get_compaction_advisor(&strategy)?;
+    let Some(advisor) = get_compaction_advisor(&strategy) else {
+        tracing::debug!(strategy = %strategy, "compaction advisor missing; falling back to built-in plan");
+        return None;
+    };
     let thresholds = resolve_compaction_thresholds(state.window_tokens, limits);
     let target_freed = hot_tokens.saturating_sub(thresholds.h_target);
     let item_cap = plan_max_items(limits);
@@ -509,6 +537,7 @@ fn try_advisor_plan(
         })
         .collect();
     let input = serde_json::json!({
+        "protocol_version": ADVISOR_PROTOCOL_VERSION,
         "strategy": strategy,
         "hot_tokens": hot_tokens,
         "aggressive": aggressive,

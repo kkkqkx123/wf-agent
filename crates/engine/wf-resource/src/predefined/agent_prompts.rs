@@ -27,11 +27,19 @@ pub const LLM_SUMMARY_REPRESS_PROMPT_KEY: &str = "@standard/llm-summary-repress"
 pub const CODE_CONTEXT_PREFETCH_PROMPT_KEY: &str = "@standard/code-context-prefetch";
 pub const HANDOFF_PROMPT_KEY: &str = "@standard/handoff";
 pub const PI_CODING_AGENT_PROMPT_KEY: &str = "@standard/pi-coding";
-/// Version stamp of the handoff prompt text. Bump together with the
-/// `@standard/handoff` asset: the handoff flow records it in the
-/// artifact validation note so documents stay attributable to the prompt
-/// that produced them.
-pub const HANDOFF_PROMPT_VERSION: &str = "1";
+/// Version stamp of the handoff prompt text, derived from the prompt
+/// content itself so text changes automatically change the version.
+/// The handoff flow records it in the artifact validation note so
+/// documents stay attributable to the prompt that produced them.
+pub fn handoff_prompt_version() -> String {
+    let text = embedded_assets::agent_prompt(HANDOFF_PROMPT_KEY);
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in text.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{:08x}", (hash & 0xffff_ffff) as u32)
+}
 
 /// Default LLM profile for compression work: summary, re-compression
 /// and handoff document calls share it so quality tracks one profile.

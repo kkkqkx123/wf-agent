@@ -83,16 +83,14 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
     }
     // Compaction tuning parameters are process-wide like the settle
     // budget; thresholds resolve from them at decision time. Absent
-    // config installs the built-in defaults explicitly. A second bootstrap
-    // attempt is reported instead of silently ignored.
+    // config installs the built-in defaults explicitly. Later installs
+    // overwrite earlier ones so re-bootstrap observes the newest config.
     {
         let compaction = limits
             .compaction
             .clone()
             .unwrap_or_else(wf_execution_shared::compaction::builtin_compaction_limits);
-        if !wf_execution_shared::set_process_compaction_limits(compaction) {
-            tracing::warn!("compaction limits already installed: second bootstrap ignored");
-        }
+        wf_execution_shared::set_process_compaction_limits(compaction);
     }
     // The terminal-failure handling strategy is declared by the summary
     // workflow resource itself (`compression_fallback` on its
@@ -111,19 +109,7 @@ pub(super) fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerS
             wf_execution_shared::BUILTIN_COMPRESSION_STRATEGY_NAME.to_string()
         });
     let (candidate_summary, candidate_repress) =
-        if wf_execution_shared::is_builtin_strategy(&strategy)
-            || wf_execution_shared::is_single_summary_strategy(&strategy)
-        {
-            (
-                wf_resource::predefined::workflow::FOLD_SUMMARY_WORKFLOW_ID.to_string(),
-                Some(
-                    wf_resource::predefined::workflow::FOLD_SUMMARY_REPRESS_WORKFLOW_ID
-                        .to_string(),
-                ),
-            )
-        } else {
-            (strategy.clone(), Some(format!("{strategy}-repress")))
-        };
+        wf_execution_shared::compaction::strategy_workflow_ids(&strategy);
     let summary_workflow_id = if registries.workflows.has(&candidate_summary) {
         candidate_summary
     } else {

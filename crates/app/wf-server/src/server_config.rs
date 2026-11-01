@@ -5,18 +5,20 @@
 //! priority chain:
 //!
 //! CLI `--addr` flag > `*_ENABLED` / `API_KEYS` / `WF_SERVER_BIND_ADDR` env >
-//! `baselines/server/*.toml` file layer > built-in defaults.
+//! project `.wf/server/*.toml` > `{settings_dir}/server/*.toml` > built-in
+//! defaults.
 //!
 //! Secrets never live in files: API keys come from the `API_KEYS`
-//! environment variable only. The file layer is lenient: missing files fall
-//! back to defaults and present but invalid files are skipped with a
-//! warning, so a typo never silently binds an unexpected address or opens
-//! the API surface.
+//! environment variable only. Missing files fall back to defaults; a
+//! present but invalid file fails startup, matching the infrastructure
+//! file layer so a typo cannot silently bind an unexpected address or
+//! open the API surface.
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+use wf_config::error::{ConfigError, ConfigResult};
 
 use crate::middleware::ServerMiddlewareConfig;
 
@@ -29,8 +31,8 @@ pub const BIND_ADDR_ENV_VAR: &str = "WF_SERVER_BIND_ADDR";
 /// Environment variable pointing at the web frontend build to serve.
 pub const STATIC_DIR_ENV_VAR: &str = "WF_SERVER_STATIC_DIR";
 
-/// File name of the server transport config inside the server directory
-/// (`{project_root}/baselines/server/server.toml`).
+/// File name of the server transport config inside each server layer
+/// directory (`server.toml`).
 pub const SERVER_CONFIG_FILE: &str = "server.toml";
 
 /// Owned server configuration: transport plus middleware.
@@ -55,61 +57,82 @@ impl Default for ServerConfig {
 
 impl ServerConfig {
     /// Resolve the effective server configuration from CLI flag, environment,
-    /// file layer and defaults, in that priority order.
+    /// file layer and defaults, in that priority order. The file layer merges
+    /// the settings layer (low) and the project `.wf/server/` layer (high).
     pub fn resolve(
         project_root: Option<&Path>,
+        settings_dir: Option<&Path>,
         cli_addr: Option<SocketAddr>,
         cli_static_dir: Option<PathBuf>,
-    ) -> Self {
-        let server_dir = project_root
-            .map(|root| wf_config::layout::family_dir(root, wf_config::layout::family::SERVER));
-
-        let config = Self {
-            bind_addr: Self::resolve_bind_addr(server_dir.as_deref(), cli_addr),
-            middleware: ServerMiddlewareConfig::resolve(server_dir.as_deref()),
-            static_dir: Self::resolve_static_dir(server_dir.as_deref(), cli_static_dir),
+    ) -> ConfigResult<Self> {
+        let project_server_dir;
+        let settings_server_dir;
+        let project_layer = match project_root {
+            Some(root) => {
+                project_server_dir = wf_config::layout::project_server_dir(root);
+                Some(project_server_dir.as_path())
+            }
+            None => None,
         };
-        config
+        let settings_layer = match settings_dir {
+            Some(dir) => {
+                settings_server_dir = wf_config::layout::settings_server_dir(dir);
+                Some(settings_server_dir.as_path())
+            }
+            None => None,
+        };
+        Ok(Self {
+            bind_addr: Self::resolve_bind_addr(settings_layer, project_layer, cli_addr)?,
+            middleware: ServerMiddlewareConfig::resolve(settings_layer, project_layer)?,
+            static_dir: Self::resolve_static_dir(settings_layer, project_layer, cli_static_dir)?,
+        })
     }
 
-    fn resolve_bind_addr(server_dir: Option<&Path>, cli_addr: Option<SocketAddr>) -> SocketAddr {
+    fn resolve_bind_addr(
+        settings_layer: Option<&Path>,
+        project_layer: Option<&Path>,
+        cli_addr: Option<SocketAddr>,
+    ) -> ConfigResult<SocketAddr> {
         if let Some(addr) = cli_addr {
-            return addr;
+            return Ok(addr);
         }
         if let Ok(raw) = std::env::var(BIND_ADDR_ENV_VAR) {
             match raw.parse::<SocketAddr>() {
-                Ok(addr) => return addr,
+                Ok(addr) => return Ok(addr),
                 Err(e) => {
                     tracing::warn!(error = %e, value = %raw, "invalid WF_SERVER_BIND_ADDR; ignoring");
                 }
             }
         }
-        if let Some(dir) = server_dir {
-            if let Some(addr) = load_bind_addr_from_file(&dir.join(SERVER_CONFIG_FILE)) {
-                return addr;
+        if let Some(file) = load_merged_server_file(settings_layer, project_layer)? {
+            if let Some(raw) = file.bind_addr {
+                return raw.parse::<SocketAddr>().map_err(|e| {
+                    ConfigError::Parse(format!("invalid bind_addr in server config: {e}"))
+                });
             }
         }
-        default_bind_addr()
+        Ok(default_bind_addr())
     }
 
     fn resolve_static_dir(
-        server_dir: Option<&Path>,
+        settings_layer: Option<&Path>,
+        project_layer: Option<&Path>,
         cli_static_dir: Option<PathBuf>,
-    ) -> Option<PathBuf> {
+    ) -> ConfigResult<Option<PathBuf>> {
         if let Some(dir) = cli_static_dir {
-            return Some(dir);
+            return Ok(Some(dir));
         }
         if let Ok(raw) = std::env::var(STATIC_DIR_ENV_VAR) {
             if !raw.trim().is_empty() {
-                return Some(PathBuf::from(raw));
+                return Ok(Some(PathBuf::from(raw)));
             }
         }
-        if let Some(dir) = server_dir {
-            if let Some(raw) = load_static_dir_from_file(&dir.join(SERVER_CONFIG_FILE)) {
-                return Some(PathBuf::from(raw));
+        if let Some(file) = load_merged_server_file(settings_layer, project_layer)? {
+            if let Some(raw) = file.static_dir.filter(|raw| !raw.trim().is_empty()) {
+                return Ok(Some(PathBuf::from(raw)));
             }
         }
-        None
+        Ok(None)
     }
 }
 
@@ -125,49 +148,52 @@ struct ServerFileConfig {
     static_dir: Option<String>,
 }
 
-fn load_bind_addr_from_file(path: &Path) -> Option<SocketAddr> {
-    if !path.exists() {
-        return None;
+/// Load and merge `server.toml` from the settings layer (low) and the
+/// project layer (high). Missing files fall back to `None`; a present but
+/// invalid file fails.
+fn load_merged_server_file(
+    settings_layer: Option<&Path>,
+    project_layer: Option<&Path>,
+) -> ConfigResult<Option<ServerFileConfig>> {
+    let mut paths = Vec::new();
+    if let Some(dir) = settings_layer {
+        paths.push(dir.join(SERVER_CONFIG_FILE));
     }
-    let config: ServerFileConfig = match wf_config::layered::load_layered_config_sync(&[path]) {
-        Ok(config) => config,
-        Err(e) => {
-            tracing::warn!(error = %e, path = %path.display(), "invalid server config file; ignoring");
-            return None;
-        }
-    };
-    match config.bind_addr {
-        None => None,
-        Some(raw) => match raw.parse::<SocketAddr>() {
-            Ok(addr) => Some(addr),
-            Err(e) => {
-                tracing::warn!(error = %e, path = %path.display(), "invalid bind_addr in server config file; ignoring");
-                None
-            }
-        },
+    if let Some(dir) = project_layer {
+        paths.push(dir.join(SERVER_CONFIG_FILE));
     }
-}
-
-fn load_static_dir_from_file(path: &Path) -> Option<String> {
-    if !path.exists() {
-        return None;
+    let existing: Vec<&Path> = paths
+        .iter()
+        .map(|path| path.as_path())
+        .filter(|path| path.exists())
+        .collect();
+    if existing.is_empty() {
+        return Ok(None);
     }
-    let config: ServerFileConfig = match wf_config::layered::load_layered_config_sync(&[path]) {
-        Ok(config) => config,
-        Err(e) => {
-            tracing::warn!(error = %e, path = %path.display(), "invalid server config file; ignoring");
-            return None;
-        }
-    };
-    config.static_dir.filter(|raw| !raw.trim().is_empty())
+    wf_config::layered::load_layered_config_sync::<ServerFileConfig>(&existing)
+        .map(Some)
+        .map_err(|e| {
+            ConfigError::Parse(format!(
+                "invalid server config files {}: {e}",
+                existing
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn server_dir(root: &Path) -> std::path::PathBuf {
-        root.join("baselines").join("server")
+    fn project_server_dir(root: &Path) -> std::path::PathBuf {
+        root.join(".wf").join("server")
+    }
+
+    fn settings_server_dir(root: &Path) -> std::path::PathBuf {
+        root.join("settings").join("server")
     }
 
     #[test]
@@ -179,46 +205,78 @@ mod tests {
     #[test]
     fn cli_addr_wins_over_everything() {
         let cli: SocketAddr = "127.0.0.1:8080".parse().unwrap();
-        let config = ServerConfig::resolve(None, Some(cli), None);
+        let config = ServerConfig::resolve(None, None, Some(cli), None).unwrap();
         assert_eq!(config.bind_addr, cli);
     }
 
     #[test]
     fn file_layer_provides_bind_addr() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(server_dir(dir.path())).unwrap();
+        std::fs::create_dir_all(project_server_dir(dir.path())).unwrap();
         std::fs::write(
-            server_dir(dir.path()).join(SERVER_CONFIG_FILE),
+            project_server_dir(dir.path()).join(SERVER_CONFIG_FILE),
             "bind_addr = \"127.0.0.1:4000\"\n",
         )
         .unwrap();
-        let config = ServerConfig::resolve(Some(dir.path()), None, None);
+        let config = ServerConfig::resolve(Some(dir.path()), None, None, None).unwrap();
         assert_eq!(config.bind_addr.to_string(), "127.0.0.1:4000");
     }
 
     #[test]
-    fn invalid_file_falls_back_to_default() {
+    fn project_layer_wins_over_settings_layer() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(server_dir(dir.path())).unwrap();
+        std::fs::create_dir_all(settings_server_dir(dir.path())).unwrap();
+        std::fs::create_dir_all(project_server_dir(dir.path())).unwrap();
         std::fs::write(
-            server_dir(dir.path()).join(SERVER_CONFIG_FILE),
+            settings_server_dir(dir.path()).join(SERVER_CONFIG_FILE),
+            "bind_addr = \"127.0.0.1:4000\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            project_server_dir(dir.path()).join(SERVER_CONFIG_FILE),
+            "bind_addr = \"127.0.0.1:4001\"\n",
+        )
+        .unwrap();
+        let config = ServerConfig::resolve(Some(dir.path()), Some(dir.path()), None, None).unwrap();
+        assert_eq!(config.bind_addr.to_string(), "127.0.0.1:4001");
+    }
+
+    #[test]
+    fn settings_layer_fills_without_project_layer() {
+        let settings = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(settings_server_dir(settings.path())).unwrap();
+        std::fs::write(
+            settings_server_dir(settings.path()).join(SERVER_CONFIG_FILE),
+            "bind_addr = \"127.0.0.1:4002\"\n",
+        )
+        .unwrap();
+        let config = ServerConfig::resolve(None, Some(settings.path()), None, None).unwrap();
+        assert_eq!(config.bind_addr.to_string(), "127.0.0.1:4002");
+    }
+
+    #[test]
+    fn invalid_file_fails_startup() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(project_server_dir(dir.path())).unwrap();
+        std::fs::write(
+            project_server_dir(dir.path()).join(SERVER_CONFIG_FILE),
             "bind_addr = \"not-an-addr\"\n",
         )
         .unwrap();
-        let config = ServerConfig::resolve(Some(dir.path()), None, None);
-        assert_eq!(config.bind_addr.to_string(), DEFAULT_BIND_ADDR);
+        let err = ServerConfig::resolve(Some(dir.path()), None, None, None).unwrap_err();
+        assert!(err.to_string().contains("invalid bind_addr"));
     }
 
     #[test]
     fn middleware_file_layer_applies() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(server_dir(dir.path())).unwrap();
+        std::fs::create_dir_all(project_server_dir(dir.path())).unwrap();
         std::fs::write(
-            server_dir(dir.path()).join(crate::middleware::CORS_CONFIG_FILE),
+            project_server_dir(dir.path()).join(crate::middleware::CORS_CONFIG_FILE),
             "allowed_origins = [\"https://app.example.com\"]\n",
         )
         .unwrap();
-        let config = ServerConfig::resolve(Some(dir.path()), None, None);
+        let config = ServerConfig::resolve(Some(dir.path()), None, None, None).unwrap();
         assert_eq!(
             config.middleware.cors.allowed_origins,
             vec!["https://app.example.com".to_string()]
@@ -227,22 +285,23 @@ mod tests {
 
     #[test]
     fn static_dir_defaults_to_none_and_cli_wins() {
-        let config = ServerConfig::resolve(None, None, None);
+        let config = ServerConfig::resolve(None, None, None, None).unwrap();
         assert_eq!(config.static_dir, None);
-        let config = ServerConfig::resolve(None, None, Some(PathBuf::from("web/dist")));
+        let config =
+            ServerConfig::resolve(None, None, None, Some(PathBuf::from("web/dist"))).unwrap();
         assert_eq!(config.static_dir, Some(PathBuf::from("web/dist")));
     }
 
     #[test]
     fn file_layer_provides_static_dir() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(server_dir(dir.path())).unwrap();
+        std::fs::create_dir_all(project_server_dir(dir.path())).unwrap();
         std::fs::write(
-            server_dir(dir.path()).join(SERVER_CONFIG_FILE),
+            project_server_dir(dir.path()).join(SERVER_CONFIG_FILE),
             "static_dir = \"web/dist\"\n",
         )
         .unwrap();
-        let config = ServerConfig::resolve(Some(dir.path()), None, None);
+        let config = ServerConfig::resolve(Some(dir.path()), None, None, None).unwrap();
         assert_eq!(config.static_dir, Some(PathBuf::from("web/dist")));
     }
 }

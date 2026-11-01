@@ -15,12 +15,14 @@ use axum::Router;
 use serde::Deserialize;
 
 use wf_config::env::{env_parse_bool, env_parse_int, env_parse_list, EnvValue};
+use wf_config::error::{ConfigError, ConfigResult};
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 ///
-/// File layer (`baselines/server/*.toml`) fills non-secret fields; environment
+/// File layer (`{settings_dir}/server/*.toml` and
+/// `{project_root}/.wf/server/*.toml`) fills non-secret fields; environment
 /// overrides the fields it supports; API keys come from the `API_KEYS`
 /// environment variable only and never from files.
 /// File name of the auth middleware config inside the server directory.
@@ -216,33 +218,40 @@ impl ServerMiddlewareConfig {
         self.rate_limit.apply_env();
     }
 
-    /// Load the middleware file layer from a server config directory
-    /// (`auth.toml`, `rate-limit.toml`, `cors.toml`). Missing files are
-    /// skipped; invalid files are skipped with a warning so a typo never
-    /// silently opens or closes the API surface.
-    pub fn load_from_dir(dir: &std::path::Path) -> Self {
+    /// Load the middleware file layer from the settings and project server
+    /// directories (`auth.toml`, `rate-limit.toml`, `cors.toml`). Each file
+    /// merges settings first and project second, so the project wins.
+    /// Missing files fall back to defaults; a present but invalid file
+    /// fails resolution so a typo cannot silently open or close the API
+    /// surface.
+    pub fn resolve(
+        settings_server_dir: Option<&std::path::Path>,
+        project_server_dir: Option<&std::path::Path>,
+    ) -> ConfigResult<Self> {
         let mut config = Self::default();
-        if let Some(file) = load_middleware_file::<AuthFileConfig>(&dir.join(AUTH_CONFIG_FILE)) {
+        if let Some(file) = load_merged_middleware_file::<AuthFileConfig>(
+            settings_server_dir,
+            project_server_dir,
+            AUTH_CONFIG_FILE,
+        )? {
             config.auth.apply_file(file);
         }
-        if let Some(file) =
-            load_middleware_file::<RateLimitFileConfig>(&dir.join(RATE_LIMIT_CONFIG_FILE))
-        {
+        if let Some(file) = load_merged_middleware_file::<RateLimitFileConfig>(
+            settings_server_dir,
+            project_server_dir,
+            RATE_LIMIT_CONFIG_FILE,
+        )? {
             config.rate_limit.apply_file(file);
         }
-        if let Some(file) = load_middleware_file::<CorsFileConfig>(&dir.join(CORS_CONFIG_FILE)) {
+        if let Some(file) = load_merged_middleware_file::<CorsFileConfig>(
+            settings_server_dir,
+            project_server_dir,
+            CORS_CONFIG_FILE,
+        )? {
             config.cors.apply_file(file);
         }
-        config
-    }
-
-    /// Resolve the effective middleware: file layer first, then environment
-    /// overrides. `None` keeps the previous env-only behavior (defaults plus
-    /// environment).
-    pub fn resolve(dir: Option<&std::path::Path>) -> Self {
-        let mut config = dir.map(Self::load_from_dir).unwrap_or_default();
         config.apply_env();
-        config
+        Ok(config)
     }
 }
 
@@ -312,20 +321,44 @@ fn read_env_u64(name: &str) -> Option<u64> {
     }
 }
 
-fn load_middleware_file<T>(path: &std::path::Path) -> Option<T>
+/// Load and merge one middleware file from the settings layer (low) and
+/// the project layer (high). Missing files fall back to `None`; a present
+/// but invalid file fails.
+fn load_merged_middleware_file<T>(
+    settings_server_dir: Option<&std::path::Path>,
+    project_server_dir: Option<&std::path::Path>,
+    file_name: &str,
+) -> ConfigResult<Option<T>>
 where
     T: serde::de::DeserializeOwned,
 {
-    if !path.exists() {
-        return None;
+    let mut paths = Vec::new();
+    if let Some(dir) = settings_server_dir {
+        paths.push(dir.join(file_name));
     }
-    match wf_config::layered::load_layered_config_sync::<T>(&[path]) {
-        Ok(config) => Some(config),
-        Err(e) => {
-            tracing::warn!(error = %e, path = %path.display(), "invalid middleware config file; ignoring");
-            None
-        }
+    if let Some(dir) = project_server_dir {
+        paths.push(dir.join(file_name));
     }
+    let existing: Vec<&std::path::Path> = paths
+        .iter()
+        .map(|path| path.as_path())
+        .filter(|path| path.exists())
+        .collect();
+    if existing.is_empty() {
+        return Ok(None);
+    }
+    wf_config::layered::load_layered_config_sync::<T>(&existing)
+        .map(Some)
+        .map_err(|e| {
+            ConfigError::Parse(format!(
+                "invalid middleware config files {}: {e}",
+                existing
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        })
 }
 
 // ---------------------------------------------------------------------------

@@ -5,49 +5,32 @@
 //! place. Domain modules (mcp, skill, preset, orchestrator, ...) compose
 //! these constants instead of hardcoding their own path fragments.
 
-/// Per-project hidden state directory: `{project_root}/.wf`.
+/// Project-layer file root: `{project_root}/.wf`. Holds per-project
+/// overrides; travels with the business repository, never with the
+/// release artifact.
 pub const PROJECT_WF_DIR: &str = ".wf";
 
-/// Project-root-relative root of all bundled project defaults:
-/// `{project_root}/baselines`. These files are versioned team-shared
-/// deployment baselines, not per-user configuration.
-///
-/// Index file name shared by index-based families (`index.json`).
-pub const BASELINES_DIR: &str = "baselines";
+/// Directory name of configuration documentation samples. Files below
+/// are never loaded; see `config-examples/README.md`.
+pub const EXAMPLES_DIR: &str = "config-examples";
 
 /// Index file name shared by index-based config families.
 pub const INDEX_FILE_NAME: &str = "index.json";
 
-/// Directory name of each config family under `baselines/`.
+/// Directory name of each effective config family. Every family resolves
+/// from the user settings layer and the project dotfile layer; samples
+/// live under `config-examples/` and have no family constant so nothing
+/// resolves them by accident.
 pub mod family {
-    /// MCP settings family name (`mcp`). Effective files live in the
-    /// explicit settings directory and `.wf/mcp.json`; `baselines/`
-    /// holds only documentation samples.
-    pub const MCP: &str = "mcp";
-    /// Skill settings family name (`skills`). Effective files live in the
-    /// explicit settings directory and `.wf/skills.json`; `baselines/`
-    /// holds only documentation samples.
-    pub const SKILLS: &str = "skills";
-    /// Infrastructure domain files with fixed filenames
-    /// (`baselines/infrastructure/*.toml`).
+    /// Infrastructure domain files with fixed filenames, resolved from
+    /// `{settings_dir}/infrastructure/` and `{project_root}/.wf/infrastructure/`.
     pub const INFRASTRUCTURE: &str = "infrastructure";
-    /// Server transport and middleware files (`baselines/server/*.toml`).
+    /// Server transport and middleware files, resolved from
+    /// `{settings_dir}/server/` and `{project_root}/.wf/server/`.
     pub const SERVER: &str = "server";
-    /// LLM authentication declarations (`baselines/llm-auth` legacy path /
-    /// user-level `llm-auth`).
+    /// LLM authentication declarations (user-level `llm-auth` under the
+    /// project dotfile directory or the explicit settings directory).
     pub const LLM_AUTH: &str = "llm-auth";
-    /// Workflow definitions (`baselines/workflows`).
-    pub const WORKFLOWS: &str = "workflows";
-    /// Agent loop definitions (`baselines/agent-loops`).
-    pub const AGENT_LOOPS: &str = "agent-loops";
-    /// Decision profile definitions (`baselines/decision-profiles`).
-    pub const DECISION_PROFILES: &str = "decision-profiles";
-    /// Node template definitions (`baselines/node-templates`).
-    pub const NODE_TEMPLATES: &str = "node-templates";
-    /// Prompt template definitions (`baselines/prompt-templates`).
-    pub const PROMPT_TEMPLATES: &str = "prompt-templates";
-    /// Script definitions (`baselines/scripts`).
-    pub const SCRIPTS: &str = "scripts";
 }
 
 /// Default global settings file names inside `{settings_dir}`.
@@ -91,10 +74,30 @@ pub fn ensure_project_wf_volatile_dirs(project_root: &std::path::Path) -> std::i
     Ok(())
 }
 
-/// Join a project root with a baselines family directory:
-/// `{project_root}/baselines/{family}`.
-pub fn family_dir(project_root: &std::path::Path, family: &str) -> std::path::PathBuf {
-    project_root.join(BASELINES_DIR).join(family)
+/// Project-layer infrastructure directory:
+/// `{project_root}/.wf/infrastructure`. Holds per-project domain
+/// overrides; wins over the settings layer.
+pub fn project_infra_dir(project_root: &std::path::Path) -> std::path::PathBuf {
+    project_root
+        .join(PROJECT_WF_DIR)
+        .join(family::INFRASTRUCTURE)
+}
+
+/// Global settings-layer infrastructure directory:
+/// `{settings_dir}/infrastructure`. Holds per-operator domain overrides.
+pub fn settings_infra_dir(settings_dir: &std::path::Path) -> std::path::PathBuf {
+    settings_dir.join(family::INFRASTRUCTURE)
+}
+
+/// Project-layer server family directory: `{project_root}/.wf/server`.
+/// Wins over the settings layer.
+pub fn project_server_dir(project_root: &std::path::Path) -> std::path::PathBuf {
+    project_root.join(PROJECT_WF_DIR).join(family::SERVER)
+}
+
+/// Global settings-layer server family directory: `{settings_dir}/server`.
+pub fn settings_server_dir(settings_dir: &std::path::Path) -> std::path::PathBuf {
+    settings_dir.join(family::SERVER)
 }
 
 /// Documentation samples are never loaded: any file whose name contains
@@ -160,7 +163,9 @@ mod tests {
         assert!(is_example_path(Path::new(
             "llm-auth/api-key-provider.auth.example.toml"
         )));
-        assert!(is_example_path(Path::new("workflows/code.review.example.toml")));
+        assert!(is_example_path(Path::new(
+            "workflows/code.review.example.toml"
+        )));
         assert!(!is_example_path(Path::new("llm-auth/custom.auth.toml")));
         assert!(!is_example_path(Path::new("index.json")));
     }

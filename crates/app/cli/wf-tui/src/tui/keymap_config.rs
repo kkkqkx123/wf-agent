@@ -12,19 +12,11 @@ use std::path::PathBuf;
 use tui_core::keymap::{CKey, Key, Keymap, KeymapContext};
 use wf_config::keymap as config_keymap;
 
-/// Resolve the global settings directory following the XDG conventions the
-/// CLI app config uses (`$XDG_CONFIG_HOME/wf` or `$HOME/.config/wf`).
+/// Resolve the global settings directory through the shared config layout
+/// (`$XDG_CONFIG_HOME/wf` or `$HOME/.config/wf`), so the TUI and the
+/// config crate never diverge on the ambient root.
 fn config_settings_dir() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| {
-            std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .filter(|p| !p.as_os_str().is_empty())
-                .map(|home| home.join(".config"))
-        })?;
-    Some(base.join("wf"))
+    wf_config::file_layer::user_config_dir()
 }
 
 fn parse_context(name: &str) -> Option<KeymapContext> {

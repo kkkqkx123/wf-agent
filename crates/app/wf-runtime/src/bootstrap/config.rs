@@ -97,7 +97,10 @@ pub struct LlmConfig {
 /// stay the highest priority.
 #[derive(Debug, Clone, Default)]
 pub struct InfraSourceConfig {
-    /// Project root (contains `baselines/infrastructure`).
+    /// Project root carrying the `.wf/` project layer. Shared deployment
+    /// defaults are not read from here; production values arrive through
+    /// the settings layer, the project layer, or an explicit managed
+    /// directory (see `deploy/README.md`).
     pub project_root: Option<std::path::PathBuf>,
     /// Global settings directory (contains `mcp-settings.json`,
     /// `skill-settings.json`).
@@ -233,11 +236,12 @@ fn apply_shell_tool_config(
 /// fields (log level needs the runtime-owned `LogConfig`).
 ///
 /// Precedence across the whole resolution (highest first): programmatic
-/// `RuntimeConfig` > `WF_*` environment > explicit settings dir plus
-/// project `.wf/config.toml` (ambient workstation state joins only when
-/// the caller opts in) > fixed files (`baselines/infrastructure`) >
-/// built-in defaults. The environment check below exists because the file
-/// layer runs before the orchestrator bakes `WF_*` overrides into the
+/// `RuntimeConfig` (including `ConfigOverrides`) > `WF_*` environment >
+/// explicit managed directory (ops-rendered, e.g. from `deploy/`) > project
+/// `.wf/` layer (including the host-knob `config.toml`) > explicit settings
+/// dir (ambient workstation state joins only when the caller opts in) >
+/// built-in code defaults. The environment check below exists because the
+/// file layer runs before the orchestrator bakes `WF_*` overrides into the
 /// assembled config: without it a dotfile `storage` would silently beat an
 /// explicit `WF_STORAGE_*` export.
 fn apply_file_layer(config: &mut RuntimeConfig, layer: &FileLayerConfig) {
@@ -294,12 +298,14 @@ pub async fn resolve_infra_config(
     let file_layer = load_user_file_layer(file_global, &project_root);
     apply_file_layer(&mut config, &file_layer);
 
-    let mut builder = ConfigOrchestratorBuilder::new(&project_root)
-        .runtime_env(
-            infra
-                .runtime_env
-                .unwrap_or(wf_config::processor::infrastructure::RuntimeEnvironment::Development),
-        );
+    let mut builder = ConfigOrchestratorBuilder::new(&project_root).runtime_env(
+        infra
+            .runtime_env
+            .unwrap_or(wf_config::processor::infrastructure::RuntimeEnvironment::Development),
+    );
+    if let Some(settings_dir) = &infra.settings_dir {
+        builder = builder.settings_dir(settings_dir.clone());
+    }
     if let Some(metrics) = config_metrics {
         builder = builder.with_config_metrics(metrics.clone());
     }

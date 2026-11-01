@@ -446,7 +446,7 @@ GC 只按 `refs/wf/` 前缀枚举可达集合（`objects.rs:490`），归档 ref
 
 ## 10. 配置
 
-`baselines/infrastructure/limits.toml` 新增 `[compaction]` 节，默认值取附件建议：
+`config-examples/infrastructure/limits.toml` 新增 `[compaction]` 节，默认值取附件建议：
 
 | 键 | 默认 | 含义 |
 |---|---|---|
@@ -516,7 +516,7 @@ GC 只按 `refs/wf/` 前缀枚举可达集合（`objects.rs:490`），归档 ref
 | runtime | `crates/app/wf-runtime/src/trigger_listener/compression/policy.rs` | 计划级重试与超时 |
 | resource | `crates/engine/wf-resource/src/predefined/workflow/child/` | 新增交接文档模板、摘要提示变体 |
 | tools | `crates/engine/wf-tools/src/predefined/` | 新增 `search_history`、`read_archive` |
-| config | `baselines/infrastructure/limits.toml` | 新增 `[compaction]` 节 |
+| config | `config-examples/infrastructure/limits.toml`（样例；生产值由 `deploy/` 渲染） | 新增 `[compaction]` 节 |
 | checkpoint | `crates/infra/checkpoint/checkpoint-file/src/` | 归档访问器与引用命名空间 |
 | checkpoint | `crates/infra/checkpoint/checkpoint-base/src/delta/calculator/agent.rs` | 增量计算纳入新字段 |
 

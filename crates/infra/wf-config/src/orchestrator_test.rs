@@ -5,14 +5,11 @@ use std::sync::Mutex;
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn setup_test_project(dir: &Path) {
-    let infra = dir.join("baselines").join("infrastructure");
+    let infra = dir.join(".wf").join("infrastructure");
     std::fs::create_dir_all(&infra).unwrap();
 
     let mut f = std::fs::File::create(infra.join("storage.toml")).unwrap();
     writeln!(f, "type = \"sqlite\"\n[sqlite]\ndb_path = \"./test.db\"").unwrap();
-
-    let mut f = std::fs::File::create(infra.join("timeout.toml")).unwrap();
-    writeln!(f, "default = 60000").unwrap();
 
     let mut f = std::fs::File::create(infra.join("metrics.toml")).unwrap();
     writeln!(f, "enabled = true\nreporting_interval = 5000").unwrap();
@@ -69,20 +66,25 @@ fn test_assemble_from_project_dir() {
 }
 
 #[test]
-fn repo_metrics_toml_matches_schema() {
-    // The checked-in `baselines/infrastructure/metrics.toml`
-    // parses against the current `MetricsConfig` schema (no removed
-    // `template_metrics` section, new fields present). Skipped when the
-    // workspace `baselines/` dir is absent (vendored/standalone builds).
-    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..");
-    if !repo_root.join("baselines").join("infrastructure").exists() {
-        return;
-    }
+fn project_metrics_toml_matches_schema() {
+    // A project-layer `metrics.toml` parses against the current
+    // `MetricsConfig` schema (no removed `template_metrics` section,
+    // new fields present). Temp fixtures only: tests never depend on
+    // repository files.
+    let dir = std::env::temp_dir().join(format!("wf-orch-metrics-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let infra = dir.join(".wf").join("infrastructure");
+    std::fs::create_dir_all(&infra).unwrap();
+    std::fs::write(
+        infra.join("metrics.toml"),
+        "enabled = true\nretention_ms = 3600000\n\
+         [anomaly_thresholds]\nmax_error_count = 100\nmin_success_rate = 0.8\n\
+         [subgraph_metrics]\nbuffer_size = 100\nflush_interval = 5000\n",
+    )
+    .unwrap();
     let _lock = ENV_LOCK.lock().unwrap();
     clear_wf_env_vars();
-    let config = ConfigOrchestrator::assemble(&repo_root, None).unwrap();
+    let config = ConfigOrchestrator::assemble(&dir, None).unwrap();
     let metrics = config.metrics;
     assert_eq!(metrics.enabled, Some(true));
     assert_eq!(metrics.retention_ms, Some(3_600_000));
@@ -90,6 +92,7 @@ fn repo_metrics_toml_matches_schema() {
     assert_eq!(thresholds.max_error_count, Some(100));
     assert!((thresholds.min_success_rate.unwrap() - 0.8).abs() < 1e-9);
     assert!(metrics.subgraph_metrics.is_some());
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -261,26 +264,59 @@ fn test_assemble_new_domain_overrides() {
 }
 
 #[test]
-fn test_full_bundle_assembly_from_repo_configs() {
-    // The checked-in `baselines/infrastructure/` fixed files assemble fully.
-    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..");
-    if !repo_root.join("baselines").join("infrastructure").exists() {
-        return;
-    }
+fn test_full_bundle_assembly_from_layers() {
+    // Settings and project layers merge with the project winning; missing
+    // domains fall back to code defaults. Temp fixtures only.
+    let dir = std::env::temp_dir().join(format!("wf-orch-bundle-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let settings_infra = dir.join("settings").join("infrastructure");
+    let project_infra = dir.join("project").join(".wf").join("infrastructure");
+    std::fs::create_dir_all(&settings_infra).unwrap();
+    std::fs::create_dir_all(&project_infra).unwrap();
+    std::fs::write(
+        settings_infra.join("storage.toml"),
+        "type = \"sqlite\"\n[sqlite]\ndb_path = \"./settings.db\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        project_infra.join("storage.toml"),
+        "type = \"sqlite\"\n[sqlite]\ndb_path = \"./project.db\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        settings_infra.join("output.toml"),
+        "dir = \"./settings-outputs\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        project_infra.join("tools.toml"),
+        "[read_file]\nmax_file_size = 500000\n",
+    )
+    .unwrap();
+    std::fs::write(
+        settings_infra.join("file-checkpoint.toml"),
+        "enabled = true\nworkspace_root = \"/repo\"\n",
+    )
+    .unwrap();
     let _lock = ENV_LOCK.lock().unwrap();
     clear_wf_env_vars();
 
-    let config = load_default_infrastructure_configs(&repo_root).unwrap();
+    let config = ConfigOrchestratorBuilder::new(&dir.join("project"))
+        .settings_dir(dir.join("settings"))
+        .build()
+        .assemble(None)
+        .unwrap();
 
-    // storage/metrics come from the fixed filenames.
-    assert_eq!(config.metrics.enabled, Some(true));
-    assert!(config.sandbox.is_some(), "repo sandbox.toml must load");
-    assert_eq!(config.output.dir, "./outputs");
+    // Project layer wins over the settings layer.
+    assert_eq!(
+        config.storage.sqlite.as_ref().unwrap().db_path,
+        "./project.db"
+    );
+    // Settings layer fills domains the project leaves unset.
+    assert_eq!(config.output.dir, "./settings-outputs");
     assert!(
         config.tools.read_file.is_some(),
-        "repo tools.toml [read_file] must load"
+        "project tools.toml [read_file] must load"
     );
     assert_eq!(
         config.tools.read_file.as_ref().unwrap().max_file_size,
@@ -288,9 +324,19 @@ fn test_full_bundle_assembly_from_repo_configs() {
         "read_file defaults applied"
     );
     assert!(
-        !config.file_checkpoint.enabled,
-        "repo file-checkpoint.toml must load"
+        config.file_checkpoint.enabled,
+        "settings file-checkpoint must load"
     );
+    // Domains with no file anywhere fall back to code defaults.
+    assert!(config
+        .limits
+        .agent
+        .as_ref()
+        .unwrap()
+        .max_iterations_cap
+        .is_some());
+
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

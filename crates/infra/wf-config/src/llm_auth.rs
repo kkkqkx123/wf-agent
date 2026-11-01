@@ -16,9 +16,11 @@ use crate::processor::llm_auth::{transform_auth_providers, validate_auth_config}
 
 /// Candidate roots for the `llm-auth` family, in precedence order (highest
 /// first). Only explicitly provided sources are considered: the project
-/// override, the caller-provided settings directory, and — when the caller
-/// opts into ambient workstation state — the home-directory roots and the
-/// in-repository demo stand-in. Services leave ambient disabled so process
+/// override and the caller-provided settings directory. Ambient
+/// home-directory state joins only when the caller opts in; services leave
+/// ambient disabled so process environment can never inject providers.
+/// The in-repository workstation demo is documentation only and is never
+/// consulted here.
 /// environment can never inject providers.
 pub fn candidate_auth_dirs(
     project_root: &Path,
@@ -39,8 +41,8 @@ pub fn candidate_auth_dirs(
     if !include_ambient {
         return dirs;
     }
-    // Ambient workstation state below: the home-directory user root and
-    // the in-repository demo stand-in.
+    // Ambient workstation state: the home-directory user root joins only
+    // on explicit opt-in.
     if let Some(home) = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .filter(|value| !value.is_empty())
@@ -51,8 +53,6 @@ pub fn candidate_auth_dirs(
                 .join(layout::family::LLM_AUTH),
         );
     }
-    // In-repository user-level demo directory.
-    dirs.push(project_root.join(".wf-user").join(layout::family::LLM_AUTH));
     dirs
 }
 

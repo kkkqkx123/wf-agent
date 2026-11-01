@@ -1,8 +1,9 @@
 # Auth middleware configuration (API key).
 #
 # Schema:    wf_server::middleware::ServerMiddlewareConfig file layer (auth section).
-# Directory: `configs/server/` (independent family owned by wf-server).
-# Priority:  `AUTH_ENABLED` / `API_KEYS` env > this file > built-in defaults.
+# Sample: copy to `{settings_dir}/server/` or `{project}/.wf/server/`.
+# Priority (high to low): `AUTH_ENABLED` / `API_KEYS` env >
+# project `.wf/server/` > settings-dir `server/` > built-in defaults.
 #
 # Secrets NEVER live here: API keys come from the `API_KEYS` environment
 # variable only (comma-separated). There is intentionally no key field in

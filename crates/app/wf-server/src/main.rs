@@ -19,7 +19,8 @@ struct Args {
     #[arg(long)]
     addr: Option<SocketAddr>,
 
-    /// Project root for file-layer config (baselines/infrastructure)
+    /// Project root for project-layer config (`.wf/` deltas). Versioned
+    /// service defaults are not read from here; see `deploy/README.md`.
     #[arg(long)]
     config: Option<PathBuf>,
 
@@ -96,9 +97,20 @@ async fn main() {
 
     let (runtime_config, infra_source) = build_runtime_config(&args);
     // The server owns its listen address: CLI flag wins over
-    // `WF_SERVER_BIND_ADDR` env and the `server.toml` file layer.
-    let server_config =
-        wf_server::ServerConfig::resolve(args.config.as_deref(), args.addr, args.static_dir);
+    // `WF_SERVER_BIND_ADDR` env and the `server.toml` file layer. A present
+    // but invalid file fails startup instead of silently binding elsewhere.
+    let server_config = match wf_server::ServerConfig::resolve(
+        args.config.as_deref(),
+        args.settings_dir.as_deref(),
+        args.addr,
+        args.static_dir,
+    ) {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("server config resolution failed: {e}");
+            std::process::exit(1);
+        }
+    };
     let runtime = match infra_source {
         Some(source) => Runtime::bootstrap_with_source(runtime_config, source).await,
         None => Runtime::bootstrap(runtime_config).await,

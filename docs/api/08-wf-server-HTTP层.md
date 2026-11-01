@@ -9,7 +9,7 @@
 - `router.rs`（113 行）：域路由 merge 后 `nest("/api/v1", ...)`；系统面在根路径挂 `api/resource/health.rs`（路径字符串自带前缀）。`full_router_with_middleware` = `src/metrics.rs` 的 router（`GET /metrics` + nest `/api/v1/metrics`）merge api_router，再 route_layer 请求指标。
 - 二级组合（域文件内部 merge）：workflows ⊇ versions+graphs；executions ⊇ checkpoints+execution_state+execution_analysis；agents ⊇ profiles+loops+executions+variables+triggers；agent/analysis ⊇ agent/graphs；agent/llm ⊇ resource/scripts+tools；templates ⊇ template_queries+template_library；entities ⊇ tasks+triggers+variables+messages+skills。
 - `extract.rs`（93 行）：共享路径参数提取器（IdPath/IdNodePath/IdVersionPath/IdCidPath/CidPath 等）。
-- `server_config.rs`（180 行）+ `main.rs`（163 行）：`ServerConfig{bind_addr, middleware}` 加载优先级 **CLI `--addr` > env（`WF_SERVER_BIND_ADDR` 等）> `baselines/server/*.toml` > 默认 127.0.0.1:3000**（文件层宽松加载，损坏 warn 跳过；secrets 不进文件）。main 经 `wf_runtime::bootstrap::Runtime` 装配后 serve，支持 `--config/--settings-dir/--storage/--log-level`。
+- `server_config.rs`（180 行）+ `main.rs`（163 行）：`ServerConfig{bind_addr, middleware}` 加载优先级 **CLI `--addr` > env（`WF_SERVER_BIND_ADDR` 等）> 项目 `.wf/server/*.toml` > `{settings_dir}/server/*.toml` > 默认 127.0.0.1:3000**（缺失回默认，存在但非法则启动失败；secrets 不进文件）。main 经 `wf_runtime::bootstrap::Runtime` 装配后 serve，支持 `--config/--settings-dir/--storage/--log-level`。
 
 ## 2. HTTP 端点清单（均位于 `/api/v1` 前缀下，除注明）
 
@@ -121,9 +121,9 @@
 **中间件（middleware.rs，846）**——层序（外→内）：请求日志 → CORS → API-key 认证 → 每 IP 限流；`with_request_metrics` 为 route_layer（仅路由内可见 MatchedPath，只记录模板路径）。
 
 - 日志：按状态类分级 tracing。
-- CORS：OPTIONS 预检 200；来源白名单默认 `["*"]`；仅文件层配置（`baselines/server/cors.toml`）。
-- 认证：`x-api-key` 头（可配 header_name）或 `api_key` 查询参数（可配开关）；默认排除 `/health`、`/api/v1/info`、`/`；**缺 key 401、错 key 403**；env `AUTH_ENABLED`/`API_KEYS`（keys 仅 env）+ `baselines/server/auth.toml`，默认关闭。流式路径同样受全局鉴权约束。
-- 限流：固定窗口、按 IP（`x-forwarded-for` 首值否则 "unknown"）、全局 `OnceLock<Mutex<HashMap>>`、条目 >10000 按过期回收；默认 60s/100 请求（env `RATE_LIMIT_*` + `baselines/server/rate-limit.toml` 含 excluded_paths）；429 + `x-ratelimit-limit/remaining/reset`。
+- CORS：OPTIONS 预检 200；来源白名单默认 `["*"]`；仅文件层配置（`{settings_dir}/server/cors.toml` 或项目 `.wf/server/cors.toml`）。
+- 认证：`x-api-key` 头（可配 header_name）或 `api_key` 查询参数（可配开关）；默认排除 `/health`、`/api/v1/info`、`/`；**缺 key 401、错 key 403**；env `AUTH_ENABLED`/`API_KEYS`（keys 仅 env）+ `{settings_dir}/server/auth.toml` 或项目 `.wf/server/auth.toml`，默认关闭。流式路径同样受全局鉴权约束。
+- 限流：固定窗口、按 IP（`x-forwarded-for` 首值否则 "unknown"）、全局 `OnceLock<Mutex<HashMap>>`、条目 >10000 按过期回收；默认 60s/100 请求（env `RATE_LIMIT_*` + `{settings_dir}/server/rate-limit.toml` 或项目 `.wf/server/rate-limit.toml` 含 excluded_paths）；429 + `x-ratelimit-limit/remaining/reset`。
 
 **启动（server.rs，74）**：`serve_with_router` bind + `axum::serve` + oneshot 优雅关停，返回 `ServerHandle{addr, shutdown, task}`；与 wf-api/wf-metrics 解耦。
 

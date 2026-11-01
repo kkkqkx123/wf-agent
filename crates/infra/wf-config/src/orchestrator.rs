@@ -1,7 +1,7 @@
 //! Configuration assembly orchestrator.
 //!
 //! Provides a single entry point for loading infrastructure configs from
-//! the fixed filenames under `baselines/infrastructure/`, applying env var
+//! the fixed domain filenames, applying env var
 //! overrides, and producing a fully assembled configuration. Missing files
 //! fall back to code defaults; overrides and environment win over files.
 
@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use crate::env::apply_env_overrides;
 use crate::error::{ConfigError, ConfigResult};
 use crate::layered;
-use crate::orchestrator_loader::load_domain_config_with_metrics;
+use crate::orchestrator_loader::{display_paths, load_merged_domain_config_with_metrics};
 use crate::processor::file_checkpoint::{
     merge_file_checkpoint_with_defaults, validate_file_checkpoint_config,
 };
@@ -54,7 +54,8 @@ pub struct InfrastructurePresetFiles {
 }
 
 impl InfrastructurePresetFiles {
-    /// Fixed filenames under `baselines/infrastructure/`.
+    /// Fixed domain filenames, resolved per domain from the explicit
+    /// override, the settings layer and the project layer.
     pub fn default_filenames() -> Self {
         Self {
             storage: "storage.toml".to_string(),
@@ -155,12 +156,13 @@ impl ConfigOrchestrator {
             .build()
             .assemble(overrides)
     }
-
 }
 
 /// Builder for [`ConfigOrchestrator`] with non-default paths.
 pub struct ConfigOrchestratorBuilder {
-    infra_dir: PathBuf,
+    project_dir: PathBuf,
+    settings_dir: Option<PathBuf>,
+    explicit_infra_dir: Option<PathBuf>,
     runtime_env: RuntimeEnvironment,
     config_metrics: Option<std::sync::Arc<wf_metrics::ConfigMetricsCollector>>,
 }
@@ -168,10 +170,9 @@ pub struct ConfigOrchestratorBuilder {
 impl ConfigOrchestratorBuilder {
     pub fn new(project_dir: &Path) -> Self {
         Self {
-            infra_dir: crate::layout::family_dir(
-                project_dir,
-                crate::layout::family::INFRASTRUCTURE,
-            ),
+            project_dir: project_dir.to_path_buf(),
+            settings_dir: None,
+            explicit_infra_dir: None,
             runtime_env: RuntimeEnvironment::Development,
             config_metrics: None,
         }
@@ -187,9 +188,16 @@ impl ConfigOrchestratorBuilder {
         self
     }
 
-    /// Override the infrastructure config directory.
+    /// Override the settings layer directory (`{settings_dir}/infrastructure`).
+    pub fn settings_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.settings_dir = Some(dir.into());
+        self
+    }
+
+    /// Override the infrastructure config directory outright. An explicit
+    /// directory replaces the settings and project layers for every domain.
     pub fn infra_dir(mut self, dir: impl Into<PathBuf>) -> Self {
-        self.infra_dir = dir.into();
+        self.explicit_infra_dir = Some(dir.into());
         self
     }
 
@@ -202,7 +210,9 @@ impl ConfigOrchestratorBuilder {
 
     pub fn build(self) -> ConfigOrchestratorLoaded {
         ConfigOrchestratorLoaded {
-            infra_dir: self.infra_dir,
+            project_dir: self.project_dir,
+            settings_dir: self.settings_dir,
+            explicit_infra_dir: self.explicit_infra_dir,
             runtime_env: self.runtime_env,
             config_metrics: self.config_metrics,
         }
@@ -211,7 +221,9 @@ impl ConfigOrchestratorBuilder {
 
 /// Orchestrator with resolved paths, ready to assemble.
 pub struct ConfigOrchestratorLoaded {
-    infra_dir: PathBuf,
+    project_dir: PathBuf,
+    settings_dir: Option<PathBuf>,
+    explicit_infra_dir: Option<PathBuf>,
     runtime_env: RuntimeEnvironment,
     config_metrics: Option<std::sync::Arc<wf_metrics::ConfigMetricsCollector>>,
 }
@@ -242,7 +254,9 @@ impl ConfigOrchestratorLoaded {
     fn assemble_inner(self, overrides: Option<ConfigOverrides>) -> ConfigResult<AssembledConfig> {
         let files = default_infra_file_mapping();
         let mut config = Self::load_infrastructure_configs(
-            &self.infra_dir,
+            self.explicit_infra_dir.as_deref(),
+            self.settings_dir.as_deref(),
+            &self.project_dir,
             &files,
             self.runtime_env,
             self.config_metrics.as_deref(),
@@ -255,73 +269,95 @@ impl ConfigOrchestratorLoaded {
     }
 
     /// Load all infrastructure config domains using the resolved file mapping.
+    /// Per domain the explicit override wins when set; otherwise the
+    /// settings layer and the project layer merge with the project winning.
     /// Missing files fall back to `runtime_env`-optimized defaults; present
     /// but invalid files fail.
     fn load_infrastructure_configs(
-        infra_dir: &Path,
+        explicit_infra_dir: Option<&Path>,
+        settings_dir: Option<&Path>,
+        project_dir: &Path,
         files: &InfrastructurePresetFiles,
         runtime_env: RuntimeEnvironment,
         metrics: Option<&wf_metrics::ConfigMetricsCollector>,
     ) -> ConfigResult<AssembledConfig> {
-        let storage_path = infra_dir.join(&files.storage);
-        let metrics_path = infra_dir.join(&files.metrics);
-        let output_path = infra_dir.join(&files.output);
-        let sandbox_path = infra_dir.join(&files.sandbox);
-        let limits_path = infra_dir.join(&files.limits);
+        let candidates = |file: &str| -> Vec<PathBuf> {
+            match explicit_infra_dir {
+                Some(dir) => vec![dir.join(file)],
+                None => {
+                    let mut paths = Vec::new();
+                    if let Some(settings) = settings_dir {
+                        paths.push(crate::layout::settings_infra_dir(settings).join(file));
+                    }
+                    paths.push(crate::layout::project_infra_dir(project_dir).join(file));
+                    paths
+                }
+            }
+        };
 
-        let storage: StorageConfig = load_domain_config_with_metrics(
-            &storage_path,
+        let storage: StorageConfig = load_merged_domain_config_with_metrics(
+            &candidates(&files.storage),
             get_storage_environment_defaults(runtime_env),
             metrics,
         )?;
-        let metrics_config: MetricsConfig = load_domain_config_with_metrics(
-            &metrics_path,
+        let metrics_config: MetricsConfig = load_merged_domain_config_with_metrics(
+            &candidates(&files.metrics),
             get_metrics_environment_defaults(runtime_env),
             metrics,
         )?;
-        let output: OutputConfig = load_domain_config_with_metrics(
-            &output_path,
+        let output: OutputConfig = load_merged_domain_config_with_metrics(
+            &candidates(&files.output),
             get_output_environment_defaults(runtime_env),
             metrics,
         )?;
-        let limits: LimitsConfig =
-            load_domain_config_with_metrics(&limits_path, LimitsConfig::default(), metrics)?;
+        let limits: LimitsConfig = load_merged_domain_config_with_metrics(
+            &candidates(&files.limits),
+            LimitsConfig::default(),
+            metrics,
+        )?;
 
         // Sandbox config is fail-fast: a malformed sandbox.toml must reject
         // startup instead of silently running with the weaker defaults.
-        let sandbox: Option<SandboxGlobalConfig> = if sandbox_path.exists() {
+        let sandbox_paths = candidates(&files.sandbox);
+        let sandbox_existing: Vec<&Path> = sandbox_paths
+            .iter()
+            .map(PathBuf::as_path)
+            .filter(|path| path.exists())
+            .collect();
+        let sandbox: Option<SandboxGlobalConfig> = if sandbox_existing.is_empty() {
+            None
+        } else {
             let config: SandboxGlobalConfig =
-                layered::load_layered_config_sync_with_metrics(&[sandbox_path.as_path()], metrics)
+                layered::load_layered_config_sync_with_metrics(&sandbox_existing, metrics)
                     .map_err(|e| {
                         ConfigError::Validation(format!(
                             "Invalid sandbox global config in {}: {e}",
-                            sandbox_path.display()
+                            display_paths(&sandbox_existing)
                         ))
                     })?;
             validate_sandbox_global(&config)?;
             Some(config)
-        } else {
-            None
         };
 
         // Missing domain files fall back to defaults; present but invalid
         // files fail.
-        let file_checkpoint = load_domain_config_with_metrics::<FileCheckpointConfig>(
-            &infra_dir.join(&files.file_checkpoint),
+        let file_checkpoint = load_merged_domain_config_with_metrics::<FileCheckpointConfig>(
+            &candidates(&files.file_checkpoint),
             FileCheckpointConfig::default(),
             metrics,
         )?;
-        let tool_approval = load_domain_config_with_metrics::<ToolApprovalConfig>(
-            &infra_dir.join(&files.tool_approval),
+        let tool_approval = load_merged_domain_config_with_metrics::<ToolApprovalConfig>(
+            &candidates(&files.tool_approval),
             ToolApprovalConfig::default(),
             metrics,
         )?;
-        let presets = transform_presets_config(load_domain_config_with_metrics::<PresetsConfig>(
-            &infra_dir.join(&files.presets),
-            get_presets_environment_defaults(runtime_env),
-            metrics,
-        )?)?;
-        let tools = load_tool_configs(infra_dir, files)?;
+        let presets =
+            transform_presets_config(load_merged_domain_config_with_metrics::<PresetsConfig>(
+                &candidates(&files.presets),
+                get_presets_environment_defaults(runtime_env),
+                metrics,
+            )?)?;
+        let tools = load_tool_configs(&candidates(&files.tools))?;
 
         let storage = merge_storage_with_defaults(&storage);
         let metrics_config = merge_metrics_with_defaults(&metrics_config);
@@ -614,25 +650,26 @@ fn set_exec_default(
     update(entry);
 }
 
-/// Load tool-specific sections from the tools domain file. A missing file
-/// yields defaults; a present file with invalid sections fails. Unknown
-/// sections are kept verbatim but must be tables so mistyped scalars cannot
-/// hide as opaque tool config.
-pub fn load_tool_configs(
-    infra_dir: &Path,
-    files: &InfrastructurePresetFiles,
-) -> ConfigResult<ToolConfigs> {
-    let path = infra_dir.join(&files.tools);
+/// Load tool-specific sections from candidate `tools.toml` files in
+/// precedence order (low to high). Missing files yield defaults; a present
+/// file with invalid sections fails. Unknown sections are kept verbatim but
+/// must be tables so mistyped scalars cannot hide as opaque tool config.
+pub fn load_tool_configs(paths: &[PathBuf]) -> ConfigResult<ToolConfigs> {
+    let existing: Vec<&Path> = paths
+        .iter()
+        .map(PathBuf::as_path)
+        .filter(|path| path.exists())
+        .collect();
     let mut tools = ToolConfigs::default();
-    if !path.exists() {
+    if existing.is_empty() {
         return Ok(tools);
     }
-    let value: toml::Value = layered::load_layered_config_sync(&[path.as_path()])
-        .map_err(|e| ConfigError::Parse(format!("invalid tool configs {}: {e}", path.display())))?;
+    let sources = display_paths(&existing);
+    let value: toml::Value = layered::load_layered_config_sync(&existing)
+        .map_err(|e| ConfigError::Parse(format!("invalid tool configs {sources}: {e}")))?;
     let Some(table) = value.as_table() else {
         return Err(ConfigError::Validation(format!(
-            "invalid tool configs {}: top-level must be a table",
-            path.display()
+            "invalid tool configs {sources}: top-level must be a table"
         )));
     };
     for (section, section_value) in table {
@@ -644,8 +681,7 @@ pub fn load_tool_configs(
                     .and_then(transform_read_file_config)
                     .map_err(|e| {
                         ConfigError::Validation(format!(
-                            "invalid [read_file] section in {}: {e}",
-                            path.display()
+                            "invalid [read_file] section in {sources}: {e}"
                         ))
                     })?;
                 tools.read_file = Some(config);
@@ -655,10 +691,7 @@ pub fn load_tool_configs(
                     .map_err(ConfigError::from)
                     .and_then(transform_glob_config)
                     .map_err(|e| {
-                        ConfigError::Validation(format!(
-                            "invalid [glob] section in {}: {e}",
-                            path.display()
-                        ))
+                        ConfigError::Validation(format!("invalid [glob] section in {sources}: {e}"))
                     })?;
                 tools.glob = Some(config);
             }
@@ -668,8 +701,7 @@ pub fn load_tool_configs(
                     .and_then(transform_list_files_config)
                     .map_err(|e| {
                         ConfigError::Validation(format!(
-                            "invalid [list_files] section in {}: {e}",
-                            path.display()
+                            "invalid [list_files] section in {sources}: {e}"
                         ))
                     })?;
                 tools.list_files = Some(config);
@@ -680,8 +712,7 @@ pub fn load_tool_configs(
                     .and_then(transform_code_context_config)
                     .map_err(|e| {
                         ConfigError::Validation(format!(
-                            "invalid [code_context] section in {}: {e}",
-                            path.display()
+                            "invalid [code_context] section in {sources}: {e}"
                         ))
                     })?;
                 tools.code_context = Some(config);
@@ -692,8 +723,7 @@ pub fn load_tool_configs(
                     .and_then(transform_shell_tool_config)
                     .map_err(|e| {
                         ConfigError::Validation(format!(
-                            "invalid [shell] section in {}: {e}",
-                            path.display()
+                            "invalid [shell] section in {sources}: {e}"
                         ))
                     })?;
                 tools.shell = Some(config);
@@ -701,9 +731,7 @@ pub fn load_tool_configs(
             _ => {
                 if !json.is_object() {
                     return Err(ConfigError::Validation(format!(
-                        "invalid [{}] section in {}: passthrough tool config must be a table",
-                        section,
-                        path.display()
+                        "invalid [{section}] section in {sources}: passthrough tool config must be a table",
                     )));
                 }
                 tools.passthrough.insert(section.clone(), json);
@@ -713,8 +741,9 @@ pub fn load_tool_configs(
     Ok(tools)
 }
 
-/// Load infrastructure configs from the fixed filenames under
-/// `baselines/infrastructure/`, falling back to code defaults per domain.
+/// Load infrastructure configs from the fixed domain filenames, falling back
+/// to code defaults per domain. Reads the explicit override when the builder
+/// sets one, otherwise the settings layer and the project layer.
 pub fn load_default_infrastructure_configs(project_dir: &Path) -> ConfigResult<AssembledConfig> {
     ConfigOrchestrator::assemble(project_dir, None)
 }

@@ -130,15 +130,18 @@ pub fn merge_skill_configs(
 
 /// Load and merge skill settings from the global directory and the project
 /// file. Precedence chain (highest first): `.wf/skills.json` >
-/// global `skill-settings.json`. Missing files are skipped.
+/// global `skill-settings.json`. Missing files are skipped. A `None`
+/// settings dir runs project-only so services without shared settings
+/// still honor their project file.
 pub fn load_and_merge_skill_config(
-    settings_dir: &Path,
+    settings_dir: Option<&Path>,
     project_root: &Path,
 ) -> ConfigResult<SkillConfig> {
-    let global_path = get_global_skill_settings_path(settings_dir);
     let project_path = get_project_skill_path(project_root);
-
-    let global_config = load_skill_config(&global_path)?;
+    let global_config = settings_dir
+        .map(get_global_skill_settings_path)
+        .and_then(|path| load_skill_config(&path).transpose())
+        .transpose()?;
     let wf_config = load_skill_config(&project_path)?;
 
     Ok(merge_skill_configs(
@@ -252,7 +255,7 @@ mod tests {
             r#"{"paths": ["w1", "shared", "a1"], "autoScan": true}"#,
         );
 
-        let merged = load_and_merge_skill_config(&root, &project).unwrap();
+        let merged = load_and_merge_skill_config(Some(&root), &project).unwrap();
         assert_eq!(merged.paths, vec!["w1", "shared", "a1", "g1"]);
         assert_eq!(merged.auto_scan, Some(true));
         let _ = std::fs::remove_dir_all(&root);

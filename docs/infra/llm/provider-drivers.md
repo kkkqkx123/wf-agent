@@ -7,8 +7,7 @@
 
 Provider-specific 语义（二次 token 交换、API key mint、JSON 交换带 `state`、
 动态参数）既不能进通用声明式流程，也不适合外部 native 插件：插件默认关闭、
-多平台产物矩阵与签名负担重、进程内 `dlopen` 无沙箱。决策全文见
-`docs/plan/builtin-plugin-placement-design.md`。驱动实现宿主
+多平台产物矩阵与签名负担重、进程内 `dlopen` 无沙箱。驱动实现宿主
 `ExternalFlowDriver` 契约，随二进制版本化。
 
 ## 分发
@@ -41,8 +40,9 @@ loopback 监听（首选 53692，占用回退随机端口，redirect_uri 随绑�
 后台任务单次 accept 后 `poll` 非阻塞收码；copy-code 模式接受回调 URL /
 `code#state` / 裸码并做 `state` 一致性校验。授权 URL 带 `code=true` + PKCE
 S256；code 交换与 refresh 均为 JSON 体且携带 `state`；到期取 5 分钟余量。
-`to_auth` 携带 `anthropic-beta: oauth-2025-04-20`
-（`anthropic-version` 由 ANTHROPIC codec 另行设置）。
+`to_auth` 同时携带 `anthropic-version: 2023-06-01` 与
+`anthropic-beta: oauth-2025-04-20`(ANTHROPIC codec 侧亦设置前者,`to_auth`
+自带以保持自足)。
 
 ### Meta Muse（`MetaMuseAuth`）
 

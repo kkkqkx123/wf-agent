@@ -1,6 +1,6 @@
 # checkpoint-base:基础层
 
-`crates/infra/checkpoint/checkpoint-base` 是子系统叶子 crate(仅依赖 `wf-types` / `wf-common` / `wf-metrics`),提供全部检查点共享的基础设施。不含任何存储或协调逻辑。
+`crates/infra/checkpoint/checkpoint-base` 是子系统叶子 crate(仅依赖 `wf-types` / `wf-common` / `wf-metrics` / `wf-storage`),提供全部检查点共享的基础设施。不含任何存储或协调逻辑。
 
 ## 模块清单
 
@@ -152,8 +152,7 @@
 
 ## 版本管理(version_manager)
 
-- 当前格式 `CURRENT_FORMAT_VERSION = "1.1.0"`,最低兼容 `MIN_COMPATIBLE_VERSION = "1.0.0"`;
-- `SemanticVersion` 数字化解析(接受 3 段或 2 段形式),避免字符串比较(`"1.10.0" > "1.9.0"` 正确成立);
+- 当前格式 `CURRENT_FORMAT_VERSION = "1"`,最低兼容 `MIN_COMPATIBLE_VERSION = "1"`(整数序比较,非三段式字符串);
 - `VersionManager` 维护迁移 handler 注册表(`DashMap<版本, handler>`),对载入 blob 判定 `VersionCompatibility`(当前 / 可迁移 / 不兼容),迁移时以原始字节调用 handler 重写。
 
 ## 单元测试覆盖

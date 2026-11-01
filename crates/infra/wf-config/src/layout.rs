@@ -31,6 +31,14 @@ pub mod family {
     /// LLM authentication declarations (user-level `llm-auth` under the
     /// project dotfile directory or the explicit settings directory).
     pub const LLM_AUTH: &str = "llm-auth";
+    /// LLM profile declarations, one file per profile.
+    /// Resolved from `{settings_dir}/llm-profiles/` and
+    /// `{project_root}/.wf/llm-profiles/`.
+    pub const LLM_PROFILES: &str = "llm-profiles";
+    /// LLM provider declarations, one file per provider definition.
+    /// Resolved from `{settings_dir}/llm-providers/` and
+    /// `{project_root}/.wf/llm-providers/`.
+    pub const LLM_PROVIDERS: &str = "llm-providers";
 }
 
 /// Default global settings file names inside `{settings_dir}`.

@@ -42,7 +42,7 @@ checkpoint-state (执行状态管理器 + 层级恢复)      checkpoint-file (�
 
 ## 关键不变式(摘自代码)
 
-- 文件历史的唯一事实来源是 bare Git 库;SQLite 只保存 Git 无法廉价表达的数据(审批状态、源索引缓存、状态→文件链接、KV 元数据);用户的 `.git` 永不读写。
+- 文件历史的唯一事实来源是 bare Git 库;SQLite 只保存 Git 无法廉价表达的数据(审批状态、源索引缓存、状态→文件链接、KV 元数据);仅在显式导出/同步时写入用户 `.git`,平时只借其对象库做只读 baseline。
 - 状态检查点写库失败默认上抛(`CheckpointErrorHandler` 决定),绝不把失败伪装成已保存;文件投影(state→file)是 best-effort,失败不影响状态检查点。
 - `ActorId` 编码(格式 A)必须保持稳定,它是文件分区的 UUIDv5 种子。
 - 两个概念图(状态链 vs Git DAG)绝不共享节点、不合并为通用图。

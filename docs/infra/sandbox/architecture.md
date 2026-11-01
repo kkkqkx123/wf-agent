@@ -2,9 +2,9 @@
 
 ## 一、概述
 
-沙箱系统位于 `crates/wf-sandbox`，为所有语言脚本提供隔离执行能力。
-类型定义位于 `crates/wf-types/src/script/sandbox.rs`。
-配置处理位于 `crates/wf-config/src/processor/infrastructure.rs`。
+沙箱系统位于 `crates/infra/wf-sandbox`，为所有语言脚本提供隔离执行能力。
+类型定义位于 `crates/foundation/wf-types/src/script/sandbox.rs`。
+配置处理位于 `crates/infra/wf-config/src/processor/infrastructure.rs`。
 
 ### 设计原则
 
@@ -62,7 +62,7 @@ wf-sandbox
 ### 2.1 Policy 层
 
 ```rust
-// crates/wf-types/src/script/sandbox.rs
+// crates/foundation/wf-types/src/script/sandbox.rs
 
 SandboxMode       → Disabled | Lenient | Strict
 FilesystemPolicy  → 路径读写白名单 + CoW + 文件大小限制
@@ -117,6 +117,7 @@ trait StrategyResolver {
 链解析与校验：
 - `preferred_ids` 非空时即链顺序；为空时使用每语言默认链常量。
 - **未知策略 ID 直接报错（fail-closed）**，不再静默丢弃。
+- **链形校验**：解析期强制 Analysis 段先于 Execution 段，混合交错的链直接报错；Analysis 恒先于 Execution，与其在链中的位置无关。
 - **门禁保障（gate guarantee）**：shell/python/lua 的链必须至少含一个 Analysis 策略，否则 fail-closed（错误提示给出豁免方式与缺省建议门禁 ID，shell 建议 `vfs-gate`，自定义链如 `["vfs-gate", "os-hook"]` 可保留路径级安全）；`SandboxConfig.skip_gate_check = true` 可显式豁免（高级用户自担风险，审计事件标记）。javascript 无 Analysis 策略（vm-context 为运行时拦截），不受此约束。
 
 每语言默认链：
@@ -126,7 +127,7 @@ trait StrategyResolver {
 | shell | `[static-analyzer, vfs-gate, os-hook]` | 命令级门禁 + 路径级门禁 + seccomp BPF |
 | python | `[ast-analyzer, builtin-hook]` | AST 门禁 + 内置函数挂钩 |
 | javascript | `[vm-context]` | 包裹 require/fs 的 node 执行 |
-| lua | `[static-analyzer, mlua-sandbox]` | 标识符级 tokenize 门禁 + 内嵌 VM |
+| lua | `[static-analyzer, mlua-sandbox]`（需 `lua` feature） | 标识符级 tokenize 门禁 + 内嵌 VM；无 `lua` feature 时为 `[static-analyzer]` |
 
 注册的全部策略：
 
@@ -135,7 +136,8 @@ trait StrategyResolver {
 | shell | static-analyzer | Analysis | 命令替换拒绝 + shlex 分词分析 + 命令级规则（门禁，不执行） |
 | shell | vfs-gate | Analysis | 路径级门禁：token 级提取读写路径 + SecurityValidator + check_read/check_write（门禁，不执行） |
 | shell | os-hook | Execution | 真实 seccomp BPF + rlimit，映射 network/process/filesystem 策略 |
-| shell | container | Execution | Docker 容器隔离（`docker --version` 探测可用性） |
+| shell | proot | Execution | 基于 proot 的用户态路径隔离执行 |
+| shell | job-object | Execution | Windows Job Object 隔离（Windows 平台） |
 | python | ast-analyzer | Analysis | Python AST 真实解析（门禁，不执行） |
 | python | builtin-hook | Execution | 生成安全包围代码 |
 | python | direct | Execution | 裸 python3 -c，无隔离，仅显式配置可用 |
@@ -338,13 +340,14 @@ return JSON({"safe": bool, "violations": [...]})
 裸 `python3 -c` / `node --eval` 执行，**零隔离**（原 os-hook 改名）。
 不在任何默认链中，仅当用户在配置中显式列出时可用。
 
-### 3.9 Shell container（Docker 隔离）
+### 3.9 Shell proot / job-object（外部隔离执行）
 
-文件：`src/strategy/container.rs`
+文件：`src/strategy/shell/proot.rs`、`src/strategy/shell/job_object.rs`
 
-`docker run --rm -i --network none alpine:latest sh -c <cmd>` 容器隔离执行。
-`is_available()` 通过 `docker --version` 探测（结果缓存）；docker 不可用时返回不可用，
-链末执行层全部不可用则显式报错，不再静默降级。遗留 `type: docker` 配置映射到 `["container"]` 链。
+`proot` 基于 proot 用户态路径隔离执行（Linux，探测 `proot` 可用性）；
+`job-object` 基于 Windows Job Object 隔离子进程（Windows 平台）。
+两者均不在默认链中，仅当用户在配置中显式列出时可用；探测不可用时返回不可用，
+链末执行层全部不可用则显式报错，不再静默降级。
 
 ### 3.10 Shell vfs-gate（路径级分析门禁）
 
@@ -355,6 +358,7 @@ return JSON({"safe": bool, "violations": [...]})
 - **不重复命令级规则**（黑名单/危险模式等归 static-analyzer）
 - 未启用 VFS（`options.vfs` 为 None）时为空操作门禁（返回 allow），static-analyzer 的 VFS 兜底继续生效
 - shell 默认链 `[static-analyzer, vfs-gate, os-hook]`：命令级与路径级检查分离；链中含 vfs-gate 时 runtime 置 `skip_vfs_check=true`，static-analyzer 跳过重复的 VFS 检查
+- **自动注入**：VFS 启用但链中无 vfs-gate 时，runtime 自动将其插到链首并记 `StrategyFallback` 审计
 - 作为门禁保障的缺省建议门禁：自定义链 `["vfs-gate", "os-hook"]` 可保留路径级安全
 
 ### 3.11 单策略内规则顺序（deny 恒优先）
@@ -424,7 +428,7 @@ SecurityValidator:
 
 ## 六、配置处理
 
-文件：`crates/wf-config/src/processor/infrastructure.rs`
+文件：`crates/infra/wf-config/src/processor/infrastructure.rs`
 
 ```rust
 merge_sandbox_with_defaults(user: &SandboxConfig) → SandboxConfig
@@ -458,7 +462,10 @@ ScriptMetadata        → 脚本元数据
 SecurityViolation     → 安全违规记录
 ```
 
-Profile 解析器 `SandboxProfileResolver`（尚未实现，定义在补全计划中）。
+Profile 解析器 `SandboxProfileResolver`（`src/profile.rs`）：已实现——
+`compile` 把 profile 规则编译为 glob→regex 匹配器，`resolve` 按规则顺序
+first-match-wins 选出 profile，`default_profile` 提供未命中兜底；
+runtime 通过 `with_global_config` 持有它并在 `shell_policy()` 等解析路径中应用。
 
 ### 7.1 审计事件完整性约定
 
@@ -473,6 +480,7 @@ Profile 解析器 `SandboxProfileResolver`（尚未实现，定义在补全计�
 | `StrategyFallback` | 执行策略不可用跳过 | 实际语言 | `sandbox-<lang>` | 不可用原因 | 被跳过策略 ID | `true` |
 | `StrategyFallback` | 链解析失败（兜底） | 实际语言 | `sandbox-<lang>` | 错误信息 | **待解析链首个策略 ID**（显式链取首选 ID，默认链取语言默认链首项） | `false` |
 | `StrategyFallback` | 执行层全部不可用 | 实际语言 | `sandbox-<lang>` | 不可用 ID 列表 | `None`（显式） | `false` |
+| `ConfigError` | 配置/Profile 解析错误 | — | — | 错误信息 | — | `false` |
 
 `SandboxGlobalConfig.audit_logging` 默认开启（true）；`SandboxRuntime::new()` 以
 `SandboxGlobalConfig::default()` 初始化，审计恒开启，`with_global_config` 可显式覆盖。
@@ -491,7 +499,7 @@ Profile 解析器 `SandboxProfileResolver`（尚未实现，定义在补全计�
 | Lua mlua-sandbox | 子进程 + 字符串注入 | **内嵌 VM API 隔离** | 🏆 RS 唯一 |
 | Lua static-analyzer | 18 模式 | 标识符级 tokenize + 18 模式 + 索引/拼接绕过 | ✅ 等价 |
 | VFS + MountTable | MountTable + PathMapper | OverlayVfs + MemoryDelta + 读写双向预检查 | ⚠️ 架构不同 |
-| 运行时集成 | 完整 (script-handler) | 仅核心 Runtime | ❌ 待 wf-core 集成 |
-| 配置文件/profile | SandboxGlobalConfig + 解析 | 类型已定义，解析器未实现 | ❌ 待实现 |
+| 运行时集成 | 完整 (script-handler) | 已集成：`wf-runtime` bootstrap 构造共享 `SandboxRuntime`，workflow script handler 使用 | ✅ 已集成 |
+| 配置文件/profile | SandboxGlobalConfig + 解析 | 类型与 `SandboxProfileResolver` 均已实现并接入 runtime | ✅ 等价 |
 | 交互式脚本 | 3 模式协调器 + PTY | 未实现 | ❌ 待实现 |
 

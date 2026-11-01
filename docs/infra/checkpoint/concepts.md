@@ -40,7 +40,7 @@
 
 | 概念 | 语义 |
 | --- | --- |
-| Git 对象库(GitStore) | 每个工作区一个独立 bare 仓库 `<workspace>/.wf-checkpoint-git`。文件字节、树、历史、文件分支 ref 的唯一事实来源;用户的 `.git` 永不读写。 |
+| Git 对象库(GitStore) | 每个工作区一个独立 bare 仓库 `<workspace>/.wf-checkpoint-git`。文件字节、树、历史、文件分支 ref 的唯一事实来源;仅在显式导出/同步时写入用户仓库(导出主线树到工作区并可选外部 commit、回导外部人为 commit),平时只经 baseline alternates 声明借用其对象库做只读访问。 |
 | refs 体系 | 仅存于 `refs/wf/` 下:`main`(主线,唯一可物化到磁盘的树)、`edit/<actor>`(单个 Actor 的编辑线)、`review/<id>`(待审批提交)、`feat/<name>`(协作目标)、`human`(外部人为编辑,永不自动合并)。 |
 | 归属 trailer | commit trailer 承载归属:`Wf-Actor` / `Wf-Session` / `Wf-Tool`;`Wf-State: conflict-unresolved / conflict-resolved` 标记合并状态。 |
 | 精确事件(precise events) | 工具直接上报的单文件变更(Created / Modified / Deleted / Renamed),文件历史的主写通道,按 Actor 分区应用。 |

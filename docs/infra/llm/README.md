@@ -1,9 +1,7 @@
 # LLM 认证（OAuth）文档
 
 本目录是 LLM 侧认证能力的说明文档：通用 OAuth 流程、声明式 preset、进程内
-provider 专用驱动。定义以代码实现为准；设计背景见
-`docs/plan/oauth-login-forms-design.md`，
-承载形态决策见 `docs/plan/builtin-plugin-placement-design.md`。
+provider 专用驱动。定义以代码实现为准。
 
 ## 分层总览
 
@@ -19,8 +17,7 @@ wf-llm（运行时：DeclaredOAuth 通用声明式实现 + oauth_presets + provi
 wf-config（processor：批量展开 + 校验） → wf-runtime/bootstrap（按 preset 名分发驱动）
 ```
 
-MCP 的 OAuth 与此完全独立（存储、会话均不复用），见其设计方案
-（`docs/plan/oauth-login-forms-design.md` §5.5），本目录不覆盖。
+MCP 的 OAuth 与此完全独立（存储、会话均不复用），本目录不覆盖。
 
 ## 文档索引
 

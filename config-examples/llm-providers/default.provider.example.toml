@@ -1,0 +1,14 @@
+# LLM Provider Definition Configuration
+#
+# One file per provider under `llm-providers/`. Profiles reference a
+# definition through `provider_id` and override individual fields.
+# The project layer (`{project_root}/.wf/llm-providers/`) wins by `id`
+# over the settings layer (`{settings_dir}/llm-providers/`).
+#
+# Schema: wf_types::llm::LlmProviderDefinition
+# Loader: wf_config::llm::load_llm_provider_definitions_config
+
+id = "openai"
+name = "OpenAI"
+format = "openai_chat"
+base_url = "https://api.openai.com/v1"

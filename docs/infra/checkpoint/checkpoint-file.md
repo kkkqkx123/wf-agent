@@ -1,6 +1,6 @@
 # checkpoint-file:文件内容历史层
 
-`crates/infra/checkpoint/checkpoint-file` 实现文件内容检查点:每个工作区的文件历史,以独立 bare Git 对象库为唯一内容事实来源,辅以小型 SQLite 元数据库。用户的仓库(`.git`)从不读写。
+`crates/infra/checkpoint/checkpoint-file` 实现文件内容检查点:每个工作区的文件历史,以独立 bare Git 对象库为唯一内容事实来源,辅以小型 SQLite 元数据库。仅在显式导出/同步时写入用户仓库(导出主线树到工作区、回导外部人为 commit),平时只经 baseline alternates 声明借用其对象库做只读访问(`git_store/baseline.rs`)。
 
 ## 总体架构
 
@@ -29,15 +29,17 @@
   | `refs/wf/review/<id>` | 一次待审批的提交 |
   | `refs/wf/feat/<name>` | 一个协作目标(feature) |
   | `refs/wf/human` | 外部人为编辑;永不自动合并 |
+  | `refs/wf/context/<entity_id>` | 每次执行上下文的归档引用(`archive.rs`) |
+- **用户仓库同步**(`file/sync.rs` + `git_store/baseline.rs`):显式导出主线树到工作区(可选外部 commit)、把外部人为 commit 回导为 human 历史、reconcile 双向状态;平时经 baseline alternates 声明只读借用用户对象库。
 - **归属 trailer**:`Wf-Actor` / `Wf-Session` / `Wf-Tool` 记录写者;`Wf-State: conflict-unresolved` / `conflict-resolved` 标记合并状态。
 - **忽略叠加顺序**:仓库本地排除(`.git`、`.wf-checkpoint-git`、检查点数据库文件)→ 工作区自身 `.gitignore` → 自定义模式。
 - **冲突落盘**:标准 `<<<<<<<` / `=======` / `>>>>>>>` 标记写入文件,并阻塞对应合并直至解决。
 
-子模块:`objects`(对象读写)、`refs`(引用操作)、`commit`(提交构造)、`merge`(三路合并)、`errors`。
+子模块:`objects`(对象读写)、`refs`(引用操作)、`commit`(提交构造)、`merge`(三路合并)、`baseline`(用户仓库对象库只读借用声明)、`archive`(执行上下文归档)、`errors`。
 
 ## SQLite 元数据(storage)
 
-Git 无法廉价表达的数据存 SQLite(子模块:`repository`、`migrations`、`connection`、`meta`、`git_meta`):
+Git 无法廉价表达的数据存 SQLite(子模块:`repository`、`migrations`、`connection`、`meta`、`git_meta`、`redo`):
 
 - 审批状态、空目录清单、源索引缓存(source index)、状态→文件链接、KV 元数据。
 
@@ -58,6 +60,9 @@ Manager 的行为按文件拆分:
 | `file/git_merge.rs` / `merge.rs` | 合并执行与 `MergeCommitResult` |
 | `file/restore.rs` | 工作区恢复:`WorkspaceRestoreResult`,按状态→文件链接检出当时的树;`restore_selected` 只写给定路径集(缺席即删、内容一致跳过),是撤销上次提问的物化原语 |
 | `file/undo.rs` | 撤销上次提问的文件层:`undo_files_between`(起止提交树差集,零字节读)、`plan_undo_files`(触及集→起点提交映射,起点缺失视为空树)、`stage_undo`/`apply_undo`(前缀过滤 + 预览/物化),详见 `docs/plan/checkpoint-undo-via-timing-design.md` |
+| `file/redo_store.rs` + `storage/redo.rs` | 每个 Actor 的持久化 redo 栈(SQLite 存储),与 undo 配对的恢复重做通道 |
+| `file/sync.rs` + `git_store/baseline.rs` | 用户仓库显式同步:导出/回导/reconcile 与 baseline alternates 只读声明 |
+| `file/util.rs` | 文件层通用工具函数 |
 | `file/workspace.rs` | 工作区绑定与条目枚举 |
 | `file/session.rs` | 会话相关内部逻辑 |
 | `file/approval.rs` | 审批编排(submit / approve / reject / 合并进 feature)——注意与 `approval.rs` 的读模型分离 |

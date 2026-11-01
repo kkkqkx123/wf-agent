@@ -51,7 +51,7 @@ provider 集成有两种形态，由 manifest 声明与运行时注册共同决�
 | op | 输入 JSON | 输出（核心字段） |
 |---|---|---|
 | `describe` | `{}` | `AuthDescriptor{ name, is_subscription, login_label }` |
-| `login_start` | `{ "config": <auth.params> }` | `PluginLoginStep{ events, session, next }`，`next = AwaitingInput{ prompt: ManualCode }` |
+| `login_start` | `{ "config": <auth.params> }` | `PluginLoginChallenge{ events, session, next }`，`next = AwaitingInput{ prompt: ManualCode }` |
 | `login_poll` | `{ "session": <上一步 session> }` | `next = Pending`（心跳），`session` 原样回显 |
 | `login_submit` | `{ "session": …, "input": <粘贴的回调 URL 或裸 code> }` | 成功 `next = Completed{ credential }`；失败 `next = Failed{ error }` |
 | `refresh` | `{ "credential": <已存凭据> }` | 同 `login_submit` 输出形状 |

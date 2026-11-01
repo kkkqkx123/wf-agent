@@ -244,7 +244,17 @@ pub fn load_and_merge_keymap_settings(
     settings_dir: &Path,
     project_root: &Path,
 ) -> ConfigResult<KeymapSettings> {
-    let mut merged = load_keymap_settings_warn(&get_global_keymap_settings_path(settings_dir))
+    load_and_merge_keymap_settings_opt(Some(settings_dir), project_root)
+}
+
+/// Optional-settings-dir variant: `None` runs project-only so services
+/// without shared settings still honor their project file.
+pub fn load_and_merge_keymap_settings_opt(
+    settings_dir: Option<&Path>,
+    project_root: &Path,
+) -> ConfigResult<KeymapSettings> {
+    let mut merged = settings_dir
+        .and_then(|dir| load_keymap_settings_warn(&get_global_keymap_settings_path(dir)))
         .unwrap_or_default();
     if let Some(project) = load_keymap_settings_warn(&get_project_keymap_path(project_root)) {
         merged.merge(project);

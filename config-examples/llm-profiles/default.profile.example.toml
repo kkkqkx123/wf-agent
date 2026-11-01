@@ -1,0 +1,23 @@
+# LLM Profile Configuration
+#
+# One file per profile under `llm-profiles/`. The settings layer
+# (`{settings_dir}/llm-profiles/`) holds operator defaults, the project
+# layer (`{project_root}/.wf/llm-profiles/`) wins by `id`.
+# Discovery: `index.json` when present, otherwise flat `*.toml`/`*.json` glob.
+# Samples are never loaded; real files must not contain `.example.` in the name.
+#
+# Schema: wf_types::llm::LlmProfile
+# Loader: wf_config::llm::load_llm_profiles_config
+
+id = "default"
+name = "Default"
+format = "openai_chat"
+model = "gpt-4o-mini"
+
+# Optional reference to a provider definition in `llm-providers/`.
+# Explicit fields on the profile win over the referenced definition.
+# provider_id = "openai"
+
+# Static key is the simplest option; prefer `auth` or `${VAR}` for shared hosts.
+# api_key = "${OPENAI_API_KEY}"
+# base_url = "https://api.openai.com/v1"

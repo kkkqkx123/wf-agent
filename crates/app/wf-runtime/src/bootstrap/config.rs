@@ -114,6 +114,10 @@ pub struct InfraSourceConfig {
     /// an infrastructure config file is missing/unparseable. `None` keeps the
     /// orchestrator default (`Development`).
     pub runtime_env: Option<wf_config::processor::infrastructure::RuntimeEnvironment>,
+    /// Strict environment placeholders: when true, an unresolved `${VAR}`
+    /// in LLM file families fails bootstrap instead of staying verbatim.
+    /// Defaults to false to keep existing lenient behavior.
+    pub strict_env: bool,
     /// Programmatic overrides applied on top of the file layer.
     pub overrides: ConfigOverrides,
 }
@@ -371,20 +375,10 @@ pub async fn resolve_infra_config(
     // a missing/invalid skill config falls back to the defaults. Without a
     // global settings dir the chain runs project-only.
     if config.skills == wf_types::skill::SkillConfig::default() {
-        let skills = match infra.settings_dir.as_deref() {
-            Some(settings_dir) => {
-                wf_config::skill::load_and_merge_skill_config(settings_dir, &project_root)
-            }
-            None => {
-                // No global settings dir configured: load only the project
-                // layer instead of passing an empty sentinel path.
-                wf_config::skill::load_skill_config(&wf_config::skill::get_project_skill_path(
-                    &project_root,
-                ))
-                .map(|project| wf_config::skill::merge_skill_configs(None, project.as_ref()))
-            }
-        };
-        match skills {
+        match wf_config::skill::load_and_merge_skill_config(
+            infra.settings_dir.as_deref(),
+            &project_root,
+        ) {
             Ok(skills) => config.skills = skills,
             Err(e) => warn!(error = %e, "failed to load skill settings chain; keeping defaults"),
         }
@@ -403,8 +397,10 @@ pub async fn resolve_infra_config(
     // by config files instead of programmatic defaults. Ambient
     // home-directory sources only join when the caller opts in. An
     // explicitly populated auth config keeps its higher priority.
+    // Settings-only hosts without a project root still load the settings
+    // layer; the project layer joins when a project root is known.
     if config.llm.auth == wf_types::config::llm_auth::AuthConfig::default()
-        && !project_root.as_os_str().is_empty()
+        && (!project_root.as_os_str().is_empty() || infra.settings_dir.is_some())
     {
         match wf_config::llm_auth::load_llm_auth_config(
             &project_root,
@@ -417,6 +413,44 @@ pub async fn resolve_infra_config(
                 }
             }
             Err(e) => warn!(error = %e, "failed to load llm-auth config; keeping defaults"),
+        }
+    }
+    // File-driven LLM profiles and provider definitions fill only empty
+    // programmatic values; explicit profiles keep the highest priority.
+    // Validation failures are fail-fast so a typoed profile cannot run
+    // with defaults unnoticed.
+    if config.llm.profiles.is_empty()
+        && (!project_root.as_os_str().is_empty() || infra.settings_dir.is_some())
+    {
+        match wf_config::llm::load_llm_profiles_config(
+            &project_root,
+            infra.settings_dir.as_deref(),
+            infra.allow_ambient,
+            infra.strict_env,
+        ) {
+            Ok(profiles) => {
+                if !profiles.is_empty() {
+                    config.llm.profiles = profiles;
+                }
+            }
+            Err(e) => warn!(error = %e, "failed to load llm-profiles config; keeping defaults"),
+        }
+    }
+    if config.llm.provider_definitions.is_empty()
+        && (!project_root.as_os_str().is_empty() || infra.settings_dir.is_some())
+    {
+        match wf_config::llm::load_llm_provider_definitions_config(
+            &project_root,
+            infra.settings_dir.as_deref(),
+            infra.allow_ambient,
+            infra.strict_env,
+        ) {
+            Ok(definitions) => {
+                if !definitions.is_empty() {
+                    config.llm.provider_definitions = definitions;
+                }
+            }
+            Err(e) => warn!(error = %e, "failed to load llm-providers config; keeping defaults"),
         }
     }
     // Credential store placement: with ambient disabled the store resolves

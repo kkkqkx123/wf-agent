@@ -68,11 +68,9 @@ fn chord_to_key(chord: &config_keymap::Chord) -> Key {
 /// from the command registry on demand.
 pub fn load_user_keymap() -> Keymap {
     let mut keymap = Keymap::new();
-    let Some(settings_dir) = config_settings_dir() else {
-        return keymap;
-    };
     let project_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let Ok(settings) = config_keymap::load_and_merge_keymap_settings(&settings_dir, &project_root)
+    let Ok(settings) =
+        config_keymap::load_and_merge_keymap_settings_opt(config_settings_dir().as_deref(), &project_root)
     else {
         return keymap;
     };

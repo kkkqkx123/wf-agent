@@ -1,6 +1,6 @@
 # checkpoint-state:执行状态层
 
-`crates/infra/checkpoint/checkpoint-state` 实现执行状态检查点的持久化与层级恢复,只依赖 `checkpoint-base`、`wf-storage`、`wf-types`。不含文件历史逻辑。
+`crates/infra/checkpoint/checkpoint-state` 实现执行状态检查点的持久化与层级恢复,只依赖 `checkpoint-base`、`wf-storage`、`wf-metrics`、`wf-types`。不含文件历史逻辑。
 
 ## 模块结构
 

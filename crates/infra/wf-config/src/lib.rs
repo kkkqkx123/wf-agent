@@ -5,6 +5,7 @@ pub mod index;
 pub mod keymap;
 pub mod layered;
 pub mod layout;
+pub mod llm;
 pub mod llm_auth;
 pub mod loader;
 pub mod mcp;

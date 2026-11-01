@@ -58,6 +58,8 @@ interface MessageDto {
 	timestamp?: number;
 	tool_name?: string | null;
 	thinking?: string | null;
+	/** Message metadata; mention receipts ride here as a JSON string. */
+	metadata?: Record<string, unknown> | null;
 }
 
 interface ToolCallDto {
@@ -170,7 +172,32 @@ function toMessage(d: MessageDto): LoopMessage {
 		toolName: d.tool_name ?? null,
 		thinking: d.thinking ?? null,
 		images: imageUrls(d.content),
+		...parseMentionReceipts(d.metadata),
 	} satisfies LoopMessage;
+}
+
+/** Parse the server's mention-receipt metadata (a JSON string array) into
+ * structured receipts; anything malformed is ignored. */
+function parseMentionReceipts(metadata: Record<string, unknown> | null | undefined): {
+	mentionReceipts?: import('#lib/types/models').MentionReceipt[];
+} {
+	const raw = metadata?.mention_receipts;
+	if (typeof raw !== 'string' || !raw) return {};
+	try {
+		const parsed: unknown = JSON.parse(raw);
+		if (!Array.isArray(parsed)) return {};
+		const receipts = parsed.filter(
+			(item): item is import('#lib/types/models').MentionReceipt =>
+				typeof item === 'object' &&
+				item !== null &&
+				typeof (item as { reference?: unknown }).reference === 'string' &&
+				typeof (item as { kind?: unknown }).kind === 'string' &&
+				typeof (item as { outcome?: unknown }).outcome === 'string',
+		);
+		return receipts.length > 0 ? { mentionReceipts: receipts } : {};
+	} catch {
+		return {};
+	}
 }
 
 function toToolCall(d: ToolCallDto, iteration: IterationDto): ToolCallEntry {
@@ -288,7 +315,32 @@ export async function listLoopMessages(
 	);
 	requireData(data, `Conversation missing for loop ${id}`);
 	const page = extractPage<MessageDto>(data);
-	return { ...page, items: page.items.map(toMessage) };
+	return { ...page, items: mergeMentionReceipts(page.items.map(toMessage)) };
+}
+
+/** Fold server receipt messages onto the user bubble that owns them: the
+ * receipts merge into the nearest preceding user message and the receipt
+ * line itself stays out of the transcript. The stored conversation keeps the
+ * message server-side, so only the display view is folded. */
+function mergeMentionReceipts(messages: LoopMessage[]): LoopMessage[] {
+	const merged: LoopMessage[] = [];
+	for (const message of messages) {
+		const receipts = message.mentionReceipts;
+		if (receipts && message.content.startsWith('mention receipts:')) {
+			for (let index = merged.length - 1; index >= 0; index -= 1) {
+				if (merged[index].role === 'user') {
+					merged[index] = {
+						...merged[index],
+						mentionReceipts: [...(merged[index].mentionReceipts ?? []), ...receipts],
+					};
+					break;
+				}
+			}
+			continue;
+		}
+		merged.push(message);
+	}
+	return merged;
 }
 
 export async function listLoopIterations(

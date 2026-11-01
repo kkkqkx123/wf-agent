@@ -155,7 +155,7 @@ pub(crate) async fn params_from_body(
         Some(state.ctx.tool_registry.as_ref()),
         state.ctx.metrics.as_deref(),
     );
-    let (mention_messages, mention_images) =
+    let (mention_messages, mention_images, mention_receipts) =
         wf_api::agent::composition::resolve_mentions(&state.ctx, &message).await;
     let input = wf_api::AgentLoopInput {
         message,
@@ -175,6 +175,28 @@ pub(crate) async fn params_from_body(
     // Image references resolve beside the text mentions and ride the
     // structured payload, never the message text.
     params.input.images.extend(mention_images);
+    // Per-reference receipt so clients can show which mentions actually
+    // resolved: metadata carries the structured JSON, the text stays a
+    // human-readable mirror for the model and transcripts.
+    if !mention_receipts.is_empty() {
+        let lines: Vec<String> = mention_receipts
+            .iter()
+            .map(|receipt| format!("@{} → {}", receipt.reference, receipt.outcome))
+            .collect();
+        let mut receipt_message = wf_api::dynamic_context_message(format!(
+            "mention receipts: {}",
+            lines.join("; ")
+        ));
+        if let Ok(json) = serde_json::to_string(&mention_receipts) {
+            if let Some(metadata) = receipt_message.metadata.as_mut() {
+                metadata.insert(
+                    "mention_receipts".to_string(),
+                    serde_json::Value::String(json),
+                );
+            }
+        }
+        params.input.conversation.push(receipt_message);
+    }
     Ok(params)
 }
 

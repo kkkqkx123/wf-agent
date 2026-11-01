@@ -32,6 +32,11 @@
 		currentMediaLimits,
 		loadMediaLimits,
 	} from '#lib/config/media';
+	import {
+		imageExtMime,
+		imageMimeAllowed as isImageMimeAllowed,
+		preflightImage,
+	} from '#lib/utils/image-preflight';
 
 	let mediaLimits = $state(currentMediaLimits());
 
@@ -349,9 +354,7 @@
 	}
 
 	function imageMimeAllowed(file: File): boolean {
-		if (file.type && mediaLimits.allowedImageMimes.includes(file.type.toLowerCase())) return true;
-		const ext = (file.name.split('.').pop() ?? '').toLowerCase();
-		return mediaLimits.allowedImageExts.includes(ext);
+		return isImageMimeAllowed(file.type, file.name, mediaLimits);
 	}
 
 	function persistFiles(): void {
@@ -410,15 +413,26 @@
 
 	/** Stage one image file: type-checked, size-capped, previewable. */
 	function stageImage(file: File): void {
-		if (!imageMimeAllowed(file)) {
+		const stagedBytes = images.reduce((total, image) => total + image.dataUrl.length, 0);
+		const rejection = preflightImage(
+			{
+				mime: file.type,
+				name: file.name,
+				size: file.size,
+				stagedCount: images.length,
+				stagedBytes,
+			},
+			mediaLimits,
+		);
+		if (rejection === 'unsupported-type') {
 			toasts.error(`Unsupported image type: ${file.name || 'pasted image'} (use png, jpg, gif, webp)`);
 			return;
 		}
-		if (images.length >= mediaLimits.maxImagesPerTurn) {
+		if (rejection === 'too-many') {
 			toasts.error(`Too many images (max ${mediaLimits.maxImagesPerTurn}); remove one first`);
 			return;
 		}
-		if (file.size > mediaLimits.imageLimit) {
+		if (rejection === 'too-large') {
 			toasts.error(
 				t('chat.composer.imageTooLarge', {
 					name: file.name || t('chat.composer.attachment'),
@@ -426,8 +440,7 @@
 			);
 			return;
 		}
-		const staged = images.reduce((total, image) => total + image.dataUrl.length, 0);
-		if (staged + file.size > mediaLimits.imageTotalLimit) {
+		if (rejection === 'total-too-large') {
 			toasts.error(t('chat.composer.imagesTooLarge'));
 			return;
 		}
@@ -442,8 +455,7 @@
 				);
 				return;
 			}
-			const ext = (file.name.split('.').pop() ?? '').toLowerCase();
-			const mime = file.type || (ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : undefined);
+			const mime = imageExtMime(file.type, file.name);
 			images = [...images, { name: file.name || 'pasted-image', dataUrl, ...(mime ? { mediaType: mime } : {}) }];
 			persistFiles();
 		};

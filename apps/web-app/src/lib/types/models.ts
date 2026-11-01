@@ -442,6 +442,18 @@ export interface LoopMessage {
 	thinking?: string | null;
 	/** Image payloads of a rich user turn, data URLs or remote addresses. */
 	images?: string[];
+	/** Per-reference resolution receipts the server reports for this turn's
+	 * inline mentions (merged onto the owning user bubble for display). */
+	mentionReceipts?: MentionReceipt[];
+}
+
+/** Server-side resolution result of one `@`-reference in a user turn. */
+export interface MentionReceipt {
+	/** Reference without the leading `@`, e.g. `file:shots/a.png`. */
+	reference: string;
+	kind: string;
+	/** `attached` | `resolved` | `skipped` | `unmatched`. */
+	outcome: string;
 }
 
 export interface LoopVariable {

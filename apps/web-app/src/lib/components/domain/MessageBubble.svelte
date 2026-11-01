@@ -63,6 +63,47 @@
 		if (!target) return null;
 		return buildIdeUrl(target.path, target.lineStart, null);
 	}
+
+	/** Receipt the server reported for one rendered reference, if any. The
+	 * reference in metadata is `kind:value` without the leading `@`; file
+	 * values may carry a `#line` segment that display references omit. */
+	function receiptFor(text: string, kind: string): string | null {
+		const receipts = message.mentionReceipts;
+		if (!receipts || receipts.length === 0) return null;
+		let value: string;
+		if (kind === 'file') {
+			const target = resolveMentionFileTarget(text, kind);
+			if (!target) return null;
+			value = target.path;
+		} else {
+			value = text.trim().replace(/^@/, '').replace(new RegExp(`^${kind}:`), '');
+		}
+		const receipt = receipts.find(
+			(item) => item.kind === kind && item.reference.replace(/^file:/, '').split('#')[0] === value,
+		);
+		return receipt?.outcome ?? null;
+	}
+
+	function receiptIcon(outcome: string): IconName {
+		if (outcome === 'attached' || outcome === 'resolved') return 'check-circle';
+		if (outcome === 'skipped' || outcome === 'unmatched') return 'alert-circle';
+		return 'info';
+	}
+
+	function receiptTitle(outcome: string): string {
+		switch (outcome) {
+			case 'attached':
+				return t('chat.mentionReceipt.attached');
+			case 'resolved':
+				return t('chat.mentionReceipt.resolved');
+			case 'skipped':
+				return t('chat.mentionReceipt.skipped');
+			case 'unmatched':
+				return t('chat.mentionReceipt.unmatched');
+			default:
+				return t('chat.mentionReceipt.unmatched');
+		}
+	}
 	const expanded = $derived(expandedIndex === null ? null : body.attachments[expandedIndex]);
 
 	const isTool = $derived(message.role === 'tool');
@@ -173,13 +214,22 @@
 				<p class="whitespace-pre-wrap break-words">
 					{#each runs as run, index (index)}
 						{#if run.kind}
-							<span class="mx-0.5 inline-flex">
+							{@const outcome = receiptFor(run.text, run.kind)}
+							<span class="mx-0.5 inline-flex items-center gap-0.5">
 								<MentionBadge
 									text={run.text}
 									kind={run.kind}
 									surface={isUser ? 'primary' : 'muted'}
 									href={badgeHref(run.text, run.kind)}
 								/>
+								{#if outcome}
+									<Icon
+										name={receiptIcon(outcome)}
+										size={11}
+										class={outcome === 'attached' || outcome === 'resolved' ? 'text-emerald-500' : 'text-amber-500'}
+									/>
+									<span class="sr-only">{receiptTitle(outcome)}</span>
+								{/if}
 							</span>
 						{:else}
 							{run.text}

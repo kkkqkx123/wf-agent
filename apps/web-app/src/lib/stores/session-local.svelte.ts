@@ -98,7 +98,7 @@ export class SessionLocalState {
 	private draftFiles = $state<Record<string, MessageAttachment[]>>(
 		readFileRecord(DRAFT_ATTACHMENTS_KEY),
 	);
-	private draftImages = $state<Record<string, ImageAttachment[]>>(
+	private draftImageMap = $state<Record<string, ImageAttachment[]>>(
 		readImageRecord(DRAFT_IMAGES_KEY),
 	);
 
@@ -112,7 +112,7 @@ export class SessionLocalState {
 				id !== NEW_SESSION &&
 				(this.draftTexts[id].trim() !== '' ||
 					(this.draftFiles[id]?.length ?? 0) > 0 ||
-					(this.draftImages[id]?.length ?? 0) > 0),
+					(this.draftImageMap[id]?.length ?? 0) > 0),
 		);
 	}
 
@@ -159,7 +159,7 @@ export class SessionLocalState {
 	setDraft(id: string, text: string): void {
 		const next = { ...this.draftTexts };
 		if (text.trim()) next[id] = text;
-		else if ((this.draftFiles[id]?.length ?? 0) === 0 && (this.draftImages[id]?.length ?? 0) === 0)
+		else if ((this.draftFiles[id]?.length ?? 0) === 0 && (this.draftImageMap[id]?.length ?? 0) === 0)
 			delete next[id];
 		else next[id] = text;
 		this.draftTexts = next;
@@ -179,14 +179,14 @@ export class SessionLocalState {
 	}
 
 	draftImages(id: string): ImageAttachment[] {
-		return this.draftImages[id] ?? [];
+		return this.draftImageMap[id] ?? [];
 	}
 
 	setDraftImages(id: string, images: ImageAttachment[]): void {
-		const next = { ...this.draftImages };
+		const next = { ...this.draftImageMap };
 		if (images.length > 0) next[id] = images;
 		else delete next[id];
-		this.draftImages = next;
+		this.draftImageMap = next;
 		write(DRAFT_IMAGES_KEY, next);
 	}
 
@@ -195,9 +195,9 @@ export class SessionLocalState {
 		delete files[id];
 		this.draftFiles = files;
 		write(DRAFT_ATTACHMENTS_KEY, files);
-		const images = { ...this.draftImages };
+		const images = { ...this.draftImageMap };
 		delete images[id];
-		this.draftImages = images;
+		this.draftImageMap = images;
 		write(DRAFT_IMAGES_KEY, images);
 	}
 }

@@ -8,18 +8,38 @@ use crate::infra::context::ApiContext;
 
 use super::*;
 
+/// Per-reference resolution receipt of one turn's inline mentions. The server
+/// reports it back beside the stored conversation so clients can show which
+/// image references actually rode the turn and which were skipped.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct MentionReceipt {
+    /// Reference as written by the user, without the leading `@`
+    /// (for example `file:shots/a.png`).
+    pub reference: String,
+    /// Reference kind (`file`, `workflow`, ...).
+    pub kind: String,
+    /// Resolution result: `attached` (image riding the structured payload),
+    /// `resolved` (text context joined), `skipped` (image unreadable or
+    /// oversized) or `unmatched` (nothing found).
+    pub outcome: String,
+}
+
 /// Inline mentions resolved from one turn: supplemental text messages plus
 /// image payloads. Image references (`@file:` pointing at an image file)
 /// travel as structured inputs so binary bytes never pass text decoding.
-pub async fn resolve_mentions(ctx: &ApiContext, text: &str) -> (Vec<Message>, Vec<UserImageInput>) {
+pub async fn resolve_mentions(
+    ctx: &ApiContext,
+    text: &str,
+) -> (Vec<Message>, Vec<UserImageInput>, Vec<MentionReceipt>) {
     let Ok(re) = regex::Regex::new(
         r"@(?:(?P<kind>[a-z][a-z0-9_]*):(?P<value>[\w./-]+(?:#\d+(?:-\d+)?)?)|(?P<path>[\w./-]*[./][\w./-]*(?:#\d+(?:-\d+)?)?))",
     ) else {
-        return (Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new(), Vec::new());
     };
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     let mut images = Vec::new();
+    let mut receipts = Vec::new();
     for capture in re.captures_iter(text) {
         if out.len() + images.len() >= 8 {
             break;
@@ -102,11 +122,21 @@ pub async fn resolve_mentions(ctx: &ApiContext, text: &str) -> (Vec<Message>, Ve
                 if wf_types::message::is_image_path(id) {
                     if let Some(image) = resolve_image_mention(ctx, id) {
                         images.push(image);
+                        receipts.push(MentionReceipt {
+                            reference: format!("file:{id}"),
+                            kind: kind.to_string(),
+                            outcome: "attached".to_string(),
+                        });
                         out.push(crate::dynamic_context_message(format!(
                             "image: {id} (attached as structured image)"
                         )));
                         continue;
                     }
+                    receipts.push(MentionReceipt {
+                        reference: format!("file:{id}"),
+                        kind: kind.to_string(),
+                        outcome: "skipped".to_string(),
+                    });
                     Some(format!(
                         "image: {id} (skipped: unreadable, outside the workspace, or exceeds the size limit)"
                     ))
@@ -123,12 +153,23 @@ pub async fn resolve_mentions(ctx: &ApiContext, text: &str) -> (Vec<Message>, Ve
 
         if let Some(summary) = summary {
             let trimmed: String = summary.chars().take(1000).collect();
+            receipts.push(MentionReceipt {
+                reference: format!("{kind}:{id}"),
+                kind: kind.to_string(),
+                outcome: "resolved".to_string(),
+            });
             out.push(crate::dynamic_context_message(format!(
                 "Referenced {kind} context:\n{trimmed}"
             )));
+        } else {
+            receipts.push(MentionReceipt {
+                reference: format!("{kind}:{id}"),
+                kind: kind.to_string(),
+                outcome: "unmatched".to_string(),
+            });
         }
     }
-    (out, images)
+    (out, images, receipts)
 }
 
 fn parse_file_mention(raw: &str) -> (String, Option<(u32, u32)>) {

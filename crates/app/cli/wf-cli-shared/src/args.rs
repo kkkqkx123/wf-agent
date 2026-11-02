@@ -153,6 +153,7 @@ impl Cli {
             image,
             image_urls,
             image_detail,
+            attach,
             interactive,
             approval_timeout,
             assume_yes,
@@ -164,6 +165,9 @@ impl Cli {
             }
             if (!image.is_empty() || !image_urls.is_empty()) && workflow.is_some() {
                 return Err("--image/--image-url apply to agent turns, not --workflow".to_string());
+            }
+            if !attach.is_empty() && workflow.is_some() {
+                return Err("--attach applies to agent turns, not --workflow".to_string());
             }
             if let Some(detail) = image_detail.as_deref() {
                 crate::turn::parse_image_detail_arg(Some(detail))?;
@@ -306,6 +310,12 @@ pub enum Command {
         /// limit check. Text files are referenced via `@file:` instead.
         #[arg(long = "image-url", value_name = "URL")]
         image_urls: Vec<String>,
+        /// Text file to attach to the turn (repeatable, agent turns only).
+        /// Files read as UTF-8 text and travel in the structured attachment
+        /// channel; oversized files truncate with an explicit marker.
+        /// Binary files are rejected; send images via `--image` instead.
+        #[arg(long = "attach", value_name = "PATH")]
+        attach: Vec<std::path::PathBuf>,
         /// Render detail hint applied to every image of the turn
         /// (`auto` / `low` / `high` / `original`); empty means provider default.
         #[arg(long = "image-detail", value_name = "DETAIL")]
@@ -773,6 +783,17 @@ mod tests {
         .unwrap();
         let err = cli.validate().unwrap_err();
         assert!(err.contains("--image"), "{err}");
+
+        let cli = parse(&["run", "hi", "--attach", "a.txt"]).unwrap();
+        let Some(Command::Run { attach, .. }) = &cli.command else {
+            panic!("expected run");
+        };
+        assert_eq!(attach.len(), 1);
+        assert!(cli.validate().is_ok());
+
+        let cli = parse(&["run", "--workflow", "wf-1", "--attach", "a.txt"]).unwrap();
+        let err = cli.validate().unwrap_err();
+        assert!(err.contains("--attach"), "{err}");
     }
 
     #[test]

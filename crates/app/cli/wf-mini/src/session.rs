@@ -125,6 +125,9 @@ pub struct NativeSession {
     /// Image files staged by `/image` for the next turn. Taken when the
     /// turn starts; a turn that never starts hands them back.
     staged_images: Vec<wf_types::message::UserImageInput>,
+    /// Text files staged for the next turn. Taken when the turn starts;
+    /// interactive staging arrives with `/attach` in a follow-up.
+    staged_attachments: Vec<wf_types::message::UserTextAttachment>,
     /// Render detail applied to newly staged images (`/image-detail`).
     /// Empty means the provider default; kept across turns until changed.
     staged_image_detail: Option<wf_types::message::ImageDetail>,
@@ -226,6 +229,7 @@ impl NativeSession {
             pending_delete: None,
             session_context,
             staged_images: Vec::new(),
+            staged_attachments: Vec::new(),
             staged_image_detail: None,
         })
     }
@@ -421,6 +425,7 @@ impl NativeSession {
                 self.nested_selected_node = None;
                 self.nested_loops = Vec::new();
                 self.staged_images.clear();
+                self.staged_attachments.clear();
                 self.note_turn_started();
                 self.set_terminal_title();
                 output::diag_line(&format!(
@@ -1645,6 +1650,7 @@ impl NativeSession {
             kind: TurnKind::Agent {
                 prompt,
                 images: self.staged_images.clone(),
+                attachments: self.staged_attachments.clone(),
             },
         };
         let body = params.agent_request_body();
@@ -1673,8 +1679,9 @@ impl NativeSession {
                 let normalized = map_frames(stream);
                 let outcome = self.pump_stream(&execution_id, normalized).await;
                 approver_task.abort();
-                // A started turn consumes its staged images, win or lose.
+                // A started turn consumes its staged images and attachments, win or lose.
                 self.staged_images.clear();
+                self.staged_attachments.clear();
                 Some(FinishedTurn { outcome })
             }
             Err(err) => {

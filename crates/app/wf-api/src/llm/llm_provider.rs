@@ -101,12 +101,12 @@ async fn proxy_creds(
 /// on registry iteration order.
 fn api_key_for_provider(ctx: &ApiContext, provider_id: &str) -> Option<String> {
     let registry = ctx.llm_gateway.profile_registry();
-    if let Some(default) = registry.get_default() {
-        if default.provider_id.as_deref() == Some(provider_id) {
-            if default.api_key.is_some() {
-                return default.api_key;
-            }
-        }
+    let default_key = registry
+        .get_default()
+        .filter(|default| default.provider_id.as_deref() == Some(provider_id))
+        .and_then(|default| default.api_key);
+    if default_key.is_some() {
+        return default_key;
     }
     registry
         .list()

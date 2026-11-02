@@ -556,6 +556,8 @@ impl InteractiveController {
         let client = self.client.clone();
         let staged = self.staged_images.clone();
         self.staged_images.clear();
+        let staged_attachments = self.staged_attachments.clone();
+        self.staged_attachments.clear();
         if !staged.is_empty() {
             self.footer.show_notice(format!(
                 "sending {} staged image{} with this turn",
@@ -573,6 +575,7 @@ impl InteractiveController {
             kind: TurnKind::Agent {
                 prompt,
                 images: staged,
+                attachments: staged_attachments,
             },
         };
         let body = params.agent_request_body();

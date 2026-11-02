@@ -135,8 +135,10 @@ pub async fn preview_search(
     if query_text.trim().is_empty() {
         return Err(ApiError::Validation("query must not be empty".to_string()));
     }
-    let mut config = rag_core::RagQueryConfig::default();
-    config.top_k = top_k.max(1).min(50);
+    let config = rag_core::RagQueryConfig {
+        top_k: top_k.clamp(1, 50),
+        ..Default::default()
+    };
     let hits =
         rag_core::pipeline::query(store, embedder, collection, namespace, query_text, &config)
             .await
@@ -166,7 +168,7 @@ pub struct ScoreBucket {
 /// Buckets hit scores into `buckets` equal-width bins over 0..=1.
 /// Scores outside the range clamp into the edge buckets.
 pub fn score_histogram(scores: &[f32], buckets: usize) -> Vec<ScoreBucket> {
-    let buckets = buckets.max(1).min(20);
+    let buckets = buckets.clamp(1, 20);
     let width = 1.0 / buckets as f32;
     let mut counts = vec![0_usize; buckets];
     for score in scores {

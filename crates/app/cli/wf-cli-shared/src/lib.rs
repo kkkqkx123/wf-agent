@@ -224,6 +224,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         image_paths,
         image_urls,
         image_detail,
+        attach_paths,
         interactive,
         approval_timeout,
         assume_yes,
@@ -240,6 +241,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             image,
             image_urls,
             image_detail,
+            attach,
             interactive,
             approval_timeout,
             assume_yes,
@@ -256,6 +258,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             image.clone(),
             image_urls.clone(),
             image_detail.clone(),
+            attach.clone(),
             *interactive,
             *approval_timeout,
             *assume_yes,
@@ -272,6 +275,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             Vec::new(),
             Vec::new(),
             None,
+            Vec::new(),
             false,
             None,
             false,
@@ -300,9 +304,12 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         .map_err(CliError::Arguments)?;
     let images = crate::turn::load_all_user_images(&image_paths, &image_urls, detail)
         .map_err(CliError::Arguments)?;
+    let attachments =
+        crate::turn::load_user_attachment_specs(&attach_paths).map_err(CliError::Arguments)?;
     let opts = RunOptions {
         prompt,
         images,
+        attachments,
         agent_id: agent,
         model,
         approve_prefixes,

@@ -37,6 +37,8 @@ pub struct RunOptions {
     pub prompt: String,
     /// Structured image payload attached to an agent turn.
     pub images: Vec<wf_types::message::UserImageInput>,
+    /// Structured text attachments attached to an agent turn.
+    pub attachments: Vec<wf_types::message::UserTextAttachment>,
     /// Agent definition id (defaults to the built-in agent, server-side).
     pub agent_id: Option<String>,
     /// LLM profile id (defaults to `default`).
@@ -68,6 +70,7 @@ impl Default for RunOptions {
         Self {
             prompt: String::new(),
             images: Vec::new(),
+            attachments: Vec::new(),
             agent_id: None,
             model: None,
             approve_prefixes: Vec::new(),
@@ -103,6 +106,7 @@ impl RunOptions {
             None => TurnKind::Agent {
                 prompt: self.prompt.clone(),
                 images: self.images.clone(),
+                attachments: self.attachments.clone(),
             },
         };
         Ok(TurnParams {
@@ -252,9 +256,13 @@ async fn run_agent(
     io: &mut RunIo,
 ) -> CliResult<RunOutcome> {
     use std::time::Instant;
-    if wf_types::message::is_blank_user_text(&opts.prompt) && opts.images.is_empty() {
+    if wf_types::message::is_blank_user_text(&opts.prompt)
+        && opts.images.is_empty()
+        && opts.attachments.is_empty()
+    {
         return Err(CliError::Arguments(
-            "no prompt given: pass a positional argument, pipe stdin, or attach --image".into(),
+            "no prompt given: pass a positional argument, pipe stdin, or attach --image/--attach"
+                .into(),
         ));
     }
     let started = Instant::now();

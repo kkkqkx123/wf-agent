@@ -21,6 +21,8 @@ pub enum TurnKind {
         prompt: String,
         /// Structured image payload of the turn.
         images: Vec<wf_types::message::UserImageInput>,
+        /// Structured text attachments of the turn.
+        attachments: Vec<wf_types::message::UserTextAttachment>,
     },
     Workflow {
         workflow_id: String,
@@ -62,6 +64,14 @@ impl TurnParams {
         }
     }
 
+    /// Structured text attachments of the turn; empty for workflow turns.
+    pub fn attachments(&self) -> &[wf_types::message::UserTextAttachment] {
+        match &self.kind {
+            TurnKind::Agent { attachments, .. } => attachments,
+            TurnKind::Workflow { .. } => &[],
+        }
+    }
+
     /// Translate into the typed `POST /api/v1/agent-loops/{id}/run|stream` body.
     /// Single source for both the SSE stream (serialized to JSON) and the
     /// blocking fallback (passed to the generated client directly), so field
@@ -80,11 +90,17 @@ impl TurnParams {
             .iter()
             .map(|image| serde_json::to_value(image).unwrap_or(Value::Null))
             .collect();
+        let attachments: Vec<serde_json::Value> = self
+            .attachments()
+            .iter()
+            .map(|attachment| serde_json::to_value(attachment).unwrap_or(Value::Null))
+            .collect();
         wf_client::models::RunAgentLoopBody {
             agent_id: self.agent.clone(),
             model: self.model.clone().unwrap_or_default(),
             message: prompt.to_string(),
             images: Some(images),
+            attachments: Some(attachments),
             context: self.context.clone(),
             conversation: Some(conversation),
             max_execution_time: self.timeout_ms.map(|v| v as i64),
@@ -433,6 +449,76 @@ pub fn load_all_user_images(
     load_user_image_specs(&specs, detail)
 }
 
+/// Load `--attach` text files into structured attachments. Files read as
+/// UTF-8 text; NUL bytes are rejected as binary. Content beyond the
+/// per-file limit is truncated with an explicit marker and original size,
+/// mirroring the web composer staging rule. The shared validator owns the
+/// final count and budget gate so headless and interactive forms agree.
+pub fn load_user_attachment_specs(
+    paths: &[std::path::PathBuf],
+) -> Result<Vec<wf_types::message::UserTextAttachment>, String> {
+    let mut out = Vec::with_capacity(paths.len());
+    for path in paths {
+        let bytes = std::fs::read(path)
+            .map_err(|e| format!("cannot read attachment '{}': {e}", path.display()))?;
+        if bytes.contains(&0) {
+            return Err(format!(
+                "cannot attach '{}': looks like a binary file; send images via --image instead",
+                path.display()
+            ));
+        }
+        let text = String::from_utf8(bytes).map_err(|_| {
+            format!(
+                "cannot attach '{}': not valid UTF-8 text; send images via --image instead",
+                path.display()
+            )
+        })?;
+        let chars = text.chars().count();
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| path.to_string_lossy().to_string());
+        if chars > wf_types::message::MAX_TEXT_ATTACHMENT_CHARS {
+            let truncated: String = text
+                .chars()
+                .take(wf_types::message::MAX_TEXT_ATTACHMENT_CHARS)
+                .collect();
+            out.push(wf_types::message::UserTextAttachment {
+                name,
+                content: truncated,
+                truncated: true,
+                original_chars: Some(chars),
+            });
+        } else {
+            out.push(wf_types::message::UserTextAttachment {
+                name,
+                content: text,
+                truncated: false,
+                original_chars: None,
+            });
+        }
+    }
+    wf_types::message::validate_user_attachments(&out)
+        .map_err(|reason| format!("invalid attachment payload: {reason}"))?;
+    Ok(out)
+}
+
+/// Short display summary of one staged attachment for diagnostics.
+pub fn describe_user_attachment(attachment: &wf_types::message::UserTextAttachment) -> String {
+    let chars = attachment.content.chars().count();
+    if attachment.truncated {
+        format!(
+            "{} ({} chars, truncated from {})",
+            attachment.name,
+            chars,
+            attachment.original_chars.unwrap_or(chars)
+        )
+    } else {
+        format!("{} ({} chars)", attachment.name, chars)
+    }
+}
+
 /// Short display summary of one staged image for diagnostics: remote
 /// addresses show the address, inline payloads show the decoded size.
 pub fn describe_user_image(image: &wf_types::message::UserImageInput) -> String {
@@ -524,6 +610,7 @@ mod tests {
             kind: TurnKind::Agent {
                 prompt: "hi".to_string(),
                 images: Vec::new(),
+                attachments: Vec::new(),
             },
         };
         let body = params.agent_request_body();
@@ -546,6 +633,7 @@ mod tests {
             kind: TurnKind::Agent {
                 prompt: "\x1b[31mhi\x1b[0m".to_string(),
                 images: Vec::new(),
+                attachments: Vec::new(),
             },
         };
         let body = params.agent_request_body();
@@ -566,6 +654,7 @@ mod tests {
             kind: TurnKind::Agent {
                 prompt: "hi".to_string(),
                 images: Vec::new(),
+                attachments: Vec::new(),
             },
         };
         let body = params.agent_request_body();
@@ -586,6 +675,7 @@ mod tests {
                 images: vec![wf_types::message::UserImageInput::remote(
                     "https://example.com/shot.png",
                 )],
+                attachments: Vec::new(),
             },
         };
         let body = params.agent_request_body();
@@ -629,6 +719,63 @@ mod tests {
         assert!(!is_remote_image_spec("shot.png"));
         assert!(is_remote_image_spec("https://example.com/a.png"));
         assert!(load_user_image_specs(&["ftp://x/y.png".to_string()], None).is_err());
+    }
+
+    #[test]
+    fn attachment_files_load_truncate_and_reject_binary() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("wf-attach-{}.txt", std::process::id()));
+        std::fs::write(&path, "hello").expect("fixture");
+        let loaded = load_user_attachment_specs(std::slice::from_ref(&path)).expect("attach loads");
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(
+            loaded[0].name,
+            path.file_name().expect("name").to_string_lossy()
+        );
+        assert!(!loaded[0].truncated);
+        assert_eq!(
+            describe_user_attachment(&loaded[0]),
+            format!("{} (5 chars)", loaded[0].name)
+        );
+        let _ = std::fs::remove_file(&path);
+        let big_path = dir.join(format!("wf-attach-big-{}.txt", std::process::id()));
+        let big = "x".repeat(wf_types::message::MAX_TEXT_ATTACHMENT_CHARS + 10);
+        std::fs::write(&big_path, &big).expect("fixture");
+        let loaded =
+            load_user_attachment_specs(std::slice::from_ref(&big_path)).expect("truncates");
+        assert!(loaded[0].truncated);
+        assert_eq!(loaded[0].original_chars, Some(big.chars().count()));
+        let _ = std::fs::remove_file(&big_path);
+        let bin_path = dir.join(format!("wf-attach-bin-{}.txt", std::process::id()));
+        std::fs::write(&bin_path, [b'a', 0, b'b']).expect("fixture");
+        assert!(load_user_attachment_specs(std::slice::from_ref(&bin_path)).is_err());
+        let _ = std::fs::remove_file(&bin_path);
+    }
+
+    #[test]
+    fn agent_body_carries_attachments_as_structured_payload() {
+        let params = TurnParams {
+            agent: None,
+            model: None,
+            approve_prefixes: vec![],
+            timeout_ms: None,
+            context: Default::default(),
+            conversation: Vec::new(),
+            kind: TurnKind::Agent {
+                prompt: String::new(),
+                images: Vec::new(),
+                attachments: vec![wf_types::message::UserTextAttachment {
+                    name: "a.txt".to_string(),
+                    content: "hello".to_string(),
+                    truncated: false,
+                    original_chars: None,
+                }],
+            },
+        };
+        let body = params.agent_request_body();
+        let attachments = body["attachments"].as_array().expect("attachments array");
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(attachments[0]["name"], "a.txt");
     }
 
     #[test]

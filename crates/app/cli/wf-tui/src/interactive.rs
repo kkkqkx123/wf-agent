@@ -487,6 +487,9 @@ pub struct InteractiveController {
     /// Image specs staged by `/image` for the next turn. Taken when the
     /// turn starts; a turn that never starts leaves them staged.
     staged_images: Vec<wf_types::message::UserImageInput>,
+    /// Text files staged for the next turn. Taken when the turn starts;
+    /// interactive staging arrives with `/attach` in a follow-up.
+    staged_attachments: Vec<wf_types::message::UserTextAttachment>,
     /// Render detail applied to newly staged images. Empty means default.
     staged_image_detail: Option<wf_types::message::ImageDetail>,
     /// Key resolution table for the footer panel routes.
@@ -740,6 +743,7 @@ impl InteractiveController {
             model_override: None,
             session_context: serde_json::Map::new(),
             staged_images: Vec::new(),
+            staged_attachments: Vec::new(),
             staged_image_detail: None,
             keymap: tui_core::keymap::Keymap::new(),
             pending_editor: false,
@@ -861,6 +865,7 @@ impl InteractiveController {
     /// Drop staged images without sending them.
     pub fn clear_staged_images(&mut self) -> String {
         self.staged_images.clear();
+        self.staged_attachments.clear();
         "staged images cleared".to_string()
     }
 

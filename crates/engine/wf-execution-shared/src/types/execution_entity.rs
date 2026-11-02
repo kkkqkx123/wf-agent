@@ -79,9 +79,7 @@ pub trait ExecutionEntity: Send + Sync {
     fn get_abort_signal(&self) -> tokio_util::sync::CancellationToken;
     fn get_hierarchy_depth(&self) -> u32;
     fn get_root_execution_id(&self) -> Option<Id>;
-    fn hierarchy_manager(
-        &self,
-    ) -> Option<Arc<wf_core::hierarchy::ExecutionHierarchyManager>> {
+    fn hierarchy_manager(&self) -> Option<Arc<wf_core::hierarchy::ExecutionHierarchyManager>> {
         None
     }
     /// Root-to-parent execution id chain (oldest first, excluding self).
@@ -160,9 +158,7 @@ where
         self.as_ref().get_ancestors()
     }
 
-    fn hierarchy_manager(
-        &self,
-    ) -> Option<Arc<wf_core::hierarchy::ExecutionHierarchyManager>> {
+    fn hierarchy_manager(&self) -> Option<Arc<wf_core::hierarchy::ExecutionHierarchyManager>> {
         self.as_ref().hierarchy_manager()
     }
 }

@@ -355,7 +355,9 @@ pub fn is_remote_image_spec(spec: &str) -> bool {
 }
 
 /// Parse an optional `--image-detail` value. Empty means provider default.
-pub fn parse_image_detail_arg(raw: Option<&str>) -> Result<Option<wf_types::message::ImageDetail>, String> {
+pub fn parse_image_detail_arg(
+    raw: Option<&str>,
+) -> Result<Option<wf_types::message::ImageDetail>, String> {
     match raw.map(str::trim).filter(|value| !value.is_empty()) {
         None => Ok(None),
         Some(value) => wf_types::message::parse_image_detail(value).map(Some),
@@ -377,8 +379,7 @@ pub fn load_user_image_specs(
             return Err("cannot attach an empty image spec".to_string());
         }
         if is_remote_image_spec(trimmed) {
-            let mut input =
-                wf_types::message::UserImageInput::remote(trimmed.to_string());
+            let mut input = wf_types::message::UserImageInput::remote(trimmed.to_string());
             input.detail = detail;
             images.push(input);
             continue;
@@ -616,11 +617,8 @@ mod tests {
     #[test]
     fn image_specs_accept_remote_urls_with_detail() {
         let detail = parse_image_detail_arg(Some("high")).expect("detail parses");
-        let images = load_user_image_specs(
-            &["https://example.com/shot.png".to_string()],
-            detail,
-        )
-        .expect("remote loads");
+        let images = load_user_image_specs(&["https://example.com/shot.png".to_string()], detail)
+            .expect("remote loads");
         assert_eq!(images.len(), 1);
         assert_eq!(
             images[0].url.as_deref(),

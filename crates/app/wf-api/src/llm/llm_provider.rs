@@ -95,10 +95,6 @@ async fn proxy_creds(
     out
 }
 
-pub async fn list_models(ctx: &ApiContext, provider_id: &str) -> ApiResult<Vec<ModelInfo>> {
-    list_models_cached_inner(ctx, provider_id, false).await
-}
-
 /// Force a live discovery round for one provider, bypassing the cache.
 /// Populates the shared cache so the next cached read reuses the result.
 async fn list_models_cached_inner(
@@ -136,47 +132,6 @@ pub async fn list_models_enriched(
     let definition = get(ctx, provider_id).await?;
     let models = list_models_cached_inner(ctx, provider_id, force_refresh).await?;
     Ok(enrich_with_static(&definition, provider_id, models))
-}
-
-/// Unified enriched listing across all registered providers.
-///
-/// Transactional in the reporting sense: one unreachable endpoint never
-/// blocks the rest; failures are omitted here and warned by the caller.
-/// Single-provider callers needing the error should use
-/// [`list_models_enriched`] instead.
-pub async fn list_all_models(
-    ctx: &ApiContext,
-    force_refresh: bool,
-) -> ApiResult<std::collections::HashMap<String, Vec<ModelInfo>>> {
-    let definitions = ctx.llm_gateway.provider_registry().list();
-    let mut out = std::collections::HashMap::new();
-    for definition in &definitions {
-        let api_key = ctx
-            .llm_gateway
-            .profile_registry()
-            .list()
-            .into_iter()
-            .find(|p| p.provider_id.as_deref() == Some(definition.id.as_str()))
-            .and_then(|p| p.api_key);
-        let proxy_creds = proxy_creds(ctx).await;
-        match ctx
-            .llm_gateway
-            .model_catalog()
-            .list_models_cached(&definition, api_key.as_deref(), &proxy_creds, force_refresh)
-            .await
-        {
-            Ok(models) => {
-                out.insert(definition.id.clone(), models);
-            }
-            Err(e) => {
-                tracing::warn!(
-                    provider = %definition.id,
-                    "unified model listing skipped provider: {e}"
-                );
-            }
-        }
-    }
-    Ok(out)
 }
 
 /// Unified enriched listing across all registered providers.
@@ -252,7 +207,7 @@ pub async fn list_models_filtered(
     provider_id: &str,
     predicate: impl Fn(&ModelInfo) -> bool,
 ) -> ApiResult<Vec<ModelInfo>> {
-    let models = list_models(ctx, provider_id).await?;
+    let models = list_models_enriched(ctx, provider_id, false).await?;
     Ok(wf_llm::filter_models(models, predicate))
 }
 
@@ -266,7 +221,7 @@ pub async fn list_models_for_allowlist(
     provider_id: &str,
     allowed: &std::collections::HashSet<String>,
 ) -> ApiResult<Vec<ModelInfo>> {
-    let models = list_models(ctx, provider_id).await?;
+    let models = list_models_enriched(ctx, provider_id, false).await?;
     Ok(wf_llm::filter_models_by_allowlist(models, allowed))
 }
 

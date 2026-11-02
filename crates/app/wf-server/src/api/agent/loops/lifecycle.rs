@@ -95,7 +95,10 @@ pub(crate) async fn params_from_body(
     // Rule A1: an empty message is a hard error on every entry path, unless
     // images or attachments ride along; the CLI/TUI forms and the web panel
     // all converge here.
-    if wf_types::message::is_blank_user_text(&message) && images.is_empty() && attachments.is_empty() {
+    if wf_types::message::is_blank_user_text(&message)
+        && images.is_empty()
+        && attachments.is_empty()
+    {
         return Err(wf_api::ApiError::Validation(
             "agent message must not be empty".to_string(),
         ));
@@ -183,10 +186,8 @@ pub(crate) async fn params_from_body(
             .iter()
             .map(|receipt| format!("@{} → {}", receipt.reference, receipt.outcome))
             .collect();
-        let mut receipt_message = wf_api::dynamic_context_message(format!(
-            "mention receipts: {}",
-            lines.join("; ")
-        ));
+        let mut receipt_message =
+            wf_api::dynamic_context_message(format!("mention receipts: {}", lines.join("; ")));
         if let Ok(json) = serde_json::to_string(&mention_receipts) {
             if let Some(metadata) = receipt_message.metadata.as_mut() {
                 metadata.insert(

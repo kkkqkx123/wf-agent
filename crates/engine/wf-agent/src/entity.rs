@@ -514,9 +514,7 @@ impl ExecutionEntity for AgentLoopEntity {
         self.hierarchy.ancestors()
     }
 
-    fn hierarchy_manager(
-        &self,
-    ) -> Option<Arc<wf_core::hierarchy::ExecutionHierarchyManager>> {
+    fn hierarchy_manager(&self) -> Option<Arc<wf_core::hierarchy::ExecutionHierarchyManager>> {
         Some(self.hierarchy.clone())
     }
 }

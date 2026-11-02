@@ -5250,6 +5250,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/llm/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Unified model listing across all registered providers. */
+        get: operations["handle_list_all_models"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/llm/profile-templates": {
         parameters: {
             query?: never;
@@ -5483,25 +5500,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Off-hot-path model listing for a provider definition. */
+        /** Off-hot-path unified model listing for a provider definition. */
         get: operations["handle_list_models"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/llm/models": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Unified model listing across all providers. */
-        get: operations["handle_list_all_models"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5968,6 +5968,54 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["handle_group_by"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_rag_diagnose"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_rag_preview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_rag_stats"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -9407,7 +9455,19 @@ export interface components {
         };
         ApiEnvelope_InfoView: {
             data?: {
+                allowed_image_media_types: string[];
                 apiVersion: string;
+                max_attachment_chars: number;
+                max_attachments_per_turn: number;
+                max_attachments_total_chars: number;
+                max_image_bytes: number;
+                /**
+                 * @description Single source for image limits: mirrors the unified validation
+                 *     in `wf-types::message`. Frontend reads these at runtime and falls
+                 *     back to builtins when talking to an older server.
+                 */
+                max_images_per_turn: number;
+                max_images_total_bytes: number;
                 name: string;
                 timestamp: string;
                 version: string;
@@ -10396,6 +10456,11 @@ export interface components {
         };
         /** @description Wire body of `/chat/stream`. */
         ChatRunBody: {
+            /**
+             * @description Structured text attachments of the turn. Validated like the agent
+             *     channel, then re-inlined with attributes for storage.
+             */
+            attachments?: unknown[] | null;
             /** @description Structured image payload of the turn. Absent stays a pure-text turn. */
             images?: unknown[] | null;
             /** @description The user text of this turn. */
@@ -11225,7 +11290,19 @@ export interface components {
             total_commits: number;
         };
         InfoView: {
+            allowed_image_media_types: string[];
             apiVersion: string;
+            max_attachment_chars: number;
+            max_attachments_per_turn: number;
+            max_attachments_total_chars: number;
+            max_image_bytes: number;
+            /**
+             * @description Single source for image limits: mirrors the unified validation
+             *     in `wf-types::message`. Frontend reads these at runtime and falls
+             *     back to builtins when talking to an older server.
+             */
+            max_images_per_turn: number;
+            max_images_total_bytes: number;
             name: string;
             timestamp: string;
             version: string;
@@ -11627,6 +11704,12 @@ export interface components {
          */
         RunAgentLoopBody: {
             agent_id?: string;
+            /**
+             * @description Structured text attachments of the turn. The server validates
+             *     counts, sizes and truncation markers, then re-inlines them with
+             *     attributes for storage so history stays a single user bubble.
+             */
+            attachments?: unknown[] | null;
             available_tool_names?: string[] | null;
             /**
              * Format: int32
@@ -38073,29 +38156,6 @@ export interface operations {
             };
         };
     };
-    handle_list_all_models: {
-        parameters: {
-            query?: {
-                refresh?: boolean;
-                enriched?: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
-                };
-            };
-        };
-    };
     handle_list_auth_providers: {
         parameters: {
             query?: never;
@@ -38821,6 +38881,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_list_all_models: {
+        parameters: {
+            query?: {
+                /** @description Bypass the discovery cache for one call. */
+                refresh?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -40428,8 +40555,8 @@ export interface operations {
     handle_list_models: {
         parameters: {
             query?: {
+                /** @description Bypass the discovery cache for one call. */
                 refresh?: boolean;
-                enriched?: boolean;
             };
             header?: never;
             path: {
@@ -43234,6 +43361,220 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_rag_diagnose: {
+        parameters: {
+            query: {
+                query: string;
+                top_k?: number;
+                filter_fields?: number;
+                score_threshold?: number;
+                /** @example kb */
+                collection?: string;
+                /** @example kb */
+                namespace?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_rag_preview: {
+        parameters: {
+            query: {
+                /** @example kb */
+                collection: string;
+                /** @example kb */
+                namespace: string;
+                query: string;
+                top_k?: number;
+                excerpt_chars?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_rag_stats: {
+        parameters: {
+            query: {
+                /** @example kb */
+                collection: string;
+                /** @example kb */
+                namespace: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */

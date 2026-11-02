@@ -26396,6 +26396,68 @@
         ]
       }
     },
+    "/api/v1/llm/models": {
+      "get": {
+        "tags": [
+          "llm"
+        ],
+        "summary": "Unified model listing across all registered providers.",
+        "operationId": "handle_list_all_models",
+        "parameters": [
+          {
+            "name": "refresh",
+            "in": "query",
+            "description": "Bypass the discovery cache for one call.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/llm/profile-templates": {
       "get": {
         "tags": [
@@ -27825,7 +27887,7 @@
         "tags": [
           "llm"
         ],
-        "summary": "Off-hot-path model listing for a provider definition.",
+        "summary": "Off-hot-path unified model listing for a provider definition.",
         "operationId": "handle_list_models",
         "parameters": [
           {
@@ -27839,18 +27901,10 @@
           {
             "name": "refresh",
             "in": "query",
+            "description": "Bypass the discovery cache for one call.",
             "required": false,
             "schema": {
               "type": "boolean"
-            }
-          },
-          {
-            "name": "enriched",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "nullable": true
             }
           }
         ],
@@ -30627,7 +30681,7 @@
           {
             "name": "top_k",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "integer",
               "minimum": 0
@@ -30636,7 +30690,7 @@
           {
             "name": "filter_fields",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "integer",
               "minimum": 0
@@ -30645,36 +30699,27 @@
           {
             "name": "score_threshold",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": [
-                "number",
-                "null"
-              ],
+              "type": "number",
               "format": "float"
             }
           },
           {
             "name": "collection",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "example": "kb"
           },
           {
             "name": "namespace",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             },
             "example": "kb"
           }
@@ -30759,7 +30804,7 @@
           {
             "name": "top_k",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "integer",
               "minimum": 0
@@ -30768,7 +30813,7 @@
           {
             "name": "excerpt_chars",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "integer",
               "minimum": 0
@@ -46379,86 +46424,6 @@
           },
           "403": {
             "description": "Forbidden: API key lacks access"
-          },
-          "429": {
-            "description": "Too many requests: rate limit exceeded (see Retry-After)"
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Service unavailable: resource limit reached"
-          },
-          "504": {
-            "description": "Gateway timeout: upstream operation timed out"
-          }
-        },
-        "security": [
-          {
-            "api_key": []
-          }
-        ]
-      }
-    },
-    "/api/v1/llm/models": {
-      "get": {
-        "tags": [
-          "llm"
-        ],
-        "summary": "Off-hot-path model listing for a provider definition.",
-        "operationId": "handle_list_all_models",
-        "parameters": [
-          {
-            "name": "refresh",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          },
-          {
-            "name": "enriched",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "nullable": true
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized: missing or invalid API key"
-          },
-          "403": {
-            "description": "Forbidden: API key lacks access"
-          },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
           },
           "429": {
             "description": "Too many requests: rate limit exceeded (see Retry-After)"

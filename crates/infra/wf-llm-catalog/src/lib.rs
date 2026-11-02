@@ -334,8 +334,6 @@ pub fn litellm_provider_for(provider_id: &str) -> Option<&'static str> {
     }
 }
 
-
-
 pub use providers::{
     builtin_provider_definitions, builtin_provider_ids, register_builtin_providers,
     BUILTIN_AMAZON_BEDROCK_ID, BUILTIN_ANTHROPIC_ID, BUILTIN_ANT_LING_ID, BUILTIN_AZURE_ID,
@@ -352,7 +350,6 @@ pub use providers::{
     BUILTIN_XIAOMI_TOKEN_PLAN_CN_ID, BUILTIN_XIAOMI_TOKEN_PLAN_SGP_ID, BUILTIN_ZAI_CODING_CN_ID,
     BUILTIN_ZAI_ID, OPENCODE_CLIENT_HEADER, OPENCODE_CLIENT_NAME, OPENCODE_SESSION_HEADER,
 };
-
 
 #[cfg(test)]
 mod tests {

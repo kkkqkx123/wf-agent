@@ -4,11 +4,10 @@
 // registration/override semantics owned by the engine.
 pub use wf_plugin_sdk::contributions::{
     parse_middleware_outcome, AuthDescriptor, CodecHttpRequest, MiddlewareOutcome, NextFn,
-    PluginAuthEvent, PluginAuthNext, PluginAuthOption, PluginAuthPrompt, PluginEventData,
-    PluginEventHandler, PluginExecutionContext, PluginLlmAuth, PluginLlmCodec, PluginLlmImages,
-    PluginLoginChallenge, PluginLoginStep, PluginMiddlewareHandler, PluginNodeHandler,
-    PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult,
-    PluginCompactionAdvisor,
+    PluginAuthEvent, PluginAuthNext, PluginAuthOption, PluginAuthPrompt, PluginCompactionAdvisor,
+    PluginEventData, PluginEventHandler, PluginExecutionContext, PluginLlmAuth, PluginLlmCodec,
+    PluginLlmImages, PluginLoginChallenge, PluginLoginStep, PluginMiddlewareHandler,
+    PluginNodeHandler, PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult,
 };
 
 // ============================================================

@@ -854,8 +854,6 @@ pub(crate) struct ListModelsQuery {
     /// Bypass the discovery cache for one call.
     #[serde(default)]
     pub refresh: bool,
-    /// Merge static table gaps into each entry. Defaults to true.
-    pub enriched: Option<bool>,
 }
 
 /// Off-hot-path unified model listing for a provider definition.
@@ -872,12 +870,8 @@ pub(crate) async fn handle_list_models(
     Path(path): Path<IdPath>,
     Query(query): Query<ListModelsQuery>,
 ) -> impl IntoResponse {
-    let enriched = query.enriched.unwrap_or(true);
-    let result = if enriched {
-        wf_api::llm::llm_provider::list_models_enriched(&state.ctx, &path.id, query.refresh).await
-    } else {
-        wf_api::llm::llm_provider::list_models(&state.ctx, &path.id).await
-    };
+    let result =
+        wf_api::llm::llm_provider::list_models_enriched(&state.ctx, &path.id, query.refresh).await;
     match result {
         Ok(models) => ok(models).into_response(),
         Err(e) => error_response(e),
@@ -897,16 +891,9 @@ pub(crate) async fn handle_list_all_models(
     State(state): State<ApiState>,
     Query(query): Query<ListModelsQuery>,
 ) -> impl IntoResponse {
-    if query.enriched.unwrap_or(true) {
-        match wf_api::llm::llm_provider::list_all_models_enriched(&state.ctx, query.refresh).await {
-            Ok(models) => ok(models).into_response(),
-            Err(e) => error_response(e),
-        }
-    } else {
-        match wf_api::llm::llm_provider::list_all_models(&state.ctx, query.refresh).await {
-            Ok(models) => ok(models).into_response(),
-            Err(e) => error_response(e),
-        }
+    match wf_api::llm::llm_provider::list_all_models_enriched(&state.ctx, query.refresh).await {
+        Ok(models) => ok(models).into_response(),
+        Err(e) => error_response(e),
     }
 }
 

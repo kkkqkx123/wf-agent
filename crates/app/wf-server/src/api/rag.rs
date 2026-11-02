@@ -86,12 +86,8 @@ pub(crate) async fn handle_rag_stats(
         Ok(handles) => handles,
         Err(e) => return error_response(e),
     };
-    match wf_api::rag::collection_stats(
-        handles.store.as_ref(),
-        &scope.collection,
-        &scope.namespace,
-    )
-    .await
+    match wf_api::rag::collection_stats(handles.store.as_ref(), &scope.collection, &scope.namespace)
+        .await
     {
         Ok(stats) => ok(stats).into_response(),
         Err(e) => error_response(e),
@@ -156,12 +152,8 @@ pub(crate) async fn handle_rag_diagnose(
     );
     if let (Some(collection), Some(namespace)) = (query.collection, query.namespace) {
         if let Some(handles) = state.ctx.rag_handles() {
-            if let Ok(stats) = wf_api::rag::collection_stats(
-                handles.store.as_ref(),
-                &collection,
-                &namespace,
-            )
-            .await
+            if let Ok(stats) =
+                wf_api::rag::collection_stats(handles.store.as_ref(), &collection, &namespace).await
             {
                 diagnosis.likely_causes.push(format!(
                     "namespace '{namespace}' in collection '{collection}' holds {} points",
@@ -206,12 +198,11 @@ mod tests {
     #[tokio::test]
     async fn rag_routes_report_unavailable_without_handles() {
         let ctx = ctx_without_rag();
-        let response = get(
-            ctx,
-            "/api/v1/rag/stats?collection=kb&namespace=kb",
-        )
-        .await;
-        assert_eq!(response.status(), axum::http::StatusCode::SERVICE_UNAVAILABLE);
+        let response = get(ctx, "/api/v1/rag/stats?collection=kb&namespace=kb").await;
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::SERVICE_UNAVAILABLE
+        );
         let body = json_body(response).await;
         assert_eq!(body["success"], false);
     }

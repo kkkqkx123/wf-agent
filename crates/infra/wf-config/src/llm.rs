@@ -110,11 +110,8 @@ pub fn load_llm_profile_file(path: &Path) -> ConfigResult<wf_types::llm::LlmProf
 }
 
 /// Load one provider-definition file.
-pub fn load_llm_provider_file(
-    path: &Path,
-) -> ConfigResult<wf_types::llm::LlmProviderDefinition> {
-    let definition: wf_types::llm::LlmProviderDefinition =
-        crate::parser::parse_config_file(path)?;
+pub fn load_llm_provider_file(path: &Path) -> ConfigResult<wf_types::llm::LlmProviderDefinition> {
+    let definition: wf_types::llm::LlmProviderDefinition = crate::parser::parse_config_file(path)?;
     crate::processor::llm_profile::validate_provider_definition(&definition)?;
     Ok(definition)
 }
@@ -148,7 +145,11 @@ fn family_candidate_files(dir: &Path) -> Vec<PathBuf> {
         for ext in ["toml", "json"] {
             let pattern = dir.join(format!("*.{ext}"));
             if let Ok(paths) = crate::loader::expand_glob_paths(&pattern.to_string_lossy()) {
-                out.extend(paths.into_iter().filter(|p| !crate::layout::is_example_path(p)));
+                out.extend(
+                    paths
+                        .into_iter()
+                        .filter(|p| !crate::layout::is_example_path(p)),
+                );
             }
         }
         out.sort();
@@ -163,9 +164,8 @@ fn ensure_strict_env(path: &Path, strict_env: bool) -> ConfigResult<()> {
         return Ok(());
     }
     let content = std::fs::read_to_string(path)?;
-    crate::env::ensure_no_unresolved_env_vars(&content).map_err(|e| {
-        ConfigError::EnvVar(format!("{} in {}", e, path.display()))
-    })
+    crate::env::ensure_no_unresolved_env_vars(&content)
+        .map_err(|e| ConfigError::EnvVar(format!("{} in {}", e, path.display())))
 }
 
 fn load_family_records<T: Clone>(
@@ -235,9 +235,7 @@ mod tests {
     }
 
     fn profile_toml(id: &str, model: &str) -> String {
-        format!(
-            "id = \"{id}\"\nname = \"{id}\"\nformat = \"openai_chat\"\nmodel = \"{model}\"\n"
-        )
+        format!("id = \"{id}\"\nname = \"{id}\"\nformat = \"openai_chat\"\nmodel = \"{model}\"\n")
     }
 
     #[test]

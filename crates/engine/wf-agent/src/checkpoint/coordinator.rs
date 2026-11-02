@@ -62,9 +62,7 @@ impl RestoredAgentLoop {
     /// the source id (childless roots record none, legacy snapshots predate
     /// it). The rebuilt handle is structural lineage only: the source is
     /// gone, so no live abort signal travels with it.
-    pub fn restored_source_manager(
-        &self,
-    ) -> Arc<wf_core::hierarchy::ExecutionHierarchyManager> {
+    pub fn restored_source_manager(&self) -> Arc<wf_core::hierarchy::ExecutionHierarchyManager> {
         use wf_types::execution::ExecutionType;
         match self.lineage.as_ref() {
             Some(hierarchy) => wf_core::hierarchy::ExecutionHierarchyManager::restore(

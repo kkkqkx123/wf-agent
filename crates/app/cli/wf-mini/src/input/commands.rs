@@ -469,7 +469,10 @@ mod tests {
                 "b.jpg".to_string(),
             ])))
         );
-        assert_eq!(parse_command("/image-detail"), Some(SlashCommand::ImageDetail(None)));
+        assert_eq!(
+            parse_command("/image-detail"),
+            Some(SlashCommand::ImageDetail(None))
+        );
         assert_eq!(
             parse_command("/image-detail high"),
             Some(SlashCommand::ImageDetail(Some("high".to_string())))

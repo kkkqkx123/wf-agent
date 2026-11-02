@@ -17,10 +17,7 @@ impl ContributionManager {
         self.tool_type_registry.all()
     }
 
-    pub fn get_compaction_advisor(
-        &self,
-        name: &str,
-    ) -> Option<Arc<dyn PluginCompactionAdvisor>> {
+    pub fn get_compaction_advisor(&self, name: &str) -> Option<Arc<dyn PluginCompactionAdvisor>> {
         self.compaction_advisor_registry.get(name)
     }
 

@@ -198,8 +198,7 @@ impl TriggerContext {
     /// sub-workflows cannot link ancestry without it.
     pub fn require_hierarchy_manager(
         &self,
-    ) -> crate::error::WorkflowResult<Arc<wf_core::hierarchy::ExecutionHierarchyManager>>
-    {
+    ) -> crate::error::WorkflowResult<Arc<wf_core::hierarchy::ExecutionHierarchyManager>> {
         self.hierarchy_manager.clone().ok_or_else(|| {
             crate::error::WorkflowError::TriggerError(
                 "triggered sub-workflow requires a parent hierarchy manager".to_string(),

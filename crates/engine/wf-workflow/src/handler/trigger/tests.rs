@@ -401,11 +401,10 @@ async fn test_trigger_execute_subworkflow() {
         reg.register_defaults(std::sync::Arc::new(wf_llm::LlmGateway::new()));
         reg.into_arc()
     };
-    let parent_manager =
-        std::sync::Arc::new(wf_core::hierarchy::ExecutionHierarchyManager::new(
-            "parent-exec-1".to_string(),
-            wf_types::execution::ExecutionType::Workflow,
-        ));
+    let parent_manager = std::sync::Arc::new(wf_core::hierarchy::ExecutionHierarchyManager::new(
+        "parent-exec-1".to_string(),
+        wf_types::execution::ExecutionType::Workflow,
+    ));
     let ctx = TriggerContext::new(parent_manager.execution_id(), "parent-wf-1".to_string())
         .with_handlers(handlers)
         .with_hierarchy_manager(parent_manager);

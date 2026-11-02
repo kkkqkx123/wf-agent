@@ -69,9 +69,10 @@ fn chord_to_key(chord: &config_keymap::Chord) -> Key {
 pub fn load_user_keymap() -> Keymap {
     let mut keymap = Keymap::new();
     let project_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let Ok(settings) =
-        config_keymap::load_and_merge_keymap_settings_opt(config_settings_dir().as_deref(), &project_root)
-    else {
+    let Ok(settings) = config_keymap::load_and_merge_keymap_settings_opt(
+        config_settings_dir().as_deref(),
+        &project_root,
+    ) else {
         return keymap;
     };
     for (ctx_name, commands) in &settings.bindings {

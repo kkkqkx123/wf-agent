@@ -7,6 +7,8 @@
 	import { t } from '#lib/i18n';
 	import type { Column } from '#lib/ui/components/table';
 	import type { ModelProfile, Provider } from '#lib/types/models';
+	import type { ProviderModel } from '#lib/services/resources';
+	import { listProviderModels } from '#lib/services/resources';
 	import { formatNumber } from '#lib/utils/format';
 
 	interface Props {
@@ -61,6 +63,81 @@
 			cellClass: 'tabular-nums text-caption',
 		},
 	];
+
+	const modelColumns: Column<ProviderModel>[] = [
+		{
+			key: 'id',
+			header: t('page.resources.models.columnModel'),
+			text: (model) => model.id,
+			cellClass: 'font-mono text-caption',
+		},
+		{
+			key: 'name',
+			header: t('page.resources.models.columnProfile'),
+			text: (model) => model.name ?? '—',
+			cellClass: 'text-caption',
+		},
+		{
+			key: 'context_window_size',
+			header: t('page.resources.models.columnContextWindow'),
+			align: 'right',
+			text: (model) =>
+				model.context_window_size === null || model.context_window_size === undefined
+					? '—'
+					: formatNumber(model.context_window_size),
+			cellClass: 'tabular-nums text-caption text-muted-foreground',
+		},
+		{
+			key: 'max_output_tokens',
+			header: t('page.resources.models.columnMaxOutput'),
+			align: 'right',
+			text: (model) =>
+				model.max_output_tokens === null || model.max_output_tokens === undefined
+					? '—'
+					: formatNumber(model.max_output_tokens),
+			cellClass: 'tabular-nums text-caption text-muted-foreground',
+		},
+	];
+
+	let selectedProviderId = $state<string>('');
+	let discoveredModels = $state<ProviderModel[]>([]);
+
+	$effect(() => {
+		if (providers.length > 0 && !providers.some((provider) => provider.id === selectedProviderId)) {
+			selectedProviderId = providers[0].id;
+		}
+	});
+	let loadingModels = $state(false);
+	let modelsError = $state<string | null>(null);
+	let refreshing = $state(false);
+
+	async function loadModels(refresh = false): Promise<void> {
+		if (!selectedProviderId) {
+			discoveredModels = [];
+			return;
+		}
+		loadingModels = true;
+		modelsError = null;
+		try {
+			discoveredModels = await listProviderModels(selectedProviderId, { refresh });
+		} catch (error) {
+			modelsError = error instanceof Error ? error.message : t('page.resources.loadFailed');
+			discoveredModels = [];
+		} finally {
+			loadingModels = false;
+			refreshing = false;
+		}
+	}
+
+	async function refreshModels(): Promise<void> {
+		refreshing = true;
+		await loadModels(true);
+	}
+
+	$effect(() => {
+		void selectedProviderId;
+		void loadModels(false);
+	});
 </script>
 
 <div class="space-y-3">
@@ -73,6 +150,60 @@
 			emptyDescription={t('page.resources.models.noProfilesDesc')}
 			virtualize={false}
 		/>
+	</Card>
+
+	<Card title={t('page.resources.models.discovered')}>
+		{#if providers.length === 0}
+			<EmptyState
+				icon="database"
+				title={t('page.resources.models.noProviders')}
+				description={t('page.resources.models.noProvidersDesc')}
+				class="py-6"
+			/>
+		{:else}
+			<div class="mb-3 flex flex-wrap items-center gap-2">
+				<label class="text-caption text-muted-foreground" for="model-provider-select">
+					{t('page.resources.models.selectProvider')}
+				</label>
+				<select
+					id="model-provider-select"
+					class="rounded-md border border-border bg-background px-2 py-1 text-caption"
+					bind:value={selectedProviderId}
+				>
+					{#each providers as provider (provider.id)}
+						<option value={provider.id}>{provider.name}</option>
+					{/each}
+				</select>
+				<button
+					type="button"
+					class="rounded-md border border-border px-2 py-1 text-caption hover:bg-muted disabled:opacity-50"
+					disabled={loadingModels || refreshing}
+					onclick={refreshModels}
+				>
+					{refreshing ? '…' : t('page.resources.models.refresh')}
+				</button>
+			</div>
+
+			{#if loadingModels}
+				<p class="text-caption text-muted-foreground">{t('page.resources.models.noDiscoveredDesc')}</p>
+			{:else if modelsError}
+				<p class="text-caption text-destructive">{modelsError}</p>
+			{:else if discoveredModels.length === 0}
+				<EmptyState
+					icon="database"
+					title={t('page.resources.models.noDiscovered')}
+					description={t('page.resources.models.noDiscoveredDesc')}
+					class="py-6"
+				/>
+			{:else}
+				<DataTable
+					columns={modelColumns}
+					rows={discoveredModels}
+					rowKey={(model) => model.id}
+					virtualize={false}
+				/>
+			{/if}
+		{/if}
 	</Card>
 
 	<Card title={t('page.resources.models.providers')}>

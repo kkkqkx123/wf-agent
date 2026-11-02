@@ -292,7 +292,7 @@ export interface ProviderModel {
 /** Unified model listing for one provider (cached, enriched by default). */
 export async function listProviderModels(
 	providerId: string,
-	options?: { refresh?: boolean; enriched?: boolean },
+	options?: { refresh?: boolean },
 ): Promise<ProviderModel[]> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/llm/providers/{id}/models', {
@@ -300,7 +300,6 @@ export async function listProviderModels(
 				path: { id: providerId },
 				query: {
 					refresh: options?.refresh ?? false,
-					enriched: options?.enriched ?? true,
 				},
 			},
 		}),
@@ -315,14 +314,12 @@ export async function listProviderModels(
 /** Unified model listing across all providers (failures omitted). */
 export async function listAllModels(options?: {
 	refresh?: boolean;
-	enriched?: boolean;
 }): Promise<Record<string, ProviderModel[]>> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/llm/models', {
 			params: {
 				query: {
 					refresh: options?.refresh ?? false,
-					enriched: options?.enriched ?? true,
 				},
 			},
 		}),

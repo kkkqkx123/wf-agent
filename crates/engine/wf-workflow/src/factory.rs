@@ -4,8 +4,7 @@ use crate::error::WorkflowResult;
 pub struct WorkflowExecutionBuilder {
     id: Option<wf_types::Id>,
     workflow_id: Option<wf_types::Id>,
-    hierarchy_manager:
-        Option<std::sync::Arc<wf_core::hierarchy::ExecutionHierarchyManager>>,
+    hierarchy_manager: Option<std::sync::Arc<wf_core::hierarchy::ExecutionHierarchyManager>>,
     execution_type: Option<wf_types::workflow_execution::WorkflowExecutionType>,
 }
 

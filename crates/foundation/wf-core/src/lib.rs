@@ -16,9 +16,7 @@ pub use failure_policy::{
     default_failure_policy_config, default_fallback_policy, default_retry_policy,
     FailurePolicyManager,
 };
-pub use hierarchy::{
-    ChildExecutionReference, ExecutionHierarchyManager, ParentExecutionContext,
-};
+pub use hierarchy::{ChildExecutionReference, ExecutionHierarchyManager, ParentExecutionContext};
 pub use internal_signal::{InternalSignal, InternalSignalBus, InternalSignalReceiver};
 pub use interruption::{InterruptionSignal, InterruptionState};
 pub use observable_registry::{ObservableRegistry, RegistryEventListener};

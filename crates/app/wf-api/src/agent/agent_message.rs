@@ -202,7 +202,6 @@ pub async fn get_message_stats(
     stats(ctx, agent_loop_id).await
 }
 
-
 /// Normalize an imported conversation before seeding a new agent turn:
 /// drop empty-text messages, de-duplicate by message id, and order by
 /// timestamp. Roles are preserved; system messages stay in place relative
@@ -250,7 +249,6 @@ pub async fn delete_by_agent_loop(ctx: &ApiContext, agent_loop_id: &str) -> ApiR
     }
     Ok(removed)
 }
-
 
 #[cfg(test)]
 mod tests {

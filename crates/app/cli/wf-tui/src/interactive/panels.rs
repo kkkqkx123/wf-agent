@@ -768,10 +768,8 @@ impl InteractiveController {
                     let notice = self.clear_staged_images();
                     self.footer.show_notice(notice);
                 } else {
-                    let specs: Vec<String> = trimmed
-                        .split_whitespace()
-                        .map(str::to_string)
-                        .collect();
+                    let specs: Vec<String> =
+                        trimmed.split_whitespace().map(str::to_string).collect();
                     let notice = self.stage_tui_images(&specs);
                     self.footer.show_notice(notice);
                 }

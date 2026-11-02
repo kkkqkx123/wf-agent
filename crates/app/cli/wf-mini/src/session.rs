@@ -852,7 +852,10 @@ impl NativeSession {
                         ));
                     }
                 }
-                output::diag_line(&format!("image detail for new stages: {}", Self::detail_label(self.staged_image_detail)));
+                output::diag_line(&format!(
+                    "image detail for new stages: {}",
+                    Self::detail_label(self.staged_image_detail)
+                ));
             }
             ImageArgs::Clear => {
                 self.staged_images.clear();

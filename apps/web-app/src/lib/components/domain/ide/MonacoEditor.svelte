@@ -1,12 +1,12 @@
 <script module lang="ts">
 	// Module-level model cache so switching tabs reuses models instead of
 	// re-parsing files. Bounded to keep memory stable when many files open.
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	type AnyMonaco = any;
+	type Monaco = typeof import('monaco-editor');
+	type MonacoModel = ReturnType<Monaco['editor']['createModel']>;
 
 	import { SvelteMap } from 'svelte/reactivity';
 
-	const ideModels = new SvelteMap<string, AnyMonaco>();
+	const ideModels = new SvelteMap<string, MonacoModel>();
 	const ideModelOrder: string[] = [];
 	const MAX_IDE_MODELS = 20;
 
@@ -16,7 +16,7 @@
 		ideModelOrder.push(key);
 	}
 
-	function rememberIdeModel(key: string, model: AnyMonaco): void {
+	function rememberIdeModel(key: string, model: MonacoModel): void {
 		ideModels.set(key, model);
 		touchIdeModel(key);
 		while (ideModelOrder.length > MAX_IDE_MODELS) {
@@ -79,7 +79,7 @@
 	let disposed = false;
 	let lastRevealedKey = '';
 
-	let monacoNs: AnyMonaco | null = null;
+	let monacoNs: Monaco | null = null;
 
 	let monacoWorkersReady = false;
 

@@ -56,10 +56,7 @@ pub fn user_config_dir() -> Option<PathBuf> {
 /// Callers resolve the global dir themselves (`user_config_dir` for
 /// workstation CLIs, an explicit `--settings-dir` for services) so loaders
 /// never read process environment on their own.
-pub fn user_layer_paths(
-    global_config_dir: Option<PathBuf>,
-    project_root: &Path,
-) -> Vec<PathBuf> {
+pub fn user_layer_paths(global_config_dir: Option<PathBuf>, project_root: &Path) -> Vec<PathBuf> {
     layer_paths(global_config_dir, project_root)
 }
 

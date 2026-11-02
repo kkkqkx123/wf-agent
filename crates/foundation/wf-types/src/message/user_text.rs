@@ -62,7 +62,12 @@ pub fn validate_user_attachments(attachments: &[UserTextAttachment]) -> Result<(
                 attachment.name.trim()
             ));
         }
-        if chars > MAX_TEXT_ATTACHMENT_CHARS && attachment.truncated && attachment.original_chars.is_none_or(|n| n <= MAX_TEXT_ATTACHMENT_CHARS) {
+        if chars > MAX_TEXT_ATTACHMENT_CHARS
+            && attachment.truncated
+            && attachment
+                .original_chars
+                .is_none_or(|n| n <= MAX_TEXT_ATTACHMENT_CHARS)
+        {
             return Err(format!(
                 "{field} '{}' is marked truncated but carries no larger original size",
                 attachment.name.trim()
@@ -105,10 +110,7 @@ fn escape_attachment_content(content: &str) -> String {
 /// stays a single user bubble and old readers that ignore attributes keep
 /// working. Truncation is explicit in the wire so the model never mistakes
 /// cut content for the full file.
-pub fn format_attachments_for_storage(
-    text: &str,
-    attachments: &[UserTextAttachment],
-) -> String {
+pub fn format_attachments_for_storage(text: &str, attachments: &[UserTextAttachment]) -> String {
     if attachments.is_empty() {
         return text.to_string();
     }

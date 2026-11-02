@@ -7,7 +7,8 @@ use super::checkpoint::{create_checkpoint, restore_and_resume, restore_checkpoin
 use super::graph::definition_to_graph;
 use super::lifecycle::{
     default_options, entry_timeout_ms, execute, resume, status, validate_workflow_input,
-    validate_workflow_input_with_variables_and_policy, ExecuteWorkflowParams, DEFAULT_EXECUTION_TIMEOUT_MS,
+    validate_workflow_input_with_variables_and_policy, ExecuteWorkflowParams,
+    DEFAULT_EXECUTION_TIMEOUT_MS,
 };
 use super::summary::execution_summaries;
 use crate::infra::context::ApiContext;
@@ -692,11 +693,10 @@ async fn execution_summaries_project_persisted_records() {
 
 #[tokio::test]
 async fn build_hierarchy_carries_depth_root_and_fork_path() {
-    let root_manager =
-        std::sync::Arc::new(wf_core::hierarchy::ExecutionHierarchyManager::new(
-            "root".to_string(),
-            wf_types::execution::ExecutionType::Workflow,
-        ));
+    let root_manager = std::sync::Arc::new(wf_core::hierarchy::ExecutionHierarchyManager::new(
+        "root".to_string(),
+        wf_types::execution::ExecutionType::Workflow,
+    ));
     let child_manager = root_manager
         .derive_child(
             "child".to_string(),

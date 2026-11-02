@@ -300,8 +300,7 @@ impl RagQueryHandler {
         };
         let variants = match &self.handles.rewriter {
             Some(rewriter) => {
-                let base =
-                    rag_core::rewrite_with_fallback(rewriter.as_ref(), &query_text).await;
+                let base = rag_core::rewrite_with_fallback(rewriter.as_ref(), &query_text).await;
                 rag_core::merge_variants(base, &extra_variants)
             }
             None => rag_core::merge_variants(vec![query_text.clone()], &extra_variants),
@@ -499,23 +498,15 @@ impl RagIngestHandler {
         let mut skip_count = 0_usize;
         let mut updated_hashes: Option<std::collections::HashMap<String, String>> = None;
         if incremental {
-            let decisions =
-                rag_core::decisions_for_documents(&documents, &indexed_hashes);
+            let decisions = rag_core::decisions_for_documents(&documents, &indexed_hashes);
             let pending = rag_core::pending_sources(&decisions);
             skip_count = decisions
                 .iter()
-                .filter(|decision| {
-                    matches!(decision.action, rag_core::SyncAction::Skip)
-                })
+                .filter(|decision| matches!(decision.action, rag_core::SyncAction::Skip))
                 .count();
             let incoming: std::collections::HashMap<String, String> = decisions
                 .iter()
-                .map(|decision| {
-                    (
-                        decision.source.clone(),
-                        decision.incoming_hash.clone(),
-                    )
-                })
+                .map(|decision| (decision.source.clone(), decision.incoming_hash.clone()))
                 .collect();
             for stale in rag_core::stale_sources(&incoming, &indexed_hashes) {
                 let _ = rag_core::pipeline::delete_source(
@@ -542,10 +533,7 @@ impl RagIngestHandler {
             let mut merged = indexed_hashes.clone();
             for decision in &decisions {
                 if pending.contains(&decision.source) {
-                    merged.insert(
-                        decision.source.clone(),
-                        decision.incoming_hash.clone(),
-                    );
+                    merged.insert(decision.source.clone(), decision.incoming_hash.clone());
                 }
             }
             updated_hashes = Some(merged);
@@ -591,9 +579,7 @@ impl RagIngestHandler {
             (config.hashes_output_variable.clone(), updated_hashes)
         {
             let value = serde_json::to_value(&hashes).map_err(|err| {
-                WorkflowError::OperationError(format!(
-                    "RAG hashes are not serializable: {err}"
-                ))
+                WorkflowError::OperationError(format!("RAG hashes are not serializable: {err}"))
             })?;
             ctx.set_variable(&variable, value)?;
         }
@@ -634,10 +620,7 @@ fn non_empty(value: Option<String>) -> Option<String> {
     value.filter(|text| !text.trim().is_empty())
 }
 
-fn read_string_list(
-    ctx: &NodeExecutionContext,
-    variable: &str,
-) -> WorkflowResult<Vec<String>> {
+fn read_string_list(ctx: &NodeExecutionContext, variable: &str) -> WorkflowResult<Vec<String>> {
     let raw = ctx.get_variable(variable).ok_or_else(|| {
         WorkflowError::OperationError(format!(
             "RAG_QUERY node requires a string list in variable '{variable}'"

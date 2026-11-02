@@ -40,9 +40,7 @@ impl std::fmt::Debug for RagHandles {
 }
 
 /// Requires retrieval handles or reports service unavailable.
-pub fn require_rag_handles(
-    handles: Option<&RagHandles>,
-) -> ApiResult<RagHandles> {
+pub fn require_rag_handles(handles: Option<&RagHandles>) -> ApiResult<RagHandles> {
     handles.cloned().ok_or_else(|| {
         ApiError::execution_categorized(
             "Retrieval service is not configured",

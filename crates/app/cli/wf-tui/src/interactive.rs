@@ -779,9 +779,13 @@ impl InteractiveController {
     /// List staged images for the next turn.
     pub fn staged_image_lines(&self) -> Vec<String> {
         if self.staged_images.is_empty() {
-            return vec![format!("no staged images (usage: /image <path-or-url>...) [detail: {}]", Self::image_detail_label(self.staged_image_detail))];
+            return vec![format!(
+                "no staged images (usage: /image <path-or-url>...) [detail: {}]",
+                Self::image_detail_label(self.staged_image_detail)
+            )];
         }
-        let mut lines: Vec<String> = self.staged_images
+        let mut lines: Vec<String> = self
+            .staged_images
             .iter()
             .enumerate()
             .map(|(index, image)| {
@@ -793,7 +797,10 @@ impl InteractiveController {
                 )
             })
             .collect();
-        lines.push(format!("detail for new stages: {}", Self::image_detail_label(self.staged_image_detail)));
+        lines.push(format!(
+            "detail for new stages: {}",
+            Self::image_detail_label(self.staged_image_detail)
+        ));
         lines
     }
 

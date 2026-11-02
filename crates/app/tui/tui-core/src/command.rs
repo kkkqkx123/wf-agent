@@ -390,7 +390,8 @@ pub static COMMANDS: &[CommandSpec] = &[
         id: "session.image_detail",
         title: "Image Detail",
         group: "Session",
-        description: "Detail for newly staged images (/image-detail [auto|low|high|original|clear])",
+        description:
+            "Detail for newly staged images (/image-detail [auto|low|high|original|clear])",
         action: None,
         scopes: &[],
         leader: &[],

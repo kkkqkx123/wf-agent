@@ -431,3 +431,67 @@ async fn persist_enforces_retention_count() {
         "retention keeps the newest checkpoint"
     );
 }
+
+#[tokio::test]
+async fn pending_absent_counts_as_idle_zero() {
+    let idle = make_snapshot();
+    assert_eq!(
+        snapshot_progress_coords(&idle).pending_count,
+        Some(0),
+        "no flight window reads as zero, never as absent"
+    );
+}
+
+#[tokio::test]
+async fn content_policy_strips_excluded_auxiliary_domains() {
+    use wf_types::checkpoint::CheckpointContentConfig;
+
+    let policy = UnifiedCheckpointPolicy {
+        enabled: true,
+        triggers: vec![CheckpointTiming::AfterExecute],
+        content: Some(CheckpointContentConfig {
+            include_state: Some(false),
+            include_history: Some(false),
+            include_statistics: Some(false),
+            metadata: None,
+            asynchronous: None,
+        }),
+        retention: None,
+        error_handling: None,
+    };
+    let coord = make_coordinator().with_strategy(&policy);
+    let mut snapshot = make_snapshot();
+    snapshot.tool_call_history = Some(vec![serde_json::json!({"tool": "demo"})]);
+    snapshot.error = Some("boom".to_string());
+    snapshot.iteration_history = Some(vec![serde_json::json!({"iteration": 1})]);
+    let ctx = coord
+        .prepare("loop-1", CheckpointTiming::AfterExecute)
+        .await
+        .unwrap();
+    let checkpoint = coord.build(ctx, snapshot).await.unwrap();
+    let stored = checkpoint
+        .snapshot
+        .expect("first build is a full checkpoint");
+    assert!(stored.tool_call_history.is_none());
+    assert!(stored.error.is_none());
+    assert!(stored.iteration_history.is_none());
+    assert_eq!(stored.agent_loop_id, "loop-1");
+    assert_eq!(stored.current_iteration, 1);
+
+    let control = make_coordinator();
+    let mut kept = make_snapshot();
+    kept.tool_call_history = Some(vec![serde_json::json!({"tool": "demo"})]);
+    let ctx = control
+        .prepare("loop-1", CheckpointTiming::AfterExecute)
+        .await
+        .unwrap();
+    let checkpoint = control.build(ctx, kept).await.unwrap();
+    assert!(
+        checkpoint
+            .snapshot
+            .expect("control keeps the snapshot")
+            .tool_call_history
+            .is_some(),
+        "no strategy means no filtering"
+    );
+}

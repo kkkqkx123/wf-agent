@@ -697,3 +697,104 @@ pub(crate) fn collect_baseline_closure(
     }
     Ok(ids)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ref_name_validation_rejects_operators_and_padding() {
+        for valid in ["main", "feature/x", "v1.2.3", "a-b_c/d"] {
+            check_ref_name(valid).expect("plain ref name must pass");
+        }
+        for invalid in [
+            "",
+            "a..b",
+            "-lead",
+            ".lead",
+            "trail/",
+            "x.lock",
+            "has space",
+            "a~1",
+            "a^1",
+            "a:b",
+            "a?b",
+            "a*b",
+            "a[1]",
+            "a\\b",
+            "a@b",
+            "a@{1}",
+            "a//b",
+        ] {
+            assert!(
+                check_ref_name(invalid).is_err(),
+                "ref name must be rejected: '{invalid}'"
+            );
+        }
+        assert!(
+            check_ref_name(&"a".repeat(300)).is_err(),
+            "overlong ref names are rejected"
+        );
+    }
+
+    #[test]
+    fn commit_prefix_validation_requires_hex_and_length() {
+        for valid in ["abcd", "ABCDEF1234", &"a".repeat(40)] {
+            check_commit_prefix(valid).expect("hex prefix must pass");
+        }
+        for invalid in ["abc", &"a".repeat(41), "zzzz", "abcd ", "0x1234"] {
+            assert!(
+                check_commit_prefix(invalid).is_err(),
+                "commit prefix must be rejected: '{invalid}'"
+            );
+        }
+    }
+
+    #[test]
+    fn tag_ref_name_resolves_plain_names_and_rejects_namespaces() {
+        assert_eq!(tag_ref_name("v1").unwrap(), "refs/tags/v1");
+        assert_eq!(tag_ref_name("refs/tags/v1").unwrap(), "refs/tags/v1");
+        assert!(
+            tag_ref_name("refs/heads/main").is_err(),
+            "branch namespace never resolves as a tag"
+        );
+        assert!(
+            tag_ref_name("refs/tags/").is_err(),
+            "empty tag name is rejected"
+        );
+    }
+
+    #[test]
+    fn pid_zero_and_absent_pids_are_never_alive() {
+        assert!(!pid_alive(0));
+        assert!(!pid_alive(u32::MAX));
+        assert!(
+            pid_alive(std::process::id()),
+            "the test process itself is alive"
+        );
+    }
+
+    #[test]
+    fn parse_lock_pid_reads_pid_token() {
+        let dir = tempfile::tempdir().expect("fixture tempdir");
+        let pid_file = dir.path().join("lock");
+        std::fs::write(&pid_file, "pid=4242\n").unwrap();
+        assert_eq!(parse_lock_pid(&pid_file), Some(4242));
+
+        let junk = dir.path().join("junk");
+        std::fs::write(&junk, "no pid here").unwrap();
+        assert_eq!(parse_lock_pid(&junk), None);
+        assert_eq!(parse_lock_pid(&dir.path().join("missing")), None);
+    }
+
+    #[test]
+    fn missing_lock_file_leans_stale() {
+        assert!(
+            lock_file_is_stale(
+                std::path::Path::new("/definitely/missing/lock"),
+                std::time::Duration::from_secs(60)
+            ),
+            "unreadable locks never block progress forever"
+        );
+    }
+}

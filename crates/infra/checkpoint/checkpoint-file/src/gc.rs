@@ -107,3 +107,59 @@ pub struct GcReport {
     /// Watermark observed after the sweep.
     pub watermark_after: StoreWatermark,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gc_stats_default_counts_are_zero() {
+        let stats = GcStats::new();
+        assert_eq!(stats.removed_checkpoints, 0);
+        assert_eq!(stats.removed_snapshots, 0);
+        assert_eq!(stats.reclaimed_snapshots, 0);
+        assert_eq!(stats.removed_edit_refs, 0);
+        assert_eq!(stats.packed_objects, 0);
+        assert_eq!(stats, GcStats::default());
+    }
+
+    #[test]
+    fn gc_retention_default_protects_only_reachable() {
+        assert_eq!(GcRetention::default().keep_recent_heads, 0);
+    }
+
+    #[test]
+    fn store_stats_serde_roundtrip_preserves_last_gc() {
+        let stats = StoreStats {
+            commits: 3,
+            refs: 2,
+            loose_objects: 9,
+            store_bytes: 1024,
+            last_gc_ms: Some(1_700_000_000_000),
+        };
+        let back: StoreStats =
+            serde_json::from_slice(&serde_json::to_vec(&stats).unwrap()).unwrap();
+        assert_eq!(back, stats);
+    }
+
+    #[test]
+    fn gc_report_carries_stats_and_watermark() {
+        let report = GcReport {
+            stats: GcStats {
+                removed_checkpoints: 1,
+                ..GcStats::new()
+            },
+            watermark_after: StoreWatermark {
+                loose_objects: 4,
+                reachable_commits: 3,
+                reclaimable_commits: 1,
+                last_gc_ms: None,
+            },
+        };
+        assert_eq!(report.stats.removed_checkpoints, 1);
+        assert_eq!(report.watermark_after.reclaimable_commits, 1);
+        let back: GcReport = serde_json::from_slice(&serde_json::to_vec(&report).unwrap()).unwrap();
+        assert_eq!(back.stats, report.stats);
+        assert_eq!(back.watermark_after, report.watermark_after);
+    }
+}

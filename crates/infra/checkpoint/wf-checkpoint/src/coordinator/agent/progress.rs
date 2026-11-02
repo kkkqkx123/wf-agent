@@ -122,3 +122,91 @@ fn pending_call_count(snapshot: &AgentStateSnapshot) -> u64 {
         .map(|ids| ids.len() as u64)
         .unwrap_or(0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wf_types::checkpoint::{CheckpointStatus, CheckpointType};
+
+    fn meta_with(fields: Option<HashMap<String, serde_json::Value>>) -> CheckpointStorageMetadata {
+        CheckpointStorageMetadata {
+            id: "cp-1".to_string(),
+            entity_type: "agent_loop".to_string(),
+            entity_id: "loop-1".to_string(),
+            parent_entity_id: None,
+            checkpoint_type: CheckpointType::Full,
+            timestamp: 0,
+            status: CheckpointStatus::Completed,
+            previous_checkpoint_id: None,
+            base_checkpoint_id: None,
+            chain_root_id: None,
+            chain_position: None,
+            blob_size: None,
+            tags: None,
+            custom_fields: fields,
+        }
+    }
+
+    #[test]
+    fn legacy_rows_without_coordinate_fields_never_match() {
+        let legacy = progress_coords(&meta_with(None));
+        assert_eq!(
+            legacy,
+            ProgressCoords {
+                seq_start: None,
+                seq_end: None,
+                seq_next: None,
+                iteration: None,
+                tool_call_count: None,
+                loop_status: None,
+                pending_count: None,
+            }
+        );
+        let fresh = ProgressCoords {
+            seq_start: Some(1),
+            seq_end: Some(2),
+            seq_next: Some(3),
+            iteration: Some(1),
+            tool_call_count: Some(0),
+            loop_status: Some("running".to_string()),
+            pending_count: Some(0),
+        };
+        assert_ne!(
+            legacy, fresh,
+            "pre-coordinate rows stay fail-open for dedup"
+        );
+    }
+
+    #[test]
+    fn explicit_nulls_read_as_absent() {
+        let coords = ProgressCoords {
+            seq_start: None,
+            seq_end: None,
+            seq_next: None,
+            iteration: None,
+            tool_call_count: None,
+            loop_status: None,
+            pending_count: None,
+        };
+        let back = progress_coords(&meta_with(Some(coords.as_fields())));
+        assert_eq!(
+            back, coords,
+            "None renders as JSON null and reads back as absent"
+        );
+    }
+
+    #[test]
+    fn coordinate_fields_roundtrip() {
+        let coords = ProgressCoords {
+            seq_start: Some(7),
+            seq_end: Some(9),
+            seq_next: Some(10),
+            iteration: Some(3),
+            tool_call_count: Some(5),
+            loop_status: Some("completed".to_string()),
+            pending_count: Some(2),
+        };
+        let back = progress_coords(&meta_with(Some(coords.as_fields())));
+        assert_eq!(back, coords);
+    }
+}

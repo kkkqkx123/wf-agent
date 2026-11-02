@@ -494,3 +494,39 @@ fn corrupt_anchor_is_an_error_for_validation_and_total_for_hot_paths() {
     assert!(store.baseline_anchor_id().is_none());
     assert!(store.baseline_anchor_oid().is_none());
 }
+
+#[test]
+fn locator_descriptions_pin_audit_identity() {
+    assert_eq!(
+        BaselineLocator::BranchTip("main".to_string()).describe("abc"),
+        "branch main tip"
+    );
+    assert_eq!(
+        BaselineLocator::BranchPinned {
+            branch: "main".to_string(),
+            commit: "ab12".to_string(),
+        }
+        .describe("ff00"),
+        "branch main pinned to commit ff00"
+    );
+    assert_eq!(
+        BaselineLocator::BranchAncestor {
+            branch: "main".to_string(),
+            behind: 3,
+        }
+        .describe("ff00"),
+        "branch main first-parent ancestor 3"
+    );
+    assert_eq!(
+        BaselineLocator::Commit("ab12".to_string()).describe("ff00"),
+        "pinned commit ff00"
+    );
+    assert_eq!(
+        BaselineLocator::Tag {
+            name: "v1".to_string(),
+            reference: "refs/tags/v1".to_string(),
+        }
+        .describe("ff00"),
+        "tag v1 -> ff00"
+    );
+}

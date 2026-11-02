@@ -521,3 +521,111 @@ fn oversized_files_are_opaque_to_capture_and_restore() {
         "oversized file is never deleted"
     );
 }
+
+fn conflicting_feature(manager: &FileCheckpointManager) -> String {
+    // Agent 1 merges cleanly; agent 2 edits the same line differently.
+    manager
+        .create_checkpoint("exec-1", &[entry("a.txt", b"base\nline2\n")])
+        .unwrap();
+    manager
+        .create_checkpoint("exec-1", &[entry("a.txt", b"one\nline2\n")])
+        .unwrap();
+    manager.merge_entity_changes("exec-1", "feature-1").unwrap();
+    manager
+        .create_checkpoint("exec-2", &[entry("a.txt", b"base\nline2\n")])
+        .unwrap();
+    manager
+        .create_checkpoint("exec-2", &[entry("a.txt", b"two\nline2\n")])
+        .unwrap();
+    manager
+        .git_ref()
+        .unwrap()
+        .read_ref(&crate::git_store::feat_ref_for_name("feature-1"))
+        .unwrap()
+        .expect("clean merge leaves a feature head")
+}
+
+#[test]
+fn fail_behavior_aborts_file_level_conflict() {
+    let manager = manager();
+    let before = conflicting_feature(&manager);
+    let err = manager
+        .approve_changes(
+            "exec-2",
+            "feature-1",
+            Some(vec!["a.txt".to_string()]),
+            ConflictBehavior::Fail,
+            None,
+        )
+        .unwrap_err();
+    match err {
+        CheckpointError::MergeConflict { files, .. } => {
+            assert_eq!(files, vec!["a.txt".to_string()]);
+        }
+        other => panic!("expected MergeConflict, got {other:?}"),
+    }
+    assert_eq!(
+        manager
+            .git_ref()
+            .unwrap()
+            .read_ref(&crate::git_store::feat_ref_for_name("feature-1"))
+            .unwrap()
+            .as_deref(),
+        Some(before.as_str()),
+        "aborted approval never advances the feature ref"
+    );
+}
+
+#[test]
+fn fail_behavior_aborts_full_batch_conflict() {
+    let manager = manager();
+    let before = conflicting_feature(&manager);
+    let err = manager
+        .approve_changes("exec-2", "feature-1", None, ConflictBehavior::Fail, None)
+        .unwrap_err();
+    assert!(
+        matches!(err, CheckpointError::MergeConflict { .. }),
+        "full-batch Fail surfaces the conflict: {err:?}"
+    );
+    assert_eq!(
+        manager
+            .git_ref()
+            .unwrap()
+            .read_ref(&crate::git_store::feat_ref_for_name("feature-1"))
+            .unwrap()
+            .as_deref(),
+        Some(before.as_str())
+    );
+}
+
+#[test]
+fn approval_behavior_keeps_file_level_submission_pending() {
+    let manager = manager();
+    manager
+        .create_checkpoint("exec-1", &[entry("a.txt", b"one")])
+        .unwrap();
+    let outcome = manager
+        .approve_changes(
+            "exec-1",
+            "feature-1",
+            Some(vec!["a.txt".to_string()]),
+            ConflictBehavior::Approval,
+            None,
+        )
+        .unwrap();
+    assert!(!outcome.merged);
+    assert!(outcome.conflict_files.is_empty());
+    assert!(
+        !manager.list_pending_approvals().unwrap().is_empty(),
+        "Approval routing keeps the submission on the review ref"
+    );
+    assert!(
+        manager
+            .git_ref()
+            .unwrap()
+            .read_ref(&crate::git_store::feat_ref_for_name("feature-1"))
+            .unwrap()
+            .is_none(),
+        "nothing advances the feature ref"
+    );
+}

@@ -102,3 +102,115 @@ impl FileCheckpointManager {
             .map_err(crate::file::git_write::map_git_error)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn files(pairs: &[(&str, &[u8])]) -> HashMap<String, Vec<u8>> {
+        pairs
+            .iter()
+            .map(|(path, bytes)| (path.to_string(), bytes.to_vec()))
+            .collect()
+    }
+
+    fn manager() -> FileCheckpointManager {
+        FileCheckpointManager::new_in_memory().expect("in-memory manager")
+    }
+
+    #[test]
+    fn context_archive_ref_sanitizes_entity_id() {
+        assert_eq!(
+            context_archive_ref("agent:loop-1"),
+            "refs/wf/context/agent_loop-1"
+        );
+        assert_eq!(
+            context_archive_ref("wf:exec-1/child:sub-1"),
+            "refs/wf/context/wf_exec-1_child_sub-1"
+        );
+        assert_eq!(
+            context_archive_ref("plain-id_2"),
+            "refs/wf/context/plain-id_2"
+        );
+        assert_eq!(context_archive_ref(""), "refs/wf/context/");
+        let dirty = context_archive_ref("a/b:c d");
+        assert!(
+            dirty.starts_with("refs/wf/context/"),
+            "archive refs stay under the context namespace"
+        );
+        assert!(
+            !dirty.contains(':') && !dirty.contains(' '),
+            "unsafe ref characters are replaced: {dirty}"
+        );
+    }
+
+    #[test]
+    fn archive_write_read_roundtrip() {
+        let manager = manager();
+        let outcome = manager
+            .archive_write_files("exec-1", &files(&[("a.txt", b"one"), ("b.txt", b"two")]))
+            .unwrap();
+        assert_eq!(outcome.blobs.len(), 2);
+        let paths: Vec<&str> = outcome
+            .blobs
+            .iter()
+            .map(|(path, _)| path.as_str())
+            .collect();
+        assert_eq!(paths, vec!["a.txt", "b.txt"], "blobs follow sorted paths");
+
+        assert_eq!(
+            manager.archive_read_file("exec-1", "a.txt").unwrap(),
+            b"one"
+        );
+        let blob = outcome
+            .blobs
+            .iter()
+            .find(|(path, _)| path == "b.txt")
+            .expect("b.txt blob")
+            .1
+            .clone();
+        assert_eq!(manager.archive_read_blob(&blob).unwrap(), b"two");
+    }
+
+    #[test]
+    fn archive_read_missing_reports_not_found() {
+        let manager = manager();
+        let err = manager
+            .archive_read_file("never-archived", "a.txt")
+            .unwrap_err();
+        assert!(
+            matches!(err, CheckpointError::NotFound { .. }),
+            "missing archive ref is not-found, never an empty read: {err:?}"
+        );
+
+        manager
+            .archive_write_files("exec-1", &files(&[("a.txt", b"one")]))
+            .unwrap();
+        let err = manager.archive_read_file("exec-1", "nope.txt").unwrap_err();
+        assert!(
+            matches!(err, CheckpointError::NotFound { .. }),
+            "missing archive path is not-found: {err:?}"
+        );
+    }
+
+    #[test]
+    fn archive_blobs_deduplicate_identical_content() {
+        let manager = manager();
+        let first = manager
+            .archive_write_files("exec-1", &files(&[("a.txt", b"same"), ("b.txt", b"same")]))
+            .unwrap();
+        assert_eq!(
+            first.blobs[0].1, first.blobs[1].1,
+            "identical content shares one content-addressed blob"
+        );
+
+        let second = manager
+            .archive_write_files("exec-1", &files(&[("a.txt", b"same")]))
+            .unwrap();
+        assert_eq!(
+            second.blobs[0].1, first.blobs[0].1,
+            "blob ids stay stable across archive writes"
+        );
+    }
+}

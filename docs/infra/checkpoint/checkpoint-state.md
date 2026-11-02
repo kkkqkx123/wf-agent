@@ -79,5 +79,8 @@ restore/
 
 ## 单元测试覆盖
 
-- `state/storage/tests/loader.rs`：`CheckpointLoader` 适配——原始字节 roundtrip（不解码直出）、索引元数据解析、`entityId` 缺省回退 `unknown`、缺 timestamp 报 `Corrupted`；
-- `state/storage/tests/listing.rs`：`list_by_entity_paged` 按时间序切片、分页拼接等于全量列表、越界/零 limit 返回空窗口；`count_by_entity` 按实体隔离计数并随删除下降。
+- `state/storage/tests/`：`loader.rs`（`CheckpointLoader` 适配——原始字节 roundtrip、索引元数据解析、`entityId` 缺省回退、缺 timestamp 报 `Corrupted`）、`listing.rs`（分页切片与拼接、越界/零 limit、`count_by_entity` 隔离）、`lifecycle.rs`（存取删全周期）、`delta_chain.rs`（增量链推导与压缩）、`cleanup.rs`（按实体清理与水位线）；
+- `restore/`：`hierarchy/tests.rs`（发现/解析/事务/回滚/补偿）、`registry.rs`（注册与分发）；
+- `state/{agent,workflow}.rs`：管理器构造与 `list_latest_by_entities` 批量查询。
+
+`chain` / `cleanup` / `metadata` / `query` / `loader` 五子模块本身无文件级单测，由 `storage/tests/*` 从行为侧覆盖。

@@ -137,3 +137,70 @@ pub fn snapshot_workflow_coords(
         trigger_states_hash: Some(fingerprint_option(&snapshot.trigger_states)),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wf_types::checkpoint::{CheckpointStatus, CheckpointType};
+
+    fn meta_with(fields: Option<HashMap<String, serde_json::Value>>) -> CheckpointStorageMetadata {
+        CheckpointStorageMetadata {
+            id: "cp-1".to_string(),
+            entity_type: "workflow".to_string(),
+            entity_id: "wf-1".to_string(),
+            parent_entity_id: None,
+            checkpoint_type: CheckpointType::Full,
+            timestamp: 0,
+            status: CheckpointStatus::Completed,
+            previous_checkpoint_id: None,
+            base_checkpoint_id: None,
+            chain_root_id: None,
+            chain_position: None,
+            blob_size: None,
+            tags: None,
+            custom_fields: fields,
+        }
+    }
+
+    #[test]
+    fn legacy_rows_without_coordinate_fields_never_match() {
+        let legacy = workflow_progress_coords(&meta_with(None));
+        assert_eq!(
+            legacy,
+            WorkflowProgressCoords {
+                status: None,
+                current_node: None,
+                node_results_hash: None,
+                variables_hash: None,
+                record_count: None,
+                trigger_states_hash: None,
+            }
+        );
+        let fresh = WorkflowProgressCoords {
+            status: Some("running".to_string()),
+            current_node: Some("node-a".to_string()),
+            node_results_hash: Some("abc".to_string()),
+            variables_hash: Some("def".to_string()),
+            record_count: Some(2),
+            trigger_states_hash: Some("ghi".to_string()),
+        };
+        assert_ne!(
+            legacy, fresh,
+            "pre-coordinate rows stay fail-open for dedup"
+        );
+    }
+
+    #[test]
+    fn coordinate_fields_roundtrip() {
+        let coords = WorkflowProgressCoords {
+            status: Some("running".to_string()),
+            current_node: Some("node-a".to_string()),
+            node_results_hash: Some("abc".to_string()),
+            variables_hash: Some("def".to_string()),
+            record_count: Some(2),
+            trigger_states_hash: Some("ghi".to_string()),
+        };
+        let back = workflow_progress_coords(&meta_with(Some(coords.as_fields())));
+        assert_eq!(back, coords);
+    }
+}

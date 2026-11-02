@@ -94,8 +94,15 @@ workflow/    WorkflowCheckpointCoordinator(+ content_policy / progress / restore
 
 ## 单元测试覆盖（内联）
 
-- `coordinator/agent/tests/`：恢复（含旧格式迁移、版本不兼容拒绝、delta 链与断链回退全量）、创建去重、报告、并发创建（同实体并发全部成功、previous 链无悬挂、最新可恢复）；
+- `coordinator/agent/tests/`：恢复（含旧格式迁移、版本不兼容拒绝、delta 链与断链回退全量）、创建去重、`content_policy` 排除域剥离与无策略对照、`pending_count` 缺席记零、报告、并发创建（同实体并发全部成功、previous 链无悬挂、最新可恢复）；
 - `coordinator/base.rs`：`reuse_duplicate_checkpoint` 语义——描述变更合并回最新行（写 blob `customFields.description`）、描述不变直接复用、目标被清理时报 `NotFound` 并发 `Skipped` 事件；
+- `coordinator/persist.rs`：严格默认上抛 + 发布 `Failed`、显式宽松吞错但仍发布、删除缺失行无事件、删除成功发布 `Deleted`；
+- `coordinator/migration.rs`：未知 id `NotFound`、缺版本 `Validation`、未来版本 `VersionIncompatible`、当前版本直返不读 raw、已注册迁移按原始字节重写、缺 handler 拒绝；
+- `coordinator/events.rs`：总线缺失静默跳过、Created 字段形状、`Failed` 与 `Skipped` 区分；
+- `coordinator/child_restore.rs`：瞬时失败重试、持续失败 best-effort 上报、Strict 上抛，另有空输入零汇总、未注册类型/缺字节跳过、多子级并发恢复；
+- `coordinator/{agent,workflow}/progress.rs`：历史行无坐标永不命中、新旧坐标 roundtrip；
 - `coordinator/projection.rs`：文件投影跳过规则三态与各路径快照保存；
 - `coordinator/queue.rs`：持久化队列有界排空与积压 `Skipped` 事件；
 - `coordinator/agent/timeline.rs`：timeline 行模型——坐标字段读取、触发标签 wire 表解析（含未知 wire 显式标记）、按序列末端排序、无末端行排末尾。
+
+已知缺口：子级恢复深度上限（8）在当前单层调用点不可达，缺少多层嵌套的遍历用例；`content_policy` 仅覆盖 Agent 侧，Workflow 侧过滤靠对称实现，需补同构用例。

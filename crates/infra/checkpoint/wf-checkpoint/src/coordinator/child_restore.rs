@@ -104,6 +104,11 @@ where
 /// checkpointed, including ones spawned after the parent's own last
 /// persist. `load_bytes` resolves a checkpoint id to its raw bytes.
 ///
+/// The input holds direct children only (queried by immediate parent), so
+/// the breadth-first walk below traverses a single level here; the depth
+/// limit still guards the shared discovery against deeper hierarchies fed
+/// through other entries.
+///
 /// Every failure is recorded in the returned summary and published on the
 /// checkpoint event bus. `ChildRestorePolicy::Strict` turns any failure into
 /// an error; the default keeps the parent restore successful.
@@ -378,5 +383,133 @@ mod tests {
         .unwrap_err();
 
         assert!(matches!(err, CheckpointError::Coordinator(_)));
+    }
+}
+
+#[cfg(test)]
+mod extra_tests {
+    use super::*;
+    use checkpoint_state::restore::registry::RestoreFn;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use wf_types::checkpoint::{CheckpointStatus, CheckpointType};
+
+    fn child_meta(checkpoint_id: &str, entity_id: &str, parent: &str) -> CheckpointStorageMetadata {
+        CheckpointStorageMetadata {
+            id: checkpoint_id.to_string(),
+            entity_type: "child".to_string(),
+            entity_id: entity_id.to_string(),
+            parent_entity_id: Some(parent.to_string()),
+            checkpoint_type: CheckpointType::Full,
+            timestamp: 0,
+            status: CheckpointStatus::Completed,
+            previous_checkpoint_id: None,
+            base_checkpoint_id: None,
+            chain_root_id: None,
+            chain_position: None,
+            blob_size: None,
+            tags: None,
+            custom_fields: None,
+        }
+    }
+
+    fn ok_handler(calls: Arc<AtomicUsize>) -> RestoreFn {
+        Arc::new(move |_id, _data| {
+            let calls = Arc::clone(&calls);
+            Box::pin(async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(serde_json::json!({"ok": true}))
+            })
+        })
+    }
+
+    #[tokio::test]
+    async fn empty_input_returns_zero_summary() {
+        let summary = collect_child_restore(
+            Vec::new(),
+            "cp-parent",
+            "parent-1",
+            None,
+            ChildRestorePolicy::BestEffort,
+            None,
+            |_id: String| async move { Ok(None) },
+        )
+        .await
+        .unwrap();
+        assert_eq!(summary.total, 0);
+        assert_eq!(summary.success, 0);
+        assert_eq!(summary.failed, 0);
+        assert_eq!(summary.restored, 0);
+    }
+
+    #[tokio::test]
+    async fn unregistered_entity_type_skips_without_restore() {
+        let summary = collect_child_restore(
+            vec![child_meta("cp-child", "child-1", "parent-1")],
+            "cp-parent",
+            "parent-1",
+            None,
+            ChildRestorePolicy::BestEffort,
+            None,
+            |_id: String| async move { Ok(Some(vec![1u8, 2, 3])) },
+        )
+        .await
+        .unwrap();
+        assert_eq!(summary.failed, 0);
+        assert_eq!(summary.restored, 0);
+        assert_eq!(
+            summary.skipped, summary.success,
+            "every discovered child without a strategy counts as skipped"
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_bytes_skips_without_restore() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let registry = RestoreStrategyRegistry::new();
+        registry.register("child", ok_handler(Arc::clone(&calls)));
+        let summary = collect_child_restore(
+            vec![child_meta("cp-child", "child-1", "parent-1")],
+            "cp-parent",
+            "parent-1",
+            Some(registry),
+            ChildRestorePolicy::BestEffort,
+            None,
+            |_id: String| async move { Ok(None) },
+        )
+        .await
+        .unwrap();
+        assert_eq!(summary.failed, 0);
+        assert_eq!(summary.restored, 0);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn many_children_all_restore_within_concurrency_gate() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let registry = RestoreStrategyRegistry::new();
+        registry.register("child", ok_handler(Arc::clone(&calls)));
+        let children: Vec<CheckpointStorageMetadata> = (0..10)
+            .map(|index| {
+                child_meta(
+                    &format!("cp-child-{index}"),
+                    &format!("child-{index}"),
+                    "parent-1",
+                )
+            })
+            .collect();
+        let summary = collect_child_restore(
+            children,
+            "cp-parent",
+            "parent-1",
+            Some(registry),
+            ChildRestorePolicy::BestEffort,
+            None,
+            |_id: String| async move { Ok(Some(vec![1u8, 2, 3])) },
+        )
+        .await
+        .unwrap();
+        assert_eq!(summary.failed, 0);
+        assert_eq!(summary.restored, 10);
+        assert_eq!(calls.load(Ordering::SeqCst), 10);
     }
 }

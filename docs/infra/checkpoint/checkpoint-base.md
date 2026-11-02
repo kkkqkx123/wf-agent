@@ -157,5 +157,9 @@
 
 ## 单元测试覆盖
 
-- `error.rs`：全部 14 个 `CheckpointError` 变体的 Display 渲染冒烟，以及 `StorageError` / `std::io::Error` / `serde_json::Error` 的 `From` 转换；
-- `delta/calculator/agent_tests.rs`：Agent 差分对称性——status 变更检测、消息追加 roundtrip、消息替换（full-replace）、`other_changes` 字段、`merge_deltas` 默认实现、完整 roundtrip。
+- `error.rs` / `error_handling.rs`：全部 `CheckpointError` 变体 Display 渲染、`From` 转换，以及默认严格/显式宽松两档裁决；
+- `delta/`：`agent_tests` / `workflow_tests` 差分对称性（status 变更、消息追加/替换、`other_changes`、`merge_deltas`、完整 roundtrip）、`restorer` 建链/基线/回放/断链/超长；
+- `strategy/{inner,cadenced}`：触发匹配、cadence 取模、预设工厂；`config_resolver` 分层合并优先级；
+- `metadata/builder` / `serializer` / `version_manager` / `cache`（含单飞）/ `clock`（`ManualClock` 置失败）/ `checkpoint_graph` / `execution_events`（坏订阅者隔离）/ `common/{content,diff,line_diff,word_diff}` 均有内联用例。
+
+已知缺口：`delta/diff.rs` 的 `merge_deltas` 默认实现仅经 calculator 用例间接覆盖，缺少独立的字段级合并语义用例。

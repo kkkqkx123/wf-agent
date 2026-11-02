@@ -848,3 +848,129 @@ impl FileCheckpointManager {
 fn sanitize(raw: &str) -> String {
     crate::git_store::sanitize_ref_component(raw)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::file::FileContentEntry;
+    use crate::git_store::feat_ref_for_name;
+    use wf_types::config::file_checkpoint::ConflictBehavior;
+
+    fn diff3_bytes(ours: &str, base: &str, theirs: &str) -> Vec<u8> {
+        format!("<<<<<<< ours\n{ours}||||||| base\n{base}=======\n{theirs}>>>>>>> theirs\n")
+            .into_bytes()
+    }
+
+    fn manager() -> FileCheckpointManager {
+        FileCheckpointManager::new_in_memory().expect("in-memory manager")
+    }
+
+    #[test]
+    fn parse_diff3_markers_recovers_true_spans() {
+        let regions =
+            parse_conflict_regions(&diff3_bytes("our line\n", "base line\n", "their line\n"));
+        assert_eq!(regions.len(), 1);
+        assert_eq!(regions[0].start_line, 0);
+        assert_eq!(regions[0].end_line, 7);
+        assert_eq!(regions[0].ours_lines, vec!["our line".to_string()]);
+        assert_eq!(regions[0].base_lines, vec!["base line".to_string()]);
+        assert_eq!(regions[0].theirs_lines, vec!["their line".to_string()]);
+    }
+
+    #[test]
+    fn parse_legacy_two_way_markers_leave_base_empty() {
+        let bytes = b"<<<<<<< ours\nour\n=======\ntheir\n>>>>>>> theirs\n".to_vec();
+        let regions = parse_conflict_regions(&bytes);
+        assert_eq!(regions.len(), 1);
+        assert_eq!(regions[0].ours_lines, vec!["our".to_string()]);
+        assert!(regions[0].base_lines.is_empty());
+        assert_eq!(regions[0].theirs_lines, vec!["their".to_string()]);
+    }
+
+    #[test]
+    fn parse_clean_bytes_yield_no_regions() {
+        assert!(parse_conflict_regions(b"plain\ntext\n").is_empty());
+        assert!(parse_conflict_regions(&[0u8, 1, 2]).is_empty());
+    }
+
+    #[test]
+    fn parse_unterminated_marker_covers_trailing_lines() {
+        let regions = parse_conflict_regions(b"<<<<<<< ours\npartial\n");
+        assert_eq!(regions.len(), 1);
+        assert_eq!(regions[0].ours_lines, vec!["partial".to_string()]);
+        assert_eq!(regions[0].end_line, 2);
+    }
+
+    #[test]
+    fn conflict_details_flags_binary_without_regions() {
+        let mut merged: HashMap<String, Option<Vec<u8>>> = HashMap::new();
+        merged.insert("a.txt".to_string(), Some(diff3_bytes("o\n", "b\n", "t\n")));
+        merged.insert("bin.dat".to_string(), Some(vec![0u8, 1, 2]));
+        let details = conflict_details(&merged, &["a.txt".to_string(), "bin.dat".to_string()]);
+        let text = details
+            .iter()
+            .find(|detail| detail.file == "a.txt")
+            .expect("a.txt");
+        assert!(!text.binary);
+        assert_eq!(text.regions.len(), 1);
+        let binary = details
+            .iter()
+            .find(|detail| detail.file == "bin.dat")
+            .expect("bin.dat");
+        assert!(binary.binary, "marker-less conflicts stay file-level only");
+        assert!(binary.regions.is_empty());
+    }
+
+    #[test]
+    fn conflict_status_tracks_unresolved_feature() {
+        let manager = manager();
+        let feature_ref = feat_ref_for_name("feature-1");
+        assert!(
+            !manager
+                .conflict_status_for_ref(&feature_ref)
+                .unwrap()
+                .unresolved,
+            "missing ref reports clean so cleanup favors safety"
+        );
+        assert!(
+            !manager
+                .conflict_status_for_ref("refs/wf/feat/missing")
+                .unwrap()
+                .unresolved
+        );
+
+        manager
+            .create_checkpoint(
+                "exec-1",
+                &[FileContentEntry::new("a.txt", b"base\nline2\n".to_vec())],
+            )
+            .unwrap();
+        manager
+            .create_checkpoint(
+                "exec-1",
+                &[FileContentEntry::new("a.txt", b"one\nline2\n".to_vec())],
+            )
+            .unwrap();
+        manager.merge_entity_changes("exec-1", "feature-1").unwrap();
+        manager
+            .create_checkpoint(
+                "exec-2",
+                &[FileContentEntry::new("a.txt", b"base\nline2\n".to_vec())],
+            )
+            .unwrap();
+        manager
+            .create_checkpoint(
+                "exec-2",
+                &[FileContentEntry::new("a.txt", b"two\nline2\n".to_vec())],
+            )
+            .unwrap();
+        let outcome = manager
+            .approve_changes("exec-2", "feature-1", None, ConflictBehavior::Marker, None)
+            .unwrap();
+        assert!(outcome.has_conflicts());
+
+        let status = manager.conflict_status_for_ref(&feature_ref).unwrap();
+        assert!(status.unresolved);
+        assert_eq!(status.files, vec!["a.txt".to_string()]);
+    }
+}

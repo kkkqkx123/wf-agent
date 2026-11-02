@@ -132,9 +132,14 @@ Manager 的行为按文件拆分:
 
 ## 单元测试覆盖
 
+- `archive.rs`：`context_archive_ref` 清洗表、归档写/读 roundtrip、缺 ref/缺路径 `NotFound`、同内容 blob 去重与跨写稳定；
 - `provenance/tests.rs`：变更列表（按 Actor / 路径）、diff 分类（增改删与二进制）、时间线与重命名相似度、冲突解析、分区视图与历史分页、源索引回退；
-- `file/merge.rs`：GC 执行路径——不可达清理（删 edit ref 后回收 commit/树/blob）、grace 窗口保护新鲜孤儿、零宽 grace 立即回收、源索引行随清理删除、二次运行幂等；
-- `manager_store.rs`：未初始化语义——git / 存储未绑定显式报 `Coordinator` 错误（不静默回退）、内存后端双句柄绑定、最新检查点镜像跨克隆共享；
-- `store_path.rs`：全局存储目录确定性、跨工作区唯一、`wf/checkpoint/<hash16>` 布局；
-- `git_store/tests.rs`：refs 原子回写、树与嵌套路径、深链（150 commit）遍历去重、超大 blob（2 MiB）roundtrip、截断松散对象显式报错不 panic、悬挂 ref 显式报 `ObjectNotFound` 且不波及其它 ref；
-- `storage/`：migrations 幂等 / 轻迁移 / WAL 模式、KV 元数据 roundtrip / 隔离 / 空值。
+- `file/merge.rs`：GC 执行路径——不可达清理（删 edit ref 后回收 commit/树/blob）、grace 窗口保护新鲜孤儿、零宽 grace 立即回收、`keep_recent_heads` 保护最新孤儿、已合并 edit ref 收集（`removed_edit_refs`）、源索引行随清理删除、二次运行幂等；
+- `file/git_merge.rs`：`parse_conflict_regions`（diff3/legacy/干净/未闭合标记）、`conflict_details` 二进制文件级判定、`conflict_status_for_ref`（缺 ref 报 clean、冲突后 unresolved 及文件表）；
+- `file/manager/tests.rs` + `tests_b.rs`：检查点 roundtrip、工作区恢复与忽略保护、嵌套仓库不透明、审批（整批/文件级/复用 pending/冲突解决/回滚隔离/合并入 main）、`ConflictBehavior::{Marker,Fail,Approval}` 三档（Fail 中止不推进 ref、Approval 保持 pending）；
+- `file/restore.rs`：选择性恢复、状态→文件链接三态与补偿重试；`tests/link_compensation.rs`：多 pending 重试、Lenient/Strict 缺失与 pending 语义；
+- `git_store/`：`tests.rs`（refs 原子回写、树与嵌套路径、深链遍历去重、超大 blob、截断对象报错、悬挂 ref 隔离）、`baseline/tests.rs`（含 `BaselineLocator::describe` 审计串）、`external.rs`（ref/前缀/tag 校验表、锁 pid 解析）；
+- `scan/tests.rs`（22 用例，含用户 git 忽略委托）、`scope.rs`、`session.rs`、`watcher.rs`、`script_capture.rs`、`precise.rs` 捕获三通道；`file/sync/tests.rs` 用户仓同步；`tests/file_lifecycle.rs` / `tests/recovery_drills.rs` 端到端；
+- `manager_store.rs`：未初始化语义；`store_path.rs`：存储目录布局；`storage/`：migrations/KV/redo。
+
+已知缺口：`storage/git_meta.rs` 的 review_state/source-index 读写仅经审批/溯源用例间接覆盖；`file/workspace.rs`、`file/manager/{capture,lifecycle,queries,types}` 无文件级单测（由 manager 集成用例覆盖行为）。

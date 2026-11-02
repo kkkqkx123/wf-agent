@@ -469,6 +469,7 @@ pub fn register_all(
     total.merge(predefined::tools::register(tool_registry, opts));
     total.merge(predefined::workflow::register(regs, opts));
     total.merge(predefined::tool_visibility::register(regs, opts));
+    total.merge(predefined::rag::register(regs, opts));
 
     total
 }

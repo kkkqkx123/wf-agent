@@ -297,6 +297,7 @@ pub const TEMPLATE_CATEGORIES: &[&str] = &[
     "user",
     "assistant",
     "tool-visibility",
+    "rag",
 ];
 
 /// Whether `category` is one of [`TEMPLATE_CATEGORIES`].

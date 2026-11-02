@@ -438,6 +438,55 @@ mod tests {
         assert!(QdrantVectorStore::build_filter(&SearchFilter::new()).is_none());
     }
 
+    /// Live-server contract round-trip. Runs only when `QDRANT_URL` is set,
+    /// so default test runs stay dependency-free (pure-function unit tests
+    /// above). Exercises the same behavior group as the other backends:
+    /// ensure, upsert, search, fetch, count, filtered deletes.
+    #[tokio::test]
+    async fn remote_contract_roundtrip_when_server_configured() {
+        let Some(base_url) = std::env::var("QDRANT_URL")
+            .ok()
+            .filter(|url| !url.trim().is_empty())
+        else {
+            return;
+        };
+        let store = QdrantVectorStore::new(QdrantConfig::new(base_url)).expect("client builds");
+        let collection = format!("rag_contract_{}", std::process::id());
+        store
+            .ensure_collection(&CollectionSpec::new(&collection, 3))
+            .await
+            .expect("ensure");
+        let point = VectorPoint {
+            id: "doc.md#0".to_string(),
+            vector: vec![1.0, 0.0, 0.0],
+            payload: HashMap::from([
+                (NAMESPACE_KEY.to_string(), serde_json::json!("kb")),
+                (SOURCE_KEY.to_string(), serde_json::json!("doc.md")),
+            ]),
+        };
+        store.upsert(&collection, &[point]).await.expect("upsert");
+        let query = VectorQuery::new(vec![1.0, 0.0, 0.0], 5)
+            .with_filter(SearchFilter::new().with_namespace("kb"));
+        let hits = store.search(&collection, &query).await.expect("search");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "doc.md#0");
+        let fetched = store
+            .fetch(&collection, &["doc.md#0".to_string()])
+            .await
+            .expect("fetch");
+        assert_eq!(fetched.len(), 1);
+        let counted = store
+            .count(&collection, Some(&SearchFilter::new().with_namespace("kb")))
+            .await
+            .expect("count");
+        assert!(counted >= 1);
+        let removed = store
+            .delete_by_source(&collection, Some("kb"), "doc.md")
+            .await
+            .expect("delete by source");
+        assert!(removed >= 1);
+    }
+
     #[test]
     fn invalid_inputs_fail_before_any_request() {
         let store =

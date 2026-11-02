@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 use vector_contracts::{ScoredPoint, VectorPoint};
 
+use crate::config::{FusionConfig, FusionMode};
 use crate::document::{
     CHUNK_ID_KEY, CONTENT_KEY, DOCUMENT_ID_KEY, IS_PARENT_KEY, NEXT_ID_KEY, ORDINAL_KEY,
     PARENT_ID_KEY, PREV_ID_KEY,
@@ -14,7 +15,7 @@ use crate::document::{
 use crate::error::{RagError, Result};
 
 /// One retrieval hit with its chunk content rebuilt from the point payload.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RetrievedChunk {
     /// Chunk id (`{source}#{ordinal}`).
     pub chunk_id: String,
@@ -117,6 +118,138 @@ pub fn reciprocal_rank_fusion(lists: Vec<Vec<RetrievedChunk>>, k: u32) -> Vec<Re
             })
         })
         .collect()
+}
+
+/// Fuses ranked hit lists with the configured strategy.
+///
+/// RRF is the default; concat keeps first-seen order; weighted blends
+/// normalized scores with the configured dense/other weights.
+pub fn fuse_lists(lists: Vec<Vec<RetrievedChunk>>, config: &FusionConfig) -> Vec<RetrievedChunk> {
+    match config.mode {
+        FusionMode::Rrf => reciprocal_rank_fusion(lists, config.rrf_k),
+        FusionMode::Concat => concat_fusion(lists),
+        FusionMode::Weighted => weighted_fusion(lists, config.dense_weight, config.other_weight),
+    }
+}
+
+/// Concatenates hit lists keeping the first occurrence of each chunk id.
+pub fn concat_fusion(lists: Vec<Vec<RetrievedChunk>>) -> Vec<RetrievedChunk> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for list in lists {
+        for hit in list {
+            if seen.insert(hit.chunk_id.clone()) {
+                out.push(hit);
+            }
+        }
+    }
+    out
+}
+
+/// Blends hit lists by normalized score. Each list is normalized by its
+/// own maximum so dense and keyword scales stay comparable; the first
+/// list carries `dense_weight`, every other list `other_weight`.
+pub fn weighted_fusion(
+    lists: Vec<Vec<RetrievedChunk>>,
+    dense_weight: f32,
+    other_weight: f32,
+) -> Vec<RetrievedChunk> {
+    let mut scores: HashMap<String, f32> = HashMap::new();
+    let mut by_id: HashMap<String, RetrievedChunk> = HashMap::new();
+    for (index, list) in lists.iter().enumerate() {
+        let weight = if index == 0 {
+            dense_weight
+        } else {
+            other_weight
+        };
+        let max = list
+            .iter()
+            .map(|hit| hit.score)
+            .fold(0.0_f32, f32::max)
+            .max(f32::MIN_POSITIVE);
+        for hit in list {
+            let normalized = if max > 0.0 { hit.score / max } else { 0.0 };
+            *scores.entry(hit.chunk_id.clone()).or_insert(0.0) += weight * normalized;
+            by_id
+                .entry(hit.chunk_id.clone())
+                .or_insert_with(|| hit.clone());
+        }
+    }
+    let mut fused: Vec<(String, f32)> = scores.into_iter().collect();
+    fused.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    fused
+        .into_iter()
+        .filter_map(|(id, score)| {
+            by_id.remove(&id).map(|mut hit| {
+                hit.score = score;
+                hit
+            })
+        })
+        .collect()
+}
+
+/// Lowercase alphanumeric tokens of a text for keyword scoring.
+pub fn tokenize(text: &str) -> Vec<String> {
+    text.split(|ch: char| !ch.is_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .map(|token| token.to_lowercase())
+        .collect()
+}
+
+/// Token-overlap score of a chunk for a query in 0..=1.
+///
+/// Fraction of distinct query tokens appearing in the content.
+pub fn keyword_score(query: &str, content: &str) -> f32 {
+    let query_tokens: HashSet<String> = tokenize(query).into_iter().collect();
+    if query_tokens.is_empty() {
+        return 0.0;
+    }
+    let content_tokens: HashSet<String> = tokenize(content).into_iter().collect();
+    let matched = query_tokens
+        .iter()
+        .filter(|token| content_tokens.contains(*token))
+        .count();
+    matched as f32 / query_tokens.len() as f32
+}
+
+/// Scores caller-supplied points with token overlap and returns the top
+/// matches as chunks. The corpus comes from the caller (for example a
+/// snapshot of known ids) because the storage contract has no scan call.
+pub fn keyword_search_points(
+    query: &str,
+    points: &[VectorPoint],
+    top_n: usize,
+) -> Vec<RetrievedChunk> {
+    if top_n == 0 || query.trim().is_empty() {
+        return Vec::new();
+    }
+    let mut scored: Vec<RetrievedChunk> = points
+        .iter()
+        .filter_map(|point| chunk_from_point(point).ok())
+        .map(|mut chunk| {
+            chunk.score = keyword_score(query, &chunk.content);
+            chunk
+        })
+        .filter(|chunk| chunk.score > 0.0)
+        .collect();
+    scored.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    scored.into_iter().take(top_n.max(1)).collect()
+}
+
+/// Blends dense hits with keyword hits using one weight for the keyword
+/// side. Scores are normalized per list before blending so the two
+/// scales stay comparable.
+pub fn blend_keyword(
+    dense: Vec<RetrievedChunk>,
+    keyword: Vec<RetrievedChunk>,
+    keyword_weight: f32,
+) -> Vec<RetrievedChunk> {
+    let keyword_weight = keyword_weight.clamp(0.0, 1.0);
+    weighted_fusion(vec![dense, keyword], 1.0 - keyword_weight, keyword_weight)
 }
 
 /// Collects neighbor ids around a hit up to `radius` steps each way.
@@ -273,6 +406,35 @@ mod tests {
         .await
         .expect("expand");
         assert_eq!(fetched.len(), 1);
+    }
+
+    #[test]
+    fn concat_keeps_first_seen_order() {
+        let fused = fuse_lists(
+            vec![
+                vec![hit("a", 0.5), hit("b", 0.9)],
+                vec![hit("b", 0.1), hit("c", 0.8)],
+            ],
+            &crate::config::FusionConfig {
+                mode: crate::config::FusionMode::Concat,
+                ..crate::config::FusionConfig::default()
+            },
+        );
+        let ids: Vec<&str> = fused.iter().map(|hit| hit.chunk_id.as_str()).collect();
+        assert_eq!(ids, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn weighted_blend_prefers_dense_by_default() {
+        let fused = weighted_fusion(vec![vec![hit("a", 1.0)], vec![hit("b", 1.0)]], 0.7, 0.3);
+        assert_eq!(fused[0].chunk_id, "a");
+    }
+
+    #[test]
+    fn keyword_score_counts_token_overlap() {
+        assert_eq!(keyword_score("rust ownership", "rust ownership model"), 1.0);
+        assert_eq!(keyword_score("rust ownership", "go routines"), 0.0);
+        assert!(keyword_score("rust ownership", "rust borrowing") > 0.0);
     }
 
     #[tokio::test]

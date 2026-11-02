@@ -309,4 +309,47 @@ mod tests {
             "doc-a"
         );
     }
+
+    fn test_point(id: &str) -> VectorPoint {
+        VectorPoint {
+            id: id.to_string(),
+            vector: vec![1.0, 0.0, 0.0],
+            payload: HashMap::from([
+                (NAMESPACE_KEY.to_string(), serde_json::json!("kb")),
+                (SOURCE_KEY.to_string(), serde_json::json!("doc.md")),
+            ]),
+        }
+    }
+
+    fn test_query() -> VectorQuery {
+        VectorQuery::new(vec![1.0, 0.0, 0.0], 5)
+            .with_filter(SearchFilter::new().with_namespace("kb"))
+    }
+
+    #[tokio::test]
+    async fn reopened_engine_keeps_index() {
+        let dir =
+            std::env::temp_dir().join(format!("vector-contracts-simvec-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = SimvecVectorStore::open(&dir).expect("open");
+        store
+            .ensure_collection(&CollectionSpec::new("kb", 3))
+            .await
+            .expect("ensure");
+        store
+            .upsert("kb", &[test_point("doc.md#0")])
+            .await
+            .expect("upsert");
+        let hits = store.search("kb", &test_query()).await.expect("search");
+        assert_eq!(hits.len(), 1);
+        drop(store);
+        let reopened = SimvecVectorStore::open(&dir).expect("reopen");
+        let hits = reopened
+            .search("kb", &test_query())
+            .await
+            .expect("search after reopen");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "doc.md#0");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

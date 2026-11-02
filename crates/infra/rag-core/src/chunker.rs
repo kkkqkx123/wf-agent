@@ -47,6 +47,42 @@ impl Default for ChunkerConfig {
 }
 
 impl ChunkerConfig {
+    /// Named preset splitting on Markdown headings first, then paragraphs
+    /// and lines. Shares the recursive pipeline; only the separator order
+    /// and section boundaries differ.
+    pub fn markdown() -> Self {
+        Self {
+            separators: vec![
+                "\n## ".to_string(),
+                "\n# ".to_string(),
+                "\n\n".to_string(),
+                "\n".to_string(),
+                ". ".to_string(),
+                " ".to_string(),
+            ],
+            parent_separators: vec!["\n## ".to_string(), "\n# ".to_string(), "\n\n".to_string()],
+            ..Self::default()
+        }
+    }
+
+    /// Named preset splitting on sentence boundaries first, then on
+    /// whitespace. Shares the recursive pipeline; only the separator
+    /// order differs.
+    pub fn sentence() -> Self {
+        Self {
+            separators: vec![
+                ". ".to_string(),
+                "! ".to_string(),
+                "? ".to_string(),
+                "\n".to_string(),
+                " ".to_string(),
+            ],
+            ..Self::default()
+        }
+    }
+}
+
+impl ChunkerConfig {
     /// Validates the numeric parameters.
     pub fn validate(&self) -> Result<()> {
         if self.target_chars == 0 {
@@ -312,6 +348,28 @@ mod tests {
             ..ChunkerConfig::default()
         })
         .is_err());
+    }
+
+    #[test]
+    fn markdown_preset_orders_heading_separators_first() {
+        let config = ChunkerConfig::markdown();
+        assert!(config.separators.iter().any(|s| s.contains("##")));
+        let chunker = RecursiveChunker::new(config).expect("config");
+        let chunks = chunker
+            .split_documents(&[doc("# Title\n\nfirst body\n\n## Part\n\nsecond body")])
+            .expect("split");
+        assert!(!chunks.is_empty());
+    }
+
+    #[test]
+    fn sentence_preset_prefers_sentence_boundaries() {
+        let config = ChunkerConfig::sentence();
+        assert_eq!(config.separators.first().map(String::as_str), Some(". "));
+        let chunker = RecursiveChunker::new(config).expect("config");
+        let chunks = chunker
+            .split_documents(&[doc("first sentence. second sentence. third sentence")])
+            .expect("split");
+        assert!(!chunks.is_empty());
     }
 
     #[test]

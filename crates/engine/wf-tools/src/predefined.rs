@@ -25,6 +25,7 @@ pub mod integration;
 pub mod interaction;
 pub mod knowledge;
 pub mod memory;
+pub mod rag;
 pub mod risk;
 pub mod schema;
 pub mod shell;
@@ -53,6 +54,7 @@ pub fn all_definitions() -> Vec<&'static ToolDefinition> {
         interaction::ALL,
         integration::ALL,
         knowledge::ALL,
+        rag::ALL,
         general::ALL,
     ] {
         out.extend_from_slice(group);

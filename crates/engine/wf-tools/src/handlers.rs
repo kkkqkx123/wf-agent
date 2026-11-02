@@ -16,6 +16,9 @@ pub struct BuiltinHandlersConfig {
     /// the retrieval tools. Disabled by default; handlers report the
     /// service as unavailable until it is configured.
     pub code_context: wf_integration::CodeContextConfig,
+    /// Retrieval tool wiring. Without a backend the tool reports the
+    /// service as unavailable until one is injected.
+    pub rag: predefined::rag::RagToolConfig,
     pub protect: Option<ProtectController>,
 }
 
@@ -59,6 +62,7 @@ pub fn register_builtin_handlers(
     predefined::web::register(registry, &config.web)?;
     predefined::code_context::register(registry, &config.code_context, &handlers)?;
     predefined::knowledge::register(registry)?;
+    predefined::rag::register(registry, &config.rag)?;
     predefined::general::register(registry)?;
 
     Ok(())

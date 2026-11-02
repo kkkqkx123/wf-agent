@@ -8,7 +8,7 @@ use crate::rerank_adapter::RankedChunk;
 use crate::retriever::RetrievedChunk;
 
 /// One citable hit.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Citation {
     /// One-based rank number matching the rendered context.
     pub index: usize,
@@ -56,6 +56,50 @@ pub fn render_context(hits: &[RetrievedChunk], excerpt_chars: usize) -> (String,
     (context, citations)
 }
 
+/// Template variables for the no-hit answer path.
+#[derive(Debug, Clone)]
+pub struct NoHitContext {
+    /// Original question for the answer template.
+    pub query: String,
+    /// Knowledge-base namespace queried.
+    pub namespace: String,
+    /// Hint shown to the answer template (for example relaxed filters).
+    pub hint: String,
+}
+
+/// Renders the no-hit answer context when retrieval returns nothing.
+/// The template layer decides the final wording; this only assembles
+/// the variables so empty results never reach synthesis unhandled.
+pub fn render_no_hits(context: &NoHitContext) -> String {
+    format!(
+        "No indexed passages in namespace '{}' matched the query '{}'. {}",
+        context.namespace, context.query, context.hint
+    )
+}
+
+/// Completeness of citations for one answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CitationCompleteness {
+    /// Every hit carries a source.
+    Complete,
+    /// At least one hit misses its source; the answer must say so.
+    Incomplete,
+}
+
+/// Checks whether every hit carries a source label.
+/// Returns incomplete when the list is empty or any source is blank,
+/// so callers never fabricate a source.
+pub fn check_completeness(hits: &[RetrievedChunk]) -> CitationCompleteness {
+    if hits.is_empty() {
+        return CitationCompleteness::Incomplete;
+    }
+    if hits.iter().all(|hit| !hit.source.trim().is_empty()) {
+        CitationCompleteness::Complete
+    } else {
+        CitationCompleteness::Incomplete
+    }
+}
+
 /// Converts reranked hits back to plain hits carrying the fused score.
 pub fn ranked_to_hits(ranked: Vec<RankedChunk>) -> Vec<RetrievedChunk> {
     ranked
@@ -93,6 +137,32 @@ mod tests {
             next_id: None,
             parent_id: None,
         }
+    }
+
+    #[test]
+    fn no_hit_context_names_query_and_namespace() {
+        let text = render_no_hits(&NoHitContext {
+            query: "q".to_string(),
+            namespace: "kb".to_string(),
+            hint: "hint".to_string(),
+        });
+        assert!(text.contains('q'));
+        assert!(text.contains("kb"));
+    }
+
+    #[test]
+    fn completeness_rejects_blank_sources() {
+        assert_eq!(
+            check_completeness(&[hit("a")]),
+            CitationCompleteness::Complete
+        );
+        assert_eq!(check_completeness(&[]), CitationCompleteness::Incomplete);
+        let mut missing = hit("b");
+        missing.source = "  ".to_string();
+        assert_eq!(
+            check_completeness(&[missing]),
+            CitationCompleteness::Incomplete
+        );
     }
 
     #[test]

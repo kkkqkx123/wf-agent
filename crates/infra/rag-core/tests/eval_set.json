@@ -1,0 +1,32 @@
+{
+  "namespace": "kb",
+  "collection": "kb",
+  "documents": [
+    {
+      "id": "d1",
+      "source": "rust.md",
+      "content": "rust ownership borrowing lifetimes move semantics"
+    },
+    {
+      "id": "d2",
+      "source": "go.md",
+      "content": "go routines channels select concurrency runtime"
+    }
+  ],
+  "cases": [
+    {
+      "id": "ownership",
+      "query": "rust ownership borrowing",
+      "expected_sources": ["rust.md"],
+      "namespace": "kb",
+      "min_hits": 1
+    },
+    {
+      "id": "concurrency",
+      "query": "go routines channels",
+      "expected_sources": ["go.md"],
+      "namespace": "kb",
+      "min_hits": 1
+    }
+  ]
+}

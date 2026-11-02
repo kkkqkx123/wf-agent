@@ -41,6 +41,8 @@
 | `02-current-analysis.md` | 当前项目各层现状与差距 |
 | `03-design.md` | 总体设计、模块划分、核心流程与衔接点 |
 | `04-implementation-plan.md` | 分阶段修改方案与验收标准 |
+| `05-remaining-tasks.md` | 完成情况核对与剩余任务清单（以代码现状为准） |
+| `06-implementation-record.md` | 落地实现记录：任务落点、验收证据与运行方式 |
 
 复用与扩展决策见 `docs/research/rag/04-external-and-reuse.md`（外部解析服务、工具扩展为主、向量包拆分、Qdrant 客户端选型）。
 

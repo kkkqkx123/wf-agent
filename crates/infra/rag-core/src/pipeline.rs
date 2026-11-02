@@ -12,17 +12,20 @@ use llm_rerank::{RerankProvider, RerankRuntimeConfig};
 use vector_contracts::{CollectionSpec, SearchFilter, VectorPoint, VectorQuery, VectorStorage};
 
 use crate::chunker::RecursiveChunker;
+use crate::cleaner::clean_text;
 use crate::config::{DuplicatePolicy, RagIndexConfig, RagQueryConfig};
 use crate::document::{
     RagChunk, RagDocument, CHUNK_ID_KEY, CONTENT_KEY, DOCUMENT_ID_KEY, IS_PARENT_KEY, NEXT_ID_KEY,
     ORDINAL_KEY, PARENT_ID_KEY, PREV_ID_KEY,
 };
 use crate::error::{RagError, Result};
+use crate::metrics::{rank_pairs, RetrievalMetrics};
 use crate::rerank_adapter::{rerank_hits, RankedChunk};
 use crate::retriever::{
-    chunk_from_hit, chunk_from_point, expand_hit, promote_parents, reciprocal_rank_fusion,
-    RetrievedChunk,
+    blend_keyword, chunk_from_hit, chunk_from_point, expand_hit, fuse_lists, keyword_search_points,
+    promote_parents, RetrievedChunk,
 };
+use crate::sync as sync_support;
 
 /// Ingest outcome counters.
 #[derive(Debug, Clone, Default)]
@@ -47,8 +50,8 @@ pub async fn ingest_documents<S, E>(
     config: &RagIndexConfig,
 ) -> Result<IngestStats>
 where
-    S: VectorStorage,
-    E: EmbeddingProvider,
+    S: VectorStorage + ?Sized,
+    E: EmbeddingProvider + ?Sized,
 {
     if collection.is_empty() {
         return Err(RagError::InvalidInput(
@@ -65,6 +68,14 @@ where
     let mut pending: Vec<RagChunk> = Vec::new();
     for document in documents {
         document.validate()?;
+        let effective = if config.cleaning.is_enabled() {
+            let mut cleaned = document.clone();
+            cleaned.content = clean_text(&document.content, &config.cleaning);
+            cleaned.validate()?;
+            cleaned
+        } else {
+            document.clone()
+        };
         if !matches!(config.duplicate_policy, DuplicatePolicy::Overwrite)
             && source_indexed(store, collection, &config.namespace, &document.source).await?
         {
@@ -83,9 +94,9 @@ where
                 .await?;
         }
         let chunks = if config.hierarchical {
-            chunker.split_hierarchical(std::slice::from_ref(document))?
+            chunker.split_hierarchical(std::slice::from_ref(&effective))?
         } else {
-            chunker.split_documents(std::slice::from_ref(document))?
+            chunker.split_documents(std::slice::from_ref(&effective))?
         };
         stats.documents += 1;
         stats.chunks += chunks.len();
@@ -147,11 +158,11 @@ pub async fn query<S, E>(
     config: &RagQueryConfig,
 ) -> Result<Vec<RetrievedChunk>>
 where
-    S: VectorStorage,
-    E: EmbeddingProvider,
+    S: VectorStorage + ?Sized,
+    E: EmbeddingProvider + ?Sized,
 {
     let owned = query_text.to_string();
-    let fused = search_variants(
+    let searched = search_variants(
         store,
         embedder,
         collection,
@@ -160,7 +171,7 @@ where
         config,
     )
     .await?;
-    postprocess(store, collection, fused, config).await
+    postprocess(store, collection, searched.hits, config).await
 }
 
 /// Embeds several query variants and fuses the hit lists before expansion.
@@ -173,22 +184,171 @@ pub async fn query_multi<S, E>(
     config: &RagQueryConfig,
 ) -> Result<Vec<RetrievedChunk>>
 where
-    S: VectorStorage,
-    E: EmbeddingProvider,
+    S: VectorStorage + ?Sized,
+    E: EmbeddingProvider + ?Sized,
 {
     if query_texts.is_empty() {
         return Err(RagError::InvalidInput(
             "at least one query variant is required".to_string(),
         ));
     }
-    let fused =
+    let searched =
         search_variants(store, embedder, collection, namespace, query_texts, config).await?;
+    postprocess(store, collection, searched.hits, config).await
+}
+
+/// Blends dense retrieval with caller-supplied keyword candidates.
+///
+/// The keyword corpus comes from the caller because the storage contract
+/// has no scan call; pass an empty slice to run dense retrieval only.
+/// Scores blend with [`RagQueryConfig::keyword_weight`].
+pub async fn query_hybrid<S, E>(
+    store: &S,
+    embedder: &E,
+    collection: &str,
+    namespace: &str,
+    query_text: &str,
+    keyword_corpus: &[VectorPoint],
+    config: &RagQueryConfig,
+) -> Result<Vec<RetrievedChunk>>
+where
+    S: VectorStorage + ?Sized,
+    E: EmbeddingProvider + ?Sized,
+{
+    if query_text.trim().is_empty() {
+        return Err(RagError::InvalidInput(
+            "query must not be empty".to_string(),
+        ));
+    }
+    let owned = query_text.to_string();
+    let searched = search_variants(
+        store,
+        embedder,
+        collection,
+        namespace,
+        std::slice::from_ref(&owned),
+        config,
+    )
+    .await?;
+    let fused = if config.keyword_candidates > 0 && !keyword_corpus.is_empty() {
+        let keyword = keyword_search_points(query_text, keyword_corpus, config.keyword_candidates);
+        blend_keyword(searched.hits, keyword, config.keyword_weight)
+            .into_iter()
+            .take(config.top_k)
+            .collect()
+    } else {
+        searched.hits
+    };
     postprocess(store, collection, fused, config).await
+}
+
+/// Queries and reports retrieval metrics alongside the hits.
+/// Latency covers embedding, search and post-processing; candidate
+/// counts cover the fused list before expansion.
+pub async fn query_with_metrics<S, E>(
+    store: &S,
+    embedder: &E,
+    collection: &str,
+    namespace: &str,
+    query_text: &str,
+    config: &RagQueryConfig,
+) -> Result<(Vec<RetrievedChunk>, RetrievalMetrics)>
+where
+    S: VectorStorage + ?Sized,
+    E: EmbeddingProvider + ?Sized,
+{
+    let started = std::time::Instant::now();
+    let owned = query_text.to_string();
+    let searched = search_variants(
+        store,
+        embedder,
+        collection,
+        namespace,
+        std::slice::from_ref(&owned),
+        config,
+    )
+    .await?;
+    let requested = candidate_limit(config);
+    let returned = searched.fused_len;
+    let hits = postprocess(store, collection, searched.hits, config).await?;
+    let metrics = RetrievalMetrics {
+        latency_ms: started.elapsed().as_millis() as u64,
+        candidates_requested: requested,
+        candidates_returned: returned,
+        hits_kept: hits.len(),
+        rerank_displacement: 0.0,
+        reranked: false,
+    };
+    Ok((hits, metrics))
+}
+
+/// Queries, reranks and reports metrics including rank displacement.
+pub async fn query_with_rerank_metrics<S, E, R>(
+    store: &S,
+    embedder: &E,
+    rerank: RerankInvocation<'_, R>,
+    collection: &str,
+    namespace: &str,
+    query_text: &str,
+    config: &RagQueryConfig,
+) -> Result<(Vec<RankedChunk>, RetrievalMetrics)>
+where
+    S: VectorStorage + ?Sized,
+    E: EmbeddingProvider + ?Sized,
+    R: RerankProvider + ?Sized,
+{
+    let started = std::time::Instant::now();
+    let (hits, mut metrics) =
+        query_with_metrics(store, embedder, collection, namespace, query_text, config).await?;
+    let before: Vec<String> = hits.iter().map(|hit| hit.chunk_id.clone()).collect();
+    let top_n = config
+        .rerank
+        .as_ref()
+        .map(|options| options.top_n)
+        .unwrap_or(config.top_k);
+    let ranked = rerank_hits(
+        rerank.provider,
+        query_text,
+        hits,
+        top_n,
+        rerank.truncate_chars,
+        rerank.runtime,
+    )
+    .await?;
+    let after: Vec<String> = ranked
+        .iter()
+        .map(|item| item.chunk.chunk_id.clone())
+        .collect();
+    metrics.latency_ms = started.elapsed().as_millis() as u64;
+    metrics.hits_kept = ranked.len();
+    metrics.reranked = true;
+    metrics.rerank_displacement = RetrievalMetrics::displacement_of(&rank_pairs(&before, &after));
+    Ok((ranked, metrics))
+}
+
+/// Deletes every point chunked from one source. Thin wrapper over the
+/// sync helper so hosts call one pipeline entry for removals.
+pub async fn delete_source<S: VectorStorage + ?Sized>(
+    store: &S,
+    collection: &str,
+    namespace: Option<&str>,
+    source: &str,
+) -> Result<u64> {
+    sync_support::remove_source(store, collection, namespace, source).await
+}
+
+/// Deletes points by id. Thin wrapper over the sync helper.
+pub async fn delete_by_ids<S: VectorStorage + ?Sized>(
+    store: &S,
+    collection: &str,
+    ids: &[String],
+) -> Result<u64> {
+    sync_support::remove_by_ids(store, collection, ids).await
 }
 
 /// Rerank invocation bundling the provider and its runtime shaping.
 /// Keeps [`query_with_rerank`] at seven arguments.
-pub struct RerankInvocation<'a, R> {
+pub struct RerankInvocation<'a, R: ?Sized> {
     /// Rerank provider.
     pub provider: &'a R,
     /// Per-call runtime parameters.
@@ -208,9 +368,9 @@ pub async fn query_with_rerank<S, E, R>(
     config: &RagQueryConfig,
 ) -> Result<Vec<RankedChunk>>
 where
-    S: VectorStorage,
-    E: EmbeddingProvider,
-    R: RerankProvider,
+    S: VectorStorage + ?Sized,
+    E: EmbeddingProvider + ?Sized,
+    R: RerankProvider + ?Sized,
 {
     if query_text.trim().is_empty() {
         return Err(RagError::InvalidInput(
@@ -234,7 +394,7 @@ where
     .await
 }
 
-async fn source_indexed<S: VectorStorage>(
+async fn source_indexed<S: VectorStorage + ?Sized>(
     store: &S,
     collection: &str,
     namespace: &str,
@@ -324,6 +484,14 @@ fn candidate_limit(config: &RagQueryConfig) -> usize {
     }
 }
 
+/// Dense search outcome before post-processing.
+struct SearchedHits {
+    /// Fused hits truncated to `top_k`.
+    hits: Vec<RetrievedChunk>,
+    /// Fused hits before `top_k` truncation.
+    fused_len: usize,
+}
+
 async fn search_variants<S, E>(
     store: &S,
     embedder: &E,
@@ -331,10 +499,10 @@ async fn search_variants<S, E>(
     namespace: &str,
     variants: &[String],
     config: &RagQueryConfig,
-) -> Result<Vec<RetrievedChunk>>
+) -> Result<SearchedHits>
 where
-    S: VectorStorage,
-    E: EmbeddingProvider,
+    S: VectorStorage + ?Sized,
+    E: EmbeddingProvider + ?Sized,
 {
     if namespace.is_empty() {
         return Err(RagError::InvalidInput(
@@ -342,7 +510,10 @@ where
         ));
     }
     if config.top_k == 0 {
-        return Ok(Vec::new());
+        return Ok(SearchedHits {
+            hits: Vec::new(),
+            fused_len: 0,
+        });
     }
     let mut lists = Vec::with_capacity(variants.len());
     for variant in variants {
@@ -370,12 +541,16 @@ where
     let fused = if lists.len() == 1 {
         lists.into_iter().next().unwrap_or_default()
     } else {
-        reciprocal_rank_fusion(lists, 60)
+        fuse_lists(lists, &config.fusion)
     };
-    Ok(fused.into_iter().take(config.top_k).collect())
+    let fused_len = fused.len();
+    Ok(SearchedHits {
+        hits: fused.into_iter().take(config.top_k).collect(),
+        fused_len,
+    })
 }
 
-async fn fetch_chunks<S: VectorStorage>(
+async fn fetch_chunks<S: VectorStorage + ?Sized>(
     store: &S,
     collection: &str,
     ids: Vec<String>,
@@ -387,7 +562,7 @@ async fn fetch_chunks<S: VectorStorage>(
     Ok(chunks)
 }
 
-async fn postprocess<S: VectorStorage>(
+async fn postprocess<S: VectorStorage + ?Sized>(
     store: &S,
     collection: &str,
     hits: Vec<RetrievedChunk>,
@@ -562,5 +737,82 @@ mod tests {
         assert!(ingest_documents(&store, &embedder, "kb", &documents, &fail)
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn cleaning_applies_before_chunking() {
+        let store = InMemoryVectorStore::new();
+        let embedder = UnitEmbedder { dimension: 8 };
+        let mut config = RagIndexConfig::new("kb");
+        config.cleaning.dedup_consecutive_lines = true;
+        let stats = ingest_documents(
+            &store,
+            &embedder,
+            "kb",
+            &[doc("d1", "noisy.md", "alpha\nalpha\nbeta gamma delta")],
+            &config,
+        )
+        .await
+        .expect("ingest");
+        assert_eq!(stats.documents, 1);
+        let hits = query(
+            &store,
+            &embedder,
+            "kb",
+            "kb",
+            "beta",
+            &RagQueryConfig::default(),
+        )
+        .await
+        .expect("query");
+        assert!(!hits.is_empty());
+    }
+
+    #[tokio::test]
+    async fn hybrid_query_blends_keyword_signal() {
+        use vector_contracts::VectorPoint;
+        let store = InMemoryVectorStore::new();
+        let embedder = UnitEmbedder { dimension: 8 };
+        ingest_documents(
+            &store,
+            &embedder,
+            "kb",
+            &[doc("d1", "rust.md", "rust ownership borrowing")],
+            &RagIndexConfig::new("kb"),
+        )
+        .await
+        .expect("ingest");
+        let corpus = vec![VectorPoint {
+            id: "rust.md#0".to_string(),
+            vector: vec![0.0; 8],
+            payload: std::collections::HashMap::from([
+                (
+                    "content".to_string(),
+                    serde_json::json!("rust ownership borrowing"),
+                ),
+                ("chunk_id".to_string(), serde_json::json!("rust.md#0")),
+                ("document_id".to_string(), serde_json::json!("d1")),
+                ("source".to_string(), serde_json::json!("rust.md")),
+            ]),
+        }];
+        let config = RagQueryConfig {
+            keyword_candidates: 5,
+            ..RagQueryConfig::default()
+        };
+        let hits = query_hybrid(&store, &embedder, "kb", "kb", "ownership", &corpus, &config)
+            .await
+            .expect("hybrid");
+        assert!(!hits.is_empty());
+        let (ranked, metrics) = query_with_metrics(
+            &store,
+            &embedder,
+            "kb",
+            "kb",
+            "ownership",
+            &RagQueryConfig::default(),
+        )
+        .await
+        .expect("metrics");
+        assert_eq!(ranked.len(), metrics.hits_kept);
     }
 }

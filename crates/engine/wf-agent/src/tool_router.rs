@@ -125,4 +125,23 @@ mod tests {
             router.discoverable.iter().map(|t| t.name.clone()).collect();
         assert_eq!(discoverable, vec!["web_search".to_string()]);
     }
+
+    #[test]
+    fn test_rag_search_participates_in_single_turn_assembly() {
+        let registry = registry_with(vec![
+            wf_tools::predefined::rag::RAG_SEARCH.tool_def(),
+            general_tool(),
+        ]);
+        let router = build_tool_router(ExposureInput {
+            registry: &registry,
+            available_names: &["rag_search".to_string()],
+            initial_names: &["rag_search".to_string()],
+            discoverable_names: &[],
+            hidden_names: &[],
+            enable_general_tool: Some(false),
+            activated_tools: &HashSet::new(),
+            exposure_overrides: &HashMap::new(),
+        });
+        assert!(router.visible.iter().any(|t| t.name == "rag_search"));
+    }
 }

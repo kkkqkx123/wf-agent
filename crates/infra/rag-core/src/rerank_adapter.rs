@@ -11,7 +11,7 @@ use crate::error::{RagError, Result};
 use crate::retriever::RetrievedChunk;
 
 /// One hit after reranking.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RankedChunk {
     /// Original hit.
     pub chunk: RetrievedChunk,
@@ -24,7 +24,7 @@ pub struct RankedChunk {
 }
 
 /// Reranks hits and keeps the top `top_n`, preserving chunk content.
-pub async fn rerank_hits<P: RerankProvider>(
+pub async fn rerank_hits<P: RerankProvider + ?Sized>(
     provider: &P,
     query: &str,
     hits: Vec<RetrievedChunk>,

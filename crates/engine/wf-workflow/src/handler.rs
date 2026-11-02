@@ -9,6 +9,7 @@ pub mod llm;
 pub mod loop_handler;
 pub mod message_node;
 pub mod output_mapping;
+pub mod rag;
 pub mod route;
 pub mod script;
 pub mod start_end;

@@ -599,6 +599,7 @@ export interface Provider {
 	baseUrl: string;
 	models: number;
 	status: string;
+	discoveryKind: string;
 }
 
 export interface Tool {

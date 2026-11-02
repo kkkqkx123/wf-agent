@@ -1513,6 +1513,8 @@
 	"page.resources.models.columnStatus": "Status",
 	"page.resources.models.columnTokens": "Tokens",
 	"page.resources.models.discovered": "Discovered models",
+	"page.resources.models.discoveryDisabled": "This provider does not support online discovery; enter the model manually.",
+	"page.resources.models.missingBaseUrl": "This provider needs a base URL before models can be listed.",
 	"page.resources.models.noDiscovered": "No models discovered",
 	"page.resources.models.noDiscoveredDesc": "This provider did not advertise any models.",
 	"page.resources.models.noProfiles": "No model profiles",

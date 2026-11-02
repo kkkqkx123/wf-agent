@@ -60,9 +60,8 @@ pub use llm_discovery::{
 pub use llm_gateway::{LlmGateway, RequestProbe};
 pub use wf_llm_catalog::{
     custom_litellm_of, litellm_provider_for, model_metadata, model_metadata_for,
-    model_metadata_for_namespace, model_metadata_for_namespaces, model_metadata_for_provider,
-    model_metadata_for_providers, provider_mapping_for, resolve_litellm_namespace,
-    ModelMetadataResolver,
+    model_metadata_for_namespace, model_metadata_for_namespaces, provider_mapping_for,
+    resolve_litellm_namespace, ModelMetadataResolver,
 };
 // Credential storage and provider-owned authentication: the gateway's
 // optional auth registry, the store contract and the OAuth/login

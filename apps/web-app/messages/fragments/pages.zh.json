@@ -338,6 +338,8 @@
 	"page.resources.models.refresh": "刷新",
 	"page.resources.models.noDiscovered": "未发现任何模型",
 	"page.resources.models.noDiscoveredDesc": "该提供方未公布任何模型。",
+	"page.resources.models.discoveryDisabled": "该提供方不支持在线发现，请手动填写模型。",
+	"page.resources.models.missingBaseUrl": "该提供方需要先配置地址才能列出模型。",
 	"page.resources.models.columnContextWindow": "上下文窗口",
 	"page.resources.models.columnMaxOutput": "最大输出",
 	"page.resources.scripts.columnRuns": "运行次数",

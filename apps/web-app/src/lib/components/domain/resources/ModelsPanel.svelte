@@ -110,6 +110,17 @@
 	let loadingModels = $state(false);
 	let modelsError = $state<string | null>(null);
 	let refreshing = $state(false);
+	let selectedProvider = $derived(providers.find((p) => p.id === selectedProviderId));
+	let discoveryUnsupported = $derived(
+		selectedProvider !== undefined &&
+			(selectedProvider.discoveryKind === 'disabled' ||
+				selectedProvider.discoveryKind === 'unknown')
+	);
+	let missingBaseUrl = $derived(
+		selectedProvider !== undefined &&
+		!discoveryUnsupported &&
+		selectedProvider.baseUrl.trim().length === 0
+	);
 
 	async function loadModels(refresh = false): Promise<void> {
 		if (!selectedProviderId) {
@@ -184,7 +195,11 @@
 				</button>
 			</div>
 
-			{#if loadingModels}
+			{#if discoveryUnsupported}
+				<p class="text-caption text-muted-foreground">{t('page.resources.models.discoveryDisabled')}</p>
+			{:else if missingBaseUrl}
+				<p class="text-caption text-muted-foreground">{t('page.resources.models.missingBaseUrl')}</p>
+			{:else if loadingModels}
 				<p class="text-caption text-muted-foreground">{t('page.resources.models.noDiscoveredDesc')}</p>
 			{:else if modelsError}
 				<p class="text-caption text-destructive">{modelsError}</p>

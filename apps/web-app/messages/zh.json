@@ -1513,6 +1513,8 @@
 	"page.resources.models.columnStatus": "状态",
 	"page.resources.models.columnTokens": "令牌",
 	"page.resources.models.discovered": "已发现的模型",
+	"page.resources.models.discoveryDisabled": "该提供方不支持在线发现，请手动填写模型。",
+	"page.resources.models.missingBaseUrl": "该提供方需要先配置地址才能列出模型。",
 	"page.resources.models.noDiscovered": "未发现任何模型",
 	"page.resources.models.noDiscoveredDesc": "该提供方未公布任何模型。",
 	"page.resources.models.noProfiles": "没有模型配置",

@@ -233,7 +233,7 @@ fn opencode_template(
 /// through the existing `ProviderDefinitionRegistry`; there is no new
 /// registry.
 pub fn builtin_provider_definitions() -> Vec<LlmProviderDefinition> {
-    vec![
+    let mut definitions = vec![
         LlmProviderDefinition {
             id: BUILTIN_OPENAI_ID.to_string(),
             name: Some("OpenAI".to_string()),
@@ -699,7 +699,16 @@ pub fn builtin_provider_definitions() -> Vec<LlmProviderDefinition> {
             transport: None,
             env: None,
         },
-    ]
+    ];
+    for definition in &mut definitions {
+        if let Some(namespace) = crate::litellm_provider_for(&definition.id) {
+            let metadata = definition.metadata.get_or_insert_with(Default::default);
+            metadata
+                .entry("litellm_provider".to_string())
+                .or_insert_with(|| serde_json::json!(namespace));
+        }
+    }
+    definitions
 }
 
 /// All built-in provider ids in registration order.

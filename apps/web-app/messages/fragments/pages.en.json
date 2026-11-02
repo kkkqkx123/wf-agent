@@ -338,6 +338,8 @@
 	"page.resources.models.refresh": "Refresh",
 	"page.resources.models.noDiscovered": "No models discovered",
 	"page.resources.models.noDiscoveredDesc": "This provider did not advertise any models.",
+	"page.resources.models.discoveryDisabled": "This provider does not support online discovery; enter the model manually.",
+	"page.resources.models.missingBaseUrl": "This provider needs a base URL before models can be listed.",
 	"page.resources.models.columnContextWindow": "Context window",
 	"page.resources.models.columnMaxOutput": "Max output",
 	"page.resources.scripts.columnRuns": "Runs",

@@ -57,8 +57,8 @@ pub async fn delete(ctx: &ApiContext, id: &str) -> ApiResult<()> {
 
 /// List the models advertised by a provider definition.
 ///
-/// The effective API key is taken from the first profile referencing the
-/// provider (when any); definitions without remote discovery return
+/// The effective API key prefers the default profile and falls back to any
+/// profile referencing the provider; definitions without remote discovery return
 /// without using it. Discovery failures surface as errors to the caller;
 /// assembly-time checks degrade them to warnings instead.
 /// Collect stored proxy credentials for every distinct proxy route in use.
@@ -95,6 +95,44 @@ async fn proxy_creds(
     out
 }
 
+/// Effective API key for one provider: the default profile wins when it
+/// references the provider, otherwise any referencing profile supplies it.
+/// This keeps multi-profile providers deterministic instead of depending
+/// on registry iteration order.
+fn api_key_for_provider(ctx: &ApiContext, provider_id: &str) -> Option<String> {
+    let registry = ctx.llm_gateway.profile_registry();
+    if let Some(default) = registry.get_default() {
+        if default.provider_id.as_deref() == Some(provider_id) {
+            if default.api_key.is_some() {
+                return default.api_key;
+            }
+        }
+    }
+    registry
+        .list()
+        .into_iter()
+        .find(|p| p.provider_id.as_deref() == Some(provider_id))
+        .and_then(|p| p.api_key)
+}
+
+/// Effective API keys by provider with the same default-wins rule, so
+/// aggregate refreshes agree with single-provider listings.
+fn api_keys_by_provider(ctx: &ApiContext) -> std::collections::HashMap<String, String> {
+    let registry = ctx.llm_gateway.profile_registry();
+    let mut out = std::collections::HashMap::new();
+    for profile in registry.list() {
+        if let (Some(provider_id), Some(api_key)) = (profile.provider_id, profile.api_key) {
+            out.entry(provider_id).or_insert(api_key);
+        }
+    }
+    if let Some(default) = registry.get_default() {
+        if let (Some(provider_id), Some(api_key)) = (default.provider_id, default.api_key) {
+            out.insert(provider_id, api_key);
+        }
+    }
+    out
+}
+
 /// Force a live discovery round for one provider, bypassing the cache.
 /// Populates the shared cache so the next cached read reuses the result.
 async fn list_models_cached_inner(
@@ -103,13 +141,7 @@ async fn list_models_cached_inner(
     force_refresh: bool,
 ) -> ApiResult<Vec<ModelInfo>> {
     let definition = get(ctx, provider_id).await?;
-    let api_key = ctx
-        .llm_gateway
-        .profile_registry()
-        .list()
-        .into_iter()
-        .find(|p| p.provider_id.as_deref() == Some(provider_id))
-        .and_then(|p| p.api_key);
+    let api_key = api_key_for_provider(ctx, provider_id);
     let proxy_creds = proxy_creds(ctx).await;
     ctx.llm_gateway
         .model_catalog()
@@ -235,17 +267,7 @@ pub async fn refresh_all(
     ctx: &ApiContext,
 ) -> ApiResult<std::collections::HashMap<String, Result<Vec<ModelInfo>, String>>> {
     let definitions = ctx.llm_gateway.provider_registry().list();
-    let api_keys: std::collections::HashMap<String, String> = ctx
-        .llm_gateway
-        .profile_registry()
-        .list()
-        .into_iter()
-        .filter_map(|p| {
-            let provider_id = p.provider_id.clone()?;
-            let api_key = p.api_key.clone()?;
-            Some((provider_id, api_key))
-        })
-        .collect();
+    let api_keys = api_keys_by_provider(ctx);
     let proxy_creds = proxy_creds(ctx).await;
     let refreshed = ctx
         .llm_gateway
@@ -268,17 +290,7 @@ pub async fn refresh_filtered(
     predicate: impl Fn(&ModelInfo) -> bool,
 ) -> ApiResult<std::collections::HashMap<String, Result<Vec<ModelInfo>, String>>> {
     let definitions = ctx.llm_gateway.provider_registry().list();
-    let api_keys: std::collections::HashMap<String, String> = ctx
-        .llm_gateway
-        .profile_registry()
-        .list()
-        .into_iter()
-        .filter_map(|p| {
-            let provider_id = p.provider_id.clone()?;
-            let api_key = p.api_key.clone()?;
-            Some((provider_id, api_key))
-        })
-        .collect();
+    let api_keys = api_keys_by_provider(ctx);
     let proxy_creds = proxy_creds(ctx).await;
     let refreshed = ctx
         .llm_gateway

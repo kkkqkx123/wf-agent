@@ -25,9 +25,21 @@ interface LlmProviderDto {
 	id?: string;
 	name?: string;
 	base_url?: string;
+	baseUrl?: string;
 	models?: number | unknown[];
 	model_count?: number;
 	status?: string;
+	model_discovery?: unknown;
+	modelDiscovery?: unknown;
+}
+
+function discoveryKindOf(value: unknown): string {
+	if (typeof value === 'string') return value;
+	if (value !== null && typeof value === 'object') {
+		const kind = (value as { kind?: unknown }).kind;
+		if (typeof kind === 'string') return kind;
+	}
+	return 'unknown';
 }
 
 interface ToolDto {
@@ -87,9 +99,10 @@ function toProvider(d: LlmProviderDto): Provider {
 	return {
 		id: d.id ?? d.name ?? '',
 		name: d.name ?? '',
-		baseUrl: d.base_url ?? '',
+		baseUrl: d.base_url ?? d.baseUrl ?? '',
 		models: modelsCount,
 		status: d.status ?? 'active',
+		discoveryKind: discoveryKindOf(d.model_discovery ?? d.modelDiscovery ?? null),
 	};
 }
 

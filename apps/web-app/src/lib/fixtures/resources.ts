@@ -77,6 +77,7 @@ export const providers: Provider[] = [
 		baseUrl: 'https://api.openai.com/v1',
 		models: 14,
 		status: 'healthy',
+		discoveryKind: 'models_endpoint',
 	},
 	{
 		id: 'anthropic',
@@ -84,6 +85,7 @@ export const providers: Provider[] = [
 		baseUrl: 'https://api.anthropic.com',
 		models: 6,
 		status: 'healthy',
+		discoveryKind: 'models_endpoint',
 	},
 	{
 		id: 'azure-openai',
@@ -91,6 +93,7 @@ export const providers: Provider[] = [
 		baseUrl: 'https://wf.openai.azure.com',
 		models: 9,
 		status: 'degraded',
+		discoveryKind: 'disabled',
 	},
 	{
 		id: 'ollama',
@@ -98,6 +101,7 @@ export const providers: Provider[] = [
 		baseUrl: 'http://127.0.0.1:11434',
 		models: 3,
 		status: 'unhealthy',
+		discoveryKind: 'models_endpoint',
 	},
 ];
 

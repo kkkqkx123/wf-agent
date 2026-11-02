@@ -15,6 +15,7 @@ use crate::envelope::{error_response, ok};
 use crate::router::ApiState;
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct RagScope {
     #[param(example = "kb")]
     collection: String,
@@ -23,6 +24,7 @@ pub(crate) struct RagScope {
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct RagPreviewQuery {
     #[param(example = "kb")]
     collection: String,
@@ -36,6 +38,7 @@ pub(crate) struct RagPreviewQuery {
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct RagDiagnoseQuery {
     query: String,
     #[serde(default = "default_top_k")]

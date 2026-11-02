@@ -27835,6 +27835,23 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "enriched",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "nullable": true
+            }
           }
         ],
         "responses": {
@@ -30601,7 +30618,7 @@
         "parameters": [
           {
             "name": "query",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": {
               "type": "string"
@@ -30609,7 +30626,7 @@
           },
           {
             "name": "top_k",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": {
               "type": "integer",
@@ -30618,7 +30635,7 @@
           },
           {
             "name": "filter_fields",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": {
               "type": "integer",
@@ -30627,7 +30644,7 @@
           },
           {
             "name": "score_threshold",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": {
               "type": [
@@ -30639,7 +30656,7 @@
           },
           {
             "name": "collection",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": {
               "type": [
@@ -30651,7 +30668,7 @@
           },
           {
             "name": "namespace",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": {
               "type": [
@@ -30715,7 +30732,7 @@
         "parameters": [
           {
             "name": "collection",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": {
               "type": "string"
@@ -30724,7 +30741,7 @@
           },
           {
             "name": "namespace",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": {
               "type": "string"
@@ -30733,7 +30750,7 @@
           },
           {
             "name": "query",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": {
               "type": "string"
@@ -30741,7 +30758,7 @@
           },
           {
             "name": "top_k",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": {
               "type": "integer",
@@ -30750,7 +30767,7 @@
           },
           {
             "name": "excerpt_chars",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": {
               "type": "integer",
@@ -30811,7 +30828,7 @@
         "parameters": [
           {
             "name": "collection",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": {
               "type": "string"
@@ -30820,7 +30837,7 @@
           },
           {
             "name": "namespace",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": {
               "type": "string"
@@ -46362,6 +46379,86 @@
           },
           "403": {
             "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/llm/models": {
+      "get": {
+        "tags": [
+          "llm"
+        ],
+        "summary": "Off-hot-path model listing for a provider definition.",
+        "operationId": "handle_list_all_models",
+        "parameters": [
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "enriched",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "429": {
             "description": "Too many requests: rate limit exceeded (see Retry-After)"

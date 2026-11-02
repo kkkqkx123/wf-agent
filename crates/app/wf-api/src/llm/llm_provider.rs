@@ -96,6 +96,16 @@ async fn proxy_creds(
 }
 
 pub async fn list_models(ctx: &ApiContext, provider_id: &str) -> ApiResult<Vec<ModelInfo>> {
+    list_models_cached_inner(ctx, provider_id, false).await
+}
+
+/// Force a live discovery round for one provider, bypassing the cache.
+/// Populates the shared cache so the next cached read reuses the result.
+async fn list_models_cached_inner(
+    ctx: &ApiContext,
+    provider_id: &str,
+    force_refresh: bool,
+) -> ApiResult<Vec<ModelInfo>> {
     let definition = get(ctx, provider_id).await?;
     let api_key = ctx
         .llm_gateway
@@ -107,9 +117,128 @@ pub async fn list_models(ctx: &ApiContext, provider_id: &str) -> ApiResult<Vec<M
     let proxy_creds = proxy_creds(ctx).await;
     ctx.llm_gateway
         .model_catalog()
-        .list_models(&definition, api_key.as_deref(), &proxy_creds)
+        .list_models_cached(&definition, api_key.as_deref(), &proxy_creds, force_refresh)
         .await
         .map_err(ApiError::from)
+}
+
+/// Unified enriched listing for one provider.
+///
+/// Cached discovery supplies the id set; the static table backfills
+/// `context_window_size` and `max_output_tokens` gaps. Live values win,
+/// explicit profile values are handled by the caller.
+/// `force_refresh` bypasses the discovery cache for one call.
+pub async fn list_models_enriched(
+    ctx: &ApiContext,
+    provider_id: &str,
+    force_refresh: bool,
+) -> ApiResult<Vec<ModelInfo>> {
+    let definition = get(ctx, provider_id).await?;
+    let models = list_models_cached_inner(ctx, provider_id, force_refresh).await?;
+    Ok(enrich_with_static(&definition, provider_id, models))
+}
+
+/// Unified enriched listing across all registered providers.
+///
+/// Transactional in the reporting sense: one unreachable endpoint never
+/// blocks the rest; failures are omitted here and warned by the caller.
+/// Single-provider callers needing the error should use
+/// [`list_models_enriched`] instead.
+pub async fn list_all_models(
+    ctx: &ApiContext,
+    force_refresh: bool,
+) -> ApiResult<std::collections::HashMap<String, Vec<ModelInfo>>> {
+    let definitions = ctx.llm_gateway.provider_registry().list();
+    let mut out = std::collections::HashMap::new();
+    for definition in &definitions {
+        let api_key = ctx
+            .llm_gateway
+            .profile_registry()
+            .list()
+            .into_iter()
+            .find(|p| p.provider_id.as_deref() == Some(definition.id.as_str()))
+            .and_then(|p| p.api_key);
+        let proxy_creds = proxy_creds(ctx).await;
+        match ctx
+            .llm_gateway
+            .model_catalog()
+            .list_models_cached(&definition, api_key.as_deref(), &proxy_creds, force_refresh)
+            .await
+        {
+            Ok(models) => {
+                out.insert(definition.id.clone(), models);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    provider = %definition.id,
+                    "unified model listing skipped provider: {e}"
+                );
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Unified enriched listing across all registered providers.
+///
+/// Transactional in the reporting sense: one unreachable endpoint never
+/// blocks the rest; failures are omitted here and warned by the caller.
+/// Single-provider callers needing the error should use
+/// [`list_models_enriched`] instead.
+pub async fn list_all_models_enriched(
+    ctx: &ApiContext,
+    force_refresh: bool,
+) -> ApiResult<std::collections::HashMap<String, Vec<ModelInfo>>> {
+    let definitions = ctx.llm_gateway.provider_registry().list();
+    let mut out = std::collections::HashMap::new();
+    for definition in &definitions {
+        match list_models_enriched(ctx, &definition.id, force_refresh).await {
+            Ok(models) => {
+                out.insert(definition.id.clone(), models);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    provider = %definition.id,
+                    "unified model listing skipped provider: {e}"
+                );
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Backfill discovery gaps from the static table in one batch.
+fn enrich_with_static(
+    definition: &LlmProviderDefinition,
+    provider_id: &str,
+    mut models: Vec<ModelInfo>,
+) -> Vec<ModelInfo> {
+    let needs_static = models
+        .iter()
+        .any(|m| m.context_window_size.is_none() || m.max_output_tokens.is_none());
+    if !needs_static {
+        return models;
+    }
+    let custom = wf_llm::custom_litellm_of(definition);
+    let namespace = wf_llm::resolve_litellm_namespace(provider_id, custom);
+    let pairs: Vec<(Option<&str>, &str)> =
+        models.iter().map(|m| (namespace, m.id.as_str())).collect();
+    let metas = wf_llm::model_metadata_for_namespaces(&pairs);
+    let mut by_id = std::collections::HashMap::new();
+    for meta in metas {
+        by_id.insert(meta.id.clone(), meta);
+    }
+    for model in &mut models {
+        if let Some(meta) = by_id.get(&model.id) {
+            if model.context_window_size.is_none() {
+                model.context_window_size = meta.context_window;
+            }
+            if model.max_output_tokens.is_none() {
+                model.max_output_tokens = meta.max_output_tokens;
+            }
+        }
+    }
+    models
 }
 
 /// List the models advertised by a provider, credential-filtered.
@@ -213,15 +342,14 @@ pub async fn refresh_filtered(
 /// - Model missing from a non-empty catalog: warn (stale or custom model).
 /// - Catalog entry carries `context_window_size`/`max_output_tokens` while
 ///   the profile has none: backfill the missing gaps and return the enriched
-///   profile. The live discovery table only carries the context window, so
-///   a still-missing `max_output_tokens` falls back to the static LiteLLM
-///   table (provider-aware `wf_llm::model_metadata_for_provider`);
+///   profile. The unified enriched listing already merges live discovery
+///   with the static LiteLLM table, so no second lookup is needed;
 ///   `format` is never auto-filled.
 pub async fn assemble_check(ctx: &ApiContext, profile: &LlmProfile) -> LlmProfile {
     let Some(provider_id) = profile.provider_id.as_deref() else {
         return profile.clone();
     };
-    let models = match list_models(ctx, provider_id).await {
+    let models = match list_models_enriched(ctx, provider_id, false).await {
         Ok(models) => models,
         Err(e) => {
             tracing::warn!(
@@ -241,20 +369,12 @@ pub async fn assemble_check(ctx: &ApiContext, profile: &LlmProfile) -> LlmProfil
         );
     }
     let mut enriched = profile.clone();
-    if enriched.context_window_size.is_none() {
-        if let Some(entry) = models.iter().find(|m| m.id == profile.model) {
+    if let Some(entry) = models.iter().find(|m| m.id == profile.model) {
+        if enriched.context_window_size.is_none() {
             enriched.context_window_size = entry.context_window_size;
         }
-    }
-    if enriched.max_output_tokens.is_none() {
-        let definition = ctx.llm_gateway.provider_registry().get(provider_id);
-        let custom = definition.as_ref().and_then(wf_llm::custom_litellm_of);
-        let namespace = wf_llm::resolve_litellm_namespace(provider_id, custom);
-        if let Some(meta) = wf_llm::model_metadata_for_namespace(namespace, &profile.model) {
-            if enriched.context_window_size.is_none() {
-                enriched.context_window_size = meta.context_window;
-            }
-            enriched.max_output_tokens = meta.max_output_tokens;
+        if enriched.max_output_tokens.is_none() {
+            enriched.max_output_tokens = entry.max_output_tokens;
         }
     }
     enriched

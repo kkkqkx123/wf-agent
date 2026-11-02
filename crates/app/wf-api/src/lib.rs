@@ -225,7 +225,7 @@ pub use wf_types::skill::SkillResourceType;
 pub use wf_types::tool::{ToolApprovalOptions, ToolExecutionOptions};
 pub use wf_types::trigger::{
     ScheduleTarget, WebhookAuth, WebhookSpec, FIRE_ID_METADATA_KEY, PRODUCER_SOURCE_METADATA_KEY,
-    WEBHOOK_SPEC_METADATA_KEY,
+    TRIGGER_INPUT_METADATA_KEY, WEBHOOK_SPEC_METADATA_KEY,
 };
 pub use wf_types::workflow::Edge;
 pub use wf_types::workflow::WorkflowTemplate;

@@ -11,7 +11,7 @@
 - 后端：REST 业务面在 `/api/v1`；系统面（`/`、`/health`、`/system/*`）与 Prometheus `/metrics` 在根路径。
   文档调试路由仅 `/api-docs/openapi.json`（debug 或 `openapi-docs` feature），**无 Swagger UI、无 CDN 页面**。
   响应体统一信封 `ApiEnvelope{success,data,error}`，列表套 `PageView`/`CappedView`；错误统一 `ErrorResponse`。
-- 快照：`crates/app/wf-server/openapi.json` 已提交（golden-file，`cargo test -p wf-server` 校验；`WF_REFRESH_OPENAPI=1` 刷新）；
+- 快照：`crates/app/wf-server/openapi.json` 已提交（golden-file，轻量校验见下；`WF_REFRESH_OPENAPI=1` 刷新）；
   当前约 390 paths / 452 operations / 72 component schemas，`securitySchemes: apiKey/header (x-api-key)`。
 - 鉴权真实为 **API key**：默认请求头 `x-api-key`，亦支持 `api_key` 查询参数；
   由 `AUTH_ENABLED` 开关、`API_KEYS` 供密钥（`middleware.rs`）。CORS 走
@@ -31,7 +31,7 @@
 
 - 仓库持有 `crates/app/wf-server/openapi.json`，由后端测试写出/校验（不是运行时拉取）。
 - 刷新时机：handler 注解、全局错误码、安全方案或路径集合变更后：
-  `WF_REFRESH_OPENAPI=1 cargo test -p wf-server committed_snapshot_matches_document`。
+  `WF_REFRESH_OPENAPI=1 cargo test -p wf-server --no-default-features --lib openapi::tests::committed_snapshot_matches_document`。
 - 漂移检测：默认跑同一测试，与仓库文件 diff 失败即红；可再加 CI `git diff --exit-code`。
 
 ### 生成器（`tools/openapi-codegen`）

@@ -27,6 +27,9 @@ pub const WEBHOOK_SPEC_METADATA_KEY: &str = "webhook_spec";
 pub const FIRE_ID_METADATA_KEY: &str = "fire_id";
 /// Metadata key marking the producer of a custom event (`schedule`/`webhook`).
 pub const PRODUCER_SOURCE_METADATA_KEY: &str = "source";
+/// Metadata key carrying the run input for creation targets (written by the
+/// scheduler and the webhook gateway, read by the creation runners).
+pub const TRIGGER_INPUT_METADATA_KEY: &str = "trigger_input";
 
 /// What a missed tick (scheduler down across the fire time) does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

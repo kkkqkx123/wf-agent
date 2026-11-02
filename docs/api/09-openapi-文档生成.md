@@ -55,8 +55,9 @@
 **离线快照（codegen 唯一输入）**
 
 - 路径：`crates/app/wf-server/openapi.json`（已提交）。
-- 刷新：`WF_REFRESH_OPENAPI=1 cargo test -p wf-server committed_snapshot_matches_document`。
-- 校验：默认跑同一测试，序列化结果与仓库文件逐字节比对，漂移即失败。
+- 刷新（轻量命令，仓库根目录）：`WF_REFRESH_OPENAPI=1 cargo test -p wf-server --no-default-features --lib openapi::tests::committed_snapshot_matches_document`。
+- 校验：去掉 `WF_REFRESH_OPENAPI=1` 跑同一命令，序列化结果与仓库文件逐字节比对，漂移即失败。
+- 轻量原因：快照测试不需要插件后端，`--no-default-features` 跳过 wasmtime 等后端编译，`--lib` 跳过二进制与集成测试目标。
 
 **运行中调试**
 
@@ -74,7 +75,7 @@
 3. 每个操作的 `operationId` 文档内唯一（`openapi-typescript` 以它为键，重名会静默覆盖并错误类型化调用点）。
 4. 全局错误响应（401/403/429/503/504）已注入。
 5. `securitySchemes` 注册为请求头位置的 API key（`x-api-key`）。
-6. 提交快照与当前 `ApiDoc` 一致（可用 `WF_REFRESH_OPENAPI=1` 重写）。
+6. 提交快照与当前 `ApiDoc` 一致（用第五章的轻量刷新命令重写）。
 
 `routes_match_utoipa_annotations` 解析源码 `.route` 与 `#[utoipa::path]` 做集合比对，显式排除 WS 与文档路由，补上「只加路由不加注解」的盲区；`annotations_are_registered_in_document` 反向校验每个注解都出现在 `ApiDoc::paths` 中，补上「有注解有路由但漏登记」的盲区（该盲区曾让 `partitions/{id}/history` 从快照消失）。
 
@@ -100,7 +101,7 @@
 3. `components(schemas(...))` 中新响应/请求类型的登记（本地类型需 `ToSchema`）。
 4. 用 `annotations_are_registered_in_document` 守卫确认登记未漏（无需手改计数断言）。
 
-随后刷新快照并按需重跑 codegen：`WF_REFRESH_OPENAPI=1` 相关测试 → `tools/openapi-codegen` 执行 `npm run gen` → 将本目录 `schema.d.ts` 复制到 `apps/web-app/src/lib/api/`。响应形态特殊（流或下载）时按第三章类别声明，错误保持 `ErrorResponse`。
+随后刷新快照并按需重跑 codegen：第五章的轻量刷新命令 → `tools/openapi-codegen` 执行 `npm run gen` → 将本目录 `schema.d.ts` 复制到 `apps/web-app/src/lib/api/`。响应形态特殊（流或下载）时按第三章类别声明，错误保持 `ErrorResponse`。
 
 ## 9. 已知限制与后续
 

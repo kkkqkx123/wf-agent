@@ -421,6 +421,7 @@ use utoipa::OpenApi;
         crate::api::llm::handle_get_provider,
         crate::api::llm::handle_delete_provider,
         crate::api::llm::handle_list_models,
+        crate::api::llm::handle_list_all_models,
         crate::api::llm::handle_list_auth_providers,
         crate::api::llm::handle_auth_login_start,
         crate::api::llm::handle_auth_login_poll,
@@ -1073,14 +1074,14 @@ mod tests {
         }
         let expected = std::fs::read_to_string(&path).unwrap_or_else(|e| {
             panic!(
-                "missing OpenAPI snapshot at {}: {e}; run with WF_REFRESH_OPENAPI=1 to create it",
+                "missing OpenAPI snapshot at {}: {e}; run WF_REFRESH_OPENAPI=1 cargo test -p wf-server --no-default-features --lib openapi::tests::committed_snapshot_matches_document to create it",
                 path.display()
             )
         });
         assert_eq!(
             actual,
             expected,
-            "OpenAPI snapshot drifted; run with WF_REFRESH_OPENAPI=1 to refresh the wf-server openapi.json"
+            "OpenAPI snapshot drifted; run WF_REFRESH_OPENAPI=1 cargo test -p wf-server --no-default-features --lib openapi::tests::committed_snapshot_matches_document to refresh it"
         );
     }
 

@@ -31,7 +31,7 @@ use axum::Json;
 use wf_api::Registry;
 use wf_api::{
     ScheduleTarget, WebhookAuth, WebhookSpec, FIRE_ID_METADATA_KEY, PRODUCER_SOURCE_METADATA_KEY,
-    WEBHOOK_SPEC_METADATA_KEY,
+    TRIGGER_INPUT_METADATA_KEY, WEBHOOK_SPEC_METADATA_KEY,
 };
 
 use crate::envelope::{err, ok, ApiError};
@@ -139,10 +139,7 @@ pub(crate) async fn handle_webhook_fire(
     if creating {
         // The creation runners read their input from one well-known key
         // (shared with the scheduler contract).
-        metadata.insert(
-            wf_runtime::trigger_listener::TRIGGER_INPUT_METADATA_KEY.to_string(),
-            mapped.clone(),
-        );
+        metadata.insert(TRIGGER_INPUT_METADATA_KEY.to_string(), mapped.clone());
     }
     if let serde_json::Value::Object(map) = mapped {
         for (key, value) in map {

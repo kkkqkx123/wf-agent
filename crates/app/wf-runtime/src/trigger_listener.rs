@@ -52,7 +52,6 @@ pub use ledger::TriggerLedger;
 pub use router::TriggerActionRouter;
 pub use scheduler::{
     MemoryScheduleStateStore, ScheduleStateStore, SchedulerDeps, TimerBindingRegistry,
-    TRIGGER_INPUT_METADATA_KEY,
 };
 pub use wf_workflow::execution_context::ExecutionContextRegistry;
 pub use workflow_runner::{

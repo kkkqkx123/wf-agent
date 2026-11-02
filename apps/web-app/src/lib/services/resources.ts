@@ -282,6 +282,58 @@ export async function listProviders(): Promise<Provider[]> {
 	return [];
 }
 
+export interface ProviderModel {
+	id: string;
+	name?: string | null;
+	context_window_size?: number | null;
+	max_output_tokens?: number | null;
+}
+
+/** Unified model listing for one provider (cached, enriched by default). */
+export async function listProviderModels(
+	providerId: string,
+	options?: { refresh?: boolean; enriched?: boolean },
+): Promise<ProviderModel[]> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/llm/providers/{id}/models', {
+			params: {
+				path: { id: providerId },
+				query: {
+					refresh: options?.refresh ?? false,
+					enriched: options?.enriched ?? true,
+				},
+			},
+		}),
+	);
+	requireData(data, `Models for provider ${providerId}`);
+	if (Array.isArray(data)) {
+		return data as ProviderModel[];
+	}
+	return [];
+}
+
+/** Unified model listing across all providers (failures omitted). */
+export async function listAllModels(options?: {
+	refresh?: boolean;
+	enriched?: boolean;
+}): Promise<Record<string, ProviderModel[]>> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/llm/models', {
+			params: {
+				query: {
+					refresh: options?.refresh ?? false,
+					enriched: options?.enriched ?? true,
+				},
+			},
+		}),
+	);
+	requireData(data, 'All models');
+	if (data && typeof data === 'object' && !Array.isArray(data)) {
+		return data as Record<string, ProviderModel[]>;
+	}
+	return {};
+}
+
 export async function listTools(params?: {
 	limit?: number;
 	offset?: number;

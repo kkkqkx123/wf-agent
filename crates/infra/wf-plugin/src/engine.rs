@@ -278,6 +278,7 @@ pub(crate) fn convert_discovery(
                     id: m.id.clone(),
                     name: m.name.clone(),
                     context_window_size: m.context_window_size,
+                    max_output_tokens: None,
                     metadata: m.metadata.clone(),
                 })
                 .collect(),

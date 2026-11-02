@@ -22,7 +22,9 @@ Node.js `>=22`。
 
 ```bash
 # 1. 若注解/文档结构有变更，先刷新快照（在仓库根目录）
-WF_REFRESH_OPENAPI=1 cargo test -p wf-server committed_snapshot_matches_document
+WF_REFRESH_OPENAPI=1 cargo test -p wf-server --no-default-features --lib openapi::tests::committed_snapshot_matches_document
+
+`--no-default-features` 跳过插件后端（含 wasmtime）编译，`--lib` 只编库测试目标；快照测试不需要后端。
 
 # 2. 安装（仅首次或依赖变更时）
 cd tools/openapi-codegen
@@ -38,7 +40,7 @@ npm run gen
 ## 日常校验（不重新生成时）
 
 ```bash
-cargo test -p wf-server committed_snapshot_matches_document
+cargo test -p wf-server --no-default-features --lib openapi::tests::committed_snapshot_matches_document
 ```
 
 快照漂移会使测试失败；需要更新类型时再走上面 1→4。

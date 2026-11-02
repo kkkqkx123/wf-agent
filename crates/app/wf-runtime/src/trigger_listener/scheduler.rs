@@ -33,12 +33,8 @@ use wf_resource::registry::ResourceRegistries;
 use wf_types::events::{BaseEvent, EventType};
 use wf_types::trigger::{
     CronSchedule, ScheduleMisfirePolicy, ScheduleSpec, ScheduleTarget, FIRE_ID_METADATA_KEY,
-    PRODUCER_SOURCE_METADATA_KEY, SCHEDULE_SPEC_METADATA_KEY,
+    PRODUCER_SOURCE_METADATA_KEY, SCHEDULE_SPEC_METADATA_KEY, TRIGGER_INPUT_METADATA_KEY,
 };
-
-/// Metadata key carrying the scheduler-provided run input for creation
-/// targets (mirrored by the webhook gateway so runners share one contract).
-pub const TRIGGER_INPUT_METADATA_KEY: &str = "trigger_input";
 
 /// How often the scheduler re-reads templates even when no tick is near
 /// (picks up newly registered schedules without a restart).

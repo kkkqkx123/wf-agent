@@ -5493,6 +5493,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/llm/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Unified model listing across all providers. */
+        get: operations["handle_list_all_models"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/llm/proxy-credentials": {
         parameters: {
             query?: never;
@@ -38056,6 +38073,29 @@ export interface operations {
             };
         };
     };
+    handle_list_all_models: {
+        parameters: {
+            query?: {
+                refresh?: boolean;
+                enriched?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                };
+            };
+        };
+    };
     handle_list_auth_providers: {
         parameters: {
             query?: never;
@@ -40387,7 +40427,10 @@ export interface operations {
     };
     handle_list_models: {
         parameters: {
-            query?: never;
+            query?: {
+                refresh?: boolean;
+                enriched?: boolean;
+            };
             header?: never;
             path: {
                 id: string;

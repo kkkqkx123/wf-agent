@@ -68,6 +68,7 @@ pub(crate) fn routes() -> Router<ApiState> {
             get(handle_get_provider).delete(handle_delete_provider),
         )
         .route("/llm/providers/{id}/models", get(handle_list_models))
+        .route("/llm/models", get(handle_list_all_models))
         // ── LLM auth ──
         .route("/llm/auth", get(handle_list_auth_providers))
         .route("/llm/auth/login", post(handle_auth_login_start))
@@ -846,22 +847,66 @@ pub(crate) async fn handle_delete_provider(
     }
 }
 
-/// Off-hot-path model listing for a provider definition.
+/// Unified model listing query: cached by default, explicit refresh on demand.
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct ListModelsQuery {
+    /// Bypass the discovery cache for one call.
+    #[serde(default)]
+    pub refresh: bool,
+    /// Merge static table gaps into each entry. Defaults to true.
+    pub enriched: Option<bool>,
+}
+
+/// Off-hot-path unified model listing for a provider definition.
 #[utoipa::path(
     get,
     path = "/api/v1/llm/providers/{id}/models",
     tag = "llm",
-    params(IdPath),
+    params(IdPath, ListModelsQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_models(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
+    Query(query): Query<ListModelsQuery>,
 ) -> impl IntoResponse {
-    match wf_api::llm::llm_provider::list_models(&state.ctx, &path.id).await {
+    let enriched = query.enriched.unwrap_or(true);
+    let result = if enriched {
+        wf_api::llm::llm_provider::list_models_enriched(&state.ctx, &path.id, query.refresh).await
+    } else {
+        wf_api::llm::llm_provider::list_models(&state.ctx, &path.id).await
+    };
+    match result {
         Ok(models) => ok(models).into_response(),
         Err(e) => error_response(e),
+    }
+}
+
+/// Unified model listing across all registered providers.
+#[utoipa::path(
+    get,
+    path = "/api/v1/llm/models",
+    tag = "llm",
+    params(ListModelsQuery),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_list_all_models(
+    State(state): State<ApiState>,
+    Query(query): Query<ListModelsQuery>,
+) -> impl IntoResponse {
+    if query.enriched.unwrap_or(true) {
+        match wf_api::llm::llm_provider::list_all_models_enriched(&state.ctx, query.refresh).await {
+            Ok(models) => ok(models).into_response(),
+            Err(e) => error_response(e),
+        }
+    } else {
+        match wf_api::llm::llm_provider::list_all_models(&state.ctx, query.refresh).await {
+            Ok(models) => ok(models).into_response(),
+            Err(e) => error_response(e),
+        }
     }
 }
 

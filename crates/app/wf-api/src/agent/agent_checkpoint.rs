@@ -15,6 +15,7 @@ use wf_checkpoint::coordinator::agent::{progress_coords, snapshot_progress_coord
 use wf_checkpoint::coordinator::CheckpointCoordinator;
 use wf_checkpoint::{AgentCheckpointStateManager, CheckpointStateManager};
 use wf_execution_shared::types::state_manager::StateManager;
+use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::checkpoint::base::{CheckpointStatus, CheckpointType};
 use wf_types::checkpoint::CheckpointTiming;
 use wf_types::Checkpoint;
@@ -91,6 +92,22 @@ pub async fn create(
             .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?
             .ok_or_else(|| not_found("checkpoint", &checkpoint_id));
     } else {
+        // No live entity: fall back to the persisted execution record. An
+        // ephemeral run persists its forced `temporary_mode` there, so a
+        // manual creation after the loop went away must still be rejected;
+        // otherwise the ephemeral chain could gain a seed snapshot.
+        // Storage errors fail open to the existing behavior (a new seed
+        // snapshot), never to a hard failure of an unrelated subsystem.
+        if let Ok(Some(record)) = ctx.storage.agent_execution.load(agent_loop_id).await
+        {
+            if record.loop_config.and_then(|c| c.temporary_mode)
+                == Some(wf_types::agent_execution::TemporaryMode::Ephemeral)
+            {
+                return Err(ApiError::Validation(
+                    "ephemeral read-only runs take no checkpoints".to_string(),
+                ));
+            }
+        }
         let coordinator = coordinator(ctx);
         if !coordinator.manual_allowed() {
             return Err(ApiError::execution(
@@ -595,6 +612,60 @@ mod tests {
         // Unknown checkpoint id is not found.
         let err = restore(&ctx, "loop-r", "missing").await.unwrap_err();
         assert!(matches!(err, ApiError::NotFound { .. }));
+    }
+
+    #[tokio::test]
+    async fn manual_create_rejects_ephemeral_without_live_entity() {
+        let ctx = make_ctx();
+        // No live entity: the persisted execution record still carries the
+        // forced ephemeral mark, so manual creation must be rejected and
+        // the checkpoint chain stays empty.
+        let loop_config = wf_types::agent_execution::AgentLoopConfig {
+            agent_id: wf_types::Id::from("agent-1"),
+            model: "mock".to_string(),
+            file_scope: None,
+            max_iterations: None,
+            max_execution_time: None,
+            hooks: Vec::new(),
+            available_tool_names: None,
+            initial_tool_names: Vec::new(),
+            discoverable_tool_names: Vec::new(),
+            enable_general_tool: None,
+            activated_tool_names: Vec::new(),
+            hidden_tool_names: Vec::new(),
+            tool_call_protocol: None,
+            token_limit: None,
+            token_warning_threshold: None,
+            enable_token_tracking: None,
+            general_description: None,
+            discoverable_metadata_block: None,
+            history_normalization: false,
+            context_schema: None,
+            context_strict: None,
+            temporary_mode: Some(wf_types::agent_execution::TemporaryMode::Ephemeral),
+            checkpoint_message_interval: None,
+        };
+        let record = wf_types::AgentExecution {
+            id: wf_types::Id::from("loop-eph"),
+            definition_id: wf_types::Id::from("agent-1"),
+            execution_type: wf_types::execution::ExecutionType::Agent,
+            status: wf_types::ExecutionStatus::Completed,
+            current_iteration: 1,
+            tool_call_count: 0,
+            iteration_history: None,
+            started_at: wf_common::now(),
+            completed_at: None,
+            error: None,
+            context: None,
+            loop_config: Some(loop_config),
+            permanently_failed_tools: None,
+            hierarchy: None,
+            rerun_of: None,
+        };
+        ctx.storage.agent_execution.save(&record).await.unwrap();
+        let err = create(&ctx, "loop-eph", None).await.unwrap_err();
+        assert!(matches!(err, ApiError::Validation(_)));
+        assert!(list(&ctx, "loop-eph").await.unwrap().is_empty());
     }
 
     #[tokio::test]

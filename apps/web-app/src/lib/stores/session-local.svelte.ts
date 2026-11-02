@@ -9,8 +9,12 @@ const RECENTS_KEY = 'wf-session-recents';
 const DRAFTS_KEY = 'wf-session-drafts';
 const DRAFT_ATTACHMENTS_KEY = 'wf-session-draft-attachments';
 const DRAFT_IMAGES_KEY = 'wf-session-draft-images';
+const TEMPORARY_BADGE_KEY = 'wf-temporary-badge-v1';
 
 export const RECENT_LIMIT = 12;
+
+/** Upper bound on retained temporary badges; oldest entries are evicted first. */
+export const TEMPORARY_BADGE_LIMIT = 100;
 
 function readRecord(key: string): Record<string, string> {
 	if (!browser) return {};
@@ -78,6 +82,23 @@ function readImageRecord(key: string): Record<string, ImageAttachment[]> {
 	}
 }
 
+function readTemporaryBadge(): Record<string, 'restricted' | 'ephemeral'> {
+	if (!browser) return {};
+	try {
+		const raw = localStorage.getItem(TEMPORARY_BADGE_KEY);
+		if (!raw) return {};
+		const parsed = JSON.parse(raw) as Record<string, unknown>;
+		const next: Record<string, 'restricted' | 'ephemeral'> = {};
+		for (const [id, value] of Object.entries(parsed)) {
+			if (value === 'restricted' || value === 'ephemeral') next[id] = value;
+			if (Object.keys(next).length >= TEMPORARY_BADGE_LIMIT) break;
+		}
+		return next;
+	} catch {
+		return {};
+	}
+}
+
 function write(key: string, value: unknown): void {
 	if (!browser) return;
 	try {
@@ -89,11 +110,17 @@ function write(key: string, value: unknown): void {
 
 /**
  * Local session conventions the backend does not model: display titles,
- * recently opened ids and unsent composer drafts.
+ * recently opened ids, unsent composer drafts and temporary-conversation
+ * badges. Badges are local only by design: clearing storage or switching
+ * devices drops them, and the checkpoint empty state falls back to the
+ * generic copy instead of the ephemeral hint.
  */
 export class SessionLocalState {
 	private titles = $state<Record<string, string>>(readRecord(TITLES_KEY));
 	private recents = $state<string[]>(readList(RECENTS_KEY));
+	private temporaryBadges = $state<Record<string, 'restricted' | 'ephemeral'>>(
+		readTemporaryBadge(),
+	);
 	private draftTexts = $state<Record<string, string>>(readRecord(DRAFTS_KEY));
 	private draftFiles = $state<Record<string, MessageAttachment[]>>(
 		readFileRecord(DRAFT_ATTACHMENTS_KEY),
@@ -150,6 +177,45 @@ export class SessionLocalState {
 		const next = [id, ...this.recents.filter((entry) => entry !== id)];
 		this.recents = next.slice(0, RECENT_LIMIT);
 		write(RECENTS_KEY, this.recents);
+	}
+
+	/** Local temporary badge of one session; null when full or unknown. */
+	temporaryBadge(id: string): 'restricted' | 'ephemeral' | null {
+		return this.temporaryBadges[id] ?? null;
+	}
+
+	markTemporary(id: string, mode: 'restricted' | 'ephemeral'): void {
+		if (this.temporaryBadges[id] === mode) return;
+		const next = { ...this.temporaryBadges };
+		delete next[id];
+		next[id] = mode;
+		while (Object.keys(next).length > TEMPORARY_BADGE_LIMIT) {
+			const oldest = Object.keys(next)[0];
+			if (oldest === undefined) break;
+			delete next[oldest];
+		}
+		this.temporaryBadges = next;
+		write(TEMPORARY_BADGE_KEY, next);
+	}
+
+	clearTemporary(id: string): void {
+		if (!(id in this.temporaryBadges)) return;
+		const next = { ...this.temporaryBadges };
+		delete next[id];
+		this.temporaryBadges = next;
+		write(TEMPORARY_BADGE_KEY, next);
+	}
+
+	/** Drop badges whose sessions no longer exist; keeps the map bounded. */
+	pruneTemporary(keepIds: string[]): void {
+		if (Object.keys(this.temporaryBadges).length === 0) return;
+		const next: Record<string, 'restricted' | 'ephemeral'> = {};
+		for (const [id, mode] of Object.entries(this.temporaryBadges)) {
+			if (keepIds.includes(id)) next[id] = mode;
+		}
+		if (Object.keys(next).length === Object.keys(this.temporaryBadges).length) return;
+		this.temporaryBadges = next;
+		write(TEMPORARY_BADGE_KEY, next);
 	}
 
 	draft(id: string): string {

@@ -42,7 +42,7 @@ exposure 约束。缺的是引擎内部的一等模式：首轮受限此前靠�
 `build_entity_with_forced_id`——全部入口（HTTP run/stream、resume、工作流派发、
 call_agent 子代理、触发器）唯一收敛的 entity 构建点。有效配置（含强制结果）
 写入 entity 并随记录持久化，因此：审计可查每轮的真实 exposure；崩溃恢复重建的
-entity 自动延续同一限制；晋升就是同 ID 去掉标记重跑。
+entity 自动延续同一限制；晋升就是下一轮去掉标记重跑（新执行 ID + 显式历史）。
 
 ### 4.2 两档工具策略（risk 档位派生）
 
@@ -96,12 +96,15 @@ entity 自动延续同一限制；晋升就是同 ID 去掉标记重跑。
 - ephemeral 额外关闭：检查点集成（本节 §4.3 五条路径）、文件历史会话；手动创建
   接口读 entity 有效配置后拒绝。
 
-### 5.3 晋升：同 ID 去标记，无迁移
+### 5.3 晋升：下一轮去标记，无迁移
 
-- restricted → 完整：同执行 ID 下一轮去掉标记、改用完整 exposure；建议先打一个
-  晋升前命名检查点作为受限期与全功率期的分界。
-- ephemeral → restricted → 完整：逐级加宽，每级都是同 ID 重跑；也可以直接跳到完整。
-- 无需服务端迁移接口：消息、变量、todo、检查点本就锚定在该 ID 上。
+- restricted → 完整：下一轮去掉 `temporary_mode`、改用完整 exposure，附带显式
+  历史（conversation）发起新执行；建议先打一个晋升前命名检查点作为受限期与
+  全功率期的分界。HTTP run/stream 每次创建新执行 ID，晋升即"不带标记重跑"。
+- ephemeral → restricted → 完整：逐级加宽，每级都是去标记（或换档）重跑；
+  也可以直接跳到完整。
+- 无需服务端迁移接口：消息、变量、todo、检查点按执行 ID 沿用现有端点查询；
+  晋升不需要服务端做行迁移，客户端下一轮省略标记即可。
 
 ### 5.4 项目历史
 
@@ -128,14 +131,16 @@ entity 自动延续同一限制；晋升就是同 ID 去掉标记重跑。
 
 - Composer 显示"临时对话/只读问答"标识；工具选择器按 risk 过滤隐藏拒绝档
   （后端仍强制）。
-- 晋升入口：restricted 行可晋升为完整 Agent（晋升前检查点 + 同 ID 完整续轮）；
-  ephemeral 行可升级为 restricted 或完整（同 ID 重跑）。
+- 晋升入口：restricted 行可晋升为完整 Agent（晋升前检查点 + 去标记完整续轮）；
+  ephemeral 行可升级为 restricted 或完整（去标记重跑）。
 - 检查点面板中 ephemeral 行展示"无检查点"空态，而非报错。
 
 ## 7. API 设计：只增一个请求字段
 
 - `POST /agent-loops/{id}/run`、`/stream` 请求体增 `temporary_mode`
- （`restricted` | `ephemeral`，缺省完整运行）；resume 请求体经由同一结构自动覆盖。
+ （`restricted` | `ephemeral`，缺省完整运行）；路径 `{id}` 仅做路由嵌套，执行 ID
+  由服务端按体生成，晋升即下一轮不再携带该字段。live pause/resume 无请求体；
+  checkpoint resume 沿用快照内 `loop_config`（含强制后的标记）。
 - 其余复用：summaries、消息、iterations、timeline、变量、todo、检查点列表/恢复
   全部按执行 ID 沿用现有端点；工具元数据（含 risk 分级）走现有工具列表面。
 

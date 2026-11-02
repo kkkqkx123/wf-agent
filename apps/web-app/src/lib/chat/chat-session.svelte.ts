@@ -192,6 +192,8 @@ export class ChatSessionController {
 	executionType = $state<ChatExecutionType>('agent');
 	/** Active agent loop id for the running turn, when known. */
 	activeAgentLoopId = $state<string | null>(null);
+	/** Next-turn temporary override: null follows the draft default. Reset on session switch. */
+	temporaryOverride = $state<'full' | 'restricted' | 'ephemeral' | null>(null);
 	revision = $state(0);
 
 	/** Inspector tab, mirrored into the address by the route. */
@@ -220,11 +222,15 @@ export class ChatSessionController {
 
 		// Group expansion is session-local memory: new ids mean new keys, but
 		// clear explicitly on session switch so stale keys never accumulate.
+		// The temporary override is also per-turn intent: carrying an
+		// `ephemeral` choice from one session into another would fence the
+		// wrong conversation, so it resets alongside the per-session state.
 		$effect(() => {
 			void this.selectedId;
 			this.openGroups.clear();
 			this.dropRecap();
 			this.dropTitle();
+			this.temporaryOverride = null;
 		});
 
 		$effect(() => {
@@ -601,6 +607,41 @@ export class ChatSessionController {
 		toasts.error('No user message to retry');
 	}
 
+	/** Effective temporary mode for the next agent turn. Null means a full run. */
+	effectiveTemporaryMode(draft: boolean): 'restricted' | 'ephemeral' | null {
+		if (this.temporaryOverride === 'full') return null;
+		if (this.temporaryOverride === 'restricted' || this.temporaryOverride === 'ephemeral')
+			return this.temporaryOverride;
+		return draft ? 'restricted' : null;
+	}
+
+	/** Composer toggle for the next agent turn. */
+	setTemporaryOverride(mode: 'full' | 'restricted' | 'ephemeral' | null): void {
+		this.temporaryOverride = mode;
+	}
+
+	/** Promotion entry: the next turn runs as a full agent. */
+	promoteToFull(): void {
+		this.temporaryOverride = 'full';
+	}
+
+	/** Local badge of one session; drives the composer mark and the empty-state hint. */
+	sessionBadge(id: string): 'restricted' | 'ephemeral' | null {
+		return sessions.sessionBadge(id);
+	}
+
+	isEphemeralSession(id: string): boolean {
+		return sessions.sessionBadge(id) === 'ephemeral';
+	}
+
+	private markTemporary(id: string, mode: 'restricted' | 'ephemeral'): void {
+		sessions.markTemporary(id, mode);
+	}
+
+	private clearTemporary(id: string): void {
+		sessions.clearTemporary(id);
+	}
+
 	recordFeedback(kind: 'up' | 'down'): void {
 		if (kind === 'up') toasts.success('Thanks for the feedback');
 		else toasts.info('Feedback recorded, will improve');
@@ -879,6 +920,7 @@ export class ChatSessionController {
 		this.activeAgentLoopId = null;
 		rememberImageNames(images);
 		const draft = !this.selectedId;
+		const effectiveTemporary = this.effectiveTemporaryMode(draft);
 		this.beginRecapTurn();
 		const baseline = new SvelteSet(sessions.list.items.map((item) => item.id));
 		const startedAt = new SvelteDate().toISOString();
@@ -901,6 +943,7 @@ export class ChatSessionController {
 				agentId: this.agentId.trim(),
 				message: content,
 				conversation: history,
+				...(effectiveTemporary ? { temporaryMode: effectiveTemporary } : {}),
 				...(images.length > 0 ? { images: images.map(toImagePayload) } : {}),
 				...(files.length > 0 ? { attachments: files.map(toAttachmentPayload) } : {}),
 			},
@@ -930,7 +973,7 @@ export class ChatSessionController {
 			},
 			signal,
 		);
-		await this.settleRun(draft, baseline, startedAt, content);
+		await this.settleRun(draft, baseline, startedAt, content, effectiveTemporary);
 	}
 
 	/**
@@ -1077,6 +1120,7 @@ export class ChatSessionController {
 		baseline: SvelteSet<string>,
 		startedAt: string,
 		content: string,
+		temporary: 'restricted' | 'ephemeral' | null = null,
 	): Promise<void> {
 		if (!chatStream.error && !chatStream.done) chatStream.complete();
 		await sessions.refresh();
@@ -1087,6 +1131,7 @@ export class ChatSessionController {
 				sessions.recordTitle(adopted.id, content);
 				await sessions.open(adopted.id);
 				this.maybeAutoTitle(adopted.id);
+				if (temporary) this.markTemporary(adopted.id, temporary);
 			}
 		} else if (
 			this.executionType === 'chat' &&
@@ -1102,6 +1147,17 @@ export class ChatSessionController {
 				sessions.recordTitle(id, content);
 				this.maybeAutoTitle(id);
 			}
+		}
+		if (
+			!draft &&
+			this.executionType === 'agent' &&
+			this.selectedId &&
+			chatStream.done &&
+			!chatStream.error &&
+			!chatStream.cancelled
+		) {
+			if (temporary) this.markTemporary(this.selectedId, temporary);
+			else this.clearTemporary(this.selectedId);
 		}
 		this.revision += 1;
 		if (this.selectedId) await this.transcript.reload();

@@ -192,6 +192,62 @@
 		style:height={composerHeight !== null && !fullscreen ? `${composerHeight}px` : undefined}
 	>
 		<DecisionMap {controller} />
+		{#if controller.executionType === 'agent'}
+			{@const isDraft = !selectedId}
+			{@const effective =
+				controller.temporaryOverride === 'full'
+					? null
+					: (controller.temporaryOverride ?? (isDraft ? 'restricted' : null))}
+			{@const badge = selectedId ? controller.sessionBadge(selectedId) : effective}
+			<div class="mb-2 flex flex-wrap items-center gap-1.5" aria-label="temporary conversation mode">
+				{#if badge}
+					<span
+						class="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-caption text-amber-700 dark:text-amber-300"
+						title={badge === 'ephemeral'
+							? 'Read-only Q&A: no checkpoints, transcript only'
+							: 'Temporary conversation: fenced tools until promoted'}
+					>
+						{badge === 'ephemeral' ? 'read-only Q&A' : 'temporary'}
+					</span>
+				{/if}
+				<div class="flex overflow-hidden rounded-md border border-border" role="group">
+					<button
+						type="button"
+						class="px-2 py-0.5 text-caption {effective === null ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}"
+						title="Full agent: all tools, checkpoints on"
+						onclick={() => controller.setTemporaryOverride('full')}
+					>
+						full
+					</button>
+					<button
+						type="button"
+						class="px-2 py-0.5 text-caption {effective === 'restricted' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}"
+						title="Temporary: read-only, interaction and network lookup only"
+						onclick={() => controller.setTemporaryOverride('restricted')}
+					>
+						temporary
+					</button>
+					<button
+						type="button"
+						class="px-2 py-0.5 text-caption {effective === 'ephemeral' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}"
+						title="Read-only Q&A: local inspection and follow-up only, no checkpoints"
+						onclick={() => controller.setTemporaryOverride('ephemeral')}
+					>
+						read-only
+					</button>
+				</div>
+				{#if badge && effective !== null}
+					<button
+						type="button"
+						class="px-2 py-0.5 text-caption text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+						title="Promote: the next turn runs as a full agent"
+						onclick={() => controller.promoteToFull()}
+					>
+						promote to full
+					</button>
+				{/if}
+			</div>
+		{/if}
 		<div
 			class="rounded-xl border border-border bg-muted/30 p-2.5 {composerHeight !== null &&
 			!fullscreen

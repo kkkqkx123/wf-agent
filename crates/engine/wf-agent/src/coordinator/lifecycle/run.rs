@@ -45,17 +45,21 @@ impl AgentLoopCoordinator {
     /// of the execution.
     pub(super) fn spawn_compression_consumer(
         &self,
+        config: &AgentLoopConfig,
         entity: &std::sync::Arc<AgentLoopEntity>,
         conversation: std::sync::Arc<RwLock<ConversationSession>>,
     ) -> Option<tokio::task::JoinHandle<()>> {
         let agent_loop_id = entity.id().to_string();
-        self.event_bus.as_ref().map(|bus| {
-            let checkpoint = self.build_checkpoint_integration().map(|integration| {
-                crate::conversation_compression::CompressionCheckpoint {
-                    entity: entity.clone(),
-                    integration,
-                }
-            });
+        // Ephemeral read-only turns take no checkpoints at all, including
+        // the post-compression snapshot: derive through the run config so
+        // the ephemeral tier yields no integration here either.
+        let checkpoint = self.checkpoint_integration_for_config(config).map(|integration| {
+            crate::conversation_compression::CompressionCheckpoint {
+                entity: entity.clone(),
+                integration,
+            }
+        });
+        self.event_bus.as_ref().map(move |bus| {
             crate::conversation_compression::spawn_conversation_compression_consumer(
                 bus.clone(),
                 agent_loop_id,
@@ -135,7 +139,8 @@ impl AgentLoopCoordinator {
         // The conversation applies compression results itself (it subscribes
         // to COMPLETED events on the bus); the consumer is aborted once the
         // loop finishes.
-        let consumer = self.spawn_compression_consumer(&entity, entity.conversation().clone());
+        let consumer =
+            self.spawn_compression_consumer(config, &entity, entity.conversation().clone());
         // Boxed for the same reason as the execution coordinator: the inner
         // body sets up the iteration coordinator and drives the first
         // checkpoints, so its future is large and must not be inlined here.

@@ -137,6 +137,54 @@ async fn run_body_rejects_empty_message_and_defaults_empty_model() {
 }
 
 #[tokio::test]
+async fn run_body_parses_temporary_mode_strictly() {
+    // Absent means a full run; the two known tiers parse; unknown values
+    // never silently become full runs.
+    let absent = serde_json::from_value::<RunAgentLoopBody>(serde_json::json!({
+        "agent_id": MAIN_AGENT_ID,
+        "model": "mock",
+        "message": "hi",
+    }))
+    .unwrap();
+    assert_eq!(
+        params_from_body(&test_state(), absent)
+            .await
+            .expect("resolve params")
+            .config
+            .temporary_mode,
+        None
+    );
+    for (wire, expected) in [
+        ("restricted", wf_types::agent_execution::TemporaryMode::Restricted),
+        ("ephemeral", wf_types::agent_execution::TemporaryMode::Ephemeral),
+    ] {
+        let body = serde_json::from_value::<RunAgentLoopBody>(serde_json::json!({
+            "agent_id": MAIN_AGENT_ID,
+            "model": "mock",
+            "message": "hi",
+            "temporary_mode": wire,
+        }))
+        .unwrap();
+        assert_eq!(
+            params_from_body(&test_state(), body)
+                .await
+                .expect("resolve params")
+                .config
+                .temporary_mode,
+            Some(expected)
+        );
+    }
+    let unknown = serde_json::from_value::<RunAgentLoopBody>(serde_json::json!({
+        "agent_id": MAIN_AGENT_ID,
+        "model": "mock",
+        "message": "hi",
+        "temporary_mode": "full",
+    }))
+    .unwrap();
+    assert!(params_from_body(&test_state(), unknown).await.is_err());
+}
+
+#[tokio::test]
 async fn loop_registry_summaries_and_stats_are_reachable() {
     let ctx = make_ctx();
     for uri in [

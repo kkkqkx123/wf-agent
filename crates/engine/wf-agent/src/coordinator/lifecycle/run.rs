@@ -6,6 +6,7 @@ use tokio::sync::RwLock;
 use wf_execution_shared::conversation_session::ConversationSession;
 use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopOutput};
+use wf_types::agent_execution::TemporaryMode;
 use wf_types::checkpoint::CheckpointTiming;
 
 use super::settle::{settle_kind, SettleKind};
@@ -241,7 +242,10 @@ impl AgentLoopCoordinator {
                 crate::error::AgentError::Validation(format!("invalid execution file scope: {e}"))
             })?;
             coordinator = coordinator.with_file_scope(Some(resolved.clone()));
-            if resolved.enabled {
+            // Ephemeral read-only turns take no checkpoints, so they also
+            // leave no file history: observing file diffs without a
+            // snapshot to anchor them would only bloat the session.
+            if resolved.enabled && config.temporary_mode != Some(TemporaryMode::Ephemeral) {
                 let parent = entity.parent_execution_id().map(|id| id.to_string());
                 let session = wf_checkpoint::CheckpointSession::new_with_scope(
                     manager.clone(),

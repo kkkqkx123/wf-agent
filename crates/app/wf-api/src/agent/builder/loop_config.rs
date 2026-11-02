@@ -194,6 +194,7 @@ impl AgentLoopConfigBuilder<LoopConfigured> {
             history_normalization: self.history_normalization,
             context_schema: self.context_schema,
             context_strict: self.context_strict,
+            temporary_mode: None,
             checkpoint_message_interval: None,
         }
     }

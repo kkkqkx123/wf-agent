@@ -693,6 +693,11 @@ export interface RunLoopInput {
 	message: string;
 	conversation?: RunConversationMessage[];
 	/**
+	 * Temporary execution mode of this run (`restricted` | `ephemeral`).
+	 * Absent means a full agent run; the server enforces the exposure.
+	 */
+	temporaryMode?: 'restricted' | 'ephemeral';
+	/**
 	 * Optional per-run filesystem scope (`ExecutionFileScope` on the
 	 * backend). Absent inherits the global default.
 	 */
@@ -730,6 +735,7 @@ export async function runAgentLoop(id: string, input: RunLoopInput): Promise<Age
 					tool_call_protocol: { format: 'json' },
 					conversation: input.conversation ?? [],
 					file_scope: fileScope,
+					...(input.temporaryMode ? { temporary_mode: input.temporaryMode } : {}),
 				},
 			}),
 		),

@@ -11754,6 +11754,13 @@ export interface components {
             token_limit?: number | null;
             /** Format: int32 */
             token_warning_threshold?: number | null;
+            /**
+             * @description Temporary execution mode of this run (`restricted` for a draft's
+             *     fenced first turns, `ephemeral` for a short read-only Q&A without
+             *     checkpoints). Absent means a full agent run. Unknown values are
+             *     rejected; the engine forces the exposure server-side.
+             */
+            temporary_mode?: string | null;
             tool_call_protocol: unknown;
         };
         SaveAgentTemplateVersionBody: {

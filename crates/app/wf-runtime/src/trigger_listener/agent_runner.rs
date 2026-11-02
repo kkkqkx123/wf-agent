@@ -167,6 +167,7 @@ impl TriggerActionRunner for AgentTriggerRunner {
             history_normalization: false,
             context_schema: None,
             context_strict: None,
+            temporary_mode: None,
             checkpoint_message_interval: checkpoint_message_interval
                 .and_then(|n| (n > 0).then_some(n)),
         };
@@ -406,6 +407,7 @@ impl AgentTriggerRunner {
             history_normalization: false,
             context_schema: None,
             context_strict: None,
+            temporary_mode: None,
             checkpoint_message_interval: checkpoint_message_interval
                 .and_then(|n| (n > 0).then_some(n)),
         };

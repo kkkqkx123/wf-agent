@@ -47,6 +47,12 @@ pub struct RunAgentLoopBody {
     #[serde(default)]
     #[schema(value_type = Option<Value>)]
     file_scope: Option<wf_types::config::file_scope::ExecutionFileScope>,
+    /// Temporary execution mode of this run (`restricted` for a draft's
+    /// fenced first turns, `ephemeral` for a short read-only Q&A without
+    /// checkpoints). Absent means a full agent run. Unknown values are
+    /// rejected; the engine forces the exposure server-side.
+    #[serde(default)]
+    temporary_mode: Option<String>,
     #[serde(default)]
     context: HashMap<String, Value>,
     #[schema(value_type = Option<Vec<Value>>)]
@@ -119,6 +125,19 @@ pub(crate) async fn params_from_body(
     } else {
         body.agent_id
     };
+    // The temporary mode is a strict wire enum: unknown values must not
+    // silently become full runs, and full runs must not silently become
+    // fenced ones.
+    let temporary_mode = match body.temporary_mode {
+        None => None,
+        Some(raw) => Some(
+            wf_types::agent_execution::TemporaryMode::parse(&raw).ok_or_else(|| {
+                wf_api::ApiError::Validation(format!(
+                    "unknown temporary_mode: {raw} (expected restricted or ephemeral)"
+                ))
+            })?,
+        ),
+    };
     let config = wf_api::AgentLoopConfig {
         file_scope: body.file_scope,
         agent_id: wf_api::Id::from(agent_id),
@@ -146,6 +165,7 @@ pub(crate) async fn params_from_body(
         history_normalization: false,
         context_schema: body.context_schema,
         context_strict: None,
+        temporary_mode,
         checkpoint_message_interval: body.checkpoint_message_interval.filter(|n| *n > 0),
     };
     // Composition boundary: resolve the agent template (built-in

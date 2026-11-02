@@ -85,6 +85,7 @@ fn config(max_iterations: u32) -> AgentLoopConfig {
         history_normalization: false,
         context_schema: None,
         context_strict: None,
+        temporary_mode: None,
         checkpoint_message_interval: None,
     }
 }

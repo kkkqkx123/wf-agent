@@ -20,6 +20,13 @@ impl AgentLoopCoordinator {
         &self,
         config: &AgentLoopConfig,
     ) -> Option<AgentCheckpointIntegration> {
+        // Ephemeral read-only turns take no checkpoints at all: no
+        // interval checkpoints, no lifecycle checkpoints, no hook
+        // checkpoints. The transcript still persists through the normal
+        // record/message path; only the checkpoint chain stays empty.
+        if config.temporary_mode == Some(wf_types::agent_execution::TemporaryMode::Ephemeral) {
+            return None;
+        }
         if self.checkpoint_strategy.is_some() {
             return self.build_checkpoint_integration();
         }

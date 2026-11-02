@@ -54,6 +54,7 @@ async fn runs_agent_loop_to_completion() {
                 history_normalization: false,
                 context_schema: None,
                 context_strict: None,
+                temporary_mode: None,
                 checkpoint_message_interval: None,
             },
             AgentLoopInput {
@@ -137,6 +138,7 @@ async fn persisted_agent_execution_readable_after_restart() {
                 history_normalization: false,
                 context_schema: None,
                 context_strict: None,
+                temporary_mode: None,
                 checkpoint_message_interval: None,
             },
             AgentLoopInput {
@@ -200,6 +202,7 @@ async fn streams_agent_loop_events() {
                 history_normalization: false,
                 context_schema: None,
                 context_strict: None,
+                temporary_mode: None,
                 checkpoint_message_interval: None,
             },
             AgentLoopInput {
@@ -283,6 +286,7 @@ fn resume_config() -> AgentLoopConfig {
         history_normalization: false,
         context_schema: None,
         context_strict: None,
+        temporary_mode: None,
         checkpoint_message_interval: Some(1),
     }
 }

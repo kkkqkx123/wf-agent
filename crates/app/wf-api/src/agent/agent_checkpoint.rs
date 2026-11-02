@@ -57,6 +57,16 @@ pub async fn create(
     description: Option<String>,
 ) -> ApiResult<Checkpoint> {
     if let Some(entity) = ctx.agent_loop(agent_loop_id) {
+        // Ephemeral read-only turns take no checkpoints at all; the manual
+        // endpoint is no exception. The mode rides the entity's effective
+        // config, which the coordinator forced at build time.
+        if entity.effective_config().and_then(|c| c.temporary_mode)
+            == Some(wf_types::agent_execution::TemporaryMode::Ephemeral)
+        {
+            return Err(ApiError::Validation(
+                "ephemeral read-only runs take no checkpoints".to_string(),
+            ));
+        }
         let mut integration =
             wf_agent::checkpoint::AgentCheckpointIntegration::new(ctx.checkpoint_store.clone());
         if let Some(manager) = ctx.file_checkpoint_manager() {

@@ -1,5 +1,6 @@
 use wf_execution_shared::hooks::types::HookDefinition;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput};
+use wf_types::agent_execution::TemporaryMode;
 use wf_types::message::{Message, MessageRole};
 use wf_types::Id;
 
@@ -8,6 +9,49 @@ use crate::entity::AgentLoopEntity;
 use crate::error::AgentResult;
 
 impl AgentLoopCoordinator {
+    /// Force the engine-side temporary policy onto a run config.
+    ///
+    /// A temporary mode overrides the caller-supplied exposure lists,
+    /// never merges with them: the pool becomes exactly the tier
+    /// allowlist, nothing starts gated or discoverable (everything allowed
+    /// is visible upfront, so a short Q&A needs no discovery dance),
+    /// formally activated tools outside the tier are dropped, the caller's
+    /// hidden list is kept and extended with the tier denylist, and the
+    /// `general` batch proxy is switched off so no inner invocation can
+    /// widen the cage. `None` returns the config untouched: full runs keep
+    /// caller-supplied exposure.
+    fn forced_temporary_config(config: &AgentLoopConfig) -> AgentLoopConfig {
+        let (allowed, denied) = match config.temporary_mode {
+            None => return config.clone(),
+            Some(TemporaryMode::Restricted) => (
+                wf_tools::predefined::risk::temporary_allowed_tools(),
+                wf_tools::predefined::risk::temporary_denied_tools(),
+            ),
+            Some(TemporaryMode::Ephemeral) => (
+                wf_tools::predefined::risk::ephemeral_allowed_tools(),
+                wf_tools::predefined::risk::ephemeral_denied_tools(),
+            ),
+        };
+        let mut forced = config.clone();
+        forced.available_tool_names = Some(allowed.iter().map(|id| id.to_string()).collect());
+        forced.initial_tool_names = Vec::new();
+        forced.discoverable_tool_names = Vec::new();
+        forced.activated_tool_names = config
+            .activated_tool_names
+            .iter()
+            .filter(|name| allowed.iter().any(|id| *id == name.as_str()))
+            .cloned()
+            .collect();
+        let mut hidden = config.hidden_tool_names.clone();
+        for id in denied {
+            if !hidden.iter().any(|name| name == id) {
+                hidden.push(id.to_string());
+            }
+        }
+        forced.hidden_tool_names = hidden;
+        forced.enable_general_tool = Some(false);
+        forced
+    }
     /// Normalize an inbound conversation to the target loop's exposure.
     ///
     /// Inbound histories carry the sender's bucket shapes (a direct call where
@@ -65,6 +109,13 @@ impl AgentLoopCoordinator {
         input: AgentLoopInput,
         forced_id: Option<Id>,
     ) -> AgentResult<AgentLoopEntity> {
+        // Temporary modes are enforced engine-side: the forced config
+        // replaces the caller lists before anything else reads them
+        // (entity exposure, effective-config snapshot, inbound history
+        // normalization), so a client cannot widen its own cage and the
+        // persisted loop config records what actually ran.
+        let forced = Self::forced_temporary_config(config);
+        let config = &forced;
         let hooks: Vec<HookDefinition> = config
             .hooks
             .iter()
@@ -269,5 +320,81 @@ impl AgentLoopCoordinator {
         }
 
         Ok(entity)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base_config() -> AgentLoopConfig {
+        AgentLoopConfig {
+            agent_id: Id::from("agent-1"),
+            model: "mock".to_string(),
+            file_scope: None,
+            max_iterations: None,
+            max_execution_time: None,
+            hooks: Vec::new(),
+            available_tool_names: None,
+            initial_tool_names: Vec::new(),
+            discoverable_tool_names: Vec::new(),
+            activated_tool_names: Vec::new(),
+            hidden_tool_names: Vec::new(),
+            enable_general_tool: None,
+            tool_call_protocol: None,
+            token_limit: None,
+            token_warning_threshold: None,
+            enable_token_tracking: None,
+            checkpoint_message_interval: None,
+            general_description: None,
+            discoverable_metadata_block: None,
+            history_normalization: false,
+            context_schema: None,
+            context_strict: None,
+            temporary_mode: None,
+        }
+    }
+
+    #[test]
+    fn full_runs_keep_caller_exposure() {
+        let config = base_config();
+        let forced = AgentLoopCoordinator::forced_temporary_config(&config);
+        assert_eq!(forced, config);
+    }
+
+    #[test]
+    fn restricted_mode_overrides_caller_lists() {
+        let mut config = base_config();
+        config.temporary_mode = Some(TemporaryMode::Restricted);
+        // A client-supplied pool claiming write tools must not survive.
+        config.available_tool_names = Some(vec!["write_file".to_string()]);
+        config.enable_general_tool = Some(true);
+        config.hidden_tool_names = vec!["custom_blocked".to_string()];
+        let forced = AgentLoopCoordinator::forced_temporary_config(&config);
+        let available = forced.available_tool_names.expect("pool is forced");
+        assert!(available.contains(&"read_file".to_string()));
+        assert!(available.contains(&"web_search".to_string()));
+        assert!(!available.contains(&"write_file".to_string()));
+        assert!(forced.initial_tool_names.is_empty());
+        assert!(forced.discoverable_tool_names.is_empty());
+        assert!(forced.hidden_tool_names.contains(&"write_file".to_string()));
+        assert!(forced
+            .hidden_tool_names
+            .contains(&"custom_blocked".to_string()));
+        assert_eq!(forced.enable_general_tool, Some(false));
+        assert_eq!(forced.temporary_mode, Some(TemporaryMode::Restricted));
+    }
+
+    #[test]
+    fn ephemeral_mode_is_local_only() {
+        let mut config = base_config();
+        config.temporary_mode = Some(TemporaryMode::Ephemeral);
+        let forced = AgentLoopCoordinator::forced_temporary_config(&config);
+        let available = forced.available_tool_names.expect("pool is forced");
+        assert!(available.contains(&"read_file".to_string()));
+        assert!(available.contains(&"ask_followup_question".to_string()));
+        assert!(!available.contains(&"web_search".to_string()));
+        assert!(forced.hidden_tool_names.contains(&"web_search".to_string()));
+        assert_eq!(forced.enable_general_tool, Some(false));
     }
 }

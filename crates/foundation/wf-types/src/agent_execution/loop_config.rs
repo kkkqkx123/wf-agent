@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::Id;
 
+use super::TemporaryMode;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HookConfig {
     pub hook_type: String,
@@ -108,4 +110,11 @@ pub struct AgentLoopConfig {
     /// `Some(true)` rejects unknown non-null keys.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_strict: Option<bool>,
+    /// Temporary execution mode of this run. `None` (including every
+    /// persisted config written before this field existed) means a full
+    /// agent run with caller-supplied exposure. `Some` forces the
+    /// engine-side temporary policy: the exposure lists below are
+    /// overridden, never merged, so a client cannot widen its own cage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temporary_mode: Option<TemporaryMode>,
 }

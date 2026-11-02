@@ -570,6 +570,7 @@ mod tests {
             history_normalization: false,
             context_schema: None,
             context_strict: None,
+            temporary_mode: None,
             checkpoint_message_interval: None,
         }
     }

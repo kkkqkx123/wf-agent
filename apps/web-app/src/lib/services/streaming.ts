@@ -37,12 +37,21 @@ export interface AttachmentPayload {
 	original_chars?: number;
 }
 
+export type TemporaryRunMode = 'restricted' | 'ephemeral';
+
 export interface LoopStreamBody {
 	model: string;
 	message: string;
 	conversation?: RunConversationMessage[];
 	/** Optional agent template id; empty falls back to the default main agent. */
 	agentId?: string;
+	/**
+	 * Temporary execution mode of this run: `restricted` fences a draft's
+	 * first turns onto the read-only/network allowlist, `ephemeral` runs a
+	 * short read-only Q&A with no checkpoints at all. Absent means a full
+	 * agent run; the server enforces the exposure.
+	 */
+	temporaryMode?: TemporaryRunMode;
 	/** Optional per-run filesystem scope; absent inherits the global default. */
 	fileScope?: ExecutionFileScope | null;
 	/** Structured image payload of the turn. */
@@ -73,6 +82,7 @@ export function streamLoopRun(
 			tool_call_protocol: { format: 'json' },
 			conversation: body.conversation ?? [],
 			file_scope: fileScope,
+			...(body.temporaryMode ? { temporary_mode: body.temporaryMode } : {}),
 			...(body.images && body.images.length > 0 ? { images: body.images } : {}),
 			...(body.attachments && body.attachments.length > 0 ? { attachments: body.attachments } : {}),
 		},

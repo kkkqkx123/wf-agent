@@ -255,7 +255,7 @@ Web 端引入 markstream-svelte 后两端的关系：
 | `docs/apps/web-app/architecture.md`                                      | Web 前端整体架构（必读）         |
 | `docs/plan/web/chat-ide-primary-design.md`                               | 对话 IDE 产品形态                |
 | `docs/plan/web-frontend-renovation-phases.md`                            | 分阶段实施计划（本方案属阶段 2） |
-| `docs/api/08-wf-server-HTTP层.md`                                        | HTTP/SSE 协议细节                |
+| `docs/app/api/08-wf-server-http-layer.md`                                        | HTTP/SSE 协议细节                |
 | `docs/apps/web-app/svelte-best-practice.md`                              | Svelte 5 开发约定                |
 | `crates/app/wf-api/src/infra/stream.rs`                                  | 执行流协议定义                   |
 | `crates/foundation/wf-types/src/llm/message_stream_events.rs`            | LLM 流协议定义                   |

@@ -224,7 +224,7 @@ Resolution priority runs from CLI flags and SDK options, through project-level `
 Detailed design and architecture references live under `docs/`:
 
 - `docs/architecture/` — agent and workflow engine architecture, plus shared infrastructure.
-- `docs/api/` — facade and HTTP transport layer analysis.
+- `docs/app/api/` — facade and HTTP transport layer analysis.
 - `docs/cli/` — CLI feature set, layout, and component design.
 - `docs/infra/` — LLM clients and sandbox architecture.
 - `docs/foundation/` — types and plugin author guides.

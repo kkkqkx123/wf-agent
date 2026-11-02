@@ -1,6 +1,6 @@
 # web-app（SvelteKit）OpenAPI 集成方案
 
-配套：`openapi-utoipa-migration.md`、`openapi-schema-typing.md`、`docs/api/09-openapi-文档生成.md`。目标：让
+配套：`openapi-utoipa-migration.md`、`openapi-schema-typing.md`、`docs/app/api/09-openapi-doc-generation.md`。目标：让
 `apps/web-app`（SvelteKit 2 + Svelte 5）基于 `wf-server` 的 **OpenAPI 离线快照**做
 类型安全的 API 调用，并明确流式/WebSocket 的类型化边界。
 

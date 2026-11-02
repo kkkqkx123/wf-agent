@@ -224,7 +224,7 @@ Wasm 同时支持核心模块与组件模型，可使用 Rust、Go 或 Python �
 详细的设计与架构参考位于 `docs/`：
 
 - `docs/architecture/`——Agent 与工作流引擎架构，以及共享基础设施。
-- `docs/api/`——门面层与 HTTP 传输层分析。
+- `docs/app/api/`——门面层与 HTTP 传输层分析。
 - `docs/cli/`——CLI 功能集、布局与组件设计。
 - `docs/infra/`——LLM 客户端与沙箱架构。
 - `docs/foundation/`——类型与插件作者指南。

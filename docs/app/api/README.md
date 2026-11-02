@@ -7,15 +7,15 @@
 
 | 文档 | 内容 |
 |------|------|
-| [01-wf-api-总览与架构.md](./01-wf-api-总览与架构.md) | wf-api crate 定位、11 模块地图、依赖、横切设计模式（composition 边界、draft 三态、执行域解析、双写矩阵） |
-| [02-agent域.md](./02-agent域.md) | agent / entity 模块：Agent Loop 执行与查询、决策图、手动 checkpoint、composition、实体 CRUD、执行域歧义解析 |
-| [03-workflow域.md](./03-workflow域.md) | workflow 模块：定义生命周期与草稿、执行控制、校验、builder、审批闭环、执行图/状态分析 |
-| [04-infra基础设施.md](./04-infra基础设施.md) | infra 模块：ApiContext、错误、持久化层、事件、依赖索引、订阅/流、插件桥、共享校验 |
-| [05-查询与分析.md](./05-查询与分析.md) | query / audit / analysis 模块：记录查询、三源审计、错误根因、性能、进度、搜索、统计 |
-| [06-checkpoint与trigger域.md](./06-checkpoint与trigger域.md) | checkpoint 模块（统一记录/文件/审批/来源）与 trigger 模块（模板注册、执行历史、builder、校验） |
-| [07-llm-模板-builder.md](./07-llm-模板-builder.md) | llm / template 模块与跨域 builder 总览：LLM/Profile/Provider/脚本/工具、模板库、类型状态机构造器 |
-| [08-wf-server-HTTP层.md](./08-wf-server-HTTP层.md) | wf-server：路由结构、契约端点清单、信封/SSE/WS/中间件/配置 |
-| [09-openapi-文档生成.md](./09-openapi-文档生成.md) | wf-server OpenAPI：注解→聚合→类型注册→快照→测试；离线 codegen（`tools/openapi-codegen`）；新增端点清单 |
+| [01-wf-api-overview-and-architecture.md](./01-wf-api-overview-and-architecture.md) | wf-api crate 定位、11 模块地图、依赖、横切设计模式（composition 边界、draft 三态、执行域解析、双写矩阵） |
+| [02-agent-domain.md](./02-agent-domain.md) | agent / entity 模块：Agent Loop 执行与查询、决策图、手动 checkpoint、composition、实体 CRUD、执行域歧义解析 |
+| [03-workflow-domain.md](./03-workflow-domain.md) | workflow 模块：定义生命周期与草稿、执行控制、校验、builder、审批闭环、执行图/状态分析 |
+| [04-infra.md](./04-infra.md) | infra 模块：ApiContext、错误、持久化层、事件、依赖索引、订阅/流、插件桥、共享校验 |
+| [05-query-and-analysis.md](./05-query-and-analysis.md) | query / audit / analysis 模块：记录查询、三源审计、错误根因、性能、进度、搜索、统计 |
+| [06-checkpoint-and-trigger-domain.md](./06-checkpoint-and-trigger-domain.md) | checkpoint 模块（统一记录/文件/审批/来源）与 trigger 模块（模板注册、执行历史、builder、校验） |
+| [07-llm-template-builder.md](./07-llm-template-builder.md) | llm / template 模块与跨域 builder 总览：LLM/Profile/Provider/脚本/工具、模板库、类型状态机构造器 |
+| [08-wf-server-http-layer.md](./08-wf-server-http-layer.md) | wf-server：路由结构、契约端点清单、信封/SSE/WS/中间件/配置 |
+| [09-openapi-doc-generation.md](./09-openapi-doc-generation.md) | wf-server OpenAPI：注解→聚合→类型注册→快照→测试；离线 codegen（`tools/openapi-codegen`）；新增端点清单 |
 
 ## 核心结论
 

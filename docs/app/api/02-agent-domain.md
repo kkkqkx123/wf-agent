@@ -63,7 +63,7 @@ live `state.error_records()` 优先、持久 `AgentExecution.error` 文本用 `e
 - `agent_draft.rs`（117）：镜像 workflow draft 三态，复用 `workflow::draft::LifecycleStatus`；`promote_draft` → `save_agent_template` → 删 draft。
 - `agent_config.rs`（33）：常量 `DEFAULT_AGENT = "@standard/main"`、`DEFAULT_MODEL = "default"`、`DEFAULT_MAX_ITERATIONS = 50`；`build_agent_loop_config` 构造"未解析意图"（max_iterations 故意留 None，由 composition 最终填）。
 - `validation.rs`（97）：`AgentValidator`（四步：shape → profile 引用 → 工具四桶列表 → **tool_call_protocol 与 profile format 兼容性**，用引擎 `AgentLoopValidator::validate_tool_call_protocol` 保证 API 时与运行时规则一致）。
-- `builder.rs`（900）、`composition.rs`（636）见 [07-llm-模板-builder.md](./07-llm-模板-builder.md)。
+- `builder.rs`（900）、`composition.rs`（636）见 [07-llm-template-builder.md](./07-llm-template-builder.md)。
 
 ## 2. entity 模块（低层存储实体 CRUD）
 
@@ -82,7 +82,7 @@ live `state.error_records()` 优先、持久 `AgentExecution.error` 文本用 `e
 | `task.rs` | 189 | 全接收 `&StorageContext`（不经 ApiContext）：CRUD、统计、`cleanup_tasks(older_than)`、幂等 `cancel_task`（读-改-写）、按 execution/instance 查询（全表 list 后内存过滤） |
 | `user_interaction.rs` | 395 | 共享交互层：`UserInteractionHandler` trait（必选 `on_interaction`，`on_tool_approval_requested`/`on_followup_question_requested` 默认 no-op，让既有实现者无需改动）；handler 槽进程作用域挂 `ApiContext`，**同一 handler 服务 workflow `USER_INTERACTION` 节点、agent loop、审批协调器**；`respond_interaction` 闭环：已 responded → `Conflict`，否则**先持久化再唤醒 live 等待节点**（返回值忽略，无等待者时 false）；状态是自由字符串 `pending`/`responded` |
 
-> 旧的 `entity/trigger.rs`、`entity/trigger_execution.rs` 已消失：trigger 实体模型（`TriggerStorageMetadata`）被 TriggerTemplate 模板模型整体取代，触发相关能力迁至顶层 `trigger/` 模块，详见 [06-checkpoint与trigger域.md](./06-checkpoint与trigger域.md)。
+> 旧的 `entity/trigger.rs`、`entity/trigger_execution.rs` 已消失：trigger 实体模型（`TriggerStorageMetadata`）被 TriggerTemplate 模板模型整体取代，触发相关能力迁至顶层 `trigger/` 模块，详见 [06-checkpoint-and-trigger-domain.md](./06-checkpoint-and-trigger-domain.md)。
 
 ## 3. 关键设计要点
 

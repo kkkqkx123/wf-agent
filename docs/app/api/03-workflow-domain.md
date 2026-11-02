@@ -102,7 +102,7 @@
 
 ## 5. builder 与 composition
 
-`builder.rs`（525，`WorkflowBuilder<Empty/Building>`：`build()` 跑两级校验、`save()` 走正式管线；`from_config_json/toml` 校验延迟到 build；`add_conditional_edge` condition 为 `${...}` 运行时表达式）与 `node_builder.rs`（434，`NodeBuilder<NoType/Typed>`：13 个类型化便捷构造器——fork 固定 Parallel、join 固定 WaitForAll、loop_start 固定 max_iterations=1、`with_checkpoint` 写入 execution_config 覆盖 workflow 级策略）、`execution_builder.rs`（527，**先订阅后 spawn**、`CallbackPack` 分发 NodeCompleted/NodeFailed/WorkflowExecutionFailed、`execute_with_result` 从持久记录投影、`execute_stream` 回调转发任务注册键 `"{execution_id}:callbacks"`）——详见 [07-llm-模板-builder.md](./07-llm-模板-builder.md) 的模式综述。
+`builder.rs`（525，`WorkflowBuilder<Empty/Building>`：`build()` 跑两级校验、`save()` 走正式管线；`from_config_json/toml` 校验延迟到 build；`add_conditional_edge` condition 为 `${...}` 运行时表达式）与 `node_builder.rs`（434，`NodeBuilder<NoType/Typed>`：13 个类型化便捷构造器——fork 固定 Parallel、join 固定 WaitForAll、loop_start 固定 max_iterations=1、`with_checkpoint` 写入 execution_config 覆盖 workflow 级策略）、`execution_builder.rs`（527，**先订阅后 spawn**、`CallbackPack` 分发 NodeCompleted/NodeFailed/WorkflowExecutionFailed、`execute_with_result` 从持久记录投影、`execute_stream` 回调转发任务注册键 `"{execution_id}:callbacks"`）——详见 [07-llm-template-builder.md](./07-llm-template-builder.md) 的模式综述。
 
 `composition.rs`（149 行）：`resolve_options` = caller `WorkflowExecutionOptions` 必胜 → 存储 `WorkflowConfig` 补默认 → 最终兜底 `enable_checkpoints: Some(true)`；`workflow_hooks_to_definitions`（自被删除的顶层 composition/hook.rs 并入）。
 

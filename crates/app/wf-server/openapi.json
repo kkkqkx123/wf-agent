@@ -30592,6 +30592,286 @@
         ]
       }
     },
+    "/api/v1/rag/diagnose": {
+      "get": {
+        "tags": [
+          "rag"
+        ],
+        "operationId": "handle_rag_diagnose",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "top_k",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "filter_fields",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "score_threshold",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            }
+          },
+          {
+            "name": "collection",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "example": "kb"
+          },
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "example": "kb"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/rag/preview": {
+      "get": {
+        "tags": [
+          "rag"
+        ],
+        "operationId": "handle_rag_preview",
+        "parameters": [
+          {
+            "name": "collection",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "kb"
+          },
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "kb"
+          },
+          {
+            "name": "query",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "top_k",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "excerpt_chars",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/rag/stats": {
+      "get": {
+        "tags": [
+          "rag"
+        ],
+        "operationId": "handle_rag_stats",
+        "parameters": [
+          {
+            "name": "collection",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "kb"
+          },
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "kb"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/scripts": {
       "get": {
         "tags": [
@@ -48350,11 +48630,49 @@
               "name",
               "version",
               "apiVersion",
-              "timestamp"
+              "timestamp",
+              "max_images_per_turn",
+              "max_image_bytes",
+              "max_images_total_bytes",
+              "allowed_image_media_types",
+              "max_attachments_per_turn",
+              "max_attachment_chars",
+              "max_attachments_total_chars"
             ],
             "properties": {
+              "allowed_image_media_types": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
               "apiVersion": {
                 "type": "string"
+              },
+              "max_attachment_chars": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "max_attachments_per_turn": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "max_attachments_total_chars": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "max_image_bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "max_images_per_turn": {
+                "type": "integer",
+                "description": "Single source for image limits: mirrors the unified validation\nin `wf-types::message`. Frontend reads these at runtime and falls\nback to builtins when talking to an older server.",
+                "minimum": 0
+              },
+              "max_images_total_bytes": {
+                "type": "integer",
+                "minimum": 0
               },
               "name": {
                 "type": "string"
@@ -52058,6 +52376,14 @@
           "message"
         ],
         "properties": {
+          "attachments": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {},
+            "description": "Structured text attachments of the turn. Validated like the agent\nchannel, then re-inlined with attributes for storage."
+          },
           "images": {
             "type": [
               "array",
@@ -54483,11 +54809,49 @@
           "name",
           "version",
           "apiVersion",
-          "timestamp"
+          "timestamp",
+          "max_images_per_turn",
+          "max_image_bytes",
+          "max_images_total_bytes",
+          "allowed_image_media_types",
+          "max_attachments_per_turn",
+          "max_attachment_chars",
+          "max_attachments_total_chars"
         ],
         "properties": {
+          "allowed_image_media_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "apiVersion": {
             "type": "string"
+          },
+          "max_attachment_chars": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_attachments_per_turn": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_attachments_total_chars": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_image_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_images_per_turn": {
+            "type": "integer",
+            "description": "Single source for image limits: mirrors the unified validation\nin `wf-types::message`. Frontend reads these at runtime and falls\nback to builtins when talking to an older server.",
+            "minimum": 0
+          },
+          "max_images_total_bytes": {
+            "type": "integer",
+            "minimum": 0
           },
           "name": {
             "type": "string"
@@ -55683,6 +56047,14 @@
         "properties": {
           "agent_id": {
             "type": "string"
+          },
+          "attachments": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {},
+            "description": "Structured text attachments of the turn. The server validates\ncounts, sizes and truncation markers, then re-inlines them with\nattributes for storage so history stays a single user bubble."
           },
           "available_tool_names": {
             "type": [

@@ -116,6 +116,9 @@ pub struct ApiContext {
     /// User repository Git configuration (repo root + timeouts). `None`
     /// keeps the user git domain disabled.
     user_git: Option<wf_types::config::user_git::UserGitConfig>,
+    /// Shared retrieval backend for read-only RAG management routes.
+    /// `None` keeps the routes registered but unavailable.
+    rag_handles: Option<crate::rag::RagHandles>,
 }
 
 impl ApiContext {
@@ -157,6 +160,7 @@ impl ApiContext {
             execution_limits: None,
             stale_workflows: Arc::new(dashmap::DashSet::new()),
             user_git: None,
+            rag_handles: None,
         };
         // Persist every engine event published on the shared bus.
         ctx.restart_persistence_bridge();
@@ -208,6 +212,7 @@ impl ApiContext {
             execution_limits: None,
             stale_workflows: Arc::new(dashmap::DashSet::new()),
             user_git: None,
+            rag_handles: None,
         };
         // Persist every engine event published on the shared bus.
         ctx.restart_persistence_bridge();
@@ -330,6 +335,17 @@ impl ApiContext {
     /// The configured user git domain, if any.
     pub fn user_git_config(&self) -> Option<&wf_types::config::user_git::UserGitConfig> {
         self.user_git.as_ref()
+    }
+
+    /// Inject the shared retrieval backend for RAG management routes.
+    pub fn with_rag_handles(mut self, handles: crate::rag::RagHandles) -> Self {
+        self.rag_handles = Some(handles);
+        self
+    }
+
+    /// The shared retrieval backend, if configured.
+    pub fn rag_handles(&self) -> Option<&crate::rag::RagHandles> {
+        self.rag_handles.as_ref()
     }
 
     pub fn handlers(&self) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {

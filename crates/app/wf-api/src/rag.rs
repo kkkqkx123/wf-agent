@@ -7,7 +7,49 @@
 
 use serde::{Deserialize, Serialize};
 
+use std::sync::Arc;
+
 use crate::infra::error::{ApiError, ApiResult};
+
+/// Shared retrieval backend injected by the host runtime.
+///
+/// Transports read through this handle; `None` keeps the routes
+/// registered but reporting service unavailable.
+#[derive(Clone)]
+pub struct RagHandles {
+    /// Vector backend shared with tools and workflow nodes.
+    pub store: Arc<dyn vector_contracts::VectorStorage>,
+    /// Embedding provider shared with tools and workflow nodes.
+    pub embedder: Arc<dyn llm_embedding::provider::EmbeddingProvider>,
+}
+
+impl RagHandles {
+    /// Builds the shared retrieval handle.
+    pub fn new(
+        store: Arc<dyn vector_contracts::VectorStorage>,
+        embedder: Arc<dyn llm_embedding::provider::EmbeddingProvider>,
+    ) -> Self {
+        Self { store, embedder }
+    }
+}
+
+impl std::fmt::Debug for RagHandles {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RagHandles").finish()
+    }
+}
+
+/// Requires retrieval handles or reports service unavailable.
+pub fn require_rag_handles(
+    handles: Option<&RagHandles>,
+) -> ApiResult<RagHandles> {
+    handles.cloned().ok_or_else(|| {
+        ApiError::execution_categorized(
+            "Retrieval service is not configured",
+            crate::infra::error::ApiErrorCategory::ServiceUnavailable,
+        )
+    })
+}
 
 /// Point counts for one collection/namespace scope.
 #[derive(Debug, Clone, Serialize, Deserialize)]

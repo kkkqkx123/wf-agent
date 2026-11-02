@@ -20,6 +20,55 @@ pub trait QueryRewriter: Send + Sync {
     async fn rewrite(&self, query: &str) -> Result<Vec<String>>;
 }
 
+/// Deterministic expansion without a model call.
+///
+/// Splits the question on sentence boundaries and returns the original
+/// plus the distinct sentence fragments, capped at four variants. Hosts
+/// use this when the model gateway is unavailable; gateway-backed
+/// rewriters implement the port through the same trait.
+pub struct HeuristicQueryRewriter;
+
+#[async_trait]
+impl QueryRewriter for HeuristicQueryRewriter {
+    async fn rewrite(&self, query: &str) -> Result<Vec<String>> {
+        if query.trim().is_empty() {
+            return Err(RagError::InvalidInput(
+                "query must not be empty".to_string(),
+            ));
+        }
+        let mut variants = vec![query.trim().to_string()];
+        for fragment in split_sentences(query) {
+            if variants.len() >= 4 {
+                break;
+            }
+            if !variants.iter().any(|variant| variant == &fragment) {
+                variants.push(fragment);
+            }
+        }
+        Ok(variants)
+    }
+}
+
+fn split_sentences(query: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    for ch in query.chars() {
+        current.push(ch);
+        if matches!(ch, '.' | '!' | '?' | '。' | '？' | '！' | ';' | '；' | '\n') {
+            let trimmed = current.trim().to_string();
+            if trimmed.chars().count() > 2 {
+                out.push(trimmed);
+            }
+            current.clear();
+        }
+    }
+    let trimmed = current.trim().to_string();
+    if trimmed.chars().count() > 2 {
+        out.push(trimmed);
+    }
+    out
+}
+
 /// Rewriter that returns the original question unchanged.
 pub struct NoopRewriter;
 

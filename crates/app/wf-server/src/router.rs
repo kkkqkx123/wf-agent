@@ -97,6 +97,8 @@ pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddleware
         .merge(api::llm::routes())
         .merge(api::llm::scripts::routes())
         .merge(api::llm::tools::routes())
+        // retrieval management (stats + preview + diagnose)
+        .merge(api::rag::routes())
         // template domain
         .merge(api::template::templates::routes())
         .merge(api::template::node_drafts::routes())

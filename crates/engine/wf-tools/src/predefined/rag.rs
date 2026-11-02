@@ -142,12 +142,23 @@ impl RagToolConfig {
 pub struct RagService<S, E> {
     store: Arc<S>,
     embedder: Arc<E>,
+    query_defaults: rag_core::RagQueryConfig,
 }
 
 impl<S, E> RagService<S, E> {
     /// Builds the adapter over shared store and embedder handles.
     pub fn new(store: Arc<S>, embedder: Arc<E>) -> Self {
-        Self { store, embedder }
+        Self {
+            store,
+            embedder,
+            query_defaults: rag_core::RagQueryConfig::default(),
+        }
+    }
+
+    /// Overrides the default read-path shaping; request fields still win.
+    pub fn with_query_defaults(mut self, defaults: rag_core::RagQueryConfig) -> Self {
+        self.query_defaults = defaults;
+        self
     }
 }
 
@@ -158,12 +169,14 @@ where
     E: llm_embedding::provider::EmbeddingProvider,
 {
     async fn search(&self, query: RagSearchQuery) -> ToolResult<Vec<RagHit>> {
-        let config = rag_core::RagQueryConfig {
-            top_k: query.top_k.max(1),
-            score_threshold: query.score_threshold,
-            fields: query.fields.clone(),
-            ..rag_core::RagQueryConfig::default()
-        };
+        let mut config = self.query_defaults.clone();
+        config.top_k = query.top_k.max(1);
+        if query.score_threshold.is_some() {
+            config.score_threshold = query.score_threshold;
+        }
+        for (key, value) in &query.fields {
+            config.fields.insert(key.clone(), value.clone());
+        }
         let hits = rag_core::pipeline::query(
             self.store.as_ref(),
             self.embedder.as_ref(),

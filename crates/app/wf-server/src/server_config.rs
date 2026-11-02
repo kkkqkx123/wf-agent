@@ -193,7 +193,7 @@ mod tests {
     }
 
     fn settings_server_dir(root: &Path) -> std::path::PathBuf {
-        root.join("settings").join("server")
+        root.join("server")
     }
 
     #[test]

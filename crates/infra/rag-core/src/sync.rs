@@ -113,6 +113,44 @@ pub fn hash_sources(sources: &[(&str, &str)]) -> Vec<(String, String)> {
     out
 }
 
+/// Builds sync decisions from documents by hashing content per source.
+///
+/// Documents sharing a source have their contents joined before hashing
+/// so one source maps to one decision. Callers persist the incoming
+/// hashes after a successful ingest and pass them back as `indexed`.
+pub fn decisions_for_documents(
+    documents: &[crate::document::RagDocument],
+    indexed: &HashMap<String, String>,
+) -> Vec<SyncDecision> {
+    let mut grouped: HashMap<String, Vec<&str>> = HashMap::new();
+    for document in documents {
+        grouped
+            .entry(document.source.clone())
+            .or_default()
+            .push(document.content.as_str());
+    }
+    let incoming: HashMap<String, String> = grouped
+        .into_iter()
+        .map(|(source, parts)| (source, content_hash(&parts.join("\n"))))
+        .collect();
+    plan_sync(&incoming, indexed)
+}
+
+/// Indexed sources absent from the incoming set. Callers delete these
+/// scopes to clear orphan chunks after a sync plan.
+pub fn stale_sources(
+    incoming: &HashMap<String, String>,
+    indexed: &HashMap<String, String>,
+) -> Vec<String> {
+    let mut stale: Vec<String> = indexed
+        .keys()
+        .filter(|source| !incoming.contains_key(*source))
+        .cloned()
+        .collect();
+    stale.sort();
+    stale
+}
+
 /// Filters decisions down to the sources needing (re-)indexing.
 pub fn pending_sources(decisions: &[SyncDecision]) -> HashSet<String> {
     decisions

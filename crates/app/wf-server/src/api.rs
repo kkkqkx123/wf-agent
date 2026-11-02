@@ -8,6 +8,7 @@ pub mod git;
 pub mod llm;
 pub mod observation;
 pub mod pty;
+pub mod rag;
 pub mod recap;
 pub mod system;
 pub mod template;

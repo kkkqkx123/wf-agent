@@ -46,10 +46,13 @@ pub use pipeline::{
 pub use rerank_adapter::{rerank_hits, RankedChunk};
 pub use retriever::{
     blend_keyword, concat_fusion, expand_hit, fuse_lists, keyword_score, keyword_search_points,
-    promote_parents, reciprocal_rank_fusion, tokenize, weighted_fusion, RetrievedChunk,
+    promote_parents, reciprocal_rank_fusion, tokenize, weighted_fusion, KeywordCorpus,
+    RetrievedChunk,
 };
-pub use rewrite::{merge_variants, rewrite_with_fallback, NoopRewriter, QueryRewriter};
+pub use rewrite::{
+    merge_variants, rewrite_with_fallback, HeuristicQueryRewriter, NoopRewriter, QueryRewriter,
+};
 pub use sync::{
-    content_hash, hash_sources, pending_sources, plan_sync, remove_by_ids, remove_source,
-    source_point_count, SyncAction, SyncDecision,
+    content_hash, decisions_for_documents, hash_sources, pending_sources, plan_sync, remove_by_ids,
+    remove_source, source_point_count, stale_sources, SyncAction, SyncDecision,
 };

@@ -24,6 +24,27 @@ pub struct RetrievalMetrics {
 }
 
 impl RetrievalMetrics {
+    /// Labels for the shared metrics collectors.
+    pub fn as_labels(&self) -> std::collections::HashMap<String, String> {
+        std::collections::HashMap::from([
+            ("latency_ms".to_string(), self.latency_ms.to_string()),
+            (
+                "candidates_requested".to_string(),
+                self.candidates_requested.to_string(),
+            ),
+            (
+                "candidates_returned".to_string(),
+                self.candidates_returned.to_string(),
+            ),
+            ("hits_kept".to_string(), self.hits_kept.to_string()),
+            ("reranked".to_string(), self.reranked.to_string()),
+            (
+                "rerank_displacement".to_string(),
+                format!("{:.3}", self.rerank_displacement),
+            ),
+        ])
+    }
+
     /// Mean absolute rank movement between recall order and rerank order.
     /// `pairs` holds `(initial_rank, final_rank)` per kept hit.
     pub fn displacement_of(pairs: &[(usize, usize)]) -> f64 {

@@ -62,6 +62,30 @@ pub struct RagQueryNodeConfig {
     /// Extra exact-match metadata constraints.
     #[serde(default)]
     pub fields: HashMap<String, String>,
+    /// Variable holding extra query variants merged with the primary question.
+    #[serde(default)]
+    pub query_variants_variable: Option<String>,
+    /// Variable holding a keyword corpus snapshot (`Vec<VectorPoint>`).
+    #[serde(default)]
+    pub keyword_corpus_variable: Option<String>,
+    /// Sentence-window radius applied around each hit.
+    #[serde(default)]
+    pub window_radius: Option<usize>,
+    /// Promote stored parent sections for hits carrying a parent link.
+    #[serde(default)]
+    pub auto_merge: Option<bool>,
+    /// Fusion strategy for multi-variant results: `rrf`, `concat` or `weighted`.
+    #[serde(default)]
+    pub fusion_mode: Option<String>,
+    /// RRF depth constant used when fusion mode is `rrf`.
+    #[serde(default)]
+    pub fusion_rrf_k: Option<u32>,
+    /// Keyword candidates blended with dense hits (`0` disables).
+    #[serde(default)]
+    pub keyword_candidates: Option<usize>,
+    /// Weight of the keyword score when blending with dense scores.
+    #[serde(default)]
+    pub keyword_weight: Option<f32>,
 }
 
 /// One document supplied to the ingest node through a variable.
@@ -100,6 +124,15 @@ pub struct RagIngestNodeConfig {
     /// Store hierarchical parent sections alongside leaf chunks.
     #[serde(default)]
     pub hierarchical: Option<bool>,
+    /// Content-hash incremental mode: only index changed sources.
+    #[serde(default)]
+    pub incremental: Option<bool>,
+    /// Variable holding the indexed source hashes (`HashMap<String, String>`).
+    #[serde(default)]
+    pub hashes_variable: Option<String>,
+    /// Variable receiving the updated source hashes after ingest.
+    #[serde(default)]
+    pub hashes_output_variable: Option<String>,
 }
 
 /// Shared handles for both retrieval handlers.
@@ -117,6 +150,8 @@ pub struct RagNodeHandles {
     pub default_query: rag_core::RagQueryConfig,
     /// Default write-path shaping.
     pub default_index: rag_core::RagIndexConfig,
+    /// Optional question rewriter; `None` keeps single-question lookup.
+    pub rewriter: Option<Arc<dyn rag_core::QueryRewriter>>,
 }
 
 impl RagNodeHandles {
@@ -135,7 +170,14 @@ impl RagNodeHandles {
             default_namespace: namespace.clone(),
             default_query: rag_core::RagQueryConfig::default(),
             default_index: rag_core::RagIndexConfig::new(namespace),
+            rewriter: None,
         }
+    }
+
+    /// Attaches a question rewriter used before multi-variant fusion.
+    pub fn with_rewriter(mut self, rewriter: Arc<dyn rag_core::QueryRewriter>) -> Self {
+        self.rewriter = Some(rewriter);
+        self
     }
 }
 
@@ -144,6 +186,7 @@ impl std::fmt::Debug for RagNodeHandles {
         f.debug_struct("RagNodeHandles")
             .field("default_collection", &self.default_collection)
             .field("default_namespace", &self.default_namespace)
+            .field("rewriter_configured", &self.rewriter.is_some())
             .finish()
     }
 }
@@ -213,6 +256,7 @@ impl RagQueryHandler {
             non_empty(config.collection).unwrap_or_else(|| self.handles.default_collection.clone());
         let namespace =
             non_empty(config.namespace).unwrap_or_else(|| self.handles.default_namespace.clone());
+        let started = std::time::Instant::now();
         let mut query_config = self.handles.default_query.clone();
         if let Some(top_k) = config.top_k {
             query_config.top_k = top_k;
@@ -220,19 +264,103 @@ impl RagQueryHandler {
         if let Some(threshold) = config.score_threshold {
             query_config.score_threshold = Some(threshold);
         }
-        for (key, value) in config.fields {
-            query_config.fields.insert(key, value);
+        for (key, value) in &config.fields {
+            query_config.fields.insert(key.clone(), value.clone());
         }
-        let hits = rag_core::pipeline::query(
-            self.handles.store.as_ref(),
-            self.handles.embedder.as_ref(),
-            &collection,
-            &namespace,
-            &query_text,
-            &query_config,
-        )
-        .await
-        .map_err(|err| WorkflowError::OperationError(format!("RAG query failed: {err}")))?;
+        if let Some(radius) = config.window_radius {
+            query_config.window_radius = radius;
+        }
+        if let Some(auto_merge) = config.auto_merge {
+            query_config.auto_merge = auto_merge;
+        }
+        if let Some(mode) = config.fusion_mode.as_deref() {
+            query_config.fusion.mode = match mode.to_lowercase().as_str() {
+                "concat" => rag_core::FusionMode::Concat,
+                "weighted" => rag_core::FusionMode::Weighted,
+                "rrf" => rag_core::FusionMode::Rrf,
+                other => {
+                    return Err(WorkflowError::OperationError(format!(
+                        "Unknown fusion_mode '{other}' (expected rrf, concat or weighted)"
+                    )));
+                }
+            };
+        }
+        if let Some(rrf_k) = config.fusion_rrf_k {
+            query_config.fusion.rrf_k = rrf_k;
+        }
+        if let Some(candidates) = config.keyword_candidates {
+            query_config.keyword_candidates = candidates;
+        }
+        if let Some(weight) = config.keyword_weight {
+            query_config.keyword_weight = weight;
+        }
+        let extra_variants = match config.query_variants_variable.as_deref() {
+            Some(variable) => read_string_list(ctx, variable)?,
+            None => Vec::new(),
+        };
+        let variants = match &self.handles.rewriter {
+            Some(rewriter) => {
+                let base =
+                    rag_core::rewrite_with_fallback(rewriter.as_ref(), &query_text).await;
+                rag_core::merge_variants(base, &extra_variants)
+            }
+            None => rag_core::merge_variants(vec![query_text.clone()], &extra_variants),
+        };
+        let keyword_corpus: Vec<vector_contracts::VectorPoint> =
+            match config.keyword_corpus_variable.as_deref() {
+                Some(variable) => ctx
+                    .get_variable(variable)
+                    .map(serde_json::from_value)
+                    .transpose()
+                    .map_err(|err| {
+                        WorkflowError::OperationError(format!(
+                            "Invalid keyword corpus variable '{variable}': {err}"
+                        ))
+                    })?
+                    .unwrap_or_default(),
+                None => Vec::new(),
+            };
+        let hits = if variants.len() > 1 {
+            rag_core::pipeline::query_multi(
+                self.handles.store.as_ref(),
+                self.handles.embedder.as_ref(),
+                &collection,
+                &namespace,
+                &variants,
+                &query_config,
+            )
+            .await
+            .map_err(|err| WorkflowError::OperationError(format!("RAG query failed: {err}")))?
+        } else if !keyword_corpus.is_empty() {
+            rag_core::pipeline::query_hybrid(
+                self.handles.store.as_ref(),
+                self.handles.embedder.as_ref(),
+                &collection,
+                &namespace,
+                &query_text,
+                &keyword_corpus,
+                &query_config,
+            )
+            .await
+            .map_err(|err| WorkflowError::OperationError(format!("RAG query failed: {err}")))?
+        } else {
+            rag_core::pipeline::query(
+                self.handles.store.as_ref(),
+                self.handles.embedder.as_ref(),
+                &collection,
+                &namespace,
+                &query_text,
+                &query_config,
+            )
+            .await
+            .map_err(|err| WorkflowError::OperationError(format!("RAG query failed: {err}")))?
+        };
+        let latency_ms = started.elapsed().as_millis() as u64;
+        if let Some(metrics) = ctx.metrics.as_ref() {
+            metrics
+                .tool()
+                .record_general_invoke("rag_query", true, latency_ms as f64);
+        }
         let hit_ids: Vec<String> = hits.iter().map(|hit| hit.chunk_id.clone()).collect();
         let output_variable =
             non_empty(config.output_variable).unwrap_or_else(|| DEFAULT_HITS_VARIABLE.to_string());
@@ -248,6 +376,8 @@ impl RagQueryHandler {
             "namespace": namespace,
             "hit_count": hits.len(),
             "top_hit_source": hits.first().map(|hit| hit.source.clone()),
+            "variant_count": variants.len(),
+            "latency_ms": latency_ms,
         });
         ctx.set_variable(&summary_variable, summary.clone())?;
         // Checkpoint-friendly: ids and sources only, never vectors.
@@ -260,6 +390,8 @@ impl RagQueryHandler {
                 .map(|hit| hit.source.clone())
                 .collect::<Vec<_>>()),
         );
+        result.insert_metadata("rag_latency_ms", json!(latency_ms));
+        result.insert_metadata("rag_variant_count", json!(variants.len()));
         Ok(result)
     }
 }
@@ -340,7 +472,8 @@ impl RagIngestHandler {
         if let Some(hierarchical) = config.hierarchical {
             index_config.hierarchical = hierarchical;
         }
-        let documents: Vec<rag_core::RagDocument> = supplied
+        let started = std::time::Instant::now();
+        let mut documents: Vec<rag_core::RagDocument> = supplied
             .into_iter()
             .map(|item| {
                 let mut document = rag_core::RagDocument::new(item.id, item.content, item.source);
@@ -348,7 +481,103 @@ impl RagIngestHandler {
                 document
             })
             .collect();
-        let stats = rag_core::pipeline::ingest_documents(
+        let incremental = config.incremental.unwrap_or(false);
+        let mut indexed_hashes: std::collections::HashMap<String, String> =
+            match config.hashes_variable.as_deref() {
+                Some(variable) => ctx
+                    .get_variable(variable)
+                    .map(serde_json::from_value)
+                    .transpose()
+                    .map_err(|err| {
+                        WorkflowError::OperationError(format!(
+                            "Invalid hashes variable '{variable}': {err}"
+                        ))
+                    })?
+                    .unwrap_or_default(),
+                None => std::collections::HashMap::new(),
+            };
+        let mut skip_count = 0_usize;
+        let mut updated_hashes: Option<std::collections::HashMap<String, String>> = None;
+        if incremental {
+            let decisions =
+                rag_core::decisions_for_documents(&documents, &indexed_hashes);
+            let pending = rag_core::pending_sources(&decisions);
+            skip_count = decisions
+                .iter()
+                .filter(|decision| {
+                    matches!(decision.action, rag_core::SyncAction::Skip)
+                })
+                .count();
+            let incoming: std::collections::HashMap<String, String> = decisions
+                .iter()
+                .map(|decision| {
+                    (
+                        decision.source.clone(),
+                        decision.incoming_hash.clone(),
+                    )
+                })
+                .collect();
+            for stale in rag_core::stale_sources(&incoming, &indexed_hashes) {
+                let _ = rag_core::pipeline::delete_source(
+                    self.handles.store.as_ref(),
+                    &collection,
+                    Some(&namespace),
+                    &stale,
+                )
+                .await;
+                indexed_hashes.remove(&stale);
+            }
+            for decision in &decisions {
+                if matches!(decision.action, rag_core::SyncAction::Update) {
+                    let _ = rag_core::pipeline::delete_source(
+                        self.handles.store.as_ref(),
+                        &collection,
+                        Some(&namespace),
+                        &decision.source,
+                    )
+                    .await;
+                }
+            }
+            documents.retain(|document| pending.contains(&document.source));
+            let mut merged = indexed_hashes.clone();
+            for decision in &decisions {
+                if pending.contains(&decision.source) {
+                    merged.insert(
+                        decision.source.clone(),
+                        decision.incoming_hash.clone(),
+                    );
+                }
+            }
+            updated_hashes = Some(merged);
+            if documents.is_empty() {
+                if let (Some(variable), Some(hashes)) = (
+                    config.hashes_output_variable.clone(),
+                    updated_hashes.clone(),
+                ) {
+                    let value = serde_json::to_value(&hashes).map_err(|err| {
+                        WorkflowError::OperationError(format!(
+                            "RAG hashes are not serializable: {err}"
+                        ))
+                    })?;
+                    ctx.set_variable(&variable, value)?;
+                }
+                let stats_value = json!({
+                    "collection": collection,
+                    "namespace": namespace,
+                    "documents": 0,
+                    "skipped": skip_count,
+                    "chunks": 0,
+                    "points": 0,
+                });
+                let stats_variable = non_empty(config.stats_variable)
+                    .unwrap_or_else(|| DEFAULT_INGEST_STATS_VARIABLE.to_string());
+                ctx.set_variable(&stats_variable, stats_value.clone())?;
+                let mut result = NodeExecutionResult::simple(stats_value);
+                result.insert_metadata("rag_ingested_chunks", json!(0));
+                return Ok(result);
+            }
+        }
+        let mut stats = rag_core::pipeline::ingest_documents(
             self.handles.store.as_ref(),
             self.handles.embedder.as_ref(),
             &collection,
@@ -357,6 +586,24 @@ impl RagIngestHandler {
         )
         .await
         .map_err(|err| WorkflowError::OperationError(format!("RAG ingest failed: {err}")))?;
+        stats.skipped += skip_count;
+        if let (Some(variable), Some(hashes)) =
+            (config.hashes_output_variable.clone(), updated_hashes)
+        {
+            let value = serde_json::to_value(&hashes).map_err(|err| {
+                WorkflowError::OperationError(format!(
+                    "RAG hashes are not serializable: {err}"
+                ))
+            })?;
+            ctx.set_variable(&variable, value)?;
+        }
+        if let Some(metrics) = ctx.metrics.as_ref() {
+            metrics.tool().record_general_invoke(
+                "rag_ingest",
+                true,
+                started.elapsed().as_millis() as f64,
+            );
+        }
         let stats_variable = non_empty(config.stats_variable)
             .unwrap_or_else(|| DEFAULT_INGEST_STATS_VARIABLE.to_string());
         let stats_value = json!({
@@ -385,6 +632,26 @@ pub fn register_rag_handlers(
 
 fn non_empty(value: Option<String>) -> Option<String> {
     value.filter(|text| !text.trim().is_empty())
+}
+
+fn read_string_list(
+    ctx: &NodeExecutionContext,
+    variable: &str,
+) -> WorkflowResult<Vec<String>> {
+    let raw = ctx.get_variable(variable).ok_or_else(|| {
+        WorkflowError::OperationError(format!(
+            "RAG_QUERY node requires a string list in variable '{variable}'"
+        ))
+    })?;
+    if let Ok(list) = serde_json::from_value::<Vec<String>>(raw.clone()) {
+        return Ok(list);
+    }
+    if let Ok(single) = serde_json::from_value::<String>(raw) {
+        return Ok(vec![single]);
+    }
+    Err(WorkflowError::OperationError(format!(
+        "RAG_QUERY node requires a string list in variable '{variable}'"
+    )))
 }
 
 #[cfg(test)]

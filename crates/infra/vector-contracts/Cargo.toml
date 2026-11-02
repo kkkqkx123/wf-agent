@@ -1,0 +1,24 @@
+[package]
+name = "vector-contracts"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+parking_lot.workspace = true
+simvec = { path = "../simvec", optional = true }
+reqwest = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
+
+[features]
+default = []
+simvec = ["dep:simvec"]
+qdrant = ["dep:reqwest", "dep:uuid"]
+
+[dev-dependencies]
+tokio.workspace = true

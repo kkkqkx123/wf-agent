@@ -1,0 +1,19 @@
+[package]
+name = "rag-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+vector-contracts = { path = "../vector-contracts" }
+llm-embedding = { package = "llm-suite-embedding", path = "../llm-suite/crates/llm-suite-embedding" }
+llm-rerank = { package = "llm-suite-rerank", path = "../llm-suite/crates/llm-suite-rerank" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+async-trait.workspace = true

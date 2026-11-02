@@ -1,3 +1,6 @@
 [submodule "crates/infra/llm-suite"]
 	path = crates/infra/llm-suite
 	url = https://github.com/kkkqkx123/llm-suite.git
+[submodule "crates/infra/simvec"]
+	path = crates/infra/simvec
+	url = https://github.com/kkkqkx123/simvec.git

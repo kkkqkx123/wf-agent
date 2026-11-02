@@ -27,7 +27,7 @@ Top level contains `apps/`, `Cargo.toml`, `rust-toolchain.toml`, `crates/`. The 
 
 foundation layer: `wf-types`, `wf-common`, `wf-core`
 
-infra layer: `wf-metrics`, `wf-config`, `wf-storage`, `wf-llm`, `wf-script`, `wf-sandbox`, `wf-shell`, `wf-plugin` (Lua/Native plugin system), `checkpoint/` (checkpoint subsystem: state + file history policy + storage engine)
+infra layer: `wf-metrics`, `wf-config`, `wf-storage`, `wf-llm`, `wf-script`, `wf-sandbox`, `wf-shell`, `wf-plugin` (Lua/Native plugin system), `vector-contracts` (backend-neutral vector storage contracts: types, filter, operation contract, memory/simvec/Qdrant backends), `rag-core` (independent RAG pipelines over vector-contracts: chunking, ingest/query, fusion, rerank, citations), `checkpoint/` (checkpoint subsystem: state + file history policy + storage engine)
 
 engine layer: `wf-tools` (tool registry, executors, MCP), `wf-resource` (resource management: registries, rendering, custom resources), `wf-execution-shared` (shared execution infrastructure: interaction registry, interactive script session subsystem, single-shot LLM calls), `wf-agent` (agent loop execution engine), `wf-workflow` (workflow graph execution engine)
 

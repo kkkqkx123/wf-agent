@@ -394,7 +394,7 @@ export class ChatSessionController {
 			displayKind: tool.display?.kind,
 			displayPreview: tool.display?.preview,
 			displayTruncated: tool.display?.truncated,
-			backgroundSessionId: tool.background?.sessionId ?? null,
+			backgroundSessionId: tool.background?.backgrounded ? (tool.background.sessionId ?? null) : null,
 		};
 	}
 

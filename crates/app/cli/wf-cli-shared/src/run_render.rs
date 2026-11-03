@@ -72,8 +72,9 @@ pub(crate) struct SessionRenderer<'a> {
     saw_text: bool,
     tool_started_at: HashMap<String, Instant>,
     pub(crate) had_output: bool,
-    /// Background sessions handed back without waiting, in completion
-    /// order. Used for the terminal background summary.
+    /// Observed background shell sessions handed back without waiting, in
+    /// completion order. Observer-only: sessions stay server-owned. Used
+    /// for the terminal background summary.
     background_sessions: Vec<String>,
 }
 
@@ -150,9 +151,16 @@ impl<'a> SessionRenderer<'a> {
                 };
                 if *success {
                     if let Some(marker) = background {
-                        line.push_str(&format!(" · background {}", marker.session_id));
-                        if !self.background_sessions.contains(&marker.session_id) {
-                            self.background_sessions.push(marker.session_id.clone());
+                        if marker.is_active() {
+                            line.push_str(&format!(" · background {}", marker.session_id));
+                            if !self.background_sessions.contains(&marker.session_id) {
+                                if self.background_sessions.len()
+                                    >= wf_types::tool::MAX_OBSERVED_BACKGROUND_TASKS
+                                {
+                                    self.background_sessions.remove(0);
+                                }
+                                self.background_sessions.push(marker.session_id.clone());
+                            }
                         }
                     }
                 }

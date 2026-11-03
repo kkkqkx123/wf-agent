@@ -155,9 +155,9 @@ pub struct FooterState {
     /// Running sub-agents by start order (footer panel + jump targets).
     /// `subagent_count` always equals `subagents.len()`.
     pub subagents: Vec<ActiveSubAgent>,
-    /// Background shell sessions handed back without waiting, in completion
-    /// order. The count drives the footer aggregate row; details resolve
-    /// through shell_output or shell_tasks.
+    /// Observed background shell sessions handed back without waiting, in
+    /// completion order. Observer-only: sessions stay server-owned and
+    /// details resolve through shell_output or shell_tasks.
     pub background_tasks: Vec<ActiveBackgroundTask>,
 }
 
@@ -371,11 +371,13 @@ impl SessionReducer {
                 }
                 if *success {
                     if let Some(marker) = background {
-                        self.note_background_task(
-                            tool_call_id.clone(),
-                            tool_name.clone(),
-                            marker.session_id.clone(),
-                        );
+                        if marker.is_active() {
+                            self.note_background_task(
+                                tool_call_id.clone(),
+                                tool_name.clone(),
+                                marker.session_id.clone(),
+                            );
+                        }
                     }
                 }
                 commits.push(MiniCommit::ToolEnd {
@@ -526,8 +528,10 @@ impl SessionReducer {
         self.footer.subagent_count = self.footer.subagents.len() as u32;
     }
 
-    /// Track a background handoff in completion order; a duplicate session
-    /// id refreshes its tool linkage instead of double-counting.
+    /// Track an observed background handoff in completion order; a duplicate
+    /// session id refreshes its tool linkage instead of double-counting.
+    /// Bounded so long runs cannot grow the footer without limit; the oldest
+    /// entry is dropped when full.
     fn note_background_task(
         &mut self,
         tool_call_id: String,
@@ -543,6 +547,9 @@ impl SessionReducer {
             existing.tool_call_id = tool_call_id;
             existing.tool_name = tool_name;
         } else {
+            if self.footer.background_tasks.len() >= wf_types::tool::MAX_OBSERVED_BACKGROUND_TASKS {
+                self.footer.background_tasks.remove(0);
+            }
             self.footer.background_tasks.push(ActiveBackgroundTask {
                 tool_call_id,
                 tool_name,

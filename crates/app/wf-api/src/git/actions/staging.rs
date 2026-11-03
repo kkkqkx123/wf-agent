@@ -152,7 +152,11 @@ fn parse_line_selection(raw: &str, content_len: usize) -> GitResult<Vec<usize>> 
                 .trim()
                 .parse()
                 .map_err(|_| GitError::Precondition("lines must be numbers".to_string()))?;
-            let (lo, hi) = if start <= end { (start, end) } else { (end, start) };
+            let (lo, hi) = if start <= end {
+                (start, end)
+            } else {
+                (end, start)
+            };
             for idx in lo..=hi {
                 if idx >= content_len {
                     return Err(GitError::Precondition(format!(
@@ -176,9 +180,7 @@ fn parse_line_selection(raw: &str, content_len: usize) -> GitResult<Vec<usize>> 
     out.sort_unstable();
     out.dedup();
     if out.is_empty() {
-        return Err(GitError::Precondition(
-            "empty line selection".to_string(),
-        ));
+        return Err(GitError::Precondition("empty line selection".to_string()));
     }
     Ok(out)
 }
@@ -250,7 +252,13 @@ fn parse_hunk_range(header_line: &str) -> GitResult<(i64, usize, i64, usize, Str
         .ok_or_else(|| GitError::Precondition("invalid hunk header".to_string()))?;
     let (old_start, old_count) = parse_range_part(old_raw, '-')?;
     let (new_start, new_count) = parse_range_part(new_raw, '+')?;
-    Ok((old_start, old_count, new_start, new_count, suffix.to_string()))
+    Ok((
+        old_start,
+        old_count,
+        new_start,
+        new_count,
+        suffix.to_string(),
+    ))
 }
 
 fn parse_range_part(raw: &str, sign: char) -> GitResult<(i64, usize)> {
@@ -276,14 +284,11 @@ fn parse_range_part(raw: &str, sign: char) -> GitResult<(i64, usize)> {
 fn build_line_patch(header: &str, hunk_block: &str, selected: &[usize]) -> GitResult<String> {
     let mut lines: Vec<&str> = hunk_block.lines().collect();
     if lines.is_empty() || !lines[0].starts_with("@@") {
-        return Err(GitError::Precondition(
-            "invalid hunk block".to_string(),
-        ));
+        return Err(GitError::Precondition("invalid hunk block".to_string()));
     }
     let header_line = lines.remove(0);
     let (old_start, _, new_start, _, suffix) = parse_hunk_range(header_line)?;
-    let selected_set: std::collections::HashSet<usize> =
-        selected.iter().copied().collect();
+    let selected_set: std::collections::HashSet<usize> = selected.iter().copied().collect();
     let mut kept: Vec<&str> = Vec::with_capacity(lines.len());
     let mut kept_add = 0usize;
     let mut kept_del = 0usize;
@@ -509,10 +514,7 @@ fn line_patch_for(
     let content_len = hunks[idx].lines().count().saturating_sub(1);
     let selected = parse_line_selection(lines_raw, content_len)?;
     for line_idx in &selected {
-        let line = hunks[idx]
-            .lines()
-            .nth(line_idx + 1)
-            .unwrap_or("");
+        let line = hunks[idx].lines().nth(line_idx + 1).unwrap_or("");
         if !(line.starts_with('+') || line.starts_with('-')) {
             return Err(GitError::Precondition(
                 "line selection must only contain added or removed lines".to_string(),

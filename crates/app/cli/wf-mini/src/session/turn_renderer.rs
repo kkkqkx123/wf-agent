@@ -92,6 +92,8 @@ pub(super) struct TurnRenderer<S: TurnSink = RealSink> {
     line_pending: bool,
     assistant_text: String,
     sink: S,
+    /// Observed background shell sessions, in completion order.
+    /// Observer-only: sessions stay server-owned.
     background_sessions: Vec<String>,
 }
 
@@ -158,19 +160,26 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
             } => {
                 if *success {
                     if let Some(marker) = background {
-                        if !self.background_sessions.contains(&marker.session_id) {
-                            self.background_sessions.push(marker.session_id.clone());
+                        if marker.is_active() {
+                            if !self.background_sessions.contains(&marker.session_id) {
+                                if self.background_sessions.len()
+                                    >= wf_types::tool::MAX_OBSERVED_BACKGROUND_TASKS
+                                {
+                                    self.background_sessions.remove(0);
+                                }
+                                self.background_sessions.push(marker.session_id.clone());
+                            }
+                            self.end_stdout_line();
+                            let line = paint_stderr(
+                                &format!(
+                                    "background task: {tool_name} running as {} (follow up with shell_output or shell_wait)",
+                                    marker.session_id
+                                ),
+                                &self.display,
+                                StderrKind::Dim,
+                            );
+                            self.sink.stderr_line(&line);
                         }
-                        self.end_stdout_line();
-                        let line = paint_stderr(
-                            &format!(
-                                "background task: {tool_name} running as {} (follow up with shell_output or shell_wait)",
-                                marker.session_id
-                            ),
-                            &self.display,
-                            StderrKind::Dim,
-                        );
-                        self.sink.stderr_line(&line);
                     }
                 } else {
                     self.end_stdout_line();

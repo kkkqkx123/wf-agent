@@ -268,12 +268,15 @@ function asOptionalString(value: unknown): string | null {
 }
 
 /** Background linkage attached to tool end frames by newer servers. Absent
- * or malformed values read as null so older servers keep working. */
+ * or malformed values read as null so older servers keep working. Only an
+ * explicit hang-up with a non-empty session id counts; views only observe
+ * server-owned sessions. */
 function parseBackgroundMarker(value: unknown): BackgroundMarker | null {
 	const record = asRecord(value);
 	const sessionId = asString(record?.session_id);
 	if (!record || !sessionId) return null;
-	return { sessionId, backgrounded: record.backgrounded !== false };
+	if (record.backgrounded !== true) return null;
+	return { sessionId, backgrounded: true };
 }
 
 /** Engine frames carry their node payload under `metadata`. */

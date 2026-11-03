@@ -9,6 +9,12 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Observer-side cap for background shell sessions tracked from the stream.
+/// Mirrors the server settled-entry bound so footers and summaries stay
+/// bounded on long runs. Observers keep completion order and drop the
+/// oldest entry when full; the session itself stays server-owned.
+pub const MAX_OBSERVED_BACKGROUND_TASKS: usize = 25;
+
 /// Linkage between one tool call and the background session it produced.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct BackgroundMarker {
@@ -20,4 +26,13 @@ pub struct BackgroundMarker {
     /// through the shell completion event.
     #[serde(default)]
     pub backgrounded: bool,
+}
+
+impl BackgroundMarker {
+    /// Whether the marker denotes an observable background shell session.
+    /// Frontends only observe server-owned sessions; empty ids and
+    /// non-backgrounded markers must not enter task aggregation.
+    pub fn is_active(&self) -> bool {
+        self.backgrounded && !self.session_id.is_empty()
+    }
 }

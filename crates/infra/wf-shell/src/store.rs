@@ -384,10 +384,9 @@ impl BackgroundShellStore {
         let start_index = session.output_start();
         let started_at = Instant::now();
         let shell = self.spawn_command(&session, command)?;
-        let (exit_code, timed_out) =
-            wait_for_command_exit(&shell, timeout_ms, || {
-                crate::background_task::background_task_registry().is_backgrounded(session_id)
-            });
+        let (exit_code, timed_out) = wait_for_command_exit(&shell, timeout_ms, || {
+            crate::background_task::background_task_registry().is_backgrounded(session_id)
+        });
         let success = !timed_out && exit_code == Some(0);
         session.finalize(command, exit_code, success, &shell.drain);
         // Make sure every event of this command (output lines, completion) is
@@ -692,9 +691,11 @@ impl BackgroundShellStore {
         // The PTY backend cannot attach `pre_exec` hooks and skips kernel
         // enforcement, so a configured sandbox policy always forces the pipe
         // backend even when the session requests a terminal.
-        let want_pty =
-            self.pty_enabled && (session.interactive || session.force_pty) && self.sandbox_policy.is_none();
-        if (session.interactive || session.force_pty) && !want_pty && self.sandbox_policy.is_some() {
+        let want_pty = self.pty_enabled
+            && (session.interactive || session.force_pty)
+            && self.sandbox_policy.is_none();
+        if (session.interactive || session.force_pty) && !want_pty && self.sandbox_policy.is_some()
+        {
             tracing::warn!(
                 session = %session.session_id,
                 "PTY requested but sandbox policy is configured; using pipe backend so kernel enforcement applies"

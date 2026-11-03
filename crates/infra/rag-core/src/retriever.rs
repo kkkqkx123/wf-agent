@@ -154,14 +154,24 @@ pub fn weighted_fusion(
     dense_weight: f32,
     other_weight: f32,
 ) -> Vec<RetrievedChunk> {
+    let mut weights = vec![dense_weight];
+    weights.extend(std::iter::repeat_n(
+        other_weight,
+        lists.len().saturating_sub(1),
+    ));
+    weighted_fusion_with_weights(lists, &weights)
+}
+
+/// Blends hit lists by normalized score with one weight per list. Each
+/// list is normalized by its own maximum; missing weights default to one.
+pub fn weighted_fusion_with_weights(
+    lists: Vec<Vec<RetrievedChunk>>,
+    weights: &[f32],
+) -> Vec<RetrievedChunk> {
     let mut scores: HashMap<String, f32> = HashMap::new();
     let mut by_id: HashMap<String, RetrievedChunk> = HashMap::new();
     for (index, list) in lists.iter().enumerate() {
-        let weight = if index == 0 {
-            dense_weight
-        } else {
-            other_weight
-        };
+        let weight = weights.get(index).copied().unwrap_or(1.0);
         let max = list
             .iter()
             .map(|hit| hit.score)
@@ -196,26 +206,17 @@ pub fn tokenize(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Token-overlap score of a chunk for a query in 0..=1.
-///
-/// Fraction of distinct query tokens appearing in the content.
-pub fn keyword_score(query: &str, content: &str) -> f32 {
-    let query_tokens: HashSet<String> = tokenize(query).into_iter().collect();
-    if query_tokens.is_empty() {
-        return 0.0;
-    }
-    let content_tokens: HashSet<String> = tokenize(content).into_iter().collect();
-    let matched = query_tokens
-        .iter()
-        .filter(|token| content_tokens.contains(*token))
-        .count();
-    matched as f32 / query_tokens.len() as f32
-}
+/// BM25 term saturation constant.
+const BM25_K1: f32 = 1.2;
+/// BM25 document-length normalization constant.
+const BM25_B: f32 = 0.75;
 
-/// Scores caller-supplied points with token overlap and returns the top
-/// matches as chunks. The corpus comes from the caller (for example a
+/// Scores caller-supplied points with BM25 and returns the top matches
+/// as chunks. Inverse document frequencies come from the corpus itself;
+/// rare query terms outrank frequent ones and long documents are
+/// length-normalized. The corpus comes from the caller (for example a
 /// snapshot of known ids) because the storage contract has no scan call.
-pub fn keyword_search_points(
+pub fn bm25_search_points(
     query: &str,
     points: &[VectorPoint],
     top_n: usize,
@@ -223,11 +224,34 @@ pub fn keyword_search_points(
     if top_n == 0 || query.trim().is_empty() {
         return Vec::new();
     }
-    let mut scored: Vec<RetrievedChunk> = points
+    let chunks: Vec<RetrievedChunk> = points
         .iter()
         .filter_map(|point| chunk_from_point(point).ok())
-        .map(|mut chunk| {
-            chunk.score = keyword_score(query, &chunk.content);
+        .collect();
+    if chunks.is_empty() {
+        return Vec::new();
+    }
+    let tokenized: Vec<Vec<String>> = chunks
+        .iter()
+        .map(|chunk| tokenize(&chunk.content))
+        .collect();
+    let doc_count = tokenized.len() as f32;
+    let avg_len = tokenized.iter().map(Vec::len).sum::<usize>() as f32 / doc_count;
+    if avg_len <= 0.0 {
+        return Vec::new();
+    }
+    let mut doc_freq: HashMap<String, usize> = HashMap::new();
+    for tokens in &tokenized {
+        for term in tokens.iter().collect::<HashSet<_>>() {
+            *doc_freq.entry(term.clone()).or_insert(0) += 1;
+        }
+    }
+    let query_terms: HashSet<String> = tokenize(query).into_iter().collect();
+    let mut scored: Vec<RetrievedChunk> = chunks
+        .into_iter()
+        .zip(tokenized)
+        .map(|(mut chunk, tokens)| {
+            chunk.score = bm25_terms_score(&query_terms, &tokens, &doc_freq, doc_count, avg_len);
             chunk
         })
         .filter(|chunk| chunk.score > 0.0)
@@ -238,6 +262,49 @@ pub fn keyword_search_points(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     scored.into_iter().take(top_n.max(1)).collect()
+}
+
+fn bm25_terms_score(
+    query_terms: &HashSet<String>,
+    tokens: &[String],
+    doc_freq: &HashMap<String, usize>,
+    doc_count: f32,
+    avg_len: f32,
+) -> f32 {
+    if tokens.is_empty() {
+        return 0.0;
+    }
+    let doc_len = tokens.len() as f32;
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for token in tokens {
+        *counts.entry(token.as_str()).or_insert(0) += 1;
+    }
+    let mut score = 0.0_f32;
+    for term in query_terms {
+        let freq = match doc_freq.get(term) {
+            Some(count) => *count as f32,
+            None => continue,
+        };
+        let term_freq = match counts.get(term.as_str()) {
+            Some(count) => *count as f32,
+            None => continue,
+        };
+        let idf = (1.0 + (doc_count - freq + 0.5) / (freq + 0.5)).ln();
+        let norm = BM25_K1 * (1.0 - BM25_B + BM25_B * doc_len / avg_len);
+        score += idf * term_freq * (BM25_K1 + 1.0) / (term_freq + norm);
+    }
+    score
+}
+
+/// Scores caller-supplied points with BM25 and returns the top matches.
+/// Kept name for the hybrid pipeline; scoring now follows BM25 instead
+/// of plain token overlap.
+pub fn keyword_search_points(
+    query: &str,
+    points: &[VectorPoint],
+    top_n: usize,
+) -> Vec<RetrievedChunk> {
+    bm25_search_points(query, points, top_n)
 }
 
 /// Blends dense hits with keyword hits using one weight for the keyword
@@ -370,7 +437,7 @@ impl KeywordCorpus {
     pub fn is_empty(&self) -> bool {
         self.points.is_empty()
     }
-    /// Ranks the snapshot with token overlap and returns top matches.
+    /// Ranks the snapshot with BM25 and returns top matches.
     pub fn search(&self, query: &str, top_n: usize) -> Vec<RetrievedChunk> {
         keyword_search_points(query, &self.points, top_n)
     }
@@ -464,11 +531,35 @@ mod tests {
         assert_eq!(fused[0].chunk_id, "a");
     }
 
+    fn point(id: &str, content: &str) -> VectorPoint {
+        VectorPoint {
+            id: id.to_string(),
+            vector: vec![0.0; 2],
+            payload: HashMap::from([
+                ("content".to_string(), serde_json::json!(content)),
+                ("chunk_id".to_string(), serde_json::json!(id)),
+            ]),
+        }
+    }
+
     #[test]
-    fn keyword_score_counts_token_overlap() {
-        assert_eq!(keyword_score("rust ownership", "rust ownership model"), 1.0);
-        assert_eq!(keyword_score("rust ownership", "go routines"), 0.0);
-        assert!(keyword_score("rust ownership", "rust borrowing") > 0.0);
+    fn bm25_prefers_rare_term_matches() {
+        let points = vec![
+            point("a", "rust ownership borrowing"),
+            point("b", "go routines channels"),
+            point("c", "rust rust rust rust"),
+        ];
+        let ranked = bm25_search_points("rust ownership", &points, 3);
+        assert_eq!(ranked.len(), 2);
+        assert_eq!(ranked[0].chunk_id, "a");
+    }
+
+    #[test]
+    fn bm25_returns_empty_without_matches() {
+        let points = vec![point("a", "rust ownership")];
+        assert!(bm25_search_points("quantum piano", &points, 5).is_empty());
+        assert!(bm25_search_points("   ", &points, 5).is_empty());
+        assert!(bm25_search_points("rust", &[], 5).is_empty());
     }
 
     #[tokio::test]

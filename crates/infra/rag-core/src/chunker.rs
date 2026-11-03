@@ -18,6 +18,9 @@ pub struct ChunkerConfig {
     pub target_chars: usize,
     /// Overlap between consecutive leaf chunks in characters.
     pub overlap_chars: usize,
+    /// Optional token budget per leaf chunk counted on whitespace tokens.
+    /// Unset keeps character sizing only.
+    pub token_budget: Option<usize>,
     /// Separators tried from coarse to fine.
     pub separators: Vec<String>,
     /// Separators defining top-level sections for hierarchical parents.
@@ -42,6 +45,7 @@ impl Default for ChunkerConfig {
             parent_separators: vec!["\n\n".to_string(), "\n".to_string()],
             keep_metadata: true,
             keep_relations: true,
+            token_budget: None,
         }
     }
 }
@@ -80,6 +84,25 @@ impl ChunkerConfig {
             ..Self::default()
         }
     }
+
+    /// Named preset for source code: blank lines and block or statement
+    /// boundaries split before generic punctuation. Approximation only;
+    /// syntax-aware splitting stays with external parsers.
+    pub fn code() -> Self {
+        Self {
+            separators: vec![
+                "\n\n".to_string(),
+                "}\n".to_string(),
+                "{\n".to_string(),
+                ";\n".to_string(),
+                "\n".to_string(),
+                ". ".to_string(),
+                " ".to_string(),
+            ],
+            parent_separators: vec!["\n\n".to_string()],
+            ..Self::default()
+        }
+    }
 }
 
 impl ChunkerConfig {
@@ -98,6 +121,11 @@ impl ChunkerConfig {
         if self.separators.is_empty() {
             return Err(RagError::InvalidInput(
                 "separators must not be empty".to_string(),
+            ));
+        }
+        if self.token_budget.is_some_and(|budget| budget == 0) {
+            return Err(RagError::InvalidInput(
+                "token_budget must be positive".to_string(),
             ));
         }
         Ok(())
@@ -248,7 +276,11 @@ impl RecursiveChunker {
             }
             pieces = refined;
         }
-        apply_overlap(pieces, self.config.target_chars, self.config.overlap_chars)
+        let overlapped = apply_overlap(pieces, self.config.target_chars, self.config.overlap_chars);
+        match self.config.token_budget {
+            Some(budget) => apply_token_budget(overlapped, budget),
+            None => overlapped,
+        }
     }
 }
 
@@ -301,6 +333,31 @@ fn apply_overlap(pieces: Vec<String>, target: usize, overlap: usize) -> Vec<Stri
         overlapped.push(format!("{prefix}{piece}"));
     }
     overlapped
+}
+
+/// Counts whitespace-separated tokens in a text.
+pub fn count_tokens(text: &str) -> usize {
+    text.split_whitespace()
+        .filter(|token| !token.is_empty())
+        .count()
+}
+
+/// Re-splits pieces exceeding the token budget on whitespace boundaries.
+/// Budget-sized token runs join with single spaces; smaller pieces pass
+/// through unchanged.
+fn apply_token_budget(pieces: Vec<String>, budget: usize) -> Vec<String> {
+    let mut out = Vec::with_capacity(pieces.len());
+    for piece in pieces {
+        let tokens: Vec<&str> = piece.split_whitespace().collect();
+        if tokens.len() <= budget {
+            out.push(piece);
+            continue;
+        }
+        for run in tokens.chunks(budget) {
+            out.push(run.join(" "));
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -383,5 +440,42 @@ mod tests {
             .iter()
             .filter(|chunk| !chunk.is_parent)
             .all(|chunk| chunk.parent_id.is_some()));
+    }
+
+    #[test]
+    fn code_preset_prefers_block_boundaries() {
+        let config = ChunkerConfig::code();
+        assert!(config.separators.iter().any(|s| s == "}\n"));
+        let chunker = RecursiveChunker::new(config).expect("config");
+        let chunks = chunker
+            .split_documents(&[doc("fn a() {\nbody\n}\n\nfn b() {\nbody\n}")])
+            .expect("split");
+        assert!(!chunks.is_empty());
+    }
+
+    #[test]
+    fn token_budget_caps_piece_sizes() {
+        let text = (0..20)
+            .map(|i| format!("word{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let chunker = RecursiveChunker::new(ChunkerConfig {
+            token_budget: Some(5),
+            ..ChunkerConfig::default()
+        })
+        .expect("config");
+        let chunks = chunker.split_documents(&[doc(&text)]).expect("split");
+        assert!(chunks.len() > 1);
+        assert!(chunks.iter().all(|chunk| count_tokens(&chunk.content) <= 5));
+    }
+
+    #[test]
+    fn token_budget_rejects_zero() {
+        assert!(RecursiveChunker::new(ChunkerConfig {
+            token_budget: Some(0),
+            ..ChunkerConfig::default()
+        })
+        .is_err());
+        assert_eq!(count_tokens("  two  tokens "), 2);
     }
 }

@@ -78,7 +78,8 @@ pub fn render_no_hits(context: &NoHitContext) -> String {
 }
 
 /// Completeness of citations for one answer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CitationCompleteness {
     /// Every hit carries a source.
     Complete,

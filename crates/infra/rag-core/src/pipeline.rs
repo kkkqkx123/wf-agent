@@ -20,9 +20,10 @@ use crate::document::{
 };
 use crate::error::{RagError, Result};
 use crate::metrics::{rank_pairs, RetrievalMetrics};
+use crate::postprocess::window_content;
 use crate::rerank_adapter::{rerank_hits, RankedChunk};
 use crate::retriever::{
-    blend_keyword, chunk_from_hit, chunk_from_point, expand_hit, fuse_lists, keyword_search_points,
+    blend_keyword, chunk_from_hit, chunk_from_point, fuse_lists, keyword_search_points,
     promote_parents, RetrievedChunk,
 };
 use crate::sync as sync_support;
@@ -421,7 +422,7 @@ fn point_for(chunk: &RagChunk, namespace: &str, vector: Vec<f32>) -> VectorPoint
     let mut payload: HashMap<String, serde_json::Value> = chunk
         .metadata
         .iter()
-        .map(|(key, value)| (key.clone(), serde_json::json!(value)))
+        .map(|(key, value)| (key.clone(), metadata_value(value)))
         .collect();
     payload.insert(
         vector_contracts::types::NAMESPACE_KEY.to_string(),
@@ -458,6 +459,27 @@ fn point_for(chunk: &RagChunk, namespace: &str, vector: Vec<f32>) -> VectorPoint
     }
 }
 
+/// Stores numeric-looking metadata as numbers so range conditions apply
+/// to them. Only strings rendering back to themselves convert, keeping
+/// every existing text match identical.
+fn metadata_value(text: &str) -> serde_json::Value {
+    if let Ok(int) = text.parse::<i64>() {
+        if int.to_string() == text {
+            return serde_json::json!(int);
+        }
+    }
+    if let Ok(float) = text.parse::<f64>() {
+        if float.is_finite() {
+            if let Some(number) = serde_json::Number::from_f64(float) {
+                if number.to_string() == text {
+                    return serde_json::Value::Number(number);
+                }
+            }
+        }
+    }
+    serde_json::json!(text)
+}
+
 fn chunk_source(chunk: &RagChunk) -> String {
     chunk
         .id
@@ -470,6 +492,9 @@ fn query_filter(namespace: &str, config: &RagQueryConfig) -> SearchFilter {
     let mut filter = SearchFilter::new().with_namespace(namespace);
     for (key, value) in &config.fields {
         filter = filter.with_field(key, value);
+    }
+    for condition in &config.conditions {
+        filter = filter.with_condition(condition.clone());
     }
     filter
 }
@@ -598,18 +623,17 @@ async fn postprocess<S: VectorStorage + ?Sized>(
         // their content grows with the surrounding neighbors in ordinal
         // order. Hit count stays stable.
         for hit in &mut current {
-            let window = expand_hit(hit, config.window_radius, &|ids| {
+            hit.content = window_content(hit, config.window_radius, &|ids| {
                 fetch_chunks(store, collection, ids)
             })
             .await?;
-            if window.len() > 1 {
-                hit.content = window
-                    .iter()
-                    .map(|chunk| chunk.content.as_str())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-            }
         }
+    }
+    if let Some(budget) = config.context_budget_chars {
+        current = crate::postprocess::trim_to_budget(current, budget);
+    }
+    if config.context_reorder {
+        current = crate::postprocess::reorder_for_context(current);
     }
     Ok(current)
 }
@@ -618,7 +642,7 @@ async fn postprocess<S: VectorStorage + ?Sized>(
 mod tests {
     use super::*;
     use crate::config::RagIndexConfig;
-    use vector_contracts::InMemoryVectorStore;
+    use vector_contracts::{FieldFilter, FilterOperator, InMemoryVectorStore};
 
     struct UnitEmbedder {
         dimension: usize,
@@ -664,6 +688,48 @@ mod tests {
 
     fn doc(id: &str, source: &str, content: &str) -> RagDocument {
         RagDocument::new(id, content, source)
+    }
+
+    #[tokio::test]
+    async fn conditions_and_shaping_apply_on_read_path() {
+        let store = InMemoryVectorStore::new();
+        let embedder = UnitEmbedder { dimension: 8 };
+        let first = RagDocument::new("d1", "rust ownership borrowing rules text here", "a.md")
+            .with_metadata("page", "1");
+        let second = RagDocument::new("d2", "rust ownership borrowing rules text here", "b.md")
+            .with_metadata("page", "3");
+        ingest_documents(
+            &store,
+            &embedder,
+            "kb",
+            &[first, second],
+            &RagIndexConfig::new("kb"),
+        )
+        .await
+        .expect("ingest");
+        let config = RagQueryConfig {
+            top_k: 5,
+            conditions: vec![FieldFilter::new("page", FilterOperator::GreaterEqual, 2.0)],
+            context_reorder: true,
+            context_budget_chars: Some(10000),
+            ..RagQueryConfig::default()
+        };
+        let hits = query(&store, &embedder, "kb", "kb", "rust ownership", &config)
+            .await
+            .expect("query");
+        assert!(!hits.is_empty());
+        assert!(hits.iter().all(|hit| hit.source == "b.md"));
+        let plain = query(
+            &store,
+            &embedder,
+            "kb",
+            "kb",
+            "rust ownership",
+            &RagQueryConfig::default(),
+        )
+        .await
+        .expect("query");
+        assert_eq!(plain.len(), 2);
     }
 
     #[tokio::test]

@@ -12,7 +12,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::error::{Result, VectorError};
-use crate::filter::SearchFilter;
+use crate::filter::{FieldFilter, FilterOperator, SearchFilter};
 use crate::store::{CollectionSpec, VectorQuery, VectorStorage};
 use crate::types::{ScoredPoint, VectorPoint, NAMESPACE_KEY, PID_KEY, SOURCE_KEY};
 
@@ -45,7 +45,7 @@ impl SimvecVectorStore {
         }
     }
 
-    fn map_filter(filter: &SearchFilter) -> Option<simvec::VectorFilter> {
+    fn map_filter(filter: &SearchFilter) -> Result<Option<simvec::VectorFilter>> {
         let mut mapped = simvec::VectorFilter::new();
         let mut empty = true;
         if let Some(namespace) = &filter.namespace {
@@ -69,10 +69,81 @@ impl SimvecVectorStore {
             ));
             empty = false;
         }
+        for condition in &filter.conditions {
+            let (clause, negated) = Self::map_condition(condition)?;
+            mapped = if negated {
+                mapped.must_not(clause)
+            } else {
+                mapped.must(clause)
+            };
+            empty = false;
+        }
         if empty {
-            None
+            Ok(None)
         } else {
-            Some(mapped)
+            Ok(Some(mapped))
+        }
+    }
+
+    fn map_condition(condition: &FieldFilter) -> Result<(simvec::FilterCondition, bool)> {
+        use FilterOperator::*;
+        match (&condition.operator, &condition.value) {
+            (Equal, value) => {
+                let text = value.canonical_text().ok_or_else(|| {
+                    VectorError::InvalidInput(format!(
+                        "unsupported filter value on '{}'",
+                        condition.key
+                    ))
+                })?;
+                Ok((
+                    simvec::FilterCondition::match_value(condition.key.clone(), text),
+                    false,
+                ))
+            }
+            (NotEqual, value) => {
+                let text = value.canonical_text().ok_or_else(|| {
+                    VectorError::InvalidInput(format!(
+                        "unsupported filter value on '{}'",
+                        condition.key
+                    ))
+                })?;
+                Ok((
+                    simvec::FilterCondition::match_value(condition.key.clone(), text),
+                    true,
+                ))
+            }
+            (GreaterThan, crate::filter::FilterValue::Number(bound)) => Ok((
+                simvec::FilterCondition::range(
+                    condition.key.clone(),
+                    simvec::RangeCondition::new().gt(*bound),
+                ),
+                false,
+            )),
+            (GreaterEqual, crate::filter::FilterValue::Number(bound)) => Ok((
+                simvec::FilterCondition::range(
+                    condition.key.clone(),
+                    simvec::RangeCondition::new().gte(*bound),
+                ),
+                false,
+            )),
+            (LessThan, crate::filter::FilterValue::Number(bound)) => Ok((
+                simvec::FilterCondition::range(
+                    condition.key.clone(),
+                    simvec::RangeCondition::new().lt(*bound),
+                ),
+                false,
+            )),
+            (LessEqual, crate::filter::FilterValue::Number(bound)) => Ok((
+                simvec::FilterCondition::range(
+                    condition.key.clone(),
+                    simvec::RangeCondition::new().lte(*bound),
+                ),
+                false,
+            )),
+            _ => Err(VectorError::InvalidInput(format!(
+                "unsupported filter condition on '{}'",
+                condition.key
+            ))),
         }
     }
 
@@ -171,7 +242,7 @@ impl VectorStorage for SimvecVectorStore {
             request = request.with_score_threshold(threshold);
         }
         if let Some(filter) = &query.filter {
-            if let Some(mapped) = Self::map_filter(filter) {
+            if let Some(mapped) = Self::map_filter(filter)? {
                 request = request.with_filter(mapped);
             }
         }
@@ -250,7 +321,7 @@ impl VectorStorage for SimvecVectorStore {
         if let Some(namespace) = namespace {
             filter = filter.with_namespace(namespace);
         }
-        let mapped = Self::map_filter(&filter)
+        let mapped = Self::map_filter(&filter)?
             .ok_or_else(|| VectorError::InvalidInput("source must not be empty".to_string()))?;
         self.engine
             .delete_by_filter(collection, &mapped)
@@ -293,9 +364,31 @@ mod tests {
             .with_namespace("kb")
             .with_source("doc.md")
             .with_field("lang", "en");
-        let mapped = SimvecVectorStore::map_filter(&filter).expect("mapped");
+        let mapped = SimvecVectorStore::map_filter(&filter)
+            .expect("mapped")
+            .expect("some");
         assert_eq!(mapped.must.expect("must").len(), 3);
-        assert!(SimvecVectorStore::map_filter(&SearchFilter::new()).is_none());
+        assert!(SimvecVectorStore::map_filter(&SearchFilter::new())
+            .expect("empty")
+            .is_none());
+    }
+
+    #[test]
+    fn filter_mapping_covers_conditions() {
+        let filter = SearchFilter::new()
+            .with_condition(FieldFilter::new("page", FilterOperator::GreaterEqual, 3.0))
+            .with_condition(FieldFilter::new("lang", FilterOperator::NotEqual, "zh"));
+        let mapped = SimvecVectorStore::map_filter(&filter)
+            .expect("mapped")
+            .expect("some");
+        assert_eq!(mapped.must.expect("must").len(), 1);
+        assert_eq!(mapped.must_not.expect("must_not").len(), 1);
+        let bad = SearchFilter::new().with_condition(FieldFilter::new(
+            "lang",
+            FilterOperator::GreaterThan,
+            "a",
+        ));
+        assert!(SimvecVectorStore::map_filter(&bad).is_err());
     }
 
     #[test]

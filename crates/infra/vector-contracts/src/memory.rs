@@ -223,6 +223,7 @@ impl VectorStorage for InMemoryVectorStore {
             namespace: namespace.map(str::to_string),
             source: Some(source.to_string()),
             fields: HashMap::new(),
+            conditions: Vec::new(),
         };
         let mut collections = self.collections.write();
         let data = collections

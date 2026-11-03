@@ -18,6 +18,9 @@ pub enum RagError {
     /// Rerank call failed; the message carries the provider error.
     #[error("rerank error: {0}")]
     Rerank(String),
+    /// Model call failed; the message carries the provider error.
+    #[error("model error: {0}")]
+    Llm(String),
     /// Document conversion failed.
     #[error("conversion error: {0}")]
     Conversion(String),

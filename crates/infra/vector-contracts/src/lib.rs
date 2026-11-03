@@ -18,7 +18,7 @@ pub mod store;
 pub mod types;
 
 pub use error::{Result, VectorError};
-pub use filter::SearchFilter;
+pub use filter::{FieldFilter, FilterOperator, FilterValue, SearchFilter};
 pub use memory::InMemoryVectorStore;
 #[cfg(feature = "qdrant")]
 pub use qdrant::{QdrantConfig, QdrantVectorStore};

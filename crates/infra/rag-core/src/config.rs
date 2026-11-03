@@ -47,12 +47,16 @@ pub struct ChunkerConfigData {
     pub target_chars: usize,
     /// Overlap between consecutive leaf chunks in characters.
     pub overlap_chars: usize,
+    /// Optional token budget per leaf chunk (whitespace tokens, unset disables).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_budget: Option<usize>,
 }
 
 fn default_chunker_config() -> ChunkerConfigData {
     ChunkerConfigData {
         target_chars: 800,
         overlap_chars: 100,
+        token_budget: None,
     }
 }
 
@@ -78,6 +82,7 @@ impl RagIndexConfig {
         ChunkerConfig {
             target_chars: self.chunking.target_chars,
             overlap_chars: self.chunking.overlap_chars,
+            token_budget: self.chunking.token_budget,
             ..ChunkerConfig::default()
         }
     }
@@ -95,6 +100,9 @@ pub struct RagQueryConfig {
     /// Extra metadata constraints merged with the namespace scope.
     #[serde(default)]
     pub fields: std::collections::HashMap<String, String>,
+    /// Structured metadata conditions merged with the namespace scope.
+    #[serde(default)]
+    pub conditions: Vec<vector_contracts::FieldFilter>,
     /// Sentence-window radius applied around each hit.
     #[serde(default)]
     pub window_radius: usize,
@@ -113,6 +121,12 @@ pub struct RagQueryConfig {
     /// Weight of the keyword score when blending with dense scores.
     #[serde(default = "default_keyword_weight")]
     pub keyword_weight: f32,
+    /// Reorder hits for long-context prompts (strongest at both ends).
+    #[serde(default)]
+    pub context_reorder: bool,
+    /// Drop weakest hits beyond this content budget in chars (unset disables).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_budget_chars: Option<usize>,
 }
 
 /// Multi-list fusion strategy.
@@ -188,6 +202,9 @@ impl Default for RagQueryConfig {
             fusion: FusionConfig::default(),
             keyword_candidates: 0,
             keyword_weight: default_keyword_weight(),
+            context_reorder: false,
+            context_budget_chars: None,
+            conditions: Vec::new(),
         }
     }
 }

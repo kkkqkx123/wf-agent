@@ -76,8 +76,9 @@ impl QdrantVectorStore {
     }
 
     /// Builds the Qdrant filter object for a contracts filter.
-    pub fn build_filter(filter: &SearchFilter) -> Option<serde_json::Value> {
+    pub fn build_filter(filter: &SearchFilter) -> Result<Option<serde_json::Value>> {
         let mut must = Vec::new();
+        let mut must_not = Vec::new();
         if let Some(namespace) = &filter.namespace {
             must.push(json!({"key": NAMESPACE_KEY, "match": {"value": namespace}}));
         }
@@ -87,10 +88,66 @@ impl QdrantVectorStore {
         for (key, value) in &filter.fields {
             must.push(json!({"key": key, "match": {"value": value}}));
         }
-        if must.is_empty() {
-            None
-        } else {
-            Some(json!({"must": must}))
+        for condition in &filter.conditions {
+            let (clause, negated) = Self::build_condition(condition)?;
+            if negated {
+                must_not.push(clause);
+            } else {
+                must.push(clause);
+            }
+        }
+        if must.is_empty() && must_not.is_empty() {
+            return Ok(None);
+        }
+        let mut filter_obj = serde_json::Map::new();
+        if !must.is_empty() {
+            filter_obj.insert("must".to_string(), json!(must));
+        }
+        if !must_not.is_empty() {
+            filter_obj.insert("must_not".to_string(), json!(must_not));
+        }
+        Ok(Some(serde_json::Value::Object(filter_obj)))
+    }
+
+    fn build_condition(
+        condition: &crate::filter::FieldFilter,
+    ) -> Result<(serde_json::Value, bool)> {
+        use crate::filter::FilterOperator::*;
+        let key = &condition.key;
+        match (&condition.operator, &condition.value) {
+            (Equal, crate::filter::FilterValue::Text(text)) => {
+                Ok((json!({"key": key, "match": {"value": text}}), false))
+            }
+            (Equal, crate::filter::FilterValue::Number(number)) => {
+                Ok((json!({"key": key, "match": {"value": number}}), false))
+            }
+            (Equal, crate::filter::FilterValue::Bool(flag)) => {
+                Ok((json!({"key": key, "match": {"value": flag}}), false))
+            }
+            (NotEqual, crate::filter::FilterValue::Text(text)) => {
+                Ok((json!({"key": key, "match": {"value": text}}), true))
+            }
+            (NotEqual, crate::filter::FilterValue::Number(number)) => {
+                Ok((json!({"key": key, "match": {"value": number}}), true))
+            }
+            (NotEqual, crate::filter::FilterValue::Bool(flag)) => {
+                Ok((json!({"key": key, "match": {"value": flag}}), true))
+            }
+            (GreaterThan, crate::filter::FilterValue::Number(bound)) => {
+                Ok((json!({"key": key, "range": {"gt": bound}}), false))
+            }
+            (GreaterEqual, crate::filter::FilterValue::Number(bound)) => {
+                Ok((json!({"key": key, "range": {"gte": bound}}), false))
+            }
+            (LessThan, crate::filter::FilterValue::Number(bound)) => {
+                Ok((json!({"key": key, "range": {"lt": bound}}), false))
+            }
+            (LessEqual, crate::filter::FilterValue::Number(bound)) => {
+                Ok((json!({"key": key, "range": {"lte": bound}}), false))
+            }
+            _ => Err(VectorError::InvalidInput(format!(
+                "unsupported filter condition on '{key}'"
+            ))),
         }
     }
 
@@ -229,7 +286,7 @@ impl VectorStorage for QdrantVectorStore {
             body["score_threshold"] = json!(threshold);
         }
         if let Some(filter) = &query.filter {
-            if let Some(mapped) = Self::build_filter(filter) {
+            if let Some(mapped) = Self::build_filter(filter)? {
                 body["filter"] = mapped;
             }
         }
@@ -376,7 +433,7 @@ impl VectorStorage for QdrantVectorStore {
             filter = filter.with_namespace(namespace);
         }
         let existing = self.count(collection, Some(&filter)).await?;
-        let mapped = Self::build_filter(&filter)
+        let mapped = Self::build_filter(&filter)?
             .ok_or_else(|| VectorError::InvalidInput("source must not be empty".to_string()))?;
         let response = self
             .send(
@@ -394,7 +451,7 @@ impl VectorStorage for QdrantVectorStore {
     async fn count(&self, collection: &str, filter: Option<&SearchFilter>) -> Result<u64> {
         let mut body = json!({"exact": true});
         if let Some(filter) = filter {
-            if let Some(mapped) = Self::build_filter(filter) {
+            if let Some(mapped) = Self::build_filter(filter)? {
                 body["filter"] = mapped;
             }
         }
@@ -429,13 +486,50 @@ mod tests {
             .with_namespace("kb")
             .with_source("doc.md")
             .with_field("lang", "en");
-        let built = QdrantVectorStore::build_filter(&filter).expect("filter");
+        let built = QdrantVectorStore::build_filter(&filter)
+            .expect("filter")
+            .expect("some");
         let must = built
             .get("must")
             .and_then(|value| value.as_array())
             .expect("must");
         assert_eq!(must.len(), 3);
-        assert!(QdrantVectorStore::build_filter(&SearchFilter::new()).is_none());
+        assert!(QdrantVectorStore::build_filter(&SearchFilter::new())
+            .expect("empty")
+            .is_none());
+    }
+
+    #[test]
+    fn filter_builder_covers_conditions() {
+        use crate::filter::{FieldFilter, FilterOperator};
+        let filter = SearchFilter::new()
+            .with_condition(FieldFilter::new("page", FilterOperator::GreaterEqual, 3.0))
+            .with_condition(FieldFilter::new("lang", FilterOperator::NotEqual, "zh"));
+        let built = QdrantVectorStore::build_filter(&filter)
+            .expect("filter")
+            .expect("some");
+        assert_eq!(
+            built
+                .get("must")
+                .and_then(|value| value.as_array())
+                .expect("must")
+                .len(),
+            1
+        );
+        assert_eq!(
+            built
+                .get("must_not")
+                .and_then(|value| value.as_array())
+                .expect("must_not")
+                .len(),
+            1
+        );
+        let bad = SearchFilter::new().with_condition(FieldFilter::new(
+            "lang",
+            FilterOperator::GreaterThan,
+            "a",
+        ));
+        assert!(QdrantVectorStore::build_filter(&bad).is_err());
     }
 
     /// Live-server contract round-trip. Runs only when `QDRANT_URL` is set,

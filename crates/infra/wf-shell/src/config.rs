@@ -11,6 +11,7 @@ pub const DEFAULT_MAX_TIMEOUT_MS: u64 = 600_000;
 pub const DEFAULT_TIMEOUT_MS: u64 = 300_000;
 pub const DEFAULT_GRACEFUL_KILL_TIMEOUT_MS: u64 = 5000;
 pub const DEFAULT_PTY_SIZE: (u16, u16) = (24, 80);
+pub const DEFAULT_MAX_SESSIONS: usize = 64;
 
 /// Default allowlist of common development/shell commands. Commands not on
 /// this list are still executed but flagged (approval is an app-layer concern);
@@ -43,6 +44,8 @@ pub struct ShellToolConfig {
     pub default_env: HashMap<String, String>,
     /// Whether idle sessions are reused across calls (get_or_create_shell).
     pub session_reuse_enabled: bool,
+    /// Total cap on tracked sessions per store.
+    pub max_sessions: usize,
     /// Optional cap on sessions bound to a single task id.
     pub max_sessions_per_task: Option<usize>,
     /// Optional idle session auto-release (lazy sweep on session creation).
@@ -60,8 +63,8 @@ pub struct ShellToolConfig {
     /// Optional sandbox policy applied to every spawned command. When set,
     /// commands run through the shared `wf-sandbox` execution gateway:
     /// seccomp-bpf (AUDIT_ARCH validated) + rlimits + env clearing. The
-    /// PTY backend cannot attach `pre_exec` hooks and therefore skips the
-    /// kernel-level enforcement (it still inherits the command-safety gate).
+    /// PTY backend cannot attach `pre_exec` hooks, so a configured policy
+    /// forces the pipe backend even when a session requests a terminal.
     pub sandbox_policy: Option<wf_types::script::sandbox::SandboxPolicy>,
     /// Directory holding per-session output overflow files. `None` uses the
     /// system temporary directory. Files open lazily once a session tail
@@ -91,6 +94,7 @@ impl Default for ShellToolConfig {
             graceful_kill_timeout_ms: DEFAULT_GRACEFUL_KILL_TIMEOUT_MS,
             default_env: HashMap::new(),
             session_reuse_enabled: true,
+            max_sessions: DEFAULT_MAX_SESSIONS,
             max_sessions_per_task: None,
             session_idle_timeout_ms: None,
             output_event_enabled: false,
@@ -118,6 +122,7 @@ impl std::fmt::Debug for ShellToolConfig {
             .field("graceful_kill_timeout_ms", &self.graceful_kill_timeout_ms)
             .field("default_env", &self.default_env)
             .field("session_reuse_enabled", &self.session_reuse_enabled)
+            .field("max_sessions", &self.max_sessions)
             .field("max_sessions_per_task", &self.max_sessions_per_task)
             .field("session_idle_timeout_ms", &self.session_idle_timeout_ms)
             .field("output_event_enabled", &self.output_event_enabled)

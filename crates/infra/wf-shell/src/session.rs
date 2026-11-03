@@ -12,7 +12,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 use wf_common::lock::wait_timeout_ok;
 
-use crate::backend::Backend;
+use crate::backend::{Backend, ProcessState};
 use crate::drain::OutputDrain;
 use crate::error::{ShellError, ShellResult};
 use crate::line_dispatcher::OutputLineDispatcher;
@@ -24,8 +24,7 @@ use crate::utf8::Utf8ChunkDecoder;
 /// `sync_status`, `execute_in_session`) all read the same exit code.
 #[derive(Clone)]
 struct ExitState {
-    status: String,
-    code: Option<i32>,
+    state: ProcessState,
 }
 
 /// The output pipeline a spawned command writes into: the shared session
@@ -174,31 +173,40 @@ impl ShellSession {
         self.start_time.elapsed().as_secs()
     }
 
-    pub fn status(&self) -> (String, Option<i32>) {
+    pub fn status(&self) -> ProcessState {
         {
             let exit = wf_common::lock::lock_ok(self.exit.lock());
             if let Some(exit) = exit.as_ref() {
-                return (exit.status.clone(), exit.code);
+                return exit.state;
             }
         }
-        let (status, code) = self.backend.status();
-        if status == "exited" {
+        let state = self.backend.status();
+        if matches!(state, ProcessState::Exited { .. }) {
             // Cache the first observed exit state so a racy second observer
             // (which would only see `code: None` after the backend reaps)
             // cannot overwrite the real exit code.
             let mut exit = wf_common::lock::lock_ok(self.exit.lock());
             if exit.is_none() {
-                *exit = Some(ExitState {
-                    status: status.clone(),
-                    code,
-                });
+                *exit = Some(ExitState { state });
                 drop(exit);
                 // Wake event-driven waiters (execute_in_session, ...) so they
                 // observe the exit without polling.
                 self.exit_cv.notify_all();
             }
         }
-        (status, code)
+        state
+    }
+
+    /// Text form of the liveness state for snapshots and tool responses.
+    pub fn status_str(&self) -> &'static str {
+        // The cached state is sufficient for a label; a fresh query only
+        // matters for the transition side effect handled by `status()`.
+        self.status().as_str()
+    }
+
+    /// Exit code of the command when the process has exited.
+    pub fn exit_code(&self) -> Option<i32> {
+        self.status().code()
     }
 
     /// Block until the command exits or `timeout` elapses, returning
@@ -223,7 +231,7 @@ impl ShellSession {
             }
         }
         let state = exit.as_ref().expect("exit state is Some");
-        (state.code, false)
+        (state.state.code(), false)
     }
 
     /// Block until every output reader has drained (all produced bytes are in
@@ -268,21 +276,20 @@ impl ShellSession {
 
 /// Block until the command exits or the timeout elapses, returning
 /// `(exit_code, timed_out)`. The deadline is sliced so a concurrent
-/// `shell_background` handoff clears it: once the task is marked
-/// backgrounded the wait turns unbounded and never times out, mirroring
+/// `shell_background` handoff clears it: once the caller reports the task
+/// as backgrounded the wait turns unbounded and never times out, mirroring
 /// the reference unlimited-timeout semantic for background commands. On a
 /// foreground timeout the command is terminated gracefully; on success the
 /// output readers are drained so the caller's buffer snapshot is complete.
 pub(crate) fn wait_for_command_exit(
     shell: &Arc<ShellSession>,
     timeout_ms: u64,
-    session_id: &str,
+    is_backgrounded: impl Fn() -> bool,
 ) -> (Option<i32>, bool) {
-    use crate::background_task::background_task_registry;
     const SLICE_MS: u64 = 50;
     let deadline = Instant::now() + Duration::from_millis(timeout_ms);
     loop {
-        if background_task_registry().is_backgrounded(session_id) {
+        if is_backgrounded() {
             let (exit_code, _) = shell.wait_for_exit(Duration::from_secs(24 * 3600));
             shell.wait_for_output_drained(Duration::from_millis(timeout_ms));
             return (exit_code, false);

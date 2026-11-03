@@ -15,7 +15,7 @@ use wf_common::lock::lock_ok;
 
 use serde_json::Value;
 
-use crate::backend::SessionMode;
+use crate::backend::{ProcessState, SessionMode};
 use crate::drain::OutputDrain;
 use crate::error::ShellResult;
 use crate::event_sink::{EventDispatcher, ShellEvent};
@@ -194,8 +194,7 @@ impl TerminalSession {
         let mut completed = None;
         if *status == SessionStatus::Busy {
             if let Some(cmd) = current.as_ref() {
-                let (st, code) = cmd.status();
-                if st == "exited" {
+                if let ProcessState::Exited { code } = cmd.status() {
                     let command = cmd.command().to_string();
                     let drain = Arc::clone(&cmd.drain);
                     completed = Some((command, code, code == Some(0), drain));

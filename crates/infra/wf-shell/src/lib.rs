@@ -25,7 +25,16 @@
 //!
 //! A session only uses PTY mode when `pty_enabled` is true and the session
 //! requests it via [`crate::engine::SessionCreateOptions::interactive`] (or
-//! `force_pty`); every other combination falls back to pipe mode.
+//! `force_pty`); every other combination falls back to pipe mode. When a
+//! sandbox policy is configured the pipe backend is always used, because
+//! only it can enforce kernel-level isolation.
+//!
+//! ## Session semantics
+//!
+//! A terminal session reuses its working directory, environment, terminal
+//! mode, task binding and accumulated output across calls. Each command is
+//! still an independent subprocess, so a directory change or variable
+//! export inside one command does not persist to the next command.
 
 pub mod backend;
 pub mod background_task;

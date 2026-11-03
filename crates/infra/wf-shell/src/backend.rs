@@ -32,6 +32,31 @@ impl SessionMode {
     }
 }
 
+/// Liveness of a child process behind a session backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessState {
+    Running,
+    Exited { code: Option<i32> },
+    Unknown,
+}
+
+impl ProcessState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProcessState::Running => "running",
+            ProcessState::Exited { .. } => "exited",
+            ProcessState::Unknown => "unknown",
+        }
+    }
+
+    pub fn code(&self) -> Option<i32> {
+        match self {
+            ProcessState::Running | ProcessState::Unknown => None,
+            ProcessState::Exited { code } => *code,
+        }
+    }
+}
+
 /// Pipe-backed session: a std child process whose stdin is piped so that
 /// [`crate::session::ShellSession::write_input`] can feed it. stdout/stderr are
 /// captured by two background reader threads; bytes are preserved verbatim (no
@@ -49,7 +74,7 @@ impl PipeBackend {
         }
     }
 
-    fn status(&self) -> (String, Option<i32>) {
+    fn status(&self) -> ProcessState {
         let mut child = wf_common::lock::lock_ok(self.child.lock());
         if let Some(c) = child.as_mut() {
             match c.try_wait() {
@@ -57,13 +82,13 @@ impl PipeBackend {
                     let code = status.code();
                     *child = None;
                     *wf_common::lock::lock_ok(self.stdin.lock()) = None;
-                    ("exited".into(), code)
+                    ProcessState::Exited { code }
                 }
-                Ok(None) => ("running".into(), None),
-                Err(_) => ("unknown".into(), None),
+                Ok(None) => ProcessState::Running,
+                Err(_) => ProcessState::Unknown,
             }
         } else {
-            ("exited".into(), None)
+            ProcessState::Exited { code: None }
         }
     }
 
@@ -125,20 +150,20 @@ impl PtyBackend {
         }
     }
 
-    fn status(&self) -> (String, Option<i32>) {
+    fn status(&self) -> ProcessState {
         let mut child = wf_common::lock::lock_ok(self.child.lock());
         if let Some(c) = child.as_mut() {
             match c.try_wait() {
                 Ok(Some(status)) => {
                     let code = Some(status.exit_code() as i32);
                     *child = None;
-                    ("exited".into(), code)
+                    ProcessState::Exited { code }
                 }
-                Ok(None) => ("running".into(), None),
-                Err(_) => ("unknown".into(), None),
+                Ok(None) => ProcessState::Running,
+                Err(_) => ProcessState::Unknown,
             }
         } else {
-            ("exited".into(), None)
+            ProcessState::Exited { code: None }
         }
     }
 
@@ -205,7 +230,7 @@ pub(crate) enum Backend {
 }
 
 impl Backend {
-    pub(crate) fn status(&self) -> (String, Option<i32>) {
+    pub(crate) fn status(&self) -> ProcessState {
         match self {
             Backend::Pipe(b) => b.status(),
             Backend::Pty(b) => b.status(),

@@ -19,7 +19,7 @@ use wf_common::lock::lock_ok;
 
 use serde_json::Value;
 
-use crate::backend::{Backend, SessionMode};
+use crate::backend::{Backend, ProcessState, SessionMode};
 use crate::command_safety::CommandPolicy;
 use crate::drain::{MonitorWakeup, OutputDrain};
 use crate::error::{ShellError, ShellResult};
@@ -30,7 +30,7 @@ use crate::shell_detector::ShellType;
 use crate::spawn::{spawn_pipe_backend, spawn_pty_backend};
 use crate::terminal_session::{SessionStatus, TerminalSession, TerminalSessionConfig};
 
-const MAX_SESSIONS: usize = 64;
+const DEFAULT_MAX_SESSIONS: usize = 64;
 const DEFAULT_GRACEFUL_KILL_TIMEOUT_MS: u64 = 5000;
 const DEFAULT_PTY_SIZE: (u16, u16) = (24, 80);
 const DEFAULT_EXECUTE_TIMEOUT_MS: u64 = 300_000;
@@ -133,6 +133,7 @@ pub struct BackgroundShellStore {
     sandbox_policy: Option<wf_types::script::sandbox::SandboxPolicy>,
     max_timeout_ms: u64,
     session_reuse_enabled: bool,
+    max_sessions: usize,
     max_sessions_per_task: Option<usize>,
     session_idle_timeout_ms: Option<u64>,
     output_event_enabled: bool,
@@ -170,6 +171,7 @@ impl BackgroundShellStore {
             sandbox_policy: None,
             max_timeout_ms: DEFAULT_MAX_TIMEOUT_MS,
             session_reuse_enabled: true,
+            max_sessions: DEFAULT_MAX_SESSIONS,
             max_sessions_per_task: None,
             session_idle_timeout_ms: None,
             output_event_enabled: false,
@@ -216,6 +218,7 @@ impl BackgroundShellStore {
         store.sandbox_policy = config.sandbox_policy.clone();
         store.max_timeout_ms = config.max_timeout_ms;
         store.session_reuse_enabled = config.session_reuse_enabled;
+        store.max_sessions = config.max_sessions;
         store.max_sessions_per_task = config.max_sessions_per_task;
         store.session_idle_timeout_ms = config.session_idle_timeout_ms;
         store.output_event_enabled = config.output_event_enabled;
@@ -381,7 +384,10 @@ impl BackgroundShellStore {
         let start_index = session.output_start();
         let started_at = Instant::now();
         let shell = self.spawn_command(&session, command)?;
-        let (exit_code, timed_out) = wait_for_command_exit(&shell, timeout_ms, session_id);
+        let (exit_code, timed_out) =
+            wait_for_command_exit(&shell, timeout_ms, || {
+                crate::background_task::background_task_registry().is_backgrounded(session_id)
+            });
         let success = !timed_out && exit_code == Some(0);
         session.finalize(command, exit_code, success, &shell.drain);
         // Make sure every event of this command (output lines, completion) is
@@ -413,7 +419,7 @@ impl BackgroundShellStore {
                     session_id
                 ))
             })?;
-        if current.status().0 != "running" {
+        if !matches!(current.status(), ProcessState::Running) {
             return Err(ShellError::ExecutionError(format!(
                 "Session '{}' has already exited",
                 session_id
@@ -474,7 +480,7 @@ impl BackgroundShellStore {
                 *wf_common::lock::lock_ok(session.task_id.lock()) = None;
                 let has_running = lock_ok(session.current.lock())
                     .as_ref()
-                    .is_some_and(|c| c.status().0 == "running");
+                    .is_some_and(|c| matches!(c.status(), ProcessState::Running));
                 if !has_running {
                     *wf_common::lock::lock_ok(session.status.lock()) = SessionStatus::Idle;
                 }
@@ -581,10 +587,10 @@ impl BackgroundShellStore {
         options: &SessionCreateOptions,
         task_id: Option<&str>,
     ) -> ShellResult<GetOrCreateResult> {
-        if self.sessions.len() >= MAX_SESSIONS {
+        if self.sessions.len() >= self.max_sessions {
             return Err(ShellError::ExecutionError(format!(
                 "Too many background sessions (limit {})",
-                MAX_SESSIONS
+                self.max_sessions
             )));
         }
         if let (Some(max), Some(tid)) = (self.max_sessions_per_task, task_id) {
@@ -683,7 +689,17 @@ impl BackgroundShellStore {
             dispatcher: self.line_dispatcher(session),
             drain: Arc::new(OutputDrain::new(self.monitor_wakeup.clone())),
         };
-        let want_pty = self.pty_enabled && (session.interactive || session.force_pty);
+        // The PTY backend cannot attach `pre_exec` hooks and skips kernel
+        // enforcement, so a configured sandbox policy always forces the pipe
+        // backend even when the session requests a terminal.
+        let want_pty =
+            self.pty_enabled && (session.interactive || session.force_pty) && self.sandbox_policy.is_none();
+        if (session.interactive || session.force_pty) && !want_pty && self.sandbox_policy.is_some() {
+            tracing::warn!(
+                session = %session.session_id,
+                "PTY requested but sandbox policy is configured; using pipe backend so kernel enforcement applies"
+            );
+        }
         let backend = if want_pty {
             Backend::Pty(spawn_pty_backend(
                 self.shell_type,

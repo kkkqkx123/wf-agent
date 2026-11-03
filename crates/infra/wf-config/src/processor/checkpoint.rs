@@ -26,6 +26,14 @@ pub fn validate_checkpoint_config(config: &UnifiedCheckpointPolicy) -> ConfigRes
         if let Some(max) = retention.max_checkpoints {
             validate_min(max as u64, 1, "checkpoint.retention.max_checkpoints")?;
         }
+        if let Some(max_age) = retention.max_age {
+            if max_age < 0 {
+                return Err(crate::error::ConfigError::Validation(
+                    "checkpoint.retention.max_age must not be negative (milliseconds, 0 means no age limit)"
+                        .to_string(),
+                ));
+            }
+        }
     }
     Ok(())
 }

@@ -54,9 +54,10 @@ pub trait CheckpointStrategy: Send + Sync {
 
     fn is_disabled(&self) -> bool;
 
-    /// Whether a manual checkpoint is allowed. Manual creation honors the
-    /// master switch only and bypasses the per-trigger whitelist, so a
-    /// policy that omits the manual trigger still permits manual creation.
+    /// Whether a manual checkpoint is allowed. Manual creation bypasses the
+    /// per-trigger whitelist but honors the master switch and the Never
+    /// trigger, so an omitted manual trigger still permits manual creation
+    /// while Never shuts manual creation off as well.
     fn manual_allowed(&self) -> bool {
         !self.is_disabled()
     }
@@ -134,8 +135,10 @@ impl StandardStrategy {
         }
     }
 
+    /// Master switch with Never folded in: a policy containing Never reads
+    /// as disabled for every path including manual, forced, and hooks.
     pub fn enabled(&self) -> bool {
-        self.enabled
+        self.enabled && !self.triggers.contains(&CheckpointTiming::Never)
     }
 
     pub fn triggers(&self) -> &[CheckpointTiming] {
@@ -145,7 +148,7 @@ impl StandardStrategy {
 
 impl CheckpointStrategy for StandardStrategy {
     fn should_checkpoint(&self, trigger: &CheckpointTiming, _context: &CheckpointContext) -> bool {
-        if !self.enabled {
+        if !self.enabled() {
             return false;
         }
         if self.triggers.is_empty() {
@@ -171,7 +174,7 @@ impl CheckpointStrategy for StandardStrategy {
     }
 
     fn is_disabled(&self) -> bool {
-        !self.enabled
+        !self.enabled()
     }
 }
 
@@ -470,6 +473,10 @@ mod tests {
 
         let disabled = StandardStrategy::disabled();
         assert!(!disabled.manual_allowed());
+
+        let never = create_checkpoint_strategy(&make_policy(vec![CheckpointTiming::Never]));
+        assert!(!never.manual_allowed());
+        assert!(never.is_disabled());
     }
 
     #[test]

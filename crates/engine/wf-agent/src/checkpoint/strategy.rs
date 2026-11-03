@@ -103,7 +103,7 @@ impl AgentCheckpointStrategy {
                 },
                 map_trigger,
             )
-            .with_cadence(AgentCheckpointTiming::AfterIteration, n),
+            .with_cadence(AgentCheckpointTiming::AfterIteration, n.max(1)),
         }
     }
 

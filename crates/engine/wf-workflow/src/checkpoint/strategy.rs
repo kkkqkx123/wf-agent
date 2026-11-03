@@ -102,6 +102,7 @@ impl NodeCheckpointStrategy {
     }
 
     pub fn every_n_nodes(n: u32) -> Self {
+        let cadence = n.max(1);
         Self {
             inner: CadencedCheckpointStrategy::from_policy(
                 &UnifiedCheckpointPolicy {
@@ -116,8 +117,8 @@ impl NodeCheckpointStrategy {
                 },
                 map_trigger,
             )
-            .with_cadence(WorkflowCheckpointTiming::BeforeNode, n)
-            .with_cadence(WorkflowCheckpointTiming::AfterNode, n),
+            .with_cadence(WorkflowCheckpointTiming::BeforeNode, cadence)
+            .with_cadence(WorkflowCheckpointTiming::AfterNode, cadence),
         }
     }
 
@@ -193,10 +194,13 @@ impl NodeCheckpointStrategy {
                 if timing != WorkflowCheckpointTiming::OnNodeError {
                     let cadence = match node_timings {
                         // Explicit node timing set: node cadence (default 1).
-                        Some(_) => cfg.every_n_nodes.unwrap_or(1),
+                        Some(_) => cfg.every_n_nodes.unwrap_or(1).max(1),
                         // Fallback to workflow policy per timing; an explicit
                         // node cadence still overrides the workflow cadence.
-                        None => cfg.every_n_nodes.unwrap_or_else(|| self.cadence(&timing)),
+                        None => cfg
+                            .every_n_nodes
+                            .unwrap_or_else(|| self.cadence(&timing))
+                            .max(1),
                     };
                     cadences.push((timing.clone(), cadence));
                 }

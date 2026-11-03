@@ -67,6 +67,8 @@ pub struct ResolvedCheckpointConfig {
     pub content_source: CheckpointConfigSource,
     pub retention_source: CheckpointConfigSource,
     pub error_source: CheckpointConfigSource,
+    /// Master switch with Never folded in. True with an empty trigger list
+    /// means manual-only mode; false means fully disabled.
     pub should_create: bool,
     pub description: String,
 }
@@ -132,8 +134,12 @@ impl CheckpointConfigResolver {
             }
         }
 
+        // Never folds into the master switch: it reads as fully disabled
+        // for every path including manual. An empty trigger list stays
+        // manual-only and keeps should_create true when enabled.
+        let should_create = policy.enabled && !policy.triggers.contains(&CheckpointTiming::Never);
         ResolvedCheckpointConfig {
-            should_create: policy.enabled,
+            should_create,
             description: Self::build_description(&policy, None, None),
             policy,
             effective_source,

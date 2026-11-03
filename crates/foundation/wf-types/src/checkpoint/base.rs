@@ -124,11 +124,16 @@ pub struct CheckpointOptions {
     pub sync_timeout: Option<u64>,
 }
 
+/// Delta chain shape for execution-state checkpoints. Full resets the chain,
+/// Delta appends. A zero baseline interval disables deltas (every write is
+/// Full); the effective interval is the smaller of the two bounds.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DeltaStorageConfig {
     pub enabled: bool,
+    /// Full snapshot every N checkpoints. Zero means every write is Full.
     pub baseline_interval: u32,
+    /// Maximum Delta links after one Full. Bounds the restore chain.
     pub max_delta_chain_length: u32,
 }
 
@@ -165,6 +170,8 @@ pub enum CheckpointTiming {
     OnComplete,
     Interval,
     Manual,
+    /// Fully disabled. Overrides the master switch: no trigger fires and
+    /// manual, forced, and hook paths all refuse.
     Never,
 }
 
@@ -191,9 +198,9 @@ pub struct CheckpointContentConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<CheckpointMetadata>,
     /// Defer post-persist side effects (event publish, file snapshot) to a
-    /// background persistence queue; the
-    /// checkpoint id is returned before they complete. `wait_for_persistence`
-    /// drains the queue.
+    /// background persistence queue; the checkpoint id is returned before
+    /// they complete. `wait_for_persistence` drains the queue. State
+    /// persistence itself stays synchronous; only the side effects defer.
     #[serde(skip_serializing_if = "Option::is_none", rename = "async")]
     pub asynchronous: Option<bool>,
 }
@@ -201,10 +208,18 @@ pub struct CheckpointContentConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CheckpointRetentionConfig {
+    /// Keep at most this many checkpoints per entity. Missing means no
+    /// count limit. Zero is rejected by config validation; the cleanup
+    /// executor additionally protects the newest row and the restore chain.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_checkpoints: Option<u32>,
+    /// Drop checkpoints older than this many milliseconds. Missing means no
+    /// age limit. Non-positive values carry no limit and yield no time
+    /// strategy. Unit is milliseconds on the wire.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_age: Option<i64>,
+    /// Blob encoding. Independent of the count and age limits; missing
+    /// falls back to automatic compression at the strategy layer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compression: Option<CompressionStrategy>,
 }
@@ -219,7 +234,11 @@ pub struct CheckpointErrorHandlingConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UnifiedCheckpointPolicy {
+    /// Master switch. An empty trigger list still means manual-only mode;
+    /// use the Never trigger for a full shutdown.
     pub enabled: bool,
+    /// Trigger whitelist. First non-empty layer wins during resolution;
+    /// an empty list fires nothing automatically but still allows manual.
     pub triggers: Vec<CheckpointTiming>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<CheckpointContentConfig>,
@@ -257,8 +276,9 @@ pub struct NodeCheckpointConfig {
     /// Checkpoint description override (surfaced on published events).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// Throttle node checkpoints to every N nodes (Before/After only).
-    /// Default: every node (1).
+    /// Throttle node checkpoints to every N nodes. Applies to Before and
+    /// After only; error checkpoints always fire when enabled. Default and
+    /// non-positive input both mean every node (1).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub every_n_nodes: Option<u32>,
 }

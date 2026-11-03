@@ -65,7 +65,8 @@ impl<T: CheckpointTimingVariant> CadencedCheckpointStrategy<T> {
     /// Set a cadence for a specific timing variant.
     /// When set, `should_checkpoint` for that timing only returns true
     /// every `n` counts. May be called multiple times for different timings.
-    /// Count is a one-based occurrence index; `n` must be at least one.
+    /// Count is a one-based occurrence index. Callers sanitize user input
+    /// with `max(1)` before calling; the assertion guards internal misuse.
     pub fn with_cadence(mut self, timing: T, n: u32) -> Self {
         assert!(n >= 1, "cadence must be at least one");
         self.cadences.insert(timing, n);

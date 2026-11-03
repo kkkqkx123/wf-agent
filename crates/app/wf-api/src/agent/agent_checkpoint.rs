@@ -58,14 +58,17 @@ pub async fn create(
     description: Option<String>,
 ) -> ApiResult<Checkpoint> {
     if let Some(entity) = ctx.agent_loop(agent_loop_id) {
-        // Ephemeral read-only turns take no checkpoints at all; the manual
-        // endpoint is no exception. The mode rides the entity's effective
-        // config, which the coordinator forced at build time.
+        // Live manual creation honors the fixed privilege order
+        // (ephemeral, master, domain) inside the integration entry; the
+        // explicit ephemeral check here keeps the interface-layer reason
+        // identical when called directly.
         if entity.effective_config().and_then(|c| c.temporary_mode)
             == Some(wf_types::agent_execution::TemporaryMode::Ephemeral)
         {
             return Err(ApiError::Validation(
-                "ephemeral read-only runs take no checkpoints".to_string(),
+                wf_checkpoint::coordinator::base::ManualReject::Ephemeral
+                    .message()
+                    .to_string(),
             ));
         }
         let mut integration =
@@ -74,9 +77,15 @@ pub async fn create(
             integration = integration.with_file_checkpoint_manager(manager.clone());
         }
         let checkpoint_id = integration
-            .create_checkpoint(&entity, CheckpointTiming::Manual, description)
+            .create_manual_checkpoint(&entity, description)
             .await
-            .map_err(|e| ApiError::execution(format!("checkpoint creation failed: {e}")))?;
+            .map_err(|e| match e {
+                wf_checkpoint::CheckpointError::Validation { reason } => {
+                    ApiError::Validation(reason)
+                }
+                wf_checkpoint::CheckpointError::Strategy(reason) => ApiError::execution(reason),
+                _ => ApiError::execution(format!("checkpoint creation failed: {e}")),
+            })?;
         // Read back by id: re-querying the latest is racy when an auto
         // checkpoint lands in the same millisecond as this manual one.
         if let Some(meta) = state_manager(ctx)
@@ -98,35 +107,61 @@ pub async fn create(
         // otherwise the ephemeral chain could gain a seed snapshot.
         // Storage errors fail open to the existing behavior (a new seed
         // snapshot), never to a hard failure of an unrelated subsystem.
-        if let Ok(Some(record)) = ctx.storage.agent_execution.load(agent_loop_id).await {
-            if record.loop_config.and_then(|c| c.temporary_mode)
-                == Some(wf_types::agent_execution::TemporaryMode::Ephemeral)
-            {
-                return Err(ApiError::Validation(
-                    "ephemeral read-only runs take no checkpoints".to_string(),
-                ));
+        let ephemeral = ctx
+            .storage
+            .agent_execution
+            .load(agent_loop_id)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|record| record.loop_config)
+            .and_then(|c| c.temporary_mode)
+            == Some(wf_types::agent_execution::TemporaryMode::Ephemeral);
+        {
+            use wf_checkpoint::coordinator::CheckpointCoordinator;
+            let seed_coordinator = coordinator(ctx);
+            if let Err((reject, message)) = wf_checkpoint::coordinator::base::check_manual_gate(
+                ephemeral,
+                seed_coordinator.storage_master_enabled(),
+                true,
+            ) {
+                return Err(match reject {
+                    wf_checkpoint::coordinator::base::ManualReject::Ephemeral => {
+                        ApiError::Validation(message.to_string())
+                    }
+                    _ => ApiError::execution(message.to_string()),
+                });
             }
         }
         let coordinator = coordinator(ctx);
-        if !coordinator.manual_allowed() {
-            return Err(ApiError::execution(
-                "manual checkpoint rejected: checkpointing is disabled",
-            ));
-        }
         // Progress gate: the seed snapshot is identical on every call, so a
         // repeat manual creation with no live loop adds no information.
         // Merge back into the latest checkpoint instead of appending a
-        // duplicate row. Fail-open on metadata read errors.
-        if let Ok(Some(latest)) = state_manager(ctx).get_latest(agent_loop_id).await {
-            if progress_coords(&latest) == snapshot_progress_coords(&empty_snapshot(agent_loop_id))
-            {
-                return merge_back(&coordinator, agent_loop_id, latest, description).await;
+        // duplicate row. A metadata read failure is reported loudly and
+        // proceeds fail-open so a storage fault never masquerades as
+        // no-progress.
+        match state_manager(ctx).get_latest(agent_loop_id).await {
+            Ok(Some(latest)) => {
+                if progress_coords(&latest)
+                    == snapshot_progress_coords(&empty_snapshot(agent_loop_id))
+                {
+                    return merge_back(&coordinator, agent_loop_id, latest, description).await;
+                }
+            }
+            Ok(None) => {}
+            Err(err) => {
+                tracing::warn!(
+                    agent_loop_id = %agent_loop_id,
+                    error = %err,
+                    "seed duplicate gate unreadable; proceeding fail-open"
+                );
             }
         }
         let mut prepare = coordinator
             .prepare(agent_loop_id, CheckpointTiming::Manual)
             .await
             .map_err(|e| ApiError::execution(format!("checkpoint creation failed: {e}")))?;
+        wf_checkpoint::coordinator::base::stamp_seed_marker(&mut prepare);
         if let Some(text) = description {
             prepare
                 .metadata
@@ -146,7 +181,7 @@ pub async fn create(
             .await
             .map_err(|e| ApiError::execution(format!("checkpoint creation failed: {e}")))?;
         let _ = coordinator
-            .save_file_snapshot(&checkpoint.id, agent_loop_id)
+            .run_post_persist(&checkpoint.id, agent_loop_id, true, None)
             .await;
         // Return the checkpoint just built, reloaded by id: re-querying the
         // latest is racy when two checkpoints share a millisecond timestamp.
@@ -248,6 +283,8 @@ pub async fn restore(
     let restored = coordinator.restore(checkpoint_id).await.map_err(|e| {
         if matches!(e, wf_checkpoint::CheckpointError::NotFound { .. }) {
             not_found("checkpoint", checkpoint_id)
+        } else if matches!(e, wf_checkpoint::CheckpointError::Validation { .. }) {
+            ApiError::Validation(format!("checkpoint restore rejected: {e}"))
         } else {
             ApiError::execution(format!("checkpoint restore failed: {e}"))
         }
@@ -599,9 +636,17 @@ mod tests {
         let ctx = make_ctx();
         let cp = create(&ctx, "loop-r", None).await.unwrap();
 
-        // Restoring the loop's own checkpoint succeeds.
-        let restored = restore(&ctx, "loop-r", &cp.id).await.unwrap();
-        assert_eq!(restored.id, cp.id);
+        // Seed rows without a live entity carry the explicit marker and
+        // restore rejects them with a rebuild hint instead of replaying
+        // missing loop config.
+        let err = restore(&ctx, "loop-r", &cp.id).await.unwrap_err();
+        match err {
+            ApiError::Validation(reason) => assert!(
+                reason.contains("seed") || reason.contains("not restorable"),
+                "seed rejection carries an explicit reason: {reason}"
+            ),
+            other => panic!("seed restore must reject with validation, got {other:?}"),
+        }
 
         // A checkpoint of another loop is rejected.
         let other = create(&ctx, "loop-other", None).await.unwrap();

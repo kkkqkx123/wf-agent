@@ -39,7 +39,7 @@ impl AgentLoopCoordinator {
         forced.activated_tool_names = config
             .activated_tool_names
             .iter()
-            .filter(|name| allowed.iter().any(|id| *id == name.as_str()))
+            .filter(|name| allowed.contains(&name.as_str()))
             .cloned()
             .collect();
         let mut hidden = config.hidden_tool_names.clone();

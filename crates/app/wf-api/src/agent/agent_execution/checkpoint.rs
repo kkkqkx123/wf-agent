@@ -72,12 +72,17 @@ pub async fn auto_resume(
     let state_manager =
         wf_checkpoint::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
     let latest = state_manager
-        .get_latest(agent_loop_id)
+        .list_by_entity(agent_loop_id)
         .await
         .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?
+        .into_iter()
+        .filter(|meta| {
+            !wf_checkpoint::coordinator::base::is_seed_marked(&meta.custom_fields)
+        })
+        .max_by(|a, b| (a.timestamp, &a.id).cmp(&(b.timestamp, &b.id)))
         .ok_or_else(|| {
             ApiError::Validation(format!(
-                "agent execution {agent_loop_id} has no checkpoint; auto-resume requires a checkpoint"
+                "agent execution {agent_loop_id} has no restorable checkpoint; auto-resume requires a non-seed checkpoint"
             ))
         })?;
     let coordinator = coordinator(ctx);
@@ -105,6 +110,8 @@ pub async fn auto_resume(
                         || lower.contains("still live")
                         || lower.contains("invalid")
                         || lower.contains("no checkpoint")
+                        || lower.contains("seed")
+                        || lower.contains("not restorable")
                     {
                         ApiError::Validation(format!(
                             "agent execution {agent_loop_id} not auto-recoverable: {message}"

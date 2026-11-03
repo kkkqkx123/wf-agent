@@ -2,8 +2,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use wf_checkpoint::coordinator::agent::{AgentCheckpointCoordinator, ProgressCoords};
-use wf_checkpoint::coordinator::base::{duplicate_gate_matched, stamp_description};
-use wf_checkpoint::coordinator::projection::file_snapshot_status;
+use wf_checkpoint::coordinator::base::{
+    check_manual_gate, check_predecessor_unchanged, duplicate_gate_matched, gate_latest_or_report,
+    is_lifecycle_trigger, stamp_description,
+};
 use wf_checkpoint::coordinator::CheckpointCoordinator;
 use wf_checkpoint::event::CheckpointEventBus;
 use wf_checkpoint::CheckpointError;
@@ -85,6 +87,7 @@ pub struct AgentCheckpointIntegration {
     store: Arc<StorageBackend>,
     execution_events: Option<ExecutionEventBus>,
     strategy: crate::checkpoint::strategy::AgentCheckpointStrategy,
+    file_scope: Option<wf_checkpoint::ResolvedFileScope>,
 }
 
 impl AgentCheckpointIntegration {
@@ -96,6 +99,7 @@ impl AgentCheckpointIntegration {
             store,
             execution_events: None,
             strategy: crate::checkpoint::strategy::AgentCheckpointStrategy::every_iteration(),
+            file_scope: None,
         }
     }
 
@@ -129,7 +133,34 @@ impl AgentCheckpointIntegration {
         mut self,
         strategy: crate::checkpoint::strategy::AgentCheckpointStrategy,
     ) -> Self {
+        let retention = strategy.retention_config().cloned();
+        let content = Some(strategy.content_config().clone());
+        let placeholder =
+            AgentCheckpointCoordinator::new(AgentCheckpointStateManager::new(self.store.clone()));
+        let inner = std::mem::replace(&mut self.inner, placeholder);
+        self.inner = inner.apply_domain_storage(retention, content, None);
         self.strategy = strategy;
+        self
+    }
+
+    /// Storage master switch mirrored from the inner storage copy. Hot
+    /// manual entries order this before the domain switch.
+    pub fn storage_master_enabled(&self) -> bool {
+        use wf_checkpoint::coordinator::CheckpointCoordinator;
+        self.inner.storage_master_enabled()
+    }
+
+    /// Domain switch for manual gating.
+    pub fn domain_enabled(&self) -> bool {
+        self.strategy.is_enabled()
+    }
+
+    /// Resolved file scope for scope-aware projection. Callers holding a
+    /// parsed scope pass it here for the complete projection form;
+    /// otherwise the simplified form applies. Scope parse failures reject
+    /// upstream and never degrade to the simplified form here.
+    pub fn with_file_scope(mut self, scope: Option<wf_checkpoint::ResolvedFileScope>) -> Self {
+        self.file_scope = scope;
         self
     }
 
@@ -177,16 +208,17 @@ impl AgentCheckpointIntegration {
 
     /// Hook opt-in checkpoint: a hook definition carried
     /// `create_checkpoint`, so the checkpoint ignores the per-trigger
-    /// cadence but still honors the master switch. Failures only warn so
-    /// the hook fire outcome never changes. Mirrors the workflow hook
-    /// contract, so one hook forces a checkpoint independently of policy.
+    /// cadence but still honors the master and domain switches in fixed
+    /// order. Failures only warn so the hook fire outcome never changes.
+    /// Mirrors the workflow hook contract, so one hook forces a checkpoint
+    /// independently of policy.
     pub async fn create_hook_checkpoint(
         &self,
         entity: &AgentLoopEntity,
         trigger: CheckpointTiming,
         description: Option<String>,
     ) {
-        if !self.strategy.is_enabled() {
+        if self.manual_gate(false).is_err() {
             return;
         }
         if let Err(e) = self
@@ -212,18 +244,18 @@ impl AgentCheckpointIntegration {
         }
     }
 
-    /// Lifecycle checkpoint: honors the master switch but bypasses the
-    /// per-trigger cadence, mirroring the workflow lifecycle contract.
-    /// Start, completion, terminal and pause snapshots must not depend on
-    /// the iteration cadence. Failures only warn so the lifecycle outcome
-    /// never changes.
+    /// Lifecycle checkpoint: honors the master and domain switches in fixed
+    /// order but bypasses the per-trigger cadence, mirroring the workflow
+    /// lifecycle contract. Start, completion, terminal and pause snapshots
+    /// must not depend on the iteration cadence. Failures only warn so the
+    /// lifecycle outcome never changes.
     pub async fn create_lifecycle_checkpoint(
         &self,
         entity: &AgentLoopEntity,
         trigger: CheckpointTiming,
         description: Option<String>,
     ) -> bool {
-        if !self.strategy.is_enabled() {
+        if self.manual_gate(false).is_err() {
             return false;
         }
         if let Err(e) = self
@@ -246,22 +278,54 @@ impl AgentCheckpointIntegration {
         &self.store
     }
 
+    fn manual_gate(&self, ephemeral: bool) -> Result<(), CheckpointError> {
+        check_manual_gate(
+            ephemeral,
+            self.storage_master_enabled(),
+            self.domain_enabled(),
+        )
+        .map_err(|(reject, message)| match reject {
+            wf_checkpoint::coordinator::base::ManualReject::Ephemeral => {
+                CheckpointError::Validation {
+                    reason: message.to_string(),
+                }
+            }
+            _ => CheckpointError::Strategy(message.to_string()),
+        })
+    }
+
+    /// Manual creation through the fixed privilege order (ephemeral, master,
+    /// domain). Bypasses the trigger whitelist and cadence but never the
+    /// two switches. Interface layers already reject ephemeral runs; the
+    /// entity-derived ephemeral here keeps the order identical when called
+    /// directly.
+    pub async fn create_manual_checkpoint(
+        &self,
+        entity: &AgentLoopEntity,
+        description: Option<String>,
+    ) -> Result<String, CheckpointError> {
+        let ephemeral = entity.effective_config().and_then(|c| c.temporary_mode)
+            == Some(wf_types::agent_execution::TemporaryMode::Ephemeral);
+        self.manual_gate(ephemeral)?;
+        self.create_checkpoint(entity, CheckpointTiming::Manual, description)
+            .await
+    }
+
     pub async fn create_checkpoint(
         &self,
         entity: &AgentLoopEntity,
         trigger: CheckpointTiming,
         description: Option<String>,
     ) -> Result<String, CheckpointError> {
-        // Progress gate: equal coordinates mean the loop produced no side
-        // effect since the latest checkpoint, so merge back into it instead
-        // of persisting a duplicate row. Checked before the snapshot build
-        // so a duplicate costs one metadata read, not a full serialization.
-        // Fail-open: a metadata read failure never blocks checkpointing.
-        if let Ok(Some(latest)) = self
-            .inner
-            .state_manager()
-            .get_latest(entity.id().as_str())
-            .await
+        // Progress gate over shared comparison: equal coordinates merge back
+        // into the latest row before any snapshot build. Metadata read
+        // failures report a `dedup_gate_read` event and proceed fail-open.
+        if let Some(latest) = gate_latest_or_report(
+            self.inner.state_manager(),
+            entity.id().as_str(),
+            self.inner.event_bus(),
+        )
+        .await
         {
             let current = Self::entity_progress_coords(entity).await;
             if duplicate_gate_matched(
@@ -282,28 +346,90 @@ impl AgentCheckpointIntegration {
                 return Ok(reused);
             }
         }
+        let expected: Option<String> = self
+            .inner
+            .state_manager()
+            .get_latest(entity.id().as_str())
+            .await
+            .ok()
+            .flatten()
+            .map(|m| m.id);
         // The snapshot and the checkpoint futures are large (the snapshot
         // embeds the whole conversation) and this runs at the bottom of a
         // deep nested-execution stack. The build and persist futures are
         // boxed so their state machines live on the heap instead of being
         // inlined into this frame.
+        let build_once = |snapshot: AgentStateSnapshot| async {
+            let ancestors: Vec<String> =
+                entity.ancestors().iter().map(|id| id.to_string()).collect();
+            let mut ctx = self
+                .inner
+                .prepare_with_hierarchy(
+                    entity.id().as_str(),
+                    trigger.clone(),
+                    entity.parent_execution_id().as_deref(),
+                    &ancestors,
+                )
+                .await?;
+            stamp_description(&mut ctx, description.as_deref());
+            Box::pin(self.inner.build(ctx, snapshot)).await
+        };
         let snapshot = self.build_snapshot(entity).await;
-        let ancestors: Vec<String> = entity.ancestors().iter().map(|id| id.to_string()).collect();
-        let mut ctx = self
-            .inner
-            .prepare_with_hierarchy(
+        let mut checkpoint = build_once(snapshot).await?;
+        if check_predecessor_unchanged(
+            self.inner.state_manager(),
+            entity.id().as_str(),
+            expected.as_deref(),
+        )
+        .await
+        .is_err()
+        {
+            let snapshot = self.build_snapshot(entity).await;
+            match build_once(snapshot).await {
+                Ok(rebuilt) => checkpoint = rebuilt,
+                Err(_) => {
+                    if let Some(latest) = self
+                        .inner
+                        .state_manager()
+                        .get_latest(entity.id().as_str())
+                        .await
+                        .ok()
+                        .flatten()
+                    {
+                        return Ok(latest.id);
+                    }
+                }
+            }
+            if check_predecessor_unchanged(
+                self.inner.state_manager(),
                 entity.id().as_str(),
-                trigger.clone(),
-                entity.parent_execution_id().as_deref(),
-                &ancestors,
+                expected.as_deref(),
             )
-            .await?;
-        stamp_description(&mut ctx, description.as_deref());
-        let checkpoint = Box::pin(self.inner.build(ctx, snapshot)).await?;
+            .await
+            .is_err()
+            {
+                if let Some(latest) = self
+                    .inner
+                    .state_manager()
+                    .get_latest(entity.id().as_str())
+                    .await
+                    .ok()
+                    .flatten()
+                {
+                    return Ok(latest.id);
+                }
+            }
+        }
         Box::pin(self.inner.persist(&checkpoint, entity.id().as_str())).await?;
-        let file_manager = self.inner.file_checkpoint_manager();
-        let file_snapshot_status =
-            file_snapshot_status(file_manager, &checkpoint.id, entity.id().as_str()).await;
+        let file_snapshot_status = self
+            .inner
+            .run_post_persist(
+                &checkpoint.id,
+                entity.id().as_str(),
+                is_lifecycle_trigger(&trigger),
+                self.file_scope.as_ref(),
+            )
+            .await;
 
         if let Some(ref bus) = self.execution_events {
             let mut changes = serde_json::Map::new();

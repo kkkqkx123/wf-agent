@@ -114,10 +114,25 @@ pub async fn create_checkpoint(
     let entity = live_entity(ctx, execution_id)?;
     let snapshot = build_checkpoint_snapshot(ctx, &entity).await;
     let coordinator = checkpoint_coordinator(ctx);
+    {
+        use wf_checkpoint::coordinator::CheckpointCoordinator;
+        if let Err((_, message)) = wf_checkpoint::coordinator::base::check_manual_gate(
+            false,
+            coordinator.storage_master_enabled(),
+            true,
+        ) {
+            return Err(ApiError::execution(message.to_string()));
+        }
+    }
     let checkpoint_id = coordinator
         .create_manual_checkpoint(execution_id, snapshot)
         .await
-        .map_err(|e| ApiError::execution(format!("checkpoint creation failed: {e}")))?;
+        .map_err(|e| match e {
+            wf_checkpoint::CheckpointError::Validation { reason } => {
+                ApiError::Validation(format!("checkpoint restore rejected: {reason}"))
+            }
+            _ => ApiError::execution(format!("checkpoint creation failed: {e}")),
+        })?;
     Ok(checkpoint_id)
 }
 
@@ -136,7 +151,12 @@ pub async fn restore_checkpoint(
     let restored = coordinator
         .restore(checkpoint_id)
         .await
-        .map_err(|e| ApiError::execution(format!("checkpoint restore failed: {e}")))?;
+        .map_err(|e| match e {
+            wf_checkpoint::CheckpointError::Validation { reason } => {
+                ApiError::Validation(format!("checkpoint restore rejected: {reason}"))
+            }
+            _ => ApiError::execution(format!("checkpoint restore failed: {e}")),
+        })?;
     let snapshot = restored.snapshot;
     let execution_id = snapshot.execution_id.clone();
 

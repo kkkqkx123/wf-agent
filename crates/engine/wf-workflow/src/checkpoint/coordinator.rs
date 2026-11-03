@@ -3,8 +3,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde_json::Value;
-use wf_checkpoint::coordinator::base::{duplicate_gate_matched, stamp_description};
-use wf_checkpoint::coordinator::projection::file_snapshot_status;
+use wf_checkpoint::coordinator::base::{
+    check_manual_gate, check_predecessor_unchanged, duplicate_gate_matched, gate_latest_or_report,
+    is_lifecycle_trigger, stamp_description,
+};
 use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
 use wf_checkpoint::coordinator::{CheckpointCoordinator, WorkflowProgressCoords};
 use wf_checkpoint::event::CheckpointEventBus;
@@ -32,6 +34,7 @@ pub struct WorkflowCheckpointIntegration {
     node_count: u32,
     event_bus: Option<Arc<EventBus>>,
     execution_events: Option<ExecutionEventBus>,
+    file_scope: Option<wf_checkpoint::ResolvedFileScope>,
     /// Trigger runtime state of the execution (which event-driven triggers
     /// fired, with status). Captured into the snapshot `trigger_states`
     /// field for auditability.
@@ -49,7 +52,11 @@ pub struct WorkflowCheckpointIntegration {
 impl WorkflowCheckpointIntegration {
     pub fn new(store: Arc<StorageBackend>, strategy: NodeCheckpointStrategy) -> Self {
         let state_manager = WorkflowCheckpointStateManager::new(store.clone());
-        let coordinator = WorkflowCheckpointCoordinator::new(state_manager);
+        let coordinator = WorkflowCheckpointCoordinator::new(state_manager).apply_domain_storage(
+            strategy.retention_config().cloned(),
+            Some(strategy.content_config().clone()),
+            strategy.error_handling_config().cloned(),
+        );
         Self {
             inner: coordinator,
             strategy,
@@ -57,10 +64,37 @@ impl WorkflowCheckpointIntegration {
             node_count: 0,
             event_bus: None,
             execution_events: None,
+            file_scope: None,
             trigger_states: None,
             fork_registries: Arc::new(std::collections::HashMap::new()),
             checkpoint_event_bus: None,
         }
+    }
+
+    /// Resolved file scope for scope-aware projection. Callers holding a
+    /// parsed scope pass it here for the complete projection form;
+    /// otherwise the simplified form applies. Scope parse failures reject
+    /// upstream and never degrade to the simplified form here.
+    pub fn with_file_scope(mut self, scope: Option<wf_checkpoint::ResolvedFileScope>) -> Self {
+        self.file_scope = scope;
+        self
+    }
+
+    /// Storage master switch mirrored from the inner storage copy. Hot
+    /// manual entries order this before the domain switch.
+    pub fn storage_master_enabled(&self) -> bool {
+        use wf_checkpoint::coordinator::CheckpointCoordinator;
+        self.inner.storage_master_enabled()
+    }
+
+    /// Domain switch for manual gating.
+    pub fn domain_enabled(&self) -> bool {
+        self.strategy.is_enabled()
+    }
+
+    fn manual_gate(&self) -> Result<(), CheckpointError> {
+        check_manual_gate(false, self.storage_master_enabled(), self.domain_enabled())
+            .map_err(|(_, message)| CheckpointError::Strategy(message.to_string()))
     }
 
     pub fn with_event_bus(mut self, bus: CheckpointEventBus) -> Self {
@@ -160,16 +194,16 @@ impl WorkflowCheckpointIntegration {
 
     /// Hook opt-in checkpoint: a hook definition carried
     /// `create_checkpoint`, so the checkpoint ignores the instance trigger
-    /// list but still honors the master switch. Failures only warn so the
-    /// hook fire outcome never changes. Never touches the node cadence
-    /// counter.
+    /// list but still honors the master and domain switches in fixed order.
+    /// Failures only warn so the hook fire outcome never changes. Never
+    /// touches the node cadence counter.
     pub async fn create_hook_checkpoint(
         &self,
         entity: &WorkflowExecutionEntity,
         timing: CheckpointTiming,
         description: Option<String>,
     ) {
-        if !self.strategy.is_enabled() {
+        if self.manual_gate().is_err() {
             return;
         }
         if let Err(e) = self
@@ -198,8 +232,9 @@ impl WorkflowCheckpointIntegration {
     /// Node completion checkpoint: fires when the resolved strategy says so,
     /// or when the node forced it via `checkpoint_after_execute` (forced
     /// checkpoints ignore the trigger list and cadence but still honor the
-    /// master switch, same contract as hook opt-in checkpoints, so exactly
-    /// one checkpoint is persisted per completion either way).
+    /// master and domain switches in fixed order, same contract as hook
+    /// opt-in checkpoints, so exactly one checkpoint is persisted per
+    /// completion either way).
     pub async fn on_node_completed(
         &mut self,
         entity: &WorkflowExecutionEntity,
@@ -211,7 +246,7 @@ impl WorkflowCheckpointIntegration {
             .strategy
             .resolve(node_config)
             .should_checkpoint(&WorkflowCheckpointTiming::AfterNode, self.node_count)
-            && !(forced && self.strategy.is_enabled())
+            && !(forced && self.manual_gate().is_ok())
         {
             return;
         }
@@ -245,7 +280,8 @@ impl WorkflowCheckpointIntegration {
     /// Node pre-execution checkpoint: fires when the resolved strategy says
     /// so, or when the node forced it via `checkpoint_before_execute` (same
     /// force contract as completion: trigger list and cadence ignored, master
-    /// switch still honored, at most one checkpoint per node entry).
+    /// and domain switches still honored in fixed order, at most one
+    /// checkpoint per node entry).
     pub async fn on_node_before(
         &mut self,
         entity: &WorkflowExecutionEntity,
@@ -258,7 +294,7 @@ impl WorkflowCheckpointIntegration {
             .strategy
             .resolve(node_config)
             .should_checkpoint(&WorkflowCheckpointTiming::BeforeNode, self.node_count + 1)
-            && !(forced && self.strategy.is_enabled())
+            && !(forced && self.manual_gate().is_ok())
         {
             return;
         }
@@ -326,8 +362,22 @@ impl WorkflowCheckpointIntegration {
         }
     }
 
+    /// Manual creation through the fixed privilege order (master, domain).
+    /// Bypasses the trigger whitelist and cadence but never the two
+    /// switches. Workflow runs carry no ephemeral mode, so the order
+    /// reduces to master then domain with source-attributed reasons.
+    pub async fn create_manual_checkpoint(
+        &self,
+        entity: &WorkflowExecutionEntity,
+        description: Option<String>,
+    ) -> Result<String, CheckpointError> {
+        self.manual_gate()?;
+        self.create_checkpoint(entity, CheckpointTiming::Manual, description)
+            .await
+    }
+
     pub async fn on_workflow_start(&mut self, entity: &WorkflowExecutionEntity) {
-        if !self.strategy.is_enabled() {
+        if self.manual_gate().is_err() {
             return;
         }
         if let Err(e) = self
@@ -344,7 +394,7 @@ impl WorkflowCheckpointIntegration {
     }
 
     pub async fn on_workflow_end(&mut self, entity: &WorkflowExecutionEntity) {
-        if !self.strategy.is_enabled() {
+        if self.manual_gate().is_err() {
             return;
         }
         if let Err(e) = self
@@ -364,7 +414,7 @@ impl WorkflowCheckpointIntegration {
     /// Unlike the strategy-gated methods, interruption checkpoints are
     /// always persisted so a stopped execution can be resumed.
     pub async fn on_interruption(&mut self, entity: &WorkflowExecutionEntity) {
-        if !self.strategy.is_enabled() {
+        if self.manual_gate().is_err() {
             return;
         }
         if let Err(e) = self
@@ -385,7 +435,7 @@ impl WorkflowCheckpointIntegration {
     /// paused status and the loop can be resumed from storage after a crash.
     /// Like interruption checkpoints, pause checkpoints are always persisted.
     pub async fn on_pause(&mut self, entity: &WorkflowExecutionEntity) {
-        if !self.strategy.is_enabled() {
+        if self.manual_gate().is_err() {
             return;
         }
         if let Err(e) = self
@@ -406,7 +456,7 @@ impl WorkflowCheckpointIntegration {
     /// so a timed-out run is identifiable at restore time instead of being
     /// folded into a generic failure.
     pub async fn on_timeout(&mut self, entity: &WorkflowExecutionEntity) {
-        if !self.strategy.is_enabled() {
+        if self.manual_gate().is_err() {
             return;
         }
         if let Err(e) = self
@@ -428,17 +478,15 @@ impl WorkflowCheckpointIntegration {
         trigger: CheckpointTiming,
         description: Option<String>,
     ) -> Result<String, CheckpointError> {
-        // Progress gate: equal coordinates mean the execution produced no
-        // side effect since the latest checkpoint, so merge back into it
-        // instead of persisting a duplicate row. Checked before the snapshot
-        // build so a duplicate costs one metadata read, not a full
-        // serialization. Fail-open: a metadata read failure never blocks
-        // checkpointing.
-        if let Ok(Some(latest)) = self
-            .inner
-            .state_manager()
-            .get_latest(entity.id().as_str())
-            .await
+        // Progress gate over shared comparison: equal coordinates merge back
+        // into the latest row before any snapshot build. Metadata read
+        // failures report a `dedup_gate_read` event and proceed fail-open.
+        if let Some(latest) = gate_latest_or_report(
+            self.inner.state_manager(),
+            entity.id().as_str(),
+            self.inner.event_bus(),
+        )
+        .await
         {
             if duplicate_gate_matched(
                 &latest.custom_fields,
@@ -458,26 +506,88 @@ impl WorkflowCheckpointIntegration {
                 return Ok(reused);
             }
         }
+        let expected: Option<String> = self
+            .inner
+            .state_manager()
+            .get_latest(entity.id().as_str())
+            .await
+            .ok()
+            .flatten()
+            .map(|m| m.id);
         // The snapshot and the checkpoint futures are large and this runs at
         // the bottom of a deep nested-execution stack; the build/persist
         // futures are boxed so their state machines stay off this frame.
+        let build_once = |snapshot: WorkflowExecutionStateSnapshot| async {
+            let ancestors: Vec<String> =
+                entity.ancestors().iter().map(|id| id.to_string()).collect();
+            let mut ctx = self
+                .inner
+                .prepare_with_hierarchy(
+                    entity.id().as_str(),
+                    trigger.clone(),
+                    entity.parent_execution_id().as_deref(),
+                    &ancestors,
+                )
+                .await?;
+            stamp_description(&mut ctx, description.as_deref());
+            Box::pin(self.inner.build(ctx, snapshot)).await
+        };
         let snapshot = self.build_snapshot(entity).await;
-        let ancestors: Vec<String> = entity.ancestors().iter().map(|id| id.to_string()).collect();
-        let mut ctx = self
-            .inner
-            .prepare_with_hierarchy(
+        let mut checkpoint = build_once(snapshot).await?;
+        if check_predecessor_unchanged(
+            self.inner.state_manager(),
+            entity.id().as_str(),
+            expected.as_deref(),
+        )
+        .await
+        .is_err()
+        {
+            let snapshot = self.build_snapshot(entity).await;
+            match build_once(snapshot).await {
+                Ok(rebuilt) => checkpoint = rebuilt,
+                Err(_) => {
+                    if let Some(latest) = self
+                        .inner
+                        .state_manager()
+                        .get_latest(entity.id().as_str())
+                        .await
+                        .ok()
+                        .flatten()
+                    {
+                        return Ok(latest.id);
+                    }
+                }
+            }
+            if check_predecessor_unchanged(
+                self.inner.state_manager(),
                 entity.id().as_str(),
-                trigger.clone(),
-                entity.parent_execution_id().as_deref(),
-                &ancestors,
+                expected.as_deref(),
             )
-            .await?;
-        stamp_description(&mut ctx, description.as_deref());
-        let checkpoint = Box::pin(self.inner.build(ctx, snapshot)).await?;
+            .await
+            .is_err()
+            {
+                if let Some(latest) = self
+                    .inner
+                    .state_manager()
+                    .get_latest(entity.id().as_str())
+                    .await
+                    .ok()
+                    .flatten()
+                {
+                    return Ok(latest.id);
+                }
+            }
+        }
         Box::pin(self.inner.persist(&checkpoint, entity.id().as_str())).await?;
-        let file_manager = self.inner.file_checkpoint_manager();
-        let file_snapshot_status =
-            file_snapshot_status(file_manager, &checkpoint.id, entity.id().as_str()).await;
+        let file_snapshot_status = self
+            .inner
+            .run_post_persist(
+                &checkpoint.id,
+                entity.id().as_str(),
+                is_lifecycle_trigger(&trigger),
+                self.file_scope.as_ref(),
+            )
+            .await;
 
         match &self.event_bus {
             Some(bus) => {

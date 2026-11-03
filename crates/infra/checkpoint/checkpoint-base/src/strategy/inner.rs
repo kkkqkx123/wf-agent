@@ -135,6 +135,38 @@ impl StandardStrategy {
         }
     }
 
+    /// Storage-only view derived from domain storage semantics: the master
+    /// switch stays on and the trigger list stays empty so trigger gating
+    /// never fires from this copy. Hot paths consult the domain strategy
+    /// for trigger decisions and this copy only for retention, compression,
+    /// async and error handling.
+    pub fn storage_only(
+        retention: Option<CheckpointRetentionConfig>,
+        content: Option<CheckpointContentConfig>,
+        error_handling: Option<CheckpointErrorHandlingConfig>,
+    ) -> Self {
+        let base = content.unwrap_or(CheckpointContentConfig {
+            include_state: None,
+            include_history: None,
+            include_statistics: None,
+            metadata: None,
+            asynchronous: None,
+        });
+        Self {
+            enabled: true,
+            triggers: Vec::new(),
+            content: CheckpointContentConfig {
+                include_state: Some(base.include_state.unwrap_or(true)),
+                include_history: Some(base.include_history.unwrap_or(true)),
+                include_statistics: Some(base.include_statistics.unwrap_or(false)),
+                metadata: base.metadata,
+                asynchronous: base.asynchronous,
+            },
+            retention,
+            error_handling,
+        }
+    }
+
     /// Master switch with Never folded in: a policy containing Never reads
     /// as disabled for every path including manual, forced, and hooks.
     pub fn enabled(&self) -> bool {

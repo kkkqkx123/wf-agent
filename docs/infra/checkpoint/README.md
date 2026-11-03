@@ -16,6 +16,7 @@
 | [checkpoint-state.md](checkpoint-state.md) | 状态层:状态管理器 trait、存储后端实现、Agent/Workflow 检查点类型、层级恢复与恢复策略注册表 |
 | [checkpoint-file.md](checkpoint-file.md) | 文件层:Git 对象库、refs 语义、SQLite 元数据、Manager、捕获三通道(精确/脚本/外部轮询)、会话、溯源、审批、GC |
 | [wf-checkpoint.md](wf-checkpoint.md) | 门面层:CheckpointCoordinator(Workflow/Agent)、持久化队列、文件投影、错误处理、子级发现与恢复、迁移 |
+| [creation.md](creation.md) | 创建链路：三条创建路径、手动特权顺序、后持久化管线、去重门、链判定与并发、种子标记、作用域投影，以及明确不做项与否决方向 |
 
 ## Crate 依赖结构
 

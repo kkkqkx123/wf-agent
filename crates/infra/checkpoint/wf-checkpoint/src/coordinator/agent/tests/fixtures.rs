@@ -60,6 +60,7 @@ pub(super) async fn build_and_persist(
         .unwrap();
     let cp = coord.build(ctx, snapshot).await.unwrap();
     coord.persist(&cp, "loop-1").await.unwrap();
+    let _ = coord.run_post_persist(&cp.id, "loop-1", false, None).await;
     cp
 }
 

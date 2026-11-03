@@ -1,4 +1,4 @@
-use crate::coordinator::events::publish_cleanup_skipped;
+use crate::coordinator::events::{publish_best_effort_failed, publish_cleanup_skipped};
 use checkpoint_base::cleanup_policy::cleanup_strategies_from_retention;
 use checkpoint_base::error::CheckpointError;
 use checkpoint_base::strategy::CheckpointStrategy;
@@ -10,6 +10,66 @@ use wf_types::checkpoint::{
     BaseCheckpointCore, CheckpointContext, CheckpointTiming, CheckpointType, DeltaStorageConfig,
 };
 use wf_types::storage::CheckpointStorageMetadata;
+
+/// Fixed manual privilege order shared by every manual entry: ephemeral
+/// rejection first (interface layer), then the master switch (storage
+/// policy layer), then the domain switch (domain policy layer). Manual
+/// creation bypasses the trigger whitelist and cadence but never bypasses
+/// these two switches. Each rejection carries its source so callers locate
+/// the owning configuration without guessing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ManualReject {
+    Ephemeral,
+    MasterDisabled,
+    DomainDisabled,
+}
+
+impl ManualReject {
+    pub fn message(self) -> &'static str {
+        match self {
+            ManualReject::Ephemeral => "ephemeral read-only runs take no checkpoints",
+            ManualReject::MasterDisabled => {
+                "manual checkpoint rejected: checkpointing is disabled (master switch)"
+            }
+            ManualReject::DomainDisabled => {
+                "manual checkpoint rejected: checkpointing is disabled (domain switch)"
+            }
+        }
+    }
+}
+
+/// Ordered manual gate: ephemeral, then master, then domain. Returns the
+/// first rejection in that order so the same request reports identically
+/// from every entry point.
+pub fn check_manual_gate(
+    ephemeral: bool,
+    master_enabled: bool,
+    domain_enabled: bool,
+) -> Result<(), (ManualReject, &'static str)> {
+    if ephemeral {
+        return Err((ManualReject::Ephemeral, ManualReject::Ephemeral.message()));
+    }
+    if !master_enabled {
+        return Err((
+            ManualReject::MasterDisabled,
+            ManualReject::MasterDisabled.message(),
+        ));
+    }
+    if !domain_enabled {
+        return Err((
+            ManualReject::DomainDisabled,
+            ManualReject::DomainDisabled.message(),
+        ));
+    }
+    Ok(())
+}
+
+/// Master switch without consulting the trigger list. Hot paths must use
+/// this (or `manual_allowed`) for enablement; the trigger whitelist belongs
+/// to domain strategies and seed/test gating only.
+pub fn storage_enabled(strategy: Option<&dyn CheckpointStrategy>) -> bool {
+    strategy.map(|s| !s.is_disabled()).unwrap_or(true)
+}
 
 /// Shared storage-type decision: aggregate COUNT query semantics live in the
 /// caller, this helper only maps count to Full/Delta.
@@ -23,6 +83,43 @@ pub fn decide_checkpoint_type_by_count(count: u64, config: &DeltaStorageConfig) 
     } else {
         CheckpointType::Delta
     }
+}
+
+/// Chain-length type decision shared by both coordinators. Full resets the
+/// chain, Delta increments it, and reaching the baseline interval writes
+/// Full again. The entity total stays out of this decision and serves only
+/// the retention watermark, so aggressive cleanup never skews the type
+/// sequence. Legacy rows without a chain position read as a fresh chain
+/// head (Full), which is always restorable.
+pub fn decide_checkpoint_type_by_chain(
+    previous_position: Option<u32>,
+    config: &DeltaStorageConfig,
+) -> CheckpointType {
+    if !config.enabled {
+        return CheckpointType::Full;
+    }
+    let effective_interval = config.baseline_interval.min(config.max_delta_chain_length);
+    if effective_interval == 0 {
+        return CheckpointType::Full;
+    }
+    let Some(previous) = previous_position else {
+        return CheckpointType::Full;
+    };
+    if (previous + 1).is_multiple_of(effective_interval) {
+        CheckpointType::Full
+    } else {
+        CheckpointType::Delta
+    }
+}
+
+/// Chain-length decision over already fetched latest metadata: the direct
+/// input for `build` so type selection costs no extra query beyond the
+/// predecessor read the assembly already performed.
+pub fn decide_checkpoint_type_from_previous(
+    previous: Option<&CheckpointStorageMetadata>,
+    config: &DeltaStorageConfig,
+) -> CheckpointType {
+    decide_checkpoint_type_by_chain(previous.and_then(|p| p.chain_position), config)
 }
 
 /// Shared chain-position rule: Full resets to zero, Delta increments.
@@ -81,6 +178,22 @@ pub fn stamp_custom_fields(
         fields.insert(key, value);
     }
     fields
+}
+
+/// Mark a seed creation context as explicitly non-restorable. Seed rows
+/// stay creatable without a live entity but restore rejects them with an
+/// explicit reason instead of failing later on missing loop config.
+pub fn stamp_seed_marker(ctx: &mut CheckpointContext) {
+    ctx.metadata.get_or_insert_default().insert(
+        checkpoint_base::metadata::builder::SEED_INCOMPLETE_FIELD.to_string(),
+        serde_json::json!(true),
+    );
+}
+
+/// True when creation custom fields carry the seed marker, whether read
+/// from stored metadata or from a not-yet-persisted context map.
+pub fn is_seed_marked(custom_fields: &Option<HashMap<String, serde_json::Value>>) -> bool {
+    checkpoint_base::metadata::builder::is_seed_incomplete(custom_fields)
 }
 
 /// Record the caller description in the creation context so row assembly
@@ -315,6 +428,57 @@ pub trait CheckpointCoordinator: Send + Sync {
         None
     }
 
+    /// Shared post-persist pipeline entry: retention judgment followed by
+    /// file projection, with sync/async as two forms. Coordinators implement
+    /// this via `run_post_persist_pipeline`; engine integrations call the
+    /// same entry through the inner coordinator instead of hand-rolling the
+    /// order. Scope-aware callers pass their resolved scope, others pass
+    /// `None` for the simplified form. Scope resolution failure must reject
+    /// creation upstream, never degrade silently to the simplified form.
+    fn post_persist(
+        &self,
+        checkpoint_id: &str,
+        entity_id: &str,
+        is_lifecycle: bool,
+        scope: Option<&crate::ResolvedFileScope>,
+    ) -> impl std::future::Future<Output = String> + Send {
+        async move {
+            let _ = scope;
+            if self.async_persistence_enabled() {
+                self.enqueue_persistence(checkpoint_id, entity_id).await;
+                return "deferred".to_string();
+            }
+            match self.save_file_snapshot(checkpoint_id, entity_id).await {
+                Ok(()) => "ok".to_string(),
+                Err(err) => {
+                    if is_lifecycle {
+                        tracing::error!(
+                            entity_id = %entity_id,
+                            checkpoint_id = %checkpoint_id,
+                            error = %err,
+                            "file projection failed for lifecycle checkpoint (best-effort)"
+                        );
+                    } else {
+                        tracing::warn!(
+                            entity_id = %entity_id,
+                            checkpoint_id = %checkpoint_id,
+                            error = %err,
+                            "file checkpoint creation failed (best-effort)"
+                        );
+                    }
+                    crate::coordinator::events::publish_best_effort_failed(
+                        self.event_bus(),
+                        Some(checkpoint_id.to_string()),
+                        entity_id,
+                        "async_projection",
+                        &format!("file projection failed: {err}"),
+                    );
+                    format!("failed: {err}")
+                }
+            }
+        }
+    }
+
     /// Best-effort file snapshot hook invoked by `create_checkpoint` after
     /// the checkpoint has been persisted. The default is a no-op; engine
     /// integrations (sqlite / file-history adapters) override it. Errors
@@ -405,41 +569,18 @@ pub trait CheckpointCoordinator: Send + Sync {
             self.validate_checkpoint(&checkpoint).await?;
             let checkpoint_id = checkpoint.checkpoint_id().to_string();
             self.persist(&checkpoint, entity_id).await?;
-            if self.async_persistence_enabled() {
-                self.enqueue_persistence(&checkpoint_id, entity_id).await;
-            } else if let Err(err) = self.save_file_snapshot(&checkpoint_id, entity_id).await {
-                if lifecycle {
-                    tracing::error!(
-                        entity_id = %entity_id,
-                        checkpoint_id = %checkpoint_id,
-                        error = %err,
-                        "file projection failed for lifecycle checkpoint (best-effort)"
-                    );
-                } else {
-                    tracing::warn!(
-                        entity_id = %entity_id,
-                        checkpoint_id = %checkpoint_id,
-                        error = %err,
-                        "file checkpoint creation failed (best-effort)"
-                    );
-                }
-                crate::coordinator::events::publish_best_effort_failed(
-                    self.event_bus(),
-                    Some(checkpoint_id.clone()),
-                    entity_id,
-                    "async_projection",
-                    &format!("file projection failed: {err}"),
-                );
-            }
+            let _ = self
+                .post_persist(&checkpoint_id, entity_id, lifecycle, None)
+                .await;
             Ok(checkpoint_id)
         }
     }
 
-    /// Create a checkpoint guarded by the default strategy: when the strategy
-    /// rejects the trigger, no checkpoint is produced (returns `Ok(None)`).
-    /// The checkpoint is persisted when created, and the saved id is
-    /// returned. Preparation runs exactly once: the same context gates the
-    /// strategy and builds the checkpoint.
+    /// Seed and test gating entry: consults the unified trigger whitelist.
+    /// Hot paths never call this; domain strategies own trigger decisions
+    /// in production and the unified copy keeps storage semantics only.
+    /// The whitelist judgment here serves seed paths without a live entity
+    /// and unit tests.
     fn create_checkpoint_with_strategy(
         &self,
         trigger: CheckpointTiming,
@@ -462,15 +603,27 @@ pub trait CheckpointCoordinator: Send + Sync {
     /// Whether a manual checkpoint is allowed. Manual creation honors the
     /// master switch only and bypasses the per-trigger whitelist and
     /// cadence, so it stays available even when the policy omits the manual
-    /// trigger. No strategy means every manual request is accepted.
+    /// trigger. No strategy means every manual request is accepted. Hot
+    /// manual entries additionally honor the domain switch via
+    /// `check_manual_gate`; this query reports the storage side only.
     fn manual_allowed(&self) -> bool {
         self.default_strategy()
             .map(|strategy| strategy.manual_allowed())
             .unwrap_or(true)
     }
 
+    /// Storage master switch without consulting the trigger list. Hot
+    /// manual entries order this before the domain switch via
+    /// `check_manual_gate`.
+    fn storage_master_enabled(&self) -> bool {
+        storage_enabled(self.default_strategy())
+    }
+
     /// Create a manual checkpoint: rejects only when the master switch is
     /// off, otherwise delegates to the unguarded aggregate entry point.
+    /// Interface layers reject ephemeral runs first via `check_manual_gate`
+    /// and domain integrations reject their own switch afterwards; this
+    /// entry owns the master-switch step with a source-attributed reason.
     fn create_manual_checkpoint(
         &self,
         entity_id: &str,
@@ -479,7 +632,7 @@ pub trait CheckpointCoordinator: Send + Sync {
         async move {
             if !self.manual_allowed() {
                 return Err(CheckpointError::Strategy(
-                    "manual checkpoint rejected: checkpointing is disabled".to_string(),
+                    ManualReject::MasterDisabled.message().to_string(),
                 ));
             }
             self.create_checkpoint(CheckpointTiming::Manual, entity_id, state)
@@ -544,6 +697,168 @@ pub async fn enforce_retention<M>(
                 "retention cleanup failed (best-effort)"
             );
         }
+    }
+}
+
+/// Shared post-persist pipeline owned by the shared layer: retention
+/// cleanup judgment followed by file projection. Sync and async are two
+/// execution forms of this single pipeline, not two separate wirings. Both
+/// coordinators and both engine integrations enter through here so the
+/// order has exactly one definition. Returns the file status string carried
+/// by creation events: `ok` on projected or empty history, `deferred` when
+/// queued, `failed: ...` on projection failure. Async means the state row
+/// is durable on return while the file association converges eventually;
+/// callers needing strong consistency await `wait_for_persistence`.
+#[allow(clippy::too_many_arguments)]
+pub async fn run_post_persist_pipeline<M>(
+    manager: &M,
+    strategy: Option<&dyn CheckpointStrategy>,
+    clock_now: Option<i64>,
+    file_manager: Option<&FileCheckpointManager>,
+    queue: &crate::coordinator::queue::PersistenceQueue,
+    bus: Option<&CheckpointEventBus>,
+    checkpoint_id: &str,
+    entity_id: &str,
+    async_persistence: bool,
+    is_lifecycle: bool,
+    scope: Option<&crate::ResolvedFileScope>,
+) -> String
+where
+    M: CheckpointStateManager,
+{
+    if let Some(strategy) = strategy {
+        enforce_retention(manager, strategy, entity_id, clock_now).await;
+    }
+    if async_persistence {
+        crate::coordinator::projection::enqueue_persistence_scoped(
+            queue,
+            file_manager,
+            bus,
+            checkpoint_id,
+            entity_id,
+            scope,
+        )
+        .await;
+        return "deferred".to_string();
+    }
+    match crate::coordinator::projection::save_file_snapshot_scoped(
+        file_manager,
+        checkpoint_id,
+        entity_id,
+        scope,
+    )
+    .await
+    {
+        Ok(()) => "ok".to_string(),
+        Err(err) => {
+            if is_lifecycle {
+                tracing::error!(
+                    entity_id = %entity_id,
+                    checkpoint_id = %checkpoint_id,
+                    error = %err,
+                    "file projection failed for lifecycle checkpoint (best-effort)"
+                );
+            } else {
+                tracing::warn!(
+                    entity_id = %entity_id,
+                    checkpoint_id = %checkpoint_id,
+                    error = %err,
+                    "file checkpoint creation failed (best-effort)"
+                );
+            }
+            publish_best_effort_failed(
+                bus,
+                Some(checkpoint_id.to_string()),
+                entity_id,
+                "async_projection",
+                &format!("file projection failed: {err}"),
+            );
+            format!("failed: {err}")
+        }
+    }
+}
+
+/// Latest-metadata read for the duplicate gate with explicit failure
+/// reporting. Hit and miss stay silent; a storage read failure publishes a
+/// `Failed` event (`dedup_gate_read`) and resolves to `None` so creation
+/// proceeds fail-open. The three states stay distinguishable on the event
+/// channel: hit reuses without a new row, miss creates a row, read failure
+/// creates a row plus the failure event.
+pub async fn gate_latest_or_report<M>(
+    manager: &M,
+    entity_id: &str,
+    bus: Option<&CheckpointEventBus>,
+) -> Option<CheckpointStorageMetadata>
+where
+    M: CheckpointStateManager,
+{
+    match manager.get_latest(entity_id).await {
+        Ok(latest) => latest,
+        Err(err) => {
+            tracing::warn!(
+                entity_id = %entity_id,
+                error = %err,
+                "duplicate gate unreadable; proceeding fail-open"
+            );
+            publish_best_effort_failed(
+                bus,
+                None,
+                entity_id,
+                "dedup_gate_read",
+                &format!("duplicate gate metadata read failed: {err}"),
+            );
+            None
+        }
+    }
+}
+
+/// Index-only base walk shared by both coordinators: follows predecessor
+/// links through metadata reads only and returns the nearest Full row id.
+/// Snapshot bodies are never loaded here; the caller loads the base body
+/// once for the diff. A missing predecessor link resolves to `None` so the
+/// caller falls back to Full instead of writing a Delta over a broken link.
+pub async fn find_base_id_via_metadata<M>(
+    manager: &M,
+    previous: &Option<CheckpointStorageMetadata>,
+) -> Result<Option<String>, CheckpointError>
+where
+    M: CheckpointStateManager,
+{
+    use wf_types::checkpoint::CheckpointType;
+    let mut cursor: Option<String> = previous.as_ref().map(|p| p.id.clone());
+    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+    while let Some(id) = cursor {
+        if !visited.insert(id.clone()) {
+            break;
+        }
+        let Some(meta) = manager.load_metadata(&id).await? else {
+            break;
+        };
+        if meta.checkpoint_type == CheckpointType::Full {
+            return Ok(Some(id));
+        }
+        cursor = meta.previous_checkpoint_id.clone();
+    }
+    Ok(None)
+}
+
+/// Expected-predecessor check for optimistic concurrency: `None` expected
+/// means the chain was empty at assembly time. Returns the current latest
+/// on mismatch so the caller can retry once or reuse it directly.
+pub async fn check_predecessor_unchanged<M>(
+    manager: &M,
+    entity_id: &str,
+    expected_id: Option<&str>,
+) -> Result<(), Option<CheckpointStorageMetadata>>
+where
+    M: CheckpointStateManager,
+{
+    let current = manager.get_latest(entity_id).await.map_err(|_| None)?;
+    let current_id = current.as_ref().map(|m| m.id.as_str());
+    if current_id == expected_id {
+        Ok(())
+    } else {
+        Err(current)
     }
 }
 

@@ -7,8 +7,8 @@ mod tests;
 pub use progress::{snapshot_workflow_coords, workflow_progress_coords, WorkflowProgressCoords};
 
 use crate::coordinator::base::{
-    decide_checkpoint_type_by_count, next_chain_position, prepare_context, stamp_custom_fields,
-    CheckpointCoordinator,
+    decide_checkpoint_type_from_previous, find_base_id_via_metadata, next_chain_position,
+    prepare_context, run_post_persist_pipeline, stamp_custom_fields, CheckpointCoordinator,
 };
 use crate::coordinator::child_restore::ChildRestorePolicy;
 use crate::coordinator::persist::{delete_checkpoint, persist_checkpoint};
@@ -36,7 +36,6 @@ use checkpoint_state::restore::registry::RestoreStrategyRegistry;
 use checkpoint_state::state::CheckpointStateManager;
 use checkpoint_state::state::WorkflowCheckpoint;
 use checkpoint_state::state::WorkflowCheckpointStateManager;
-use std::collections::HashSet;
 use std::sync::Arc;
 use wf_types::checkpoint::workflow::WorkflowCheckpointDelta;
 use wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot;
@@ -118,6 +117,9 @@ impl WorkflowCheckpointCoordinator {
     /// policy's `content.async` flag also enables async persistence mode.
     /// The policy's retention compression is applied to the state manager so
     /// the save path honors it instead of silently staying on `Auto`.
+    /// Hot paths never consult the trigger list on this copy; domain
+    /// strategies own trigger decisions and this copy keeps storage
+    /// semantics (master switch, retention, compression, async, errors).
     pub fn with_strategy(mut self, policy: &UnifiedCheckpointPolicy) -> Self {
         self.strategy = Some(checkpoint_base::strategy::create_checkpoint_strategy(
             policy,
@@ -132,6 +134,56 @@ impl WorkflowCheckpointCoordinator {
             .and_then(|c| c.asynchronous)
             .unwrap_or(false);
         self
+    }
+
+    /// Mirror domain storage semantics onto the unified copy without
+    /// importing trigger gating: retention, content (including async) and
+    /// error handling travel, the trigger list stays empty so the unified
+    /// whitelist never fires in production. Engine integrations call this
+    /// from `with_strategy` so retention and async stay reachable on hot
+    /// paths while trigger ownership stays with the domain strategy.
+    pub fn apply_domain_storage(
+        mut self,
+        retention: Option<wf_types::checkpoint::CheckpointRetentionConfig>,
+        content: Option<wf_types::checkpoint::CheckpointContentConfig>,
+        error_handling: Option<wf_types::checkpoint::CheckpointErrorHandlingConfig>,
+    ) -> Self {
+        let storage = StandardStrategy::storage_only(retention, content, error_handling.clone());
+        self.async_persistence = storage.content_config().asynchronous.unwrap_or(false);
+        self.state_manager
+            .set_compression(storage.compression_strategy());
+        self.error_handler = checkpoint_base::error_handling::CheckpointErrorHandler::from_config(
+            error_handling.as_ref(),
+        );
+        self.strategy = Some(storage);
+        self
+    }
+
+    /// Shared post-persist pipeline for this coordinator: retention
+    /// judgment then file projection via the single shared implementation.
+    /// Engine integrations call this instead of hand-rolling the order.
+    pub async fn run_post_persist(
+        &self,
+        checkpoint_id: &str,
+        entity_id: &str,
+        is_lifecycle: bool,
+        scope: Option<&crate::ResolvedFileScope>,
+    ) -> String {
+        let now = self.state_manager.clock().now_ms();
+        run_post_persist_pipeline(
+            &self.state_manager,
+            self.strategy.as_ref().map(|s| s as &dyn CheckpointStrategy),
+            now,
+            self.file_checkpoint_manager.as_ref(),
+            &self.persistence_queue,
+            self.event_bus.as_ref(),
+            checkpoint_id,
+            entity_id,
+            self.async_persistence,
+            is_lifecycle,
+            scope,
+        )
+        .await
     }
 
     /// Enable async (non-blocking) checkpoint creation (`contentConfig.async`):
@@ -278,32 +330,25 @@ impl WorkflowCheckpointCoordinator {
     }
 
     /// Nearest previous checkpoint that still carries a full snapshot (the
-    /// chain base); deltas in between have no snapshot of their own.
+    /// chain base). The walk reads metadata only; the snapshot body loads
+    /// once for the base that the diff actually needs. A broken predecessor
+    /// link resolves to `None` so the caller falls back to Full.
     async fn find_base(
         &self,
         previous: &Option<CheckpointStorageMetadata>,
     ) -> Result<(Option<String>, Option<WorkflowExecutionStateSnapshot>), CheckpointError> {
-        let mut base_id: Option<String> = None;
-        let mut base_snapshot: Option<WorkflowExecutionStateSnapshot> = None;
-        let mut cursor: Option<String> = previous.as_ref().map(|p| p.id.clone());
-        let mut visited: HashSet<String> = HashSet::new();
-
-        while let Some(id) = cursor {
-            if !visited.insert(id.clone()) {
-                break;
-            }
-            match self.state_manager.load(&id).await? {
-                Some(cp) if cp.snapshot.is_some() => {
-                    base_id = Some(id);
-                    base_snapshot = cp.snapshot;
-                    break;
-                }
-                Some(cp) => cursor = cp.previous_checkpoint_id,
-                None => break,
-            }
+        let Some(base_id) = find_base_id_via_metadata(&self.state_manager, previous).await? else {
+            return Ok((None, None));
+        };
+        let base_snapshot = self
+            .state_manager
+            .load(&base_id)
+            .await?
+            .and_then(|cp| cp.snapshot);
+        if base_snapshot.is_none() {
+            return Ok((None, None));
         }
-
-        Ok((base_id, base_snapshot))
+        Ok((Some(base_id), base_snapshot))
     }
 
     /// Load a checkpoint and return its reconstructed snapshot without
@@ -417,9 +462,8 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
 
         let previous = self.state_manager.get_latest(&ctx.entity_id).await?;
 
-        let checkpoint_type = self
-            .determine_type(&ctx.entity_id, &self.delta_config)
-            .await?;
+        let checkpoint_type =
+            decide_checkpoint_type_from_previous(previous.as_ref(), &self.delta_config);
 
         // Metadata: trigger description/tag, caller custom fields (e.g.
         // node/tool ids), plus the injected formatVersion/createdAt/
@@ -514,20 +558,7 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
             self.event_bus.as_ref(),
             &self.error_handler,
         )
-        .await?;
-        // Retention enforcement is best-effort and never fails the persist
-        // that already succeeded.
-        if let Some(ref strategy) = self.strategy {
-            let now = self.state_manager.clock().now_ms();
-            crate::coordinator::base::enforce_retention(
-                &self.state_manager,
-                strategy,
-                entity_id,
-                now,
-            )
-            .await;
-        }
-        Ok(())
+        .await
     }
 
     async fn validate_checkpoint(
@@ -574,6 +605,15 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
     }
 
     async fn restore(&self, checkpoint_id: &str) -> Result<Self::Entity, CheckpointError> {
+        if let Some(meta) = self.state_manager.load_metadata(checkpoint_id).await? {
+            if crate::coordinator::base::is_seed_marked(&meta.custom_fields) {
+                return Err(CheckpointError::Validation {
+                    reason: format!(
+                        "checkpoint {checkpoint_id} is a seed row without live-entity state and is not restorable; rebuild from a live entity"
+                    ),
+                });
+            }
+        }
         let checkpoint = self.load_migrated(checkpoint_id).await?;
         self.validate_checkpoint(&checkpoint).await?;
 
@@ -661,10 +701,11 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
         entity_id: &str,
         config: &DeltaStorageConfig,
     ) -> Result<CheckpointType, CheckpointError> {
-        // aggregate COUNT query instead of materializing the full
-        // history listing.
-        let count = self.state_manager.count_by_entity(entity_id).await?;
-        Ok(decide_checkpoint_type_by_count(count, config))
+        let previous = self.state_manager.get_latest(entity_id).await?;
+        Ok(decide_checkpoint_type_from_previous(
+            previous.as_ref(),
+            config,
+        ))
     }
 
     fn default_strategy(&self) -> Option<&dyn CheckpointStrategy> {
@@ -673,6 +714,17 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
 
     fn event_bus(&self) -> Option<&CheckpointEventBus> {
         self.event_bus.as_ref()
+    }
+
+    async fn post_persist(
+        &self,
+        checkpoint_id: &str,
+        entity_id: &str,
+        is_lifecycle: bool,
+        scope: Option<&crate::ResolvedFileScope>,
+    ) -> String {
+        self.run_post_persist(checkpoint_id, entity_id, is_lifecycle, scope)
+            .await
     }
 }
 

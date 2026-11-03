@@ -9,6 +9,10 @@ use wf_types::Id;
 pub const FORMAT_VERSION_FIELD: &str = "formatVersion";
 pub const CREATED_AT_FIELD: &str = "createdAt";
 pub const CHAIN_POSITION_FIELD: &str = "chainPosition";
+/// Explicit non-restorable marker carried by seed rows written without a
+/// live entity. Seed creation stays available but restore rejects rows
+/// carrying this marker instead of failing later on missing loop config.
+pub const SEED_INCOMPLETE_FIELD: &str = "seedIncomplete";
 
 /// Conversation sequence bounds recorded on every checkpoint so progress
 /// can be read from metadata without loading blobs.
@@ -102,6 +106,18 @@ pub const WF_PROGRESS_COORD_KEYS: &[&str] = &[
     WF_RECORD_COUNT_FIELD,
     WF_TRIGGER_STATES_HASH_FIELD,
 ];
+
+/// True when stored custom fields carry the explicit seed marker written
+/// for rows created without a live entity. Seed rows stay creatable but
+/// never restorable; the marker keeps that contract queryable from indexed
+/// metadata without loading the blob.
+pub fn is_seed_incomplete(custom_fields: &Option<HashMap<String, serde_json::Value>>) -> bool {
+    custom_fields
+        .as_ref()
+        .and_then(|fields| fields.get(SEED_INCOMPLETE_FIELD))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
 
 /// Compare stored custom fields against freshly computed ones over an
 /// explicit key list. Shared by the agent-loop and workflow progress gates

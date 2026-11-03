@@ -30,9 +30,7 @@ export function confirmTarget(action: string, params: Record<string, string>): s
 }
 
 function scopedBindings(context: string) {
-	return GIT_BINDINGS.filter(
-		(b) => b.contexts.includes(context) || b.contexts.includes('global'),
-	);
+	return GIT_BINDINGS.filter((b) => b.contexts.includes(context) || b.contexts.includes('global'));
 }
 
 export function parseToken(input: string, context: string): TokenResult {

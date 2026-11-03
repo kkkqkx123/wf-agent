@@ -81,7 +81,7 @@
 	const rows = $derived(pairedRows(lines));
 </script>
 
-<div class={cn('overflow-hidden rounded-lg border border-border bg-card', className)}>
+<div class={cn('overflow-hidden rounded-none border border-border bg-card', className)}>
 	<div class="flex flex-wrap items-center gap-2 border-b border-border px-3 py-1.5">
 		{#if title}
 			<p class="min-w-0 flex-1 truncate font-mono text-micro text-muted-foreground">

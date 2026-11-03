@@ -31,9 +31,9 @@ describe('resolveTranscriptAnchorKind', () => {
 	});
 
 	it('treats tool messages as tool anchors', () => {
-		expect(
-			resolveTranscriptAnchorKind(message({ role: 'tool', toolName: 'shell.exec' })),
-		).toBe('tool');
+		expect(resolveTranscriptAnchorKind(message({ role: 'tool', toolName: 'shell.exec' }))).toBe(
+			'tool',
+		);
 	});
 
 	it('ignores ordinary assistant messages', () => {
@@ -46,9 +46,7 @@ describe('isTranscriptAnchor', () => {
 		expect(TRANSCRIPT_ANCHOR_KINDS).toEqual(['prompt', 'todo', 'tool']);
 		expect(isTranscriptAnchor(message({ role: 'user' }))).toBe(true);
 		expect(isTranscriptAnchor(message({ toolName: 'update_todo_list' }))).toBe(true);
-		expect(
-			isTranscriptAnchor(message({ role: 'tool', toolName: 'shell.exec' })),
-		).toBe(true);
+		expect(isTranscriptAnchor(message({ role: 'tool', toolName: 'shell.exec' }))).toBe(true);
 		expect(isTranscriptAnchor(message({}))).toBe(false);
 	});
 

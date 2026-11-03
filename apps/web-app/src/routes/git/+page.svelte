@@ -7,6 +7,7 @@
 	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import PageState from '#lib/components/layout/PageState.svelte';
 	import GitBoard from '#lib/components/domain/git/GitBoard.svelte';
+	import GitCommandLog from '#lib/components/domain/git/GitCommandLog.svelte';
 	import GitGroupsPanel from '#lib/components/domain/git/GitGroupsPanel.svelte';
 	import GitMainView from '#lib/components/domain/git/GitMainView.svelte';
 	import GitKeyInput from '#lib/components/domain/git/GitKeyInput.svelte';
@@ -45,9 +46,7 @@
 			: 'status';
 	const requestedMode = requestedTab as MainViewMode;
 	if (
-		(requestedMode === 'diff' ||
-			requestedMode === 'staging' ||
-			requestedMode === 'commitFiles') &&
+		(requestedMode === 'diff' || requestedMode === 'staging' || requestedMode === 'commitFiles') &&
 		isViewModeValidForPanel(requestedMode, workbench.panel)
 	) {
 		workbench.viewMode = requestedMode;
@@ -155,7 +154,56 @@
 			workbench.focusFilter();
 			return;
 		}
+		if (event.key === 'Enter') {
+			const element = event.target as HTMLElement | null;
+			if (element?.closest?.('button, input, select, textarea, [contenteditable="true"], .xterm'))
+				return;
+			if (panel === 'files' || panel === 'conflicts') {
+				event.preventDefault();
+				workbench.setViewMode('staging');
+				return;
+			}
+			if (panel === 'commits') {
+				event.preventDefault();
+				workbench.setViewMode(workbench.viewMode === 'commitFiles' ? 'diff' : 'commitFiles');
+				return;
+			}
+			return;
+		}
+		if (event.key === 'Escape') {
+			if ((panel === 'files' || panel === 'conflicts') && workbench.viewMode === 'staging') {
+				workbench.setViewMode('diff');
+			} else if (panel === 'commits' && workbench.viewMode === 'commitFiles') {
+				workbench.setViewMode('diff');
+			}
+			(event.target as HTMLElement | null)?.blur?.();
+			const fallback =
+				document.querySelector<HTMLButtonElement>('#git-board [data-board-row]') ??
+				document.querySelector<HTMLButtonElement>('#git-panel button');
+			fallback?.focus();
+			return;
+		}
+		if (event.key === '0') {
+			event.preventDefault();
+			document.querySelector<HTMLButtonElement>('#git-main button, #git-main input')?.focus();
+			return;
+		}
 		if (event.key.length === 1 || event.key === ' ') {
+			if (event.key === ' ') {
+				const element = event.target as HTMLElement | null;
+				const row = element?.closest?.('[data-stage-row]');
+				if (row instanceof HTMLElement) {
+					const path = row.dataset.path;
+					const hunk = row.dataset.hunk;
+					const line = row.dataset.line;
+					if (path !== undefined && hunk !== undefined && line !== undefined) {
+						event.preventDefault();
+						workbench.toggleLine(path, Number(hunk), Number(line));
+						return;
+					}
+				}
+				if (element?.closest?.('button')) return;
+			}
 			const key = event.key === ' ' ? ' ' : event.key;
 			const result = parseToken(key, panel);
 			if (result.kind === 'action' && result.action) {
@@ -246,7 +294,11 @@
 		>
 			<div class="grid gap-2 xl:grid-cols-5">
 				<div class="hidden xl:col-span-3 xl:block">
-					<GitBoard {workbench} />
+					{#if BOARD_ORDER.includes(workbench.panel)}
+						<GitBoard {workbench} />
+					{:else}
+						<GitGroupsPanel {workbench} bind:panel={workbench.panel} />
+					{/if}
 				</div>
 				<div class="xl:hidden">
 					<GitGroupsPanel {workbench} bind:panel={workbench.panel} />
@@ -264,6 +316,11 @@
 			<div class="mt-2">
 				<GitStatusBar {workbench} />
 			</div>
+			{#if workbench.actionLog.length > 0}
+				<div class="mt-2">
+					<GitCommandLog {workbench} />
+				</div>
+			{/if}
 		</PageState>
 	</div>
 </div>

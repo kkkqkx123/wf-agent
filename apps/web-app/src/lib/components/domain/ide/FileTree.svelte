@@ -9,18 +9,8 @@
 	import ContextMenu, { type ContextMenuItem } from '#lib/ui/components/ContextMenu.svelte';
 	import { ide } from '#lib/stores/ide.svelte';
 	import { ptyStoreFor } from '#lib/stores/pty-session.svelte';
-	import {
-		createFsEntry,
-		downloadFsBlob,
-		readFsRaw,
-		renameFsEntry,
-	} from '#lib/services/fs';
-	import {
-		deletePaths,
-		parentOf,
-		pasteClipboard,
-		uploadFiles,
-	} from '#lib/ide/clipboard';
+	import { createFsEntry, downloadFsBlob, readFsRaw, renameFsEntry } from '#lib/services/fs';
+	import { deletePaths, parentOf, pasteClipboard, uploadFiles } from '#lib/ide/clipboard';
 	import { t } from '#lib/i18n';
 	import { buildIdeUrl } from '#lib/utils/ide-url';
 	import { invalidateFsTreeIndex } from '#lib/utils/fs-tree-index';
@@ -48,7 +38,12 @@
 	let dropTarget = $state<string | null>(null);
 	let dragPaths = $state<string[]>([]);
 	let uploadDir = $state('');
-	let pendingOverwrite = $state<{ destDir: string; files: File[]; names: string[]; conflicts: string[] } | null>(null);
+	let pendingOverwrite = $state<{
+		destDir: string;
+		files: File[];
+		names: string[];
+		conflicts: string[];
+	} | null>(null);
 	let fileInput: HTMLInputElement | null = $state(null);
 
 	const MAX_DIR_ENTRIES = 200;
@@ -65,12 +60,18 @@
 
 	function badgeLabel(level: GitBadgeLevel): string {
 		switch (level) {
-			case 'added': return t('page.ide.badgeAdded');
-			case 'modified': return t('page.ide.badgeModified');
-			case 'deleted': return t('page.ide.badgeDeleted');
-			case 'renamed': return t('page.ide.badgeRenamed');
-			case 'conflicted': return t('page.ide.badgeConflicted');
-			case 'untracked': return t('page.ide.badgeUntracked');
+			case 'added':
+				return t('page.ide.badgeAdded');
+			case 'modified':
+				return t('page.ide.badgeModified');
+			case 'deleted':
+				return t('page.ide.badgeDeleted');
+			case 'renamed':
+				return t('page.ide.badgeRenamed');
+			case 'conflicted':
+				return t('page.ide.badgeConflicted');
+			case 'untracked':
+				return t('page.ide.badgeUntracked');
 		}
 	}
 
@@ -124,9 +125,7 @@
 		const state = ide.dirState(path);
 		const entries = state.entries ?? [];
 		const needle = filter.trim().toLowerCase();
-		const matched = needle
-			? entries.filter((e) => e.path.toLowerCase().includes(needle))
-			: entries;
+		const matched = needle ? entries.filter((e) => e.path.toLowerCase().includes(needle)) : entries;
 		if (matched.length <= MAX_DIR_ENTRIES) return { shown: matched, overflow: 0 };
 		return { shown: matched.slice(0, MAX_DIR_ENTRIES), overflow: matched.length - MAX_DIR_ENTRIES };
 	}
@@ -439,11 +438,21 @@
 		fileInput?.click();
 	}
 
-	async function doUploadFiles(destDir: string, files: File[], names?: string[], overwrite = false): Promise<void> {
+	async function doUploadFiles(
+		destDir: string,
+		files: File[],
+		names?: string[],
+		overwrite = false,
+	): Promise<void> {
 		actionError = null;
 		const outcome = await uploadFiles(destDir, files, { overwrite, names });
 		if (!overwrite && outcome.conflicts.length > 0) {
-			pendingOverwrite = { destDir, files, names: names ?? files.map((f) => f.name), conflicts: outcome.conflicts };
+			pendingOverwrite = {
+				destDir,
+				files,
+				names: names ?? files.map((f) => f.name),
+				conflicts: outcome.conflicts,
+			};
 			if (outcome.uploaded.length > 0 || outcome.failed.length > 0) {
 				actionError = t('page.ide.uploadPartial', {
 					ok: outcome.uploaded.length,
@@ -521,15 +530,17 @@
 				void ide.loadDir(target);
 			}
 			startCreate(target, true);
-		} else if (id === 'open-terminal' || id === 'terminal-file') void openInTerminal(target, current.isDir);
+		} else if (id === 'open-terminal' || id === 'terminal-file')
+			void openInTerminal(target, current.isDir);
 		else if (id === 'rename') startRename(target);
 		else if (id === 'delete') requestRemove(targets, current.isDir);
 	}
 
 	function onRowDragStart(path: string, event: DragEvent): void {
-		dragPaths = ide.selectedPaths.includes(path) && ide.selectedPaths.length > 0
-			? [...ide.selectedPaths]
-			: [path];
+		dragPaths =
+			ide.selectedPaths.includes(path) && ide.selectedPaths.length > 0
+				? [...ide.selectedPaths]
+				: [path];
 		if (event.dataTransfer) {
 			event.dataTransfer.effectAllowed = 'move';
 			try {
@@ -679,11 +690,7 @@
 						ondblclick={() => void openEntry(entry.path, false, false)}
 					>
 						<span class="w-4 shrink-0"></span>
-						<Icon
-							name={entryIcon(false)}
-							size={14}
-							class="shrink-0 text-muted-foreground"
-						/>
+						<Icon name={entryIcon(false)} size={14} class="shrink-0 text-muted-foreground" />
 						<span class="min-w-0 flex-1 truncate">{entry.name}</span>
 						{#if dirty}
 							<span
@@ -809,7 +816,9 @@
 	</div>
 
 	{#if ide.selectedPaths.length > 0 || ide.clipboard}
-		<div class="flex items-center gap-1 border-b border-border px-2 py-1 text-micro text-muted-foreground">
+		<div
+			class="flex items-center gap-1 border-b border-border px-2 py-1 text-micro text-muted-foreground"
+		>
 			{#if ide.selectedPaths.length > 0}
 				<span class="min-w-0 flex-1 truncate">
 					{t('page.ide.selectedCount', { count: ide.selectedPaths.length })}
@@ -888,7 +897,9 @@
 <Dialog
 	open={pendingOverwrite !== null}
 	title={t('page.ide.overwriteTitle')}
-	description={pendingOverwrite ? t('page.ide.overwriteDesc', { names: pendingOverwrite.conflicts.slice(0, 3).join(', ') }) : undefined}
+	description={pendingOverwrite
+		? t('page.ide.overwriteDesc', { names: pendingOverwrite.conflicts.slice(0, 3).join(', ') })
+		: undefined}
 	onclose={() => (pendingOverwrite = null)}
 >
 	<div class="flex justify-end gap-2 p-4">

@@ -1,4 +1,4 @@
-import { SvelteSet } from 'svelte/reactivity';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { toasts } from '#lib/stores/toast.svelte';
 import { git as gitStore } from '#lib/stores/git.svelte';
 import {
@@ -64,6 +64,13 @@ export function isViewModeValidForPanel(mode: MainViewMode, panel: PanelId): boo
 	if (panel === 'files' || panel === 'conflicts') return mode === 'diff' || mode === 'staging';
 	if (panel === 'commits') return mode === 'diff' || mode === 'commitFiles';
 	return mode === 'diff';
+}
+
+export interface ActionLogEntry {
+	seq: number;
+	action: string;
+	summary: string;
+	result: string;
 }
 
 export const PARAM_LABELS: Record<string, string> = {
@@ -155,6 +162,11 @@ export class GitWorkbench {
 
 	/** Line selection: file path -> hunk index -> sorted content line indices. */
 	lineSelection = $state<Record<string, Record<number, number[]>>>({});
+	selectedRemote = $state<string | null>(null);
+	selectedTag = $state<string | null>(null);
+	actionLog = $state<ActionLogEntry[]>([]);
+	private actionSeq = 0;
+	private diffRequest = 0;
 
 	registry = $state<RegistryEntry[]>([]);
 	filters = $state<Record<PanelId, string>>({
@@ -251,15 +263,12 @@ export class GitWorkbench {
 	isSelectedConflicted = $derived(this.selectedFileEntry?.kind === 'conflicted');
 	selectionSize = $derived(
 		Object.values(this.lineSelection).reduce(
-			(total, byHunk) =>
-				total + Object.values(byHunk).reduce((sum, rows) => sum + rows.length, 0),
+			(total, byHunk) => total + Object.values(byHunk).reduce((sum, rows) => sum + rows.length, 0),
 			0,
 		),
 	);
 	isMidOperation = $derived(
-		Boolean(
-			this.meta?.mergeHead || this.meta?.rebaseHead || this.meta?.cherryPickHead,
-		),
+		Boolean(this.meta?.mergeHead || this.meta?.rebaseHead || this.meta?.cherryPickHead),
 	);
 
 	/** Attach the live subscription, do the initial load and focus the key input. */
@@ -304,7 +313,11 @@ export class GitWorkbench {
 			scoped.focus();
 			return;
 		}
-		document.getElementById('git-filter')?.focus();
+		const generic = Array.from(
+			document.querySelectorAll<HTMLInputElement>('input[id^="git-filter"]'),
+		);
+		const visible = generic.find((element) => element.offsetParent !== null) ?? generic[0];
+		visible?.focus();
 	}
 
 	focusKeyInput(): void {
@@ -395,25 +408,31 @@ export class GitWorkbench {
 		gitStore.select('files', path);
 		this.clearSelection();
 		this.commitFileDiffPath = null;
+		const request = ++this.diffRequest;
 		if (this.viewMode === 'staging') {
 			const [unstaged, staged] = await Promise.all([
 				getDiff(path).catch(() => []),
 				getStagedDiff(path).catch(() => []),
 			]);
+			if (request !== this.diffRequest) return;
 			this.diff = unstaged;
 			this.stagedDiff = staged;
 		} else {
-			this.diff = await getDiff(path).catch(() => []);
+			const unstaged = await getDiff(path).catch(() => []);
+			if (request !== this.diffRequest) return;
+			this.diff = unstaged;
 			this.stagedDiff = [];
 		}
 		if (focusInput) this.focusKeyInput();
 	}
 
 	async refreshStagingForFile(path: string): Promise<void> {
+		const request = ++this.diffRequest;
 		const [unstaged, staged] = await Promise.all([
 			getDiff(path).catch(() => []),
 			getStagedDiff(path).catch(() => []),
 		]);
+		if (request !== this.diffRequest) return;
 		this.diff = unstaged;
 		this.stagedDiff = staged;
 	}
@@ -423,11 +442,7 @@ export class GitWorkbench {
 	}
 
 	async unstageHunk(path: string, hunkIndex: number): Promise<void> {
-		await this.dispatchAction(
-			'unstage.hunk',
-			{ path, hunkIndex: String(hunkIndex) },
-			undefined,
-		);
+		await this.dispatchAction('unstage.hunk', { path, hunkIndex: String(hunkIndex) }, undefined);
 	}
 
 	async stageLines(path: string, hunkIndex: number, lines: number[]): Promise<void> {
@@ -525,8 +540,7 @@ export class GitWorkbench {
 
 	toggleHunk(path: string, hunkIndex: number, selectable: number[]): void {
 		const current = this.selectedForHunk(path, hunkIndex);
-		const allSelected =
-			selectable.length > 0 && selectable.every((v) => current.includes(v));
+		const allSelected = selectable.length > 0 && selectable.every((v) => current.includes(v));
 		const byHunk = { ...(this.lineSelection[path] ?? {}) };
 		if (allSelected) {
 			delete byHunk[hunkIndex];
@@ -553,7 +567,7 @@ export class GitWorkbench {
 		const hi = Math.max(anchor, target);
 		const inRange = selectable.filter((v) => v >= lo && v <= hi);
 		if (inRange.length === 0) return;
-		const current = new Set(this.selectedForHunk(path, hunkIndex));
+		const current = new SvelteSet(this.selectedForHunk(path, hunkIndex));
 		for (const v of inRange) current.add(v);
 		const next = [...current].sort((a, b) => a - b);
 		const byHunk = { ...(this.lineSelection[path] ?? {}) };
@@ -570,7 +584,7 @@ export class GitWorkbench {
 				hunks.forEach((rows, hunkIndex) => {
 					const selectable = selectableIndices(rows);
 					if (selectable.length === 0) return;
-					const existing = new Set([...(byHunk[hunkIndex] ?? []), ...selectable]);
+					const existing = new SvelteSet([...(byHunk[hunkIndex] ?? []), ...selectable]);
 					byHunk[hunkIndex] = [...existing].sort((a, b) => a - b);
 				});
 			}
@@ -585,7 +599,7 @@ export class GitWorkbench {
 		files: DiffFile[],
 		path: string,
 	): Map<number, { selectable: number[]; selected: number[] }> {
-		const out = new Map<number, { selectable: number[]; selected: number[] }>();
+		const out = new SvelteMap<number, { selectable: number[]; selected: number[] }>();
 		for (const file of files) {
 			if (file.path !== path) continue;
 			const hunks = hunksOfDiffFile(file);
@@ -684,7 +698,9 @@ export class GitWorkbench {
 		gitStore.select('commits', id);
 		this.diff = [];
 		this.commitFileDiffPath = null;
+		const request = ++this.diffRequest;
 		this.commitFiles = await getCommitFiles(id).catch(() => []);
+		if (request !== this.diffRequest) return;
 		if (this.viewMode === 'diff') {
 			await this.showCommitDiff(id, false);
 		}
@@ -692,8 +708,11 @@ export class GitWorkbench {
 	}
 
 	async showCommitDiff(commit: string, focusInput = false): Promise<void> {
+		const request = ++this.diffRequest;
 		try {
-			this.diff = await getDiffRange(`${commit}^`, commit);
+			const diff = await getDiffRange(`${commit}^`, commit);
+			if (request !== this.diffRequest) return;
+			this.diff = diff;
 			this.commitFileDiffPath = null;
 		} catch (e) {
 			toasts.error('Commit diff unavailable', e instanceof Error ? e.message : undefined);
@@ -702,8 +721,11 @@ export class GitWorkbench {
 	}
 
 	async showCommitFileDiff(commit: string, path: string): Promise<void> {
+		const request = ++this.diffRequest;
 		try {
-			this.diff = await getDiffRange(`${commit}^`, commit, path);
+			const diff = await getDiffRange(`${commit}^`, commit, path);
+			if (request !== this.diffRequest) return;
+			this.diff = diff;
 			this.commitFileDiffPath = path;
 		} catch (e) {
 			toasts.error('Commit diff unavailable', e instanceof Error ? e.message : undefined);
@@ -756,6 +778,9 @@ export class GitWorkbench {
 		if (key === 'commit') return gitStore.selectedCommit ?? '';
 		if (key === 'branch' && this.panel === 'branches') return gitStore.selectedBranch ?? '';
 		if (key === 'from' && this.panel === 'branches') return gitStore.selectedBranch ?? '';
+		if (key === 'remote') return this.selectedRemote ?? PARAM_DEFAULTS[action]?.[key] ?? '';
+		if (key === 'name' && action !== 'remote.add') return this.selectedRemote ?? '';
+		if (key === 'tag') return this.selectedTag ?? '';
 		return PARAM_DEFAULTS[action]?.[key] ?? '';
 	}
 
@@ -825,6 +850,7 @@ export class GitWorkbench {
 			}
 		} catch (e) {
 			const message = e instanceof Error ? e.message : 'Git action failed';
+			this.pushActionLog(action, params, `failed: ${message}`);
 			gitStore.endAction(message);
 			toasts.error('Git action failed', message);
 			return;
@@ -837,6 +863,7 @@ export class GitWorkbench {
 	 * recoverable actions get an 8-second toast with an Undo entry backed
 	 * by the reflog undo stack; undo itself offers Redo in the same window.
 	 * Staging moves offer the reverse direction instead of history undo.
+	 * Every outcome is also appended to the bounded command log.
 	 */
 	private reportOutcome(
 		action: string,
@@ -845,6 +872,7 @@ export class GitWorkbench {
 		echo?: string,
 		params?: Record<string, string>,
 	): void {
+		this.pushActionLog(action, params ?? {}, echo ? `${message} - ${echo}` : message);
 		if (action === 'undo') {
 			toasts.push({
 				title: message,
@@ -897,6 +925,17 @@ export class GitWorkbench {
 			return;
 		}
 		toasts.success(message, echo);
+	}
+
+	private pushActionLog(action: string, params: Record<string, string>, result: string): void {
+		const summary = Object.entries(params ?? {})
+			.filter(([, value]) => value !== '')
+			.map(([key, value]) => `${key}=${value}`)
+			.join(' ');
+		this.actionSeq += 1;
+		this.actionLog = [...this.actionLog, { seq: this.actionSeq, action, summary, result }].slice(
+			-8,
+		);
 	}
 
 	async toggleTerminal(): Promise<void> {

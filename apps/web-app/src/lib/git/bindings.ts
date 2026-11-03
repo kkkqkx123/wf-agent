@@ -814,8 +814,6 @@ export function visibleControls(context: string, limit = 6): BindingItem[] {
 	return merged;
 }
 
-
-
 export function findBinding(id: string): BindingItem | undefined {
 	return BINDINGS.find((b) => b.id === id);
 }

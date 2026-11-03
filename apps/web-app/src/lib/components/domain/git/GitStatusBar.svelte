@@ -42,9 +42,7 @@
 					: 'text-foreground'}"
 			>
 				<span class="text-muted-foreground"
-					>{control.legacyKey
-						? `${control.hint} · ${control.legacyKey}`
-						: control.hint}</span
+					>{control.legacyKey ? `${control.hint} · ${control.legacyKey}` : control.hint}</span
 				>
 				{control.name}
 			</button>

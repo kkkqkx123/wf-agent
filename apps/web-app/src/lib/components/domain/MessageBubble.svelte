@@ -76,7 +76,10 @@
 			if (!target) return null;
 			value = target.path;
 		} else {
-			value = text.trim().replace(/^@/, '').replace(new RegExp(`^${kind}:`), '');
+			value = text
+				.trim()
+				.replace(/^@/, '')
+				.replace(new RegExp(`^${kind}:`), '');
 		}
 		const receipt = receipts.find(
 			(item) => item.kind === kind && item.reference.replace(/^file:/, '').split('#')[0] === value,
@@ -226,7 +229,9 @@
 									<Icon
 										name={receiptIcon(outcome)}
 										size={11}
-										class={outcome === 'attached' || outcome === 'resolved' ? 'text-emerald-500' : 'text-amber-500'}
+										class={outcome === 'attached' || outcome === 'resolved'
+											? 'text-emerald-500'
+											: 'text-amber-500'}
 									/>
 									<span class="sr-only">{receiptTitle(outcome)}</span>
 								{/if}
@@ -241,7 +246,7 @@
 
 		{#if body.attachments.length > 0 || (message.images?.length ?? 0) > 0}
 			<div class="mt-1 flex flex-wrap gap-1.5 {isUser ? 'justify-end' : ''}">
-				{#each (message.images ?? []) as image, index (`image-${index}`)}
+				{#each message.images ?? [] as image, index (`image-${index}`)}
 					<button
 						type="button"
 						onclick={() => toggleEnlarged(image)}
@@ -252,7 +257,10 @@
 								(event.currentTarget as HTMLElement | null)?.focus();
 							}
 						}}
-						class={cn('overflow-hidden rounded-md border border-border', enlargedImage === image && 'border-info/60')}
+						class={cn(
+							'overflow-hidden rounded-md border border-border',
+							enlargedImage === image && 'border-info/60',
+						)}
 						title={t('domain.messageBubble.enlargeImage')}
 						aria-pressed={enlargedImage === image}
 						aria-expanded={enlargedImage === image}

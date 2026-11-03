@@ -151,11 +151,7 @@ export async function blobToBase64(blob: Blob): Promise<string> {
 	return bytesToBase64(new Uint8Array(buffer));
 }
 
-export async function uploadFsFile(
-	path: string,
-	data: Blob,
-	overwrite = false,
-): Promise<FsEntry> {
+export async function uploadFsFile(path: string, data: Blob, overwrite = false): Promise<FsEntry> {
 	const content_base64 = await blobToBase64(data);
 	return fsEnvelope<FsEntry>('/api/v1/fs/upload', {
 		method: 'POST',

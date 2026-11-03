@@ -310,7 +310,7 @@
 					/>
 				{/if}
 				{#if kind && !isNew}
-					<DefinitionCapabilities kind={kind} definitionId={routeIdParam} />
+					<DefinitionCapabilities {kind} definitionId={routeIdParam} />
 				{/if}
 			</div>
 		</div>

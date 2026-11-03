@@ -4,4 +4,6 @@ build
 coverage
 .svelte-kit
 src/lib/api/schema.d.ts
+src/lib/utils/language-aliases.generated.ts
+project.inlang/cache
 pnpm-lock.yaml

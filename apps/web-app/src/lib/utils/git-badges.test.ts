@@ -9,9 +9,9 @@ describe('badgeForFile', () => {
 	});
 
 	it('maps renames to renamed', () => {
-		expect(
-			badgeForFile({ staged: 'R', unstaged: '.', kind: 'renamed', renamedFrom: 'a.ts' }),
-		).toBe('renamed');
+		expect(badgeForFile({ staged: 'R', unstaged: '.', kind: 'renamed', renamedFrom: 'a.ts' })).toBe(
+			'renamed',
+		);
 	});
 
 	it('maps untracked rows', () => {

@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { builtinMediaLimits, type MediaLimits } from '#lib/config/media';
-import {
-	imageExtMime,
-	imageMimeAllowed,
-	preflightImage,
-} from '#lib/utils/image-preflight';
+import { imageExtMime, imageMimeAllowed, preflightImage } from '#lib/utils/image-preflight';
 
 const limits: MediaLimits = builtinMediaLimits();
 
@@ -62,9 +58,9 @@ describe('preflightImage', () => {
 	});
 
 	it('rejects staging beyond the per-turn count', () => {
-		expect(
-			preflightImage(input({ stagedCount: limits.maxImagesPerTurn }), limits),
-		).toBe('too-many');
+		expect(preflightImage(input({ stagedCount: limits.maxImagesPerTurn }), limits)).toBe(
+			'too-many',
+		);
 	});
 
 	it('rejects a single file over the per-image limit', () => {
@@ -73,10 +69,7 @@ describe('preflightImage', () => {
 
 	it('rejects when the per-turn budget would be exceeded', () => {
 		expect(
-			preflightImage(
-				input({ stagedBytes: limits.imageTotalLimit - 50, size: 100 }),
-				limits,
-			),
+			preflightImage(input({ stagedBytes: limits.imageTotalLimit - 50, size: 100 }), limits),
 		).toBe('total-too-large');
 	});
 });

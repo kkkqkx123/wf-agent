@@ -148,7 +148,10 @@
 	function stepChange(direction: 1 | -1): void {
 		const path = ide.activePath;
 		if (!path || changeLines.length === 0) return;
-		const next = (((changeIndex < 0 ? 0 : changeIndex) + direction) % changeLines.length + changeLines.length) % changeLines.length;
+		const next =
+			((((changeIndex < 0 ? 0 : changeIndex) + direction) % changeLines.length) +
+				changeLines.length) %
+			changeLines.length;
 		changeIndex = next;
 		const line = changeLines[next];
 		if (line !== undefined) void ide.openFile(path, false, line, 1);
@@ -271,7 +274,10 @@
 				if (!ide.clipboard) return;
 				void pasteClipboard(pasteDestination()).then(({ ok, failed }) => {
 					if (failed.length > 0) {
-						toasts.error(t('page.ide.paste'), t('page.ide.pastePartial', { ok, failed: failed.length }));
+						toasts.error(
+							t('page.ide.paste'),
+							t('page.ide.pastePartial', { ok, failed: failed.length }),
+						);
 					} else if (ok > 0) {
 						toasts.success(t('page.ide.pasteDone', { ok }));
 					}
@@ -305,7 +311,9 @@
 	$effect(() => {
 		if (loading || noRepo || loadError) return;
 		const requested = parseIdeQuery(page.url.searchParams);
-		const key = requested ? `${requested.path}:${requested.line ?? ''}:${requested.col ?? ''}` : null;
+		const key = requested
+			? `${requested.path}:${requested.line ?? ''}:${requested.col ?? ''}`
+			: null;
 		if (key === lastQueryKey) return;
 		lastQueryKey = key;
 		if (requested) void ide.openFile(requested.path, false, requested.line, requested.col);
@@ -470,7 +478,10 @@
 		/>
 	</div>
 	<div class="min-h-0 flex-1 {ide.sidebarView === 'tree' ? '' : 'hidden'}">
-		<FileTree onFocusSearch={() => focusSearch('files')} onViewDiff={(path) => void openDiffDialog(path)} />
+		<FileTree
+			onFocusSearch={() => focusSearch('files')}
+			onViewDiff={(path) => void openDiffDialog(path)}
+		/>
 	</div>
 	<div class="min-h-0 flex-1 {ide.sidebarView === 'search' ? '' : 'hidden'}">
 		<IdeSearchPanel />
@@ -542,9 +553,15 @@
 						ondrop={(e) => void onEditorDrop(e)}
 					>
 						{#if dropNotice}
-							<div class="flex items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-1 text-micro">
+							<div
+								class="flex items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-1 text-micro"
+							>
 								<span class="min-w-0 flex-1">{dropNotice}</span>
-								<button type="button" class="cursor-pointer underline" onclick={() => (dropNotice = null)}>
+								<button
+									type="button"
+									class="cursor-pointer underline"
+									onclick={() => (dropNotice = null)}
+								>
 									{t('common.close')}
 								</button>
 							</div>
@@ -588,7 +605,9 @@
 			class="absolute inset-0 bg-black/40"
 			onclick={() => ide.setSidebarOpen(false)}
 		></button>
-		<div class="absolute top-0 bottom-0 left-0 flex w-72 max-w-[85vw] flex-col overflow-hidden bg-card shadow-lg">
+		<div
+			class="absolute top-0 bottom-0 left-0 flex w-72 max-w-[85vw] flex-col overflow-hidden bg-card shadow-lg"
+		>
 			{@render sidebar()}
 		</div>
 	</div>
@@ -602,7 +621,9 @@
 			class="absolute inset-0 bg-black/40"
 			onclick={() => ide.setHistoryOpen(false)}
 		></button>
-		<div class="absolute top-0 right-0 bottom-0 flex w-72 max-w-[85vw] flex-col overflow-hidden bg-card shadow-lg">
+		<div
+			class="absolute top-0 right-0 bottom-0 flex w-72 max-w-[85vw] flex-col overflow-hidden bg-card shadow-lg"
+		>
 			<IdeHistoryPanel
 				onViewFileDiff={(path) => {
 					ide.setHistoryOpen(false);
@@ -616,7 +637,9 @@
 
 <Dialog
 	open={diffDialogPath !== null}
-	title={diffDialogPath ? t('page.ide.diffTitle', { path: diffDialogPath }) : t('page.ide.viewDiff')}
+	title={diffDialogPath
+		? t('page.ide.diffTitle', { path: diffDialogPath })
+		: t('page.ide.viewDiff')}
 	width="48rem"
 	onclose={() => {
 		diffDialogPath = null;

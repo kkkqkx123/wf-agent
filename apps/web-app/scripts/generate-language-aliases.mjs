@@ -25,7 +25,9 @@ const rows = readFileSync(tsvPath, 'utf8')
 		return { alias, canonical };
 	});
 
-const entries = rows.map(({ alias, canonical }) => `\t${JSON.stringify(alias)}: ${JSON.stringify(canonical)},`);
+const entries = rows.map(
+	({ alias, canonical }) => `\t${JSON.stringify(alias)}: ${JSON.stringify(canonical)},`,
+);
 
 const banner = `/**
  * GENERATED FILE - do not edit by hand.

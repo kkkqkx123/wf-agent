@@ -1,12 +1,7 @@
 import type { GitFile } from '#lib/services/git';
 
 export type GitBadgeLevel =
-	| 'added'
-	| 'modified'
-	| 'deleted'
-	| 'renamed'
-	| 'conflicted'
-	| 'untracked';
+	'added' | 'modified' | 'deleted' | 'renamed' | 'conflicted' | 'untracked';
 
 const SEVERITY: Record<GitBadgeLevel, number> = {
 	conflicted: 6,
@@ -18,7 +13,9 @@ const SEVERITY: Record<GitBadgeLevel, number> = {
 };
 
 /** Map one git change row to its badge level. Clean rows resolve to null. */
-export function badgeForFile(file: Pick<GitFile, 'staged' | 'unstaged' | 'kind' | 'renamedFrom'>): GitBadgeLevel | null {
+export function badgeForFile(
+	file: Pick<GitFile, 'staged' | 'unstaged' | 'kind' | 'renamedFrom'>,
+): GitBadgeLevel | null {
 	const { staged, unstaged, kind } = file;
 	if (
 		kind === 'conflicted' ||
@@ -39,7 +36,9 @@ export function badgeForFile(file: Pick<GitFile, 'staged' | 'unstaged' | 'kind' 
 }
 
 /** Aggregate descendant levels to the most severe one for directories. */
-export function aggregateBadges(levels: Iterable<GitBadgeLevel | null | undefined>): GitBadgeLevel | null {
+export function aggregateBadges(
+	levels: Iterable<GitBadgeLevel | null | undefined>,
+): GitBadgeLevel | null {
 	let best: GitBadgeLevel | null = null;
 	for (const level of levels) {
 		if (!level) continue;

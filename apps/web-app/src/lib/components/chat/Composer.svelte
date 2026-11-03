@@ -28,10 +28,7 @@
 	import { mentionClass, mentionIcon } from '#lib/utils/mention-style';
 	import { t } from '#lib/i18n';
 	import { SvelteSet } from 'svelte/reactivity';
-	import {
-		currentMediaLimits,
-		loadMediaLimits,
-	} from '#lib/config/media';
+	import { currentMediaLimits, loadMediaLimits } from '#lib/config/media';
 	import {
 		imageExtMime,
 		imageMimeAllowed as isImageMimeAllowed,
@@ -365,14 +362,18 @@
 		for (const file of Array.from(files)) {
 			if (file.type.startsWith('image/') || imageMimeAllowed(file)) {
 				if (!imageMimeAllowed(file)) {
-					toasts.error(`Unsupported image type: ${file.name || 'pasted image'} (use png, jpg, gif, webp)`);
+					toasts.error(
+						`Unsupported image type: ${file.name || 'pasted image'} (use png, jpg, gif, webp)`,
+					);
 					continue;
-			}
+				}
 				stageImage(file);
-			continue;
-		}
+				continue;
+			}
 			if (attachments.length >= mediaLimits.attachmentMaxCount) {
-				toasts.error(`Too many attachments (max ${mediaLimits.attachmentMaxCount}); remove one first`);
+				toasts.error(
+					`Too many attachments (max ${mediaLimits.attachmentMaxCount}); remove one first`,
+				);
 				continue;
 			}
 			const stagedBytes = attachments.reduce((total, item) => total + item.content.length, 0);
@@ -384,22 +385,24 @@
 				toasts.error(`File too large to inline: ${file.name || 'pasted text'} (over 1 MB)`);
 				continue;
 			}
-		try {
+			try {
 				const text = await file.text();
-			if (text.includes('\0')) {
-					toasts.error(`Binary file skipped: ${file.name || 'pasted text'} (send images via the image button)`);
+				if (text.includes('\0')) {
+					toasts.error(
+						`Binary file skipped: ${file.name || 'pasted text'} (send images via the image button)`,
+					);
 					continue;
 				}
-			const truncated = text.length > mediaLimits.attachmentLimit;
-			const originalChars = truncated ? text.length : undefined;
-			attachments = [
-				...attachments,
-				{
-					name: file.name || 'pasted-text',
-					content: text.slice(0, mediaLimits.attachmentLimit),
-					...(truncated ? { truncated: true, originalChars } : {}),
-				},
-			];
+				const truncated = text.length > mediaLimits.attachmentLimit;
+				const originalChars = truncated ? text.length : undefined;
+				attachments = [
+					...attachments,
+					{
+						name: file.name || 'pasted-text',
+						content: text.slice(0, mediaLimits.attachmentLimit),
+						...(truncated ? { truncated: true, originalChars } : {}),
+					},
+				];
 				persistFiles();
 			} catch {
 				toasts.error(
@@ -425,7 +428,9 @@
 			mediaLimits,
 		);
 		if (rejection === 'unsupported-type') {
-			toasts.error(`Unsupported image type: ${file.name || 'pasted image'} (use png, jpg, gif, webp)`);
+			toasts.error(
+				`Unsupported image type: ${file.name || 'pasted image'} (use png, jpg, gif, webp)`,
+			);
 			return;
 		}
 		if (rejection === 'too-many') {
@@ -456,7 +461,10 @@
 				return;
 			}
 			const mime = imageExtMime(file.type, file.name);
-			images = [...images, { name: file.name || 'pasted-image', dataUrl, ...(mime ? { mediaType: mime } : {}) }];
+			images = [
+				...images,
+				{ name: file.name || 'pasted-image', dataUrl, ...(mime ? { mediaType: mime } : {}) },
+			];
 			persistFiles();
 		};
 		reader.onerror = () => {
@@ -492,7 +500,14 @@
 	const stagedBudget = $derived.by(() => {
 		const imageBytes = images.reduce((total, image) => total + image.dataUrl.length, 0);
 		const attachmentBytes = attachments.reduce((total, item) => total + item.content.length, 0);
-		return { imageBytes, attachmentBytes, imageCount: images.length, attachmentCount: attachments.length, imageRemaining: Math.max(0, mediaLimits.imageTotalLimit - imageBytes), attachmentRemaining: Math.max(0, mediaLimits.attachmentTotalLimit - attachmentBytes) };
+		return {
+			imageBytes,
+			attachmentBytes,
+			imageCount: images.length,
+			attachmentCount: attachments.length,
+			imageRemaining: Math.max(0, mediaLimits.imageTotalLimit - imageBytes),
+			attachmentRemaining: Math.max(0, mediaLimits.attachmentTotalLimit - attachmentBytes),
+		};
 	});
 
 	function onPaste(event: ClipboardEvent): void {
@@ -719,10 +734,15 @@
 	/>
 
 	{#if executionType === 'workflow' && images.length > 0}
-		<p class="text-micro text-warning">Images are not sent to workflows; remove them or switch back to an agent turn.</p>
+		<p class="text-micro text-warning">
+			Images are not sent to workflows; remove them or switch back to an agent turn.
+		</p>
 	{/if}
 	{#if stagedBudget.imageCount > 0 || stagedBudget.attachmentCount > 0}
-		<p class="text-micro text-muted-foreground">Staged: {stagedBudget.imageCount}/{mediaLimits.maxImagesPerTurn} images · {stagedBudget.attachmentCount}/{mediaLimits.attachmentMaxCount} files · {(stagedBudget.imageRemaining / 1024).toFixed(0)} KB image budget left</p>
+		<p class="text-micro text-muted-foreground">
+			Staged: {stagedBudget.imageCount}/{mediaLimits.maxImagesPerTurn} images · {stagedBudget.attachmentCount}/{mediaLimits.attachmentMaxCount}
+			files · {(stagedBudget.imageRemaining / 1024).toFixed(0)} KB image budget left
+		</p>
 	{/if}
 
 	{#if mentionVisible}
@@ -1010,7 +1030,10 @@
 			<Button
 				variant="brand"
 				size="sm"
-				disabled={!draft.trim() && attachments.length === 0 && images.length === 0 && queue.length === 0}
+				disabled={!draft.trim() &&
+					attachments.length === 0 &&
+					images.length === 0 &&
+					queue.length === 0}
 				onclick={onSubmit}
 			>
 				<Icon name="arrow-up" size={14} />

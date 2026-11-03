@@ -25,16 +25,18 @@ export interface RecapSignals {
 export function shouldRecap(signals: RecapSignals): boolean {
 	if (!signals.enabled) return false;
 	if (signals.autonomous) return false;
-	return (
-		signals.away || signals.elapsedMs >= RECAP_AFTER_MS || signals.overflowsScreen
-	);
+	return signals.away || signals.elapsedMs >= RECAP_AFTER_MS || signals.overflowsScreen;
 }
 
 interface RecapEnvelope {
 	text?: string | null;
 }
 
-async function postRecap(path: string, body: unknown, signal?: AbortSignal): Promise<string | null> {
+async function postRecap(
+	path: string,
+	body: unknown,
+	signal?: AbortSignal,
+): Promise<string | null> {
 	try {
 		const key = resolveApiKey();
 		const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -77,7 +79,11 @@ export function postLoopRecap(
 	signal?: AbortSignal,
 ): Promise<string | null> {
 	if (!loopId.trim() || !profileId.trim()) return Promise.resolve(null);
-	return postRecap(`/api/v1/agent-loops/${encodeURIComponent(loopId)}/recap`, { profile_id: profileId }, signal);
+	return postRecap(
+		`/api/v1/agent-loops/${encodeURIComponent(loopId)}/recap`,
+		{ profile_id: profileId },
+		signal,
+	);
 }
 
 // Re-export the typed client for tests that assert the envelope shape.

@@ -70,15 +70,23 @@ export function parseWorkflowInputText(text: string): WorkflowInput | null {
 		parsed = JSON.parse(trimmed) as unknown;
 	} catch (e) {
 		const detail = e instanceof Error ? e.message : String(e);
-		throw new Error(`Workflow input must be valid JSON: ${detail}.`);
+		throw new Error(`Workflow input must be valid JSON: ${detail}.`, { cause: e });
 	}
 	return assertWorkflowInput(parsed);
 }
 
 /** Assert an agent message is non-blank (rule A1), unless images ride along. */
-export function assertAgentMessage(message: string, images?: unknown[], attachments?: unknown[]): string {
+export function assertAgentMessage(
+	message: string,
+	images?: unknown[],
+	attachments?: unknown[],
+): string {
 	const trimmed = message.trim();
-	if (trimmed === '' && (!images || images.length === 0) && (!attachments || attachments.length === 0))
+	if (
+		trimmed === '' &&
+		(!images || images.length === 0) &&
+		(!attachments || attachments.length === 0)
+	)
 		throw new Error('Agent message must not be empty.');
 	return trimmed;
 }
@@ -107,7 +115,7 @@ export function parseFileScopeText(text: string): ExecutionFileScope | null {
 		parsed = JSON.parse(trimmed) as unknown;
 	} catch (e) {
 		const detail = e instanceof Error ? e.message : String(e);
-		throw new Error(`File scope must be valid JSON or empty: ${detail}.`);
+		throw new Error(`File scope must be valid JSON or empty: ${detail}.`, { cause: e });
 	}
 	return assertFileScope(parsed);
 }
@@ -131,7 +139,10 @@ export function assertConversationSeed(value: unknown): RunConversationMessage[]
 }
 
 /** Assert a runtime number is a finite positive value when set. */
-export function assertPositiveRuntime(value: number | null | undefined, name: string): number | null {
+export function assertPositiveRuntime(
+	value: number | null | undefined,
+	name: string,
+): number | null {
 	if (value === null || value === undefined) return null;
 	if (!Number.isFinite(value) || value <= 0) {
 		throw new Error(`${name} must be a positive number or empty.`);
@@ -263,7 +274,10 @@ export interface WorkflowVariableDefinition {
 	type?: 'number' | 'string' | 'boolean' | 'array' | 'object' | null;
 	required?: boolean | null;
 	value?: unknown;
-	properties?: Record<string, { type: WorkflowVariableDefinition['type']; required?: boolean | null }> | null;
+	properties?: Record<
+		string,
+		{ type: WorkflowVariableDefinition['type']; required?: boolean | null }
+	> | null;
 	element_type?: WorkflowVariableDefinition['type'] | null;
 }
 
@@ -271,10 +285,14 @@ function workflowValueKind(value: unknown): string {
 	if (value === null || value === undefined) return 'null';
 	if (Array.isArray(value)) return 'array';
 	switch (typeof value) {
-		case 'string': return 'string';
-		case 'number': return 'number';
-		case 'boolean': return 'boolean';
-		default: return 'object';
+		case 'string':
+			return 'string';
+		case 'number':
+			return 'number';
+		case 'boolean':
+			return 'boolean';
+		default:
+			return 'object';
 	}
 }
 
@@ -355,24 +373,34 @@ export function validateWorkflowInput(
 			issues.push(`variable '${key}' expects ${declared.type}, got ${workflowValueKind(value)}`);
 			continue;
 		}
-		if (declared.type === 'object' && declared.properties && typeof value === 'object' && !Array.isArray(value)) {
+		if (
+			declared.type === 'object' &&
+			declared.properties &&
+			typeof value === 'object' &&
+			!Array.isArray(value)
+		) {
 			const record = value as Record<string, unknown>;
 			for (const [propName, rule] of Object.entries(declared.properties)) {
 				const propValue = record[propName];
 				if (propValue === null || propValue === undefined) {
-					if (rule.required) issues.push(`variable '${key}.${propName}' is missing required property`);
+					if (rule.required)
+						issues.push(`variable '${key}.${propName}' is missing required property`);
 					continue;
 				}
-					if (rule.type && !workflowValueMatches(rule.type, propValue)) {
-						issues.push(`variable '${key}.${propName}' expects ${rule.type}, got ${workflowValueKind(propValue)}`);
-					}
+				if (rule.type && !workflowValueMatches(rule.type, propValue)) {
+					issues.push(
+						`variable '${key}.${propName}' expects ${rule.type}, got ${workflowValueKind(propValue)}`,
+					);
+				}
 			}
 		}
 		if (declared.type === 'array' && declared.element_type && Array.isArray(value)) {
 			value.forEach((item, index) => {
 				if (item === null || item === undefined) return;
 				if (declared.element_type && !workflowValueMatches(declared.element_type, item)) {
-					issues.push(`variable '${key}[${index}]' expects ${declared.element_type}, got ${workflowValueKind(item)}`);
+					issues.push(
+						`variable '${key}[${index}]' expects ${declared.element_type}, got ${workflowValueKind(item)}`,
+					);
 				}
 			});
 		}

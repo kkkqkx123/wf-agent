@@ -141,8 +141,7 @@ export function registerStarters(router: MockRouter): void {
 		if (typeof record.title === 'string') row.title = record.title;
 		if (typeof record.content === 'string') row.content = record.content;
 		if (record.description !== undefined) {
-			row.description =
-				record.description === null ? undefined : (record.description as string);
+			row.description = record.description === null ? undefined : (record.description as string);
 		}
 		if (typeof record.locale === 'string') row.locale = record.locale;
 		if (Array.isArray(record.tags)) row.tags = record.tags as string[];

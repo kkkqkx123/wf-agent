@@ -138,7 +138,9 @@
 			fileSelected = fileResults.length ? (fileSelected + 1) % fileResults.length : 0;
 		} else if (event.key === 'ArrowUp') {
 			event.preventDefault();
-			fileSelected = fileResults.length ? (fileSelected - 1 + fileResults.length) % fileResults.length : 0;
+			fileSelected = fileResults.length
+				? (fileSelected - 1 + fileResults.length) % fileResults.length
+				: 0;
 		} else if (event.key === 'Enter') {
 			event.preventDefault();
 			const hit = fileResults[fileSelected];
@@ -152,7 +154,9 @@
 			contentSelected = flatContent.length ? (contentSelected + 1) % flatContent.length : 0;
 		} else if (event.key === 'ArrowUp') {
 			event.preventDefault();
-			contentSelected = flatContent.length ? (contentSelected - 1 + flatContent.length) % flatContent.length : 0;
+			contentSelected = flatContent.length
+				? (contentSelected - 1 + flatContent.length) % flatContent.length
+				: 0;
 		} else if (event.key === 'Enter') {
 			event.preventDefault();
 			const hit = flatContent[contentSelected];
@@ -162,12 +166,18 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	<div class="flex items-center gap-1 border-b border-border px-2 py-1.5" role="tablist" aria-label={t('page.ide.sidebarSearch')}>
+	<div
+		class="flex items-center gap-1 border-b border-border px-2 py-1.5"
+		role="tablist"
+		aria-label={t('page.ide.sidebarSearch')}
+	>
 		<button
 			type="button"
 			role="tab"
 			aria-selected={ide.searchTab === 'files'}
-			class="flex-1 rounded-md px-2 py-1 text-caption {ide.searchTab === 'files' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/60'}"
+			class="flex-1 rounded-md px-2 py-1 text-caption {ide.searchTab === 'files'
+				? 'bg-accent text-accent-foreground'
+				: 'text-muted-foreground hover:bg-accent/60'}"
 			onclick={() => (ide.searchTab = 'files')}
 		>
 			{t('page.ide.searchFilesTab')}
@@ -176,7 +186,9 @@
 			type="button"
 			role="tab"
 			aria-selected={ide.searchTab === 'content'}
-			class="flex-1 rounded-md px-2 py-1 text-caption {ide.searchTab === 'content' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/60'}"
+			class="flex-1 rounded-md px-2 py-1 text-caption {ide.searchTab === 'content'
+				? 'bg-accent text-accent-foreground'
+				: 'text-muted-foreground hover:bg-accent/60'}"
 			onclick={() => (ide.searchTab = 'content')}
 		>
 			{t('page.ide.searchContentTab')}
@@ -205,7 +217,10 @@
 							type="button"
 							onclick={() => void openFile(hit.path)}
 							onmouseenter={() => (fileSelected = index)}
-							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left {index === fileSelected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/60'}"
+							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left {index ===
+							fileSelected
+								? 'bg-accent text-accent-foreground'
+								: 'hover:bg-accent/60'}"
 						>
 							<span class="min-w-0 flex-1 truncate text-body">{name}</span>
 							<span class="shrink-0 truncate text-micro text-muted-foreground">{hit.path}</span>
@@ -213,7 +228,9 @@
 					{/each}
 				{/if}
 				{#if fileTruncated}
-					<p class="px-2 py-1 text-micro text-muted-foreground">{t('page.ide.quickOpenTruncated')}</p>
+					<p class="px-2 py-1 text-micro text-muted-foreground">
+						{t('page.ide.quickOpenTruncated')}
+					</p>
 				{/if}
 			</div>
 		</div>
@@ -257,7 +274,9 @@
 				{#if contentError}
 					<p class="px-2 py-3 text-caption text-destructive">{contentError}</p>
 				{:else if searching && matches.length === 0}
-					<p class="px-2 py-6 text-center text-caption text-muted-foreground">{t('common.loading')}</p>
+					<p class="px-2 py-6 text-center text-caption text-muted-foreground">
+						{t('common.loading')}
+					</p>
 				{:else if matches.length === 0}
 					<p class="px-2 py-6 text-center text-caption text-muted-foreground">
 						{t('page.ide.searchEmpty')}
@@ -283,13 +302,17 @@
 										type="button"
 										onclick={() => void openFile(hit.path, hit.line, hit.column)}
 										onmouseenter={() => (contentSelected = flatIndex)}
-										class="flex w-full flex-col gap-0.5 rounded-md px-2 py-1 pl-6 text-left {flatIndex === contentSelected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/60'}"
+										class="flex w-full flex-col gap-0.5 rounded-md px-2 py-1 pl-6 text-left {flatIndex ===
+										contentSelected
+											? 'bg-accent text-accent-foreground'
+											: 'hover:bg-accent/60'}"
 									>
 										<span class="flex w-full items-baseline gap-2">
 											<span class="shrink-0 font-mono text-micro text-muted-foreground">
 												{hit.line}{hit.column ? `:${hit.column}` : ''}
 											</span>
-											<span class="min-w-0 flex-1 truncate font-mono text-micro">{hit.preview}</span>
+											<span class="min-w-0 flex-1 truncate font-mono text-micro">{hit.preview}</span
+											>
 										</span>
 									</button>
 								{/each}

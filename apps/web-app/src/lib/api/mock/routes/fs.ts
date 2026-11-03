@@ -44,7 +44,9 @@ export function registerFs(router: MockRouter): void {
 	router.on('GET', '/api/v1/fs/tree', (_p, query) => {
 		const base = String(query.path ?? '');
 		const rawLimit = Number((query as Record<string, unknown>).limit ?? 2000);
-		const limit = Number.isFinite(rawLimit) ? Math.min(5000, Math.max(1, Math.floor(rawLimit))) : 2000;
+		const limit = Number.isFinite(rawLimit)
+			? Math.min(5000, Math.max(1, Math.floor(rawLimit)))
+			: 2000;
 		const flat: Array<{ path: string; is_dir: boolean; size: number }> = [];
 		const visit = (prefix: string): boolean => {
 			for (const row of entriesFor(prefix)) {

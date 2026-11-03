@@ -14,6 +14,14 @@
 	}
 
 	let { workbench }: Props = $props();
+
+	let localBindings = $derived(
+		bindingsFor(workbench.panel).filter((binding) => binding.contexts.includes(workbench.panel)),
+	);
+	let globalBindings = $derived(
+		bindingsFor(workbench.panel).filter((binding) => !binding.contexts.includes(workbench.panel)),
+	);
+	let scopedBindings = $derived([...localBindings, ...globalBindings]);
 </script>
 
 <Dialog
@@ -72,7 +80,21 @@
 	description={t('domain.git.actionsDescription', { panel: workbench.panel })}
 >
 	<div class="space-y-1">
-		{#each bindingsFor(workbench.panel) as binding (binding.id)}
+		{#each scopedBindings as binding, index (binding.id)}
+			{#if index === 0 && localBindings.length > 0}
+				<p
+					class="px-2 pt-1 font-mono text-micro font-semibold tracking-wider text-muted-foreground uppercase"
+				>
+					{workbench.panel}
+				</p>
+			{/if}
+			{#if index === localBindings.length && localBindings.length > 0 && globalBindings.length > 0}
+				<p
+					class="px-2 pt-1 font-mono text-micro font-semibold tracking-wider text-muted-foreground uppercase"
+				>
+					global
+				</p>
+			{/if}
 			<button
 				type="button"
 				onclick={() => {
@@ -92,9 +114,7 @@
 						<Badge variant="neutral">{binding.danger}</Badge>
 					{/if}
 					<span class="font-mono text-micro text-muted-foreground"
-						>{binding.legacyKey
-							? `${binding.hint} · ${binding.legacyKey}`
-							: binding.hint}</span
+						>{binding.legacyKey ? `${binding.hint} · ${binding.legacyKey}` : binding.hint}</span
 					>
 				</span>
 			</button>

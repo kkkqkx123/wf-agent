@@ -67,9 +67,7 @@ export async function loadMediaLimits(): Promise<MediaLimits> {
 	if (cached) return cached;
 	const fallback = builtinMediaLimits();
 	try {
-		const data = await call<InfoLimitsDto | null>(
-			client.GET('/api/v1/info'),
-		);
+		const data = await call<InfoLimitsDto | null>(client.GET('/api/v1/info'));
 		const envelope = (data ?? {}) as Record<string, unknown>;
 		const payload = (
 			typeof envelope['data'] === 'object' && envelope['data'] !== null
@@ -80,9 +78,13 @@ export async function loadMediaLimits(): Promise<MediaLimits> {
 		const maxBytes = asPositiveInt(payload.max_image_bytes ?? payload.maxImageBytes);
 		const maxTotal = asPositiveInt(payload.max_images_total_bytes ?? payload.maxImagesTotalBytes);
 		const allowed = payload.allowed_image_media_types ?? payload.allowedImageMediaTypes;
-		const maxFiles = asPositiveInt(payload.max_attachments_per_turn ?? payload.maxAttachmentsPerTurn);
+		const maxFiles = asPositiveInt(
+			payload.max_attachments_per_turn ?? payload.maxAttachmentsPerTurn,
+		);
 		const maxChars = asPositiveInt(payload.max_attachment_chars ?? payload.maxAttachmentChars);
-		const maxTotalChars = asPositiveInt(payload.max_attachments_total_chars ?? payload.maxAttachmentsTotalChars);
+		const maxTotalChars = asPositiveInt(
+			payload.max_attachments_total_chars ?? payload.maxAttachmentsTotalChars,
+		);
 		const next: MediaLimits = {
 			...fallback,
 			...(maxImages !== null ? { maxImagesPerTurn: maxImages } : {}),

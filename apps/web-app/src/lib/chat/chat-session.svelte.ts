@@ -92,7 +92,11 @@ function rememberImageNames(images: ImageAttachment[]): void {
 	}
 }
 
-function restoreImageName(dataUrl: string, fallback: string, media?: string): { name: string; mediaType?: string } {
+function restoreImageName(
+	dataUrl: string,
+	fallback: string,
+	media?: string,
+): { name: string; mediaType?: string } {
 	if (imageNameCache.size === 0) loadImageNameCache();
 	const hit = imageNameCache.get(imageCacheKey(dataUrl));
 	if (hit) return hit;
@@ -394,7 +398,9 @@ export class ChatSessionController {
 			displayKind: tool.display?.kind,
 			displayPreview: tool.display?.preview,
 			displayTruncated: tool.display?.truncated,
-			backgroundSessionId: tool.background?.backgrounded ? (tool.background.sessionId ?? null) : null,
+			backgroundSessionId: tool.background?.backgrounded
+				? (tool.background.sessionId ?? null)
+				: null,
 		};
 	}
 
@@ -531,8 +537,7 @@ export class ChatSessionController {
 
 	sendText(message: OutgoingMessage): boolean {
 		const text = message.text.trim();
-		if (!text && message.attachments.length === 0 && message.images.length === 0)
-			return false;
+		if (!text && message.attachments.length === 0 && message.images.length === 0) return false;
 		if (chatStream.active) {
 			// Runtime append to a running agent loop instead of starting a
 			// new turn; defaults to follow-up semantics. Structured payloads
@@ -563,7 +568,9 @@ export class ChatSessionController {
 			return false;
 		}
 		if (this.executionType === 'workflow' && message.images.length > 0) {
-			toasts.error('Remove staged images before running a workflow; switch to an agent turn to send them');
+			toasts.error(
+				'Remove staged images before running a workflow; switch to an agent turn to send them',
+			);
 			return false;
 		}
 		if (this.executionType === 'chat') {
@@ -596,7 +603,9 @@ export class ChatSessionController {
 						const restored = restoreImageName(dataUrl, fallback, media);
 						return {
 							name: restored.name,
-							...(restored.mediaType ?? media ? { mediaType: (restored.mediaType ?? media) as string } : {}),
+							...((restored.mediaType ?? media)
+								? { mediaType: (restored.mediaType ?? media) as string }
+								: {}),
 							dataUrl,
 						};
 					}),
@@ -1072,7 +1081,9 @@ export class ChatSessionController {
 	): Promise<void> {
 		const workflowId = this.workflowId.trim();
 		if (images.length > 0) {
-			toasts.error('Remove staged images before running a workflow; switch to an agent turn to send them');
+			toasts.error(
+				'Remove staged images before running a workflow; switch to an agent turn to send them',
+			);
 			return;
 		}
 		const signal = chatStream.start(this.selectedId ?? NEW_SESSION, {
@@ -1102,12 +1113,7 @@ export class ChatSessionController {
 		pickerState.recordUsed('workflow', workflowId);
 		pickerState.recordUsed('model', this.model.trim());
 		this.beginRecapTurn();
-		await streamWorkflowExecution(
-			workflowId,
-			{ input: merged },
-			this.streamCallbacks(),
-			signal,
-		);
+		await streamWorkflowExecution(workflowId, { input: merged }, this.streamCallbacks(), signal);
 		await this.settleRun(false, new SvelteSet<string>(), '', content);
 	}
 

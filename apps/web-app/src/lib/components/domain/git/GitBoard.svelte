@@ -166,6 +166,11 @@
 						>
 							<span class="shrink-0 text-info">{commit.shortId}</span>
 							<span class="min-w-0 flex-1 truncate {commitRowClass(commit)}">{commit.subject}</span>
+							{#if commit.refs.length > 0}
+								<span class="max-w-28 shrink-0 truncate text-muted-foreground"
+									>{commit.refs.join(' ')}</span
+								>
+							{/if}
 						</button>
 					</li>
 				{/each}

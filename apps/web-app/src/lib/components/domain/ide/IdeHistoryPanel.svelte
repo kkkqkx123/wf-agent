@@ -206,9 +206,7 @@
 		}
 	}
 
-	const isDetached = $derived(
-		meta ? !branches.some((b) => b.current) : false,
-	);
+	const isDetached = $derived(meta ? !branches.some((b) => b.current) : false);
 
 	function formatTime(ts: number): string {
 		if (!ts) return '';
@@ -222,19 +220,31 @@
 
 <div class="flex h-full min-h-0 flex-col">
 	<div class="flex items-center gap-1 border-b border-border px-2 py-1.5">
-		<span class="min-w-0 flex-1 truncate text-caption font-medium">{t('page.ide.historyTitle')}</span>
+		<span class="min-w-0 flex-1 truncate text-caption font-medium"
+			>{t('page.ide.historyTitle')}</span
+		>
 		{#if meta}
-			<span class="shrink-0 truncate text-micro text-muted-foreground" title={t('page.ide.branchCurrent', { branch: meta.branch || meta.head.slice(0, 7) })}>
+			<span
+				class="shrink-0 truncate text-micro text-muted-foreground"
+				title={t('page.ide.branchCurrent', { branch: meta.branch || meta.head.slice(0, 7) })}
+			>
 				{meta.branch || meta.head.slice(0, 7)}
 			</span>
 		{/if}
-		<Button size="sm" variant="ghost" onclick={() => (branchOpen = true)} disabled={busyAction !== null}>
+		<Button
+			size="sm"
+			variant="ghost"
+			onclick={() => (branchOpen = true)}
+			disabled={busyAction !== null}
+		>
 			{t('page.ide.branchSwitch')}
 		</Button>
 	</div>
 
 	{#if actionError}
-		<p class="border-b border-destructive/30 bg-destructive/10 px-2 py-1 text-micro text-destructive">
+		<p
+			class="border-b border-destructive/30 bg-destructive/10 px-2 py-1 text-micro text-destructive"
+		>
 			{actionError}
 		</p>
 	{/if}
@@ -245,7 +255,9 @@
 		{:else if error}
 			<div class="space-y-2 px-3 py-4">
 				<p class="text-caption text-destructive">{error}</p>
-				<Button size="sm" variant="outline" onclick={() => void reload()}>{t('common.retry')}</Button>
+				<Button size="sm" variant="outline" onclick={() => void reload()}
+					>{t('common.retry')}</Button
+				>
 			</div>
 		{:else}
 			{#if meta && isDetached}
@@ -258,7 +270,9 @@
 			{/if}
 
 			<section aria-label={t('page.ide.historyChanges')}>
-				<p class="px-3 pt-2 pb-1 text-micro font-medium tracking-wide text-muted-foreground uppercase">
+				<p
+					class="px-3 pt-2 pb-1 text-micro font-medium tracking-wide text-muted-foreground uppercase"
+				>
 					{t('page.ide.historyChanges')} · {changes.length}
 				</p>
 				{#if changes.length === 0}
@@ -291,7 +305,9 @@
 			</section>
 
 			<section aria-label={t('page.ide.historyCommits')} class="pb-3">
-				<p class="px-3 pt-3 pb-1 text-micro font-medium tracking-wide text-muted-foreground uppercase">
+				<p
+					class="px-3 pt-3 pb-1 text-micro font-medium tracking-wide text-muted-foreground uppercase"
+				>
 					{t('page.ide.historyCommits')}
 				</p>
 				{#if commits.length === 0}
@@ -307,7 +323,9 @@
 								aria-expanded={isOpen}
 								onclick={() => void toggleCommit(commit)}
 							>
-								<span class="shrink-0 font-mono text-micro text-muted-foreground">{commit.shortId}</span>
+								<span class="shrink-0 font-mono text-micro text-muted-foreground"
+									>{commit.shortId}</span
+								>
 								<span class="min-w-0 flex-1 truncate text-caption">{commit.subject}</span>
 							</button>
 							<p class="truncate px-2 pb-1 text-micro text-muted-foreground">
@@ -332,19 +350,25 @@
 													>
 														{file.path}
 													</button>
-													<span class="shrink-0 rounded bg-muted px-1 text-micro text-muted-foreground">
+													<span
+														class="shrink-0 rounded bg-muted px-1 text-micro text-muted-foreground"
+													>
 														{file.status}
 													</span>
 												</div>
 												{#if expandedFile === key}
 													{#if diffLoading && !diffsByKey[key]}
-														<p class="py-1 pl-3 text-micro text-muted-foreground">{t('common.loading')}</p>
+														<p class="py-1 pl-3 text-micro text-muted-foreground">
+															{t('common.loading')}
+														</p>
 													{:else}
 														{#each diffsByKey[key] ?? [] as diff (diff.path)}
 															<DiffView lines={diff.lines} title={diff.path} class="my-1" />
 														{/each}
 														{#if (diffsByKey[key] ?? []).length === 0}
-															<p class="py-1 pl-3 text-micro text-muted-foreground">{t('page.ide.diffEmpty')}</p>
+															<p class="py-1 pl-3 text-micro text-muted-foreground">
+																{t('page.ide.diffEmpty')}
+															</p>
 														{/if}
 													{/if}
 												{/if}
@@ -382,7 +406,12 @@
 					{/each}
 					{#if hasMore}
 						<div class="px-3 pt-1">
-							<Button size="sm" variant="outline" onclick={() => void loadMore()} disabled={loadingMore}>
+							<Button
+								size="sm"
+								variant="outline"
+								onclick={() => void loadMore()}
+								disabled={loadingMore}
+							>
 								{loadingMore ? t('common.loading') : t('page.ide.loadMore')}
 							</Button>
 						</div>
@@ -408,7 +437,9 @@
 			</button>
 		{/each}
 		{#if branches.length === 0}
-			<p class="px-2 py-4 text-center text-caption text-muted-foreground">{t('page.ide.historyEmpty')}</p>
+			<p class="px-2 py-4 text-center text-caption text-muted-foreground">
+				{t('page.ide.historyEmpty')}
+			</p>
 		{/if}
 	</div>
 </Dialog>
@@ -416,11 +447,15 @@
 <Dialog
 	open={checkoutTarget !== null}
 	title={t('page.ide.checkoutCommit')}
-	description={checkoutTarget ? t('page.ide.checkoutDetachedDesc', { sha: checkoutTarget.shortId }) : undefined}
+	description={checkoutTarget
+		? t('page.ide.checkoutDetachedDesc', { sha: checkoutTarget.shortId })
+		: undefined}
 	onclose={() => (checkoutTarget = null)}
 >
 	<div class="flex justify-end gap-2 p-4">
-		<Button size="sm" variant="ghost" onclick={() => (checkoutTarget = null)}>{t('common.cancel')}</Button>
+		<Button size="sm" variant="ghost" onclick={() => (checkoutTarget = null)}
+			>{t('common.cancel')}</Button
+		>
 		<Button size="sm" variant="default" onclick={() => void confirmCheckout()}>
 			{t('page.ide.checkoutCommit')}
 		</Button>
@@ -437,20 +472,40 @@
 		<p class="text-caption text-muted-foreground">{t('page.ide.resetMode')}</p>
 		<div class="flex flex-col gap-1">
 			<label class="flex cursor-pointer items-center gap-2 text-body">
-				<input type="radio" name="ide-reset-mode" value="reset.soft" bind:group={resetMode} class="accent-primary" />
+				<input
+					type="radio"
+					name="ide-reset-mode"
+					value="reset.soft"
+					bind:group={resetMode}
+					class="accent-primary"
+				/>
 				{t('page.ide.resetSoft')}
 			</label>
 			<label class="flex cursor-pointer items-center gap-2 text-body">
-				<input type="radio" name="ide-reset-mode" value="reset.mixed" bind:group={resetMode} class="accent-primary" />
+				<input
+					type="radio"
+					name="ide-reset-mode"
+					value="reset.mixed"
+					bind:group={resetMode}
+					class="accent-primary"
+				/>
 				{t('page.ide.resetMixed')}
 			</label>
 			<label class="flex cursor-pointer items-center gap-2 text-body">
-				<input type="radio" name="ide-reset-mode" value="reset.hard" bind:group={resetMode} class="accent-primary" />
+				<input
+					type="radio"
+					name="ide-reset-mode"
+					value="reset.hard"
+					bind:group={resetMode}
+					class="accent-primary"
+				/>
 				{t('page.ide.resetHard')}
 			</label>
 		</div>
 		{#if resetMode === 'reset.hard' && resetTarget}
-			<p class="text-caption text-destructive">{t('page.ide.resetHardConfirmHint', { sha: resetTarget.shortId })}</p>
+			<p class="text-caption text-destructive">
+				{t('page.ide.resetHardConfirmHint', { sha: resetTarget.shortId })}
+			</p>
 			<input
 				bind:value={resetConfirmInput}
 				placeholder={resetTarget.shortId}
@@ -459,7 +514,9 @@
 			/>
 		{/if}
 		<div class="flex justify-end gap-2 pt-1">
-			<Button size="sm" variant="ghost" onclick={() => (resetTarget = null)}>{t('common.cancel')}</Button>
+			<Button size="sm" variant="ghost" onclick={() => (resetTarget = null)}
+				>{t('common.cancel')}</Button
+			>
 			<Button size="sm" variant="default" onclick={() => void confirmReset()}>
 				{t('page.ide.resetToHere')}
 			</Button>

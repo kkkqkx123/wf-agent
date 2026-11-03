@@ -52,13 +52,15 @@
 
 	function onTabDrop(path: string, event: DragEvent): void {
 		event.preventDefault();
-		const from = dragPath ?? (() => {
-			try {
-				return event.dataTransfer?.getData('text/plain') ?? null;
-			} catch {
-				return null;
-			}
-		})();
+		const from =
+			dragPath ??
+			(() => {
+				try {
+					return event.dataTransfer?.getData('text/plain') ?? null;
+				} catch {
+					return null;
+				}
+			})();
 		dragPath = null;
 		if (!from || from === path) return;
 		ide.moveTab(from, path);
@@ -99,9 +101,7 @@
 						class="max-w-44 cursor-pointer truncate hover:text-foreground {tab.preview
 							? 'italic opacity-70'
 							: ''}"
-						title={tab.preview
-							? `${tab.path} (${t('page.ide.previewHint')})`
-							: tab.path}
+						title={tab.preview ? `${tab.path} (${t('page.ide.previewHint')})` : tab.path}
 						onclick={() => {
 							ide.activePath = tab.path;
 							cursor = null;
@@ -177,9 +177,7 @@
 						</div>
 					{/if}
 					{#if active.truncated}
-						<p
-							class="border-b border-warning/30 bg-warning/10 px-3 py-1 text-micro text-warning"
-						>
+						<p class="border-b border-warning/30 bg-warning/10 px-3 py-1 text-micro text-warning">
 							{t('domain.files.truncatedPath', { path: active.path })}
 						</p>
 					{/if}
@@ -225,9 +223,7 @@
 					>
 						<span class="min-w-0 flex-1 truncate">{active.path} · {active.language}</span>
 						<span class="shrink-0 tabular-nums">
-							{cursor && ide.activePath === active.path
-								? `${cursor.line}:${cursor.col} · `
-								: ''}
+							{cursor && ide.activePath === active.path ? `${cursor.line}:${cursor.col} · ` : ''}
 							{#if active.saving}
 								{t('page.ide.saving')}
 							{:else if active.content !== active.original}

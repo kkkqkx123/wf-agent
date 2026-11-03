@@ -34,6 +34,13 @@
 	let selectedPath = $derived(gitStore.selectedFile);
 	let selectedCommit = $derived(gitStore.selectedCommit);
 
+	let showWhitespace = $state(false);
+
+	function whitespaceText(text: string): string {
+		if (!showWhitespace) return text;
+		return text.replace(/ /g, '\u00b7').replace(/\t/g, '\u2192\t');
+	}
+
 	function hunkCount(file: DiffFile): number {
 		return file.lines.filter((l) => l.type === 'meta').length;
 	}
@@ -51,12 +58,6 @@
 		}
 		if (current) out.push(current);
 		return out;
-	}
-
-	function isConflictMarker(text: string): boolean {
-		return (
-			text.startsWith('<<<<<<<') || text.startsWith('=======') || text.startsWith('>>>>>>>')
-		);
 	}
 
 	let lastAnchor = $state<{ path: string; hunk: number; index: number } | null>(null);
@@ -78,6 +79,7 @@
 </script>
 
 <TuiPanel
+	id="git-main"
 	title="Main"
 	description={workbench.selection
 		? t('domain.git.selected', { selection: workbench.selection })
@@ -94,11 +96,9 @@
 		</div>
 	{/if}
 
-	{#if workbench.isSelectedConflicted && selectedPath}
-		{@const conflictPath = selectedPath}
+	{#if (workbench.panel === 'files' || workbench.panel === 'conflicts') && workbench.visibleConflicts.length > 0}
 		<div class="mb-2 rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1.5">
-			<p class="font-mono text-caption font-semibold text-destructive">{conflictPath}</p>
-			<p class="mt-0.5 text-caption text-muted-foreground">
+			<p class="text-caption text-muted-foreground">
 				{t('domain.git.conflictDescription')}
 			</p>
 			{#if workbench.meta?.mergeHead || workbench.meta?.rebaseHead || workbench.meta?.cherryPickHead}
@@ -110,36 +110,37 @@
 					{t('domain.git.conflictPending')}
 				</p>
 			{/if}
-			{#each workbench.diff as file (file.path)}
-				{#if file.path === conflictPath}
-					{#each file.lines as line (line.text + line.type)}
-						{#if isConflictMarker(line.text)}
-							<div
-								class="mt-0.5 bg-warning/15 px-1 font-mono text-micro text-warning"
-							>
-								{line.text}
-							</div>
-						{/if}
-					{/each}
-				{/if}
-			{/each}
-			<div class="mt-1.5 flex flex-wrap gap-1">
-				<Button
-					size="sm"
-					variant="outline"
-					disabled={gitStore.busy}
-					onclick={() => void workbench.acceptOurs(conflictPath)}
-				>
-					{t('domain.git.acceptOurs')}
-				</Button>
-				<Button
-					size="sm"
-					variant="outline"
-					disabled={gitStore.busy}
-					onclick={() => void workbench.acceptTheirs(conflictPath)}
-				>
-					{t('domain.git.acceptTheirs')}
-				</Button>
+			<ul class="mt-1 space-y-1">
+				{#each workbench.visibleConflicts as conflict (conflict.path)}
+					<li class="flex flex-wrap items-center gap-1">
+						<button
+							type="button"
+							onclick={() => void workbench.selectFile(conflict.path, false)}
+							title={conflict.path}
+							class="min-w-0 flex-1 truncate px-1 text-left font-mono text-caption font-semibold text-destructive hover:bg-accent/50"
+						>
+							{conflict.path}
+						</button>
+						<Button
+							size="sm"
+							variant="outline"
+							disabled={gitStore.busy}
+							onclick={() => void workbench.acceptOurs(conflict.path)}
+						>
+							{t('domain.git.acceptOurs')}
+						</Button>
+						<Button
+							size="sm"
+							variant="outline"
+							disabled={gitStore.busy}
+							onclick={() => void workbench.acceptTheirs(conflict.path)}
+						>
+							{t('domain.git.acceptTheirs')}
+						</Button>
+					</li>
+				{/each}
+			</ul>
+			<div class="mt-1.5">
 				<Button
 					size="sm"
 					variant="ghost"
@@ -195,9 +196,22 @@
 					{t('domain.git.clearSelection')}
 				</Button>
 			</div>
-			<p class="mb-1 text-micro font-semibold text-muted-foreground">
-				{t('domain.git.unstaged')} · {stagePath}
-			</p>
+			<div class="mb-1 flex items-center gap-2">
+				<p class="text-micro font-semibold text-muted-foreground">
+					{t('domain.git.unstaged')} · {stagePath}
+				</p>
+				<button
+					type="button"
+					aria-pressed={showWhitespace}
+					title={showWhitespace ? 'Hide whitespace' : 'Show whitespace'}
+					onclick={() => (showWhitespace = !showWhitespace)}
+					class={showWhitespace
+						? 'rounded bg-accent px-1.5 py-0.5 font-mono text-micro text-foreground transition-colors hover:bg-accent'
+						: 'rounded px-1.5 py-0.5 font-mono text-micro text-muted-foreground transition-colors hover:bg-accent'}
+				>
+					ws
+				</button>
+			</div>
 			{#if workbench.diff.length === 0}
 				<p class="mb-2 text-caption text-muted-foreground">{t('domain.git.pickFile')}</p>
 			{:else}
@@ -223,16 +237,11 @@
 											aria-label={t('domain.git.hunkLabel', { number: hunkIndex + 1 })}
 											checked={selectable.length > 0 &&
 												selectable.every((v) => selected.includes(v))}
-											disabled={gitStore.busy ||
-												file.truncated ||
-												selectable.length === 0}
-											onchange={() =>
-												workbench.toggleHunk(file.path, hunkIndex, selectable)}
+											disabled={gitStore.busy || file.truncated || selectable.length === 0}
+											onchange={() => workbench.toggleHunk(file.path, hunkIndex, selectable)}
 											class="h-3.5 w-3.5 accent-primary"
 										/>
-										<span class="font-mono text-micro text-muted-foreground"
-											>{hunk.header}</span
-										>
+										<span class="font-mono text-micro text-muted-foreground">{hunk.header}</span>
 										<span class="ml-auto flex gap-1">
 											<Button
 												size="sm"
@@ -260,9 +269,27 @@
 									<ul>
 										{#each hunk.rows as row, rowIndex (rowIndex)}
 											{@const globalIndex = rowIndex}
-											{@const isSelectable =
-												row.type === 'add' || row.type === 'del'}
+											{@const isSelectable = row.type === 'add' || row.type === 'del'}
+											<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 											<li
+												data-stage-row={isSelectable ? '' : undefined}
+												data-path={isSelectable ? file.path : undefined}
+												data-hunk={isSelectable ? hunkIndex : undefined}
+												data-line={isSelectable ? globalIndex : undefined}
+												role={isSelectable ? 'button' : undefined}
+												tabindex={isSelectable ? 0 : undefined}
+												onclick={(event) => {
+													if (!isSelectable) return;
+													const origin = event.target as HTMLElement | null;
+													if (origin?.closest?.('input, button')) return;
+													workbench.toggleLine(file.path, hunkIndex, globalIndex);
+												}}
+												onkeydown={(event) => {
+													if (!isSelectable) return;
+													if (event.key !== 'Enter' && event.key !== ' ') return;
+													event.preventDefault();
+													workbench.toggleLine(file.path, hunkIndex, globalIndex);
+												}}
 												class="flex items-start gap-1.5 px-1.5 py-px font-mono text-micro {row.type ===
 												'add'
 													? 'bg-success/10 text-success'
@@ -273,34 +300,20 @@
 												{#if isSelectable}
 													<input
 														type="checkbox"
-														checked={workbench.isLineSelected(
-															file.path,
-															hunkIndex,
-															globalIndex,
-														)}
+														checked={workbench.isLineSelected(file.path, hunkIndex, globalIndex)}
 														disabled={gitStore.busy || file.truncated}
 														onclick={(e) =>
-															onLineClick(
-																file.path,
-																hunkIndex,
-																globalIndex,
-																selectable,
-																e,
-															)}
+															onLineClick(file.path, hunkIndex, globalIndex, selectable, e)}
 														class="mt-0.5 h-3.5 w-3.5 shrink-0 accent-primary"
 													/>
 												{:else}
 													<span class="w-3.5 shrink-0"></span>
 												{/if}
 												<span class="w-2 shrink-0 opacity-70"
-													>{row.type === 'add'
-														? '+'
-														: row.type === 'del'
-															? '-'
-															: ' '}</span
+													>{row.type === 'add' ? '+' : row.type === 'del' ? '-' : ' '}</span
 												>
 												<span class="min-w-0 flex-1 whitespace-pre-wrap break-all"
-													>{row.text}</span
+													>{whitespaceText(row.text)}</span
 												>
 											</li>
 										{/each}
@@ -311,8 +324,7 @@
 												size="sm"
 												variant="outline"
 												disabled={gitStore.busy}
-												onclick={() =>
-													void workbench.stageLines(file.path, hunkIndex, selected)}
+												onclick={() => void workbench.stageLines(file.path, hunkIndex, selected)}
 											>
 												{t('domain.git.stageLines')} ({selected.length})
 											</Button>
@@ -320,8 +332,7 @@
 												size="sm"
 												variant="ghost"
 												disabled={gitStore.busy}
-												onclick={() =>
-													void workbench.discardLines(file.path, hunkIndex, selected)}
+												onclick={() => void workbench.discardLines(file.path, hunkIndex, selected)}
 											>
 												{t('domain.git.discardLines')}
 											</Button>
@@ -333,9 +344,22 @@
 					{/if}
 				{/each}
 			{/if}
-			<p class="mb-1 mt-2 text-micro font-semibold text-muted-foreground">
-				{t('domain.git.stagedDiff')} · {stagePath}
-			</p>
+			<div class="mb-1 flex items-center gap-2">
+				<p class="text-micro font-semibold text-muted-foreground">
+					{t('domain.git.stagedDiff')} · {stagePath}
+				</p>
+				<button
+					type="button"
+					aria-pressed={showWhitespace}
+					title={showWhitespace ? 'Hide whitespace' : 'Show whitespace'}
+					onclick={() => (showWhitespace = !showWhitespace)}
+					class={showWhitespace
+						? 'rounded bg-accent px-1.5 py-0.5 font-mono text-micro text-foreground transition-colors hover:bg-accent'
+						: 'rounded px-1.5 py-0.5 font-mono text-micro text-muted-foreground transition-colors hover:bg-accent'}
+				>
+					ws
+				</button>
+			</div>
 			{#if workbench.stagedDiff.length === 0}
 				<p class="mb-2 text-caption text-muted-foreground">{t('domain.git.pickFile')}</p>
 			{:else}
@@ -361,16 +385,11 @@
 											aria-label={t('domain.git.hunkLabel', { number: hunkIndex + 1 })}
 											checked={selectable.length > 0 &&
 												selectable.every((v) => selected.includes(v))}
-											disabled={gitStore.busy ||
-												file.truncated ||
-												selectable.length === 0}
-											onchange={() =>
-												workbench.toggleHunk(file.path, hunkIndex, selectable)}
+											disabled={gitStore.busy || file.truncated || selectable.length === 0}
+											onchange={() => workbench.toggleHunk(file.path, hunkIndex, selectable)}
 											class="h-3.5 w-3.5 accent-primary"
 										/>
-										<span class="font-mono text-micro text-muted-foreground"
-											>{hunk.header}</span
-										>
+										<span class="font-mono text-micro text-muted-foreground">{hunk.header}</span>
 										<span class="ml-auto flex gap-1">
 											<Button
 												size="sm"
@@ -390,9 +409,27 @@
 									<ul>
 										{#each hunk.rows as row, rowIndex (rowIndex)}
 											{@const globalIndex = rowIndex}
-											{@const isSelectable =
-												row.type === 'add' || row.type === 'del'}
+											{@const isSelectable = row.type === 'add' || row.type === 'del'}
+											<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 											<li
+												data-stage-row={isSelectable ? '' : undefined}
+												data-path={isSelectable ? file.path : undefined}
+												data-hunk={isSelectable ? hunkIndex : undefined}
+												data-line={isSelectable ? globalIndex : undefined}
+												role={isSelectable ? 'button' : undefined}
+												tabindex={isSelectable ? 0 : undefined}
+												onclick={(event) => {
+													if (!isSelectable) return;
+													const origin = event.target as HTMLElement | null;
+													if (origin?.closest?.('input, button')) return;
+													workbench.toggleLine(file.path, hunkIndex, globalIndex);
+												}}
+												onkeydown={(event) => {
+													if (!isSelectable) return;
+													if (event.key !== 'Enter' && event.key !== ' ') return;
+													event.preventDefault();
+													workbench.toggleLine(file.path, hunkIndex, globalIndex);
+												}}
 												class="flex items-start gap-1.5 px-1.5 py-px font-mono text-micro {row.type ===
 												'add'
 													? 'bg-success/10 text-success'
@@ -403,34 +440,20 @@
 												{#if isSelectable}
 													<input
 														type="checkbox"
-														checked={workbench.isLineSelected(
-															file.path,
-															hunkIndex,
-															globalIndex,
-														)}
+														checked={workbench.isLineSelected(file.path, hunkIndex, globalIndex)}
 														disabled={gitStore.busy || file.truncated}
 														onclick={(e) =>
-															onLineClick(
-																file.path,
-																hunkIndex,
-																globalIndex,
-																selectable,
-																e,
-															)}
+															onLineClick(file.path, hunkIndex, globalIndex, selectable, e)}
 														class="mt-0.5 h-3.5 w-3.5 shrink-0 accent-primary"
 													/>
 												{:else}
 													<span class="w-3.5 shrink-0"></span>
 												{/if}
 												<span class="w-2 shrink-0 opacity-70"
-													>{row.type === 'add'
-														? '+'
-														: row.type === 'del'
-															? '-'
-															: ' '}</span
+													>{row.type === 'add' ? '+' : row.type === 'del' ? '-' : ' '}</span
 												>
 												<span class="min-w-0 flex-1 whitespace-pre-wrap break-all"
-													>{row.text}</span
+													>{whitespaceText(row.text)}</span
 												>
 											</li>
 										{/each}
@@ -441,8 +464,7 @@
 												size="sm"
 												variant="outline"
 												disabled={gitStore.busy}
-												onclick={() =>
-													void workbench.unstageLines(file.path, hunkIndex, selected)}
+												onclick={() => void workbench.unstageLines(file.path, hunkIndex, selected)}
 											>
 												{t('domain.git.unstageLines')} ({selected.length})
 											</Button>
@@ -473,14 +495,11 @@
 							<button
 								type="button"
 								onclick={() =>
-									selectedCommit &&
-									void workbench.showCommitFileDiff(selectedCommit, file.path)}
+									selectedCommit && void workbench.showCommitFileDiff(selectedCommit, file.path)}
 								class="flex w-full items-center justify-between gap-2 px-1 py-1 text-left hover:bg-accent/50"
 							>
 								<span class="truncate font-mono text-caption">{file.path}</span>
-								<span class="font-mono text-micro text-muted-foreground"
-									>{file.status}</span
-								>
+								<span class="font-mono text-micro text-muted-foreground">{file.status}</span>
 							</button>
 						</li>
 					{/each}
@@ -573,30 +592,4 @@
 			</div>
 		{/each}
 	{/if}
-	{#snippet footer()}
-		{#if workbench.controls.length > 0}
-			<div class="flex gap-x-3 gap-y-1 overflow-x-auto md:flex-wrap md:overflow-visible">
-				{#each workbench.controls as control (control.id)}
-					{@const spec = workbench.specFor(control.id)}
-					<Button
-						size="sm"
-						variant="ghost"
-						disabled={gitStore.busy || (spec ? !spec.available : false)}
-						title={spec?.reason ??
-							(control.legacyKey
-								? `${control.name} (${control.hint} · ${control.legacyKey})`
-								: `${control.name} (${control.hint})`)}
-						onclick={() => void workbench.runActionId(control.id)}
-					>
-						<span class="font-mono"
-							>[{control.legacyKey
-								? `${control.hint} · ${control.legacyKey}`
-								: control.hint}]</span
-						>
-						{control.name}
-					</Button>
-				{/each}
-			</div>
-		{/if}
-	{/snippet}
 </TuiPanel>

@@ -352,10 +352,7 @@ export class PtySessionStore {
 	 * Recover a broken session by cloning it: the local buffer is kept so the
 	 * user does not lose scrollback, but a fresh server session is spawned.
 	 */
-	async clone(
-		id: string,
-		options?: { cwd?: string; env?: Record<string, string> },
-	): Promise<void> {
+	async clone(id: string, options?: { cwd?: string; env?: Record<string, string> }): Promise<void> {
 		const previous = this.byId(id);
 		if (!previous) return;
 		const replacement = await this.spawn(options);

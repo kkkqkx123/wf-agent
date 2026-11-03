@@ -10,6 +10,7 @@
 
 	interface Props {
 		title: string;
+		id?: string;
 		description?: string;
 		count?: number;
 		focused?: boolean;
@@ -22,6 +23,7 @@
 
 	let {
 		title,
+		id,
 		description,
 		count,
 		focused = false,
@@ -34,9 +36,10 @@
 </script>
 
 <section
+	{id}
 	class={cn(
 		'relative rounded-none border bg-card text-card-foreground',
-		focused ? 'border-info/70' : 'border-border',
+		focused ? 'border-info' : 'border-border',
 		className,
 	)}
 >

@@ -117,7 +117,10 @@
 							>{t('layout.shortcuts.recording')}</kbd
 						>
 					{:else}
-						<kbd class="rounded border border-border px-2 py-0.5 text-micro" class:opacity-50={row.disabled}>
+						<kbd
+							class="rounded border border-border px-2 py-0.5 text-micro"
+							class:opacity-50={row.disabled}
+						>
 							{row.disabled ? t('layout.shortcuts.disabled') : row.keys}
 						</kbd>
 					{/if}

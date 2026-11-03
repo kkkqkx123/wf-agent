@@ -383,12 +383,7 @@ export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 
 /** One JSON value allowed inside a workflow input object. */
 export type WorkflowInputValue =
-	| string
-	| number
-	| boolean
-	| null
-	| WorkflowInputValue[]
-	| { [key: string]: WorkflowInputValue };
+	string | number | boolean | null | WorkflowInputValue[] | { [key: string]: WorkflowInputValue };
 
 /**
  * Top-level workflow run input: a parameter object, never a free

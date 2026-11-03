@@ -12,7 +12,7 @@
 	import SyncCard from './files/SyncCard.svelte';
 	import WorkspaceCard from './files/WorkspaceCard.svelte';
 	import { downloadFile } from '#lib/api/client';
-import { buildIdeUrl } from '#lib/utils/ide-url';
+	import { buildIdeUrl } from '#lib/utils/ide-url';
 	import {
 		getMainDiffs,
 		getDiffActors,

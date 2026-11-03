@@ -16,9 +16,7 @@
 {#if attachments.length > 0 || images.length > 0}
 	<div class="mb-2 flex flex-wrap gap-1.5">
 		{#each images as image, index (index)}
-			<span
-				class="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 p-1"
-			>
+			<span class="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 p-1">
 				<img
 					src={image.dataUrl}
 					alt={image.name}

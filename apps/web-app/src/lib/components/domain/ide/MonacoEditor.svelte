@@ -109,13 +109,8 @@
 			).MonacoEnvironment = {
 				getWorker(_workerId: unknown, label: string): Worker {
 					if (label === 'json') return new JsonWorker();
-					if (label === 'css' || label === 'scss' || label === 'less')
-						return new CssWorker();
-					if (
-						label === 'html' ||
-						label === 'handlebars' ||
-						label === 'razor'
-					)
+					if (label === 'css' || label === 'scss' || label === 'less') return new CssWorker();
+					if (label === 'html' || label === 'handlebars' || label === 'razor')
 						return new HtmlWorker();
 					if (label === 'typescript' || label === 'javascript') return new TsWorker();
 					return new EditorWorker();
@@ -184,18 +179,17 @@
 			onChange?.(next);
 		});
 		try {
-			cursorDisposable = instance.onDidChangeCursorPosition?.((e: {
-				position: { lineNumber: number; column: number };
-			}) => {
-				onCursor?.(e.position.lineNumber, e.position.column);
-			});
+			cursorDisposable = instance.onDidChangeCursorPosition?.(
+				(e: { position: { lineNumber: number; column: number } }) => {
+					onCursor?.(e.position.lineNumber, e.position.column);
+				},
+			);
 		} catch {
 			cursorDisposable = null;
 		}
 		try {
-			instance.addCommand?.(
-				(monacoNs.KeyMod.CtrlCmd | monacoNs.KeyCode.KeyS) as number,
-				() => onSave?.(),
+			instance.addCommand?.((monacoNs.KeyMod.CtrlCmd | monacoNs.KeyCode.KeyS) as number, () =>
+				onSave?.(),
 			);
 		} catch {
 			// Save shortcut inside the editor is best-effort.

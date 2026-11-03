@@ -121,7 +121,10 @@ const SCOPE_RULES: Array<{ kind: TokenKind; patterns: string[][] }> = [
 	},
 	{
 		kind: 'function',
-		patterns: [['entity', 'name', 'function'], ['support', 'function']],
+		patterns: [
+			['entity', 'name', 'function'],
+			['support', 'function'],
+		],
 	},
 ];
 
@@ -215,7 +218,10 @@ async function tokenize(code: string, normalized: string): Promise<HighlightLine
 	);
 }
 
-export async function highlightCode(code: string, language?: string | null): Promise<HighlightLine[]> {
+export async function highlightCode(
+	code: string,
+	language?: string | null,
+): Promise<HighlightLine[]> {
 	const normalized = normalizeLanguage(language);
 	if (code.length > MAX_CACHEABLE_LENGTH) {
 		return tokenize(code, normalized);

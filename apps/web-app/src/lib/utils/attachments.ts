@@ -1,6 +1,7 @@
 import type { MessageAttachment } from '#lib/types/models';
 
-const BLOCK_PATTERN = /<attachment name="([^"]*)"(?:\s+truncated="(true|false)")?(?:\s+original="(\d+)")?>\n([\s\S]*?)\n<\/attachment>/g;
+const BLOCK_PATTERN =
+	/<attachment name="([^"]*)"(?:\s+truncated="(true|false)")?(?:\s+original="(\d+)")?>\n([\s\S]*?)\n<\/attachment>/g;
 
 function escapeAttachmentName(name: string): string {
 	return name.replace(/&/g, '&amp;').replace(/"/g, '&quot;');

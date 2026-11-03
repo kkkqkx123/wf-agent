@@ -5,14 +5,8 @@
 	import Segmented from '#lib/ui/components/Segmented.svelte';
 	import { t } from '#lib/i18n';
 	import type { ChatSessionController } from '#lib/chat/chat-session.svelte';
-	import {
-		parseWorkflowInputText,
-		validateWorkflowInput,
-	} from '#lib/services/run';
-	import {
-		jsonErrorLine,
-		type TemplateIssue,
-	} from '#lib/services/templates';
+	import { parseWorkflowInputText, validateWorkflowInput } from '#lib/services/run';
+	import { jsonErrorLine, type TemplateIssue } from '#lib/services/templates';
 
 	interface Props {
 		controller: ChatSessionController;
@@ -29,9 +23,7 @@
 	let syntaxError = $state<string | null>(null);
 	let jsonEditor = $state<{ scrollToLine: (line: number) => void } | null>(null);
 
-	const errorLine = $derived(
-		syntaxError ? jsonErrorLine(jsonText, syntaxError) : null,
-	);
+	const errorLine = $derived(syntaxError ? jsonErrorLine(jsonText, syntaxError) : null);
 
 	/** Semantic issues of the applied inputs, shown while the JSON tab is
 	 * active. The form tab guides per field, so the list lives here only. */
@@ -167,13 +159,19 @@
 							<span class="font-medium">
 								{variable.name}
 								{#if required}<span class="text-destructive"> *</span>{/if}
-								{#if variable.type}<span class="text-muted-foreground"> ({variable.type})</span>{/if}
+								{#if variable.type}<span class="text-muted-foreground">
+										({variable.type})</span
+									>{/if}
 							</span>
 							{#if kind === 'boolean'}
 								<select
 									value={readValue(variable.name)}
 									onchange={(event) =>
-										writeValue(variable.name, (event.target as HTMLSelectElement).value, variable.type)}
+										writeValue(
+											variable.name,
+											(event.target as HTMLSelectElement).value,
+											variable.type,
+										)}
 								>
 									<option value="">—</option>
 									<option value="true">true</option>
@@ -187,7 +185,11 @@
 										? String(variable.value)
 										: ''}
 									oninput={(event) =>
-										writeValue(variable.name, (event.target as HTMLInputElement).value, variable.type)}
+										writeValue(
+											variable.name,
+											(event.target as HTMLInputElement).value,
+											variable.type,
+										)}
 								/>
 							{:else}
 								<input
@@ -199,7 +201,11 @@
 											? '{"key": "value"}'
 											: ''}
 									oninput={(event) =>
-										writeValue(variable.name, (event.target as HTMLInputElement).value, variable.type)}
+										writeValue(
+											variable.name,
+											(event.target as HTMLInputElement).value,
+											variable.type,
+										)}
 								/>
 							{/if}
 						</label>
@@ -215,7 +221,7 @@
 				<JsonEditor
 					bind:this={jsonEditor}
 					bind:value={jsonText}
-					errorLine={errorLine}
+					{errorLine}
 					placeholder={'{\n  "key": "value"\n}'}
 					label="Workflow input JSON"
 					minHeight="10rem"

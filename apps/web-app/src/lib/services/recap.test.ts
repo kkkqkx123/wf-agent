@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { shouldRecap } from './recap';
 
 describe('shouldRecap', () => {
-	const base = { enabled: true, autonomous: false, away: false, elapsedMs: 1_000, overflowsScreen: false };
+	const base = {
+		enabled: true,
+		autonomous: false,
+		away: false,
+		elapsedMs: 1_000,
+		overflowsScreen: false,
+	};
 
 	it('stays silent for a short watched turn', () => {
 		expect(shouldRecap({ ...base })).toBe(false);
@@ -21,7 +27,15 @@ describe('shouldRecap', () => {
 	});
 
 	it('stays silent when the display switch is off', () => {
-		expect(shouldRecap({ ...base, away: true, elapsedMs: 999_999, overflowsScreen: true, enabled: false })).toBe(false);
+		expect(
+			shouldRecap({
+				...base,
+				away: true,
+				elapsedMs: 999_999,
+				overflowsScreen: true,
+				enabled: false,
+			}),
+		).toBe(false);
 	});
 
 	it('stays silent for autonomous turns', () => {

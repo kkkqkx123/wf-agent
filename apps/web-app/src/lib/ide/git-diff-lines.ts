@@ -43,7 +43,9 @@ export function diffToLineMap(files: DiffFile[]): GitLineMap {
 			}
 			if (!cursor) cursor = { oldLine: 1, newLine: 1, snippet: [] };
 			if (cursor.snippet.length < HOVER_SNIPPET_LINES + 2) {
-				cursor.snippet.push(`${row.type === 'add' ? '+' : row.type === 'del' ? '-' : ' '}${row.text}`);
+				cursor.snippet.push(
+					`${row.type === 'add' ? '+' : row.type === 'del' ? '-' : ' '}${row.text}`,
+				);
 			}
 			const safeNew = Math.max(1, cursor.newLine);
 			if (row.type === 'context') {

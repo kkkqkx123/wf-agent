@@ -449,7 +449,10 @@ export async function appendAgentLoopInput(
 	);
 }
 
-export async function setAgentLoopAppendMode(id: string, mode: 'steering' | 'followup'): Promise<void> {
+export async function setAgentLoopAppendMode(
+	id: string,
+	mode: 'steering' | 'followup',
+): Promise<void> {
 	await call<unknown>(
 		client.POST('/api/v1/agent-loops/{id}/append-mode', {
 			params: { path: { id } },

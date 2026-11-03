@@ -199,7 +199,10 @@
 					? null
 					: (controller.temporaryOverride ?? (isDraft ? 'restricted' : null))}
 			{@const badge = selectedId ? controller.sessionBadge(selectedId) : effective}
-			<div class="mb-2 flex flex-wrap items-center gap-1.5" aria-label="temporary conversation mode">
+			<div
+				class="mb-2 flex flex-wrap items-center gap-1.5"
+				aria-label="temporary conversation mode"
+			>
 				{#if badge}
 					<span
 						class="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-caption text-amber-700 dark:text-amber-300"
@@ -213,7 +216,9 @@
 				<div class="flex overflow-hidden rounded-md border border-border" role="group">
 					<button
 						type="button"
-						class="px-2 py-0.5 text-caption {effective === null ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}"
+						class="px-2 py-0.5 text-caption {effective === null
+							? 'bg-primary text-primary-foreground'
+							: 'text-muted-foreground hover:text-foreground'}"
 						title="Full agent: all tools, checkpoints on"
 						onclick={() => controller.setTemporaryOverride('full')}
 					>
@@ -221,7 +226,9 @@
 					</button>
 					<button
 						type="button"
-						class="px-2 py-0.5 text-caption {effective === 'restricted' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}"
+						class="px-2 py-0.5 text-caption {effective === 'restricted'
+							? 'bg-primary text-primary-foreground'
+							: 'text-muted-foreground hover:text-foreground'}"
 						title="Temporary: read-only, interaction and network lookup only"
 						onclick={() => controller.setTemporaryOverride('restricted')}
 					>
@@ -229,7 +236,9 @@
 					</button>
 					<button
 						type="button"
-						class="px-2 py-0.5 text-caption {effective === 'ephemeral' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}"
+						class="px-2 py-0.5 text-caption {effective === 'ephemeral'
+							? 'bg-primary text-primary-foreground'
+							: 'text-muted-foreground hover:text-foreground'}"
 						title="Read-only Q&A: local inspection and follow-up only, no checkpoints"
 						onclick={() => controller.setTemporaryOverride('ephemeral')}
 					>

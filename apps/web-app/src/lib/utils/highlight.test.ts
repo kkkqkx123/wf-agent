@@ -141,11 +141,10 @@ describe('highlightIncremental', () => {
 		// Previous code ends without a newline, so its last line is
 		// incomplete and never reused; only line 0 comes back verbatim.
 		const first = await highlightCode('let a = 1;\nlet b = 2;', 'rust');
-		const second = await highlightIncremental(
-			'let a = 1;\nlet b = 2;\nlet c = 3;',
-			'rust',
-			{ code: 'let a = 1;\nlet b = 2;', lines: first },
-		);
+		const second = await highlightIncremental('let a = 1;\nlet b = 2;\nlet c = 3;', 'rust', {
+			code: 'let a = 1;\nlet b = 2;',
+			lines: first,
+		});
 		expect(second.length).toBe(3);
 		expect(second[0]).toBe(first[0]);
 		expect(second[1]).not.toBe(first[1]);

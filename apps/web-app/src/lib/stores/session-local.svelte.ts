@@ -118,9 +118,8 @@ function write(key: string, value: unknown): void {
 export class SessionLocalState {
 	private titles = $state<Record<string, string>>(readRecord(TITLES_KEY));
 	private recents = $state<string[]>(readList(RECENTS_KEY));
-	private temporaryBadges = $state<Record<string, 'restricted' | 'ephemeral'>>(
-		readTemporaryBadge(),
-	);
+	private temporaryBadges =
+		$state<Record<string, 'restricted' | 'ephemeral'>>(readTemporaryBadge());
 	private draftTexts = $state<Record<string, string>>(readRecord(DRAFTS_KEY));
 	private draftFiles = $state<Record<string, MessageAttachment[]>>(
 		readFileRecord(DRAFT_ATTACHMENTS_KEY),
@@ -225,7 +224,10 @@ export class SessionLocalState {
 	setDraft(id: string, text: string): void {
 		const next = { ...this.draftTexts };
 		if (text.trim()) next[id] = text;
-		else if ((this.draftFiles[id]?.length ?? 0) === 0 && (this.draftImageMap[id]?.length ?? 0) === 0)
+		else if (
+			(this.draftFiles[id]?.length ?? 0) === 0 &&
+			(this.draftImageMap[id]?.length ?? 0) === 0
+		)
 			delete next[id];
 		else next[id] = text;
 		this.draftTexts = next;

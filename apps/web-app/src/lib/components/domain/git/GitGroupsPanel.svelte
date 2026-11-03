@@ -17,9 +17,10 @@
 	interface Props {
 		workbench: GitWorkbench;
 		panel?: PanelId;
+		filterId?: string;
 	}
 
-	let { workbench, panel = $bindable('status') }: Props = $props();
+	let { workbench, panel = $bindable('status'), filterId = 'git-filter' }: Props = $props();
 
 	let panelCount = $derived.by(() => {
 		switch (panel) {
@@ -56,7 +57,6 @@
 				type="button"
 				onclick={() => {
 					panel = item.id;
-					workbench.focusKeyInput();
 				}}
 				aria-pressed={panel === item.id}
 				class="rounded-sm px-1.5 py-0.5 text-left font-mono text-micro hover:bg-accent/50 {panel ===
@@ -70,7 +70,7 @@
 	</div>
 	{#if panel !== 'status'}
 		<Input
-			id="git-filter"
+			id={filterId}
 			label={t('domain.git.filter')}
 			size="sm"
 			bind:value={workbench.filters[panel]}
@@ -107,7 +107,7 @@
 				<li>
 					<button
 						type="button"
-						onclick={() => void workbench.selectFile(file.path)}
+						onclick={() => void workbench.selectFile(file.path, false)}
 						aria-pressed={gitStore.selectionFor('files') === file.path}
 						class="flex w-full items-center gap-1.5 px-1 py-px text-left font-mono text-micro hover:bg-accent/50 {gitStore.selectionFor(
 							'files',
@@ -172,7 +172,7 @@
 				<li>
 					<button
 						type="button"
-						onclick={() => void workbench.selectFile(file.path)}
+						onclick={() => void workbench.selectFile(file.path, false)}
 						aria-pressed={gitStore.selectionFor('files') === file.path}
 						class="flex w-full items-center gap-1.5 px-1 py-px text-left font-mono text-micro hover:bg-accent/50 {gitStore.selectionFor(
 							'files',
@@ -245,8 +245,20 @@
 	{:else if panel === 'remotes'}
 		<ul class="mt-1">
 			{#each workbench.visibleRemotes as remote (remote.name)}
-				<li class="truncate px-1 py-px font-mono text-micro">
-					{remote.name} <span class="text-muted-foreground">{remote.url}</span>
+				<li>
+					<button
+						type="button"
+						onclick={() => {
+							workbench.selectedRemote = remote.name;
+						}}
+						aria-pressed={workbench.selectedRemote === remote.name}
+						class="block w-full truncate px-1 py-px text-left font-mono text-micro hover:bg-accent/50 {workbench.selectedRemote ===
+						remote.name
+							? 'bg-accent/70'
+							: ''}"
+					>
+						{remote.name} <span class="text-muted-foreground">{remote.url}</span>
+					</button>
 				</li>
 			{/each}
 		</ul>
@@ -261,8 +273,15 @@
 				<li>
 					<button
 						type="button"
-						onclick={() => gitStore.select('commits', tag.commit)}
-						class="block w-full truncate px-1 py-px text-left font-mono text-micro hover:bg-accent/50"
+						onclick={() => {
+							workbench.selectedTag = tag.name;
+							void workbench.selectCommit(tag.commit, false);
+						}}
+						aria-pressed={workbench.selectedTag === tag.name}
+						class="block w-full truncate px-1 py-px text-left font-mono text-micro hover:bg-accent/50 {workbench.selectedTag ===
+						tag.name
+							? 'bg-accent/70'
+							: ''}"
 					>
 						{tag.name} <span class="text-muted-foreground">{tag.commit}</span>
 					</button>
@@ -340,7 +359,7 @@
 				<li>
 					<button
 						type="button"
-						onclick={() => void workbench.selectCommit(commit.id)}
+						onclick={() => void workbench.selectCommit(commit.id, false)}
 						aria-pressed={gitStore.selectionFor('commits') === commit.id}
 						class="flex w-full items-baseline gap-1.5 px-1 py-px text-left font-mono text-micro hover:bg-accent/50 {gitStore.selectionFor(
 							'commits',
@@ -350,6 +369,11 @@
 					>
 						<span class="shrink-0 text-info">{commit.shortId}</span>
 						<span class="min-w-0 flex-1 truncate {commitRowClass(commit)}">{commit.subject}</span>
+						{#if commit.refs.length > 0}
+							<span class="max-w-28 shrink-0 truncate text-muted-foreground"
+								>{commit.refs.join(' ')}</span
+							>
+						{/if}
 					</button>
 				</li>
 			{/each}
@@ -360,7 +384,7 @@
 				<li>
 					<button
 						type="button"
-						onclick={() => void workbench.selectCommit(entry.id)}
+						onclick={() => void workbench.selectCommit(entry.id, false)}
 						aria-pressed={gitStore.selectionFor('commits') === entry.id}
 						class="flex w-full items-baseline gap-1.5 px-1 py-px text-left font-mono text-micro hover:bg-accent/50 {gitStore.selectionFor(
 							'commits',

@@ -214,7 +214,12 @@ export class IdeStore {
 		return this.tabs.filter((t) => t.content !== t.original).map((t) => t.path);
 	}
 
-	async openFile(path: string, preview = false, line?: number | null, col?: number | null): Promise<void> {
+	async openFile(
+		path: string,
+		preview = false,
+		line?: number | null,
+		col?: number | null,
+	): Promise<void> {
 		const lineNo = line !== undefined && line !== null && line >= 1 ? Math.floor(line) : null;
 		const colNo = col !== undefined && col !== null && col >= 1 ? Math.floor(col) : null;
 		if (lineNo !== null || colNo !== null) {
@@ -407,7 +412,11 @@ export class IdeStore {
 		tab.saving = true;
 		tab.error = null;
 		try {
-			const saved = await writeFsFile(path, tab.content, force ? undefined : (tab.hash ?? undefined));
+			const saved = await writeFsFile(
+				path,
+				tab.content,
+				force ? undefined : (tab.hash ?? undefined),
+			);
 			tab.original = tab.content;
 			tab.hash = saved.hash ?? tab.hash;
 			this.clearDraft(path);

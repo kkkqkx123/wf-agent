@@ -182,7 +182,8 @@
 		try {
 			parseWorkflowInputText(input);
 		} catch (e) {
-			inputError = e instanceof Error ? e.message : 'Workflow input must be a JSON object or empty.';
+			inputError =
+				e instanceof Error ? e.message : 'Workflow input must be a JSON object or empty.';
 			valid = false;
 		}
 		if (fileScope.trim() !== '') {
@@ -486,7 +487,9 @@
 					{/if}
 				{/if}
 				{#if inputIssues.length > 0}
-					<ul class="space-y-1 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5">
+					<ul
+						class="space-y-1 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5"
+					>
 						{#each inputIssues as issue (issue)}
 							<li class="text-micro text-destructive">{issue}</li>
 						{/each}

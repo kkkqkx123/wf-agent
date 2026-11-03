@@ -1,10 +1,5 @@
 import { ide } from '#lib/stores/ide.svelte';
-import {
-	copyFsEntry,
-	deleteFsEntry,
-	renameFsEntry,
-	uploadFsFile,
-} from '#lib/services/fs';
+import { copyFsEntry, deleteFsEntry, renameFsEntry, uploadFsFile } from '#lib/services/fs';
 import { invalidateFsTreeIndex } from '#lib/utils/fs-tree-index';
 
 export function baseName(path: string): string {
@@ -47,7 +42,9 @@ async function refreshAfterWrite(touched: string[]): Promise<void> {
 }
 
 /** Paste the session clipboard into `destDir`. Cut uses rename, copy uses the server copy. */
-export async function pasteClipboard(destDir: string): Promise<{ ok: number; failed: BatchFailure[] }> {
+export async function pasteClipboard(
+	destDir: string,
+): Promise<{ ok: number; failed: BatchFailure[] }> {
 	const clipboard = ide.clipboard;
 	if (!clipboard || clipboard.paths.length === 0) return { ok: 0, failed: [] };
 	let ok = 0;
@@ -84,7 +81,9 @@ export async function pasteClipboard(destDir: string): Promise<{ ok: number; fai
 }
 
 /** Delete every path, closing affected tabs. Continues past individual failures. */
-export async function deletePaths(paths: string[]): Promise<{ ok: number; failed: BatchFailure[] }> {
+export async function deletePaths(
+	paths: string[],
+): Promise<{ ok: number; failed: BatchFailure[] }> {
 	let ok = 0;
 	const failed: BatchFailure[] = [];
 	const touched: string[] = [];
@@ -112,7 +111,7 @@ export interface UploadOutcome {
 /** Upload files into `destDir`. Existing paths report as conflicts unless overwrite is set. */
 export async function uploadFiles(
 	destDir: string,
-	files: Array<File | Blob & { name?: string }>,
+	files: Array<File | (Blob & { name?: string })>,
 	options?: { overwrite?: boolean; names?: string[] },
 ): Promise<UploadOutcome> {
 	const uploaded: string[] = [];
@@ -122,8 +121,7 @@ export async function uploadFiles(
 	const overwrite = options?.overwrite ?? false;
 	for (let i = 0; i < files.length; i += 1) {
 		const file = files[i];
-		const rawName =
-			options?.names?.[i] ?? (file instanceof File ? file.name : 'upload.bin');
+		const rawName = options?.names?.[i] ?? (file instanceof File ? file.name : 'upload.bin');
 		const clean = rawName.split('/').pop()?.trim() || 'upload.bin';
 		const target = joinPath(destDir, clean);
 		try {

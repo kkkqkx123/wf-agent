@@ -114,12 +114,12 @@
 	let discoveryUnsupported = $derived(
 		selectedProvider !== undefined &&
 			(selectedProvider.discoveryKind === 'disabled' ||
-				selectedProvider.discoveryKind === 'unknown')
+				selectedProvider.discoveryKind === 'unknown'),
 	);
 	let missingBaseUrl = $derived(
 		selectedProvider !== undefined &&
-		!discoveryUnsupported &&
-		selectedProvider.baseUrl.trim().length === 0
+			!discoveryUnsupported &&
+			selectedProvider.baseUrl.trim().length === 0,
 	);
 
 	async function loadModels(refresh = false): Promise<void> {
@@ -196,11 +196,17 @@
 			</div>
 
 			{#if discoveryUnsupported}
-				<p class="text-caption text-muted-foreground">{t('page.resources.models.discoveryDisabled')}</p>
+				<p class="text-caption text-muted-foreground">
+					{t('page.resources.models.discoveryDisabled')}
+				</p>
 			{:else if missingBaseUrl}
-				<p class="text-caption text-muted-foreground">{t('page.resources.models.missingBaseUrl')}</p>
+				<p class="text-caption text-muted-foreground">
+					{t('page.resources.models.missingBaseUrl')}
+				</p>
 			{:else if loadingModels}
-				<p class="text-caption text-muted-foreground">{t('page.resources.models.noDiscoveredDesc')}</p>
+				<p class="text-caption text-muted-foreground">
+					{t('page.resources.models.noDiscoveredDesc')}
+				</p>
 			{:else if modelsError}
 				<p class="text-caption text-destructive">{modelsError}</p>
 			{:else if discoveredModels.length === 0}

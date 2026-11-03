@@ -468,7 +468,12 @@ export class TemplateEditController {
 					}),
 				);
 			} else if (kind === 'workflow') {
-				const definition = templateBackendDefinition(kind, value, this.routeIdParam, this.routeIdParam);
+				const definition = templateBackendDefinition(
+					kind,
+					value,
+					this.routeIdParam,
+					this.routeIdParam,
+				);
 				await replaceWorkflow(this.routeIdParam, { ...definition, id: this.routeIdParam });
 				toasts.success('Template saved');
 				this.session.markClean();

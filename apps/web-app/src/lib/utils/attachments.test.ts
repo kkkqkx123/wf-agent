@@ -3,7 +3,9 @@ import { splitAttachments, withAttachments } from './attachments';
 
 describe('withAttachments / splitAttachments', () => {
 	it('round-trips truncation markers and original sizes', () => {
-		const files = [{ name: 'big.txt', content: 'x'.repeat(10), truncated: true, originalChars: 99999 }];
+		const files = [
+			{ name: 'big.txt', content: 'x'.repeat(10), truncated: true, originalChars: 99999 },
+		];
 		const wire = withAttachments('see', files);
 		expect(wire).toContain('truncated="true"');
 		expect(wire).toContain('original="99999"');

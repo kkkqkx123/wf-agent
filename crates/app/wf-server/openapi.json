@@ -52853,6 +52853,19 @@
               "null"
             ]
           },
+          "env": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Environment overrides for the spawned process. Restricted by the\nsession layer to git-purpose variables (`GIT_` prefix).",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
           "rows": {
             "type": [
               "integer",
@@ -56236,6 +56249,13 @@
           },
           "model": {
             "type": "string"
+          },
+          "temporary_mode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Temporary execution mode of this run (`restricted` for a draft's\nfenced first turns, `ephemeral` for a short read-only Q&A without\ncheckpoints). Absent means a full agent run. Unknown values are\nrejected; the engine forces the exposure server-side."
           },
           "token_limit": {
             "type": [

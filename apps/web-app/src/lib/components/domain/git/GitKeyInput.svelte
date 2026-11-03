@@ -47,6 +47,25 @@
 			{workbench.tokenResult.candidates?.join(', ')}
 		</p>
 	{/if}
+	{#if workbench.controls.length > 0}
+		<div class="mt-2 flex flex-wrap gap-1">
+			{#each workbench.controls as control (control.id)}
+				<button
+					type="button"
+					class="cursor-pointer rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-micro hover:bg-primary/10"
+					title={`${control.name} (${control.id})`}
+					disabled={gitStore.busy}
+					onclick={() => void workbench.runActionId(control.id)}
+				>
+					<span class="font-mono">{control.hint}</span>
+					<span class="ml-1">{control.name}</span>
+					{#if control.danger === 'destructive' || control.danger === 'history_rewrite'}
+						<Badge variant="danger">{control.danger}</Badge>
+					{/if}
+				</button>
+			{/each}
+		</div>
+	{/if}
 	{#if gitStore.actionError}
 		<p class="mt-1 font-mono text-micro text-destructive">
 			{gitStore.actionError}

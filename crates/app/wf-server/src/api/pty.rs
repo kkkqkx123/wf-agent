@@ -60,6 +60,10 @@ pub(crate) struct CreatePtyBody {
     cols: Option<u16>,
     #[serde(default)]
     title: Option<String>,
+    /// Environment overrides for the spawned process. Restricted by the
+    /// session layer to git-purpose variables (`GIT_` prefix).
+    #[serde(default)]
+    env: Option<std::collections::BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -92,15 +96,17 @@ pub(crate) async fn handle_create_pty(
         rows: None,
         cols: None,
         title: None,
+        env: None,
     });
-    match wf_api::pty::create_pty_session(
-        &state.ctx,
-        body.cwd,
-        body.command,
-        body.rows,
-        body.cols,
-        body.title,
-    ) {
+    let params = wf_api::pty::PtyCreateParams {
+        cwd: body.cwd,
+        command: body.command,
+        rows: body.rows,
+        cols: body.cols,
+        title: body.title,
+        env: body.env,
+    };
+    match wf_api::pty::create_pty_session(&state.ctx, params) {
         Ok(view) => ok(view).into_response(),
         Err(err) => error_response(err.into()),
     }

@@ -135,13 +135,9 @@ impl PtyManager {
     pub fn create_with_context(
         &self,
         ctx: Option<&ApiContext>,
-        cwd: Option<String>,
-        command: Option<String>,
-        rows: Option<u16>,
-        cols: Option<u16>,
-        title: Option<String>,
+        params: super::session::PtyCreateParams,
     ) -> PtyResult<super::PtySession> {
-        super::session::create_with_context(ctx, cwd, command, rows, cols, title, &self.inner)
+        super::session::create_with_context(ctx, params, &self.inner)
     }
 
     pub fn list(&self) -> Vec<super::PtySession> {

@@ -420,7 +420,7 @@ export class GitWorkbench {
 		gitStore.beginAction(action);
 		try {
 			const outcome = await runAction(action, params, confirm);
-			toasts.success(outcome.message || action, outcome.echo);
+			this.reportOutcome(action, spec, outcome.message || action, outcome.echo);
 			await this.reload();
 		} catch (e) {
 			const message = e instanceof Error ? e.message : 'Git action failed';
@@ -429,6 +429,39 @@ export class GitWorkbench {
 			return;
 		}
 		gitStore.endAction();
+	}
+
+	/**
+	 * Success feedback for a completed write action. Recoverable actions
+	 * (backend `Recoverable`) get an 8-second toast with an Undo entry, which
+	 * runs the `undo` action — a stash-based soft rollback on the server.
+	 */
+	private reportOutcome(
+		action: string,
+		spec: RegistryEntry | undefined,
+		message: string,
+		echo?: string,
+	): void {
+		if (action === 'undo') {
+			toasts.success(message, echo);
+			return;
+		}
+		if (spec?.danger === 'recoverable') {
+			toasts.push({
+				title: message,
+				description: echo,
+				tone: 'success',
+				timeout: 8000,
+				action: {
+					label: 'Undo',
+					run: () => {
+						void this.runActionId('undo');
+					},
+				},
+			});
+			return;
+		}
+		toasts.success(message, echo);
 	}
 
 	async toggleTerminal(): Promise<void> {

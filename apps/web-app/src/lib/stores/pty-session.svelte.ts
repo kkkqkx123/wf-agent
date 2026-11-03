@@ -163,6 +163,7 @@ export class PtySessionStore {
 		command?: string;
 		rows?: number;
 		cols?: number;
+		env?: Record<string, string>;
 	}): Promise<LocalPtySession | null> {
 		if (this.sessions.length >= MAX_TERMINAL_SESSIONS) return null;
 		const number = this.pickNextNumber();
@@ -351,7 +352,10 @@ export class PtySessionStore {
 	 * Recover a broken session by cloning it: the local buffer is kept so the
 	 * user does not lose scrollback, but a fresh server session is spawned.
 	 */
-	async clone(id: string, options?: { cwd?: string }): Promise<void> {
+	async clone(
+		id: string,
+		options?: { cwd?: string; env?: Record<string, string> },
+	): Promise<void> {
 		const previous = this.byId(id);
 		if (!previous) return;
 		const replacement = await this.spawn(options);

@@ -10601,6 +10601,13 @@ export interface components {
             cols?: number | null;
             command?: string | null;
             cwd?: string | null;
+            /**
+             * @description Environment overrides for the spawned process. Restricted by the
+             *     session layer to git-purpose variables (`GIT_` prefix).
+             */
+            env?: {
+                [key: string]: string;
+            } | null;
             /** Format: int32 */
             rows?: number | null;
             title?: string | null;
@@ -11750,10 +11757,6 @@ export interface components {
             max_iterations?: number | null;
             message: string;
             model: string;
-            /** Format: int64 */
-            token_limit?: number | null;
-            /** Format: int32 */
-            token_warning_threshold?: number | null;
             /**
              * @description Temporary execution mode of this run (`restricted` for a draft's
              *     fenced first turns, `ephemeral` for a short read-only Q&A without
@@ -11761,6 +11764,10 @@ export interface components {
              *     rejected; the engine forces the exposure server-side.
              */
             temporary_mode?: string | null;
+            /** Format: int64 */
+            token_limit?: number | null;
+            /** Format: int32 */
+            token_warning_threshold?: number | null;
             tool_call_protocol: unknown;
         };
         SaveAgentTemplateVersionBody: {

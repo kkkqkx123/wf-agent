@@ -15,6 +15,7 @@ pub use state::{
     global_manager, lock as state_lock, lock_inner, manager_inner, sweep, PtyError, PtyManager,
     PtyResult, PtySession, PtySessionStatus,
 };
+pub use session::PtyCreateParams;
 // Convenience re-export of common lock helper under original name for tests/internal.
 pub use state::lock;
 
@@ -64,13 +65,9 @@ pub struct PtyAttachment {
 
 pub fn create_pty_session(
     ctx: &ApiContext,
-    cwd: Option<String>,
-    command: Option<String>,
-    rows: Option<u16>,
-    cols: Option<u16>,
-    title: Option<String>,
+    params: session::PtyCreateParams,
 ) -> PtyResult<PtySession> {
-    global_manager().create_with_context(Some(ctx), cwd, command, rows, cols, title)
+    global_manager().create_with_context(Some(ctx), params)
 }
 
 pub fn list_pty_sessions() -> Vec<PtySession> {

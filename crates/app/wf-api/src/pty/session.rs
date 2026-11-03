@@ -12,15 +12,51 @@ use crate::{BaseEvent, EventType};
 use super::state::{lock, lock_inner, PtySessionStatus, PtyState};
 use super::{PtyError, PtyResult, PtySession};
 
+/// Everything a caller can tune when spawning a PTY session. Collected into
+/// one struct so the create path stays within clippy's argument budget.
+#[derive(Debug, Default, Clone)]
+pub struct PtyCreateParams {
+    pub cwd: Option<String>,
+    pub command: Option<String>,
+    pub rows: Option<u16>,
+    pub cols: Option<u16>,
+    pub title: Option<String>,
+    /// Environment overrides for the spawned process. Restricted to
+    /// git-purpose variables (`GIT_` prefix) by [`apply_client_env`].
+    pub env: Option<std::collections::BTreeMap<String, String>>,
+}
+
+/// Git-purpose allowlist for client-supplied environment overrides: only
+/// `GIT_*` variables are accepted so a caller cannot inject `LD_PRELOAD` or
+/// similar into the spawned shell.
+fn apply_client_env(cmd: &mut CommandBuilder, env: &std::collections::BTreeMap<String, String>) {
+    for (key, value) in env {
+        if !key.starts_with("GIT_") {
+            continue;
+        }
+        if value.is_empty() || value.len() > 4096 {
+            continue;
+        }
+        if value.bytes().any(|b| b < 0x20 || b == 0x7f) {
+            continue;
+        }
+        cmd.env(key, value);
+    }
+}
+
 pub fn create_with_context(
     ctx: Option<&ApiContext>,
-    cwd: Option<String>,
-    command: Option<String>,
-    rows: Option<u16>,
-    cols: Option<u16>,
-    title: Option<String>,
+    params: PtyCreateParams,
     inner: &Mutex<super::state::ManagerInner>,
 ) -> PtyResult<PtySession> {
+    let PtyCreateParams {
+        cwd,
+        command,
+        rows,
+        cols,
+        title,
+        env,
+    } = params;
     let rows = rows.unwrap_or(24).max(1);
     let cols = cols.unwrap_or(80).max(1);
 
@@ -53,6 +89,9 @@ pub fn create_with_context(
     cmd.cwd(&cwd_path);
     cmd.env("TERM", "xterm-256color");
     cmd.env("LANG", "C.UTF-8");
+    if let Some(env) = &env {
+        apply_client_env(&mut cmd, env);
+    }
 
     let child = pair
         .slave

@@ -14,11 +14,13 @@
 		repo: string;
 		/** Working directory for newly spawned sessions. Falls back to server default when unset. */
 		cwd?: string;
+		/** Environment overrides for newly spawned sessions (restricted to GIT_* server-side). */
+		env?: Record<string, string>;
 		open: boolean;
 		onClose: () => void;
 	}
 
-	let { repo, cwd, open, onClose }: Props = $props();
+	let { repo, cwd, env, open, onClose }: Props = $props();
 
 	const store: PtySessionStore = $derived(ptyStoreFor(repo));
 
@@ -47,7 +49,7 @@
 		void store.reconcile().then(() => {
 			if (!autoSpawned && store.sessions.length === 0) {
 				autoSpawned = true;
-				void store.spawn({ cwd }).then((session) => {
+				void store.spawn({ cwd, env }).then((session) => {
 					if (session) instance?.focus();
 				});
 			}
@@ -85,7 +87,7 @@
 
 	async function restartExited(id: string): Promise<void> {
 		clearFailure();
-		await store.clone(id, { cwd });
+		await store.clone(id, { cwd, env });
 		instance?.focus();
 	}
 </script>

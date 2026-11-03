@@ -23,7 +23,9 @@
 	import { t } from '#lib/i18n';
 
 	const requested = parseListParams(page.url as unknown as URL).panel;
+	const requestedTab = parseListParams(page.url as unknown as URL).tab;
 	const workbench = new GitWorkbench();
+	workbench.diffSource = requestedTab === 'commit' ? 'commit' : 'unstaged';
 	workbench.panel =
 		requested === 'files' ||
 		requested === 'conflicts' ||
@@ -164,6 +166,7 @@
 	$effect(() => {
 		void gotoWithParams(page.url as unknown as URL, {
 			panel: workbench.panel === 'status' ? '' : workbench.panel,
+			tab: workbench.diffSource === 'commit' ? 'commit' : '',
 		});
 	});
 </script>

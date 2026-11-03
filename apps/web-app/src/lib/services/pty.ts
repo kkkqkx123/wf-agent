@@ -16,6 +16,7 @@ export async function createPty(input?: {
 	rows?: number;
 	cols?: number;
 	title?: string;
+	env?: Record<string, string>;
 }): Promise<PtySession> {
 	const data = await call<unknown>(
 		client.POST('/api/v1/pty', {
@@ -25,6 +26,7 @@ export async function createPty(input?: {
 				rows: input?.rows,
 				cols: input?.cols,
 				title: input?.title,
+				env: input?.env,
 			},
 		}),
 	);

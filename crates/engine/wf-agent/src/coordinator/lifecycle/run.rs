@@ -84,6 +84,7 @@ impl AgentLoopCoordinator {
         mode: IterationMode,
         sink: Option<AgentEventSink>,
     ) -> AgentResult<AgentLoopOutput> {
+        self.validate_checkpoint_config(config)?;
         if let Some(ref registry) = self.entity_registry {
             if let Err(e) = registry.register(entity.clone()) {
                 // Entity build derived this child onto the parent manager;

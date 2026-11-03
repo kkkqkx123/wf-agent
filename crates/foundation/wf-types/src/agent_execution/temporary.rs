@@ -7,6 +7,11 @@ use serde::{Deserialize, Serialize};
 /// executor: the row stays `execution_type = agent`, the checkpoint and
 /// history machinery stays the same shape, only the exposure is forced
 /// and, for the ephemeral tier, checkpointing is switched off.
+///
+/// Persistence note: both tiers keep messages, variables and execution
+/// records queryable so the transcript stays replayable. The ephemeral
+/// tier only keeps the checkpoint chain empty; a crash there has no
+/// snapshot to resume from, so callers re-ask instead of resuming.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TemporaryMode {
@@ -23,6 +28,8 @@ pub enum TemporaryMode {
     /// hook checkpoints, no file history session, and manual creation is
     /// rejected. Messages and execution records still persist, so the
     /// transcript stays replayable; only the checkpoint chain stays empty.
+    /// Promotion never reuses the same execution id: start a new execution
+    /// with explicit history instead of continuing the ephemeral id.
     Ephemeral,
 }
 

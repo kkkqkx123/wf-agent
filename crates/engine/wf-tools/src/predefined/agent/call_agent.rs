@@ -120,6 +120,22 @@ pub static CALL_AGENT: ToolDefinition = ToolDefinition {
             constraints: None,
         },
         ToolParameter {
+            name: "temporary_mode",
+            r#type: "string",
+            required: false,
+            description: "Downstream constraint for the child run (restricted or ephemeral); absent means a full run and is forced through the same temporary policy as top-level runs",
+            default_json: None,
+            constraints: None,
+        },
+        ToolParameter {
+            name: "checkpoint_message_interval",
+            r#type: "integer",
+            required: false,
+            description: "Checkpoint every N appended conversation messages for the child run; absent disables the message-count backstop",
+            default_json: None,
+            constraints: None,
+        },
+        ToolParameter {
             name: "file_scope",
             r#type: "object",
             required: false,

@@ -7,6 +7,7 @@ use crate::infra::context::ApiContext;
 use crate::infra::error::ApiError;
 use crate::infra::stream::ExecutionEventStream;
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
+use wf_storage::adapter::base::BaseStorageAdapter;
 
 use super::*;
 
@@ -23,6 +24,7 @@ pub async fn run(
         .agent_loop_id
         .clone()
         .unwrap_or_else(|| wf_types::Id::from(wf_common::generate_id()));
+    reject_ephemeral_id_reuse(ctx, agent_loop_id.as_str(), &params.config).await?;
     let coordinator = coordinator_for(ctx, &params, Some(agent_loop_id.as_str()))
         .with_agent_loop_id(agent_loop_id.clone());
     let timeout_ms = agent_timeout_ms(&params.config);
@@ -79,6 +81,12 @@ pub async fn stream(
         crate::agent::agent_message::normalize_imported_conversation(params.input.conversation);
     gate_agent_config(&ctx, &params.config)?;
     gate_agent_input(&params.input, Some(&params.config))?;
+    reject_ephemeral_id_reuse(
+        &ctx,
+        params.agent_loop_id.as_deref().unwrap_or(""),
+        &params.config,
+    )
+    .await?;
     // Resolve the loop id up front (instead of inside the coordinator) so
     // the host-default approval handler can scope its interaction records
     // to the same execution.
@@ -278,6 +286,39 @@ pub async fn set_append_mode(
         }
     };
     entity.set_append_mode(mode).await;
+    Ok(())
+}
+
+/// Ephemeral executions never grow a checkpoint chain, so reusing their id
+/// for a full or restricted run would suddenly extend an empty chain and
+/// confuse the timeline. Promotion starts a new execution with explicit
+/// history instead of continuing the ephemeral id; storage read failures
+/// fail open so an unrelated subsystem never blocks a new run.
+async fn reject_ephemeral_id_reuse(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+    config: &wf_tools::callback::AgentLoopConfig,
+) -> crate::infra::error::ApiResult<()> {
+    if agent_loop_id.is_empty() {
+        return Ok(());
+    }
+    if config.temporary_mode == Some(wf_types::agent_execution::TemporaryMode::Ephemeral) {
+        return Ok(());
+    }
+    let previous = ctx
+        .storage
+        .agent_execution
+        .load(agent_loop_id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|record| record.loop_config)
+        .and_then(|c| c.temporary_mode);
+    if previous == Some(wf_types::agent_execution::TemporaryMode::Ephemeral) {
+        return Err(ApiError::Validation(format!(
+            "execution {agent_loop_id} was an ephemeral read-only run: start a new execution id with explicit history instead of reusing it"
+        )));
+    }
     Ok(())
 }
 

@@ -16,7 +16,9 @@ use wf_types::storage::CheckpointStorageMetadata;
 /// policy layer), then the domain switch (domain policy layer). Manual
 /// creation bypasses the trigger whitelist and cadence but never bypasses
 /// these two switches. Each rejection carries its source so callers locate
-/// the owning configuration without guessing.
+/// the owning configuration without guessing. This gate is the single
+/// source for manual decisions; engine integrations and API layers call it
+/// instead of re-checking the ephemeral flag on their own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ManualReject {
     Ephemeral,
@@ -27,7 +29,7 @@ pub enum ManualReject {
 impl ManualReject {
     pub fn message(self) -> &'static str {
         match self {
-            ManualReject::Ephemeral => "ephemeral read-only runs take no checkpoints",
+            ManualReject::Ephemeral => "ephemeral read-only runs take no checkpoints; messages and execution records still persist, re-ask instead of resuming",
             ManualReject::MasterDisabled => {
                 "manual checkpoint rejected: checkpointing is disabled (master switch)"
             }

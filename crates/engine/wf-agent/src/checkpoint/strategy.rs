@@ -9,6 +9,10 @@ pub enum AgentCheckpointTiming {
     BeforeIteration,
     AfterIteration,
     OnIterationError,
+    /// User-initiated manual checkpoint as seen by the cadence gate. This
+    /// variant only carries the manual trigger for whitelist bookkeeping;
+    /// it is not the agent lifecycle start. Lifecycle start snapshots use
+    /// their own boundary handling and must not be confused with this entry.
     OnAgentStart,
     OnAgentEnd,
     OnAgentPause,

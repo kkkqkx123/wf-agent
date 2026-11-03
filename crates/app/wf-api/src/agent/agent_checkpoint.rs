@@ -58,19 +58,8 @@ pub async fn create(
     description: Option<String>,
 ) -> ApiResult<Checkpoint> {
     if let Some(entity) = ctx.agent_loop(agent_loop_id) {
-        // Live manual creation honors the fixed privilege order
-        // (ephemeral, master, domain) inside the integration entry; the
-        // explicit ephemeral check here keeps the interface-layer reason
-        // identical when called directly.
-        if entity.effective_config().and_then(|c| c.temporary_mode)
-            == Some(wf_types::agent_execution::TemporaryMode::Ephemeral)
-        {
-            return Err(ApiError::Validation(
-                wf_checkpoint::coordinator::base::ManualReject::Ephemeral
-                    .message()
-                    .to_string(),
-            ));
-        }
+        // Live manual creation goes through the single ordered gate
+        // inside the integration entry; no separate ephemeral check here.
         let mut integration =
             wf_agent::checkpoint::AgentCheckpointIntegration::new(ctx.checkpoint_store.clone());
         if let Some(manager) = ctx.file_checkpoint_manager() {
@@ -183,6 +172,10 @@ pub async fn create(
         let _ = coordinator
             .run_post_persist(&checkpoint.id, agent_loop_id, true, None)
             .await;
+        // Manual seed rows are durability points for later restores:
+        // drain async projection before returning the id so callers never
+        // observe a state row without its file association.
+        coordinator.wait_for_persistence().await;
         // Return the checkpoint just built, reloaded by id: re-querying the
         // latest is racy when two checkpoints share a millisecond timestamp.
         return state_manager(ctx)

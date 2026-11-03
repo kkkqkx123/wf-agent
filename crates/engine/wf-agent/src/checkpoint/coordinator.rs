@@ -384,22 +384,12 @@ impl AgentCheckpointIntegration {
         .await
         .is_err()
         {
+            // One rebuild against fresh progress: concurrent writers move
+            // the chain head between assembly and persist. A rebuild
+            // failure is reported loudly; it never falls back to the
+            // latest id because that would mask lost progress.
             let snapshot = self.build_snapshot(entity).await;
-            match build_once(snapshot).await {
-                Ok(rebuilt) => checkpoint = rebuilt,
-                Err(_) => {
-                    if let Some(latest) = self
-                        .inner
-                        .state_manager()
-                        .get_latest(entity.id().as_str())
-                        .await
-                        .ok()
-                        .flatten()
-                    {
-                        return Ok(latest.id);
-                    }
-                }
-            }
+            checkpoint = Box::pin(build_once(snapshot)).await?;
             if check_predecessor_unchanged(
                 self.inner.state_manager(),
                 entity.id().as_str(),
@@ -408,16 +398,10 @@ impl AgentCheckpointIntegration {
             .await
             .is_err()
             {
-                if let Some(latest) = self
-                    .inner
-                    .state_manager()
-                    .get_latest(entity.id().as_str())
-                    .await
-                    .ok()
-                    .flatten()
-                {
-                    return Ok(latest.id);
-                }
+                return Err(CheckpointError::Coordinator(format!(
+                    "concurrent checkpoint creation for '{}': chain head moved during assembly, retry the creation",
+                    entity.id()
+                )));
             }
         }
         Box::pin(self.inner.persist(&checkpoint, entity.id().as_str())).await?;
@@ -430,6 +414,13 @@ impl AgentCheckpointIntegration {
                 self.file_scope.as_ref(),
             )
             .await;
+        // Lifecycle boundaries are the durability points resume depends
+        // on: when projection runs async, wait here so the returned id
+        // never precedes its file association. Iteration boundaries keep
+        // the deferred form and carry it in the creation event.
+        if is_lifecycle_trigger(&trigger) {
+            self.inner.wait_for_persistence().await;
+        }
 
         if let Some(ref bus) = self.execution_events {
             let mut changes = serde_json::Map::new();

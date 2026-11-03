@@ -69,6 +69,14 @@ pub struct CallAgentParams {
     pub conversation: Vec<Message>,
     #[serde(default)]
     pub file_scope: Option<wf_types::config::file_scope::ExecutionFileScope>,
+    /// Downstream constraint for the child run. Strict wire enum matching
+    /// top-level runs; unknown values fail validation instead of silently
+    /// becoming full runs. Images and context contracts stay non-inherited:
+    /// callers import history explicitly through `conversation`.
+    #[serde(default)]
+    pub temporary_mode: Option<String>,
+    #[serde(default)]
+    pub checkpoint_message_interval: Option<u32>,
 }
 
 /// Parameters of the `execute_workflow` tool.
@@ -129,6 +137,16 @@ impl BuiltinToolHandler for CallAgentHandler {
                 "call_agent requires a agent_profile_id parameter".into(),
             ));
         }
+        let temporary_mode = match params.temporary_mode {
+            None => None,
+            Some(raw) => Some(
+                wf_types::agent_execution::TemporaryMode::parse(&raw).ok_or_else(|| {
+                    ToolError::ValidationFailed(format!(
+                        "unknown temporary_mode: {raw} (expected restricted or ephemeral)"
+                    ))
+                })?,
+            ),
+        };
 
         let config = AgentLoopConfig {
             agent_id: params.agent_id,
@@ -149,8 +167,8 @@ impl BuiltinToolHandler for CallAgentHandler {
             history_normalization: false,
             context_schema: None,
             context_strict: None,
-            temporary_mode: None,
-            checkpoint_message_interval: None,
+            temporary_mode,
+            checkpoint_message_interval: params.checkpoint_message_interval.filter(|n| *n > 0),
             initial_tool_names: params.initial_tool_names,
             discoverable_tool_names: params.discoverable_tool_names,
             enable_general_tool: params.enable_general_tool,

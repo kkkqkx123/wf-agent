@@ -119,6 +119,30 @@ pub async fn save_file_snapshot_scoped(
     Ok(())
 }
 
+/// Shared file-projection outcome reporting for state creation. Runs the
+/// best-effort projection and returns the status string the creation events
+/// carry. Failures are logged with the state checkpoint id for correlation;
+/// the state checkpoint stays durable regardless of the file outcome.
+pub async fn file_snapshot_status(
+    file_checkpoint_manager: Option<&FileCheckpointManager>,
+    checkpoint_id: &str,
+    entity_id: &str,
+) -> String {
+    match save_file_snapshot(file_checkpoint_manager, checkpoint_id, entity_id).await {
+        Ok(_) => "ok".to_string(),
+        Err(err) => {
+            tracing::error!(
+                checkpoint = %checkpoint_id,
+                entity = %entity_id,
+                error = %err,
+                disk_full = err.is_disk_full(),
+                "checkpoint persisted but file snapshot failed; file history for this checkpoint is incomplete"
+            );
+            format!("failed: {err}")
+        }
+    }
+}
+
 /// Record the state-to-file link with bounded retries. When every attempt
 /// fails, a pending marker is persisted (best-effort) so startup compensation
 /// can re-link, and the original error is returned for loud reporting.

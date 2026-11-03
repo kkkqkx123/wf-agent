@@ -83,6 +83,29 @@ pub fn stamp_custom_fields(
     fields
 }
 
+/// Record the caller description in the creation context so row assembly
+/// persists it under the caller description field. Both coordinators route
+/// through this entry so the same parameter keeps the same stored meaning.
+pub fn stamp_description(ctx: &mut CheckpointContext, description: Option<&str>) {
+    if let Some(text) = description {
+        ctx.metadata
+            .get_or_insert_default()
+            .insert("description".to_string(), serde_json::json!(text));
+    }
+}
+
+/// Shared duplicate-gate comparison over stored metadata and freshly
+/// computed coordinate fields. Both coordinators route their progress gate
+/// through this entry so the equality semantics stay in one place while
+/// each domain keeps its own key list and coordinate definition.
+pub fn duplicate_gate_matched(
+    stored: &Option<HashMap<String, serde_json::Value>>,
+    current: &HashMap<String, serde_json::Value>,
+    keys: &[&str],
+) -> bool {
+    checkpoint_base::metadata::builder::custom_fields_equal(stored, current, keys)
+}
+
 /// Read-modify-write description merge shared by the agent-loop and
 /// workflow coordinators: rewrites the caller-supplied text under
 /// `customFields.description` on the stored blob without allocating a new

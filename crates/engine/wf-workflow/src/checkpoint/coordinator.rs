@@ -3,13 +3,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde_json::Value;
+use wf_checkpoint::coordinator::base::{duplicate_gate_matched, stamp_description};
+use wf_checkpoint::coordinator::projection::file_snapshot_status;
 use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
 use wf_checkpoint::coordinator::{CheckpointCoordinator, WorkflowProgressCoords};
 use wf_checkpoint::event::CheckpointEventBus;
 use wf_checkpoint::CheckpointError;
 use wf_checkpoint::{
-    custom_fields_equal, fingerprint_entries, fingerprint_option, CheckpointStateManager,
-    ExecutionEventBus, WorkflowCheckpointStateManager, WF_PROGRESS_COORD_KEYS,
+    fingerprint_entries, fingerprint_option, CheckpointStateManager, ExecutionEventBus,
+    WorkflowCheckpointStateManager, WF_PROGRESS_COORD_KEYS,
 };
 use wf_core::EventBus;
 use wf_storage::backend::StorageBackend;
@@ -438,7 +440,7 @@ impl WorkflowCheckpointIntegration {
             .get_latest(entity.id().as_str())
             .await
         {
-            if custom_fields_equal(
+            if duplicate_gate_matched(
                 &latest.custom_fields,
                 &self.entity_progress_coords(entity).await.as_fields(),
                 WF_PROGRESS_COORD_KEYS,
@@ -461,7 +463,7 @@ impl WorkflowCheckpointIntegration {
         // futures are boxed so their state machines stay off this frame.
         let snapshot = self.build_snapshot(entity).await;
         let ancestors: Vec<String> = entity.ancestors().iter().map(|id| id.to_string()).collect();
-        let ctx = self
+        let mut ctx = self
             .inner
             .prepare_with_hierarchy(
                 entity.id().as_str(),
@@ -470,25 +472,12 @@ impl WorkflowCheckpointIntegration {
                 &ancestors,
             )
             .await?;
+        stamp_description(&mut ctx, description.as_deref());
         let checkpoint = Box::pin(self.inner.build(ctx, snapshot)).await?;
         Box::pin(self.inner.persist(&checkpoint, entity.id().as_str())).await?;
-        let file_snapshot_status = match self
-            .inner
-            .save_file_snapshot(&checkpoint.id, entity.id().as_str())
-            .await
-        {
-            Ok(_) => "ok".to_string(),
-            Err(err) => {
-                tracing::error!(
-                    checkpoint = %checkpoint.id,
-                    entity = %entity.id().as_str(),
-                    error = %err,
-                    disk_full = err.is_disk_full(),
-                    "checkpoint persisted but file snapshot failed; file history for this checkpoint is incomplete"
-                );
-                format!("failed: {err}")
-            }
-        };
+        let file_manager = self.inner.file_checkpoint_manager();
+        let file_snapshot_status =
+            file_snapshot_status(file_manager, &checkpoint.id, entity.id().as_str()).await;
 
         match &self.event_bus {
             Some(bus) => {

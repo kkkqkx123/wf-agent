@@ -2,12 +2,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use wf_checkpoint::coordinator::agent::{AgentCheckpointCoordinator, ProgressCoords};
+use wf_checkpoint::coordinator::base::{duplicate_gate_matched, stamp_description};
+use wf_checkpoint::coordinator::projection::file_snapshot_status;
 use wf_checkpoint::coordinator::CheckpointCoordinator;
 use wf_checkpoint::event::CheckpointEventBus;
 use wf_checkpoint::CheckpointError;
 use wf_checkpoint::{
-    custom_fields_equal, AgentCheckpointStateManager, CheckpointStateManager, ExecutionEventBus,
-    PROGRESS_COORD_KEYS,
+    AgentCheckpointStateManager, CheckpointStateManager, ExecutionEventBus, PROGRESS_COORD_KEYS,
 };
 use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_storage::backend::StorageBackend;
@@ -263,7 +264,7 @@ impl AgentCheckpointIntegration {
             .await
         {
             let current = Self::entity_progress_coords(entity).await;
-            if custom_fields_equal(
+            if duplicate_gate_matched(
                 &latest.custom_fields,
                 &current.as_fields(),
                 PROGRESS_COORD_KEYS,
@@ -297,33 +298,12 @@ impl AgentCheckpointIntegration {
                 &ancestors,
             )
             .await?;
-        if let Some(ref text) = description {
-            ctx.metadata
-                .get_or_insert_default()
-                .insert("description".to_string(), serde_json::json!(text));
-        }
+        stamp_description(&mut ctx, description.as_deref());
         let checkpoint = Box::pin(self.inner.build(ctx, snapshot)).await?;
         Box::pin(self.inner.persist(&checkpoint, entity.id().as_str())).await?;
-        // The state checkpoint is durable at this point; a failed file
-        // snapshot means restore will carry state without file history, so
-        // the gap must be visible rather than silently swallowed.
-        let file_snapshot_status = match self
-            .inner
-            .save_file_snapshot(&checkpoint.id, entity.id().as_str())
-            .await
-        {
-            Ok(_) => "ok".to_string(),
-            Err(err) => {
-                tracing::error!(
-                    checkpoint = %checkpoint.id,
-                    entity = %entity.id(),
-                    error = %err,
-                    disk_full = err.is_disk_full(),
-                    "checkpoint persisted but file snapshot failed; file history for this checkpoint is incomplete"
-                );
-                format!("failed: {err}")
-            }
-        };
+        let file_manager = self.inner.file_checkpoint_manager();
+        let file_snapshot_status =
+            file_snapshot_status(file_manager, &checkpoint.id, entity.id().as_str()).await;
 
         if let Some(ref bus) = self.execution_events {
             let mut changes = serde_json::Map::new();

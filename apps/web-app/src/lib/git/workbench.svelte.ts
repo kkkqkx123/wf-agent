@@ -7,6 +7,7 @@ import {
 	getDiffRange,
 	getMeta,
 	getRegistry,
+	getStagedDiff,
 	getStatus,
 	listBranches,
 	listCommits,
@@ -32,8 +33,8 @@ import {
 	type TagEntry,
 	type WorktreeEntry,
 } from '#lib/services/git';
-import { checkDrift, visibleControls } from '#lib/git/bindings';
-import type { DiffFile } from '#lib/types/diff';
+import { checkDrift, UNDO_TOAST_ACTIONS, visibleControls } from '#lib/git/bindings';
+import type { DiffFile, DiffLine } from '#lib/types/diff';
 import { CLIENT_ONLY_ACTIONS, confirmTarget, parseToken } from '#lib/git/parse';
 
 export const PANELS = [
@@ -52,6 +53,19 @@ export const PANELS = [
 
 export type PanelId = (typeof PANELS)[number]['id'];
 
+export type MainViewMode = 'diff' | 'staging' | 'commitFiles';
+
+export function defaultViewModeForPanel(panel: PanelId): MainViewMode {
+	if (panel === 'commits') return 'commitFiles';
+	return 'diff';
+}
+
+export function isViewModeValidForPanel(mode: MainViewMode, panel: PanelId): boolean {
+	if (panel === 'files' || panel === 'conflicts') return mode === 'diff' || mode === 'staging';
+	if (panel === 'commits') return mode === 'diff' || mode === 'commitFiles';
+	return mode === 'diff';
+}
+
 export const PARAM_LABELS: Record<string, string> = {
 	message: 'Message',
 	branch: 'Branch',
@@ -65,6 +79,8 @@ export const PARAM_LABELS: Record<string, string> = {
 	tag: 'Tag',
 	index: 'Stash index',
 	query: 'Query',
+	hunkIndex: 'Hunk',
+	lines: 'Lines',
 };
 
 export const PARAM_DEFAULTS: Record<string, Record<string, string>> = {
@@ -74,8 +90,45 @@ export const PARAM_DEFAULTS: Record<string, Record<string, string>> = {
 
 export const GUARDED_DANGERS = new SvelteSet(['destructive', 'history_rewrite']);
 
+/** Reverse staging actions for toast shortcuts; history undo does not apply to the index. */
+const STAGING_REVERSE: Record<string, string> = {
+	'stage.toggle': 'unstage.all',
+	'stage.all': 'unstage.all',
+	'stage.hunk': 'unstage.hunk',
+	'stage.lines': 'unstage.lines',
+	'unstage.all': 'stage.all',
+	'unstage.hunk': 'stage.hunk',
+	'unstage.lines': 'stage.lines',
+};
+
+/** Split flattened diff rows back into per-hunk content rows (meta rows are boundaries). */
+export function hunksOfDiffFile(file: DiffFile): DiffLine[][] {
+	const hunks: DiffLine[][] = [];
+	let current: DiffLine[] | null = null;
+	for (const line of file.lines) {
+		if (line.type === 'meta') {
+			if (current) hunks.push(current);
+			current = [];
+		} else if (current) {
+			current.push(line);
+		}
+	}
+	if (current) hunks.push(current);
+	return hunks;
+}
+
+/** Selectable content indices inside one hunk (added or removed rows only). */
+export function selectableIndices(rows: DiffLine[]): number[] {
+	const out: number[] = [];
+	rows.forEach((row, idx) => {
+		if (row.type === 'add' || row.type === 'del') out.push(idx);
+	});
+	return out;
+}
+
 export class GitWorkbench {
 	panel = $state<PanelId>('status');
+	viewMode = $state<MainViewMode>('diff');
 	meta = $state<RepoMeta | null>(null);
 	status = $state<StatusCounts | null>(null);
 	files = $state<GitFile[]>([]);
@@ -87,8 +140,9 @@ export class GitWorkbench {
 	reflogs = $state<ReflogEntry[]>([]);
 	stash = $state<StashEntry[]>([]);
 	diff = $state<DiffFile[]>([]);
-	diffSource = $state<'unstaged' | 'commit'>('unstaged');
+	stagedDiff = $state<DiffFile[]>([]);
 	commitFiles = $state<CommitFileEntry[]>([]);
+	commitFileDiffPath = $state<string | null>(null);
 	remotes = $state<RemoteEntry[]>([]);
 	tags = $state<TagEntry[]>([]);
 	worktrees = $state<WorktreeEntry[]>([]);
@@ -98,6 +152,9 @@ export class GitWorkbench {
 	noRepo = $state(false);
 	liveDirty = $state(false);
 	private stopLive: (() => void) | null = null;
+
+	/** Line selection: file path -> hunk index -> sorted content line indices. */
+	lineSelection = $state<Record<string, Record<number, number[]>>>({});
 
 	registry = $state<RegistryEntry[]>([]);
 	filters = $state<Record<PanelId, string>>({
@@ -186,6 +243,24 @@ export class GitWorkbench {
 	dialogParams = $derived(this.dialogSpec?.params ?? []);
 	dialogCanSubmit = $derived(!this.dialogNeedsConfirm || this.dialogConfirmMatches);
 	selection = $derived(gitStore.selectionFor(this.panel));
+	selectedFileEntry = $derived(
+		gitStore.selectedFile
+			? (this.files.find((f) => f.path === gitStore.selectedFile) ?? null)
+			: null,
+	);
+	isSelectedConflicted = $derived(this.selectedFileEntry?.kind === 'conflicted');
+	selectionSize = $derived(
+		Object.values(this.lineSelection).reduce(
+			(total, byHunk) =>
+				total + Object.values(byHunk).reduce((sum, rows) => sum + rows.length, 0),
+			0,
+		),
+	);
+	isMidOperation = $derived(
+		Boolean(
+			this.meta?.mergeHead || this.meta?.rebaseHead || this.meta?.cherryPickHead,
+		),
+	);
 
 	/** Attach the live subscription, do the initial load and focus the key input. */
 	start(): void {
@@ -205,6 +280,22 @@ export class GitWorkbench {
 
 	specFor(action: string): RegistryEntry | undefined {
 		return this.registry.find((entry) => entry.id === action);
+	}
+
+	setViewMode(mode: MainViewMode): void {
+		if (!isViewModeValidForPanel(mode, this.panel)) return;
+		if (this.viewMode === mode) return;
+		this.viewMode = mode;
+		this.clearSelection();
+		if (mode === 'staging' && gitStore.selectedFile) {
+			void this.refreshStagingForFile(gitStore.selectedFile);
+		}
+		if (mode === 'diff' && this.panel === 'commits' && gitStore.selectedCommit) {
+			void this.showCommitDiff(gitStore.selectedCommit);
+		}
+		if (mode === 'commitFiles' && gitStore.selectedCommit) {
+			void this.selectCommit(gitStore.selectedCommit, false);
+		}
 	}
 
 	focusFilter(): void {
@@ -269,11 +360,25 @@ export class GitWorkbench {
 				// Registry drift is advisory only.
 			}
 			if (gitStore.selectedFile) {
-				this.diff = await getDiff(gitStore.selectedFile).catch(() => []);
-				this.diffSource = 'unstaged';
+				const path = gitStore.selectedFile;
+				if (this.viewMode === 'staging') {
+					const [unstaged, staged] = await Promise.all([
+						getDiff(path).catch(() => []),
+						getStagedDiff(path).catch(() => []),
+					]);
+					this.diff = unstaged;
+					this.stagedDiff = staged;
+				} else if (this.panel !== 'commits') {
+					this.diff = await getDiff(path).catch(() => []);
+					this.stagedDiff = [];
+				}
+				this.clearSelection();
 			}
 			if (gitStore.selectedCommit) {
 				this.commitFiles = await getCommitFiles(gitStore.selectedCommit).catch(() => []);
+				if (this.viewMode === 'diff' && this.panel === 'commits') {
+					await this.showCommitDiff(gitStore.selectedCommit, false);
+				}
 			}
 		} catch (e) {
 			this.loadError = e instanceof Error ? e.message : 'Git request failed';
@@ -288,26 +393,318 @@ export class GitWorkbench {
 
 	async selectFile(path: string, focusInput = true): Promise<void> {
 		gitStore.select('files', path);
-		this.diff = await getDiff(path).catch(() => []);
-		this.diffSource = 'unstaged';
+		this.clearSelection();
+		this.commitFileDiffPath = null;
+		if (this.viewMode === 'staging') {
+			const [unstaged, staged] = await Promise.all([
+				getDiff(path).catch(() => []),
+				getStagedDiff(path).catch(() => []),
+			]);
+			this.diff = unstaged;
+			this.stagedDiff = staged;
+		} else {
+			this.diff = await getDiff(path).catch(() => []);
+			this.stagedDiff = [];
+		}
 		if (focusInput) this.focusKeyInput();
+	}
+
+	async refreshStagingForFile(path: string): Promise<void> {
+		const [unstaged, staged] = await Promise.all([
+			getDiff(path).catch(() => []),
+			getStagedDiff(path).catch(() => []),
+		]);
+		this.diff = unstaged;
+		this.stagedDiff = staged;
 	}
 
 	async stageHunk(path: string, hunkIndex: number): Promise<void> {
 		await this.dispatchAction('stage.hunk', { path, hunkIndex: String(hunkIndex) }, undefined);
 	}
 
+	async unstageHunk(path: string, hunkIndex: number): Promise<void> {
+		await this.dispatchAction(
+			'unstage.hunk',
+			{ path, hunkIndex: String(hunkIndex) },
+			undefined,
+		);
+	}
+
+	async stageLines(path: string, hunkIndex: number, lines: number[]): Promise<void> {
+		if (lines.length === 0) {
+			toasts.error('Empty selection', 'Select at least one added or removed line');
+			return;
+		}
+		await this.dispatchAction(
+			'stage.lines',
+			{ path, hunkIndex: String(hunkIndex), lines: [...lines].sort((a, b) => a - b).join(',') },
+			undefined,
+		);
+	}
+
+	async unstageLines(path: string, hunkIndex: number, lines: number[]): Promise<void> {
+		if (lines.length === 0) {
+			toasts.error('Empty selection', 'Select at least one added or removed line');
+			return;
+		}
+		await this.dispatchAction(
+			'unstage.lines',
+			{ path, hunkIndex: String(hunkIndex), lines: [...lines].sort((a, b) => a - b).join(',') },
+			undefined,
+		);
+	}
+
+	async discardHunk(path: string, hunkIndex: number): Promise<void> {
+		this.openParamDialog('discard.hunk', ['path', 'hunkIndex']);
+		this.dialogValues = { path, hunkIndex: String(hunkIndex) };
+		this.dialogConfirm = '';
+	}
+
+	async discardLines(path: string, hunkIndex: number, lines: number[]): Promise<void> {
+		if (lines.length === 0) {
+			toasts.error('Empty selection', 'Select at least one added or removed line');
+			return;
+		}
+		this.openParamDialog('discard.lines', ['path', 'hunkIndex', 'lines']);
+		this.dialogValues = {
+			path,
+			hunkIndex: String(hunkIndex),
+			lines: [...lines].sort((a, b) => a - b).join(','),
+		};
+		this.dialogConfirm = '';
+	}
+
+	async acceptOurs(path: string): Promise<void> {
+		await this.dispatchAction('conflict.accept-ours', { path }, undefined);
+		this.clearSelection(path);
+	}
+
+	async acceptTheirs(path: string): Promise<void> {
+		await this.dispatchAction('conflict.accept-theirs', { path }, undefined);
+		this.clearSelection(path);
+	}
+
+	clearSelection(path?: string): void {
+		if (!path) {
+			this.lineSelection = {};
+			return;
+		}
+		if (!(path in this.lineSelection)) return;
+		const next = { ...this.lineSelection };
+		delete next[path];
+		this.lineSelection = next;
+	}
+
+	selectedForHunk(path: string, hunkIndex: number): number[] {
+		return this.lineSelection[path]?.[hunkIndex] ?? [];
+	}
+
+	isLineSelected(path: string, hunkIndex: number, lineIndex: number): boolean {
+		return this.selectedForHunk(path, hunkIndex).includes(lineIndex);
+	}
+
+	toggleLine(path: string, hunkIndex: number, lineIndex: number): void {
+		const current = this.selectedForHunk(path, hunkIndex);
+		const next = current.includes(lineIndex)
+			? current.filter((v) => v !== lineIndex)
+			: [...current, lineIndex].sort((a, b) => a - b);
+		const byHunk = { ...(this.lineSelection[path] ?? {}) };
+		if (next.length === 0) {
+			delete byHunk[hunkIndex];
+		} else {
+			byHunk[hunkIndex] = next;
+		}
+		const all = { ...this.lineSelection };
+		if (Object.keys(byHunk).length === 0) {
+			delete all[path];
+		} else {
+			all[path] = byHunk;
+		}
+		this.lineSelection = all;
+	}
+
+	toggleHunk(path: string, hunkIndex: number, selectable: number[]): void {
+		const current = this.selectedForHunk(path, hunkIndex);
+		const allSelected =
+			selectable.length > 0 && selectable.every((v) => current.includes(v));
+		const byHunk = { ...(this.lineSelection[path] ?? {}) };
+		if (allSelected) {
+			delete byHunk[hunkIndex];
+		} else {
+			byHunk[hunkIndex] = [...selectable].sort((a, b) => a - b);
+		}
+		const all = { ...this.lineSelection };
+		if (Object.keys(byHunk).length === 0) {
+			delete all[path];
+		} else {
+			all[path] = byHunk;
+		}
+		this.lineSelection = all;
+	}
+
+	selectRange(
+		path: string,
+		hunkIndex: number,
+		anchor: number,
+		target: number,
+		selectable: number[],
+	): void {
+		const lo = Math.min(anchor, target);
+		const hi = Math.max(anchor, target);
+		const inRange = selectable.filter((v) => v >= lo && v <= hi);
+		if (inRange.length === 0) return;
+		const current = new Set(this.selectedForHunk(path, hunkIndex));
+		for (const v of inRange) current.add(v);
+		const next = [...current].sort((a, b) => a - b);
+		const byHunk = { ...(this.lineSelection[path] ?? {}) };
+		byHunk[hunkIndex] = next;
+		this.lineSelection = { ...this.lineSelection, [path]: byHunk };
+	}
+
+	selectAllForFile(path: string): void {
+		const byHunk: Record<number, number[]> = {};
+		const collect = (files: DiffFile[]) => {
+			for (const file of files) {
+				if (file.path !== path) continue;
+				const hunks = hunksOfDiffFile(file);
+				hunks.forEach((rows, hunkIndex) => {
+					const selectable = selectableIndices(rows);
+					if (selectable.length === 0) return;
+					const existing = new Set([...(byHunk[hunkIndex] ?? []), ...selectable]);
+					byHunk[hunkIndex] = [...existing].sort((a, b) => a - b);
+				});
+			}
+		};
+		collect(this.diff);
+		collect(this.stagedDiff);
+		if (Object.keys(byHunk).length === 0) return;
+		this.lineSelection = { ...this.lineSelection, [path]: byHunk };
+	}
+
+	private hunksForAction(
+		files: DiffFile[],
+		path: string,
+	): Map<number, { selectable: number[]; selected: number[] }> {
+		const out = new Map<number, { selectable: number[]; selected: number[] }>();
+		for (const file of files) {
+			if (file.path !== path) continue;
+			const hunks = hunksOfDiffFile(file);
+			hunks.forEach((rows, hunkIndex) => {
+				out.set(hunkIndex, {
+					selectable: selectableIndices(rows),
+					selected: this.selectedForHunk(path, hunkIndex),
+				});
+			});
+		}
+		return out;
+	}
+
+	async stageSelected(path: string): Promise<void> {
+		const hunks = this.hunksForAction(this.diff, path);
+		const jobs: Array<Promise<void>> = [];
+		for (const [hunkIndex, info] of hunks) {
+			const relevant = info.selected.filter((v) => info.selectable.includes(v));
+			if (relevant.length === 0) continue;
+			if (relevant.length === info.selectable.length) {
+				jobs.push(
+					this.dispatchAction(
+						'stage.hunk',
+						{ path, hunkIndex: String(hunkIndex) },
+						undefined,
+						false,
+					),
+				);
+			} else {
+				jobs.push(
+					this.dispatchAction(
+						'stage.lines',
+						{
+							path,
+							hunkIndex: String(hunkIndex),
+							lines: [...relevant].sort((a, b) => a - b).join(','),
+						},
+						undefined,
+						false,
+					),
+				);
+			}
+		}
+		if (jobs.length === 0) {
+			toasts.error('Nothing to stage', 'Select added or removed lines in the unstaged view');
+			return;
+		}
+		await Promise.all(jobs);
+		await this.afterBatchAction();
+	}
+
+	async unstageSelected(path: string): Promise<void> {
+		const hunks = this.hunksForAction(this.stagedDiff, path);
+		const jobs: Array<Promise<void>> = [];
+		for (const [hunkIndex, info] of hunks) {
+			const relevant = info.selected.filter((v) => info.selectable.includes(v));
+			if (relevant.length === 0) continue;
+			if (relevant.length === info.selectable.length) {
+				jobs.push(
+					this.dispatchAction(
+						'unstage.hunk',
+						{ path, hunkIndex: String(hunkIndex) },
+						undefined,
+						false,
+					),
+				);
+			} else {
+				jobs.push(
+					this.dispatchAction(
+						'unstage.lines',
+						{
+							path,
+							hunkIndex: String(hunkIndex),
+							lines: [...relevant].sort((a, b) => a - b).join(','),
+						},
+						undefined,
+						false,
+					),
+				);
+			}
+		}
+		if (jobs.length === 0) {
+			toasts.error('Nothing to unstage', 'Select added or removed lines in the staged view');
+			return;
+		}
+		await Promise.all(jobs);
+		await this.afterBatchAction();
+	}
+
+	private async afterBatchAction(): Promise<void> {
+		this.clearSelection();
+		await this.reload();
+	}
+
 	async selectCommit(id: string, focusInput = true): Promise<void> {
 		gitStore.select('commits', id);
 		this.diff = [];
+		this.commitFileDiffPath = null;
 		this.commitFiles = await getCommitFiles(id).catch(() => []);
+		if (this.viewMode === 'diff') {
+			await this.showCommitDiff(id, false);
+		}
+		if (focusInput) this.focusKeyInput();
+	}
+
+	async showCommitDiff(commit: string, focusInput = false): Promise<void> {
+		try {
+			this.diff = await getDiffRange(`${commit}^`, commit);
+			this.commitFileDiffPath = null;
+		} catch (e) {
+			toasts.error('Commit diff unavailable', e instanceof Error ? e.message : undefined);
+		}
 		if (focusInput) this.focusKeyInput();
 	}
 
 	async showCommitFileDiff(commit: string, path: string): Promise<void> {
-		this.diffSource = 'commit';
 		try {
 			this.diff = await getDiffRange(`${commit}^`, commit, path);
+			this.commitFileDiffPath = path;
 		} catch (e) {
 			toasts.error('Commit diff unavailable', e instanceof Error ? e.message : undefined);
 		}
@@ -398,6 +795,7 @@ export class GitWorkbench {
 		action: string,
 		params: Record<string, string>,
 		confirm?: string,
+		reload = true,
 	): Promise<void> {
 		const spec = this.specFor(action);
 		if (spec && !spec.available) {
@@ -420,8 +818,11 @@ export class GitWorkbench {
 		gitStore.beginAction(action);
 		try {
 			const outcome = await runAction(action, params, confirm);
-			this.reportOutcome(action, spec, outcome.message || action, outcome.echo);
-			await this.reload();
+			this.reportOutcome(action, spec, outcome.message || action, outcome.echo, params);
+			if (reload) {
+				this.clearSelection(params.path);
+				await this.reload();
+			}
 		} catch (e) {
 			const message = e instanceof Error ? e.message : 'Git action failed';
 			gitStore.endAction(message);
@@ -432,21 +833,55 @@ export class GitWorkbench {
 	}
 
 	/**
-	 * Success feedback for a completed write action. Recoverable actions
-	 * (backend `Recoverable`) get an 8-second toast with an Undo entry, which
-	 * runs the `undo` action — a stash-based soft rollback on the server.
+	 * Success feedback for a completed write action. History-moving
+	 * recoverable actions get an 8-second toast with an Undo entry backed
+	 * by the reflog undo stack; undo itself offers Redo in the same window.
+	 * Staging moves offer the reverse direction instead of history undo.
 	 */
 	private reportOutcome(
 		action: string,
 		spec: RegistryEntry | undefined,
 		message: string,
 		echo?: string,
+		params?: Record<string, string>,
 	): void {
 		if (action === 'undo') {
+			toasts.push({
+				title: message,
+				description: echo,
+				tone: 'success',
+				timeout: 8000,
+				action: {
+					label: 'Redo',
+					run: () => {
+						void this.runActionId('redo');
+					},
+				},
+			});
+			return;
+		}
+		if (action === 'redo') {
 			toasts.success(message, echo);
 			return;
 		}
-		if (spec?.danger === 'recoverable') {
+		const reverse = STAGING_REVERSE[action];
+		if (reverse && params?.path) {
+			const reverseParams = { ...params };
+			toasts.push({
+				title: message,
+				description: echo,
+				tone: 'success',
+				timeout: 8000,
+				action: {
+					label: 'Reverse',
+					run: () => {
+						void this.dispatchAction(reverse, reverseParams, undefined);
+					},
+				},
+			});
+			return;
+		}
+		if (spec?.danger === 'recoverable' && UNDO_TOAST_ACTIONS.has(action)) {
 			toasts.push({
 				title: message,
 				description: echo,

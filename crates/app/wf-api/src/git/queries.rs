@@ -165,6 +165,29 @@ pub fn diff_unstaged(ctx: &ApiContext, path: Option<&str>) -> GitResult<Vec<Diff
     Ok(parse_diff_unified(&out.stdout))
 }
 
+pub fn diff_staged(ctx: &ApiContext, path: Option<&str>) -> GitResult<Vec<DiffFileView>> {
+    let root = repo_root(ctx)?;
+    let timeout = command_timeout_ms(ctx, false);
+    if let Some(path) = path {
+        validate_repo_path(&root, path)?;
+    }
+    let mut args: Vec<&str> = vec![
+        "diff",
+        "--cached",
+        "--no-color",
+        "--unified=3",
+        "--no-ext-diff",
+        "--",
+    ];
+    let owned;
+    if let Some(path) = path {
+        owned = path.to_string();
+        args.push(&owned);
+    }
+    let out = run_git(&root, &args, timeout)?;
+    Ok(parse_diff_unified(&out.stdout))
+}
+
 pub fn diff_refs(
     ctx: &ApiContext,
     from: &str,

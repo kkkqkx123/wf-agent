@@ -11,11 +11,11 @@ mod io;
 mod session;
 mod state;
 
+pub use session::PtyCreateParams;
 pub use state::{
     global_manager, lock as state_lock, lock_inner, manager_inner, sweep, PtyError, PtyManager,
     PtyResult, PtySession, PtySessionStatus,
 };
-pub use session::PtyCreateParams;
 // Convenience re-export of common lock helper under original name for tests/internal.
 pub use state::lock;
 

@@ -249,8 +249,8 @@ pub const ACTION_SPECS: &[ActionSpec] = &[
         id: "redo",
         danger: DangerLevel::Recoverable,
         params: &[],
-        available: false,
-        unavailable_reason: Some("redo is not tracked for user git"),
+        available: true,
+        unavailable_reason: None,
         needs_confirm: false,
     },
     ActionSpec {
@@ -364,6 +364,46 @@ pub const ACTION_SPECS: &[ActionSpec] = &[
         available: true,
         unavailable_reason: None,
         needs_confirm: false,
+    },
+    ActionSpec {
+        id: "unstage.hunk",
+        danger: DangerLevel::Recoverable,
+        params: &["path", "hunkIndex"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: false,
+    },
+    ActionSpec {
+        id: "stage.lines",
+        danger: DangerLevel::Recoverable,
+        params: &["path", "hunkIndex", "lines"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: false,
+    },
+    ActionSpec {
+        id: "unstage.lines",
+        danger: DangerLevel::Recoverable,
+        params: &["path", "hunkIndex", "lines"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: false,
+    },
+    ActionSpec {
+        id: "discard.hunk",
+        danger: DangerLevel::Destructive,
+        params: &["path", "hunkIndex"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: true,
+    },
+    ActionSpec {
+        id: "discard.lines",
+        danger: DangerLevel::Destructive,
+        params: &["path", "hunkIndex", "lines"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: true,
     },
     ActionSpec {
         id: "remote.add",
@@ -621,7 +661,7 @@ mod tests {
         let drop = action_spec("branch.delete").unwrap();
         assert!(drop.needs_confirm);
         let redo = action_spec("redo").unwrap();
-        assert!(!redo.available);
+        assert!(redo.available);
         let ws = action_spec("workspace.write").unwrap();
         assert!(!ws.available);
     }

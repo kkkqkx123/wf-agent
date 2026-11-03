@@ -20,8 +20,8 @@ pub use parse::{
     parse_porcelain_v2_files, parse_stash_list, parse_tags,
 };
 pub use queries::{
-    branches, commit_files, commits, diff_refs, diff_unstaged, file_entries, fingerprint, meta,
-    reflog, remotes, stash_list, status, submodule_status, tags, worktrees,
+    branches, commit_files, commits, diff_refs, diff_staged, diff_unstaged, file_entries,
+    fingerprint, meta, reflog, remotes, stash_list, status, submodule_status, tags, worktrees,
 };
 pub use registry::{action_registry, registry_snapshot};
 pub use types::{

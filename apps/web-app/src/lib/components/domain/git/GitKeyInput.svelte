@@ -15,7 +15,7 @@
 </script>
 
 <TuiPanel title="Keys" description={t('domain.git.keyInputDescription')} focused={false}>
-	<div class="flex gap-2">
+	<div class="flex flex-col gap-2 sm:flex-row">
 		<Input
 			id="git-input"
 			label={t('domain.git.keyLabel')}
@@ -48,16 +48,20 @@
 		</p>
 	{/if}
 	{#if workbench.controls.length > 0}
-		<div class="mt-2 flex flex-wrap gap-1">
+		<div class="mt-2 flex gap-1 overflow-x-auto pb-1 md:flex-wrap md:overflow-visible md:pb-0">
 			{#each workbench.controls as control (control.id)}
 				<button
 					type="button"
-					class="cursor-pointer rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-micro hover:bg-primary/10"
-					title={`${control.name} (${control.id})`}
+					class="shrink-0 cursor-pointer rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-micro hover:bg-primary/10"
+					title={control.legacyKey
+						? `${control.name} (${control.id} · ${control.legacyKey})`
+						: `${control.name} (${control.id})`}
 					disabled={gitStore.busy}
 					onclick={() => void workbench.runActionId(control.id)}
 				>
-					<span class="font-mono">{control.hint}</span>
+					<span class="font-mono"
+						>{control.legacyKey ? `${control.hint} · ${control.legacyKey}` : control.hint}</span
+					>
 					<span class="ml-1">{control.name}</span>
 					{#if control.danger === 'destructive' || control.danger === 'history_rewrite'}
 						<Badge variant="danger">{control.danger}</Badge>

@@ -29,7 +29,24 @@ export function confirmTarget(action: string, params: Record<string, string>): s
 	}
 }
 
+function scopedBindings(context: string) {
+	return GIT_BINDINGS.filter(
+		(b) => b.contexts.includes(context) || b.contexts.includes('global'),
+	);
+}
+
 export function parseToken(input: string, context: string): TokenResult {
+	if (input === ' ') {
+		const hit = scopedBindings(context).find((b) => b.aliases.includes(' '));
+		if (hit) {
+			return {
+				kind: 'action',
+				action: hit.id,
+				danger: hit.danger,
+				preview: `${hit.name} (${hit.id})`,
+			};
+		}
+	}
 	const text = input.trim();
 	if (!text) {
 		return {
@@ -49,10 +66,7 @@ export function parseToken(input: string, context: string): TokenResult {
 		return { kind: 'command', preview: text.slice(1) };
 	}
 	if (text.length === 1) {
-		const hit = GIT_BINDINGS.find(
-			(b) =>
-				(b.contexts.includes(context) || b.contexts.includes('global')) && b.aliases.includes(text),
-		);
+		const hit = scopedBindings(context).find((b) => b.aliases.includes(text));
 		if (hit) {
 			return {
 				kind: 'action',
@@ -64,7 +78,24 @@ export function parseToken(input: string, context: string): TokenResult {
 		const candidates = GIT_BINDINGS.filter((b) => b.id.startsWith(text)).map((b) => b.id);
 		return { kind: 'prefix', candidates };
 	}
-	const scored = GIT_BINDINGS.filter((b) => b.id.startsWith(text)).sort((a, b) => {
+	const aliasHit = scopedBindings(context).find((b) => b.aliases.includes(text));
+	if (aliasHit) {
+		return {
+			kind: 'action',
+			action: aliasHit.id,
+			danger: aliasHit.danger,
+			preview: `${aliasHit.name} (${aliasHit.id})`,
+		};
+	}
+	const lowered = text.toLowerCase();
+	const scored = GIT_BINDINGS.filter(
+		(b) =>
+			b.id.startsWith(text) ||
+			b.id.endsWith(`.${lowered}`) ||
+			b.id.toLowerCase().includes(lowered) ||
+			b.hint.toLowerCase() === lowered ||
+			(b.legacyKey ?? '').toLowerCase() === lowered,
+	).sort((a, b) => {
 		const aLocal = a.contexts.includes(context) ? 0 : 1;
 		const bLocal = b.contexts.includes(context) ? 0 : 1;
 		return aLocal - bLocal || b.weight - a.weight;

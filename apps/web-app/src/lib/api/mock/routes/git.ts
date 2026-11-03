@@ -4,9 +4,11 @@ import {
 	gitMeta,
 	gitFiles,
 	gitDiff,
+	gitStagedDiff,
 	gitCommits,
 	gitBranches,
 	gitStash,
+	gitReflog,
 	gitRegistry,
 } from '#lib/fixtures/git';
 import type { MockRouter } from '../router';
@@ -29,6 +31,7 @@ export function registerGit(router: MockRouter): void {
 	}));
 	router.on('GET', '/api/v1/git/files', () => gitFiles);
 	router.on('GET', '/api/v1/git/diff', () => gitDiff);
+	router.on('GET', '/api/v1/git/diff/staged', () => gitStagedDiff);
 	router.on('GET', '/api/v1/git/diff/range', () => gitDiff);
 	router.on('GET', '/api/v1/git/commits', () => gitCommits);
 	router.on('GET', '/api/v1/git/commits/files', () => [
@@ -42,6 +45,7 @@ export function registerGit(router: MockRouter): void {
 		{ name: 'v1-preview', commit: 'previ3w', message: 'preview tag' },
 	]);
 	router.on('GET', '/api/v1/git/stash', () => gitStash);
+	router.on('GET', '/api/v1/git/reflog', () => gitReflog);
 	router.on('GET', '/api/v1/git/submodules', () => []);
 	router.on('GET', '/api/v1/git/worktrees', () => [
 		{ path: '/preview/wf-agent', branch: 'main', commit: 'previ3w', bare: false },

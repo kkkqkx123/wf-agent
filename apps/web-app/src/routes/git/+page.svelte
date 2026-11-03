@@ -16,8 +16,13 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
-	import { GitWorkbench, PANELS } from '#lib/git/workbench.svelte';
-	import type { PanelId } from '#lib/git/workbench.svelte';
+	import {
+		GitWorkbench,
+		PANELS,
+		defaultViewModeForPanel,
+		isViewModeValidForPanel,
+	} from '#lib/git/workbench.svelte';
+	import type { MainViewMode, PanelId } from '#lib/git/workbench.svelte';
 	import { git as gitStore } from '#lib/stores/git.svelte';
 	import { parseToken } from '#lib/git/parse';
 	import { t } from '#lib/i18n';
@@ -25,7 +30,6 @@
 	const requested = parseListParams(page.url as unknown as URL).panel;
 	const requestedTab = parseListParams(page.url as unknown as URL).tab;
 	const workbench = new GitWorkbench();
-	workbench.diffSource = requestedTab === 'commit' ? 'commit' : 'unstaged';
 	workbench.panel =
 		requested === 'files' ||
 		requested === 'conflicts' ||
@@ -39,6 +43,18 @@
 		requested === 'stash'
 			? (requested as PanelId)
 			: 'status';
+	const requestedMode = requestedTab as MainViewMode;
+	if (
+		(requestedMode === 'diff' ||
+			requestedMode === 'staging' ||
+			requestedMode === 'commitFiles') &&
+		isViewModeValidForPanel(requestedMode, workbench.panel)
+	) {
+		workbench.viewMode = requestedMode;
+	} else {
+		workbench.viewMode = defaultViewModeForPanel(workbench.panel);
+	}
+	let lastPanel = $state(workbench.panel);
 
 	const BOARD_ORDER: PanelId[] = ['files', 'branches', 'commits', 'stash'];
 
@@ -164,9 +180,17 @@
 	}
 
 	$effect(() => {
+		const currentPanel = workbench.panel;
+		if (currentPanel !== lastPanel) {
+			lastPanel = currentPanel;
+			workbench.setViewMode(defaultViewModeForPanel(currentPanel));
+		}
+	});
+
+	$effect(() => {
 		void gotoWithParams(page.url as unknown as URL, {
 			panel: workbench.panel === 'status' ? '' : workbench.panel,
-			tab: workbench.diffSource === 'commit' ? 'commit' : '',
+			tab: workbench.viewMode,
 		});
 	});
 </script>

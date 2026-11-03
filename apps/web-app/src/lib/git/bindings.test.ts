@@ -34,10 +34,33 @@ describe('git bindings', () => {
 		expect([...weights].sort((a, b) => b - a)).toEqual(weights);
 	});
 
-	it('limits visible controls to non-hidden bindings', () => {
+	it('derives controls from non-printable priority then visible bindings', () => {
 		const controls = visibleControls('files', 6);
 		expect(controls.length).toBeLessThanOrEqual(6);
-		expect(controls.every((c) => !c.hidden)).toBe(true);
+		expect(controls.length).toBeGreaterThan(0);
+		const nonPrintable = controls.filter((c) => c.nonPrintable);
+		expect(nonPrintable.length).toBeGreaterThan(0);
+		expect(nonPrintable.every((c) => c.controlPriority > 0)).toBe(true);
+		const printable = controls.filter((c) => !c.nonPrintable);
+		expect(printable.every((c) => !c.hidden)).toBe(true);
+		expect(controls[0]?.nonPrintable).toBe(true);
+	});
+
+	it('marks space and enter bindings as non-printable controls', () => {
+		const toggle = findBinding('stage.toggle');
+		expect(toggle?.nonPrintable).toBe(true);
+		expect(toggle?.legacyKey).toBe('<space>');
+		const enter = findBinding('submodule.enter');
+		expect(enter?.nonPrintable).toBe(true);
+		expect(enter?.legacyKey).toBe('<enter>');
+		const emptyAlias = findBinding('stash.rename');
+		expect(emptyAlias?.nonPrintable).toBe(true);
+		expect(emptyAlias?.controlPriority).toBeGreaterThan(0);
+	});
+
+	it('keeps printable bindings without control metadata', () => {
+		expect(findBinding('refresh')?.nonPrintable).toBe(false);
+		expect(findBinding('refresh')?.legacyKey).toBeNull();
 	});
 
 	it('reports drift in both directions', () => {

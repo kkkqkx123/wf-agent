@@ -32,9 +32,22 @@ interface DiffHunk {
 
 interface DiffFileWire {
 	path: string;
+	kind?: string;
 	hunks: DiffHunk[];
 	additions: number;
 	deletions: number;
+	binary?: boolean;
+	truncated?: boolean;
+}
+
+function wireToDiffFile(f: DiffFileWire): DiffFile {
+	const base = gitHunksToDiffFile(f.path, f.hunks, f.additions, f.deletions);
+	return {
+		...base,
+		kind: typeof f.kind === 'string' && f.kind ? f.kind : base.kind,
+		binary: Boolean(f.binary),
+		truncated: Boolean(f.truncated) || base.truncated,
+	};
 }
 
 export interface CommitEntry {
@@ -171,9 +184,15 @@ export async function listFiles(): Promise<GitFile[]> {
 export async function getDiff(path?: string): Promise<DiffFile[]> {
 	const data = await call<unknown>(client.GET('/api/v1/git/diff', { params: { query: { path } } }));
 	const rows = requireData(data, 'Git diff') as DiffFileWire[];
-	return (Array.isArray(rows) ? rows : []).map((f) =>
-		gitHunksToDiffFile(f.path, f.hunks, f.additions, f.deletions),
+	return (Array.isArray(rows) ? rows : []).map(wireToDiffFile);
+}
+
+export async function getStagedDiff(path?: string): Promise<DiffFile[]> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/git/diff/staged', { params: { query: { path } } }),
 	);
+	const rows = requireData(data, 'Git staged diff') as DiffFileWire[];
+	return (Array.isArray(rows) ? rows : []).map(wireToDiffFile);
 }
 
 export async function listCommits(params?: {
@@ -237,9 +256,7 @@ export async function getDiffRange(from: string, to: string, path?: string): Pro
 		}),
 	);
 	const rows = requireData(data, 'Git diff range') as DiffFileWire[];
-	return (Array.isArray(rows) ? rows : []).map((f) =>
-		gitHunksToDiffFile(f.path, f.hunks, f.additions, f.deletions),
-	);
+	return (Array.isArray(rows) ? rows : []).map(wireToDiffFile);
 }
 
 export async function listRemotes(): Promise<RemoteEntry[]> {

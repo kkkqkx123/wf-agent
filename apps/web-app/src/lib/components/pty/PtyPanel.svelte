@@ -159,7 +159,7 @@
 				compact
 				variant="ghost"
 				onclick={() => {
-					void store.spawn({ cwd }).then((session) => {
+					void store.spawn({ cwd, env }).then((session) => {
 						if (session) instance?.focus();
 					});
 				}}

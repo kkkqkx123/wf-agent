@@ -16,6 +16,7 @@ mod staging;
 mod stash;
 mod submodule;
 mod tag;
+mod undo;
 mod worktree;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,7 +122,11 @@ pub fn execute_action(ctx: &ApiContext, request: &ActionRequest) -> GitResult<Ac
         )));
     }
     let _guard = acquire_write_lock();
-    dispatch_write(ctx, action, request)
+    let outcome = dispatch_write(ctx, action, request)?;
+    if action != "undo" && action != "redo" {
+        undo::clear_redo_after_write(ctx);
+    }
+    Ok(outcome)
 }
 
 fn dispatch_write(
@@ -130,6 +135,9 @@ fn dispatch_write(
     request: &ActionRequest,
 ) -> GitResult<ActionOutcome> {
     let root = repo_root(ctx)?;
+    if let Some(res) = undo::handle(ctx, action, request, &root) {
+        return res;
+    }
     if let Some(res) = staging::handle(ctx, action, request, &root) {
         return res;
     }

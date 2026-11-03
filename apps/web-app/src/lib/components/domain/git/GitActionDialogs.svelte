@@ -91,7 +91,11 @@
 					{:else}
 						<Badge variant="neutral">{binding.danger}</Badge>
 					{/if}
-					<span class="font-mono text-micro text-muted-foreground">{binding.hint}</span>
+					<span class="font-mono text-micro text-muted-foreground"
+						>{binding.legacyKey
+							? `${binding.hint} · ${binding.legacyKey}`
+							: binding.hint}</span
+					>
 				</span>
 			</button>
 		{/each}

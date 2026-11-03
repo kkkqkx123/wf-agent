@@ -10,9 +10,32 @@ export interface BindingItem {
 	danger: DangerLevel;
 	params: string[];
 	contexts: string[];
+	legacyKey: string | null;
+	nonPrintable: boolean;
+	controlPriority: number;
 }
 
-const BINDINGS: BindingItem[] = [
+type RawBinding = Omit<BindingItem, 'legacyKey' | 'nonPrintable' | 'controlPriority'>;
+
+const SPACE_CONTROLS: Record<string, { legacyKey: string; controlPriority: number }> = {
+	'stage.toggle': { legacyKey: '<space>', controlPriority: 95 },
+	'worktree.switch': { legacyKey: '<space>', controlPriority: 65 },
+	'submodule.enter': { legacyKey: '<enter>', controlPriority: 60 },
+};
+
+/** Recoverable history moves that the reflog undo stack can reverse. */
+export const UNDO_TOAST_ACTIONS: ReadonlySet<string> = new Set([
+	'commit',
+	'commit.direct',
+	'commit.revert',
+	'commit.cherry-pick',
+	'pull',
+	'branch.merge',
+	'branch.fast-forward',
+	'branch.checkout',
+]);
+
+const RAW_BINDINGS: RawBinding[] = [
 	// global
 	{
 		id: 'refresh',
@@ -32,6 +55,17 @@ const BINDINGS: BindingItem[] = [
 		hint: 'Z',
 		hidden: true,
 		weight: 8,
+		danger: 'recoverable',
+		params: [],
+		contexts: ['global'],
+	},
+	{
+		id: 'redo',
+		name: 'Redo',
+		aliases: ['Y'],
+		hint: 'Y',
+		hidden: true,
+		weight: 7,
 		danger: 'recoverable',
 		params: [],
 		contexts: ['global'],
@@ -167,6 +201,61 @@ const BINDINGS: BindingItem[] = [
 		weight: 70,
 		danger: 'recoverable',
 		params: ['path', 'hunkIndex'],
+		contexts: ['files'],
+	},
+	{
+		id: 'unstage.hunk',
+		name: 'Unstage hunk',
+		aliases: ['U'],
+		hint: 'U',
+		hidden: false,
+		weight: 68,
+		danger: 'recoverable',
+		params: ['path', 'hunkIndex'],
+		contexts: ['files'],
+	},
+	{
+		id: 'stage.lines',
+		name: 'Stage lines',
+		aliases: ['L'],
+		hint: 'L',
+		hidden: true,
+		weight: 60,
+		danger: 'recoverable',
+		params: ['path', 'hunkIndex', 'lines'],
+		contexts: ['files'],
+	},
+	{
+		id: 'unstage.lines',
+		name: 'Unstage lines',
+		aliases: ['K'],
+		hint: 'K',
+		hidden: true,
+		weight: 58,
+		danger: 'recoverable',
+		params: ['path', 'hunkIndex', 'lines'],
+		contexts: ['files'],
+	},
+	{
+		id: 'discard.hunk',
+		name: 'Discard hunk',
+		aliases: ['D'],
+		hint: 'D',
+		hidden: false,
+		weight: 65,
+		danger: 'destructive',
+		params: ['path', 'hunkIndex'],
+		contexts: ['files'],
+	},
+	{
+		id: 'discard.lines',
+		name: 'Discard lines',
+		aliases: ['X'],
+		hint: 'X',
+		hidden: true,
+		weight: 55,
+		danger: 'destructive',
+		params: ['path', 'hunkIndex', 'lines'],
 		contexts: ['files'],
 	},
 	// submodules
@@ -684,6 +773,19 @@ const BINDINGS: BindingItem[] = [
 	},
 ];
 
+function hydrate(raw: RawBinding): BindingItem {
+	const space = SPACE_CONTROLS[raw.id];
+	if (space) {
+		return { ...raw, nonPrintable: true, ...space };
+	}
+	if (raw.aliases.length === 0) {
+		return { ...raw, nonPrintable: true, legacyKey: raw.hint, controlPriority: raw.weight };
+	}
+	return { ...raw, nonPrintable: false, legacyKey: null, controlPriority: 0 };
+}
+
+const BINDINGS: BindingItem[] = RAW_BINDINGS.map(hydrate);
+
 export const GIT_BINDINGS: BindingItem[] = BINDINGS;
 
 export function bindingsFor(context: string): BindingItem[] {
@@ -693,10 +795,26 @@ export function bindingsFor(context: string): BindingItem[] {
 }
 
 export function visibleControls(context: string, limit = 6): BindingItem[] {
-	return bindingsFor(context)
-		.filter((b) => !b.hidden)
-		.slice(0, limit);
+	const scoped = bindingsFor(context);
+	const nonPrintable = scoped
+		.filter((b) => b.nonPrintable)
+		.sort((a, b) => b.controlPriority - a.controlPriority)
+		.slice(0, 4);
+	if (nonPrintable.length >= limit) return nonPrintable.slice(0, limit);
+	const seen = new Set(nonPrintable.map((b) => b.id));
+	const printable = scoped
+		.filter((b) => !b.nonPrintable && !b.hidden)
+		.sort((a, b) => b.weight - a.weight);
+	const merged = [...nonPrintable];
+	for (const item of printable) {
+		if (seen.has(item.id)) continue;
+		merged.push(item);
+		if (merged.length >= limit) break;
+	}
+	return merged;
 }
+
+
 
 export function findBinding(id: string): BindingItem | undefined {
 	return BINDINGS.find((b) => b.id === id);

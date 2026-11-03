@@ -24386,6 +24386,56 @@
         ]
       }
     },
+    "/api/v1/git/diff/staged": {
+      "get": {
+        "tags": [
+          "git"
+        ],
+        "operationId": "get_git_diff_staged",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Staged diff by hunk",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/git/files": {
       "get": {
         "tags": [

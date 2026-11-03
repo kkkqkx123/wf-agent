@@ -14,6 +14,7 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/git/status", get(handle_git_status))
         .route("/git/files", get(handle_git_files))
         .route("/git/diff", get(handle_git_diff))
+        .route("/git/diff/staged", get(handle_git_diff_staged))
         .route("/git/diff/range", get(handle_git_diff_range))
         .route("/git/commits", get(handle_git_commits))
         .route("/git/commits/files", get(handle_git_commit_files))
@@ -86,6 +87,17 @@ pub(crate) async fn handle_git_diff(
     Query(query): Query<DiffQuery>,
 ) -> impl IntoResponse {
     match wf_api::git::diff_unstaged(&state.ctx, query.path.as_deref()) {
+        Ok(diff) => ok(diff).into_response(),
+        Err(err) => error_response(err.into()),
+    }
+}
+
+#[utoipa::path(get, path = "/api/v1/git/diff/staged", operation_id = "get_git_diff_staged", tag = "git", params(DiffQuery), responses((status = 200, description = "Staged diff by hunk", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
+pub(crate) async fn handle_git_diff_staged(
+    State(state): State<ApiState>,
+    Query(query): Query<DiffQuery>,
+) -> impl IntoResponse {
+    match wf_api::git::diff_staged(&state.ctx, query.path.as_deref()) {
         Ok(diff) => ok(diff).into_response(),
         Err(err) => error_response(err.into()),
     }

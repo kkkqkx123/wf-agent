@@ -19,7 +19,6 @@ pub fn handle(
         "stash.drop" => Some(stash_drop(ctx, action, request, root)),
         "stash.to-branch" => Some(stash_to_branch(ctx, action, request, root)),
         "stash.rename" => Some(stash_rename(ctx, action, request, root)),
-        "undo" => Some(undo(ctx, action, root)),
         _ => None,
     }
 }
@@ -134,17 +133,4 @@ fn stash_rename(
     let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
     run_git(root, &refs, command_timeout_ms(ctx, false))?;
     Ok(finish(action, format!("renamed stash {target}"), echo))
-}
-
-fn undo(ctx: &ApiContext, action: &str, root: &std::path::Path) -> GitResult<ActionOutcome> {
-    let argv = vec![
-        "stash".to_string(),
-        "push".to_string(),
-        "-m".to_string(),
-        "undo".to_string(),
-    ];
-    let echo = echo_of(action, &argv);
-    let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
-    run_git(root, &refs, command_timeout_ms(ctx, false))?;
-    Ok(finish(action, "stashed for undo".to_string(), echo))
 }

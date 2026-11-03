@@ -335,6 +335,7 @@ use utoipa::OpenApi;
         crate::api::git::readonly::handle_git_status,
         crate::api::git::readonly::handle_git_files,
         crate::api::git::readonly::handle_git_diff,
+        crate::api::git::readonly::handle_git_diff_staged,
         crate::api::git::readonly::handle_git_diff_range,
         crate::api::git::readonly::handle_git_commits,
         crate::api::git::readonly::handle_git_commit_files,

@@ -22,20 +22,30 @@
 	{#if workbench.selection}
 		<span class="max-w-64 truncate text-muted-foreground">{workbench.selection}</span>
 	{/if}
-	<span class="flex flex-wrap items-center gap-x-2 gap-y-0.5" role="group" aria-label="Actions">
+	<span
+		class="flex flex-nowrap items-center gap-x-2 gap-y-0.5 overflow-x-auto md:flex-wrap md:overflow-visible"
+		role="group"
+		aria-label="Actions"
+	>
 		{#each controls as control (control.id)}
 			<button
 				type="button"
 				disabled={gitStore.busy}
-				title={`${control.name} (${control.hint})`}
+				title={control.legacyKey
+					? `${control.name} (${control.hint} · ${control.legacyKey})`
+					: `${control.name} (${control.hint})`}
 				onclick={() => void workbench.runActionId(control.id)}
-				class="rounded-sm px-1 hover:bg-accent disabled:opacity-50 {GUARDED_DANGERS.has(
+				class="shrink-0 rounded-sm px-1 hover:bg-accent disabled:opacity-50 {GUARDED_DANGERS.has(
 					control.danger,
 				)
 					? 'text-destructive'
 					: 'text-foreground'}"
 			>
-				<span class="text-muted-foreground">{control.hint}</span>
+				<span class="text-muted-foreground"
+					>{control.legacyKey
+						? `${control.hint} · ${control.legacyKey}`
+						: control.hint}</span
+				>
 				{control.name}
 			</button>
 		{/each}

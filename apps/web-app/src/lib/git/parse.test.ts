@@ -33,6 +33,24 @@ describe('parseToken', () => {
 		expect(result.candidates).toEqual([]);
 	});
 
+	it('resolves the space alias without trimming it away', () => {
+		const result = parseToken(' ', 'files');
+		expect(result.kind).toBe('action');
+		expect(result.action).toBe('stage.toggle');
+	});
+
+	it('resolves multi-char aliases such as enter', () => {
+		const result = parseToken('enter', 'submodules');
+		expect(result.kind).toBe('action');
+		expect(result.action).toBe('submodule.enter');
+	});
+
+	it('resolves id suffixes such as hard for reset.hard', () => {
+		const result = parseToken('hard', 'branches');
+		expect(result.kind).toBe('action');
+		expect(result.action).toBe('reset.hard');
+	});
+
 	it('prefers the context when a multi-char prefix is ambiguous', () => {
 		const result = parseToken('stash', 'stash');
 		expect(result.kind).toBe('prefix');

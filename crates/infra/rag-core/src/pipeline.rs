@@ -19,12 +19,12 @@ use crate::document::{
     ORDINAL_KEY, PARENT_ID_KEY, PREV_ID_KEY,
 };
 use crate::error::{RagError, Result};
+use crate::keyword_index::KeywordIndex;
 use crate::metrics::{rank_pairs, RetrievalMetrics};
 use crate::postprocess::window_content;
 use crate::rerank_adapter::{rerank_hits, RankedChunk};
 use crate::retriever::{
-    blend_keyword, chunk_from_hit, chunk_from_point, fuse_lists, keyword_search_points,
-    promote_parents, RetrievedChunk,
+    blend_keyword, chunk_from_hit, chunk_from_point, fuse_lists, promote_parents, RetrievedChunk,
 };
 use crate::sync as sync_support;
 
@@ -41,10 +41,13 @@ pub struct IngestStats {
     pub points: usize,
 }
 
-/// Chunks documents, embeds them and writes the points.
+/// Chunks documents, embeds them and writes the points to both indexes.
 /// Creates the collection on first use with the provider dimension.
-pub async fn ingest_documents<S, E>(
+/// A missing keyword index disables the keyword side while keeping the
+/// vector side usable; hosts without hybrid needs pass `None`.
+pub async fn ingest_documents<S, E, K>(
     store: &S,
+    keyword: Option<&K>,
     embedder: &E,
     collection: &str,
     documents: &[RagDocument],
@@ -52,6 +55,7 @@ pub async fn ingest_documents<S, E>(
 ) -> Result<IngestStats>
 where
     S: VectorStorage + ?Sized,
+    K: KeywordIndex + ?Sized,
     E: EmbeddingProvider + ?Sized,
 {
     if collection.is_empty() {
@@ -78,7 +82,14 @@ where
             document.clone()
         };
         if !matches!(config.duplicate_policy, DuplicatePolicy::Overwrite)
-            && source_indexed(store, collection, &config.namespace, &document.source).await?
+            && source_indexed(
+                store,
+                keyword,
+                collection,
+                &config.namespace,
+                &document.source,
+            )
+            .await?
         {
             if matches!(config.duplicate_policy, DuplicatePolicy::Fail) {
                 return Err(RagError::InvalidInput(format!(
@@ -93,6 +104,11 @@ where
             store
                 .delete_by_source(collection, Some(&config.namespace), &document.source)
                 .await?;
+            if let Some(keyword) = keyword {
+                keyword
+                    .delete_by_source(collection, Some(&config.namespace), &document.source)
+                    .await?;
+            }
         }
         let chunks = if config.hierarchical {
             chunker.split_hierarchical(std::slice::from_ref(&effective))?
@@ -146,6 +162,9 @@ where
         store.upsert(collection, batch).await?;
         stats.points += batch.len();
     }
+    if let Some(keyword) = keyword {
+        keyword.upsert(collection, &points).await?;
+    }
     Ok(stats)
 }
 
@@ -198,22 +217,23 @@ where
     postprocess(store, collection, searched.hits, config).await
 }
 
-/// Blends dense retrieval with caller-supplied keyword candidates.
+/// Blends dense retrieval with the keyword index.
 ///
-/// The keyword corpus comes from the caller because the storage contract
-/// has no scan call; pass an empty slice to run dense retrieval only.
-/// Scores blend with [`RagQueryConfig::keyword_weight`].
-pub async fn query_hybrid<S, E>(
+/// The keyword side is filtered with the same namespace and field scope
+/// as the dense side; fusion follows [`RagQueryConfig::fusion`] with the
+/// keyword weight applied in weighted mode.
+pub async fn query_hybrid<S, E, K>(
     store: &S,
+    keyword: &K,
     embedder: &E,
     collection: &str,
     namespace: &str,
     query_text: &str,
-    keyword_corpus: &[VectorPoint],
     config: &RagQueryConfig,
 ) -> Result<Vec<RetrievedChunk>>
 where
     S: VectorStorage + ?Sized,
+    K: KeywordIndex + ?Sized,
     E: EmbeddingProvider + ?Sized,
 {
     if query_text.trim().is_empty() {
@@ -231,16 +251,42 @@ where
         config,
     )
     .await?;
-    let fused = if config.keyword_candidates > 0 && !keyword_corpus.is_empty() {
-        let keyword = keyword_search_points(query_text, keyword_corpus, config.keyword_candidates);
-        blend_keyword(searched.hits, keyword, config.keyword_weight)
-            .into_iter()
-            .take(config.top_k)
-            .collect()
+    let fused = if config.keyword_candidates > 0 {
+        let filter = query_filter(namespace, config);
+        let keyword_hits = keyword
+            .search(
+                collection,
+                query_text,
+                Some(&filter),
+                config.keyword_candidates,
+            )
+            .await?;
+        if keyword_hits.is_empty() {
+            searched.hits
+        } else {
+            fuse_hybrid(searched.hits, keyword_hits, config)
+                .into_iter()
+                .take(config.top_k.max(1))
+                .collect()
+        }
     } else {
         searched.hits
     };
     postprocess(store, collection, fused, config).await
+}
+
+/// Fuses dense and keyword hits with the configured strategy.
+/// Weighted mode blends with the keyword weight; other modes reuse the
+/// shared multi-list fusion so hybrid and multi-query stay consistent.
+fn fuse_hybrid(
+    dense: Vec<RetrievedChunk>,
+    keyword: Vec<RetrievedChunk>,
+    config: &RagQueryConfig,
+) -> Vec<RetrievedChunk> {
+    match config.fusion.mode {
+        crate::config::FusionMode::Weighted => blend_keyword(dense, keyword, config.keyword_weight),
+        _ => fuse_lists(vec![dense, keyword], &config.fusion),
+    }
 }
 
 /// Queries and reports retrieval metrics alongside the hits.
@@ -327,24 +373,37 @@ where
     Ok((ranked, metrics))
 }
 
-/// Deletes every point chunked from one source. Thin wrapper over the
-/// sync helper so hosts call one pipeline entry for removals.
-pub async fn delete_source<S: VectorStorage + ?Sized>(
+/// Deletes every point chunked from one source from both indexes.
+/// Returns the vector-side removal count; the keyword side is removed
+/// in the same call so the two indexes stay aligned.
+pub async fn delete_source<S: VectorStorage + ?Sized, K: KeywordIndex + ?Sized>(
     store: &S,
+    keyword: Option<&K>,
     collection: &str,
     namespace: Option<&str>,
     source: &str,
 ) -> Result<u64> {
-    sync_support::remove_source(store, collection, namespace, source).await
+    let removed = sync_support::remove_source(store, collection, namespace, source).await?;
+    if let Some(keyword) = keyword {
+        keyword
+            .delete_by_source(collection, namespace, source)
+            .await?;
+    }
+    Ok(removed)
 }
 
-/// Deletes points by id. Thin wrapper over the sync helper.
-pub async fn delete_by_ids<S: VectorStorage + ?Sized>(
+/// Deletes points by id from both indexes.
+pub async fn delete_by_ids<S: VectorStorage + ?Sized, K: KeywordIndex + ?Sized>(
     store: &S,
+    keyword: Option<&K>,
     collection: &str,
     ids: &[String],
 ) -> Result<u64> {
-    sync_support::remove_by_ids(store, collection, ids).await
+    let removed = sync_support::remove_by_ids(store, collection, ids).await?;
+    if let Some(keyword) = keyword {
+        keyword.delete_by_id(collection, ids).await?;
+    }
+    Ok(removed)
 }
 
 /// Rerank invocation bundling the provider and its runtime shaping.
@@ -395,27 +454,29 @@ where
     .await
 }
 
-async fn source_indexed<S: VectorStorage + ?Sized>(
+async fn source_indexed<S: VectorStorage + ?Sized, K: KeywordIndex + ?Sized>(
     store: &S,
+    keyword: Option<&K>,
     collection: &str,
     namespace: &str,
     source: &str,
 ) -> Result<bool> {
-    match store
-        .count(
-            collection,
-            Some(
-                &SearchFilter::new()
-                    .with_namespace(namespace)
-                    .with_source(source),
-            ),
-        )
-        .await
-    {
-        Ok(count) => Ok(count > 0),
-        Err(vector_contracts::VectorError::CollectionMissing(_)) => Ok(false),
-        Err(err) => Err(err.into()),
+    let filter = SearchFilter::new()
+        .with_namespace(namespace)
+        .with_source(source);
+    let vector_count = match store.count(collection, Some(&filter)).await {
+        Ok(count) => count,
+        Err(vector_contracts::VectorError::CollectionMissing(_)) => return Ok(false),
+        Err(err) => return Err(err.into()),
+    };
+    if vector_count == 0 {
+        return Ok(false);
     }
+    if let Some(keyword) = keyword {
+        let keyword_count = keyword.count(collection, Some(&filter)).await.unwrap_or(0);
+        return Ok(keyword_count > 0);
+    }
+    Ok(true)
 }
 
 fn point_for(chunk: &RagChunk, namespace: &str, vector: Vec<f32>) -> VectorPoint {
@@ -642,6 +703,7 @@ async fn postprocess<S: VectorStorage + ?Sized>(
 mod tests {
     use super::*;
     use crate::config::RagIndexConfig;
+    use crate::keyword_index::MemoryKeywordIndex;
     use vector_contracts::{FieldFilter, FilterOperator, InMemoryVectorStore};
 
     struct UnitEmbedder {
@@ -693,6 +755,7 @@ mod tests {
     #[tokio::test]
     async fn conditions_and_shaping_apply_on_read_path() {
         let store = InMemoryVectorStore::new();
+        let keyword = MemoryKeywordIndex::new();
         let embedder = UnitEmbedder { dimension: 8 };
         let first = RagDocument::new("d1", "rust ownership borrowing rules text here", "a.md")
             .with_metadata("page", "1");
@@ -700,6 +763,7 @@ mod tests {
             .with_metadata("page", "3");
         ingest_documents(
             &store,
+            Some(&keyword),
             &embedder,
             "kb",
             &[first, second],
@@ -735,9 +799,11 @@ mod tests {
     #[tokio::test]
     async fn ingest_then_query_roundtrip() {
         let store = InMemoryVectorStore::new();
+        let keyword = MemoryKeywordIndex::new();
         let embedder = UnitEmbedder { dimension: 8 };
         let stats = ingest_documents(
             &store,
+            Some(&keyword),
             &embedder,
             "kb",
             &[
@@ -768,10 +834,12 @@ mod tests {
     #[tokio::test]
     async fn duplicate_policy_skip_and_overwrite() {
         let store = InMemoryVectorStore::new();
+        let keyword = MemoryKeywordIndex::new();
         let embedder = UnitEmbedder { dimension: 8 };
         let documents = [doc("d1", "a.md", "alpha beta gamma delta epsilon")];
         let stats = ingest_documents(
             &store,
+            Some(&keyword),
             &embedder,
             "kb",
             &documents,
@@ -782,6 +850,7 @@ mod tests {
         assert_eq!(stats.documents, 1);
         let stats = ingest_documents(
             &store,
+            Some(&keyword),
             &embedder,
             "kb",
             &documents,
@@ -793,26 +862,37 @@ mod tests {
 
         let mut overwrite = RagIndexConfig::new("kb");
         overwrite.duplicate_policy = DuplicatePolicy::Overwrite;
-        let stats = ingest_documents(&store, &embedder, "kb", &documents, &overwrite)
-            .await
-            .expect("overwrite");
+        let stats = ingest_documents(
+            &store,
+            Some(&keyword),
+            &embedder,
+            "kb",
+            &documents,
+            &overwrite,
+        )
+        .await
+        .expect("overwrite");
         assert_eq!(stats.documents, 1);
 
         let mut fail = RagIndexConfig::new("kb");
         fail.duplicate_policy = DuplicatePolicy::Fail;
-        assert!(ingest_documents(&store, &embedder, "kb", &documents, &fail)
-            .await
-            .is_err());
+        assert!(
+            ingest_documents(&store, Some(&keyword), &embedder, "kb", &documents, &fail)
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
     async fn cleaning_applies_before_chunking() {
         let store = InMemoryVectorStore::new();
+        let keyword = MemoryKeywordIndex::new();
         let embedder = UnitEmbedder { dimension: 8 };
         let mut config = RagIndexConfig::new("kb");
         config.cleaning.dedup_consecutive_lines = true;
         let stats = ingest_documents(
             &store,
+            Some(&keyword),
             &embedder,
             "kb",
             &[doc("d1", "noisy.md", "alpha\nalpha\nbeta gamma delta")],
@@ -836,11 +916,12 @@ mod tests {
 
     #[tokio::test]
     async fn hybrid_query_blends_keyword_signal() {
-        use vector_contracts::VectorPoint;
         let store = InMemoryVectorStore::new();
+        let keyword = MemoryKeywordIndex::new();
         let embedder = UnitEmbedder { dimension: 8 };
         ingest_documents(
             &store,
+            Some(&keyword),
             &embedder,
             "kb",
             &[doc("d1", "rust.md", "rust ownership borrowing")],
@@ -848,26 +929,21 @@ mod tests {
         )
         .await
         .expect("ingest");
-        let corpus = vec![VectorPoint {
-            id: "rust.md#0".to_string(),
-            vector: vec![0.0; 8],
-            payload: std::collections::HashMap::from([
-                (
-                    "content".to_string(),
-                    serde_json::json!("rust ownership borrowing"),
-                ),
-                ("chunk_id".to_string(), serde_json::json!("rust.md#0")),
-                ("document_id".to_string(), serde_json::json!("d1")),
-                ("source".to_string(), serde_json::json!("rust.md")),
-            ]),
-        }];
         let config = RagQueryConfig {
             keyword_candidates: 5,
             ..RagQueryConfig::default()
         };
-        let hits = query_hybrid(&store, &embedder, "kb", "kb", "ownership", &corpus, &config)
-            .await
-            .expect("hybrid");
+        let hits = query_hybrid(
+            &store,
+            &keyword,
+            &embedder,
+            "kb",
+            "kb",
+            "ownership",
+            &config,
+        )
+        .await
+        .expect("hybrid");
         assert!(!hits.is_empty());
         let (ranked, metrics) = query_with_metrics(
             &store,

@@ -296,17 +296,6 @@ fn bm25_terms_score(
     score
 }
 
-/// Scores caller-supplied points with BM25 and returns the top matches.
-/// Kept name for the hybrid pipeline; scoring now follows BM25 instead
-/// of plain token overlap.
-pub fn keyword_search_points(
-    query: &str,
-    points: &[VectorPoint],
-    top_n: usize,
-) -> Vec<RetrievedChunk> {
-    bm25_search_points(query, points, top_n)
-}
-
 /// Blends dense hits with keyword hits using one weight for the keyword
 /// side. Scores are normalized per list before blending so the two
 /// scales stay comparable.
@@ -407,40 +396,6 @@ where
         .map(|hit| hit.chunk_id.clone())
         .collect();
     Ok((parents, replaced))
-}
-
-/// Caller-maintained keyword corpus backing hybrid retrieval.
-///
-/// The storage contract has no scan call, so hosts keep a snapshot of
-/// known points alongside the vector index and hand it to
-/// [`keyword_search_points`] per query. This container owns that snapshot
-/// with a small append and search surface.
-#[derive(Debug, Clone, Default)]
-pub struct KeywordCorpus {
-    points: Vec<VectorPoint>,
-}
-
-impl KeywordCorpus {
-    /// Empty corpus matching nothing.
-    pub fn new() -> Self {
-        Self::default()
-    }
-    /// Appends known points to the snapshot.
-    pub fn add_points(&mut self, points: &[VectorPoint]) {
-        self.points.extend(points.iter().cloned());
-    }
-    /// Number of points in the snapshot.
-    pub fn len(&self) -> usize {
-        self.points.len()
-    }
-    /// Whether the snapshot holds no points.
-    pub fn is_empty(&self) -> bool {
-        self.points.is_empty()
-    }
-    /// Ranks the snapshot with BM25 and returns top matches.
-    pub fn search(&self, query: &str, top_n: usize) -> Vec<RetrievedChunk> {
-        keyword_search_points(query, &self.points, top_n)
-    }
 }
 
 #[cfg(test)]

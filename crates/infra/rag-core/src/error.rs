@@ -27,6 +27,9 @@ pub enum RagError {
     /// A stored point lacks the payload RAG ingest always writes.
     #[error("point '{0}' misses RAG payload")]
     MissingPayload(String),
+    /// Keyword index operation failed; the message carries the backend error.
+    #[error("keyword index error: {0}")]
+    Keyword(String),
 }
 
 /// Fallible result of RAG operations.

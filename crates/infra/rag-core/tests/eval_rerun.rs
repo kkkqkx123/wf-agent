@@ -72,6 +72,7 @@ async fn eval_set_reruns_with_full_recall() {
     assert!(!set.cases.is_empty());
 
     let store = vector_contracts::InMemoryVectorStore::new();
+    let keyword = rag_core::MemoryKeywordIndex::new();
     let embedder = UnitEmbedder { dimension: 8 };
     let documents: Vec<RagDocument> = set
         .documents
@@ -85,6 +86,7 @@ async fn eval_set_reruns_with_full_recall() {
         .collect();
     rag_core::pipeline::ingest_documents(
         &store,
+        Some(&keyword),
         &embedder,
         &set.collection,
         &documents,

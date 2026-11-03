@@ -520,9 +520,11 @@ mod tests {
 
     async fn seeded_store() -> (vector_contracts::InMemoryVectorStore, UnitEmbedder) {
         let store = vector_contracts::InMemoryVectorStore::new();
+        let keyword = crate::keyword_index::MemoryKeywordIndex::new();
         let embedder = UnitEmbedder { dimension: 8 };
         crate::pipeline::ingest_documents(
             &store,
+            Some(&keyword),
             &embedder,
             "kb",
             &[crate::RagDocument::new(

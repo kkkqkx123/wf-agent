@@ -65,9 +65,6 @@ pub struct RagQueryNodeConfig {
     /// Variable holding extra query variants merged with the primary question.
     #[serde(default)]
     pub query_variants_variable: Option<String>,
-    /// Variable holding a keyword corpus snapshot (`Vec<VectorPoint>`).
-    #[serde(default)]
-    pub keyword_corpus_variable: Option<String>,
     /// Sentence-window radius applied around each hit.
     #[serde(default)]
     pub window_radius: Option<usize>,
@@ -140,6 +137,8 @@ pub struct RagIngestNodeConfig {
 pub struct RagNodeHandles {
     /// Vector backend shared with tools and API callers.
     pub store: Arc<dyn vector_contracts::VectorStorage>,
+    /// Keyword index shared with tools and API callers; `None` disables hybrid.
+    pub keyword: Option<Arc<dyn rag_core::KeywordIndex>>,
     /// Embedding provider shared with tools and API callers.
     pub embedder: Arc<dyn llm_embedding::provider::EmbeddingProvider>,
     /// Default collection used when node config omits one.
@@ -165,6 +164,7 @@ impl RagNodeHandles {
         let namespace = namespace.into();
         Self {
             store,
+            keyword: None,
             embedder,
             default_collection: collection.into(),
             default_namespace: namespace.clone(),
@@ -179,6 +179,12 @@ impl RagNodeHandles {
         self.rewriter = Some(rewriter);
         self
     }
+
+    /// Attaches the keyword index enabling hybrid retrieval and dual writes.
+    pub fn with_keyword(mut self, keyword: Arc<dyn rag_core::KeywordIndex>) -> Self {
+        self.keyword = Some(keyword);
+        self
+    }
 }
 
 impl std::fmt::Debug for RagNodeHandles {
@@ -186,6 +192,7 @@ impl std::fmt::Debug for RagNodeHandles {
         f.debug_struct("RagNodeHandles")
             .field("default_collection", &self.default_collection)
             .field("default_namespace", &self.default_namespace)
+            .field("keyword_configured", &self.keyword.is_some())
             .field("rewriter_configured", &self.rewriter.is_some())
             .finish()
     }
@@ -305,20 +312,7 @@ impl RagQueryHandler {
             }
             None => rag_core::merge_variants(vec![query_text.clone()], &extra_variants),
         };
-        let keyword_corpus: Vec<vector_contracts::VectorPoint> =
-            match config.keyword_corpus_variable.as_deref() {
-                Some(variable) => ctx
-                    .get_variable(variable)
-                    .map(serde_json::from_value)
-                    .transpose()
-                    .map_err(|err| {
-                        WorkflowError::OperationError(format!(
-                            "Invalid keyword corpus variable '{variable}': {err}"
-                        ))
-                    })?
-                    .unwrap_or_default(),
-                None => Vec::new(),
-            };
+        let hybrid_enabled = query_config.keyword_candidates > 0 && self.handles.keyword.is_some();
         let hits = if variants.len() > 1 {
             rag_core::pipeline::query_multi(
                 self.handles.store.as_ref(),
@@ -330,14 +324,19 @@ impl RagQueryHandler {
             )
             .await
             .map_err(|err| WorkflowError::OperationError(format!("RAG query failed: {err}")))?
-        } else if !keyword_corpus.is_empty() {
+        } else if hybrid_enabled {
+            let keyword = self
+                .handles
+                .keyword
+                .as_ref()
+                .expect("keyword index present");
             rag_core::pipeline::query_hybrid(
                 self.handles.store.as_ref(),
+                keyword.as_ref(),
                 self.handles.embedder.as_ref(),
                 &collection,
                 &namespace,
                 &query_text,
-                &keyword_corpus,
                 &query_config,
             )
             .await
@@ -511,6 +510,7 @@ impl RagIngestHandler {
             for stale in rag_core::stale_sources(&incoming, &indexed_hashes) {
                 let _ = rag_core::pipeline::delete_source(
                     self.handles.store.as_ref(),
+                    self.handles.keyword.as_deref(),
                     &collection,
                     Some(&namespace),
                     &stale,
@@ -522,6 +522,7 @@ impl RagIngestHandler {
                 if matches!(decision.action, rag_core::SyncAction::Update) {
                     let _ = rag_core::pipeline::delete_source(
                         self.handles.store.as_ref(),
+                        self.handles.keyword.as_deref(),
                         &collection,
                         Some(&namespace),
                         &decision.source,
@@ -567,6 +568,7 @@ impl RagIngestHandler {
         }
         let mut stats = rag_core::pipeline::ingest_documents(
             self.handles.store.as_ref(),
+            self.handles.keyword.as_deref(),
             self.handles.embedder.as_ref(),
             &collection,
             &documents,

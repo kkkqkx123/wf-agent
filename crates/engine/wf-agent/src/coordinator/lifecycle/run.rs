@@ -53,12 +53,14 @@ impl AgentLoopCoordinator {
         // Ephemeral read-only turns take no checkpoints at all, including
         // the post-compression snapshot: derive through the run config so
         // the ephemeral tier yields no integration here either.
-        let checkpoint = self.checkpoint_integration_for_config(config).map(|integration| {
-            crate::conversation_compression::CompressionCheckpoint {
-                entity: entity.clone(),
-                integration,
-            }
-        });
+        let checkpoint = self
+            .checkpoint_integration_for_config(config)
+            .map(
+                |integration| crate::conversation_compression::CompressionCheckpoint {
+                    entity: entity.clone(),
+                    integration,
+                },
+            );
         self.event_bus.as_ref().map(move |bus| {
             crate::conversation_compression::spawn_conversation_compression_consumer(
                 bus.clone(),

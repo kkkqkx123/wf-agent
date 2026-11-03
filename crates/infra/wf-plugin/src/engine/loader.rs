@@ -29,7 +29,7 @@ impl PluginEngine {
 
         self.check_admission(&manifest)?;
 
-        self.verify_wasm_artifacts(base, &manifest)?;
+        self.verify_artifacts(base, &manifest)?;
 
         let plugin = load_plugin_module(&manifest, base, &self.options).await?;
         self.registry.register(manifest, plugin)?;
@@ -94,7 +94,7 @@ impl PluginEngine {
         self.publish(PluginEvent::Loading {
             plugin_id: manifest.id.clone(),
         });
-        self.verify_wasm_artifacts(&plugin_dir, &manifest)?;
+        self.verify_artifacts(&plugin_dir, &manifest)?;
         let plugin = load_plugin_module(&manifest, &plugin_dir, &self.options).await?;
         self.registry.register(manifest.clone(), plugin)?;
         self.registry

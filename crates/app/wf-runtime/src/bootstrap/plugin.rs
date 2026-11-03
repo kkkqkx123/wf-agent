@@ -84,10 +84,17 @@ pub async fn init_plugins(
         paths: config.paths.clone(),
         auto_activate: config.auto_activate,
         guard_timeout_ms: config.guard_timeout_ms,
+        override_policy: config.override_policy,
+        allow_list: config.allow_list.clone(),
+        block_list: config.block_list.clone(),
         lua_enabled: config.lua_enabled,
         native_enabled: config.native_enabled,
         wasm_enabled: config.wasm_enabled,
-        ..Default::default()
+        required_permissions_blocklist: config.required_permissions_blocklist.clone(),
+        config: config.config.clone(),
+        lua_defaults: config.lua_defaults.clone(),
+        wasm_defaults: config.wasm_defaults.clone(),
+        signing: config.signing.clone(),
     };
 
     let registry = Arc::new(wf_plugin::PluginRegistry::new());

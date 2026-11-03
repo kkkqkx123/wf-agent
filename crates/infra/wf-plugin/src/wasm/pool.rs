@@ -137,8 +137,19 @@ impl SessionPool {
     pub async fn acquire(&self) -> PluginResult<PooledSession> {
         if let Some(idle) = &self.idle {
             let reused = idle.lock().expect("session pool poisoned").pop_front();
-            if let Some(session) = reused {
+            if let Some(mut session) = reused {
                 self.stats.record_pool_hit();
+                // Idle sessions carry `budget - reset_cost` fuel left over
+                // from `run_reset`. Replenish to the full budget so a reused
+                // session starts exactly like a fresh one and `observe`
+                // (`budget - remaining`) stays accurate. Mirrors the
+                // component-model pool.
+                session
+                    .store
+                    .set_fuel(self.limits.fuel_limit.unwrap_or(u64::MAX))
+                    .map_err(|e| {
+                        wasm_err(&format!("plugin '{}' fuel reset failed", self.plugin_id), e)
+                    })?;
                 return Ok(session);
             }
             self.stats.record_pool_miss();

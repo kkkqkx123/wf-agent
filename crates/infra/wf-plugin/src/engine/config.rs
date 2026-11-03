@@ -32,6 +32,8 @@ use wf_plugin_sdk::manifest::{LuaConfig, WasmConfig};
 /// validity, permission blocklist, ABI handshake, and signatures) can refuse
 /// a plugin.
 pub struct PluginSystemConfig {
+    /// Library default stays closed so embedding hosts opt in explicitly;
+    /// the product runtime enables it by default for out-of-box use.
     pub enabled: bool,
     pub paths: Vec<PathBuf>,
     pub auto_activate: bool,

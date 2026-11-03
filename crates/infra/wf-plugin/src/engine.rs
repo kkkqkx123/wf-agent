@@ -40,8 +40,8 @@ impl PluginEngine {
     ) -> Self {
         let guard = PluginGuard::new(options.guard_timeout_ms);
         if options.guard_timeout_ms == 0 {
-            tracing::warn!(
-                "plugin guard timeout is disabled; runaway hooks rely solely on backend limits"
+            tracing::error!(
+                "plugin guard timeout is disabled; backend per-call limits are the only time backstop"
             );
         }
         contribution_manager.set_override_policy(options.override_policy);
@@ -85,7 +85,7 @@ impl PluginEngine {
         self.event_bus.as_ref()
     }
 
-    pub(crate) fn verify_wasm_signature(
+    pub(crate) fn verify_artifact_signature(
         &self,
         artifact: &std::path::Path,
         plugin_id: &str,
@@ -98,21 +98,20 @@ impl PluginEngine {
         crate::signing::enforce_signature(plugin_id, artifact, &status, trust, "loading")
     }
 
-    /// Verify the signature of every wasm artifact a manifest points at.
-    /// Wasm is the only backend whose artifacts carry signatures; the other
-    /// backends are covered by the package manager at install time.
+    /// Verify the signature of every artifact a manifest points at.
+    /// All backends share the load-time check when trust is configured;
+    /// without trust this stays a no-op so directory-discovered plugins
+    /// keep loading unchanged.
     ///
-    /// Signature checking is plain file hashing and does not require the wasm
+    /// Signature checking is plain file hashing and does not require any
     /// backend to be compiled in, so it stays available in trimmed builds.
-    pub(crate) fn verify_wasm_artifacts(
+    pub(crate) fn verify_artifacts(
         &self,
         base: &std::path::Path,
         manifest: &PluginManifest,
     ) -> PluginResult<()> {
         for entry in crate::manifest::all_entry_points(manifest) {
-            if entry.ends_with(".wasm") {
-                self.verify_wasm_signature(&base.join(&entry), &manifest.id)?;
-            }
+            self.verify_artifact_signature(&base.join(&entry), &manifest.id)?;
         }
         Ok(())
     }

@@ -98,8 +98,7 @@ pub async fn create(
         // otherwise the ephemeral chain could gain a seed snapshot.
         // Storage errors fail open to the existing behavior (a new seed
         // snapshot), never to a hard failure of an unrelated subsystem.
-        if let Ok(Some(record)) = ctx.storage.agent_execution.load(agent_loop_id).await
-        {
+        if let Ok(Some(record)) = ctx.storage.agent_execution.load(agent_loop_id).await {
             if record.loop_config.and_then(|c| c.temporary_mode)
                 == Some(wf_types::agent_execution::TemporaryMode::Ephemeral)
             {

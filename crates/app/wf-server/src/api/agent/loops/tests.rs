@@ -155,8 +155,14 @@ async fn run_body_parses_temporary_mode_strictly() {
         None
     );
     for (wire, expected) in [
-        ("restricted", wf_types::agent_execution::TemporaryMode::Restricted),
-        ("ephemeral", wf_types::agent_execution::TemporaryMode::Ephemeral),
+        (
+            "restricted",
+            wf_types::agent_execution::TemporaryMode::Restricted,
+        ),
+        (
+            "ephemeral",
+            wf_types::agent_execution::TemporaryMode::Ephemeral,
+        ),
     ] {
         let body = serde_json::from_value::<RunAgentLoopBody>(serde_json::json!({
             "agent_id": MAIN_AGENT_ID,

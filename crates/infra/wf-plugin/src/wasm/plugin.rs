@@ -222,6 +222,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pooled_reuse_starts_with_full_fuel_budget() {
+        use super::super::loader::wasm_test_echo_reset_wat;
+
+        let wat = wasm_test_echo_reset_wat(r#"{"tool_types":[]}"#, 0);
+        let plugin = build_pooled_plugin("fuel-reuse", &wat, 2).await;
+        assert!(plugin.inner.pool.enabled());
+        let budget = plugin.inner.limits.fuel_limit.expect("metered");
+        // Load-time register returned one idle session whose fuel is
+        // `budget - reset_cost`. Acquire must replenish it to the full
+        // budget so `observe` (`budget - remaining`) excludes reset cost.
+        let session = plugin.inner.pool.acquire().await.expect("acquire");
+        assert_eq!(
+            session.store.get_fuel().expect("fuel readable"),
+            budget,
+            "reused session must start with the full budget"
+        );
+        plugin.inner.pool.release(session, true).await;
+        let session = plugin.inner.pool.acquire().await.expect("acquire");
+        assert_eq!(
+            session.store.get_fuel().expect("fuel readable"),
+            budget,
+            "second reuse must also start with the full budget"
+        );
+        plugin.inner.pool.release(session, true).await;
+
+        // Repeated pooled calls accumulate only their own consumption:
+        // deltas stay stable instead of drifting with reset leftovers.
+        let ctx = hook_context("fuel-reuse");
+        let mut deltas = Vec::new();
+        for _ in 0..3 {
+            let before = plugin.stats().fuel_consumed;
+            plugin.on_load(&ctx).await.expect("hook");
+            let after = plugin.stats().fuel_consumed;
+            assert!(after > before, "metered hook must consume fuel");
+            deltas.push(after - before);
+        }
+        assert_eq!(deltas[0], deltas[1]);
+        assert_eq!(deltas[1], deltas[2]);
+    }
+
+    #[tokio::test]
     async fn pool_stays_disabled_without_reset_export() {
         use super::super::loader::wasm_test_echo_wat;
 

@@ -170,6 +170,8 @@ pub struct RuntimeConfig {
 #[cfg(feature = "plugins")]
 #[derive(Debug, Clone)]
 pub struct PluginConfig {
+    /// Product default stays enabled for out-of-box use; the engine
+    /// library default stays closed so embedding hosts opt in explicitly.
     pub enabled: bool,
     pub paths: Vec<std::path::PathBuf>,
     pub auto_activate: bool,
@@ -177,6 +179,14 @@ pub struct PluginConfig {
     pub lua_enabled: bool,
     pub native_enabled: bool,
     pub wasm_enabled: bool,
+    pub allow_list: Vec<String>,
+    pub block_list: Vec<String>,
+    pub override_policy: wf_plugin::OverridePolicy,
+    pub required_permissions_blocklist: Vec<wf_plugin::PluginPermission>,
+    pub config: std::collections::HashMap<String, serde_json::Value>,
+    pub lua_defaults: Option<wf_plugin::LuaConfig>,
+    pub wasm_defaults: Option<wf_plugin::WasmConfig>,
+    pub signing: wf_plugin::signing::TrustedKeys,
 }
 
 #[cfg(feature = "plugins")]
@@ -190,6 +200,14 @@ impl Default for PluginConfig {
             lua_enabled: true,
             native_enabled: false,
             wasm_enabled: true,
+            allow_list: Vec::new(),
+            block_list: Vec::new(),
+            override_policy: wf_plugin::OverridePolicy::default(),
+            required_permissions_blocklist: Vec::new(),
+            config: std::collections::HashMap::new(),
+            lua_defaults: None,
+            wasm_defaults: None,
+            signing: wf_plugin::signing::TrustedKeys::default(),
         }
     }
 }

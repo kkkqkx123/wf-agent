@@ -31,6 +31,9 @@ pub const MAX_POOL_SIZE: usize = 64;
 ///
 /// Deny-by-default: every field starts empty and is only populated when the
 /// manifest both declares the matching permission and lists the grant.
+/// Network access has no grant field: the host wires no sockets, so the
+/// manifest switch is the single source of truth and enforced by
+/// `validate_network_policy`.
 #[derive(Debug, Clone, Default)]
 pub struct WasiGrants {
     /// `(host_path, guest_path)` directory preopens. Read-only; directories
@@ -41,11 +44,6 @@ pub struct WasiGrants {
     pub writable_dirs: Vec<(String, String)>,
     /// Environment variables inherited from the host.
     pub env_vars: Vec<(String, String)>,
-    /// Whether guest network access is granted. Always false:
-    /// `allow_network = true` is rejected at load by
-    /// `validate_network_policy`, so this field only exists for
-    /// observability in startup logs and never enables sockets.
-    pub allow_network: bool,
 }
 
 /// Resolve execution limits from the manifest, falling back to engine and
@@ -102,7 +100,13 @@ pub fn resolve_limits_with_defaults(
         .or_else(|| engine_defaults.and_then(|c| c.fuel_limit))
     {
         None => Some(WASM_DEFAULT_FUEL_LIMIT),
-        Some(0) => None,
+        Some(0) => {
+            tracing::warn!(
+                "plugin '{}': wasm.fuel_limit=0 disables metering; the outer guard timeout still applies",
+                manifest.id
+            );
+            None
+        }
         Some(n) => Some(n),
     };
     let call_timeout_ms = match cfg
@@ -125,6 +129,12 @@ pub fn resolve_limits_with_defaults(
             }
         }
     };
+    if call_timeout_ms.is_none() && engine_guard_timeout_ms == 0 {
+        tracing::error!(
+            "plugin '{}': wasm call timeout and outer guard timeout are both disabled; runaway guests have no time backstop",
+            manifest.id
+        );
+    }
     let pool_size = cfg
         .and_then(|c| c.store_pool_size)
         .or_else(|| engine_defaults.and_then(|c| c.store_pool_size))

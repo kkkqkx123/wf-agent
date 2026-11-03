@@ -3,7 +3,8 @@
 > 面向插件作者。宿主实现见 `crates/infra/wf-plugin/src/wasm/`，
 > 契约定义见 `crates/foundation/wf-plugin-sdk/src/wasm.rs`。
 > 完整可构建示例见 `crates/infra/wf-plugin/examples/` 下的
-> `wasm-echo/`（Rust）、`wasm-go/`（TinyGo）、`wasm-python/`（componentize-py）。
+> `wasm-echo/`（Rust）、`wasm-go/`（TinyGo）、`wasm-python/`（componentize-py）；
+> 另有 `wasm-verify/` 作为端到端验证工具。
 
 ---
 
@@ -20,8 +21,8 @@ Wasm 插件有两条加载路径，宿主按二进制头部自动分流，上层
   且 guest 必须实现完整 world（缺失导出会直接加载失败，不像 Core 路径那样视为成功）。
 
 - 宿主负责：编译模块、按权限组装 WASI 上下文、每次调用创建独立
-  `Store`（调用间无共享内存）、fuel/epoch/内存上限、超时中断、
-  guest `stdout`/`stderr` 接入宿主日志。
+  `Store`（调用间无共享内存；池化开启时成功调用的会话可复用）、
+  fuel/epoch/内存上限、超时中断、guest `stdout`/`stderr` 接入宿主日志。
 - 插件负责：导出 `memory` 与 `alloc`，实现 `wf_*` 导出函数，
   用 JSON 描述贡献并处理分发调用。
 
@@ -37,10 +38,11 @@ Wasm 插件有两条加载路径，宿主按二进制头部自动分流，上层
 | `memory` | linear memory | 是 | 宿主读写 JSON 的通道 |
 | `alloc` | `(size: i32) -> i32` | 有输入调用时必需 | bump 分配器即可 |
 | `dealloc` | `(ptr: i32, len: i32)` | 否 | 缺省时泄漏以单次调用为界 |
+| `wf_heap_reset` | `() -> u32` | 否 | 返回 0 表示允许复用该会话（实例池）；Core 路径池化时必需，缺省关闭池化 |
 | `wf_supported_abi_versions` | `() -> i64` 打包 `(ptr, len)` 指向 `u32` 数组 | 是 | 缺失直接加载失败；与宿主取交集选最高版本，无交集则加载失败 |
 | `wf_last_error` | `() -> i64` | 否 | 与 `wf_register` 同一打包 `(ptr, len)`；钩子返回非 0 时宿主读取并拼入错误 |
 | `wf_on_load` 等 5 个钩子 | `(ptr: i32, len: i32) -> i32` | 否 | 缺省视同成功；返回非 0 即失败，错误含 code 与 `wf_last_error` 明细 |
-| `wf_register` | `() -> i64` | 有贡献时必需 | 返回打包的 `(ptr, len)`，指向贡献声明 JSON |
+| `wf_register` | `() -> i64` | 否 | 无贡献时可省略；返回打包的 `(ptr, len)`，指向贡献声明 JSON |
 | `wf_dispatch` | 6×i32 → i64 | 有贡献时必需 | 见下 |
 
 `wf_register` 返回的 JSON 形如：
@@ -50,8 +52,11 @@ Wasm 插件有两条加载路径，宿主按二进制头部自动分流，上层
   "node_types": [],
   "tool_types": ["echo"],
   "llm_providers": [],
+  "llm_auths": [],
   "event_handlers": [],
-  "middleware": [{"phase": "pre_tool", "priority": 0}]
+  "middleware": [{"phase": "before-tool-execution", "priority": 0}],
+  "tools": [],
+  "tool_descriptions": []
 }
 ```
 
@@ -60,7 +65,9 @@ Wasm 插件有两条加载路径，宿主按二进制头部自动分流，上层
 `wf_dispatch(type_ptr, type_len, name_ptr, name_len, input_ptr, input_len)`
 返回输出 JSON 的打包 `(ptr, len)`。打包规则：低 32 位为指针，
 高 32 位为长度。`handler_type` 取值为
-`node/tool/llm/event/mw` 之一，输入输出 JSON 结构与 Native 插件的
+`node/tool/event/mw/llm-codec/llm-auth` 之一：前四者 `handler_name`
+即声明名，后两者 `handler_name` 形如 `{name}/{op}`（如
+`echo/build_request`）。输入输出 JSON 结构与 Native 插件的
 `dispatch` 完全一致。
 
 生命周期钩子的输入为 `{"plugin_id": "...", "config": {...}}`。
@@ -73,11 +80,13 @@ Wasm 插件有两条加载路径，宿主按二进制头部自动分流，上层
 
 1. `no_std` + `crate-type = ["cdylib"]`，目标
    `wasm32-unknown-unknown`，不依赖 WASI。
-2. 用静态字节数组做 bump 分配器，`memory` 由编译器自动导出。
-3. 返回静态 JSON 时同样走"拷贝进 guest 内存再打包返回"的路径，
+2. 导出 `wf_supported_abi_versions`（必需）；可选 `wf_last_error` 与
+   `wf_heap_reset`（后者仅在启用实例池时需要）。
+3. 用静态字节数组做 bump 分配器，`memory` 由编译器自动导出。
+4. 返回静态 JSON 时同样走"拷贝进 guest 内存再打包返回"的路径，
    不要返回宿主无法寻址的指针。
-4. `panic = "abort"` 并提供 `panic_handler` 使 panic 直接 trap。
-5. release profile 开 `lto` 与 `opt-level = "s"`，示例产物约 0.5KB。
+5. `panic = "abort"` 并提供 `panic_handler` 使 panic 直接 trap。
+6. release profile 开 `lto` 与 `opt-level = "s"`，示例产物约 0.5KB。
 
 动态逻辑（如解析输入 JSON）建议先用最小的手写解析起步，
 如需强类型绑定可用 `wit/plugin.wit`（`wf:plugin/plugin` 世界）经由
@@ -104,10 +113,10 @@ version = "1.0.0"
 entry_point = "plugin.wasm"
 
 [wasm]
-memory_max_mb = 64      # 缺省 64，0 为非法
-fuel_limit = 10000000   # 缺省 1000 万，0 表示不设限
-call_timeout_ms = 10000 # 缺省跟随引擎 guard 超时
-max_module_bytes = 33554432  # 缺省 32MiB
+memory_max_mb = 64      # 缺省 64；0 回退到缺省
+fuel_limit = 10000000   # 缺省 1000 万；0 表示不设限
+call_timeout_ms = 10000 # 缺省跟随引擎 guard 超时；0 关闭 epoch 截止（外层 guard 仍生效）
+max_module_bytes = 33554432  # 缺省 32MiB；0 回退到缺省
 allowed_dirs = ["./data"]    # 需同时声明 filesystem 权限，只读
 allowed_write_dirs = []       # 需同时声明 filesystem 权限；列出的目录可读写（读写蕴含读）
 allowed_env_prefixes = ["MYAPP_"]  # 需同时声明 environment 权限

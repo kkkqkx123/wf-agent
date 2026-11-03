@@ -159,11 +159,10 @@ async fn load_wasm_plugin_at(
         .map_err(|e| pool::wasm_err(&format!("plugin '{id}' pre-instantiation failed"), e))?;
     let grants = resolve_grants(manifest);
     tracing::info!(
-        "wasm plugin '{id}' grants: {} dir(s), {} writable dir(s), {} env var(s), network={}",
+        "wasm plugin '{id}' grants: {} dir(s), {} writable dir(s), {} env var(s)",
         grants.preopened_dirs.len(),
         grants.writable_dirs.len(),
         grants.env_vars.len(),
-        grants.allow_network
     );
     tracing::info!(
         "wasm plugin '{id}' limits: memory={}B fuel={} timeout={}ms module={}B pool={}",

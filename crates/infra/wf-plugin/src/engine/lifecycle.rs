@@ -314,7 +314,7 @@ impl PluginEngine {
         let _ = self.deactivate(plugin_id).await;
         self.registry.remove(plugin_id);
 
-        self.verify_wasm_artifacts(&plugin_dir, &manifest)?;
+        self.verify_artifacts(&plugin_dir, &manifest)?;
         let plugin = load_plugin_module(&manifest, &plugin_dir, &self.options).await?;
         self.registry.register(manifest, plugin)?;
         self.registry.update_status(plugin_id, PluginStatus::Loaded);
@@ -361,7 +361,7 @@ impl PluginEngine {
                     tracing::warn!("plugin '{}' rejected: {}", plugin_id, e);
                     continue;
                 }
-                if let Err(e) = self.verify_wasm_artifacts(&base, &manifest) {
+                if let Err(e) = self.verify_artifacts(&base, &manifest) {
                     tracing::warn!("plugin '{}' signature rejected: {}", plugin_id, e);
                     continue;
                 }

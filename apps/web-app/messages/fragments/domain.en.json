@@ -403,6 +403,8 @@
 	"domain.git.discardLines": "Discard lines",
 	"domain.git.filter": "Filter",
 	"domain.git.filterPlaceholder": "Filter this panel",
+	"domain.git.graphApprox": "Order follows the server list; clock skew treated as approximate.",
+	"domain.git.graphLocal": "Local lanes for the loaded window only.",
 	"domain.git.groupsDescription": "Panels for branches, files, worktrees and more.",
 	"domain.git.groupsTitle": "Git panels",
 	"domain.git.hunkLabel": "Hunk {number}",

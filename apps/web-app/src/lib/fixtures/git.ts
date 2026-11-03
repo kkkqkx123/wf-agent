@@ -102,6 +102,34 @@ export const gitDiff = [
 		binary: false,
 		truncated: true,
 	},
+	{
+		path: 'src/conflicted.ts',
+		kind: 'modified',
+		hunks: [
+			{
+				header: '@@ -1,7 +1,11 @@',
+				lines: [
+					' head',
+					'+<<<<<<< HEAD',
+					'+ours-a',
+					'+=======',
+					'+theirs-a',
+					'+>>>>>>> branch',
+					' middle',
+					'+<<<<<<< HEAD',
+					'+ours-b',
+					'+=======',
+					'+theirs-b',
+					'+>>>>>>> branch',
+					' tail',
+				],
+			},
+		],
+		additions: 10,
+		deletions: 0,
+		binary: false,
+		truncated: false,
+	},
 ];
 
 export const gitStagedDiff = [
@@ -147,6 +175,17 @@ export const gitConflictFiles = [
 
 export const gitCommits = [
 	{
+		id: 'preview-commit-4',
+		short_id: 'previ4w',
+		author: 'Preview Author',
+		email: 'preview@example.com',
+		timestamp: 1_700_000_400,
+		subject: 'Merge preview branch',
+		body: '',
+		parents: ['preview-commit-3', 'preview-commit-branch'],
+		refs: ['HEAD -> main'],
+	},
+	{
 		id: 'preview-commit-3',
 		short_id: 'previ3w',
 		author: 'Preview Author',
@@ -155,7 +194,18 @@ export const gitCommits = [
 		subject: 'Add git workbench skeleton',
 		body: '',
 		parents: ['preview-commit-2'],
-		refs: ['HEAD -> main'],
+		refs: [],
+	},
+	{
+		id: 'preview-commit-branch',
+		short_id: 'previbw',
+		author: 'Preview Author',
+		email: 'preview@example.com',
+		timestamp: 1_700_000_250,
+		subject: 'Preview side branch work',
+		body: '',
+		parents: ['preview-commit-2'],
+		refs: ['preview/demo'],
 	},
 	{
 		id: 'preview-commit-2',
@@ -539,6 +589,13 @@ export const gitRegistry = [
 		id: 'conflict.accept-theirs',
 		danger: 'recoverable',
 		params: ['path'],
+		available: true,
+		reason: null,
+	},
+	{
+		id: 'conflict.resolve-block',
+		danger: 'recoverable',
+		params: ['path', 'block', 'side'],
 		available: true,
 		reason: null,
 	},

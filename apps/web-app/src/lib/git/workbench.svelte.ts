@@ -499,6 +499,15 @@ export class GitWorkbench {
 		this.clearSelection(path);
 	}
 
+	async resolveConflictBlock(path: string, block: number, side: 'ours' | 'theirs'): Promise<void> {
+		await this.dispatchAction(
+			'conflict.resolve-block',
+			{ path, block: String(block), side },
+			undefined,
+		);
+		this.clearSelection(path);
+	}
+
 	clearSelection(path?: string): void {
 		if (!path) {
 			this.lineSelection = {};

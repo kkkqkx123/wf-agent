@@ -597,6 +597,14 @@ pub const ACTION_SPECS: &[ActionSpec] = &[
         unavailable_reason: None,
         needs_confirm: false,
     },
+    ActionSpec {
+        id: "conflict.resolve-block",
+        danger: DangerLevel::Recoverable,
+        params: &["path", "block", "side"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: false,
+    },
 ];
 
 pub fn action_spec(id: &str) -> GitResult<&'static ActionSpec> {

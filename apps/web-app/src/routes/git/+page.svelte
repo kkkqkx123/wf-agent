@@ -8,7 +8,6 @@
 	import PageState from '#lib/components/layout/PageState.svelte';
 	import GitBoard from '#lib/components/domain/git/GitBoard.svelte';
 	import GitCommandLog from '#lib/components/domain/git/GitCommandLog.svelte';
-	import GitGroupsPanel from '#lib/components/domain/git/GitGroupsPanel.svelte';
 	import GitMainView from '#lib/components/domain/git/GitMainView.svelte';
 	import GitKeyInput from '#lib/components/domain/git/GitKeyInput.svelte';
 	import GitStatusBar from '#lib/components/domain/git/GitStatusBar.svelte';
@@ -55,7 +54,19 @@
 	}
 	let lastPanel = $state(workbench.panel);
 
-	const BOARD_ORDER: PanelId[] = ['files', 'branches', 'commits', 'stash'];
+	const BOARD_ORDER: PanelId[] = [
+		'status',
+		'files',
+		'conflicts',
+		'worktrees',
+		'submodules',
+		'branches',
+		'remotes',
+		'tags',
+		'commits',
+		'reflog',
+		'stash',
+	];
 
 	function editableTarget(target: EventTarget | null): boolean {
 		const element = target as HTMLElement | null;
@@ -68,18 +79,31 @@
 	}
 
 	function selectionIdFor(panel: PanelId): string | null {
-		if (panel === 'files') return gitStore.selectedFile;
-		if (panel === 'commits') return gitStore.selectedCommit;
+		if (panel === 'files' || panel === 'conflicts') return gitStore.selectedFile;
+		if (panel === 'commits' || panel === 'reflog')
+			return gitStore.selectedCommit ?? gitStore.selectionFor('commits');
 		if (panel === 'branches') return gitStore.selectedBranch;
 		if (panel === 'stash') return gitStore.selectedStash;
+		if (panel === 'worktrees') return gitStore.selectedWorktree;
+		if (panel === 'submodules') return gitStore.selectedSubmodule;
+		if (panel === 'remotes') return workbench.selectedRemote;
+		if (panel === 'tags') return workbench.selectedTag;
 		return null;
 	}
 
 	async function selectBoardRow(panel: PanelId, id: string): Promise<void> {
-		if (panel === 'files') await workbench.selectFile(id, false);
-		else if (panel === 'commits') await workbench.selectCommit(id, false);
+		if (panel === 'files' || panel === 'conflicts') await workbench.selectFile(id, false);
+		else if (panel === 'commits' || panel === 'reflog') await workbench.selectCommit(id, false);
 		else if (panel === 'branches') gitStore.select('branches', id);
 		else if (panel === 'stash') gitStore.select('stash', id);
+		else if (panel === 'worktrees') gitStore.select('worktrees', id);
+		else if (panel === 'submodules') gitStore.select('submodules', id);
+		else if (panel === 'remotes') workbench.selectedRemote = id;
+		else if (panel === 'tags') {
+			const tag = workbench.tags.find((entry) => entry.name === id);
+			workbench.selectedTag = id;
+			if (tag) await workbench.selectCommit(tag.commit, false);
+		}
 	}
 
 	function focusBoardRow(panel: PanelId, id: string): void {
@@ -115,7 +139,11 @@
 		const first = document.querySelector<HTMLButtonElement>(
 			`#git-board [data-board-panel="${BOARD_ORDER[next]}"]`,
 		);
-		first?.focus();
+		if (first) {
+			first.focus();
+			return;
+		}
+		document.getElementById(`git-filter-${BOARD_ORDER[next]}`)?.focus();
 	}
 
 	async function onPageKeydown(event: KeyboardEvent): Promise<void> {
@@ -293,15 +321,8 @@
 			onretry={() => void workbench.reload()}
 		>
 			<div class="grid gap-2 xl:grid-cols-5">
-				<div class="hidden xl:col-span-3 xl:block">
-					{#if BOARD_ORDER.includes(workbench.panel)}
-						<GitBoard {workbench} />
-					{:else}
-						<GitGroupsPanel {workbench} bind:panel={workbench.panel} />
-					{/if}
-				</div>
-				<div class="xl:hidden">
-					<GitGroupsPanel {workbench} bind:panel={workbench.panel} />
+				<div class="xl:col-span-3">
+					<GitBoard {workbench} />
 				</div>
 				<div class="space-y-2 xl:col-span-2">
 					<GitMainView {workbench} />

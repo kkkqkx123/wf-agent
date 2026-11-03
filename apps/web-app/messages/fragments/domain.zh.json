@@ -403,6 +403,8 @@
 	"domain.git.discardLines": "丢弃行",
 	"domain.git.filter": "筛选",
 	"domain.git.filterPlaceholder": "筛选此面板",
+	"domain.git.graphApprox": "顺序沿用服务端列表；时钟偏移视为近似拓扑。",
+	"domain.git.graphLocal": "仅为当前已加载窗口的局部走向。",
 	"domain.git.groupsDescription": "分支、文件、worktree 等面板。",
 	"domain.git.groupsTitle": "Git 面板",
 	"domain.git.hunkLabel": "Hunk {number}",

@@ -6,6 +6,7 @@
 	import { git as gitStore } from '#lib/stores/git.svelte';
 	import type { GitWorkbench, MainViewMode } from '#lib/git/workbench.svelte';
 	import { selectableIndices } from '#lib/git/workbench.svelte';
+	import { parseConflictBlocks } from '#lib/git/conflicts';
 	import type { DiffFile, DiffLine } from '#lib/types/diff';
 	import { t } from '#lib/i18n';
 
@@ -35,6 +36,19 @@
 	let selectedCommit = $derived(gitStore.selectedCommit);
 
 	let showWhitespace = $state(false);
+
+	let blockChoices = $state<Record<string, Record<number, 'ours' | 'theirs'>>>({});
+
+	function blocksFor(path: string) {
+		const file = workbench.diff.find((entry) => entry.path === path);
+		if (!file) return [];
+		return parseConflictBlocks(file.lines);
+	}
+
+	function chooseBlock(path: string, block: number, side: 'ours' | 'theirs'): void {
+		blockChoices = { ...blockChoices, [path]: { ...(blockChoices[path] ?? {}), [block]: side } };
+		void workbench.resolveConflictBlock(path, block, side);
+	}
 
 	function whitespaceText(text: string): string {
 		if (!showWhitespace) return text;
@@ -110,33 +124,87 @@
 					{t('domain.git.conflictPending')}
 				</p>
 			{/if}
-			<ul class="mt-1 space-y-1">
+			<ul class="mt-1 space-y-2">
 				{#each workbench.visibleConflicts as conflict (conflict.path)}
-					<li class="flex flex-wrap items-center gap-1">
-						<button
-							type="button"
-							onclick={() => void workbench.selectFile(conflict.path, false)}
-							title={conflict.path}
-							class="min-w-0 flex-1 truncate px-1 text-left font-mono text-caption font-semibold text-destructive hover:bg-accent/50"
-						>
-							{conflict.path}
-						</button>
-						<Button
-							size="sm"
-							variant="outline"
-							disabled={gitStore.busy}
-							onclick={() => void workbench.acceptOurs(conflict.path)}
-						>
-							{t('domain.git.acceptOurs')}
-						</Button>
-						<Button
-							size="sm"
-							variant="outline"
-							disabled={gitStore.busy}
-							onclick={() => void workbench.acceptTheirs(conflict.path)}
-						>
-							{t('domain.git.acceptTheirs')}
-						</Button>
+					{@const blocks = blocksFor(conflict.path)}
+					<li class="space-y-1">
+						<div class="flex flex-wrap items-center gap-1">
+							<button
+								type="button"
+								onclick={() => void workbench.selectFile(conflict.path, false)}
+								title={conflict.path}
+								class="min-w-0 flex-1 truncate px-1 text-left font-mono text-caption font-semibold text-destructive hover:bg-accent/50"
+							>
+								{conflict.path}
+							</button>
+							<Button
+								size="sm"
+								variant="outline"
+								disabled={gitStore.busy}
+								onclick={() => void workbench.acceptOurs(conflict.path)}
+							>
+								{t('domain.git.acceptOurs')}
+							</Button>
+							<Button
+								size="sm"
+								variant="outline"
+								disabled={gitStore.busy}
+								onclick={() => void workbench.acceptTheirs(conflict.path)}
+							>
+								{t('domain.git.acceptTheirs')}
+							</Button>
+						</div>
+						{#each blocks as block (block.index)}
+							<div class="ml-1 rounded border border-border bg-card px-1.5 py-1">
+								<p class="font-mono text-micro text-muted-foreground">
+									lines {block.startLine}-{block.endLine}
+								</p>
+								<div class="mt-1 grid gap-1 sm:grid-cols-2">
+									<div class="rounded bg-success/5 px-1 py-0.5">
+										<p class="font-mono text-micro text-muted-foreground">
+											lines {block.oursStart}-{block.oursEnd}
+										</p>
+										{#each block.oursLines as line, lineIndex (lineIndex)}
+											<p class="truncate font-mono text-micro text-foreground" title={line}>
+												{line}
+											</p>
+										{/each}
+										<div class="mt-1">
+											<Button
+												size="sm"
+												variant="outline"
+												active={blockChoices[conflict.path]?.[block.index] === 'ours'}
+												disabled={gitStore.busy}
+												onclick={() => chooseBlock(conflict.path, block.index, 'ours')}
+											>
+												{t('domain.git.acceptOurs')}
+											</Button>
+										</div>
+									</div>
+									<div class="rounded bg-info/5 px-1 py-0.5">
+										<p class="font-mono text-micro text-muted-foreground">
+											lines {block.theirsStart}-{block.theirsEnd}
+										</p>
+										{#each block.theirsLines as line, lineIndex (lineIndex)}
+											<p class="truncate font-mono text-micro text-foreground" title={line}>
+												{line}
+											</p>
+										{/each}
+										<div class="mt-1">
+											<Button
+												size="sm"
+												variant="outline"
+												active={blockChoices[conflict.path]?.[block.index] === 'theirs'}
+												disabled={gitStore.busy}
+												onclick={() => chooseBlock(conflict.path, block.index, 'theirs')}
+											>
+												{t('domain.git.acceptTheirs')}
+											</Button>
+										</div>
+									</div>
+								</div>
+							</div>
+						{/each}
 					</li>
 				{/each}
 			</ul>

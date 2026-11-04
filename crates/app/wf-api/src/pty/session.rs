@@ -21,27 +21,11 @@ pub struct PtyCreateParams {
     pub rows: Option<u16>,
     pub cols: Option<u16>,
     pub title: Option<String>,
-    /// Environment overrides for the spawned process. Restricted to
-    /// git-purpose variables (`GIT_` prefix) by [`apply_client_env`].
+    /// Environment overrides for the spawned process, applied as-is. Any
+    /// caller holding the API key can already spawn a login shell as the
+    /// server user, so filtering variables would only block legitimate
+    /// session customization (locale, pager, editor, tool config).
     pub env: Option<std::collections::BTreeMap<String, String>>,
-}
-
-/// Git-purpose allowlist for client-supplied environment overrides: only
-/// `GIT_*` variables are accepted so a caller cannot inject `LD_PRELOAD` or
-/// similar into the spawned shell.
-fn apply_client_env(cmd: &mut CommandBuilder, env: &std::collections::BTreeMap<String, String>) {
-    for (key, value) in env {
-        if !key.starts_with("GIT_") {
-            continue;
-        }
-        if value.is_empty() || value.len() > 4096 {
-            continue;
-        }
-        if value.bytes().any(|b| b < 0x20 || b == 0x7f) {
-            continue;
-        }
-        cmd.env(key, value);
-    }
 }
 
 pub fn create_with_context(
@@ -90,7 +74,9 @@ pub fn create_with_context(
     cmd.env("TERM", "xterm-256color");
     cmd.env("LANG", "C.UTF-8");
     if let Some(env) = &env {
-        apply_client_env(&mut cmd, env);
+        for (key, value) in env {
+            cmd.env(key, value);
+        }
     }
 
     let child = pair

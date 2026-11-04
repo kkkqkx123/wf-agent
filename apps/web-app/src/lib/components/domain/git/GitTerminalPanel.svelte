@@ -9,7 +9,7 @@
 	let { workbench }: Props = $props();
 
 	// Git sessions never prompt for credentials and never page; both are
-	// GIT_* variables the server allowlists for PTY env injection.
+	// consumed by git itself and applied to the spawned session as-is.
 	const GIT_ENV: Record<string, string> = {
 		GIT_TERMINAL_PROMPT: '0',
 		GIT_PAGER: 'cat',

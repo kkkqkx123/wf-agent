@@ -57,22 +57,42 @@
 		);
 	}
 
+	/**
+	 * Whether the event comes from an embedded terminal. Terminals own
+	 * their keys: Ctrl/Meta bindings default to firing inside inputs
+	 * (the xterm hidden textarea is a TEXTAREA), so global actions must
+	 * explicitly stand down here instead of relying on input-skipping.
+	 */
+	function isTerminalTarget(target: EventTarget | null): boolean {
+		const element = target as HTMLElement | null;
+		return !!element?.closest?.('.xterm');
+	}
+
 	// Global help toggle: the F1 binding follows the shortcut catalog (user
 	// overrides apply); the bare `?` alias is fixed so help stays reachable
 	// from any layout. createHotkey manages its own lifecycle and is a
 	// no-op during SSR.
-	createHotkey(effectiveHotkey('app.help'), () => ui.toggleHelp(), {
-		enabled: !isShortcutDisabled('app.help'),
-	});
+	createHotkey(
+		effectiveHotkey('app.help'),
+		(event) => {
+			if (isTerminalTarget(event.target)) return;
+			ui.toggleHelp();
+		},
+		{
+			enabled: !isShortcutDisabled('app.help'),
+		},
+	);
 	createHotkey(
 		effectiveHotkey('app.commandPalette'),
 		(event) => {
+			if (isTerminalTarget(event.target)) return;
 			event.preventDefault();
 			ui.toggleCommand();
 		},
 		{ enabled: !isShortcutDisabled('app.commandPalette') },
 	);
 	createHotkey('?', (event) => {
+		if (isTerminalTarget(event.target)) return;
 		if (isTypingTarget(event.target)) return;
 		event.preventDefault();
 		ui.toggleHelp();
@@ -81,7 +101,10 @@
 	// exposes, so the transcript can be tightened without leaving it.
 	createHotkey(
 		effectiveHotkey('transcript.detailLevel'),
-		() => preferences.cycleToolOutputDetail(),
+		(event) => {
+			if (isTerminalTarget(event.target)) return;
+			preferences.cycleToolOutputDetail();
+		},
 		{ enabled: !isShortcutDisabled('transcript.detailLevel') },
 	);
 </script>

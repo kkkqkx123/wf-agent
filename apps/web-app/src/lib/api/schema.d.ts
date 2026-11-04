@@ -10617,10 +10617,7 @@ export interface components {
             cols?: number | null;
             command?: string | null;
             cwd?: string | null;
-            /**
-             * @description Environment overrides for the spawned process. Restricted by the
-             *     session layer to git-purpose variables (`GIT_` prefix).
-             */
+            /** @description Environment overrides for the spawned process, applied as-is. */
             env?: {
                 [key: string]: string;
             } | null;

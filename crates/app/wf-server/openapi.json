@@ -52908,7 +52908,7 @@
               "object",
               "null"
             ],
-            "description": "Environment overrides for the spawned process. Restricted by the\nsession layer to git-purpose variables (`GIT_` prefix).",
+            "description": "Environment overrides for the spawned process, applied as-is.",
             "additionalProperties": {
               "type": "string"
             },

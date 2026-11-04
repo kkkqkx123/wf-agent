@@ -60,8 +60,7 @@ pub(crate) struct CreatePtyBody {
     cols: Option<u16>,
     #[serde(default)]
     title: Option<String>,
-    /// Environment overrides for the spawned process. Restricted by the
-    /// session layer to git-purpose variables (`GIT_` prefix).
+    /// Environment overrides for the spawned process, applied as-is.
     #[serde(default)]
     env: Option<std::collections::BTreeMap<String, String>>,
 }

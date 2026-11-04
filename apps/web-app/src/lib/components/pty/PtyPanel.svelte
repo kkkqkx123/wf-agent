@@ -15,7 +15,7 @@
 		repo: string;
 		/** Working directory for newly spawned sessions. Falls back to server default when unset. */
 		cwd?: string;
-		/** Environment overrides for newly spawned sessions (restricted to GIT_* server-side). */
+		/** Environment overrides for newly spawned sessions (applied as-is server-side). */
 		env?: Record<string, string>;
 		/** Inline height for the terminal viewport; overrides the default fixed height. */
 		viewportStyle?: string;

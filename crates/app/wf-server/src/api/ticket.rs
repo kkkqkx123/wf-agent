@@ -142,7 +142,11 @@ pub(crate) fn ticket_request_authorized(headers: &HeaderMap, cors: &CorsConfig) 
     let origin = headers
         .get(axum::http::header::ORIGIN)
         .and_then(|value| value.to_str().ok());
-    crate::middleware::origin_allowed(origin, cors)
+    // Non-CORS/same-origin requests may omit Origin; only validate it when
+    // present.
+    origin
+        .map(|value| crate::middleware::origin_allowed(Some(value), cors))
+        .unwrap_or(true)
 }
 
 #[cfg(test)]

@@ -214,8 +214,10 @@ fn authorize_pty_handshake(
             .get(header::ORIGIN)
             .and_then(|v| v.to_str().ok());
         let scope = crate::api::ticket::TicketScope::Pty { id: id.to_string() };
-        if crate::middleware::origin_allowed(origin, &state.config.cors)
-            && crate::api::ticket::consume(ticket, &scope)
+        let origin_ok = origin
+            .map(|value| crate::middleware::origin_allowed(Some(value), &state.config.cors))
+            .unwrap_or(true);
+        if origin_ok && crate::api::ticket::consume(ticket, &scope)
         {
             return Ok(());
         }

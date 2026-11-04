@@ -622,9 +622,13 @@ pub(crate) async fn handle_event_stream(
         let origin = headers
             .get(header::ORIGIN)
             .and_then(|value| value.to_str().ok());
-        if !crate::middleware::origin_allowed(origin, &state.config.cors)
-            || !ticket::consume(presented, &TicketScope::Events)
-        {
+        // Same-origin EventSource requests may omit the Origin header, so a
+        // missing origin is treated as same-origin here; a present origin is
+        // still checked against the CORS policy.
+        let origin_ok = origin
+            .map(|value| crate::middleware::origin_allowed(Some(value), &state.config.cors))
+            .unwrap_or(true);
+        if !origin_ok || !ticket::consume(presented, &TicketScope::Events) {
             return forbidden("invalid event stream ticket");
         }
     }

@@ -54,9 +54,8 @@
 </script>
 
 {#if preferences.sidebarCollapsed}
-	<!-- Collapsed rail expands on hover so the labels stay reachable. -->
 	<aside
-		class="group/rail relative z-30 flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar"
+		class="flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar"
 		style:width={RAIL_WIDTH}
 	>
 		<div class="flex h-12 items-center justify-center border-b border-sidebar-border">
@@ -72,7 +71,7 @@
 				<div class="mb-1 w-full px-1.5">
 					<div class="mb-1 h-px bg-sidebar-border"></div>
 					{#each group.items as item (item.href)}
-						<Tooltip text={item.label()} class="w-full">
+						<Tooltip text={item.label()} side="right" class="w-full">
 							<a
 								href={resolveAppPath(item.href)}
 								onclick={navigate}
@@ -93,7 +92,7 @@
 			{#each NAV_FOOTER as item (item.href)}
 				<div class="mb-1 w-full px-1.5">
 					<div class="mb-1 h-px bg-sidebar-border"></div>
-					<Tooltip text={item.label()} class="w-full">
+					<Tooltip text={item.label()} side="right" class="w-full">
 						<a
 							href={resolveAppPath(item.href)}
 							onclick={navigate}
@@ -111,48 +110,6 @@
 				</div>
 			{/each}
 		</nav>
-
-		<div
-			class="invisible absolute left-full top-0 z-40 ml-1 hidden h-full w-60 rounded-r-lg border border-border bg-popover p-2 shadow-popover group-hover/rail:visible lg:group-hover/rail:block"
-		>
-			{#each NAV_GROUPS as group (group.id)}
-				<p class="px-2 py-1 text-micro uppercase tracking-wide text-muted-foreground">
-					{group.label()}
-				</p>
-				{#each group.items as item (item.href)}
-					<a
-						href={resolveAppPath(item.href)}
-						onclick={navigate}
-						class={cn(
-							'flex items-center gap-2 rounded-md px-2 py-1.5 text-body transition-colors',
-							isActive(item.href)
-								? 'bg-accent text-accent-foreground'
-								: 'text-foreground hover:bg-accent',
-						)}
-					>
-						<Icon name={item.icon} size={15} />
-						<span class="truncate">{item.label()}</span>
-					</a>
-				{/each}
-			{/each}
-			{#each NAV_FOOTER as item (item.href)}
-				<div class="mt-1 border-t border-border pt-1">
-					<a
-						href={resolveAppPath(item.href)}
-						onclick={navigate}
-						class={cn(
-							'flex items-center gap-2 rounded-md px-2 py-1.5 text-body transition-colors',
-							isActive(item.href)
-								? 'bg-accent text-accent-foreground'
-								: 'text-foreground hover:bg-accent',
-						)}
-					>
-						<Icon name={item.icon} size={15} />
-						<span class="truncate">{item.label()}</span>
-					</a>
-				</div>
-			{/each}
-		</div>
 	</aside>
 {:else}
 	<aside

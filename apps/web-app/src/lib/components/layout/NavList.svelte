@@ -45,7 +45,7 @@
 			<div class="w-full px-1.5">
 				<div class="mb-1 h-px bg-sidebar-border"></div>
 				{#each group.items as item (item.href)}
-					<Tooltip text={item.label()} class="w-full">
+					<Tooltip text={item.label()} side="right" class="w-full">
 						<a
 							href={resolveAppPath(item.href)}
 							onclick={onnavigate}
@@ -92,7 +92,7 @@
 		{#if variant === 'icons'}
 			<div class="w-full px-1.5">
 				<div class="mb-1 h-px bg-sidebar-border"></div>
-				<Tooltip text={item.label()} class="w-full">
+				<Tooltip text={item.label()} side="right" class="w-full">
 					<a
 						href={resolveAppPath(item.href)}
 						onclick={onnavigate}

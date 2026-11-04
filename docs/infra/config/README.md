@@ -1,5 +1,8 @@
 # wf-config
 
+> 全量配置文件与字段参考见 [`docs/config/README.md`](../../config/README.md)。
+
+
 infra 层配置子系统：负责所有配置文件的发现、解析、分层合并、校验、转换与装配。它是配置语义的唯一权威（single source of truth），被 `wf-api`（保存路径）、`wf-workflow`(图校验）、`wf-resource`（自定义资源注册）等上层复用。类型定义（`StorageConfig`、`LimitsConfig` 等）位于 `wf-types::config`，本 crate 只做加载与处理。
 
 ## 依赖

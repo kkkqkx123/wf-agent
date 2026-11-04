@@ -27,7 +27,7 @@ export interface ImagePayload {
 	/** Remote address or `data:` URI. Takes precedence over `data`. */
 	url?: string;
 	/** Render detail hint forwarded to the provider codec. */
-	detail?: 'auto' | 'low' | 'high';
+	detail?: 'auto' | 'low' | 'high' | 'original';
 }
 
 export interface AttachmentPayload {

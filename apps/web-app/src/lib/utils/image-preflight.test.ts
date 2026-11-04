@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { builtinMediaLimits, type MediaLimits } from '#lib/config/media';
-import { imageExtMime, imageMimeAllowed, preflightImage } from '#lib/utils/image-preflight';
+import {
+	base64DecodedLength,
+	dataUrlDecodedBytes,
+	imageExtMime,
+	imageMimeAllowed,
+	preflightImage,
+	stagedDecodedBytes,
+} from '#lib/utils/image-preflight';
 
 const limits: MediaLimits = builtinMediaLimits();
 
@@ -71,5 +78,24 @@ describe('preflightImage', () => {
 		expect(
 			preflightImage(input({ stagedBytes: limits.imageTotalLimit - 50, size: 100 }), limits),
 		).toBe('total-too-large');
+	});
+});
+
+describe('decoded byte accounting', () => {
+	it('measures base64 payloads in decoded bytes', () => {
+		expect(base64DecodedLength('aGk=')).toBe(2);
+		expect(base64DecodedLength('')).toBe(0);
+		expect(base64DecodedLength('!!!')).toBe(0);
+	});
+
+	it('reads staged data URLs in decoded bytes and ignores remote addresses', () => {
+		expect(dataUrlDecodedBytes('data:image/png;base64,aGk=')).toBe(2);
+		expect(dataUrlDecodedBytes('https://example.com/shot.png')).toBe(0);
+		expect(
+			stagedDecodedBytes([
+				{ dataUrl: 'data:image/png;base64,aGk=' },
+				{ dataUrl: 'https://example.com/shot.png' },
+			]),
+		).toBe(2);
 	});
 });

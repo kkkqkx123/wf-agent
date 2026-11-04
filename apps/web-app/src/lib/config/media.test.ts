@@ -22,6 +22,7 @@ describe('media limits', () => {
 			'image/gif',
 			'image/webp',
 		]);
+		expect(limits.allowedImageExts).toEqual(['png', 'jpg', 'jpeg', 'gif', 'webp']);
 		expect(currentMediaLimits()).toEqual(limits);
 	});
 });

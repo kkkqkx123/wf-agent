@@ -488,7 +488,7 @@ pub struct InteractiveController {
     /// turn starts; a turn that never starts leaves them staged.
     staged_images: Vec<wf_types::message::UserImageInput>,
     /// Text files staged for the next turn. Taken when the turn starts;
-    /// interactive staging arrives with `/attach` in a follow-up.
+    /// staged through the session attach panel route.
     staged_attachments: Vec<wf_types::message::UserTextAttachment>,
     /// Render detail applied to newly staged images. Empty means default.
     staged_image_detail: Option<wf_types::message::ImageDetail>,
@@ -783,10 +783,16 @@ impl InteractiveController {
     /// List staged images for the next turn.
     pub fn staged_image_lines(&self) -> Vec<String> {
         if self.staged_images.is_empty() {
-            return vec![format!(
-                "no staged images (usage: /image <path-or-url>...) [detail: {}]",
-                Self::image_detail_label(self.staged_image_detail)
-            )];
+            return vec![
+                format!(
+                    "no staged images (usage: /image <path-or-url>...) [detail: {}]",
+                    Self::image_detail_label(self.staged_image_detail)
+                ),
+                wf_cli_shared::turn::stage_budget_line(
+                    &self.staged_images,
+                    &self.staged_attachments,
+                ),
+            ];
         }
         let mut lines: Vec<String> = self
             .staged_images
@@ -804,6 +810,40 @@ impl InteractiveController {
         lines.push(format!(
             "detail for new stages: {}",
             Self::image_detail_label(self.staged_image_detail)
+        ));
+        lines.push(wf_cli_shared::turn::stage_budget_line(
+            &self.staged_images,
+            &self.staged_attachments,
+        ));
+        lines
+    }
+
+    /// List staged text files for the next turn.
+    pub fn staged_attachment_lines(&self) -> Vec<String> {
+        if self.staged_attachments.is_empty() {
+            return vec![
+                "no staged files (usage: session.attach <path>...)".to_string(),
+                wf_cli_shared::turn::stage_budget_line(
+                    &self.staged_images,
+                    &self.staged_attachments,
+                ),
+            ];
+        }
+        let mut lines: Vec<String> = self
+            .staged_attachments
+            .iter()
+            .enumerate()
+            .map(|(index, attachment)| {
+                format!(
+                    "[{}] {}",
+                    index + 1,
+                    wf_cli_shared::turn::describe_user_attachment(attachment)
+                )
+            })
+            .collect();
+        lines.push(wf_cli_shared::turn::stage_budget_line(
+            &self.staged_images,
+            &self.staged_attachments,
         ));
         lines
     }
@@ -865,8 +905,41 @@ impl InteractiveController {
     /// Drop staged images without sending them.
     pub fn clear_staged_images(&mut self) -> String {
         self.staged_images.clear();
-        self.staged_attachments.clear();
         "staged images cleared".to_string()
+    }
+
+    /// Drop staged text files without sending them.
+    pub fn clear_staged_attachments(&mut self) -> String {
+        self.staged_attachments.clear();
+        "staged files cleared".to_string()
+    }
+
+    /// Stage text files for the next turn. Loading reuses the headless
+    /// attach reader so truncation markers and limits agree; failures
+    /// leave the existing stage untouched.
+    pub fn stage_tui_attachments(&mut self, specs: &[String]) -> String {
+        let paths: Vec<std::path::PathBuf> = specs.iter().map(std::path::PathBuf::from).collect();
+        match wf_cli_shared::turn::load_user_attachment_specs(&paths) {
+            Err(err) => format!("cannot stage files: {err}"),
+            Ok(loaded) => {
+                let mut combined = self.staged_attachments.clone();
+                combined.extend(loaded);
+                match wf_types::message::validate_user_attachments(&combined) {
+                    Err(reason) => {
+                        format!("cannot stage files: {reason} (stage unchanged)")
+                    }
+                    Ok(()) => {
+                        let added = combined.len() - self.staged_attachments.len();
+                        self.staged_attachments = combined;
+                        format!(
+                            "staged {added} file{} ({} total, sent with the next turn)",
+                            if added == 1 { "" } else { "s" },
+                            self.staged_attachments.len()
+                        )
+                    }
+                }
+            }
+        }
     }
 
     /// Take the pending external-editor request, if any. The shell runs the

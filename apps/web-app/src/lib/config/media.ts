@@ -43,6 +43,8 @@ interface InfoLimitsDto {
 	maxImagesTotalBytes?: number;
 	allowed_image_media_types?: string[];
 	allowedImageMediaTypes?: string[];
+	allowed_image_exts?: string[];
+	allowedImageExts?: string[];
 	max_attachments_per_turn?: number;
 	maxAttachmentsPerTurn?: number;
 	max_attachment_chars?: number;
@@ -77,7 +79,8 @@ export async function loadMediaLimits(): Promise<MediaLimits> {
 		const maxImages = asPositiveInt(payload.max_images_per_turn ?? payload.maxImagesPerTurn);
 		const maxBytes = asPositiveInt(payload.max_image_bytes ?? payload.maxImageBytes);
 		const maxTotal = asPositiveInt(payload.max_images_total_bytes ?? payload.maxImagesTotalBytes);
-		const allowed = payload.allowed_image_media_types ?? payload.allowedImageMediaTypes;
+			const allowed = payload.allowed_image_media_types ?? payload.allowedImageMediaTypes;
+		const allowedExts = payload.allowed_image_exts ?? payload.allowedImageExts;
 		const maxFiles = asPositiveInt(
 			payload.max_attachments_per_turn ?? payload.maxAttachmentsPerTurn,
 		);
@@ -93,6 +96,13 @@ export async function loadMediaLimits(): Promise<MediaLimits> {
 			...(Array.isArray(allowed) && allowed.length > 0
 				? {
 						allowedImageMimes: allowed.filter((item) => typeof item === 'string'),
+					}
+				: {}),
+			...(Array.isArray(allowedExts) && allowedExts.length > 0
+				? {
+						allowedImageExts: allowedExts
+							.filter((item) => typeof item === 'string')
+							.map((item) => item.toLowerCase()),
 					}
 				: {}),
 			...(maxFiles !== null ? { attachmentMaxCount: maxFiles } : {}),

@@ -565,6 +565,17 @@ impl InteractiveController {
                 if staged.len() == 1 { "" } else { "s" }
             ));
         }
+        if !staged_attachments.is_empty() {
+            self.footer.show_notice(format!(
+                "sending {} staged file{} with this turn",
+                staged_attachments.len(),
+                if staged_attachments.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            ));
+        }
         let params = TurnParams {
             agent,
             model,

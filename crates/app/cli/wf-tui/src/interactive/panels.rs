@@ -785,6 +785,22 @@ impl InteractiveController {
                 self.footer.show_notice(notice);
                 InteractiveAction::Continue
             }
+            "session.attach" => {
+                let trimmed = argument.trim();
+                if trimmed.is_empty() {
+                    let lines = self.staged_attachment_lines();
+                    self.footer.show_notice(lines.join(" | "));
+                } else if trimmed == "clear" {
+                    let notice = self.clear_staged_attachments();
+                    self.footer.show_notice(notice);
+                } else {
+                    let specs: Vec<String> =
+                        trimmed.split_whitespace().map(str::to_string).collect();
+                    let notice = self.stage_tui_attachments(&specs);
+                    self.footer.show_notice(notice);
+                }
+                InteractiveAction::Continue
+            }
 
             "agent.append_mode_steering" => {
                 self.append_mode = "steering".to_string();

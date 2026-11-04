@@ -537,6 +537,50 @@ pub fn describe_user_image(image: &wf_types::message::UserImageInput) -> String 
     }
 }
 
+/// One-line stage budget for the interactive forms: staged counts against
+/// the per-turn limits plus decoded payload totals. Remote images carry
+/// unknown sizes, so they count toward the image count only.
+pub fn stage_budget_line(
+    images: &[wf_types::message::UserImageInput],
+    attachments: &[wf_types::message::UserTextAttachment],
+) -> String {
+    let inline_bytes: usize = images
+        .iter()
+        .filter_map(wf_types::message::user_image_bytes)
+        .sum();
+    let remote = images
+        .iter()
+        .filter(|image| {
+            image
+                .url
+                .as_deref()
+                .map(str::trim)
+                .filter(|url| !url.is_empty())
+                .is_some()
+        })
+        .count();
+    let chars: usize = attachments
+        .iter()
+        .map(|attachment| attachment.content.chars().count())
+        .sum();
+    format!(
+        "budget: {}/{} images ({} of {} bytes{}), {}/{} files ({} of {} chars)",
+        images.len(),
+        wf_types::message::MAX_USER_IMAGES_PER_TURN,
+        inline_bytes,
+        wf_types::message::MAX_USER_IMAGES_TOTAL_BYTES,
+        if remote > 0 {
+            format!(", {remote} remote")
+        } else {
+            String::new()
+        },
+        attachments.len(),
+        wf_types::message::MAX_TEXT_ATTACHMENTS_PER_TURN,
+        chars,
+        wf_types::message::MAX_TEXT_ATTACHMENTS_TOTAL_CHARS,
+    )
+}
+
 /// Helper to parse workflow input JSON string.
 pub fn parse_workflow_input(input: Option<&str>) -> Result<Option<Value>, String> {
     match input {
@@ -777,6 +821,19 @@ mod tests {
         let attachments = body["attachments"].as_array().expect("attachments array");
         assert_eq!(attachments.len(), 1);
         assert_eq!(attachments[0]["name"], "a.txt");
+    }
+
+    #[test]
+    fn stage_budget_line_reports_counts_and_payloads() {
+        let line = stage_budget_line(&[], &[]);
+        assert!(line.contains("budget: 0/8 images"), "{line}");
+        assert!(line.contains("0/8 files"), "{line}");
+        let images = vec![wf_types::message::UserImageInput::remote(
+            "https://example.com/shot.png",
+        )];
+        let line = stage_budget_line(&images, &[]);
+        assert!(line.contains("budget: 1/8 images"), "{line}");
+        assert!(line.contains("1 remote"), "{line}");
     }
 
     #[test]

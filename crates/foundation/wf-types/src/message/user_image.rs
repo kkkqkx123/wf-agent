@@ -15,6 +15,11 @@ use llm_types::message::{ImageDetail, ImageUrlContent, MessageContent, MessageCo
 /// of redefining it per surface.
 pub const ALLOWED_MEDIA_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
+/// File extensions accepted for local image paths. Mirrors the media
+/// whitelist above so the `/info` endpoint publishes one source clients
+/// use for both MIME checks and extension fallback.
+pub const ALLOWED_IMAGE_EXTS: [&str; 5] = ["png", "jpg", "jpeg", "gif", "webp"];
+
 /// Upper bound of images carried by one turn.
 pub const MAX_USER_IMAGES_PER_TURN: usize = 8;
 
@@ -396,6 +401,18 @@ mod tests {
         assert!(parse_image_detail("high").is_ok());
         assert!(parse_image_detail("AUTO").is_ok());
         assert!(parse_image_detail("nope").is_err());
+    }
+
+    #[test]
+    fn extension_whitelist_matches_path_detection() {
+        assert_eq!(ALLOWED_IMAGE_EXTS.len(), 5);
+        for ext in ALLOWED_IMAGE_EXTS {
+            assert!(
+                is_image_path(&format!("shot.{ext}")),
+                "extension {ext} resolves to an image path"
+            );
+        }
+        assert!(!is_image_path("notes.md"));
     }
 
     #[test]

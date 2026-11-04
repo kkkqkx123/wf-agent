@@ -27,7 +27,7 @@ use wf_cli_shared::turn::{TurnKind, TurnParams};
 use crate::approval::MiniApprover;
 use crate::display::DisplayConfig;
 use crate::editor::{terminal_cols, EditorSnapshot, PromptEvent};
-use crate::input::{self, History, ImageArgs, LineReader, SlashCommand};
+use crate::input::{self, AttachArgs, History, ImageArgs, LineReader, SlashCommand};
 use crate::output::{self};
 use crate::suggest::{SuggestBroker, SuggestEngine};
 use crate::transcript::Transcript;
@@ -126,7 +126,7 @@ pub struct NativeSession {
     /// turn starts; a turn that never starts hands them back.
     staged_images: Vec<wf_types::message::UserImageInput>,
     /// Text files staged for the next turn. Taken when the turn starts;
-    /// interactive staging arrives with `/attach` in a follow-up.
+    /// staged with `/attach` and listed with bare `/attach`.
     staged_attachments: Vec<wf_types::message::UserTextAttachment>,
     /// Render detail applied to newly staged images (`/image-detail`).
     /// Empty means the provider default; kept across turns until changed.
@@ -149,6 +149,17 @@ impl NativeSession {
                 "sending {} staged image{} with this turn",
                 self.staged_images.len(),
                 if self.staged_images.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            ));
+        }
+        if !self.staged_attachments.is_empty() {
+            output::diag_line(&format!(
+                "sending {} staged file{} with this turn",
+                self.staged_attachments.len(),
+                if self.staged_attachments.len() == 1 {
                     ""
                 } else {
                     "s"
@@ -380,7 +391,7 @@ impl NativeSession {
                     "notes: the full history stays in memory; prompt history is plain text on disk (see --history-file/--no-history); workflows run via `wf run --workflow` and the management subcommands",
                 );
                 output::diag_line(
-                    "images: /image <path-or-url>... stage images for the next turn, /image lists staged, /image clear drops them; /image-detail [auto|low|high|original|clear] sets detail for newly staged images; `@file:<path>` mentions resolve images server-side",
+                    "images: /image <path-or-url>... stage images for the next turn, /image lists staged, /image clear drops them; /attach <path>... stage text files, /attach lists staged, /attach clear drops them; /image-detail [auto|low|high|original|clear] sets detail for newly staged images; `@file:<path>` mentions resolve images server-side",
                 );
                 CommandAction::Continue
             }
@@ -618,6 +629,10 @@ impl NativeSession {
             }
             SlashCommand::ImageDetail(raw) => {
                 self.set_image_detail(raw);
+                CommandAction::Continue
+            }
+            SlashCommand::Attach(args) => {
+                self.stage_attachments(args);
                 CommandAction::Continue
             }
             SlashCommand::Recap => {
@@ -861,6 +876,10 @@ impl NativeSession {
                     "image detail for new stages: {}",
                     Self::detail_label(self.staged_image_detail)
                 ));
+                output::diag_line(&wf_cli_shared::turn::stage_budget_line(
+                    &self.staged_images,
+                    &self.staged_attachments,
+                ));
             }
             ImageArgs::Clear => {
                 self.staged_images.clear();
@@ -884,6 +903,69 @@ impl NativeSession {
                             "staged {added} image{} ({} total, sent with the next turn)",
                             if added == 1 { "" } else { "s" },
                             self.staged_images.len()
+                        ));
+                        output::diag_line(&wf_cli_shared::turn::stage_budget_line(
+                            &self.staged_images,
+                            &self.staged_attachments,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Handle the `/attach` staging command: list staged text files, drop
+    /// them, or load new paths onto the stage. Loading reuses the headless
+    /// `--attach` reader so truncation markers and limits agree; failures
+    /// leave the existing stage untouched.
+    fn stage_attachments(&mut self, args: AttachArgs) {
+        match args {
+            AttachArgs::List => {
+                if self.staged_attachments.is_empty() {
+                    output::diag_line("no staged files (usage: /attach <path>...)");
+                } else {
+                    for (index, attachment) in self.staged_attachments.iter().enumerate() {
+                        output::diag_line(&format!(
+                            "[{}] {}",
+                            index + 1,
+                            wf_cli_shared::turn::describe_user_attachment(attachment)
+                        ));
+                    }
+                }
+                output::diag_line(&wf_cli_shared::turn::stage_budget_line(
+                    &self.staged_images,
+                    &self.staged_attachments,
+                ));
+            }
+            AttachArgs::Clear => {
+                self.staged_attachments.clear();
+                output::diag_line("staged files cleared");
+            }
+            AttachArgs::Stage(paths) => {
+                let specs: Vec<std::path::PathBuf> =
+                    paths.iter().map(std::path::PathBuf::from).collect();
+                match wf_cli_shared::turn::load_user_attachment_specs(&specs) {
+                    Err(err) => output::diag_line(&format!("cannot stage files: {err}")),
+                    Ok(loaded) => {
+                        let mut combined = self.staged_attachments.clone();
+                        combined.extend(loaded);
+                        if let Err(reason) = wf_types::message::validate_user_attachments(&combined)
+                        {
+                            output::diag_line(&format!(
+                                "cannot stage files: {reason} (stage unchanged)"
+                            ));
+                            return;
+                        }
+                        let added = combined.len() - self.staged_attachments.len();
+                        self.staged_attachments = combined;
+                        output::diag_line(&format!(
+                            "staged {added} file{} ({} total, sent with the next turn)",
+                            if added == 1 { "" } else { "s" },
+                            self.staged_attachments.len()
+                        ));
+                        output::diag_line(&wf_cli_shared::turn::stage_budget_line(
+                            &self.staged_images,
+                            &self.staged_attachments,
                         ));
                     }
                 }

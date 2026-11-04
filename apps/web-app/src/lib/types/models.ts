@@ -734,11 +734,15 @@ export interface MessageAttachment {
 	originalChars?: number;
 }
 
+/** Render detail hint for one staged image; absent means provider default. */
+export type ImageDetail = 'auto' | 'low' | 'high' | 'original';
+
 /** One staged image: inline base64 payload or a remote address. */
 export interface ImageAttachment {
 	name: string;
 	mediaType?: string;
 	dataUrl: string;
+	detail?: ImageDetail;
 }
 
 export interface OutgoingMessage {

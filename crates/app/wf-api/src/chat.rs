@@ -57,12 +57,16 @@ pub async fn stream(ctx: &ApiContext, params: ChatTurnParams) -> ApiResult<Execu
         ));
     }
     let message = params.message.trim().to_string();
-    if let Err(reason) = wf_types::message::validate_user_images(&params.images) {
+    let (mention_messages, mention_images, mention_receipts) =
+        crate::agent::composition::resolve_mentions(ctx, &message).await;
+    let mut images = params.images;
+    images.extend(mention_images);
+    if let Err(reason) = wf_types::message::validate_user_images(&images) {
         return Err(ApiError::Validation(format!(
             "chat turn carries invalid images: {reason}"
         )));
     }
-    if message.is_empty() && params.images.is_empty() {
+    if message.is_empty() && images.is_empty() {
         return Err(ApiError::Validation("chat turn requires a message".into()));
     }
     let session_id = resolve_session_id(params.session_id.as_deref());
@@ -79,8 +83,29 @@ pub async fn stream(ctx: &ApiContext, params: ChatTurnParams) -> ApiResult<Execu
         .max(wf_common::now());
     let mut session = ChatSession::new(profile_id.clone());
     session.restore(history);
+    let injected = mention_messages.len() + usize::from(!mention_receipts.is_empty());
+    for mention in mention_messages {
+        session.restore(vec![mention]);
+    }
+    if !mention_receipts.is_empty() {
+        let lines: Vec<String> = mention_receipts
+            .iter()
+            .map(|receipt| format!("@{} → {}", receipt.reference, receipt.outcome))
+            .collect();
+        let mut receipt_message =
+            crate::dynamic_context_message(format!("mention receipts: {}", lines.join("; ")));
+        if let Ok(json) = serde_json::to_string(&mention_receipts) {
+            if let Some(metadata) = receipt_message.metadata.as_mut() {
+                metadata.insert(
+                    "mention_receipts".to_string(),
+                    serde_json::Value::String(json),
+                );
+            }
+        }
+        session.restore(vec![receipt_message]);
+    }
     let request = session
-        .begin_turn(&message, &params.images, Some(&session_id))
+        .begin_turn(&message, &images, Some(&session_id))
         .map_err(|e| ApiError::Validation(e.to_string()))?;
 
     let mut provider_stream = ctx
@@ -97,7 +122,7 @@ pub async fn stream(ctx: &ApiContext, params: ChatTurnParams) -> ApiResult<Execu
         finish_turn(&storage, &session_id, &profile_id, started_at, &outcome).await;
         let event = match &outcome {
             TurnOutcome::Completed { answer, .. } => {
-                persist_messages(&storage, &session_id, &session, ledger_base).await;
+                persist_messages(&storage, &session_id, &session, ledger_base, injected).await;
                 ExecutionStreamEvent::Completed {
                     result: Value::String(answer.clone()),
                     iterations: 0,
@@ -282,11 +307,12 @@ async fn persist_messages(
     session_id: &str,
     session: &ChatSession,
     ledger_base: i64,
+    injected: usize,
 ) {
     // The user turn and the assistant reply are the two messages the turn
-    // added; everything before them is the restored history.
+    // added; mention context restored ahead of the turn persists with them.
     let history = session.history();
-    let added = history.len().saturating_sub(2);
+    let added = history.len().saturating_sub(2 + injected);
     for (index, message) in history[added..].iter().enumerate() {
         let stamp = ledger_base + 1 + index as i64;
         let mut stored = message.clone();
@@ -572,6 +598,24 @@ mod tests {
             .filter(|summary| summary.execution_type == ExecutionType::Chat)
             .collect();
         assert_eq!(chat_sessions.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_turn_resolves_mentions_and_persists_the_receipt() {
+        let (ctx, _mock) = make_ctx(&["answer"]);
+        let events = run_turn(&ctx, "mock", "see @nosuchkind:xyz", Some("chat-mentions")).await;
+        assert!(matches!(
+            events.last(),
+            Some(ExecutionStreamEvent::Completed { iterations: 0, .. })
+        ));
+        let messages =
+            crate::agent::agent_message::conversation_history(&ctx, "chat-mentions", None)
+                .await
+                .expect("messages readable");
+        assert_eq!(messages.len(), 3);
+        assert!(messages[0].text_content().contains("mention receipts"));
+        assert!(messages[0].text_content().contains("unmatched"));
+        assert!(messages[1].text_content().contains("see @nosuchkind:xyz"));
     }
 
     #[tokio::test]

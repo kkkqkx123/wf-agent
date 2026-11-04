@@ -35,29 +35,40 @@ function toAttachmentPayload(file: MessageAttachment): AttachmentPayload {
 }
 
 /** Best-effort original image name cache for retry. History carries only
- * URLs, so the send path remembers `dataUrl -> {name, mediaType}` here
- * (memory plus localStorage by content hash) and `retryLast` restores it
- * instead of minting a placeholder. Content and media stay authoritative;
+ * URLs, so the send path remembers `dataUrl -> {name, mediaType, detail}`
+ * here (memory plus localStorage by content hash) and `retryLast` restores
+ * it instead of minting a placeholder. Content and media stay authoritative;
  * the name is display-only. */
-const imageNameCache = new SvelteMap<string, { name: string; mediaType?: string }>();
+const imageNameCache = new SvelteMap<
+	string,
+	{ name: string; mediaType?: string; detail?: ImageAttachment['detail'] }
+>();
 const IMAGE_NAME_STORE_KEY = 'wf-image-names-v1';
 
 function imageCacheKey(dataUrl: string): string {
-	const head = dataUrl.slice(0, 48);
-	const tail = dataUrl.length > 48 ? dataUrl.slice(-32) : '';
-	return `${dataUrl.length}:${head}:${tail}`;
+	let hash = 0;
+	for (let index = 0; index < dataUrl.length; index += 1) {
+		hash = (hash * 31 + dataUrl.charCodeAt(index)) | 0;
+	}
+	const head = dataUrl.slice(0, 64);
+	const tail = dataUrl.length > 64 ? dataUrl.slice(-48) : '';
+	return `${dataUrl.length}:${hash}:${head}:${tail}`;
 }
 
 function loadImageNameCache(): void {
 	try {
 		const raw = localStorage.getItem(IMAGE_NAME_STORE_KEY);
 		if (!raw) return;
-		const parsed = JSON.parse(raw) as Record<string, { name?: unknown; mediaType?: unknown }>;
+		const parsed = JSON.parse(raw) as Record<
+			string,
+			{ name?: unknown; mediaType?: unknown; detail?: unknown }
+		>;
 		for (const [key, value] of Object.entries(parsed)) {
 			if (typeof value?.name === 'string') {
 				imageNameCache.set(key, {
 					name: value.name,
 					...(typeof value.mediaType === 'string' ? { mediaType: value.mediaType } : {}),
+					...(typeof value.detail === 'string' ? { detail: value.detail as ImageAttachment['detail'] } : {}),
 				});
 			}
 			if (imageNameCache.size > 200) break;
@@ -78,13 +89,15 @@ function rememberImageNames(images: ImageAttachment[]): void {
 			imageNameCache.set(key, {
 				name: image.name,
 				...(image.mediaType ? { mediaType: image.mediaType } : {}),
+				...(image.detail ? { detail: image.detail } : {}),
 			});
 			touched = true;
 		}
 	}
 	if (!touched) return;
 	try {
-		const snapshot: Record<string, { name: string; mediaType?: string }> = {};
+		const snapshot: Record<string, { name: string; mediaType?: string; detail?: string }> =
+			{};
 		for (const [key, value] of imageNameCache.entries()) snapshot[key] = value;
 		localStorage.setItem(IMAGE_NAME_STORE_KEY, JSON.stringify(snapshot));
 	} catch {
@@ -96,7 +109,7 @@ function restoreImageName(
 	dataUrl: string,
 	fallback: string,
 	media?: string,
-): { name: string; mediaType?: string } {
+): { name: string; mediaType?: string; detail?: ImageAttachment['detail'] } {
 	if (imageNameCache.size === 0) loadImageNameCache();
 	const hit = imageNameCache.get(imageCacheKey(dataUrl));
 	if (hit) return hit;
@@ -113,9 +126,10 @@ function toImagePayload(image: ImageAttachment): ImagePayload {
 		return {
 			data: comma >= 0 ? header.slice(comma + 1) : '',
 			...(media ? { media_type: media } : {}),
+			...(image.detail ? { detail: image.detail } : {}),
 		};
 	}
-	return { url: image.dataUrl };
+	return { url: image.dataUrl, ...(image.detail ? { detail: image.detail } : {}) };
 }
 import { appendAgentLoopInput } from '#lib/services/agent-loops';
 import { postChatRecap, postLoopRecap, shouldRecap } from '#lib/services/recap';
@@ -606,6 +620,7 @@ export class ChatSessionController {
 							...((restored.mediaType ?? media)
 								? { mediaType: (restored.mediaType ?? media) as string }
 								: {}),
+							...(restored.detail ? { detail: restored.detail } : {}),
 							dataUrl,
 						};
 					}),
@@ -1102,8 +1117,22 @@ export class ChatSessionController {
 			return;
 		}
 		const merged = applyWorkflowInputDefaults({ ...this.workflowInputs }, this.workflowVariables);
-		if (!('message' in merged) || merged['message'] === undefined || merged['message'] === null) {
-			merged['message'] = withAttachments(content, files);
+		// Staged attachments join the message input instead of replacing it: a
+		// form-provided message keeps its value with the composer text and the
+		// attachment blocks appended, so nothing staged is silently dropped.
+		const baseMessage =
+			typeof merged['message'] === 'string' ? (merged['message'] as string) : '';
+		const combinedText = [baseMessage, content]
+			.map((part) => part.trim())
+			.filter((part) => part.length > 0)
+			.join('\n\n');
+		if (
+			baseMessage ||
+			!('message' in merged) ||
+			merged['message'] === undefined ||
+			merged['message'] === null
+		) {
+			merged['message'] = withAttachments(combinedText, files);
 		}
 		const problems = validateWorkflowInput(merged, this.workflowVariables, this.workflowStrict);
 		if (problems.length > 0) {

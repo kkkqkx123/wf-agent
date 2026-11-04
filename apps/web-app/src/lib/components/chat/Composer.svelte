@@ -22,7 +22,12 @@
 	import ExecutionTypePicker, {
 		type ExecutionType,
 	} from '#lib/components/chat/ExecutionTypePicker.svelte';
-	import type { ImageAttachment, MessageAttachment, OutgoingMessage } from '#lib/types/models';
+	import type {
+		ImageAttachment,
+		ImageDetail,
+		MessageAttachment,
+		OutgoingMessage,
+	} from '#lib/types/models';
 	import type { StarterSuggestion } from '#lib/services/starters';
 	import { entityMention, textRuns } from '#lib/utils/mentions';
 	import { mentionClass, mentionIcon } from '#lib/utils/mention-style';
@@ -33,6 +38,7 @@
 		imageExtMime,
 		imageMimeAllowed as isImageMimeAllowed,
 		preflightImage,
+		stagedDecodedBytes,
 	} from '#lib/utils/image-preflight';
 
 	let mediaLimits = $state(currentMediaLimits());
@@ -104,6 +110,35 @@
 	let attachments = $state<MessageAttachment[]>([]);
 	let images = $state<ImageAttachment[]>([]);
 	let queue = $state<OutgoingMessage[]>([]);
+
+	/** Render detail applied to newly staged images; null means provider default. */
+	const IMAGE_DETAIL_KEY = 'wf-image-detail';
+	const IMAGE_DETAILS: ImageDetail[] = ['auto', 'low', 'high', 'original'];
+
+	function loadImageDetail(): ImageDetail | null {
+		try {
+			const raw =
+				typeof localStorage !== 'undefined' ? localStorage.getItem(IMAGE_DETAIL_KEY) : null;
+			return (IMAGE_DETAILS as string[]).includes(raw ?? '')
+				? (raw as ImageDetail)
+				: null;
+		} catch {
+			// Storage may be unavailable; fall back to the provider default.
+			return null;
+		}
+	}
+
+	let imageDetail = $state<ImageDetail | null>(loadImageDetail());
+
+	function setImageDetail(next: ImageDetail | null): void {
+		imageDetail = next;
+		try {
+			if (next) localStorage.setItem(IMAGE_DETAIL_KEY, next);
+			else localStorage.removeItem(IMAGE_DETAIL_KEY);
+		} catch {
+			// Storage may be unavailable; the detail still applies this session.
+		}
+	}
 	let box: HTMLTextAreaElement | null = $state(null);
 	let attachInput: HTMLInputElement | null = $state(null);
 	let imageInput: HTMLInputElement | null = $state(null);
@@ -361,6 +396,12 @@
 	async function addFiles(files: FileList | File[]): Promise<void> {
 		for (const file of Array.from(files)) {
 			if (file.type.startsWith('image/') || imageMimeAllowed(file)) {
+				if (executionType === 'workflow') {
+					toasts.error(
+						'Remove staged images before running a workflow; switch to an agent turn to send them',
+					);
+					continue;
+				}
 				if (!imageMimeAllowed(file)) {
 					toasts.error(
 						`Unsupported image type: ${file.name || 'pasted image'} (use png, jpg, gif, webp)`,
@@ -379,10 +420,6 @@
 			const stagedBytes = attachments.reduce((total, item) => total + item.content.length, 0);
 			if (stagedBytes >= mediaLimits.attachmentTotalLimit) {
 				toasts.error('Attachments exceed the per-turn budget; remove one first');
-				continue;
-			}
-			if (file.size > 1024 * 1024) {
-				toasts.error(`File too large to inline: ${file.name || 'pasted text'} (over 1 MB)`);
 				continue;
 			}
 			try {
@@ -416,7 +453,7 @@
 
 	/** Stage one image file: type-checked, size-capped, previewable. */
 	function stageImage(file: File): void {
-		const stagedBytes = images.reduce((total, image) => total + image.dataUrl.length, 0);
+		const stagedBytes = stagedDecodedBytes(images);
 		const rejection = preflightImage(
 			{
 				mime: file.type,
@@ -460,10 +497,21 @@
 				);
 				return;
 			}
+			// A concurrent read may have filled the budget while this one was in
+			// flight; re-check decoded bytes before staging.
+			if (stagedDecodedBytes(images) + file.size > mediaLimits.imageTotalLimit) {
+				toasts.error(t('chat.composer.imagesTooLarge'));
+				return;
+			}
 			const mime = imageExtMime(file.type, file.name);
 			images = [
 				...images,
-				{ name: file.name || 'pasted-image', dataUrl, ...(mime ? { mediaType: mime } : {}) },
+				{
+					name: file.name || 'pasted-image',
+					dataUrl,
+					...(mime ? { mediaType: mime } : {}),
+					...(imageDetail ? { detail: imageDetail } : {}),
+				},
 			];
 			persistFiles();
 		};
@@ -498,7 +546,7 @@
 	}
 
 	const stagedBudget = $derived.by(() => {
-		const imageBytes = images.reduce((total, image) => total + image.dataUrl.length, 0);
+		const imageBytes = stagedDecodedBytes(images);
 		const attachmentBytes = attachments.reduce((total, item) => total + item.content.length, 0);
 		return {
 			imageBytes,
@@ -971,6 +1019,21 @@
 			compact
 			disabled={executionType === 'workflow'}
 		/>
+		<select
+			aria-label="Image detail"
+			value={imageDetail ?? ''}
+			onchange={(event) =>
+				setImageDetail((event.currentTarget.value || null) as ImageDetail | null)}
+			disabled={executionType === 'workflow'}
+			title="Render detail for newly staged images"
+			class="shrink-0 rounded-md border border-input bg-card px-1.5 py-1 text-micro text-muted-foreground"
+		>
+			<option value="">Detail: default</option>
+			<option value="auto">Detail: auto</option>
+			<option value="low">Detail: low</option>
+			<option value="high">Detail: high</option>
+			<option value="original">Detail: original</option>
+		</select>
 		<input bind:this={attachInput} type="file" multiple class="hidden" onchange={onAttachInput} />
 		<input
 			bind:this={imageInput}

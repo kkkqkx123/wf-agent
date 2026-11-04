@@ -64,6 +64,11 @@ pub enum SlashCommand {
     /// images ride the next prompt as a structured payload. Local paths are
     /// inlined, `https:`/`http:`/`data:` URLs travel verbatim.
     Image(ImageArgs),
+    /// Stage text files for the next turn (`/attach <path>...`); bare
+    /// `/attach` lists staged files, `/attach clear` drops them. Files read
+    /// as UTF-8 text with the same truncation markers as the headless
+    /// `--attach` flag and ride the next prompt as a structured payload.
+    Attach(AttachArgs),
     /// Show or set the render detail for newly staged images
     /// (`/image-detail [auto|low|high|original|clear]`). Empty shows current.
     ImageDetail(Option<String>),
@@ -75,6 +80,17 @@ pub enum ImageArgs {
     /// List staged images.
     List,
     /// Drop staged images.
+    Clear,
+    /// Stage these paths for the next turn.
+    Stage(Vec<String>),
+}
+
+/// Arguments of the `/attach` staging command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttachArgs {
+    /// List staged text files.
+    List,
+    /// Drop staged text files.
     Clear,
     /// Stage these paths for the next turn.
     Stage(Vec<String>),
@@ -285,6 +301,18 @@ pub fn parse_command(line: &str) -> Option<SlashCommand> {
                 _ => None,
             }
         }
+        "/attach" => {
+            let rest: Vec<&str> = tokens.collect();
+            if rest.is_empty() {
+                Some(SlashCommand::Attach(AttachArgs::List))
+            } else if rest == ["clear"] {
+                Some(SlashCommand::Attach(AttachArgs::Clear))
+            } else {
+                Some(SlashCommand::Attach(AttachArgs::Stage(
+                    rest.iter().map(|item| (*item).to_string()).collect(),
+                )))
+            }
+        }
         _ => None,
     }
 }
@@ -478,5 +506,24 @@ mod tests {
             Some(SlashCommand::ImageDetail(Some("high".to_string())))
         );
         assert_eq!(parse_command("/image-detail a b"), None);
+    }
+
+    #[test]
+    fn parses_attachment_staging_commands() {
+        assert_eq!(
+            parse_command("/attach"),
+            Some(SlashCommand::Attach(AttachArgs::List))
+        );
+        assert_eq!(
+            parse_command("/attach clear"),
+            Some(SlashCommand::Attach(AttachArgs::Clear))
+        );
+        assert_eq!(
+            parse_command("/attach a.txt b.txt"),
+            Some(SlashCommand::Attach(AttachArgs::Stage(vec![
+                "a.txt".to_string(),
+                "b.txt".to_string(),
+            ])))
+        );
     }
 }

@@ -31,6 +31,7 @@ pub(crate) struct InfoView {
     max_image_bytes: usize,
     max_images_total_bytes: usize,
     allowed_image_media_types: Vec<String>,
+    allowed_image_exts: Vec<String>,
     max_attachments_per_turn: usize,
     max_attachment_chars: usize,
     max_attachments_total_chars: usize,
@@ -94,6 +95,10 @@ pub(crate) async fn handle_info() -> impl IntoResponse {
         max_image_bytes: wf_types::message::MAX_USER_IMAGE_BYTES,
         max_images_total_bytes: wf_types::message::MAX_USER_IMAGES_TOTAL_BYTES,
         allowed_image_media_types: wf_types::message::ALLOWED_MEDIA_TYPES
+            .iter()
+            .map(|item| (*item).to_string())
+            .collect(),
+        allowed_image_exts: wf_types::message::ALLOWED_IMAGE_EXTS
             .iter()
             .map(|item| (*item).to_string())
             .collect(),

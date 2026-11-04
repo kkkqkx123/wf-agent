@@ -13,6 +13,10 @@ const TEMPORARY_BADGE_KEY = 'wf-temporary-badge-v1';
 
 export const RECENT_LIMIT = 12;
 
+/** Upper bound on persisted draft image payloads per session. Larger stages
+ * stay memory-only so base64 drafts cannot exhaust the storage quota. */
+export const DRAFT_IMAGES_PERSIST_LIMIT = 300_000;
+
 /** Upper bound on retained temporary badges; oldest entries are evicted first. */
 export const TEMPORARY_BADGE_LIMIT = 100;
 
@@ -255,6 +259,20 @@ export class SessionLocalState {
 		if (images.length > 0) next[id] = images;
 		else delete next[id];
 		this.draftImageMap = next;
+		// Full data URLs stay memory-only past the persist budget: writing
+		// multi-megabyte base64 on every keystroke would exhaust the storage
+		// quota and evict unrelated keys, so oversized stages skip persistence.
+		const payloadBytes = images.reduce((total, image) => total + image.dataUrl.length, 0);
+		if (payloadBytes > DRAFT_IMAGES_PERSIST_LIMIT) {
+			try {
+				const stored = readImageRecord(DRAFT_IMAGES_KEY);
+				delete stored[id];
+				write(DRAFT_IMAGES_KEY, stored);
+			} catch {
+				// Storage may be unavailable; the memory stage still sends.
+			}
+			return;
+		}
 		write(DRAFT_IMAGES_KEY, next);
 	}
 

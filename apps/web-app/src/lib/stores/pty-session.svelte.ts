@@ -62,6 +62,7 @@ export class PtySessionStore {
 	repo = $state<string>('');
 
 	private persistTimer: ReturnType<typeof setTimeout> | undefined;
+	private lastViewport: { rows: number; cols: number } | undefined;
 
 	/** Restore persisted sessions for a repo and prune stale records. */
 	open(repo: string): void {
@@ -169,7 +170,12 @@ export class PtySessionStore {
 		const number = this.pickNextNumber();
 		const title = `Terminal ${number}`;
 		try {
-			const view = await createPty({ ...options, title });
+			const view = await createPty({
+				...options,
+				rows: options?.rows ?? this.lastViewport?.rows,
+				cols: options?.cols ?? this.lastViewport?.cols,
+				title,
+			});
 			const session: LocalPtySession = {
 				id: view.id,
 				title: view.title || title,
@@ -253,9 +259,24 @@ export class PtySessionStore {
 
 	/** Push viewport size to the server; local state updates immediately. */
 	syncSize(id: string, rows: number, cols: number): void {
+		if (!Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1) return;
 		this.patch(id, { rows, cols });
 		this.schedulePersist();
-		void updatePty(id, { rows, cols }).catch(() => {});
+		const remember = () => {
+			this.lastViewport = { rows, cols };
+		};
+		void updatePty(id, { rows, cols })
+			.then(remember)
+			.catch(() => {
+				// Transient failure: retry once while the requested size is still current.
+				if (this.byId(id)?.rows !== rows || this.byId(id)?.cols !== cols) return;
+				setTimeout(() => {
+					if (this.byId(id)?.rows !== rows || this.byId(id)?.cols !== cols) return;
+					void updatePty(id, { rows, cols })
+						.then(remember)
+						.catch(() => {});
+				}, 400);
+			});
 	}
 
 	/** Remove a session locally and close it on the server. */
@@ -320,13 +341,11 @@ export class PtySessionStore {
 		}
 	}
 
-	/** Server confirmed state; drop the now-redundant local buffer. */
-	syncFromServer(id: string, meta: PtySession): void {
+	/** Server confirmed metadata; viewport size stays owned by the terminal view. */
+	syncMetaFromServer(id: string, meta: PtySession): void {
 		const existing = this.byId(id);
 		if (!existing) return;
 		this.patch(id, {
-			rows: meta.rows,
-			cols: meta.cols,
 			status: meta.status,
 			exitCode: meta.exit_code ?? undefined,
 			title: meta.title || existing.title,
@@ -397,15 +416,24 @@ export class PtySessionStore {
 	}
 }
 
+/** Normalize a repo root into a store key. Empty stays empty so callers
+ * without a resolved root defer session creation instead of polluting
+ * a placeholder store. */
+export function normalizePtyRepoKey(value: unknown): string {
+	if (typeof value !== 'string') return '';
+	return value.trim();
+}
+
 /** Shared store registry keyed by repo root (one store per open repo). */
 const stores = new SvelteMap<string, PtySessionStore>();
 
 export function ptyStoreFor(repo: string): PtySessionStore {
-	let store = stores.get(repo);
+	const key = normalizePtyRepoKey(repo);
+	let store = stores.get(key);
 	if (!store) {
 		store = new PtySessionStore();
-		store.open(repo);
-		stores.set(repo, store);
+		store.open(key);
+		stores.set(key, store);
 	}
 	return store;
 }

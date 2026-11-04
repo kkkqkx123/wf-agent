@@ -1,11 +1,15 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy } from 'svelte';
 	import Card from '#lib/ui/components/Card.svelte';
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import Button from '#lib/ui/components/Button.svelte';
 	import Separator from '#lib/ui/components/Separator.svelte';
 	import TerminalInstance from './TerminalInstance.svelte';
-	import { ptyStoreFor, type PtySessionStore } from '#lib/stores/pty-session.svelte';
+	import {
+		normalizePtyRepoKey,
+		ptyStoreFor,
+		type PtySessionStore,
+	} from '#lib/stores/pty-session.svelte';
 	import { getPty } from '#lib/services/pty';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { t } from '#lib/i18n';
@@ -38,9 +42,10 @@
 		onClose,
 	}: Props = $props();
 
-	const store: PtySessionStore = $derived(ptyStoreFor(repo));
+	const normalizedRepo = $derived(normalizePtyRepoKey(repo));
+	const store: PtySessionStore = $derived(ptyStoreFor(normalizedRepo));
 
-	let autoSpawned = false;
+	let ensuredKey: string | null = $state(null);
 	let failedId = $state<string | null>(null);
 	let instance: TerminalInstance | undefined = $state();
 	let editingId = $state<string | null>(null);
@@ -61,12 +66,17 @@
 		editingId = null;
 	}
 
-	onMount(() => {
-		void store.reconcile().then(() => {
-			if (!autoSpawned && store.sessions.length === 0) {
-				autoSpawned = true;
-				void spawnAndFocus();
-			}
+	$effect(() => {
+		const key = normalizedRepo;
+		const isOpen = open;
+		if (!isOpen || key === '') return;
+		if (ensuredKey === key) return;
+		ensuredKey = key;
+		const current = store;
+		void current.reconcile().then(() => {
+			if (!open) return;
+			if (normalizePtyRepoKey(repo) !== key) return;
+			if (current.sessions.length === 0) void spawnAndFocus();
 		});
 	});
 
@@ -81,7 +91,8 @@
 	async function handleConnect(id: string): Promise<void> {
 		try {
 			const view = await getPty(id);
-			store.syncFromServer(id, view);
+			store.syncMetaFromServer(id, view);
+			instance?.adoptServerSize(id, view.rows, view.cols);
 		} catch {
 			// Session vanished; adopt() on next mount drops it.
 		}

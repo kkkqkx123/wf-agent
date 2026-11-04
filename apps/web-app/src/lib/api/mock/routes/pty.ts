@@ -7,11 +7,12 @@ let previewPtySeq = 0;
 export function registerPty(router: MockRouter): void {
 	// ---------- pty ----------
 	router.on('POST', '/api/v1/pty', (_p, _q, body) => {
-		const b = (body ?? {}) as { rows?: number; cols?: number };
+		const b = (body ?? {}) as { rows?: number; cols?: number; title?: string };
 		previewPtySeq += 1;
 		return {
 			id: `pty-preview-${previewPtySeq}`,
 			cwd: '/preview/wf-agent',
+			title: b.title ?? 'Terminal 1',
 			status: 'running',
 			exit_code: null,
 			pid: 42000 + previewPtySeq,
@@ -23,17 +24,19 @@ export function registerPty(router: MockRouter): void {
 	router.on('GET', '/api/v1/pty/{id}', (params) => ({
 		id: params.id,
 		cwd: '/preview/wf-agent',
+		title: 'Terminal 1',
 		status: 'running',
 		exit_code: null,
 		pid: 42000,
 		rows: 24,
 		cols: 80,
 	}));
-	router.on('POST', '/api/v1/pty/{id}/resize', (params, _q, body) => {
-		const b = (body ?? {}) as { rows?: number; cols?: number };
+	router.on('PUT', '/api/v1/pty/{id}', (params, _q, body) => {
+		const b = (body ?? {}) as { rows?: number; cols?: number; title?: string };
 		return {
 			id: params.id,
 			cwd: '/preview/wf-agent',
+			title: b.title ?? 'Terminal 1',
 			status: 'running',
 			exit_code: null,
 			pid: 42000,

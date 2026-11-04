@@ -17,6 +17,8 @@
 			scrollY?: number;
 			cursor?: number;
 			status?: 'running' | 'exited';
+			rows?: number;
+			cols?: number;
 		};
 		store: PtySessionStore;
 		onConnect?: (id: string) => void;
@@ -40,6 +42,9 @@
 	let sizeTimer: ReturnType<typeof setTimeout> | undefined;
 	let pendingSize: { rows: number; cols: number } | undefined;
 	let lastSize: { rows: number; cols: number } | undefined;
+	// Best-known server size; skips the first sync when the viewport already matches.
+	// Seeded inside onMount so the prop is read from within a closure.
+	let serverKnown: { rows: number; cols: number } | undefined;
 	let resizeObserver: ResizeObserver;
 	let connected = false;
 	let tries = 0;
@@ -59,8 +64,13 @@
 		return text.length;
 	}
 
+	function isValidTerminalSize(rows: number, cols: number): boolean {
+		return Number.isInteger(rows) && Number.isInteger(cols) && rows >= 1 && cols >= 1;
+	}
+
 	function scheduleFit(): void {
-		if (fitFrame !== undefined) return;
+		if (fitFrame !== undefined || disposed) return;
+		if (!container || container.clientWidth <= 0 || container.clientHeight <= 0) return;
 		fitFrame = requestAnimationFrame(() => {
 			fitFrame = undefined;
 			if (disposed) return;
@@ -73,16 +83,22 @@
 	}
 
 	function scheduleResize(rows: number, cols: number): void {
-		if (disposed) return;
+		if (disposed || !isValidTerminalSize(rows, cols)) return;
 		if (lastSize?.cols === cols && lastSize?.rows === rows) {
 			pendingSize = undefined;
 			if (sizeTimer !== undefined) clearTimeout(sizeTimer);
 			sizeTimer = undefined;
 			return;
 		}
+		if (!lastSize && serverKnown?.cols === cols && serverKnown?.rows === rows) {
+			lastSize = { cols, rows };
+			pendingSize = undefined;
+			return;
+		}
 		pendingSize = { cols, rows };
 		if (!lastSize) {
 			lastSize = pendingSize;
+			pendingSize = undefined;
 			store.syncSize(session.id, rows, cols);
 			return;
 		}
@@ -97,6 +113,29 @@
 			lastSize = next;
 			store.syncSize(session.id, next.rows, next.cols);
 		}, RESIZE_DEBOUNCE_MS);
+	}
+
+	function fitNow(): void {
+		if (disposed || !container) return;
+		if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
+		try {
+			fitAddon.fit();
+		} catch {
+			// Container not ready; the observer will retry.
+		}
+	}
+
+	function flushPendingResize(): void {
+		if (sizeTimer !== undefined) {
+			clearTimeout(sizeTimer);
+			sizeTimer = undefined;
+		}
+		const next = pendingSize;
+		pendingSize = undefined;
+		if (!next || disposed) return;
+		if (lastSize?.cols === next.cols && lastSize?.rows === next.rows) return;
+		lastSize = next;
+		store.syncSize(session.id, next.rows, next.cols);
 	}
 
 	/** Probe the server before reconnecting: exited sessions stay view-only. */
@@ -189,6 +228,18 @@
 		term?.textarea?.focus();
 	}
 
+	/** Adopt the server size only when no local measurement owns the viewport yet. */
+	export function adoptServerSize(id: string, rows: number, cols: number): void {
+		if (id !== session.id || disposed) return;
+		if (!Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1) return;
+		if (lastSize !== undefined || pendingSize !== undefined) return;
+		serverKnown = { rows, cols };
+		const current = store.byId(id);
+		if (current && (current.rows !== rows || current.cols !== cols)) {
+			store.patch(id, { rows, cols });
+		}
+	}
+
 	function handleCopy(event: ClipboardEvent): void {
 		const selection = term?.getSelection();
 		if (!selection) return;
@@ -232,12 +283,23 @@
 		const restoreScrollY = session.scrollY ?? 0;
 		cursor = session.cursor ?? 0;
 		const openCursor = session.cursor ?? (restore ? -1 : 0);
+		if (
+			typeof session.rows === 'number' &&
+			typeof session.cols === 'number' &&
+			Number.isInteger(session.rows) &&
+			Number.isInteger(session.cols) &&
+			session.rows >= 1 &&
+			session.cols >= 1
+		) {
+			serverKnown = { rows: session.rows, cols: session.cols };
+		}
 
 		term = new Terminal({
 			cursorBlink: true,
 			cursorStyle: 'bar',
 			fontSize: FONT_SIZE,
-			fontFamily: "'JetBrains Mono', 'SF Mono', Menlo, Consolas, 'Noto Sans Mono CJK SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', monospace",
+			fontFamily:
+				"'JetBrains Mono', 'SF Mono', Menlo, Consolas, 'Noto Sans Mono CJK SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', monospace",
 			scrollback: SCROLLBACK,
 			convertEol: false,
 		});
@@ -327,7 +389,7 @@
 			textareaFocusCleanup?.();
 		});
 
-		scheduleFit();
+		fitNow();
 		void document.fonts?.ready.then(() => scheduleFit());
 
 		// Exited sessions stay view-only until the user clones them.
@@ -359,6 +421,9 @@
 			}
 			if (disposed) return;
 			if (session.status !== 'exited') {
+				// Push the measured size before attaching so the session
+				// starts with the current viewport.
+				flushPendingResize();
 				open(openCursor);
 			}
 		};

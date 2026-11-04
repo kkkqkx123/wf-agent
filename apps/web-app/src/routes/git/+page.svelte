@@ -3,7 +3,6 @@
 	import Badge from '#lib/ui/components/Badge.svelte';
 	import Button from '#lib/ui/components/Button.svelte';
 	import IconButton from '#lib/ui/components/IconButton.svelte';
-	import Segmented from '#lib/ui/components/Segmented.svelte';
 	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import PageState from '#lib/components/layout/PageState.svelte';
 	import GitBoard from '#lib/components/domain/git/GitBoard.svelte';
@@ -18,7 +17,6 @@
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
 	import {
 		GitWorkbench,
-		PANELS,
 		defaultViewModeForPanel,
 		isViewModeValidForPanel,
 	} from '#lib/git/workbench.svelte';
@@ -147,6 +145,11 @@
 	}
 
 	async function onPageKeydown(event: KeyboardEvent): Promise<void> {
+		if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key === '/') {
+			event.preventDefault();
+			workbench.focusKeyInput();
+			return;
+		}
 		if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
 		if (workbench.dialogOpen || workbench.helpOpen) return;
 		if (editableTarget(event.target)) return;
@@ -299,18 +302,11 @@
 		{/snippet}
 	</PageHeader>
 
-	<Segmented
-		items={PANELS.map((p) => ({ id: p.id, label: p.label }))}
-		bind:value={workbench.panel}
-		class="px-4"
-		panelId="git-panel"
-	/>
-
 	<div
 		id="git-panel"
 		role="tabpanel"
 		aria-label={t('page.git.sections')}
-		class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+		class="min-h-0 flex-1 overflow-y-auto px-4 py-3 xl:overflow-hidden"
 	>
 		<PageState
 			loading={workbench.loading}
@@ -320,28 +316,26 @@
 			emptyDescription={t('page.git.noRepoDesc')}
 			onretry={() => void workbench.reload()}
 		>
-			<div class="grid gap-2 xl:grid-cols-5">
-				<div class="xl:col-span-3">
+			<div class="grid gap-2 xl:h-full xl:grid-cols-3">
+				<div class="min-h-0 xl:col-span-1 xl:overflow-y-auto">
 					<GitBoard {workbench} />
 				</div>
-				<div class="space-y-2 xl:col-span-2">
+				<div class="min-h-0 xl:col-span-2 xl:overflow-y-auto">
 					<GitMainView {workbench} />
-					<GitKeyInput {workbench} />
-					{#if workbench.terminalOpen}
-						{#await import('#lib/components/domain/git/GitTerminalPanel.svelte') then module}
-							<module.default {workbench} />
-						{/await}
-					{/if}
 				</div>
 			</div>
-			<div class="mt-2">
+			<div class="mt-2 shrink-0 space-y-2 border-t border-border pt-2">
+				<GitKeyInput {workbench} />
 				<GitStatusBar {workbench} />
-			</div>
-			{#if workbench.actionLog.length > 0}
-				<div class="mt-2">
+				{#if workbench.terminalOpen}
+					{#await import('#lib/components/domain/git/GitTerminalPanel.svelte') then module}
+						<module.default {workbench} />
+					{/await}
+				{/if}
+				{#if workbench.actionLog.length > 0}
 					<GitCommandLog {workbench} />
-				</div>
-			{/if}
+				{/if}
+			</div>
 		</PageState>
 	</div>
 </div>

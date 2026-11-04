@@ -127,6 +127,8 @@
 	"page.git.sections": "Git 分区",
 	"page.git.terminal": "终端",
 	"page.git.title": "Git",
+	"page.terminal.description": "全高交互式终端；会话与 IDE 终端共享。",
+	"page.terminal.title": "终端",
 	"page.ide.binaryDesc": "二进制文件无法在此编辑，请使用终端查看。",
 	"page.ide.binaryTitle": "二进制文件",
 	"page.ide.badgeAdded": "新增",

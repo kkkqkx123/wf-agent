@@ -41,6 +41,7 @@
 		<PtyPanel
 			repo={repo || 'ide'}
 			{cwd}
+			fill
 			open={ide.terminalOpen}
 			onClose={() => {
 				ide.terminalOpen = false;

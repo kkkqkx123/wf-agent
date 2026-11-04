@@ -192,6 +192,12 @@ export const NAV_GROUPS: NavGroup[] = [
 		label: message('config.navigation.workspace'),
 		items: [
 			{
+				href: '/terminal',
+				label: message('config.navigation.terminal'),
+				icon: 'terminal',
+				description: message('config.navigation.terminalDescription'),
+			},
+			{
 				href: '/settings',
 				label: message('config.navigation.settings'),
 				icon: 'sliders',

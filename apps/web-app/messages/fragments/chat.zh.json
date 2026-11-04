@@ -131,6 +131,7 @@
 	"pty.ptyPanel.moveRight": "右移",
 	"pty.ptyPanel.closeTerminal": "关闭终端",
 	"pty.ptyPanel.newTerminal": "新建终端",
+	"pty.ptyPanel.noSessions": "暂无终端会话。",
 	"pty.ptyPanel.disconnected": "终端已断开。会话可能已结束。",
 	"pty.ptyPanel.restart": "重启",
 	"pty.ptyPanel.dismiss": "忽略",

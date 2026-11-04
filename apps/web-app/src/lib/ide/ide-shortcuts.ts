@@ -57,6 +57,9 @@ export function registerIdeShortcuts(
 				manager.register(
 					hotkey,
 					(event) => {
+						// Embedded terminals own their keys; IDE actions must not steal them.
+						const target = event.target as HTMLElement | null;
+						if (target?.closest?.('.xterm')) return;
 						event.preventDefault();
 						run(get());
 					},

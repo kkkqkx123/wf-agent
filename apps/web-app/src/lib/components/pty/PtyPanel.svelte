@@ -7,6 +7,7 @@
 	import TerminalInstance from './TerminalInstance.svelte';
 	import { ptyStoreFor, type PtySessionStore } from '#lib/stores/pty-session.svelte';
 	import { getPty } from '#lib/services/pty';
+	import { toasts } from '#lib/stores/toast.svelte';
 	import { t } from '#lib/i18n';
 
 	interface Props {
@@ -16,11 +17,26 @@
 		cwd?: string;
 		/** Environment overrides for newly spawned sessions (restricted to GIT_* server-side). */
 		env?: Record<string, string>;
+		/** Inline height for the terminal viewport; overrides the default fixed height. */
+		viewportStyle?: string;
+		/** Stretch the card and viewport to fill the parent height (full-page hosts). */
+		fill?: boolean;
+		/** One-click session starters (label shown, command spawned in panel cwd). */
+		quickCommands?: Array<{ label: string; command: string }>;
 		open: boolean;
-		onClose: () => void;
+		onClose?: () => void;
 	}
 
-	let { repo, cwd, env, open, onClose }: Props = $props();
+	let {
+		repo,
+		cwd,
+		env,
+		viewportStyle,
+		fill = false,
+		quickCommands = [],
+		open,
+		onClose,
+	}: Props = $props();
 
 	const store: PtySessionStore = $derived(ptyStoreFor(repo));
 
@@ -49,9 +65,7 @@
 		void store.reconcile().then(() => {
 			if (!autoSpawned && store.sessions.length === 0) {
 				autoSpawned = true;
-				void store.spawn({ cwd, env }).then((session) => {
-					if (session) instance?.focus();
-				});
+				void spawnAndFocus();
 			}
 		});
 	});
@@ -61,7 +75,7 @@
 	});
 
 	function closePanel(): void {
-		onClose();
+		onClose?.();
 	}
 
 	async function handleConnect(id: string): Promise<void> {
@@ -85,6 +99,15 @@
 		failedId = null;
 	}
 
+	async function spawnAndFocus(command?: string): Promise<void> {
+		const session = await store.spawn({ cwd, env, command });
+		if (session) {
+			instance?.focus();
+			return;
+		}
+		toasts.error(t('pty.ptyPanel.newTerminal'), t('pty.ptyPanel.disconnected'));
+	}
+
 	async function restartExited(id: string): Promise<void> {
 		clearFailure();
 		await store.clone(id, { cwd, env });
@@ -92,8 +115,21 @@
 	}
 </script>
 
-{#if open && store.sessions.length > 0}
-	<Card title={t('pty.ptyPanel.title')} description={t('pty.ptyPanel.description')}>
+{#if open}
+	<Card
+		title={t('pty.ptyPanel.title')}
+		description={t('pty.ptyPanel.description')}
+		class={fill ? 'flex h-full min-h-0 flex-col' : undefined}
+		bodyClass={fill ? 'flex min-h-0 flex-1 flex-col' : undefined}
+	>
+		{#if store.sessions.length === 0}
+			<div class="flex flex-col items-start gap-2">
+				<p class="text-caption text-muted-foreground">{t('pty.ptyPanel.noSessions')}</p>
+				<Button size="sm" variant="outline" onclick={() => void spawnAndFocus()}>
+					{t('pty.ptyPanel.newTerminal')}
+				</Button>
+			</div>
+		{:else}
 		<div class="mb-2 flex flex-wrap items-center gap-1">
 			{#each store.sessions as session (session.id)}
 				<div
@@ -158,12 +194,13 @@
 				label={t('pty.ptyPanel.newTerminal')}
 				compact
 				variant="ghost"
-				onclick={() => {
-					void store.spawn({ cwd, env }).then((session) => {
-						if (session) instance?.focus();
-					});
-				}}
+				onclick={() => void spawnAndFocus()}
 			/>
+			{#each quickCommands as quick (quick.command)}
+				<Button size="sm" variant="outline" onclick={() => void spawnAndFocus(quick.command)}>
+					{quick.label}
+				</Button>
+			{/each}
 		</div>
 
 		{#if failedId}
@@ -180,7 +217,12 @@
 			</div>
 		{/if}
 
-		<div class="h-72 overflow-hidden rounded-md border border-border bg-background">
+		<div
+			class={fill
+				? 'min-h-0 flex-1 overflow-hidden rounded-md border border-border bg-background'
+				: 'h-72 overflow-hidden rounded-md border border-border bg-background'}
+			style={viewportStyle}
+		>
 			{#key store.activeId}
 				{#if store.active()}
 					<TerminalInstance
@@ -206,9 +248,12 @@
 			>
 				{t('pty.ptyPanel.closeActive')}
 			</Button>
-			<Button size="sm" variant="ghost" onclick={closePanel}>
-				{t('pty.ptyPanel.hidePanel')}
-			</Button>
+			{#if onClose}
+				<Button size="sm" variant="ghost" onclick={closePanel}>
+					{t('pty.ptyPanel.hidePanel')}
+				</Button>
+			{/if}
 		</div>
+		{/if}
 	</Card>
 {/if}

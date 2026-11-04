@@ -40,6 +40,8 @@
 	"config.navigation.stream": "Stream",
 	"config.navigation.dependencies": "Dependencies",
 	"config.navigation.operations": "Operations",
+	"config.navigation.terminal": "Terminal",
+	"config.navigation.terminalDescription": "Full-page interactive shell with multi-session tabs",
 	"config.navigation.settings": "Settings",
 	"config.navigation.settingsDescription": "Appearance, execution defaults and notifications",
 	"config.commands.new": "Start a fresh draft session",

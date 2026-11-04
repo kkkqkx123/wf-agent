@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { git as gitStore } from '#lib/stores/git.svelte';
-	import { visibleControls } from '#lib/git/bindings';
-	import { GUARDED_DANGERS } from '#lib/git/workbench.svelte';
 	import type { GitWorkbench } from '#lib/git/workbench.svelte';
 
 	interface Props {
@@ -9,8 +6,6 @@
 	}
 
 	let { workbench }: Props = $props();
-
-	let controls = $derived(visibleControls(workbench.panel));
 </script>
 
 <div
@@ -22,32 +17,7 @@
 	{#if workbench.selection}
 		<span class="max-w-64 truncate text-muted-foreground">{workbench.selection}</span>
 	{/if}
-	<span
-		class="flex flex-nowrap items-center gap-x-2 gap-y-0.5 overflow-x-auto md:flex-wrap md:overflow-visible"
-		role="group"
-		aria-label="Actions"
-	>
-		{#each controls as control (control.id)}
-			<button
-				type="button"
-				disabled={gitStore.busy}
-				title={control.legacyKey
-					? `${control.name} (${control.hint} · ${control.legacyKey})`
-					: `${control.name} (${control.hint})`}
-				onclick={() => void workbench.runActionId(control.id)}
-				class="shrink-0 rounded-sm px-1 hover:bg-accent disabled:opacity-50 {GUARDED_DANGERS.has(
-					control.danger,
-				)
-					? 'text-destructive'
-					: 'text-foreground'}"
-			>
-				<span class="text-muted-foreground"
-					>{control.legacyKey ? `${control.hint} · ${control.legacyKey}` : control.hint}</span
-				>
-				{control.name}
-			</button>
-		{/each}
-	</span>
+	<span class="text-muted-foreground">{workbench.controls.length} actions</span>
 	<span class="ml-auto flex items-center gap-2">
 		<button
 			type="button"
@@ -66,6 +36,14 @@
 			class="rounded-sm px-1 text-foreground hover:bg-accent"
 		>
 			<span class="text-muted-foreground">/</span> filter
+		</button>
+		<button
+			type="button"
+			title="Focus key input"
+			onclick={() => workbench.focusKeyInput()}
+			class="rounded-sm px-1 text-foreground hover:bg-accent"
+		>
+			<span class="text-muted-foreground">^/</span> keys
 		</button>
 	</span>
 </div>

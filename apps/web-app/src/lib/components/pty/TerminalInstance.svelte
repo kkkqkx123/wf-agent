@@ -198,6 +198,9 @@
 		clipboard.setData('text/plain', selection);
 	}
 
+	/** Bracketed-paste mode (DECSET 2004) observed from the app; paste wraps markers when on. */
+	let bracketedPaste = false;
+
 	function handlePaste(event: ClipboardEvent): void {
 		const clipboard = event.clipboardData;
 		const text = clipboard?.getData('text/plain') ?? clipboard?.getData('text') ?? '';
@@ -205,7 +208,7 @@
 		event.preventDefault();
 		event.stopPropagation();
 		if (exitHandled) return;
-		socket?.send(text);
+		socket?.send(bracketedPaste ? `\x1b[200~${text}\x1b[201~` : text);
 	}
 
 	function handlePointerDown(): void {
@@ -234,7 +237,7 @@
 			cursorBlink: true,
 			cursorStyle: 'bar',
 			fontSize: FONT_SIZE,
-			fontFamily: "'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace",
+			fontFamily: "'JetBrains Mono', 'SF Mono', Menlo, Consolas, 'Noto Sans Mono CJK SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', monospace",
 			scrollback: SCROLLBACK,
 			convertEol: false,
 		});
@@ -243,6 +246,18 @@
 		term.loadAddon(serializeAddon);
 		term.loadAddon(fitAddon);
 		term.loadAddon(new WebLinksAddon());
+		// Observe bracketed-paste mode (DECSET 2004) for paste wrapping.
+		// Returning false leaves default mode handling untouched.
+		const trackPasteMode = (params: ArrayLike<number | number[]>, on: boolean): boolean => {
+			if (Array.from(params).flat().includes(2004)) bracketedPaste = on;
+			return false;
+		};
+		term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, (params) =>
+			trackPasteMode(params, true),
+		);
+		term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, (params) =>
+			trackPasteMode(params, false),
+		);
 		term.open(container);
 
 		writer = createTerminalWriter((data, done) => {

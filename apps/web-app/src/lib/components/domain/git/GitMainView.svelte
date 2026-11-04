@@ -76,6 +76,12 @@
 
 	let lastAnchor = $state<{ path: string; hunk: number; index: number } | null>(null);
 
+	function copySelection(): void {
+		const text = workbench.selection;
+		if (!text) return;
+		void navigator.clipboard?.writeText(text).catch(() => {});
+	}
+
 	function onLineClick(
 		path: string,
 		hunkIndex: number,
@@ -98,8 +104,38 @@
 	description={workbench.selection
 		? t('domain.git.selected', { selection: workbench.selection })
 		: t('domain.git.mainViewDescription')}
-	focused={workbench.panel === 'commits' || workbench.panel === 'files'}
+	focused={workbench.panel === 'commits' || workbench.panel === 'files' ||
+		workbench.panel === 'conflicts'}
 >
+	{#snippet actions()}
+		<button
+			type="button"
+			title="Copy selection"
+			disabled={!workbench.selection}
+			onclick={copySelection}
+			class="rounded-sm px-1.5 py-0.5 font-mono text-micro text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+		>
+			copy
+		</button>
+		<button
+			type="button"
+			aria-pressed={showWhitespace}
+			title={showWhitespace ? 'Hide whitespace' : 'Show whitespace'}
+			onclick={() => (showWhitespace = !showWhitespace)}
+			class={showWhitespace
+				? 'rounded-sm bg-accent px-1.5 py-0.5 font-mono text-micro text-foreground'
+				: 'rounded-sm px-1.5 py-0.5 font-mono text-micro text-muted-foreground hover:bg-accent'}
+		>
+			ws
+		</button>
+	{/snippet}
+	{#if workbench.isMidOperation}
+		<p
+			class="mb-2 rounded-md border border-warning/40 bg-warning/5 px-2 py-1 font-mono text-micro text-warning"
+		>
+			{t('page.git.midOperation')} · {t('domain.git.conflictPending')}
+		</p>
+	{/if}
 	{#if modeItems.length > 1}
 		<div class="mb-2">
 			<Segmented
@@ -264,22 +300,9 @@
 					{t('domain.git.clearSelection')}
 				</Button>
 			</div>
-			<div class="mb-1 flex items-center gap-2">
-				<p class="text-micro font-semibold text-muted-foreground">
-					{t('domain.git.unstaged')} · {stagePath}
-				</p>
-				<button
-					type="button"
-					aria-pressed={showWhitespace}
-					title={showWhitespace ? 'Hide whitespace' : 'Show whitespace'}
-					onclick={() => (showWhitespace = !showWhitespace)}
-					class={showWhitespace
-						? 'rounded bg-accent px-1.5 py-0.5 font-mono text-micro text-foreground transition-colors hover:bg-accent'
-						: 'rounded px-1.5 py-0.5 font-mono text-micro text-muted-foreground transition-colors hover:bg-accent'}
-				>
-					ws
-				</button>
-			</div>
+			<p class="mb-1 text-micro font-semibold text-muted-foreground">
+				{t('domain.git.unstaged')} · {stagePath}
+			</p>
 			{#if workbench.diff.length === 0}
 				<p class="mb-2 text-caption text-muted-foreground">{t('domain.git.pickFile')}</p>
 			{:else}
@@ -412,22 +435,9 @@
 					{/if}
 				{/each}
 			{/if}
-			<div class="mb-1 flex items-center gap-2">
-				<p class="text-micro font-semibold text-muted-foreground">
-					{t('domain.git.stagedDiff')} · {stagePath}
-				</p>
-				<button
-					type="button"
-					aria-pressed={showWhitespace}
-					title={showWhitespace ? 'Hide whitespace' : 'Show whitespace'}
-					onclick={() => (showWhitespace = !showWhitespace)}
-					class={showWhitespace
-						? 'rounded bg-accent px-1.5 py-0.5 font-mono text-micro text-foreground transition-colors hover:bg-accent'
-						: 'rounded px-1.5 py-0.5 font-mono text-micro text-muted-foreground transition-colors hover:bg-accent'}
-				>
-					ws
-				</button>
-			</div>
+			<p class="mb-1 text-micro font-semibold text-muted-foreground">
+				{t('domain.git.stagedDiff')} · {stagePath}
+			</p>
 			{#if workbench.stagedDiff.length === 0}
 				<p class="mb-2 text-caption text-muted-foreground">{t('domain.git.pickFile')}</p>
 			{:else}

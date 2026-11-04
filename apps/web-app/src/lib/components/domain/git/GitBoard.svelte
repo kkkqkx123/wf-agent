@@ -2,7 +2,8 @@
 	import Button from '#lib/ui/components/Button.svelte';
 	import TuiPanel from '#lib/ui/components/TuiPanel.svelte';
 	import { git as gitStore } from '#lib/stores/git.svelte';
-	import type { GitWorkbench } from '#lib/git/workbench.svelte';
+	import type { GitWorkbench, PanelId } from '#lib/git/workbench.svelte';
+	import { PANELS, PANEL_GROUPS, groupForPanel } from '#lib/git/workbench.svelte';
 	import { assignGraphLanes } from '#lib/git/graph';
 	import {
 		branchRowClass,
@@ -85,13 +86,24 @@
 	);
 	let laneById = $derived(new Map(lanes.map((row) => [row.id, row] as const)));
 
-	function visibility(panel: string): string {
-		return workbench.panel === panel ? '' : 'hidden xl:block';
+	function panelLabel(id: PanelId): string {
+		return PANELS.find((entry) => entry.id === id)?.label ?? id;
+	}
+
+	/** One visible panel per group; the active panel wins, otherwise the group head shows. */
+	function shownPanel(groupId: string): PanelId {
+		const group = PANEL_GROUPS.find((entry) => entry.id === groupId);
+		if (!group) return workbench.panel;
+		return group.panels.includes(workbench.panel) ? workbench.panel : group.panels[0];
+	}
+
+	function boardVisibility(panel: PanelId): string {
+		return shownPanel(groupForPanel(panel).id) === panel ? '' : 'hidden';
 	}
 </script>
 
-<div id="git-board" class="grid content-start gap-2 md:grid-cols-2">
-	<div class={visibility('status')} onfocusin={() => (workbench.panel = 'status')}>
+<div id="git-board" class="flex flex-col gap-2">
+	<div class={boardVisibility('status')} onfocusin={() => (workbench.panel = 'status')}>
 		<TuiPanel title="Status" focused={workbench.panel === 'status'}>
 			{#if workbench.status}
 				<ul class="mt-1 font-mono text-micro">
@@ -121,7 +133,20 @@
 		</TuiPanel>
 	</div>
 
-	<div class={visibility('files')} onfocusin={() => (workbench.panel = 'files')}>
+	<div role="tablist" aria-label="Workspace panels" class="flex flex-wrap gap-1 px-1">
+		{#each PANEL_GROUPS.find((entry) => entry.id === 'workspace')?.panels ?? [] as id (id)}
+			<button
+				type="button"
+				role="tab"
+				onclick={() => (workbench.panel = id)}
+				aria-selected={workbench.panel === id}
+				class="rounded-sm px-1.5 py-0.5 font-mono text-micro {workbench.panel === id ? 'bg-accent font-semibold text-foreground' : 'text-muted-foreground hover:bg-accent/50'}"
+			>
+				{panelLabel(id)}
+			</button>
+		{/each}
+	</div>
+	<div class={boardVisibility('files')} onfocusin={() => (workbench.panel = 'files')}>
 		<TuiPanel title="Files" count={files.length} focused={workbench.panel === 'files'}>
 			<input
 				id="git-filter-files"
@@ -175,7 +200,7 @@
 		</TuiPanel>
 	</div>
 
-	<div class={visibility('conflicts')} onfocusin={() => (workbench.panel = 'conflicts')}>
+	<div class={boardVisibility('conflicts')} onfocusin={() => (workbench.panel = 'conflicts')}>
 		<TuiPanel title="Conflicts" count={conflicts.length} focused={workbench.panel === 'conflicts'}>
 			<input
 				id="git-filter-conflicts"
@@ -214,7 +239,7 @@
 		</TuiPanel>
 	</div>
 
-	<div class={visibility('worktrees')} onfocusin={() => (workbench.panel = 'worktrees')}>
+	<div class={boardVisibility('worktrees')} onfocusin={() => (workbench.panel = 'worktrees')}>
 		<TuiPanel title="Worktrees" count={worktrees.length} focused={workbench.panel === 'worktrees'}>
 			<input
 				id="git-filter-worktrees"
@@ -256,7 +281,7 @@
 		</TuiPanel>
 	</div>
 
-	<div class={visibility('submodules')} onfocusin={() => (workbench.panel = 'submodules')}>
+	<div class={boardVisibility('submodules')} onfocusin={() => (workbench.panel = 'submodules')}>
 		<TuiPanel
 			title="Submodules"
 			count={submodules.length}
@@ -299,7 +324,20 @@
 		</TuiPanel>
 	</div>
 
-	<div class={visibility('branches')} onfocusin={() => (workbench.panel = 'branches')}>
+	<div role="tablist" aria-label="Reference panels" class="flex flex-wrap gap-1 px-1">
+		{#each PANEL_GROUPS.find((entry) => entry.id === 'refs')?.panels ?? [] as id (id)}
+			<button
+				type="button"
+				role="tab"
+				onclick={() => (workbench.panel = id)}
+				aria-selected={workbench.panel === id}
+				class="rounded-sm px-1.5 py-0.5 font-mono text-micro {workbench.panel === id ? 'bg-accent font-semibold text-foreground' : 'text-muted-foreground hover:bg-accent/50'}"
+			>
+				{panelLabel(id)}
+			</button>
+		{/each}
+	</div>
+	<div class={boardVisibility('branches')} onfocusin={() => (workbench.panel = 'branches')}>
 		<TuiPanel title="Branches" count={branches.length} focused={workbench.panel === 'branches'}>
 			<input
 				id="git-filter-branches"
@@ -344,7 +382,7 @@
 		</TuiPanel>
 	</div>
 
-	<div class={visibility('remotes')} onfocusin={() => (workbench.panel = 'remotes')}>
+	<div class={boardVisibility('remotes')} onfocusin={() => (workbench.panel = 'remotes')}>
 		<TuiPanel title="Remotes" count={remotes.length} focused={workbench.panel === 'remotes'}>
 			<input
 				id="git-filter-remotes"
@@ -384,7 +422,7 @@
 		</TuiPanel>
 	</div>
 
-	<div class={visibility('tags')} onfocusin={() => (workbench.panel = 'tags')}>
+	<div class={boardVisibility('tags')} onfocusin={() => (workbench.panel = 'tags')}>
 		<TuiPanel title="Tags" count={tags.length} focused={workbench.panel === 'tags'}>
 			<input
 				id="git-filter-tags"
@@ -425,7 +463,20 @@
 		</TuiPanel>
 	</div>
 
-	<div class={visibility('commits')} onfocusin={() => (workbench.panel = 'commits')}>
+	<div role="tablist" aria-label="History panels" class="flex flex-wrap gap-1 px-1">
+		{#each PANEL_GROUPS.find((entry) => entry.id === 'history')?.panels ?? [] as id (id)}
+			<button
+				type="button"
+				role="tab"
+				onclick={() => (workbench.panel = id)}
+				aria-selected={workbench.panel === id}
+				class="rounded-sm px-1.5 py-0.5 font-mono text-micro {workbench.panel === id ? 'bg-accent font-semibold text-foreground' : 'text-muted-foreground hover:bg-accent/50'}"
+			>
+				{panelLabel(id)}
+			</button>
+		{/each}
+	</div>
+	<div class={boardVisibility('commits')} onfocusin={() => (workbench.panel = 'commits')}>
 		<TuiPanel title="Commits" count={commits.length} focused={workbench.panel === 'commits'}>
 			<input
 				id="git-filter-commits"
@@ -509,7 +560,7 @@
 		</TuiPanel>
 	</div>
 
-	<div class={visibility('reflog')} onfocusin={() => (workbench.panel = 'reflog')}>
+	<div class={boardVisibility('reflog')} onfocusin={() => (workbench.panel = 'reflog')}>
 		<TuiPanel title="Reflog" count={reflogs.length} focused={workbench.panel === 'reflog'}>
 			<input
 				id="git-filter-reflog"
@@ -550,7 +601,7 @@
 		</TuiPanel>
 	</div>
 
-	<div class={visibility('stash')} onfocusin={() => (workbench.panel = 'stash')}>
+	<div class={boardVisibility('stash')} onfocusin={() => (workbench.panel = 'stash')}>
 		<TuiPanel title="Stash" count={stash.length} focused={workbench.panel === 'stash'}>
 			<input
 				id="git-filter-stash"

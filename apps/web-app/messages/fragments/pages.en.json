@@ -127,6 +127,8 @@
 	"page.git.sections": "Git panels",
 	"page.git.terminal": "Terminal",
 	"page.git.title": "Git",
+	"page.terminal.description": "Full-height interactive shell; sessions are shared with the IDE terminal.",
+	"page.terminal.title": "Terminal",
 	"page.ide.binaryDesc": "Binary files cannot be edited here. Use the terminal to inspect them.",
 	"page.ide.binaryTitle": "Binary file",
 	"page.ide.badgeAdded": "Added",

@@ -40,6 +40,8 @@
 	"config.navigation.stream": "流",
 	"config.navigation.dependencies": "依赖",
 	"config.navigation.operations": "运维",
+	"config.navigation.terminal": "终端",
+	"config.navigation.terminalDescription": "全屏交互式终端，支持多会话标签页",
 	"config.navigation.settings": "设置",
 	"config.navigation.settingsDescription": "外观、执行默认值与通知",
 	"config.commands.new": "开始一个全新的草稿会话",

@@ -39,7 +39,7 @@
 	{id}
 	class={cn(
 		'relative rounded-none border bg-card text-card-foreground',
-		focused ? 'border-info' : 'border-border',
+		focused ? 'border-info ring-1 ring-info/40' : 'border-border',
 		className,
 	)}
 >

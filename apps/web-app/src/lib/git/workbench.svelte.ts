@@ -53,6 +53,24 @@ export const PANELS = [
 
 export type PanelId = (typeof PANELS)[number]['id'];
 
+export interface PanelGroup {
+	id: string;
+	panels: PanelId[];
+}
+
+/** Side panel groups mirroring the lazygit default sidebar layout. */
+export const PANEL_GROUPS: PanelGroup[] = [
+	{ id: 'status', panels: ['status'] },
+	{ id: 'workspace', panels: ['files', 'worktrees', 'submodules'] },
+	{ id: 'refs', panels: ['branches', 'remotes', 'tags'] },
+	{ id: 'history', panels: ['commits', 'reflog'] },
+	{ id: 'stash', panels: ['stash'] },
+];
+
+export function groupForPanel(panel: PanelId): PanelGroup {
+	return PANEL_GROUPS.find((group) => group.panels.includes(panel)) ?? PANEL_GROUPS[0];
+}
+
 export type MainViewMode = 'diff' | 'staging' | 'commitFiles';
 
 export function defaultViewModeForPanel(panel: PanelId): MainViewMode {
@@ -749,7 +767,11 @@ export class GitWorkbench {
 		}
 		if (result.kind === 'command') {
 			this.token = '';
-			toasts.info('Open the Terminal panel to run commands directly in the repository.');
+			this.terminalOpen = true;
+			toasts.info(
+				'Terminal opened',
+				`Run "${result.preview ?? ''}" directly in the repository terminal below.`,
+			);
 			return;
 		}
 		this.token = '';
@@ -861,7 +883,18 @@ export class GitWorkbench {
 			const message = e instanceof Error ? e.message : 'Git action failed';
 			this.pushActionLog(action, params, `failed: ${message}`);
 			gitStore.endAction(message);
-			toasts.error('Git action failed', message);
+			toasts.push({
+				title: 'Git action failed',
+				description: message,
+				tone: 'danger',
+				timeout: 8000,
+				action: {
+					label: 'Open terminal',
+					run: () => {
+						this.terminalOpen = true;
+					},
+				},
+			});
 			return;
 		}
 		gitStore.endAction();

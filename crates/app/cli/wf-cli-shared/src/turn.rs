@@ -118,6 +118,7 @@ impl TurnParams {
             initial_tool_names: None,
             token_limit: None,
             token_warning_threshold: None,
+            temporary_mode: None,
         }
     }
 

@@ -6,6 +6,7 @@ use clap::Parser;
 use tracing::info;
 
 use wf_runtime::bootstrap::{InfraSourceConfig, Runtime, RuntimeConfig};
+use wf_types::config::user_git::UserGitConfig;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -39,6 +40,11 @@ struct Args {
     #[arg(long)]
     storage: Option<String>,
 
+    /// Repository root exposed through the user_git domain (IDE + Git pages).
+    /// Falls back to `WF_REPO_ROOT` when unset.
+    #[arg(long)]
+    repo_root: Option<PathBuf>,
+
     /// Log level: trace|debug|info|warn|error
     #[arg(long)]
     log_level: Option<String>,
@@ -51,6 +57,18 @@ fn build_runtime_config(args: &Args) -> (RuntimeConfig, Option<InfraSourceConfig
         if let Some(storage) = wf_config::storage_spec::parse_storage_spec(spec) {
             config.storage = storage;
         }
+    }
+
+    let repo_root = args
+        .repo_root
+        .clone()
+        .or_else(|| std::env::var_os("WF_REPO_ROOT").map(PathBuf::from));
+    if let Some(root) = repo_root {
+        config.user_git = Some(UserGitConfig {
+            enabled: true,
+            repo_root: Some(root.to_string_lossy().to_string()),
+            ..Default::default()
+        });
     }
 
     if let Some(level) = args.log_level.as_deref() {

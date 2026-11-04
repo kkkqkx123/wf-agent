@@ -1,9 +1,9 @@
 <script lang="ts">
 	import Dialog from '#lib/ui/components/Dialog.svelte';
+	import type { ResolvedPathname } from '$app/types';
 	import { ui } from '#lib/stores/ui.svelte';
 	import { CANVAS_SHORTCUT_HELP } from '#lib/graph/canvas-shortcuts';
 	import { IDE_SHORTCUT_HELP } from '#lib/ide/ide-shortcuts';
-	import { goto } from '$app/navigation';
 	import { t, type MessageKey } from '#lib/i18n';
 
 	interface Shortcut {
@@ -14,10 +14,19 @@
 		action?: string;
 	}
 
-	interface Link {
+	interface DocLink {
+		href: ResolvedPathname;
+		labelKey: MessageKey;
+		external: false;
+	}
+
+	interface ExternalLink {
 		href: string;
 		labelKey: MessageKey;
+		external: true;
 	}
+
+	type Link = DocLink | ExternalLink;
 
 	// Actions are stored as keys so the labels follow the active locale.
 	const globalShortcuts: Shortcut[] = [
@@ -39,23 +48,13 @@
 	}));
 
 	const links: Link[] = [
-		{ href: `/docs/user-guide.md`, labelKey: 'layout.help.userGuide' },
+		{ href: '/docs/user-guide.md', labelKey: 'layout.help.userGuide', external: true },
 		{
 			href: 'https://github.com/atomgit-com/wf-agent#readme',
 			labelKey: 'layout.help.readme',
+			external: true,
 		},
 	];
-
-	function navigateTo(href: string): void {
-		if (href.startsWith('http://') || href.startsWith('https://')) {
-			window.open(href, '_blank', 'noopener,noreferrer');
-		} else {
-			// The installed Kit version does not export resolve(); href values
-			// here are already root-relative, so goto() is sufficient.
-
-			goto(href);
-		}
-	}
 </script>
 
 <Dialog
@@ -125,18 +124,22 @@
 		<ul class="mt-1 space-y-1">
 			{#each links as link (link.href)}
 				<li>
-					<button
-						type="button"
-						onclick={(e) => {
-							e.preventDefault();
-							navigateTo(link.href);
-						}}
-						class="text-body text-info hover:underline"
-					>
-						{t(link.labelKey)}
-					</button>
+					{#if link.external}
+						<a
+							href={link.href}
+							target="_blank"
+							rel="external noreferrer"
+							class="text-body text-info hover:underline"
+						>
+							{t(link.labelKey)}
+						</a>
+					{:else}
+						<a href={link.href} class="text-body text-info hover:underline">
+							{t(link.labelKey)}
+						</a>
+					{/if}
 				</li>
-			{/each}
+				{/each}
 		</ul>
 	</section>
 </Dialog>

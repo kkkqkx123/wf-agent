@@ -1,5 +1,6 @@
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
+import type { ResolvedPathname } from '$app/types';
 
 /** IDE deep-link helper shared by mention jumps, checkpoint jumps and file search. */
 
@@ -16,14 +17,14 @@ function toPositiveInt(value: unknown): number | null {
 }
 
 /** Build an IDE address with optional 1-based line/column. */
-export function buildIdeUrl(path: string, line?: number | null, col?: number | null): string {
+export function buildIdeUrl(path: string, line?: number | null, col?: number | null): ResolvedPathname {
 	const clean = path.replace(/^\.?\/+/, '');
 	const params = new URLSearchParams({ path: clean });
 	const lineNo = toPositiveInt(line ?? null);
 	const colNo = toPositiveInt(col ?? null);
 	if (lineNo !== null) params.set('line', String(lineNo));
 	if (colNo !== null) params.set('col', String(colNo));
-	return `${resolve('/ide')}?${params.toString()}`;
+	return `${resolve('/ide')}?${params.toString()}` as ResolvedPathname;
 }
 
 /** Parse IDE query parameters. Row/column are clamped to >= 1 when present. */

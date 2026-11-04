@@ -1,5 +1,6 @@
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
+import type { ResolvedPathname } from '$app/types';
 import type { AgentLoop } from '#lib/types/models';
 import { NEW_SESSION, SessionLocalState } from './session-local.svelte';
 import { SessionRemoteState } from './session-remote.svelte';
@@ -103,9 +104,9 @@ class SessionStore {
 	 */
 	open(id: string): Promise<void> {
 		this.touch(id);
-		// The rule cannot see that the path half of the target is resolved.
+		// The query preserves the resolved base path.
 
-		return goto(`${resolve('/chat')}?id=${encodeURIComponent(id)}`);
+		return goto(`${resolve('/chat')}?id=${encodeURIComponent(id)}` as ResolvedPathname);
 	}
 
 	/** Leave any finished run behind and open a fresh draft. */

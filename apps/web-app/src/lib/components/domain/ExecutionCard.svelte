@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Execution } from '#lib/types/models';
+	import { resolve } from '$app/paths';
 	import Icon from '#lib/ui/icons/Icon.svelte';
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import Progress from '#lib/ui/components/Progress.svelte';
@@ -104,7 +105,7 @@
 			{/if}
 			{#if execution.parentExecutionId}
 				<a
-					href={`/executions/${encodeURIComponent(execution.parentExecutionId)}`}
+					href={resolve('/executions/[id]', { id: execution.parentExecutionId })}
 					class="font-mono underline-offset-2 hover:underline"
 					title="Child of {execution.parentExecutionId}"
 					onclick={(event) => event.stopPropagation()}
@@ -114,7 +115,7 @@
 			{/if}
 			{#if execution.rerunOf}
 				<a
-					href={`/executions/${encodeURIComponent(execution.rerunOf)}`}
+					href={resolve('/executions/[id]', { id: execution.rerunOf })}
 					class="font-mono underline-offset-2 hover:underline"
 					title="Rerun of {execution.rerunOf}"
 					onclick={(event) => event.stopPropagation()}

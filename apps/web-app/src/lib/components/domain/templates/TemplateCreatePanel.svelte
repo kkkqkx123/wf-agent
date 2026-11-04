@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import type { ResolvedPathname } from '$app/types';
 	import Select from '#lib/ui/components/Select.svelte';
 	import TemplateEditPanel from '#lib/components/domain/TemplateEditPanel.svelte';
 	import { templateFormFields } from '#lib/services/templates';
@@ -25,7 +26,7 @@
 			const next = value as TemplateKind;
 			if (next === controller.createKind) return;
 
-			void goto(resolve('/templates/[kind]/[id]', { kind: next, id: 'new' }) + '?tab=edit');
+			void goto((resolve('/templates/[kind]/[id]', { kind: next, id: 'new' }) + '?tab=edit') as ResolvedPathname);
 		}}
 	/>
 	<input

@@ -205,7 +205,7 @@
 						<a
 							href={event.url}
 							target="_blank"
-							rel="noreferrer"
+							rel="noreferrer external"
 							class="mt-1 block truncate font-mono text-small text-primary underline"
 						>
 							{event.url}
@@ -219,7 +219,7 @@
 						<a
 							href={event.verification_uri}
 							target="_blank"
-							rel="noreferrer"
+							rel="noreferrer external"
 							class="mt-1 block truncate font-mono text-small text-primary underline"
 						>
 							{event.verification_uri}
@@ -237,7 +237,7 @@
 									<a
 										href={link.url}
 										target="_blank"
-										rel="noreferrer"
+										rel="noreferrer external"
 										class="block truncate text-small text-primary underline"
 									>
 										{link.label ?? link.url}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { ResolvedPathname } from '$app/types';
 	import Icon from '#lib/ui/icons/Icon.svelte';
 	import { cn } from '#lib/ui/cn';
 	import { mentionClass, mentionIcon } from '#lib/utils/mention-style';
@@ -9,7 +10,7 @@
 		kind: string;
 		surface?: 'card' | 'primary' | 'muted';
 		size?: 'micro' | 'caption';
-		href?: string | null;
+		href?: ResolvedPathname | null;
 	}
 
 	let { text, kind, surface = 'card', size = 'micro', href = null }: Props = $props();

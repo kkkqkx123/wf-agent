@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import type { ResolvedPathname } from '$app/types';
 	import { page } from '$app/state';
 	import Icon from '#lib/ui/icons/Icon.svelte';
 	import Button from '#lib/ui/components/Button.svelte';
@@ -106,7 +107,7 @@
 	}
 
 	function startCreate(): void {
-		void goto(resolve('/templates/[kind]/[id]', { kind: 'node', id: 'new' }) + '?tab=edit');
+		void goto((resolve('/templates/[kind]/[id]', { kind: 'node', id: 'new' }) + '?tab=edit') as ResolvedPathname);
 	}
 
 	async function runClone(row: Template): Promise<void> {

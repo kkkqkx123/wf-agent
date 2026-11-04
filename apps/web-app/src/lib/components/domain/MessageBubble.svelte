@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { LoopMessage } from '#lib/types/models';
+	import type { ResolvedPathname } from '$app/types';
 	import Icon from '#lib/ui/icons/Icon.svelte';
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import type { IconName } from '#lib/ui/icons/paths';
@@ -58,7 +59,7 @@
 	);
 	const runs = $derived(textRuns(body.text));
 
-	function badgeHref(text: string, kind: string): string | null {
+	function badgeHref(text: string, kind: string): ResolvedPathname | null {
 		const target = resolveMentionFileTarget(text, kind);
 		if (!target) return null;
 		return buildIdeUrl(target.path, target.lineStart, null);

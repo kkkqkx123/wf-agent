@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import type { ResolvedPathname } from '$app/types';
 	import Button from '#lib/ui/components/Button.svelte';
 	import Card from '#lib/ui/components/Card.svelte';
 	import DataTable from '#lib/ui/components/DataTable.svelte';
@@ -126,9 +128,8 @@
 	// only deep-links there with the definition and version prefilled.
 	async function goToVersionRun(): Promise<void> {
 		if (!runTarget) return;
-		const target =
-			`/executions?definition=${encodeURIComponent(`workflow:${definitionId}`)}` +
-			`&version=${encodeURIComponent(runTarget)}`;
+		const target = (`${resolve('/executions')}?definition=${encodeURIComponent(`workflow:${definitionId}`)}` +
+			`&version=${encodeURIComponent(runTarget)}`) as ResolvedPathname;
 		await goto(target);
 	}
 </script>

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import PageState from '#lib/components/layout/PageState.svelte';
@@ -582,7 +583,7 @@
 						>
 							<IdeHistoryPanel
 								onViewFileDiff={(path) => void openDiffDialog(path)}
-								onOpenInGit={() => void goto('/git')}
+								onOpenInGit={() => void goto(resolve('/git'))}
 							/>
 						</aside>
 					{/if}
@@ -629,7 +630,7 @@
 					ide.setHistoryOpen(false);
 					void openDiffDialog(path);
 				}}
-				onOpenInGit={() => void goto('/git')}
+				onOpenInGit={() => void goto(resolve('/git'))}
 			/>
 		</div>
 	</div>
@@ -658,7 +659,7 @@
 		{/if}
 	</div>
 	<div class="flex justify-end gap-2 border-t border-border p-3">
-		<Button size="sm" variant="outline" onclick={() => void goto('/git')}>
+		<Button size="sm" variant="outline" onclick={() => void goto(resolve('/git'))}>
 			{t('page.ide.openInGit')}
 		</Button>
 		<Button size="sm" variant="ghost" onclick={() => (diffDialogPath = null)}>

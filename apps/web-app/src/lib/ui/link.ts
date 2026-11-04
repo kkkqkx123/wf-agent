@@ -8,7 +8,9 @@
  * route is used verbatim, which keeps components renderable in isolation.
  */
 
-export type HrefResolver = (route: string) => string;
+import type { ResolvedPathname } from '$app/types';
+
+export type HrefResolver = (route: string) => ResolvedPathname;
 
 let resolver: HrefResolver | null = null;
 
@@ -18,6 +20,6 @@ export function setHrefResolver(next: HrefResolver | null): void {
 }
 
 /** Resolve a route into a URL using the installed resolver, if any. */
-export function resolveHref(route: string): string {
-	return resolver ? resolver(route) : route;
+export function resolveHref(route: string): ResolvedPathname {
+	return resolver ? resolver(route) : (route as ResolvedPathname);
 }

@@ -14,7 +14,9 @@
 	import GitActionDialogs from '#lib/components/domain/git/GitActionDialogs.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { gotoWithParams, parseListParams } from '#lib/utils/route';
+	import { buildIdeUrl } from '#lib/utils/ide-url';
 	import {
 		GitWorkbench,
 		defaultViewModeForPanel,
@@ -254,8 +256,11 @@
 	});
 
 	function gotoOpenInIde(selection: string | null): void {
-		const target = selection ? `/ide?path=${encodeURIComponent(selection)}` : '/ide';
-		void goto(target);
+		if (!selection) {
+			void goto(resolve('/ide'));
+			return;
+		}
+		void goto(buildIdeUrl(selection));
 	}
 
 	$effect(() => {

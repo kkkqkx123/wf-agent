@@ -1,6 +1,7 @@
 import { SvelteSet } from 'svelte/reactivity';
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
+import type { ResolvedPathname } from '$app/types';
 import {
 	deleteDefinitionDraft,
 	saveDefinitionDraft,
@@ -523,7 +524,7 @@ export class TemplateEditController {
 	}
 
 	async backToLibrary(): Promise<void> {
-		await goto('/templates');
+		await goto(resolve('/templates'));
 	}
 
 	async runDelete(): Promise<void> {
@@ -600,10 +601,10 @@ export class TemplateEditController {
 				: 'Open a workflow definition and enter graph mode to place it.',
 		);
 		if (target) {
-			void goto(resolve('/templates/[kind]/[id]', { kind: 'workflow', id: target }) + '?tab=graph');
+			void goto((resolve('/templates/[kind]/[id]', { kind: 'workflow', id: target }) + '?tab=graph') as ResolvedPathname);
 			return;
 		}
-		void goto('/templates?tab=workflow');
+		void goto((resolve('/templates') + '?tab=workflow') as ResolvedPathname);
 	}
 
 	/**
@@ -637,9 +638,8 @@ export class TemplateEditController {
 		const target = this.pendingNavUrl;
 		this.pendingNavUrl = null;
 		if (target) {
-			// The target replays an intercepted navigation URL, which resolve() cannot rebuild.
-
-			void goto(target);
+			// The target replays an intercepted navigation URL, which already carries the base.
+			void goto(target as ResolvedPathname);
 		}
 	}
 }

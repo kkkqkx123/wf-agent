@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { SvelteRenderableNode, SvelteRenderContext } from 'markstream-svelte';
+	import type { ResolvedPathname } from '$app/types';
 	import { resolveStreamingTextState } from 'markstream-core';
 	import { resolveMentionFileTarget, textRuns } from '#lib/utils/mentions';
 	import { buildIdeUrl } from '#lib/utils/ide-url';
@@ -9,7 +10,6 @@
 		node: SvelteRenderableNode;
 		context?: SvelteRenderContext;
 		indexKey?: string | number;
-		typewriter?: boolean;
 	}
 
 	let { node, context = undefined, indexKey = undefined }: Props = $props();
@@ -59,7 +59,7 @@
 		return textRuns(text);
 	}
 
-	function stableHref(text: string, kind: string): string | null {
+	function stableHref(text: string, kind: string): ResolvedPathname | null {
 		const target = resolveMentionFileTarget(text, kind);
 		if (!target) return null;
 		return buildIdeUrl(target.path, target.lineStart, null);

@@ -22,6 +22,8 @@ export default defineConfig(
 			parserOptions: {
 				parser: ts.parser,
 				extraFileExtensions: ['.svelte'],
+				projectService: true,
+				tsconfigRootDir: import.meta.dirname,
 			},
 		},
 		rules: {
@@ -29,6 +31,15 @@ export default defineConfig(
 			// itself; the base no-undef rule cannot see type-only globals such
 			// as DOM lib types and reports them as undefined.
 			'no-undef': 'off',
+		},
+	},
+	{
+		files: ['**/*.ts', '**/*.js'],
+		languageOptions: {
+			parserOptions: {
+				projectService: true,
+				tsconfigRootDir: import.meta.dirname,
+			},
 		},
 	},
 	{

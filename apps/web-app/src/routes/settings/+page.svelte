@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { beforeNavigate, goto } from '$app/navigation';
+	import type { ResolvedPathname } from '$app/types';
 	import { page } from '$app/state';
 	import Icon from '#lib/ui/icons/Icon.svelte';
 	import Button from '#lib/ui/components/Button.svelte';
@@ -176,9 +177,8 @@
 	function proceedPending(): void {
 		const target = pendingNavUrl;
 		pendingNavUrl = null;
-		// The target replays an intercepted navigation URL, which resolve() cannot rebuild.
-
-		if (target) void goto(target);
+		// The target replays an intercepted navigation URL, which already carries the base.
+		if (target) void goto(target as ResolvedPathname);
 	}
 
 	async function saveAndProceed(): Promise<void> {

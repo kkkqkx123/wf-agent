@@ -61,6 +61,8 @@
 	} from '#lib/config/execution-tabs';
 	import type { StreamState } from '#lib/api/sse';
 	import type { EventRecord } from '#lib/types/models';
+	import { resolve } from '$app/paths';
+	import type { ResolvedPathname } from '$app/types';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { t } from '#lib/i18n';
@@ -852,7 +854,10 @@
 				{#if kind === 'workflow' && execution.workflowId}
 					<span class="mx-1 h-4 w-px bg-border"></span>
 					<a
-						href={`/templates/workflow/${encodeURIComponent(execution.workflowId.replace(/^workflow:/, ''))}?tab=graph`}
+						href={(resolve('/templates/[kind]/[id]', {
+							kind: 'workflow',
+							id: execution.workflowId.replace(/^workflow:/, ''),
+						}) + '?tab=graph') as ResolvedPathname}
 						class="text-micro text-foreground underline-offset-2 hover:underline"
 					>
 						View definition in the template library

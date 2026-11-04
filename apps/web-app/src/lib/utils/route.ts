@@ -73,7 +73,7 @@ export async function gotoWithParams(url: URL, patch: ListParams): Promise<void>
 	if (next === url.searchParams.toString()) return;
 	// The pathname already comes from the live URL, so the base is baked in and
 	// resolve() (route literals only) cannot re-derive it.
-	const target = `${url.pathname}${next ? `?${next}` : ''}${url.hash}`;
+	const target = `${url.pathname}${next ? `?${next}` : ''}${url.hash}` as ResolvedPathname;
 
 	await goto(target, {
 		reset: false,

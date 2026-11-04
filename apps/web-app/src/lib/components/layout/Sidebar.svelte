@@ -4,7 +4,7 @@
 	import Icon from '#lib/ui/icons/Icon.svelte';
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import Tooltip from '#lib/ui/components/Tooltip.svelte';
-	import { NAV_GROUPS, navItemFor } from '#lib/config/navigation';
+	import { NAV_FOOTER, NAV_GROUPS, navItemFor } from '#lib/config/navigation';
 	import { resolveAppPath } from '#lib/utils/route';
 	import { preferences } from '#lib/stores/preferences.svelte';
 	import { ui } from '#lib/stores/ui.svelte';
@@ -90,6 +90,26 @@
 					{/each}
 				</div>
 			{/each}
+			{#each NAV_FOOTER as item (item.href)}
+				<div class="mb-1 w-full px-1.5">
+					<div class="mb-1 h-px bg-sidebar-border"></div>
+					<Tooltip text={item.label()} class="w-full">
+						<a
+							href={resolveAppPath(item.href)}
+							onclick={navigate}
+							aria-current={isActive(item.href) ? 'page' : undefined}
+							class={cn(
+								'flex h-8 w-full items-center justify-center rounded-md transition-colors',
+								isActive(item.href)
+									? 'bg-sidebar-accent text-foreground'
+									: 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-foreground',
+							)}
+						>
+							<Icon name={item.icon} size={17} />
+						</a>
+					</Tooltip>
+				</div>
+			{/each}
 		</nav>
 
 		<div
@@ -114,6 +134,23 @@
 						<span class="truncate">{item.label()}</span>
 					</a>
 				{/each}
+			{/each}
+			{#each NAV_FOOTER as item (item.href)}
+				<div class="mt-1 border-t border-border pt-1">
+					<a
+						href={resolveAppPath(item.href)}
+						onclick={navigate}
+						class={cn(
+							'flex items-center gap-2 rounded-md px-2 py-1.5 text-body transition-colors',
+							isActive(item.href)
+								? 'bg-accent text-accent-foreground'
+								: 'text-foreground hover:bg-accent',
+						)}
+					>
+						<Icon name={item.icon} size={15} />
+						<span class="truncate">{item.label()}</span>
+					</a>
+				</div>
 			{/each}
 		</div>
 	</aside>
@@ -183,6 +220,24 @@
 							</a>
 						{/each}
 					</div>
+				</div>
+			{/each}
+			{#each NAV_FOOTER as item (item.href)}
+				<div class="border-t border-sidebar-border pt-2">
+					<a
+						href={resolveAppPath(item.href)}
+						onclick={navigate}
+						aria-current={isActive(item.href) ? 'page' : undefined}
+						class={cn(
+							'flex items-center gap-2 rounded-md px-2 py-1.5 text-body transition-colors',
+							isActive(item.href)
+								? 'bg-sidebar-accent font-medium text-foreground'
+									: 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-foreground',
+						)}
+					>
+						<Icon name={item.icon} size={15} class="shrink-0" />
+						<span class="truncate">{item.label()}</span>
+					</a>
 				</div>
 			{/each}
 		</nav>

@@ -19,9 +19,27 @@ export interface NavGroup {
 
 export const NAV_GROUPS: NavGroup[] = [
 	{
-		id: 'overview',
-		label: message('config.navigation.overview'),
+		id: 'run',
+		label: message('config.navigation.run'),
 		items: [
+			{
+				href: '/chat',
+				label: message('config.navigation.chat'),
+				icon: 'sparkles',
+				description: message('config.navigation.chatDescription'),
+			},
+			{
+				href: '/executions',
+				label: message('config.navigation.executions'),
+				icon: 'activity',
+				description: message('config.navigation.executionsDescription'),
+			},
+			{
+				href: '/triggers',
+				label: message('config.navigation.triggers'),
+				icon: 'zap',
+				description: message('config.navigation.triggersDescription'),
+			},
 			{
 				href: '/dashboard',
 				label: message('config.navigation.dashboard'),
@@ -31,32 +49,8 @@ export const NAV_GROUPS: NavGroup[] = [
 		],
 	},
 	{
-		id: 'conversation',
-		label: message('config.navigation.conversation'),
-		items: [
-			{
-				href: '/chat',
-				label: message('config.navigation.chat'),
-				icon: 'sparkles',
-				description: message('config.navigation.chatDescription'),
-			},
-		],
-	},
-	{
-		id: 'execution',
-		label: message('config.navigation.execution'),
-		items: [
-			{
-				href: '/executions',
-				label: message('config.navigation.workbench'),
-				icon: 'activity',
-				description: message('config.navigation.workbenchDescription'),
-			},
-		],
-	},
-	{
-		id: 'orchestration',
-		label: message('config.navigation.orchestration'),
+		id: 'build',
+		label: message('config.navigation.build'),
 		items: [
 			{
 				href: '/templates',
@@ -64,47 +58,11 @@ export const NAV_GROUPS: NavGroup[] = [
 				icon: 'template',
 				description: message('config.navigation.templatesDescription'),
 			},
-		],
-	},
-	{
-		id: 'state',
-		label: message('config.navigation.state'),
-		items: [
-			{
-				href: '/checkpoints',
-				label: message('config.navigation.checkpoints'),
-				icon: 'archive',
-				description: message('config.navigation.checkpointsDescription'),
-			},
-			{
-				href: '/git',
-				label: message('config.navigation.git'),
-				icon: 'git-commit',
-				description: message('config.navigation.gitDescription'),
-			},
-			{
-				href: '/ide',
-				label: message('config.navigation.ide'),
-				icon: 'code',
-				description: message('config.navigation.ideDescription'),
-			},
-		],
-	},
-	{
-		id: 'integration',
-		label: message('config.navigation.integration'),
-		items: [
-			{
-				href: '/triggers',
-				label: message('config.navigation.triggers'),
-				icon: 'zap',
-				description: message('config.navigation.triggersDescription'),
-			},
 			{
 				href: '/resources',
-				label: message('config.navigation.modelsTools'),
+				label: message('config.navigation.resources'),
 				icon: 'cpu',
-				description: message('config.navigation.modelsToolsDescription'),
+				description: message('config.navigation.resourcesDescription'),
 				segments: [
 					{
 						id: 'models',
@@ -131,14 +89,44 @@ export const NAV_GROUPS: NavGroup[] = [
 		],
 	},
 	{
-		id: 'insight',
-		label: message('config.navigation.insight'),
+		id: 'develop',
+		label: message('config.navigation.develop'),
 		items: [
 			{
+				href: '/ide',
+				label: message('config.navigation.ide'),
+				icon: 'code',
+				description: message('config.navigation.ideDescription'),
+			},
+			{
+				href: '/git',
+				label: message('config.navigation.git'),
+				icon: 'git-commit',
+				description: message('config.navigation.gitDescription'),
+			},
+			{
+				href: '/terminal',
+				label: message('config.navigation.terminal'),
+				icon: 'terminal',
+				description: message('config.navigation.terminalDescription'),
+			},
+		],
+	},
+	{
+		id: 'observe',
+		label: message('config.navigation.observe'),
+		items: [
+			{
+				href: '/checkpoints',
+				label: message('config.navigation.checkpoints'),
+				icon: 'archive',
+				description: message('config.navigation.checkpointsDescription'),
+			},
+			{
 				href: '/insights',
-				label: message('config.navigation.queryAudit'),
+				label: message('config.navigation.insights'),
 				icon: 'chart',
-				description: message('config.navigation.queryAuditDescription'),
+				description: message('config.navigation.insightsDescription'),
 				segments: [
 					{
 						id: 'query',
@@ -164,9 +152,9 @@ export const NAV_GROUPS: NavGroup[] = [
 			},
 			{
 				href: '/events',
-				label: message('config.navigation.eventsSystem'),
+				label: message('config.navigation.events'),
 				icon: 'radio',
-				description: message('config.navigation.eventsSystemDescription'),
+				description: message('config.navigation.eventsDescription'),
 				segments: [
 					{
 						id: 'stream',
@@ -187,27 +175,22 @@ export const NAV_GROUPS: NavGroup[] = [
 			},
 		],
 	},
+];
+
+/** App-level entries rendered in the sidebar footer, outside any group. */
+export const NAV_FOOTER: NavItem[] = [
 	{
-		id: 'workspace',
-		label: message('config.navigation.workspace'),
-		items: [
-			{
-				href: '/terminal',
-				label: message('config.navigation.terminal'),
-				icon: 'terminal',
-				description: message('config.navigation.terminalDescription'),
-			},
-			{
-				href: '/settings',
-				label: message('config.navigation.settings'),
-				icon: 'sliders',
-				description: message('config.navigation.settingsDescription'),
-			},
-		],
+		href: '/settings',
+		label: message('config.navigation.settings'),
+		icon: 'sliders',
+		description: message('config.navigation.settingsDescription'),
 	},
 ];
 
-export const NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((group) => group.items);
+export const NAV_ITEMS: NavItem[] = [
+	...NAV_GROUPS.flatMap((group) => group.items),
+	...NAV_FOOTER,
+];
 
 export function findNavItem(href: string): NavItem | undefined {
 	return NAV_ITEMS.find((item) => href === item.href || href.startsWith(`${item.href}/`));

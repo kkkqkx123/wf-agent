@@ -2,7 +2,7 @@
 	import { page } from '$app/state';
 	import Icon from '#lib/ui/icons/Icon.svelte';
 	import Tooltip from '#lib/ui/components/Tooltip.svelte';
-	import { NAV_GROUPS, navItemFor } from '#lib/config/navigation';
+	import { NAV_FOOTER, NAV_GROUPS, navItemFor } from '#lib/config/navigation';
 	import { resolveAppPath } from '#lib/utils/route';
 	import { cn } from '#lib/ui/cn';
 
@@ -85,6 +85,41 @@
 						</a>
 					{/each}
 				</div>
+			</div>
+		{/if}
+	{/each}
+	{#each NAV_FOOTER as item (item.href)}
+		{#if variant === 'icons'}
+			<div class="w-full px-1.5">
+				<div class="mb-1 h-px bg-sidebar-border"></div>
+				<Tooltip text={item.label()} class="w-full">
+					<a
+						href={resolveAppPath(item.href)}
+						onclick={onnavigate}
+						aria-current={isActive(item.href) ? 'page' : undefined}
+						class={cn(
+							ITEM_BASE,
+							ICON_ITEM,
+							isActive(item.href)
+								? TONE.sidebar.active
+									: 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-foreground',
+						)}
+					>
+						<Icon name={item.icon} size={17} />
+					</a>
+				</Tooltip>
+			</div>
+		{:else}
+			<div class="border-t border-sidebar-border pt-2">
+				<a
+					href={resolveAppPath(item.href)}
+					onclick={onnavigate}
+					aria-current={isActive(item.href) ? 'page' : undefined}
+					class={cn(ITEM_BASE, LABEL_ITEM, isActive(item.href) ? TONE[tone].active : TONE[tone].idle)}
+				>
+					<Icon name={item.icon} size={15} class="shrink-0" />
+					<span class="truncate">{item.label()}</span>
+				</a>
 			</div>
 		{/if}
 	{/each}

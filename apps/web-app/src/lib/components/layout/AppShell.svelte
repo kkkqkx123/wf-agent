@@ -5,7 +5,7 @@
 	import TopBar from './TopBar.svelte';
 	import HelpModal from './HelpModal.svelte';
 	import Sheet from '#lib/ui/components/Sheet.svelte';
-	import { NAV_GROUPS, navItemFor } from '#lib/config/navigation';
+	import { NAV_FOOTER, NAV_GROUPS, navItemFor } from '#lib/config/navigation';
 	import { resolveAppPath } from '#lib/utils/route';
 	import { page } from '$app/state';
 	import Icon from '#lib/ui/icons/Icon.svelte';
@@ -186,6 +186,24 @@
 						</a>
 					{/each}
 				</div>
+			</div>
+		{/each}
+		{#each NAV_FOOTER as item (item.href)}
+			<div class="border-t border-border pt-2">
+				<a
+					href={resolveAppPath(item.href)}
+					onclick={() => ui.closeMobileNav()}
+					aria-current={isActive(item.href) ? 'page' : undefined}
+					class={cn(
+						'flex items-center gap-2 rounded-md px-2 py-1.5 text-body transition-colors',
+						isActive(item.href)
+							? 'bg-accent font-medium text-accent-foreground'
+							: 'text-foreground hover:bg-accent',
+					)}
+				>
+					<Icon name={item.icon} size={15} />
+					<span class="truncate">{item.label()}</span>
+				</a>
 			</div>
 		{/each}
 	</nav>

@@ -136,16 +136,16 @@ export function flattenTree(base: string, limit: number): { entries: Array<{ pat
 	return { entries: flat, truncated };
 }
 
-export function statPath(path: string): { path: string; is_dir: boolean; size: number; modified_ms: number; is_binary: boolean | null } {
+export function statPath(path: string): { path: string; is_dir: boolean; size: number; modified_ms: number; is_binary: boolean | null; hash: string | null } {
 	const key = path.replace(/\/+$/, '');
 	if (key === '' || DIRS.has(key)) {
-		return { path: key, is_dir: true, size: 0, modified_ms: FIXED_MTIME, is_binary: null };
+		return { path: key, is_dir: true, size: 0, modified_ms: FIXED_MTIME, is_binary: null, hash: null };
 	}
 	const content = FILES.get(key);
 	if (content !== undefined) {
-		return { path: key, is_dir: false, size: content.length, modified_ms: FIXED_MTIME, is_binary: false };
+		return { path: key, is_dir: false, size: content.length, modified_ms: FIXED_MTIME, is_binary: false, hash: hashFor(key) };
 	}
-	return { path: key, is_dir: false, size: 128, modified_ms: FIXED_MTIME, is_binary: false };
+	return { path: key, is_dir: false, size: 128, modified_ms: FIXED_MTIME, is_binary: false, hash: null };
 }
 
 export function readFile(path: string): string {

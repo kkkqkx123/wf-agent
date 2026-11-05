@@ -109,8 +109,12 @@ export function registerFs(router: MockRouter): void {
 		};
 	});
 	router.on('POST', '/api/v1/fs/upload', (_p, _q, body) => {
-		const b = (body ?? {}) as { path?: string; content_base64?: string };
+		const b = (body ?? {}) as { path?: string; content_base64?: string; overwrite?: boolean };
 		const path = String(b.path ?? 'preview-upload.txt');
+		const overwrite = b.overwrite === true;
+		if (!overwrite && allFiles().has(path)) {
+			return mockError(409, 'ALREADY_EXISTS', `${path} already exists in preview workspace`);
+		}
 		let content = '';
 		if (b.content_base64 && typeof atob === 'function') {
 			content = atob(b.content_base64);

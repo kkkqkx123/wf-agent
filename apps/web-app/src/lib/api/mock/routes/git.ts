@@ -31,9 +31,24 @@ export function registerGit(router: MockRouter): void {
 		cherry_pick_head: false,
 	}));
 	router.on('GET', '/api/v1/git/files', () => [...gitFiles, ...changedFiles()]);
-	router.on('GET', '/api/v1/git/diff', () => [...gitDiff, ...changedDiffs()]);
-	router.on('GET', '/api/v1/git/diff/staged', () => gitStagedDiff);
-	router.on('GET', '/api/v1/git/diff/range', () => [...gitDiff, ...changedDiffs()]);
+	router.on('GET', '/api/v1/git/diff', (_p, query) => {
+		const path = typeof query.path === 'string' ? query.path.trim() : '';
+		const all = [...gitDiff, ...changedDiffs()];
+		if (!path) return all;
+		const hit = all.filter((row) => row.path === path);
+		return hit.length > 0 ? hit : all.slice(0, 1);
+	});
+	router.on('GET', '/api/v1/git/diff/staged', (_p, query) => {
+		const path = typeof query.path === 'string' ? query.path.trim() : '';
+		if (!path) return gitStagedDiff;
+		return gitStagedDiff.filter((row) => row.path === path);
+	});
+	router.on('GET', '/api/v1/git/diff/range', (_p, query) => {
+		const path = typeof query.path === 'string' ? query.path.trim() : '';
+		const all = [...gitDiff, ...changedDiffs()];
+		if (!path) return all;
+		return all.filter((row) => row.path === path);
+	});
 	router.on('GET', '/api/v1/git/commits', () => gitCommits);
 	router.on('GET', '/api/v1/git/commits/files', () => [
 		{ path: gitFiles[0]?.path ?? 'preview.txt', status: 'M', renamed_from: null },

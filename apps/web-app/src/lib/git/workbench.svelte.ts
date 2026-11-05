@@ -181,6 +181,8 @@ export class GitWorkbench {
 	worktrees = $state<WorktreeEntry[]>([]);
 	submodules = $state<SubmoduleEntry[]>([]);
 	loading = $state(false);
+	/** Background refetch in flight; content and focus stay put, unlike `loading`. */
+	refreshing = $state(false);
 	loadError = $state<string | null>(null);
 	noRepo = $state(false);
 	liveDirty = $state(false);
@@ -447,9 +449,36 @@ export class GitWorkbench {
 		document.getElementById('git-input')?.focus();
 	}
 
+	/**
+	 * Return keyboard focus to the board after an action: the acted row when
+	 * it still exists, otherwise the panel's first row. Background reloads no
+	 * longer swap the tree, but the acted row itself may be gone (discard,
+	 * commit, stash pop), which drops focus to the body and breaks key chains.
+	 */
+	focusBoardRowOrFirst(panel: PanelId, id?: string): void {
+		const scoped = id
+			? document.querySelector<HTMLButtonElement>(
+					`#git-board [data-board-panel="${panel}"][data-board-id="${CSS.escape(id)}"]`,
+				)
+			: null;
+		(
+			scoped ??
+			document.querySelector<HTMLButtonElement>(`#git-board [data-board-panel="${panel}"]`)
+		)?.focus();
+	}
+
 	async reload(): Promise<void> {
-		this.loading = true;
-		this.loadError = null;
+		// Background refreshes keep the rendered content (and keyboard focus)
+		// in place; only the very first load swaps in the skeleton. The refetch
+		// itself stays full: write outcomes fan out across panels and the action
+		// endpoint returns no per-row deltas to reconcile against.
+		const background = this.meta !== null;
+		if (background) {
+			this.refreshing = true;
+		} else {
+			this.loading = true;
+			this.loadError = null;
+		}
 		try {
 			this.meta = await getMeta().catch(() => null);
 			if (!this.meta) {
@@ -517,9 +546,15 @@ export class GitWorkbench {
 				}
 			}
 		} catch (e) {
-			this.loadError = e instanceof Error ? e.message : 'Git request failed';
+			const message = e instanceof Error ? e.message : 'Git request failed';
+			if (background) {
+				toasts.error('Git refresh failed', message);
+			} else {
+				this.loadError = message;
+			}
 		} finally {
 			this.loading = false;
+			this.refreshing = false;
 			if (this.liveDirty) {
 				this.liveDirty = false;
 				void this.reload();
@@ -998,8 +1033,18 @@ export class GitWorkbench {
 			const outcome = await runAction(action, params, confirm);
 			this.reportOutcome(action, spec, outcome.message || action, outcome.echo, params);
 			if (reload) {
+				const panel = this.panel;
+				const actedId =
+					params.path ?? params.branch ?? params.commit ?? this.selectedIdFor(panel) ?? undefined;
+				// Only take focus back when the action stole it: keyboard flow from
+				// the board, or a destroyed control (dialog confirm, removed row).
+				// A surviving main-view button keeps its own focus for repeat clicks.
+				const active = document.activeElement as HTMLElement | null;
+				const takeFocusBack =
+					active == null || active === document.body || active.closest?.('#git-board') != null;
 				this.clearSelection(params.path);
 				await this.reload();
+				if (takeFocusBack) this.focusBoardRowOrFirst(panel, actedId);
 			}
 		} catch (e) {
 			const message = e instanceof Error ? e.message : 'Git action failed';

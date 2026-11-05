@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Button from '#lib/ui/components/Button.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
 	import { t } from '#lib/i18n';
 	import type { GitWorkbench } from '#lib/git/workbench.svelte';
 
@@ -20,6 +21,15 @@
 		<span class="max-w-64 truncate text-muted-foreground">{workbench.selection}</span>
 	{/if}
 	<span class="text-muted-foreground">{workbench.controls.length} actions</span>
+	{#if workbench.refreshing}
+		<span
+			class="flex items-center gap-1 text-muted-foreground"
+			role="status"
+			title={t('common.refresh')}
+		>
+			<Icon name="loader" size={12} class="animate-spin" />
+		</span>
+	{/if}
 	<span class="ml-auto flex items-center gap-1">
 		<Button
 			size="sm"

@@ -23,6 +23,9 @@
 import { makeRouter, missingRoute, okEnvelope, queryOf } from './mock/router';
 import { registerAllRoutes } from './mock/registry';
 import './mock/event-stream';
+import { installMockPtySocket } from './mock/pty-socket';
+
+installMockPtySocket();
 
 // ---------------------------------------------------------------------------
 // openapi-fetch type — preview never runs typecheck against the schema
@@ -41,6 +44,18 @@ export const API_BASE_URL = '/mock';
 
 const router = makeRouter();
 registerAllRoutes(router);
+
+function dispatchEnvelope(
+	method: string,
+	path: string,
+	query: Record<string, unknown>,
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	body: any,
+): { data?: unknown; error?: unknown; status: number } {
+	const data = router.dispatch(method, path, query, body);
+	if (data === undefined) return missingRoute(method, path);
+	return okEnvelope(data);
+}
 
 // ---------------------------------------------------------------------------
 // Public client object — mirrors openapi-fetch surface used by services
@@ -110,13 +125,11 @@ export async function request(
 	path: string,
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	opts?: any,
-): Promise<{ data?: unknown; error?: unknown }> {
+): Promise<{ data?: unknown; error?: unknown; status: number }> {
 	await delay(30);
 	const query = queryOf(opts?.params);
 	const body = opts?.body;
-	const data = router.dispatch(method, path, query, body);
-	if (data === undefined) return missingRoute(method, path);
-	return okEnvelope(data);
+	return dispatchEnvelope(method, path, query, body);
 }
 
 export async function downloadFile(

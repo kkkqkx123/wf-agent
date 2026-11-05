@@ -33,7 +33,6 @@
 				cwd={root === 'ide' ? undefined : root}
 				fill
 				open
-				quickCommands={[{ label: 'lazygit', command: 'lazygit' }]}
 			/>
 			</div>
 		</PageState>

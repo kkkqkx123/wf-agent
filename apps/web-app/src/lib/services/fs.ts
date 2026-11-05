@@ -1,4 +1,4 @@
-import { client, API_BASE_URL, resolveApiKey } from '#lib/api/client';
+import { client, request } from '#lib/api/client';
 import { call, requireData } from '#lib/api/envelope';
 import type { components } from '#lib/api/schema';
 
@@ -104,25 +104,18 @@ interface FsEnvelope<T> {
 }
 
 async function fsEnvelope<T>(path: string, init: RequestInit): Promise<T> {
-	const key = resolveApiKey();
-	const response = await fetch(`${API_BASE_URL}${path}`, {
-		...init,
-		headers: {
-			'Content-Type': 'application/json',
-			...(key ? { 'x-api-key': key } : {}),
-			...(init.headers ?? {}),
-		},
-	});
-	let body: FsEnvelope<T>;
-	try {
-		body = (await response.json()) as FsEnvelope<T>;
-	} catch {
-		throw new Error(`FS request failed (HTTP ${response.status})`);
+	const method = (init.method ?? 'GET') as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+	const body = init.body === undefined ? undefined : JSON.parse(String(init.body));
+	const res = await request(method, path, { body });
+	if (res.error) {
+		const body = res.error as FsEnvelope<unknown> | null;
+		throw new Error(body?.error?.message ?? `FS request failed (HTTP ${res.status})`);
 	}
-	if (!response.ok || !body.success) {
-		throw new Error(body.error?.message ?? `FS request failed (HTTP ${response.status})`);
+	const envelope = res.data as FsEnvelope<T> | null;
+	if (!envelope?.success) {
+		throw new Error(envelope?.error?.message ?? `FS request failed (HTTP ${res.status})`);
 	}
-	return requireData(body.data, 'FS response');
+	return requireData(envelope.data, 'FS response');
 }
 
 export async function copyFsEntry(from: string, to: string): Promise<FsEntry> {

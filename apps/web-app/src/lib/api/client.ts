@@ -31,6 +31,38 @@ export const client = createClient<paths>({
 });
 
 /**
+ * Fetch a full-path endpoint and return the parsed JSON envelope together
+ * with the HTTP status. Endpoints that bypass the typed client (raw file
+ * download, upload, copy) share this helper in both the real and the
+ * fixture-backed client so the services layer needs no mode branching.
+ */
+export async function request(
+	method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+	path: string,
+	init?: { body?: unknown },
+): Promise<{ data?: unknown; error?: unknown; status: number }> {
+	const key = resolveApiKey();
+	const response = await fetch(`${API_BASE_URL}${path}`, {
+		method,
+		headers: {
+			...(init?.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+			...(key ? { 'x-api-key': key } : {}),
+		},
+		body: init?.body === undefined ? undefined : JSON.stringify(init.body),
+	});
+	let body: unknown = null;
+	try {
+		body = await response.json();
+	} catch {
+		body = null;
+	}
+	if (!response.ok) {
+		return { error: body, status: response.status };
+	}
+	return { data: body, status: response.status };
+}
+
+/**
  * Fetch a full-path endpoint and hand the response to the browser as a file
  * download. Export routes answer with an attachment instead of the JSON
  * envelope, so they bypass the typed client.

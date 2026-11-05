@@ -91,6 +91,22 @@ export function registerFs(router: MockRouter): void {
 			is_binary: false,
 		};
 	});
+	router.on('GET', '/api/v1/fs/search', (_p, query) => {
+		const q = String(query.query ?? '').trim().toLowerCase();
+		const matches: Array<{ path: string; line: number; column: number | null; preview: string }> = [];
+		if (q) {
+			for (const [path, content] of Object.entries(FILES)) {
+				const lines = content.split('\n');
+				for (let i = 0; i < lines.length; i += 1) {
+					const col = lines[i]?.toLowerCase().indexOf(q) ?? -1;
+					if (col >= 0) {
+						matches.push({ path, line: i + 1, column: col + 1, preview: lines[i] ?? '' });
+					}
+				}
+			}
+		}
+		return { matches, truncated: false };
+	});
 	router.on('GET', '/api/v1/fs/content', (_p, query) => {
 		const path = String(query.path ?? 'README.md');
 		const content = FILES[path] ?? `# Preview file: ${path}\n\nMock content for the IDE preview.\n`;
@@ -128,6 +144,39 @@ export function registerFs(router: MockRouter): void {
 	router.on('PATCH', '/api/v1/fs/entries/move', (_p, _q, body) => {
 		const b = (body ?? {}) as { to?: string };
 		const path = String(b.to ?? 'preview.txt');
+		const name = path.split('/').pop() ?? path;
+		return { name, path, is_dir: false, size: 0, modified_ms: 1_700_000_000_000 };
+	});
+	router.on('POST', '/api/v1/fs/entries/copy', (_p, _q, body) => {
+		const b = (body ?? {}) as { from?: string; to?: string };
+		const path = String(b.to ?? 'preview-copy.txt');
+		const name = path.split('/').pop() ?? path;
+		return { name, path, is_dir: false, size: 0, modified_ms: 1_700_000_000_000 };
+	});
+	router.on('GET', '/api/v1/fs/raw', (_p, query) => {
+		const path = String(query.path ?? '');
+		const content = FILES[path] ?? `# Preview file: ${path}\n`;
+		const encoded =
+			typeof btoa === 'function'
+				? btoa(String.fromCharCode(...new TextEncoder().encode(content)))
+				: Buffer.from(content, 'utf8').toString('base64');
+		const filename = path.split('/').pop() ?? path;
+		const mime = path.endsWith('.json')
+			? 'application/json'
+			: path.endsWith('.md')
+				? 'text/markdown'
+				: 'text/plain';
+		return {
+			path,
+			filename,
+			mime,
+			size: content.length,
+			content_base64: encoded,
+		};
+	});
+	router.on('POST', '/api/v1/fs/upload', (_p, _q, body) => {
+		const b = (body ?? {}) as { path?: string; content_base64?: string; overwrite?: boolean };
+		const path = String(b.path ?? 'preview-upload.txt');
 		const name = path.split('/').pop() ?? path;
 		return { name, path, is_dir: false, size: 0, modified_ms: 1_700_000_000_000 };
 	});

@@ -68,7 +68,7 @@ export function queryOf(params?: Record<string, unknown>): Record<string, unknow
 /** Wrap a handler result the way the real backend envelope does, so the
  *  shared `envelope.ts` unwraps an identical shape in both projects. */
 export function okEnvelope(data: unknown) {
-	return { data: { success: true, data, error: null } };
+	return { data: { success: true, data, error: null }, status: 200 };
 }
 
 /** Unrouted path: surface a 404 the services layer turns into an
@@ -86,6 +86,7 @@ export function missingRoute(method: string, path: string): any {
 			},
 		},
 		response: { status: 404 },
+		status: 404,
 	};
 }
 

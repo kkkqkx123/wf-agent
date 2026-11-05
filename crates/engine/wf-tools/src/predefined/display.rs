@@ -44,18 +44,121 @@ fn truncate_graphemes(text: &str, max: usize) -> String {
 /// Build the display payload for one tool result. The full text stays in
 /// the sibling result field; the preview is a small excerpt shaped by the
 /// tool kind: command tails, diff markers, count summaries, or head lines.
-pub fn display_for(tool_name: Option<&str>, result: &str) -> DisplayPayload {
+/// `args` carries the raw JSON argument string when the caller has it; the
+/// call summary is derived here so frontends never match tool names.
+pub fn display_for(tool_name: Option<&str>, args: Option<&str>, result: &str) -> DisplayPayload {
     let name = tool_name.unwrap_or_default();
+    let call_summary = call_summary_for(name, args);
     if is_shell_tool(name) {
-        return shell_display(result);
+        let mut payload = shell_display(result);
+        payload.call_summary = call_summary;
+        return payload;
     }
     if is_file_edit_tool(name) {
-        return diff_display(result);
+        let mut payload = diff_display(result);
+        payload.call_summary = call_summary;
+        return payload;
     }
     if is_exploration_tool(name) {
-        return count_display(result);
+        let mut payload = count_display(result);
+        payload.call_summary = call_summary;
+        return payload;
     }
-    text_display(result)
+    let mut payload = text_display(result);
+    payload.call_summary = call_summary;
+    payload
+}
+
+/// Call summary naming one tool invocation. Pure over the argument JSON:
+/// shell tools use the command first line, edit tools use the path,
+/// exploration tools use pattern plus path, others use the first readable
+/// argument. Overlong values truncate to a single short line.
+pub fn call_summary_for(tool_name: &str, args: Option<&str>) -> String {
+    let args_text = args.unwrap_or_default().trim();
+    if args_text.is_empty() {
+        return String::new();
+    }
+    let value: serde_json::Value = match serde_json::from_str(args_text) {
+        Ok(value) => value,
+        Err(_) => return truncate_graphemes(&first_line(args_text), 80),
+    };
+    let arg = |key: &str| {
+        value
+            .get(key)
+            .and_then(|item| item.as_str())
+            .unwrap_or_default()
+            .trim()
+    };
+    if is_shell_tool(tool_name) {
+        return truncate_graphemes(&first_line(arg("command")), 80);
+    }
+    if is_file_edit_tool(tool_name) {
+        let path = arg("file_path");
+        let path = if path.is_empty() { arg("path") } else { path };
+        return truncate_graphemes(&short_path(path), 80);
+    }
+    if is_exploration_tool(tool_name) {
+        let pattern = first_line(arg("pattern"));
+        let path = short_path(arg("path"));
+        let query = if pattern.is_empty() {
+            first_line(arg("query"))
+        } else {
+            pattern
+        };
+        if !query.is_empty() && !path.is_empty() {
+            return truncate_graphemes(&format!("{query} in {path}"), 80);
+        }
+        if !query.is_empty() {
+            return truncate_graphemes(&query, 80);
+        }
+        let fallback = short_path(arg("file_path"));
+        if !path.is_empty() {
+            return truncate_graphemes(&path, 80);
+        }
+        return truncate_graphemes(&fallback, 80);
+    }
+    for key in [
+        "command",
+        "query",
+        "pattern",
+        "prompt",
+        "task",
+        "url",
+        "path",
+        "file_path",
+    ] {
+        let text = arg(key);
+        if text.is_empty() {
+            continue;
+        }
+        if key == "path" || key == "file_path" {
+            return truncate_graphemes(&short_path(text), 80);
+        }
+        return truncate_graphemes(&first_line(text), 80);
+    }
+    String::new()
+}
+
+fn first_line(text: &str) -> String {
+    text.replace("\r\n", "\n")
+        .split('\n')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+fn short_path(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let parts: Vec<&str> = trimmed.split('/').collect();
+    if parts.len() > 3 {
+        format!("…/{}", parts[parts.len() - 2..].join("/"))
+    } else {
+        trimmed.to_string()
+    }
 }
 
 fn shell_display(result: &str) -> DisplayPayload {
@@ -74,6 +177,7 @@ fn shell_display(result: &str) -> DisplayPayload {
         preview: tail.join("\n"),
         truncated: hidden_lines > 0,
         hidden_lines,
+        call_summary: String::new(),
     }
 }
 
@@ -103,6 +207,7 @@ fn diff_display(result: &str) -> DisplayPayload {
                 hidden_lines: total.saturating_sub(folded.lines().count()),
                 preview: folded,
                 truncated: true,
+                call_summary: String::new(),
             }
         }
         None => DisplayPayload {
@@ -110,6 +215,7 @@ fn diff_display(result: &str) -> DisplayPayload {
             preview: diff_text.into_owned(),
             truncated: false,
             hidden_lines: 0,
+            call_summary: String::new(),
         },
     }
 }
@@ -123,6 +229,7 @@ fn count_display(result: &str) -> DisplayPayload {
             preview: truncate_graphemes(line.trim(), DISPLAY_PREVIEW_CHARS),
             truncated: false,
             hidden_lines: 0,
+            call_summary: String::new(),
         };
     }
     DisplayPayload {
@@ -130,6 +237,7 @@ fn count_display(result: &str) -> DisplayPayload {
         preview: format!("{total} lines"),
         truncated: true,
         hidden_lines: total,
+        call_summary: String::new(),
     }
 }
 
@@ -142,6 +250,7 @@ fn text_display(result: &str) -> DisplayPayload {
         preview: head.join("\n"),
         truncated: hidden_lines > 0,
         hidden_lines,
+        call_summary: String::new(),
     }
 }
 
@@ -245,7 +354,7 @@ mod tests {
             .map(|i| format!("out {i}"))
             .collect::<Vec<_>>()
             .join("\n");
-        let payload = display_for(Some("execute_command"), &result);
+        let payload = display_for(Some("execute_command"), None, &result);
         assert_eq!(payload.kind, DisplayKind::ShellTail);
         assert!(payload.truncated);
         assert_eq!(payload.hidden_lines, 25);
@@ -255,7 +364,7 @@ mod tests {
 
     #[test]
     fn short_shell_output_is_verbatim() {
-        let payload = display_for(Some("shell_output"), "ok");
+        let payload = display_for(Some("shell_output"), None, "ok");
         assert_eq!(payload.kind, DisplayKind::ShellTail);
         assert!(!payload.truncated);
         assert_eq!(payload.preview, "ok");
@@ -271,7 +380,7 @@ mod tests {
             "deletions": 1,
         })
         .to_string();
-        let payload = display_for(Some("edit_file"), &result);
+        let payload = display_for(Some("edit_file"), None, &result);
         assert_eq!(payload.kind, DisplayKind::Diff);
         assert!(!payload.truncated);
         assert!(payload.preview.contains("-old"));
@@ -289,7 +398,7 @@ mod tests {
                 result.push_str(&format!("@@ -{i},5 +{i},5 @@ hunk header\n"));
             }
         }
-        let payload = display_for(Some("edit_file"), &result);
+        let payload = display_for(Some("edit_file"), None, &result);
         assert_eq!(payload.kind, DisplayKind::Diff);
         assert!(payload.truncated);
         assert!(payload.preview.contains("@@"));
@@ -301,7 +410,7 @@ mod tests {
             .map(|i| format!("file line {i}"))
             .collect::<Vec<_>>()
             .join("\n");
-        let payload = display_for(Some("read_file"), &result);
+        let payload = display_for(Some("read_file"), None, &result);
         assert_eq!(payload.kind, DisplayKind::Count);
         assert!(payload.truncated);
         assert_eq!(payload.preview, "100 lines");
@@ -309,7 +418,7 @@ mod tests {
 
     #[test]
     fn single_line_read_results_keep_the_line() {
-        let payload = display_for(Some("glob_search"), "src/main.rs");
+        let payload = display_for(Some("glob_search"), None, "src/main.rs");
         assert_eq!(payload.kind, DisplayKind::Count);
         assert!(!payload.truncated);
         assert_eq!(payload.preview, "src/main.rs");
@@ -321,7 +430,7 @@ mod tests {
             .map(|i| format!("row {i}"))
             .collect::<Vec<_>>()
             .join("\n");
-        let payload = display_for(Some("mystery_tool"), &result);
+        let payload = display_for(Some("mystery_tool"), None, &result);
         assert_eq!(payload.kind, DisplayKind::Text);
         assert!(payload.truncated);
         assert_eq!(payload.hidden_lines, 25);
@@ -330,7 +439,7 @@ mod tests {
 
     #[test]
     fn missing_tool_name_uses_the_generic_path() {
-        let payload = display_for(None, "hello");
+        let payload = display_for(None, None, "hello");
         assert_eq!(payload.kind, DisplayKind::Text);
         assert_eq!(payload.preview, "hello");
     }
@@ -401,6 +510,38 @@ mod tests {
         assert!(compact.contains("Do not poll."));
         assert!(!compact.contains("huge output"));
         assert_eq!(model_result_for(Some("shell_output"), &result), None);
+    }
+
+    #[test]
+    fn call_summary_names_shell_command_first_line() {
+        let args = serde_json::json!({"command": "npm test\nsecond line"}).to_string();
+        assert_eq!(call_summary_for("execute_command", Some(&args)), "npm test");
+    }
+
+    #[test]
+    fn call_summary_names_edit_path() {
+        let args = serde_json::json!({"file_path": "/a/b/c/d.rs"}).to_string();
+        assert_eq!(call_summary_for("edit_file", Some(&args)), "…/c/d.rs");
+    }
+
+    #[test]
+    fn call_summary_names_search_pattern_and_path() {
+        let args = serde_json::json!({"pattern": "TODO", "path": "/a/b/c"}).to_string();
+        assert_eq!(
+            call_summary_for("grep_search", Some(&args)),
+            "TODO in …/b/c"
+        );
+    }
+
+    #[test]
+    fn call_summary_empty_without_args() {
+        assert!(call_summary_for("read_file", None).is_empty());
+        let payload = display_for(
+            Some("read_file"),
+            Some(r#"{"path":"src/main.rs"}"#),
+            "hello",
+        );
+        assert_eq!(payload.call_summary, "src/main.rs");
     }
 
     #[test]

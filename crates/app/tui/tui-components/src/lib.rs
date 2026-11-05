@@ -11,6 +11,7 @@ pub mod file_selection;
 pub mod file_tree;
 pub mod file_viewer;
 pub mod footer;
+pub mod header;
 pub mod help_modal;
 pub mod history_cell;
 pub mod mention;

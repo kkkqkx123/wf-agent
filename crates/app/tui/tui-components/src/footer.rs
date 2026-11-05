@@ -455,6 +455,57 @@ impl Footer {
     }
 }
 
+/// Semantic role for a pressure percentage. The theme struct keeps its
+/// eight roles; pressure is derived here so light and dark themes adapt
+/// through the existing warning and error roles.
+pub fn stress_role(percent: f64) -> Role {
+    if percent >= 90.0 {
+        Role::Error
+    } else if percent >= 70.0 {
+        Role::Warning
+    } else {
+        Role::Accent
+    }
+}
+
+/// Semantic role for a cache-hit rate. Low hit rates read as errors
+/// because they indicate wasted context spend.
+pub fn cache_role(rate: f64) -> Role {
+    if rate < 0.3 {
+        Role::Error
+    } else if rate < 0.7 {
+        Role::Warning
+    } else {
+        Role::Add
+    }
+}
+
+/// Semantic role for a provider label. Providers share the existing
+/// palette so no new theme role is required.
+pub fn provider_role(provider: &str) -> Role {
+    match provider.to_ascii_lowercase().as_str() {
+        "anthropic" => Role::Accent,
+        "openai" | "openai-codex" => Role::Add,
+        "google" | "google-vertex" => Role::Warning,
+        "xai" | "groq" => Role::Error,
+        "github-copilot" => Role::Highlight,
+        "deepseek" => Role::Muted,
+        _ => Role::Muted,
+    }
+}
+
+/// Pack footer segments into `max_width` columns. Each segment carries a
+/// full text, an optional compact text and a survival priority. Compact
+/// forms replace full forms before any segment drops; lower priorities
+/// drop first. Thin wrapper over the shared allocator so footer tests
+/// cover the contract without reaching into `tui-core`.
+pub fn fit_footer_segments(
+    segments: &[(String, Option<String>, i32)],
+    max_width: usize,
+) -> Vec<String> {
+    tui_core::tool_output::fit_footer_segments(segments, max_width)
+}
+
 /// Current spinner frame for a clock in ms.
 pub fn spinner_frame(now_ms: u64) -> char {
     let index = (now_ms / SPINNER_TICK_MS) as usize % SPINNER_FRAMES.len();

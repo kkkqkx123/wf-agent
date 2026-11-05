@@ -292,6 +292,117 @@ fn plural(count: usize) -> &'static str {
     }
 }
 
+/// Style decision for one preview line. Diff hunks keep their add/remove
+/// accent so unified diffs read as diffs; everything else stays muted.
+/// The caller maps the returned marker to its own role type so this crate
+/// never depends on the component layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreviewTone {
+    Muted,
+    Add,
+    Remove,
+    Accent,
+}
+
+/// Classify one preview line under its display kind.
+pub fn preview_tone(kind: DisplayKind, line: &str) -> PreviewTone {
+    if kind != DisplayKind::Diff {
+        return PreviewTone::Muted;
+    }
+    if line.starts_with("@@") {
+        return PreviewTone::Accent;
+    }
+    if line.starts_with('+') {
+        return PreviewTone::Add;
+    }
+    if line.starts_with('-') {
+        return PreviewTone::Remove;
+    }
+    PreviewTone::Muted
+}
+
+/// Assemble one tool summary row: status mark, tool name, optional call
+/// summary, optional elapsed time and optional overflow suffix. Callers
+/// pass the payload fields through unchanged; empty call summaries and
+/// zero hidden lines contribute nothing.
+pub fn format_tool_summary(
+    tool_name: &str,
+    call_summary: &str,
+    elapsed_ms: Option<u64>,
+    hidden_lines: usize,
+    truncated: bool,
+    success: bool,
+) -> String {
+    let mark = if success {
+        tui_style::icons::SUCCESS
+    } else {
+        tui_style::icons::FAILURE
+    };
+    let mut summary = format!("{mark} {tool_name}");
+    let call = call_summary.trim();
+    if !call.is_empty() {
+        summary.push_str(&format!("({call})"));
+    }
+    if let Some(elapsed) = elapsed_ms {
+        summary.push_str(&format!(" ({elapsed}ms)"));
+    }
+    if hidden_lines > 0 {
+        summary.push_str(&format!(" · +{hidden_lines} lines"));
+    } else if truncated {
+        summary.push_str(" · +more");
+    }
+    summary
+}
+
+/// Width-aware footer segment packing: compact forms replace full forms
+/// before any segment is shrunk or dropped. Lower priority segments drop
+/// first; equal priorities keep input order. Returns one text per input
+/// segment with empty strings marking dropped items.
+pub fn fit_footer_segments(
+    segments: &[(String, Option<String>, i32)],
+    max_width: usize,
+) -> Vec<String> {
+    use unicode_width::UnicodeWidthStr;
+    let mut texts: Vec<String> = segments.iter().map(|item| item.0.clone()).collect();
+    let mut widths: Vec<usize> = texts.iter().map(|text| text.width()).collect();
+    let total = |texts: &[String], widths: &[usize]| {
+        widths.iter().sum::<usize>() + texts.len().saturating_sub(1)
+    };
+    if total(&texts, &widths) > max_width {
+        let mut order: Vec<usize> = (0..segments.len()).collect();
+        order.sort_by_key(|index| (segments[*index].2, *index));
+        for index in order {
+            if let Some(compact) = segments[index].1.clone() {
+                if compact.width() < widths[index] {
+                    texts[index] = compact.clone();
+                    widths[index] = compact.width();
+                }
+            }
+            if total(&texts, &widths) <= max_width {
+                break;
+            }
+        }
+    }
+    while total(&texts, &widths) > max_width {
+        let mut target: Option<usize> = None;
+        for (index, text) in texts.iter().enumerate() {
+            if text.is_empty() {
+                continue;
+            }
+            let is_lower = target.is_none_or(|current| segments[index].2 < segments[current].2);
+            if is_lower {
+                target = Some(index);
+            }
+        }
+        let Some(drop) = target else {
+            break;
+        };
+        texts[drop].clear();
+        widths[drop] = 0;
+    }
+    texts
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

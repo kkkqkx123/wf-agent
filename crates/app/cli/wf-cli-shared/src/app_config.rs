@@ -34,6 +34,9 @@ pub struct AppConfig {
     /// Tool-output detail settings shared by the TUI frontends.
     #[serde(default)]
     pub tool_output: ToolOutputFileConfig,
+    /// Footer segment switches shared by the TUI frontends.
+    #[serde(default)]
+    pub footer_segments: FooterSegmentsFileConfig,
     /// Appearance settings.
     #[serde(default)]
     pub appearance: AppearanceConfig,
@@ -423,6 +426,60 @@ pub struct AppearanceConfig {
     pub prompt_preview: Option<bool>,
     #[serde(default)]
     pub keybinding_hints: Option<bool>,
+    /// Optional session header. Absent or false means no header rows.
+    #[serde(default)]
+    pub header_enabled: Option<bool>,
+    /// Show command hints in the header right column when enabled.
+    #[serde(default)]
+    pub header_commands: Option<bool>,
+}
+
+/// Footer segment switches. Every field is optional so missing keys keep
+/// the built-in behavior; switches only control display, never data.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FooterSegmentsFileConfig {
+    #[serde(default)]
+    pub model: Option<bool>,
+    #[serde(default)]
+    pub cwd: Option<bool>,
+    #[serde(default)]
+    pub usage: Option<bool>,
+    #[serde(default)]
+    pub execution: Option<bool>,
+    #[serde(default)]
+    pub tools: Option<bool>,
+    #[serde(default)]
+    pub errors: Option<bool>,
+}
+
+impl FooterSegmentsFileConfig {
+    fn enabled(&self, value: Option<bool>, fallback: bool) -> bool {
+        value.unwrap_or(fallback)
+    }
+
+    pub fn show_model(&self) -> bool {
+        self.enabled(self.model, true)
+    }
+
+    pub fn show_cwd(&self) -> bool {
+        self.enabled(self.cwd, true)
+    }
+
+    pub fn show_usage(&self) -> bool {
+        self.enabled(self.usage, true)
+    }
+
+    pub fn show_execution(&self) -> bool {
+        self.enabled(self.execution, true)
+    }
+
+    pub fn show_tools(&self) -> bool {
+        self.enabled(self.tools, true)
+    }
+
+    pub fn show_errors(&self) -> bool {
+        self.enabled(self.errors, true)
+    }
 }
 
 /// Rendering settings.

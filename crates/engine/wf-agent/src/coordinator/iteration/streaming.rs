@@ -332,6 +332,7 @@ impl AgentIterationCoordinator {
                                 error: failure,
                                 display: Some(wf_tools::predefined::display::display_for(
                                     Some(tc.function.name.as_str()),
+                                    Some(tc.function.arguments.as_str()),
                                     &result_text,
                                 )),
                                 background: wf_tools::predefined::display::background_marker_for(
@@ -389,6 +390,7 @@ impl AgentIterationCoordinator {
                             error: Some(reason),
                             display: Some(wf_tools::predefined::display::display_for(
                                 Some(effective_tc.function.name.as_str()),
+                                Some(effective_tc.function.arguments.as_str()),
                                 &result_text,
                             )),
                             background: wf_tools::predefined::display::background_marker_for(
@@ -430,6 +432,7 @@ impl AgentIterationCoordinator {
                         error: failure,
                         display: Some(wf_tools::predefined::display::display_for(
                             Some(effective_tc.function.name.as_str()),
+                            Some(effective_tc.function.arguments.as_str()),
                             &result_text,
                         )),
                         background: wf_tools::predefined::display::background_marker_for(

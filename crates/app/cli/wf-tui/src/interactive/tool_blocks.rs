@@ -12,8 +12,9 @@
 //! truncation; per-tool presentation knowledge lives in `wf-tools`.
 
 use tui_core::tool_output::{
-    cap_block_bytes, collapse_output, collapse_shell_tail, infer_kind, is_exploration_tool_name,
-    summarize_activity, Collapsed, DetailLevel, ToolOutputConfig,
+    cap_block_bytes, collapse_output, collapse_shell_tail, format_tool_summary, infer_kind,
+    is_exploration_tool_name, preview_tone, summarize_activity, Collapsed, DetailLevel,
+    PreviewTone, ToolOutputConfig,
 };
 use wf_types::tool::{DisplayKind, DisplayPayload};
 
@@ -37,6 +38,8 @@ pub(crate) struct ToolBlock {
     display_preview: Option<String>,
     /// Whether the payload reported truncation (body hidden by design).
     display_truncated: bool,
+    /// Tool-side call summary naming the invocation.
+    call_summary: String,
     pub(crate) expandable: bool,
     expanded: bool,
     pub(crate) summary_seq: u64,
@@ -93,23 +96,15 @@ impl ToolBlock {
     }
 }
 
-/// Row role for one body line. Diff rows reuse the add/remove accent roles
-/// so unified diffs read as diffs inline; everything else stays muted.
+/// Row role for one body line. Diff hunks keep add/remove accents so
+/// unified diffs read as diffs inline; everything else stays muted.
 fn body_row_role(kind: DisplayKind, line: &str) -> Role {
-    if kind != DisplayKind::Diff {
-        return Role::Muted;
+    match preview_tone(kind, line) {
+        PreviewTone::Add => Role::Add,
+        PreviewTone::Remove => Role::Remove,
+        PreviewTone::Accent => Role::Accent,
+        PreviewTone::Muted => Role::Muted,
     }
-    if let Some(rest) = line.strip_prefix("@@") {
-        let _ = rest;
-        return Role::Accent;
-    }
-    if line.starts_with('+') {
-        return Role::Add;
-    }
-    if line.starts_with('-') {
-        return Role::Remove;
-    }
-    Role::Muted
 }
 
 /// Row text for one body line. Diff rows expand tabs to spaces so
@@ -189,6 +184,9 @@ fn build_block(
         kind,
         display_preview: display.map(|payload| payload.preview.clone()),
         display_truncated: display.is_some_and(|payload| payload.truncated),
+        call_summary: display
+            .map(|payload| payload.call_summary.clone())
+            .unwrap_or_default(),
         expandable: false,
         expanded: false,
         summary_seq: 0,
@@ -285,11 +283,19 @@ impl InteractiveController {
             self.apply_todo_result(result);
         }
         let role = if success { Role::Add } else { Role::Error };
-        let summary = match (success, elapsed_ms) {
-            (true, Some(elapsed)) => format!("✓ {tool_name} ({elapsed}ms)"),
-            (true, None) => format!("✓ {tool_name}"),
-            (false, _) => format!("✗ {tool_name}"),
+        let payload_summary = display
+            .map(|payload| payload.call_summary.as_str())
+            .unwrap_or("")
+            .trim();
+        let call_summary = if !success && payload_summary.is_empty() {
+            error
+                .map(|text| first_line_label(text, 80))
+                .filter(|text| !text.is_empty())
+                .unwrap_or_default()
+        } else {
+            payload_summary.to_string()
         };
+        let summary = format_tool_summary(tool_name, &call_summary, elapsed_ms, 0, false, success);
         if !self.tool_config.enabled {
             self.pending_scroll
                 .push(HistoryLine::new_role(summary, role));
@@ -331,12 +337,13 @@ impl InteractiveController {
         block.expanded = self.tool_config.level == DetailLevel::High
             && block.kind == DisplayKind::Count
             && success;
+        let call = block.call_summary.clone();
         let summary = if block.hides_body() {
-            // The count suffix stays even when expanded: it names the body.
             if block.expandable {
                 match block.display_preview.as_deref() {
                     Some(preview) if !preview.trim().is_empty() => {
-                        format!("{summary} · {preview}")
+                        format_tool_summary(tool_name, &call, elapsed_ms, 0, false, success)
+                            + &format!(" · {preview}")
                     }
                     _ => {
                         let total = block.output.lines().count();
@@ -353,11 +360,14 @@ impl InteractiveController {
                 summary
             }
         } else if preview.overflow {
-            if preview.hidden_lines > 0 {
-                format!("{summary} · +{} lines", preview.hidden_lines)
-            } else {
-                format!("{summary} · +more")
-            }
+            format_tool_summary(
+                tool_name,
+                &call,
+                elapsed_ms,
+                preview.hidden_lines,
+                true,
+                success,
+            )
         } else {
             summary
         };

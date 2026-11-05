@@ -26,6 +26,8 @@ pub enum DisplayKind {
 /// Frontend-facing summary of one tool result, produced alongside the full
 /// result. `preview` is already collapsed to a small excerpt; the full text
 /// stays in the sibling `result` field for on-demand viewing.
+/// `call_summary` names the call (path, command first line, pattern) so
+/// frontends never match tool names to splice arguments.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct DisplayPayload {
     #[serde(default)]
@@ -36,4 +38,6 @@ pub struct DisplayPayload {
     pub truncated: bool,
     #[serde(default)]
     pub hidden_lines: usize,
+    #[serde(default)]
+    pub call_summary: String,
 }

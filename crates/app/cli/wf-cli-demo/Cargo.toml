@@ -68,6 +68,18 @@ name = "tui_panel_select_showcase"
 path = "examples/tui/panel_select_showcase.rs"
 
 [[example]]
+name = "tui_header_showcase"
+path = "examples/tui/header_showcase.rs"
+
+[[example]]
+name = "tui_tool_compact_showcase"
+path = "examples/tui/tool_compact_showcase.rs"
+
+[[example]]
+name = "tui_extension_slots_showcase"
+path = "examples/tui/extension_slots_showcase.rs"
+
+[[example]]
 name = "mini_markdown"
 path = "examples/mini/markdown.rs"
 

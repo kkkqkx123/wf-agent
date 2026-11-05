@@ -157,6 +157,20 @@ impl<D: 'static> PluginHost<D> {
             .is_some_and(|entries| !entries.is_empty())
     }
 
+    /// Drop every contribution in `slot` without touching other slots.
+    /// Session shutdown clears contributed slots through this path so a
+    /// stale session never leaks segments into the next session.
+    pub fn clear_slot(&mut self, slot: Slot) {
+        self.slots.remove(&slot);
+    }
+
+    /// Drop all contributed slot content while keeping registrations.
+    /// The caller requests a full frame after this so empty slots
+    /// collapse to zero height.
+    pub fn clear_session_contributions(&mut self) {
+        self.slots.clear();
+    }
+
     /// Render every contribution in `slot`, stacked top to bottom by each
     /// contribution's declared height. Contributions that report `0` for the
     /// current width and `data` are skipped.

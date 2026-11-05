@@ -9,8 +9,8 @@
 //!
 //! Deferred capabilities (kept out of the contract until a pipeline needs
 //! them): sparse and multi vectors, named vectors, prefetch fusion,
-//! ordering and recommend/discover inputs, grouping, partial payload
-//! updates, snapshots, sharding and aliases, and a gRPC transport. Add
+//! ordering and recommend/discover inputs, grouping, snapshots, sharding
+//! and aliases, and a gRPC transport. Add
 //! them only when hybrid sparse demand, distributed operations, or
 //! benchmarks proving REST is the bottleneck trigger the extension;
 //! query shaping stays additive via optional [`VectorQuery`] fields.
@@ -32,5 +32,5 @@ pub use memory::InMemoryVectorStore;
 pub use qdrant::{QdrantConfig, QdrantVectorStore};
 #[cfg(feature = "simvec")]
 pub use simvec_adapter::SimvecVectorStore;
-pub use store::{CollectionSpec, VectorQuery, VectorStorage};
+pub use store::{CollectionSpec, ScrollPage, ScrollQuery, VectorQuery, VectorStorage};
 pub use types::{payload_text, DistanceMetric, ScoredPoint, VectorPoint};

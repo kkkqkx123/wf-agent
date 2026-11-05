@@ -138,12 +138,10 @@ impl KeywordIndex for MemoryKeywordIndex {
         namespace: Option<&str>,
         source: &str,
     ) -> Result<u64> {
-        let filter = SearchFilter {
-            namespace: namespace.map(str::to_string),
-            source: Some(source.to_string()),
-            fields: HashMap::new(),
-            conditions: Vec::new(),
-        };
+        let mut filter = SearchFilter::new().with_source(source);
+        if let Some(namespace) = namespace {
+            filter = filter.with_namespace(namespace);
+        }
         let mut guard = self.points.write().await;
         let Some(entry) = guard.get_mut(collection) else {
             return Ok(0);

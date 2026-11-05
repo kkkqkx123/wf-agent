@@ -3,9 +3,14 @@
 //! The trait is object-safe so hosts can hold `Arc<dyn VectorStorage>`
 //! and swap backends through configuration. Backends translate the filter
 //! into their native form; the accepted result set follows
-//! [`crate::filter::SearchFilter::matches`] on every backend.
+//! [`crate::filter::SearchFilter::matches_point`] on every backend.
+//! Payload updates address one point by id and leave its vector
+//! untouched; scrolling pages through filtered points with an opaque
+//! cursor.
 
 use async_trait::async_trait;
+
+use std::collections::HashMap;
 
 use crate::error::Result;
 use crate::filter::SearchFilter;
@@ -41,6 +46,11 @@ impl CollectionSpec {
 }
 
 /// Dense search query: a vector plus result shaping.
+///
+/// `exact` and `hnsw_ef` are optional recall tuning: unset keeps the
+/// default exact behavior on every backend. Memory and simvec ignore the
+/// values (behavior never changes); Qdrant forwards them as search
+/// params. A zero `hnsw_ef` is invalid input on every backend.
 #[derive(Debug, Clone)]
 pub struct VectorQuery {
     /// Query embedding; must match the collection dimension.
@@ -51,6 +61,10 @@ pub struct VectorQuery {
     pub score_threshold: Option<f32>,
     /// Optional metadata filter; unset matches every point.
     pub filter: Option<SearchFilter>,
+    /// Optional approximate-search switch; unset keeps exact behavior.
+    pub exact: Option<bool>,
+    /// Optional recall width; unset keeps the backend default.
+    pub hnsw_ef: Option<u64>,
 }
 
 impl VectorQuery {
@@ -61,6 +75,8 @@ impl VectorQuery {
             limit: limit.max(1),
             score_threshold: None,
             filter: None,
+            exact: None,
+            hnsw_ef: None,
         }
     }
 
@@ -75,6 +91,68 @@ impl VectorQuery {
         self.filter = Some(filter);
         self
     }
+
+    /// Overrides the approximate-search switch.
+    pub fn with_exact(mut self, exact: bool) -> Self {
+        self.exact = Some(exact);
+        self
+    }
+
+    /// Overrides the recall width.
+    pub fn with_hnsw_ef(mut self, hnsw_ef: u64) -> Self {
+        self.hnsw_ef = Some(hnsw_ef);
+        self
+    }
+}
+
+/// Paginated listing query: filter plus cursor and page size.
+///
+/// The cursor is opaque: pass back `next_offset` from the previous page,
+/// unset for the first page. Cursors from one backend must not be sent to
+/// another; page order is backend-defined, completeness is not.
+#[derive(Debug, Clone, Default)]
+pub struct ScrollQuery {
+    /// Optional metadata filter; unset lists every point.
+    pub filter: Option<SearchFilter>,
+    /// Maximum points per page.
+    pub limit: usize,
+    /// Opaque cursor from the previous page; unset starts at the beginning.
+    pub offset: Option<String>,
+}
+
+impl ScrollQuery {
+    /// Builds a listing query returning at most `limit` points per page.
+    pub fn new(limit: usize) -> Self {
+        Self {
+            filter: None,
+            limit: limit.max(1),
+            offset: None,
+        }
+    }
+
+    /// Restricts listed points with a metadata filter.
+    pub fn with_filter(mut self, filter: SearchFilter) -> Self {
+        self.filter = Some(filter);
+        self
+    }
+
+    /// Resumes after a previous page cursor.
+    pub fn with_offset(mut self, offset: impl Into<String>) -> Self {
+        self.offset = Some(offset.into());
+        self
+    }
+}
+
+/// One listing page: points plus the cursor for the next page.
+///
+/// `next_offset` is None when the listing is exhausted; pass a non-None
+/// value back as the next query offset.
+#[derive(Debug, Clone, Default)]
+pub struct ScrollPage {
+    /// Points of this page in backend-defined order.
+    pub points: Vec<VectorPoint>,
+    /// Cursor for the next page; None when exhausted.
+    pub next_offset: Option<String>,
 }
 
 /// Backend-neutral vector storage contract.
@@ -117,4 +195,34 @@ pub trait VectorStorage: Send + Sync {
 
     /// Counts points matching the filter (or every point when unset).
     async fn count(&self, collection: &str, filter: Option<&SearchFilter>) -> Result<u64>;
+
+    /// Lists points page by page for maintenance scans. Pages follow the
+    /// backend-defined id order; a full traversal visits every matching
+    /// point exactly once. The point vectors are always included.
+    async fn scroll(&self, collection: &str, query: &ScrollQuery) -> Result<ScrollPage>;
+
+    /// Replaces the whole payload of one point, leaving its vector
+    /// untouched. Missing collections and missing points fail; the
+    /// reserved `pid` mapping key is preserved automatically.
+    async fn overwrite_payload(
+        &self,
+        collection: &str,
+        id: &str,
+        payload: HashMap<String, serde_json::Value>,
+    ) -> Result<()>;
+
+    /// Merges fields into the payload of one point, leaving its vector
+    /// and all other keys untouched. Missing collections and missing
+    /// points fail; the reserved `pid` mapping key cannot be overwritten.
+    async fn merge_payload(
+        &self,
+        collection: &str,
+        id: &str,
+        fields: HashMap<String, serde_json::Value>,
+    ) -> Result<()>;
+
+    /// Deletes payload keys of one point, leaving its vector and all
+    /// other keys untouched. Missing collections and missing points fail;
+    /// the reserved `pid` mapping key is kept.
+    async fn delete_payload_keys(&self, collection: &str, id: &str, keys: &[String]) -> Result<()>;
 }

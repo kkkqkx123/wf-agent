@@ -34,7 +34,7 @@ use serde_json::json;
 
 use crate::error::{Result, VectorError};
 use crate::filter::SearchFilter;
-use crate::store::{CollectionSpec, VectorQuery, VectorStorage};
+use crate::store::{CollectionSpec, ScrollPage, ScrollQuery, VectorQuery, VectorStorage};
 use crate::types::{DistanceMetric, ScoredPoint, VectorPoint, NAMESPACE_KEY, PID_KEY, SOURCE_KEY};
 
 /// Payload index fields ensured after every collection creation.
@@ -236,6 +236,14 @@ impl QdrantVectorStore {
     pub fn build_filter(filter: &SearchFilter) -> Result<Option<serde_json::Value>> {
         let mut must = Vec::new();
         let mut must_not = Vec::new();
+        if !filter.has_ids.is_empty() {
+            let native: Vec<serde_json::Value> = filter
+                .has_ids
+                .iter()
+                .map(|id| serde_json::Value::String(Self::native_id(id)))
+                .collect();
+            must.push(json!({"has_id": native}));
+        }
         if let Some(namespace) = &filter.namespace {
             must.push(Self::text_match_condition(NAMESPACE_KEY, namespace));
         }
@@ -253,15 +261,42 @@ impl QdrantVectorStore {
                 must.push(clause);
             }
         }
-        if must.is_empty() && must_not.is_empty() {
-            return Ok(None);
-        }
         let mut filter_obj = serde_json::Map::new();
         if !must.is_empty() {
             filter_obj.insert("must".to_string(), json!(must));
         }
         if !must_not.is_empty() {
             filter_obj.insert("must_not".to_string(), json!(must_not));
+        }
+        if !filter.should.is_empty() {
+            let mut branch = Vec::with_capacity(filter.should.len());
+            for condition in &filter.should {
+                let (clause, negated) = Self::build_condition(condition)?;
+                if negated {
+                    branch.push(json!({"must_not": [clause]}));
+                } else {
+                    branch.push(clause);
+                }
+            }
+            filter_obj.insert("should".to_string(), json!(branch));
+        }
+        if let Some(min_should) = &filter.min_should {
+            let mut branch = Vec::with_capacity(min_should.conditions.len());
+            for condition in &min_should.conditions {
+                let (clause, negated) = Self::build_condition(condition)?;
+                if negated {
+                    branch.push(json!({"must_not": [clause]}));
+                } else {
+                    branch.push(clause);
+                }
+            }
+            filter_obj.insert(
+                "min_should".to_string(),
+                json!({"conditions": branch, "min_count": min_should.min_count}),
+            );
+        }
+        if filter_obj.is_empty() {
+            return Ok(None);
         }
         Ok(Some(serde_json::Value::Object(filter_obj)))
     }
@@ -330,9 +365,161 @@ impl QdrantVectorStore {
             (LessEqual, crate::filter::FilterValue::Number(bound)) => {
                 Ok((json!({"key": key, "range": {"lte": bound}}), false))
             }
+            (Prefix, crate::filter::FilterValue::Text(prefix)) => {
+                Ok((json!({"key": key, "match": {"prefix": prefix}}), false))
+            }
+            (Contains, crate::filter::FilterValue::Text(part)) => {
+                Ok((json!({"key": key, "match": {"substring": part}}), false))
+            }
+            (IsEmpty, _) => Ok((json!({"is_empty": {"key": key}}), false)),
+            (IsNull, _) => Ok((json!({"is_null": {"key": key}}), false)),
+            (ValuesEqual, crate::filter::FilterValue::Number(bound)) => {
+                let count = Self::count_bound(*bound)?;
+                Ok((
+                    json!({"key": key, "values_count": {"gte": count, "lte": count}}),
+                    false,
+                ))
+            }
+            (ValuesGreaterThan, crate::filter::FilterValue::Number(bound)) => {
+                let count = Self::count_bound_floor(*bound)?;
+                Ok((json!({"key": key, "values_count": {"gt": count}}), false))
+            }
+            (ValuesGreaterEqual, crate::filter::FilterValue::Number(bound)) => {
+                let count = Self::count_bound_ceil(*bound)?;
+                Ok((json!({"key": key, "values_count": {"gte": count}}), false))
+            }
+            (ValuesLessThan, crate::filter::FilterValue::Number(bound)) => {
+                let count = Self::count_bound_ceil(*bound)?;
+                Ok((json!({"key": key, "values_count": {"lt": count}}), false))
+            }
+            (ValuesLessEqual, crate::filter::FilterValue::Number(bound)) => {
+                let count = Self::count_bound_floor(*bound)?;
+                Ok((json!({"key": key, "values_count": {"lte": count}}), false))
+            }
             _ => Err(VectorError::InvalidInput(format!(
                 "unsupported filter condition on '{key}'"
             ))),
+        }
+    }
+
+    /// Integer bound for an exact length comparison.
+    fn count_bound(bound: f64) -> Result<u64> {
+        if !bound.is_finite() || bound < 0.0 || bound.fract() != 0.0 {
+            return Err(VectorError::InvalidInput(format!(
+                "array length bound must be a non-negative integer, got {bound}"
+            )));
+        }
+        Ok(bound as u64)
+    }
+
+    /// Integer bound for a strict lower length comparison.
+    fn count_bound_floor(bound: f64) -> Result<u64> {
+        if !bound.is_finite() || bound < 0.0 {
+            return Err(VectorError::InvalidInput(format!(
+                "array length bound must be non-negative, got {bound}"
+            )));
+        }
+        Ok(bound.floor() as u64)
+    }
+
+    /// Integer bound for a lower-or-equal length comparison.
+    fn count_bound_ceil(bound: f64) -> Result<u64> {
+        if !bound.is_finite() || bound < 0.0 {
+            return Err(VectorError::InvalidInput(format!(
+                "array length bound must be non-negative, got {bound}"
+            )));
+        }
+        Ok(bound.ceil() as u64)
+    }
+
+    /// Builds the REST request body for a dense query, including the
+    /// optional recall-tuning params. Memory and simvec ignore the params
+    /// but reject a zero `hnsw_ef` the same way.
+    fn search_body(query: &VectorQuery) -> Result<serde_json::Value> {
+        if query.hnsw_ef == Some(0) {
+            return Err(VectorError::InvalidInput(
+                "hnsw_ef must be positive".to_string(),
+            ));
+        }
+        let mut body = json!({
+            "query": query.vector,
+            "limit": query.limit,
+            "with_payload": true,
+        });
+        if let Some(threshold) = query.score_threshold {
+            body["score_threshold"] = json!(threshold);
+        }
+        if let Some(filter) = &query.filter {
+            if let Some(mapped) = Self::build_filter(filter)? {
+                body["filter"] = mapped;
+            }
+        }
+        if query.exact.is_some() || query.hnsw_ef.is_some() {
+            let mut params = serde_json::Map::new();
+            if let Some(exact) = query.exact {
+                params.insert("exact".to_string(), json!(exact));
+            }
+            if let Some(hnsw_ef) = query.hnsw_ef {
+                params.insert("hnsw_ef".to_string(), json!(hnsw_ef));
+            }
+            body["params"] = serde_json::Value::Object(params);
+        }
+        Ok(body)
+    }
+
+    /// Parses one scroll response into points plus the next cursor.
+    fn parse_scroll_page(text: &str) -> Result<(Vec<VectorPoint>, Option<String>)> {
+        let parsed: serde_json::Value =
+            serde_json::from_str(text).map_err(|err| VectorError::Decode(err.to_string()))?;
+        let result = parsed.get("result").ok_or_else(|| {
+            VectorError::Decode("qdrant scroll response has no result".to_string())
+        })?;
+        let raw_points = result
+            .get("points")
+            .and_then(|value| value.as_array())
+            .ok_or_else(|| {
+                VectorError::Decode("qdrant scroll response has no result.points".to_string())
+            })?;
+        let mut points = Vec::with_capacity(raw_points.len());
+        for point in raw_points {
+            let payload: HashMap<String, serde_json::Value> = point
+                .get("payload")
+                .and_then(|value| value.as_object())
+                .map(|map| map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                .unwrap_or_default();
+            let Some(pid) = payload.get(PID_KEY).and_then(|value| value.as_str()) else {
+                continue;
+            };
+            let Some(vector_value) = point.get("vector") else {
+                return Err(VectorError::Decode(format!(
+                    "qdrant point '{pid}' has no vector"
+                )));
+            };
+            let vector = Self::parse_vector(vector_value)?;
+            points.push(VectorPoint {
+                id: pid.to_string(),
+                vector,
+                payload,
+            });
+        }
+        let next_offset = result
+            .get("next_page_offset")
+            .and_then(|value| match value {
+                serde_json::Value::Null => None,
+                serde_json::Value::String(text) => Some(text.clone()),
+                serde_json::Value::Number(number) => Some(number.to_string()),
+                _ => None,
+            });
+        Ok((points, next_offset))
+    }
+
+    /// Scroll offset for the REST call: server cursors pass through,
+    /// contracts ids convert to their deterministic native form.
+    fn scroll_offset(offset: &str) -> String {
+        if uuid::Uuid::parse_str(offset).is_ok() {
+            offset.to_string()
+        } else {
+            Self::native_id(offset)
         }
     }
 
@@ -577,6 +764,27 @@ impl QdrantVectorStore {
                 }
             }
         }
+    }
+
+    /// Validates a payload-update target id shared by the three payload ops.
+    fn check_payload_target(id: &str) -> Result<()> {
+        if id.is_empty() {
+            return Err(VectorError::InvalidInput(
+                "point id must not be empty".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Fails on missing collections and missing points so payload updates
+    /// report the same not-found errors on every backend.
+    async fn require_point(&self, collection: &str, id: &str) -> Result<()> {
+        if self.fetch(collection, &[id.to_string()]).await?.is_empty() {
+            return Err(VectorError::InvalidInput(format!(
+                "point '{id}' not found in collection '{collection}'"
+            )));
+        }
+        Ok(())
     }
 
     /// Collection dimensions and distance (专有扩展, not part of the contract).
@@ -873,19 +1081,7 @@ impl VectorStorage for QdrantVectorStore {
                 });
             }
         }
-        let mut body = json!({
-            "query": query.vector,
-            "limit": query.limit,
-            "with_payload": true,
-        });
-        if let Some(threshold) = query.score_threshold {
-            body["score_threshold"] = json!(threshold);
-        }
-        if let Some(filter) = &query.filter {
-            if let Some(mapped) = Self::build_filter(filter)? {
-                body["filter"] = mapped;
-            }
-        }
+        let body = Self::search_body(query)?;
         let response = self
             .send_read(|| {
                 self.client
@@ -1154,6 +1350,155 @@ impl VectorStorage for QdrantVectorStore {
         );
         Ok(count)
     }
+
+    async fn scroll(&self, collection: &str, query: &ScrollQuery) -> Result<ScrollPage> {
+        let started = Instant::now();
+        tracing::debug!(collection = %collection, limit = query.limit, "qdrant scroll");
+        let limit = query.limit.max(1);
+        let mut body = json!({
+            "limit": limit,
+            "with_payload": true,
+            "with_vector": true,
+        });
+        if let Some(filter) = &query.filter {
+            if let Some(mapped) = Self::build_filter(filter)? {
+                body["filter"] = mapped;
+            }
+        }
+        if let Some(offset) = &query.offset {
+            body["offset"] = json!(Self::scroll_offset(offset));
+        }
+        let response = self
+            .send_read(|| {
+                self.client
+                    .post(self.url(&format!("/collections/{collection}/points/scroll")))
+                    .json(&body)
+            })
+            .await?;
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        Self::map_status(status, &text, collection)?;
+        let (mut points, next_offset) = Self::parse_scroll_page(&text)?;
+        points.truncate(limit);
+        let next_offset = if points.is_empty() || points.len() < limit {
+            None
+        } else {
+            next_offset
+        };
+        tracing::debug!(
+            collection = %collection,
+            points = points.len(),
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "qdrant scroll done"
+        );
+        Ok(ScrollPage {
+            points,
+            next_offset,
+        })
+    }
+
+    async fn overwrite_payload(
+        &self,
+        collection: &str,
+        id: &str,
+        payload: HashMap<String, serde_json::Value>,
+    ) -> Result<()> {
+        let started = Instant::now();
+        tracing::debug!(collection = %collection, "qdrant overwrite payload");
+        Self::check_payload_target(id)?;
+        self.require_point(collection, id).await?;
+        let mut full = payload;
+        full.insert(PID_KEY.to_string(), json!(id));
+        let response = self
+            .send(
+                self.client
+                    .put(self.url(&format!(
+                        "/collections/{collection}/points/payload{}",
+                        self.wait_suffix()
+                    )))
+                    .json(&json!({"payload": full, "points": [Self::native_id(id)]})),
+            )
+            .await?;
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        Self::map_status(status, &body, collection)?;
+        tracing::debug!(
+            collection = %collection,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "qdrant overwrite payload done"
+        );
+        Ok(())
+    }
+
+    async fn merge_payload(
+        &self,
+        collection: &str,
+        id: &str,
+        fields: HashMap<String, serde_json::Value>,
+    ) -> Result<()> {
+        let started = Instant::now();
+        tracing::debug!(collection = %collection, "qdrant merge payload");
+        Self::check_payload_target(id)?;
+        self.require_point(collection, id).await?;
+        let mut merged = fields;
+        merged.remove(PID_KEY);
+        if merged.is_empty() {
+            return Ok(());
+        }
+        let response = self
+            .send(
+                self.client
+                    .post(self.url(&format!(
+                        "/collections/{collection}/points/payload{}",
+                        self.wait_suffix()
+                    )))
+                    .json(&json!({"payload": merged, "points": [Self::native_id(id)]})),
+            )
+            .await?;
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        Self::map_status(status, &body, collection)?;
+        tracing::debug!(
+            collection = %collection,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "qdrant merge payload done"
+        );
+        Ok(())
+    }
+
+    async fn delete_payload_keys(&self, collection: &str, id: &str, keys: &[String]) -> Result<()> {
+        let started = Instant::now();
+        tracing::debug!(collection = %collection, "qdrant delete payload keys");
+        Self::check_payload_target(id)?;
+        self.require_point(collection, id).await?;
+        let kept: Vec<String> = keys
+            .iter()
+            .filter(|key| key.as_str() != PID_KEY)
+            .cloned()
+            .collect();
+        if kept.is_empty() {
+            return Ok(());
+        }
+        let response = self
+            .send(
+                self.client
+                    .post(self.url(&format!(
+                        "/collections/{collection}/points/payload/delete{}",
+                        self.wait_suffix()
+                    )))
+                    .json(&json!({"keys": kept, "points": [Self::native_id(id)]})),
+            )
+            .await?;
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        Self::map_status(status, &body, collection)?;
+        tracing::debug!(
+            collection = %collection,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "qdrant delete payload keys done"
+        );
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1210,6 +1555,166 @@ mod tests {
             "a",
         ));
         assert!(QdrantVectorStore::build_filter(&bad).is_err());
+    }
+
+    #[test]
+    fn filter_builder_covers_branch_and_id_groups() {
+        use crate::filter::{FieldFilter, FilterOperator};
+        let filter = SearchFilter::new()
+            .with_should(FieldFilter::new("lang", FilterOperator::Equal, "en"))
+            .with_should(FieldFilter::new("lang", FilterOperator::NotEqual, "zh"))
+            .with_min_should(
+                vec![FieldFilter::new("page", FilterOperator::GreaterEqual, 3.0)],
+                1,
+            )
+            .with_has_id("doc.md#0");
+        let built = QdrantVectorStore::build_filter(&filter)
+            .expect("filter")
+            .expect("some");
+        assert_eq!(
+            built
+                .get("must")
+                .and_then(|value| value.as_array())
+                .expect("must")
+                .len(),
+            1
+        );
+        let should = built
+            .get("should")
+            .and_then(|value| value.as_array())
+            .expect("should");
+        assert_eq!(should.len(), 2);
+        assert!(should[1].get("must_not").is_some());
+        let min_should = built.get("min_should").expect("min_should");
+        assert_eq!(
+            min_should.get("min_count").and_then(|value| value.as_u64()),
+            Some(1)
+        );
+        assert!(QdrantVectorStore::build_filter(&SearchFilter::new())
+            .expect("empty")
+            .is_none());
+    }
+
+    #[test]
+    fn filter_builder_covers_match_and_length_operators() {
+        use crate::filter::{FieldFilter, FilterOperator, FilterValue};
+        let cases = vec![
+            (
+                FieldFilter::new("city", FilterOperator::Prefix, "ber"),
+                "prefix",
+            ),
+            (
+                FieldFilter::new("desc", FilterOperator::Contains, "lo wo"),
+                "substring",
+            ),
+            (
+                FieldFilter::new("nick", FilterOperator::IsEmpty, true),
+                "is_empty",
+            ),
+            (
+                FieldFilter::new("gone", FilterOperator::IsNull, true),
+                "is_null",
+            ),
+            (
+                FieldFilter::new("tags", FilterOperator::ValuesEqual, 2.0),
+                "values_count",
+            ),
+            (
+                FieldFilter::new("tags", FilterOperator::ValuesGreaterThan, 1.0),
+                "values_count",
+            ),
+        ];
+        for (condition, marker) in cases {
+            let filter = SearchFilter::new().with_condition(condition);
+            let built = QdrantVectorStore::build_filter(&filter)
+                .expect("filter")
+                .expect("some");
+            let text = serde_json::to_string(&built).expect("json");
+            assert!(text.contains(marker), "{text}");
+        }
+        let bad = SearchFilter::new().with_condition(FieldFilter::new(
+            "city",
+            FilterOperator::Prefix,
+            FilterValue::Number(1.0),
+        ));
+        assert!(QdrantVectorStore::build_filter(&bad).is_err());
+        let bad = SearchFilter::new().with_condition(FieldFilter::new(
+            "tags",
+            FilterOperator::ValuesEqual,
+            2.5,
+        ));
+        assert!(QdrantVectorStore::build_filter(&bad).is_err());
+    }
+
+    #[test]
+    fn search_body_carries_optional_recall_params() {
+        let plain = QdrantVectorStore::search_body(&VectorQuery::new(vec![1.0], 5)).expect("body");
+        assert!(plain.get("params").is_none());
+        let tuned = QdrantVectorStore::search_body(
+            &VectorQuery::new(vec![1.0], 5)
+                .with_exact(true)
+                .with_hnsw_ef(64),
+        )
+        .expect("body");
+        let params = tuned.get("params").expect("params");
+        assert_eq!(
+            params.get("exact").and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            params.get("hnsw_ef").and_then(|value| value.as_u64()),
+            Some(64)
+        );
+        let bad = QdrantVectorStore::search_body(&VectorQuery::new(vec![1.0], 5).with_hnsw_ef(0));
+        assert!(matches!(bad, Err(VectorError::InvalidInput(_))));
+    }
+
+    #[test]
+    fn scroll_page_parses_points_and_cursor() {
+        let text = serde_json::json!({
+            "result": {
+                "points": [
+                    {
+                        "id": "11111111-1111-1111-1111-111111111111",
+                        "vector": [1.0, 0.0],
+                        "payload": {"pid": "p0", "lang": "en"},
+                    },
+                    {
+                        "id": "22222222-2222-2222-2222-222222222222",
+                        "payload": {"other": 1},
+                    }
+                ],
+                "next_page_offset": "22222222-2222-2222-2222-222222222222",
+            }
+        })
+        .to_string();
+        let (points, next) = QdrantVectorStore::parse_scroll_page(&text).expect("parsed");
+        assert_eq!(points.len(), 1);
+        assert_eq!(points[0].id, "p0");
+        assert_eq!(points[0].vector, vec![1.0, 0.0]);
+        assert_eq!(
+            next.as_deref(),
+            Some("22222222-2222-2222-2222-222222222222")
+        );
+        let done =
+            serde_json::json!({"result": {"points": [], "next_page_offset": serde_json::Value::Null}})
+                .to_string();
+        let (points, next) = QdrantVectorStore::parse_scroll_page(&done).expect("parsed");
+        assert!(points.is_empty());
+        assert!(next.is_none());
+        assert!(QdrantVectorStore::parse_scroll_page("{}").is_err());
+    }
+
+    #[test]
+    fn scroll_offset_passes_server_cursors_through() {
+        assert_eq!(
+            QdrantVectorStore::scroll_offset("11111111-1111-1111-1111-111111111111"),
+            "11111111-1111-1111-1111-111111111111"
+        );
+        assert_eq!(
+            QdrantVectorStore::scroll_offset("doc.md#0"),
+            QdrantVectorStore::native_id("doc.md#0")
+        );
     }
 
     #[test]
@@ -1344,6 +1849,71 @@ mod tests {
             .await
             .expect("delete by source");
         assert!(removed >= 1);
+        store
+            .upsert(
+                &collection,
+                &[VectorPoint {
+                    id: "doc.md#9".to_string(),
+                    vector: vec![0.0, 1.0, 0.0],
+                    payload: HashMap::from([
+                        (NAMESPACE_KEY.to_string(), serde_json::json!("kb")),
+                        (SOURCE_KEY.to_string(), serde_json::json!("doc.md")),
+                    ]),
+                }],
+            )
+            .await
+            .expect("upsert");
+        store
+            .overwrite_payload(
+                &collection,
+                "doc.md#9",
+                HashMap::from([("lang".to_string(), serde_json::json!("en"))]),
+            )
+            .await
+            .expect("overwrite");
+        store
+            .merge_payload(
+                &collection,
+                "doc.md#9",
+                HashMap::from([("page".to_string(), serde_json::json!(3))]),
+            )
+            .await
+            .expect("merge");
+        let fetched = store
+            .fetch(&collection, &["doc.md#9".to_string()])
+            .await
+            .expect("fetch");
+        assert_eq!(fetched.len(), 1);
+        assert_eq!(fetched[0].vector, vec![0.0, 1.0, 0.0]);
+        assert_eq!(
+            fetched[0].payload.get("lang"),
+            Some(&serde_json::json!("en"))
+        );
+        store
+            .delete_payload_keys(&collection, "doc.md#9", &["lang".to_string()])
+            .await
+            .expect("delete keys");
+        let missing = store
+            .overwrite_payload(&collection, "nope", HashMap::new())
+            .await;
+        assert!(matches!(missing, Err(VectorError::InvalidInput(_))));
+        let page = store
+            .scroll(&collection, &ScrollQuery::new(10))
+            .await
+            .expect("scroll");
+        assert!(!page.points.is_empty());
+        assert!(page.points.iter().any(|point| point.id == "doc.md#9"));
+        assert!(page.points.iter().all(|point| !point.vector.is_empty()));
+        let tuned = VectorQuery::new(vec![0.0, 1.0, 0.0], 5)
+            .with_exact(true)
+            .with_hnsw_ef(32);
+        let hits = store.search(&collection, &tuned).await.expect("search");
+        assert!(!hits.is_empty());
+        let removed = store
+            .delete_by_id(&collection, &["doc.md#9".to_string()])
+            .await
+            .expect("delete");
+        assert_eq!(removed, 1);
         store
             .delete_collection(&collection)
             .await

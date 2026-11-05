@@ -13,7 +13,7 @@ use parking_lot::RwLock;
 
 use crate::error::{Result, VectorError};
 use crate::filter::SearchFilter;
-use crate::store::{CollectionSpec, VectorQuery, VectorStorage};
+use crate::store::{CollectionSpec, ScrollPage, ScrollQuery, VectorQuery, VectorStorage};
 use crate::types::{DistanceMetric, ScoredPoint, VectorPoint};
 
 #[derive(Debug, Clone)]
@@ -166,15 +166,20 @@ impl VectorStorage for InMemoryVectorStore {
         let data = collections
             .get(collection)
             .ok_or_else(|| VectorError::CollectionMissing(collection.to_string()))?;
+        if query.hnsw_ef == Some(0) {
+            return Err(VectorError::InvalidInput(
+                "hnsw_ef must be positive".to_string(),
+            ));
+        }
         validate_query_vector(&query.vector, data.dimension)?;
         let mut hits: Vec<ScoredPoint> = data
             .points
             .iter()
-            .filter(|(_, stored)| {
+            .filter(|(id, stored)| {
                 query
                     .filter
                     .as_ref()
-                    .is_none_or(|filter| filter.matches(&stored.payload))
+                    .is_none_or(|filter| filter.matches_point(id, &stored.payload))
             })
             .map(|(id, stored)| ScoredPoint {
                 id: id.clone(),
@@ -233,19 +238,17 @@ impl VectorStorage for InMemoryVectorStore {
         namespace: Option<&str>,
         source: &str,
     ) -> Result<u64> {
-        let filter = SearchFilter {
-            namespace: namespace.map(str::to_string),
-            source: Some(source.to_string()),
-            fields: HashMap::new(),
-            conditions: Vec::new(),
-        };
+        let mut filter = SearchFilter::new().with_source(source);
+        if let Some(namespace) = namespace {
+            filter = filter.with_namespace(namespace);
+        }
         let mut collections = self.collections.write();
         let data = collections
             .get_mut(collection)
             .ok_or_else(|| VectorError::CollectionMissing(collection.to_string()))?;
         let before = data.points.len();
         data.points
-            .retain(|_, stored| !filter.matches(&stored.payload));
+            .retain(|id, stored| !filter.matches_point(id, &stored.payload));
         Ok((before - data.points.len()) as u64)
     }
 
@@ -257,11 +260,124 @@ impl VectorStorage for InMemoryVectorStore {
         match filter {
             Some(filter) => Ok(data
                 .points
-                .values()
-                .filter(|stored| filter.matches(&stored.payload))
+                .iter()
+                .filter(|(id, stored)| filter.matches_point(id, &stored.payload))
                 .count() as u64),
             None => Ok(data.points.len() as u64),
         }
+    }
+
+    async fn scroll(&self, collection: &str, query: &ScrollQuery) -> Result<ScrollPage> {
+        let collections = self.collections.read();
+        let data = collections
+            .get(collection)
+            .ok_or_else(|| VectorError::CollectionMissing(collection.to_string()))?;
+        let limit = query.limit.max(1);
+        let mut ids: Vec<String> = data
+            .points
+            .iter()
+            .filter(|(id, stored)| {
+                query
+                    .filter
+                    .as_ref()
+                    .is_none_or(|filter| filter.matches_point(id, &stored.payload))
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        ids.sort();
+        let start = match &query.offset {
+            None => 0,
+            Some(offset) => ids.iter().position(|id| id > offset).unwrap_or(ids.len()),
+        };
+        let end = (start + limit).min(ids.len());
+        let points = ids[start..end]
+            .iter()
+            .filter_map(|id| {
+                data.points.get(id).map(|stored| VectorPoint {
+                    id: id.clone(),
+                    vector: stored.vector.clone(),
+                    payload: stored.payload.clone(),
+                })
+            })
+            .collect::<Vec<_>>();
+        let next_offset = if end < ids.len() {
+            Some(ids[end - 1].clone())
+        } else {
+            None
+        };
+        Ok(ScrollPage {
+            points,
+            next_offset,
+        })
+    }
+
+    async fn overwrite_payload(
+        &self,
+        collection: &str,
+        id: &str,
+        payload: HashMap<String, serde_json::Value>,
+    ) -> Result<()> {
+        if id.is_empty() {
+            return Err(VectorError::InvalidInput(
+                "point id must not be empty".to_string(),
+            ));
+        }
+        let mut collections = self.collections.write();
+        let data = collections
+            .get_mut(collection)
+            .ok_or_else(|| VectorError::CollectionMissing(collection.to_string()))?;
+        let stored = data.points.get_mut(id).ok_or_else(|| {
+            VectorError::InvalidInput(format!(
+                "point '{id}' not found in collection '{collection}'"
+            ))
+        })?;
+        stored.payload = payload;
+        Ok(())
+    }
+
+    async fn merge_payload(
+        &self,
+        collection: &str,
+        id: &str,
+        fields: HashMap<String, serde_json::Value>,
+    ) -> Result<()> {
+        if id.is_empty() {
+            return Err(VectorError::InvalidInput(
+                "point id must not be empty".to_string(),
+            ));
+        }
+        let mut collections = self.collections.write();
+        let data = collections
+            .get_mut(collection)
+            .ok_or_else(|| VectorError::CollectionMissing(collection.to_string()))?;
+        let stored = data.points.get_mut(id).ok_or_else(|| {
+            VectorError::InvalidInput(format!(
+                "point '{id}' not found in collection '{collection}'"
+            ))
+        })?;
+        stored.payload.extend(fields);
+        Ok(())
+    }
+
+    async fn delete_payload_keys(&self, collection: &str, id: &str, keys: &[String]) -> Result<()> {
+        if id.is_empty() {
+            return Err(VectorError::InvalidInput(
+                "point id must not be empty".to_string(),
+            ));
+        }
+        let mut collections = self.collections.write();
+        let data = collections
+            .get_mut(collection)
+            .ok_or_else(|| VectorError::CollectionMissing(collection.to_string()))?;
+        let stored = data.points.get_mut(id).ok_or_else(|| {
+            VectorError::InvalidInput(format!(
+                "point '{id}' not found in collection '{collection}'"
+            ))
+        })?;
+        for key in keys {
+            stored.payload.remove(key);
+        }
+        Ok(())
     }
 }
 
@@ -463,5 +579,122 @@ mod tests {
             .await
             .expect("search");
         assert_eq!(hits.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn scroll_pages_cover_every_match_exactly_once() {
+        let store = InMemoryVectorStore::new();
+        store
+            .ensure_collection(&CollectionSpec::new("kb", 2))
+            .await
+            .expect("ensure");
+        let mut points = Vec::new();
+        for index in 0..5 {
+            points.push(
+                VectorPoint::new(format!("p{index}"), vec![1.0, 0.0])
+                    .with_field("namespace", serde_json::json!("kb"))
+                    .with_field("n", serde_json::json!(index)),
+            );
+        }
+        store.upsert("kb", &points).await.expect("upsert");
+        let filter = SearchFilter::new().with_namespace("kb");
+        let total = store.count("kb", Some(&filter)).await.expect("count");
+        let mut seen = Vec::new();
+        let mut offset = None;
+        loop {
+            let mut query = ScrollQuery::new(2).with_filter(filter.clone());
+            if let Some(cursor) = offset {
+                query = query.with_offset(cursor);
+            }
+            let page = store.scroll("kb", &query).await.expect("scroll");
+            assert!(page.points.len() <= 2);
+            for point in &page.points {
+                assert_eq!(point.vector, vec![1.0, 0.0]);
+            }
+            seen.extend(page.points.iter().map(|point| point.id.clone()));
+            offset = page.next_offset;
+            if offset.is_none() {
+                break;
+            }
+        }
+        seen.sort();
+        assert_eq!(seen.len() as u64, total);
+        assert_eq!(seen, vec!["p0", "p1", "p2", "p3", "p4"]);
+    }
+
+    #[tokio::test]
+    async fn payload_updates_keep_vector_and_fail_on_missing() {
+        let store = seeded().await;
+        store
+            .overwrite_payload(
+                "kb",
+                "a",
+                HashMap::from([("lang".to_string(), serde_json::json!("zh"))]),
+            )
+            .await
+            .expect("overwrite");
+        let points = store.fetch("kb", &["a".to_string()]).await.expect("fetch");
+        assert_eq!(points.len(), 1);
+        assert_eq!(points[0].vector, vec![1.0, 0.0]);
+        assert_eq!(
+            points[0].payload.get("lang"),
+            Some(&serde_json::json!("zh"))
+        );
+        assert!(!points[0].payload.contains_key("namespace"));
+        store
+            .merge_payload(
+                "kb",
+                "a",
+                HashMap::from([("page".to_string(), serde_json::json!(7))]),
+            )
+            .await
+            .expect("merge");
+        let points = store.fetch("kb", &["a".to_string()]).await.expect("fetch");
+        assert_eq!(points[0].vector, vec![1.0, 0.0]);
+        assert_eq!(points[0].payload.get("page"), Some(&serde_json::json!(7)));
+        assert_eq!(
+            points[0].payload.get("lang"),
+            Some(&serde_json::json!("zh"))
+        );
+        store
+            .delete_payload_keys("kb", "a", &["lang".to_string()])
+            .await
+            .expect("delete keys");
+        let points = store.fetch("kb", &["a".to_string()]).await.expect("fetch");
+        assert!(!points[0].payload.contains_key("lang"));
+        assert_eq!(points[0].payload.get("page"), Some(&serde_json::json!(7)));
+        let missing = store.overwrite_payload("kb", "nope", HashMap::new()).await;
+        assert!(matches!(missing, Err(VectorError::InvalidInput(_))));
+        let missing = store.merge_payload("kb", "nope", HashMap::new()).await;
+        assert!(matches!(missing, Err(VectorError::InvalidInput(_))));
+        let missing = store
+            .delete_payload_keys("kb", "nope", &["lang".to_string()])
+            .await;
+        assert!(matches!(missing, Err(VectorError::InvalidInput(_))));
+        let missing = store.scroll("nope", &ScrollQuery::new(10)).await;
+        assert!(matches!(missing, Err(VectorError::CollectionMissing(_))));
+    }
+
+    #[tokio::test]
+    async fn recall_tuning_defaults_keep_exact_behavior() {
+        let store = seeded().await;
+        let plain = store
+            .search("kb", &VectorQuery::new(vec![1.0, 0.0], 10))
+            .await
+            .expect("search");
+        let tuned = store
+            .search(
+                "kb",
+                &VectorQuery::new(vec![1.0, 0.0], 10)
+                    .with_exact(false)
+                    .with_hnsw_ef(64),
+            )
+            .await
+            .expect("search");
+        assert_eq!(plain, tuned);
+        let bad = store
+            .search("kb", &VectorQuery::new(vec![1.0, 0.0], 10).with_hnsw_ef(0))
+            .await;
+        assert!(matches!(bad, Err(VectorError::InvalidInput(_))));
     }
 }

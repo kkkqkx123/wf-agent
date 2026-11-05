@@ -13,7 +13,7 @@ use async_trait::async_trait;
 
 use crate::error::{Result, VectorError};
 use crate::filter::{FieldFilter, FilterOperator, SearchFilter};
-use crate::store::{CollectionSpec, VectorQuery, VectorStorage};
+use crate::store::{CollectionSpec, ScrollPage, ScrollQuery, VectorQuery, VectorStorage};
 use crate::types::{ScoredPoint, VectorPoint, NAMESPACE_KEY, PID_KEY, SOURCE_KEY};
 
 /// Embedded local vector backend powered by simvec.
@@ -78,10 +78,47 @@ impl SimvecVectorStore {
             };
             empty = false;
         }
+        for condition in &filter.should {
+            mapped = mapped.should(Self::map_branch_condition(condition)?);
+            empty = false;
+        }
+        if let Some(min_should) = &filter.min_should {
+            let conditions = min_should
+                .conditions
+                .iter()
+                .map(Self::map_branch_condition)
+                .collect::<Result<Vec<_>>>()?;
+            mapped.min_should = Some(simvec::MinShouldCondition {
+                conditions,
+                min_count: min_should.min_count,
+            });
+            empty = false;
+        }
+        if !filter.has_ids.is_empty() {
+            let ids = filter.has_ids.iter().map(|id| Self::point_id(id)).collect();
+            mapped = mapped.must(simvec::FilterCondition::has_id(ids));
+            empty = false;
+        }
         if empty {
             Ok(None)
         } else {
             Ok(Some(mapped))
+        }
+    }
+
+    /// Maps one branch condition, wrapping negations so OR groups keep
+    /// their meaning (`must_not` would AND with the group instead).
+    fn map_branch_condition(condition: &FieldFilter) -> Result<simvec::FilterCondition> {
+        let (clause, negated) = Self::map_condition(condition)?;
+        if negated {
+            Ok(simvec::FilterCondition::new(
+                condition.key.clone(),
+                simvec::ConditionType::Not {
+                    condition: Box::new(clause),
+                },
+            ))
+        } else {
+            Ok(clause)
         }
     }
 
@@ -140,6 +177,69 @@ impl SimvecVectorStore {
                 ),
                 false,
             )),
+            (Prefix, crate::filter::FilterValue::Text(prefix)) => Ok((
+                simvec::FilterCondition::new(
+                    condition.key.clone(),
+                    simvec::ConditionType::StartsWith {
+                        prefix: prefix.clone(),
+                    },
+                ),
+                false,
+            )),
+            (Contains, crate::filter::FilterValue::Text(part)) => Ok((
+                simvec::FilterCondition::new(
+                    condition.key.clone(),
+                    simvec::ConditionType::Contains {
+                        value: part.clone(),
+                    },
+                ),
+                false,
+            )),
+            (IsEmpty, _) => Ok((
+                simvec::FilterCondition::is_empty(condition.key.clone()),
+                false,
+            )),
+            (IsNull, _) => Ok((
+                simvec::FilterCondition::is_null(condition.key.clone()),
+                false,
+            )),
+            (ValuesEqual, crate::filter::FilterValue::Number(bound)) => Ok((
+                simvec::FilterCondition::values_count(
+                    condition.key.clone(),
+                    simvec::ValuesCountCondition::new()
+                        .gte(Self::count_bound(*bound)?)
+                        .lte(Self::count_bound(*bound)?),
+                ),
+                false,
+            )),
+            (ValuesGreaterThan, crate::filter::FilterValue::Number(bound)) => Ok((
+                simvec::FilterCondition::values_count(
+                    condition.key.clone(),
+                    simvec::ValuesCountCondition::new().gt(Self::count_bound_floor(*bound)?),
+                ),
+                false,
+            )),
+            (ValuesGreaterEqual, crate::filter::FilterValue::Number(bound)) => Ok((
+                simvec::FilterCondition::values_count(
+                    condition.key.clone(),
+                    simvec::ValuesCountCondition::new().gte(Self::count_bound_ceil(*bound)?),
+                ),
+                false,
+            )),
+            (ValuesLessThan, crate::filter::FilterValue::Number(bound)) => Ok((
+                simvec::FilterCondition::values_count(
+                    condition.key.clone(),
+                    simvec::ValuesCountCondition::new().lt(Self::count_bound_ceil(*bound)?),
+                ),
+                false,
+            )),
+            (ValuesLessEqual, crate::filter::FilterValue::Number(bound)) => Ok((
+                simvec::FilterCondition::values_count(
+                    condition.key.clone(),
+                    simvec::ValuesCountCondition::new().lte(Self::count_bound_floor(*bound)?),
+                ),
+                false,
+            )),
             _ => Err(VectorError::InvalidInput(format!(
                 "unsupported filter condition on '{}'",
                 condition.key
@@ -147,8 +247,64 @@ impl SimvecVectorStore {
         }
     }
 
+    /// Integer bound for an exact length comparison.
+    fn count_bound(bound: f64) -> Result<u64> {
+        if !bound.is_finite() || bound < 0.0 || bound.fract() != 0.0 {
+            return Err(VectorError::InvalidInput(format!(
+                "array length bound must be a non-negative integer, got {bound}"
+            )));
+        }
+        Ok(bound as u64)
+    }
+
+    /// Integer bound for a strict lower length comparison (`len > bound`
+    /// over integers equals `len > floor(bound)`).
+    fn count_bound_floor(bound: f64) -> Result<u64> {
+        if !bound.is_finite() || bound < 0.0 {
+            return Err(VectorError::InvalidInput(format!(
+                "array length bound must be non-negative, got {bound}"
+            )));
+        }
+        Ok(bound.floor() as u64)
+    }
+
+    /// Integer bound for a lower-or-equal length comparison (`len >= bound`
+    /// over integers equals `len >= ceil(bound)`).
+    fn count_bound_ceil(bound: f64) -> Result<u64> {
+        if !bound.is_finite() || bound < 0.0 {
+            return Err(VectorError::InvalidInput(format!(
+                "array length bound must be non-negative, got {bound}"
+            )));
+        }
+        Ok(bound.ceil() as u64)
+    }
+
     fn point_id(id: &str) -> simvec::PointId {
         simvec::PointId::from(id.to_string())
+    }
+
+    /// Resolves a contracts id to its engine id, failing on missing
+    /// collections and missing points like the other payload operations.
+    async fn require_point(&self, collection: &str, id: &str) -> Result<simvec::PointId> {
+        if !self.engine.collection_exists(collection) {
+            return Err(VectorError::CollectionMissing(collection.to_string()));
+        }
+        if id.is_empty() {
+            return Err(VectorError::InvalidInput(
+                "point id must not be empty".to_string(),
+            ));
+        }
+        let target = Self::point_id(id);
+        let stored = self
+            .engine
+            .get(collection, &target)
+            .map_err(map_engine_error)?;
+        if stored.is_none() {
+            return Err(VectorError::InvalidInput(format!(
+                "point '{id}' not found in collection '{collection}'"
+            )));
+        }
+        Ok(target)
     }
 
     fn id_string(id: &simvec::PointId) -> String {
@@ -161,6 +317,16 @@ impl SimvecVectorStore {
 
 fn map_engine_error(err: simvec::VectorSearchError) -> VectorError {
     VectorError::Backend(err.to_string())
+}
+
+fn map_point_error(err: simvec::VectorSearchError, collection: &str, id: &str) -> VectorError {
+    match err {
+        simvec::VectorSearchError::InvalidPointId(_) => VectorError::InvalidInput(format!(
+            "point '{id}' not found in collection '{collection}'"
+        )),
+        simvec::VectorSearchError::CollectionNotFound(name) => VectorError::CollectionMissing(name),
+        other => map_engine_error(other),
+    }
 }
 
 #[async_trait]
@@ -253,6 +419,11 @@ impl VectorStorage for SimvecVectorStore {
     async fn search(&self, collection: &str, query: &VectorQuery) -> Result<Vec<ScoredPoint>> {
         if !self.engine.collection_exists(collection) {
             return Err(VectorError::CollectionMissing(collection.to_string()));
+        }
+        if query.hnsw_ef == Some(0) {
+            return Err(VectorError::InvalidInput(
+                "hnsw_ef must be positive".to_string(),
+            ));
         }
         if query.vector.iter().any(|v| !v.is_finite()) {
             return Err(VectorError::InvalidInput(
@@ -382,10 +553,119 @@ impl VectorStorage for SimvecVectorStore {
                     limit: usize::MAX,
                     score_threshold: None,
                     filter: Some(filter.clone()),
+                    exact: None,
+                    hnsw_ef: None,
                 };
                 Ok(self.search(collection, &query).await?.len() as u64)
             }
         }
+    }
+
+    async fn scroll(&self, collection: &str, query: &ScrollQuery) -> Result<ScrollPage> {
+        if !self.engine.collection_exists(collection) {
+            return Err(VectorError::CollectionMissing(collection.to_string()));
+        }
+        let limit = query.limit.max(1);
+        let mut listed: Vec<(String, Vec<f32>, HashMap<String, serde_json::Value>)> = Vec::new();
+        let mut offset: Option<simvec::PointId> = None;
+        loop {
+            let (points, next) = self
+                .engine
+                .scroll(collection, 256, offset.as_ref(), Some(true), Some(true))
+                .map_err(map_engine_error)?;
+            let exhausted = next.is_none();
+            offset = next;
+            for point in points {
+                let payload = point.payload.clone().unwrap_or_default();
+                let resolved = payload
+                    .get(PID_KEY)
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| Self::id_string(&point.id));
+                if query
+                    .filter
+                    .as_ref()
+                    .is_none_or(|filter| filter.matches_point(&resolved, &payload))
+                {
+                    listed.push((resolved, point.vector.clone(), payload));
+                }
+            }
+            if exhausted {
+                break;
+            }
+        }
+        listed.sort_by(|a, b| a.0.cmp(&b.0));
+        let start = match &query.offset {
+            None => 0,
+            Some(cursor) => listed
+                .iter()
+                .position(|(id, _, _)| id > cursor)
+                .unwrap_or(listed.len()),
+        };
+        let end = (start + limit).min(listed.len());
+        let points = listed[start..end]
+            .iter()
+            .map(|(id, vector, payload)| VectorPoint {
+                id: id.clone(),
+                vector: vector.clone(),
+                payload: payload.clone(),
+            })
+            .collect::<Vec<_>>();
+        let next_offset = if end < listed.len() {
+            Some(listed[end - 1].0.clone())
+        } else {
+            None
+        };
+        Ok(ScrollPage {
+            points,
+            next_offset,
+        })
+    }
+
+    async fn overwrite_payload(
+        &self,
+        collection: &str,
+        id: &str,
+        payload: HashMap<String, serde_json::Value>,
+    ) -> Result<()> {
+        let target = self.require_point(collection, id).await?;
+        let mut full = payload;
+        full.insert(PID_KEY.to_string(), serde_json::json!(id));
+        self.engine
+            .set_payload(collection, &target, full)
+            .map_err(|err| map_point_error(err, collection, id))
+    }
+
+    async fn merge_payload(
+        &self,
+        collection: &str,
+        id: &str,
+        fields: HashMap<String, serde_json::Value>,
+    ) -> Result<()> {
+        let target = self.require_point(collection, id).await?;
+        let mut merged = fields;
+        merged.remove(PID_KEY);
+        if merged.is_empty() {
+            return Ok(());
+        }
+        self.engine
+            .set_payload_fields(collection, &target, merged)
+            .map_err(|err| map_point_error(err, collection, id))
+    }
+
+    async fn delete_payload_keys(&self, collection: &str, id: &str, keys: &[String]) -> Result<()> {
+        let target = self.require_point(collection, id).await?;
+        let kept: Vec<String> = keys
+            .iter()
+            .filter(|key| key.as_str() != PID_KEY)
+            .cloned()
+            .collect();
+        if kept.is_empty() {
+            return Ok(());
+        }
+        self.engine
+            .delete_payload(collection, &target, kept)
+            .map_err(|err| map_point_error(err, collection, id))
     }
 }
 
@@ -452,6 +732,73 @@ mod tests {
     fn test_query() -> VectorQuery {
         VectorQuery::new(vec![1.0, 0.0, 0.0], 5)
             .with_filter(SearchFilter::new().with_namespace("kb"))
+    }
+
+    #[test]
+    fn filter_mapping_covers_branch_and_id_groups() {
+        let filter = SearchFilter::new()
+            .with_should(FieldFilter::new("lang", FilterOperator::Equal, "en"))
+            .with_min_should(
+                vec![FieldFilter::new("page", FilterOperator::GreaterEqual, 3.0)],
+                1,
+            )
+            .with_has_id("doc.md#0");
+        let mapped = SimvecVectorStore::map_filter(&filter)
+            .expect("mapped")
+            .expect("some");
+        assert_eq!(mapped.should.expect("should").len(), 1);
+        assert_eq!(mapped.min_should.expect("min").conditions.len(), 1);
+        assert_eq!(mapped.must.expect("must").len(), 1);
+    }
+
+    #[test]
+    fn filter_mapping_wraps_negated_branch_conditions() {
+        let filter = SearchFilter::new()
+            .with_should(FieldFilter::new("lang", FilterOperator::NotEqual, "zh"))
+            .with_min_should(
+                vec![FieldFilter::new("page", FilterOperator::NotEqual, 1.0)],
+                1,
+            );
+        let mapped = SimvecVectorStore::map_filter(&filter)
+            .expect("mapped")
+            .expect("some");
+        assert!(mapped.must_not.is_none());
+        assert_eq!(mapped.should.expect("should").len(), 1);
+        assert_eq!(mapped.min_should.expect("min").conditions.len(), 1);
+    }
+
+    #[test]
+    fn filter_mapping_covers_match_and_length_operators() {
+        use crate::filter::FilterValue;
+        let cases = vec![
+            FieldFilter::new("city", FilterOperator::Prefix, "ber"),
+            FieldFilter::new("desc", FilterOperator::Contains, "lo wo"),
+            FieldFilter::new("nick", FilterOperator::IsEmpty, true),
+            FieldFilter::new("gone", FilterOperator::IsNull, true),
+            FieldFilter::new("tags", FilterOperator::ValuesEqual, 2.0),
+            FieldFilter::new("tags", FilterOperator::ValuesGreaterThan, 1.0),
+            FieldFilter::new("tags", FilterOperator::ValuesGreaterEqual, 2.0),
+            FieldFilter::new("tags", FilterOperator::ValuesLessThan, 3.0),
+            FieldFilter::new("tags", FilterOperator::ValuesLessEqual, 2.0),
+        ];
+        for condition in cases {
+            let filter = SearchFilter::new().with_condition(condition);
+            assert!(SimvecVectorStore::map_filter(&filter)
+                .expect("mapped")
+                .is_some());
+        }
+        let bad = SearchFilter::new().with_condition(FieldFilter::new(
+            "tags",
+            FilterOperator::ValuesEqual,
+            2.5,
+        ));
+        assert!(SimvecVectorStore::map_filter(&bad).is_err());
+        let bad = SearchFilter::new().with_condition(FieldFilter::new(
+            "city",
+            FilterOperator::Prefix,
+            FilterValue::Number(1.0),
+        ));
+        assert!(SimvecVectorStore::map_filter(&bad).is_err());
     }
 
     #[tokio::test]
@@ -587,5 +934,215 @@ mod tests {
             assert_eq!(memory_order, simvec_order, "ordering for {distance:?}");
             let _ = std::fs::remove_dir_all(&dir);
         }
+    }
+
+    fn parity_point(id: &str, lang: &str, page: i64, tags: Vec<&str>) -> VectorPoint {
+        VectorPoint {
+            id: id.to_string(),
+            vector: vec![1.0, 0.0, 0.0],
+            payload: HashMap::from([
+                (NAMESPACE_KEY.to_string(), serde_json::json!("kb")),
+                ("lang".to_string(), serde_json::json!(lang)),
+                ("page".to_string(), serde_json::json!(page)),
+                (
+                    "tags".to_string(),
+                    serde_json::Value::Array(
+                        tags.into_iter().map(|tag| serde_json::json!(tag)).collect(),
+                    ),
+                ),
+            ]),
+        }
+    }
+
+    fn parity_filters() -> Vec<(&'static str, SearchFilter)> {
+        vec![
+            (
+                "should",
+                SearchFilter::new().with_should(FieldFilter::new(
+                    "lang",
+                    FilterOperator::Equal,
+                    "en",
+                )),
+            ),
+            (
+                "should-negated",
+                SearchFilter::new().with_should(FieldFilter::new(
+                    "lang",
+                    FilterOperator::NotEqual,
+                    "zh",
+                )),
+            ),
+            (
+                "min-should",
+                SearchFilter::new().with_min_should(
+                    vec![
+                        FieldFilter::new("lang", FilterOperator::Equal, "en"),
+                        FieldFilter::new("page", FilterOperator::Equal, 9.0),
+                    ],
+                    1,
+                ),
+            ),
+            (
+                "has-ids",
+                SearchFilter::new().with_has_id("p0").with_has_id("p2"),
+            ),
+            (
+                "prefix",
+                SearchFilter::new().with_condition(FieldFilter::new(
+                    "lang",
+                    FilterOperator::Prefix,
+                    "e",
+                )),
+            ),
+            (
+                "contains",
+                SearchFilter::new().with_condition(FieldFilter::new(
+                    "lang",
+                    FilterOperator::Contains,
+                    "n",
+                )),
+            ),
+            (
+                "values",
+                SearchFilter::new().with_condition(FieldFilter::new(
+                    "tags",
+                    FilterOperator::ValuesGreaterEqual,
+                    2.0,
+                )),
+            ),
+            (
+                "is-null",
+                SearchFilter::new().with_condition(FieldFilter::new(
+                    "missing",
+                    FilterOperator::IsNull,
+                    true,
+                )),
+            ),
+        ]
+    }
+
+    #[tokio::test]
+    async fn advanced_filters_match_memory() {
+        use crate::memory::InMemoryVectorStore;
+        let dir = std::env::temp_dir().join(format!(
+            "vector-contracts-adv-parity-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let memory = InMemoryVectorStore::new();
+        let simvec = SimvecVectorStore::open(&dir).expect("open");
+        memory
+            .ensure_collection(&CollectionSpec::new("kb", 3))
+            .await
+            .expect("memory ensure");
+        simvec
+            .ensure_collection(&CollectionSpec::new("kb", 3))
+            .await
+            .expect("simvec ensure");
+        let points = vec![
+            parity_point("p0", "en", 1, vec!["hot"]),
+            parity_point("p1", "zh", 2, vec!["hot", "new"]),
+            parity_point("p2", "en", 3, vec!["hot", "new", "top"]),
+        ];
+        memory.upsert("kb", &points).await.expect("memory upsert");
+        simvec.upsert("kb", &points).await.expect("simvec upsert");
+        for (name, filter) in parity_filters() {
+            let query = VectorQuery::new(vec![1.0, 0.0, 0.0], 10).with_filter(filter);
+            let memory_hits = memory.search("kb", &query).await.expect("memory search");
+            let simvec_hits = simvec.search("kb", &query).await.expect("simvec search");
+            // Identical vectors tie on score, so ordering is backend-defined;
+            // filtering parity compares the accepted sets.
+            let mut memory_ids: Vec<_> = memory_hits.iter().map(|hit| &hit.id).collect();
+            let mut simvec_ids: Vec<_> = simvec_hits.iter().map(|hit| &hit.id).collect();
+            memory_ids.sort();
+            simvec_ids.sort();
+            assert_eq!(memory_ids, simvec_ids, "filter {name}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn scroll_and_payload_lifecycle_matches_memory() {
+        use crate::memory::InMemoryVectorStore;
+        let dir =
+            std::env::temp_dir().join(format!("vector-contracts-scroll-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let memory = InMemoryVectorStore::new();
+        let simvec = SimvecVectorStore::open(&dir).expect("open");
+        for backend in [
+            &memory as &dyn crate::store::VectorStorage,
+            &simvec as &dyn crate::store::VectorStorage,
+        ] {
+            backend
+                .ensure_collection(&CollectionSpec::new("kb", 2))
+                .await
+                .expect("ensure");
+            backend
+                .upsert(
+                    "kb",
+                    &[
+                        parity_point("p0", "en", 1, vec!["hot"]),
+                        parity_point("p1", "zh", 2, vec!["new"]),
+                    ]
+                    .iter()
+                    .map(|point| VectorPoint {
+                        id: point.id.clone(),
+                        vector: vec![1.0, 0.0],
+                        payload: point.payload.clone(),
+                    })
+                    .collect::<Vec<_>>(),
+                )
+                .await
+                .expect("upsert");
+            let mut seen = Vec::new();
+            let mut offset = None;
+            loop {
+                let mut request = ScrollQuery::new(1);
+                if let Some(cursor) = offset {
+                    request = request.with_offset(cursor);
+                }
+                let page = backend.scroll("kb", &request).await.expect("scroll");
+                seen.extend(page.points.iter().map(|point| point.id.clone()));
+                offset = page.next_offset;
+                if offset.is_none() {
+                    break;
+                }
+            }
+            seen.sort();
+            assert_eq!(seen, vec!["p0", "p1"]);
+            backend
+                .overwrite_payload(
+                    "kb",
+                    "p0",
+                    HashMap::from([("lang".to_string(), serde_json::json!("fr"))]),
+                )
+                .await
+                .expect("overwrite");
+            backend
+                .merge_payload(
+                    "kb",
+                    "p0",
+                    HashMap::from([("page".to_string(), serde_json::json!(9))]),
+                )
+                .await
+                .expect("merge");
+            backend
+                .delete_payload_keys("kb", "p0", &["lang".to_string()])
+                .await
+                .expect("delete keys");
+            let fetched = backend
+                .fetch("kb", &["p0".to_string()])
+                .await
+                .expect("fetch");
+            assert_eq!(fetched.len(), 1);
+            assert_eq!(fetched[0].vector, vec![1.0, 0.0]);
+            assert!(!fetched[0].payload.contains_key("lang"));
+            assert_eq!(fetched[0].payload.get("page"), Some(&serde_json::json!(9)));
+            let missing = backend
+                .overwrite_payload("kb", "nope", HashMap::new())
+                .await;
+            assert!(matches!(missing, Err(VectorError::InvalidInput(_))));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

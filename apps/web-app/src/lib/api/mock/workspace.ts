@@ -39,6 +39,9 @@ const INITIAL_DIRS: string[] = [
 	'apps/web-app/src/lib/utils',
 	'crates',
 	'crates/app',
+	'crates/checkpoint',
+	'crates/checkpoint/src',
+	'crates/checkpoint/tests',
 	'crates/app/wf-api',
 	'crates/app/wf-api/src',
 	'crates/app/wf-api/src/git',
@@ -71,6 +74,7 @@ const INITIAL_FILES: Record<string, string> = {
 		'# wf-agent (preview)\n\nPreview workspace for IDE UI/UX checks.\nEdit freely — changes are visible to the IDE, the terminal and the git fixtures.\n\n' +
 		'- `apps/web-app` — frontend routes, stores and services\n' +
 		'- `crates` — Rust workspace (app / foundation layers)\n' +
+		'- `crates/checkpoint` — restore coordinator + probe sources referenced by checkpoint fixtures\n' +
 		'- `docs` — plans and architecture notes\n' +
 		'- `scratch/samples` — many small files for tree scrolling and search\n' +
 		'- `src/big.ts` — large truncated file demo\n' +
@@ -109,6 +113,16 @@ const INITIAL_FILES: Record<string, string> = {
 	'apps/web-app/src/lib/components/domain/ide/FileEditor.svelte':
 		'<!-- deep nesting demo: components/domain/ide/FileEditor.svelte -->\n<script lang="ts">\n  // Dirty tabs show a dot; the status bar shows language + cursor.\n  const previewLanguages = ["typescript", "svelte", "rust", "markdown"];\n</script>\n\n<div>file editor</div>\n',
 	'crates/README.md': '# crates\n\nFoundation / infra / engine / app layers.\n\nPreview: open a `.rs` file to check the Rust language label.\n',
+	'crates/checkpoint/src/restore_coordinator.rs':
+		'//! preview restore coordinator — mirrors the checkpoint diff fixtures.\n//!\n//! Idempotent restore: the branch existence probe runs before the snapshot\n//! write, so repeated restores converge instead of raising a conflict.\nuse crate::preview::Workspace;\n\n// restore_coordinator.rs:141 — branch_exists returns Err(BranchConflict)\n// when the probe runs after the write; keep the probe first.\npub fn restore(workspace: &Workspace, target: &str) -> Result<String, String> {\n    if let Some(existing) = workspace.find_snapshot(target) {\n        return Ok(existing);\n    }\n    if workspace.branch_exists(target) {\n        return Err(format!("BranchConflict({target})"));\n    }\n    workspace.write_snapshot(target)\n}\n',
+	'crates/checkpoint/src/branch_probe.rs':
+		'//! preview branch probe — the agent loop summary traces the conflict origin here.\n//!\n//! Search "branch_probe" to jump between the loop transcript and this source.\npub struct Probe {\n    branch: String,\n    use_cache: bool,\n}\n\nimpl Probe {\n    pub fn new(branch: &str) -> Self {\n        Self { branch: branch.to_string(), use_cache: false }\n    }\n\n    pub fn with_cache(mut self, use_cache: bool) -> Self {\n        self.use_cache = use_cache;\n        self\n    }\n\n    pub fn run(&self) -> bool {\n        // preview workspace probe: cached reads keep the tree badges fresh.\n        !self.branch.is_empty()\n    }\n}\n',
+	'crates/checkpoint/src/idempotent_restore.rs':
+		'//! preview idempotent restore — added-file demo from the staged diff.\npub fn restore_once(target: &str) -> Result<String, String> {\n    // Converges when the branch already holds a snapshot for target.\n    Ok(format!("preview-snapshot:{target}"))\n}\n',
+	'crates/checkpoint/src/legacy_rollback.rs':
+		'//! preview legacy rollback — kept so the files panel shows a second writer.\n// TODO: remove once the coordinator covers every rollback path.\npub fn rollback_to(target: &str, snapshot: &str) -> String {\n    format!("preview-rollback:{target}:{snapshot}")\n}\n',
+	'crates/checkpoint/tests/restore_repeat.rs':
+		'// preview repeat-restore test — restore twice, converge once.\n// Mirrors docs/plan/checkpoint-restore.md acceptance checks.\n#[test]\nfn restore_twice_converges() {\n    let workspace = crate::preview::Workspace::default();\n    let first = crate::restore_once("preview-branch");\n    assert!(first.is_ok());\n    assert!(workspace.find_snapshot("preview-branch").is_some());\n}\n',
 	'crates/app/wf-api/src/lib.rs':
 		'//! preview api facade\n//!\n//! Search "flattenTree" to jump between the Rust and TypeScript sides.\npub mod git;\n\npublic fn preview_name() -> &\'static str {\n    "wf-api-preview"\n}\n',
 	'crates/app/wf-api/src/git/queries.rs':
@@ -125,6 +139,8 @@ const INITIAL_FILES: Record<string, string> = {
 		'# Architecture (preview)\n\nFour layers: foundation / infra / engine / app.\nThe preview workspace mirrors that shape so the tree reads like the real repo.\n\nSearch "workspace" to see cross-layer hits grouped by file.\n',
 	'docs/plan/lightweight-ide-design.md':
 		'# Lightweight IDE (preview)\n\nFile editing in preview is mocked against the shared workspace state.\nOpen `docs/plan/ide/preview-checklist.md` for the UI/UX walkthrough.\n',
+	'docs/plan/checkpoint-restore.md':
+		'# Checkpoint restore (preview)\n\nPlan backing the `crates/checkpoint` sources in this workspace.\nOpen the matching `.rs` files to verify diffs, badges and history together.\n\n- [ ] probe before write in `restore_coordinator.rs`\n- [ ] cached probe in `branch_probe.rs`\n- [ ] TODO: repeat-restore test in `tests/restore_repeat.rs`\n- [ ] TODO: verify rollback note in `legacy_rollback.rs`\n',
 	'docs/plan/user-git/05-progress.md':
 		'# User git progress (preview, untracked)\n\nThis file is untracked on purpose so the tree shows an untracked badge.\n\n- [ ] verify empty directory UX in `scratch/empty`\n- [ ] TODO: confirm binary view for `assets/logo.png`\n- [ ] TODO: confirm truncated banner for `src/big.ts`\n',
 	'docs/plan/ide/preview-checklist.md':
@@ -142,10 +158,16 @@ const INITIAL_FILES: Record<string, string> = {
 		'# preview config — checks the YAML language label\nworkspace: /preview/wf-agent\ntheme: preview\nfeatures:\n  - tree\n  - search\n  - terminal\n',
 	'configs/app.json':
 		'{\n  "workspace": "/preview/wf-agent",\n  "preview": true,\n  "limits": { "tabs": 20, "search": 100 }\n}\n',
+	'configs/checkpoint.toml':
+		'# preview checkpoint store — checks the TOML language label\n[workspace]\nroot = "/preview/wf-agent"\n\n[preview.checkpoint]\nbackend = "sqlite"\npartition = "approval"\n',
+	'configs/release.toml':
+		'# preview release inputs — referenced by the executions and triggers fixtures\n[workspace]\nroot = "/preview/wf-agent"\n\n[preview.release]\nchannel = "preview"\nversion = "1.0.0"\n',
 	'scripts/preview.sh':
 		'#!/bin/sh\n# preview helper — `cat scripts/preview.sh` in the terminal should match the editor.\n# TODO: add a preview smoke check for the empty directory.\necho "preview workspace: $PWD"\nls scratch/samples | head -5\n',
 	'scripts/check-preview.mjs':
 		'// preview node script — JavaScript language demo\n// Search "preview" groups this with the shell and python helpers.\nconsole.log("preview check: tree + search + terminal");\n',
+	'scripts/checkpoint-verify.sh':
+		'#!/bin/sh\n# preview checkpoint verify — matches the scripted tool name in fixtures.\n# `cat scripts/checkpoint-verify.sh` in the terminal should match the editor.\n# TODO: fail loudly when the restore snapshot is missing.\necho "preview verify: $PWD"\nls crates/checkpoint/src\n',
 	'pytools/analyze.py':
 	'# preview python helper — Python language demo\n# TODO: report preview search hit counts per directory.\ndef preview_summary(workspace):\n    return f"preview workspace: {workspace}"\n',
 	'queries/report.sql':

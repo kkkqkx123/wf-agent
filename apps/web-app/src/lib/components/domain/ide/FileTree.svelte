@@ -44,6 +44,27 @@
 		conflicts: string[];
 	} | null>(null);
 	let fileInput: HTMLInputElement | null = $state(null);
+	let createInput: HTMLInputElement | null = $state(null);
+	let renameInput: HTMLInputElement | null = $state(null);
+
+	function cancelInlineEdit(): void {
+		creating = null;
+		renaming = null;
+	}
+
+	$effect(() => {
+		if (creating && createInput) {
+			createInput.focus();
+			createInput.select();
+		}
+	});
+
+	$effect(() => {
+		if (renaming && renameInput) {
+			renameInput.focus();
+			renameInput.select();
+		}
+	});
 
 	const MAX_DIR_ENTRIES = 200;
 	const treeRowHeightStyle = `--ide-tree-row-height: ${IDE_TREE_ROW_HEIGHT_PX}px`;
@@ -206,6 +227,7 @@
 	}
 
 	function startCreate(parent: string, isDir: boolean): void {
+		renaming = null;
 		creating = { parent, isDir };
 		newName = '';
 		actionError = null;
@@ -232,6 +254,7 @@
 	}
 
 	function startRename(path: string): void {
+		creating = null;
 		renaming = path;
 		renameValue = path.split('/').pop() ?? path;
 		actionError = null;
@@ -601,12 +624,16 @@
 
 {#snippet node(dirPath: string, level: number)}
 	{#if creating && creating.parent === dirPath}
-		<div class="flex items-center gap-1 px-1 py-0.5">
+		<div class="flex items-center gap-1 px-1 py-0.5" data-inline-edit>
 			<Icon name={creating.isDir ? 'folder' : 'file'} size={14} class="text-muted-foreground" />
 			<input
 				class="h-7 min-w-0 flex-1 rounded-md border border-input bg-card px-2 text-body"
+				bind:this={createInput}
 				bind:value={newName}
 				placeholder={creating.isDir ? t('page.ide.folderName') : t('page.ide.fileName')}
+				onblur={() => {
+					if (creating) creating = null;
+				}}
 				onkeydown={(e) => {
 					if (e.key === 'Enter') void commitCreate();
 					else if (e.key === 'Escape') creating = null;
@@ -627,13 +654,14 @@
 			aria-selected={selected || ide.activePath === entry.path}
 			aria-expanded={entry.is_dir ? isOpen : undefined}
 			aria-level={level + 1}
+			data-path={entry.path}
+			data-isdir={entry.is_dir ? 'true' : 'false'}
 			tabindex={0}
 			draggable="true"
 			ondragstart={(e) => onRowDragStart(entry.path, e)}
 			ondragover={(e) => onRowDragOver(entry.path, entry.is_dir, e)}
 			ondragleave={onRowDragLeave}
 			ondrop={(e) => void onRowDrop(entry.path, entry.is_dir, e)}
-			oncontextmenu={(e) => openMenu(e, entry.path, entry.is_dir)}
 			onkeydown={(e) => {
 				openMenuKeyboard(e, entry.path, entry.is_dir);
 				if (e.key === 'Enter' && !(e.target instanceof HTMLInputElement)) {
@@ -706,18 +734,6 @@
 					</button>
 				{/if}
 				<span class="hidden shrink-0 items-center group-hover:flex">
-					{#if entry.is_dir}
-						<IconButton
-							icon="plus"
-							label={t('page.ide.newFile')}
-							compact
-							variant="ghost"
-							onclick={() => {
-								if (!isOpen) toggle(entry.path);
-								startCreate(entry.path, false);
-							}}
-						/>
-					{/if}
 					<IconButton
 						icon="pencil"
 						label={t('page.ide.rename')}
@@ -736,10 +752,14 @@
 			</div>
 
 			{#if renaming === entry.path}
-				<div class="flex items-center gap-1 py-0.5 pl-8 pr-1">
+				<div class="flex items-center gap-1 py-0.5 pl-8 pr-1" data-inline-edit>
 					<input
 						class="h-7 min-w-0 flex-1 rounded-md border border-input bg-card px-2 text-body"
+						bind:this={renameInput}
 						bind:value={renameValue}
+						onblur={() => {
+							if (renaming === entry.path) renaming = null;
+						}}
 						onkeydown={(e) => {
 							if (e.key === 'Enter') void commitRename(entry.path);
 							else if (e.key === 'Escape') renaming = null;
@@ -773,37 +793,11 @@
 {/snippet}
 
 <div class="flex h-full min-h-0 flex-col">
-	<div class="flex items-center gap-1 border-b border-border px-2 py-1.5">
-		<div class="min-w-0 flex-1">
-			<Input
-				bind:value={filter}
-				placeholder={t('page.ide.filterFiles')}
-				aria-label={t('page.ide.filterFiles')}
-			/>
-		</div>
-		<IconButton
-			icon="plus"
-			label={t('page.ide.newFile')}
-			compact
-			variant="ghost"
-			onclick={() => startCreate('', false)}
-		/>
-		<IconButton
-			icon="folder"
-			label={t('page.ide.newFolder')}
-			compact
-			variant="ghost"
-			onclick={() => startCreate('', true)}
-		/>
-		<IconButton
-			icon="refresh"
-			label={t('common.refresh')}
-			compact
-			variant="ghost"
-			onclick={() => {
-				void ide.loadDir('', true);
-				void ide.refreshGitStatus();
-			}}
+	<div class="border-b border-border px-2 py-1.5">
+		<Input
+			bind:value={filter}
+			placeholder={t('page.ide.filterFiles')}
+			aria-label={t('page.ide.filterFiles')}
 		/>
 	</div>
 
@@ -847,10 +841,26 @@
 		tabindex={0}
 		aria-label={t('page.ide.fileTree')}
 		style={treeRowHeightStyle}
+		onpointerdown={(e) => {
+			if ((e.target as HTMLElement | null)?.closest?.('[data-inline-edit]')) return;
+			if (creating ?? renaming) cancelInlineEdit();
+		}}
+		onkeydown={(e) => {
+			if (e.key === 'Escape' && (creating ?? renaming)) cancelInlineEdit();
+		}}
 		ondragover={onRootDragOver}
 		ondrop={(e) => void onRootDrop(e)}
 		oncontextmenu={(e) => {
-			if ((e.target as HTMLElement).closest('[role="treeitem"]')) return;
+			e.preventDefault();
+			const item = (e.target as HTMLElement | null)?.closest?.('[data-path]');
+			if (item) {
+				openMenu(
+					e,
+					item.getAttribute('data-path') ?? '',
+					item.getAttribute('data-isdir') === 'true',
+				);
+				return;
+			}
 			openMenu(e, '', true);
 		}}
 	>

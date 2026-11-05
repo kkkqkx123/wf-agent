@@ -70,7 +70,7 @@
 			onclick={() => ide.setTerminalOpen(false)}
 		/>
 	</div>
-	<div class="min-h-0 flex-1 overflow-hidden px-3 pb-3" style="height: {height}px">
+	<div class="min-h-0 shrink-0 overflow-hidden px-3 pb-3" style="height: {height}px">
 		<PtyPanel
 			bind:this={panel}
 			repo={repo || 'ide'}

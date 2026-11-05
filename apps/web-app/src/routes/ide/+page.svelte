@@ -112,6 +112,11 @@
 		ide.searchTab = tab;
 	}
 
+	function refreshTree(): void {
+		void ide.loadDir('', true);
+		void ide.refreshGitStatus();
+	}
+
 	function clipboardTargets(): string[] {
 		if (ide.selectedPaths.length > 0) return [...ide.selectedPaths];
 		const active = ide.active();
@@ -483,7 +488,7 @@
 </script>
 
 {#snippet sidebar()}
-	<div class="flex items-center border-b border-border px-2">
+	<div class="flex items-center gap-1 border-b border-border px-2">
 		<Segmented
 			items={[
 				{ id: 'tree', label: t('page.ide.sidebarFiles') },
@@ -492,6 +497,13 @@
 			bind:value={ide.sidebarView}
 			size="sm"
 			class="flex-1 border-b-0"
+		/>
+		<IconButton
+			icon="refresh"
+			label={t('common.refresh')}
+			compact
+			variant="ghost"
+			onclick={() => refreshTree()}
 		/>
 	</div>
 	<div class="min-h-0 flex-1 {ide.sidebarView === 'tree' ? '' : 'hidden'}">
@@ -521,7 +533,17 @@
 			<IconButton icon="refresh" label={t('common.refresh')} onclick={() => void reload()} />
 			<Button
 				size="sm"
-				variant="outline"
+				variant={ide.sidebarOpen ? 'secondary' : 'outline'}
+				active={ide.sidebarOpen}
+				onclick={() => ide.setSidebarOpen(!ide.sidebarOpen)}
+				aria-pressed={ide.sidebarOpen}
+			>
+				{t('page.ide.sidebarFiles')}
+			</Button>
+			<Button
+				size="sm"
+				variant={ide.historyOpen ? 'secondary' : 'outline'}
+				active={ide.historyOpen}
 				onclick={() => ide.setHistoryOpen(!ide.historyOpen)}
 				aria-pressed={ide.historyOpen}
 			>
@@ -529,12 +551,14 @@
 			</Button>
 			<Button
 				size="sm"
-				variant="outline"
+				variant={ide.terminalOpen ? 'secondary' : 'outline'}
+				active={ide.terminalOpen}
 				onclick={() => {
 					ide.setTerminalOpen(!ide.terminalOpen);
 				}}
+				aria-pressed={ide.terminalOpen}
 			>
-				{ide.terminalOpen ? t('page.ide.hideTerminal') : t('page.ide.showTerminal')}
+				{t('page.ide.showTerminal')}
 			</Button>
 			<Button
 				size="sm"

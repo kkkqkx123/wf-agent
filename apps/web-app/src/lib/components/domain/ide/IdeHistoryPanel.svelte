@@ -2,11 +2,15 @@
 	import Button from '#lib/ui/components/Button.svelte';
 	import Dialog from '#lib/ui/components/Dialog.svelte';
 	import DiffView from '#lib/ui/components/DiffView.svelte';
+	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import { ide } from '#lib/stores/ide.svelte';
+	import { fileRowClass, markerClass } from '#lib/git/tone';
 	import {
 		getCommitFiles,
+		getDiff,
 		getDiffRange,
 		getMeta,
+		getStagedDiff,
 		listBranches,
 		listCommits,
 		listFiles,
@@ -41,6 +45,9 @@
 	let expandedFile = $state<string | null>(null);
 	let diffsByKey = $state<Record<string, DiffFile[]>>({});
 	let diffLoading = $state(false);
+	let expandedChange = $state<string | null>(null);
+	let changeDiffs = $state<Record<string, DiffFile[]>>({});
+	let changeLoading = $state(false);
 	let branchOpen = $state(false);
 	let checkoutTarget = $state<CommitEntry | null>(null);
 	let resetTarget = $state<CommitEntry | null>(null);
@@ -77,6 +84,8 @@
 				return;
 			}
 			changes = files;
+			expandedChange = null;
+			changeDiffs = {};
 			branches = branchList;
 			commits = commitList;
 			hasMore = commitList.length >= COMMIT_PAGE;
@@ -138,10 +147,38 @@
 		}
 	}
 
-	function fileStatusLabel(file: GitFile): string {
-		if (file.kind) return file.kind;
-		const bits = [file.staged, file.unstaged].filter(Boolean).join('/');
-		return bits || 'changed';
+	function hasStaged(file: GitFile): boolean {
+		return file.staged !== '' && file.staged !== '.' && file.staged !== '?' && file.staged !== ' ';
+	}
+
+	function hasUnstaged(file: GitFile): boolean {
+		return file.unstaged !== '' && file.unstaged !== '.' && file.unstaged !== ' ';
+	}
+
+	async function toggleChange(
+		group: 'staged' | 'unstaged' | 'conflicted',
+		file: GitFile,
+	): Promise<void> {
+		const key = `${group}:${file.path}`;
+		if (expandedChange === key) {
+			expandedChange = null;
+			return;
+		}
+		expandedChange = key;
+		if (changeDiffs[key]) return;
+		changeLoading = true;
+		try {
+			if (file.kind === 'untracked') {
+				changeDiffs[key] = [];
+			} else {
+				const rows = group === 'staged' ? await getStagedDiff(file.path) : await getDiff(file.path);
+				changeDiffs[key] = rows.filter((row) => row.path === file.path);
+			}
+		} catch (e) {
+			actionError = e instanceof Error ? e.message : String(e);
+		} finally {
+			changeLoading = false;
+		}
 	}
 
 	async function openFile(path: string): Promise<void> {
@@ -207,6 +244,13 @@
 	}
 
 	const isDetached = $derived(meta ? !branches.some((b) => b.current) : false);
+	const conflictedChanges = $derived(changes.filter((file) => file.kind === 'conflicted'));
+	const stagedChanges = $derived(
+		changes.filter((file) => file.kind !== 'conflicted' && hasStaged(file)),
+	);
+	const unstagedChanges = $derived(
+		changes.filter((file) => file.kind !== 'conflicted' && hasUnstaged(file)),
+	);
 
 	function formatTime(ts: number): string {
 		if (!ts) return '';
@@ -278,29 +322,94 @@
 				{#if changes.length === 0}
 					<p class="px-3 py-1 text-micro text-muted-foreground">—</p>
 				{:else}
-					{#each changes.slice(0, 30) as file (file.path)}
-						<div class="group flex items-center gap-1 px-2 py-0.5">
-							<button
-								type="button"
-								class="min-w-0 flex-1 cursor-pointer truncate rounded px-1 py-0.5 text-left text-caption hover:bg-accent/60"
-								title={file.path}
-								onclick={() => void openFile(file.path)}
-							>
-								{file.path}
-							</button>
-							<span class="shrink-0 rounded bg-muted px-1 text-micro text-muted-foreground">
-								{fileStatusLabel(file)}
-							</span>
-							<button
-								type="button"
-								class="shrink-0 cursor-pointer rounded px-1 text-micro text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent"
-								title={t('page.ide.viewDiff')}
-								onclick={() => onViewFileDiff(file.path)}
-							>
-								≠
-							</button>
+					{#snippet changeRow(file: GitFile, group: 'staged' | 'unstaged' | 'conflicted')}
+						{@const key = `${group}:${file.path}`}
+						{@const letter = group === 'staged' ? file.staged : file.unstaged}
+						{@const isOpen = expandedChange === key}
+						<div>
+							<div class="group flex items-center gap-1 px-2 py-0.5">
+								<button
+									type="button"
+									class="min-w-0 flex-1 cursor-pointer truncate rounded px-1 py-0.5 text-left text-caption hover:bg-accent/60 {fileRowClass(
+										file,
+									)}"
+									title={file.path}
+									aria-expanded={isOpen}
+									onclick={() => void toggleChange(group, file)}
+								>
+									{file.path}
+								</button>
+								<span
+									class="w-4 shrink-0 text-center font-mono text-micro {markerClass(
+										letter,
+										group === 'staged' ? 'staged' : 'unstaged',
+									)}"
+									title={letter}
+								>
+									{letter}
+								</span>
+								<IconButton
+									icon="file"
+									label={t('page.ide.menuOpen')}
+									compact
+									onclick={() => void openFile(file.path)}
+									class="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
+								/>
+							</div>
+							{#if isOpen}
+								<div class="px-2 pb-1 pl-3">
+									{#if changeLoading && !changeDiffs[key]}
+										<p class="py-1 text-micro text-muted-foreground">{t('common.loading')}</p>
+									{:else}
+										{#each changeDiffs[key] ?? [] as diff (diff.path)}
+											<DiffView lines={diff.lines} title={diff.path} class="my-1" />
+										{/each}
+										{#if (changeDiffs[key] ?? []).length === 0}
+											<p class="py-1 text-micro text-muted-foreground">
+												{t('page.ide.diffEmpty')}
+											</p>
+										{/if}
+									{/if}
+									<div class="flex flex-wrap gap-1 pt-1">
+										<Button size="sm" variant="ghost" onclick={() => void openFile(file.path)}>
+											{t('page.ide.menuOpen')}
+										</Button>
+										<Button size="sm" variant="ghost" onclick={() => onViewFileDiff(file.path)}>
+											{t('page.ide.viewDiff')}
+										</Button>
+									</div>
+								</div>
+							{/if}
 						</div>
-					{/each}
+					{/snippet}
+					{#if conflictedChanges.length > 0}
+						<p class="px-3 pt-1 text-micro font-medium tracking-wide text-destructive uppercase">
+							{t('domain.git.conflicted')} · {conflictedChanges.length}
+						</p>
+						{#each conflictedChanges.slice(0, 30) as file (file.path)}
+							{@render changeRow(file, 'conflicted')}
+						{/each}
+					{/if}
+					{#if stagedChanges.length > 0}
+						<p
+							class="px-3 pt-1 text-micro font-medium tracking-wide text-muted-foreground uppercase"
+						>
+							{t('domain.git.staged')} · {stagedChanges.length}
+						</p>
+						{#each stagedChanges.slice(0, 30) as file (file.path)}
+							{@render changeRow(file, 'staged')}
+						{/each}
+					{/if}
+					{#if unstagedChanges.length > 0}
+						<p
+							class="px-3 pt-1 text-micro font-medium tracking-wide text-muted-foreground uppercase"
+						>
+							{t('domain.git.unstaged')} · {unstagedChanges.length}
+						</p>
+						{#each unstagedChanges.slice(0, 30) as file (file.path)}
+							{@render changeRow(file, 'unstaged')}
+						{/each}
+					{/if}
 				{/if}
 			</section>
 

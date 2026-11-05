@@ -127,6 +127,18 @@
 		await ide.openFile(path, false, line ?? null, col ?? 1);
 	}
 
+	async function previewFile(
+		path: string,
+		line?: number | null,
+		col?: number | null,
+	): Promise<void> {
+		try {
+			await ide.openFile(path, true, line ?? null, col ?? 1);
+		} catch {
+			// Preview is best-effort; explicit open surfaces errors.
+		}
+	}
+
 	function toggleGroup(path: string): void {
 		if (collapsed.has(path)) collapsed.delete(path);
 		else collapsed.add(path);
@@ -136,11 +148,15 @@
 		if (event.key === 'ArrowDown') {
 			event.preventDefault();
 			fileSelected = fileResults.length ? (fileSelected + 1) % fileResults.length : 0;
+			const hit = fileResults[fileSelected];
+			if (hit) void previewFile(hit.path);
 		} else if (event.key === 'ArrowUp') {
 			event.preventDefault();
 			fileSelected = fileResults.length
 				? (fileSelected - 1 + fileResults.length) % fileResults.length
 				: 0;
+			const hit = fileResults[fileSelected];
+			if (hit) void previewFile(hit.path);
 		} else if (event.key === 'Enter') {
 			event.preventDefault();
 			const hit = fileResults[fileSelected];
@@ -152,11 +168,15 @@
 		if (event.key === 'ArrowDown') {
 			event.preventDefault();
 			contentSelected = flatContent.length ? (contentSelected + 1) % flatContent.length : 0;
+			const hit = flatContent[contentSelected];
+			if (hit) void previewFile(hit.path, hit.line, hit.column);
 		} else if (event.key === 'ArrowUp') {
 			event.preventDefault();
 			contentSelected = flatContent.length
 				? (contentSelected - 1 + flatContent.length) % flatContent.length
 				: 0;
+			const hit = flatContent[contentSelected];
+			if (hit) void previewFile(hit.path, hit.line, hit.column);
 		} else if (event.key === 'Enter') {
 			event.preventDefault();
 			const hit = flatContent[contentSelected];
@@ -216,7 +236,10 @@
 						<button
 							type="button"
 							onclick={() => void openFile(hit.path)}
-							onmouseenter={() => (fileSelected = index)}
+							onmouseenter={() => {
+								fileSelected = index;
+								void previewFile(hit.path);
+							}}
 							class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left {index ===
 							fileSelected
 								? 'bg-accent text-accent-foreground'
@@ -301,7 +324,10 @@
 									<button
 										type="button"
 										onclick={() => void openFile(hit.path, hit.line, hit.column)}
-										onmouseenter={() => (contentSelected = flatIndex)}
+										onmouseenter={() => {
+											contentSelected = flatIndex;
+											void previewFile(hit.path, hit.line, hit.column);
+										}}
 										class="flex w-full flex-col gap-0.5 rounded-md px-2 py-1 pl-6 text-left {flatIndex ===
 										contentSelected
 											? 'bg-accent text-accent-foreground'

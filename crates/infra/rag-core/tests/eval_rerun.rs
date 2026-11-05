@@ -72,7 +72,7 @@ async fn eval_set_reruns_with_full_recall() {
     assert!(!set.cases.is_empty());
 
     let store = vector_contracts::InMemoryVectorStore::new();
-    let keyword = rag_core::MemoryKeywordIndex::new();
+    let keyword = rag_core::SqliteKeywordIndex::open_in_memory().expect("keyword index");
     let embedder = UnitEmbedder { dimension: 8 };
     let documents: Vec<RagDocument> = set
         .documents

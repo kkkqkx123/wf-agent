@@ -14,11 +14,7 @@ tokio.workspace = true
 async-trait.workspace = true
 tracing.workspace = true
 sha2.workspace = true
-rusqlite = { workspace = true, optional = true }
-
-[features]
-default = ["sqlite"]
-sqlite = ["dep:rusqlite"]
+rusqlite = { workspace = true }
 
 [dev-dependencies]
 tokio.workspace = true

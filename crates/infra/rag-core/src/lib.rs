@@ -26,7 +26,6 @@ pub mod rerank_adapter;
 pub mod retriever;
 pub mod rewrite;
 pub mod router;
-#[cfg(feature = "sqlite")]
 pub mod sqlite_index;
 pub mod sync;
 pub mod synth;
@@ -48,7 +47,7 @@ pub use converter::{
 pub use document::{RagChunk, RagDocument};
 pub use error::{RagError, Result};
 pub use eval::{score_case, summarize, EvalCase, EvalOutcome, EvalSummary};
-pub use keyword_index::{KeywordIndex, MemoryKeywordIndex};
+pub use keyword_index::KeywordIndex;
 pub use llm::CompletionLlm;
 pub use metrics::{rank_pairs, RetrievalMetrics};
 pub use pipeline::{
@@ -68,7 +67,6 @@ pub use rewrite::{
     QueryRewriter,
 };
 pub use router::{query_routed, resolve_targets, RouteRule, RouteTarget, RouterConfig};
-#[cfg(feature = "sqlite")]
 pub use sqlite_index::SqliteKeywordIndex;
 pub use sync::{
     content_hash, decisions_for_documents, hash_sources, pending_sources, plan_sync, remove_by_ids,

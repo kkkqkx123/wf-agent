@@ -1,9 +1,9 @@
-//! SQLite FTS5 keyword backend: persistent inverted index.
+//! SQLite FTS5 keyword backend: the built-in inverted index.
 //!
 //! Single virtual table holds every collection; only the content column is
 //! indexed while collection and scope columns stay unindexed for filtering.
 //! Relevance comes from the native BM25 rank; generic field conditions are
-//! rechecked in Rust so both backends share one match semantic.
+//! rechecked in Rust so keyword filtering shares one match semantic.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -17,13 +17,13 @@ use crate::retriever::{chunk_from_hit, tokenize, RetrievedChunk};
 
 const SCHEMA: &str = "CREATE VIRTUAL TABLE IF NOT EXISTS keyword_fts USING fts5(collection UNINDEXED, chunk_id UNINDEXED, namespace UNINDEXED, source UNINDEXED, content, payload UNINDEXED, tokenize='unicode61')";
 
-/// Persistent keyword backend powered by SQLite FTS5.
+/// Built-in keyword backend powered by SQLite FTS5.
 pub struct SqliteKeywordIndex {
     conn: Mutex<rusqlite::Connection>,
 }
 
 impl SqliteKeywordIndex {
-    /// Opens an in-memory database, mainly for tests.
+    /// Opens an in-memory database for tests and ephemeral knowledge bases.
     pub fn open_in_memory() -> Result<Self> {
         let conn = rusqlite::Connection::open_in_memory()
             .map_err(|err| RagError::Keyword(err.to_string()))?;

@@ -703,7 +703,7 @@ async fn postprocess<S: VectorStorage + ?Sized>(
 mod tests {
     use super::*;
     use crate::config::RagIndexConfig;
-    use crate::keyword_index::MemoryKeywordIndex;
+    use crate::sqlite_index::SqliteKeywordIndex;
     use vector_contracts::{FieldFilter, FilterOperator, InMemoryVectorStore};
 
     struct UnitEmbedder {
@@ -755,7 +755,7 @@ mod tests {
     #[tokio::test]
     async fn conditions_and_shaping_apply_on_read_path() {
         let store = InMemoryVectorStore::new();
-        let keyword = MemoryKeywordIndex::new();
+        let keyword = SqliteKeywordIndex::open_in_memory().expect("keyword index");
         let embedder = UnitEmbedder { dimension: 8 };
         let first = RagDocument::new("d1", "rust ownership borrowing rules text here", "a.md")
             .with_metadata("page", "1");
@@ -799,7 +799,7 @@ mod tests {
     #[tokio::test]
     async fn ingest_then_query_roundtrip() {
         let store = InMemoryVectorStore::new();
-        let keyword = MemoryKeywordIndex::new();
+        let keyword = SqliteKeywordIndex::open_in_memory().expect("keyword index");
         let embedder = UnitEmbedder { dimension: 8 };
         let stats = ingest_documents(
             &store,
@@ -834,7 +834,7 @@ mod tests {
     #[tokio::test]
     async fn duplicate_policy_skip_and_overwrite() {
         let store = InMemoryVectorStore::new();
-        let keyword = MemoryKeywordIndex::new();
+        let keyword = SqliteKeywordIndex::open_in_memory().expect("keyword index");
         let embedder = UnitEmbedder { dimension: 8 };
         let documents = [doc("d1", "a.md", "alpha beta gamma delta epsilon")];
         let stats = ingest_documents(
@@ -886,7 +886,7 @@ mod tests {
     #[tokio::test]
     async fn cleaning_applies_before_chunking() {
         let store = InMemoryVectorStore::new();
-        let keyword = MemoryKeywordIndex::new();
+        let keyword = SqliteKeywordIndex::open_in_memory().expect("keyword index");
         let embedder = UnitEmbedder { dimension: 8 };
         let mut config = RagIndexConfig::new("kb");
         config.cleaning.dedup_consecutive_lines = true;
@@ -917,7 +917,7 @@ mod tests {
     #[tokio::test]
     async fn hybrid_query_blends_keyword_signal() {
         let store = InMemoryVectorStore::new();
-        let keyword = MemoryKeywordIndex::new();
+        let keyword = SqliteKeywordIndex::open_in_memory().expect("keyword index");
         let embedder = UnitEmbedder { dimension: 8 };
         ingest_documents(
             &store,

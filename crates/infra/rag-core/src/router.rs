@@ -244,7 +244,8 @@ mod tests {
 
     async fn seeded_store() -> (vector_contracts::InMemoryVectorStore, UnitEmbedder) {
         let store = vector_contracts::InMemoryVectorStore::new();
-        let keyword = crate::keyword_index::MemoryKeywordIndex::new();
+        let keyword =
+            crate::sqlite_index::SqliteKeywordIndex::open_in_memory().expect("keyword index");
         let embedder = UnitEmbedder { dimension: 8 };
         for (collection, namespace) in [("kb-docs", "docs"), ("kb-code", "code")] {
             crate::pipeline::ingest_documents(

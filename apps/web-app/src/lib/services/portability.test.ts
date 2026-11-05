@@ -21,6 +21,8 @@ function validBackup(): SettingsBackup {
 			minimapMode: 'auto',
 			toolOutputPreviews: true,
 			toolOutputDetail: 'balanced',
+			chatExecutionType: 'agent',
+			chatTemporaryDefault: 'restricted',
 		},
 		shortcuts: { 'app.commandPalette': 'Mod+K' },
 		behavior: {

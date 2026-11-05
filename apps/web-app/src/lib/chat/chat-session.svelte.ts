@@ -206,8 +206,8 @@ export class ChatSessionController {
 	workflowJsonError = $state<string | null>(null);
 	/** true while the workflow variable declaration is loading. */
 	workflowVariablesLoading = $state(false);
-	/** Execution type for this composer turn. */
-	executionType = $state<ChatExecutionType>('agent');
+	/** Execution type for this composer turn. Starts from the saved chat default. */
+	executionType = $state<ChatExecutionType>(preferences.chatExecutionType);
 	/** Active agent loop id for the running turn, when known. */
 	activeAgentLoopId = $state<string | null>(null);
 	/** Next-turn temporary override: null follows the session default. Reset on session switch. */
@@ -631,9 +631,13 @@ export class ChatSessionController {
 		toasts.error('No user message to retry');
 	}
 
-	/** Default temporary mode: drafts start fenced, saved sessions follow their badge. */
-	defaultTemporaryMode(isDraft: boolean): 'restricted' | null {
-		return isDraft ? 'restricted' : null;
+	/** Default temporary mode: drafts follow the saved chat default, saved
+	 * sessions follow their own badge. The default lives in frontend
+	 * preferences, never as a button in the composer row. */
+	defaultTemporaryMode(isDraft: boolean): 'restricted' | 'ephemeral' | null {
+		if (!isDraft) return null;
+		const pref = preferences.chatTemporaryDefault;
+		return pref === 'full' ? null : pref;
 	}
 
 	/** Resolved mode for the next agent turn. Null means a full run. Single

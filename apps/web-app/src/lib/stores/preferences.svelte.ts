@@ -15,6 +15,10 @@ export type Density = 'compact' | 'default' | 'comfortable';
 export type MinimapMode = 'auto' | 'on' | 'off';
 /** Automatic session title mode: `truncate` is the default. */
 export type AutoTitleMode = 'off' | 'truncate' | 'llm';
+/** Default composer executor for new chat sessions. */
+export type ChatExecutionPreference = 'agent' | 'workflow' | 'chat';
+/** Default agent mode for new chat drafts: `full` runs unrestricted. */
+export type ChatTemporaryPreference = 'full' | 'restricted' | 'ephemeral';
 
 export const SIDEBAR_WIDTH_MIN = 200;
 export const SIDEBAR_WIDTH_MAX = 360;
@@ -47,6 +51,8 @@ interface PersistedPreferences {
 	recapEnabled?: boolean;
 	autoTitleMode?: AutoTitleMode;
 	titleModel?: string;
+	chatExecutionType?: ChatExecutionPreference;
+	chatTemporaryDefault?: ChatTemporaryPreference;
 }
 
 export const EDITOR_FONT_SIZE_MIN = 10;
@@ -91,6 +97,8 @@ class PreferencesStore {
 	recapEnabled = $state(true);
 	autoTitleMode = $state<AutoTitleMode>('truncate');
 	titleModel = $state('');
+	chatExecutionType = $state<ChatExecutionPreference>('agent');
+	chatTemporaryDefault = $state<ChatTemporaryPreference>('restricted');
 
 	constructor() {
 		const stored = read();
@@ -147,6 +155,20 @@ class PreferencesStore {
 		}
 		if (typeof stored.titleModel === 'string') {
 			this.titleModel = stored.titleModel;
+		}
+		if (
+			stored.chatExecutionType === 'agent' ||
+			stored.chatExecutionType === 'workflow' ||
+			stored.chatExecutionType === 'chat'
+		) {
+			this.chatExecutionType = stored.chatExecutionType;
+		}
+		if (
+			stored.chatTemporaryDefault === 'full' ||
+			stored.chatTemporaryDefault === 'restricted' ||
+			stored.chatTemporaryDefault === 'ephemeral'
+		) {
+			this.chatTemporaryDefault = stored.chatTemporaryDefault;
 		}
 	}
 
@@ -245,6 +267,16 @@ class PreferencesStore {
 		this.persist();
 	}
 
+	setChatExecutionType(executionType: ChatExecutionPreference): void {
+		this.chatExecutionType = executionType;
+		this.persist();
+	}
+
+	setChatTemporaryDefault(mode: ChatTemporaryPreference): void {
+		this.chatTemporaryDefault = mode;
+		this.persist();
+	}
+
 	/** Rotate the tool output detail preset: compact, balanced, verbose. */
 	cycleToolOutputDetail(): void {
 		const order: ToolOutputDetail[] = ['compact', 'balanced', 'verbose'];
@@ -263,6 +295,8 @@ class PreferencesStore {
 		this.minimapMode = backup.minimapMode;
 		this.toolOutputPreviews = backup.toolOutputPreviews;
 		this.toolOutputDetail = parseToolOutputDetail(backup.toolOutputDetail);
+		this.chatExecutionType = backup.chatExecutionType;
+		this.chatTemporaryDefault = backup.chatTemporaryDefault;
 		this.persist();
 	}
 
@@ -286,6 +320,8 @@ class PreferencesStore {
 					recapEnabled: this.recapEnabled,
 					autoTitleMode: this.autoTitleMode,
 					titleModel: this.titleModel,
+					chatExecutionType: this.chatExecutionType,
+					chatTemporaryDefault: this.chatTemporaryDefault,
 				} satisfies PersistedPreferences),
 			);
 		} catch {

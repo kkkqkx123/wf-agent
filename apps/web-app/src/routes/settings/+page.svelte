@@ -15,6 +15,8 @@
 	import {
 		preferences,
 		type AutoTitleMode,
+		type ChatExecutionPreference,
+		type ChatTemporaryPreference,
 		type Density,
 		type ThemeMode,
 	} from '#lib/stores/preferences.svelte';
@@ -114,6 +116,18 @@
 		{ value: 'off', label: message('page.settings.autoTitleOff') },
 		{ value: 'truncate', label: message('page.settings.autoTitleTruncate') },
 		{ value: 'llm', label: message('page.settings.autoTitleLlm') },
+	];
+
+	const CHAT_EXECUTION_OPTIONS = [
+		{ value: 'agent', label: message('page.settings.chatExecutionAgent') },
+		{ value: 'workflow', label: message('page.settings.chatExecutionWorkflow') },
+		{ value: 'chat', label: message('page.settings.chatExecutionChat') },
+	];
+
+	const CHAT_TEMPORARY_OPTIONS = [
+		{ value: 'full', label: message('page.settings.chatModeFull') },
+		{ value: 'restricted', label: message('page.settings.chatModeTemporary') },
+		{ value: 'ephemeral', label: message('page.settings.chatModeReadOnly') },
 	];
 
 	const toolBudgetsHint = $derived(
@@ -222,6 +236,8 @@
 				minimapMode: preferences.minimapMode,
 				toolOutputPreviews: preferences.toolOutputPreviews,
 				toolOutputDetail: preferences.toolOutputDetail,
+				chatExecutionType: preferences.chatExecutionType,
+				chatTemporaryDefault: preferences.chatTemporaryDefault,
 			},
 			shortcuts: shortcutOverrides(),
 			behavior: {
@@ -657,6 +673,29 @@
 							<p class="mt-2 text-caption text-muted-foreground">
 								{t('page.settings.titleModelDesc')}
 							</p>
+						</div>
+					</Card>
+					<Card
+						title={t('page.settings.chatDefaults')}
+						description={t('page.settings.chatDefaultsDesc')}
+					>
+						<Select
+							value={preferences.chatExecutionType}
+							options={CHAT_EXECUTION_OPTIONS}
+							placeholder={t('page.settings.chatExecutionType')}
+							class="w-56"
+							onchange={(value) =>
+								preferences.setChatExecutionType(value as ChatExecutionPreference)}
+						/>
+						<div class="mt-3">
+							<Select
+								value={preferences.chatTemporaryDefault}
+								options={CHAT_TEMPORARY_OPTIONS}
+								placeholder={t('page.settings.chatTemporaryMode')}
+								class="w-56"
+								onchange={(value) =>
+									preferences.setChatTemporaryDefault(value as ChatTemporaryPreference)}
+							/>
 						</div>
 					</Card>
 					<Card

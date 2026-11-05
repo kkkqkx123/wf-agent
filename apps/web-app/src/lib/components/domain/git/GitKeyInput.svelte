@@ -71,7 +71,7 @@
 		</p>
 	{/if}
 	{#if workbench.tokenResult.kind === 'action'}
-		<p class="mt-1 text-caption">
+		<p class="mt-1 font-mono text-micro text-muted-foreground">
 			{t('domain.git.willRun')}
 			<span class="font-mono">{workbench.tokenResult.action}</span>
 			{#if workbench.tokenResult.danger !== 'readonly' && workbench.tokenResult.danger !== 'recoverable'}

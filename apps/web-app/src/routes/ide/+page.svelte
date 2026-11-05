@@ -495,10 +495,7 @@
 		/>
 	</div>
 	<div class="min-h-0 flex-1 {ide.sidebarView === 'tree' ? '' : 'hidden'}">
-		<FileTree
-			onFocusSearch={() => focusSearch('files')}
-			onViewDiff={(path) => void openDiffDialog(path)}
-		/>
+		<FileTree onViewDiff={(path) => void openDiffDialog(path)} />
 	</div>
 	<div class="min-h-0 flex-1 {ide.sidebarView === 'search' ? '' : 'hidden'}">
 		<IdeSearchPanel />

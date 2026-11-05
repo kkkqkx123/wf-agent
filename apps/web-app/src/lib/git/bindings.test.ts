@@ -50,6 +50,9 @@ describe('git bindings', () => {
 		const toggle = findBinding('stage.toggle');
 		expect(toggle?.nonPrintable).toBe(true);
 		expect(toggle?.legacyKey).toBe('<space>');
+		const checkout = findBinding('branch.checkout');
+		expect(checkout?.nonPrintable).toBe(true);
+		expect(checkout?.legacyKey).toBe('<space>');
 		const enter = findBinding('submodule.enter');
 		expect(enter?.nonPrintable).toBe(true);
 		expect(enter?.legacyKey).toBe('<enter>');

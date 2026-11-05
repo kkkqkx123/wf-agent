@@ -30,7 +30,7 @@
 	description={t('domain.git.actionDescription')}
 >
 	{#if workbench.dialogAction}
-		<p class="mb-2 font-mono text-caption">{workbench.dialogAction}</p>
+		<p class="mb-2 font-mono text-micro">{workbench.dialogAction}</p>
 		{#each workbench.dialogParams as param (param)}
 			<Input
 				label={PARAM_LABELS[param] ?? param}
@@ -101,7 +101,7 @@
 					workbench.helpOpen = false;
 					void workbench.runActionId(binding.id);
 				}}
-				class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-caption hover:bg-accent/50"
+				class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-micro hover:bg-accent/50"
 			>
 				<span
 					>{binding.name}

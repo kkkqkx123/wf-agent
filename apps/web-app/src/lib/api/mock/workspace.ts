@@ -7,6 +7,14 @@
  * terminal (`ls`, `cat`) and in the git status / diff fixtures — which is
  * what makes the preview able to exercise cross-panel UI/UX flows.
  *
+ * The tree below is intentionally representative of a real checkout:
+ * nested app / crates / docs / assets / configs / scripts areas, several
+ * languages (ts, svelte, rs, md, json, yaml, toml, sh, py, sql, css),
+ * a binary asset, a large truncated file, an empty directory, and a set
+ * of generated samples. That gives the file tree, quick-open, content
+ * search, editor, terminal and history panels enough shape to verify
+ * UI/UX in preview mode without a backend.
+ *
  * Conflict simulation: files listed in `conflictPaths` report a rotating
  * hash on every read, so a normal save (which sends `expected_hash`)
  * always fails with a conflict error and the "Overwrite" flow can be
@@ -18,27 +26,188 @@ const INITIAL_DIRS: string[] = [
 	'apps',
 	'apps/web-app',
 	'apps/web-app/src',
+	'apps/web-app/src/routes',
+	'apps/web-app/src/routes/ide',
+	'apps/web-app/src/routes/git',
+	'apps/web-app/src/routes/checkpoints',
+	'apps/web-app/src/lib',
+	'apps/web-app/src/lib/components',
+	'apps/web-app/src/lib/components/domain',
+	'apps/web-app/src/lib/components/domain/ide',
+	'apps/web-app/src/lib/stores',
+	'apps/web-app/src/lib/services',
+	'apps/web-app/src/lib/utils',
+	'crates',
+	'crates/app',
+	'crates/app/wf-api',
+	'crates/app/wf-api/src',
+	'crates/app/wf-api/src/git',
+	'crates/app/wf-server',
+	'crates/app/wf-server/src',
+	'crates/app/wf-server/src/api',
+	'crates/app/wf-server/src/api/git',
+	'crates/foundation',
+	'crates/foundation/wf-core',
+	'crates/foundation/wf-core/src',
 	'docs',
 	'docs/plan',
-	'crates',
+	'docs/plan/user-git',
+	'docs/plan/ide',
 	'src',
+	'assets',
+	'assets/icons',
+	'scripts',
+	'configs',
+	'pytools',
+	'queries',
+	'scratch',
+	'scratch/samples',
+	// Empty directory on purpose: exercises the empty tree / drop-target UX.
+	'scratch/empty',
 ];
 
 const INITIAL_FILES: Record<string, string> = {
 	'README.md':
-		'# wf-agent (preview)\n\nRead-only preview of the workspace filesystem.\nEdit freely — changes are visible to the IDE, the terminal and the git fixtures.\n',
-	'apps/web-app/package.json': '{\n  "name": "@wf-agent/web-app-frontend"\n}\n',
-	'apps/web-app/src/main.ts': '// preview entry\nconsole.log("preview workspace");\n',
+		'# wf-agent (preview)\n\nPreview workspace for IDE UI/UX checks.\nEdit freely — changes are visible to the IDE, the terminal and the git fixtures.\n\n' +
+		'- `apps/web-app` — frontend routes, stores and services\n' +
+		'- `crates` — Rust workspace (app / foundation layers)\n' +
+		'- `docs` — plans and architecture notes\n' +
+		'- `scratch/samples` — many small files for tree scrolling and search\n' +
+		'- `src/big.ts` — large truncated file demo\n' +
+		'- `assets/logo.png` — binary file demo\n' +
+		'- `scratch/empty` — empty directory demo\n',
+	'Cargo.toml':
+		'[workspace]\nresolver = "2"\nmembers = ["crates/app/wf-api", "crates/app/wf-server", "crates/foundation/wf-core"]\n\n# preview manifest for the IDE tree demo\n',
+	'.gitignore': 'target/\nnode_modules/\ndist/\n*.local\n.preview-cache/\n',
+	'.editorconfig': 'root = true\n\n[*]\ncharset = utf-8\nend_of_line = lf\nindent_size = 2\n',
+	'apps/web-app/package.json':
+		'{\n  "name": "@wf-agent/web-app-frontend",\n  "private": true,\n  "scripts": {\n    "dev:preview": "vite dev --mode preview",\n    "check:preview": "svelte-check --tsconfig ./tsconfig.preview.json"\n  }\n}\n',
+	'apps/web-app/svelte.config.js':
+		"// preview svelte config\n// TODO: verify HMR stays fast with the preview workspace mounted.\nexport const config = { preview: true };\n",
+	'apps/web-app/src/main.ts':
+		'// preview entry — open this file to check tabs, dirty dot and save.\n// The preview workspace shares state with the terminal: try `cat apps/web-app/src/main.ts`.\nconsole.log("preview workspace");\n\nexport const previewRoot = "/preview/wf-agent";\n',
+	'apps/web-app/src/app.css':
+		'/* preview stylesheet — check the CSS language label in the editor status bar */\n.preview-shell {\n  background: var(--card);\n  color: var(--foreground);\n}\n',
+	'apps/web-app/src/routes/ide/+page.svelte':
+		'<!-- preview IDE route — search "page" in quick-open to find the three routes -->\n<script lang="ts">\n  // TODO: confirm the responsive sidebar overlay on narrow viewports.\n  const previewHint = "ide tree + editor + terminal";\n</script>\n\n<main>{previewHint}</main>\n',
+	'apps/web-app/src/routes/git/+page.svelte':
+		'<!-- preview git route — has an unstaged git badge and a workspace diff -->\n<script lang="ts">\n  // git workbench preview: staged, unstaged and conflicted rows drive the tree badges.\n  const previewBranch = "main";\n</script>\n\n<main>git workbench ({previewBranch})</main>\n',
+	'apps/web-app/src/routes/checkpoints/+page.svelte':
+		'<!-- third route so the routes folder shows multiple children -->\n<script lang="ts">\n  const previewTitle = "checkpoints";\n</script>\n\n<main>{previewTitle}</main>\n',
+	'apps/web-app/src/lib/stores/ide.svelte.ts':
+		'// preview IDE store — open with content search for "IdeStore".\n// TODO: verify tab eviction with many open files.\nexport interface IdePreviewTab {\n  path: string;\n  preview: boolean;\n}\n\nexport const IDE_PREVIEW_LIMIT = 20;\n',
+	'apps/web-app/src/lib/services/fs.ts':
+		'// preview fs service — search "workspace" to see this file grouped with others.\nexport function languageForPreview(path: string): string {\n  if (path.endsWith(".svelte")) return "svelte";\n  return "plaintext";\n}\n',
+	'apps/web-app/src/lib/services/git.ts':
+		'// preview git service — badges in the file tree derive from git status.\n// Try editing this file, then check the history panel changes section.\nexport const PREVIEW_GIT_ROOT = "/preview/wf-agent";\n',
+	'apps/web-app/src/lib/utils/ide-url.ts':
+		'// preview ide-url helper — quick-open "ide-u" should rank this first.\nexport function buildPreviewIdeUrl(path: string): string {\n  return `/ide?path=${encodeURIComponent(path)}`;\n}\n',
+	'apps/web-app/src/lib/utils/mentions.ts':
+		'// preview mentions helper — quick-open "men" should find this file.\nexport function parsePreviewMention(text: string): string | null {\n  return text.startsWith("@") ? text : null;\n}\n',
+	'apps/web-app/src/lib/components/domain/ide/FileTree.svelte':
+		'<!-- deep nesting demo: components/domain/ide/FileTree.svelte -->\n<script lang="ts">\n  // Hover a row to reveal row actions; right-click for the context menu.\n  const previewRowHeight = 28;\n</script>\n\n<div>file tree ({previewRowHeight}px rows)</div>\n',
+	'apps/web-app/src/lib/components/domain/ide/FileEditor.svelte':
+		'<!-- deep nesting demo: components/domain/ide/FileEditor.svelte -->\n<script lang="ts">\n  // Dirty tabs show a dot; the status bar shows language + cursor.\n  const previewLanguages = ["typescript", "svelte", "rust", "markdown"];\n</script>\n\n<div>file editor</div>\n',
+	'crates/README.md': '# crates\n\nFoundation / infra / engine / app layers.\n\nPreview: open a `.rs` file to check the Rust language label.\n',
+	'crates/app/wf-api/src/lib.rs':
+		'//! preview api facade\n//!\n//! Search "flattenTree" to jump between the Rust and TypeScript sides.\npub mod git;\n\npublic fn preview_name() -> &\'static str {\n    "wf-api-preview"\n}\n',
+	'crates/app/wf-api/src/git/queries.rs':
+		'//! preview git queries (staged modification demo)\n//!\n//! Edit this file in the IDE and watch the history panel changes grow.\nuse crate::preview::Workspace;\n\npub fn staged_query_count() -> usize {\n    2 // TODO: cover pagination in preview\n}\n',
+	'crates/app/wf-server/src/main.rs':
+		'// preview server entry\n// The preview never talks to this binary; it only feeds the tree/search demo.\nfn main() {\n    println!("preview wf-server");\n}\n',
+	'crates/app/wf-server/src/api/git/readonly.rs':
+		'//! preview read-only git api (staged addition demo)\nuse crate::preview::Workspace;\n\npub fn readonly_paths() -> Vec<&\'static str> {\n    vec!["apps/web-app/src/routes/git/+page.svelte", "src/big.ts"]\n}\n',
+	'crates/foundation/wf-core/src/lib.rs':
+		'//! preview core library\n//!\n//! Small Rust file for language + gutter-mark checks.\npub fn preview_version() -> &\'static str {\n    "1.0.0-preview"\n}\n',
+	'crates/foundation/wf-core/src/exec.rs':
+		'//! preview exec engine\n// TODO: surface cancellation state in the IDE status bar.\npub enum PreviewStep {\n    Read,\n    Write,\n}\n',
+	'docs/architecture.md':
+		'# Architecture (preview)\n\nFour layers: foundation / infra / engine / app.\nThe preview workspace mirrors that shape so the tree reads like the real repo.\n\nSearch "workspace" to see cross-layer hits grouped by file.\n',
 	'docs/plan/lightweight-ide-design.md':
-		'# Lightweight IDE (preview)\n\nFile editing in preview is mocked against the shared workspace state.\n',
-	'crates/README.md': '# crates\n\nFoundation / infra / engine / app layers.\n',
+		'# Lightweight IDE (preview)\n\nFile editing in preview is mocked against the shared workspace state.\nOpen `docs/plan/ide/preview-checklist.md` for the UI/UX walkthrough.\n',
+	'docs/plan/user-git/05-progress.md':
+		'# User git progress (preview, untracked)\n\nThis file is untracked on purpose so the tree shows an untracked badge.\n\n- [ ] verify empty directory UX in `scratch/empty`\n- [ ] TODO: confirm binary view for `assets/logo.png`\n- [ ] TODO: confirm truncated banner for `src/big.ts`\n',
+	'docs/plan/ide/preview-checklist.md':
+		'# IDE preview checklist\n\nWalk the UI/UX without a backend:\n\n1. Tree: expand `apps`, `crates`, `scratch/samples`; check badges and hover actions.\n2. Quick-open: search `sample`, `ide`, `page`.\n3. Content search: search `preview`, `TODO`, `workspace`; try scope `scratch/samples` and include `*.ts`.\n4. Editor: open `src/big.ts` (truncated), `assets/logo.png` (binary), `src/conflicted.ts` (conflict).\n5. History: changes + commits + diff dialog.\n6. Terminal: `ls`, `ls scratch/samples`, `cat README.md`.\n',
 	'src/conflict-demo.ts':
 		'// Save this file to trigger the conflict flow, then use Overwrite.\nexport const demo = true;\n',
+	'src/conflicted.ts':
+		'// preview conflicted file — matches the git conflicted badge + diff fixture.\n<<<<<<< HEAD\n// TODO: keep the preview toolbar pinned while resolving.\nexport const ours = 1;\n=======\nexport const theirs = 2;\n>>>>>>> preview/demo\n',
+	'assets/logo.png': 'PNG preview placeholder — binary demo (editor shows the binary view).\n',
+	'assets/icons/file.svg':
+		'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><!-- preview file icon --><rect width="16" height="16" /></svg>\n',
+	'assets/icons/folder.svg':
+		'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><!-- preview folder icon --><rect width="16" height="16" /></svg>\n',
+	'configs/preview.yaml':
+		'# preview config — checks the YAML language label\nworkspace: /preview/wf-agent\ntheme: preview\nfeatures:\n  - tree\n  - search\n  - terminal\n',
+	'configs/app.json':
+		'{\n  "workspace": "/preview/wf-agent",\n  "preview": true,\n  "limits": { "tabs": 20, "search": 100 }\n}\n',
+	'scripts/preview.sh':
+		'#!/bin/sh\n# preview helper — `cat scripts/preview.sh` in the terminal should match the editor.\n# TODO: add a preview smoke check for the empty directory.\necho "preview workspace: $PWD"\nls scratch/samples | head -5\n',
+	'scripts/check-preview.mjs':
+		'// preview node script — JavaScript language demo\n// Search "preview" groups this with the shell and python helpers.\nconsole.log("preview check: tree + search + terminal");\n',
+	'pytools/analyze.py':
+	'# preview python helper — Python language demo\n# TODO: report preview search hit counts per directory.\ndef preview_summary(workspace):\n    return f"preview workspace: {workspace}"\n',
+	'queries/report.sql':
+		'-- preview sql — SQL language demo\n-- Search "workspace" to group this with the yaml/json configs.\nSELECT path, COUNT(*) AS preview_hits FROM workspace_files GROUP BY path;\n',
+	'scratch/README.md':
+		'# scratch (preview)\n\n`scratch/samples` holds twenty small files for scrolling, quick-open and\ncontent-search grouping. `scratch/empty` is intentionally empty to demo\nthe empty tree state and file drop targets.\n',
 };
+
+// Generated demo files below keep the curated map above readable while giving
+// the tree, quick-open and content search enough volume for UI/UX checks.
+for (let i = 1; i <= 20; i += 1) {
+	const n = String(i).padStart(2, '0');
+	const todo = i % 4 === 0 ? '\n// TODO: polish preview sample ' + n : '';
+	const gitLine =
+		i % 5 === 0 ? '\n// git preview: sample tracks workspace status like a worktree file.' : '';
+	INITIAL_FILES[`scratch/samples/sample-${n}.ts`] =
+		`// preview workspace sample ${n} — quick-open "sample" lists all twenty.\n` +
+		`// content search "preview" groups these hits by file for pagination checks.${todo}${gitLine}\n` +
+		`export const sample${n} = "${n}";\n` +
+		`export const samplePreview${n} = "preview workspace ${n}";\n`;
+}
+
+// Large file: exercises the truncated banner, read-only Monaco state and
+// long-file scrolling. Every fifth row mentions preview so content search
+// for "preview" reliably overflows the default limit and shows load-more.
+{
+	const lines: string[] = [
+		'// src/big.ts — large truncated file demo (read-only banner in the editor).',
+		'// Open this file to verify the truncated notice and the git unstaged badge.',
+	];
+	for (let i = 1; i <= 350; i += 1) {
+		if (i % 5 === 0) {
+			lines.push(`// preview workspace marker ${i} — keeps content search pagination honest.`);
+		} else {
+			lines.push(`export const bigRow${i} = ${i};`);
+		}
+	}
+	INITIAL_FILES['src/big.ts'] = `${lines.join('\n')}\n`;
+}
 
 const CONFLICT_PATHS = new Set(['src/conflict-demo.ts']);
 
 const FIXED_MTIME = 1_700_000_000_000;
+
+/** Extensions served as binary in preview (editor binary view + git binary diff). */
+const BINARY_EXTS = [
+	'.png',
+	'.jpg',
+	'.jpeg',
+	'.gif',
+	'.ico',
+	'.pdf',
+	'.woff',
+	'.woff2',
+	'.zip',
+	'.bin',
+];
+
+/** Paths that always preview as truncated, plus a size fallback below. */
+const ALWAYS_TRUNCATED = new Set(['src/big.ts']);
+const TRUNCATED_SIZE_THRESHOLD = 8000;
+const TRUNCATED_LINE_LIMIT = 200;
 
 /** Mutable set of directory paths ('' is the workspace root). */
 const DIRS = new Set<string>(INITIAL_DIRS);
@@ -69,6 +238,13 @@ function ensureDirs(path: string): void {
 	}
 }
 
+// Defensive: every initial file implies its ancestor directories, so the
+// tree can never silently drop a folder when the curated lists drift.
+for (const path of Object.keys(INITIAL_FILES)) {
+	const slash = path.lastIndexOf('/');
+	if (slash > 0) ensureDirs(path.slice(0, slash));
+}
+
 export function hasConflictSimulation(path: string): boolean {
 	return CONFLICT_PATHS.has(path);
 }
@@ -76,6 +252,53 @@ export function hasConflictSimulation(path: string): boolean {
 /** Snapshot of all live file paths with their current content. */
 export function allFiles(): Map<string, string> {
 	return FILES;
+}
+
+/** Binary preview is extension-based so images and fonts hit the binary UX. */
+export function isBinaryPath(path: string): boolean {
+	const lower = path.toLowerCase();
+	return BINARY_EXTS.some((ext) => lower.endsWith(ext));
+}
+
+function isTruncatedPath(path: string, size: number): boolean {
+	return ALWAYS_TRUNCATED.has(path) || size > TRUNCATED_SIZE_THRESHOLD;
+}
+
+/** First N lines of a large file, matching the truncated editor contract. */
+function truncateLines(content: string): string {
+	const lines = content.split('\n');
+	if (lines.length <= TRUNCATED_LINE_LIMIT) return content;
+	return `${lines.slice(0, TRUNCATED_LINE_LIMIT).join('\n')}\n… (truncated preview of ${lines.length} lines)\n`;
+}
+
+export interface FileView {
+	content: string;
+	size: number;
+	truncated: boolean;
+	isBinary: boolean;
+	hash: string;
+}
+
+/** Editor-facing view of one file: binary flag, truncation and hash. */
+export function fileView(path: string): FileView {
+	const key = path.replace(/\/+$/, '');
+	const raw = FILES.get(key);
+	const content = raw ?? `# Preview file: ${key}\n\nMock content for the IDE preview.\n`;
+	const size = raw !== undefined ? raw.length : content.length;
+	const isBinary = isBinaryPath(key);
+	if (isBinary) {
+		return { content, size, truncated: false, isBinary: true, hash: hashFor(key) };
+	}
+	if (isTruncatedPath(key, size)) {
+		return {
+			content: truncateLines(content),
+			size,
+			truncated: true,
+			isBinary: false,
+			hash: hashFor(key),
+		};
+	}
+	return { content, size, truncated: false, isBinary: false, hash: hashFor(key) };
 }
 
 export function hashFor(path: string): string {
@@ -171,7 +394,7 @@ export function statPath(path: string): {
 			is_dir: false,
 			size: content.length,
 			modified_ms: FIXED_MTIME,
-			is_binary: false,
+			is_binary: isBinaryPath(key) ? true : false,
 			hash: hashFor(key),
 		};
 	}
@@ -341,6 +564,17 @@ function diffAgainstBaseline(path: string): WorkspaceGitDiff | null {
 	const current = FILES.get(path);
 	const before = BASELINE.get(path);
 	if (current === before) return null;
+	if (isBinaryPath(path)) {
+		return {
+			path,
+			kind: 'modified',
+			hunks: [],
+			additions: 0,
+			deletions: 0,
+			binary: true,
+			truncated: false,
+		};
+	}
 	const kind = before === undefined ? 'added' : 'modified';
 	const beforeLines = (before ?? '').split('\n');
 	const afterLines = (current ?? '').split('\n');

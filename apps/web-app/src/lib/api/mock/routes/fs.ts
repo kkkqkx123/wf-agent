@@ -5,11 +5,10 @@ import {
 	allFiles,
 	copyPath,
 	createEntry,
+	fileView,
 	flattenTree,
-	hashFor,
 	listDir,
 	movePath,
-	readFile,
 	removePath,
 	statPath,
 	storeUpload,
@@ -27,6 +26,65 @@ export function mockError(status: number, code: string, message: string): MockRo
 	return { __mockError: true, status, code, message } as unknown as MockRouteError;
 }
 
+function mimeFor(path: string): string {
+	const lower = path.toLowerCase();
+	if (lower.endsWith('.json') || lower.endsWith('.jsonc')) return 'application/json';
+	if (lower.endsWith('.md') || lower.endsWith('.markdown')) return 'text/markdown';
+	if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'text/html';
+	if (lower.endsWith('.css')) return 'text/css';
+	if (lower.endsWith('.js') || lower.endsWith('.mjs') || lower.endsWith('.cjs'))
+		return 'text/javascript';
+	if (lower.endsWith('.svg')) return 'image/svg+xml';
+	if (lower.endsWith('.png')) return 'image/png';
+	if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+	if (lower.endsWith('.gif')) return 'image/gif';
+	if (lower.endsWith('.ico')) return 'image/x-icon';
+	if (lower.endsWith('.pdf')) return 'application/pdf';
+	return 'text/plain';
+}
+
+function asBool(value: unknown): boolean {
+	if (typeof value === 'boolean') return value;
+	if (typeof value === 'number') return value !== 0;
+	if (typeof value === 'string') {
+		const lower = value.trim().toLowerCase();
+		return lower === 'true' || lower === '1' || lower === 'yes';
+	}
+	return false;
+}
+
+function asInt(value: unknown, fallback: number): number {
+	const n = typeof value === 'number' ? value : Number(value);
+	return Number.isFinite(n) ? Math.floor(n) : fallback;
+}
+
+/** Match a workspace path against a comma/space separated `include` glob. */
+function matchesInclude(path: string, include: string): boolean {
+	const raw = include.trim();
+	if (!raw) return true;
+	const lowerPath = path.toLowerCase();
+	for (const part of raw.split(/[,;\s]+/).filter(Boolean)) {
+		const token = part.trim().toLowerCase();
+		if (!token) continue;
+		if (!token.includes('*')) {
+			if (lowerPath.endsWith(token) || lowerPath.includes(token)) return true;
+			continue;
+		}
+		const regex = new RegExp(
+			`^${token.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`,
+		);
+		if (regex.test(lowerPath) || regex.test(lowerPath.split('/').pop() ?? '')) return true;
+	}
+	return false;
+}
+
+/** File is inside `scope` (prefix dir) or the scope itself. */
+function inScope(path: string, scope: string): boolean {
+	const clean = scope.trim().replace(/\/+$/, '');
+	if (!clean) return true;
+	return path === clean || path.startsWith(`${clean}/`);
+}
+
 export function registerFs(router: MockRouter): void {
 	router.on('GET', '/api/v1/fs/list', (_p, query) => listDir(String(query.path ?? '')));
 	router.on('GET', '/api/v1/fs/tree', (_p, query) => {
@@ -38,17 +96,28 @@ export function registerFs(router: MockRouter): void {
 		return flattenTree(base, limit);
 	});
 	router.on('GET', '/api/v1/fs/stat', (_p, query) => statPath(String(query.path ?? '')));
-	router.on('GET', '/api/v1/fs/search', (_p, query) => searchWorkspace(String(query.query ?? '')));
+	router.on('GET', '/api/v1/fs/search', (_p, query) =>
+		searchWorkspace({
+			query: String(query.query ?? ''),
+			scope: String(query.path ?? ''),
+			include: String(query.include ?? ''),
+			caseSensitive: asBool(query.case_sensitive),
+			regex: asBool(query.regex),
+			wholeWord: asBool(query.whole_word),
+			offset: asInt(query.offset, 0),
+			limit: asInt(query.limit, 100),
+		}),
+	);
 	router.on('GET', '/api/v1/fs/content', (_p, query) => {
 		const path = String(query.path ?? 'README.md');
-		const content = readFile(path);
+		const view = fileView(path);
 		return {
 			path,
-			content,
-			size: content.length,
-			truncated: false,
-			is_binary: false,
-			hash: hashFor(path),
+			content: view.content,
+			size: view.size,
+			truncated: view.truncated,
+			is_binary: view.isBinary,
+			hash: view.hash,
 		};
 	});
 	router.on('PUT', '/api/v1/fs/content', (_p, query, body) => {
@@ -58,12 +127,13 @@ export function registerFs(router: MockRouter): void {
 		if (!result.ok) {
 			return mockError(409, 'CONFLICT', result.message);
 		}
+		const view = fileView(result.path);
 		return {
 			path: result.path,
 			content: result.content,
 			size: result.content.length,
-			truncated: false,
-			is_binary: false,
+			truncated: view.truncated,
+			is_binary: view.isBinary,
 			hash: result.hash,
 		};
 	});
@@ -89,22 +159,17 @@ export function registerFs(router: MockRouter): void {
 	});
 	router.on('GET', '/api/v1/fs/raw', (_p, query) => {
 		const path = String(query.path ?? '');
-		const content = readFile(path);
+		const view = fileView(path);
 		const encoded =
 			typeof btoa === 'function'
-				? btoa(String.fromCharCode(...new TextEncoder().encode(content)))
-				: Buffer.from(content, 'utf8').toString('base64');
+				? btoa(String.fromCharCode(...new TextEncoder().encode(view.content)))
+				: Buffer.from(view.content, 'utf8').toString('base64');
 		const filename = path.split('/').pop() ?? path;
-		const mime = path.endsWith('.json')
-			? 'application/json'
-			: path.endsWith('.md')
-				? 'text/markdown'
-				: 'text/plain';
 		return {
 			path,
 			filename,
-			mime,
-			size: content.length,
+			mime: mimeFor(path),
+			size: view.size,
 			content_base64: encoded,
 		};
 	});
@@ -123,22 +188,102 @@ export function registerFs(router: MockRouter): void {
 	});
 }
 
-/** Whole-workspace content search over the live in-memory files. */
-function searchWorkspace(q: string): {
+export interface ContentSearchOptions {
+	query: string;
+	scope: string;
+	include: string;
+	caseSensitive: boolean;
+	regex: boolean;
+	wholeWord: boolean;
+	offset: number;
+	limit: number;
+}
+
+function escapeRegExp(text: string): string {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Build the line matcher for literal / regex / whole-word searches. */
+function buildMatcher(
+	query: string,
+	caseSensitive: boolean,
+	regex: boolean,
+	wholeWord: boolean,
+): ((line: string) => number) | null {
+	const needle = query.trim();
+	if (!needle) return null;
+	if (regex) {
+		try {
+			const flags = caseSensitive ? 'g' : 'gi';
+			const pattern = wholeWord ? `\\b(?:${needle})\\b` : needle;
+			const re = new RegExp(pattern, flags);
+			return (line: string) => {
+				re.lastIndex = 0;
+				const hit = re.exec(line);
+				return hit ? hit.index : -1;
+			};
+		} catch {
+			return null;
+		}
+	}
+	if (wholeWord) {
+		try {
+			const re = new RegExp(`\\b${escapeRegExp(needle)}\\b`, caseSensitive ? 'g' : 'gi');
+			return (line: string) => {
+				re.lastIndex = 0;
+				const hit = re.exec(line);
+				return hit ? hit.index : -1;
+			};
+		} catch {
+			return null;
+		}
+	}
+	if (caseSensitive) {
+		return (line: string) => line.indexOf(needle);
+	}
+	const lower = needle.toLowerCase();
+	return (line: string) => line.toLowerCase().indexOf(lower);
+}
+
+/**
+ * Whole-workspace content search over the live in-memory files.
+ *
+ * Mirrors the service options (scope path, include globs, case/regex/word
+ * flags and offset/limit pagination) so the content-search tab, its
+ * grouping and its load-more flow render like the backend in preview.
+ */
+function searchWorkspace(options: ContentSearchOptions): {
 	matches: Array<{ path: string; line: number; column: number | null; preview: string }>;
 	truncated: boolean;
 } {
-	const needle = q.trim().toLowerCase();
-	const matches: Array<{ path: string; line: number; column: number | null; preview: string }> = [];
-	if (!needle) return { matches, truncated: false };
+	const matcher = buildMatcher(
+		options.query,
+		options.caseSensitive,
+		options.regex,
+		options.wholeWord,
+	);
+	if (!matcher) return { matches: [], truncated: false };
+	const offset = Math.max(0, options.offset);
+	const limit = Math.min(500, Math.max(1, options.limit));
+	const matches: Array<{ path: string; line: number; column: number | null; preview: string }> =
+		[];
 	for (const [path, content] of allFiles()) {
+		if (!inScope(path, options.scope)) continue;
+		if (!matchesInclude(path, options.include)) continue;
 		const lines = content.split('\n');
 		for (let i = 0; i < lines.length; i += 1) {
-			const col = (lines[i] ?? '').toLowerCase().indexOf(needle);
+			let col: number;
+			try {
+				col = matcher(lines[i] ?? '');
+			} catch {
+				continue;
+			}
 			if (col >= 0) {
 				matches.push({ path, line: i + 1, column: col + 1, preview: lines[i] ?? '' });
 			}
 		}
 	}
-	return { matches, truncated: false };
+	matches.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line);
+	const window = matches.slice(offset, offset + limit);
+	return { matches: window, truncated: offset + window.length < matches.length };
 }

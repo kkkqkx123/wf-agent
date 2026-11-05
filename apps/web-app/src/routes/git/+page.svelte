@@ -224,4 +224,26 @@
 			height: min(50vh, 480px);
 		}
 	}
+
+	/* Dense git workspace: single mono-micro baseline (lazygit-like).
+	   Explanatory text, small controls and row rhythm converge here so the
+	   board and main view share one grid; PageHeader keeps the app scale. */
+	#git-panel :global(.text-caption) {
+		font-size: var(--text-micro);
+		font-family: var(--font-mono);
+	}
+	#git-panel :global(:is(button.h-7, input.h-7)) {
+		height: 1.5rem;
+		font-size: var(--text-micro);
+	}
+	#git-panel :global(button.h-7) {
+		padding-inline: 0.5rem;
+	}
+	#git-panel :global(:is([data-board-row], [data-stage-row])) {
+		line-height: 1.25rem;
+	}
+	#git-panel :global(label) {
+		font-size: var(--text-micro);
+		font-family: var(--font-mono);
+	}
 </style>

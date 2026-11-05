@@ -133,6 +133,7 @@
 	{#if modeItems.length > 1}
 		<div class="mb-2">
 			<Segmented
+				size="sm"
 				items={modeItems}
 				value={workbench.viewMode}
 				onchange={(id) => workbench.setViewMode(id as MainViewMode)}
@@ -163,7 +164,7 @@
 								type="button"
 								onclick={() => void workbench.selectFile(conflict.path, false)}
 								title={conflict.path}
-								class="min-w-0 flex-1 truncate px-1 py-0.5 text-left font-mono text-caption font-semibold text-destructive hover:bg-accent/50"
+								class="min-w-0 flex-1 truncate px-1 py-0.5 text-left font-mono text-micro font-semibold text-destructive hover:bg-accent/50"
 							>
 								{conflict.path}
 							</button>
@@ -294,7 +295,7 @@
 					{t('domain.git.clearSelection')}
 				</Button>
 			</div>
-			<p class="mb-1 text-micro font-semibold text-muted-foreground">
+			<p class="mb-1 font-mono text-micro font-semibold text-muted-foreground">
 				{t('domain.git.unstaged')} · {stagePath}
 			</p>
 			{#if workbench.diff.length === 0}
@@ -435,7 +436,7 @@
 					{/if}
 				{/each}
 			{/if}
-			<p class="mb-1 text-micro font-semibold text-muted-foreground">
+			<p class="mb-1 font-mono text-micro font-semibold text-muted-foreground">
 				{t('domain.git.stagedDiff')} · {stagePath}
 			</p>
 			{#if workbench.stagedDiff.length === 0}
@@ -565,7 +566,7 @@
 		{#if !selectedCommit}
 			<p class="text-caption text-muted-foreground">{t('domain.git.pickCommit')}</p>
 		{:else}
-			<p class="mb-1 text-micro font-semibold text-muted-foreground">
+			<p class="mb-1 font-mono text-micro font-semibold text-muted-foreground">
 				{t('domain.git.commitFilesTitle')}
 			</p>
 			{#if workbench.commitFiles.length === 0}
@@ -582,7 +583,7 @@
 									selectedCommit && void workbench.showCommitFileDiff(selectedCommit, file.path)}
 								class="flex w-full items-center justify-between gap-2 px-1 py-1 text-left hover:bg-accent/50"
 							>
-								<span class="truncate font-mono text-caption">{file.path}</span>
+								<span class="truncate font-mono text-micro">{file.path}</span>
 								<span class="font-mono text-micro text-muted-foreground">{file.status}</span>
 							</button>
 						</li>
@@ -610,7 +611,7 @@
 		{:else if workbench.diff.length === 0}
 			<p class="text-caption text-muted-foreground">{t('domain.git.pickCommitFile')}</p>
 		{:else}
-			<p class="mb-1 text-micro text-muted-foreground">{t('domain.git.commitDiffAll')}</p>
+			<p class="mb-1 font-mono text-micro text-muted-foreground">{t('domain.git.commitDiffAll')}</p>
 			{#each workbench.diff as file (file.path)}
 				<div class="mb-2">
 					<DiffView
@@ -635,7 +636,7 @@
 			<p class="text-caption text-muted-foreground">{t('domain.git.pickFile')}</p>
 		{/if}
 	{:else}
-		<p class="mb-1 text-micro text-muted-foreground">{t('domain.git.unstagedDiff')}</p>
+		<p class="mb-1 font-mono text-micro text-muted-foreground">{t('domain.git.unstagedDiff')}</p>
 		{#each workbench.diff as file (file.path)}
 			<div class="mb-2">
 				{#if file.binary}

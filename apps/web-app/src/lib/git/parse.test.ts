@@ -39,6 +39,12 @@ describe('parseToken', () => {
 		expect(result.action).toBe('stage.toggle');
 	});
 
+	it('resolves space to checkout inside the branches context', () => {
+		const result = parseToken(' ', 'branches');
+		expect(result.kind).toBe('action');
+		expect(result.action).toBe('branch.checkout');
+	});
+
 	it('resolves multi-char aliases such as enter', () => {
 		const result = parseToken('enter', 'submodules');
 		expect(result.kind).toBe('action');

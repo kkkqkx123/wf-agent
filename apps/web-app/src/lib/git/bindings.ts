@@ -19,6 +19,7 @@ type RawBinding = Omit<BindingItem, 'legacyKey' | 'nonPrintable' | 'controlPrior
 
 const SPACE_CONTROLS: Record<string, { legacyKey: string; controlPriority: number }> = {
 	'stage.toggle': { legacyKey: '<space>', controlPriority: 95 },
+	'branch.checkout': { legacyKey: '<space>', controlPriority: 85 },
 	'worktree.switch': { legacyKey: '<space>', controlPriority: 65 },
 	'submodule.enter': { legacyKey: '<enter>', controlPriority: 60 },
 };
@@ -463,7 +464,7 @@ const RAW_BINDINGS: RawBinding[] = [
 	{
 		id: 'branch.checkout',
 		name: 'Checkout',
-		aliases: ['o'],
+		aliases: ['o', ' '],
 		hint: 'o',
 		hidden: false,
 		weight: 85,

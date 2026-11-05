@@ -114,7 +114,7 @@ export function createPageKeyHandler(
 			if (event.key === ' ') {
 				// A focused board row is a plain selection button: native Space
 				// would only re-select it, so run the panel Space binding
-				// (stage.toggle / worktree.switch) instead. Other buttons keep
+				// (stage.toggle / branch.checkout / worktree.switch) instead. Other buttons keep
 				// native activation.
 				if (target?.closest?.('[data-board-row]')) {
 					event.preventDefault();

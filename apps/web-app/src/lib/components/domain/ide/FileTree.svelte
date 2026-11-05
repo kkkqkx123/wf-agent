@@ -18,11 +18,10 @@
 	import type { GitBadgeLevel } from '#lib/utils/git-badges';
 
 	interface Props {
-		onFocusSearch?: () => void;
 		onViewDiff?: (path: string) => void;
 	}
 
-	let { onFocusSearch, onViewDiff }: Props = $props();
+	let { onViewDiff }: Props = $props();
 
 	let filter = $state('');
 	let expanded = new SvelteSet<string>(['']);
@@ -782,13 +781,6 @@
 				aria-label={t('page.ide.filterFiles')}
 			/>
 		</div>
-		<IconButton
-			icon="search"
-			label={t('page.ide.sidebarSearch')}
-			compact
-			variant="ghost"
-			onclick={() => onFocusSearch?.()}
-		/>
 		<IconButton
 			icon="plus"
 			label={t('page.ide.newFile')}

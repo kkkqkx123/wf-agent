@@ -322,10 +322,10 @@
 			onretry={() => void workbench.reload()}
 		>
 			<div class="grid gap-2 xl:h-full xl:grid-cols-3">
-				<div class="min-h-0 xl:col-span-1 xl:overflow-y-auto">
+				<div class="min-h-0 xl:col-span-1 xl:overflow-y-auto xl:py-3">
 					<GitBoard {workbench} />
 				</div>
-				<div class="min-h-0 xl:col-span-2 xl:overflow-y-auto">
+				<div class="min-h-0 xl:col-span-2 xl:overflow-y-auto xl:py-3">
 					<GitMainView {workbench} />
 				</div>
 			</div>

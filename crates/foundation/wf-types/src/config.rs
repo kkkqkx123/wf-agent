@@ -1,6 +1,7 @@
 pub mod config_index;
 pub mod file_checkpoint;
 pub mod file_scope;
+pub mod keyword;
 pub mod limits;
 pub mod llm_auth;
 pub mod metrics;
@@ -14,6 +15,7 @@ pub mod user_git;
 pub use config_index::*;
 pub use file_checkpoint::*;
 pub use file_scope::*;
+pub use keyword::*;
 pub use limits::*;
 pub use llm_auth::*;
 pub use metrics::*;

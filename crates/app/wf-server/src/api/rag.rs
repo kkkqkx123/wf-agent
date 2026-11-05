@@ -86,8 +86,13 @@ pub(crate) async fn handle_rag_stats(
         Ok(handles) => handles,
         Err(e) => return error_response(e),
     };
-    match wf_api::rag::collection_stats(handles.store.as_ref(), &scope.collection, &scope.namespace)
-        .await
+    match wf_api::rag::collection_stats(
+        handles.store.as_ref(),
+        handles.keyword.as_deref(),
+        &scope.collection,
+        &scope.namespace,
+    )
+    .await
     {
         Ok(stats) => ok(stats).into_response(),
         Err(e) => error_response(e),
@@ -144,16 +149,27 @@ pub(crate) async fn handle_rag_diagnose(
     State(state): State<ApiState>,
     Query(query): Query<RagDiagnoseQuery>,
 ) -> impl IntoResponse {
+    let keyword_enabled = state.ctx.keyword_index().is_some()
+        || state
+            .ctx
+            .rag_handles()
+            .is_some_and(|handles| handles.keyword.is_some());
     let mut diagnosis = wf_api::rag::diagnose_no_hits(
         &query.query,
         query.top_k,
         query.filter_fields,
         query.score_threshold,
+        keyword_enabled,
     );
     if let (Some(collection), Some(namespace)) = (query.collection, query.namespace) {
         if let Some(handles) = state.ctx.rag_handles() {
-            if let Ok(stats) =
-                wf_api::rag::collection_stats(handles.store.as_ref(), &collection, &namespace).await
+            if let Ok(stats) = wf_api::rag::collection_stats(
+                handles.store.as_ref(),
+                handles.keyword.as_deref(),
+                &collection,
+                &namespace,
+            )
+            .await
             {
                 diagnosis.likely_causes.push(format!(
                     "namespace '{namespace}' in collection '{collection}' holds {} points",

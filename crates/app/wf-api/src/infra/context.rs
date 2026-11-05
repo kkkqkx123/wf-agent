@@ -119,6 +119,9 @@ pub struct ApiContext {
     /// Shared retrieval backend for read-only RAG management routes.
     /// `None` keeps the routes registered but unavailable.
     rag_handles: Option<crate::rag::RagHandles>,
+    /// Shared keyword index opened by the host runtime. Stored separately
+    /// so hybrid consumers observe it before the vector backend exists.
+    keyword_index: Option<std::sync::Arc<dyn rag_core::KeywordIndex>>,
 }
 
 impl ApiContext {
@@ -142,6 +145,7 @@ impl ApiContext {
             tool_registry: Arc::new(ToolRegistry::new()),
             sandbox: Arc::new(wf_sandbox::SandboxRuntime::new()),
             checkpoint_store: Arc::new(storage.checkpoint.store().clone()),
+            keyword_index: None,
             workflow_executions: ConcurrentRegistry::new(),
             agent_loops,
             user_interaction_handler: Arc::new(tokio::sync::RwLock::new(None)),
@@ -194,6 +198,7 @@ impl ApiContext {
             tool_registry,
             sandbox: Arc::new(wf_sandbox::SandboxRuntime::new()),
             checkpoint_store: Arc::new(storage.checkpoint.store().clone()),
+            keyword_index: None,
             workflow_executions: ConcurrentRegistry::new(),
             agent_loops,
             user_interaction_handler: Arc::new(tokio::sync::RwLock::new(None)),
@@ -346,6 +351,44 @@ impl ApiContext {
     /// The shared retrieval backend, if configured.
     pub fn rag_handles(&self) -> Option<&crate::rag::RagHandles> {
         self.rag_handles.as_ref()
+    }
+
+    /// Inject the shared keyword index built by the host runtime. The
+    /// index is stored separately from the retrieval handles so hybrid
+    /// consumers can observe it before the vector backend exists.
+    pub fn with_keyword_index(
+        mut self,
+        keyword: std::sync::Arc<dyn rag_core::KeywordIndex>,
+    ) -> Self {
+        self.keyword_index = Some(keyword);
+        self
+    }
+
+    /// The shared keyword index, if the host opened one.
+    pub fn keyword_index(&self) -> Option<&std::sync::Arc<dyn rag_core::KeywordIndex>> {
+        self.keyword_index.as_ref()
+    }
+
+    /// Builds workflow retrieval handles from the shared backend once it
+    /// is configured. Returns `None` while the vector backend is missing;
+    /// the keyword side passes through when present.
+    pub fn rag_node_handles(
+        &self,
+        collection: impl Into<String>,
+        namespace: impl Into<String>,
+    ) -> Option<wf_workflow::handler::rag::RagNodeHandles> {
+        let namespace = namespace.into();
+        let handles = self.rag_handles.as_ref()?;
+        let mut node_handles = wf_workflow::handler::rag::RagNodeHandles::new(
+            handles.store.clone(),
+            handles.embedder.clone(),
+            collection,
+            namespace,
+        );
+        if let Some(keyword) = handles.keyword.clone().or_else(|| self.keyword_index.clone()) {
+            node_handles = node_handles.with_keyword(keyword);
+        }
+        Some(node_handles)
     }
 
     pub fn handlers(&self) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {

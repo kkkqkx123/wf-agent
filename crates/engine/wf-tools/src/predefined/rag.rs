@@ -138,10 +138,13 @@ impl RagToolConfig {
 }
 
 /// Generic backend over any vector store and embedding provider.
-/// Hosts own both; this adapter maps hits to tool outputs.
+/// Hosts own both; this adapter maps hits to tool outputs. An attached
+/// keyword index enables hybrid retrieval once the query defaults carry
+/// a nonzero keyword candidate count; without it reads stay purely dense.
 pub struct RagService<S, E> {
     store: Arc<S>,
     embedder: Arc<E>,
+    keyword: Option<Arc<dyn rag_core::KeywordIndex>>,
     query_defaults: rag_core::RagQueryConfig,
 }
 
@@ -151,6 +154,7 @@ impl<S, E> RagService<S, E> {
         Self {
             store,
             embedder,
+            keyword: None,
             query_defaults: rag_core::RagQueryConfig::default(),
         }
     }
@@ -158,6 +162,14 @@ impl<S, E> RagService<S, E> {
     /// Overrides the default read-path shaping; request fields still win.
     pub fn with_query_defaults(mut self, defaults: rag_core::RagQueryConfig) -> Self {
         self.query_defaults = defaults;
+        self
+    }
+
+    /// Attaches the keyword index enabling hybrid retrieval and dual
+    /// writes. Reads stay purely dense until the query defaults carry a
+    /// nonzero keyword candidate count.
+    pub fn with_keyword(mut self, keyword: Arc<dyn rag_core::KeywordIndex>) -> Self {
+        self.keyword = Some(keyword);
         self
     }
 }
@@ -177,16 +189,32 @@ where
         for (key, value) in &query.fields {
             config.fields.insert(key.clone(), value.clone());
         }
-        let hits = rag_core::pipeline::query(
-            self.store.as_ref(),
-            self.embedder.as_ref(),
-            &query.collection,
-            &query.namespace,
-            &query.query,
-            &config,
-        )
-        .await
-        .map_err(|err| ToolError::ExecutionError(err.to_string()))?;
+        let hybrid = config.keyword_candidates > 0 && self.keyword.is_some();
+        let hits = if hybrid {
+            let keyword = self.keyword.as_ref().expect("keyword index present");
+            rag_core::pipeline::query_hybrid(
+                self.store.as_ref(),
+                keyword.as_ref(),
+                self.embedder.as_ref(),
+                &query.collection,
+                &query.namespace,
+                &query.query,
+                &config,
+            )
+            .await
+            .map_err(|err| ToolError::ExecutionError(err.to_string()))?
+        } else {
+            rag_core::pipeline::query(
+                self.store.as_ref(),
+                self.embedder.as_ref(),
+                &query.collection,
+                &query.namespace,
+                &query.query,
+                &config,
+            )
+            .await
+            .map_err(|err| ToolError::ExecutionError(err.to_string()))?
+        };
         Ok(hits
             .into_iter()
             .map(|hit| RagHit {

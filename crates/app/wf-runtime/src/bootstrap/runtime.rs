@@ -63,6 +63,12 @@ pub struct Runtime {
     /// same backend as the runtime storage. Falls back to in-memory when
     /// storage is memory-only or the backend cannot be opened.
     pub(super) checkpoint_store: Arc<wf_storage::backend::StorageBackend>,
+    /// Shared keyword index singleton opened at bootstrap (file-backed
+    /// next to the storage database, in-memory for memory storage).
+    /// `None` only when explicitly disabled. Held through the API
+    /// facade's shared handle so the runtime never depends on the
+    /// retrieval core directly.
+    pub(super) keyword_index: Option<wf_api::rag::SharedKeywordIndex>,
     /// Lazily-created application-facing API context; shared so live execution
     /// handles (pause/resume/cancel) stay valid across calls.
     pub(super) api_ctx: std::sync::OnceLock<std::sync::Arc<wf_api::ApiContext>>,

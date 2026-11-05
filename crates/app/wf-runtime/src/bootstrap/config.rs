@@ -5,6 +5,7 @@ use tracing::warn;
 use wf_config::file_layer::{load_user_file_layer, FileLayerConfig};
 use wf_config::orchestrator::{ConfigOrchestratorBuilder, ConfigOverrides};
 use wf_types::config::file_checkpoint::FileCheckpointConfig;
+use wf_types::config::keyword::KeywordIndexConfig;
 use wf_types::config::limits::LimitsConfig;
 use wf_types::config::metrics::MetricsConfig;
 use wf_types::config::output::OutputConfig;
@@ -163,6 +164,10 @@ pub struct RuntimeConfig {
     /// Resource limits (agent/workflow) resolved from the infrastructure
     /// file layer via `bootstrap_with_source`; defaults otherwise.
     pub limits: LimitsConfig,
+    /// Keyword index configuration. Enabled by default; the database path
+    /// derives from the storage configuration unless set explicitly.
+    /// Environment overrides apply at open time (see `wf_api::rag`).
+    pub keyword: KeywordIndexConfig,
     #[cfg(feature = "plugins")]
     pub plugins: PluginConfig,
 }

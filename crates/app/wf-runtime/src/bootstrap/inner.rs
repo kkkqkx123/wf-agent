@@ -78,8 +78,26 @@ impl Runtime {
         // storage, or a failed open) keeps events in memory only.
         let event_persistence = init_event_persistence(&config.storage).await;
 
+        // Keyword index placement resolves before the storage config moves
+        // into the manager; the blocking open runs after storage init.
+        let keyword_location =
+            wf_api::rag::resolve_keyword_location(&config.storage, &config.keyword);
         let mut storage_manager = StorageManager::new(config.storage);
         storage_manager.initialize().await?;
+
+        // Keyword index singleton: opened on a blocking thread since
+        // SQLite file opens block. An open failure fails bootstrap fast;
+        // only explicit disabling yields an empty slot.
+        let keyword_index = tokio::task::spawn_blocking(move || {
+            wf_api::rag::open_keyword_index(&keyword_location)
+        })
+        .await
+        .map_err(|err| {
+            crate::error::RuntimeError::Config(format!(
+                "Keyword index open task failed: {err}"
+            ))
+        })?
+        .map_err(|err| crate::error::RuntimeError::Config(err.to_string()))?;
 
         // Durable checkpoint store backend: reuse the checkpoint table of the
         // shared storage context so execution checkpoints survive restarts
@@ -480,6 +498,7 @@ impl Runtime {
             plugin_engine,
             event_persistence,
             checkpoint_store,
+            keyword_index,
             api_ctx: std::sync::OnceLock::new(),
             file_checkpoint_manager,
             tool_approval: config.tool_approval.clone(),

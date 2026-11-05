@@ -67,6 +67,11 @@ impl Runtime {
                     ctx = ctx.with_user_git(user_git.clone());
                 }
             }
+            // Attach the shared keyword index so hybrid retrieval
+            // consumers observe the singleton opened at bootstrap.
+            if let Some(keyword) = &self.keyword_index {
+                ctx = ctx.with_keyword_index(keyword.as_arc().clone());
+            }
             std::sync::Arc::new(ctx)
         })
     }

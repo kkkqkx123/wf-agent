@@ -116,7 +116,7 @@
 		ariaLabel={label}
 		onClose={onFloatingClose}
 	>
-		<div bind:this={menu} tabindex="-1" onkeydown={onmenukeydown} class="p-1 outline-none">
+		<div bind:this={menu} tabindex="-1" role="menu" onkeydown={onmenukeydown} class="p-1 outline-none">
 			{#each items as item (item.id)}
 				<button
 					type="button"

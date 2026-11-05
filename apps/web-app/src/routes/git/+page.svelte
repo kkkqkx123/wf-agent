@@ -54,6 +54,62 @@
 	}
 	let lastPanel = $state(workbench.panel);
 
+	const BOARD_WIDTH_KEY = 'git-board-width';
+	const BOARD_WIDTH_DEFAULT = 320;
+	const BOARD_WIDTH_MIN = 240;
+	const BOARD_WIDTH_MAX = 600;
+	let boardWidth = $state(BOARD_WIDTH_DEFAULT);
+
+	function clampBoardWidth(value: number): number {
+		return Math.min(BOARD_WIDTH_MAX, Math.max(BOARD_WIDTH_MIN, Math.round(value)));
+	}
+
+	function startBoardResize(event: PointerEvent): void {
+		const handle = event.currentTarget as HTMLElement | null;
+		if (!handle) return;
+		event.preventDefault();
+		handle.setPointerCapture(event.pointerId);
+		const startX = event.clientX;
+		const startWidth = boardWidth;
+		const onMove = (moveEvent: PointerEvent): void => {
+			boardWidth = clampBoardWidth(startWidth + moveEvent.clientX - startX);
+		};
+		const onUp = (upEvent: PointerEvent): void => {
+			try {
+				localStorage.setItem(BOARD_WIDTH_KEY, String(boardWidth));
+			} catch {
+				// Storage unavailable; keep the in-memory width.
+			}
+			handle.releasePointerCapture(upEvent.pointerId);
+			handle.removeEventListener('pointermove', onMove);
+			handle.removeEventListener('pointerup', onUp);
+			handle.removeEventListener('pointercancel', onUp);
+		};
+		handle.addEventListener('pointermove', onMove);
+		handle.addEventListener('pointerup', onUp);
+		handle.addEventListener('pointercancel', onUp);
+	}
+
+	function onBoardDividerKeydown(event: KeyboardEvent): void {
+		if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+			event.preventDefault();
+			boardWidth = clampBoardWidth(boardWidth + (event.key === 'ArrowRight' ? 20 : -20));
+			try {
+				localStorage.setItem(BOARD_WIDTH_KEY, String(boardWidth));
+			} catch {
+				// Storage unavailable; keep the in-memory width.
+			}
+		} else if (event.key === 'Home') {
+			event.preventDefault();
+			boardWidth = BOARD_WIDTH_DEFAULT;
+			try {
+				localStorage.removeItem(BOARD_WIDTH_KEY);
+			} catch {
+				// Storage unavailable; keep the in-memory width.
+			}
+		}
+	}
+
 	const BOARD_ORDER: PanelId[] = [
 		'status',
 		'files',
@@ -247,6 +303,15 @@
 	}
 
 	onMount(() => {
+		try {
+			const stored = localStorage.getItem(BOARD_WIDTH_KEY);
+			if (stored !== null) {
+				const parsed = Number(stored);
+				if (Number.isFinite(parsed)) boardWidth = clampBoardWidth(parsed);
+			}
+		} catch {
+			// Storage unavailable; keep the default width.
+		}
 		workbench.start();
 		window.addEventListener('keydown', onPageKeydown);
 	});
@@ -321,11 +386,29 @@
 			emptyDescription={t('page.git.noRepoDesc')}
 			onretry={() => void workbench.reload()}
 		>
-			<div class="grid gap-2 xl:h-full xl:grid-cols-3">
-				<div class="min-h-0 xl:col-span-1 xl:overflow-y-auto xl:py-3">
+			<div
+				class="flex flex-col gap-2 xl:h-full xl:flex-row"
+				style:--git-board-width={`${boardWidth}px`}
+			>
+				<div class="git-board-pane min-h-0 shrink-0 xl:overflow-y-auto xl:py-3">
 					<GitBoard {workbench} />
 				</div>
-				<div class="min-h-0 xl:col-span-2 xl:overflow-y-auto xl:py-3">
+				<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+				<div
+					role="separator"
+					aria-orientation="vertical"
+					aria-label={t('page.git.sections')}
+					tabindex="0"
+					title={t('page.git.sections')}
+					class="hidden w-2 shrink-0 cursor-col-resize items-stretch justify-center xl:flex"
+					onpointerdown={startBoardResize}
+					onkeydown={onBoardDividerKeydown}
+					ondblclick={() => (boardWidth = BOARD_WIDTH_DEFAULT)}
+				>
+					<span class="w-px bg-border transition-colors hover:bg-primary/40"></span>
+				</div>
+				<div class="min-h-0 min-w-0 flex-1 xl:overflow-y-auto xl:py-3">
 					<GitMainView {workbench} />
 				</div>
 			</div>
@@ -346,3 +429,14 @@
 </div>
 
 <GitActionDialogs {workbench} />
+
+<style>
+	.git-board-pane {
+		width: auto;
+	}
+	@media (min-width: 1280px) {
+		.git-board-pane {
+			width: var(--git-board-width, 320px);
+		}
+	}
+</style>

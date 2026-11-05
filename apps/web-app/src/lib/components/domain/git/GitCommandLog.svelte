@@ -9,10 +9,18 @@
 	let { workbench }: Props = $props();
 
 	let entries = $derived([...workbench.actionLog].reverse());
+
+	let collapsed = $state(false);
 </script>
 
-<TuiPanel title="Command log" count={workbench.actionLog.length}>
-	<ul class="max-h-40 space-y-0.5 overflow-y-auto">
+<TuiPanel
+	title="Command log"
+	count={workbench.actionLog.length}
+	collapsible
+	{collapsed}
+	onToggle={() => (collapsed = !collapsed)}
+>
+	<ul class="max-h-[24vh] space-y-0.5 overflow-y-auto">
 		{#each entries as entry (entry.seq)}
 			<li class="flex items-baseline gap-1.5 px-1 py-px font-mono text-micro hover:bg-accent/50">
 				<span class="shrink-0 font-semibold text-foreground">{entry.action}</span>

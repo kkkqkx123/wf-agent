@@ -156,7 +156,7 @@
 				bind:value={workbench.filters.files}
 				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
-			<ul class="max-h-72 overflow-y-auto">
+			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each files as file (file.path)}
 					<li>
 						<button
@@ -210,7 +210,7 @@
 				bind:value={workbench.filters.conflicts}
 				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
-			<ul class="max-h-72 overflow-y-auto">
+			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each conflicts as file (file.path)}
 					<li>
 						<button
@@ -249,7 +249,7 @@
 				bind:value={workbench.filters.worktrees}
 				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
-			<ul class="max-h-72 overflow-y-auto">
+			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each worktrees as entry (entry.path)}
 					<li>
 						<button
@@ -295,7 +295,7 @@
 				bind:value={workbench.filters.submodules}
 				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
-			<ul class="max-h-72 overflow-y-auto">
+			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each submodules as entry (entry.path)}
 					<li>
 						<button
@@ -347,7 +347,7 @@
 				bind:value={workbench.filters.branches}
 				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
-			<ul class="max-h-72 overflow-y-auto">
+			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each branches as branch (branch.name)}
 					<li>
 						<button
@@ -392,7 +392,7 @@
 				bind:value={workbench.filters.remotes}
 				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
-			<ul class="max-h-72 overflow-y-auto">
+			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each remotes as remote (remote.name)}
 					<li>
 						<button
@@ -432,7 +432,7 @@
 				bind:value={workbench.filters.tags}
 				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
-			<ul class="max-h-72 overflow-y-auto">
+			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each tags as tag (tag.name)}
 					<li>
 						<button
@@ -486,7 +486,7 @@
 				bind:value={workbench.filters.commits}
 				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
-			<ul class="max-h-72 overflow-y-auto">
+			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each commits as commit (commit.id)}
 					{@const lane = laneById.get(commit.id)}
 					<li>
@@ -570,7 +570,7 @@
 				bind:value={workbench.filters.reflog}
 				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
-			<ul class="max-h-72 overflow-y-auto">
+			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each reflogs as entry (entry.selector)}
 					<li>
 						<button
@@ -611,7 +611,7 @@
 				bind:value={workbench.filters.stash}
 				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
-			<ul class="max-h-72 overflow-y-auto">
+			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each stash as entry (entry.name)}
 					<li>
 						<button

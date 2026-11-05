@@ -184,12 +184,12 @@ impl TuiApp {
         let enabled = Self::terminal_progress_enabled();
         self.terminal_state.sync_progress(guard, progress, enabled);
 
-        // Program status, gated by capability detection / env.
-        if !Self::program_status_enabled() {
-            return;
-        }
+        // Program status: emission policy lives in the terminal state
+        // manager (resolved once at startup), so every frame just syncs
+        // the desired report.
+        let session_title = self.sessions.active_tab().map(|tab| tab.title.as_str());
         let desired_status = if let Some(session) = self.sessions.active() {
-            session.terminal_program_status()
+            session.terminal_program_status(session_title)
         } else {
             tui_terminal::terminal::state::ProgramStatus {
                 state: tui_terminal::terminal::state::ProgramStatusState::Idle,
@@ -243,13 +243,6 @@ impl TuiApp {
             return false;
         };
         manager.config().terminal.terminal_progress_enabled()
-    }
-
-    fn program_status_enabled() -> bool {
-        if let Ok(value) = std::env::var("WF_TUI_PROGRAM_STATUS") {
-            return !matches!(value.as_str(), "0" | "false" | "FALSE" | "no");
-        }
-        true
     }
 
     /// Compensation for dropped focus-gained reports: any key, mouse
@@ -326,8 +319,11 @@ impl TuiApp {
             return Ok(());
         }
         // Restore the terminal so the shell below renders normally while we are
-        // stopped.
+        // stopped. Clear the program status and progress first so the shell
+        // below never inherits a stale working marker; the next frame
+        // re-syncs the live state after resume.
         self.editor = crate::editor::EditorHandoff::Suspended;
+        self.terminal_state.clear(guard);
         guard.restore()?;
         // Stop with the default SIGTSTP disposition so the shell gains control;
         // SIGCONT (fg) resumes execution right after `raise`.
@@ -390,7 +386,10 @@ impl TuiApp {
             return Ok(());
         }
 
-        // Suspend the TUI and hand control to the editor.
+        // Suspend the TUI and hand control to the editor. Clear the program
+        // status and progress first so the editor never inherits a stale
+        // working marker; the next frame re-syncs the live state.
+        self.terminal_state.clear(guard);
         if let Err(err) = crate::editor::suspend_for_editor(guard, &mut self.editor) {
             if let Some(session) = self.sessions.active_mut() {
                 session

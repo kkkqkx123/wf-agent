@@ -342,7 +342,16 @@ impl TuiApp {
                 pending.request(crate::redraw::RedrawScope::Full);
                 pending
             },
-            terminal_state: crate::terminal_state::TerminalStateManager::default(),
+            terminal_state: {
+                // Capability-driven emission policy, resolved once: an
+                // explicit environment switch wins, otherwise the terminal
+                // is asked live with a bounded probe.
+                let mut manager = crate::terminal_state::TerminalStateManager::default();
+                manager.set_program_status_support(
+                    crate::terminal_state::resolve_program_status_support(),
+                );
+                manager
+            },
             invalidation: crate::redraw::InvalidationSentinel::new(),
             frame_cache: crate::redraw::FrameCache::new(),
             last_anim_ms: None,

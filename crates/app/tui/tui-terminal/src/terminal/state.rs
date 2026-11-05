@@ -65,6 +65,43 @@ impl ProgramStatus {
     }
 }
 
+/// Feature detection query for the OSC 7501 protocol. A supporting
+/// terminal replies with the same body, which [`is_program_status_reply`]
+/// recognizes. Later spec revisions may append pairs after the `?`.
+pub const PROGRAM_STATUS_QUERY: &str = "\x1b]7501;?\x1b\\";
+
+/// Environment switch forcing program status reporting on or off.
+/// Mirrors the override semantics: an explicit on value skips the live
+/// probe and an explicit off value never emits.
+pub const PROGRAM_STATUS_ENV: &str = "WF_TUI_PROGRAM_STATUS";
+
+/// Explicit program status override from the environment: on for the
+/// truthy spellings, off for the falsy spellings, undecided otherwise so
+/// the caller falls back to the live terminal probe.
+pub fn program_status_override() -> Option<bool> {
+    match std::env::var(PROGRAM_STATUS_ENV).ok().as_deref() {
+        Some("1" | "true" | "TRUE" | "yes") => Some(true),
+        Some("0" | "false" | "FALSE" | "no") => Some(false),
+        _ => None,
+    }
+}
+
+/// Whether an input sequence is the reply to [`PROGRAM_STATUS_QUERY`].
+/// Accepts either terminator and tolerates future pairs after the `?`.
+pub fn is_program_status_reply(sequence: &str) -> bool {
+    let Some(rest) = sequence.strip_prefix("\x1b]7501;?") else {
+        return false;
+    };
+    let body = if let Some(body) = rest.strip_suffix("\x1b\\") {
+        body
+    } else if let Some(body) = rest.strip_suffix('\x07') {
+        body
+    } else {
+        return false;
+    };
+    !body.contains('\x07') && !body.contains('\x1b')
+}
+
 const MAX_MESSAGE_BYTES: usize = 2048;
 
 fn app_valid(app: &str) -> bool {
@@ -149,5 +186,49 @@ pub fn running_title(base: &str, frame: usize, running: bool) -> String {
         )
     } else {
         base.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reply_accepts_query_echo_with_either_terminator() {
+        assert!(is_program_status_reply("\x1b]7501;?\x1b\\"));
+        assert!(is_program_status_reply("\x1b]7501;?\x07"));
+    }
+
+    #[test]
+    fn reply_tolerates_future_pairs() {
+        assert!(is_program_status_reply("\x1b]7501;?version=2\x1b\\"));
+    }
+
+    #[test]
+    fn override_reads_explicit_switches() {
+        let saved = std::env::var(super::PROGRAM_STATUS_ENV).ok();
+        let restore = || match saved.clone() {
+            Some(value) => std::env::set_var(super::PROGRAM_STATUS_ENV, value),
+            None => std::env::remove_var(super::PROGRAM_STATUS_ENV),
+        };
+        std::env::set_var(super::PROGRAM_STATUS_ENV, "1");
+        assert_eq!(super::program_status_override(), Some(true));
+        std::env::set_var(super::PROGRAM_STATUS_ENV, "0");
+        assert_eq!(super::program_status_override(), Some(false));
+        std::env::set_var(super::PROGRAM_STATUS_ENV, "false");
+        assert_eq!(super::program_status_override(), Some(false));
+        std::env::remove_var(super::PROGRAM_STATUS_ENV);
+        assert_eq!(super::program_status_override(), None);
+        std::env::set_var(super::PROGRAM_STATUS_ENV, "banana");
+        assert_eq!(super::program_status_override(), None);
+        restore();
+    }
+
+    #[test]
+    fn reply_rejects_other_sequences() {
+        assert!(!is_program_status_reply("\x1b]7501;state=idle\x1b\\"));
+        assert!(!is_program_status_reply("\x1b]11;rgb:0000/0000/0000\x07"));
+        assert!(!is_program_status_reply("\x1b]7501;?\x1b\\extra"));
+        assert!(!is_program_status_reply("plain text"));
     }
 }

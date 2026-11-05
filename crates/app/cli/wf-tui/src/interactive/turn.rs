@@ -739,6 +739,9 @@ impl InteractiveController {
                     self.footer.approval =
                         Some(crate::approval_overlay::ApprovalView::new(request));
                     self.pending_approval = Some(interaction_id);
+                    self.note_blocker_opened(
+                        tui_terminal::terminal::state::ProgramStatusKind::Permission,
+                    );
                     self.footer.present(crate::footer::FooterView::Permission);
                 }
                 InteractiveEvent::QuestionRequested {
@@ -750,6 +753,9 @@ impl InteractiveController {
                             interaction_id,
                             &request,
                         ));
+                    self.note_blocker_opened(
+                        tui_terminal::terminal::state::ProgramStatusKind::Question,
+                    );
                     self.footer.present(crate::footer::FooterView::Question);
                 }
                 InteractiveEvent::TurnEvent(event) => self.handle_turn_event(event),

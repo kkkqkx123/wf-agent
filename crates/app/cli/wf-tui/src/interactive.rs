@@ -518,6 +518,10 @@ pub struct InteractiveController {
     terminal_program_status: tui_terminal::terminal::state::ProgramStatusState,
     /// Last error message for program status reporting.
     terminal_program_error: Option<String>,
+    /// Blocker sources in the order their dialogs opened. The most recent
+    /// still-open source wins the blocked report; cleared dialogs stay in
+    /// the tail until replaced and are skipped by the status function.
+    blocker_order: Vec<tui_terminal::terminal::state::ProgramStatusKind>,
     /// Pending content-based title generated for this session.
     pending_title: Option<String>,
 }
@@ -755,6 +759,7 @@ impl InteractiveController {
             focus_visible: None,
             terminal_program_status: tui_terminal::terminal::state::ProgramStatusState::Idle,
             terminal_program_error: None,
+            blocker_order: Vec::new(),
             pending_title: None,
         };
         // Rebuild nested targets once at session start so a resumed
@@ -1419,31 +1424,75 @@ impl InteractiveController {
         self.footer.approval.is_some() || self.pending_approval.is_some()
     }
 
-    /// Desired terminal program status for this session.
-    pub fn terminal_program_status(&self) -> tui_terminal::terminal::state::ProgramStatus {
+    /// Record a newly opened blocker dialog. Reopening a source replaces
+    /// its position instead of stacking a second entry.
+    pub(crate) fn note_blocker_opened(
+        &mut self,
+        kind: tui_terminal::terminal::state::ProgramStatusKind,
+    ) {
+        self.blocker_order.retain(|existing| *existing != kind);
+        self.blocker_order.push(kind);
+    }
+
+    /// Most recently opened blocker whose dialog is still visible.
+    /// Cleared dialogs are skipped so a missed removal can never stick
+    /// the report on a closed dialog.
+    fn open_blocker(&self) -> Option<tui_terminal::terminal::state::ProgramStatusKind> {
+        use tui_terminal::terminal::state::ProgramStatusKind;
+        self.blocker_order.iter().rev().copied().find(|kind| {
+            matches!(
+                kind,
+                ProgramStatusKind::Permission if self.footer.approval.is_some()
+            ) || matches!(
+                kind,
+                ProgramStatusKind::Question if self.footer.question.is_some()
+            )
+        })
+    }
+
+    /// Desired terminal program status for this session. A blocked dialog
+    /// wins over the run state and the most recently opened still-open
+    /// dialog wins over older ones. The running and finished states carry
+    /// the session title and the question state carries the question
+    /// prompt so host terminals can show them; error text stays a single
+    /// first line and prompts never leave the TUI.
+    pub fn terminal_program_status(
+        &self,
+        session_title: Option<&str>,
+    ) -> tui_terminal::terminal::state::ProgramStatus {
         use tui_terminal::terminal::state::{ProgramStatus, ProgramStatusKind, ProgramStatusState};
-        if let Some(approval) = &self.footer.approval {
-            return ProgramStatus {
-                state: ProgramStatusState::Blocked,
-                app: Some("wf".to_string()),
-                kind: Some(ProgramStatusKind::Permission),
-                message: Some(approval.request().tool_name.clone()),
+        if let Some(blocked) = self.open_blocker() {
+            let message = match blocked {
+                ProgramStatusKind::Permission => self
+                    .footer
+                    .approval
+                    .as_ref()
+                    .map(|approval| approval.request().tool_name.clone()),
+                ProgramStatusKind::Question => self.footer.question.as_ref().map(|question| {
+                    let prompt = question.prompt().lines().next().unwrap_or("").trim();
+                    if prompt.is_empty() {
+                        "Question".to_string()
+                    } else {
+                        prompt.to_string()
+                    }
+                }),
+                ProgramStatusKind::Auth => None,
             };
-        }
-        if self.footer.question.is_some() {
-            return ProgramStatus {
-                state: ProgramStatusState::Blocked,
-                app: Some("wf".to_string()),
-                kind: Some(ProgramStatusKind::Question),
-                message: Some("Question".to_string()),
-            };
+            if let Some(message) = message {
+                return ProgramStatus {
+                    state: ProgramStatusState::Blocked,
+                    app: Some("wf".to_string()),
+                    kind: Some(blocked),
+                    message: Some(message),
+                };
+            }
         }
         if self.is_processing() {
             return ProgramStatus {
                 state: ProgramStatusState::Working,
                 app: Some("wf".to_string()),
                 kind: None,
-                message: None,
+                message: session_title.map(str::to_string),
             };
         }
         match self.terminal_program_status {
@@ -1457,7 +1506,7 @@ impl InteractiveController {
                 state: ProgramStatusState::Done,
                 app: Some("wf".to_string()),
                 kind: None,
-                message: None,
+                message: session_title.map(str::to_string),
             },
             _ => ProgramStatus {
                 state: ProgramStatusState::Idle,
@@ -1704,6 +1753,76 @@ mod tests {
         ctl.scroll_history_up();
         assert_eq!(ctl.tail_lag, 0);
         assert!(ctl.view_scroll > 0);
+    }
+
+    fn approval_view(tool_name: &str) -> crate::approval_overlay::ApprovalView {
+        crate::approval_overlay::ApprovalView::new(
+            wf_types::interaction::tool_approval::ToolApprovalRequestData {
+                tool_call_id: "call-1".to_string(),
+                tool_name: tool_name.to_string(),
+                tool_description: None,
+                parameters: serde_json::Value::Null,
+                risk_level: None,
+                pending_queue: None,
+                batch_id: None,
+                tool_index: None,
+                total_tools: None,
+            },
+        )
+    }
+
+    fn question_view() -> crate::question_overlay::QuestionView {
+        crate::question_overlay::QuestionView::from_request(
+            "q-1",
+            &serde_json::json!({ "prompt": "Pick a target\nsecond line" }),
+        )
+    }
+
+    #[tokio::test]
+    async fn blocker_reports_the_most_recently_opened_dialog() {
+        use tui_terminal::terminal::state::ProgramStatusKind;
+        let mut ctl = started_controller().await;
+        ctl.footer.approval = Some(approval_view("shell"));
+        ctl.note_blocker_opened(ProgramStatusKind::Permission);
+        ctl.footer.question = Some(question_view());
+        ctl.note_blocker_opened(ProgramStatusKind::Question);
+        let status = ctl.terminal_program_status(None);
+        assert_eq!(status.kind, Some(ProgramStatusKind::Question));
+        assert_eq!(status.message.as_deref(), Some("Pick a target"));
+    }
+
+    #[tokio::test]
+    async fn blocker_falls_back_when_the_top_dialog_closes() {
+        use tui_terminal::terminal::state::ProgramStatusKind;
+        let mut ctl = started_controller().await;
+        ctl.footer.approval = Some(approval_view("shell"));
+        ctl.note_blocker_opened(ProgramStatusKind::Permission);
+        ctl.footer.question = Some(question_view());
+        ctl.note_blocker_opened(ProgramStatusKind::Question);
+        ctl.footer.question = None;
+        let status = ctl.terminal_program_status(None);
+        assert_eq!(status.kind, Some(ProgramStatusKind::Permission));
+        assert_eq!(status.message.as_deref(), Some("shell"));
+    }
+
+    #[tokio::test]
+    async fn blocker_reopen_replaces_instead_of_stacking() {
+        use tui_terminal::terminal::state::ProgramStatusKind;
+        let mut ctl = started_controller().await;
+        ctl.footer.approval = Some(approval_view("shell"));
+        ctl.note_blocker_opened(ProgramStatusKind::Permission);
+        ctl.footer.question = Some(question_view());
+        ctl.note_blocker_opened(ProgramStatusKind::Question);
+        ctl.note_blocker_opened(ProgramStatusKind::Permission);
+        let status = ctl.terminal_program_status(None);
+        assert_eq!(status.kind, Some(ProgramStatusKind::Permission));
+        ctl.footer.approval = None;
+        ctl.footer.question = None;
+        let idle = ctl.terminal_program_status(None);
+        assert_eq!(
+            idle.state,
+            tui_terminal::terminal::state::ProgramStatusState::Idle
+        );
     }
 
     // ── graceful-exit error suppression ─────────────────────────────────

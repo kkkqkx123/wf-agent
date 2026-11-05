@@ -220,6 +220,122 @@ pub fn probe_osc_colors(timeout: Duration) -> (Option<ColorSet>, Option<ColorSet
     parse_osc_pair(&buf)
 }
 
+/// Timeout for the OSC 7501 program status support probe. Matches the
+/// theme color probe budget so startup pays at most one extra quantum on
+/// terminals that never answer.
+pub const PROGRAM_STATUS_PROBE_TIMEOUT: Duration = Duration::from_millis(100);
+
+/// Query the terminal for OSC 7501 program status support with an explicit
+/// timeout. Opens `/dev/tty`, briefly enables raw mode, writes the
+/// feature query, and scans the reply bytes. Every failure (no TTY, denied
+/// device, timeout, foreign bytes) degrades to `false`; never panics.
+pub fn probe_program_status_support(timeout: Duration) -> bool {
+    use std::io::Read;
+    use std::io::Write;
+
+    if !std::io::stdout().is_terminal() {
+        return false;
+    }
+    let Ok(mut tty) = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/tty")
+    else {
+        return false;
+    };
+
+    let raw_was_enabled = crossterm::terminal::is_raw_mode_enabled().unwrap_or(false);
+    let restorer = RawModeRestorer {
+        restore: raw_was_enabled,
+    };
+    if !raw_was_enabled && crossterm::terminal::enable_raw_mode().is_err() {
+        return false;
+    }
+
+    if tty
+        .write_all(crate::terminal::state::PROGRAM_STATUS_QUERY.as_bytes())
+        .is_err()
+        || tty.flush().is_err()
+    {
+        drop(restorer);
+        return false;
+    }
+
+    let deadline = Instant::now() + timeout;
+    let mut buf: Vec<u8> = Vec::new();
+    let mut chunk = [0u8; 256];
+    #[cfg(unix)]
+    use std::os::unix::io::AsRawFd;
+    #[cfg(unix)]
+    let fd = tty.as_raw_fd();
+    while buf.len() < 4096 {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        #[cfg(unix)]
+        {
+            let mut pfd = libc::pollfd {
+                fd,
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            // SAFETY: `pfd` is a valid, exclusively-owned pollfd.
+            let ready = unsafe {
+                libc::poll(
+                    &mut pfd,
+                    1,
+                    remaining.as_millis().clamp(1, i32::MAX as u128) as i32,
+                )
+            };
+            if ready <= 0 {
+                break;
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            if !crossterm::event::poll(remaining).unwrap_or(false) {
+                break;
+            }
+        }
+        match tty.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                buf.extend_from_slice(&chunk[..n]);
+                if buffer_reports_program_status(&buf) {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    drop(restorer);
+    buffer_reports_program_status(&buf)
+}
+
+/// Scan raw reply bytes for an OSC 7501 support reply. The reply may sit
+/// among foreign bytes (device attributes, color answers), so the scan
+/// anchors on the query prefix and validates the terminator instead of
+/// matching the whole buffer.
+fn buffer_reports_program_status(buf: &[u8]) -> bool {
+    const PREFIX: &[u8] = b"\x1b]7501;?";
+    let Some(offset) = buf
+        .windows(PREFIX.len())
+        .position(|window| window == PREFIX)
+    else {
+        return false;
+    };
+    let mut pos = offset + PREFIX.len();
+    loop {
+        match buf.get(pos) {
+            None => return false,
+            Some(b'\x07') => return true,
+            Some(b'\x1b') if buf.get(pos + 1) == Some(&b'\\') => return true,
+            Some(_) => pos += 1,
+        }
+    }
+}
+
 /// Parse interleaved OSC 10/11 responses from a byte buffer.
 /// Returns `(foreground, background)`.
 fn parse_osc_pair(buf: &[u8]) -> (Option<ColorSet>, Option<ColorSet>) {
@@ -335,5 +451,31 @@ mod tests {
         // We can't assert specific values since the test runner environment
         // varies, but we can at least verify the struct constructs.
         let _ = probe;
+    }
+
+    #[test]
+    fn program_status_scan_accepts_either_terminator() {
+        assert!(buffer_reports_program_status(b"\x1b]7501;?\x1b\\"));
+        assert!(buffer_reports_program_status(b"\x1b]7501;?\x07"));
+        assert!(buffer_reports_program_status(b"\x1b]7501;?version=2\x1b\\"));
+    }
+
+    #[test]
+    fn program_status_scan_finds_reply_among_foreign_bytes() {
+        assert!(buffer_reports_program_status(
+            b"\x1b[?1;2c\x1b]7501;?\x07more"
+        ));
+    }
+
+    #[test]
+    fn program_status_scan_rejects_foreign_sequences() {
+        assert!(!buffer_reports_program_status(b""));
+        assert!(!buffer_reports_program_status(
+            b"\x1b]7501;state=idle\x1b\\"
+        ));
+        assert!(!buffer_reports_program_status(
+            b"\x1b]11;rgb:0000/0000/0000\x07"
+        ));
+        assert!(!buffer_reports_program_status(b"\x1b]7501;?"));
     }
 }

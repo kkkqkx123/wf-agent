@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Button from '#lib/ui/components/Button.svelte';
 	import TuiPanel from '#lib/ui/components/TuiPanel.svelte';
+	import BoardFilter from '#lib/components/domain/git/BoardFilter.svelte';
 	import { git as gitStore } from '#lib/stores/git.svelte';
 	import type { GitWorkbench, PanelId } from '#lib/git/workbench.svelte';
 	import { PANELS, PANEL_GROUPS, groupForPanel } from '#lib/git/workbench.svelte';
@@ -148,13 +149,11 @@
 	</div>
 	<div class={boardVisibility('files')} onfocusin={() => (workbench.panel = 'files')}>
 		<TuiPanel title="Files" count={files.length} focused={workbench.panel === 'files'}>
-			<input
+			<BoardFilter
 				id="git-filter-files"
-				type="text"
-				aria-label={t('domain.git.filter')}
+				label={t('domain.git.filter')}
 				placeholder={t('domain.git.filterPlaceholder')}
 				bind:value={workbench.filters.files}
-				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
 			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each files as file (file.path)}
@@ -202,13 +201,11 @@
 
 	<div class={boardVisibility('conflicts')} onfocusin={() => (workbench.panel = 'conflicts')}>
 		<TuiPanel title="Conflicts" count={conflicts.length} focused={workbench.panel === 'conflicts'}>
-			<input
+			<BoardFilter
 				id="git-filter-conflicts"
-				type="text"
-				aria-label={t('domain.git.filter')}
+				label={t('domain.git.filter')}
 				placeholder={t('domain.git.filterPlaceholder')}
 				bind:value={workbench.filters.conflicts}
-				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
 			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each conflicts as file (file.path)}
@@ -241,13 +238,11 @@
 
 	<div class={boardVisibility('worktrees')} onfocusin={() => (workbench.panel = 'worktrees')}>
 		<TuiPanel title="Worktrees" count={worktrees.length} focused={workbench.panel === 'worktrees'}>
-			<input
+			<BoardFilter
 				id="git-filter-worktrees"
-				type="text"
-				aria-label={t('domain.git.filter')}
+				label={t('domain.git.filter')}
 				placeholder={t('domain.git.filterPlaceholder')}
 				bind:value={workbench.filters.worktrees}
-				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
 			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each worktrees as entry (entry.path)}
@@ -287,13 +282,11 @@
 			count={submodules.length}
 			focused={workbench.panel === 'submodules'}
 		>
-			<input
+			<BoardFilter
 				id="git-filter-submodules"
-				type="text"
-				aria-label={t('domain.git.filter')}
+				label={t('domain.git.filter')}
 				placeholder={t('domain.git.filterPlaceholder')}
 				bind:value={workbench.filters.submodules}
-				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
 			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each submodules as entry (entry.path)}
@@ -339,13 +332,11 @@
 	</div>
 	<div class={boardVisibility('branches')} onfocusin={() => (workbench.panel = 'branches')}>
 		<TuiPanel title="Branches" count={branches.length} focused={workbench.panel === 'branches'}>
-			<input
+			<BoardFilter
 				id="git-filter-branches"
-				type="text"
-				aria-label={t('domain.git.filter')}
+				label={t('domain.git.filter')}
 				placeholder={t('domain.git.filterPlaceholder')}
 				bind:value={workbench.filters.branches}
-				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
 			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each branches as branch (branch.name)}
@@ -384,13 +375,11 @@
 
 	<div class={boardVisibility('remotes')} onfocusin={() => (workbench.panel = 'remotes')}>
 		<TuiPanel title="Remotes" count={remotes.length} focused={workbench.panel === 'remotes'}>
-			<input
+			<BoardFilter
 				id="git-filter-remotes"
-				type="text"
-				aria-label={t('domain.git.filter')}
+				label={t('domain.git.filter')}
 				placeholder={t('domain.git.filterPlaceholder')}
 				bind:value={workbench.filters.remotes}
-				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
 			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each remotes as remote (remote.name)}
@@ -424,13 +413,11 @@
 
 	<div class={boardVisibility('tags')} onfocusin={() => (workbench.panel = 'tags')}>
 		<TuiPanel title="Tags" count={tags.length} focused={workbench.panel === 'tags'}>
-			<input
+			<BoardFilter
 				id="git-filter-tags"
-				type="text"
-				aria-label={t('domain.git.filter')}
+				label={t('domain.git.filter')}
 				placeholder={t('domain.git.filterPlaceholder')}
 				bind:value={workbench.filters.tags}
-				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
 			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each tags as tag (tag.name)}
@@ -478,13 +465,11 @@
 	</div>
 	<div class={boardVisibility('commits')} onfocusin={() => (workbench.panel = 'commits')}>
 		<TuiPanel title="Commits" count={commits.length} focused={workbench.panel === 'commits'}>
-			<input
+			<BoardFilter
 				id="git-filter-commits"
-				type="text"
-				aria-label={t('domain.git.filter')}
+				label={t('domain.git.filter')}
 				placeholder={t('domain.git.filterPlaceholder')}
 				bind:value={workbench.filters.commits}
-				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
 			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each commits as commit (commit.id)}
@@ -562,13 +547,11 @@
 
 	<div class={boardVisibility('reflog')} onfocusin={() => (workbench.panel = 'reflog')}>
 		<TuiPanel title="Reflog" count={reflogs.length} focused={workbench.panel === 'reflog'}>
-			<input
+			<BoardFilter
 				id="git-filter-reflog"
-				type="text"
-				aria-label={t('domain.git.filter')}
+				label={t('domain.git.filter')}
 				placeholder={t('domain.git.filterPlaceholder')}
 				bind:value={workbench.filters.reflog}
-				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
 			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each reflogs as entry (entry.selector)}
@@ -603,13 +586,11 @@
 
 	<div class={boardVisibility('stash')} onfocusin={() => (workbench.panel = 'stash')}>
 		<TuiPanel title="Stash" count={stash.length} focused={workbench.panel === 'stash'}>
-			<input
+			<BoardFilter
 				id="git-filter-stash"
-				type="text"
-				aria-label={t('domain.git.filter')}
+				label={t('domain.git.filter')}
 				placeholder={t('domain.git.filterPlaceholder')}
 				bind:value={workbench.filters.stash}
-				class="mb-1 w-full border border-border bg-card px-1.5 py-0.5 font-mono text-micro text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
 			<ul class="max-h-[32vh] overflow-y-auto">
 				{#each stash as entry (entry.name)}

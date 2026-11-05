@@ -67,6 +67,9 @@ export const PANEL_GROUPS: PanelGroup[] = [
 	{ id: 'stash', panels: ['stash'] },
 ];
 
+/** Keyboard panel cycling order for Tab navigation across the board. */
+export const PANEL_ORDER: PanelId[] = PANELS.map((entry) => entry.id);
+
 export function groupForPanel(panel: PanelId): PanelGroup {
 	return PANEL_GROUPS.find((group) => group.panels.includes(panel)) ?? PANEL_GROUPS[0];
 }
@@ -303,6 +306,103 @@ export class GitWorkbench {
 	stop(): void {
 		this.stopLive?.();
 		this.stopLive = null;
+	}
+
+	/**
+	 * Visible row ids for a panel, derived from the panel's own filter and
+	 * data. This is the single source for keyboard row navigation; rendering
+	 * order in GitBoard must mirror it.
+	 */
+	rowIdsFor(panel: PanelId): string[] {
+		const query = this.filters[panel];
+		const match = (...values: string[]): boolean => values.some((value) => value.includes(query));
+		switch (panel) {
+			case 'files':
+				return this.files.filter((file) => match(file.path)).map((file) => file.path);
+			case 'conflicts':
+				return this.files
+					.filter((file) => file.kind === 'conflicted' && match(file.path))
+					.map((file) => file.path);
+			case 'worktrees':
+				return this.worktrees
+					.filter((entry) => match(entry.path, entry.branch))
+					.map((entry) => entry.path);
+			case 'submodules':
+				return this.submodules
+					.filter((entry) => match(entry.path, entry.commit))
+					.map((entry) => entry.path);
+			case 'branches':
+				return this.branches.filter((branch) => match(branch.name)).map((branch) => branch.name);
+			case 'remotes':
+				return this.remotes
+					.filter((remote) => match(remote.name, remote.url))
+					.map((remote) => remote.name);
+			case 'tags':
+				return this.tags
+					.filter((tag) => match(tag.name, tag.commit))
+					.map((tag) => tag.name);
+			case 'commits':
+				return this.commits
+					.filter((commit) => match(commit.subject, commit.shortId))
+					.map((commit) => commit.id);
+			case 'reflog':
+				return this.reflogs
+					.filter((entry) => match(entry.message, entry.shortId, entry.selector))
+					.map((entry) => entry.selector);
+			case 'stash':
+				return this.stash
+					.filter((entry) => match(entry.message, entry.name))
+					.map((entry) => entry.name);
+			default:
+				return [];
+		}
+	}
+
+	/** Currently selected row id for a panel, including panel-specific fallbacks. */
+	selectedIdFor(panel: PanelId): string | null {
+		if (panel === 'files' || panel === 'conflicts') return gitStore.selectedFile;
+		if (panel === 'commits' || panel === 'reflog')
+			return gitStore.selectedCommit ?? gitStore.selectionFor('commits');
+		if (panel === 'remotes') return this.selectedRemote;
+		if (panel === 'tags') return this.selectedTag;
+		return gitStore.selectionFor(panel);
+	}
+
+	/** Apply the selection for a board row, routing to the right panel state. */
+	async selectRow(panel: PanelId, id: string): Promise<void> {
+		if (panel === 'files' || panel === 'conflicts') await this.selectFile(id, false);
+		else if (panel === 'commits' || panel === 'reflog') await this.selectCommit(id, false);
+		else if (panel === 'remotes') this.selectedRemote = id;
+		else if (panel === 'tags') {
+			this.selectedTag = id;
+			const tag = this.tags.find((entry) => entry.name === id);
+			if (tag) await this.selectCommit(tag.commit, false);
+		} else gitStore.select(panel, id);
+	}
+
+	/** Move the panel selection by one visible row; returns the row id to focus. */
+	async stepSelection(delta: number): Promise<string | null> {
+		const ids = this.rowIdsFor(this.panel);
+		if (ids.length === 0) return null;
+		const current = this.selectedIdFor(this.panel);
+		const index = current ? ids.indexOf(current) : -1;
+		const next =
+			index < 0
+				? delta > 0
+					? 0
+					: ids.length - 1
+				: Math.min(ids.length - 1, Math.max(0, index + delta));
+		const id = ids[next];
+		await this.selectRow(this.panel, id);
+		return id;
+	}
+
+	/** Cycle the active panel through the canonical order; returns the new panel. */
+	cyclePanel(delta: number): PanelId {
+		const index = PANEL_ORDER.indexOf(this.panel);
+		const next = index < 0 ? 0 : (index + delta + PANEL_ORDER.length) % PANEL_ORDER.length;
+		this.panel = PANEL_ORDER[next];
+		return PANEL_ORDER[next];
 	}
 
 	specFor(action: string): RegistryEntry | undefined {

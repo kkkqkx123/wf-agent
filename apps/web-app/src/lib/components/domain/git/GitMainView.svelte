@@ -368,6 +368,9 @@
 												data-hunk={isSelectable ? hunkIndex : undefined}
 												data-line={isSelectable ? globalIndex : undefined}
 												role={isSelectable ? 'button' : undefined}
+												aria-pressed={isSelectable
+													? workbench.isLineSelected(file.path, hunkIndex, globalIndex)
+													: undefined}
 												tabindex={isSelectable ? 0 : undefined}
 												onclick={(event) => {
 													if (!isSelectable) return;
@@ -379,6 +382,9 @@
 													if (!isSelectable) return;
 													if (event.key !== 'Enter' && event.key !== ' ') return;
 													event.preventDefault();
+													// The row owns Space/Enter; keep the window-level
+													// page handler from running a second toggle.
+													event.stopPropagation();
 													workbench.toggleLine(file.path, hunkIndex, globalIndex);
 												}}
 												class="flex items-start gap-1.5 px-1.5 py-px font-mono text-micro {row.type ===
@@ -495,6 +501,9 @@
 												data-hunk={isSelectable ? hunkIndex : undefined}
 												data-line={isSelectable ? globalIndex : undefined}
 												role={isSelectable ? 'button' : undefined}
+												aria-pressed={isSelectable
+													? workbench.isLineSelected(file.path, hunkIndex, globalIndex)
+													: undefined}
 												tabindex={isSelectable ? 0 : undefined}
 												onclick={(event) => {
 													if (!isSelectable) return;
@@ -506,6 +515,9 @@
 													if (!isSelectable) return;
 													if (event.key !== 'Enter' && event.key !== ' ') return;
 													event.preventDefault();
+													// The row owns Space/Enter; keep the window-level
+													// page handler from running a second toggle.
+													event.stopPropagation();
 													workbench.toggleLine(file.path, hunkIndex, globalIndex);
 												}}
 												class="flex items-start gap-1.5 px-1.5 py-px font-mono text-micro {row.type ===

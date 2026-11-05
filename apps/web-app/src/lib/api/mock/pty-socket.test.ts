@@ -57,7 +57,8 @@ describe('preview mock PTY socket', () => {
 		expect(opened()).toBe(true);
 		expect(binaries.length).toBeGreaterThanOrEqual(1);
 		expect(decodeControl(binaries[0]).cursor).toBe(0);
-		expect(texts.join('')).toContain('preview shell');
+		// The greeting must arrive whole: no prompt chunk may slip into the middle.
+		expect(texts.join('')).toContain("Type 'help' to list the supported commands.");
 		socket.close();
 	});
 
@@ -74,8 +75,13 @@ describe('preview mock PTY socket', () => {
 		expect(texts).toEqual(['h', 'i', '\b \b']);
 		socket.send('\x7f');
 		socket.send('help\r');
-		await sleep(250);
-		expect(texts.join('')).toContain('Supported preview commands');
+		await sleep(400);
+		const joined = texts.join('');
+		expect(joined).toContain('Supported preview commands');
+		// The next prompt lands after the command output, never inside it.
+		expect(joined.lastIndexOf('~/wf-agent')).toBeGreaterThan(
+			joined.indexOf('Supported preview commands'),
+		);
 		socket.close();
 	});
 
@@ -92,5 +98,23 @@ describe('preview mock PTY socket', () => {
 		expect(closes.length).toBe(1);
 		expect(closes[0].code).toBe(4010);
 		expect(previewSessionAlive('pty-exit-1')).toBe(false);
+	});
+
+	it('abandons the cooked line on INTR and redraws the prompt', async () => {
+		const { socket, texts } = mockSocket(
+			'ws://localhost/mock/api/v1/pty/pty-intr-1/connect?cursor=0&ticket=t',
+		);
+		await sleep(30);
+		texts.length = 0;
+		socket.send('ls');
+		socket.send('\x03');
+		socket.send('pwd\r');
+		await sleep(400);
+		const joined = texts.join('');
+		// The abandoned 'ls' never runs; a fresh prompt answers 'pwd' instead.
+		expect(joined).toContain('^C');
+		expect(joined).not.toContain('README.md');
+		expect(joined).toContain('/preview/wf-agent');
+		socket.close();
 	});
 });

@@ -1,3 +1,4 @@
+import { untrack } from 'svelte';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { listFs, readFsFile, writeFsFile, languageForPath } from '#lib/services/fs';
 import { listFiles } from '#lib/services/git';
@@ -130,8 +131,21 @@ export class IdeStore {
 			tabs: [],
 			active: null,
 		});
-		if (saved.tabs.length > 0) {
-			this.tabs = saved.tabs.slice(0, MAX_OPEN_TABS).map((path) => ({
+		// Session storage is untrusted: validate the shape and drop duplicate
+		// paths so a keyed each block can never throw each_key_duplicate.
+		const savedPaths = Array.isArray(saved?.tabs) ? saved.tabs : [];
+		const seenPaths = new SvelteSet<string>();
+		const restoredPaths: string[] = [];
+		for (const candidate of savedPaths) {
+			if (typeof candidate !== 'string' || candidate === '' || seenPaths.has(candidate)) {
+				continue;
+			}
+			seenPaths.add(candidate);
+			restoredPaths.push(candidate);
+			if (restoredPaths.length >= MAX_OPEN_TABS) break;
+		}
+		if (restoredPaths.length > 0) {
+			this.tabs = restoredPaths.map((path) => ({
 				path,
 				content: '',
 				original: '',
@@ -144,7 +158,9 @@ export class IdeStore {
 				truncated: false,
 				preview: false,
 			}));
-			this.activePath = saved.active ?? saved.tabs[0] ?? null;
+			const savedActive = typeof saved?.active === 'string' ? saved.active : null;
+			this.activePath =
+				savedActive && seenPaths.has(savedActive) ? savedActive : (restoredPaths[0] ?? null);
 		}
 		if (typeof sessionStorage !== 'undefined') {
 			const terminal = sessionStorage.getItem(storageKey('terminal'));
@@ -199,12 +215,18 @@ export class IdeStore {
 	}
 
 	dirState(path: string): IdeDirState {
-		let state = this.dirs.get(path);
-		if (!state) {
-			state = { entries: null, loading: false, error: null, loaded: false };
-			this.dirs.set(path, state);
-		}
-		return state;
+		const hit = this.dirs.get(path);
+		if (hit) return hit;
+		// First-seen dirs are created here too: the write runs untracked so
+		// template and derived callers never throw state_unsafe_mutation.
+		return untrack(() => {
+			let state = this.dirs.get(path);
+			if (!state) {
+				state = { entries: null, loading: false, error: null, loaded: false };
+				this.dirs.set(path, state);
+			}
+			return state;
+		});
 	}
 
 	async loadDir(path: string, force = false): Promise<void> {
@@ -604,9 +626,20 @@ export class IdeStore {
 				tab.language = languageForPath(tab.path);
 			}
 		}
+		// A rename onto an already-open path would duplicate a keyed-each key;
+		// keep the first tab and drop the shadowed ones.
+		const seenPaths = new SvelteSet<string>();
+		this.tabs = this.tabs.filter((tab) => {
+			if (seenPaths.has(tab.path)) return false;
+			seenPaths.add(tab.path);
+			return true;
+		});
 		if (previousActive === from) this.activePath = to;
 		else if (previousActive?.startsWith(prefix)) {
 			this.activePath = `${to}${previousActive.slice(from.length)}`;
+		}
+		if (this.activePath && !this.tabs.some((t) => t.path === this.activePath)) {
+			this.activePath = this.tabs[0]?.path ?? null;
 		}
 		this.persistTabs();
 	}

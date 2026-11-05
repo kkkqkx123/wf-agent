@@ -49,7 +49,12 @@
 				placeholder={t('common.gitShortcutHelp')}
 				onkeydown={(event) => {
 					if (event.key === 'Enter') void workbench.submitToken();
-					else if (event.key === 'Escape') workbench.token = '';
+					else if (event.key === 'Escape') {
+						// An empty key input hands focus back to the board so
+						// single-key shortcuts work again without clicking.
+						if (workbench.token === '') (event.target as HTMLInputElement | null)?.blur?.();
+						else workbench.token = '';
+					}
 				}}
 			/>
 		</div>

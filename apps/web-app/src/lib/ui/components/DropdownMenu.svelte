@@ -11,6 +11,8 @@
 		id: string;
 		label: string;
 		icon?: IconName;
+		/** Single-select marker: the active choice gets a trailing check. */
+		selected?: boolean;
 		danger?: boolean;
 		disabled?: boolean;
 		onselect?: () => void;
@@ -127,6 +129,7 @@
 				<button
 					type="button"
 					role="menuitem"
+					aria-current={item.selected ? 'true' : undefined}
 					disabled={item.disabled}
 					onclick={() => select(item)}
 					class={cn(
@@ -140,6 +143,9 @@
 						<Icon name={item.icon} size={14} />
 					{/if}
 					<span class="truncate">{item.label}</span>
+					{#if item.selected}
+						<Icon name="check" size={14} class="ml-auto shrink-0 text-muted-foreground" />
+					{/if}
 				</button>
 			{/each}
 		</div>

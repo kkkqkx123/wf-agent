@@ -178,7 +178,7 @@
 	}
 </script>
 
-<div id="git-board" class="flex flex-col gap-2">
+<div id="git-board" tabindex="-1" class="flex flex-col gap-2">
 	<div class={boardVisibility('status')} onfocusin={() => (workbench.panel = 'status')}>
 		<TuiPanel title="Status" focused={workbench.panel === 'status'}>
 			{#if workbench.status}

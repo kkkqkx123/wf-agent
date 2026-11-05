@@ -157,68 +157,79 @@ export function connectPty(id: string, cursor: number, options: PtySocketOptions
 		if (pending.length < 200) pending.push(data);
 	}
 
-	void fetchConnectTicket(id).then((ticket) => {
-		if (disposed) return;
-		// Preview serves from the relative base '/mock', so resolve against the page URL.
-		// Absolute bases (production) ignore the second argument.
-		const url = new URL(`${API_BASE_URL}/api/v1/pty/${id}/connect`, window.location.href);
-		if (ticket) {
-			url.searchParams.set('ticket', ticket);
-		} else {
-			const key = resolveApiKey();
-			if (key) url.searchParams.set('api_key', key);
-		}
-		url.searchParams.set('cursor', String(cursor));
-		url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-
-		const socket = new WebSocket(url.toString());
-		ws = socket;
-		socket.binaryType = 'arraybuffer';
-
-		socket.onopen = () => {
+	void fetchConnectTicket(id).then(
+		(ticket) => {
 			if (disposed) return;
-			flushPending(socket);
-		};
+			try {
+				// Preview serves from the relative base '/mock', so resolve against the page URL.
+				// Absolute bases (production) ignore the second argument.
+				const url = new URL(`${API_BASE_URL}/api/v1/pty/${id}/connect`, window.location.href);
+				if (ticket) {
+					url.searchParams.set('ticket', ticket);
+				} else {
+					const key = resolveApiKey();
+					if (key) url.searchParams.set('api_key', key);
+				}
+				url.searchParams.set('cursor', String(cursor));
+				url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
 
-		socket.onmessage = (event: MessageEvent) => {
-			if (disposed) return;
-			if (event.data instanceof ArrayBuffer) {
-				const bytes = new Uint8Array(event.data);
-				if (bytes.length === 0 || bytes[0] !== 0x00) return;
-				try {
-					const meta = JSON.parse(new TextDecoder().decode(bytes.subarray(1))) as {
-						cursor?: unknown;
-						event?: unknown;
-						exit_code?: unknown;
-						reason?: unknown;
-					};
-					if (meta.event === 'exited') {
-						options.onExit?.({
-							exitCode: typeof meta.exit_code === 'number' ? meta.exit_code : null,
-							reason: typeof meta.reason === 'string' ? meta.reason : 'process',
-						});
+				const socket = new WebSocket(url.toString());
+				ws = socket;
+				socket.binaryType = 'arraybuffer';
+
+				socket.onopen = () => {
+					if (disposed) return;
+					flushPending(socket);
+				};
+
+				socket.onmessage = (event: MessageEvent) => {
+					if (disposed) return;
+					if (event.data instanceof ArrayBuffer) {
+						const bytes = new Uint8Array(event.data);
+						if (bytes.length === 0 || bytes[0] !== 0x00) return;
+						try {
+							const meta = JSON.parse(new TextDecoder().decode(bytes.subarray(1))) as {
+								cursor?: unknown;
+								event?: unknown;
+								exit_code?: unknown;
+								reason?: unknown;
+							};
+							if (meta.event === 'exited') {
+								options.onExit?.({
+									exitCode: typeof meta.exit_code === 'number' ? meta.exit_code : null,
+									reason: typeof meta.reason === 'string' ? meta.reason : 'process',
+								});
+								return;
+							}
+							const next = meta?.cursor;
+							if (typeof next === 'number' && Number.isSafeInteger(next) && next >= 0) {
+								options.onMeta?.(next);
+							}
+						} catch {
+							// Ignore malformed control frames.
+						}
 						return;
 					}
-					const next = meta?.cursor;
-					if (typeof next === 'number' && Number.isSafeInteger(next) && next >= 0) {
-						options.onMeta?.(next);
-					}
-				} catch {
-					// Ignore malformed control frames.
-				}
-				return;
-			}
-			const chunk = typeof event.data === 'string' ? event.data : '';
-			if (!chunk) return;
-			options.onData?.(chunk);
-		};
+					const chunk = typeof event.data === 'string' ? event.data : '';
+					if (!chunk) return;
+					options.onData?.(chunk);
+				};
 
-		socket.onclose = (event: CloseEvent) => {
-			if (disposed) return;
-			ws = null;
-			options.onClose?.(event.code, event.reason);
-		};
-	});
+				socket.onclose = (event: CloseEvent) => {
+					if (disposed) return;
+					ws = null;
+					options.onClose?.(event.code, event.reason);
+				};
+			} catch {
+				// URL construction or socket creation failed: route through
+				// onClose so the caller retries instead of stalling with no socket.
+				options.onClose?.(1006, 'connect failed');
+			}
+		},
+		() => {
+			options.onClose?.(1006, 'connect failed');
+		},
+	);
 
 	return {
 		socket() {

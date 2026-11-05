@@ -1,27 +1,33 @@
 <script lang="ts">
+	import DropdownMenu from '#lib/ui/components/DropdownMenu.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
 	import { getLocale, setLocale, SUPPORTED_LOCALES, type Locale, t } from '#lib/i18n';
 
 	// Endonyms: a language is named in itself, so these are never translated.
 	const LABELS: Record<Locale, string> = { en: 'English', zh: '中文' };
 
 	let current = $state(getLocale());
-</script>
 
-<div class="flex items-center gap-1 text-micro" role="group" aria-label={t('common.language')}>
-	{#each SUPPORTED_LOCALES as code (code)}
-		<button
-			type="button"
-			lang={code}
-			aria-pressed={current === code}
-			class="rounded px-2 py-0.5 transition-colors {current === code
-				? 'bg-muted font-medium text-foreground'
-				: 'text-muted-foreground hover:text-foreground'}"
-			onclick={() => {
+	const items = $derived(
+		SUPPORTED_LOCALES.map((code) => ({
+			id: code,
+			label: LABELS[code],
+			selected: code === current,
+			onselect: () => {
 				current = code;
 				setLocale(code);
-			}}
+			},
+		})),
+	);
+</script>
+
+<DropdownMenu {items} label={t('common.language')}>
+	{#snippet trigger()}
+		<span
+			class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-small text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 		>
-			{LABELS[code]}
-		</button>
-	{/each}
-</div>
+			<span lang={current}>{LABELS[current]}</span>
+			<Icon name="chevron-down" size={13} />
+		</span>
+	{/snippet}
+</DropdownMenu>

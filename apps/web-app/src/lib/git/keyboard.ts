@@ -111,9 +111,22 @@ export function createPageKeyHandler(
 		// Space/Enter handling and stop propagation, so only unhandled keys
 		// reach the token parser here.
 		if (event.key.length === 1 || event.key === ' ') {
-			if (event.key === ' ' && target?.closest?.('button')) return;
-			const key = event.key === ' ' ? ' ' : event.key;
-			const result = parseToken(key, panel);
+			if (event.key === ' ') {
+				// A focused board row is a plain selection button: native Space
+				// would only re-select it, so run the panel Space binding
+				// (stage.toggle / worktree.switch) instead. Other buttons keep
+				// native activation.
+				if (target?.closest?.('[data-board-row]')) {
+					event.preventDefault();
+					const result = parseToken(' ', panel);
+					if (result.kind === 'action' && result.action) {
+						await workbench.runActionId(result.action);
+					}
+					return;
+				}
+				if (target?.closest?.('button')) return;
+			}
+			const result = parseToken(event.key, panel);
 			if (result.kind === 'action' && result.action) {
 				event.preventDefault();
 				await workbench.runActionId(result.action);

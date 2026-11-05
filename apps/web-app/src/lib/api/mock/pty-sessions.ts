@@ -20,6 +20,10 @@ export interface PreviewPtySession {
 
 const sessions = new Map<string, PreviewPtySession>();
 let seq = 0;
+// The mock server forgets everything on page reload while the session store
+// restores stale ids from localStorage. A per-lifetime suffix keeps fresh ids
+// from ever colliding with restored ones (which would duplicate an each key).
+const lifetime = Date.now().toString(36);
 
 export function createSession(input: {
 	rows?: number;
@@ -28,7 +32,7 @@ export function createSession(input: {
 }): PreviewPtySession {
 	seq += 1;
 	const session: PreviewPtySession = {
-		id: `pty-preview-${seq}`,
+		id: `pty-preview-${lifetime}-${seq}`,
 		cwd: '/preview/wf-agent',
 		title: input.title ?? `Terminal ${seq}`,
 		status: 'running',

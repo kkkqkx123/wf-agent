@@ -42,7 +42,7 @@
 		requested === 'reflog' ||
 		requested === 'stash'
 			? (requested as PanelId)
-			: 'status';
+			: 'files';
 	const requestedMode = requestedTab as MainViewMode;
 	if (
 		(requestedMode === 'diff' || requestedMode === 'staging' || requestedMode === 'commitFiles') &&
@@ -84,6 +84,9 @@
 
 	onMount(() => {
 		workbench.start();
+		// Board-first focus: single-key shortcuts work immediately, the key
+		// input is only focused explicitly (Ctrl+/ or the status bar).
+		document.querySelector<HTMLElement>('#git-board')?.focus();
 		window.addEventListener('keydown', onPageKeydown);
 	});
 	onDestroy(() => {

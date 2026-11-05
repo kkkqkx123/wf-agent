@@ -298,14 +298,15 @@ export class GitWorkbench {
 		Boolean(this.meta?.mergeHead || this.meta?.rebaseHead || this.meta?.cherryPickHead),
 	);
 
-	/** Attach the live subscription, do the initial load and focus the key input. */
+	/** Attach the live subscription and do the initial load. Initial keyboard
+	 * focus belongs to the board (see +page.svelte); the key input is focused
+	 * explicitly via Ctrl+/ or the status bar so it never swallows single keys. */
 	start(): void {
 		this.stopLive = gitStore.subscribeLive(() => {
 			if (this.loading) this.liveDirty = true;
 			else void this.reload();
 		});
 		void this.reload();
-		this.focusKeyInput();
 	}
 
 	/** Detach the live subscription. */
@@ -895,6 +896,22 @@ export class GitWorkbench {
 			return;
 		}
 		if (spec && (spec.params.length > 0 || GUARDED_DANGERS.has(spec.danger))) {
+			// Lazygit-style single-key path: every param resolves from the
+			// current selection and the action needs no confirmation, so run
+			// it directly instead of opening the param dialog.
+			if (!GUARDED_DANGERS.has(spec.danger)) {
+				const filled: Record<string, string> = {};
+				const allResolved = spec.params.every((key) => {
+					const value = this.paramDefault(action, key).trim();
+					if (!value) return false;
+					filled[key] = value;
+					return true;
+				});
+				if (allResolved) {
+					await this.dispatchAction(action, filled, undefined);
+					return;
+				}
+			}
 			this.openParamDialog(action, spec.params);
 			return;
 		}

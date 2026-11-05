@@ -53,10 +53,14 @@ function resolvePath(raw: string): string {
 	return parts.join('/');
 }
 
+const OUTPUT_CHUNK_MS = 15;
+
 function chunkText(text: string): string[] {
+	// Split on code points so astral characters never tear across chunks.
+	const points = [...text];
 	const chunks: string[] = [];
-	for (let i = 0; i < text.length; i += 64) {
-		chunks.push(text.slice(i, i + 64));
+	for (let i = 0; i < points.length; i += 64) {
+		chunks.push(points.slice(i, i + 64).join(''));
 	}
 	return chunks;
 }
@@ -160,6 +164,8 @@ class MockPtySocket {
 	#closed = false;
 	#inEscape = false;
 	#skipLineFeed = false;
+	#outputQueue: Array<() => void> = [];
+	#draining = false;
 	#sessionId: string | null = null;
 	#resumeCursor = 0;
 
@@ -193,6 +199,7 @@ class MockPtySocket {
 		if (this.readyState === MockPtySocket.CLOSED) return;
 		this.readyState = MockPtySocket.CLOSED;
 		this.#closed = true;
+		this.#outputQueue.length = 0;
 		this.onclose?.({ code, reason } as CloseEvent);
 	}
 
@@ -221,6 +228,13 @@ class MockPtySocket {
 			return;
 		}
 		this.#skipLineFeed = false;
+		if (char === '\x03') {
+			// INTR abandons the cooked line and redraws the prompt, like a real PTY.
+			this.#inputBuffer = '';
+			this.#emit('^C\r\n');
+			this.#stream(PROMPT);
+			return;
+		}
 		if (char === '\x7f' || char === '\b') {
 			if (this.#inputBuffer.length === 0) return;
 			const kept = [...this.#inputBuffer];
@@ -244,17 +258,21 @@ class MockPtySocket {
 		this.#stream(result.output + '\r\n');
 		if (result.exit !== undefined) {
 			this.#stream(`[session ended with code ${result.exit}]\r\n`);
-			// Control frame and close ride after the delayed output above,
-			// matching the server order of data frames then the exited frame.
-			setTimeout(() => {
+			// Control frame and close travel through the same queue so they
+			// land after the delayed output above, matching the server order
+			// of data frames then the exited frame.
+			const exitCode = result.exit;
+			this.#enqueue(() => {
 				this.#deliverControl({
 					event: 'exited',
-					exit_code: result.exit,
+					exit_code: exitCode,
 					reason: 'preview shell exit',
 				});
-				if (this.#sessionId) exitSession(this.#sessionId, result.exit);
+			});
+			this.#enqueue(() => {
+				if (this.#sessionId) exitSession(this.#sessionId, exitCode);
 				this.close(4010, 'pty exited (preview shell exit)');
-			}, 30);
+			});
 			return;
 		}
 		this.#stream(PROMPT);
@@ -280,20 +298,46 @@ class MockPtySocket {
 		this.onmessage?.({ data: controlFrame(payload) });
 	}
 
+	/** Queue one ordered output step behind everything already scheduled. */
+	#enqueue(step: () => void): void {
+		if (this.#closed) return;
+		this.#outputQueue.push(step);
+		this.#drain();
+	}
+
 	/** Push `text` in small delayed chunks so the terminal renders
-	 *  incrementally, the way a real PTY delivers bytes. */
+	 *  incrementally, the way a real PTY delivers bytes. Every chunk joins
+	 *  a single queue, so concurrent responses can never overtake each other. */
 	#stream(text: string): void {
 		if (this.#closed) return;
-		const chunks = chunkText(text);
-		let delay = 0;
-		for (const chunk of chunks) {
-			delay += 15;
-			setTimeout(() => {
+		for (const chunk of chunkText(text)) {
+			this.#outputQueue.push(() => {
 				if (this.#closed || this.readyState !== MockPtySocket.OPEN) return;
 				this.#countDelivered(chunk);
 				this.onmessage?.({ data: chunk });
-			}, delay);
+			});
 		}
+		this.#drain();
+	}
+
+	#drain(): void {
+		if (this.#draining) return;
+		this.#draining = true;
+		const step = (): void => {
+			if (this.#closed) {
+				this.#outputQueue.length = 0;
+				this.#draining = false;
+				return;
+			}
+			const next = this.#outputQueue.shift();
+			if (!next) {
+				this.#draining = false;
+				return;
+			}
+			next();
+			setTimeout(step, OUTPUT_CHUNK_MS);
+		};
+		setTimeout(step, OUTPUT_CHUNK_MS);
 	}
 }
 

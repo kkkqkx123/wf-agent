@@ -5,27 +5,13 @@
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import Button from '#lib/ui/components/Button.svelte';
 	import { navItemFor } from '#lib/config/navigation';
-	import { preferences, type ThemeMode } from '#lib/stores/preferences.svelte';
+	import { preferences } from '#lib/stores/preferences.svelte';
 	import { ui } from '#lib/stores/ui.svelte';
-	import { resolvedTheme } from '#lib/stores/theme.svelte';
-	import { cn } from '#lib/ui/cn';
 	import LanguageSwitcher from './LanguageSwitcher.svelte';
+	import ThemeSwitcher from './ThemeSwitcher.svelte';
 	import { t } from '#lib/i18n';
 
 	const activeItem = $derived(navItemFor(page.url.pathname));
-	const theme = $derived(resolvedTheme());
-
-	const THEME_ICON: Record<ThemeMode, 'sun' | 'moon' | 'monitor'> = {
-		light: 'sun',
-		dark: 'moon',
-		system: 'monitor',
-	};
-
-	function cycleTheme(): void {
-		const order: ThemeMode[] = ['light', 'dark', 'system'];
-		const next = order[(order.indexOf(preferences.theme) + 1) % order.length];
-		preferences.setTheme(next);
-	}
 </script>
 
 <header class="frost flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
@@ -69,25 +55,12 @@
 			onclick={() => ui.toggleCommand()}
 		/>
 		<IconButton
-			icon={THEME_ICON[preferences.theme]}
-			label={t('layout.topbar.cycleTheme')}
-			onclick={cycleTheme}
-		/>
-		<IconButton
 			icon="panel-right"
 			label={t('layout.topbar.toggleInspector')}
 			active={preferences.inspectorPinned}
 			onclick={() => preferences.toggleInspectorPinned()}
 		/>
-		<span
-			class={cn(
-				'ml-1 hidden items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-micro text-muted-foreground sm:flex',
-			)}
-			title={t('layout.topbar.currentTheme')}
-		>
-			<span class="h-1.5 w-1.5 rounded-full bg-success"></span>
-			{theme}
-		</span>
+		<ThemeSwitcher />
 		<LanguageSwitcher />
 	</div>
 </header>

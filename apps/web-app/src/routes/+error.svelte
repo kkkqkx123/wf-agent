@@ -1,12 +1,21 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
+	import { dev } from '$app/env';
 	import Button from '#lib/ui/components/Button.svelte';
 	import { t } from '#lib/i18n';
 
-	// SvelteKit passes { status, message } when an error bubbles up from load/endpoint.
-	// eslint-disable-next-line svelte/valid-prop-names-in-kit-pages
-	let { status = 500, message = '' }: { status?: number; message?: string } = $props();
+	// SvelteKit renders the error page with layout props only; the live page
+	// state carries the real status and error. Destructuring them from $props()
+	// would always fall back to 500 and hide the actual message.
+	const status = $derived(page.status);
+	const message = $derived(page.error?.message ?? '');
+	const stack = $derived(
+		page.error && typeof page.error === 'object'
+			? (page.error as { stack?: unknown }).stack
+			: undefined,
+	);
 
 	const errorTitle = $derived(t(status === 404 ? 'page.error.title404' : 'page.error.title500'));
 	const errorMessage = $derived(
@@ -32,6 +41,15 @@
 			</p>
 			<h1 class="mt-2 text-title font-semibold text-foreground">{errorTitle}</h1>
 			<p class="mt-2 text-caption text-muted-foreground">{errorMessage}</p>
+			{#if dev && stack}
+				<details class="mt-4 text-left">
+					<summary class="cursor-pointer text-micro text-muted-foreground">stack</summary>
+					<pre
+						class="mt-2 max-h-64 overflow-auto rounded-md border border-border bg-muted/40 p-2 text-left font-mono text-micro text-muted-foreground">{String(
+							stack,
+						)}</pre>
+				</details>
+			{/if}
 			<div class="mt-6 flex items-center justify-center gap-2">
 				<Button variant="outline" size="sm" onclick={reload}>{t('common.retry')}</Button>
 				<Button variant="outline" size="sm" onclick={goHome}>{t('page.error.goHome')}</Button>

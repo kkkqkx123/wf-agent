@@ -51,6 +51,10 @@
 	let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 	let disposed = false;
 	let socket: ReturnType<typeof connectPty> | null = null;
+	// Keystrokes typed while the snapshot restores and the socket is not
+	// open yet; flushed in order right after open() so nothing typed is lost.
+	let earlyInput = '';
+	const EARLY_INPUT_MAX = 4096;
 	let writer: ReturnType<typeof createTerminalWriter>;
 	let cursor = 0;
 	let textareaFocusCleanup: (() => void) | undefined;
@@ -252,14 +256,24 @@
 	/** Bracketed-paste mode (DECSET 2004) observed from the app; paste wraps markers when on. */
 	let bracketedPaste = false;
 
+	/** Send input, stashing it while the socket is not open yet so keystrokes
+	 * typed during snapshot restore are delivered after open(), in order. */
+	function sendInput(data: string): void {
+		if (disposed || exitHandled) return;
+		if (socket) {
+			socket.send(data);
+			return;
+		}
+		if (earlyInput.length < EARLY_INPUT_MAX) earlyInput += data;
+	}
+
 	function handlePaste(event: ClipboardEvent): void {
 		const clipboard = event.clipboardData;
 		const text = clipboard?.getData('text/plain') ?? clipboard?.getData('text') ?? '';
 		if (!text) return;
 		event.preventDefault();
 		event.stopPropagation();
-		if (exitHandled) return;
-		socket?.send(bracketedPaste ? `\x1b[200~${text}\x1b[201~` : text);
+		sendInput(bracketedPaste ? `\x1b[200~${text}\x1b[201~` : text);
 	}
 
 	function handlePointerDown(): void {
@@ -279,6 +293,9 @@
 	}
 
 	onMount(() => {
+		// The host guards with store.active(), but the dynamic import splits
+		// the guard and the mount across flushes; never mount a dead view.
+		if (!session || typeof session.id !== 'string') return;
 		const restore = session.buffer ?? '';
 		const restoreScrollY = session.scrollY ?? 0;
 		cursor = session.cursor ?? 0;
@@ -308,6 +325,18 @@
 		term.loadAddon(serializeAddon);
 		term.loadAddon(fitAddon);
 		term.loadAddon(new WebLinksAddon());
+		// Copy/paste shortcuts belong to the browser: with a selection Ctrl+C
+		// must reach the copy event (consuming it as terminal input would send
+		// \x03 and clear the selection first); Ctrl+V must reach the paste
+		// event (consuming it would send \x16 and no paste would ever arrive).
+		term.attachCustomKeyEventHandler((event) => {
+			if (event.ctrlKey && !event.altKey && !event.metaKey) {
+				const key = event.key.toLowerCase();
+				if (key === 'c' && term.hasSelection()) return false;
+				if (key === 'v') return false;
+			}
+			return true;
+		});
 		// Observe bracketed-paste mode (DECSET 2004) for paste wrapping.
 		// Returning false leaves default mode handling untouched.
 		const trackPasteMode = (params: ArrayLike<number | number[]>, on: boolean): boolean => {
@@ -368,12 +397,10 @@
 			scheduleResize(size.rows, size.cols);
 		});
 		const onTermData = term.onData((data: string) => {
-			if (disposed || exitHandled) return;
-			socket?.send(data);
+			sendInput(data);
 		});
 		const onTermBinary = term.onBinary((data: string) => {
-			if (disposed || exitHandled) return;
-			socket?.send(data);
+			sendInput(data);
 		});
 		onDestroy(() => {
 			onTermResize.dispose();
@@ -425,6 +452,13 @@
 				// starts with the current viewport.
 				flushPendingResize();
 				open(openCursor);
+				// open() assigns the socket synchronously; anything typed during
+				// the restore above queues in the wrapper and flushes on connect.
+				if (earlyInput) {
+					const pending = earlyInput;
+					earlyInput = '';
+					socket?.send(pending);
+				}
 			}
 		};
 		void restoreAndOpen();

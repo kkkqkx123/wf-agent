@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import Card from '#lib/ui/components/Card.svelte';
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import Button from '#lib/ui/components/Button.svelte';
 	import Separator from '#lib/ui/components/Separator.svelte';
-	import TerminalInstance from './TerminalInstance.svelte';
+	import type TerminalInstance from './TerminalInstance.svelte';
 	import {
 		normalizePtyRepoKey,
 		ptyStoreFor,
@@ -46,11 +46,37 @@
 	}: Props = $props();
 
 	const normalizedRepo = $derived(normalizePtyRepoKey(repo));
-	const store: PtySessionStore = $derived(ptyStoreFor(normalizedRepo));
+	// The session registry creates and hydrates the store on first use, which
+	// counts as a state write. Resolving it untracked keeps the derived pure
+	// so a first-seen repo key never throws state_unsafe_mutation; the key
+	// itself stays tracked, so repo switches still swap stores.
+	const store: PtySessionStore = $derived.by(() => {
+		const key = normalizedRepo;
+		return untrack(() => ptyStoreFor(key));
+	});
 
 	let ensuredKey: string | null = $state(null);
 	let failedId = $state<string | null>(null);
 	let instance: TerminalInstance | undefined = $state();
+	// The terminal view (and the xterm bundle) loads on demand so the route
+	// chunks stay light and a load failure degrades to panel retry.
+	let terminalView: typeof TerminalInstance | null = $state(null);
+	let terminalViewFailed = $state(false);
+
+	function loadTerminalView(): void {
+		terminalViewFailed = false;
+		terminalView = null;
+		void import('./TerminalInstance.svelte').then(
+			(module) => {
+				terminalView = module.default;
+			},
+			() => {
+				terminalViewFailed = true;
+			},
+		);
+	}
+
+	loadTerminalView();
 	let editingId = $state<string | null>(null);
 	let editingTitle = $state('');
 
@@ -79,7 +105,10 @@
 		void current.reconcile().then(() => {
 			if (!open) return;
 			if (normalizePtyRepoKey(repo) !== key) return;
-			if (current.sessions.length === 0) void spawnAndFocus();
+			// Restored sessions may all be exited (stale ids after a reload):
+			// keep their scrollback tabs, but always ensure one live session
+			// so the panel never shows a prompt-looking dead terminal.
+			if (!current.sessions.some((s) => s.status !== 'exited')) void spawnAndFocus();
 		});
 	});
 
@@ -237,15 +266,40 @@
 {#snippet terminalViewport(viewportClass: string)}
 	<div class={viewportClass} style={viewportStyle}>
 		{#key store.activeId}
-			{#if store.active()}
-				<TerminalInstance
-					bind:this={instance}
-					session={store.active()!}
-					{store}
-					onConnect={(id) => void handleConnect(id)}
-					onSessionExited={handleSessionExited}
-					onConnectFailed={handleConnectFailed}
-				/>
+			{@const active = store.active()}
+			{#if active}
+				{#if terminalView}
+					{@const TerminalView = terminalView}
+					<svelte:boundary>
+						<TerminalView
+							bind:this={instance}
+							session={active}
+							{store}
+							onConnect={(id) => void handleConnect(id)}
+							onSessionExited={handleSessionExited}
+							onConnectFailed={handleConnectFailed}
+						/>
+						<!-- The boundary passes (error, reset); the panel shows a generic message. -->
+						<!-- eslint-disable-next-line @typescript-eslint/no-unused-vars -->
+						{#snippet failed(_, reset)}
+							<div class="flex h-full flex-col items-start justify-center gap-2 p-4">
+								<p class="text-caption text-muted-foreground">
+									{t('pty.ptyPanel.disconnected')}
+								</p>
+								<Button size="sm" variant="outline" onclick={() => reset()}>
+									{t('common.retry')}
+								</Button>
+							</div>
+						{/snippet}
+					</svelte:boundary>
+				{:else if terminalViewFailed}
+					<div class="flex h-full flex-col items-start justify-center gap-2 p-4">
+						<p class="text-caption text-muted-foreground">{t('pty.ptyPanel.disconnected')}</p>
+						<Button size="sm" variant="outline" onclick={loadTerminalView}>
+							{t('common.retry')}
+						</Button>
+					</div>
+				{/if}
 			{/if}
 		{/key}
 	</div>

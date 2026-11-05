@@ -1,8 +1,9 @@
 <script lang="ts">
 	/**
 	 * Shared picker for the composer instances (agents, models). The list is
-	 * layered: pinned entries first, then recently used ones, with the full
-	 * list behind a browse-all view so the trigger never grows long.
+	 * grouped: pinned entries first, then recently used ones, then the full
+	 * list, so opening the panel always shows every option with no manual
+	 * expand step. The filter narrows across all three groups.
 	 */
 	import Icon from '#lib/ui/icons/Icon.svelte';
 	import { cn } from '#lib/ui/cn';
@@ -79,8 +80,6 @@
 	let internalOpen = $state(false);
 	const open = $derived(activePicker === undefined ? internalOpen : activePicker === pickerKey);
 	let query = $state('');
-	/** Whether the full list is shown instead of the pinned/recent layers. */
-	let browseAll = $state(false);
 	let root: HTMLDivElement | undefined = $state();
 
 	const filtered = $derived.by(() => {
@@ -109,6 +108,11 @@
 
 	const typed = $derived(query.trim());
 
+	/** The remaining entries: filtered matches outside pinned and recent. */
+	const remaining = $derived(
+		filtered.filter((option) => !pinnedIds.includes(option.id) && !recentIds.includes(option.id)),
+	);
+
 	/** The selected entry, so the trigger can show its label. */
 	const selected = $derived(options.find((option) => option.id === value));
 	const triggerIcon = $derived(selected?.icon ?? icon);
@@ -124,14 +128,12 @@
 
 	function openPanel(): void {
 		query = '';
-		browseAll = false;
 		if (activePicker === undefined) internalOpen = true;
 		else onActivate?.(pickerKey);
 	}
 
 	function close(): void {
 		query = '';
-		browseAll = false;
 		if (activePicker === undefined) internalOpen = false;
 		else onActivate?.(null);
 		onClose?.();
@@ -241,52 +243,36 @@
 					aria-label={filterPlaceholder}
 					class="min-w-0 flex-1 rounded-md border border-input bg-card px-2 py-1 text-caption text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 				/>
-				<button
-					type="button"
-					aria-pressed={browseAll}
-					onclick={() => (browseAll = !browseAll)}
-					class={cn(
-						'shrink-0 rounded-md border border-input px-2 py-1 text-micro text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
-						browseAll && 'border-ring text-foreground',
-					)}
-				>
-					{browseAll
-						? t('chat.instancePicker.shortList')
-						: t('chat.instancePicker.all', { count: options.length })}
-				</button>
 			</div>
 			<div class="max-h-64 overflow-y-auto">
-				{#if browseAll}
-					{#each filtered as option (option.id)}
+				{#if pinned.length > 0}
+					<p class="px-2 py-1 text-micro uppercase tracking-wide text-muted-foreground">
+						{t('chat.instancePicker.pinned')}
+					</p>
+					{#each pinned as option (option.id)}
 						{@render row(option)}
 					{/each}
-					{#if filtered.length === 0}
-						<p class="px-2 py-1.5 text-micro text-muted-foreground">
-							{emptyLabel}
-						</p>
-					{/if}
-				{:else}
-					{#if pinned.length > 0}
-						<p class="px-2 py-1 text-micro uppercase tracking-wide text-muted-foreground">
-							{t('chat.instancePicker.pinned')}
-						</p>
-						{#each pinned as option (option.id)}
-							{@render row(option)}
-						{/each}
-					{/if}
-					{#if recent.length > 0}
-						<p class="px-2 py-1 text-micro uppercase tracking-wide text-muted-foreground">
-							{t('chat.instancePicker.recent')}
-						</p>
-						{#each recent as option (option.id)}
-							{@render row(option)}
-						{/each}
-					{/if}
-					{#if pinned.length === 0 && recent.length === 0}
-						<p class="px-2 py-1.5 text-micro text-muted-foreground">
-							{emptyLabel}
-						</p>
-					{/if}
+				{/if}
+				{#if recent.length > 0}
+					<p class="px-2 py-1 text-micro uppercase tracking-wide text-muted-foreground">
+						{t('chat.instancePicker.recent')}
+					</p>
+					{#each recent as option (option.id)}
+						{@render row(option)}
+					{/each}
+				{/if}
+				{#if remaining.length > 0}
+					<p class="px-2 py-1 text-micro uppercase tracking-wide text-muted-foreground">
+						{t('chat.instancePicker.all', { count: filtered.length })}
+					</p>
+					{#each remaining as option (option.id)}
+						{@render row(option)}
+					{/each}
+				{/if}
+				{#if filtered.length === 0}
+					<p class="px-2 py-1.5 text-micro text-muted-foreground">
+						{emptyLabel}
+					</p>
 				{/if}
 				{#if allowFreeform && typed && !options.some((option) => option.id === typed)}
 					<button

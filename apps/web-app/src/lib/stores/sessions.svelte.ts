@@ -80,6 +80,11 @@ class SessionStore {
 		return this.local.temporaryBadge(id);
 	}
 
+	/** Whether the session is marked temporary or read-only. */
+	isTemporary(id: string): boolean {
+		return this.sessionBadge(id) !== null;
+	}
+
 	markTemporary(id: string, mode: 'restricted' | 'ephemeral'): void {
 		this.local.markTemporary(id, mode);
 	}

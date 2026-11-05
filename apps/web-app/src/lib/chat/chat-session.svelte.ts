@@ -210,7 +210,7 @@ export class ChatSessionController {
 	executionType = $state<ChatExecutionType>('agent');
 	/** Active agent loop id for the running turn, when known. */
 	activeAgentLoopId = $state<string | null>(null);
-	/** Next-turn temporary override: null follows the draft default. Reset on session switch. */
+	/** Next-turn temporary override: null follows the session default. Reset on session switch. */
 	temporaryOverride = $state<'full' | 'restricted' | 'ephemeral' | null>(null);
 	revision = $state(0);
 
@@ -631,22 +631,38 @@ export class ChatSessionController {
 		toasts.error('No user message to retry');
 	}
 
+	/** Default temporary mode: drafts start fenced, saved sessions follow their badge. */
+	defaultTemporaryMode(isDraft: boolean): 'restricted' | null {
+		return isDraft ? 'restricted' : null;
+	}
+
+	/** Resolved mode for the next agent turn. Null means a full run. Single
+	 * source for the composer highlight and the send path: an explicit
+	 * override wins, otherwise a saved session stays on its badge and a
+	 * draft falls back to the fenced default. */
+	resolvedTemporaryMode(): 'restricted' | 'ephemeral' | null {
+		if (this.temporaryOverride === 'full') return null;
+		if (this.temporaryOverride === 'restricted' || this.temporaryOverride === 'ephemeral')
+			return this.temporaryOverride;
+		const id = this.selectedId;
+		if (id) return this.sessionBadge(id);
+		return this.defaultTemporaryMode(true);
+	}
+
 	/** Effective temporary mode for the next agent turn. Null means a full run. */
 	effectiveTemporaryMode(draft: boolean): 'restricted' | 'ephemeral' | null {
 		if (this.temporaryOverride === 'full') return null;
 		if (this.temporaryOverride === 'restricted' || this.temporaryOverride === 'ephemeral')
 			return this.temporaryOverride;
-		return draft ? 'restricted' : null;
+		if (draft) return this.defaultTemporaryMode(true);
+		const id = this.selectedId;
+		if (id) return this.sessionBadge(id);
+		return this.defaultTemporaryMode(false);
 	}
 
-	/** Composer toggle for the next agent turn. */
+	/** Composer toggle for the next agent turn. Null restores the default. */
 	setTemporaryOverride(mode: 'full' | 'restricted' | 'ephemeral' | null): void {
 		this.temporaryOverride = mode;
-	}
-
-	/** Promotion entry: the next turn runs as a full agent. */
-	promoteToFull(): void {
-		this.temporaryOverride = 'full';
 	}
 
 	/** Local badge of one session; drives the composer mark and the empty-state hint. */
@@ -944,7 +960,19 @@ export class ChatSessionController {
 		this.activeAgentLoopId = null;
 		rememberImageNames(images);
 		const draft = !this.selectedId;
-		const effectiveTemporary = this.effectiveTemporaryMode(draft);
+		const effectiveTemporary = this.resolvedTemporaryMode();
+		// Ephemeral chains stay empty by design, so the backend rejects
+		// reusing their id for any other mode. Block the turn up front
+		// instead of surfacing a 400 mid-stream; promotion starts a new
+		// session with explicit history.
+		if (!draft && this.selectedId && this.sessionBadge(this.selectedId) === 'ephemeral') {
+			if (effectiveTemporary !== 'ephemeral') {
+				toasts.error(
+					'Ephemeral read-only sessions cannot continue as full or temporary on the same id; start a new session to continue with more tools',
+				);
+				return;
+			}
+		}
 		this.beginRecapTurn();
 		const baseline = new SvelteSet(sessions.list.items.map((item) => item.id));
 		const startedAt = new SvelteDate().toISOString();

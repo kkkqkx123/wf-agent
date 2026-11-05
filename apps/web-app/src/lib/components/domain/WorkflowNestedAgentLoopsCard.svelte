@@ -18,6 +18,7 @@
 	import { toasts } from '#lib/stores/toast.svelte';
 	import type { StreamState } from '#lib/api/sse';
 	import { SvelteMap } from 'svelte/reactivity';
+import { t } from '#lib/i18n';
 
 	interface Props {
 		executionId: string;
@@ -253,7 +254,7 @@
 						<Input
 							size="sm"
 							class="min-w-0 flex-1"
-							placeholder={`Append input for ${nodeId}`}
+							placeholder={t('common.appendInputForNode', { node: nodeId })}
 							aria-label={`Append input for ${nodeId}`}
 							value={draft}
 							oninput={(event) => drafts.set(nodeId, event.currentTarget.value)}

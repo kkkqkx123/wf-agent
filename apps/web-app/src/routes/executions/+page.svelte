@@ -493,7 +493,7 @@
 				onstatuschange={() => void reload()}
 			>
 				{#snippet trailing()}
-					<Input bind:value={versionFilter} placeholder="Version" class="w-28" />
+					<Input bind:value={versionFilter} placeholder={t('common.version')} class="w-28" />
 					<Select
 						value={timeRange}
 						options={[

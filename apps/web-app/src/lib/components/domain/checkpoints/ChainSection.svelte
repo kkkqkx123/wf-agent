@@ -258,7 +258,7 @@
 				size="sm"
 				value={execId}
 				oninput={(event: Event) => (execId = (event.target as HTMLInputElement).value)}
-				placeholder="workflow execution id"
+				placeholder={t('common.workflowExecutionId')}
 			/>
 		</div>
 		<Button

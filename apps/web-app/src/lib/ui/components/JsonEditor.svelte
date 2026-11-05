@@ -134,7 +134,7 @@
 				bind:this={area}
 				bind:value
 				aria-label={label}
-				{typeof placeholder === 'function' ? placeholder() : placeholder}
+				placeholder={typeof placeholder === 'function' ? placeholder() : placeholder}
 				wrap="off"
 				rows={rowCount}
 				spellcheck={false}

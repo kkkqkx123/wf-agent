@@ -257,7 +257,7 @@
 				size="sm"
 				value={reviewFeaturesText}
 				oninput={(event: Event) => (reviewFeaturesText = (event.target as HTMLInputElement).value)}
-				placeholder="demo, next"
+				placeholder={t('common.tagExample')}
 			/>
 		</div>
 		<div class="mt-2 flex flex-wrap gap-2">
@@ -310,7 +310,7 @@
 				size="sm"
 				value={rollbackHead}
 				oninput={(event: Event) => (rollbackHead = (event.target as HTMLInputElement).value)}
-				placeholder="Merge commit id to revert"
+				placeholder={t('common.mergeCommitIdToRevert')}
 			/>
 		</div>
 		<div class="mt-2">

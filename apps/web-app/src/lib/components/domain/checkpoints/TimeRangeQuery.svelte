@@ -48,7 +48,7 @@
 		size="sm"
 		value={workflowId}
 		oninput={(event: Event) => (workflowId = (event.target as HTMLInputElement).value)}
-		placeholder="workflow id"
+		placeholder={t('common.workflowId')}
 	/>
 	<div class="grid grid-cols-2 gap-2">
 		<Input

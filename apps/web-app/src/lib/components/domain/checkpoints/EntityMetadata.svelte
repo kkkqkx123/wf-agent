@@ -80,7 +80,7 @@
 				size="sm"
 				value={metadataEntityId}
 				oninput={(event: Event) => (metadataEntityId = (event.target as HTMLInputElement).value)}
-				placeholder="execution id"
+				placeholder={t('common.executionId')}
 			/>
 		</div>
 		<Button variant="outline" size="sm" onclick={() => void load()}>
@@ -91,7 +91,7 @@
 		label={t('domain.checkpoint.metadataLabel')}
 		bind:value={metadataText}
 		rows={6}
-		placeholder="metadata JSON"
+		placeholder={t('common.metadataJson')}
 	/>
 	<div class="flex items-center gap-2">
 		<Button size="sm" disabled={checkpointStore.busy} onclick={() => void save()}>

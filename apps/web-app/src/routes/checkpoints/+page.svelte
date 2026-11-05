@@ -276,7 +276,7 @@
 		label={t('page.checkpoints.actor')}
 		value={fileWorkspace.actor}
 		oninput={(event: Event) => fileWorkspace.setActor((event.target as HTMLInputElement).value)}
-		placeholder="manual"
+		placeholder={t('common.manual')}
 	/>
 	{#snippet footer()}
 		<Button variant="ghost" size="sm" onclick={() => (createOpen = false)}>Cancel</Button>

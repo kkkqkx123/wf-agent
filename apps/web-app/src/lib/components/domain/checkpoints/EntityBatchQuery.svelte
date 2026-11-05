@@ -56,7 +56,7 @@
 		size="sm"
 		value={entityIds}
 		oninput={(event: Event) => (entityIds = (event.target as HTMLInputElement).value)}
-		placeholder="id-1, id-2, id-3"
+		placeholder={t('common.idListExample')}
 	/>
 	<Select
 		label={t('domain.checkpoint.entityType')}

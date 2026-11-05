@@ -464,7 +464,7 @@
 					bind:value={version}
 					options={versions.length > 0 ? versions : [{ value: '', label: 'Latest' }]}
 					label="Version"
-					placeholder={versionsLoading ? 'Loading versions…' : 'Empty runs the current definition'}
+					placeholder={versionsLoading ? t('page.executions.loadingVersions') : t('page.executions.emptyRunsCurrentDefinition')}
 					disabled={versionsLoading}
 					onchange={() => undefined}
 				/>
@@ -498,7 +498,7 @@
 				<Textarea
 					bind:value={fileScope}
 					label="File scope (JSON, optional)"
-					placeholder="Optional JSON file scope"
+					placeholder={t('common.optionalJsonFileScope')}
 				/>
 				{#if fileScopeError}
 					<p class="text-micro text-destructive">{fileScopeError}</p>
@@ -508,12 +508,12 @@
 						Runtime overrides (optional)
 					</summary>
 					<div class="mt-2 grid grid-cols-2 gap-2">
-						<Input bind:value={maxSteps} label="Max steps" placeholder="Empty uses default" />
-						<Input bind:value={timeoutMs} label="Timeout (ms)" placeholder="Empty uses default" />
+						<Input bind:value={maxSteps} label="Max steps" placeholder={t('common.emptyUsesDefault')} />
+						<Input bind:value={timeoutMs} label="Timeout (ms)" placeholder={t('common.emptyUsesDefault')} />
 						<Input
 							bind:value={maxExecutionTimeMs}
 							label="Max execution time (ms)"
-							placeholder="Empty uses default"
+							placeholder={t('common.emptyUsesDefault')}
 						/>
 						<Select
 							bind:value={enableCheckpoints}
@@ -528,22 +528,22 @@
 						<Input
 							bind:value={nodeTimeoutMs}
 							label="Node timeout (ms)"
-							placeholder="Empty uses default"
+							placeholder={t('common.emptyUsesDefault')}
 						/>
 						<Input
 							bind:value={maxPauseDurationMs}
 							label="Max pause duration (ms)"
-							placeholder="Empty uses default"
+							placeholder={t('common.emptyUsesDefault')}
 						/>
 						<Input
 							bind:value={maxNavigationMultiplier}
 							label="Navigation multiplier"
-							placeholder="Empty uses default"
+							placeholder={t('common.emptyUsesDefault')}
 						/>
 						<Input
 							bind:value={loopMaxIterationsCap}
 							label="Loop iterations cap"
-							placeholder="Empty uses default"
+							placeholder={t('common.emptyUsesDefault')}
 						/>
 					</div>
 					{#if runtimeError}
@@ -589,7 +589,7 @@
 				<Textarea
 					bind:value={fileScope}
 					label="File scope (JSON, optional)"
-					placeholder="Optional JSON file scope"
+					placeholder={t('common.optionalJsonFileScope')}
 				/>
 				{#if fileScopeError}
 					<p class="text-micro text-destructive">{fileScopeError}</p>
@@ -597,7 +597,7 @@
 				<Textarea
 					bind:value={conversationSeed}
 					label="Conversation seed (JSON array, optional)"
-					placeholder="Optional prior turns as a JSON array"
+					placeholder={t('common.optionalPriorTurns')}
 				/>
 				{#if conversationSeedError}
 					<p class="text-micro text-destructive">{conversationSeedError}</p>
@@ -606,12 +606,12 @@
 					<Input
 						bind:value={maxIterations}
 						label="Max iterations (optional)"
-						placeholder="Empty uses template default"
+						placeholder={t('common.emptyUsesTemplateDefault')}
 					/>
 					<Input
 						bind:value={tokenLimit}
 						label="Token limit (optional)"
-						placeholder="Empty uses template default"
+						placeholder={t('common.emptyUsesTemplateDefault')}
 					/>
 				</div>
 			{/if}

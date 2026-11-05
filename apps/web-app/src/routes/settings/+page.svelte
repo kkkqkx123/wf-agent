@@ -272,7 +272,7 @@
 		try {
 			const text = await file.text();
 			pendingBackup = parseBackupDocument(text);
-			backupMessage = `Ready to restore: ${describeBackup(pendingBackup)}.`;
+			backupMessage = t('page.settings.readyToRestore', { backup: describeBackup(pendingBackup) });
 		} catch (error) {
 			backupError = error instanceof Error ? error.message : t('page.settings.invalidBackup');
 		} finally {
@@ -340,7 +340,7 @@
 					{behavior.saving ? t('page.settings.saving') : t('page.settings.saveServerPrefs')}
 				</Button>
 			{:else}
-				<span class="text-caption text-muted-foreground"> Local preferences apply instantly. </span>
+				<span class="text-caption text-muted-foreground"> {t('page.settings.localPrefsApplyInstantly')} </span>
 			{/if}
 		{/snippet}
 	</PageHeader>
@@ -496,17 +496,16 @@
 						{/if}
 						{#if pendingBackup}
 							<p class="mt-2 text-caption text-muted-foreground">
-								Will replace: {describeBackup(pendingBackup)}.
+								{t('page.settings.willReplace', { backup: describeBackup(pendingBackup) })}.
 							</p>
 							{#if serverUnreachable}
 								<p class="mt-2 text-caption text-warning">
-									Server is unreachable, so only the local part can be restored now. Retry the
-									server part later.
+									{t('page.settings.localOnlyNote')}
 								</p>
 							{/if}
 							<div class="mt-3 flex flex-wrap gap-2">
 								<Button size="sm" variant="outline" onclick={applyLocalBackup}>
-									Restore local only
+									{t('page.settings.restoreLocalOnly')}
 								</Button>
 								<Button
 									size="sm"
@@ -524,7 +523,7 @@
 										backupMessage = '';
 									}}
 								>
-									Cancel
+									{t('common.cancel')}
 								</Button>
 							</div>
 						{:else if backupMessage}
@@ -544,7 +543,7 @@
 					{#if section === 'execution'}
 						<div class="space-y-3">
 							<p class="text-caption text-muted-foreground">
-								Server-side section. Changes only take effect after Save in the header.
+								{t('page.settings.serverSectionNote')}
 							</p>
 							{#if behavior.loaded && behavior.error}
 								<p class="text-caption text-destructive">

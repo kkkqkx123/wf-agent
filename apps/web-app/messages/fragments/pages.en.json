@@ -578,5 +578,10 @@
 	"page.starters.tagsLabel": "Tags (comma separated)",
 	"page.starters.titleLabel": "Title",
 	"page.starters.toggleFailed": "Starter toggle failed",
-	"page.starters.uses": "uses"
+	"page.starters.uses": "uses",
+	"page.settings.readyToRestore": "Ready to restore: {backup}.",
+	"page.settings.willReplace": "Will replace: {backup}.",
+	"page.settings.localPrefsApplyInstantly": "Local preferences apply instantly.",
+	"page.executions.loadingVersions": "Loading versions…",
+	"page.executions.emptyRunsCurrentDefinition": "Empty runs the current definition"
 }

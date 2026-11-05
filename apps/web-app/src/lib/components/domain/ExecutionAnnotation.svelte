@@ -5,6 +5,7 @@
 	import Icon from '#lib/ui/icons/Icon.svelte';
 	import Textarea from '#lib/ui/components/Textarea.svelte';
 	import { cn } from '#lib/ui/cn';
+import { t } from '#lib/i18n';
 
 	interface Props {
 		executionId: string;
@@ -115,7 +116,7 @@
 	{/snippet}
 	<Textarea
 		bind:value={note}
-		placeholder="Add a local note about this run…"
+		placeholder={t('common.addLocalNote')}
 		class="min-h-16 text-caption"
 	/>
 	<div class="mt-2 flex items-center justify-between gap-2">

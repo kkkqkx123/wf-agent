@@ -416,7 +416,7 @@
 						>
 						<input
 							value={selectedNode.kind}
-							placeholder="STEP"
+							placeholder={t("common.stepCode")}
 							class="h-7 w-full rounded-md border border-input bg-card px-2.5 text-small"
 							oninput={(event) => {
 								const next = (event.currentTarget as HTMLInputElement).value;

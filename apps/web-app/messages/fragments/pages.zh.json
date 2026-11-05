@@ -578,5 +578,10 @@
 	"page.starters.tagsLabel": "标签（逗号分隔）",
 	"page.starters.titleLabel": "标题",
 	"page.starters.toggleFailed": "预设切换失败",
-	"page.starters.uses": "次使用"
+	"page.starters.uses": "次使用",
+	"page.settings.readyToRestore": "准备恢复：{backup}。",
+	"page.settings.willReplace": "将替换：{backup}。",
+	"page.settings.localPrefsApplyInstantly": "本地偏好立即生效。",
+	"page.executions.loadingVersions": "加载版本中…",
+	"page.executions.emptyRunsCurrentDefinition": "留空运行当前定义"
 }

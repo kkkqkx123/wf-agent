@@ -10,7 +10,7 @@ import { message } from '#lib/i18n';
 		disabled?: boolean;
 	}
 
-	interface Props extends Omit<HTMLSelectAttributes, 'size' | 'children' | 'value' | 'onchange'> {
+	interface Props extends Omit<HTMLSelectAttributes, 'size' | 'children' | 'value' | 'onchange' | 'placeholder'> {
 		value: string;
 		options: Option[];
 		size?: 'sm' | 'md';

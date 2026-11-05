@@ -231,7 +231,7 @@
 					value={insertTarget}
 					options={targetOptions}
 					size="sm"
-					placeholder="Target workflow (optional)"
+					placeholder={t('common.targetWorkflowOptional')}
 					class="w-56"
 					onchange={(value) => (insertTarget = value)}
 				/>

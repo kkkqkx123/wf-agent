@@ -38,7 +38,7 @@
 				label={t('domain.git.keyLabel')}
 				size="sm"
 				bind:value={workbench.token}
-				placeholder="c commit · space stage · ? all"
+				placeholder={t('common.gitShortcutHelp')}
 				onkeydown={(event) => {
 					if (event.key === 'Enter') void workbench.submitToken();
 					else if (event.key === 'Escape') workbench.token = '';

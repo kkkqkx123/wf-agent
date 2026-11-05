@@ -109,6 +109,38 @@ function runCommand(line: string): { output: string; exit?: number } | null {
 	}
 }
 
+/** Total output bytes streamed per session; the next connect reports it as the replay cursor. */
+const sessionCursors = new Map<string, number>();
+
+const byteCounter = new TextEncoder();
+
+function byteLength(text: string): number {
+	for (let i = 0; i < text.length; i += 1) {
+		if (text.charCodeAt(i) > 127) return byteCounter.encode(text).length;
+	}
+	return text.length;
+}
+
+/** Binary control frame matching the server wire format: 0x00 followed by JSON. */
+function controlFrame(payload: unknown): ArrayBuffer {
+	const json = byteCounter.encode(JSON.stringify(payload));
+	const frame = new Uint8Array(1 + json.length);
+	frame[0] = 0x00;
+	frame.set(json, 1);
+	return frame.buffer;
+}
+
+function resumeCursorFromUrl(url: string): number {
+	try {
+		const parsed = new URL(url, 'http://localhost');
+		const raw = parsed.searchParams.get('cursor');
+		const next = raw === null ? 0 : Number(raw);
+		return Number.isSafeInteger(next) && next >= 0 ? next : 0;
+	} catch {
+		return 0;
+	}
+}
+
 class MockPtySocket {
 	static readonly CONNECTING = 0;
 	static readonly OPEN = 1;
@@ -116,50 +148,94 @@ class MockPtySocket {
 	static readonly CLOSED = 3;
 
 	readyState = MockPtySocket.CONNECTING;
-	binaryType = 'blob';
+	binaryType = 'arraybuffer';
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	onopen: ((event?: any) => void) | null = null;
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	onmessage: ((event: any) => void) | null = null;
-	onclose: (() => void) | null = null;
+	onclose: ((event: CloseEvent) => void) | null = null;
 	onerror: (() => void) | null = null;
 
 	#inputBuffer = '';
 	#closed = false;
+	#inEscape = false;
+	#skipLineFeed = false;
 	#sessionId: string | null = null;
+	#resumeCursor = 0;
 
 	constructor(url: string | URL) {
-		this.#sessionId = sessionIdFromUrl(String(url));
+		const target = String(url);
+		this.#sessionId = sessionIdFromUrl(target);
+		this.#resumeCursor = resumeCursorFromUrl(target);
 		setTimeout(() => {
+			if (this.#closed) return;
 			this.readyState = MockPtySocket.OPEN;
 			this.onopen?.({ type: 'open' });
-			this.#stream(WELCOME + '\r\n');
-			this.#stream(PROMPT);
+			// Replay contract first: the absolute cursor lets the client resume later.
+			const known = this.#sessionId ? (sessionCursors.get(this.#sessionId) ?? 0) : 0;
+			const cursor = Math.max(known, this.#resumeCursor);
+			this.#deliverControl({ cursor });
+			// A reconnecting client already holds the earlier output in its
+			// restored buffer, so only a fresh session gets the greeting.
+			if (cursor === 0) {
+				this.#stream(WELCOME + '\r\n');
+				this.#stream(PROMPT);
+			}
 		}, 0);
 	}
 
 	send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
 		if (this.readyState !== MockPtySocket.OPEN || typeof data !== 'string') return;
-		this.#inputBuffer += data;
-		let newline = this.#inputBuffer.indexOf('\r');
-		while (newline >= 0) {
-			const line = this.#inputBuffer.slice(0, newline);
-			this.#inputBuffer = this.#inputBuffer.slice(newline + 1);
-			this.#handleLine(line);
-			newline = this.#inputBuffer.indexOf('\r');
-		}
+		for (const char of data) this.#handleChar(char);
 	}
 
-	close(): void {
+	close(code = 1000, reason = ''): void {
 		if (this.readyState === MockPtySocket.CLOSED) return;
 		this.readyState = MockPtySocket.CLOSED;
 		this.#closed = true;
-		this.onclose?.();
+		this.onclose?.({ code, reason } as CloseEvent);
+	}
+
+	/** Cooked-line editing with immediate echo, like a real PTY. */
+	#handleChar(char: string): void {
+		if (this.#inEscape) {
+			// Escape sequences (arrow keys, etc.) carry no line content here.
+			if (/[a-zA-Z~]/.test(char)) this.#inEscape = false;
+			return;
+		}
+		if (char === '\x1b') {
+			this.#inEscape = true;
+			return;
+		}
+		if (char === '\r' || char === '\n') {
+			// Collapse a CR LF pair into a single submit.
+			if (char === '\n' && this.#skipLineFeed) {
+				this.#skipLineFeed = false;
+				return;
+			}
+			if (char === '\r') this.#skipLineFeed = true;
+			this.#emit('\r\n');
+			const line = this.#inputBuffer;
+			this.#inputBuffer = '';
+			this.#handleLine(line);
+			return;
+		}
+		this.#skipLineFeed = false;
+		if (char === '\x7f' || char === '\b') {
+			if (this.#inputBuffer.length === 0) return;
+			const kept = [...this.#inputBuffer];
+			kept.pop();
+			this.#inputBuffer = kept.join('');
+			this.#emit('\b \b');
+			return;
+		}
+		if (char < ' ' && char !== '\t') return;
+		this.#inputBuffer += char;
+		this.#emit(char);
 	}
 
 	#handleLine(line: string): void {
-		// Echo the typed line so the terminal behaves like a cooked PTY.
-		this.#stream(`${line}\r\n`);
+		// Input was already echoed per keystroke; just answer the command.
 		const result = runCommand(line);
 		if (!result) {
 			this.#stream(PROMPT);
@@ -168,13 +244,40 @@ class MockPtySocket {
 		this.#stream(result.output + '\r\n');
 		if (result.exit !== undefined) {
 			this.#stream(`[session ended with code ${result.exit}]\r\n`);
+			// Control frame and close ride after the delayed output above,
+			// matching the server order of data frames then the exited frame.
 			setTimeout(() => {
+				this.#deliverControl({
+					event: 'exited',
+					exit_code: result.exit,
+					reason: 'preview shell exit',
+				});
 				if (this.#sessionId) exitSession(this.#sessionId, result.exit);
-				this.close();
+				this.close(4010, 'pty exited (preview shell exit)');
 			}, 30);
 			return;
 		}
 		this.#stream(PROMPT);
+	}
+
+	#countDelivered(text: string): void {
+		if (!this.#sessionId) return;
+		sessionCursors.set(
+			this.#sessionId,
+			(sessionCursors.get(this.#sessionId) ?? 0) + byteLength(text),
+		);
+	}
+
+	/** Immediate echo path for typed input; no chunk delay so typing feels live. */
+	#emit(text: string): void {
+		if (this.#closed || this.readyState !== MockPtySocket.OPEN) return;
+		this.#countDelivered(text);
+		this.onmessage?.({ data: text });
+	}
+
+	#deliverControl(payload: unknown): void {
+		if (this.#closed || this.readyState !== MockPtySocket.OPEN) return;
+		this.onmessage?.({ data: controlFrame(payload) });
 	}
 
 	/** Push `text` in small delayed chunks so the terminal renders
@@ -187,6 +290,7 @@ class MockPtySocket {
 			delay += 15;
 			setTimeout(() => {
 				if (this.#closed || this.readyState !== MockPtySocket.OPEN) return;
+				this.#countDelivered(chunk);
 				this.onmessage?.({ data: chunk });
 			}, delay);
 		}
@@ -202,7 +306,6 @@ function sessionIdFromUrl(url: string): string | null {
 export function installMockPtySocket(): void {
 	if (typeof window === 'undefined') return;
 	const NativeWebSocket = window.WebSocket;
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const Patched = function (this: unknown, url: string | URL, protocols?: string | string[]) {
 		const target = String(url);
 		if (target.includes(MOCK_URL_MARKER)) {

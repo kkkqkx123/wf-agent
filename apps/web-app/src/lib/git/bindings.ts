@@ -771,6 +771,17 @@ const RAW_BINDINGS: RawBinding[] = [
 		params: ['path'],
 		contexts: ['files', 'conflicts'],
 	},
+	{
+		id: 'conflict.resolve-block',
+		name: 'Resolve block',
+		aliases: ['B'],
+		hint: 'B',
+		hidden: true,
+		weight: 60,
+		danger: 'recoverable',
+		params: ['path', 'block', 'side'],
+		contexts: ['files', 'conflicts'],
+	},
 ];
 
 function hydrate(raw: RawBinding): BindingItem {

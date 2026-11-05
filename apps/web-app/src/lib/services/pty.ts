@@ -159,7 +159,9 @@ export function connectPty(id: string, cursor: number, options: PtySocketOptions
 
 	void fetchConnectTicket(id).then((ticket) => {
 		if (disposed) return;
-		const url = new URL(`${API_BASE_URL}/api/v1/pty/${id}/connect`);
+		// Preview serves from the relative base '/mock', so resolve against the page URL.
+		// Absolute bases (production) ignore the second argument.
+		const url = new URL(`${API_BASE_URL}/api/v1/pty/${id}/connect`, window.location.href);
 		if (ticket) {
 			url.searchParams.set('ticket', ticket);
 		} else {

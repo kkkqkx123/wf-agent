@@ -112,6 +112,8 @@ export const PARAM_LABELS: Record<string, string> = {
 	query: 'Query',
 	hunkIndex: 'Hunk',
 	lines: 'Lines',
+	block: 'Block',
+	side: 'Side',
 };
 
 export const PARAM_DEFAULTS: Record<string, Record<string, string>> = {

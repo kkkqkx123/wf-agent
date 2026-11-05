@@ -6,6 +6,14 @@
 //! consume the trait without knowing the backend. The crate is intentionally
 //! free of project-specific semantics (no epochs, no generations) so it can
 //! move to an independent repository without modification.
+//!
+//! Deferred capabilities (kept out of the contract until a pipeline needs
+//! them): sparse and multi vectors, named vectors, prefetch fusion,
+//! ordering and recommend/discover inputs, grouping, partial payload
+//! updates, snapshots, sharding and aliases, and a gRPC transport. Add
+//! them only when hybrid sparse demand, distributed operations, or
+//! benchmarks proving REST is the bottleneck trigger the extension;
+//! query shaping stays additive via optional [`VectorQuery`] fields.
 
 pub mod error;
 pub mod filter;

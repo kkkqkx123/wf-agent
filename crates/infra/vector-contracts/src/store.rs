@@ -86,7 +86,12 @@ pub trait VectorStorage: Send + Sync {
     /// Ensures the collection exists with the given dimension and metric.
     /// Returns true when the collection was created; existing collections
     /// with a mismatched dimension fail instead of being migrated.
+    /// A distance mismatch fails as invalid input since scores would not
+    /// be comparable across metrics.
     async fn ensure_collection(&self, spec: &CollectionSpec) -> Result<bool>;
+
+    /// Deletes the collection and all its points; missing collections fail.
+    async fn delete_collection(&self, collection: &str) -> Result<()>;
 
     /// Inserts points or overwrites points with the same id.
     async fn upsert(&self, collection: &str, points: &[VectorPoint]) -> Result<()>;

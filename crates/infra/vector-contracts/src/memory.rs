@@ -116,6 +116,12 @@ impl VectorStorage for InMemoryVectorStore {
                     actual: spec.dimension,
                 });
             }
+            if existing.distance != spec.distance {
+                return Err(VectorError::InvalidInput(format!(
+                    "collection '{}' uses {:?} distance, requested {:?}",
+                    spec.name, existing.distance, spec.distance
+                )));
+            }
             return Ok(false);
         }
         collections.insert(
@@ -127,6 +133,14 @@ impl VectorStorage for InMemoryVectorStore {
             },
         );
         Ok(true)
+    }
+
+    async fn delete_collection(&self, collection: &str) -> Result<()> {
+        let mut collections = self.collections.write();
+        collections
+            .remove(collection)
+            .map(|_| ())
+            .ok_or_else(|| VectorError::CollectionMissing(collection.to_string()))
     }
 
     async fn upsert(&self, collection: &str, points: &[VectorPoint]) -> Result<()> {
@@ -383,5 +397,71 @@ mod tests {
         let store = InMemoryVectorStore::new();
         let result = store.search("nope", &VectorQuery::new(vec![1.0], 5)).await;
         assert!(matches!(result, Err(VectorError::CollectionMissing(_))));
+    }
+
+    #[tokio::test]
+    async fn distance_mismatch_fails_on_ensure() {
+        let store = InMemoryVectorStore::new();
+        store
+            .ensure_collection(&CollectionSpec::new("kb", 2))
+            .await
+            .expect("ensure");
+        let result = store
+            .ensure_collection(&CollectionSpec::new("kb", 2).with_distance(DistanceMetric::Dot))
+            .await;
+        assert!(matches!(result, Err(VectorError::InvalidInput(_))));
+    }
+
+    #[tokio::test]
+    async fn delete_reports_actual_count_and_collection_lifecycle() {
+        let store = seeded().await;
+        let removed = store
+            .delete_by_id("kb", &["missing".to_string(), "a".to_string()])
+            .await
+            .expect("delete");
+        assert_eq!(removed, 1);
+        store
+            .delete_collection("kb")
+            .await
+            .expect("delete collection");
+        let result = store.count("kb", None).await;
+        assert!(matches!(result, Err(VectorError::CollectionMissing(_))));
+    }
+
+    #[tokio::test]
+    async fn numeric_payload_matches_text_field_filter() {
+        let store = InMemoryVectorStore::new();
+        store
+            .ensure_collection(&CollectionSpec::new("kb", 2))
+            .await
+            .expect("ensure");
+        store
+            .upsert(
+                "kb",
+                &[VectorPoint::new("n", vec![1.0, 0.0])
+                    .with_field("namespace", serde_json::json!("kb"))
+                    .with_field("page", serde_json::json!(3))
+                    .with_field("archived", serde_json::json!(true))],
+            )
+            .await
+            .expect("upsert");
+        let hits = store
+            .search(
+                "kb",
+                &VectorQuery::new(vec![1.0, 0.0], 5)
+                    .with_filter(SearchFilter::new().with_field("page", "3")),
+            )
+            .await
+            .expect("search");
+        assert_eq!(hits.len(), 1);
+        let hits = store
+            .search(
+                "kb",
+                &VectorQuery::new(vec![1.0, 0.0], 5)
+                    .with_filter(SearchFilter::new().with_field("archived", "true")),
+            )
+            .await
+            .expect("search");
+        assert_eq!(hits.len(), 1);
     }
 }

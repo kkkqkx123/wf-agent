@@ -199,7 +199,29 @@ impl VectorStorage for SimvecVectorStore {
                 actual: spec.dimension,
             });
         }
+        if existing.distance != Self::map_distance(spec.distance) {
+            return Err(VectorError::InvalidInput(format!(
+                "collection '{}' uses {:?} distance, requested {:?}",
+                spec.name, existing.distance, spec.distance
+            )));
+        }
         Ok(false)
+    }
+
+    async fn delete_collection(&self, collection: &str) -> Result<()> {
+        if collection.is_empty() {
+            return Err(VectorError::InvalidInput(
+                "collection name must not be empty".to_string(),
+            ));
+        }
+        self.engine
+            .delete_collection(collection)
+            .map_err(|err| match err {
+                simvec::VectorSearchError::CollectionNotFound(name) => {
+                    VectorError::CollectionMissing(name)
+                }
+                other => map_engine_error(other),
+            })
     }
 
     async fn upsert(&self, collection: &str, points: &[VectorPoint]) -> Result<()> {
@@ -301,11 +323,24 @@ impl VectorStorage for SimvecVectorStore {
         if !self.engine.collection_exists(collection) {
             return Err(VectorError::CollectionMissing(collection.to_string()));
         }
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let mut existing = 0u64;
+        for id in ids {
+            let stored = self
+                .engine
+                .get(collection, &Self::point_id(id))
+                .map_err(map_engine_error)?;
+            if stored.is_some() {
+                existing += 1;
+            }
+        }
         let points: Vec<simvec::PointId> = ids.iter().map(|id| Self::point_id(id)).collect();
         self.engine
             .delete_batch(collection, &points)
             .map_err(map_engine_error)?;
-        Ok(ids.len() as u64)
+        Ok(existing)
     }
 
     async fn delete_by_source(
@@ -444,5 +479,113 @@ mod tests {
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].id, "doc.md#0");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn distance_mismatch_fails_on_ensure() {
+        let dir = std::env::temp_dir().join(format!(
+            "vector-contracts-simvec-dist-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = SimvecVectorStore::open(&dir).expect("open");
+        store
+            .ensure_collection(&CollectionSpec::new("kb", 3))
+            .await
+            .expect("ensure");
+        let result = store
+            .ensure_collection(
+                &CollectionSpec::new("kb", 3).with_distance(crate::types::DistanceMetric::Dot),
+            )
+            .await;
+        assert!(matches!(result, Err(VectorError::InvalidInput(_))));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn delete_reports_actual_count_and_collection_lifecycle() {
+        let dir = std::env::temp_dir().join(format!(
+            "vector-contracts-simvec-del-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = SimvecVectorStore::open(&dir).expect("open");
+        store
+            .ensure_collection(&CollectionSpec::new("kb", 3))
+            .await
+            .expect("ensure");
+        store
+            .upsert("kb", &[test_point("doc.md#0")])
+            .await
+            .expect("upsert");
+        let removed = store
+            .delete_by_id("kb", &["missing".to_string(), "doc.md#0".to_string()])
+            .await
+            .expect("delete");
+        assert_eq!(removed, 1);
+        store
+            .delete_collection("kb")
+            .await
+            .expect("delete collection");
+        let result = store.count("kb", None).await;
+        assert!(matches!(result, Err(VectorError::CollectionMissing(_))));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn ordering_matches_memory_across_metrics() {
+        use crate::memory::InMemoryVectorStore;
+        for distance in [
+            crate::types::DistanceMetric::Cosine,
+            crate::types::DistanceMetric::Dot,
+            crate::types::DistanceMetric::Euclid,
+        ] {
+            let dir = std::env::temp_dir().join(format!(
+                "vector-contracts-parity-{}-{:?}-{}",
+                std::process::id(),
+                distance,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("time")
+                    .as_nanos()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            let memory = InMemoryVectorStore::new();
+            let simvec = SimvecVectorStore::open(&dir).expect("open");
+            memory
+                .ensure_collection(&CollectionSpec::new("kb", 2).with_distance(distance))
+                .await
+                .expect("memory ensure");
+            simvec
+                .ensure_collection(&CollectionSpec::new("kb", 2).with_distance(distance))
+                .await
+                .expect("simvec ensure");
+            let points = vec![
+                VectorPoint {
+                    id: "a".to_string(),
+                    vector: vec![1.0, 0.0],
+                    payload: HashMap::new(),
+                },
+                VectorPoint {
+                    id: "b".to_string(),
+                    vector: vec![0.8, 0.6],
+                    payload: HashMap::new(),
+                },
+                VectorPoint {
+                    id: "c".to_string(),
+                    vector: vec![0.0, 1.0],
+                    payload: HashMap::new(),
+                },
+            ];
+            memory.upsert("kb", &points).await.expect("memory upsert");
+            simvec.upsert("kb", &points).await.expect("simvec upsert");
+            let query = VectorQuery::new(vec![1.0, 0.0], 3);
+            let memory_hits = memory.search("kb", &query).await.expect("memory search");
+            let simvec_hits = simvec.search("kb", &query).await.expect("simvec search");
+            let memory_order: Vec<_> = memory_hits.iter().map(|h| &h.id).collect();
+            let simvec_order: Vec<_> = simvec_hits.iter().map(|h| &h.id).collect();
+            assert_eq!(memory_order, simvec_order, "ordering for {distance:?}");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 }

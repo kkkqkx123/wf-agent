@@ -40,5 +40,11 @@
 	"common.mergeCommitIdToRevert": "Merge commit id to revert",
 	"common.executionId": "execution id",
 	"common.metadataJson": "metadata JSON",
-	"common.workflowExecutionId": "workflow execution id"
+	"common.workflowExecutionId": "workflow execution id",
+	"common.closeDialog": "Close dialog",
+	"common.closePanel": "Close panel",
+	"common.closeMenu": "Close menu",
+	"common.banners": "Banners",
+	"common.sections": "Sections",
+	"common.diffViewOptions": "Diff view options"
 }

@@ -182,7 +182,7 @@ import { t } from '#lib/i18n';
 		{/if}
 		<IconButton
 			icon="refresh"
-			label="Reload nested agent loops"
+			label={t('domain.agentLoops.reloadNested')}
 			disabled={loading}
 			onclick={() => void load(executionId)}
 		/>

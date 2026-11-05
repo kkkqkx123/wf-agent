@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '#lib/i18n';
 	import type { GitWorkbench } from '#lib/git/workbench.svelte';
 
 	interface Props {
@@ -11,7 +12,7 @@
 <div
 	class="flex flex-wrap items-center gap-x-3 gap-y-1 border border-border bg-card px-2 py-1 font-mono text-micro"
 	role="status"
-	aria-label="Git key hints"
+	aria-label={t('domain.git.keyHints')}
 >
 	<span class="font-semibold tracking-wider text-info uppercase">[{workbench.panel}]</span>
 	{#if workbench.selection}

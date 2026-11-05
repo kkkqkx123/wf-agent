@@ -223,7 +223,7 @@
 					bind:value={jsonText}
 					{errorLine}
 					placeholder={'{\n  "key": "value"\n}'}
-					label="Workflow input JSON"
+					label={t('chat.workflowInput.json')}
 					minHeight="10rem"
 				/>
 			</div>

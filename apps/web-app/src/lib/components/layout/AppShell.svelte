@@ -120,7 +120,7 @@
 
 	<div class="flex min-w-0 flex-1 flex-col">
 		{#if banners}
-			<div role="region" aria-label="Banners">
+			<div role="region" aria-label={t('common.banners')}>
 				{@render banners()}
 			</div>
 		{/if}

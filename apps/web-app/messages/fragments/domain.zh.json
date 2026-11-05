@@ -928,5 +928,13 @@
 	"domain.workflowGraphTab.selectedNode": "已选节点",
 	"domain.workflowGraphTab.showRecentRuns": "显示最近运行",
 	"domain.workflowUnsaved.description": "编辑画布存在未保存的草稿更改。离开将丢弃画布编辑。",
-	"domain.workflowUnsaved.saveAndLeave": "保存草稿并离开"
+	"domain.workflowUnsaved.saveAndLeave": "保存草稿并离开",
+	"domain.git.activePanel": "活动面板",
+	"domain.git.matchingActions": "匹配操作",
+	"domain.git.panelControls": "面板控制",
+	"domain.git.keyHints": "Git 快捷键提示",
+	"domain.git.workspacePanels": "工作区面板",
+	"domain.git.referencePanels": "参考面板",
+	"domain.git.historyPanels": "历史面板",
+	"domain.agentLoops.reloadNested": "重新加载嵌套 Agent 循环"
 }

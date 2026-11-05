@@ -22,6 +22,7 @@ import { registerGit } from './routes/git';
 import { registerPty } from './routes/pty';
 import { registerFs } from './routes/fs';
 import { registerStarters } from './routes/starters';
+import { registerPreferences } from './routes/preferences';
 
 export function registerAllRoutes(router: MockRouter): void {
 	// Definition routes come first: their literal paths (`/workflows/drafts`,
@@ -40,4 +41,5 @@ export function registerAllRoutes(router: MockRouter): void {
 	registerPty(router);
 	registerFs(router);
 	registerStarters(router);
+	registerPreferences(router);
 }

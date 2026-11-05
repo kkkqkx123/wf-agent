@@ -1014,16 +1014,16 @@
 				box?.focus();
 			}}
 		/>
-		<IconButton icon="file" label="Attach files" onclick={triggerAttachPicker} compact />
+		<IconButton icon="file" label={t('chat.composer.attachFiles')} onclick={triggerAttachPicker} compact />
 		<IconButton
 			icon="image"
-			label="Attach images"
+			label={t('chat.composer.attachImages')}
 			onclick={triggerImagePicker}
 			compact
 			disabled={executionType === 'workflow'}
 		/>
 		<select
-			aria-label="Image detail"
+			aria-label={t('chat.composer.imageDetail')}
 			value={imageDetail ?? ''}
 			onchange={(event) =>
 				setImageDetail((event.currentTarget.value || null) as ImageDetail | null)}

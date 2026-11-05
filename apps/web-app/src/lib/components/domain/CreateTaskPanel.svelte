@@ -443,7 +443,7 @@
 			<Select
 				bind:value={executionType}
 				options={executionTypeOptions}
-				label="Execution type"
+				label={t('page.executions.executionType')}
 				onchange={() => {
 					const first = filteredDefinitions[0];
 					selected = first ? `${first.kind}:${first.id}` : '';
@@ -463,7 +463,7 @@
 				<Select
 					bind:value={version}
 					options={versions.length > 0 ? versions : [{ value: '', label: 'Latest' }]}
-					label="Version"
+					label={t('page.executions.versionLabel')}
 					placeholder={versionsLoading ? t('page.executions.loadingVersions') : t('page.executions.emptyRunsCurrentDefinition')}
 					disabled={versionsLoading}
 					onchange={() => undefined}
@@ -497,7 +497,7 @@
 				{/if}
 				<Textarea
 					bind:value={fileScope}
-					label="File scope (JSON, optional)"
+					label={t('page.executions.fileScopeJsonOptional')}
 					placeholder={t('common.optionalJsonFileScope')}
 				/>
 				{#if fileScopeError}
@@ -508,11 +508,11 @@
 						Runtime overrides (optional)
 					</summary>
 					<div class="mt-2 grid grid-cols-2 gap-2">
-						<Input bind:value={maxSteps} label="Max steps" placeholder={t('common.emptyUsesDefault')} />
-						<Input bind:value={timeoutMs} label="Timeout (ms)" placeholder={t('common.emptyUsesDefault')} />
+						<Input bind:value={maxSteps} label={t('page.executions.maxSteps')} placeholder={t('common.emptyUsesDefault')} />
+						<Input bind:value={timeoutMs} label={t('page.executions.timeoutMs')} placeholder={t('common.emptyUsesDefault')} />
 						<Input
 							bind:value={maxExecutionTimeMs}
-							label="Max execution time (ms)"
+							label={t('page.executions.maxExecutionTimeMs')}
 							placeholder={t('common.emptyUsesDefault')}
 						/>
 						<Select
@@ -522,27 +522,27 @@
 								{ value: 'true', label: 'Checkpoints: on' },
 								{ value: 'false', label: 'Checkpoints: off' },
 							]}
-							label="Checkpoints"
+							label={t('page.executions.checkpoints')}
 							onchange={() => undefined}
 						/>
 						<Input
 							bind:value={nodeTimeoutMs}
-							label="Node timeout (ms)"
+							label={t('page.executions.nodeTimeoutMs')}
 							placeholder={t('common.emptyUsesDefault')}
 						/>
 						<Input
 							bind:value={maxPauseDurationMs}
-							label="Max pause duration (ms)"
+							label={t('page.executions.maxPauseDurationMs')}
 							placeholder={t('common.emptyUsesDefault')}
 						/>
 						<Input
 							bind:value={maxNavigationMultiplier}
-							label="Navigation multiplier"
+							label={t('page.executions.navigationMultiplier')}
 							placeholder={t('common.emptyUsesDefault')}
 						/>
 						<Input
 							bind:value={loopMaxIterationsCap}
-							label="Loop iterations cap"
+							label={t('page.executions.loopIterationsCap')}
 							placeholder={t('common.emptyUsesDefault')}
 						/>
 					</div>
@@ -588,7 +588,7 @@
 				/>
 				<Textarea
 					bind:value={fileScope}
-					label="File scope (JSON, optional)"
+					label={t('page.executions.fileScopeJsonOptional')}
 					placeholder={t('common.optionalJsonFileScope')}
 				/>
 				{#if fileScopeError}
@@ -596,7 +596,7 @@
 				{/if}
 				<Textarea
 					bind:value={conversationSeed}
-					label="Conversation seed (JSON array, optional)"
+					label={t('page.executions.conversationSeedJson')}
 					placeholder={t('common.optionalPriorTurns')}
 				/>
 				{#if conversationSeedError}
@@ -605,12 +605,12 @@
 				<div class="grid grid-cols-2 gap-2">
 					<Input
 						bind:value={maxIterations}
-						label="Max iterations (optional)"
+						label={t('page.executions.maxIterationsOptional')}
 						placeholder={t('common.emptyUsesTemplateDefault')}
 					/>
 					<Input
 						bind:value={tokenLimit}
-						label="Token limit (optional)"
+						label={t('page.executions.tokenLimitOptional')}
 						placeholder={t('common.emptyUsesTemplateDefault')}
 					/>
 				</div>

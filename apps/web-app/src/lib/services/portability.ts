@@ -1,4 +1,5 @@
 import { SHORTCUT_ACTIONS } from '#lib/shortcuts/actions';
+import { t } from '#lib/i18n';
 
 /**
  * Portable settings backup: local appearance track, shortcut overrides and
@@ -235,5 +236,10 @@ export function backupFilename(now: Date = new Date()): string {
 /** One-line summary of what an import will replace. */
 export function describeBackup(backup: SettingsBackup): string {
 	const shortcutCount = Object.keys(backup.shortcuts).length;
-	return `Appearance (${backup.preferences.theme}, ${backup.preferences.density}), ${shortcutCount} shortcut overrides, server behavior (page ${backup.behavior.pageSize})`;
+	return t('page.settings.backupSummary', {
+		theme: backup.preferences.theme,
+		density: backup.preferences.density,
+		count: shortcutCount,
+		page: backup.behavior.pageSize,
+	});
 }

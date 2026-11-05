@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '#lib/i18n';
 	import { onMount } from 'svelte';
 	import { cn } from '../cn';
 
@@ -68,7 +69,7 @@
 
 <button
 	type="button"
-	aria-label="Close menu"
+	aria-label={t('common.closeMenu')}
 	class="fixed inset-0 z-40 cursor-default bg-transparent"
 	onclick={onclose}
 ></button>

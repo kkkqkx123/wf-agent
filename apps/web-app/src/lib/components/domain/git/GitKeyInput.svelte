@@ -28,7 +28,7 @@
 	<div class="flex flex-col gap-2 sm:flex-row sm:items-end">
 		<span
 			class="shrink-0 rounded-sm bg-accent px-1.5 py-1 font-mono text-micro font-semibold tracking-wider text-info uppercase"
-			aria-label="Active panel"
+			aria-label={t('domain.git.activePanel')}
 		>
 			[{workbench.panel}]
 		</span>
@@ -63,7 +63,7 @@
 			{/if}
 		</p>
 	{:else if candidates.length > 0}
-		<div class="mt-1 flex flex-wrap gap-1" role="group" aria-label="Matching actions">
+		<div class="mt-1 flex flex-wrap gap-1" role="group" aria-label={t('domain.git.matchingActions')}>
 			{#each candidates as candidate (candidate)}
 				<button
 					type="button"
@@ -86,7 +86,7 @@
 		<div
 			class="mt-2 flex flex-nowrap items-center gap-1 overflow-x-auto border-t border-border pt-2"
 			role="group"
-			aria-label="Panel controls"
+			aria-label={t('domain.git.panelControls')}
 		>
 			{#each stripControls as control, index (control.id)}
 				{#if index === 0}

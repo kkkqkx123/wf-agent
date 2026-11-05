@@ -194,7 +194,7 @@
 		<DecisionMap {controller} />
 		{#if controller.executionType === 'agent'}
 			{@const resolved = controller.resolvedTemporaryMode()}
-			<div class="mb-2 flex items-center gap-1.5" aria-label="temporary conversation mode">
+			<div class="mb-2 flex items-center gap-1.5" aria-label={t('chat.composerBar.temporaryMode')}>
 				<div class="flex overflow-hidden rounded-md border border-border" role="radiogroup">
 					<button
 						type="button"

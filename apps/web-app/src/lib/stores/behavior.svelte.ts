@@ -19,7 +19,9 @@ class BehaviorStore {
 	private snapshot = $state<string>('');
 
 	get dirty(): boolean {
-		return JSON.stringify(this.current()) !== this.snapshot;
+		// Not dirty until a snapshot exists: a failed initial load must not
+		// masquerade as unsaved edits against the untouched defaults.
+		return this.loaded && JSON.stringify(this.current()) !== this.snapshot;
 	}
 
 	async load(): Promise<void> {

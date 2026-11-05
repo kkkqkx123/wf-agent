@@ -133,7 +133,7 @@
 		</TuiPanel>
 	</div>
 
-	<div role="tablist" aria-label="Workspace panels" class="flex flex-wrap gap-1 px-1">
+	<div role="tablist" aria-label={t('domain.git.workspacePanels')} class="flex flex-wrap gap-1 px-1">
 		{#each PANEL_GROUPS.find((entry) => entry.id === 'workspace')?.panels ?? [] as id (id)}
 			<button
 				type="button"
@@ -324,7 +324,7 @@
 		</TuiPanel>
 	</div>
 
-	<div role="tablist" aria-label="Reference panels" class="flex flex-wrap gap-1 px-1">
+	<div role="tablist" aria-label={t('domain.git.referencePanels')} class="flex flex-wrap gap-1 px-1">
 		{#each PANEL_GROUPS.find((entry) => entry.id === 'refs')?.panels ?? [] as id (id)}
 			<button
 				type="button"
@@ -463,7 +463,7 @@
 		</TuiPanel>
 	</div>
 
-	<div role="tablist" aria-label="History panels" class="flex flex-wrap gap-1 px-1">
+	<div role="tablist" aria-label={t('domain.git.historyPanels')} class="flex flex-wrap gap-1 px-1">
 		{#each PANEL_GROUPS.find((entry) => entry.id === 'history')?.panels ?? [] as id (id)}
 			<button
 				type="button"

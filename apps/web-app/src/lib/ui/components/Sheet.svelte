@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '#lib/i18n';
 	import type { Snippet } from 'svelte';
 	import IconButton from './IconButton.svelte';
 	import { trapFocus } from '../focus-trap';
@@ -62,7 +63,7 @@
 	<div class="fixed inset-0 z-50">
 		<button
 			type="button"
-			aria-label="Close panel"
+			aria-label={t('common.closePanel')}
 			class="animate-overlay-in absolute inset-0 bg-overlay"
 			onclick={close}
 		></button>
@@ -85,7 +86,7 @@
 					<h2 id={`${titleId}-title`} class="truncate text-title font-semibold">
 						{title}
 					</h2>
-					<IconButton icon="x" label="Close" compact onclick={close} />
+					<IconButton icon="x" label={t('common.close')} compact onclick={close} />
 				</header>
 			{/if}
 			<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">

@@ -40,5 +40,11 @@
 	"common.mergeCommitIdToRevert": "要回退的合并提交 ID",
 	"common.executionId": "执行 ID",
 	"common.metadataJson": "元数据 JSON",
-	"common.workflowExecutionId": "工作流执行 ID"
+	"common.workflowExecutionId": "工作流执行 ID",
+	"common.closeDialog": "关闭对话框",
+	"common.closePanel": "关闭面板",
+	"common.closeMenu": "关闭菜单",
+	"common.banners": "横幅",
+	"common.sections": "区块",
+	"common.diffViewOptions": "差异视图选项"
 }

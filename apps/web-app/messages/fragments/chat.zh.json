@@ -149,5 +149,10 @@
 	"chat.sessionRail.refresh": "刷新会话列表",
 	"chat.sessionRail.loadMore": "加载更多",
 	"chat.resume.noSessions": "暂无已存会话",
-	"chat.resume.noMatch": "没有匹配“{term}”的会话，请从会话列表中选择。"
+	"chat.resume.noMatch": "没有匹配“{term}”的会话，请从会话列表中选择。",
+	"chat.composer.attachFiles": "附加文件",
+	"chat.composer.attachImages": "附加图片",
+	"chat.composer.imageDetail": "图片详情",
+	"chat.composerBar.temporaryMode": "临时对话模式",
+	"chat.workflowInput.json": "工作流输入 JSON"
 }

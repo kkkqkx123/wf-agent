@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '#lib/i18n';
 	import type { Snippet } from 'svelte';
 	import { cn } from '../cn';
 
@@ -55,7 +56,7 @@
 >
 	<div
 		role="tablist"
-		aria-label="Sections"
+		aria-label={t('common.sections')}
 		class="segmented-scroll flex items-center gap-1 overflow-x-auto scrollbar-none"
 	>
 		{#each items as item (item.id)}

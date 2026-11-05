@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '#lib/i18n';
 	import { cn } from '../cn';
 
 	export interface DiffLine {
@@ -91,7 +92,7 @@
 		<div
 			class="ml-auto flex shrink-0 items-center gap-1"
 			role="group"
-			aria-label="Diff view options"
+			aria-label={t('common.diffViewOptions')}
 		>
 			<button
 				type="button"

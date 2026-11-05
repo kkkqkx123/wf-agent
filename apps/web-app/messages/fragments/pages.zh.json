@@ -583,5 +583,20 @@
 	"page.settings.willReplace": "将替换：{backup}。",
 	"page.settings.localPrefsApplyInstantly": "本地偏好立即生效。",
 	"page.executions.loadingVersions": "加载版本中…",
-	"page.executions.emptyRunsCurrentDefinition": "留空运行当前定义"
+	"page.executions.emptyRunsCurrentDefinition": "留空运行当前定义",
+	"page.executions.executionType": "执行类型",
+	"page.executions.versionLabel": "版本",
+	"page.executions.fileScopeJsonOptional": "文件范围（JSON，可选）",
+	"page.executions.maxSteps": "最大步数",
+	"page.executions.timeoutMs": "超时（毫秒）",
+	"page.executions.maxExecutionTimeMs": "最大执行时间（毫秒）",
+	"page.executions.checkpoints": "检查点",
+	"page.executions.nodeTimeoutMs": "节点超时（毫秒）",
+	"page.executions.maxPauseDurationMs": "最大暂停时长（毫秒）",
+	"page.executions.navigationMultiplier": "导航倍数",
+	"page.executions.loopIterationsCap": "循环迭代上限",
+	"page.executions.conversationSeedJson": "对话种子（JSON 数组，可选）",
+	"page.executions.maxIterationsOptional": "最大迭代次数（可选）",
+	"page.executions.tokenLimitOptional": "Token 上限（可选）",
+	"page.settings.backupSummary": "外观（{theme}、{density}），{count} 个快捷键覆盖，服务器行为（第 {page} 页）"
 }

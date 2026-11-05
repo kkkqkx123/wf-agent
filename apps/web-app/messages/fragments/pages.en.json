@@ -583,5 +583,20 @@
 	"page.settings.willReplace": "Will replace: {backup}.",
 	"page.settings.localPrefsApplyInstantly": "Local preferences apply instantly.",
 	"page.executions.loadingVersions": "Loading versions…",
-	"page.executions.emptyRunsCurrentDefinition": "Empty runs the current definition"
+	"page.executions.emptyRunsCurrentDefinition": "Empty runs the current definition",
+	"page.executions.executionType": "Execution type",
+	"page.executions.versionLabel": "Version",
+	"page.executions.fileScopeJsonOptional": "File scope (JSON, optional)",
+	"page.executions.maxSteps": "Max steps",
+	"page.executions.timeoutMs": "Timeout (ms)",
+	"page.executions.maxExecutionTimeMs": "Max execution time (ms)",
+	"page.executions.checkpoints": "Checkpoints",
+	"page.executions.nodeTimeoutMs": "Node timeout (ms)",
+	"page.executions.maxPauseDurationMs": "Max pause duration (ms)",
+	"page.executions.navigationMultiplier": "Navigation multiplier",
+	"page.executions.loopIterationsCap": "Loop iterations cap",
+	"page.executions.conversationSeedJson": "Conversation seed (JSON array, optional)",
+	"page.executions.maxIterationsOptional": "Max iterations (optional)",
+	"page.executions.tokenLimitOptional": "Token limit (optional)",
+	"page.settings.backupSummary": "Appearance ({theme}, {density}), {count} shortcut overrides, server behavior (page {page})"
 }

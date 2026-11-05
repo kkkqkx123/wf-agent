@@ -928,5 +928,13 @@
 	"domain.workflowGraphTab.selectedNode": "Selected node",
 	"domain.workflowGraphTab.showRecentRuns": "Show recent runs",
 	"domain.workflowUnsaved.description": "The edit canvas has unsaved draft changes. Leaving discards the canvas edits.",
-	"domain.workflowUnsaved.saveAndLeave": "Save draft & leave"
+	"domain.workflowUnsaved.saveAndLeave": "Save draft & leave",
+	"domain.git.activePanel": "Active panel",
+	"domain.git.matchingActions": "Matching actions",
+	"domain.git.panelControls": "Panel controls",
+	"domain.git.keyHints": "Git key hints",
+	"domain.git.workspacePanels": "Workspace panels",
+	"domain.git.referencePanels": "Reference panels",
+	"domain.git.historyPanels": "History panels",
+	"domain.agentLoops.reloadNested": "Reload nested agent loops"
 }

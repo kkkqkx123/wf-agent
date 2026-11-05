@@ -76,6 +76,9 @@ export function groupForPanel(panel: PanelId): PanelGroup {
 
 export type MainViewMode = 'diff' | 'staging' | 'commitFiles';
 
+/** Focus-driven screen mode for the git layout. */
+export type GitLayoutFocus = 'none' | 'board' | 'main' | 'terminal';
+
 export function defaultViewModeForPanel(panel: PanelId): MainViewMode {
 	if (panel === 'commits') return 'commitFiles';
 	return 'diff';
@@ -206,6 +209,7 @@ export class GitWorkbench {
 
 	token = $state('');
 	terminalOpen = $state(false);
+	layoutFocus = $state<GitLayoutFocus>('none');
 
 	dialogAction = $state<string | null>(null);
 	dialogOpen = $state(false);
@@ -868,6 +872,7 @@ export class GitWorkbench {
 		if (result.kind === 'command') {
 			this.token = '';
 			this.terminalOpen = true;
+			this.layoutFocus = 'terminal';
 			toasts.info(
 				'Terminal opened',
 				`Run "${result.preview ?? ''}" directly in the repository terminal below.`,
@@ -992,6 +997,7 @@ export class GitWorkbench {
 					label: 'Open terminal',
 					run: () => {
 						this.terminalOpen = true;
+						this.layoutFocus = 'terminal';
 					},
 				},
 			});
@@ -1082,6 +1088,7 @@ export class GitWorkbench {
 
 	async toggleTerminal(): Promise<void> {
 		this.terminalOpen = !this.terminalOpen;
+		this.layoutFocus = this.terminalOpen ? 'terminal' : 'none';
 	}
 
 	async loadMoreCommits(): Promise<void> {

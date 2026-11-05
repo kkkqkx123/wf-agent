@@ -56,9 +56,9 @@
 
 	const boardResize = new BoardResize({
 		storageKey: 'git-board-width',
-		default: 320,
-		min: 240,
-		max: 600,
+		default: 1 / 3,
+		min: 0.2,
+		max: 0.5,
 	});
 
 	function focusBoardRow(panel: PanelId, id: string): void {
@@ -147,6 +147,7 @@
 		id="git-panel"
 		role="tabpanel"
 		aria-label={t('page.git.sections')}
+		data-layout-focus={workbench.layoutFocus}
 		class="min-h-0 flex-1 overflow-y-auto px-4 py-3 xl:overflow-hidden"
 	>
 		<PageState
@@ -159,7 +160,7 @@
 		>
 			<div
 				class="flex flex-col gap-2 xl:h-full xl:flex-row"
-				style:--git-board-width={`${boardResize.width}px`}
+				style:--git-board-width={boardResize.cssValue}
 			>
 				<div class="git-board-pane min-h-0 shrink-0 xl:overflow-y-auto xl:py-3">
 					<GitBoard {workbench} />
@@ -172,18 +173,18 @@
 					aria-label={t('page.git.sections')}
 					tabindex="0"
 					title={t('page.git.sections')}
-					class="hidden w-2 shrink-0 cursor-col-resize items-stretch justify-center xl:flex"
+					class="git-board-separator hidden w-2 shrink-0 cursor-col-resize items-stretch justify-center xl:flex"
 					onpointerdown={(event) => boardResize.startDrag(event)}
 					onkeydown={(event) => boardResize.onKeydown(event)}
 					ondblclick={() => boardResize.reset()}
 				>
 					<span class="w-px bg-border transition-colors hover:bg-primary/40"></span>
 				</div>
-				<div class="min-h-0 min-w-0 flex-1 xl:overflow-y-auto xl:py-3">
+				<div class="git-main-pane min-h-0 min-w-0 flex-1 xl:overflow-y-auto xl:py-3">
 					<GitMainView {workbench} />
 				</div>
 			</div>
-			<div class="mt-2 shrink-0 space-y-2 border-t border-border pt-2">
+			<div class="git-bottom mt-2 shrink-0 space-y-2 border-t border-border pt-2">
 				<GitKeyInput {workbench} />
 				<GitStatusBar {workbench} />
 				{#if workbench.terminalOpen}
@@ -207,7 +208,17 @@
 	}
 	@media (min-width: 1280px) {
 		.git-board-pane {
-			width: var(--git-board-width, 320px);
+			width: var(--git-board-width, 33.333%);
+		}
+		#git-panel[data-layout-focus='board'] .git-board-pane {
+			width: min(45%, calc(var(--git-board-width, 33.333%) * 1.4));
+		}
+		#git-panel[data-layout-focus='main'] .git-board-pane,
+		#git-panel[data-layout-focus='main'] .git-board-separator {
+			display: none;
+		}
+		#git-panel[data-layout-focus='terminal'] .git-bottom :global(.h-72) {
+			height: min(50vh, 480px);
 		}
 	}
 </style>

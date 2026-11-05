@@ -27,5 +27,6 @@
 	open={workbench.terminalOpen}
 	onClose={() => {
 		workbench.terminalOpen = false;
+		workbench.layoutFocus = 'none';
 	}}
 />

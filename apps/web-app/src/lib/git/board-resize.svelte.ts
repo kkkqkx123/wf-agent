@@ -1,4 +1,4 @@
-/** Draggable and keyboard-resizable width state for the board/main split. */
+/** Draggable and keyboard-resizable width state for the board/main split. Width is a proportion of the container width, so the sidebar keeps a constant share when the window resizes. */
 export class BoardResize {
 	readonly default: number;
 	readonly min: number;
@@ -14,8 +14,13 @@ export class BoardResize {
 		this.width = this.load();
 	}
 
+	/** CSS value for the board width variable (percentage of the container). */
+	get cssValue(): string {
+		return `${(this.width * 100).toFixed(3)}%`;
+	}
+
 	private clamp(value: number): number {
-		return Math.min(this.max, Math.max(this.min, Math.round(value)));
+		return Math.min(this.max, Math.max(this.min, value));
 	}
 
 	private load(): number {
@@ -24,7 +29,10 @@ export class BoardResize {
 			const stored = localStorage.getItem(this.storageKey);
 			if (stored === null) return this.default;
 			const parsed = Number(stored);
-			return Number.isFinite(parsed) ? this.clamp(parsed) : this.default;
+			if (!Number.isFinite(parsed)) return this.default;
+			// Legacy pixel values predate the proportional layout; discard them.
+			if (parsed <= 0 || parsed > 1) return this.default;
+			return this.clamp(parsed);
 		} catch {
 			return this.default;
 		}
@@ -39,28 +47,31 @@ export class BoardResize {
 		}
 	}
 
-	/** Restore the default width and drop the stored override. */
+	/** Restore the default proportion and drop the stored override. */
 	reset(): void {
 		this.width = this.default;
 		this.persist(true);
 	}
 
-	/** Adjust the width by a keyboard step and persist it. */
+	/** Adjust the proportion by a ratio delta and persist it. */
 	nudge(delta: number): void {
 		this.width = this.clamp(this.width + delta);
 		this.persist();
 	}
 
-	/** Pointer-drag handler for the divider; captures the pointer on the handle. */
+	/** Pointer-drag handler for the divider; converts pixel movement to a ratio. */
 	startDrag(event: PointerEvent): void {
 		const handle = event.currentTarget as HTMLElement | null;
 		if (!handle) return;
 		event.preventDefault();
 		handle.setPointerCapture(event.pointerId);
+		const containerWidth =
+			handle.parentElement?.getBoundingClientRect().width ?? window.innerWidth;
+		if (!(containerWidth > 0)) return;
 		const startX = event.clientX;
 		const startWidth = this.width;
 		const onMove = (moveEvent: PointerEvent): void => {
-			this.width = this.clamp(startWidth + moveEvent.clientX - startX);
+			this.width = this.clamp(startWidth + (moveEvent.clientX - startX) / containerWidth);
 		};
 		const onUp = (upEvent: PointerEvent): void => {
 			this.persist();
@@ -78,7 +89,7 @@ export class BoardResize {
 	onKeydown(event: KeyboardEvent): void {
 		if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
 			event.preventDefault();
-			this.nudge(event.key === 'ArrowRight' ? 20 : -20);
+			this.nudge(event.key === 'ArrowRight' ? 0.02 : -0.02);
 		} else if (event.key === 'Home') {
 			event.preventDefault();
 			this.reset();

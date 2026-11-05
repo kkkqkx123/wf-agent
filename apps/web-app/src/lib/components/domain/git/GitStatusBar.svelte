@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '#lib/ui/components/Button.svelte';
 	import { t } from '#lib/i18n';
 	import type { GitWorkbench } from '#lib/git/workbench.svelte';
 
@@ -19,32 +20,32 @@
 		<span class="max-w-64 truncate text-muted-foreground">{workbench.selection}</span>
 	{/if}
 	<span class="text-muted-foreground">{workbench.controls.length} actions</span>
-	<span class="ml-auto flex items-center gap-2">
-		<button
-			type="button"
+	<span class="ml-auto flex items-center gap-1">
+		<Button
+			size="sm"
+			variant="ghost"
 			title="All actions"
 			onclick={() => {
 				workbench.helpOpen = true;
 			}}
-			class="rounded-sm px-1 text-foreground hover:bg-accent"
 		>
 			<span class="text-muted-foreground">?</span> help
-		</button>
-		<button
-			type="button"
+		</Button>
+		<Button
+			size="sm"
+			variant="ghost"
 			title="Focus filter"
 			onclick={() => workbench.focusFilter()}
-			class="rounded-sm px-1 text-foreground hover:bg-accent"
 		>
 			<span class="text-muted-foreground">/</span> filter
-		</button>
-		<button
-			type="button"
+		</Button>
+		<Button
+			size="sm"
+			variant="ghost"
 			title="Focus key input"
 			onclick={() => workbench.focusKeyInput()}
-			class="rounded-sm px-1 text-foreground hover:bg-accent"
 		>
 			<span class="text-muted-foreground">^/</span> keys
-		</button>
+		</Button>
 	</span>
 </div>

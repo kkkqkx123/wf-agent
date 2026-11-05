@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Button from '#lib/ui/components/Button.svelte';
+	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import TuiPanel from '#lib/ui/components/TuiPanel.svelte';
 	import DiffView from '#lib/ui/components/DiffView.svelte';
 	import Segmented from '#lib/ui/components/Segmented.svelte';
@@ -108,26 +109,18 @@
 		workbench.panel === 'conflicts'}
 >
 	{#snippet actions()}
-		<button
-			type="button"
-			title="Copy selection"
-			disabled={!workbench.selection}
+		<IconButton
+			icon="copy"
+			label="Copy selection"
+		disabled={!workbench.selection}
 			onclick={copySelection}
-			class="rounded-sm px-1.5 py-0.5 font-mono text-micro text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
-		>
-			copy
-		</button>
-		<button
-			type="button"
-			aria-pressed={showWhitespace}
-			title={showWhitespace ? 'Hide whitespace' : 'Show whitespace'}
+		/>
+		<IconButton
+			icon={showWhitespace ? 'eye-off' : 'eye'}
+			label={showWhitespace ? 'Hide whitespace' : 'Show whitespace'}
+			active={showWhitespace}
 			onclick={() => (showWhitespace = !showWhitespace)}
-			class={showWhitespace
-				? 'rounded-sm bg-accent px-1.5 py-0.5 font-mono text-micro text-foreground'
-				: 'rounded-sm px-1.5 py-0.5 font-mono text-micro text-muted-foreground hover:bg-accent'}
-		>
-			ws
-		</button>
+		/>
 	{/snippet}
 	{#if workbench.isMidOperation}
 		<p
@@ -169,7 +162,7 @@
 								type="button"
 								onclick={() => void workbench.selectFile(conflict.path, false)}
 								title={conflict.path}
-								class="min-w-0 flex-1 truncate px-1 text-left font-mono text-caption font-semibold text-destructive hover:bg-accent/50"
+								class="min-w-0 flex-1 truncate px-1 py-0.5 text-left font-mono text-caption font-semibold text-destructive hover:bg-accent/50"
 							>
 								{conflict.path}
 							</button>
@@ -387,7 +380,7 @@
 													event.stopPropagation();
 													workbench.toggleLine(file.path, hunkIndex, globalIndex);
 												}}
-												class="flex items-start gap-1.5 px-1.5 py-px font-mono text-micro {row.type ===
+												class="flex items-start gap-1.5 px-1.5 py-0.5 font-mono text-micro {row.type ===
 												'add'
 													? 'bg-success/10 text-success'
 													: row.type === 'del'
@@ -520,7 +513,7 @@
 													event.stopPropagation();
 													workbench.toggleLine(file.path, hunkIndex, globalIndex);
 												}}
-												class="flex items-start gap-1.5 px-1.5 py-px font-mono text-micro {row.type ===
+												class="flex items-start gap-1.5 px-1.5 py-0.5 font-mono text-micro {row.type ===
 												'add'
 													? 'bg-success/10 text-success'
 													: row.type === 'del'

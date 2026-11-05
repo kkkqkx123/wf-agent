@@ -1,8 +1,7 @@
 <script lang="ts">
 	import Button from '#lib/ui/components/Button.svelte';
 	import TuiPanel from '#lib/ui/components/TuiPanel.svelte';
-	import BoardFilter from '#lib/components/domain/git/BoardFilter.svelte';
-	import { git as gitStore } from '#lib/stores/git.svelte';
+	import BoardListPanel, { type BoardRow } from '#lib/components/domain/git/BoardListPanel.svelte';
 	import type { GitWorkbench, PanelId } from '#lib/git/workbench.svelte';
 	import { PANELS, PANEL_GROUPS, groupForPanel } from '#lib/git/workbench.svelte';
 	import { assignGraphLanes } from '#lib/git/graph';
@@ -21,69 +20,145 @@
 
 	let { workbench }: Props = $props();
 
-	let files = $derived(
-		workbench.files.filter((file) => file.path.includes(workbench.filters.files)),
+	let fileRows = $derived<BoardRow[]>(
+		workbench.files
+			.filter((file) => file.path.includes(workbench.filters.files))
+			.map((file) => ({
+				id: file.path,
+				label: file.renamedFrom ? `${file.path} → ${file.renamedFrom}` : file.path,
+				labelClass: fileRowClass(file),
+				markers: [
+					{ text: file.staged, class: markerClass(file.staged, 'staged') },
+					{ text: file.unstaged, class: markerClass(file.unstaged, 'unstaged') },
+				],
+			})),
 	);
-	let conflicts = $derived(
-		workbench.files.filter(
-			(file) => file.kind === 'conflicted' && file.path.includes(workbench.filters.conflicts),
-		),
+	let conflictRows = $derived<BoardRow[]>(
+		workbench.files
+			.filter(
+				(file) => file.kind === 'conflicted' && file.path.includes(workbench.filters.conflicts),
+			)
+			.map((file) => ({
+				id: file.path,
+				label: file.path,
+				labelClass: fileRowClass(file),
+				markers: [{ text: '!!', class: 'text-destructive' }],
+			})),
 	);
-	let worktrees = $derived(
-		workbench.worktrees.filter(
-			(entry) =>
-				entry.path.includes(workbench.filters.worktrees) ||
-				entry.branch.includes(workbench.filters.worktrees),
-		),
+	let worktreeRows = $derived<BoardRow[]>(
+		workbench.worktrees
+			.filter(
+				(entry) =>
+					entry.path.includes(workbench.filters.worktrees) ||
+					entry.branch.includes(workbench.filters.worktrees),
+			)
+			.map((entry) => ({
+				id: entry.path,
+				label: entry.path,
+				detail: `${entry.branch || '(detached)'}${entry.bare ? ' · bare' : ''}`,
+			})),
 	);
-	let submodules = $derived(
-		workbench.submodules.filter(
-			(entry) =>
-				entry.path.includes(workbench.filters.submodules) ||
-				entry.commit.includes(workbench.filters.submodules),
-		),
+	let submoduleRows = $derived<BoardRow[]>(
+		workbench.submodules
+			.filter(
+				(entry) =>
+					entry.path.includes(workbench.filters.submodules) ||
+					entry.commit.includes(workbench.filters.submodules),
+			)
+			.map((entry) => ({
+				id: entry.path,
+				label: entry.path,
+				detail: entry.commit,
+			})),
 	);
-	let branches = $derived(
-		workbench.branches.filter((branch) => branch.name.includes(workbench.filters.branches)),
+	let branchRows = $derived<BoardRow[]>(
+		workbench.branches
+			.filter((branch) => branch.name.includes(workbench.filters.branches))
+			.map((branch) => ({
+				id: branch.name,
+				label: branch.name,
+				labelClass: branchRowClass(branch),
+				markers: [{ text: branch.current ? '*' : ' ' }],
+				badge: branch.upstream ? `+${branch.ahead}/-${branch.behind}` : undefined,
+			})),
 	);
-	let remotes = $derived(
-		workbench.remotes.filter(
-			(remote) =>
-				remote.name.includes(workbench.filters.remotes) ||
-				remote.url.includes(workbench.filters.remotes),
-		),
+	let remoteRows = $derived<BoardRow[]>(
+		workbench.remotes
+			.filter(
+				(remote) =>
+					remote.name.includes(workbench.filters.remotes) ||
+					remote.url.includes(workbench.filters.remotes),
+			)
+			.map((remote) => ({
+				id: remote.name,
+				label: remote.name,
+				detail: remote.url,
+			})),
 	);
-	let tags = $derived(
-		workbench.tags.filter(
-			(tag) =>
-				tag.name.includes(workbench.filters.tags) || tag.commit.includes(workbench.filters.tags),
-		),
+	let tagRows = $derived<BoardRow[]>(
+		workbench.tags
+			.filter(
+				(tag) =>
+					tag.name.includes(workbench.filters.tags) || tag.commit.includes(workbench.filters.tags),
+			)
+			.map((tag) => ({
+				id: tag.name,
+				label: tag.name,
+				detail: tag.commit,
+			})),
 	);
-	let commits = $derived(
-		workbench.commits.filter(
-			(commit) =>
-				commit.subject.includes(workbench.filters.commits) ||
-				commit.shortId.includes(workbench.filters.commits),
-		),
+	let commitRows = $derived<BoardRow[]>(
+		workbench.commits
+			.filter(
+				(commit) =>
+					commit.subject.includes(workbench.filters.commits) ||
+					commit.shortId.includes(workbench.filters.commits),
+			)
+			.map((commit) => ({
+				id: commit.id,
+				label: commit.subject,
+				labelClass: commitRowClass(commit),
+				markers: [{ text: commit.shortId, class: 'text-info' }],
+				badge: commit.refs.length > 0 ? commit.refs.join(' ') : undefined,
+			})),
 	);
-	let reflogs = $derived(
-		workbench.reflogs.filter(
-			(entry) =>
-				entry.message.includes(workbench.filters.reflog) ||
-				entry.shortId.includes(workbench.filters.reflog) ||
-				entry.selector.includes(workbench.filters.reflog),
-		),
+	let reflogRows = $derived<BoardRow[]>(
+		workbench.reflogs
+			.filter(
+				(entry) =>
+					entry.message.includes(workbench.filters.reflog) ||
+					entry.shortId.includes(workbench.filters.reflog) ||
+					entry.selector.includes(workbench.filters.reflog),
+			)
+			.map((entry) => ({
+				id: entry.selector,
+				label: entry.message,
+				markers: [{ text: entry.shortId, class: 'text-info' }],
+				detail: entry.selector,
+			})),
 	);
-	let stash = $derived(
-		workbench.stash.filter(
-			(entry) =>
-				entry.message.includes(workbench.filters.stash) ||
-				entry.name.includes(workbench.filters.stash),
-		),
+	let stashRows = $derived<BoardRow[]>(
+		workbench.stash
+			.filter(
+				(entry) =>
+					entry.message.includes(workbench.filters.stash) ||
+					entry.name.includes(workbench.filters.stash),
+			)
+			.map((entry) => ({
+				id: entry.name,
+				label: entry.message,
+				labelClass: stashRowClass(),
+				markers: [{ text: entry.name }],
+			})),
 	);
 
 	let lanes = $derived(
-		assignGraphLanes(commits.map((commit) => ({ id: commit.id, parents: commit.parents }))),
+		assignGraphLanes(
+			commitRows.map((row) => {
+				const commit = workbench.commits.find((entry) => entry.id === row.id);
+				return { id: row.id, parents: commit?.parents ?? [] };
+			}),
+		),
 	);
 	let laneById = $derived(new Map(lanes.map((row) => [row.id, row] as const)));
 
@@ -108,22 +183,22 @@
 		<TuiPanel title="Status" focused={workbench.panel === 'status'}>
 			{#if workbench.status}
 				<ul class="mt-1 font-mono text-micro">
-					<li class="flex justify-between px-1 py-px">
+					<li class="flex justify-between px-1 py-0.5">
 						<span class="text-muted-foreground">{t('domain.git.staged')}</span><span
 							class="text-success">{workbench.status.staged}</span
 						>
 					</li>
-					<li class="flex justify-between px-1 py-px">
+					<li class="flex justify-between px-1 py-0.5">
 						<span class="text-muted-foreground">{t('domain.git.unstaged')}</span><span
 							class="text-warning">{workbench.status.unstaged}</span
 						>
 					</li>
-					<li class="flex justify-between px-1 py-px">
+					<li class="flex justify-between px-1 py-0.5">
 						<span class="text-muted-foreground">{t('domain.git.untracked')}</span><span
 							>{workbench.status.untracked}</span
 						>
 					</li>
-					<li class="flex justify-between px-1 py-px">
+					<li class="flex justify-between px-1 py-0.5">
 						<span class="text-muted-foreground">{t('domain.git.conflicted')}</span>
 						<span class={workbench.status.conflicted > 0 ? 'font-semibold text-destructive' : ''}
 							>{workbench.status.conflicted}</span
@@ -148,173 +223,65 @@
 		{/each}
 	</div>
 	<div class={boardVisibility('files')} onfocusin={() => (workbench.panel = 'files')}>
-		<TuiPanel title="Files" count={files.length} focused={workbench.panel === 'files'}>
-			<BoardFilter
-				id="git-filter-files"
-				label={t('domain.git.filter')}
-				placeholder={t('domain.git.filterPlaceholder')}
-				bind:value={workbench.filters.files}
-			/>
-			<ul class="max-h-[32vh] overflow-y-auto">
-				{#each files as file (file.path)}
-					<li>
-						<button
-							type="button"
-							data-board-row
-							data-board-panel="files"
-							data-board-id={file.path}
-							onclick={() => void workbench.selectFile(file.path, false)}
-							aria-pressed={gitStore.selectedFile === file.path}
-							class="flex w-full items-center gap-1.5 px-1 py-px text-left font-mono text-micro hover:bg-accent/50 {gitStore.selectedFile ===
-							file.path
-								? 'bg-accent/70'
-								: ''}"
-						>
-							<span class="shrink-0">
-								<span class={markerClass(file.staged, 'staged')}>{file.staged}</span><span
-									class={markerClass(file.unstaged, 'unstaged')}>{file.unstaged}</span
-								>
-							</span>
-							<span class="min-w-0 flex-1 truncate {fileRowClass(file)}"
-								>{file.path}{file.renamedFrom ? ` → ${file.renamedFrom}` : ''}</span
-							>
-						</button>
-					</li>
-				{/each}
-			</ul>
-			{#if files.length === 0}
-				<p class="px-1 py-0.5 font-mono text-micro text-muted-foreground">
-					{t('domain.git.noFilesMatch')}
-				</p>
-			{/if}
+		<BoardListPanel
+			{workbench}
+			panel="files"
+			title="Files"
+			rows={fileRows}
+			selectedId={workbench.selectedIdFor('files')}
+			emptyText={t('domain.git.noFilesMatch')}
+			filterId="git-filter-files"
+			bind:filterValue={workbench.filters.files}
+		>
 			{#snippet footer()}
 				{#if workbench.status}
 					<span>
 						{t('domain.git.staged')}: {workbench.status.staged} · {t('domain.git.unstaged')}:
-						{workbench.status.unstaged} · {t('domain.git.untracked')}: {workbench.status.untracked} ·
-						{t('domain.git.conflicted')}: {workbench.status.conflicted}
+						{workbench.status.unstaged} · {t('domain.git.untracked')}: {workbench.status.untracked}
+						· {t('domain.git.conflicted')}: {workbench.status.conflicted}
 					</span>
 				{/if}
 			{/snippet}
-		</TuiPanel>
+		</BoardListPanel>
 	</div>
 
 	<div class={boardVisibility('conflicts')} onfocusin={() => (workbench.panel = 'conflicts')}>
-		<TuiPanel title="Conflicts" count={conflicts.length} focused={workbench.panel === 'conflicts'}>
-			<BoardFilter
-				id="git-filter-conflicts"
-				label={t('domain.git.filter')}
-				placeholder={t('domain.git.filterPlaceholder')}
-				bind:value={workbench.filters.conflicts}
-			/>
-			<ul class="max-h-[32vh] overflow-y-auto">
-				{#each conflicts as file (file.path)}
-					<li>
-						<button
-							type="button"
-							data-board-row
-							data-board-panel="conflicts"
-							data-board-id={file.path}
-							onclick={() => void workbench.selectFile(file.path, false)}
-							aria-pressed={gitStore.selectedFile === file.path}
-							class="flex w-full items-center gap-1.5 px-1 py-px text-left font-mono text-micro hover:bg-accent/50 {gitStore.selectedFile ===
-							file.path
-								? 'bg-accent/70'
-								: ''}"
-						>
-							<span class="shrink-0 text-destructive">!!</span>
-							<span class="min-w-0 flex-1 truncate {fileRowClass(file)}">{file.path}</span>
-						</button>
-					</li>
-				{/each}
-			</ul>
-			{#if conflicts.length === 0}
-				<p class="px-1 py-0.5 font-mono text-micro text-muted-foreground">
-					{t('domain.git.noConflicted')}
-				</p>
-			{/if}
-		</TuiPanel>
+		<BoardListPanel
+			{workbench}
+			panel="conflicts"
+			title="Conflicts"
+			rows={conflictRows}
+			selectedId={workbench.selectedIdFor('conflicts')}
+			emptyText={t('domain.git.noConflicted')}
+			filterId="git-filter-conflicts"
+			bind:filterValue={workbench.filters.conflicts}
+		/>
 	</div>
 
 	<div class={boardVisibility('worktrees')} onfocusin={() => (workbench.panel = 'worktrees')}>
-		<TuiPanel title="Worktrees" count={worktrees.length} focused={workbench.panel === 'worktrees'}>
-			<BoardFilter
-				id="git-filter-worktrees"
-				label={t('domain.git.filter')}
-				placeholder={t('domain.git.filterPlaceholder')}
-				bind:value={workbench.filters.worktrees}
-			/>
-			<ul class="max-h-[32vh] overflow-y-auto">
-				{#each worktrees as entry (entry.path)}
-					<li>
-						<button
-							type="button"
-							data-board-row
-							data-board-panel="worktrees"
-							data-board-id={entry.path}
-							onclick={() => gitStore.select('worktrees', entry.path)}
-							aria-pressed={gitStore.selectionFor('worktrees') === entry.path}
-							class="block w-full truncate px-1 py-px text-left font-mono text-micro hover:bg-accent/50 {gitStore.selectionFor(
-								'worktrees',
-							) === entry.path
-								? 'bg-accent/70'
-								: ''}"
-						>
-							{entry.path}
-							<span class="text-muted-foreground"
-								>{entry.branch || '(detached)'}{entry.bare ? ' · bare' : ''}</span
-							>
-						</button>
-					</li>
-				{/each}
-			</ul>
-			{#if worktrees.length === 0}
-				<p class="px-1 py-0.5 font-mono text-micro text-muted-foreground">
-					{t('domain.git.noWorktreesMatch')}
-				</p>
-			{/if}
-		</TuiPanel>
+		<BoardListPanel
+			{workbench}
+			panel="worktrees"
+			title="Worktrees"
+			rows={worktreeRows}
+			selectedId={workbench.selectedIdFor('worktrees')}
+			emptyText={t('domain.git.noWorktreesMatch')}
+			filterId="git-filter-worktrees"
+			bind:filterValue={workbench.filters.worktrees}
+		/>
 	</div>
 
 	<div class={boardVisibility('submodules')} onfocusin={() => (workbench.panel = 'submodules')}>
-		<TuiPanel
+		<BoardListPanel
+			{workbench}
+			panel="submodules"
 			title="Submodules"
-			count={submodules.length}
-			focused={workbench.panel === 'submodules'}
-		>
-			<BoardFilter
-				id="git-filter-submodules"
-				label={t('domain.git.filter')}
-				placeholder={t('domain.git.filterPlaceholder')}
-				bind:value={workbench.filters.submodules}
-			/>
-			<ul class="max-h-[32vh] overflow-y-auto">
-				{#each submodules as entry (entry.path)}
-					<li>
-						<button
-							type="button"
-							data-board-row
-							data-board-panel="submodules"
-							data-board-id={entry.path}
-							onclick={() => gitStore.select('submodules', entry.path)}
-							aria-pressed={gitStore.selectionFor('submodules') === entry.path}
-							class="block w-full truncate px-1 py-px text-left font-mono text-micro hover:bg-accent/50 {gitStore.selectionFor(
-								'submodules',
-							) === entry.path
-								? 'bg-accent/70'
-								: ''}"
-						>
-							{entry.path} <span class="text-muted-foreground">{entry.commit}</span>
-						</button>
-					</li>
-				{/each}
-			</ul>
-			{#if submodules.length === 0}
-				<p class="px-1 py-0.5 font-mono text-micro text-muted-foreground">
-					{t('domain.git.noSubmodulesMatch')}
-				</p>
-			{/if}
-		</TuiPanel>
+			rows={submoduleRows}
+			selectedId={workbench.selectedIdFor('submodules')}
+			emptyText={t('domain.git.noSubmodulesMatch')}
+			filterId="git-filter-submodules"
+			bind:filterValue={workbench.filters.submodules}
+		/>
 	</div>
 
 	<div role="tablist" aria-label={t('domain.git.referencePanels')} class="flex flex-wrap gap-1 px-1">
@@ -331,123 +298,42 @@
 		{/each}
 	</div>
 	<div class={boardVisibility('branches')} onfocusin={() => (workbench.panel = 'branches')}>
-		<TuiPanel title="Branches" count={branches.length} focused={workbench.panel === 'branches'}>
-			<BoardFilter
-				id="git-filter-branches"
-				label={t('domain.git.filter')}
-				placeholder={t('domain.git.filterPlaceholder')}
-				bind:value={workbench.filters.branches}
-			/>
-			<ul class="max-h-[32vh] overflow-y-auto">
-				{#each branches as branch (branch.name)}
-					<li>
-						<button
-							type="button"
-							data-board-row
-							data-board-panel="branches"
-							data-board-id={branch.name}
-							onclick={() => {
-								workbench.panel = 'branches';
-								gitStore.select('branches', branch.name);
-							}}
-							aria-pressed={gitStore.selectedBranch === branch.name}
-							class="flex w-full items-center gap-1.5 px-1 py-px text-left font-mono text-micro hover:bg-accent/50 {gitStore.selectedBranch ===
-							branch.name
-								? 'bg-accent/70'
-								: ''}"
-						>
-							<span class="shrink-0 text-muted-foreground">{branch.current ? '*' : ' '}</span>
-							<span class="min-w-0 flex-1 truncate {branchRowClass(branch)}">{branch.name}</span>
-							{#if branch.upstream}
-								<span class="shrink-0 text-muted-foreground">+{branch.ahead}/-{branch.behind}</span>
-							{/if}
-						</button>
-					</li>
-				{/each}
-			</ul>
-			{#if branches.length === 0}
-				<p class="px-1 py-0.5 font-mono text-micro text-muted-foreground">
-					{t('domain.git.noBranchesMatch')}
-				</p>
-			{/if}
-		</TuiPanel>
+		<BoardListPanel
+			{workbench}
+			panel="branches"
+			title="Branches"
+			rows={branchRows}
+			selectedId={workbench.selectedIdFor('branches')}
+			emptyText={t('domain.git.noBranchesMatch')}
+			filterId="git-filter-branches"
+			bind:filterValue={workbench.filters.branches}
+		/>
 	</div>
 
 	<div class={boardVisibility('remotes')} onfocusin={() => (workbench.panel = 'remotes')}>
-		<TuiPanel title="Remotes" count={remotes.length} focused={workbench.panel === 'remotes'}>
-			<BoardFilter
-				id="git-filter-remotes"
-				label={t('domain.git.filter')}
-				placeholder={t('domain.git.filterPlaceholder')}
-				bind:value={workbench.filters.remotes}
-			/>
-			<ul class="max-h-[32vh] overflow-y-auto">
-				{#each remotes as remote (remote.name)}
-					<li>
-						<button
-							type="button"
-							data-board-row
-							data-board-panel="remotes"
-							data-board-id={remote.name}
-							onclick={() => {
-								workbench.selectedRemote = remote.name;
-							}}
-							aria-pressed={workbench.selectedRemote === remote.name}
-							class="block w-full truncate px-1 py-px text-left font-mono text-micro hover:bg-accent/50 {workbench.selectedRemote ===
-							remote.name
-								? 'bg-accent/70'
-								: ''}"
-						>
-							{remote.name} <span class="text-muted-foreground">{remote.url}</span>
-						</button>
-					</li>
-				{/each}
-			</ul>
-			{#if remotes.length === 0}
-				<p class="px-1 py-0.5 font-mono text-micro text-muted-foreground">
-					{t('domain.git.noRemotesMatch')}
-				</p>
-			{/if}
-		</TuiPanel>
+		<BoardListPanel
+			{workbench}
+			panel="remotes"
+			title="Remotes"
+			rows={remoteRows}
+			selectedId={workbench.selectedIdFor('remotes')}
+			emptyText={t('domain.git.noRemotesMatch')}
+			filterId="git-filter-remotes"
+			bind:filterValue={workbench.filters.remotes}
+		/>
 	</div>
 
 	<div class={boardVisibility('tags')} onfocusin={() => (workbench.panel = 'tags')}>
-		<TuiPanel title="Tags" count={tags.length} focused={workbench.panel === 'tags'}>
-			<BoardFilter
-				id="git-filter-tags"
-				label={t('domain.git.filter')}
-				placeholder={t('domain.git.filterPlaceholder')}
-				bind:value={workbench.filters.tags}
-			/>
-			<ul class="max-h-[32vh] overflow-y-auto">
-				{#each tags as tag (tag.name)}
-					<li>
-						<button
-							type="button"
-							data-board-row
-							data-board-panel="tags"
-							data-board-id={tag.name}
-							onclick={() => {
-								workbench.selectedTag = tag.name;
-								void workbench.selectCommit(tag.commit, false);
-							}}
-							aria-pressed={workbench.selectedTag === tag.name}
-							class="block w-full truncate px-1 py-px text-left font-mono text-micro hover:bg-accent/50 {workbench.selectedTag ===
-							tag.name
-								? 'bg-accent/70'
-								: ''}"
-						>
-							{tag.name} <span class="text-muted-foreground">{tag.commit}</span>
-						</button>
-					</li>
-				{/each}
-			</ul>
-			{#if tags.length === 0}
-				<p class="px-1 py-0.5 font-mono text-micro text-muted-foreground">
-					{t('domain.git.noTagsMatch')}
-				</p>
-			{/if}
-		</TuiPanel>
+		<BoardListPanel
+			{workbench}
+			panel="tags"
+			title="Tags"
+			rows={tagRows}
+			selectedId={workbench.selectedIdFor('tags')}
+			emptyText={t('domain.git.noTagsMatch')}
+			filterId="git-filter-tags"
+			bind:filterValue={workbench.filters.tags}
+		/>
 	</div>
 
 	<div role="tablist" aria-label={t('domain.git.historyPanels')} class="flex flex-wrap gap-1 px-1">
@@ -464,163 +350,85 @@
 		{/each}
 	</div>
 	<div class={boardVisibility('commits')} onfocusin={() => (workbench.panel = 'commits')}>
-		<TuiPanel title="Commits" count={commits.length} focused={workbench.panel === 'commits'}>
-			<BoardFilter
-				id="git-filter-commits"
-				label={t('domain.git.filter')}
-				placeholder={t('domain.git.filterPlaceholder')}
-				bind:value={workbench.filters.commits}
-			/>
-			<ul class="max-h-[32vh] overflow-y-auto">
-				{#each commits as commit (commit.id)}
-					{@const lane = laneById.get(commit.id)}
-					<li>
-						<button
-							type="button"
-							data-board-row
-							data-board-panel="commits"
-							data-board-id={commit.id}
-							onclick={() => void workbench.selectCommit(commit.id, false)}
-							aria-pressed={gitStore.selectedCommit === commit.id}
-							class="flex w-full items-baseline gap-1.5 px-1 py-px text-left font-mono text-micro hover:bg-accent/50 {gitStore.selectedCommit ===
-							commit.id
-								? 'bg-accent/70'
-								: ''}"
+		<BoardListPanel
+			{workbench}
+			panel="commits"
+			title="Commits"
+			rows={commitRows}
+			selectedId={workbench.selectedIdFor('commits')}
+			emptyText={t('domain.git.noCommitsMatch')}
+			filterId="git-filter-commits"
+			bind:filterValue={workbench.filters.commits}
+		>
+			{#snippet leading(row)}
+				{@const lane = laneById.get(row.id)}
+				{#if lane}
+					<span class="flex shrink-0 items-stretch self-stretch" aria-hidden="true">
+						{#each lane.active as active, laneIndex (laneIndex)}
+							<span class="relative w-2.5">
+								{#if active}
+									<span class="absolute top-0 bottom-0 left-1/2 w-px bg-muted-foreground/60"></span>
+								{/if}
+								{#if laneIndex === lane.lane}
+									<span
+										class="absolute top-1/2 left-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-info"
+									></span>
+								{/if}
+							</span>
+						{/each}
+					</span>
+				{/if}
+			{/snippet}
+			{#snippet footer()}
+				{#if workbench.commitsHasMore}
+					<div class="mt-1 px-1">
+						<Button
+							variant="ghost"
+							size="sm"
+							disabled={workbench.commitsLoading}
+							onclick={() => void workbench.loadMoreCommits()}
 						>
-							{#if lane}
-								<span class="flex shrink-0 items-stretch self-stretch" aria-hidden="true">
-									{#each lane.active as active, laneIndex (laneIndex)}
-										<span class="relative w-2.5">
-											{#if active}
-												<span class="absolute top-0 bottom-0 left-1/2 w-px bg-muted-foreground/60"
-												></span>
-											{/if}
-											{#if laneIndex === lane.lane}
-												<span
-													class="absolute top-1/2 left-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-info"
-												></span>
-											{/if}
-										</span>
-									{/each}
-								</span>
-							{/if}
-							<span class="shrink-0 text-info">{commit.shortId}</span>
-							<span class="min-w-0 flex-1 truncate {commitRowClass(commit)}">{commit.subject}</span>
-							{#if commit.refs.length > 0}
-								<span class="max-w-28 shrink-0 truncate text-muted-foreground"
-									>{commit.refs.join(' ')}</span
-								>
-							{/if}
-						</button>
-					</li>
-				{/each}
-			</ul>
-			{#if commits.length === 0}
-				<p class="px-1 py-0.5 font-mono text-micro text-muted-foreground">
-					{t('domain.git.noCommitsMatch')}
+							{workbench.commitsLoading
+								? t('common.loading')
+								: t('domain.git.showMoreCommits', {
+										shown: workbench.commits.length,
+									})}
+						</Button>
+					</div>
+				{/if}
+				<p class="mt-1 px-1 font-mono text-micro text-muted-foreground/70">
+					{t('domain.git.graphLocal')}
 				</p>
-			{/if}
-			{#if workbench.commitsHasMore}
-				<div class="mt-1 px-1">
-					<Button
-						variant="ghost"
-						size="sm"
-						disabled={workbench.commitsLoading}
-						onclick={() => void workbench.loadMoreCommits()}
-					>
-						{workbench.commitsLoading
-							? t('common.loading')
-							: t('domain.git.showMoreCommits', {
-									shown: workbench.commits.length,
-								})}
-					</Button>
-				</div>
-			{/if}
-			<p class="mt-1 px-1 font-mono text-micro text-muted-foreground/70">
-				{t('domain.git.graphLocal')}
-			</p>
-			<p class="px-1 font-mono text-micro text-muted-foreground/70">
-				{t('domain.git.graphApprox')}
-			</p>
-		</TuiPanel>
+				<p class="px-1 font-mono text-micro text-muted-foreground/70">
+					{t('domain.git.graphApprox')}
+				</p>
+			{/snippet}
+		</BoardListPanel>
 	</div>
 
 	<div class={boardVisibility('reflog')} onfocusin={() => (workbench.panel = 'reflog')}>
-		<TuiPanel title="Reflog" count={reflogs.length} focused={workbench.panel === 'reflog'}>
-			<BoardFilter
-				id="git-filter-reflog"
-				label={t('domain.git.filter')}
-				placeholder={t('domain.git.filterPlaceholder')}
-				bind:value={workbench.filters.reflog}
-			/>
-			<ul class="max-h-[32vh] overflow-y-auto">
-				{#each reflogs as entry (entry.selector)}
-					<li>
-						<button
-							type="button"
-							data-board-row
-							data-board-panel="reflog"
-							data-board-id={entry.selector}
-							onclick={() => void workbench.selectCommit(entry.id, false)}
-							aria-pressed={gitStore.selectionFor('commits') === entry.id}
-							class="flex w-full items-baseline gap-1.5 px-1 py-px text-left font-mono text-micro hover:bg-accent/50 {gitStore.selectionFor(
-								'commits',
-							) === entry.id
-								? 'bg-accent/70'
-								: ''}"
-						>
-							<span class="shrink-0 text-info">{entry.shortId}</span>
-							<span class="min-w-0 flex-1 truncate">{entry.message}</span>
-							<span class="shrink-0 text-muted-foreground">{entry.selector}</span>
-						</button>
-					</li>
-				{/each}
-			</ul>
-			{#if reflogs.length === 0}
-				<p class="px-1 py-0.5 font-mono text-micro text-muted-foreground">
-					{t('domain.git.noReflogsMatch')}
-				</p>
-			{/if}
-		</TuiPanel>
+		<BoardListPanel
+			{workbench}
+			panel="reflog"
+			title="Reflog"
+			rows={reflogRows}
+			selectedId={workbench.selectedIdFor('reflog')}
+			emptyText={t('domain.git.noReflogsMatch')}
+			filterId="git-filter-reflog"
+			bind:filterValue={workbench.filters.reflog}
+		/>
 	</div>
 
 	<div class={boardVisibility('stash')} onfocusin={() => (workbench.panel = 'stash')}>
-		<TuiPanel title="Stash" count={stash.length} focused={workbench.panel === 'stash'}>
-			<BoardFilter
-				id="git-filter-stash"
-				label={t('domain.git.filter')}
-				placeholder={t('domain.git.filterPlaceholder')}
-				bind:value={workbench.filters.stash}
-			/>
-			<ul class="max-h-[32vh] overflow-y-auto">
-				{#each stash as entry (entry.name)}
-					<li>
-						<button
-							type="button"
-							data-board-row
-							data-board-panel="stash"
-							data-board-id={entry.name}
-							onclick={() => {
-								workbench.panel = 'stash';
-								gitStore.select('stash', entry.name);
-							}}
-							aria-pressed={gitStore.selectedStash === entry.name}
-							class="flex w-full items-baseline gap-1.5 px-1 py-px text-left font-mono text-micro hover:bg-accent/50 {gitStore.selectedStash ===
-							entry.name
-								? 'bg-accent/70'
-								: ''}"
-						>
-							<span class="shrink-0 text-muted-foreground">{entry.name}</span>
-							<span class="min-w-0 flex-1 truncate {stashRowClass()}">{entry.message}</span>
-						</button>
-					</li>
-				{/each}
-			</ul>
-			{#if stash.length === 0}
-				<p class="px-1 py-0.5 font-mono text-micro text-muted-foreground">
-					{t('domain.git.noStashMatch')}
-				</p>
-			{/if}
-		</TuiPanel>
+		<BoardListPanel
+			{workbench}
+			panel="stash"
+			title="Stash"
+			rows={stashRows}
+			selectedId={workbench.selectedIdFor('stash')}
+			emptyText={t('domain.git.noStashMatch')}
+			filterId="git-filter-stash"
+			bind:filterValue={workbench.filters.stash}
+		/>
 	</div>
 </div>

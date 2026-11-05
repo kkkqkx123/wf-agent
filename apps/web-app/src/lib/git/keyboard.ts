@@ -83,8 +83,16 @@ export function createPageKeyHandler(
 		if (event.key === 'Escape') {
 			if ((panel === 'files' || panel === 'conflicts') && workbench.viewMode === 'staging') {
 				workbench.setViewMode('diff');
+				workbench.layoutFocus = 'board';
 			} else if (panel === 'commits' && workbench.viewMode === 'commitFiles') {
 				workbench.setViewMode('diff');
+				workbench.layoutFocus = 'board';
+			} else if (workbench.layoutFocus === 'main' || workbench.layoutFocus === 'board') {
+				workbench.layoutFocus = 'none';
+			} else if (inBoard && workbench.layoutFocus === 'none') {
+				workbench.layoutFocus = 'board';
+			} else if (!inBoard) {
+				workbench.layoutFocus = 'none';
 			}
 			(event.target as HTMLElement | null)?.blur?.();
 			const fallback =
@@ -95,6 +103,7 @@ export function createPageKeyHandler(
 		}
 		if (event.key === '0') {
 			event.preventDefault();
+			workbench.layoutFocus = 'main';
 			document.querySelector<HTMLButtonElement>('#git-main button, #git-main input')?.focus();
 			return;
 		}

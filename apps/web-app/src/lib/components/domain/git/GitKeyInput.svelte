@@ -15,13 +15,21 @@
 	let { workbench }: Props = $props();
 
 	let hintControls = $derived(workbench.controls.slice(0, 3));
-	let stripControls = $derived(workbench.controls.slice(0, 4));
+	let expanded = $state(false);
+	let shownControls = $derived(expanded ? workbench.controls : workbench.controls.slice(0, 4));
+	let hiddenCount = $derived(workbench.controls.length - shownControls.length);
 	let candidates = $derived(
 		(workbench.tokenResult.kind === 'prefix' || workbench.tokenResult.kind === 'help'
 			? (workbench.tokenResult.candidates ?? [])
 			: []
 		).slice(0, 8),
 	);
+
+	$effect(() => {
+		// Collapse the control strip when switching panels; the default stays at four.
+		void workbench.panel;
+		expanded = false;
+	});
 </script>
 
 <TuiPanel title={t('domain.git.keyInputTitle')} description={t('domain.git.keyInputDescription')}>
@@ -48,6 +56,9 @@
 		<Button size="sm" disabled={gitStore.busy} onclick={() => void workbench.submitToken()}
 			>{t('domain.git.run')}</Button
 		>
+		<Button size="sm" variant="ghost" onclick={() => (workbench.helpOpen = true)}>
+			{t('domain.git.pressForAll')}
+		</Button>
 	</div>
 	{#if workbench.selection}
 		<p class="mt-1 truncate font-mono text-micro text-muted-foreground">
@@ -65,16 +76,16 @@
 	{:else if candidates.length > 0}
 		<div class="mt-1 flex flex-wrap gap-1" role="group" aria-label={t('domain.git.matchingActions')}>
 			{#each candidates as candidate (candidate)}
-				<button
-					type="button"
+				<Button
+					size="sm"
+					variant="outline"
 					disabled={gitStore.busy}
 					title={candidate}
 					onclick={() => void workbench.runActionId(candidate)}
-					class="shrink-0 rounded-sm border border-border px-1.5 py-0.5 font-mono text-micro text-foreground hover:bg-accent disabled:opacity-50"
 				>
 					{workbench.controls.find((entry) => entry.id === candidate)?.name ?? candidate}
 					<span class="text-muted-foreground">· {candidate}</span>
-				</button>
+				</Button>
 			{/each}
 		</div>
 	{:else if workbench.tokenResult.kind === 'empty' && hintControls.length > 0}
@@ -82,44 +93,39 @@
 			{hintControls.map((entry) => `${entry.hint} ${entry.name}`).join(' · ')}
 		</p>
 	{/if}
-	{#if stripControls.length > 0}
+	{#if shownControls.length > 0}
 		<div
 			class="mt-2 flex flex-nowrap items-center gap-1 overflow-x-auto border-t border-border pt-2"
 			role="group"
 			aria-label={t('domain.git.panelControls')}
 		>
-			{#each stripControls as control, index (control.id)}
-				{#if index === 0}
-					<Button
-						size="sm"
-						variant="outline"
-						disabled={gitStore.busy}
-						title={control.legacyKey
-							? `${control.name} (${control.hint} · ${control.legacyKey})`
-							: `${control.name} (${control.hint})`}
-						onclick={() => void workbench.runActionId(control.id)}
-					>
-						{control.name}
-					</Button>
-				{:else}
-					<button
-						type="button"
-						disabled={gitStore.busy}
-						title={control.legacyKey
-							? `${control.name} (${control.hint} · ${control.legacyKey})`
-							: `${control.name} (${control.hint})`}
-						onclick={() => void workbench.runActionId(control.id)}
-						class="shrink-0 rounded-sm px-1.5 py-0.5 font-mono text-micro hover:bg-accent disabled:opacity-50 {GUARDED_DANGERS.has(
-							control.danger,
-						)
-							? 'text-destructive'
-							: 'text-foreground'}"
-					>
-						<span class="text-muted-foreground">{control.hint}</span>
-						{control.name}
-					</button>
-				{/if}
+			{#each shownControls as control (control.id)}
+				<Button
+					size="sm"
+					variant={control.id === shownControls[0].id ? 'outline' : 'ghost'}
+					disabled={gitStore.busy}
+					title={control.legacyKey
+						? `${control.name} (${control.hint} · ${control.legacyKey})`
+						: `${control.name} (${control.hint})`}
+					onclick={() => void workbench.runActionId(control.id)}
+					class={GUARDED_DANGERS.has(control.danger) ? 'text-destructive' : ''}
+				>
+					<span class="text-muted-foreground">{control.hint}</span>
+					{control.name}
+				</Button>
 			{/each}
+			{#if hiddenCount > 0 || expanded}
+				<Button
+					size="sm"
+					variant="ghost"
+					onclick={() => (expanded = !expanded)}
+					title={expanded ? t('domain.git.showFewerControls') : t('domain.git.showMoreControls')}
+				>
+					{expanded
+						? t('domain.git.showFewerControls')
+						: `${t('domain.git.showMoreControls')} (${hiddenCount})`}
+				</Button>
+			{/if}
 		</div>
 	{/if}
 	{#if gitStore.actionError}

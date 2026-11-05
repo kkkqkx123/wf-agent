@@ -22,7 +22,7 @@
 >
 	<ul class="max-h-[24vh] space-y-0.5 overflow-y-auto">
 		{#each entries as entry (entry.seq)}
-			<li class="flex items-baseline gap-1.5 px-1 py-px font-mono text-micro hover:bg-accent/50">
+			<li class="flex items-baseline gap-1.5 px-1 py-0.5 font-mono text-micro hover:bg-accent/50">
 				<span class="shrink-0 font-semibold text-foreground">{entry.action}</span>
 				{#if entry.summary}
 					<span class="min-w-0 flex-1 truncate text-muted-foreground">{entry.summary}</span>

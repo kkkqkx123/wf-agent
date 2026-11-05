@@ -2,6 +2,7 @@
 	import { onDestroy } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import { cn } from '../cn';
+	import { resolveFloatingPosition } from '../floating';
 
 	interface Props {
 		text: string;
@@ -21,40 +22,14 @@
 	const MARGIN = 4;
 
 	function resolvePosition(rect: DOMRect, width: number, height: number): { top: number; left: number } {
-		const viewportWidth = window.innerWidth;
-		const viewportHeight = window.innerHeight;
-		let top: number;
-		let left: number;
-
-		if (side === 'right') {
-			top = rect.top + (rect.height - height) / 2;
-			left = rect.right + GAP;
-			if (left + width > viewportWidth - MARGIN) {
-				left = rect.left - GAP - width;
-			}
-		} else if (side === 'left') {
-			top = rect.top + (rect.height - height) / 2;
-			left = rect.left - GAP - width;
-			if (left < MARGIN) {
-				left = rect.right + GAP;
-			}
-		} else if (side === 'bottom') {
-			left = rect.left + (rect.width - width) / 2;
-			top = rect.bottom + GAP;
-			if (top + height > viewportHeight - MARGIN) {
-				top = rect.top - GAP - height;
-			}
-		} else {
-			left = rect.left + (rect.width - width) / 2;
-			top = rect.top - GAP - height;
-			if (top < MARGIN) {
-				top = rect.bottom + GAP;
-			}
-		}
-
-		top = Math.min(Math.max(top, MARGIN), Math.max(MARGIN, viewportHeight - MARGIN - height));
-		left = Math.min(Math.max(left, MARGIN), Math.max(MARGIN, viewportWidth - MARGIN - width));
-		return { top, left };
+		// Shared viewport-aware placement keeps tooltip flip and clamp
+		// identical to the FloatingPanel overlays.
+		return resolveFloatingPosition(
+			{ x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+			{ width, height },
+			{ width: window.innerWidth, height: window.innerHeight },
+			{ side, align: 'center', gap: GAP, margin: MARGIN },
+		);
 	}
 
 	function place(): void {

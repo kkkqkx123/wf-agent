@@ -2,6 +2,7 @@
 	import type { HTMLSelectAttributes } from 'svelte/elements';
 	import Icon from '../icons/Icon.svelte';
 	import { cn } from '../cn';
+import { message } from '#lib/i18n';
 
 	interface Option {
 		value: string;
@@ -13,7 +14,7 @@
 		value: string;
 		options: Option[];
 		size?: 'sm' | 'md';
-		placeholder?: string;
+		placeholder?: string | (() => string);
 		label?: string;
 		class?: string;
 		onchange?: (value: string) => void;
@@ -25,7 +26,7 @@
 		value = $bindable(''),
 		options,
 		size = 'md',
-		placeholder = 'Select…',
+		placeholder = message('common.selectPlaceholder'),
 		label,
 		id = generatedId,
 		class: className = '',
@@ -46,7 +47,7 @@
 		{...rest}
 	>
 		{#if placeholder}
-			<option value="" disabled>{placeholder}</option>
+			<option value="" disabled>{typeof placeholder === 'function' ? placeholder() : placeholder}</option>
 		{/if}
 		{#each options as option (option.value)}
 			<option value={option.value} disabled={option.disabled}

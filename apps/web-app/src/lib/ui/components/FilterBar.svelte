@@ -4,12 +4,13 @@
 	import Input from './Input.svelte';
 	import Select from './Select.svelte';
 	import { cn } from '../cn';
+import { message } from '#lib/i18n';
 
 	interface Props {
 		query: string;
 		status: string;
-		statusOptions: Array<{ value: string; label: string }>;
-		placeholder?: string;
+		statusOptions: Array<{ value: string; label: string | (() => string) }>;
+		placeholder?: string | (() => string);
 		class?: string;
 		trailing?: Snippet;
 		/** Raised when the status selection changes so callers can refetch. */
@@ -20,7 +21,7 @@
 		query = $bindable(''),
 		status = $bindable(''),
 		statusOptions,
-		placeholder = 'Filter…',
+		placeholder = message('common.filterPlaceholder'),
 		class: className = '',
 		trailing,
 		onstatuschange,
@@ -34,12 +35,12 @@
 			size={14}
 			class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
 		/>
-		<Input bind:value={query} {placeholder} class="pl-8" />
+		<Input bind:value={query} placeholder={placeholder} class="pl-8" />
 	</div>
 	<Select
 		bind:value={status}
 		options={statusOptions}
-		placeholder="All statuses"
+		placeholder={message('common.allStatuses')}
 		class="w-40"
 		onchange={(value) => onstatuschange?.(value)}
 	/>

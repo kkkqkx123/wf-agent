@@ -3,6 +3,8 @@
 	import Icon from '../icons/Icon.svelte';
 	import type { IconName } from '../icons/paths';
 	import IconButton from './IconButton.svelte';
+	import FloatingPanel from './FloatingPanel.svelte';
+	import type { FloatingCloseReason } from './FloatingPanel.svelte';
 	import { cn } from '../cn';
 
 	export interface MenuItem {
@@ -51,21 +53,14 @@
 		item.onselect?.();
 	}
 
+	function onFloatingClose(reason: FloatingCloseReason): void {
+		close(reason === 'escape');
+	}
+
 	$effect(() => {
 		if (!open || !menu) return;
 		menu.querySelector<HTMLButtonElement>('button[role="menuitem"]')?.focus();
 	});
-
-	function onwindowclick(event: MouseEvent): void {
-		if (!open) return;
-		const target = event.target as Node | null;
-		if (target && root?.contains(target)) return;
-		close(false);
-	}
-
-	function onkeydown(event: KeyboardEvent): void {
-		if (event.key === 'Escape') close();
-	}
 
 	function onmenukeydown(event: KeyboardEvent): void {
 		const buttons = Array.from(
@@ -89,9 +84,7 @@
 	}
 </script>
 
-<svelte:window onclick={onwindowclick} {onkeydown} />
-
-<div bind:this={root} class={cn('relative inline-flex', className)}>
+<div bind:this={root} class={cn('inline-flex', className)}>
 	{#if trigger}
 		<button
 			type="button"
@@ -113,18 +106,17 @@
 		/>
 	{/if}
 
-	{#if open}
-		<div
-			bind:this={menu}
-			role="menu"
-			tabindex="-1"
-			onkeydown={onmenukeydown}
-			style:width
-			class={cn(
-				'animate-panel-in absolute top-full z-40 mt-1 overflow-hidden rounded-lg border border-border bg-popover p-1 text-body shadow-popover',
-				align === 'right' ? 'right-0' : 'left-0',
-			)}
-		>
+	<FloatingPanel
+		anchor={root ?? null}
+		{open}
+		side="bottom"
+		align={align === 'right' ? 'end' : 'start'}
+		{width}
+		role="menu"
+		ariaLabel={label}
+		onClose={onFloatingClose}
+	>
+		<div bind:this={menu} tabindex="-1" onkeydown={onmenukeydown} class="p-1 outline-none">
 			{#each items as item (item.id)}
 				<button
 					type="button"
@@ -145,5 +137,5 @@
 				</button>
 			{/each}
 		</div>
-	{/if}
+	</FloatingPanel>
 </div>

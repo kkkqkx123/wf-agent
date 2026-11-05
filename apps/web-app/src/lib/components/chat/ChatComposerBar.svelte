@@ -186,8 +186,8 @@
 		/>
 	{/if}
 	<div
-		class="w-full {composerHeight !== null && !fullscreen ? 'min-h-0' : ''} {fullscreen
-			? 'h-full min-h-0'
+		class="w-full {composerHeight !== null && !fullscreen ? 'flex min-h-0 flex-col' : ''} {fullscreen
+			? 'flex h-full min-h-0 flex-col'
 			: ''}"
 		style:height={composerHeight !== null && !fullscreen ? `${composerHeight}px` : undefined}
 	>
@@ -238,8 +238,8 @@
 		<div
 			class="rounded-xl border border-border bg-muted/30 p-2.5 {composerHeight !== null &&
 			!fullscreen
-				? 'h-full min-h-0 overflow-y-auto'
-				: ''} {fullscreen ? 'flex h-full min-h-0 flex-col' : ''}"
+				? 'flex min-h-0 flex-1 flex-col overflow-y-auto'
+				: ''} {fullscreen ? 'flex min-h-0 flex-1 flex-col' : ''}"
 		>
 			<WorkflowInputForm {controller} />
 			<Composer
@@ -252,6 +252,7 @@
 				{suggestions}
 				showSuggestions={controller.showStarters}
 				{fullscreen}
+				grow={composerHeight !== null && !fullscreen}
 				onToggleFullscreen={toggleFullscreen}
 				onResetHeight={resetHeight}
 				onsend={handleSend}

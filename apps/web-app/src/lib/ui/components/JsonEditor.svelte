@@ -4,7 +4,7 @@
 	interface Props {
 		value?: string;
 		errorLine?: number | null;
-		placeholder?: string;
+		placeholder?: string | (() => string);
 		label?: string;
 		class?: string;
 		minHeight?: string;
@@ -134,7 +134,7 @@
 				bind:this={area}
 				bind:value
 				aria-label={label}
-				{placeholder}
+				{typeof placeholder === 'function' ? placeholder() : placeholder}
 				wrap="off"
 				rows={rowCount}
 				spellcheck={false}

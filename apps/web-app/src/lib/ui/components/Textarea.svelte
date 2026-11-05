@@ -3,9 +3,10 @@
 	import { INPUT_BASE } from './variants';
 	import { cn } from '../cn';
 
-	interface Props extends HTMLTextareaAttributes {
+	interface Props extends Omit<HTMLTextareaAttributes, 'placeholder'> {
 		value?: string;
 		label?: string;
+		placeholder?: string | (() => string);
 		class?: string;
 	}
 
@@ -14,6 +15,7 @@
 	let {
 		value = $bindable(''),
 		label,
+		placeholder,
 		id = generatedId,
 		class: className = '',
 		...rest
@@ -24,6 +26,7 @@
 	<textarea
 		{id}
 		bind:value
+		placeholder={typeof placeholder === 'function' ? placeholder() : placeholder}
 		class={cn(INPUT_BASE, 'min-h-20 resize-y py-2 leading-relaxed', className)}
 		{...rest}></textarea>
 {/snippet}

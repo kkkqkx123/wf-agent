@@ -5,7 +5,9 @@
 	 * list, so opening the panel always shows every option with no manual
 	 * expand step. The filter narrows across all three groups.
 	 */
+	import { tick } from 'svelte';
 	import Icon from '#lib/ui/icons/Icon.svelte';
+	import FloatingPanel from '#lib/ui/components/FloatingPanel.svelte';
 	import { cn } from '#lib/ui/cn';
 	import type { IconName } from '#lib/ui/icons/paths';
 	import { t } from '#lib/i18n';
@@ -80,7 +82,12 @@
 	let internalOpen = $state(false);
 	const open = $derived(activePicker === undefined ? internalOpen : activePicker === pickerKey);
 	let query = $state('');
-	let root: HTMLDivElement | undefined = $state();
+	let trigger: HTMLButtonElement | null = $state(null);
+	let filter: HTMLInputElement | null = $state(null);
+
+	$effect(() => {
+		if (open) void tick().then(() => filter?.focus());
+	});
 
 	const filtered = $derived.by(() => {
 		const term = query.trim().toLowerCase();
@@ -144,26 +151,13 @@
 		await onPin?.(id, !isPinned(id));
 	}
 
-	function onwindowclick(event: MouseEvent): void {
-		if (!open) return;
-		const target = event.target as Node | null;
-		if (target && root?.contains(target)) return;
-		close();
-	}
-
-	function onkeydown(event: KeyboardEvent): void {
-		if (!open) return;
-		if (event.key === 'Escape') {
-			event.stopPropagation();
-			close();
-		} else if (event.key === 'Enter' && typed && allowFreeform) {
+	function onFilterKeydown(event: KeyboardEvent): void {
+		if (event.key === 'Enter' && typed && allowFreeform) {
 			event.preventDefault();
 			choose(typed);
 		}
 	}
 </script>
-
-<svelte:window onclick={onwindowclick} {onkeydown} />
 
 {#snippet row(option: PickerOption)}
 	<div
@@ -214,8 +208,9 @@
 	</div>
 {/snippet}
 
-<div bind:this={root} class={cn('relative', triggerClass, className)}>
+<div class={cn(triggerClass, className)}>
 	<button
+		bind:this={trigger}
 		type="button"
 		aria-haspopup="listbox"
 		aria-expanded={open}
@@ -230,15 +225,22 @@
 		<Icon name="chevrons-up-down" size={12} class="shrink-0 text-muted-foreground" />
 	</button>
 
-	{#if open}
-		<div
-			role="listbox"
-			tabindex="-1"
-			class="animate-panel-in absolute bottom-full left-0 z-40 mb-1 w-72 overflow-hidden rounded-lg border border-border bg-popover p-1 text-body shadow-popover"
-		>
+	<FloatingPanel
+		anchor={trigger}
+		{open}
+		side="top"
+		align="start"
+		width="18rem"
+		role="listbox"
+		ariaLabel={ariaLabel}
+		onClose={close}
+	>
+		<div class="p-1">
 			<div class="mb-1 flex items-center gap-1">
 				<input
+					bind:this={filter}
 					bind:value={query}
+					onkeydown={onFilterKeydown}
 					placeholder={filterPlaceholder}
 					aria-label={filterPlaceholder}
 					class="min-w-0 flex-1 rounded-md border border-input bg-card px-2 py-1 text-caption text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
@@ -290,5 +292,5 @@
 				{/if}
 			</div>
 		</div>
-	{/if}
+	</FloatingPanel>
 </div>

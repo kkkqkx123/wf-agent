@@ -79,6 +79,8 @@
 		suggestions?: StarterSuggestion[];
 		showSuggestions?: boolean;
 		fullscreen?: boolean;
+		/** Fixed-height card (resized via the drag handle): the input stretches. */
+		grow?: boolean;
 		onToggleFullscreen?: () => void;
 		onResetHeight?: () => void;
 		onsend?: (message: OutgoingMessage) => boolean;
@@ -97,6 +99,7 @@
 		suggestions = [],
 		showSuggestions = false,
 		fullscreen = false,
+		grow = false,
 		onToggleFullscreen,
 		onResetHeight,
 		onsend,
@@ -747,7 +750,7 @@
 
 <svelte:window onkeydown={onGlobalKeydown} />
 
-<div class="flex h-full min-h-0 flex-col gap-2">
+<div class="flex min-h-0 flex-1 flex-col gap-2">
 	{#if showSuggestions && suggestions.length > 0}
 		{#key draftKey}
 			<StarterRow
@@ -1075,7 +1078,9 @@
 		aria-label={t('chat.composer.ariaLabel')}
 		class={fullscreen
 			? 'min-h-48 w-full flex-1 resize-none overflow-y-auto rounded-md border border-input bg-card px-2.5 py-2 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring'
-			: 'max-h-[32vh] min-h-28 w-full resize-none overflow-y-auto rounded-md border border-input bg-card px-2.5 py-2 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring'}
+			: grow
+				? 'min-h-28 w-full flex-1 resize-none overflow-y-auto rounded-md border border-input bg-card px-2.5 py-2 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring'
+				: 'max-h-[32vh] min-h-28 w-full resize-none overflow-y-auto rounded-md border border-input bg-card px-2.5 py-2 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring'}
 	></textarea>
 	<div class="flex flex-wrap items-center gap-2">
 		<p class="min-w-0 flex-1 text-micro text-muted-foreground">

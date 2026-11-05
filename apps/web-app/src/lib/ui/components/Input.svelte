@@ -3,10 +3,11 @@
 	import { INPUT_BASE } from './variants';
 	import { cn } from '../cn';
 
-	interface Props extends Omit<HTMLInputAttributes, 'size'> {
+	interface Props extends Omit<HTMLInputAttributes, 'size' | 'placeholder'> {
 		value?: string;
 		size?: 'sm' | 'md';
 		label?: string;
+		placeholder?: string | (() => string);
 		class?: string;
 	}
 
@@ -16,6 +17,7 @@
 		value = $bindable(''),
 		size = 'md',
 		label,
+		placeholder,
 		id = generatedId,
 		class: className = '',
 		...rest
@@ -26,6 +28,7 @@
 	<input
 		{id}
 		bind:value
+		placeholder={typeof placeholder === 'function' ? placeholder() : placeholder}
 		class={cn(INPUT_BASE, size === 'sm' ? 'h-7 text-small' : 'h-8.5', className)}
 		{...rest}
 	/>

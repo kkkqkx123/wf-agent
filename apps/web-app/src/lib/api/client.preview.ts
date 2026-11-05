@@ -51,9 +51,23 @@ function dispatchEnvelope(
 	query: Record<string, unknown>,
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	body: any,
-): { data?: unknown; error?: unknown; status: number } {
+): { data?: unknown; error?: unknown; response?: { status: number }; status: number } {
 	const data = router.dispatch(method, path, query, body);
 	if (data === undefined) return missingRoute(method, path);
+	// Route handlers may return a MockRouteError (e.g. an fs write conflict);
+	// surface it as a genuine error envelope so `call()` throws ApiHttpError.
+	const candidate = data as { __mockError?: boolean; status?: number; code?: string; message?: string };
+	if (candidate && candidate.__mockError === true) {
+		return {
+			error: {
+				success: false,
+				data: null,
+				error: { code: candidate.code ?? 'HTTP_ERROR', message: candidate.message ?? 'Preview error' },
+			},
+			response: { status: candidate.status ?? 400 },
+			status: candidate.status ?? 400,
+		};
+	}
 	return okEnvelope(data);
 }
 

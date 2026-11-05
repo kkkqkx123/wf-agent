@@ -12,6 +12,7 @@ import {
 	gitRegistry,
 } from '#lib/fixtures/git';
 import type { MockRouter } from '../router';
+import { changedCount, changedDiffs, changedFiles } from '../workspace';
 
 export function registerGit(router: MockRouter): void {
 	// ---------- user git ----------
@@ -22,17 +23,17 @@ export function registerGit(router: MockRouter): void {
 		ahead: gitMeta.ahead,
 		behind: gitMeta.behind,
 		staged: 2,
-		unstaged: 1,
+		unstaged: 1 + changedCount(),
 		untracked: 1,
 		conflicted: 0,
 		merge_head: false,
 		rebase_head: false,
 		cherry_pick_head: false,
 	}));
-	router.on('GET', '/api/v1/git/files', () => gitFiles);
-	router.on('GET', '/api/v1/git/diff', () => gitDiff);
+	router.on('GET', '/api/v1/git/files', () => [...gitFiles, ...changedFiles()]);
+	router.on('GET', '/api/v1/git/diff', () => [...gitDiff, ...changedDiffs()]);
 	router.on('GET', '/api/v1/git/diff/staged', () => gitStagedDiff);
-	router.on('GET', '/api/v1/git/diff/range', () => gitDiff);
+	router.on('GET', '/api/v1/git/diff/range', () => [...gitDiff, ...changedDiffs()]);
 	router.on('GET', '/api/v1/git/commits', () => gitCommits);
 	router.on('GET', '/api/v1/git/commits/files', () => [
 		{ path: gitFiles[0]?.path ?? 'preview.txt', status: 'M', renamed_from: null },

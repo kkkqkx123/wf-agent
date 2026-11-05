@@ -1,161 +1,95 @@
 /** Mock routes: workspace filesystem for the IDE preview. */
 
 import type { MockRouter } from '../router';
+import {
+	allFiles,
+	copyPath,
+	createEntry,
+	flattenTree,
+	hashFor,
+	listDir,
+	movePath,
+	readFile,
+	removePath,
+	statPath,
+	storeUpload,
+	writeFile,
+} from '../workspace';
 
-const DIRS: Record<string, Array<{ name: string; isDir: boolean; size: number }>> = {
-	'': [
-		{ name: 'apps', isDir: true, size: 0 },
-		{ name: 'crates', isDir: true, size: 0 },
-		{ name: 'docs', isDir: true, size: 0 },
-		{ name: 'README.md', isDir: false, size: 512 },
-	],
-	apps: [{ name: 'web-app', isDir: true, size: 0 }],
-	'apps/web-app': [
-		{ name: 'src', isDir: true, size: 0 },
-		{ name: 'package.json', isDir: false, size: 1024 },
-	],
-	'docs/plan': [{ name: 'lightweight-ide-design.md', isDir: false, size: 2048 }],
-};
+/** Error marker the preview client turns into a real error envelope. */
+export interface MockRouteError {
+	status: number;
+	code: string;
+	message: string;
+}
 
-const FILES: Record<string, string> = {
-	'README.md': '# wf-agent (preview)\n\nRead-only preview of the workspace filesystem.\n',
-	'apps/web-app/package.json': '{\n  "name": "@wf-agent/web-app-frontend"\n}\n',
-	'docs/plan/lightweight-ide-design.md':
-		'# Lightweight IDE (preview)\n\nFile editing in preview is mocked.\n',
-};
-
-function entriesFor(path: string) {
-	const key = path.replace(/\/$/, '');
-	const rows = DIRS[key] ?? [];
-	return rows.map((e) => ({
-		name: e.name,
-		path: key ? `${key}/${e.name}` : e.name,
-		is_dir: e.isDir,
-		size: e.size,
-		modified_ms: 1_700_000_000_000,
-	}));
+export function mockError(status: number, code: string, message: string): MockRouteError {
+	return { __mockError: true, status, code, message } as unknown as MockRouteError;
 }
 
 export function registerFs(router: MockRouter): void {
-	router.on('GET', '/api/v1/fs/list', (_p, query) => {
-		const path = String(query.path ?? '');
-		return entriesFor(path);
-	});
+	router.on('GET', '/api/v1/fs/list', (_p, query) => listDir(String(query.path ?? '')));
 	router.on('GET', '/api/v1/fs/tree', (_p, query) => {
 		const base = String(query.path ?? '');
 		const rawLimit = Number((query as Record<string, unknown>).limit ?? 2000);
 		const limit = Number.isFinite(rawLimit)
 			? Math.min(5000, Math.max(1, Math.floor(rawLimit)))
 			: 2000;
-		const flat: Array<{ path: string; is_dir: boolean; size: number }> = [];
-		const visit = (prefix: string): boolean => {
-			for (const row of entriesFor(prefix)) {
-				flat.push({ path: row.path, is_dir: row.is_dir, size: row.size });
-				if (flat.length >= limit) return true;
-				if (row.is_dir && visit(row.path)) return true;
-			}
-			return false;
-		};
-		const truncated = visit(base.replace(/\/$/, ''));
-		return { entries: flat.slice(0, limit), truncated };
+		return flattenTree(base, limit);
 	});
-	router.on('GET', '/api/v1/fs/stat', (_p, query) => {
-		const path = String(query.path ?? '');
-		if (!path) {
-			return { path: '', is_dir: true, size: 0, modified_ms: 1_700_000_000_000, is_binary: null };
-		}
-		const content = FILES[path];
-		if (content !== undefined) {
-			return {
-				path,
-				is_dir: false,
-				size: content.length,
-				modified_ms: 1_700_000_000_000,
-				is_binary: false,
-			};
-		}
-		if (DIRS[path] !== undefined) {
-			return {
-				path,
-				is_dir: true,
-				size: 0,
-				modified_ms: 1_700_000_000_000,
-				is_binary: null,
-			};
-		}
-		return {
-			path,
-			is_dir: false,
-			size: 128,
-			modified_ms: 1_700_000_000_000,
-			is_binary: false,
-		};
-	});
-	router.on('GET', '/api/v1/fs/search', (_p, query) => {
-		const q = String(query.query ?? '').trim().toLowerCase();
-		const matches: Array<{ path: string; line: number; column: number | null; preview: string }> = [];
-		if (q) {
-			for (const [path, content] of Object.entries(FILES)) {
-				const lines = content.split('\n');
-				for (let i = 0; i < lines.length; i += 1) {
-					const col = lines[i]?.toLowerCase().indexOf(q) ?? -1;
-					if (col >= 0) {
-						matches.push({ path, line: i + 1, column: col + 1, preview: lines[i] ?? '' });
-					}
-				}
-			}
-		}
-		return { matches, truncated: false };
-	});
+	router.on('GET', '/api/v1/fs/stat', (_p, query) => statPath(String(query.path ?? '')));
+	router.on('GET', '/api/v1/fs/search', (_p, query) => searchWorkspace(String(query.query ?? '')));
 	router.on('GET', '/api/v1/fs/content', (_p, query) => {
 		const path = String(query.path ?? 'README.md');
-		const content = FILES[path] ?? `# Preview file: ${path}\n\nMock content for the IDE preview.\n`;
+		const content = readFile(path);
 		return {
 			path,
 			content,
 			size: content.length,
 			truncated: false,
 			is_binary: false,
-			hash: 'preview-hash',
+			hash: hashFor(path),
 		};
 	});
 	router.on('PUT', '/api/v1/fs/content', (_p, query, body) => {
 		const path = String(query.path ?? 'README.md');
-		const content = String((body as { content?: string } | undefined)?.content ?? '');
+		const b = (body ?? {}) as { content?: string; expected_hash?: string | null };
+		const result = writeFile(path, String(b.content ?? ''), b.expected_hash ?? null);
+		if (!result.ok) {
+			return mockError(409, 'CONFLICT', result.message);
+		}
 		return {
-			path,
-			content,
-			size: content.length,
+			path: result.path,
+			content: result.content,
+			size: result.content.length,
 			truncated: false,
 			is_binary: false,
-			hash: 'preview-hash-written',
+			hash: result.hash,
 		};
 	});
 	router.on('POST', '/api/v1/fs/entries', (_p, _q, body) => {
 		const b = (body ?? {}) as { path?: string; is_dir?: boolean };
-		const path = String(b.path ?? 'preview.txt');
-		const name = path.split('/').pop() ?? path;
-		return { name, path, is_dir: Boolean(b.is_dir), size: 0, modified_ms: 1_700_000_000_000 };
+		return createEntry(String(b.path ?? 'preview.txt'), Boolean(b.is_dir));
 	});
 	router.on('DELETE', '/api/v1/fs/entries', (_p, query) => ({
-		removed: true,
+		removed: removePath(String(query.path ?? '')),
 		path: String(query.path ?? ''),
 	}));
 	router.on('PATCH', '/api/v1/fs/entries/move', (_p, _q, body) => {
-		const b = (body ?? {}) as { to?: string };
-		const path = String(b.to ?? 'preview.txt');
-		const name = path.split('/').pop() ?? path;
-		return { name, path, is_dir: false, size: 0, modified_ms: 1_700_000_000_000 };
+		const b = (body ?? {}) as { from?: string; to?: string };
+		const moved = movePath(String(b.from ?? ''), String(b.to ?? 'preview.txt'));
+		if (!moved) return mockError(404, 'NOT_FOUND', `Preview path not found: ${b.from ?? ''}`);
+		return moved;
 	});
 	router.on('POST', '/api/v1/fs/entries/copy', (_p, _q, body) => {
 		const b = (body ?? {}) as { from?: string; to?: string };
-		const path = String(b.to ?? 'preview-copy.txt');
-		const name = path.split('/').pop() ?? path;
-		return { name, path, is_dir: false, size: 0, modified_ms: 1_700_000_000_000 };
+		const copied = copyPath(String(b.from ?? ''), String(b.to ?? 'preview-copy.txt'));
+		if (!copied) return mockError(404, 'NOT_FOUND', `Preview path not found: ${b.from ?? ''}`);
+		return copied;
 	});
 	router.on('GET', '/api/v1/fs/raw', (_p, query) => {
 		const path = String(query.path ?? '');
-		const content = FILES[path] ?? `# Preview file: ${path}\n`;
+		const content = readFile(path);
 		const encoded =
 			typeof btoa === 'function'
 				? btoa(String.fromCharCode(...new TextEncoder().encode(content)))
@@ -175,9 +109,29 @@ export function registerFs(router: MockRouter): void {
 		};
 	});
 	router.on('POST', '/api/v1/fs/upload', (_p, _q, body) => {
-		const b = (body ?? {}) as { path?: string; content_base64?: string; overwrite?: boolean };
+		const b = (body ?? {}) as { path?: string; content_base64?: string };
 		const path = String(b.path ?? 'preview-upload.txt');
-		const name = path.split('/').pop() ?? path;
-		return { name, path, is_dir: false, size: 0, modified_ms: 1_700_000_000_000 };
+		let content = '';
+		if (b.content_base64 && typeof atob === 'function') {
+			content = atob(b.content_base64);
+		}
+		return storeUpload(path, content);
 	});
+}
+
+/** Whole-workspace content search over the live in-memory files. */
+function searchWorkspace(q: string): { matches: Array<{ path: string; line: number; column: number | null; preview: string }>; truncated: boolean } {
+	const needle = q.trim().toLowerCase();
+	const matches: Array<{ path: string; line: number; column: number | null; preview: string }> = [];
+	if (!needle) return { matches, truncated: false };
+	for (const [path, content] of allFiles()) {
+		const lines = content.split('\n');
+		for (let i = 0; i < lines.length; i += 1) {
+			const col = (lines[i] ?? '').toLowerCase().indexOf(needle);
+			if (col >= 0) {
+				matches.push({ path, line: i + 1, column: col + 1, preview: lines[i] ?? '' });
+			}
+		}
+	}
+	return { matches, truncated: false };
 }

@@ -459,6 +459,75 @@ fn truncate_excerpt(content: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use vector_contracts::VectorStorage as _;
+
+    static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let id = TEST_DIR_COUNTER.fetch_add(1, Ordering::SeqCst);
+        std::env::temp_dir().join(format!("{prefix}-{}-{id}", std::process::id()))
+    }
+
+    fn memory_storage() -> StorageConfig {
+        StorageConfig {
+            storage_type: StorageType::Memory,
+            ..Default::default()
+        }
+    }
+
+    fn sqlite_storage(db_path: &str) -> StorageConfig {
+        StorageConfig {
+            storage_type: StorageType::Sqlite,
+            sqlite: Some(wf_types::config::storage::SqliteStorageConfig {
+                db_path: db_path.to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    struct UnitEmbedder {
+        dimension: usize,
+    }
+
+    #[async_trait::async_trait]
+    impl llm_embedding::provider::EmbeddingProvider for UnitEmbedder {
+        async fn embed(
+            &self,
+            texts: &[String],
+        ) -> llm_embedding::error::Result<llm_embedding::provider::EmbeddingResult> {
+            Ok(llm_embedding::provider::EmbeddingResult {
+                embeddings: texts.iter().map(|text| self.vector_for(text)).collect(),
+                prompt_tokens: 0,
+                total_tokens: 0,
+            })
+        }
+
+        fn dimension(&self) -> usize {
+            self.dimension
+        }
+
+        fn model_name(&self) -> &str {
+            "test-unit"
+        }
+    }
+
+    impl UnitEmbedder {
+        fn vector_for(&self, text: &str) -> Vec<f32> {
+            let mut vector = vec![0.0; self.dimension];
+            for (index, byte) in text.bytes().enumerate() {
+                vector[index % self.dimension] += f32::from(byte) / 255.0;
+            }
+            let norm = vector.iter().map(|v| v * v).sum::<f32>().sqrt();
+            if norm > 0.0 {
+                for value in &mut vector {
+                    *value /= norm;
+                }
+            }
+            vector
+        }
+    }
 
     #[test]
     fn histogram_buckets_cover_scores() {
@@ -501,5 +570,268 @@ mod tests {
             .likely_causes
             .iter()
             .any(|cause| cause.contains("no matches")));
+    }
+
+    #[test]
+    fn memory_storage_resolves_to_ephemeral_index() {
+        let location = resolve_keyword_location(&memory_storage(), &Default::default());
+        assert_eq!(location, KeywordIndexLocation::Memory);
+    }
+
+    #[test]
+    fn explicit_disable_wins_over_everything() {
+        let dir = unique_temp_dir("wf-keyword-disabled");
+        let db = dir.join("app.db");
+        let storage = sqlite_storage(&db.to_string_lossy());
+        let config = KeywordIndexConfig {
+            enabled: false,
+            db_path: Some("/tmp/should-not-win.db".to_string()),
+        };
+        std::env::set_var(KEYWORD_DB_PATH_ENV, "/tmp/env-should-not-win.db");
+        let location = resolve_keyword_location(&storage, &config);
+        std::env::remove_var(KEYWORD_DB_PATH_ENV);
+        assert_eq!(location, KeywordIndexLocation::Disabled);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn explicit_path_wins_over_derived_placement() {
+        let dir = unique_temp_dir("wf-keyword-explicit");
+        let db = dir.join("app.db");
+        let storage = sqlite_storage(&db.to_string_lossy());
+        let explicit = dir.join("custom-keyword.db");
+        let config = KeywordIndexConfig {
+            enabled: true,
+            db_path: Some(explicit.to_string_lossy().into_owned()),
+        };
+        let location = resolve_keyword_location(&storage, &config);
+        assert_eq!(location, KeywordIndexLocation::File(explicit));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn env_path_override_wins_over_config() {
+        let dir = unique_temp_dir("wf-keyword-env");
+        let db = dir.join("app.db");
+        let storage = sqlite_storage(&db.to_string_lossy());
+        let env_path = dir.join("env-keyword.db");
+        std::env::set_var(KEYWORD_DB_PATH_ENV, env_path.to_string_lossy().to_string());
+        let location = resolve_keyword_location(&storage, &Default::default());
+        std::env::remove_var(KEYWORD_DB_PATH_ENV);
+        assert_eq!(location, KeywordIndexLocation::File(env_path));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn env_flag_off_disables_index() {
+        std::env::set_var(KEYWORD_ENABLED_ENV, "off");
+        let location = resolve_keyword_location(&memory_storage(), &Default::default());
+        std::env::remove_var(KEYWORD_ENABLED_ENV);
+        assert_eq!(location, KeywordIndexLocation::Disabled);
+    }
+
+    #[test]
+    fn file_storage_derives_sibling_keyword_path() {
+        let storage = sqlite_storage("/data/app.db");
+        assert_eq!(
+            keyword_db_path(&storage),
+            PathBuf::from("/data/app-keyword.db")
+        );
+        let storage = StorageConfig {
+            storage_type: StorageType::Sqlite,
+            app_name: Some("kb".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            keyword_db_path(&storage),
+            PathBuf::from("./storage/kb-keyword.db")
+        );
+    }
+
+    #[test]
+    fn disabled_location_opens_to_empty_slot() {
+        let opened = open_keyword_index(&KeywordIndexLocation::Disabled).expect("open");
+        assert!(opened.is_none());
+    }
+
+    #[test]
+    fn memory_location_opens_usable_index() {
+        let opened = open_keyword_index(&KeywordIndexLocation::Memory).expect("open");
+        let index = opened.expect("memory index");
+        assert_eq!(index.as_arc().backend_name(), "sqlite-fts");
+    }
+
+    #[test]
+    fn file_location_creates_parent_and_persists() {
+        let dir = unique_temp_dir("wf-keyword-file");
+        let path = dir.join("nested").join("keyword.db");
+        let location = KeywordIndexLocation::File(path.clone());
+        let opened = open_keyword_index(&location).expect("open");
+        assert!(opened.is_some());
+        assert!(path.exists());
+        drop(opened);
+        let reopened = open_keyword_index(&location).expect("reopen");
+        assert!(reopened.is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn file_location_pointing_at_directory_fails_explicitly() {
+        let dir = unique_temp_dir("wf-keyword-dir-fail");
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let location = KeywordIndexLocation::File(dir.clone());
+        assert!(open_keyword_index(&location).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn memory_index_dual_write_and_hybrid_hit() {
+        let store = vector_contracts::InMemoryVectorStore::new();
+        let keyword = rag_core::SqliteKeywordIndex::open_in_memory().expect("keyword");
+        let embedder = UnitEmbedder { dimension: 8 };
+        rag_core::pipeline::ingest_documents(
+            &store,
+            Some(&keyword),
+            &embedder,
+            "kb",
+            &[rag_core::RagDocument::new(
+                "d1",
+                "rust ownership borrowing rules",
+                "rust.md",
+            )],
+            &rag_core::RagIndexConfig::new("kb"),
+        )
+        .await
+        .expect("ingest");
+        let filter = vector_contracts::SearchFilter::new().with_namespace("kb");
+        let dense = store.count("kb", Some(&filter)).await.expect("dense count");
+        let sparse = keyword
+            .count("kb", Some(&filter))
+            .await
+            .expect("keyword count");
+        assert_eq!(dense, sparse);
+        assert!(dense > 0);
+        let config = rag_core::RagQueryConfig {
+            keyword_candidates: 5,
+            ..Default::default()
+        };
+        let hits = rag_core::pipeline::query_hybrid(
+            &store,
+            &keyword,
+            &embedder,
+            "kb",
+            "kb",
+            "ownership",
+            &config,
+        )
+        .await
+        .expect("hybrid");
+        assert!(!hits.is_empty());
+        assert_eq!(hits[0].source, "rust.md");
+    }
+
+    #[tokio::test]
+    async fn host_tool_service_stays_dense_until_opt_in() {
+        use wf_tools::predefined::rag::{RagSearchBackend, RagSearchQuery, RagService};
+        let store = std::sync::Arc::new(vector_contracts::InMemoryVectorStore::new());
+        let embedder = std::sync::Arc::new(UnitEmbedder { dimension: 8 });
+        let keyword =
+            std::sync::Arc::new(rag_core::SqliteKeywordIndex::open_in_memory().expect("keyword"));
+        rag_core::pipeline::ingest_documents(
+            store.as_ref(),
+            Some(keyword.as_ref()),
+            embedder.as_ref(),
+            "kb",
+            &[rag_core::RagDocument::new(
+                "d1",
+                "rust ownership borrowing rules",
+                "rust.md",
+            )],
+            &rag_core::RagIndexConfig::new("kb"),
+        )
+        .await
+        .expect("ingest");
+        let dense_service = RagService::new(store.clone(), embedder.clone());
+        let dense_hits = dense_service
+            .search(RagSearchQuery {
+                query: "ownership".to_string(),
+                collection: "kb".to_string(),
+                namespace: "kb".to_string(),
+                top_k: 5,
+                score_threshold: None,
+                fields: Default::default(),
+            })
+            .await
+            .expect("dense search");
+        assert!(!dense_hits.is_empty());
+        let hybrid_service = RagService::new(store, embedder)
+            .with_keyword(keyword)
+            .with_query_defaults(rag_core::RagQueryConfig {
+                keyword_candidates: 5,
+                ..Default::default()
+            });
+        let hybrid_hits = hybrid_service
+            .search(RagSearchQuery {
+                query: "ownership".to_string(),
+                collection: "kb".to_string(),
+                namespace: "kb".to_string(),
+                top_k: 5,
+                score_threshold: None,
+                fields: Default::default(),
+            })
+            .await
+            .expect("hybrid search");
+        assert!(!hybrid_hits.is_empty());
+    }
+
+    #[tokio::test]
+    async fn host_management_and_workflow_wiring_share_singleton() {
+        let store = std::sync::Arc::new(vector_contracts::InMemoryVectorStore::new());
+        let embedder = std::sync::Arc::new(UnitEmbedder { dimension: 8 });
+        let keyword: std::sync::Arc<dyn rag_core::KeywordIndex> =
+            std::sync::Arc::new(rag_core::SqliteKeywordIndex::open_in_memory().expect("keyword"));
+        rag_core::pipeline::ingest_documents(
+            store.as_ref(),
+            Some(keyword.as_ref()),
+            embedder.as_ref(),
+            "kb",
+            &[rag_core::RagDocument::new(
+                "d1",
+                "rust ownership borrowing rules",
+                "rust.md",
+            )],
+            &rag_core::RagIndexConfig::new("kb"),
+        )
+        .await
+        .expect("ingest");
+        let handles = RagHandles::new(store.clone(), embedder.clone(), Some(keyword.clone()));
+        let stats = collection_stats(
+            handles.store.as_ref(),
+            handles.keyword.as_deref(),
+            "kb",
+            "kb",
+        )
+        .await
+        .expect("stats");
+        assert_eq!(stats.keyword_point_count, Some(stats.point_count));
+        let ctx = crate::ApiContext::new(
+            wf_storage::context::StorageContext::new_memory(),
+            std::sync::Arc::new(wf_resource::registry::ResourceRegistries::new()),
+        )
+        .with_rag_handles(handles)
+        .with_keyword_index(keyword);
+        let node_handles = ctx.rag_node_handles("kb", "kb").expect("node handles");
+        let mut registry = wf_workflow::handler::HandlerRegistry::new();
+        wf_workflow::handler::rag::register_rag_handlers(&mut registry, node_handles);
+        for node_type in [
+            wf_workflow::handler::rag::RAG_QUERY_NODE_TYPE,
+            wf_workflow::handler::rag::RAG_INGEST_NODE_TYPE,
+        ] {
+            assert!(
+                registry.has_handler(&wf_types::node::StaticNodeType::Custom(
+                    node_type.to_string()
+                ))
+            );
+        }
     }
 }

@@ -133,6 +133,13 @@ impl Runtime {
         self.mcp_manager.as_ref()
     }
 
+    /// Shared keyword index singleton opened at bootstrap. Hosts wire it
+    /// into retrieval handles, tool services and workflow node handles;
+    /// `None` only when explicitly disabled.
+    pub fn keyword_index(&self) -> Option<&wf_api::rag::SharedKeywordIndex> {
+        self.keyword_index.as_ref()
+    }
+
     pub fn storage(&self) -> &StorageManager {
         &self.storage_manager
     }

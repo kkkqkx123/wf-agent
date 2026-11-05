@@ -44,7 +44,9 @@ pub struct IngestStats {
 /// Chunks documents, embeds them and writes the points to both indexes.
 /// Creates the collection on first use with the provider dimension.
 /// A missing keyword index disables the keyword side while keeping the
-/// vector side usable; hosts without hybrid needs pass `None`.
+/// vector side usable; hosts without hybrid needs pass `None`. Existing
+/// vector points without keyword rows stay invisible to hybrid recall
+/// until re-ingested with overwrite.
 pub async fn ingest_documents<S, E, K>(
     store: &S,
     keyword: Option<&K>,

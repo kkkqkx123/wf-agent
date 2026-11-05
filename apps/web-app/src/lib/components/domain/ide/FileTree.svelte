@@ -399,7 +399,7 @@
 		const cwd = ide.root ? (dir ? `${ide.root}/${dir}` : ide.root) : undefined;
 		try {
 			const store = ptyStoreFor(ide.root || 'ide');
-			ide.terminalOpen = true;
+			ide.setTerminalOpen(true);
 			await store.spawn({ cwd });
 		} catch {
 			actionError = t('page.ide.terminalFailed');

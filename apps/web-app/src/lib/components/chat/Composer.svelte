@@ -122,9 +122,7 @@
 		try {
 			const raw =
 				typeof localStorage !== 'undefined' ? localStorage.getItem(IMAGE_DETAIL_KEY) : null;
-			return (IMAGE_DETAILS as string[]).includes(raw ?? '')
-				? (raw as ImageDetail)
-				: null;
+			return (IMAGE_DETAILS as string[]).includes(raw ?? '') ? (raw as ImageDetail) : null;
 		} catch {
 			// Storage may be unavailable; fall back to the provider default.
 			return null;
@@ -1014,7 +1012,12 @@
 				box?.focus();
 			}}
 		/>
-		<IconButton icon="file" label={t('chat.composer.attachFiles')} onclick={triggerAttachPicker} compact />
+		<IconButton
+			icon="file"
+			label={t('chat.composer.attachFiles')}
+			onclick={triggerAttachPicker}
+			compact
+		/>
 		<IconButton
 			icon="image"
 			label={t('chat.composer.attachImages')}

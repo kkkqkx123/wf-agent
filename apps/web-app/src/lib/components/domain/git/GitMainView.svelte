@@ -105,14 +105,15 @@
 	description={workbench.selection
 		? t('domain.git.selected', { selection: workbench.selection })
 		: t('domain.git.mainViewDescription')}
-	focused={workbench.panel === 'commits' || workbench.panel === 'files' ||
+	focused={workbench.panel === 'commits' ||
+		workbench.panel === 'files' ||
 		workbench.panel === 'conflicts'}
 >
 	{#snippet actions()}
 		<IconButton
 			icon="copy"
 			label="Copy selection"
-		disabled={!workbench.selection}
+			disabled={!workbench.selection}
 			onclick={copySelection}
 		/>
 		<IconButton

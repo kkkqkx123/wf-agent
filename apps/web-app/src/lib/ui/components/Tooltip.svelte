@@ -21,7 +21,11 @@
 	const GAP = 8;
 	const MARGIN = 4;
 
-	function resolvePosition(rect: DOMRect, width: number, height: number): { top: number; left: number } {
+	function resolvePosition(
+		rect: DOMRect,
+		width: number,
+		height: number,
+	): { top: number; left: number } {
 		// Shared viewport-aware placement keeps tooltip flip and clamp
 		// identical to the FloatingPanel overlays.
 		return resolveFloatingPosition(

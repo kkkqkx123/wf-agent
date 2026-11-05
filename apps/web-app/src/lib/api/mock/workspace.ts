@@ -111,14 +111,23 @@ export function listDir(path: string): FsEntryRow[] {
 		if (!rest || rest.includes('/')) continue;
 		if (seen.has(rest)) continue;
 		seen.add(rest);
-		rows.push({ name: rest, path: filePath, is_dir: false, size: content.length, modified_ms: FIXED_MTIME });
+		rows.push({
+			name: rest,
+			path: filePath,
+			is_dir: false,
+			size: content.length,
+			modified_ms: FIXED_MTIME,
+		});
 	}
 	rows.sort((a, b) => a.name.localeCompare(b.name));
 	return rows;
 }
 
 /** Flatten the tree under `base`, depth-first, up to `limit` entries. */
-export function flattenTree(base: string, limit: number): { entries: Array<{ path: string; is_dir: boolean; size: number }>; truncated: boolean } {
+export function flattenTree(
+	base: string,
+	limit: number,
+): { entries: Array<{ path: string; is_dir: boolean; size: number }>; truncated: boolean } {
 	const flat: Array<{ path: string; is_dir: boolean; size: number }> = [];
 	let truncated = false;
 	const walk = (prefix: string): boolean => {
@@ -136,16 +145,44 @@ export function flattenTree(base: string, limit: number): { entries: Array<{ pat
 	return { entries: flat, truncated };
 }
 
-export function statPath(path: string): { path: string; is_dir: boolean; size: number; modified_ms: number; is_binary: boolean | null; hash: string | null } {
+export function statPath(path: string): {
+	path: string;
+	is_dir: boolean;
+	size: number;
+	modified_ms: number;
+	is_binary: boolean | null;
+	hash: string | null;
+} {
 	const key = path.replace(/\/+$/, '');
 	if (key === '' || DIRS.has(key)) {
-		return { path: key, is_dir: true, size: 0, modified_ms: FIXED_MTIME, is_binary: null, hash: null };
+		return {
+			path: key,
+			is_dir: true,
+			size: 0,
+			modified_ms: FIXED_MTIME,
+			is_binary: null,
+			hash: null,
+		};
 	}
 	const content = FILES.get(key);
 	if (content !== undefined) {
-		return { path: key, is_dir: false, size: content.length, modified_ms: FIXED_MTIME, is_binary: false, hash: hashFor(key) };
+		return {
+			path: key,
+			is_dir: false,
+			size: content.length,
+			modified_ms: FIXED_MTIME,
+			is_binary: false,
+			hash: hashFor(key),
+		};
 	}
-	return { path: key, is_dir: false, size: 128, modified_ms: FIXED_MTIME, is_binary: false, hash: null };
+	return {
+		path: key,
+		is_dir: false,
+		size: 128,
+		modified_ms: FIXED_MTIME,
+		is_binary: false,
+		hash: null,
+	};
 }
 
 export function readFile(path: string): string {
@@ -169,9 +206,16 @@ export interface WriteConflict {
  * client last read; a mismatch resolves to a conflict so the UI's
  * "changed on disk" flow can be exercised.
  */
-export function writeFile(path: string, content: string, expectedHash?: string | null): WriteResult | WriteConflict {
+export function writeFile(
+	path: string,
+	content: string,
+	expectedHash?: string | null,
+): WriteResult | WriteConflict {
 	if (expectedHash != null && expectedHash !== '' && HASHES.get(path) !== expectedHash) {
-		return { ok: false, message: `${path} changed on disk (preview conflict): reload or overwrite.` };
+		return {
+			ok: false,
+			message: `${path} changed on disk (preview conflict): reload or overwrite.`,
+		};
 	}
 	FILES.set(path, content);
 	HASHES.set(path, newHash());
@@ -242,7 +286,13 @@ export function movePath(from: string, to: string): FsEntryRow | null {
 	}
 	ensureDirs(dst.includes('/') ? dst.slice(0, dst.lastIndexOf('/')) : '');
 	const name = dst.split('/').pop() ?? dst;
-	return { name, path: dst, is_dir: !FILES.has(dst), size: FILES.get(dst)?.length ?? 0, modified_ms: FIXED_MTIME };
+	return {
+		name,
+		path: dst,
+		is_dir: !FILES.has(dst),
+		size: FILES.get(dst)?.length ?? 0,
+		modified_ms: FIXED_MTIME,
+	};
 }
 
 export function copyPath(from: string, to: string): FsEntryRow | null {

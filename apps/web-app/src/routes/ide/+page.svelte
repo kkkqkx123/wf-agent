@@ -11,6 +11,7 @@
 	import Dialog from '#lib/ui/components/Dialog.svelte';
 	import DiffView from '#lib/ui/components/DiffView.svelte';
 	import Segmented from '#lib/ui/components/Segmented.svelte';
+	import ResizeHandle from '#lib/components/layout/ResizeHandle.svelte';
 	import FileTree from '#lib/components/domain/ide/FileTree.svelte';
 	import FileEditor from '#lib/components/domain/ide/FileEditor.svelte';
 	import IdeSearchPanel from '#lib/components/domain/ide/IdeSearchPanel.svelte';
@@ -241,7 +242,7 @@
 			},
 			toggleSidebar: () => ide.setSidebarOpen(!ide.sidebarOpen),
 			toggleTerminal: () => {
-				ide.terminalOpen = !ide.terminalOpen;
+				ide.setTerminalOpen(!ide.terminalOpen);
 			},
 			quickOpen: () => focusSearch('files'),
 			contentSearch: () => focusSearch('content'),
@@ -397,11 +398,11 @@
 				if (current) void openDiffDialog(current.path);
 				break;
 			case 'newFile':
-				ide.sidebarOpen = true;
+				ide.setSidebarOpen(true);
 				ide.requestRootCreate(false);
 				break;
 			case 'newFolder':
-				ide.sidebarOpen = true;
+				ide.setSidebarOpen(true);
 				ide.requestRootCreate(true);
 				break;
 		}
@@ -513,7 +514,7 @@
 				size="sm"
 				variant="outline"
 				onclick={() => {
-					ide.terminalOpen = !ide.terminalOpen;
+					ide.setTerminalOpen(!ide.terminalOpen);
 				}}
 			>
 				{ide.terminalOpen ? t('page.ide.hideTerminal') : t('page.ide.showTerminal')}
@@ -542,10 +543,19 @@
 				<div class="flex min-h-0 flex-1">
 					{#if ide.sidebarOpen}
 						<aside
-							class="flex w-64 shrink-0 flex-col border-r border-border bg-muted/20 max-md:hidden"
+							class="flex shrink-0 flex-col border-r border-border bg-muted/20 max-md:hidden"
+							style="width: {ide.sidebarWidth}px"
 						>
 							{@render sidebar()}
 						</aside>
+						<ResizeHandle
+							label={t('layout.sidebar.resize')}
+							axis="x"
+							class="w-2 shrink-0 text-muted-foreground hover:text-foreground max-md:hidden"
+							pillClass="w-1 h-16 bg-border"
+							onResize={(delta) => ide.setSidebarWidth(ide.sidebarWidth + delta)}
+							onReset={() => ide.resetSidebarWidth()}
+						/>
 					{/if}
 					<section
 						class="flex min-w-0 flex-1 flex-col"
@@ -578,8 +588,18 @@
 						/>
 					</section>
 					{#if ide.historyOpen}
+						<ResizeHandle
+							label={t('layout.sidebar.resize')}
+							axis="x"
+							invert
+							class="w-2 shrink-0 text-muted-foreground hover:text-foreground max-md:hidden"
+							pillClass="w-1 h-16 bg-border"
+							onResize={(delta) => ide.setHistoryWidth(ide.historyWidth + delta)}
+							onReset={() => ide.resetHistoryWidth()}
+						/>
 						<aside
-							class="flex w-72 shrink-0 flex-col border-l border-border bg-muted/20 max-md:hidden"
+							class="flex shrink-0 flex-col border-l border-border bg-muted/20 max-md:hidden"
+							style="width: {ide.historyWidth}px"
 						>
 							<IdeHistoryPanel
 								onViewFileDiff={(path) => void openDiffDialog(path)}

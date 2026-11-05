@@ -21,7 +21,11 @@ export interface PreviewPtySession {
 const sessions = new Map<string, PreviewPtySession>();
 let seq = 0;
 
-export function createSession(input: { rows?: number; cols?: number; title?: string }): PreviewPtySession {
+export function createSession(input: {
+	rows?: number;
+	cols?: number;
+	title?: string;
+}): PreviewPtySession {
 	seq += 1;
 	const session: PreviewPtySession = {
 		id: `pty-preview-${seq}`,
@@ -45,7 +49,11 @@ export function listSessions(): PreviewPtySession[] {
 	return [...sessions.values()];
 }
 
-export function resizeSession(id: string, rows?: number, cols?: number): PreviewPtySession | undefined {
+export function resizeSession(
+	id: string,
+	rows?: number,
+	cols?: number,
+): PreviewPtySession | undefined {
 	const session = sessions.get(id);
 	if (!session) return undefined;
 	if (rows != null) session.rows = rows;

@@ -25,6 +25,8 @@
 		viewportStyle?: string;
 		/** Stretch the card and viewport to fill the parent height (full-page hosts). */
 		fill?: boolean;
+		/** Minimal inline chrome for IDE embedding (no card title or footer). */
+		embedded?: boolean;
 		/** One-click session starters (label shown, command spawned in panel cwd). */
 		quickCommands?: Array<{ label: string; command: string }>;
 		open: boolean;
@@ -37,6 +39,7 @@
 		env,
 		viewportStyle,
 		fill = false,
+		embedded = false,
 		quickCommands = [],
 		open,
 		onClose,
@@ -88,6 +91,11 @@
 		onClose?.();
 	}
 
+	/** Focus the active terminal instance (used when the host panel opens). */
+	export function focusActive(): void {
+		instance?.focus();
+	}
+
 	async function handleConnect(id: string): Promise<void> {
 		try {
 			const view = await getPty(id);
@@ -126,145 +134,178 @@
 	}
 </script>
 
-{#if open}
-	<Card
-		title={t('pty.ptyPanel.title')}
-		description={t('pty.ptyPanel.description')}
-		class={fill ? 'flex h-full min-h-0 flex-col' : undefined}
-		bodyClass={fill ? 'flex min-h-0 flex-1 flex-col' : undefined}
-	>
-		{#if store.sessions.length === 0}
-			<div class="flex flex-col items-start gap-2">
-				<p class="text-caption text-muted-foreground">{t('pty.ptyPanel.noSessions')}</p>
-				<Button size="sm" variant="outline" onclick={() => void spawnAndFocus()}>
-					{t('pty.ptyPanel.newTerminal')}
-				</Button>
-			</div>
-		{:else}
-		<div class="mb-2 flex flex-wrap items-center gap-1">
-			{#each store.sessions as session (session.id)}
-				<div
-					class="flex items-center gap-0.5 rounded-md border border-border px-1.5 py-0.5 text-micro {store.activeId ===
-					session.id
-						? 'border-primary bg-primary/10'
-						: 'bg-muted/40'}"
-				>
-					{#if editingId === session.id}
-						<input
-							class="w-24 bg-transparent px-1 py-0.5 outline-none"
-							bind:value={editingTitle}
-							onblur={() => commitRename(session.id)}
-							onkeydown={(e) => {
-								if (e.key === 'Enter') commitRename(session.id);
-								else if (e.key === 'Escape') cancelRename();
-							}}
-							onclick={(e) => e.stopPropagation()}
-						/>
-					{:else}
-						<button
-							type="button"
-							class="cursor-pointer px-1 py-0.5 hover:text-foreground"
-							title={t('pty.ptyPanel.renameHint')}
-							onclick={() => {
-								store.setActive(session.id);
-								instance?.focus();
-							}}
-							ondblclick={() => startRename(session.id, session.title)}
-						>
-							{session.title}
-							{#if session.status === 'exited'}
-								<span class="text-muted-foreground">({t('pty.ptyPanel.exited')})</span>
-							{/if}
-						</button>
-					{/if}
-					<IconButton
-						icon="chevron-left"
-						label={t('pty.ptyPanel.moveLeft')}
-						compact
-						variant="ghost"
-						onclick={() => store.move(session.id, -1)}
-					/>
-					<IconButton
-						icon="chevron-right"
-						label={t('pty.ptyPanel.moveRight')}
-						compact
-						variant="ghost"
-						onclick={() => store.move(session.id, 1)}
-					/>
-					<IconButton
-						icon="x"
-						label={t('pty.ptyPanel.closeTerminal')}
-						compact
-						variant="ghost"
-						onclick={() => void store.remove(session.id)}
-					/>
-				</div>
-			{/each}
-			<IconButton
-				icon="plus"
-				label={t('pty.ptyPanel.newTerminal')}
-				compact
-				variant="ghost"
-				onclick={() => void spawnAndFocus()}
-			/>
-			{#each quickCommands as quick (quick.command)}
-				<Button size="sm" variant="outline" onclick={() => void spawnAndFocus(quick.command)}>
-					{quick.label}
-				</Button>
-			{/each}
-		</div>
-
-		{#if failedId}
+{#snippet sessionTabs()}
+	<div class="flex flex-wrap items-center gap-1">
+		{#each store.sessions as session (session.id)}
 			<div
-				class="mb-2 flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1 text-micro"
+				class="flex items-center gap-0.5 rounded-md border border-border px-1.5 py-0.5 text-micro {store.activeId ===
+				session.id
+					? 'border-primary bg-primary/10'
+					: 'bg-muted/40'}"
 			>
-				<span>{t('pty.ptyPanel.disconnected')}</span>
-				<Button size="sm" variant="outline" onclick={() => void restartExited(failedId!)}>
-					{t('pty.ptyPanel.restart')}
-				</Button>
-				<Button size="sm" variant="ghost" onclick={clearFailure}>
-					{t('pty.ptyPanel.dismiss')}
-				</Button>
-			</div>
-		{/if}
-
-		<div
-			class={fill
-				? 'min-h-0 flex-1 overflow-hidden rounded-md border border-border bg-background'
-				: 'h-72 overflow-hidden rounded-md border border-border bg-background'}
-			style={viewportStyle}
-		>
-			{#key store.activeId}
-				{#if store.active()}
-					<TerminalInstance
-						bind:this={instance}
-						session={store.active()!}
-						{store}
-						onConnect={(id) => void handleConnect(id)}
-						onSessionExited={handleSessionExited}
-						onConnectFailed={handleConnectFailed}
+				{#if editingId === session.id}
+					<input
+						class="w-24 bg-transparent px-1 py-0.5 outline-none"
+						bind:value={editingTitle}
+						onblur={() => commitRename(session.id)}
+						onkeydown={(e) => {
+							if (e.key === 'Enter') commitRename(session.id);
+							else if (e.key === 'Escape') cancelRename();
+						}}
+						onclick={(e) => e.stopPropagation()}
 					/>
+				{:else}
+					<button
+						type="button"
+						class="cursor-pointer px-1 py-0.5 hover:text-foreground"
+						title={t('pty.ptyPanel.renameHint')}
+						onclick={() => {
+							store.setActive(session.id);
+							instance?.focus();
+						}}
+						ondblclick={() => startRename(session.id, session.title)}
+					>
+						{session.title}
+						{#if session.status === 'exited'}
+							<span class="text-muted-foreground">({t('pty.ptyPanel.exited')})</span>
+						{/if}
+					</button>
 				{/if}
-			{/key}
-		</div>
-
-		<Separator class="my-2" />
-
-		<div class="flex gap-2">
-			<Button
-				size="sm"
-				variant="ghost"
-				onclick={() => void store.remove(store.activeId!)}
-				disabled={!store.activeId}
-			>
-				{t('pty.ptyPanel.closeActive')}
+				<IconButton
+					icon="chevron-left"
+					label={t('pty.ptyPanel.moveLeft')}
+					compact
+					variant="ghost"
+					onclick={() => store.move(session.id, -1)}
+				/>
+				<IconButton
+					icon="chevron-right"
+					label={t('pty.ptyPanel.moveRight')}
+					compact
+					variant="ghost"
+					onclick={() => store.move(session.id, 1)}
+				/>
+				<IconButton
+					icon="x"
+					label={t('pty.ptyPanel.closeTerminal')}
+					compact
+					variant="ghost"
+					onclick={() => void store.remove(session.id)}
+				/>
+			</div>
+		{/each}
+		<IconButton
+			icon="plus"
+			label={t('pty.ptyPanel.newTerminal')}
+			compact
+			variant="ghost"
+			onclick={() => void spawnAndFocus()}
+		/>
+		{#each quickCommands as quick (quick.command)}
+			<Button size="sm" variant="outline" onclick={() => void spawnAndFocus(quick.command)}>
+				{quick.label}
 			</Button>
-			{#if onClose}
-				<Button size="sm" variant="ghost" onclick={closePanel}>
-					{t('pty.ptyPanel.hidePanel')}
-				</Button>
+		{/each}
+	</div>
+{/snippet}
+
+{#snippet emptyState()}
+	<div class="flex flex-col items-start gap-2">
+		<p class="text-caption text-muted-foreground">{t('pty.ptyPanel.noSessions')}</p>
+		<Button size="sm" variant="outline" onclick={() => void spawnAndFocus()}>
+			{t('pty.ptyPanel.newTerminal')}
+		</Button>
+	</div>
+{/snippet}
+
+{#snippet failureBanner()}
+	{#if failedId}
+		<div
+			class="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1 text-micro"
+		>
+			<span>{t('pty.ptyPanel.disconnected')}</span>
+			<Button size="sm" variant="outline" onclick={() => void restartExited(failedId!)}>
+				{t('pty.ptyPanel.restart')}
+			</Button>
+			<Button size="sm" variant="ghost" onclick={clearFailure}>
+				{t('pty.ptyPanel.dismiss')}
+			</Button>
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet terminalViewport(viewportClass: string)}
+	<div class={viewportClass} style={viewportStyle}>
+		{#key store.activeId}
+			{#if store.active()}
+				<TerminalInstance
+					bind:this={instance}
+					session={store.active()!}
+					{store}
+					onConnect={(id) => void handleConnect(id)}
+					onSessionExited={handleSessionExited}
+					onConnectFailed={handleConnectFailed}
+				/>
+			{/if}
+		{/key}
+	</div>
+{/snippet}
+
+{#if open}
+	{#if embedded}
+		<div class="flex h-full min-h-0 flex-col gap-1">
+			{#if store.sessions.length === 0}
+				{@render emptyState()}
+			{:else}
+				{@render sessionTabs()}
+				<div class="min-h-0 flex-1">
+					{@render terminalViewport(
+						'h-full min-h-0 overflow-hidden rounded-md border border-border bg-background',
+					)}
+				</div>
+				{@render failureBanner()}
 			{/if}
 		</div>
-		{/if}
-	</Card>
+	{:else}
+		<Card
+			title={t('pty.ptyPanel.title')}
+			description={t('pty.ptyPanel.description')}
+			class={fill ? 'flex h-full min-h-0 flex-col' : undefined}
+			bodyClass={fill ? 'flex min-h-0 flex-1 flex-col' : undefined}
+		>
+			{#if store.sessions.length === 0}
+				{@render emptyState()}
+			{:else}
+				<div class="mb-2">
+					{@render sessionTabs()}
+				</div>
+
+				{@render failureBanner()}
+
+				{@render terminalViewport(
+					fill
+						? 'min-h-0 flex-1 overflow-hidden rounded-md border border-border bg-background'
+						: 'h-72 overflow-hidden rounded-md border border-border bg-background',
+				)}
+
+				<Separator class="my-2" />
+
+				<div class="flex gap-2">
+					<Button
+						size="sm"
+						variant="ghost"
+						onclick={() => void store.remove(store.activeId!)}
+						disabled={!store.activeId}
+					>
+						{t('pty.ptyPanel.closeActive')}
+					</Button>
+					{#if onClose}
+						<Button size="sm" variant="ghost" onclick={closePanel}>
+							{t('pty.ptyPanel.hidePanel')}
+						</Button>
+					{/if}
+				</div>
+			{/if}
+		</Card>
+	{/if}
 {/if}

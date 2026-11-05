@@ -51,6 +51,16 @@ function writeSession(key: string, value: unknown): void {
 
 const MAX_OPEN_TABS = 20;
 
+const TERMINAL_HEIGHT_DEFAULT = 192;
+const TERMINAL_HEIGHT_MIN = 120;
+const TERMINAL_HEIGHT_MAX = 600;
+const SIDEBAR_WIDTH_DEFAULT = 256;
+const SIDEBAR_WIDTH_MIN = 160;
+const SIDEBAR_WIDTH_MAX = 480;
+const HISTORY_WIDTH_DEFAULT = 288;
+const HISTORY_WIDTH_MIN = 200;
+const HISTORY_WIDTH_MAX = 480;
+
 export interface IdeReveal {
 	path: string;
 	line: number | null;
@@ -93,10 +103,12 @@ export class IdeStore {
 	tabs = $state<IdeFileTab[]>([]);
 	activePath = $state<string | null>(null);
 	root = $state<string>('');
-	terminalOpen = $state(true);
-	terminalHeight = $state(280);
+	terminalOpen = $state(false);
+	terminalHeight = $state(TERMINAL_HEIGHT_DEFAULT);
 	terminalMaximized = $state(false);
 	sidebarOpen = $state(true);
+	sidebarWidth = $state(SIDEBAR_WIDTH_DEFAULT);
+	historyWidth = $state(HISTORY_WIDTH_DEFAULT);
 	pendingReveal = $state<IdeReveal | null>(null);
 	gitBadges = $state<SvelteMap<string, GitBadgeLevel>>(new SvelteMap());
 	gitBadgesAvailable = $state(true);
@@ -135,13 +147,41 @@ export class IdeStore {
 			this.activePath = saved.active ?? saved.tabs[0] ?? null;
 		}
 		if (typeof sessionStorage !== 'undefined') {
-			const height = Number(sessionStorage.getItem(storageKey('term-height')) ?? '280');
-			if (Number.isFinite(height) && height >= 120 && height <= 800) {
+			const terminal = sessionStorage.getItem(storageKey('terminal'));
+			this.terminalOpen = terminal === '1';
+			const height = Number(
+				sessionStorage.getItem(storageKey('term-height')) ?? String(TERMINAL_HEIGHT_DEFAULT),
+			);
+			if (
+				Number.isFinite(height) &&
+				height >= TERMINAL_HEIGHT_MIN &&
+				height <= TERMINAL_HEIGHT_MAX
+			) {
 				this.terminalHeight = height;
 			}
 			this.terminalMaximized = sessionStorage.getItem(storageKey('term-max')) === '1';
 			const sidebar = sessionStorage.getItem(storageKey('sidebar'));
 			this.sidebarOpen = sidebar === null ? true : sidebar === '1';
+			const sidebarWidth = Number(
+				sessionStorage.getItem(storageKey('sidebar-width')) ?? String(SIDEBAR_WIDTH_DEFAULT),
+			);
+			if (
+				Number.isFinite(sidebarWidth) &&
+				sidebarWidth >= SIDEBAR_WIDTH_MIN &&
+				sidebarWidth <= SIDEBAR_WIDTH_MAX
+			) {
+				this.sidebarWidth = sidebarWidth;
+			}
+			const historyWidth = Number(
+				sessionStorage.getItem(storageKey('history-width')) ?? String(HISTORY_WIDTH_DEFAULT),
+			);
+			if (
+				Number.isFinite(historyWidth) &&
+				historyWidth >= HISTORY_WIDTH_MIN &&
+				historyWidth <= HISTORY_WIDTH_MAX
+			) {
+				this.historyWidth = historyWidth;
+			}
 			this.historyOpen = sessionStorage.getItem(storageKey('history')) === '1';
 		}
 		this.restoreDrafts();
@@ -458,8 +498,20 @@ export class IdeStore {
 		this.persistTabs();
 	}
 
+	setTerminalOpen(open: boolean): void {
+		this.terminalOpen = open;
+		try {
+			sessionStorage.setItem(storageKey('terminal'), open ? '1' : '0');
+		} catch {
+			// Ignore storage failures.
+		}
+	}
+
 	setTerminalHeight(height: number): void {
-		const clamped = Math.min(800, Math.max(120, Math.round(height)));
+		const clamped = Math.min(
+			TERMINAL_HEIGHT_MAX,
+			Math.max(TERMINAL_HEIGHT_MIN, Math.round(height)),
+		);
 		this.terminalHeight = clamped;
 		try {
 			sessionStorage.setItem(storageKey('term-height'), String(clamped));
@@ -471,6 +523,38 @@ export class IdeStore {
 	setSidebarOpen(open: boolean): void {
 		this.sidebarOpen = open;
 		writeSession('sidebar', open ? '1' : '0');
+	}
+
+	setSidebarWidth(width: number): void {
+		const clamped = Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(width)));
+		this.sidebarWidth = clamped;
+		try {
+			sessionStorage.setItem(storageKey('sidebar-width'), String(clamped));
+		} catch {
+			// Ignore storage failures.
+		}
+	}
+
+	resetSidebarWidth(): void {
+		this.setSidebarWidth(SIDEBAR_WIDTH_DEFAULT);
+	}
+
+	setHistoryWidth(width: number): void {
+		const clamped = Math.min(HISTORY_WIDTH_MAX, Math.max(HISTORY_WIDTH_MIN, Math.round(width)));
+		this.historyWidth = clamped;
+		try {
+			sessionStorage.setItem(storageKey('history-width'), String(clamped));
+		} catch {
+			// Ignore storage failures.
+		}
+	}
+
+	resetHistoryWidth(): void {
+		this.setHistoryWidth(HISTORY_WIDTH_DEFAULT);
+	}
+
+	resetTerminalHeight(): void {
+		this.setTerminalHeight(TERMINAL_HEIGHT_DEFAULT);
 	}
 
 	setHistoryOpen(open: boolean): void {

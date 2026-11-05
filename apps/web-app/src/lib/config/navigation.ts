@@ -187,10 +187,7 @@ export const NAV_FOOTER: NavItem[] = [
 	},
 ];
 
-export const NAV_ITEMS: NavItem[] = [
-	...NAV_GROUPS.flatMap((group) => group.items),
-	...NAV_FOOTER,
-];
+export const NAV_ITEMS: NavItem[] = [...NAV_GROUPS.flatMap((group) => group.items), ...NAV_FOOTER];
 
 export function findNavItem(href: string): NavItem | undefined {
 	return NAV_ITEMS.find((item) => href === item.href || href.startsWith(`${item.href}/`));

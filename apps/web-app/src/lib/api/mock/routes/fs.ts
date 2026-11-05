@@ -124,7 +124,10 @@ export function registerFs(router: MockRouter): void {
 }
 
 /** Whole-workspace content search over the live in-memory files. */
-function searchWorkspace(q: string): { matches: Array<{ path: string; line: number; column: number | null; preview: string }>; truncated: boolean } {
+function searchWorkspace(q: string): {
+	matches: Array<{ path: string; line: number; column: number | null; preview: string }>;
+	truncated: boolean;
+} {
 	const needle = q.trim().toLowerCase();
 	const matches: Array<{ path: string; line: number; column: number | null; preview: string }> = [];
 	if (!needle) return { matches, truncated: false };

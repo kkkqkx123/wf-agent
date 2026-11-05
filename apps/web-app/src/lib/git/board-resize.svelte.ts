@@ -65,8 +65,7 @@ export class BoardResize {
 		if (!handle) return;
 		event.preventDefault();
 		handle.setPointerCapture(event.pointerId);
-		const containerWidth =
-			handle.parentElement?.getBoundingClientRect().width ?? window.innerWidth;
+		const containerWidth = handle.parentElement?.getBoundingClientRect().width ?? window.innerWidth;
 		if (!(containerWidth > 0)) return;
 		const startX = event.clientX;
 		const startWidth = this.width;

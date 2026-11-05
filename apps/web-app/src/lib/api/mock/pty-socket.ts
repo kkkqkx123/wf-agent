@@ -103,7 +103,9 @@ function runCommand(line: string): { output: string; exit?: number } | null {
 		case 'exit':
 			return { output: 'logout', exit: 0 };
 		default:
-			return { output: `sh: command not found: ${cmd} (preview shell supports: help, ls, cat, pwd, echo, whoami, clear, exit)` };
+			return {
+				output: `sh: command not found: ${cmd} (preview shell supports: help, ls, cat, pwd, echo, whoami, clear, exit)`,
+			};
 	}
 }
 
@@ -207,7 +209,10 @@ export function installMockPtySocket(): void {
 			return new MockPtySocket(target) as unknown as WebSocket;
 		}
 		return protocols
-			? new (NativeWebSocket as new (u: string, p: string | string[]) => WebSocket)(target, protocols)
+			? new (NativeWebSocket as new (u: string, p: string | string[]) => WebSocket)(
+					target,
+					protocols,
+				)
 			: new (NativeWebSocket as new (u: string) => WebSocket)(target);
 	} as unknown as typeof WebSocket;
 	Object.assign(Patched, {

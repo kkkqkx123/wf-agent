@@ -117,11 +117,7 @@ export function registerAgentLoops(router: MockRouter): void {
 		return loopSummary(found);
 	});
 	router.on('GET', '/api/v1/agent-loops/{id}/conversation', (_p, query) => {
-		return pageView(
-			loopMessages.map(messageWire),
-			+(query.limit ?? 500),
-			+(query.offset ?? 0),
-		);
+		return pageView(loopMessages.map(messageWire), +(query.limit ?? 500), +(query.offset ?? 0));
 	});
 	router.on('GET', '/api/v1/agent-loops/{id}/variables', () => {
 		return {
@@ -331,9 +327,7 @@ export function registerAgentLoops(router: MockRouter): void {
 		return typeof title === 'string' && title ? title : params.id;
 	});
 	router.on('DELETE', '/api/v1/agent-loops/{id}', () => ({ ok: true }));
-	router.on('GET', '/api/v1/interactions/by-execution/{executionId}', () =>
-		pageView([], 100, 0),
-	);
+	router.on('GET', '/api/v1/interactions/by-execution/{executionId}', () => pageView([], 100, 0));
 	router.on('POST', '/api/v1/interactions/{id}/respond', () => ({ ok: true }));
 
 	// ---------- workflow nested agent loops ----------

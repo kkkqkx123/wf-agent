@@ -31,12 +31,7 @@
 		>
 			<span class="text-muted-foreground">?</span> help
 		</Button>
-		<Button
-			size="sm"
-			variant="ghost"
-			title="Focus filter"
-			onclick={() => workbench.focusFilter()}
-		>
+		<Button size="sm" variant="ghost" title="Focus filter" onclick={() => workbench.focusFilter()}>
 			<span class="text-muted-foreground">/</span> filter
 		</Button>
 		<Button

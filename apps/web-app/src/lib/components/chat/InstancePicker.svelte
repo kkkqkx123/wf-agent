@@ -232,7 +232,7 @@
 		align="start"
 		width="18rem"
 		role="listbox"
-		ariaLabel={ariaLabel}
+		{ariaLabel}
 		onClose={close}
 	>
 		<div class="p-1">

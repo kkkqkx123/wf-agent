@@ -342,9 +342,7 @@ export class GitWorkbench {
 					.filter((remote) => match(remote.name, remote.url))
 					.map((remote) => remote.name);
 			case 'tags':
-				return this.tags
-					.filter((tag) => match(tag.name, tag.commit))
-					.map((tag) => tag.name);
+				return this.tags.filter((tag) => match(tag.name, tag.commit)).map((tag) => tag.name);
 			case 'commits':
 				return this.commits
 					.filter((commit) => match(commit.subject, commit.shortId))

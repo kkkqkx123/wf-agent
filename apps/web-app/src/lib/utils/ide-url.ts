@@ -17,7 +17,11 @@ function toPositiveInt(value: unknown): number | null {
 }
 
 /** Build an IDE address with optional 1-based line/column. */
-export function buildIdeUrl(path: string, line?: number | null, col?: number | null): ResolvedPathname {
+export function buildIdeUrl(
+	path: string,
+	line?: number | null,
+	col?: number | null,
+): ResolvedPathname {
 	const clean = path.replace(/^\.?\/+/, '');
 	const params = new URLSearchParams({ path: clean });
 	const lineNo = toPositiveInt(line ?? null);

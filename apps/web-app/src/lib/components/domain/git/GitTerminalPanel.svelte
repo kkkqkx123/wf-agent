@@ -16,7 +16,9 @@
 	};
 </script>
 
-<div class="mb-2 rounded-md border border-warning/40 bg-warning/5 px-2 py-1 font-mono text-micro text-warning">
+<div
+	class="mb-2 rounded-md border border-warning/40 bg-warning/5 px-2 py-1 font-mono text-micro text-warning"
+>
 	Terminal acts directly on the server repository ({workbench.meta?.root ?? 'unknown root'}).
 	Destructive commands ask for confirmation here; prefer the key input for guarded actions.
 </div>

@@ -298,7 +298,12 @@
 							{ value: 'steering', label: 'steering' },
 						]}
 					/>
-					<Input size="sm" class="flex-1" bind:value={appendText} placeholder={t('common.appendInput')} />
+					<Input
+						size="sm"
+						class="flex-1"
+						bind:value={appendText}
+						placeholder={t('common.appendInput')}
+					/>
 					<Button
 						size="sm"
 						disabled={appendBusy || !appendText.trim()}

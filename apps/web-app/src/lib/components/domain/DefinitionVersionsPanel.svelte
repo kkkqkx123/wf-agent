@@ -128,8 +128,9 @@
 	// only deep-links there with the definition and version prefilled.
 	async function goToVersionRun(): Promise<void> {
 		if (!runTarget) return;
-		const target = (`${resolve('/executions')}?definition=${encodeURIComponent(`workflow:${definitionId}`)}` +
-			`&version=${encodeURIComponent(runTarget)}`) as ResolvedPathname;
+		const target =
+			(`${resolve('/executions')}?definition=${encodeURIComponent(`workflow:${definitionId}`)}` +
+				`&version=${encodeURIComponent(runTarget)}`) as ResolvedPathname;
 		await goto(target);
 	}
 </script>

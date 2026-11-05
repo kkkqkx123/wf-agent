@@ -74,7 +74,11 @@
 			{/if}
 		</p>
 	{:else if candidates.length > 0}
-		<div class="mt-1 flex flex-wrap gap-1" role="group" aria-label={t('domain.git.matchingActions')}>
+		<div
+			class="mt-1 flex flex-wrap gap-1"
+			role="group"
+			aria-label={t('domain.git.matchingActions')}
+		>
 			{#each candidates as candidate (candidate)}
 				<Button
 					size="sm"

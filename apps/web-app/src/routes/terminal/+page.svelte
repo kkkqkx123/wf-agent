@@ -28,12 +28,7 @@
 	<div class="min-h-0 flex-1 px-4 py-3">
 		<PageState {loading}>
 			<div class="h-full min-h-0">
-				<PtyPanel
-				repo={root}
-				cwd={root === 'ide' ? undefined : root}
-				fill
-				open
-			/>
+				<PtyPanel repo={root} cwd={root === 'ide' ? undefined : root} fill open />
 			</div>
 		</PageState>
 	</div>

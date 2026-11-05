@@ -2,7 +2,7 @@
 	import type { HTMLSelectAttributes } from 'svelte/elements';
 	import Icon from '../icons/Icon.svelte';
 	import { cn } from '../cn';
-import { message } from '#lib/i18n';
+	import { message } from '#lib/i18n';
 
 	interface Option {
 		value: string;
@@ -10,7 +10,10 @@ import { message } from '#lib/i18n';
 		disabled?: boolean;
 	}
 
-	interface Props extends Omit<HTMLSelectAttributes, 'size' | 'children' | 'value' | 'onchange' | 'placeholder'> {
+	interface Props extends Omit<
+		HTMLSelectAttributes,
+		'size' | 'children' | 'value' | 'onchange' | 'placeholder'
+	> {
 		value: string;
 		options: Option[];
 		size?: 'sm' | 'md';
@@ -47,7 +50,9 @@ import { message } from '#lib/i18n';
 		{...rest}
 	>
 		{#if placeholder}
-			<option value="" disabled>{typeof placeholder === 'function' ? placeholder() : placeholder}</option>
+			<option value="" disabled
+				>{typeof placeholder === 'function' ? placeholder() : placeholder}</option
+			>
 		{/if}
 		{#each options as option (option.value)}
 			<option value={option.value} disabled={option.disabled}

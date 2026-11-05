@@ -209,14 +209,20 @@
 		</TuiPanel>
 	</div>
 
-	<div role="tablist" aria-label={t('domain.git.workspacePanels')} class="flex flex-wrap gap-1 px-1">
+	<div
+		role="tablist"
+		aria-label={t('domain.git.workspacePanels')}
+		class="flex flex-wrap gap-1 px-1"
+	>
 		{#each PANEL_GROUPS.find((entry) => entry.id === 'workspace')?.panels ?? [] as id (id)}
 			<button
 				type="button"
 				role="tab"
 				onclick={() => (workbench.panel = id)}
 				aria-selected={workbench.panel === id}
-				class="rounded-sm px-1.5 py-0.5 font-mono text-micro {workbench.panel === id ? 'bg-accent font-semibold text-foreground' : 'text-muted-foreground hover:bg-accent/50'}"
+				class="rounded-sm px-1.5 py-0.5 font-mono text-micro {workbench.panel === id
+					? 'bg-accent font-semibold text-foreground'
+					: 'text-muted-foreground hover:bg-accent/50'}"
 			>
 				{panelLabel(id)}
 			</button>
@@ -284,14 +290,20 @@
 		/>
 	</div>
 
-	<div role="tablist" aria-label={t('domain.git.referencePanels')} class="flex flex-wrap gap-1 px-1">
+	<div
+		role="tablist"
+		aria-label={t('domain.git.referencePanels')}
+		class="flex flex-wrap gap-1 px-1"
+	>
 		{#each PANEL_GROUPS.find((entry) => entry.id === 'refs')?.panels ?? [] as id (id)}
 			<button
 				type="button"
 				role="tab"
 				onclick={() => (workbench.panel = id)}
 				aria-selected={workbench.panel === id}
-				class="rounded-sm px-1.5 py-0.5 font-mono text-micro {workbench.panel === id ? 'bg-accent font-semibold text-foreground' : 'text-muted-foreground hover:bg-accent/50'}"
+				class="rounded-sm px-1.5 py-0.5 font-mono text-micro {workbench.panel === id
+					? 'bg-accent font-semibold text-foreground'
+					: 'text-muted-foreground hover:bg-accent/50'}"
 			>
 				{panelLabel(id)}
 			</button>
@@ -343,7 +355,9 @@
 				role="tab"
 				onclick={() => (workbench.panel = id)}
 				aria-selected={workbench.panel === id}
-				class="rounded-sm px-1.5 py-0.5 font-mono text-micro {workbench.panel === id ? 'bg-accent font-semibold text-foreground' : 'text-muted-foreground hover:bg-accent/50'}"
+				class="rounded-sm px-1.5 py-0.5 font-mono text-micro {workbench.panel === id
+					? 'bg-accent font-semibold text-foreground'
+					: 'text-muted-foreground hover:bg-accent/50'}"
 			>
 				{panelLabel(id)}
 			</button>

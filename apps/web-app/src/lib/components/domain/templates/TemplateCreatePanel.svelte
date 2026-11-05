@@ -26,7 +26,10 @@
 			const next = value as TemplateKind;
 			if (next === controller.createKind) return;
 
-			void goto((resolve('/templates/[kind]/[id]', { kind: next, id: 'new' }) + '?tab=edit') as ResolvedPathname);
+			void goto(
+				(resolve('/templates/[kind]/[id]', { kind: next, id: 'new' }) +
+					'?tab=edit') as ResolvedPathname,
+			);
 		}}
 	/>
 	<input

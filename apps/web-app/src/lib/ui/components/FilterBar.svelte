@@ -4,7 +4,7 @@
 	import Input from './Input.svelte';
 	import Select from './Select.svelte';
 	import { cn } from '../cn';
-import { message } from '#lib/i18n';
+	import { message } from '#lib/i18n';
 
 	interface Props {
 		query: string;
@@ -35,7 +35,7 @@ import { message } from '#lib/i18n';
 			size={14}
 			class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
 		/>
-		<Input bind:value={query} placeholder={placeholder} class="pl-8" />
+		<Input bind:value={query} {placeholder} class="pl-8" />
 	</div>
 	<Select
 		bind:value={status}

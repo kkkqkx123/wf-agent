@@ -68,7 +68,9 @@ function loadImageNameCache(): void {
 				imageNameCache.set(key, {
 					name: value.name,
 					...(typeof value.mediaType === 'string' ? { mediaType: value.mediaType } : {}),
-					...(typeof value.detail === 'string' ? { detail: value.detail as ImageAttachment['detail'] } : {}),
+					...(typeof value.detail === 'string'
+						? { detail: value.detail as ImageAttachment['detail'] }
+						: {}),
 				});
 			}
 			if (imageNameCache.size > 200) break;
@@ -96,8 +98,7 @@ function rememberImageNames(images: ImageAttachment[]): void {
 	}
 	if (!touched) return;
 	try {
-		const snapshot: Record<string, { name: string; mediaType?: string; detail?: string }> =
-			{};
+		const snapshot: Record<string, { name: string; mediaType?: string; detail?: string }> = {};
 		for (const [key, value] of imageNameCache.entries()) snapshot[key] = value;
 		localStorage.setItem(IMAGE_NAME_STORE_KEY, JSON.stringify(snapshot));
 	} catch {
@@ -1152,8 +1153,7 @@ export class ChatSessionController {
 		// Staged attachments join the message input instead of replacing it: a
 		// form-provided message keeps its value with the composer text and the
 		// attachment blocks appended, so nothing staged is silently dropped.
-		const baseMessage =
-			typeof merged['message'] === 'string' ? (merged['message'] as string) : '';
+		const baseMessage = typeof merged['message'] === 'string' ? (merged['message'] as string) : '';
 		const combinedText = [baseMessage, content]
 			.map((part) => part.trim())
 			.filter((part) => part.length > 0)

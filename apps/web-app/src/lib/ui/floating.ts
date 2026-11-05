@@ -118,8 +118,7 @@ export function resolveFloatingPosition(
 	const roomPreferred = spaceOn(side, anchor, viewport, gap, margin);
 	const roomFlipped = spaceOn(flipped, anchor, viewport, gap, margin);
 	const mainBudget = vertical ? heightBudget : widthBudget;
-	const resolvedSide =
-		roomPreferred >= mainBudget || roomPreferred >= roomFlipped ? side : flipped;
+	const resolvedSide = roomPreferred >= mainBudget || roomPreferred >= roomFlipped ? side : flipped;
 
 	let main: number;
 	if (resolvedSide === 'top') {

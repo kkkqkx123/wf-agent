@@ -464,7 +464,9 @@
 					bind:value={version}
 					options={versions.length > 0 ? versions : [{ value: '', label: 'Latest' }]}
 					label={t('page.executions.versionLabel')}
-					placeholder={versionsLoading ? t('page.executions.loadingVersions') : t('page.executions.emptyRunsCurrentDefinition')}
+					placeholder={versionsLoading
+						? t('page.executions.loadingVersions')
+						: t('page.executions.emptyRunsCurrentDefinition')}
 					disabled={versionsLoading}
 					onchange={() => undefined}
 				/>
@@ -508,8 +510,16 @@
 						Runtime overrides (optional)
 					</summary>
 					<div class="mt-2 grid grid-cols-2 gap-2">
-						<Input bind:value={maxSteps} label={t('page.executions.maxSteps')} placeholder={t('common.emptyUsesDefault')} />
-						<Input bind:value={timeoutMs} label={t('page.executions.timeoutMs')} placeholder={t('common.emptyUsesDefault')} />
+						<Input
+							bind:value={maxSteps}
+							label={t('page.executions.maxSteps')}
+							placeholder={t('common.emptyUsesDefault')}
+						/>
+						<Input
+							bind:value={timeoutMs}
+							label={t('page.executions.timeoutMs')}
+							placeholder={t('common.emptyUsesDefault')}
+						/>
 						<Input
 							bind:value={maxExecutionTimeMs}
 							label={t('page.executions.maxExecutionTimeMs')}

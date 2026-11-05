@@ -601,7 +601,10 @@ export class TemplateEditController {
 				: 'Open a workflow definition and enter graph mode to place it.',
 		);
 		if (target) {
-			void goto((resolve('/templates/[kind]/[id]', { kind: 'workflow', id: target }) + '?tab=graph') as ResolvedPathname);
+			void goto(
+				(resolve('/templates/[kind]/[id]', { kind: 'workflow', id: target }) +
+					'?tab=graph') as ResolvedPathname,
+			);
 			return;
 		}
 		void goto((resolve('/templates') + '?tab=workflow') as ResolvedPathname);

@@ -107,7 +107,10 @@
 	}
 
 	function startCreate(): void {
-		void goto((resolve('/templates/[kind]/[id]', { kind: 'node', id: 'new' }) + '?tab=edit') as ResolvedPathname);
+		void goto(
+			(resolve('/templates/[kind]/[id]', { kind: 'node', id: 'new' }) +
+				'?tab=edit') as ResolvedPathname,
+		);
 	}
 
 	async function runClone(row: Template): Promise<void> {

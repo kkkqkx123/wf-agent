@@ -340,7 +340,9 @@
 					{behavior.saving ? t('page.settings.saving') : t('page.settings.saveServerPrefs')}
 				</Button>
 			{:else}
-				<span class="text-caption text-muted-foreground"> {t('page.settings.localPrefsApplyInstantly')} </span>
+				<span class="text-caption text-muted-foreground">
+					{t('page.settings.localPrefsApplyInstantly')}
+				</span>
 			{/if}
 		{/snippet}
 	</PageHeader>

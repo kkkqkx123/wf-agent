@@ -102,7 +102,7 @@
 							ICON_ITEM,
 							isActive(item.href)
 								? TONE.sidebar.active
-									: 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-foreground',
+								: 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-foreground',
 						)}
 					>
 						<Icon name={item.icon} size={17} />
@@ -115,7 +115,11 @@
 					href={resolveAppPath(item.href)}
 					onclick={onnavigate}
 					aria-current={isActive(item.href) ? 'page' : undefined}
-					class={cn(ITEM_BASE, LABEL_ITEM, isActive(item.href) ? TONE[tone].active : TONE[tone].idle)}
+					class={cn(
+						ITEM_BASE,
+						LABEL_ITEM,
+						isActive(item.href) ? TONE[tone].active : TONE[tone].idle,
+					)}
 				>
 					<Icon name={item.icon} size={15} class="shrink-0" />
 					<span class="truncate">{item.label()}</span>

@@ -186,9 +186,9 @@
 		/>
 	{/if}
 	<div
-		class="w-full {composerHeight !== null && !fullscreen ? 'flex min-h-0 flex-col' : ''} {fullscreen
-			? 'flex h-full min-h-0 flex-col'
-			: ''}"
+		class="w-full {composerHeight !== null && !fullscreen
+			? 'flex min-h-0 flex-col'
+			: ''} {fullscreen ? 'flex h-full min-h-0 flex-col' : ''}"
 		style:height={composerHeight !== null && !fullscreen ? `${composerHeight}px` : undefined}
 	>
 		<DecisionMap {controller} />

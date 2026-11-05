@@ -39,6 +39,8 @@
 	let unified = $state<UnifiedExecutionDetail | null>(null);
 	let loadError = $state<string | null>(null);
 	let loading = $state(false);
+	/** Background refetch keeps the inspector mounted; only the first load shows the skeleton. */
+	let refreshing = $state(false);
 	let controlBusy = $state(false);
 	let cancelArmed = $state(false);
 	let appendText = $state('');
@@ -56,8 +58,15 @@
 	});
 
 	async function load(id: string): Promise<void> {
-		loadError = null;
-		loading = true;
+		// Control and append actions re-read after the write; keep the old
+		// inspector on screen while the refetch runs.
+		const background = unified !== null;
+		if (background) {
+			refreshing = true;
+		} else {
+			loadError = null;
+			loading = true;
+		}
 		try {
 			// Unified detail only: the inspector reads one cross-engine shape.
 			unified = await getUnifiedExecutionDetail(id);
@@ -88,11 +97,17 @@
 				error: unified.error,
 			};
 		} catch (e) {
-			loadError = e instanceof Error ? e.message : t('page.executionDetail.errorTitle');
-			execution = null;
-			unified = null;
+			const message = e instanceof Error ? e.message : t('page.executionDetail.errorTitle');
+			if (background) {
+				toasts.error(t('page.executionDetail.errorTitle'), message);
+			} else {
+				loadError = message;
+				execution = null;
+				unified = null;
+			}
 		} finally {
 			loading = false;
+			refreshing = false;
 		}
 	}
 
@@ -251,6 +266,11 @@
 		{#snippet actions()}
 			{@const controls = unified ? controlsFor(unified.executionType) : null}
 			{@const currentId = page.params.id}
+			{#if refreshing}
+				<span class="flex items-center gap-1 text-muted-foreground" role="status">
+					<Icon name="loader" size={12} class="animate-spin" />
+				</span>
+			{/if}
 			{#if controls}
 				<IconButton
 					icon="pause"

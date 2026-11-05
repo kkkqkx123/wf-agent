@@ -85,6 +85,35 @@ function dispatchEnvelope(
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+// Route handlers may return a MockRouteError (e.g. unknown PTY session);
+// surface it as a genuine error envelope so `call()` throws ApiHttpError
+// instead of handing the marker object to services as a fake payload.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toPreviewResult(method: string, path: string, data: any): any {
+	if (data === undefined) return missingRoute(method, path);
+	const candidate = data as {
+		__mockError?: boolean;
+		status?: number;
+		code?: string;
+		message?: string;
+	};
+	if (candidate && candidate.__mockError === true) {
+		return {
+			error: {
+				success: false,
+				data: null,
+				error: {
+					code: candidate.code ?? 'HTTP_ERROR',
+					message: candidate.message ?? 'Preview error',
+				},
+			},
+			response: { status: candidate.status ?? 400 },
+			status: candidate.status ?? 400,
+		};
+	}
+	return okEnvelope(data);
+}
+
 export const client: AnyClient = {
 	// openapi-fetch middleware hooks — no-ops in preview
 	use() {},
@@ -94,8 +123,7 @@ export const client: AnyClient = {
 		await delay(30); // simulate a tiny network latency
 		const query = queryOf(opts?.params);
 		const data = router.dispatch('GET', path, query, undefined);
-		if (data === undefined) return missingRoute('GET', path);
-		return okEnvelope(data);
+		return toPreviewResult('GET', path, data);
 	},
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -104,8 +132,7 @@ export const client: AnyClient = {
 		const query = queryOf(opts?.params);
 		const body = opts?.body;
 		const data = router.dispatch('POST', path, query, body);
-		if (data === undefined) return missingRoute('POST', path);
-		return okEnvelope(data);
+		return toPreviewResult('POST', path, data);
 	},
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -114,8 +141,7 @@ export const client: AnyClient = {
 		const query = queryOf(opts?.params);
 		const body = opts?.body;
 		const data = router.dispatch('PUT', path, query, body);
-		if (data === undefined) return missingRoute('PUT', path);
-		return okEnvelope(data);
+		return toPreviewResult('PUT', path, data);
 	},
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -123,8 +149,7 @@ export const client: AnyClient = {
 		await delay(30);
 		const query = queryOf(opts?.params);
 		const data = router.dispatch('DELETE', path, query, undefined);
-		if (data === undefined) return missingRoute('DELETE', path);
-		return okEnvelope(data);
+		return toPreviewResult('DELETE', path, data);
 	},
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -133,8 +158,7 @@ export const client: AnyClient = {
 		const query = queryOf(opts?.params);
 		const body = opts?.body;
 		const data = router.dispatch('PATCH', path, query, body);
-		if (data === undefined) return missingRoute('PATCH', path);
-		return okEnvelope(data);
+		return toPreviewResult('PATCH', path, data);
 	},
 };
 

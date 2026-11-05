@@ -177,6 +177,30 @@ class MockPtySocket {
 			if (this.#closed) return;
 			this.readyState = MockPtySocket.OPEN;
 			this.onopen?.({ type: 'open' });
+			// Mirror the real attach contract: unknown ids close with 4004 so
+			// the terminal view marks the stale tab exited without touching
+			// its title; exited sessions replay the exited frame then 4010.
+			const session = this.#sessionId ? getSession(this.#sessionId) : undefined;
+			if (!session) {
+				this.close(4004, 'pty session not found (preview)');
+				return;
+			}
+			if (session.status !== 'running') {
+				const known = this.#sessionId ? (sessionCursors.get(this.#sessionId) ?? 0) : 0;
+				const cursor = Math.max(known, this.#resumeCursor);
+				this.#deliverControl({ cursor });
+				this.#enqueue(() => {
+					this.#deliverControl({
+						event: 'exited',
+						exit_code: session.exit_code ?? 0,
+						reason: 'preview shell exit',
+					});
+				});
+				this.#enqueue(() => {
+					this.close(4010, 'pty exited (preview shell exit)');
+				});
+				return;
+			}
 			// Replay contract first: the absolute cursor lets the client resume later.
 			const known = this.#sessionId ? (sessionCursors.get(this.#sessionId) ?? 0) : 0;
 			const cursor = Math.max(known, this.#resumeCursor);

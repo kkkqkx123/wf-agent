@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import PageHeader from '#lib/components/layout/PageHeader.svelte';
 	import PageState from '#lib/components/layout/PageState.svelte';
+	import Icon from '#lib/ui/icons/Icon.svelte';
 	import Button from '#lib/ui/components/Button.svelte';
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import Badge from '#lib/ui/components/Badge.svelte';
@@ -29,6 +30,8 @@
 	import { t } from '#lib/i18n';
 
 	let loading = $state(true);
+	/** Background refetch keeps the editor mounted; only the first load swaps in the skeleton. */
+	let refreshing = $state(false);
 	let loadError = $state<string | null>(null);
 	let noRepo = $state(false);
 	let pendingClose = $state<string | null>(null);
@@ -46,8 +49,15 @@
 	let diffDialogLoading = $state(false);
 
 	async function reload(): Promise<void> {
-		loading = true;
-		loadError = null;
+		// Manual refreshes keep the editor, tree and terminal mounted; the
+		// skeleton only shows before the first successful load settles.
+		const background = !loading && (ide.root !== '' || ide.tabs.length > 0);
+		if (background) {
+			refreshing = true;
+		} else {
+			loading = true;
+			loadError = null;
+		}
 		try {
 			const meta = await getMeta();
 			ide.setRoot(meta.root);
@@ -64,17 +74,22 @@
 			}
 		} catch (e) {
 			const message = e instanceof Error ? e.message : String(e);
-			if (
+			const noRepoHint =
 				message.includes('no payload') ||
 				message.includes('user-git') ||
-				message.includes('workspace')
-			) {
+				message.includes('workspace');
+			if (background) {
+				toasts.error(t('page.ide.title'), message);
+				return;
+			}
+			if (noRepoHint) {
 				noRepo = true;
 			} else {
 				loadError = message;
 			}
 		} finally {
 			loading = false;
+			refreshing = false;
 		}
 	}
 
@@ -311,7 +326,7 @@
 	});
 
 	$effect(() => {
-		if (loading || noRepo || loadError) return;
+		if (loading || refreshing || noRepo || loadError) return;
 		const requested = parseIdeQuery(page.url.searchParams);
 		const key = requested
 			? `${requested.path}:${requested.line ?? ''}:${requested.col ?? ''}`
@@ -495,6 +510,11 @@
 		{#snippet actions()}
 			{#if ide.root}
 				<Badge variant="neutral">{ide.root}</Badge>
+			{/if}
+			{#if refreshing}
+				<span class="flex items-center gap-1 text-muted-foreground" role="status">
+					<Icon name="loader" size={12} class="animate-spin" />
+				</span>
 			{/if}
 			{#if ide.dirtyPaths.length > 0}
 				<Badge variant="warning"

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { installMockPtySocket, previewSessionAlive } from './pty-socket';
+import { createSession } from './pty-sessions';
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -50,8 +51,9 @@ function decodeControl(frame: ArrayBuffer): Record<string, unknown> {
 
 describe('preview mock PTY socket', () => {
 	it('delivers the replay cursor control frame before any text', async () => {
+		const session = createSession({});
 		const { socket, texts, binaries, opened } = mockSocket(
-			'ws://localhost/mock/api/v1/pty/pty-handshake-1/connect?cursor=0&ticket=t',
+			`ws://localhost/mock/api/v1/pty/${session.id}/connect?cursor=0&ticket=t`,
 		);
 		await sleep(80);
 		expect(opened()).toBe(true);
@@ -63,8 +65,9 @@ describe('preview mock PTY socket', () => {
 	});
 
 	it('echoes keystrokes immediately and edits the line on backspace', async () => {
+		const session = createSession({});
 		const { socket, texts } = mockSocket(
-			'ws://localhost/mock/api/v1/pty/pty-echo-1/connect?cursor=0&ticket=t',
+			`ws://localhost/mock/api/v1/pty/${session.id}/connect?cursor=0&ticket=t`,
 		);
 		await sleep(30);
 		texts.length = 0;
@@ -86,8 +89,9 @@ describe('preview mock PTY socket', () => {
 	});
 
 	it('ends the session with an exited control frame and close code 4010', async () => {
+		const session = createSession({});
 		const { socket, binaries, closes } = mockSocket(
-			'ws://localhost/mock/api/v1/pty/pty-exit-1/connect?cursor=0&ticket=t',
+			`ws://localhost/mock/api/v1/pty/${session.id}/connect?cursor=0&ticket=t`,
 		);
 		await sleep(30);
 		binaries.length = 0;
@@ -97,12 +101,27 @@ describe('preview mock PTY socket', () => {
 		expect(exited?.exit_code).toBe(0);
 		expect(closes.length).toBe(1);
 		expect(closes[0].code).toBe(4010);
-		expect(previewSessionAlive('pty-exit-1')).toBe(false);
+		expect(previewSessionAlive(session.id)).toBe(false);
+	});
+
+	it('closes unknown sessions with 4004 like the real attach path', async () => {
+		const { socket, texts, binaries, closes, opened } = mockSocket(
+			'ws://localhost/mock/api/v1/pty/pty-unknown-stale-id/connect?cursor=0&ticket=t',
+		);
+		await sleep(80);
+		expect(opened()).toBe(true);
+		// No shell output for a session the server never knew.
+		expect(texts.join('')).toBe('');
+		expect(binaries.length).toBe(0);
+		expect(closes.length).toBe(1);
+		expect(closes[0].code).toBe(4004);
+		socket.close();
 	});
 
 	it('abandons the cooked line on INTR and redraws the prompt', async () => {
+		const session = createSession({});
 		const { socket, texts } = mockSocket(
-			'ws://localhost/mock/api/v1/pty/pty-intr-1/connect?cursor=0&ticket=t',
+			`ws://localhost/mock/api/v1/pty/${session.id}/connect?cursor=0&ticket=t`,
 		);
 		await sleep(30);
 		texts.length = 0;

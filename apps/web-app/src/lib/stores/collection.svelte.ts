@@ -18,12 +18,24 @@ function itemId(item: unknown): string {
 /**
  * Paginated list state: offset-based reload/loadMore with real loading and
  * error flags, safe against overlapping reload/loadMore races.
+ * Initial loads swap in the skeleton; background reloads keep the old
+ * items so callers can render a spinner instead of unmounting the list.
  */
 export class Collection<T> {
 	items = $state<T[]>([]);
 	loading = $state(false);
 	error = $state<string | null>(null);
 	hasMore = $state(false);
+
+	/** First load with nothing to keep on screen. */
+	get initialLoading(): boolean {
+		return this.loading && this.items.length === 0;
+	}
+
+	/** Background refetch with old items still visible. */
+	get refreshing(): boolean {
+		return this.loading && this.items.length > 0;
+	}
 
 	private readonly fetcher: (params: PageParams) => Promise<PageResult<T>>;
 	private request = 0;
@@ -90,11 +102,22 @@ export class Collection<T> {
 	}
 }
 
-/** Single-resource state for detail pages. */
+/** Single-resource state for detail pages. Background reloads keep the
+ * old data so callers show a spinner instead of swapping in a skeleton. */
 export class Resource<T> {
 	data = $state.raw<T | null>(null);
 	loading = $state(false);
 	error = $state<string | null>(null);
+
+	/** First load with nothing to keep on screen. */
+	get initialLoading(): boolean {
+		return this.loading && this.data === null;
+	}
+
+	/** Background refetch with old data still visible. */
+	get refreshing(): boolean {
+		return this.loading && this.data !== null;
+	}
 
 	private readonly fetcher: () => Promise<T>;
 	private request = 0;

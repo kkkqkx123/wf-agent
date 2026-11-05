@@ -75,6 +75,8 @@
 	let detail = $state<Execution | null>(null);
 	let overviewMetrics = $state<Metric[]>([]);
 	let loading = $state(true);
+	/** Background refetch keeps the list mounted; only the first load shows skeletons. */
+	let refreshing = $state(false);
 	let loadingMore = $state(false);
 	let error = $state<string | null>(null);
 	let hasUpdates = $state(false);
@@ -87,7 +89,7 @@
 		void reload();
 		stopListLive = watchListInvalidation({
 			onDirty: () => {
-				if (loading || loadingMore) {
+				if (loading || refreshing || loadingMore) {
 					hasUpdates = true;
 					return;
 				}
@@ -99,7 +101,9 @@
 					void insertLatest();
 					return;
 				}
-				void reload();
+				// Background activity waits for user confirmation so the
+				// list, selection and focus stay put until Refresh.
+				hasUpdates = true;
 			},
 			onState: (state) => {
 				listLiveState = state;
@@ -113,8 +117,22 @@
 	});
 
 	async function reload(): Promise<void> {
-		loading = true;
-		error = null;
+		// Background refreshes keep the rendered list and focus in place;
+		// only the very first load swaps in skeletons.
+		const background = allExecutions.items.length > 0;
+		const active =
+			typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null);
+		const takeFocusBack =
+			background &&
+			(active == null ||
+				active === document.body ||
+				active.closest?.('[data-execution-id]') != null);
+		if (background) {
+			refreshing = true;
+		} else {
+			loading = true;
+			error = null;
+		}
 		hasUpdates = false;
 		try {
 			// Unified execution view only: the old workflow-view list is frozen
@@ -139,9 +157,16 @@
 				selectedId = null;
 			}
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
+			const message = e instanceof Error ? e.message : String(e);
+			if (background) {
+				toasts.error(t('page.executions.loadFailed'), message);
+			} else {
+				error = message;
+			}
 		} finally {
 			loading = false;
+			refreshing = false;
+			if (takeFocusBack) queueMicrotask(() => focusSelectedCard(selectedId));
 		}
 	}
 
@@ -275,6 +300,17 @@
 
 	function focusCard(id: string): void {
 		document.querySelector(`[data-execution-id="${id}"]`)?.scrollIntoView({ block: 'nearest' });
+	}
+
+	/** Return keyboard focus to the selected card after a background reload:
+	 * the selected row when it still exists, otherwise the first card.
+	 * Only takes focus back when it was inside the list or already lost. */
+	function focusSelectedCard(id: string | null): void {
+		if (!id) return;
+		const scoped = document.querySelector<HTMLButtonElement>(
+			`[data-execution-id="${CSS.escape(id)}"] button`,
+		);
+		(scoped ?? document.querySelector<HTMLButtonElement>('[data-execution-id] button'))?.focus();
 	}
 
 	function moveSelection(delta: number): void {
@@ -425,6 +461,11 @@
 	<div class="flex h-full min-h-0 flex-col">
 		<PageHeader title={t('page.executions.title')} description={t('page.executions.description')}>
 			{#snippet actions()}
+				{#if refreshing}
+					<span class="flex items-center gap-1 text-muted-foreground" role="status">
+						<Icon name="loader" size={12} class="animate-spin" />
+					</span>
+				{/if}
 				<IconButton icon="refresh" label={t('common.refresh')} onclick={() => void reload()} />
 				<Button
 					variant="outline"

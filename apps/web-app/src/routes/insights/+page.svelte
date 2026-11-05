@@ -61,6 +61,8 @@
 	let queryBusy = $state(false);
 	let queryError = $state<string | null>(null);
 	let loading = $state(false);
+	/** Background refetch keeps tables mounted; only the first load shows the skeleton. */
+	let refreshing = $state(false);
 	let loadError = $state<string | null>(null);
 	let auditReports = $state<AuditReport[]>([]);
 	let errorAnalyses = $state<ErrorAnalysis[]>([]);
@@ -90,8 +92,22 @@
 						? !seenErrors
 						: !seenPerf;
 		if (!pending) return;
-		loading = true;
-		loadError = null;
+		// Manual refreshes keep old rows on screen while the refetch runs.
+		// The query tab owns its inline `queryBusy` state and never touches this flag.
+		const background =
+			current === 'query'
+				? queryResult.rows.length > 0
+				: current === 'audit'
+					? auditReports.length > 0
+					: current === 'errors'
+						? errorAnalyses.length > 0
+						: perfNodes.length > 0;
+		if (background) {
+			refreshing = true;
+		} else {
+			loading = true;
+			loadError = null;
+		}
 		try {
 			if (current === 'query') {
 				seenQuery = true;
@@ -108,9 +124,15 @@
 			}
 		} catch (e) {
 			console.error('Failed to load insights segment:', e);
-			loadError = e instanceof Error ? e.message : t('page.insights.loadFailed');
+			const message = e instanceof Error ? e.message : t('page.insights.loadFailed');
+			if (background) {
+				toasts.error(t('page.insights.loadFailed'), message);
+			} else {
+				loadError = message;
+			}
 		} finally {
 			loading = false;
+			refreshing = false;
 		}
 	}
 
@@ -266,6 +288,11 @@
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader title={t('page.insights.title')} description={t('page.insights.description')}>
 		{#snippet actions()}
+			{#if refreshing}
+				<span class="flex items-center gap-1 text-muted-foreground" role="status">
+					<Icon name="loader" size={12} class="animate-spin" />
+				</span>
+			{/if}
 			<IconButton icon="refresh" label={t('common.refresh')} onclick={() => void reload()} />
 			<Button variant="outline" size="sm" onclick={() => void exportAdhocQuery()}>
 				<Icon name="download" size={13} />

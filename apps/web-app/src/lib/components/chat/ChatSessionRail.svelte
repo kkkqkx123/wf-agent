@@ -49,7 +49,7 @@
 	let searchBox: HTMLInputElement | null = $state(null);
 	const temporaryExpanded = $derived(showTemporary || selectedIsTemporary);
 
-		onMount(() => {
+	onMount(() => {
 		try {
 			const raw = localStorage.getItem(WIDTH_KEY);
 			const parsed = raw === null ? NaN : Number.parseInt(raw, 10);

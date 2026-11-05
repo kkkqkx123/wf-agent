@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Icon from '#lib/ui/icons/Icon.svelte';
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import Segmented from '#lib/ui/components/Segmented.svelte';
 	import ErrorState from '#lib/ui/components/ErrorState.svelte';
@@ -58,6 +59,8 @@
 
 	let tabError = $state<string | null>(null);
 	let tabLoading = $state(false);
+	/** Background refetch keeps the current tab mounted; only the first load shows the skeleton. */
+	let refreshing = $state(false);
 
 	let toolEnabled = $state<Record<string, boolean>>({});
 	let skillEnabled = $state<Record<string, boolean>>({});
@@ -83,8 +86,30 @@
 	});
 
 	async function loadTab(current: string): Promise<void> {
-		tabLoading = true;
-		tabError = null;
+		const pending =
+			current === 'models'
+				? !seenModels
+				: current === 'tools'
+					? !seenTools
+					: current === 'scripts'
+						? !seenScripts
+						: !seenSkills;
+		if (!pending) return;
+		// Manual refreshes keep old rows on screen while the refetch runs.
+		const background =
+			current === 'models'
+				? modelProfiles.length > 0 || providers.length > 0
+				: current === 'tools'
+					? tools.length > 0
+					: current === 'scripts'
+						? scripts.length > 0
+						: skills.length > 0;
+		if (background) {
+			refreshing = true;
+		} else {
+			tabLoading = true;
+			tabError = null;
+		}
 		try {
 			if (current === 'models' && !seenModels) {
 				seenModels = true;
@@ -111,13 +136,19 @@
 				skillEnabled = Object.fromEntries(skills.map((skill) => [skill.id, skill.enabled]));
 			}
 		} catch (e) {
-			tabError = e instanceof Error ? e.message : t('page.resources.loadFailed');
+			const message = e instanceof Error ? e.message : t('page.resources.loadFailed');
+			if (background) {
+				toasts.error(t('page.resources.loadFailed'), message);
+			} else {
+				tabError = message;
+			}
 			if (current === 'models') seenModels = false;
 			if (current === 'tools') seenTools = false;
 			if (current === 'scripts') seenScripts = false;
 			if (current === 'skills') seenSkills = false;
 		} finally {
 			tabLoading = false;
+			refreshing = false;
 		}
 	}
 
@@ -204,6 +235,15 @@
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader title={t('page.resources.title')} description={t('page.resources.description')}>
 		{#snippet actions()}
+			{#if refreshing}
+				<span
+					class="flex items-center gap-1 text-muted-foreground"
+					role="status"
+					title={t('common.refresh')}
+				>
+					<Icon name="loader" size={12} class="animate-spin" />
+				</span>
+			{/if}
 			<IconButton icon="refresh" label={t('common.refresh')} onclick={() => void reload()} />
 		{/snippet}
 	</PageHeader>

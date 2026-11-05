@@ -189,7 +189,7 @@
 							'flex items-center gap-2 rounded-md px-2 py-1.5 text-body transition-colors',
 							isActive(item.href)
 								? 'bg-sidebar-accent font-medium text-foreground'
-									: 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-foreground',
+								: 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-foreground',
 						)}
 					>
 						<Icon name={item.icon} size={15} class="shrink-0" />

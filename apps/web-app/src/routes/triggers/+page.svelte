@@ -54,6 +54,8 @@
 	let recordsLoading = $state(false);
 	let hooksError = $state<string | null>(null);
 	let hooksLoading = $state(false);
+	/** Background refetch keeps tables mounted; only the first load shows the skeleton. */
+	let refreshing = $state(false);
 	let cleanupArmed = $state(false);
 	let cleanupBusy = $state(false);
 
@@ -69,7 +71,7 @@
 		void loadTab(tab);
 		stopTriggerLive = watchListInvalidation({
 			onDirty: () => {
-				if (recordsLoading || tab !== 'records') {
+				if (recordsLoading || refreshing || tab !== 'records') {
 					triggerUpdates = true;
 					return;
 				}
@@ -77,8 +79,9 @@
 					triggerUpdates = true;
 					return;
 				}
-				seenRecords = false;
-				void loadTab('records');
+				// Background activity waits for user confirmation so the
+				// table, selection and focus stay put until Refresh.
+				triggerUpdates = true;
 			},
 		});
 	});
@@ -95,8 +98,14 @@
 	async function loadTab(current: string): Promise<void> {
 		if (current === 'records' && !seenRecords) {
 			seenRecords = true;
-			recordsLoading = true;
-			recordsError = null;
+			// Manual refreshes keep old rows on screen while the refetch runs.
+			const background = triggerRecords.length > 0;
+			if (background) {
+				refreshing = true;
+			} else {
+				recordsLoading = true;
+				recordsError = null;
+			}
 			try {
 				const executions = await listTriggerExecutions({ limit: 200 });
 				const merged = [...executions.items];
@@ -107,25 +116,42 @@
 					return true;
 				});
 			} catch (e) {
-				seenRecords = false;
-				triggerRecords = [];
-				recordsError = e instanceof Error ? e.message : t('page.triggers.recordsLoadFailed');
+				const message = e instanceof Error ? e.message : t('page.triggers.recordsLoadFailed');
+				if (background) {
+					toasts.error(t('page.triggers.recordsLoadFailed'), message);
+				} else {
+					seenRecords = false;
+					triggerRecords = [];
+					recordsError = message;
+				}
 			} finally {
 				recordsLoading = false;
+				refreshing = false;
 			}
 		} else if (current === 'hooks' && !seenHooks) {
 			seenHooks = true;
-			hooksLoading = true;
-			hooksError = null;
+			const background = hooks.length > 0;
+			if (background) {
+				refreshing = true;
+			} else {
+				hooksLoading = true;
+				hooksError = null;
+			}
 			try {
 				hooks = await listHooks();
 				if (!hookName && hooks.length > 0) hookName = hooks[0].name;
 			} catch (e) {
-				seenHooks = false;
-				hooks = [];
-				hooksError = e instanceof Error ? e.message : t('page.triggers.hooksLoadFailed');
+				const message = e instanceof Error ? e.message : t('page.triggers.hooksLoadFailed');
+				if (background) {
+					toasts.error(t('page.triggers.hooksLoadFailed'), message);
+				} else {
+					seenHooks = false;
+					hooks = [];
+					hooksError = message;
+				}
 			} finally {
 				hooksLoading = false;
+				refreshing = false;
 			}
 		}
 	}
@@ -214,6 +240,11 @@
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader title={t('page.triggers.title')} description={t('page.triggers.description')}>
 		{#snippet actions()}
+			{#if refreshing}
+				<span class="flex items-center gap-1 text-muted-foreground" role="status">
+					<Icon name="loader" size={12} class="animate-spin" />
+				</span>
+			{/if}
 			<IconButton icon="refresh" label={t('common.refresh')} onclick={() => void reload()} />
 			{#if cleanupArmed}
 				<Button

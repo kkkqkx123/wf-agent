@@ -79,7 +79,7 @@ export async function loadMediaLimits(): Promise<MediaLimits> {
 		const maxImages = asPositiveInt(payload.max_images_per_turn ?? payload.maxImagesPerTurn);
 		const maxBytes = asPositiveInt(payload.max_image_bytes ?? payload.maxImageBytes);
 		const maxTotal = asPositiveInt(payload.max_images_total_bytes ?? payload.maxImagesTotalBytes);
-			const allowed = payload.allowed_image_media_types ?? payload.allowedImageMediaTypes;
+		const allowed = payload.allowed_image_media_types ?? payload.allowedImageMediaTypes;
 		const allowedExts = payload.allowed_image_exts ?? payload.allowedImageExts;
 		const maxFiles = asPositiveInt(
 			payload.max_attachments_per_turn ?? payload.maxAttachmentsPerTurn,

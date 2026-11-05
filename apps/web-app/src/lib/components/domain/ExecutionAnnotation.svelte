@@ -5,7 +5,7 @@
 	import Icon from '#lib/ui/icons/Icon.svelte';
 	import Textarea from '#lib/ui/components/Textarea.svelte';
 	import { cn } from '#lib/ui/cn';
-import { t } from '#lib/i18n';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		executionId: string;

@@ -139,7 +139,7 @@
 						</a>
 					{/if}
 				</li>
-				{/each}
+			{/each}
 		</ul>
 	</section>
 </Dialog>

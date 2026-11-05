@@ -45,6 +45,8 @@
 	let dependencies = $state<Dependency[]>([]);
 	let diagnostics = $state<Diagnostic[]>([]);
 	let loading = $state(false);
+	/** Background refetch keeps the list mounted; only the first load shows the skeleton. */
+	let refreshing = $state(false);
 	let loadError = $state<string | null>(null);
 
 	/** Segment sources already pulled, so a tab loads once. */
@@ -64,8 +66,19 @@
 		const pending =
 			current === 'stream' ? !seenStream : current === 'dependencies' ? !seenDeps : !seenOps;
 		if (!pending) return;
-		loading = true;
-		loadError = null;
+		// Manual refreshes keep old rows on screen while the refetch runs.
+		const background =
+			current === 'stream'
+				? events.length > 0
+				: current === 'dependencies'
+					? dependencies.length > 0
+					: diagnostics.length > 0;
+		if (background) {
+			refreshing = true;
+		} else {
+			loading = true;
+			loadError = null;
+		}
 		try {
 			if (current === 'stream') {
 				seenStream = true;
@@ -80,9 +93,15 @@
 			}
 		} catch (e) {
 			console.error('Failed to load events segment:', e);
-			loadError = e instanceof Error ? e.message : t('page.events.requestFailed');
+			const message = e instanceof Error ? e.message : t('page.events.requestFailed');
+			if (background) {
+				toasts.error(t('page.events.requestFailed'), message);
+			} else {
+				loadError = message;
+			}
 		} finally {
 			loading = false;
+			refreshing = false;
 		}
 	}
 
@@ -158,6 +177,11 @@
 			</span>
 		{/snippet}
 		{#snippet actions()}
+			{#if refreshing}
+				<span class="flex items-center gap-1 text-muted-foreground" role="status">
+					<Icon name="loader" size={12} class="animate-spin" />
+				</span>
+			{/if}
 			<IconButton icon="refresh" label={t('common.refresh')} onclick={() => void reload()} />
 			<Button variant="outline" size="sm" onclick={() => void clearEvents()}>
 				<Icon name="trash" size={13} />

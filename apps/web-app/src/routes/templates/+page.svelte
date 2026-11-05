@@ -56,6 +56,8 @@
 	let templates = $state<Template[]>([]);
 	let featuredIds = $state<Set<string>>(new Set());
 	let listLoading = $state(true);
+	/** Background refetch keeps cards mounted; only the first load shows the skeleton. */
+	let refreshing = $state(false);
 	let listError = $state<string | null>(null);
 
 	let importOpen = $state(false);
@@ -65,8 +67,15 @@
 	let importBusy = $state(false);
 
 	async function reload(): Promise<void> {
-		listLoading = true;
-		listError = null;
+		// Clones and imports re-read after the write; keep old cards on
+		// screen while the refetch runs.
+		const background = templates.length > 0;
+		if (background) {
+			refreshing = true;
+		} else {
+			listLoading = true;
+			listError = null;
+		}
 		try {
 			const [all, featured, workflowPage] = await Promise.all([
 				listTemplates({ kind: 'all' }),
@@ -94,10 +103,16 @@
 				featured: t.featured || featuredIds.has(t.id),
 			}));
 		} catch (e) {
-			listError = e instanceof Error ? e.message : t('page.templates.loadFailed');
-			templates = [];
+			const message = e instanceof Error ? e.message : t('page.templates.loadFailed');
+			if (background) {
+				toasts.error(t('page.templates.loadFailed'), message);
+			} else {
+				listError = message;
+				templates = [];
+			}
 		} finally {
 			listLoading = false;
+			refreshing = false;
 		}
 	}
 
@@ -180,6 +195,11 @@
 	<PageHeader title={t('page.templates.title')} description={t('page.templates.description')}>
 		{#snippet actions()}
 			{#if !isStarterTab}
+				{#if refreshing}
+					<span class="flex items-center gap-1 text-muted-foreground" role="status">
+						<Icon name="loader" size={12} class="animate-spin" />
+					</span>
+				{/if}
 				<IconButton icon="refresh" label={t('common.refresh')} onclick={() => void reload()} />
 				<Button variant="outline" size="sm" onclick={() => (importOpen = true)}>
 					<Icon name="upload" size={13} />

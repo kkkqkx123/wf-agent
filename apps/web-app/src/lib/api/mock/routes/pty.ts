@@ -1,9 +1,9 @@
 /** Mock routes: PTY sessions and single-use stream tickets. */
 
 import type { MockRouter } from '../router';
+import { mockError } from './fs';
 import {
 	createSession,
-	exitSession,
 	getSession,
 	listSessions,
 	removeSession,
@@ -20,39 +20,23 @@ export function registerPty(router: MockRouter): void {
 	router.on('GET', '/api/v1/pty', () => listSessions());
 	router.on('GET', '/api/v1/pty/{id}', (params) => {
 		const session = getSession(params.id);
-		return (
-			session ?? {
-				id: params.id,
-				cwd: '/preview/wf-agent',
-				title: 'Terminal 1',
-				status: 'exited',
-				exit_code: 127,
-				pid: 0,
-				rows: 24,
-				cols: 80,
-			}
-		);
+		// Mirror the real backend: unknown ids are 404 so the session store
+		// drops them instead of collapsing every stale tab to one fake title.
+		if (!session) return mockError(404, 'NOT_FOUND', `PTY session not found: ${params.id}`);
+		return session;
 	});
 	router.on('PUT', '/api/v1/pty/{id}', (params, _q, body) => {
+		if (!getSession(params.id)) {
+			return mockError(404, 'NOT_FOUND', `PTY session not found: ${params.id}`);
+		}
 		const b = (body ?? {}) as { rows?: number; cols?: number; title?: string };
-		const session = resizeSession(params.id, b.rows, b.cols);
-		return (
-			renameSession(params.id, b.title) ??
-			session ?? {
-				id: params.id,
-				cwd: '/preview/wf-agent',
-				title: 'Terminal 1',
-				status: 'exited',
-				exit_code: 127,
-				pid: 0,
-				rows: 24,
-				cols: 80,
-			}
-		);
+		resizeSession(params.id, b.rows, b.cols);
+		renameSession(params.id, b.title);
+		return getSession(params.id);
 	});
 	router.on('DELETE', '/api/v1/pty/{id}', (params) => {
 		const removed = removeSession(params.id);
-		if (!removed) exitSession(params.id, 0);
+		if (!removed) return mockError(404, 'NOT_FOUND', `PTY session not found: ${params.id}`);
 		return { removed: true };
 	});
 

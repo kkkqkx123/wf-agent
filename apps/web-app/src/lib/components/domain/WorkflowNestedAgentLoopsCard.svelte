@@ -18,7 +18,7 @@
 	import { toasts } from '#lib/stores/toast.svelte';
 	import type { StreamState } from '#lib/api/sse';
 	import { SvelteMap } from 'svelte/reactivity';
-import { t } from '#lib/i18n';
+	import { t } from '#lib/i18n';
 
 	interface Props {
 		executionId: string;

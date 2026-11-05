@@ -47,15 +47,26 @@
 	let approvals = $state<Approval[]>([]);
 
 	let loading = $state(false);
+	/** Background refetch in flight; content and focus stay put, unlike `loading`. */
+	let refreshing = $state(false);
 	let loadError = $state<string | null>(null);
 	let chainDirty = $state(false);
 	let approvalsDirty = $state(false);
 	let stopLive: (() => void) | null = null;
 
-	/** Drop decided rows from the local list before the refetch lands. */
+	/** Drop decided rows from the local list before the refetch lands. When
+	 * the removed row owned focus, move to the next control so key chains
+	 * keep working while the background refetch preserves the panel. */
 	function removeApprovals(ids: string[]): void {
+		const active = document.activeElement as HTMLElement | null;
+		const takeFocusBack =
+			active == null || active === document.body || active.closest?.('#checkpoints-panel') != null;
 		const decided = new Set(ids);
 		approvals = approvals.filter((approval) => !decided.has(approval.id));
+		if (!takeFocusBack) return;
+		queueMicrotask(() => {
+			document.querySelector<HTMLButtonElement>('#checkpoints-panel button')?.focus();
+		});
 	}
 
 	// ── header dialog ──
@@ -69,7 +80,7 @@
 		stopLive = checkpointStore.subscribeLive((domain: CheckpointDomain) => {
 			// The files tab follows `filesVersion` itself inside FilesPanel.
 			if (domain === 'files') return;
-			if (loading) {
+			if (loading || refreshing) {
 				if (domain === 'chain') chainDirty = true;
 				else approvalsDirty = true;
 				return;
@@ -93,8 +104,15 @@
 		if (current === 'files') return;
 		const pending = current === 'chain' ? !seenChain : !seenApprovals;
 		if (!pending) return;
-		loading = true;
-		loadError = null;
+		// Background refreshes keep rendered content and focus in place;
+		// only the very first load swaps in the skeleton.
+		const background = current === 'chain' ? chain.length > 0 : approvals.length > 0;
+		if (background) {
+			refreshing = true;
+		} else {
+			loading = true;
+			loadError = null;
+		}
 		try {
 			if (current === 'chain') {
 				seenChain = true;
@@ -105,9 +123,15 @@
 			}
 		} catch (e) {
 			console.error('Failed to load checkpoints segment:', e);
-			loadError = e instanceof Error ? e.message : t('page.checkpoints.requestFailed');
+			const message = e instanceof Error ? e.message : t('page.checkpoints.requestFailed');
+			if (background) {
+				toasts.error(t('page.checkpoints.requestFailed'), message);
+			} else {
+				loadError = message;
+			}
 		} finally {
 			loading = false;
+			refreshing = false;
 			if (chainDirty || approvalsDirty) {
 				const pending: CheckpointDomain | null = chainDirty
 					? 'chain'
@@ -122,7 +146,8 @@
 	}
 
 	/** Refresh one domain tab after a live event or local mutation. A
-	 * hidden tab is only invalidated so its next visit refetches. */
+	 * hidden tab is only invalidated so its next visit refetches. Visible
+	 * tabs background-refresh so the list and focus stay put. */
 	async function reloadDomain(domain: CheckpointDomain): Promise<void> {
 		if (domain === 'files') {
 			// FilesPanel re-pulls through the `filesVersion` bump.
@@ -134,14 +159,12 @@
 				return;
 			}
 			seenChain = false;
-			chain = [];
 		} else {
 			if (tab !== 'approvals') {
 				seenApprovals = false;
 				return;
 			}
 			seenApprovals = false;
-			approvals = [];
 		}
 		await loadTab(tab);
 	}
@@ -149,9 +172,9 @@
 	async function reload(): Promise<void> {
 		seenChain = false;
 		seenApprovals = false;
-		chain = [];
-		approvals = [];
 		// Bump the files domain so FilesPanel re-pulls its own segment too.
+		// Chain and approvals background-refresh through `loadTab` so the
+		// current list stays mounted while the refetch runs.
 		checkpointStore.bump('files');
 		await loadTab(tab);
 	}
@@ -219,6 +242,11 @@
 			<Badge variant={checkpointStore.liveState === 'open' ? 'success' : 'neutral'}>
 				{liveLabel}
 			</Badge>
+			{#if refreshing}
+				<span class="flex items-center gap-1 text-muted-foreground" role="status">
+					<Icon name="loader" size={12} class="animate-spin" />
+				</span>
+			{/if}
 			<IconButton icon="refresh" label={t('common.refresh')} onclick={() => void reload()} />
 			<Button
 				size="sm"

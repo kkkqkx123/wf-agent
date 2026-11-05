@@ -88,16 +88,15 @@ impl Runtime {
         // Keyword index singleton: opened on a blocking thread since
         // SQLite file opens block. An open failure fails bootstrap fast;
         // only explicit disabling yields an empty slot.
-        let keyword_index = tokio::task::spawn_blocking(move || {
-            wf_api::rag::open_keyword_index(&keyword_location)
-        })
-        .await
-        .map_err(|err| {
-            crate::error::RuntimeError::Config(format!(
-                "Keyword index open task failed: {err}"
-            ))
-        })?
-        .map_err(|err| crate::error::RuntimeError::Config(err.to_string()))?;
+        let keyword_index =
+            tokio::task::spawn_blocking(move || wf_api::rag::open_keyword_index(&keyword_location))
+                .await
+                .map_err(|err| {
+                    crate::error::RuntimeError::Config(format!(
+                        "Keyword index open task failed: {err}"
+                    ))
+                })?
+                .map_err(|err| crate::error::RuntimeError::Config(err.to_string()))?;
 
         // Durable checkpoint store backend: reuse the checkpoint table of the
         // shared storage context so execution checkpoints survive restarts

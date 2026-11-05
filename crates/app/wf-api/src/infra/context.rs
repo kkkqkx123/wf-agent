@@ -385,7 +385,11 @@ impl ApiContext {
             collection,
             namespace,
         );
-        if let Some(keyword) = handles.keyword.clone().or_else(|| self.keyword_index.clone()) {
+        if let Some(keyword) = handles
+            .keyword
+            .clone()
+            .or_else(|| self.keyword_index.clone())
+        {
             node_handles = node_handles.with_keyword(keyword);
         }
         Some(node_handles)

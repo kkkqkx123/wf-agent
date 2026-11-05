@@ -89,7 +89,11 @@ pub fn resolve_keyword_location(
     if let Some(path) = env_path(KEYWORD_DB_PATH_ENV) {
         return KeywordIndexLocation::File(path);
     }
-    if let Some(path) = config.db_path.as_deref().filter(|path| !path.trim().is_empty()) {
+    if let Some(path) = config
+        .db_path
+        .as_deref()
+        .filter(|path| !path.trim().is_empty())
+    {
         return KeywordIndexLocation::File(PathBuf::from(path));
     }
     if storage.storage_type == StorageType::Memory {
@@ -198,13 +202,12 @@ pub fn open_keyword_index(
                 }
             }
             let raw = path.to_string_lossy().into_owned();
-            let index =
-                rag_core::SqliteKeywordIndex::open(&raw).map_err(|err| {
-                    ApiError::execution(format!(
-                        "Failed to open keyword index at '{}': {err}",
-                        path.display()
-                    ))
-                })?;
+            let index = rag_core::SqliteKeywordIndex::open(&raw).map_err(|err| {
+                ApiError::execution(format!(
+                    "Failed to open keyword index at '{}': {err}",
+                    path.display()
+                ))
+            })?;
             info!(
                 backend = index.backend_name(),
                 path = %path.display(),

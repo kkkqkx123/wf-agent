@@ -217,8 +217,7 @@ fn authorize_pty_handshake(
         let origin_ok = origin
             .map(|value| crate::middleware::origin_allowed(Some(value), &state.config.cors))
             .unwrap_or(true);
-        if origin_ok && crate::api::ticket::consume(ticket, &scope)
-        {
+        if origin_ok && crate::api::ticket::consume(ticket, &scope) {
             return Ok(());
         }
         return Err((4003, "invalid PTY connect ticket".to_string()));

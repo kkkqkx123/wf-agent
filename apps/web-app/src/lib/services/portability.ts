@@ -15,8 +15,6 @@ export type BackupDensity = 'compact' | 'default' | 'comfortable';
 export type BackupMinimap = 'auto' | 'on' | 'off';
 export type BackupToolDetail = 'compact' | 'balanced' | 'verbose';
 export type BackupChatExecution = 'agent' | 'workflow' | 'chat';
-export type BackupChatTemporary = 'full' | 'restricted' | 'ephemeral';
-
 export interface LocalPreferencesBackup {
 	theme: BackupTheme;
 	density: BackupDensity;
@@ -28,7 +26,6 @@ export interface LocalPreferencesBackup {
 	toolOutputPreviews: boolean;
 	toolOutputDetail: BackupToolDetail;
 	chatExecutionType: BackupChatExecution;
-	chatTemporaryDefault: BackupChatTemporary;
 }
 
 export interface BehaviorBackup {
@@ -59,7 +56,6 @@ const PREFERENCE_KEYS: ReadonlyArray<keyof LocalPreferencesBackup> = [
 	'toolOutputPreviews',
 	'toolOutputDetail',
 	'chatExecutionType',
-	'chatTemporaryDefault',
 ];
 
 const BEHAVIOR_KEYS: ReadonlyArray<keyof BehaviorBackup> = [
@@ -116,20 +112,12 @@ function validatePreferences(raw: unknown): LocalPreferencesBackup {
 	const sidebarWidth = raw.sidebarWidth;
 	const inspectorWidth = raw.inspectorWidth;
 	const chatExecutionType = raw.chatExecutionType ?? 'agent';
-	const chatTemporaryDefault = raw.chatTemporaryDefault ?? 'restricted';
 	if (
 		chatExecutionType !== 'agent' &&
 		chatExecutionType !== 'workflow' &&
 		chatExecutionType !== 'chat'
 	) {
 		reject('Invalid preferences.chatExecutionType');
-	}
-	if (
-		chatTemporaryDefault !== 'full' &&
-		chatTemporaryDefault !== 'restricted' &&
-		chatTemporaryDefault !== 'ephemeral'
-	) {
-		reject('Invalid preferences.chatTemporaryDefault');
 	}
 	if (
 		typeof sidebarWidth !== 'number' ||
@@ -158,7 +146,6 @@ function validatePreferences(raw: unknown): LocalPreferencesBackup {
 		toolOutputPreviews: checkBoolean(raw.toolOutputPreviews, 'preferences.toolOutputPreviews'),
 		toolOutputDetail: toolOutputDetail as BackupToolDetail,
 		chatExecutionType: chatExecutionType as BackupChatExecution,
-		chatTemporaryDefault: chatTemporaryDefault as BackupChatTemporary,
 	};
 }
 

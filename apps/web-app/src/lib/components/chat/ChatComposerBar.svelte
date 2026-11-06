@@ -192,49 +192,6 @@
 		style:height={composerHeight !== null && !fullscreen ? `${composerHeight}px` : undefined}
 	>
 		<DecisionMap {controller} />
-		{#if controller.executionType === 'agent'}
-			{@const resolved = controller.resolvedTemporaryMode()}
-			<div class="mb-2 flex items-center gap-1.5" aria-label={t('chat.composerBar.temporaryMode')}>
-				<div class="flex overflow-hidden rounded-md border border-border" role="radiogroup">
-					<button
-						type="button"
-						role="radio"
-						aria-checked={resolved === null}
-						class="px-2 py-0.5 text-caption {resolved === null
-							? 'bg-primary text-primary-foreground'
-							: 'text-muted-foreground hover:text-foreground'}"
-						title="Full agent: all tools, checkpoints on"
-						onclick={() => controller.setTemporaryOverride('full')}
-					>
-						full
-					</button>
-					<button
-						type="button"
-						role="radio"
-						aria-checked={resolved === 'restricted'}
-						class="px-2 py-0.5 text-caption {resolved === 'restricted'
-							? 'bg-primary text-primary-foreground'
-							: 'text-muted-foreground hover:text-foreground'}"
-						title="Temporary: read-only, interaction and network lookup only"
-						onclick={() => controller.setTemporaryOverride('restricted')}
-					>
-						temporary
-					</button>
-					<button
-						type="button"
-						role="radio"
-						aria-checked={resolved === 'ephemeral'}
-						class="px-2 py-0.5 text-caption {resolved === 'ephemeral'
-							? 'bg-primary text-primary-foreground'
-							: 'text-muted-foreground hover:text-foreground'}"
-						title="Read-only Q&A: local inspection and follow-up only, no checkpoints"
-						onclick={() => controller.setTemporaryOverride('ephemeral')}
-					>
-						read-only
-					</button>
-				</div>
-			</div>
-		{/if}
 		<div
 			class="rounded-xl border border-border bg-muted/30 p-2.5 {composerHeight !== null &&
 			!fullscreen

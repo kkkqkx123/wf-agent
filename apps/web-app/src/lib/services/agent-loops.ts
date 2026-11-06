@@ -696,8 +696,8 @@ export interface RunLoopInput {
 	message: string;
 	conversation?: RunConversationMessage[];
 	/**
-	 * Temporary execution mode of this run (`restricted` | `ephemeral`).
-	 * Absent means a full agent run; the server enforces the exposure.
+	 * Fenced scope of this turn (`restricted` | `ephemeral`). Absent means
+	 * a full agent run; the server enforces the exposure.
 	 */
 	temporaryMode?: 'restricted' | 'ephemeral';
 	/**

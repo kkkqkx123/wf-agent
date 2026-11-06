@@ -22,7 +22,6 @@ function validBackup(): SettingsBackup {
 			toolOutputPreviews: true,
 			toolOutputDetail: 'balanced',
 			chatExecutionType: 'agent',
-			chatTemporaryDefault: 'restricted',
 		},
 		shortcuts: { 'app.commandPalette': 'Mod+K' },
 		behavior: {

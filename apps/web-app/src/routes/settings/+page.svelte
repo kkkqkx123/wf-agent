@@ -16,7 +16,6 @@
 		preferences,
 		type AutoTitleMode,
 		type ChatExecutionPreference,
-		type ChatTemporaryPreference,
 		type Density,
 		type ThemeMode,
 	} from '#lib/stores/preferences.svelte';
@@ -122,12 +121,6 @@
 		{ value: 'agent', label: message('page.settings.chatExecutionAgent') },
 		{ value: 'workflow', label: message('page.settings.chatExecutionWorkflow') },
 		{ value: 'chat', label: message('page.settings.chatExecutionChat') },
-	];
-
-	const CHAT_TEMPORARY_OPTIONS = [
-		{ value: 'full', label: message('page.settings.chatModeFull') },
-		{ value: 'restricted', label: message('page.settings.chatModeTemporary') },
-		{ value: 'ephemeral', label: message('page.settings.chatModeReadOnly') },
 	];
 
 	const toolBudgetsHint = $derived(
@@ -237,7 +230,6 @@
 				toolOutputPreviews: preferences.toolOutputPreviews,
 				toolOutputDetail: preferences.toolOutputDetail,
 				chatExecutionType: preferences.chatExecutionType,
-				chatTemporaryDefault: preferences.chatTemporaryDefault,
 			},
 			shortcuts: shortcutOverrides(),
 			behavior: {
@@ -688,16 +680,6 @@
 							onchange={(value) =>
 								preferences.setChatExecutionType(value as ChatExecutionPreference)}
 						/>
-						<div class="mt-3">
-							<Select
-								value={preferences.chatTemporaryDefault}
-								options={CHAT_TEMPORARY_OPTIONS}
-								placeholder={t('page.settings.chatTemporaryMode')}
-								class="w-56"
-								onchange={(value) =>
-									preferences.setChatTemporaryDefault(value as ChatTemporaryPreference)}
-							/>
-						</div>
 					</Card>
 					<Card
 						title={t('page.settings.sidebarWidth')}

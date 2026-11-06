@@ -1,6 +1,7 @@
 import { message } from '#lib/i18n';
 
-export type CommandAction = 'new' | 'retry' | 'continue' | 'recap' | 'resume';
+export type CommandAction =
+	'new' | 'retry' | 'continue' | 'recap' | 'resume' | 'fenced' | 'readonly';
 
 export interface SlashCommand {
 	name: string;
@@ -41,6 +42,18 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 		arg: '[filter]',
 		description: message('config.commands.resume'),
 		action: 'resume',
+	},
+	{
+		name: 'fenced',
+		arg: '[question]',
+		description: message('config.commands.fenced'),
+		action: 'fenced',
+	},
+	{
+		name: 'readonly',
+		arg: '[question]',
+		description: message('config.commands.readonly'),
+		action: 'readonly',
 	},
 ];
 

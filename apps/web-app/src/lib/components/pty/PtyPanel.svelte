@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, tick, untrack } from 'svelte';
+	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import Card from '#lib/ui/components/Card.svelte';
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import Button from '#lib/ui/components/Button.svelte';
@@ -11,6 +11,16 @@
 		type PtySessionStore,
 	} from '#lib/stores/pty-session.svelte';
 	import { getPty } from '#lib/services/pty';
+	import {
+		clearPtyTrace,
+		getPtyTrace,
+		installPtyErrorCapture,
+		isPtyDebugEnabled,
+		ptyTrace,
+		readPtyPersisted,
+		runPtyDiag,
+		uninstallPtyErrorCapture,
+	} from './pty-debug';
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { t } from '#lib/i18n';
 
@@ -79,6 +89,7 @@
 	loadTerminalView();
 	let editingId = $state<string | null>(null);
 	let editingTitle = $state('');
+	let debugMsg = $state('');
 
 	function startRename(id: string, title: string): void {
 		editingId = id;
@@ -98,10 +109,14 @@
 	$effect(() => {
 		const key = normalizedRepo;
 		const isOpen = open;
-		if (!isOpen || key === '') return;
+		if (!isOpen || key === '') {
+			ptyTrace('panel.effect.skip', { reason: !isOpen ? 'closed' : 'no-key', key });
+			return;
+		}
 		if (ensuredKey === key) return;
 		ensuredKey = key;
 		const current = store;
+		ptyTrace('panel.effect.run', { key, sessions: current.sessions.length });
 		void current.reconcile().then(() => {
 			if (!open) return;
 			if (normalizePtyRepoKey(repo) !== key) return;
@@ -112,8 +127,15 @@
 			// resurrecting. Only a fresh repo without any stored record
 			// auto-creates its first session.
 			if (current.sessions.length === 0) {
-				if (!current.hasStoredRecord) void spawnAndFocus();
+				if (!current.hasStoredRecord) {
+					ptyTrace('panel.effect.autospawn', { reason: 'empty-fresh' });
+					void spawnAndFocus();
+				}
 			} else if (!current.sessions.some((s) => s.status !== 'exited')) {
+				ptyTrace('panel.effect.autospawn', {
+				reason: 'all-exited',
+					sessions: current.sessions.length,
+				});
 				void spawnAndFocus();
 			}
 		});
@@ -121,6 +143,33 @@
 
 	onDestroy(() => {
 		store.close();
+		uninstallPtyErrorCapture();
+		if (typeof window !== 'undefined') {
+			try {
+				const w = window as unknown as Record<string, unknown>;
+				if (w.__ptyDiag) delete w.__ptyDiag;
+				if (w.__ptyTrace) delete w.__ptyTrace;
+			} catch {
+				// Cleanup is best effort only.
+			}
+		}
+	});
+
+	onMount(() => {
+		if (!isPtyDebugEnabled()) return;
+		installPtyErrorCapture();
+		ptyTrace('panel.mount', { repo: normalizedRepo, open });
+		try {
+			const w = window as unknown as Record<string, unknown>;
+			w.__ptyTrace = getPtyTrace;
+			w.__ptyDiag = () =>
+				runPtyDiag(store).then((result) => {
+					console.debug('[pty] diag', result);
+					return result;
+				});
+		} catch {
+			// Console helpers are best effort only.
+		}
 	});
 
 	function closePanel(): void {
@@ -134,23 +183,31 @@
 
 	async function handleConnect(id: string): Promise<void> {
 		if (!store.byId(id)) return;
+		ptyTrace('panel.connect.start', { id });
 		try {
 			const view = await getPty(id);
 			if (!store.byId(id)) return;
 			store.syncMetaFromServer(id, view);
 			instance?.adoptServerSize(id, view.rows, view.cols);
-		} catch {
+			ptyTrace('panel.connect.ok', { id });
+		} catch (error) {
+			ptyTrace('panel.connect.miss', {
+				id,
+				message: error instanceof Error ? error.message : String(error),
+			});
 			// Session vanished; adopt() on next mount drops it.
 		}
 	}
 
 	function handleSessionExited(id: string): void {
 		if (!store.byId(id)) return;
+		ptyTrace('panel.exited', { id });
 		failedId = id;
 	}
 
 	function handleConnectFailed(id: string): void {
 		if (!store.byId(id)) return;
+		ptyTrace('panel.connectFailed', { id });
 		failedId = id;
 	}
 
@@ -160,28 +217,96 @@
 
 	function removeSession(id: string | null | undefined): void {
 		if (!id) return;
+		ptyTrace('panel.remove.click', { id, sessions: store.sessions.length });
 		if (failedId === id) failedId = null;
 		void store.remove(id);
 	}
 
 	async function spawnAndFocus(command?: string): Promise<void> {
+		ptyTrace('panel.spawn.click', { sessions: store.sessions.length, command: command ?? null });
 		const session = await store.spawn({ cwd, env, command });
 		if (session) {
+			ptyTrace('panel.spawn.done', { id: session.id });
 			await tick();
 			instance?.focus();
 			return;
 		}
+		ptyTrace('panel.spawn.empty', {});
 		toasts.error(t('pty.ptyPanel.newTerminal'), t('pty.ptyPanel.disconnected'));
+	}
+
+	async function copyDebugReport(): Promise<void> {
+		const persisted = readPtyPersisted(normalizedRepo);
+		const report = {
+			url: typeof window === 'undefined' ? '' : window.location.href,
+			repoKey: normalizedRepo,
+			sessions: store.sessions.map((s) => ({
+				id: s.id,
+				title: s.title,
+				status: s.status ?? null,
+			})),
+			activeId: store.activeId,
+			failedId,
+			persisted,
+			trace: getPtyTrace(),
+		};
+		debugMsg = '';
+		try {
+			await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
+			debugMsg = `copied ${report.trace.length} trace entries`;
+		} catch {
+			console.debug('[pty] report', report);
+			debugMsg = 'clipboard blocked; report printed to console';
+		}
+		ptyTrace('panel.report', { sessions: report.sessions.length });
+	}
+
+	async function runDiag(): Promise<void> {
+		debugMsg = 'diag running...';
+		try {
+			const result = await runPtyDiag(store);
+			console.debug('[pty] diag', result);
+			debugMsg = `diag done: spawned=${result.spawnedId ?? 'none'} local=${result.localAfterRemove.ids.length} server=${result.serverAfterRemove.length}`;
+		} catch (error) {
+			debugMsg = `diag failed: ${error instanceof Error ? error.message : String(error)}`;
+		}
 	}
 
 	async function restartExited(id: string): Promise<void> {
 		if (!store.byId(id)) return;
 		clearFailure();
-		await store.clone(id, { cwd, env });
+		await store.clone(id);
 		await tick();
 		instance?.focus();
 	}
 </script>
+
+{#snippet debugBar()}
+	{#if isPtyDebugEnabled()}
+		<div class="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-dashed border-border px-2 py-1 text-micro text-muted-foreground">
+			<span>pty-debug</span>
+			<Button size="sm" variant="outline" onclick={() => void copyDebugReport()}>
+				Copy report
+			</Button>
+			<Button size="sm" variant="outline" onclick={() => void runDiag()}>
+				Run diag
+			</Button>
+			<Button
+				size="sm"
+				variant="ghost"
+				onclick={() => {
+					clearPtyTrace();
+					debugMsg = 'trace cleared';
+				}}
+			>
+				Clear
+			</Button>
+			{#if debugMsg}
+				<span>{debugMsg}</span>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
 
 {#snippet sessionTabs()}
 	<div class="flex flex-wrap items-center gap-1">
@@ -329,7 +454,8 @@
 	</div>
 {/snippet}
 
-{#if open}
+<div class={open ? 'contents' : 'hidden'}>
+	{@render debugBar()}
 	{#if embedded}
 		<div class="flex h-full min-h-0 flex-col gap-1">
 			{#if store.sessions.length === 0}
@@ -386,4 +512,4 @@
 			{/if}
 		</Card>
 	{/if}
-{/if}
+</div>

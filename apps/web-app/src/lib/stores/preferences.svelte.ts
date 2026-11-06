@@ -17,8 +17,6 @@ export type MinimapMode = 'auto' | 'on' | 'off';
 export type AutoTitleMode = 'off' | 'truncate' | 'llm';
 /** Default composer executor for new chat sessions. */
 export type ChatExecutionPreference = 'agent' | 'workflow' | 'chat';
-/** Default agent mode for new chat drafts: `full` runs unrestricted. */
-export type ChatTemporaryPreference = 'full' | 'restricted' | 'ephemeral';
 
 export const SIDEBAR_WIDTH_MIN = 200;
 export const SIDEBAR_WIDTH_MAX = 360;
@@ -52,7 +50,6 @@ interface PersistedPreferences {
 	autoTitleMode?: AutoTitleMode;
 	titleModel?: string;
 	chatExecutionType?: ChatExecutionPreference;
-	chatTemporaryDefault?: ChatTemporaryPreference;
 }
 
 export const EDITOR_FONT_SIZE_MIN = 10;
@@ -98,7 +95,6 @@ class PreferencesStore {
 	autoTitleMode = $state<AutoTitleMode>('truncate');
 	titleModel = $state('');
 	chatExecutionType = $state<ChatExecutionPreference>('agent');
-	chatTemporaryDefault = $state<ChatTemporaryPreference>('restricted');
 
 	constructor() {
 		const stored = read();
@@ -162,13 +158,6 @@ class PreferencesStore {
 			stored.chatExecutionType === 'chat'
 		) {
 			this.chatExecutionType = stored.chatExecutionType;
-		}
-		if (
-			stored.chatTemporaryDefault === 'full' ||
-			stored.chatTemporaryDefault === 'restricted' ||
-			stored.chatTemporaryDefault === 'ephemeral'
-		) {
-			this.chatTemporaryDefault = stored.chatTemporaryDefault;
 		}
 	}
 
@@ -272,11 +261,6 @@ class PreferencesStore {
 		this.persist();
 	}
 
-	setChatTemporaryDefault(mode: ChatTemporaryPreference): void {
-		this.chatTemporaryDefault = mode;
-		this.persist();
-	}
-
 	/** Rotate the tool output detail preset: compact, balanced, verbose. */
 	cycleToolOutputDetail(): void {
 		const order: ToolOutputDetail[] = ['compact', 'balanced', 'verbose'];
@@ -296,7 +280,6 @@ class PreferencesStore {
 		this.toolOutputPreviews = backup.toolOutputPreviews;
 		this.toolOutputDetail = parseToolOutputDetail(backup.toolOutputDetail);
 		this.chatExecutionType = backup.chatExecutionType;
-		this.chatTemporaryDefault = backup.chatTemporaryDefault;
 		this.persist();
 	}
 
@@ -321,7 +304,6 @@ class PreferencesStore {
 					autoTitleMode: this.autoTitleMode,
 					titleModel: this.titleModel,
 					chatExecutionType: this.chatExecutionType,
-					chatTemporaryDefault: this.chatTemporaryDefault,
 				} satisfies PersistedPreferences),
 			);
 		} catch {

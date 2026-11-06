@@ -31,7 +31,10 @@ function delay(ms: number): Promise<void> {
 }
 
 vi.mock('#lib/services/pty', () => ({
-	createPty: vi.fn(async (input: { title?: string } = {}) => {
+	createPty: vi.fn(
+		async (
+			input: { title?: string; cwd?: string; command?: string; env?: Record<string, string> } = {},
+		) => {
 		seq += 1;
 		const session: FakePty = {
 			id: `pty-repro-${seq}`,
@@ -204,5 +207,30 @@ describe('PtySessionStore terminal open/close behaviour', () => {
 		remount.open(repo);
 		expect(remount.sessions.length).toBe(0);
 		expect(remount.hasStoredRecord).toBe(true);
+	});
+
+	it('reuses the stored origin when reviving without explicit options', async () => {
+		const store = ptyStoreFor(freshRepo());
+		const first = await store.spawn({
+			cwd: '/repo/sub',
+			command: 'echo hi',
+			env: { PREVIEW_MODE: '1' },
+		});
+		expect(first?.origin).toEqual({
+			cwd: '/repo/sub',
+			command: 'echo hi',
+			env: { PREVIEW_MODE: '1' },
+		});
+		vi.mocked(ptyService.createPty).mockClear();
+		await store.clone(first!.id);
+		expect(store.sessions.length).toBe(1);
+		expect(vi.mocked(ptyService.createPty)).toHaveBeenCalledTimes(1);
+		expect(vi.mocked(ptyService.createPty)).toHaveBeenCalledWith(
+			expect.objectContaining({
+				cwd: '/repo/sub',
+				command: 'echo hi',
+				env: { PREVIEW_MODE: '1' },
+			}),
+		);
 	});
 });

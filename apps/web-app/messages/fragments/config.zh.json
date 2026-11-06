@@ -44,6 +44,8 @@
 	"config.commands.retry": "重新发送最后一条用户消息",
 	"config.commands.continue": "让运行继续进行，可选择性地进行引导",
 	"config.commands.recap": "显示本回合进展的一行回顾",
+	"config.commands.fenced": "问一轮围栏问题（受限工具），之后自动回到全量",
+	"config.commands.readonly": "问一轮纯读问题（无检查点），之后自动回到全量",
 	"config.sessionTabs.overview": "概览",
 	"config.sessionTabs.graph": "图",
 	"config.sessionTabs.iterations": "迭代",

@@ -44,6 +44,8 @@
 	"config.commands.retry": "Resend the last user message",
 	"config.commands.continue": "Keep the run going, optionally steering it",
 	"config.commands.recap": "Show a one-line recap of where the turn left off",
+	"config.commands.fenced": "Ask one fenced turn with restricted tools, then back to full",
+	"config.commands.readonly": "Ask one read-only turn with no checkpoints, then back to full",
 	"config.sessionTabs.overview": "Overview",
 	"config.sessionTabs.graph": "Graph",
 	"config.sessionTabs.iterations": "Iterations",

@@ -9,6 +9,7 @@
 	import type { PtySession } from '#lib/services/pty';
 	import type { PtySessionStore } from '#lib/stores/pty-session.svelte';
 	import { resolvedTheme } from '#lib/stores/theme.svelte';
+	import { ptyTrace } from './pty-debug';
 
 	interface Props {
 		session: {
@@ -161,6 +162,7 @@
 
 	function scheduleReconnect(startCursor: number): void {
 		if (disposed || reconnectTimer !== undefined) return;
+		ptyTrace('term.reconnect', { id: session.id, tries, startCursor });
 		if (tries >= MAX_RECONNECT_TRIES) {
 			onConnectFailed?.(session.id);
 			return;
@@ -189,6 +191,7 @@
 	function markExited(): void {
 		if (exitHandled) return;
 		exitHandled = true;
+		ptyTrace('term.exited', { id: session.id });
 		if (!store.byId(session.id)) return;
 		store.patch(session.id, { status: 'exited' });
 		onSessionExited?.(session.id);
@@ -197,6 +200,7 @@
 	function open(startCursor: number): void {
 		if (disposed) return;
 		clearReconnect();
+		ptyTrace('term.open', { id: session.id, startCursor });
 		socket?.dispose();
 
 		socket = connectPty(session.id, startCursor, {
@@ -205,6 +209,7 @@
 				if (!connected) {
 					connected = true;
 					tries = 0;
+					ptyTrace('term.socket.open', { id: session.id, cursor: next });
 					onConnect?.(session.id);
 				}
 			},
@@ -217,6 +222,7 @@
 				markExited();
 			},
 			onClose: (code) => {
+				ptyTrace('term.socket.close', { id: session.id, code, disposed });
 				if (disposed) return;
 				connected = false;
 				if (TERMINAL_CLOSE_CODES.has(code)) {
@@ -301,6 +307,12 @@
 		const restoreScrollY = session.scrollY ?? 0;
 		cursor = session.cursor ?? 0;
 		const openCursor = session.cursor ?? (restore ? -1 : 0);
+		ptyTrace('term.mount', {
+			id: session.id,
+			status: session.status ?? null,
+			buffered: restore.length,
+			openCursor,
+		});
 		if (
 			typeof session.rows === 'number' &&
 			typeof session.cols === 'number' &&
@@ -467,6 +479,7 @@
 
 	onDestroy(() => {
 		disposed = true;
+		ptyTrace('term.destroy', { id: session.id });
 		clearReconnect();
 		if (sizeTimer !== undefined) clearTimeout(sizeTimer);
 		if (fitFrame !== undefined) cancelAnimationFrame(fitFrame);

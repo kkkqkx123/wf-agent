@@ -150,9 +150,9 @@
 	"chat.sessionRail.loadMore": "Load more",
 	"chat.resume.noSessions": "No stored sessions yet",
 	"chat.resume.noMatch": "No session matches “{term}”. Pick one from the session list.",
+	"chat.fenced.empty": "Type the question after the command, e.g. /fenced why did this step fail",
 	"chat.composer.attachFiles": "Attach files",
 	"chat.composer.attachImages": "Attach images",
 	"chat.composer.imageDetail": "Image detail",
-	"chat.composerBar.temporaryMode": "temporary conversation mode",
 	"chat.workflowInput.json": "Workflow input JSON"
 }

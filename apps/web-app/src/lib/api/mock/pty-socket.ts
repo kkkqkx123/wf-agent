@@ -464,3 +464,7 @@ export function installMockPtySocket(): void {
 export function previewSessionAlive(id: string): boolean {
 	return getSession(id)?.status === 'running';
 }
+
+export function dropSessionCursor(id: string): void {
+	sessionCursors.delete(id);
+}

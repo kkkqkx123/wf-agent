@@ -28,11 +28,23 @@ describe('matchCommands', () => {
 			'retry',
 			'recap',
 			'resume',
+			'readonly',
 		]);
 	});
 
 	it('parses the recap command', () => {
 		expect(parseCommand('/recap')?.command.name).toBe('recap');
+	});
+
+	it('parses one-shot fenced inquiries', () => {
+		expect(parseCommand('/fenced why did this step fail')).toEqual({
+			command: expect.objectContaining({ name: 'fenced' }),
+			arg: 'why did this step fail',
+		});
+		expect(parseCommand('/readonly what changed here')).toEqual({
+			command: expect.objectContaining({ name: 'readonly' }),
+			arg: 'what changed here',
+		});
 	});
 
 	it('parses the resume command with an optional filter', () => {

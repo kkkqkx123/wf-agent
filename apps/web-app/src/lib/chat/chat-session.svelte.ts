@@ -211,8 +211,10 @@ export class ChatSessionController {
 	executionType = $state<ChatExecutionType>(preferences.chatExecutionType);
 	/** Active agent loop id for the running turn, when known. */
 	activeAgentLoopId = $state<string | null>(null);
-	/** Next-turn temporary override: null follows the session default. Reset on session switch. */
-	temporaryOverride = $state<'full' | 'restricted' | 'ephemeral' | null>(null);
+	/** Fenced scope for the next agent turn only. Null runs full. Never
+	 * marks the session and never follows it across sessions: the send
+	 * path consumes and clears it, and a session switch clears it too. */
+	fencedScope = $state<'restricted' | 'ephemeral' | null>(null);
 	revision = $state(0);
 
 	/** Inspector tab, mirrored into the address by the route. */
@@ -241,15 +243,15 @@ export class ChatSessionController {
 
 		// Group expansion is session-local memory: new ids mean new keys, but
 		// clear explicitly on session switch so stale keys never accumulate.
-		// The temporary override is also per-turn intent: carrying an
-		// `ephemeral` choice from one session into another would fence the
-		// wrong conversation, so it resets alongside the per-session state.
+		// The fenced scope is also per-turn intent: carrying it from one
+		// session into another would fence the wrong conversation, so it
+		// resets alongside the per-session state.
 		$effect(() => {
 			void this.selectedId;
 			this.openGroups.clear();
 			this.dropRecap();
 			this.dropTitle();
-			this.temporaryOverride = null;
+			this.fencedScope = null;
 		});
 
 		$effect(() => {
@@ -588,6 +590,9 @@ export class ChatSessionController {
 			);
 			return false;
 		}
+		// The fenced scope only fences agent turns; any other executor drops
+		// it so a later agent turn never inherits a stale scope.
+		if (this.executionType !== 'agent') this.fencedScope = null;
 		if (this.executionType === 'chat') {
 			void this.runChat(text, message.attachments, message.images);
 		} else if (this.executionType === 'workflow') {
@@ -600,6 +605,21 @@ export class ChatSessionController {
 
 	sendPrompt(text: string): boolean {
 		return this.sendText({ text, attachments: [], images: [] });
+	}
+
+	/**
+	 * One-shot fenced inquiry: the question sends immediately with the
+	 * fenced scope, and the scope clears with the turn. An empty question
+	 * only hints at the usage instead of sending a blank turn.
+	 */
+	private askFenced(arg: string, scope: 'restricted' | 'ephemeral'): void {
+		const question = arg.trim();
+		if (!question) {
+			toasts.info(t('chat.fenced.empty'));
+			return;
+		}
+		this.fencedScope = scope;
+		if (!this.sendPrompt(question)) this.fencedScope = null;
 	}
 
 	retryLast(): void {
@@ -630,61 +650,6 @@ export class ChatSessionController {
 			}
 		}
 		toasts.error('No user message to retry');
-	}
-
-	/** Default temporary mode: drafts follow the saved chat default, saved
-	 * sessions follow their own badge. The default lives in frontend
-	 * preferences, never as a button in the composer row. */
-	defaultTemporaryMode(isDraft: boolean): 'restricted' | 'ephemeral' | null {
-		if (!isDraft) return null;
-		const pref = preferences.chatTemporaryDefault;
-		return pref === 'full' ? null : pref;
-	}
-
-	/** Resolved mode for the next agent turn. Null means a full run. Single
-	 * source for the composer highlight and the send path: an explicit
-	 * override wins, otherwise a saved session stays on its badge and a
-	 * draft falls back to the fenced default. */
-	resolvedTemporaryMode(): 'restricted' | 'ephemeral' | null {
-		if (this.temporaryOverride === 'full') return null;
-		if (this.temporaryOverride === 'restricted' || this.temporaryOverride === 'ephemeral')
-			return this.temporaryOverride;
-		const id = this.selectedId;
-		if (id) return this.sessionBadge(id);
-		return this.defaultTemporaryMode(true);
-	}
-
-	/** Effective temporary mode for the next agent turn. Null means a full run. */
-	effectiveTemporaryMode(draft: boolean): 'restricted' | 'ephemeral' | null {
-		if (this.temporaryOverride === 'full') return null;
-		if (this.temporaryOverride === 'restricted' || this.temporaryOverride === 'ephemeral')
-			return this.temporaryOverride;
-		if (draft) return this.defaultTemporaryMode(true);
-		const id = this.selectedId;
-		if (id) return this.sessionBadge(id);
-		return this.defaultTemporaryMode(false);
-	}
-
-	/** Composer toggle for the next agent turn. Null restores the default. */
-	setTemporaryOverride(mode: 'full' | 'restricted' | 'ephemeral' | null): void {
-		this.temporaryOverride = mode;
-	}
-
-	/** Local badge of one session; drives the composer mark and the empty-state hint. */
-	sessionBadge(id: string): 'restricted' | 'ephemeral' | null {
-		return sessions.sessionBadge(id);
-	}
-
-	isEphemeralSession(id: string): boolean {
-		return sessions.sessionBadge(id) === 'ephemeral';
-	}
-
-	private markTemporary(id: string, mode: 'restricted' | 'ephemeral'): void {
-		sessions.markTemporary(id, mode);
-	}
-
-	private clearTemporary(id: string): void {
-		sessions.clearTemporary(id);
 	}
 
 	recordFeedback(kind: 'up' | 'down'): void {
@@ -777,6 +742,8 @@ export class ChatSessionController {
 		continue: (arg) => this.sendPrompt(arg ? `Continue: ${arg}` : 'Continue'),
 		recap: () => this.requestRecapNow(),
 		resume: (arg) => this.resumeSession(arg),
+		fenced: (arg) => this.askFenced(arg, 'restricted'),
+		readonly: (arg) => this.askFenced(arg, 'ephemeral'),
 	};
 
 	/**
@@ -956,7 +923,13 @@ export class ChatSessionController {
 		};
 	}
 
-	/** Run the message through the agent loop. */
+	/**
+	 * Run the message through the agent loop. The fenced scope applies to
+	 * this turn only: a fenced turn runs with the fenced tool exposure and
+	 * the next turn is full again, while the session itself never changes
+	 * identity. Ephemeral turns persist no checkpoints; continuing one as
+	 * full starts a new session with explicit history instead of reusing it.
+	 */
 	async runAgent(
 		content: string,
 		files: MessageAttachment[],
@@ -964,20 +937,9 @@ export class ChatSessionController {
 	): Promise<void> {
 		this.activeAgentLoopId = null;
 		rememberImageNames(images);
+		const scope = this.fencedScope;
+		this.fencedScope = null;
 		const draft = !this.selectedId;
-		const effectiveTemporary = this.resolvedTemporaryMode();
-		// Ephemeral chains stay empty by design, so the backend rejects
-		// reusing their id for any other mode. Block the turn up front
-		// instead of surfacing a 400 mid-stream; promotion starts a new
-		// session with explicit history.
-		if (!draft && this.selectedId && this.sessionBadge(this.selectedId) === 'ephemeral') {
-			if (effectiveTemporary !== 'ephemeral') {
-				toasts.error(
-					'Ephemeral read-only sessions cannot continue as full or temporary on the same id; start a new session to continue with more tools',
-				);
-				return;
-			}
-		}
 		this.beginRecapTurn();
 		const baseline = new SvelteSet(sessions.list.items.map((item) => item.id));
 		const startedAt = new SvelteDate().toISOString();
@@ -1000,7 +962,7 @@ export class ChatSessionController {
 				agentId: this.agentId.trim(),
 				message: content,
 				conversation: history,
-				...(effectiveTemporary ? { temporaryMode: effectiveTemporary } : {}),
+				...(scope ? { temporaryMode: scope } : {}),
 				...(images.length > 0 ? { images: images.map(toImagePayload) } : {}),
 				...(files.length > 0 ? { attachments: files.map(toAttachmentPayload) } : {}),
 			},
@@ -1030,7 +992,7 @@ export class ChatSessionController {
 			},
 			signal,
 		);
-		await this.settleRun(draft, baseline, startedAt, content, effectiveTemporary);
+		await this.settleRun(draft, baseline, startedAt, content);
 	}
 
 	/**
@@ -1187,7 +1149,6 @@ export class ChatSessionController {
 		baseline: SvelteSet<string>,
 		startedAt: string,
 		content: string,
-		temporary: 'restricted' | 'ephemeral' | null = null,
 	): Promise<void> {
 		if (!chatStream.error && !chatStream.done) chatStream.complete();
 		await sessions.refresh();
@@ -1198,7 +1159,6 @@ export class ChatSessionController {
 				sessions.recordTitle(adopted.id, content);
 				await sessions.open(adopted.id);
 				this.maybeAutoTitle(adopted.id);
-				if (temporary) this.markTemporary(adopted.id, temporary);
 			}
 		} else if (
 			this.executionType === 'chat' &&
@@ -1214,17 +1174,6 @@ export class ChatSessionController {
 				sessions.recordTitle(id, content);
 				this.maybeAutoTitle(id);
 			}
-		}
-		if (
-			!draft &&
-			this.executionType === 'agent' &&
-			this.selectedId &&
-			chatStream.done &&
-			!chatStream.error &&
-			!chatStream.cancelled
-		) {
-			if (temporary) this.markTemporary(this.selectedId, temporary);
-			else this.clearTemporary(this.selectedId);
 		}
 		this.revision += 1;
 		if (this.selectedId) await this.transcript.reload();

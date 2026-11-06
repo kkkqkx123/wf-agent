@@ -1,6 +1,7 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { createPty, closePty, updatePty, getPty, listPtys } from '#lib/services/pty';
 import type { PtySession } from '#lib/services/pty';
+import { ptyTrace } from '#lib/components/pty/pty-debug';
 
 /**
  * Local view of a server PTY session. Buffer/scrollY/cursor live only in
@@ -12,6 +13,11 @@ export interface LocalPtySession {
 	id: string;
 	title: string;
 	titleNumber?: number;
+	origin?: {
+		cwd?: string;
+		command?: string;
+		env?: Record<string, string>;
+	};
 	rows?: number;
 	cols?: number;
 	buffer?: string;
@@ -127,6 +133,7 @@ export class PtySessionStore {
 						}
 					})();
 					this.activeId = rawActive && seen.has(rawActive) ? rawActive : (cleaned[0]?.id ?? null);
+					ptyTrace('store.open', { repo, restored: cleaned.length, activeId: this.activeId });
 				}
 			}
 		} catch {
@@ -177,8 +184,12 @@ export class PtySessionStore {
 			release = resolve;
 		});
 		await previous;
+		ptyTrace('store.spawn.start', { sessions: this.sessions.length });
 		try {
-			if (this.sessions.length >= MAX_TERMINAL_SESSIONS) return null;
+			if (this.sessions.length >= MAX_TERMINAL_SESSIONS) {
+				ptyTrace('store.spawn.capped', { sessions: this.sessions.length });
+				return null;
+			}
 			const number = this.pickNextNumber();
 			const title = `Terminal ${number}`;
 			try {
@@ -192,6 +203,16 @@ export class PtySessionStore {
 					id: view.id,
 					title: view.title || title,
 					titleNumber: number,
+					origin:
+						options?.cwd !== undefined ||
+						options?.command !== undefined ||
+						options?.env !== undefined
+							? {
+									...(options?.cwd !== undefined ? { cwd: options.cwd } : {}),
+									...(options?.command !== undefined ? { command: options.command } : {}),
+									...(options?.env !== undefined ? { env: options.env } : {}),
+								}
+							: undefined,
 					rows: view.rows,
 					cols: view.cols,
 					status: view.status,
@@ -200,8 +221,13 @@ export class PtySessionStore {
 				this.sessions = [...this.sessions, session];
 				this.activeId = view.id;
 				this.schedulePersist();
+				ptyTrace('store.spawn.created', { id: view.id, activeId: this.activeId });
 				return session;
-			} catch {
+			} catch (error) {
+				ptyTrace('store.spawn.failed', {
+					sessions: this.sessions.length,
+					message: error instanceof Error ? error.message : String(error),
+				});
 				return null;
 			}
 		} finally {
@@ -213,6 +239,7 @@ export class PtySessionStore {
 	async adopt(id: string): Promise<void> {
 		try {
 			const view = await getPty(id);
+			ptyTrace('store.adopt.start', { id });
 			const existing = this.byId(id);
 			if (existing) {
 				this.patch(id, {
@@ -244,6 +271,7 @@ export class PtySessionStore {
 			this.activeId = id;
 			this.schedulePersist();
 		} catch {
+			ptyTrace('store.adopt.drop', { id });
 			// Missing sessions are dropped from the local list.
 			this.sessions = this.sessions.filter((s) => s.id !== id);
 			if (this.activeId === id) {
@@ -255,6 +283,7 @@ export class PtySessionStore {
 
 	setActive(id: string): void {
 		if (this.byId(id)) {
+			ptyTrace('store.setActive', { id });
 			this.activeId = id;
 			this.schedulePersist();
 		}
@@ -301,6 +330,7 @@ export class PtySessionStore {
 		if (this.activeId === id) {
 			this.activeId = this.sessions[0]?.id ?? null;
 		}
+		ptyTrace('store.remove', { id, remaining: this.sessions.length, activeId: this.activeId });
 		this.schedulePersist();
 		await closePty(id).catch(() => {});
 	}
@@ -312,6 +342,7 @@ export class PtySessionStore {
 	/** Record the serialized buffer after a connection cycle completes. */
 	saveBuffer(id: string, buffer: string, scrollY: number, cursor: number): void {
 		if (!this.byId(id)) return;
+		ptyTrace('store.saveBuffer', { id, chars: buffer.length, cursor });
 		const cut = truncateBuffer(buffer);
 		this.patch(id, {
 			buffer: cut.buffer,
@@ -323,13 +354,17 @@ export class PtySessionStore {
 
 	/** Reconcile local sessions against the server list. */
 	async reconcile(): Promise<void> {
-		if (!this.repo || this.sessions.length === 0) return;
+		if (!this.repo || this.sessions.length === 0) {
+			ptyTrace('store.reconcile.skip', { repo: this.repo, sessions: this.sessions.length });
+			return;
+		}
 		const startingIds = new Set(this.sessions.map((s) => s.id));
 		let serverIds: SvelteSet<string>;
 		try {
 			const list = await listPtys();
 			serverIds = new SvelteSet(list.map((s) => s.id));
 		} catch {
+			ptyTrace('store.reconcile.fetchFail', {});
 			return;
 		}
 		let changed = false;
@@ -354,6 +389,11 @@ export class PtySessionStore {
 			}
 			changed = true;
 		}
+		ptyTrace('store.reconcile', {
+			starting: startingIds.size,
+			kept: kept.length,
+			changed,
+		});
 		if (changed) {
 			this.sessions = kept;
 			if (this.activeId && !kept.some((s) => s.id === this.activeId)) {
@@ -367,6 +407,7 @@ export class PtySessionStore {
 	syncMetaFromServer(id: string, meta: PtySession): void {
 		const existing = this.byId(id);
 		if (!existing) return;
+		ptyTrace('store.syncMeta', { id, status: meta.status });
 		this.patch(id, {
 			status: meta.status,
 			exitCode: meta.exit_code ?? undefined,
@@ -393,13 +434,19 @@ export class PtySessionStore {
 	 * Recover a broken session by cloning it: the local buffer is kept so the
 	 * user does not lose scrollback, but a fresh server session is spawned.
 	 */
-	async clone(id: string, options?: { cwd?: string; env?: Record<string, string> }): Promise<void> {
+	async clone(
+		id: string,
+		options?: { cwd?: string; command?: string; env?: Record<string, string> },
+	): Promise<void> {
 		if (this.cloneInFlight.has(id)) return;
 		const previous = this.byId(id);
 		if (!previous) return;
 		this.cloneInFlight.add(id);
 		try {
-			const replacement = await this.spawn(options);
+			const effective = options ?? previous.origin;
+			ptyTrace('store.clone.start', { id, storedOrigin: previous.origin !== undefined });
+			const replacement = await this.spawn(effective);
+			ptyTrace('store.clone.spawned', { id, replacementId: replacement?.id ?? null });
 			if (!replacement) return;
 			this.patch(replacement.id, {
 				title: previous.title,

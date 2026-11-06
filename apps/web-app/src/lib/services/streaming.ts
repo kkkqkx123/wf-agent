@@ -46,10 +46,10 @@ export interface LoopStreamBody {
 	/** Optional agent template id; empty falls back to the default main agent. */
 	agentId?: string;
 	/**
-	 * Temporary execution mode of this run: `restricted` fences a draft's
-	 * first turns onto the read-only/network allowlist, `ephemeral` runs a
-	 * short read-only Q&A with no checkpoints at all. Absent means a full
-	 * agent run; the server enforces the exposure.
+	 * Fenced scope of this turn: `restricted` fences the turn onto the
+	 * read-only/network allowlist, `ephemeral` runs a short read-only Q&A
+	 * with no checkpoints at all. Absent means a full agent run; the
+	 * server enforces the exposure.
 	 */
 	temporaryMode?: TemporaryRunMode;
 	/** Optional per-run filesystem scope; absent inherits the global default. */

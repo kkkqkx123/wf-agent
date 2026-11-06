@@ -75,24 +75,6 @@ class SessionStore {
 		this.local.applyTitle(id, title);
 	}
 
-	/** Local temporary badge of one session; null when full or unknown. */
-	sessionBadge(id: string): 'restricted' | 'ephemeral' | null {
-		return this.local.temporaryBadge(id);
-	}
-
-	/** Whether the session is marked temporary or read-only. */
-	isTemporary(id: string): boolean {
-		return this.sessionBadge(id) !== null;
-	}
-
-	markTemporary(id: string, mode: 'restricted' | 'ephemeral'): void {
-		this.local.markTemporary(id, mode);
-	}
-
-	clearTemporary(id: string): void {
-		this.local.clearTemporary(id);
-	}
-
 	isStarred(id: string): boolean {
 		return this.remote.isStarred(id);
 	}
@@ -150,11 +132,6 @@ class SessionStore {
 
 	async refresh(): Promise<void> {
 		await this.remote.refresh();
-		// An empty list usually means the backend was unreachable, not that
-		// every session was deleted; pruning then would wipe badges on a
-		// transient failure. Only prune against a non-empty snapshot.
-		const ids = this.list.items.map((item) => item.id);
-		if (ids.length > 0) this.local.pruneTemporary(ids);
 	}
 
 	async refreshStars(): Promise<void> {

@@ -1,17 +1,13 @@
 <script lang="ts">
 	import Button from '#lib/ui/components/Button.svelte';
 	import Dialog from '#lib/ui/components/Dialog.svelte';
-	import DiffView from '#lib/ui/components/DiffView.svelte';
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import ResizeHandle from '#lib/components/layout/ResizeHandle.svelte';
 	import { ide } from '#lib/stores/ide.svelte';
 	import { fileRowClass, markerClass } from '#lib/git/tone';
 	import {
 		getCommitFiles,
-		getDiff,
-		getDiffRange,
 		getMeta,
-		getStagedDiff,
 		listBranches,
 		listCommits,
 		listFiles,
@@ -22,7 +18,6 @@
 		type GitFile,
 		type RepoMeta,
 	} from '#lib/services/git';
-	import type { DiffFile } from '#lib/types/diff';
 	import { EMPTY_TREE_SHA, type DiffTarget } from '#lib/ide/diff-tabs';
 	import { t } from '#lib/i18n';
 
@@ -44,12 +39,6 @@
 	let expandedCommit = $state<string | null>(null);
 	let filesByCommit = $state<Record<string, CommitFileEntry[]>>({});
 	let filesLoading = $state(false);
-	let expandedFile = $state<string | null>(null);
-	let diffsByKey = $state<Record<string, DiffFile[]>>({});
-	let diffLoading = $state(false);
-	let expandedChange = $state<string | null>(null);
-	let changeDiffs = $state<Record<string, DiffFile[]>>({});
-	let changeLoading = $state(false);
 	let branchOpen = $state(false);
 	let checkoutTarget = $state<CommitEntry | null>(null);
 	let resetTarget = $state<CommitEntry | null>(null);
@@ -95,8 +84,6 @@
 				return;
 			}
 			changes = files;
-			expandedChange = null;
-			changeDiffs = {};
 			branches = branchList;
 			commits = commitList;
 			hasMore = commitList.length >= COMMIT_PAGE;
@@ -124,11 +111,9 @@
 	async function toggleCommit(commit: CommitEntry): Promise<void> {
 		if (expandedCommit === commit.id) {
 			expandedCommit = null;
-			expandedFile = null;
 			return;
 		}
 		expandedCommit = commit.id;
-		expandedFile = null;
 		if (filesByCommit[commit.id]) return;
 		filesLoading = true;
 		try {
@@ -140,22 +125,11 @@
 		}
 	}
 
-	async function toggleCommitFile(commit: CommitEntry, file: CommitFileEntry): Promise<void> {
-		const key = `${commit.id}:${file.path}`;
-		if (expandedFile === key) {
-			expandedFile = null;
-			return;
-		}
-		expandedFile = key;
-		if (diffsByKey[key]) return;
-		diffLoading = true;
-		try {
-			diffsByKey[key] = await getDiffRange(`${commit.id}^`, commit.id, file.path);
-		} catch (e) {
-			actionError = e instanceof Error ? e.message : String(e);
-		} finally {
-			diffLoading = false;
-		}
+	function openChangeDiff(group: 'staged' | 'unstaged' | 'conflicted', file: GitFile): void {
+		onViewFileDiff({
+			path: file.path,
+			base: group === 'staged' ? { kind: 'staged' } : { kind: 'unstaged' },
+		});
 	}
 
 	function openCommitDiff(commit: CommitEntry, file: CommitFileEntry): void {
@@ -175,32 +149,6 @@
 
 	function hasUnstaged(file: GitFile): boolean {
 		return file.unstaged !== '' && file.unstaged !== '.' && file.unstaged !== ' ';
-	}
-
-	async function toggleChange(
-		group: 'staged' | 'unstaged' | 'conflicted',
-		file: GitFile,
-	): Promise<void> {
-		const key = `${group}:${file.path}`;
-		if (expandedChange === key) {
-			expandedChange = null;
-			return;
-		}
-		expandedChange = key;
-		if (changeDiffs[key]) return;
-		changeLoading = true;
-		try {
-			if (file.kind === 'untracked') {
-				changeDiffs[key] = [];
-			} else {
-				const rows = group === 'staged' ? await getStagedDiff(file.path) : await getDiff(file.path);
-				changeDiffs[key] = rows.filter((row) => row.path === file.path);
-			}
-		} catch (e) {
-			actionError = e instanceof Error ? e.message : String(e);
-		} finally {
-			changeLoading = false;
-		}
 	}
 
 	async function afterWrite(): Promise<void> {
@@ -441,9 +389,7 @@
 			{/if}
 
 			{#snippet changeRow(file: GitFile, group: 'staged' | 'unstaged' | 'conflicted')}
-				{@const key = `${group}:${file.path}`}
 				{@const letter = group === 'staged' ? file.staged : file.unstaged}
-				{@const isOpen = expandedChange === key}
 				{@const busy = busyAction !== null}
 				<div>
 					<div class="group relative flex items-center gap-1 px-2 py-0.5">
@@ -453,8 +399,7 @@
 								file,
 							)}"
 							title={file.path}
-							aria-expanded={isOpen}
-							onclick={() => void toggleChange(group, file)}
+							onclick={() => openChangeDiff(group, file)}
 						>
 							{file.path}
 						</button>
@@ -512,59 +457,6 @@
 							/>
 						</div>
 					</div>
-					{#if isOpen}
-						<div class="px-2 pb-1 pl-3">
-							{#if changeLoading && !changeDiffs[key]}
-								<p class="py-1 text-micro text-muted-foreground">{t('common.loading')}</p>
-							{:else}
-								<div class="max-h-64 overflow-y-auto rounded-md border border-border/60">
-									{#each changeDiffs[key] ?? [] as diff (diff.path)}
-										<DiffView lines={diff.lines} title={diff.path} class="my-1" />
-									{/each}
-								</div>
-								{#if (changeDiffs[key] ?? []).length === 0}
-									<p class="py-1 text-micro text-muted-foreground">
-										{t('page.ide.diffEmpty')}
-									</p>
-								{/if}
-							{/if}
-							<div class="flex flex-wrap gap-1 pt-1">
-								{#if group === 'unstaged'}
-									<Button size="sm" variant="ghost" disabled={busy} onclick={() => stageFile(file)}>
-										{t('page.ide.stage')}
-									</Button>
-									{#if file.kind !== 'untracked'}
-										<Button
-											size="sm"
-											variant="ghost"
-											disabled={busy}
-											onclick={() => openDiscard(file)}
-										>
-											{t('page.ide.discardChanges')}
-										</Button>
-									{/if}
-								{:else if group === 'staged'}
-									<Button size="sm" variant="ghost" disabled={busy} onclick={() => stageFile(file)}>
-										{t('page.ide.unstage')}
-									</Button>
-								{/if}
-								<Button size="sm" variant="ghost" onclick={() => void openFile(file.path)}>
-									{t('page.ide.menuOpen')}
-								</Button>
-								<Button
-									size="sm"
-									variant="ghost"
-									onclick={() =>
-										onViewFileDiff({
-											path: file.path,
-											base: group === 'staged' ? { kind: 'staged' } : { kind: 'unstaged' },
-										})}
-								>
-									{t('page.ide.viewDiff')}
-								</Button>
-							</div>
-						</div>
-					{/if}
 				</div>
 			{/snippet}
 
@@ -762,15 +654,13 @@
 												{:else}
 													{@const files = filesByCommit[commit.id] ?? []}
 													{#each files.slice(0, COMMIT_FILE_CAP) as file (file.path)}
-														{@const key = `${commit.id}:${file.path}`}
 														<div>
 															<div class="flex items-center gap-1">
 																<button
 																	type="button"
 																	class="min-w-0 flex-1 cursor-pointer truncate rounded px-1 py-0.5 text-left text-micro hover:bg-accent/60"
 																	title={file.path}
-																	onclick={() => void toggleCommitFile(commit, file)}
-																	aria-expanded={expandedFile === key}
+																	onclick={() => openCommitDiff(commit, file)}
 																>
 																	{file.path}
 																</button>
@@ -780,35 +670,6 @@
 																	{file.status}
 																</span>
 															</div>
-															{#if expandedFile === key}
-																{#if diffLoading && !diffsByKey[key]}
-																	<p class="py-1 pl-3 text-micro text-muted-foreground">
-																		{t('common.loading')}
-																	</p>
-																{:else}
-																	<div
-																		class="max-h-64 overflow-y-auto rounded-md border border-border/60"
-																	>
-																		{#each diffsByKey[key] ?? [] as diff (diff.path)}
-																			<DiffView lines={diff.lines} title={diff.path} class="my-1" />
-																		{/each}
-																	</div>
-																	{#if (diffsByKey[key] ?? []).length === 0}
-																		<p class="py-1 pl-3 text-micro text-muted-foreground">
-																			{t('page.ide.diffEmpty')}
-																		</p>
-																	{/if}
-																	<div class="pt-1">
-																		<Button
-																			size="sm"
-																			variant="ghost"
-																			onclick={() => openCommitDiff(commit, file)}
-																		>
-																			{t('page.ide.viewDiff')}
-																		</Button>
-																	</div>
-																{/if}
-															{/if}
 														</div>
 													{/each}
 													{#if files.length > COMMIT_FILE_CAP}

@@ -58,7 +58,6 @@
 	let ensuredKey: string | null = $state(null);
 	let failedId = $state<string | null>(null);
 	let instance: TerminalInstance | undefined = $state();
-	let spawning = $state(false);
 	// The terminal view (and the xterm bundle) loads on demand so the route
 	// chunks stay light and a load failure degrades to panel retry.
 	let terminalView: typeof TerminalInstance | null = $state(null);
@@ -108,11 +107,15 @@
 			if (normalizePtyRepoKey(repo) !== key) return;
 			// Restored sessions may all be exited (stale ids after a reload):
 			// keep their scrollback tabs and ensure one live session so the
-			// panel never shows a prompt-looking dead terminal. An empty list
-			// means fresh or user-closed-all, so show the empty state and let
-			// the user create explicitly instead of resurrecting a terminal.
-			if (current.sessions.length > 0 && !current.sessions.some((s) => s.status !== 'exited'))
+			// panel never shows a prompt-looking dead terminal. A persisted
+			// empty list means the user closed all, so stay empty instead of
+			// resurrecting. Only a fresh repo without any stored record
+			// auto-creates its first session.
+			if (current.sessions.length === 0) {
+				if (!current.hasStoredRecord) void spawnAndFocus();
+			} else if (!current.sessions.some((s) => s.status !== 'exited')) {
 				void spawnAndFocus();
+			}
 		});
 	});
 
@@ -130,8 +133,10 @@
 	}
 
 	async function handleConnect(id: string): Promise<void> {
+		if (!store.byId(id)) return;
 		try {
 			const view = await getPty(id);
+			if (!store.byId(id)) return;
 			store.syncMetaFromServer(id, view);
 			instance?.adoptServerSize(id, view.rows, view.cols);
 		} catch {
@@ -140,10 +145,12 @@
 	}
 
 	function handleSessionExited(id: string): void {
+		if (!store.byId(id)) return;
 		failedId = id;
 	}
 
 	function handleConnectFailed(id: string): void {
+		if (!store.byId(id)) return;
 		failedId = id;
 	}
 
@@ -158,32 +165,21 @@
 	}
 
 	async function spawnAndFocus(command?: string): Promise<void> {
-		if (spawning) return;
-		spawning = true;
-		try {
-			const session = await store.spawn({ cwd, env, command });
-			if (session) {
-				await tick();
-				instance?.focus();
-				return;
-			}
-			toasts.error(t('pty.ptyPanel.newTerminal'), t('pty.ptyPanel.disconnected'));
-		} finally {
-			spawning = false;
+		const session = await store.spawn({ cwd, env, command });
+		if (session) {
+			await tick();
+			instance?.focus();
+			return;
 		}
+		toasts.error(t('pty.ptyPanel.newTerminal'), t('pty.ptyPanel.disconnected'));
 	}
 
 	async function restartExited(id: string): Promise<void> {
-		if (spawning) return;
-		spawning = true;
-		try {
-			clearFailure();
-			await store.clone(id, { cwd, env });
-			await tick();
-			instance?.focus();
-		} finally {
-			spawning = false;
-		}
+		if (!store.byId(id)) return;
+		clearFailure();
+		await store.clone(id, { cwd, env });
+		await tick();
+		instance?.focus();
 	}
 </script>
 
@@ -252,16 +248,10 @@
 			label={t('pty.ptyPanel.newTerminal')}
 			compact
 			variant="ghost"
-			disabled={spawning}
 			onclick={() => void spawnAndFocus()}
 		/>
 		{#each quickCommands as quick (quick.command)}
-			<Button
-				size="sm"
-				variant="outline"
-				disabled={spawning}
-				onclick={() => void spawnAndFocus(quick.command)}
-			>
+			<Button size="sm" variant="outline" onclick={() => void spawnAndFocus(quick.command)}>
 				{quick.label}
 			</Button>
 		{/each}
@@ -271,24 +261,19 @@
 {#snippet emptyState()}
 	<div class="flex flex-col items-start gap-2">
 		<p class="text-caption text-muted-foreground">{t('pty.ptyPanel.noSessions')}</p>
-		<Button size="sm" variant="outline" disabled={spawning} onclick={() => void spawnAndFocus()}>
+		<Button size="sm" variant="outline" onclick={() => void spawnAndFocus()}>
 			{t('pty.ptyPanel.newTerminal')}
 		</Button>
 	</div>
 {/snippet}
 
 {#snippet failureBanner()}
-	{#if failedId}
+	{#if failedId && store.byId(failedId)}
 		<div
 			class="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1 text-micro"
 		>
 			<span>{t('pty.ptyPanel.disconnected')}</span>
-			<Button
-				size="sm"
-				variant="outline"
-				disabled={spawning}
-				onclick={() => void restartExited(failedId!)}
-			>
+			<Button size="sm" variant="outline" onclick={() => void restartExited(failedId!)}>
 				{t('pty.ptyPanel.restart')}
 			</Button>
 			<Button size="sm" variant="ghost" onclick={clearFailure}>
@@ -333,6 +318,10 @@
 						<Button size="sm" variant="outline" onclick={loadTerminalView}>
 							{t('common.retry')}
 						</Button>
+					</div>
+				{:else}
+					<div class="flex h-full flex-col items-start justify-center gap-2 p-4">
+						<p class="text-caption text-muted-foreground">{t('common.loading')}</p>
 					</div>
 				{/if}
 			{/if}
@@ -384,7 +373,7 @@
 						size="sm"
 						variant="ghost"
 						onclick={() => removeSession(store.activeId)}
-						disabled={!store.activeId || spawning}
+						disabled={!store.activeId}
 					>
 						{t('pty.ptyPanel.closeActive')}
 					</Button>

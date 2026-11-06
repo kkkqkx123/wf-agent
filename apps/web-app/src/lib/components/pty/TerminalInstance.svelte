@@ -189,6 +189,7 @@
 	function markExited(): void {
 		if (exitHandled) return;
 		exitHandled = true;
+		if (!store.byId(session.id)) return;
 		store.patch(session.id, { status: 'exited' });
 		onSessionExited?.(session.id);
 	}

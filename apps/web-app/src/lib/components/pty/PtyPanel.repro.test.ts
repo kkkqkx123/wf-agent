@@ -1,35 +1,21 @@
-// @vitest-environment jsdom
 /**
- * Reproduction harness for the IDE terminal panel issues:
- * - closing the last terminal looks like a fresh terminal instead of closing
- * - creating a terminal takes two clicks
+ * Store-level reproduction for the IDE terminal panel issues:
+ * - closing the last terminal must empty the panel and stay empty
+ * - every spawn call must create exactly one terminal, including concurrent clicks
+ * - reconcile must not prune sessions created while its fetch is in flight
+ * - a fresh repo without any stored record is distinguishable from a
+ *   user-closed-all repo with a persisted empty list
  *
- * Mounts the real PtyPanel with a fake PTY service and stubbed xterm, then
- * drives the actual rendered buttons and asserts store + DOM state.
+ * The previous component mount harness cannot run under vitest SSR
+ * compilation, so this file drives PtySessionStore directly with a fake
+ * PTY service. Panel behavior follows from these store guarantees plus
+ * the template guards for removed ids.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-// Import the client entry directly: under vitest SSR resolution the bare
-// 'svelte' specifier settles on the server build where mount() is stubbed.
-import { mount, tick, unmount } from '/home/kkkqkx/code/wf-agent/apps/node_modules/svelte/src/index-client.js';
-
-// jsdom lacks these; the terminal view touches them on mount.
-if (typeof globalThis.ResizeObserver === 'undefined') {
-	globalThis.ResizeObserver = class {
-		observe(): void {}
-		unobserve(): void {}
-		disconnect(): void {}
-	} as unknown as typeof ResizeObserver;
-}
-if (typeof globalThis.requestAnimationFrame === 'undefined') {
-	globalThis.requestAnimationFrame = ((callback: FrameRequestCallback): number =>
-		setTimeout(() => callback(Date.now()), 0) as unknown as number) as typeof requestAnimationFrame;
-	globalThis.cancelAnimationFrame = ((handle: number): void => {
-		clearTimeout(handle);
-	}) as typeof cancelAnimationFrame;
-}
 
 interface FakePty {
 	id: string;
+	cwd: string;
 	title: string;
 	status: 'running' | 'exited';
 	exit_code: number | null;
@@ -40,36 +26,33 @@ interface FakePty {
 const server = new Map<string, FakePty>();
 let seq = 0;
 
-vi.mock('#lib/services/pty', async (importOriginal) => {
-	const original = await importOriginal<typeof import('#lib/services/pty')>();
-	return {
-		...original,
-		createPty: async (input: {
-			cwd?: string;
-			command?: string;
-			rows?: number;
-			cols?: number;
-			title?: string;
-		} = {}) => {
-			seq += 1;
-			const session: FakePty = {
-				id: `pty-repro-${seq}`,
-				title: input.title ?? `Terminal ${seq}`,
-				status: 'running',
-				exit_code: null,
-				rows: 24,
-				cols: 80,
-			};
-			server.set(session.id, { ...session });
-			return { ...session };
-		},
-		listPtys: async () => [...server.values()].map((s) => ({ ...s })),
-		getPty: async (id: string) => {
-			const session = server.get(id);
-			if (!session) throw new Error(`PTY session not found: ${id}`);
-			return { ...session };
-		},
-		updatePty: async (id: string, patch: { title?: string; rows?: number; cols?: number }) => {
+function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+vi.mock('#lib/services/pty', () => ({
+	createPty: vi.fn(async (input: { title?: string } = {}) => {
+		seq += 1;
+		const session: FakePty = {
+			id: `pty-repro-${seq}`,
+			cwd: '/test',
+			title: input.title ?? `Terminal ${seq}`,
+			status: 'running',
+			exit_code: null,
+			rows: 24,
+			cols: 80,
+		};
+		server.set(session.id, { ...session });
+		return { ...session };
+	}),
+	listPtys: vi.fn(async () => [...server.values()].map((s) => ({ ...s }))),
+	getPty: vi.fn(async (id: string) => {
+		const session = server.get(id);
+		if (!session) throw new Error(`PTY session not found: ${id}`);
+		return { ...session };
+	}),
+	updatePty: vi.fn(
+		async (id: string, patch: { title?: string; rows?: number; cols?: number }) => {
 			const session = server.get(id);
 			if (!session) throw new Error(`PTY session not found: ${id}`);
 			const next = {
@@ -81,189 +64,145 @@ vi.mock('#lib/services/pty', async (importOriginal) => {
 			server.set(id, next);
 			return { ...next };
 		},
-		closePty: async (id: string) => {
-			server.delete(id);
+	),
+	closePty: vi.fn(async (id: string) => {
+		server.delete(id);
+	}),
+	connectPty: vi.fn(() => ({
+		socket: () => null,
+		send: () => {},
+		dispose: () => {},
+	})),
+	createTerminalWriter: vi.fn(),
+}));
+
+function installLocalStorage(): void {
+	const data = new Map<string, string>();
+	const storage = {
+		getItem: (key: string): string | null => data.get(key) ?? null,
+		setItem: (key: string, value: string): void => {
+			data.set(key, String(value));
 		},
-		connectPty: (
-			_id: string,
-			_cursor: number,
-			options: { onMeta?: (cursor: number) => void } = {},
-		) => {
-			setTimeout(() => options.onMeta?.(0), 0);
-			return {
-				socket: () => null,
-				send: () => {},
-				dispose: () => {},
-			};
+		removeItem: (key: string): void => {
+			data.delete(key);
 		},
-	};
-});
-
-vi.mock('@xterm/xterm', () => {
-	class Terminal {
-		options: Record<string, unknown>;
-		textarea: HTMLTextAreaElement | null = null;
-		parser = { registerCsiHandler: () => {} };
-		buffer = { active: { viewportY: 0 } };
-		constructor(options: Record<string, unknown> = {}) {
-			this.options = { ...options };
-		}
-		loadAddon(): void {}
-		open(container: HTMLElement): void {
-			this.textarea = document.createElement('textarea');
-			container.appendChild(this.textarea);
-		}
-		write(_data: string, callback?: () => void): void {
-			callback?.();
-		}
-		focus(): void {}
-		dispose(): void {}
-		hasSelection(): boolean {
-			return false;
-		}
-		getSelection(): string {
-			return '';
-		}
-		scrollToLine(): void {}
-		attachCustomKeyEventHandler(): void {}
-		onData(_listener: unknown): { dispose(): void } {
-			return { dispose: () => {} };
-		}
-		onBinary(_listener: unknown): { dispose(): void } {
-			return { dispose: () => {} };
-		}
-		onResize(_listener: unknown): { dispose(): void } {
-			return { dispose: () => {} };
-		}
-	}
-	return { Terminal };
-});
-
-vi.mock('@xterm/addon-fit', () => ({
-	FitAddon: class {
-		fit(): void {}
-	},
-}));
-
-vi.mock('@xterm/addon-serialize', () => ({
-	SerializeAddon: class {
-		serialize(): string {
-			return '';
-		}
-	},
-}));
-
-vi.mock('@xterm/addon-web-links', () => ({
-	WebLinksAddon: class {},
-}));
-
-const { default: PtyPanel } = await import('./PtyPanel.svelte');
-const { ptyStoreFor } = await import('#lib/stores/pty-session.svelte');
-const { t } = await import('#lib/i18n');
-
-async function settle(rounds = 8): Promise<void> {
-	for (let i = 0; i < rounds; i += 1) {
-		await new Promise<void>((resolve) => setTimeout(resolve, 0));
-		await tick();
-	}
+		clear: (): void => {
+			data.clear();
+		},
+		key: (index: number): string | null => [...data.keys()][index] ?? null,
+		get length(): number {
+			return data.size;
+		},
+	} as Storage;
+	Object.defineProperty(globalThis, 'localStorage', {
+		value: storage,
+		configurable: true,
+		writable: true,
+	});
 }
 
-function buttons(host: HTMLElement): HTMLButtonElement[] {
-	return [...host.querySelectorAll('button')];
+installLocalStorage();
+
+const { PtySessionStore, ptyStoreFor } = await import('#lib/stores/pty-session.svelte');
+const ptyService = await import('#lib/services/pty');
+
+let repoSeq = 0;
+function freshRepo(): string {
+	repoSeq += 1;
+	return `repro-store-${Date.now()}-${repoSeq}`;
 }
 
-function findButton(host: HTMLElement, label: string): HTMLButtonElement | undefined {
-	return buttons(host).find((button) => button.getAttribute('aria-label') === label);
-}
-
-function tabCloseButtons(host: HTMLElement): HTMLButtonElement[] {
-	const label = t('pty.ptyPanel.closeTerminal');
-	return buttons(host).filter((button) => button.getAttribute('aria-label') === label);
-}
-
-describe('PtyPanel terminal open/close behaviour', () => {
+describe('PtySessionStore terminal open/close behaviour', () => {
 	beforeEach(() => {
 		server.clear();
 		seq = 0;
 		localStorage.clear();
-		document.body.innerHTML = '';
+		vi.clearAllMocks();
 	});
 
-	it('creates exactly one terminal per plus click', async () => {
-		const host = document.createElement('div');
-		document.body.appendChild(host);
-		const app = mount(PtyPanel, {
-			target: host,
-			props: { repo: 'repro-create', open: true, embedded: true },
-		});
-		try {
-			await settle();
-			const store = ptyStoreFor('repro-create');
-			expect(store.sessions.length).toBe(1);
-
-			findButton(host, t('pty.ptyPanel.newTerminal'))!.click();
-			await settle();
-			expect(store.sessions.length).toBe(2);
-		} finally {
-			unmount(app);
-			host.remove();
-		}
-	});
-
-	it('closing the last terminal empties the panel and stays empty', async () => {
-		const host = document.createElement('div');
-		document.body.appendChild(host);
-		const app = mount(PtyPanel, {
-			target: host,
-			props: { repo: 'repro-close', open: true, embedded: true },
-		});
-		try {
-			await settle();
-			const store = ptyStoreFor('repro-close');
-			expect(store.sessions.length).toBe(1);
-
-			tabCloseButtons(host)[0]?.click();
-			await settle();
-
-			expect(store.sessions.length).toBe(0);
-			expect(store.activeId).toBeNull();
-			expect(host.textContent).toContain(t('pty.ptyPanel.noSessions'));
-
-			// No delayed resurrection without a remount.
-			await settle(4);
-			expect(store.sessions.length).toBe(0);
-		} finally {
-			unmount(app);
-			host.remove();
-		}
-	});
-
-	it('remounting after closing the last terminal does not resurrect one', async () => {
-		const host = document.createElement('div');
-		document.body.appendChild(host);
-		const first = mount(PtyPanel, {
-			target: host,
-			props: { repo: 'repro-remount', open: true, embedded: true },
-		});
-		await settle();
-		const store = ptyStoreFor('repro-remount');
-		expect(store.sessions.length).toBe(1);
-		tabCloseButtons(host)[0]?.click();
-		await settle();
+	it('creates exactly one terminal per sequential spawn', async () => {
+		const store = ptyStoreFor(freshRepo());
 		expect(store.sessions.length).toBe(0);
-		unmount(first);
-		host.innerHTML = '';
+		expect(store.hasStoredRecord).toBe(false);
 
-		const second = mount(PtyPanel, {
-			target: host,
-			props: { repo: 'repro-remount', open: true, embedded: true },
+		const first = await store.spawn();
+		expect(first).not.toBeNull();
+		expect(store.sessions.length).toBe(1);
+
+		const second = await store.spawn();
+		expect(second).not.toBeNull();
+		expect(store.sessions.length).toBe(2);
+		expect(first?.id).not.toBe(second?.id);
+		expect(store.activeId).toBe(second?.id);
+	});
+
+	it('gives concurrent spawns distinct sessions instead of swallowing one', async () => {
+		const store = ptyStoreFor(freshRepo());
+		const [first, second] = await Promise.all([store.spawn(), store.spawn()]);
+		expect(first).not.toBeNull();
+		expect(second).not.toBeNull();
+		expect(store.sessions.length).toBe(2);
+		const numbers = store.sessions.map((s) => s.titleNumber);
+		expect(new Set(numbers).size).toBe(2);
+	});
+
+	it('closing the last terminal empties the store and stays empty', async () => {
+		const repo = freshRepo();
+		const store = ptyStoreFor(repo);
+		const session = await store.spawn();
+		expect(store.sessions.length).toBe(1);
+
+		await store.remove(session!.id);
+		expect(store.sessions.length).toBe(0);
+		expect(store.activeId).toBeNull();
+
+		store.saveBuffer(session!.id, 'stale-output', 0, 0);
+		store.syncSize(session!.id, 24, 80);
+		expect(store.sessions.length).toBe(0);
+		expect(vi.mocked(ptyService.updatePty)).not.toHaveBeenCalled();
+
+		await store.reconcile();
+		expect(store.sessions.length).toBe(0);
+
+		await delay(5);
+		expect(store.sessions.length).toBe(0);
+	});
+
+	it('does not prune sessions created while reconcile fetch is in flight', async () => {
+		const store = ptyStoreFor(freshRepo());
+		const first = await store.spawn();
+		expect(store.sessions.length).toBe(1);
+
+		vi.mocked(ptyService.listPtys).mockImplementationOnce(async () => {
+			const stale = [...server.values()].map((s) => ({ ...s }));
+			expect(stale.length).toBe(1);
+			await delay(20);
+			return stale;
 		});
-		try {
-			await settle();
-			expect(store.sessions.length).toBe(0);
-		} finally {
-			unmount(second);
-			host.remove();
-		}
+
+		const reconciling = store.reconcile();
+		const second = await store.spawn();
+		expect(second).not.toBeNull();
+		expect(second?.id).not.toBe(first?.id);
+		await reconciling;
+
+		expect(store.sessions.length).toBe(2);
+		expect(store.byId(first!.id)).toBeDefined();
+		expect(store.byId(second!.id)).toBeDefined();
+	});
+
+	it('distinguishes fresh repos from user-closed-all persisted empty lists', async () => {
+		const repo = freshRepo();
+		const store = ptyStoreFor(repo);
+		expect(store.hasStoredRecord).toBe(false);
+
+		const session = await store.spawn();
+		await store.remove(session!.id);
+		store.close();
+
+		const remount = new PtySessionStore();
+		remount.open(repo);
+		expect(remount.sessions.length).toBe(0);
+		expect(remount.hasStoredRecord).toBe(true);
 	});
 });

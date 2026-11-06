@@ -60,15 +60,19 @@ export class PtySessionStore {
 	sessions = $state<LocalPtySession[]>([]);
 	activeId = $state<string | null>(null);
 	repo = $state<string>('');
+	hasStoredRecord = false;
 
 	private persistTimer: ReturnType<typeof setTimeout> | undefined;
 	private lastViewport: { rows: number; cols: number } | undefined;
+	private spawnQueue: Promise<void> = Promise.resolve();
+	private cloneInFlight = new Set<string>();
 
 	/** Restore persisted sessions for a repo and prune stale records. */
 	open(repo: string): void {
 		this.repo = repo;
 		this.sessions = [];
 		this.activeId = null;
+		this.hasStoredRecord = false;
 		try {
 			const raw = localStorage.getItem(storageKey(repo));
 			if (raw) {
@@ -113,6 +117,7 @@ export class PtySessionStore {
 						used.add(next);
 					}
 					this.sessions = cleaned;
+					this.hasStoredRecord = true;
 					const rawActive = (() => {
 						try {
 							const marker = localStorage.getItem(`${storageKey(repo)}.active`);
@@ -158,7 +163,7 @@ export class PtySessionStore {
 		return next;
 	}
 
-	/** Create a server session and make it active. */
+	/** Create a server session and make it active. Queued so every click creates one. */
 	async spawn(options?: {
 		cwd?: string;
 		command?: string;
@@ -166,31 +171,41 @@ export class PtySessionStore {
 		cols?: number;
 		env?: Record<string, string>;
 	}): Promise<LocalPtySession | null> {
-		if (this.sessions.length >= MAX_TERMINAL_SESSIONS) return null;
-		const number = this.pickNextNumber();
-		const title = `Terminal ${number}`;
+		const previous = this.spawnQueue;
+		let release: () => void = () => {};
+		this.spawnQueue = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await previous;
 		try {
-			const view = await createPty({
-				...options,
-				rows: options?.rows ?? this.lastViewport?.rows,
-				cols: options?.cols ?? this.lastViewport?.cols,
-				title,
-			});
-			const session: LocalPtySession = {
-				id: view.id,
-				title: view.title || title,
-				titleNumber: number,
-				rows: view.rows,
-				cols: view.cols,
-				status: view.status,
-				exitCode: view.exit_code ?? undefined,
-			};
-			this.sessions = [...this.sessions, session];
-			this.activeId = view.id;
-			this.schedulePersist();
-			return session;
-		} catch {
-			return null;
+			if (this.sessions.length >= MAX_TERMINAL_SESSIONS) return null;
+			const number = this.pickNextNumber();
+			const title = `Terminal ${number}`;
+			try {
+				const view = await createPty({
+					...options,
+					rows: options?.rows ?? this.lastViewport?.rows,
+					cols: options?.cols ?? this.lastViewport?.cols,
+					title,
+				});
+				const session: LocalPtySession = {
+					id: view.id,
+					title: view.title || title,
+					titleNumber: number,
+					rows: view.rows,
+					cols: view.cols,
+					status: view.status,
+					exitCode: view.exit_code ?? undefined,
+				};
+				this.sessions = [...this.sessions, session];
+				this.activeId = view.id;
+				this.schedulePersist();
+				return session;
+			} catch {
+				return null;
+			}
+		} finally {
+			release();
 		}
 	}
 
@@ -260,6 +275,7 @@ export class PtySessionStore {
 	/** Push viewport size to the server; local state updates immediately. */
 	syncSize(id: string, rows: number, cols: number): void {
 		if (!Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1) return;
+		if (!this.byId(id)) return;
 		this.patch(id, { rows, cols });
 		this.schedulePersist();
 		const remember = () => {
@@ -295,6 +311,7 @@ export class PtySessionStore {
 
 	/** Record the serialized buffer after a connection cycle completes. */
 	saveBuffer(id: string, buffer: string, scrollY: number, cursor: number): void {
+		if (!this.byId(id)) return;
 		const cut = truncateBuffer(buffer);
 		this.patch(id, {
 			buffer: cut.buffer,
@@ -307,6 +324,7 @@ export class PtySessionStore {
 	/** Reconcile local sessions against the server list. */
 	async reconcile(): Promise<void> {
 		if (!this.repo || this.sessions.length === 0) return;
+		const startingIds = new Set(this.sessions.map((s) => s.id));
 		let serverIds: SvelteSet<string>;
 		try {
 			const list = await listPtys();
@@ -317,6 +335,10 @@ export class PtySessionStore {
 		let changed = false;
 		const kept: LocalPtySession[] = [];
 		for (const s of this.sessions) {
+			if (!startingIds.has(s.id)) {
+				kept.push(s);
+				continue;
+			}
 			if (serverIds.has(s.id)) {
 				kept.push(s);
 				continue;
@@ -372,21 +394,27 @@ export class PtySessionStore {
 	 * user does not lose scrollback, but a fresh server session is spawned.
 	 */
 	async clone(id: string, options?: { cwd?: string; env?: Record<string, string> }): Promise<void> {
+		if (this.cloneInFlight.has(id)) return;
 		const previous = this.byId(id);
 		if (!previous) return;
-		const replacement = await this.spawn(options);
-		if (!replacement) return;
-		this.patch(replacement.id, {
-			title: previous.title,
-			titleNumber: previous.titleNumber ?? replacement.titleNumber,
-			buffer: previous.buffer,
-			scrollY: previous.scrollY,
-			cursor: previous.cursor,
-		});
-		this.schedulePersist();
-		await this.remove(id);
-		this.activeId = replacement.id;
-		this.schedulePersist();
+		this.cloneInFlight.add(id);
+		try {
+			const replacement = await this.spawn(options);
+			if (!replacement) return;
+			this.patch(replacement.id, {
+				title: previous.title,
+				titleNumber: previous.titleNumber ?? replacement.titleNumber,
+				buffer: previous.buffer,
+				scrollY: previous.scrollY,
+				cursor: previous.cursor,
+			});
+			this.schedulePersist();
+			await this.remove(id);
+			this.activeId = replacement.id;
+			this.schedulePersist();
+		} finally {
+			this.cloneInFlight.delete(id);
+		}
 	}
 
 	private persistNow(): void {
@@ -398,6 +426,7 @@ export class PtySessionStore {
 			} else {
 				localStorage.removeItem(`${storageKey(this.repo)}.active`);
 			}
+			this.hasStoredRecord = true;
 		} catch {
 			// Storage full or unavailable; buffers stay in memory only.
 		}

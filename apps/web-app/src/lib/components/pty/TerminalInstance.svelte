@@ -9,7 +9,6 @@
 	import type { PtySession } from '#lib/services/pty';
 	import type { PtySessionStore } from '#lib/stores/pty-session.svelte';
 	import { resolvedTheme } from '#lib/stores/theme.svelte';
-	import { ptyTrace } from './pty-debug';
 
 	interface Props {
 		session: {
@@ -184,7 +183,6 @@
 
 	function scheduleReconnect(startCursor: number): void {
 		if (disposed || reconnectTimer !== undefined) return;
-		ptyTrace('term.reconnect', { id: sessionId, tries, startCursor });
 		if (tries >= MAX_RECONNECT_TRIES) {
 			onConnectFailed?.(sessionId);
 			return;
@@ -213,7 +211,6 @@
 	function markExited(): void {
 		if (exitHandled) return;
 		exitHandled = true;
-		ptyTrace('term.exited', { id: sessionId });
 		if (!store.byId(sessionId) || store.isRemoved(sessionId)) return;
 		store.patch(sessionId, { status: 'exited' });
 		onSessionExited?.(sessionId);
@@ -222,7 +219,6 @@
 	function open(startCursor: number): void {
 		if (disposed) return;
 		clearReconnect();
-		ptyTrace('term.open', { id: sessionId, startCursor });
 		socket?.dispose();
 
 		socket = connectPty(sessionId, startCursor, {
@@ -231,7 +227,6 @@
 				if (!connected) {
 					connected = true;
 					tries = 0;
-					ptyTrace('term.socket.open', { id: sessionId, cursor: next });
 					onConnect?.(sessionId);
 				}
 			},
@@ -244,7 +239,6 @@
 				markExited();
 			},
 			onClose: (code) => {
-				ptyTrace('term.socket.close', { id: sessionId, code, disposed });
 				if (disposed) return;
 				connected = false;
 				if (TERMINAL_CLOSE_CODES.has(code)) {
@@ -330,19 +324,12 @@
 		// The host guards with store.active(), but the dynamic import splits
 		// the guard and the mount across flushes; never mount a dead view.
 		if (!session || typeof session.id !== 'string') {
-			ptyTrace('term.mount.invalid', {});
 			return;
 		}
 		const restore = session.buffer ?? '';
 		const restoreScrollY = session.scrollY ?? 0;
 		cursor = session.cursor ?? 0;
 		const openCursor = session.cursor ?? (restore ? -1 : 0);
-		ptyTrace('term.mount', {
-			id: sessionId,
-			status: session.status ?? null,
-			buffered: restore.length,
-			openCursor,
-		});
 		if (
 			typeof session.rows === 'number' &&
 			typeof session.cols === 'number' &&
@@ -511,7 +498,6 @@
 	onDestroy(() => {
 		disposed = true;
 		unregister?.(sessionId);
-		ptyTrace('term.destroy', { id: sessionId, store: store.uid });
 		clearReconnect();
 		if (sizeTimer !== undefined) clearTimeout(sizeTimer);
 		if (fitFrame !== undefined) cancelAnimationFrame(fitFrame);

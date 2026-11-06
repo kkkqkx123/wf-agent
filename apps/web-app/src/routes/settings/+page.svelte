@@ -17,7 +17,6 @@
 		type AutoTitleMode,
 		type ChatExecutionPreference,
 		type Density,
-		type PtyDebugMode,
 		type ThemeMode,
 	} from '#lib/stores/preferences.svelte';
 	import { EDITOR_FONT_SIZE_MIN, EDITOR_FONT_SIZE_MAX } from '#lib/stores/preferences.svelte';
@@ -124,12 +123,6 @@
 		{ value: 'chat', label: message('page.settings.chatExecutionChat') },
 	];
 
-	const PTY_DEBUG_OPTIONS = [
-		{ value: 'inherit', label: message('page.settings.ptyDebugInherit') },
-		{ value: 'on', label: message('page.settings.ptyDebugOn') },
-		{ value: 'off', label: message('page.settings.ptyDebugOff') },
-	];
-
 	const toolBudgetsHint = $derived(
 		describeToolOutputBudgets(resolveToolOutputBudgets(preferences.toolOutputDetail)),
 	);
@@ -227,7 +220,6 @@
 		const backup: SettingsBackup = {
 			version: 1,
 			preferences: {
-				ptyDebug: preferences.ptyDebug,
 				theme: preferences.theme,
 				density: preferences.density,
 				sidebarCollapsed: preferences.sidebarCollapsed,
@@ -645,21 +637,6 @@
 							class="mt-2"
 							onchange={() => preferences.toggleInspectorPinned()}
 						/>
-					</Card>
-					<Card
-						title={t('page.settings.diagnostics')}
-					description={t('page.settings.diagnosticsDesc')}
-					>
-						<Select
-							value={preferences.ptyDebug}
-							options={PTY_DEBUG_OPTIONS}
-							placeholder={t('page.settings.ptyDebug')}
-							class="w-56"
-							onchange={(value) => preferences.setPtyDebug(value as PtyDebugMode)}
-						/>
-						<p class="mt-2 text-caption text-muted-foreground">
-							{t('page.settings.ptyDebugDesc')}
-						</p>
 					</Card>
 					<Card
 						title={t('page.settings.sessionTitles')}

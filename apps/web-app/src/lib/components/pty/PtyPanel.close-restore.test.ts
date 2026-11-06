@@ -180,7 +180,7 @@ describe('persisted-list restore windows', () => {
 
 		const reopened = new PtySessionStore();
 		reopened.open(repo);
-		expect(reopened.uid).not.toBe(store.uid);
+		expect(reopened).not.toBe(store);
 		expect(reopened.sessions.map((s) => s.id)).toEqual([second!.id]);
 	});
 
@@ -272,7 +272,6 @@ describe('persisted-list restore windows', () => {
 		const second = new PtySessionStore();
 		second.open(repo);
 		expect(first).not.toBe(second);
-		expect(first.uid).not.toBe(second.uid);
 		expect(second.sessions.map((s) => s.id)).toEqual(first.sessions.map((s) => s.id));
 		expect(second.sessions.length).toBe(2);
 	});

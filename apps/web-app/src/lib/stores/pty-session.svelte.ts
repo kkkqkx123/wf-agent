@@ -1,7 +1,6 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { createPty, closePty, updatePty, getPty, listPtys } from '#lib/services/pty';
 import type { PtySession } from '#lib/services/pty';
-import { ptyTrace } from '#lib/components/pty/pty-debug';
 
 /**
  * Local view of a server PTY session. Buffer/scrollY/cursor live only in
@@ -39,9 +38,6 @@ const MAX_VIEWPORT_EDGE = 4096;
 export type PtyLifecycle = 'live' | 'exited' | 'missing';
 
 const textEncoder = new TextEncoder();
-
-/** Diagnostic counter: every live store object gets a unique identity. */
-let storeUidSeq = 0;
 
 /** Removed session ids for this page lifetime. Server ids are unique per
  * load, so a removed id never legitimately returns: every transition
@@ -189,8 +185,6 @@ export class PtySessionStore {
 	activeId = $state<string | null>(null);
 	repo = $state<string>('');
 	hasStoredRecord = false;
-	/** Diagnostic identity: tells apart live store objects that share one repo key. */
-	readonly uid = ++storeUidSeq;
 
 	private persistTimer: ReturnType<typeof setTimeout> | undefined;
 	private lastViewport: { rows: number; cols: number } | undefined;
@@ -232,9 +226,6 @@ export class PtySessionStore {
 						s.titleNumber = next;
 						used.add(next);
 					}
-					if (dropped.length > 0) {
-						ptyTrace('store.open.tombstoned', { repo, store: this.uid, dropped });
-					}
 					this.sessions = cleaned;
 					this.hasStoredRecord = true;
 					const rawActive = (() => {
@@ -246,13 +237,6 @@ export class PtySessionStore {
 						}
 					})();
 					this.activeId = rawActive && seen.has(rawActive) ? rawActive : (cleaned[0]?.id ?? null);
-					ptyTrace('store.open', {
-						repo,
-						store: this.uid,
-						restored: cleaned.length,
-						ids: cleaned.map((s) => s.id),
-						activeId: this.activeId,
-					});
 				}
 			}
 		} catch {
@@ -326,10 +310,8 @@ export class PtySessionStore {
 			release = resolve;
 		});
 		await previous;
-		ptyTrace('store.spawn.start', { sessions: this.sessions.length });
 		try {
 			if (this.sessions.length >= MAX_TERMINAL_SESSIONS) {
-				ptyTrace('store.spawn.capped', { sessions: this.sessions.length });
 				return null;
 			}
 			const number = this.pickNextNumber();
@@ -363,13 +345,8 @@ export class PtySessionStore {
 				this.sessions = [...this.sessions, session];
 				this.activeId = view.id;
 				this.schedulePersist();
-				ptyTrace('store.spawn.created', { id: view.id, store: this.uid, activeId: this.activeId });
 				return session;
-			} catch (error) {
-				ptyTrace('store.spawn.failed', {
-					sessions: this.sessions.length,
-					message: error instanceof Error ? error.message : String(error),
-				});
+			} catch {
 				return null;
 			}
 		} finally {
@@ -379,13 +356,9 @@ export class PtySessionStore {
 
 	/** Open an existing server session (already in the list) or adopt it. */
 	async adopt(id: string): Promise<void> {
-		if (this.isRemoved(id)) {
-			ptyTrace('store.adopt.tombstoned', { id, store: this.uid });
-			return;
-		}
+		if (this.isRemoved(id)) return;
 		try {
 			const view = await getPty(id);
-			ptyTrace('store.adopt.start', { id, store: this.uid });
 			const existing = this.byId(id);
 			if (existing) {
 				this.patch(id, {
@@ -417,7 +390,6 @@ export class PtySessionStore {
 			this.activeId = id;
 			this.schedulePersist();
 		} catch {
-			ptyTrace('store.adopt.drop', { id });
 			// Missing sessions are dropped from the local list.
 			this.sessions = this.sessions.filter((s) => s.id !== id);
 			if (this.activeId === id) {
@@ -429,7 +401,6 @@ export class PtySessionStore {
 
 	setActive(id: string): void {
 		if (this.byId(id)) {
-			ptyTrace('store.setActive', { id });
 			this.activeId = id;
 			this.schedulePersist();
 		}
@@ -477,13 +448,6 @@ export class PtySessionStore {
 		if (this.activeId === id) {
 			this.activeId = this.sessions[0]?.id ?? null;
 		}
-		ptyTrace('store.remove', {
-			id,
-			store: this.uid,
-				repo: this.repo,
-				remaining: this.sessions.length,
-				activeId: this.activeId,
-			});
 		this.schedulePersist();
 		await closePty(id).catch(() => {});
 	}
@@ -495,7 +459,6 @@ export class PtySessionStore {
 	/** Record the serialized buffer after a connection cycle completes. */
 	saveBuffer(id: string, buffer: string, scrollY: number, cursor: number): void {
 		if (!this.byId(id) || this.isRemoved(id)) return;
-		ptyTrace('store.saveBuffer', { id, store: this.uid, chars: buffer.length, cursor });
 		const cut = truncateBuffer(buffer);
 		this.patch(id, {
 			buffer: cut.buffer,
@@ -507,21 +470,13 @@ export class PtySessionStore {
 
 	/** Reconcile local sessions against the server list. */
 	async reconcile(): Promise<void> {
-		if (!this.repo || this.sessions.length === 0) {
-			ptyTrace('store.reconcile.skip', {
-				repo: this.repo,
-				store: this.uid,
-				sessions: this.sessions.length,
-			});
-			return;
-		}
+		if (!this.repo || this.sessions.length === 0) return;
 		const startingIds = new Set(this.sessions.map((s) => s.id));
 		let serverIds: SvelteSet<string>;
 		try {
 			const list = await listPtys();
 			serverIds = new SvelteSet(list.map((s) => s.id));
 		} catch {
-			ptyTrace('store.reconcile.fetchFail', {});
 			return;
 		}
 		let changed = false;
@@ -546,13 +501,6 @@ export class PtySessionStore {
 			}
 			changed = true;
 		}
-		ptyTrace('store.reconcile', {
-			store: this.uid,
-			starting: startingIds.size,
-			kept: kept.length,
-			keptIds: kept.map((s) => s.id),
-			changed,
-		});
 		if (changed) {
 			this.sessions = kept;
 			if (this.activeId && !kept.some((s) => s.id === this.activeId)) {
@@ -566,7 +514,6 @@ export class PtySessionStore {
 	syncMetaFromServer(id: string, meta: PtySession): void {
 		const existing = this.byId(id);
 		if (!existing || this.isRemoved(id)) return;
-		ptyTrace('store.syncMeta', { id, status: meta.status });
 		this.patch(id, {
 			status: meta.status,
 			exitCode: meta.exit_code ?? undefined,
@@ -603,9 +550,7 @@ export class PtySessionStore {
 		this.cloneInFlight.add(id);
 		try {
 			const effective = options ?? previous.origin;
-			ptyTrace('store.clone.start', { id, storedOrigin: previous.origin !== undefined });
 			const replacement = await this.spawn(effective);
-			ptyTrace('store.clone.spawned', { id, replacementId: replacement?.id ?? null });
 			if (!replacement) return;
 			this.patch(replacement.id, {
 				title: previous.title,
@@ -626,12 +571,6 @@ export class PtySessionStore {
 	private persistNow(): void {
 		if (!this.repo) return;
 		try {
-			ptyTrace('store.persist', {
-				repo: this.repo,
-				store: this.uid,
-				ids: this.sessions.map((s) => s.id),
-				activeId: this.activeId,
-			});
 			localStorage.setItem(storageKey(this.repo), JSON.stringify(this.sessions));
 			if (this.activeId) {
 				localStorage.setItem(`${storageKey(this.repo)}.active`, this.activeId);
@@ -673,11 +612,8 @@ export function ptyStoreFor(repo: string): PtySessionStore {
 	let store = stores.get(key);
 	if (!store) {
 		store = new PtySessionStore();
-		ptyTrace('store.registry.miss', { key, store: store.uid });
 		store.open(key);
 		stores.set(key, store);
-		return store;
 	}
-	ptyTrace('store.registry.hit', { key, store: store.uid });
 	return store;
 }

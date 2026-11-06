@@ -22,6 +22,7 @@ pub use state::lock;
 pub const MAX_BUFFER_BYTES: usize = state::MAX_BUFFER_BYTES;
 pub const TRIM_SLACK_BYTES: usize = state::TRIM_SLACK_BYTES;
 pub const MAX_EXITED_SESSIONS: usize = state::MAX_EXITED_SESSIONS;
+pub const REPLAY_BUDGET_BYTES: usize = state::REPLAY_BUDGET_BYTES;
 pub const SUBSCRIBER_MAX_QUEUED_BYTES: usize = state::SUBSCRIBER_MAX_QUEUED_BYTES;
 pub const IDLE_TIMEOUT_MS: i64 = state::IDLE_TIMEOUT_MS;
 pub const SWEEP_INTERVAL: Duration = state::SWEEP_INTERVAL;
@@ -56,6 +57,7 @@ impl PtyReceiver {
 pub struct PtyAttachment {
     pub replay: String,
     pub cursor: usize,
+    pub replay_start: usize,
     pub rx: PtyReceiver,
 }
 
@@ -159,6 +161,7 @@ mod tests {
         let mut att = io::attach_session(&inner, "pty-test", Some(0)).unwrap();
         assert_eq!(att.replay, "alpha");
         assert_eq!(att.cursor, 5);
+        assert_eq!(att.replay_start, 0);
 
         io::append_output(&state, "beta".into());
         assert!(matches!(
@@ -204,6 +207,18 @@ mod tests {
         assert!(!buffer.is_char_boundary(mid));
         let out = io::replay_slice(&buffer, 0, end, Some(mid as i64));
         assert_eq!(out, "bc");
+    }
+
+    #[test]
+    fn oversized_replay_is_tailed_within_budget_on_char_boundary() {
+        let state = stub_state();
+        let big = "a".repeat(state::REPLAY_BUDGET_BYTES + 1024);
+        io::append_output(&state, big);
+        let inner = seeded_inner(state.clone());
+        let att = io::attach_session(&inner, "pty-test", Some(0)).unwrap();
+        assert!(att.replay.len() <= state::REPLAY_BUDGET_BYTES);
+        assert_eq!(att.replay_start + att.replay.len(), att.cursor);
+        assert!(att.replay.is_char_boundary(0));
     }
 
     #[test]

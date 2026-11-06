@@ -91,3 +91,61 @@ export function exitSession(id: string, exitCode = 0): boolean {
 export function removeSession(id: string): boolean {
 	return sessions.delete(id);
 }
+
+/** Repository key holding the cross-store attach demo records. */
+export const DEMO_FOREIGN_REPO = '/preview/other-repo';
+const DEMO_STORAGE_PREFIX = 'wf.pty.v1';
+let lastDemoIds: string[] = [];
+
+/**
+ * Preview-only seed for the attach dialog foreign section: preview mounts a
+ * single repository, so no second store ever opens organically. Creates two
+ * live mock sessions and writes their persisted records under a foreign
+ * repository key; the dialog storage-key scan picks them up. Record shape
+ * mirrors the session store validator (id plus title is all it requires).
+ * Reseeding removes the previous demo sessions first so the mock table
+ * does not accumulate orphans.
+ */
+export function seedAttachDemo(): { repo: string; ids: string[] } {
+	for (const id of lastDemoIds) sessions.delete(id);
+	const first = createSession({
+		title: 'Demo service log',
+		cwd: DEMO_FOREIGN_REPO,
+		command: 'tail -f service.log',
+	});
+	const second = createSession({ title: 'Demo migration shell', cwd: DEMO_FOREIGN_REPO });
+	lastDemoIds = [first.id, second.id];
+	const firstBuffer = 'service started on :8080\r\nworker pool ready (4/4)\r\n';
+	const records = [
+		{
+			v: 1,
+			id: first.id,
+			title: first.title,
+			titleNumber: 1,
+			rows: first.rows,
+			cols: first.cols,
+			status: 'running',
+			buffer: firstBuffer,
+			scrollY: 0,
+			cursor: firstBuffer.length,
+			origin: { cwd: DEMO_FOREIGN_REPO, command: 'tail -f service.log' },
+		},
+		{
+			v: 1,
+			id: second.id,
+			title: second.title,
+			titleNumber: 2,
+			rows: second.rows,
+			cols: second.cols,
+			status: 'running',
+			detached: true,
+		},
+	];
+	try {
+		localStorage.setItem(`${DEMO_STORAGE_PREFIX}.${DEMO_FOREIGN_REPO}`, JSON.stringify(records));
+		localStorage.setItem(`${DEMO_STORAGE_PREFIX}.${DEMO_FOREIGN_REPO}.active`, first.id);
+	} catch {
+		// Storage unavailable; the sessions still exist server-side.
+	}
+	return { repo: DEMO_FOREIGN_REPO, ids: [...lastDemoIds] };
+}

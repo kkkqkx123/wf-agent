@@ -75,8 +75,9 @@ export interface PtySocket {
 }
 
 export interface PtySocketOptions {
-	/** Called after the server replay frame arrives; cursor starts at `value`. */
-	onMeta?: (cursor: number) => void;
+	/** Called after the server replay frame arrives; cursor is the end offset,
+	 * replayStart is the window start (equals end minus replay bytes). */
+	onMeta?: (cursor: number, replayStart?: number) => void;
 	/** Called with raw terminal output chunks. */
 	onData?: (chunk: string) => void;
 	/** Called when the server reports the session exited (control frame). */
@@ -190,6 +191,7 @@ export function connectPty(id: string, cursor: number, options: PtySocketOptions
 						try {
 							const meta = JSON.parse(new TextDecoder().decode(bytes.subarray(1))) as {
 								cursor?: unknown;
+								replay_start?: unknown;
 								event?: unknown;
 								exit_code?: unknown;
 								reason?: unknown;
@@ -203,7 +205,13 @@ export function connectPty(id: string, cursor: number, options: PtySocketOptions
 							}
 							const next = meta?.cursor;
 							if (typeof next === 'number' && Number.isSafeInteger(next) && next >= 0) {
-								options.onMeta?.(next);
+								const start = meta?.replay_start;
+								options.onMeta?.(
+									next,
+									typeof start === 'number' && Number.isSafeInteger(start) && start >= 0
+										? start
+										: undefined,
+								);
 							}
 						} catch {
 							// Ignore malformed control frames.

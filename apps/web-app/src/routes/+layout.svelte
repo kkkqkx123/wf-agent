@@ -4,6 +4,7 @@
 	import { setHrefResolver } from '#lib/ui/link';
 	import { appPath, resolveAppPath } from '#lib/utils/route';
 	import AppShell from '#lib/components/layout/AppShell.svelte';
+	import PtyHost from '#lib/components/pty/PtyHost.svelte';
 	import Toaster from '#lib/components/layout/Toaster.svelte';
 	import { ui } from '#lib/stores/ui.svelte';
 	import { preferences } from '#lib/stores/preferences.svelte';
@@ -37,6 +38,7 @@
 <AppShell>
 	{@render children()}
 </AppShell>
+<PtyHost />
 
 <!-- AppShell exposes header/sidebar/aside/overlays slots (n8n BaseLayout
   pattern); this layout intentionally only injects children so every page

@@ -19,10 +19,20 @@
  * reflects the shared preview workspace (`workspace.ts`) — `ls` / `cat`
  * show what the IDE shows, `clear` emits ANSI, `exit` ends the session.
  * It is not a command interpreter; unknown input gets a not-found line.
+ *
+ * Intentional divergences from the real backend, kept for preview stability:
+ * no idle sweep, no exited-session count cap, and no synthetic `pty.exited`
+ * event on the global feed — cross-tab exit signals travel only on the PTY
+ * socket (`exited` frame plus close 4010). Control frames carry both
+ * `cursor` and `replay_start` like the server wire format. Backlog overflow
+ * closes with 4008 so the client exercises the same reconnect branch; the
+ * mock ceiling sits below the real one and `flood` exists to hit it on
+ * demand. `demo attach` seeds foreign sessions so the attach dialog groups
+ * stay verifiable in a single-repository preview.
  */
 
 import { allFiles, listDir } from './workspace';
-import { exitSession, getSession } from './pty-sessions';
+import { exitSession, getSession, seedAttachDemo } from './pty-sessions';
 
 const MOCK_URL_MARKER = '/api/v1/pty/';
 const MOCK_WS_MARKER = '/api/v1/ws';
@@ -41,8 +51,18 @@ const HELP = [
 	'  echo <text>     echo text back',
 	'  whoami          print the preview user',
 	'  clear           clear the terminal (ANSI)',
+	'  flood           burst output past the backlog limit (overflow 4008)',
+	'  demo attach     seed foreign sessions for the attach dialog',
 	'  exit            end the session',
 ].join('\r\n');
+
+/** Backlog ceiling before the mock overflows like the real subscriber queue.
+ * Deliberately below the real 4MB so the 4008 reconnect branch stays
+ * reachable at interactive speed; normal commands never approach it. */
+const MOCK_OVERFLOW_BYTES = 256 * 1024;
+
+const FLOOD_LINE = '0123456789abcdef\r\n';
+const FLOOD_REPEATS = 65536;
 
 const CWD = '/preview/wf-agent';
 
@@ -111,11 +131,24 @@ function runCommand(line: string): { output: string; exit?: number } | null {
 			return { output: 'preview-user' };
 		case 'clear':
 			return { output: '\x1b[2J\x1b[H' };
+		case 'flood':
+			return { output: FLOOD_LINE.repeat(FLOOD_REPEATS) };
+		case 'demo':
+			if (arg === 'attach') {
+				const seeded = seedAttachDemo();
+				return {
+					output: [
+						`seeded ${seeded.ids.length} sessions under ${seeded.repo}`,
+						'open the attach dialog (eye button) to take one over.',
+					].join('\r\n'),
+				};
+			}
+			return { output: 'usage: demo attach' };
 		case 'exit':
 			return { output: 'logout', exit: 0 };
 		default:
 			return {
-				output: `sh: command not found: ${cmd} (preview shell supports: help, ls, cat, pwd, echo, whoami, clear, exit)`,
+				output: `sh: command not found: ${cmd} (preview shell supports: help, ls, cat, pwd, echo, whoami, clear, flood, demo, exit)`,
 			};
 	}
 }
@@ -189,6 +222,7 @@ class MockPtySocket {
 	#skipLineFeed = false;
 	#outputQueue: Array<() => void> = [];
 	#draining = false;
+	#pendingBytes = 0;
 	#sessionId: string | null = null;
 	#resumeCursor = 0;
 
@@ -212,7 +246,7 @@ class MockPtySocket {
 			if (session.status !== 'running') {
 				const known = this.#sessionId ? (sessionCursors.get(this.#sessionId) ?? 0) : 0;
 				const cursor = Math.max(known, this.#resumeCursor);
-				this.#deliverControl({ cursor });
+				this.#deliverControl({ cursor, replay_start: cursor });
 				this.#enqueue(() => {
 					this.#deliverControl({
 						event: 'exited',
@@ -226,9 +260,11 @@ class MockPtySocket {
 				return;
 			}
 			// Replay contract first: the absolute cursor lets the client resume later.
+			// The mock keeps no replay text (the client holds it), so the window
+			// start equals the end cursor.
 			const known = this.#sessionId ? (sessionCursors.get(this.#sessionId) ?? 0) : 0;
 			const cursor = Math.max(known, this.#resumeCursor);
-			this.#deliverControl({ cursor });
+			this.#deliverControl({ cursor, replay_start: cursor });
 			// A reconnecting client already holds the earlier output in its
 			// restored buffer, so only a fresh session gets the greeting.
 			if (cursor === 0) {
@@ -249,6 +285,7 @@ class MockPtySocket {
 		this.readyState = MockPtySocket.CLOSED;
 		this.#closed = true;
 		this.#outputQueue.length = 0;
+		this.#pendingBytes = 0;
 		this.onclose?.({ code, reason } as CloseEvent);
 	}
 
@@ -257,6 +294,12 @@ class MockPtySocket {
 		if (this.readyState === MockPtySocket.CLOSED) return;
 		this.#deliverControl({ event: 'exited', exit_code: 0, reason: 'pty removed' });
 		this.close(4010, 'pty removed');
+	}
+
+	/** Backlog overflow: mirror the real 4008 close so the client reconnects. */
+	overflowed(): void {
+		if (this.readyState === MockPtySocket.CLOSED) return;
+		this.close(4008, 'output backlog exceeded, resume with cursor');
 	}
 
 	/** Cooked-line editing with immediate echo, like a real PTY. */
@@ -366,9 +409,19 @@ class MockPtySocket {
 	 *  a single queue, so concurrent responses can never overtake each other. */
 	#stream(text: string): void {
 		if (this.#closed) return;
+		// Backlog overflow mirrors the real subscriber queue: a burst past
+		// the ceiling closes with 4008 instead of stalling the drain.
+		const total = byteLength(text);
+		if (this.#pendingBytes + total > MOCK_OVERFLOW_BYTES) {
+			this.overflowed();
+			return;
+		}
+		this.#pendingBytes += total;
 		for (const chunk of chunkText(text)) {
+			const size = byteLength(chunk);
 			this.#outputQueue.push(() => {
 				if (this.#closed || this.readyState !== MockPtySocket.OPEN) return;
+				this.#pendingBytes = Math.max(0, this.#pendingBytes - size);
 				this.#countDelivered(chunk);
 				this.onmessage?.({ data: chunk });
 			});
@@ -501,4 +554,11 @@ export function notifySessionRemoved(id: string): void {
 	if (!sockets) return;
 	sessionSockets.delete(id);
 	for (const socket of [...sockets]) socket.removed();
+}
+
+/** Backlog overflow notifies attachments with a 4008 close; the session stays live. */
+export function notifyPreviewOverflow(id: string): void {
+	const sockets = sessionSockets.get(id);
+	if (!sockets) return;
+	for (const socket of [...sockets]) socket.overflowed();
 }

@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { installMockPtySocket, notifySessionRemoved, previewSessionAlive } from './pty-socket';
-import { createSession, removeSession } from './pty-sessions';
+import {
+	installMockPtySocket,
+	notifyPreviewOverflow,
+	notifySessionRemoved,
+	previewSessionAlive,
+} from './pty-socket';
+import {
+	createSession,
+	DEMO_FOREIGN_REPO,
+	getSession,
+	removeSession,
+	seedAttachDemo,
+} from './pty-sessions';
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -153,6 +164,51 @@ describe('preview mock PTY socket', () => {
 		expect(closes[0].code).toBe(4010);
 		socket.close();
 	});
+
+	it('carries replay_start alongside the cursor in the first control frame', async () => {
+		const session = createSession({});
+		const { socket, binaries } = mockSocket(
+			`ws://localhost/mock/api/v1/pty/${session.id}/connect?cursor=0&ticket=t`,
+		);
+		await sleep(80);
+		expect(binaries.length).toBeGreaterThanOrEqual(1);
+		const first = decodeControl(binaries[0]);
+		expect(first.cursor).toBe(0);
+		expect(first.replay_start).toBe(0);
+		socket.close();
+	});
+
+	it('flood bursts past the backlog ceiling into a 4008 without exiting', async () => {
+		const session = createSession({});
+		const { socket, binaries, closes } = mockSocket(
+			`ws://localhost/mock/api/v1/pty/${session.id}/connect?cursor=0&ticket=t`,
+		);
+		await sleep(60);
+		binaries.length = 0;
+		socket.send('flood\r');
+		await sleep(120);
+		expect(binaries.map(decodeControl).find((meta) => meta.event === 'exited')).toBeUndefined();
+		expect(closes.length).toBe(1);
+		expect(closes[0].code).toBe(4008);
+		expect(previewSessionAlive(session.id)).toBe(true);
+		socket.close();
+	});
+
+	it('closes live attachments with 4008 on backlog overflow without exiting', async () => {
+		const session = createSession({});
+		const { socket, binaries, closes } = mockSocket(
+			`ws://localhost/mock/api/v1/pty/${session.id}/connect?cursor=0&ticket=t`,
+		);
+		await sleep(60);
+		binaries.length = 0;
+		notifyPreviewOverflow(session.id);
+		await sleep(30);
+		expect(binaries.map(decodeControl).find((meta) => meta.event === 'exited')).toBeUndefined();
+		expect(closes.length).toBe(1);
+		expect(closes[0].code).toBe(4008);
+		expect(previewSessionAlive(session.id)).toBe(true);
+		socket.close();
+	});
 });
 
 describe('preview mock event feed socket', () => {
@@ -175,5 +231,62 @@ describe('preview mock event feed socket', () => {
 		await sleep(20);
 		expect(texts).toEqual([JSON.stringify({ type: 'pong' })]);
 		socket.close();
+	});
+});
+
+describe('preview attach-demo seed', () => {
+	function installLocalStorage(): void {
+		const data = new Map<string, string>();
+		const storage = {
+			getItem: (key: string): string | null => data.get(key) ?? null,
+			setItem: (key: string, value: string): void => {
+				data.set(key, String(value));
+			},
+			removeItem: (key: string): void => {
+				data.delete(key);
+			},
+			clear: (): void => {
+				data.clear();
+			},
+			key: (index: number): string | null => [...data.keys()][index] ?? null,
+			get length(): number {
+				return data.size;
+			},
+		} as Storage;
+		Object.defineProperty(globalThis, 'localStorage', {
+			value: storage,
+			configurable: true,
+			writable: true,
+		});
+	}
+
+	installLocalStorage();
+
+	it('answers demo attach with seeded foreign sessions', async () => {
+		const session = createSession({});
+		const { socket, texts } = mockSocket(
+			`ws://localhost/mock/api/v1/pty/${session.id}/connect?cursor=0&ticket=t`,
+		);
+		await sleep(60);
+		texts.length = 0;
+		socket.send('demo attach\r');
+		await sleep(500);
+		expect(texts.join('')).toContain('seeded 2 sessions');
+		socket.close();
+	});
+
+	it('writes foreign records for live sessions and cleans the previous seed', () => {
+		const first = seedAttachDemo();
+		expect(first.repo).toBe(DEMO_FOREIGN_REPO);
+		expect(first.ids.length).toBe(2);
+		for (const id of first.ids) expect(previewSessionAlive(id)).toBe(true);
+		const raw = localStorage.getItem(`wf.pty.v1.${DEMO_FOREIGN_REPO}`);
+		const records = JSON.parse(raw ?? '[]') as Array<{ id: string }>;
+		expect(records.map((r) => r.id).sort()).toEqual([...first.ids].sort());
+
+		const second = seedAttachDemo();
+		expect(second.ids).not.toEqual(first.ids);
+		for (const id of first.ids) expect(getSession(id)).toBeUndefined();
+		for (const id of second.ids) expect(previewSessionAlive(id)).toBe(true);
 	});
 });

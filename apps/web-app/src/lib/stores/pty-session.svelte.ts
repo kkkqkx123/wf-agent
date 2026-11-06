@@ -12,6 +12,8 @@ export interface LocalPtySession {
 	id: string;
 	title: string;
 	titleNumber?: number;
+	/** Detached sessions keep their server process but hide from every panel tab bar. */
+	detached?: boolean;
 	origin?: {
 		cwd?: string;
 		command?: string;
@@ -28,14 +30,34 @@ export interface LocalPtySession {
 
 const STORAGE_PREFIX = 'wf.pty.v1';
 const MAX_TERMINAL_SESSIONS = 20;
-// Byte budget for the persisted scrollback tail. The unit is bytes so it
-// stays aligned with the server replay cursor (a byte offset): cutting the
-// tail never invalidates the absolute cursor stored alongside it.
-const MAX_PERSIST_BUFFER_BYTES = 262_144;
+// Persisted scrollback tail budget, shared with the server attach replay
+// budget: cutting the tail never invalidates the absolute cursor stored
+// alongside it, and a stale cursor can at most over-replay this many bytes.
+// Keep in sync with REPLAY_BUDGET_BYTES in wf-api pty state.
+export const PTY_REPLAY_BUDGET_BYTES = 64 * 1024;
+const MAX_PERSIST_BUFFER_BYTES = PTY_REPLAY_BUDGET_BYTES;
 const MAX_VIEWPORT_EDGE = 4096;
+const PERSIST_SCHEMA_VERSION = 1;
+const MAX_TITLE_LENGTH = 120;
+const MAX_TITLE_NUMBER = 10_000;
+const MAX_CURSOR_VALUE = 64 * 1024 * 1024;
+const MAX_ENV_VARS = 64;
+const MAX_ENV_VALUE_BYTES = 4096;
+const MAX_PERSIST_TOTAL_BYTES = 4 * 1024 * 1024;
 
 /** Explicit session lifecycle: live sessions stream, exited ones keep scrollback, missing ones are gone. */
 export type PtyLifecycle = 'live' | 'exited' | 'missing';
+
+/** Connection phase owned by the session store; views only report socket events. */
+export type PtyConnectionPhase = 'live' | 'reconnecting' | 'exited' | 'removed';
+
+export interface PtyConnectionState {
+	phase: PtyConnectionPhase;
+	retries: number;
+	updatedAt: number;
+}
+
+const TERMINAL_CLOSE_CODES = new Set([4001, 4004, 4010]);
 
 const textEncoder = new TextEncoder();
 
@@ -98,25 +120,57 @@ function validViewportEdge(value: unknown): number | undefined {
 }
 
 function validNonNegativeInt(value: unknown): number | undefined {
-	return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-		? value
-		: undefined;
+	return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 
 function validStatus(value: unknown): 'running' | 'exited' | undefined {
 	return value === 'running' || value === 'exited' ? value : undefined;
 }
 
+function validTitle(value: unknown, fallback: string): string {
+	const raw = typeof value === 'string' && value.trim() ? value.trim() : fallback;
+	return raw.length > MAX_TITLE_LENGTH ? raw.slice(0, MAX_TITLE_LENGTH) : raw;
+}
+
+function validTitleNumber(value: unknown): number | undefined {
+	return typeof value === 'number' &&
+		Number.isSafeInteger(value) &&
+		value > 0 &&
+		value <= MAX_TITLE_NUMBER
+		? value
+		: undefined;
+}
+
+function validCursor(value: unknown): number | undefined {
+	return typeof value === 'number' &&
+		Number.isSafeInteger(value) &&
+		value >= 0 &&
+		value <= MAX_CURSOR_VALUE
+		? value
+		: undefined;
+}
+
+function validExitCode(value: unknown): number | undefined {
+	return typeof value === 'number' &&
+		Number.isSafeInteger(value) &&
+		value >= -32768 &&
+		value <= 32768
+		? value
+		: undefined;
+}
+
 function validOrigin(value: unknown): LocalPtySession['origin'] {
 	if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
 	const raw = value as Record<string, unknown>;
 	const out: { cwd?: string; command?: string; env?: Record<string, string> } = {};
-	if (typeof raw.cwd === 'string' && raw.cwd) out.cwd = raw.cwd;
-	if (typeof raw.command === 'string' && raw.command) out.command = raw.command;
+	if (typeof raw.cwd === 'string' && raw.cwd) out.cwd = raw.cwd.slice(0, 4096);
+	if (typeof raw.command === 'string' && raw.command) out.command = raw.command.slice(0, 8192);
 	if (typeof raw.env === 'object' && raw.env !== null && !Array.isArray(raw.env)) {
 		const env: Record<string, string> = {};
 		for (const [key, entry] of Object.entries(raw.env as Record<string, unknown>)) {
-			if (typeof entry === 'string') env[key] = entry;
+			if (Object.keys(env).length >= MAX_ENV_VARS) break;
+			if (typeof entry !== 'string' || !key || key.length > 256) continue;
+			env[key] = entry.length > MAX_ENV_VALUE_BYTES ? entry.slice(0, MAX_ENV_VALUE_BYTES) : entry;
 		}
 		if (Object.keys(env).length > 0) out.env = env;
 	}
@@ -127,14 +181,10 @@ function validOrigin(value: unknown): LocalPtySession['origin'] {
 function validatePersistedSession(raw: unknown): LocalPtySession | null {
 	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
 	const item = raw as Record<string, unknown>;
-	if (typeof item.id !== 'string' || !item.id) return null;
-	const title = typeof item.title === 'string' && item.title ? item.title : item.id;
-	const numbered =
-		typeof item.titleNumber === 'number' &&
-		Number.isSafeInteger(item.titleNumber) &&
-		item.titleNumber > 0
-			? item.titleNumber
-			: parseTitleNumber(title);
+	if (typeof item.id !== 'string' || !item.id || item.id.length > 256) return null;
+	if (item.v !== undefined && item.v !== PERSIST_SCHEMA_VERSION) return null;
+	const title = validTitle(item.title, item.id);
+	const numbered = validTitleNumber(item.titleNumber) ?? parseTitleNumber(title);
 	let buffer = typeof item.buffer === 'string' ? item.buffer : undefined;
 	let scrollY = validNonNegativeInt(item.scrollY);
 	if (buffer !== undefined) {
@@ -144,12 +194,15 @@ function validatePersistedSession(raw: unknown): LocalPtySession | null {
 	}
 	const rows = validViewportEdge(item.rows);
 	const cols = validViewportEdge(item.cols);
-	const cursor = validNonNegativeInt(item.cursor);
+	const cursor = validCursor(item.cursor);
 	const status = validStatus(item.status);
 	const origin = validOrigin(item.origin);
+	const exitCode = validExitCode(item.exitCode);
+	const detached = item.detached === true;
 	return {
 		id: item.id,
 		title,
+		...(detached ? { detached: true as const } : {}),
 		...(numbered ? { titleNumber: numbered } : {}),
 		...(origin ? { origin } : {}),
 		...(rows !== undefined ? { rows } : {}),
@@ -158,9 +211,7 @@ function validatePersistedSession(raw: unknown): LocalPtySession | null {
 		...(scrollY !== undefined ? { scrollY } : {}),
 		...(cursor !== undefined ? { cursor } : {}),
 		...(status !== undefined ? { status } : {}),
-		...(typeof item.exitCode === 'number' && Number.isSafeInteger(item.exitCode)
-			? { exitCode: item.exitCode }
-			: {}),
+		...(exitCode !== undefined ? { exitCode } : {}),
 	};
 }
 
@@ -172,7 +223,7 @@ function parseTitleNumber(title: string): number | undefined {
 	const match = /(\d+)\s*$/.exec(title.trim());
 	if (!match) return undefined;
 	const n = Number(match[1]);
-	return Number.isSafeInteger(n) && n > 0 ? n : undefined;
+	return Number.isSafeInteger(n) && n > 0 && n <= MAX_TITLE_NUMBER ? n : undefined;
 }
 
 /**
@@ -190,6 +241,7 @@ export class PtySessionStore {
 	private lastViewport: { rows: number; cols: number } | undefined;
 	private spawnQueue: Promise<void> = Promise.resolve();
 	private cloneInFlight = new Set<string>();
+	private connections = new SvelteMap<string, PtyConnectionState>();
 
 	/** Restore persisted sessions for a repo and prune stale records. */
 	open(repo: string): void {
@@ -225,6 +277,21 @@ export class PtySessionStore {
 						while (used.has(next)) next += 1;
 						s.titleNumber = next;
 						used.add(next);
+					}
+					// Total-bytes ceiling: shed scrollback tails from the end first so
+					// titles and cursors survive a quota blowout instead of losing tabs.
+					try {
+						while (JSON.stringify(cleaned).length > MAX_PERSIST_TOTAL_BYTES) {
+							const victim = [...cleaned].reverse().find((s) => s.buffer);
+							if (!victim) break;
+							victim.buffer = undefined;
+							victim.scrollY = undefined;
+						}
+						while (JSON.stringify(cleaned).length > MAX_PERSIST_TOTAL_BYTES && cleaned.length > 0) {
+							cleaned.pop();
+						}
+					} catch {
+						// Size probing failed; keep the count-capped list as-is.
 					}
 					this.sessions = cleaned;
 					this.hasStoredRecord = true;
@@ -273,6 +340,81 @@ export class PtySessionStore {
 		return session.status === 'exited' ? 'exited' : 'live';
 	}
 
+	/** Connection phase for the explicit state machine; views report, the store decides. */
+	connectionPhase(id: string): PtyConnectionPhase {
+		if (wasRemoved(id)) return 'removed';
+		const session = this.byId(id);
+		if (!session) return 'removed';
+		if (session.status === 'exited') return 'exited';
+		return this.connections.get(id)?.phase ?? 'live';
+	}
+
+	connectionRetries(id: string): number {
+		return this.connections.get(id)?.retries ?? 0;
+	}
+
+	/** Socket opened and replay meta arrived: the session streams. */
+	reportSocketOpen(id: string): void {
+		if (!this.byId(id) || wasRemoved(id)) return;
+		this.connections.set(id, { phase: 'live', retries: 0, updatedAt: Date.now() });
+	}
+
+	/** Socket closed: terminal close codes end the session, others reconnect. */
+	reportSocketClose(id: string, code: number): void {
+		if (!this.byId(id) || wasRemoved(id)) return;
+		if (TERMINAL_CLOSE_CODES.has(code)) {
+			this.markExited(id);
+			return;
+		}
+		const previous = this.connections.get(id);
+		this.connections.set(id, {
+			phase: 'reconnecting',
+			retries: (previous?.retries ?? 0) + 1,
+			updatedAt: Date.now(),
+		});
+	}
+
+	/** Server exited frame or process-end probe: keep scrollback, stop streaming. */
+	markExited(id: string, exitCode?: number): void {
+		if (!this.byId(id) || wasRemoved(id)) return;
+		this.patch(id, {
+			status: 'exited',
+			...(exitCode !== undefined ? { exitCode } : {}),
+		});
+		this.connections.set(id, {
+			phase: 'exited',
+			retries: this.connections.get(id)?.retries ?? 0,
+			updatedAt: Date.now(),
+		});
+		this.schedulePersist();
+	}
+
+	/** Reconnect budget spent without a socket: surface the failure banner. */
+	markConnectFailed(id: string): void {
+		if (!this.byId(id) || wasRemoved(id)) return;
+		const previous = this.connections.get(id);
+		this.connections.set(id, {
+			phase: 'reconnecting',
+			retries: previous?.retries ?? 0,
+			updatedAt: Date.now(),
+		});
+	}
+
+	clearConnection(id: string): void {
+		this.connections.delete(id);
+	}
+
+	/** Headless keepalive advances the resume cursor without touching scrollback. */
+	syncCursor(id: string, cursor: number): void {
+		if (!this.byId(id) || wasRemoved(id)) return;
+		if (!Number.isSafeInteger(cursor) || cursor < 0 || cursor > MAX_CURSOR_VALUE) return;
+		const current = this.byId(id)?.cursor ?? 0;
+		if (cursor < current) return;
+		if (cursor === current) return;
+		this.patch(id, { cursor });
+		this.schedulePersist();
+	}
+
 	/** True when at least one session can still stream output. */
 	hasLive(): boolean {
 		return this.sessions.some((s) => s.status !== 'exited');
@@ -281,6 +423,92 @@ export class PtySessionStore {
 	/** True when tabs exist but every one has ended; an empty list is not "all exited". */
 	allExited(): boolean {
 		return this.sessions.length > 0 && this.sessions.every((s) => s.status === 'exited');
+	}
+
+	/** Visible tabs: every session that is not detached. */
+	attachedSessions(): LocalPtySession[] {
+		return this.sessions.filter((s) => !s.detached);
+	}
+
+	/** Hidden tabs: detached sessions keep their server process. */
+	detachedSessions(): LocalPtySession[] {
+		return this.sessions.filter((s) => s.detached);
+	}
+
+	/** True when at least one visible session can still stream output. */
+	hasAttachedLive(): boolean {
+		return this.sessions.some((s) => !s.detached && s.status !== 'exited');
+	}
+
+	/** Hide a tab without ending its server process. */
+	detach(id: string): void {
+		const session = this.byId(id);
+		if (!session || this.isRemoved(id) || session.detached) return;
+		this.patch(id, { detached: true });
+		if (this.activeId === id) {
+			this.activeId = this.sessions.find((s) => s.id !== id && !s.detached)?.id ?? null;
+		}
+		this.schedulePersist();
+	}
+
+	/** Reopen a detached tab and make it active. */
+	attach(id: string): void {
+		const session = this.byId(id);
+		if (!session || this.isRemoved(id) || !session.detached) return;
+		this.sessions = this.sessions.map((s) => {
+			if (s.id !== id) return s;
+			const next = { ...s };
+			delete next.detached;
+			return next;
+		});
+		this.activeId = id;
+		this.schedulePersist();
+	}
+
+	/**
+	 * Lift a record out of this store without ending its server process and
+	 * without recording a removal tombstone, so another store can adopt it.
+	 */
+	eject(id: string): LocalPtySession | null {
+		const session = this.byId(id);
+		if (!session) return null;
+		this.sessions = this.sessions.filter((s) => s.id !== id);
+		this.connections.delete(id);
+		if (this.activeId === id) {
+			this.activeId = this.sessions.find((s) => !s.detached)?.id ?? null;
+		}
+		this.schedulePersist();
+		return session;
+	}
+
+	/**
+	 * Adopt a record ejected from another store. The server session is
+	 * untouched; only local metadata moves. Returns false when full.
+	 */
+	ingest(record: LocalPtySession): boolean {
+		if (this.isRemoved(record.id)) return false;
+		if (this.byId(record.id)) {
+			this.attach(record.id);
+			return true;
+		}
+		if (this.sessions.length >= MAX_TERMINAL_SESSIONS) return false;
+		const taken = new SvelteSet(
+			this.sessions.flatMap((s) => (s.titleNumber ? [s.titleNumber] : [])),
+		);
+		const numbered =
+			record.titleNumber && !taken.has(record.titleNumber) ? record.titleNumber : undefined;
+		const next: LocalPtySession = { ...record };
+		delete next.detached;
+		if (numbered) next.titleNumber = numbered;
+		else {
+			let n = 1;
+			while (taken.has(n)) n += 1;
+			next.titleNumber = n;
+		}
+		this.sessions = [...this.sessions, next];
+		this.activeId = next.id;
+		this.schedulePersist();
+		return true;
 	}
 
 	private pickNextNumber(): number {
@@ -445,6 +673,7 @@ export class PtySessionStore {
 	async remove(id: string): Promise<void> {
 		this.sessions = this.sessions.filter((s) => s.id !== id);
 		rememberRemoved(id);
+		this.connections.delete(id);
 		if (this.activeId === id) {
 			this.activeId = this.sessions[0]?.id ?? null;
 		}
@@ -571,7 +800,8 @@ export class PtySessionStore {
 	private persistNow(): void {
 		if (!this.repo) return;
 		try {
-			localStorage.setItem(storageKey(this.repo), JSON.stringify(this.sessions));
+			const versioned = this.sessions.map((s) => ({ ...s, v: PERSIST_SCHEMA_VERSION }));
+			localStorage.setItem(storageKey(this.repo), JSON.stringify(versioned));
 			if (this.activeId) {
 				localStorage.setItem(`${storageKey(this.repo)}.active`, this.activeId);
 			} else {
@@ -616,4 +846,42 @@ export function ptyStoreFor(repo: string): PtySessionStore {
 		stores.set(key, store);
 	}
 	return store;
+}
+
+/** All live store objects for the layout host keepalive sweep. */
+export function allPtyStores(): PtySessionStore[] {
+	return [...stores.values()];
+}
+
+const MAX_DISCOVERED_STORE_KEYS = 10;
+
+/**
+ * Lazily open foreign stores found in persisted storage so the attach
+ * dialog can list sessions from repositories this page load never mounted
+ * (renamed roots, historical strays, preview demo seeds). Removal
+ * tombstones still apply on open, so killed sessions never resurface.
+ */
+export function discoverForeignPtyStores(current: PtySessionStore): PtySessionStore[] {
+	const found: PtySessionStore[] = [];
+	try {
+		const prefix = `${STORAGE_PREFIX}.`;
+		const total = localStorage.length;
+		for (let i = 0; i < total && found.length < MAX_DISCOVERED_STORE_KEYS; i += 1) {
+			const key = localStorage.key(i);
+			if (!key || !key.startsWith(prefix)) continue;
+			const repo = key.slice(prefix.length);
+			if (!repo || repo.endsWith('.active')) continue;
+			const candidate = ptyStoreFor(repo);
+			if (candidate === current || candidate.sessions.length === 0) continue;
+			if (!found.includes(candidate)) found.push(candidate);
+		}
+	} catch {
+		// Storage unavailable; only already-open stores are listed.
+	}
+	return found;
+}
+
+/** Module-level removed check for registries that never hold a store. */
+export function isPtyRemoved(id: string): boolean {
+	return wasRemoved(id);
 }

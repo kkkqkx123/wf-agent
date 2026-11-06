@@ -80,16 +80,31 @@ pub fn attach_session(
 
     let (tx, rx) = mpsc::unbounded_channel();
     let queued = Arc::new(AtomicUsize::new(0));
-    let (replay, end_cursor, guard) = {
+    let (replay, end_cursor, replay_start, guard) = {
         let mut out = lock(&state.output);
-        let replay = replay_slice(&out.buffer, out.start, out.cursor, cursor);
+        let mut replay = replay_slice(&out.buffer, out.start, out.cursor, cursor);
         let end = out.cursor;
+        let mut start = end.saturating_sub(replay.len());
+        if replay.len() > super::state::REPLAY_BUDGET_BYTES {
+            let excess = replay.len() - super::state::REPLAY_BUDGET_BYTES;
+            let mut cut = excess.min(replay.len());
+            while cut < replay.len() && !replay.is_char_boundary(cut) {
+                cut += 1;
+            }
+            if cut >= replay.len() {
+                replay = String::new();
+                start = end;
+            } else {
+                replay = replay[cut..].to_string();
+                start += cut;
+            }
+        }
         if let Some((code, reason)) = out.ended {
             let _ = tx.send(PtyFrame::Exited {
                 exit_code: code,
                 reason,
             });
-            (replay, end, None)
+            (replay, end, start, None)
         } else {
             let token = out.next_token;
             out.next_token += 1;
@@ -104,6 +119,7 @@ pub fn attach_session(
             (
                 replay,
                 end,
+                start,
                 Some(SubscriberGuard {
                     id: id.to_string(),
                     token,
@@ -114,6 +130,7 @@ pub fn attach_session(
     Ok(PtyAttachment {
         replay,
         cursor: end_cursor,
+        replay_start,
         rx: PtyReceiver {
             rx,
             queued,

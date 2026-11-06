@@ -9,7 +9,9 @@
  * The previous component mount harness cannot run under vitest SSR
  * compilation, so this file drives PtySessionStore directly with a fake
  * PTY service. Panel behavior follows from these store guarantees plus
- * the template guards for removed ids.
+ * the template guards for removed ids. Also covers the detach and attach
+ * transfers, foreign store discovery, persisted payload hardening,
+ * explicit connection phases and headless cursor sync.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -35,39 +37,38 @@ vi.mock('#lib/services/pty', () => ({
 		async (
 			input: { title?: string; cwd?: string; command?: string; env?: Record<string, string> } = {},
 		) => {
-		seq += 1;
-		const session: FakePty = {
-			id: `pty-repro-${seq}`,
-			cwd: '/test',
-			title: input.title ?? `Terminal ${seq}`,
-			status: 'running',
-			exit_code: null,
-			rows: 24,
-			cols: 80,
-		};
-		server.set(session.id, { ...session });
-		return { ...session };
-	}),
+			seq += 1;
+			const session: FakePty = {
+				id: `pty-repro-${seq}`,
+				cwd: '/test',
+				title: input.title ?? `Terminal ${seq}`,
+				status: 'running',
+				exit_code: null,
+				rows: 24,
+				cols: 80,
+			};
+			server.set(session.id, { ...session });
+			return { ...session };
+		},
+	),
 	listPtys: vi.fn(async () => [...server.values()].map((s) => ({ ...s }))),
 	getPty: vi.fn(async (id: string) => {
 		const session = server.get(id);
 		if (!session) throw new Error(`PTY session not found: ${id}`);
 		return { ...session };
 	}),
-	updatePty: vi.fn(
-		async (id: string, patch: { title?: string; rows?: number; cols?: number }) => {
-			const session = server.get(id);
-			if (!session) throw new Error(`PTY session not found: ${id}`);
-			const next = {
-				...session,
-				title: patch.title ?? session.title,
-				rows: patch.rows ?? session.rows,
-				cols: patch.cols ?? session.cols,
-			};
-			server.set(id, next);
-			return { ...next };
-		},
-	),
+	updatePty: vi.fn(async (id: string, patch: { title?: string; rows?: number; cols?: number }) => {
+		const session = server.get(id);
+		if (!session) throw new Error(`PTY session not found: ${id}`);
+		const next = {
+			...session,
+			title: patch.title ?? session.title,
+			rows: patch.rows ?? session.rows,
+			cols: patch.cols ?? session.cols,
+		};
+		server.set(id, next);
+		return { ...next };
+	}),
 	closePty: vi.fn(async (id: string) => {
 		server.delete(id);
 	}),
@@ -106,7 +107,8 @@ function installLocalStorage(): void {
 
 installLocalStorage();
 
-const { PtySessionStore, ptyStoreFor } = await import('#lib/stores/pty-session.svelte');
+const { PtySessionStore, discoverForeignPtyStores, ptyStoreFor } =
+	await import('#lib/stores/pty-session.svelte');
 const ptyService = await import('#lib/services/pty');
 
 let repoSeq = 0;
@@ -117,8 +119,9 @@ function freshRepo(): string {
 
 describe('PtySessionStore terminal open/close behaviour', () => {
 	beforeEach(() => {
+		// NOTE: seq stays monotonic on purpose. Removed ids are tombstoned
+		// module-wide, so reusing an id string would pollute later tests.
 		server.clear();
-		seq = 0;
 		localStorage.clear();
 		vi.clearAllMocks();
 	});
@@ -237,8 +240,8 @@ describe('PtySessionStore terminal open/close behaviour', () => {
 
 describe('PtySessionStore lifecycle and persistence validation', () => {
 	beforeEach(() => {
+		// Same monotonic-seq rule as above: never reuse an id string.
 		server.clear();
-		seq = 0;
 		localStorage.clear();
 		vi.clearAllMocks();
 	});
@@ -311,5 +314,281 @@ describe('PtySessionStore lifecycle and persistence validation', () => {
 		const huge = store.byId('huge');
 		expect(huge?.buffer?.length).toBeLessThan(big.length);
 		expect(huge?.scrollY).toBe(0);
+	});
+});
+describe('persisted payload hardening', () => {
+	beforeEach(() => {
+		server.clear();
+		localStorage.clear();
+		vi.clearAllMocks();
+	});
+
+	it('rejects future schema versions and truncates overlong titles', () => {
+		const repo = freshRepo();
+		localStorage.setItem(
+			`wf.pty.v1.${repo}`,
+			JSON.stringify([
+				{ id: 'future', title: 'Terminal 1', v: 999 },
+				{ id: 'long', title: `T${'x'.repeat(500)}` },
+			]),
+		);
+		const store = new PtySessionStore();
+		store.open(repo);
+		expect(store.sessions.map((s) => s.id)).toEqual(['long']);
+		expect(store.byId('long')?.title.length).toBeLessThanOrEqual(120);
+	});
+
+	it('caps env vars, drops non-string entries and overlong values', () => {
+		const repo = freshRepo();
+		const env: Record<string, unknown> = { KEEP: 'yes', DROP: 42 };
+		for (let i = 0; i < 100; i += 1) env[`K${i}`] = 'v';
+		env.BIG = 'z'.repeat(10_000);
+		localStorage.setItem(
+			`wf.pty.v1.${repo}`,
+			JSON.stringify([{ id: 'env', title: 'Terminal 1', origin: { cwd: '/r', env } }]),
+		);
+		const store = new PtySessionStore();
+		store.open(repo);
+		const origin = store.byId('env')?.origin?.env ?? {};
+		expect(origin.KEEP).toBe('yes');
+		expect(origin.DROP).toBeUndefined();
+		expect(Object.keys(origin).length).toBeLessThanOrEqual(64);
+		expect((origin.BIG ?? '').length).toBeLessThanOrEqual(4096);
+	});
+
+	it('drops out-of-range cursors and exit codes instead of persisting them', () => {
+		const repo = freshRepo();
+		localStorage.setItem(
+			`wf.pty.v1.${repo}`,
+			JSON.stringify([
+				{ id: 'a', title: 'Terminal 1', cursor: -1, exitCode: 'x' },
+				{ id: 'b', title: 'Terminal 2', cursor: 2 ** 40, exitCode: 999_999_999 },
+			]),
+		);
+		const store = new PtySessionStore();
+		store.open(repo);
+		expect(store.byId('a')?.cursor).toBeUndefined();
+		expect(store.byId('a')?.exitCode).toBeUndefined();
+		expect(store.byId('b')?.cursor).toBeUndefined();
+		expect(store.byId('b')?.exitCode).toBeUndefined();
+	});
+
+	it('sheds scrollback tails before dropping tabs under the total cap', () => {
+		const repo = freshRepo();
+		const big = 'y'.repeat(700_000);
+		localStorage.setItem(
+			`wf.pty.v1.${repo}`,
+			JSON.stringify([
+				{ id: 'one', title: 'Terminal 1', buffer: big, cursor: 1 },
+				{ id: 'two', title: 'Terminal 2', buffer: big, cursor: 2 },
+			]),
+		);
+		const store = new PtySessionStore();
+		store.open(repo);
+		expect(store.sessions.length).toBeGreaterThanOrEqual(1);
+		for (const s of store.sessions) {
+			expect((s.buffer ?? '').length).toBeLessThanOrEqual(64 * 1024);
+		}
+	});
+});
+
+describe('explicit connection phases', () => {
+	beforeEach(() => {
+		// NOTE: seq stays monotonic on purpose. Removed ids are tombstoned
+		// module-wide, so reusing an id string would pollute later tests.
+		server.clear();
+		localStorage.clear();
+		vi.clearAllMocks();
+	});
+
+	it('moves live to reconnecting to exited through store reports', async () => {
+		const store = ptyStoreFor(freshRepo());
+		const session = await store.spawn();
+		const id = session!.id;
+		expect(store.connectionPhase(id)).toBe('live');
+
+		store.reportSocketOpen(id);
+		expect(store.connectionPhase(id)).toBe('live');
+		expect(store.connectionRetries(id)).toBe(0);
+
+		store.reportSocketClose(id, 1006);
+		expect(store.connectionPhase(id)).toBe('reconnecting');
+		expect(store.connectionRetries(id)).toBe(1);
+
+		store.reportSocketOpen(id);
+		expect(store.connectionPhase(id)).toBe('live');
+		expect(store.connectionRetries(id)).toBe(0);
+
+		store.reportSocketClose(id, 4010);
+		expect(store.connectionPhase(id)).toBe('exited');
+		expect(store.byId(id)?.status).toBe('exited');
+	});
+
+	it('marks terminal close codes exited without a failure banner retry', async () => {
+		const store = ptyStoreFor(freshRepo());
+		const session = await store.spawn();
+		const id = session!.id;
+		for (const code of [4001, 4004, 4010]) {
+			store.patch(id, { status: 'running' });
+			store.reportSocketClose(id, code);
+			expect(store.connectionPhase(id)).toBe('exited');
+		}
+	});
+
+	it('removed stays terminal for every phase query', async () => {
+		const store = ptyStoreFor(freshRepo());
+		const session = await store.spawn();
+		const id = session!.id;
+		await store.remove(id);
+		expect(store.connectionPhase(id)).toBe('removed');
+		store.reportSocketOpen(id);
+		store.markExited(id);
+		expect(store.connectionPhase(id)).toBe('removed');
+		expect(store.byId(id)).toBeUndefined();
+	});
+});
+
+describe('detach and attach transfers', () => {
+	beforeEach(() => {
+		server.clear();
+		localStorage.clear();
+		vi.clearAllMocks();
+	});
+
+	it('detaches without killing and reattaches as active', async () => {
+		const store = ptyStoreFor(freshRepo());
+		const first = await store.spawn();
+		const second = await store.spawn();
+		expect(store.activeId).toBe(second!.id);
+
+		store.detach(second!.id);
+		expect(store.byId(second!.id)?.detached).toBe(true);
+		expect(store.attachedSessions().map((s) => s.id)).toEqual([first!.id]);
+		expect(store.activeId).toBe(first!.id);
+		expect(store.hasAttachedLive()).toBe(true);
+
+		store.detach(first!.id);
+		expect(store.attachedSessions().length).toBe(0);
+		expect(store.activeId).toBeNull();
+		expect(store.hasAttachedLive()).toBe(false);
+
+		store.attach(first!.id);
+		expect(store.byId(first!.id)?.detached).toBeUndefined();
+		expect(store.activeId).toBe(first!.id);
+	});
+
+	it('ejects without killing or tombstoning so another store can ingest', async () => {
+		const source = ptyStoreFor(freshRepo());
+		const session = await store_spawn(source);
+		const record = source.eject(session.id);
+		expect(record).not.toBeNull();
+		expect(source.byId(session.id)).toBeUndefined();
+
+		const target = ptyStoreFor(freshRepo());
+		expect(target.ingest(record!)).toBe(true);
+		expect(target.byId(session.id)?.title).toBe(session.title);
+		expect(target.activeId).toBe(session.id);
+		// No tombstone: the moved id stays fully usable in its new home.
+		target.syncCursor(session.id, 7);
+		expect(target.byId(session.id)?.cursor).toBe(7);
+		await target.adopt(session.id);
+		expect(target.byId(session.id)).toBeDefined();
+
+		async function store_spawn(s: typeof source) {
+			const created = await s.spawn();
+			if (!created) throw new Error('spawn failed');
+			return created;
+		}
+	});
+
+	it('refuses ingest when the target store is full and keeps the record', async () => {
+		const source = ptyStoreFor(freshRepo());
+		const session = await source.spawn();
+		const record = source.eject(session!.id);
+		expect(record).not.toBeNull();
+
+		const target = ptyStoreFor(freshRepo());
+		for (let i = 0; i < 20; i += 1) {
+			await target.spawn();
+		}
+		expect(target.sessions.length).toBe(20);
+		expect(target.ingest(record!)).toBe(false);
+		expect(source.ingest(record!)).toBe(true);
+	});
+
+	it('persists the detached flag and restores it on reopen', async () => {
+		const repo = freshRepo();
+		const store = ptyStoreFor(repo);
+		const session = await store.spawn();
+		store.detach(session!.id);
+		store.close();
+
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		const reopened = new PtySessionStore();
+		reopened.open(repo);
+		expect(reopened.byId(session!.id)?.detached).toBe(true);
+		expect(reopened.attachedSessions().length).toBe(0);
+	});
+});
+
+describe('foreign store discovery', () => {
+	beforeEach(() => {
+		server.clear();
+		localStorage.clear();
+		vi.clearAllMocks();
+	});
+
+	it('opens persisted-but-unmounted stores and honors tombstones', async () => {
+		const current = ptyStoreFor(freshRepo());
+		const victim = await current.spawn();
+		await current.remove(victim!.id);
+
+		const foreignRepo = `foreign-discover-${Date.now()}`;
+		localStorage.setItem(
+			`wf.pty.v1.${foreignRepo}`,
+			JSON.stringify([
+				{ id: victim!.id, title: 'killed before' },
+				{ id: 'foreign-live-1', title: 'Terminal 1' },
+			]),
+		);
+		localStorage.setItem(`wf.pty.v1.${foreignRepo}.active`, victim!.id);
+
+		const found = discoverForeignPtyStores(current);
+		expect(found.length).toBe(1);
+		expect(found[0].sessions.map((s) => s.id)).toEqual(['foreign-live-1']);
+	});
+
+	it('caps the number of opened keys', () => {
+		const current = ptyStoreFor(freshRepo());
+		const stamp = Date.now();
+		for (let i = 0; i < 12; i += 1) {
+			localStorage.setItem(
+				`wf.pty.v1.cap-${stamp}-${i}`,
+				JSON.stringify([{ id: `cap-${stamp}-${i}`, title: 'Terminal 1' }]),
+			);
+		}
+		const found = discoverForeignPtyStores(current);
+		expect(found.length).toBeLessThanOrEqual(10);
+	});
+});
+
+describe('headless cursor sync', () => {
+	beforeEach(() => {
+		server.clear();
+		localStorage.clear();
+		vi.clearAllMocks();
+	});
+
+	it('only advances the cursor and ignores removed ids', async () => {
+		const store = ptyStoreFor(freshRepo());
+		const session = await store.spawn();
+		const id = session!.id;
+		store.syncCursor(id, 10);
+		expect(store.byId(id)?.cursor).toBe(10);
+		store.syncCursor(id, 5);
+		expect(store.byId(id)?.cursor).toBe(10);
+		await store.remove(id);
+		store.syncCursor(id, 99);
+		expect(store.byId(id)).toBeUndefined();
 	});
 });

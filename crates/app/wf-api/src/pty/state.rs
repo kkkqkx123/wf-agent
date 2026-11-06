@@ -13,6 +13,9 @@ use crate::ApiError;
 
 pub const MAX_BUFFER_BYTES: usize = 2 * 1024 * 1024;
 pub const TRIM_SLACK_BYTES: usize = 256 * 1024;
+/// Single attach replay budget shared with the web client persist budget.
+/// Oversized replays are tailed so a stale cursor never stalls first paint.
+pub const REPLAY_BUDGET_BYTES: usize = 64 * 1024;
 pub const MAX_EXITED_SESSIONS: usize = 25;
 pub const SUBSCRIBER_MAX_QUEUED_BYTES: usize = 4 * 1024 * 1024;
 pub const IDLE_TIMEOUT_MS: i64 = 600_000;

@@ -250,6 +250,7 @@ async fn handle_pty_socket(
     let wf_api::pty::PtyAttachment {
         replay,
         cursor: cursor0,
+        replay_start,
         mut rx,
     } = match wf_api::pty::attach_pty_session(&id, cursor) {
         Ok(v) => v,
@@ -286,10 +287,11 @@ async fn handle_pty_socket(
         offset = end;
     }
 
-    // One control frame carries the absolute cursor after replay so the client can
-    // resume later; live output frames stay raw text and the client accumulates
-    // its own cursor from frame lengths.
-    let meta = serde_json::json!({ "cursor": cursor0 });
+    // One control frame carries the absolute cursor after replay plus the
+    // replay window start so the client can detect a capped middle gap;
+    // live output frames stay raw text and the client accumulates its own
+    // cursor from frame lengths.
+    let meta = serde_json::json!({ "cursor": cursor0, "replay_start": replay_start });
     let mut bytes = vec![0u8];
     bytes.extend_from_slice(meta.to_string().as_bytes());
     let _ = sender.send(Message::Binary(Bytes::from(bytes))).await;

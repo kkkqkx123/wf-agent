@@ -10,7 +10,6 @@
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import Badge from '#lib/ui/components/Badge.svelte';
 	import Dialog from '#lib/ui/components/Dialog.svelte';
-	import DiffView from '#lib/ui/components/DiffView.svelte';
 	import Segmented from '#lib/ui/components/Segmented.svelte';
 	import ResizeHandle from '#lib/components/layout/ResizeHandle.svelte';
 	import FileTree from '#lib/components/domain/ide/FileTree.svelte';
@@ -24,7 +23,7 @@
 	import { statFs, readFsRaw, downloadFsBlob } from '#lib/services/fs';
 	import { parentOf, pasteClipboard, selectAllLoaded, uploadFiles } from '#lib/ide/clipboard';
 	import { diffToLineMap, type GutterMark } from '#lib/ide/git-diff-lines';
-	import type { DiffFile } from '#lib/types/diff';
+	import type { DiffTarget } from '#lib/ide/diff-tabs';
 	import { parseIdeQuery } from '#lib/utils/ide-url';
 	import { preloadIdeEditor } from '#lib/ide/editor-models';
 	import { registerIdeShortcuts } from '#lib/ide/ide-shortcuts';
@@ -44,10 +43,6 @@
 	let changeLines = $state<number[]>([]);
 	let changeIndex = $state(-1);
 	let diffOverflow = $state(false);
-
-	let diffDialogPath = $state<string | null>(null);
-	let diffDialogFiles = $state<DiffFile[]>([]);
-	let diffDialogLoading = $state(false);
 
 	async function reload(): Promise<void> {
 		// Manual refreshes keep the editor, tree and terminal mounted; the
@@ -190,18 +185,8 @@
 		if (line !== undefined) void ide.openFile(path, false, line, 1);
 	}
 
-	async function openDiffDialog(path: string): Promise<void> {
-		diffDialogPath = path;
-		diffDialogFiles = [];
-		diffDialogLoading = true;
-		try {
-			diffDialogFiles = await getDiff(path);
-		} catch (e) {
-			toasts.error(t('page.ide.diffTitle', { path }), e instanceof Error ? e.message : undefined);
-			diffDialogPath = null;
-		} finally {
-			diffDialogLoading = false;
-		}
+	function openDiffTab(target: DiffTarget): void {
+		ide.openDiff(target);
 	}
 
 	async function downloadTargets(paths: string[]): Promise<void> {
@@ -335,8 +320,8 @@
 			nextChange: () => stepChange(1),
 			prevChange: () => stepChange(-1),
 			viewDiff: () => {
-				const current = ide.active();
-				if (current) void openDiffDialog(current.path);
+				const path = ide.diffTargetPath() ?? ide.active()?.path;
+				if (path) ide.openDiff({ path, base: { kind: 'unstaged' } });
 			},
 		}));
 	});
@@ -425,9 +410,11 @@
 			case 'prevChange':
 				stepChange(-1);
 				break;
-			case 'viewDiff':
-				if (current) void openDiffDialog(current.path);
+			case 'viewDiff': {
+				const path = ide.diffTargetPath() ?? current?.path;
+				if (path) ide.openDiff({ path, base: { kind: 'unstaged' } });
 				break;
+			}
 			case 'newFile':
 				ide.setSidebarOpen(true);
 				ide.requestRootCreate(false);
@@ -518,7 +505,7 @@
 		/>
 	</div>
 	<div class="min-h-0 flex-1 {ide.sidebarView === 'tree' ? '' : 'hidden'}">
-		<FileTree onViewDiff={(path) => void openDiffDialog(path)} />
+		<FileTree onViewDiff={(path) => ide.openDiff({ path, base: { kind: 'unstaged' } })} />
 	</div>
 	<div class="min-h-0 flex-1 {ide.sidebarView === 'search' ? '' : 'hidden'}">
 		<IdeSearchPanel />
@@ -634,9 +621,10 @@
 							{gutterMarks}
 							{diffOverflow}
 							onOpenFullDiff={() => {
-								const current = ide.active();
-								if (current) void openDiffDialog(current.path);
+								const path = ide.diffTargetPath() ?? ide.active()?.path;
+								if (path) ide.openDiff({ path, base: { kind: 'unstaged' } });
 							}}
+							onOpenInGit={() => void goto(resolve('/git'))}
 						/>
 					</section>
 					{#if ide.historyOpen}
@@ -654,7 +642,7 @@
 							style="width: {ide.historyWidth}px"
 						>
 							<IdeHistoryPanel
-								onViewFileDiff={(path) => void openDiffDialog(path)}
+								onViewFileDiff={(target) => openDiffTab(target)}
 								onOpenInGit={() => void goto(resolve('/git'))}
 							/>
 						</aside>
@@ -698,47 +686,15 @@
 			class="absolute top-0 right-0 bottom-0 flex w-72 max-w-[85vw] flex-col overflow-hidden bg-card shadow-lg"
 		>
 			<IdeHistoryPanel
-				onViewFileDiff={(path) => {
+				onViewFileDiff={(target) => {
 					ide.setHistoryOpen(false);
-					void openDiffDialog(path);
+					openDiffTab(target);
 				}}
 				onOpenInGit={() => void goto(resolve('/git'))}
 			/>
 		</div>
 	</div>
 {/if}
-
-<Dialog
-	open={diffDialogPath !== null}
-	title={diffDialogPath
-		? t('page.ide.diffTitle', { path: diffDialogPath })
-		: t('page.ide.viewDiff')}
-	width="48rem"
-	onclose={() => {
-		diffDialogPath = null;
-		diffDialogFiles = [];
-	}}
->
-	<div class="max-h-[60vh] space-y-2 overflow-y-auto p-3">
-		{#if diffDialogLoading}
-			<p class="py-4 text-center text-caption text-muted-foreground">{t('common.loading')}</p>
-		{:else if diffDialogFiles.length === 0}
-			<p class="py-4 text-center text-caption text-muted-foreground">{t('page.ide.diffEmpty')}</p>
-		{:else}
-			{#each diffDialogFiles as file (file.path)}
-				<DiffView lines={file.lines} title={file.path} />
-			{/each}
-		{/if}
-	</div>
-	<div class="flex justify-end gap-2 border-t border-border p-3">
-		<Button size="sm" variant="outline" onclick={() => void goto(resolve('/git'))}>
-			{t('page.ide.openInGit')}
-		</Button>
-		<Button size="sm" variant="ghost" onclick={() => (diffDialogPath = null)}>
-			{t('common.close')}
-		</Button>
-	</div>
-</Dialog>
 
 <Dialog
 	open={pendingClose !== null}

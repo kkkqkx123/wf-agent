@@ -259,6 +259,37 @@ export async function getDiffRange(from: string, to: string, path?: string): Pro
 	return (Array.isArray(rows) ? rows : []).map(wireToDiffFile);
 }
 
+/** Full file content at one revision. Backs the diff-tab original side:
+ * unstaged tabs read HEAD, staged tabs read HEAD and the index alias,
+ * commit tabs read the parent commit. */
+export interface GitFileView {
+	path: string;
+	rev: string;
+	content: string;
+	size: number;
+	truncated: boolean;
+	is_binary: boolean;
+	exists: boolean;
+}
+
+export async function getGitFile(path: string, rev?: string): Promise<GitFileView> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/git/file', {
+			params: { query: { path, rev } },
+		}),
+	);
+	const v = requireData(data, 'Git file') as Record<string, unknown>;
+	return {
+		path: String(v.path ?? path),
+		rev: String(v.rev ?? rev ?? 'HEAD'),
+		content: typeof v.content === 'string' ? v.content : '',
+		size: Number(v.size ?? 0),
+		truncated: Boolean(v.truncated),
+		is_binary: Boolean(v.is_binary),
+		exists: v.exists === undefined ? true : Boolean(v.exists),
+	};
+}
+
 export async function listRemotes(): Promise<RemoteEntry[]> {
 	const data = await call<unknown>(client.GET('/api/v1/git/remotes'));
 	const rows = requireData(data, 'Git remotes') as RemoteEntry[];

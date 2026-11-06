@@ -23,10 +23,11 @@
 		type RepoMeta,
 	} from '#lib/services/git';
 	import type { DiffFile } from '#lib/types/diff';
+	import { EMPTY_TREE_SHA, type DiffTarget } from '#lib/ide/diff-tabs';
 	import { t } from '#lib/i18n';
 
 	interface Props {
-		onViewFileDiff: (path: string) => void;
+		onViewFileDiff: (target: DiffTarget) => void;
 		onOpenInGit: () => void;
 	}
 
@@ -155,6 +156,17 @@
 		} finally {
 			diffLoading = false;
 		}
+	}
+
+	function openCommitDiff(commit: CommitEntry, file: CommitFileEntry): void {
+		onViewFileDiff({
+			path: file.path,
+			base: {
+				kind: 'commit',
+				commit: commit.id,
+				parent: commit.parents[0] ?? EMPTY_TREE_SHA,
+			},
+		});
 	}
 
 	function hasStaged(file: GitFile): boolean {
@@ -418,7 +430,9 @@
 			</div>
 		{:else}
 			{#if meta && isDetached}
-				<div class="m-2 shrink-0 rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-micro">
+				<div
+					class="m-2 shrink-0 rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-micro"
+				>
 					{t('page.ide.detachedHead', {
 						sha: meta.head.slice(0, 7),
 						branch: branches[0]?.name ?? 'main',
@@ -520,7 +534,12 @@
 										{t('page.ide.stage')}
 									</Button>
 									{#if file.kind !== 'untracked'}
-										<Button size="sm" variant="ghost" disabled={busy} onclick={() => openDiscard(file)}>
+										<Button
+											size="sm"
+											variant="ghost"
+											disabled={busy}
+											onclick={() => openDiscard(file)}
+										>
 											{t('page.ide.discardChanges')}
 										</Button>
 									{/if}
@@ -532,7 +551,15 @@
 								<Button size="sm" variant="ghost" onclick={() => void openFile(file.path)}>
 									{t('page.ide.menuOpen')}
 								</Button>
-								<Button size="sm" variant="ghost" onclick={() => onViewFileDiff(file.path)}>
+								<Button
+									size="sm"
+									variant="ghost"
+									onclick={() =>
+										onViewFileDiff({
+											path: file.path,
+											base: group === 'staged' ? { kind: 'staged' } : { kind: 'unstaged' },
+										})}
+								>
 									{t('page.ide.viewDiff')}
 								</Button>
 							</div>
@@ -563,12 +590,7 @@
 						<span class="min-w-0 flex-1 truncate">{section} · {count}</span>
 					</button>
 					{#if stageLabel && onStage && open && count > 0}
-						<Button
-							size="sm"
-							variant="ghost"
-							disabled={busyAction !== null}
-							onclick={onStage}
-						>
+						<Button size="sm" variant="ghost" disabled={busyAction !== null} onclick={onStage}>
 							{stageLabel}
 						</Button>
 					{/if}
@@ -690,7 +712,10 @@
 			{/if}
 
 			<div class="flex min-h-0 flex-1 flex-col">
-				<section aria-label={t('page.ide.historyCommits')} class="flex min-h-0 flex-1 flex-col pb-3">
+				<section
+					aria-label={t('page.ide.historyCommits')}
+					class="flex min-h-0 flex-1 flex-col pb-3"
+				>
 					<div class="flex items-center gap-1 px-2 pt-2 pb-1">
 						<button
 							type="button"
@@ -708,7 +733,9 @@
 					{#if commitsOpen}
 						<div class="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
 							{#if commits.length === 0}
-								<p class="px-3 py-1 text-micro text-muted-foreground">{t('page.ide.historyEmpty')}</p>
+								<p class="px-3 py-1 text-micro text-muted-foreground">
+									{t('page.ide.historyEmpty')}
+								</p>
 							{:else}
 								{#each commits as commit (commit.id)}
 									{@const isHead = meta?.head === commit.id}
@@ -759,7 +786,9 @@
 																		{t('common.loading')}
 																	</p>
 																{:else}
-																	<div class="max-h-64 overflow-y-auto rounded-md border border-border/60">
+																	<div
+																		class="max-h-64 overflow-y-auto rounded-md border border-border/60"
+																	>
 																		{#each diffsByKey[key] ?? [] as diff (diff.path)}
 																			<DiffView lines={diff.lines} title={diff.path} class="my-1" />
 																		{/each}
@@ -769,6 +798,15 @@
 																			{t('page.ide.diffEmpty')}
 																		</p>
 																	{/if}
+																	<div class="pt-1">
+																		<Button
+																			size="sm"
+																			variant="ghost"
+																			onclick={() => openCommitDiff(commit, file)}
+																		>
+																			{t('page.ide.viewDiff')}
+																		</Button>
+																	</div>
 																{/if}
 															{/if}
 														</div>
@@ -784,7 +822,11 @@
 													{/if}
 												{/if}
 												<div class="flex flex-wrap gap-1 pt-1">
-													<Button size="sm" variant="ghost" onclick={() => (checkoutTarget = commit)}>
+													<Button
+														size="sm"
+														variant="ghost"
+														onclick={() => (checkoutTarget = commit)}
+													>
 														{t('page.ide.checkoutCommit')}
 													</Button>
 													<Button
@@ -849,7 +891,9 @@
 <Dialog
 	open={discardTarget !== null}
 	title={t('page.ide.discardUnstagedTitle')}
-	description={discardTarget ? t('page.ide.discardUnstagedDesc', { path: discardTarget.path }) : undefined}
+	description={discardTarget
+		? t('page.ide.discardUnstagedDesc', { path: discardTarget.path })
+		: undefined}
 	onclose={() => {
 		discardTarget = null;
 		discardConfirmInput = '';

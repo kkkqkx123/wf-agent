@@ -9,6 +9,13 @@ pub struct GitOutput {
     pub stderr: String,
 }
 
+/// Byte-preserving command output for blob reads (`git show`).
+/// Text runners stay lossy; blob content must not lose NUL bytes before
+/// the caller's binary probe runs.
+pub struct GitBytesOutput {
+    pub stdout: Vec<u8>,
+}
+
 pub fn run_git_with_env(
     root: &Path,
     args: &[&str],
@@ -75,6 +82,49 @@ pub fn run_git_with_env(
     Ok(GitOutput {
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+}
+
+/// Byte-preserving variant of `run_git` for blob reads. Failure detail
+/// still decodes lossy since it only feeds error messages.
+pub fn run_git_bytes(root: &Path, args: &[&str], timeout_ms: u64) -> GitResult<GitBytesOutput> {
+    let mut child = Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .env("GIT_PAGER", "cat")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| GitError::Command(format!("failed to spawn git: {e}")))?;
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms.max(1));
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(GitError::Timeout(timeout_ms));
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(e) => return Err(GitError::Command(format!("git wait failed: {e}"))),
+        }
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|e| GitError::Command(format!("git output failed: {e}")))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let detail = if stderr.is_empty() { stdout } else { stderr };
+        return Err(GitError::Command(detail));
+    }
+    Ok(GitBytesOutput {
+        stdout: output.stdout,
     })
 }
 

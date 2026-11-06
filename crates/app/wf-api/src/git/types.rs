@@ -171,6 +171,21 @@ pub struct ReflogEntry {
     pub timestamp: i64,
 }
 
+/// Full file content at one revision for diff left sides.
+/// `rev` echoes the normalized revision (`HEAD` default, `:staged` for the
+/// index). `exists` is false when the path has no blob at that revision
+/// (added files); callers then fall back to hunk-only rendering.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GitFileView {
+    pub path: String,
+    pub rev: String,
+    pub content: String,
+    pub size: u64,
+    pub truncated: bool,
+    pub is_binary: bool,
+    pub exists: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Fingerprint {
     pub status_hash: String,

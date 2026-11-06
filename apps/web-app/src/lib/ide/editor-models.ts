@@ -16,6 +16,8 @@
 type Monaco = typeof import('monaco-editor');
 type MonacoEditorInstance = ReturnType<Monaco['editor']['create']>;
 type MonacoModel = ReturnType<Monaco['editor']['createModel']>;
+type MonacoDiffEditorInstance = ReturnType<Monaco['editor']['createDiffEditor']>;
+type MonacoDiffViewState = NonNullable<ReturnType<MonacoDiffEditorInstance['saveViewState']>>;
 
 export type MonacoViewState = NonNullable<ReturnType<MonacoEditorInstance['saveViewState']>>;
 
@@ -97,6 +99,53 @@ export function retargetFileModel(from: string, to: string): void {
 	if (moved) models.set(toKey, moved);
 }
 
+/** Diff original-side model, keyed by diff tab key. The modified side
+ * reuses the shared file model so edits stay on the same buffer the
+ * file tab owns. */
+export function diffOriginalKeyFor(diffKey: string): string {
+	return `diff-orig:${diffKey}`;
+}
+
+export function getOrCreateDiffOriginalModel(
+	monaco: Monaco,
+	diffKey: string,
+	value: string,
+	language: string,
+): MonacoModel {
+	const key = diffOriginalKeyFor(diffKey);
+	const hit = models.get(key);
+	if (hit) {
+		monaco.editor.setModelLanguage(hit, language);
+		if (hit.getValue() !== value) hit.setValue(value);
+		return hit;
+	}
+	const encoded = diffKey
+		.split('/')
+		.map((segment) => encodeURIComponent(segment))
+		.join('/');
+	const model = monaco.editor.createModel(
+		value,
+		language,
+		monaco.Uri.parse(`diff-original:///${encoded}`),
+	);
+	models.set(key, model);
+	return model;
+}
+
+/** Dispose the original-side model once its diff tab closes. */
+export function releaseDiffOriginalModel(diffKey: string): void {
+	const key = diffOriginalKeyFor(diffKey);
+	viewStates.delete(key);
+	const model = models.get(key);
+	if (!model) return;
+	models.delete(key);
+	try {
+		model.dispose();
+	} catch {
+		// Disposal is best-effort; the cache entry is already dropped.
+	}
+}
+
 /** Remember the view state (cursor, scroll) of `path` when leaving it. */
 export function stashViewState(path: string, state: MonacoViewState | null): void {
 	const key = modelKeyFor(path);
@@ -110,6 +159,23 @@ export function stashViewState(path: string, state: MonacoViewState | null): voi
 /** Recall the stored view state of `path` without consuming it. */
 export function recallViewState(path: string): MonacoViewState | undefined {
 	return viewStates.get(modelKeyFor(path));
+}
+
+const diffViewStates = new Map<string, MonacoDiffViewState>();
+
+/** Remember a diff editor view state under its diff key. Kept apart from
+ * file view states: diff and file editors persist different shapes. */
+export function stashDiffViewState(diffKey: string, state: MonacoDiffViewState | null): void {
+	if (!state) {
+		diffViewStates.delete(diffKey);
+		return;
+	}
+	diffViewStates.set(diffKey, state);
+}
+
+/** Recall the stored diff editor view state without consuming it. */
+export function recallDiffViewState(diffKey: string): MonacoDiffViewState | undefined {
+	return diffViewStates.get(diffKey);
 }
 
 let workersReady = false;

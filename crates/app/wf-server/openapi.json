@@ -24436,6 +24436,74 @@
         ]
       }
     },
+    "/api/v1/git/file": {
+      "get": {
+        "tags": [
+          "git"
+        ],
+        "operationId": "get_git_file",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rev",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File content at one revision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "No repository",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/git/files": {
       "get": {
         "tags": [
@@ -48747,11 +48815,18 @@
               "max_image_bytes",
               "max_images_total_bytes",
               "allowed_image_media_types",
+              "allowed_image_exts",
               "max_attachments_per_turn",
               "max_attachment_chars",
               "max_attachments_total_chars"
             ],
             "properties": {
+              "allowed_image_exts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
               "allowed_image_media_types": {
                 "type": "array",
                 "items": {
@@ -54939,11 +55014,18 @@
           "max_image_bytes",
           "max_images_total_bytes",
           "allowed_image_media_types",
+          "allowed_image_exts",
           "max_attachments_per_turn",
           "max_attachment_chars",
           "max_attachments_total_chars"
         ],
         "properties": {
+          "allowed_image_exts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "allowed_image_media_types": {
             "type": "array",
             "items": {

@@ -3,8 +3,10 @@
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import Button from '#lib/ui/components/Button.svelte';
 	import MonacoEditor from './MonacoEditor.svelte';
+	import FileDiffTab from './FileDiffTab.svelte';
 	import { ide } from '#lib/stores/ide.svelte';
 	import type { GutterMark } from '#lib/ide/git-diff-lines';
+	import { fileNameOf } from '#lib/ide/diff-tabs';
 	import { t } from '#lib/i18n';
 
 	interface Props {
@@ -12,9 +14,24 @@
 		gutterMarks?: GutterMark[];
 		diffOverflow?: boolean;
 		onOpenFullDiff?: () => void;
+		onOpenInGit?: () => void;
 	}
 
-	let { onRequestClose, gutterMarks = [], diffOverflow = false, onOpenFullDiff }: Props = $props();
+	let {
+		onRequestClose,
+		gutterMarks = [],
+		diffOverflow = false,
+		onOpenFullDiff,
+		onOpenInGit,
+	}: Props = $props();
+
+	function diffTitle(path: string, kind: string, commit?: string): string {
+		const file = fileNameOf(path);
+		if (kind === 'staged') return t('page.ide.diffTabStaged', { file });
+		if (kind === 'commit')
+			return t('page.ide.diffTabCommit', { file, sha: (commit ?? '').slice(0, 7) });
+		return t('page.ide.diffTabUnstaged', { file });
+	}
 
 	let cursor = $state<{ line: number; col: number } | null>(null);
 	let dragPath = $state<string | null>(null);
@@ -69,7 +86,7 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col" role="presentation">
-	{#if ide.tabs.length === 0}
+	{#if ide.tabs.length === 0 && ide.diffs.length === 0}
 		<div class="flex flex-1 items-center justify-center px-6 text-center">
 			<div class="max-w-sm space-y-2">
 				<p class="text-body font-medium">{t('page.ide.noFileOpen')}</p>
@@ -104,6 +121,7 @@
 						title={tab.preview ? `${tab.path} (${t('page.ide.previewHint')})` : tab.path}
 						onclick={() => {
 							ide.activePath = tab.path;
+							ide.activeDiffKey = null;
 							cursor = null;
 						}}
 						ondblclick={() => {
@@ -121,6 +139,41 @@
 					/>
 				</div>
 			{/each}
+			{#each ide.diffs as diff (diff.key)}
+				{@const dirty = diff.base.kind === 'unstaged' && ide.isDirty(diff.path)}
+				<div
+					role="tab"
+					tabindex={0}
+					aria-selected={ide.activeDiffKey === diff.key}
+					class="flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-caption {ide.activeDiffKey ===
+					diff.key
+						? 'border-primary bg-primary/10'
+						: 'border-dashed border-border bg-muted/40'}"
+				>
+					<button
+						type="button"
+						class="max-w-44 cursor-pointer truncate hover:text-foreground"
+						title={`${diff.path} · ${diff.base.kind === 'commit' ? diff.base.commit : diff.base.kind}`}
+						onclick={() => {
+							ide.activeDiffKey = diff.key;
+							cursor = null;
+						}}
+					>
+						{diffTitle(
+							diff.path,
+							diff.base.kind,
+							diff.base.kind === 'commit' ? diff.base.commit : undefined,
+						)}{dirty ? ' •' : ''}
+					</button>
+					<IconButton
+						icon="x"
+						label={t('page.ide.closeTab')}
+						compact
+						variant="ghost"
+						onclick={() => ide.closeDiff(diff.key)}
+					/>
+				</div>
+			{/each}
 			{#if ide.dirtyPaths.length > 0}
 				<Button size="sm" variant="ghost" onclick={() => void ide.saveAll()}>
 					{t('page.ide.saveAll')}
@@ -128,113 +181,120 @@
 			{/if}
 		</div>
 
-		{@const active = ide.active()}
-		{#if active}
-			<div class="flex min-h-0 flex-1 flex-col">
-				{#if active.loading}
-					<p class="p-4 text-caption text-muted-foreground">{t('common.loading')}</p>
-				{:else if active.error && !active.content}
-					<div class="space-y-2 p-4">
-						<p class="text-body text-destructive">{active.error}</p>
-						<div class="flex flex-wrap gap-2">
-							<Button size="sm" variant="outline" onclick={() => void ide.loadFile(active.path)}>
-								{t('common.retry')}
-							</Button>
-							{#if isConflictError(active.error)}
-								<Button size="sm" variant="outline" onclick={() => void forceSave(active.path)}>
-									{t('page.ide.overwrite')}
-								</Button>
-							{/if}
-						</div>
-					</div>
-				{:else if active.isBinary}
-					<div class="space-y-2 p-4">
-						<p class="text-body font-medium">{t('page.ide.binaryTitle')}</p>
-						<p class="text-caption text-muted-foreground">{t('page.ide.binaryDesc')}</p>
-					</div>
-				{:else}
-					{#if active.error}
-						<div
-							class="flex flex-wrap items-center gap-2 border-b border-destructive/30 bg-destructive/10 px-3 py-1 text-micro text-destructive"
-						>
-							<span class="min-w-0 flex-1">{active.error}</span>
-							{#if isConflictError(active.error)}
-								<button
-									type="button"
-									class="cursor-pointer underline hover:no-underline"
-									onclick={() => void ide.loadFile(active.path)}
-								>
-									{t('page.ide.reloadFile')}
-								</button>
-								<button
-									type="button"
-									class="cursor-pointer underline hover:no-underline"
-									onclick={() => void forceSave(active.path)}
-								>
-									{t('page.ide.overwrite')}
-								</button>
-							{/if}
-						</div>
-					{/if}
-					{#if active.truncated}
-						<p class="border-b border-warning/30 bg-warning/10 px-3 py-1 text-micro text-warning">
-							{t('domain.files.truncatedPath', { path: active.path })}
-						</p>
-					{/if}
-					{#if diffOverflow}
-						<div
-							class="flex flex-wrap items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-1 text-micro text-warning"
-						>
-							<span class="min-w-0 flex-1">{t('page.ide.diffOverflow')}</span>
-							<button
-								type="button"
-								class="cursor-pointer underline hover:no-underline"
-								onclick={() => onOpenFullDiff?.()}
-							>
-								{t('page.ide.viewDiff')}
-							</button>
-						</div>
-					{/if}
-					<div class="min-h-0 flex-1">
-						<MonacoEditor
-							filePath={active.path}
-							value={active.content}
-							language={active.language}
-							readOnly={active.truncated}
-							contentReady={!active.loading}
-							{gutterMarks}
-							revealLine={ide.pendingReveal?.path === active.path
-								? (ide.pendingReveal.line ?? null)
-								: null}
-							revealCol={ide.pendingReveal?.path === active.path
-								? (ide.pendingReveal.col ?? null)
-								: null}
-							onChange={(next) => ide.updateContent(active.path, next)}
-							onSave={() => {
-								if (!active.isBinary && !active.saving) void ide.saveFile(active.path);
-							}}
-							onCursor={(line, col) => {
-								if (ide.activePath === active.path) cursor = { line, col };
-							}}
-						/>
-					</div>
-					<div
-						class="flex items-center justify-between gap-2 border-t border-border px-3 py-1 text-micro text-muted-foreground"
-					>
-						<span class="min-w-0 flex-1 truncate">{active.path} · {active.language}</span>
-						<span class="shrink-0 tabular-nums">
-							{cursor && ide.activePath === active.path ? `${cursor.line}:${cursor.col} · ` : ''}
-							{#if active.saving}
-								{t('page.ide.saving')}
-							{:else if active.content !== active.original}
-								{t('page.ide.unsaved')}
-							{:else}
-								{t('page.ide.saved')}
-							{/if}
-						</span>
-					</div>
-				{/if}
+		{@const diff = ide.activeDiff()}
+		{#if diff}
+			<div class="min-h-0 flex-1">
+				<FileDiffTab diffKey={diff.key} path={diff.path} base={diff.base} {onOpenInGit} />
 			</div>
+		{:else}
+			{@const active = ide.active()}
+			{#if active}
+				<div class="flex min-h-0 flex-1 flex-col">
+					{#if active.loading}
+						<p class="p-4 text-caption text-muted-foreground">{t('common.loading')}</p>
+					{:else if active.error && !active.content}
+						<div class="space-y-2 p-4">
+							<p class="text-body text-destructive">{active.error}</p>
+							<div class="flex flex-wrap gap-2">
+								<Button size="sm" variant="outline" onclick={() => void ide.loadFile(active.path)}>
+									{t('common.retry')}
+								</Button>
+								{#if isConflictError(active.error)}
+									<Button size="sm" variant="outline" onclick={() => void forceSave(active.path)}>
+										{t('page.ide.overwrite')}
+									</Button>
+								{/if}
+							</div>
+						</div>
+					{:else if active.isBinary}
+						<div class="space-y-2 p-4">
+							<p class="text-body font-medium">{t('page.ide.binaryTitle')}</p>
+							<p class="text-caption text-muted-foreground">{t('page.ide.binaryDesc')}</p>
+						</div>
+					{:else}
+						{#if active.error}
+							<div
+								class="flex flex-wrap items-center gap-2 border-b border-destructive/30 bg-destructive/10 px-3 py-1 text-micro text-destructive"
+							>
+								<span class="min-w-0 flex-1">{active.error}</span>
+								{#if isConflictError(active.error)}
+									<button
+										type="button"
+										class="cursor-pointer underline hover:no-underline"
+										onclick={() => void ide.loadFile(active.path)}
+									>
+										{t('page.ide.reloadFile')}
+									</button>
+									<button
+										type="button"
+										class="cursor-pointer underline hover:no-underline"
+										onclick={() => void forceSave(active.path)}
+									>
+										{t('page.ide.overwrite')}
+									</button>
+								{/if}
+							</div>
+						{/if}
+						{#if active.truncated}
+							<p class="border-b border-warning/30 bg-warning/10 px-3 py-1 text-micro text-warning">
+								{t('domain.files.truncatedPath', { path: active.path })}
+							</p>
+						{/if}
+						{#if diffOverflow}
+							<div
+								class="flex flex-wrap items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-1 text-micro text-warning"
+							>
+								<span class="min-w-0 flex-1">{t('page.ide.diffOverflow')}</span>
+								<button
+									type="button"
+									class="cursor-pointer underline hover:no-underline"
+									onclick={() => onOpenFullDiff?.()}
+								>
+									{t('page.ide.viewDiff')}
+								</button>
+							</div>
+						{/if}
+						<div class="min-h-0 flex-1">
+							<MonacoEditor
+								filePath={active.path}
+								value={active.content}
+								language={active.language}
+								readOnly={active.truncated}
+								contentReady={!active.loading}
+								{gutterMarks}
+								revealLine={ide.pendingReveal?.path === active.path
+									? (ide.pendingReveal.line ?? null)
+									: null}
+								revealCol={ide.pendingReveal?.path === active.path
+									? (ide.pendingReveal.col ?? null)
+									: null}
+								onChange={(next) => ide.updateContent(active.path, next)}
+								onSave={() => {
+									if (!active.isBinary && !active.saving) void ide.saveFile(active.path);
+								}}
+								onCursor={(line, col) => {
+									if (ide.activePath === active.path) cursor = { line, col };
+								}}
+							/>
+						</div>
+						<div
+							class="flex items-center justify-between gap-2 border-t border-border px-3 py-1 text-micro text-muted-foreground"
+						>
+							<span class="min-w-0 flex-1 truncate">{active.path} · {active.language}</span>
+							<span class="shrink-0 tabular-nums">
+								{cursor && ide.activePath === active.path ? `${cursor.line}:${cursor.col} · ` : ''}
+								{#if active.saving}
+									{t('page.ide.saving')}
+								{:else if active.content !== active.original}
+									{t('page.ide.unsaved')}
+								{:else}
+									{t('page.ide.saved')}
+								{/if}
+							</span>
+						</div>
+					{/if}
+				</div>
+			{/if}
 		{/if}
 	{/if}
 </div>

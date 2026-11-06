@@ -21,11 +21,12 @@ pub use parse::{
 };
 pub use queries::{
     branches, commit_files, commits, diff_refs, diff_staged, diff_unstaged, file_entries,
-    fingerprint, meta, reflog, remotes, stash_list, status, submodule_status, tags, worktrees,
+    fingerprint, git_file, meta, reflog, remotes, stash_list, status, submodule_status, tags,
+    worktrees,
 };
 pub use registry::{action_registry, registry_snapshot};
 pub use types::{
     BranchEntry, CommitEntry, CommitFileEntry, DangerLevel, DiffFileView, DiffHunk, FileEntry,
-    FileKind, Fingerprint, GitError, GitResult, ReflogEntry, RegistryEntry, RemoteEntry, RepoMeta,
-    StashEntry, StatusView, SubmoduleEntry, TagEntry, WorktreeEntry,
+    FileKind, Fingerprint, GitError, GitFileView, GitResult, ReflogEntry, RegistryEntry,
+    RemoteEntry, RepoMeta, StashEntry, StatusView, SubmoduleEntry, TagEntry, WorktreeEntry,
 };

@@ -16,6 +16,7 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/git/diff", get(handle_git_diff))
         .route("/git/diff/staged", get(handle_git_diff_staged))
         .route("/git/diff/range", get(handle_git_diff_range))
+        .route("/git/file", get(handle_git_file))
         .route("/git/commits", get(handle_git_commits))
         .route("/git/commits/files", get(handle_git_commit_files))
         .route("/git/branches", get(handle_git_branches))
@@ -110,6 +111,24 @@ pub(crate) async fn handle_git_diff_range(
 ) -> impl IntoResponse {
     match wf_api::git::diff_refs(&state.ctx, &query.from, &query.to, query.path.as_deref()) {
         Ok(diff) => ok(diff).into_response(),
+        Err(err) => error_response(err.into()),
+    }
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct GitFileQuery {
+    path: String,
+    rev: Option<String>,
+}
+
+#[utoipa::path(get, path = "/api/v1/git/file", operation_id = "get_git_file", tag = "git", params(GitFileQuery), responses((status = 200, description = "File content at one revision", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "No repository", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
+pub(crate) async fn handle_git_file(
+    State(state): State<ApiState>,
+    Query(query): Query<GitFileQuery>,
+) -> impl IntoResponse {
+    match wf_api::git::git_file(&state.ctx, &query.path, query.rev.as_deref()) {
+        Ok(file) => ok(file).into_response(),
         Err(err) => error_response(err.into()),
     }
 }

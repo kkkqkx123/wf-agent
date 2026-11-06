@@ -209,7 +209,7 @@ fn relative_path(root: &Path, absolute: &Path) -> String {
         .unwrap_or_default()
 }
 
-fn file_hash(bytes: &[u8]) -> String {
+pub(crate) fn file_hash(bytes: &[u8]) -> String {
     wf_checkpoint::file::util::sha256_hex(bytes)
 }
 
@@ -221,7 +221,7 @@ fn modified_ms(metadata: &std::fs::Metadata) -> Option<i64> {
         .map(|d| (d.as_millis().min(i64::MAX as u128)) as i64)
 }
 
-fn is_binary_bytes(bytes: &[u8]) -> bool {
+pub(crate) fn is_binary_bytes(bytes: &[u8]) -> bool {
     let probe = &bytes[..bytes.len().min(BINARY_PROBE_BYTES)];
     probe.contains(&0)
 }

@@ -1,6 +1,7 @@
 import { untrack } from 'svelte';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { releaseFileModel, retargetFileModel } from '#lib/ide/editor-models';
+import { diffKeyFor, type DiffBase, type DiffTarget } from '#lib/ide/diff-tabs';
 import { listFs, readFsFile, writeFsFile, languageForPath } from '#lib/services/fs';
 import { listFiles } from '#lib/services/git';
 import { aggregateBadges, badgeForFile, type GitBadgeLevel } from '#lib/utils/git-badges';
@@ -20,6 +21,12 @@ export interface IdeFileTab {
 	isBinary: boolean;
 	truncated: boolean;
 	preview: boolean;
+}
+
+export interface IdeDiffTab {
+	key: string;
+	path: string;
+	base: DiffBase;
 }
 
 export interface IdeDirState {
@@ -56,6 +63,7 @@ function writeSession(key: string, value: unknown): void {
 }
 
 const MAX_OPEN_TABS = 20;
+const MAX_DIFF_TABS = 10;
 
 const TERMINAL_HEIGHT_DEFAULT = 192;
 const TERMINAL_HEIGHT_MIN = 120;
@@ -111,6 +119,9 @@ export class IdeStore {
 	dirs = $state<SvelteMap<string, IdeDirState>>(new SvelteMap());
 	tabs = $state<IdeFileTab[]>([]);
 	activePath = $state<string | null>(null);
+	/** Virtual diff tabs. Never persisted: bases go stale with the repo. */
+	diffs = $state<IdeDiffTab[]>([]);
+	activeDiffKey = $state<string | null>(null);
 	root = $state<string>('');
 	terminalOpen = $state(false);
 	terminalHeight = $state(TERMINAL_HEIGHT_DEFAULT);
@@ -353,6 +364,50 @@ export class IdeStore {
 		return this.tabs.filter((t) => t.content !== t.original).map((t) => t.path);
 	}
 
+	/** Open one diff tab per file per base. Repeat opens focus the tab. */
+	openDiff(target: DiffTarget): void {
+		const key = diffKeyFor(target);
+		const hit = this.diffs.find((d) => d.key === key);
+		if (hit) {
+			this.activeDiffKey = key;
+			return;
+		}
+		this.diffs.push({ key, path: target.path, base: { ...target.base } });
+		while (this.diffs.length > MAX_DIFF_TABS) {
+			const victim = this.diffs.find((d) => d.key !== key);
+			if (!victim) break;
+			this.diffs = this.diffs.filter((d) => d !== victim);
+		}
+		if (this.activeDiffKey && !this.diffs.some((d) => d.key === this.activeDiffKey)) {
+			this.activeDiffKey = null;
+		}
+		this.activeDiffKey = key;
+	}
+
+	closeDiff(key: string): void {
+		this.diffs = this.diffs.filter((d) => d.key !== key);
+		if (this.activeDiffKey === key) this.activeDiffKey = null;
+	}
+
+	activeDiff(): IdeDiffTab | null {
+		if (!this.activeDiffKey) return null;
+		return this.diffs.find((d) => d.key === this.activeDiffKey) ?? null;
+	}
+
+	/** File path the visible diff tab compares, if any. */
+	diffTargetPath(): string | null {
+		return this.activeDiff()?.path ?? null;
+	}
+
+	private dropDiffsForPath(path: string): void {
+		const prefix = `${path}/`;
+		const doomed = this.diffs.filter((d) => d.path === path || d.path.startsWith(prefix));
+		if (doomed.length === 0) return;
+		const keys = new SvelteSet(doomed.map((d) => d.key));
+		this.diffs = this.diffs.filter((d) => !keys.has(d.key));
+		if (this.activeDiffKey && keys.has(this.activeDiffKey)) this.activeDiffKey = null;
+	}
+
 	async openFile(
 		path: string,
 		preview = false,
@@ -398,6 +453,35 @@ export class IdeStore {
 		}
 		this.evictExcessTabs(path);
 		this.activePath = path;
+		this.activeDiffKey = null;
+		this.persistTabs();
+		await this.loadFile(path);
+	}
+
+	/** Ensure a file tab exists without focusing it. The editable diff
+	 * side reuses the file model, so unstaged diffs need the tab loaded
+	 * even when the user never opened the file. */
+	async ensureFileTab(path: string): Promise<void> {
+		const existing = this.tabs.find((t) => t.path === path);
+		if (existing) {
+			if (existing.loading) await this.loadFile(path);
+			return;
+		}
+		const tab: IdeFileTab = {
+			path,
+			content: '',
+			original: '',
+			hash: null,
+			language: languageForPath(path),
+			loading: true,
+			saving: false,
+			error: null,
+			isBinary: false,
+			truncated: false,
+			preview: true,
+		};
+		this.tabs.push(tab);
+		this.evictExcessTabs(path);
 		this.persistTabs();
 		await this.loadFile(path);
 	}
@@ -594,6 +678,7 @@ export class IdeStore {
 
 	forceClose(path: string): void {
 		this.tabs = this.tabs.filter((t) => t.path !== path);
+		this.dropDiffsForPath(path);
 		releaseFileModel(path);
 		if (this.activePath === path) {
 			this.activePath = this.tabs[0]?.path ?? null;
@@ -730,6 +815,22 @@ export class IdeStore {
 			}
 		}
 		for (const pair of moved) retargetFileModel(pair.from, pair.to);
+		const liveDiff = this.activeDiff();
+		for (const tab of this.diffs) {
+			if (tab.path === from) tab.path = to;
+			else if (tab.path.startsWith(prefix)) {
+				tab.path = `${to}${tab.path.slice(from.length)}`;
+			}
+			tab.key = diffKeyFor({ path: tab.path, base: tab.base });
+		}
+		// A rename onto an already-open diff key drops the shadowed tab.
+		const seenDiffs = new SvelteSet<string>();
+		this.diffs = this.diffs.filter((tab) => {
+			if (seenDiffs.has(tab.key)) return false;
+			seenDiffs.add(tab.key);
+			return true;
+		});
+		this.activeDiffKey = liveDiff && this.diffs.includes(liveDiff) ? liveDiff.key : null;
 		// A rename onto an already-open path would duplicate a keyed-each key;
 		// keep the first tab and drop the shadowed ones.
 		const seenPaths = new SvelteSet<string>();
@@ -774,6 +875,7 @@ export class IdeStore {
 		if (this.activePath && !this.tabs.some((t) => t.path === this.activePath)) {
 			this.activePath = this.tabs[0]?.path ?? null;
 		}
+		for (const path of paths) this.dropDiffsForPath(path);
 		this.persistTabs();
 	}
 

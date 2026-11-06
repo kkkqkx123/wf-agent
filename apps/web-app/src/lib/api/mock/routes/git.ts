@@ -271,6 +271,26 @@ export function registerGit(router: MockRouter): void {
 		if (!path) return all;
 		return all.filter((row) => row.path === path);
 	});
+	router.on('GET', '/api/v1/git/file', (_p, query) => {
+		const path = typeof query.path === 'string' ? query.path : 'preview.txt';
+		const rev = typeof query.rev === 'string' && query.rev ? query.rev : 'HEAD';
+		const content = [
+			`// preview original of ${path} at ${rev}`,
+			'export function hello(): string {',
+			'\treturn "hello";',
+			'}',
+			'',
+		].join('\n');
+		return {
+			path,
+			rev,
+			content,
+			size: content.length,
+			truncated: false,
+			is_binary: false,
+			exists: true,
+		};
+	});
 	router.on('GET', '/api/v1/git/commits', () => liveCommits);
 	router.on('GET', '/api/v1/git/commits/files', () => [
 		{ path: gitFiles[0]?.path ?? 'preview.txt', status: 'M', renamed_from: null },

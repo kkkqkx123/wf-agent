@@ -7,11 +7,11 @@ use super::parse::{
     parse_porcelain_v2_branch_info, parse_porcelain_v2_files, parse_stash_list, parse_tags,
     short_commit,
 };
-use super::runner::run_git;
+use super::runner::{run_git, run_git_bytes};
 use super::types::{
     BranchEntry, CommitEntry, CommitFileEntry, DiffFileView, FileEntry, Fingerprint, GitError,
-    GitResult, ReflogEntry, RemoteEntry, RepoMeta, StashEntry, StatusView, SubmoduleEntry,
-    TagEntry, WorktreeEntry,
+    GitFileView, GitResult, ReflogEntry, RemoteEntry, RepoMeta, StashEntry, StatusView,
+    SubmoduleEntry, TagEntry, WorktreeEntry,
 };
 use crate::infra::context::ApiContext;
 
@@ -219,6 +219,87 @@ pub fn diff_refs(
     }
     let out = run_git(&root, &args, timeout)?;
     Ok(parse_diff_unified(&out.stdout))
+}
+
+/// Normalize the `rev` parameter for blob reads. Empty means `HEAD`;
+/// `:staged` addresses the index. Anything that could escape into option
+/// injection or range syntax is rejected; the value travels as one argv
+/// element so no shell quoting is involved.
+fn normalize_blob_rev(raw: Option<&str>) -> GitResult<String> {
+    let rev = raw.unwrap_or("").trim();
+    if rev.is_empty() {
+        return Ok("HEAD".to_string());
+    }
+    if rev == ":staged" || rev == ":0" {
+        return Ok(":staged".to_string());
+    }
+    if rev.len() > 256
+        || rev.contains('\0')
+        || rev.contains('\n')
+        || rev.starts_with('-')
+        || rev.contains("..")
+        || rev.contains(':')
+        || rev.contains(' ')
+    {
+        return Err(GitError::Precondition(format!("invalid git revision '{rev}'")));
+    }
+    Ok(rev.to_string())
+}
+
+/// Full file content at one revision. Backs the diff-tab left side:
+/// unstaged tabs read `HEAD`, staged tabs read `:staged` and `HEAD`,
+/// commit tabs read the parent commit. Missing blobs report
+/// `exists: false` instead of failing so added files degrade to hunk view.
+pub fn git_file(ctx: &ApiContext, path: &str, rev: Option<&str>) -> GitResult<GitFileView> {
+    let root = repo_root(ctx)?;
+    let timeout = command_timeout_ms(ctx, false);
+    validate_repo_path(&root, path)?;
+    let rev = normalize_blob_rev(rev)?;
+    let spec = if rev == ":staged" {
+        format!(":{path}")
+    } else {
+        format!("{rev}:{path}")
+    };
+    let bytes = match run_git_bytes(&root, &["show", &spec], timeout) {
+        Ok(out) => out.stdout,
+        Err(GitError::Command(detail))
+            if detail.contains("does not exist") || detail.contains("but not in") =>
+        {
+            return Ok(GitFileView {
+                path: path.to_string(),
+                rev,
+                content: String::new(),
+                size: 0,
+                truncated: false,
+                is_binary: false,
+                exists: false,
+            });
+        }
+        Err(other) => return Err(other),
+    };
+    let size = bytes.len() as u64;
+    let capped = bytes.len().min(crate::fs::MAX_READ_BYTES);
+    let head = &bytes[..capped];
+    if crate::fs::is_binary_bytes(head) {
+        return Ok(GitFileView {
+            path: path.to_string(),
+            rev,
+            content: String::new(),
+            size,
+            truncated: false,
+            is_binary: true,
+            exists: true,
+        });
+    }
+    Ok(GitFileView {
+        path: path.to_string(),
+        rev,
+        content: String::from_utf8_lossy(head).into_owned(),
+        size,
+        truncated: bytes.len() > capped,
+        is_binary: false,
+        exists: true,
+    })
 }
 
 pub fn commits(
@@ -486,4 +567,44 @@ pub fn reflog(ctx: &ApiContext, limit: u32) -> GitResult<Vec<ReflogEntry>> {
         });
     }
     Ok(entries)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_blob_rev;
+
+    #[test]
+    fn blob_rev_defaults_to_head() {
+        assert_eq!(normalize_blob_rev(None).unwrap(), "HEAD");
+        assert_eq!(normalize_blob_rev(Some("")).unwrap(), "HEAD");
+        assert_eq!(normalize_blob_rev(Some("  ")).unwrap(), "HEAD");
+    }
+
+    #[test]
+    fn blob_rev_accepts_index_alias() {
+        assert_eq!(normalize_blob_rev(Some(":staged")).unwrap(), ":staged");
+        assert_eq!(normalize_blob_rev(Some(":0")).unwrap(), ":staged");
+    }
+
+    #[test]
+    fn blob_rev_accepts_commits_and_ancestry() {
+        assert_eq!(normalize_blob_rev(Some("abc1234")).unwrap(), "abc1234");
+        assert_eq!(normalize_blob_rev(Some("HEAD~1")).unwrap(), "HEAD~1");
+        assert_eq!(normalize_blob_rev(Some("main")).unwrap(), "main");
+    }
+
+    #[test]
+    fn blob_rev_rejects_injection_shapes() {
+        for raw in [
+            "--upload-pack=t",
+            "a..b",
+            "a....b",
+            "HEAD:other",
+            "a b",
+            "a\0b",
+            "a\nb",
+        ] {
+            assert!(normalize_blob_rev(Some(raw)).is_err(), "{raw}");
+        }
+    }
 }

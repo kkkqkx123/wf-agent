@@ -26,6 +26,7 @@
 	import { diffToLineMap, type GutterMark } from '#lib/ide/git-diff-lines';
 	import type { DiffFile } from '#lib/types/diff';
 	import { parseIdeQuery } from '#lib/utils/ide-url';
+	import { preloadIdeEditor } from '#lib/ide/editor-models';
 	import { registerIdeShortcuts } from '#lib/ide/ide-shortcuts';
 	import { t } from '#lib/i18n';
 
@@ -95,6 +96,16 @@
 
 	onMount(() => {
 		void reload();
+		// Warm the editor runtime while idle so the first file open never
+		// pays the module transform.
+		const win = window as Window & {
+			requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+		};
+		if (typeof win.requestIdleCallback === 'function') {
+			win.requestIdleCallback(() => preloadIdeEditor(), { timeout: 3000 });
+		} else {
+			window.setTimeout(() => preloadIdeEditor(), 1500);
+		}
 	});
 
 	function editingFocused(): boolean {

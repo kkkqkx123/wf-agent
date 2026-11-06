@@ -1,5 +1,6 @@
 import { untrack } from 'svelte';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+import { releaseFileModel, retargetFileModel } from '#lib/ide/editor-models';
 import { listFs, readFsFile, writeFsFile, languageForPath } from '#lib/services/fs';
 import { listFiles } from '#lib/services/git';
 import { aggregateBadges, badgeForFile, type GitBadgeLevel } from '#lib/utils/git-badges';
@@ -255,8 +256,20 @@ export class IdeStore {
 		});
 	}
 
+	/**
+	 * Publish a snapshot so template readers see the new rows. Map values
+	 * are not deeply reactive: mutating the stored object in place never
+	 * notifies, so every user-visible transition replaces the entry. A
+	 * same-reference set would be a no-op, hence the snapshot copy.
+	 */
+	private publishDir(path: string, state: IdeDirState): IdeDirState {
+		const snapshot: IdeDirState = { ...state };
+		this.dirs.set(path, snapshot);
+		return snapshot;
+	}
+
 	async loadDir(path: string, force = false): Promise<void> {
-		const state = this.dirState(path);
+		let state = this.dirState(path);
 		if (state.loading) {
 			// A forced reload joins the in-flight fetch instead of dropping
 			// itself: structural mutations must never lose their tree refresh.
@@ -266,15 +279,19 @@ export class IdeStore {
 			} catch {
 				// A failed stale fetch must not block the fresh load below.
 			}
+			state = this.dirState(path);
+			if (state.loaded && !force) return;
 		} else if (state.loaded && !force) {
 			return;
 		}
 		// Loop: an invalidate that lands while fetching voids the rows just
 		// read, so re-read instead of publishing a stale tree.
 		for (;;) {
+			state = this.dirState(path);
 			const seen = state.epoch;
 			state.loading = true;
 			state.error = null;
+			state = this.publishDir(path, state);
 			let entries: FsEntry[] | null = null;
 			let failure: unknown = null;
 			const pending = listFs(path).then(
@@ -287,7 +304,8 @@ export class IdeStore {
 			);
 			state.pending = pending;
 			await pending;
-			if (this.dirState(path).pending === pending) {
+			state = this.dirState(path);
+			if (state.pending === pending) {
 				state.pending = null;
 				state.loading = false;
 			}
@@ -298,10 +316,18 @@ export class IdeStore {
 				state.entries = entries;
 				state.loaded = true;
 			}
+			this.publishDir(path, state);
 			return;
 		}
 	}
 
+	/**
+	 * Targeted invalidate of one directory listing. Ancestors never render
+	 * the changed entries (a listing shows direct children only), so only
+	 * the direct parent is invalidated; its forced reload publishes the
+	 * visible transition. Stays silent on purpose: the reload that always
+	 * follows renders the rows without flashing an empty tree.
+	 */
 	invalidateDir(path: string): void {
 		const state = this.dirs.get(path);
 		if (state) {
@@ -311,14 +337,6 @@ export class IdeStore {
 			// instead of publishing rows from before the mutation.
 			state.epoch += 1;
 		}
-	}
-
-	invalidateParents(path: string): void {
-		const parts = path.split('/').filter(Boolean);
-		for (let i = parts.length - 1; i >= 0; i -= 1) {
-			this.invalidateDir(parts.slice(0, i).join('/'));
-		}
-		this.invalidateDir('');
 	}
 
 	active(): IdeFileTab | null {
@@ -371,8 +389,10 @@ export class IdeStore {
 		};
 		if (preview) {
 			const previewIndex = this.tabs.findIndex((t) => t.preview);
-			if (previewIndex >= 0) this.tabs.splice(previewIndex, 1, tab);
-			else this.tabs.push(tab);
+			if (previewIndex >= 0) {
+				const [replaced] = this.tabs.splice(previewIndex, 1, tab);
+				if (replaced && replaced.path !== tab.path) releaseFileModel(replaced.path);
+			} else this.tabs.push(tab);
 		} else {
 			this.tabs.push(tab);
 		}
@@ -390,6 +410,7 @@ export class IdeStore {
 			);
 			if (!victim) return;
 			this.tabs = this.tabs.filter((t) => t !== victim);
+			releaseFileModel(victim.path);
 			evicted += 1;
 		}
 		if (evicted > 0) {
@@ -563,6 +584,7 @@ export class IdeStore {
 		if (!tab) return true;
 		if (tab.content !== tab.original) return false;
 		this.tabs = this.tabs.filter((t) => t.path !== path);
+		releaseFileModel(path);
 		if (this.activePath === path) {
 			this.activePath = this.tabs[0]?.path ?? null;
 		}
@@ -572,6 +594,7 @@ export class IdeStore {
 
 	forceClose(path: string): void {
 		this.tabs = this.tabs.filter((t) => t.path !== path);
+		releaseFileModel(path);
 		if (this.activePath === path) {
 			this.activePath = this.tabs[0]?.path ?? null;
 		}
@@ -693,23 +716,33 @@ export class IdeStore {
 	retargetPath(from: string, to: string): void {
 		const prefix = `${from}/`;
 		const previousActive = this.activePath;
+		const moved: Array<{ from: string; to: string }> = [];
 		for (const tab of this.tabs) {
 			if (tab.path === from) {
+				moved.push({ from: tab.path, to });
 				tab.path = to;
 				tab.language = languageForPath(to);
 			} else if (tab.path.startsWith(prefix)) {
-				tab.path = `${to}${tab.path.slice(from.length)}`;
+				const next = `${to}${tab.path.slice(from.length)}`;
+				moved.push({ from: tab.path, to: next });
+				tab.path = next;
 				tab.language = languageForPath(tab.path);
 			}
 		}
+		for (const pair of moved) retargetFileModel(pair.from, pair.to);
 		// A rename onto an already-open path would duplicate a keyed-each key;
 		// keep the first tab and drop the shadowed ones.
 		const seenPaths = new SvelteSet<string>();
+		const dropped: string[] = [];
 		this.tabs = this.tabs.filter((tab) => {
-			if (seenPaths.has(tab.path)) return false;
+			if (seenPaths.has(tab.path)) {
+				dropped.push(tab.path);
+				return false;
+			}
 			seenPaths.add(tab.path);
 			return true;
 		});
+		for (const path of dropped) releaseFileModel(path);
 		if (previousActive === from) this.activePath = to;
 		else if (previousActive?.startsWith(prefix)) {
 			this.activePath = `${to}${previousActive.slice(from.length)}`;
@@ -724,13 +757,20 @@ export class IdeStore {
 	closePaths(paths: string[]): void {
 		const doomed = new SvelteSet(paths);
 		const prefixes = paths.map((p) => `${p}/`);
+		const removed: string[] = [];
 		this.tabs = this.tabs.filter((tab) => {
 			if (doomed.has(tab.path)) {
 				this.clearDraft(tab.path);
+				removed.push(tab.path);
 				return false;
 			}
-			return !prefixes.some((prefix) => tab.path.startsWith(prefix));
+			if (prefixes.some((prefix) => tab.path.startsWith(prefix))) {
+				removed.push(tab.path);
+				return false;
+			}
+			return true;
 		});
+		for (const path of removed) releaseFileModel(path);
 		if (this.activePath && !this.tabs.some((t) => t.path === this.activePath)) {
 			this.activePath = this.tabs[0]?.path ?? null;
 		}

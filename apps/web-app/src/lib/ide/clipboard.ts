@@ -37,8 +37,12 @@ function errorText(e: unknown): string {
 async function refreshAfterWrite(touched: string[]): Promise<void> {
 	const parents = new Set<string>();
 	for (const path of touched) {
-		ide.invalidateParents(path);
 		parents.add(parentOf(path));
+	}
+	// Targeted: only direct parents render the changed entries, so only
+	// they are invalidated instead of the whole ancestor chain.
+	for (const dir of parents) {
+		ide.invalidateDir(dir);
 	}
 	invalidateFsTreeIndex();
 	// Reload every touched parent: invalidation alone leaves the tree showing

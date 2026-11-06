@@ -116,6 +116,19 @@
 		ide.consumeReveal();
 	});
 
+	$effect(() => {
+		// Pull listings for every open directory from an effect instead of
+		// the render path: fetching during render would write reactive state
+		// while the template is being evaluated. A published listing
+		// re-triggers this effect, which then sees the loaded flag and stops.
+		const open: string[] = [''];
+		for (const dir of expanded) open.push(dir);
+		for (const dir of open) {
+			const state = ide.dirState(dir);
+			if (!state.loaded && !state.loading) void ide.loadDir(dir);
+		}
+	});
+
 	let handledCreateNonce = 0;
 	$effect(() => {
 		const request = ide.rootCreateRequest;
@@ -243,7 +256,7 @@
 		creating = null;
 		try {
 			await createFsEntry(target, draft.isDir);
-			ide.invalidateParents(target);
+			ide.invalidateDir(draft.parent);
 			invalidateFsTreeIndex();
 			await ide.loadDir(draft.parent, true);
 			void ide.refreshGitStatus();
@@ -270,13 +283,13 @@
 		if (target === path) return;
 		try {
 			await renameFsEntry(path, target);
-			ide.invalidateParents(path);
-			ide.invalidateParents(target);
+			ide.invalidateDir(base);
+			const targetBase = parentOf(target);
+			if (targetBase !== base) ide.invalidateDir(targetBase);
 			invalidateFsTreeIndex();
 			// Unconditional: the invalidate above already cleared `loaded`, so a
 			// guarded reload would never run and the tree would keep the old name.
 			await ide.loadDir(base, true);
-			const targetBase = parentOf(target);
 			if (targetBase !== base) await ide.loadDir(targetBase, true);
 			void ide.refreshGitStatus();
 			ide.bumpGitRefresh();
@@ -770,9 +783,6 @@
 
 			{#if entry.is_dir && isOpen}
 				{@const childState = ide.dirState(entry.path)}
-				{#if !childState.loaded && !childState.loading}
-					{void ide.loadDir(entry.path)}
-				{/if}
 				<div class="ml-3 border-l border-border pl-1">
 					{#if childState.loading && !childState.entries}
 						<p class="px-2 py-1 text-micro text-muted-foreground">{t('common.loading')}</p>

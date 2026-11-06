@@ -175,6 +175,20 @@ function applyPreviewAction(action: string, params: Record<string, unknown>): st
 			return unstageAllPreview();
 		case 'discard':
 			return discardPreview(String(params.path ?? ''));
+		case 'discard.unstaged': {
+			const target = String(params.path ?? '');
+			const file = liveFiles.find((entry) => entry.path === target);
+			if (!file) return `preview discard.unstaged: ${target} is not on the board`;
+			if (file.kind === 'untracked') return `preview discard.unstaged: ${target} is untracked`;
+			if (file.kind === 'staged') {
+				file.kind = 'staged';
+			} else {
+				const at = liveFiles.findIndex((entry) => entry.path === target);
+				if (at >= 0) liveFiles.splice(at, 1);
+			}
+			mutationSeq += 1;
+			return `preview discarded unstaged ${target}`;
+		}
 		case 'commit':
 		case 'commit.direct':
 			return commitPreview(String(params.message ?? ''));

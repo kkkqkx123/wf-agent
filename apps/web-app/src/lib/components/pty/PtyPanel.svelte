@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, untrack } from 'svelte';
+	import { onDestroy, tick, untrack } from 'svelte';
 	import Card from '#lib/ui/components/Card.svelte';
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import Button from '#lib/ui/components/Button.svelte';
@@ -58,6 +58,7 @@
 	let ensuredKey: string | null = $state(null);
 	let failedId = $state<string | null>(null);
 	let instance: TerminalInstance | undefined = $state();
+	let spawning = $state(false);
 	// The terminal view (and the xterm bundle) loads on demand so the route
 	// chunks stay light and a load failure degrades to panel retry.
 	let terminalView: typeof TerminalInstance | null = $state(null);
@@ -106,9 +107,12 @@
 			if (!open) return;
 			if (normalizePtyRepoKey(repo) !== key) return;
 			// Restored sessions may all be exited (stale ids after a reload):
-			// keep their scrollback tabs, but always ensure one live session
-			// so the panel never shows a prompt-looking dead terminal.
-			if (!current.sessions.some((s) => s.status !== 'exited')) void spawnAndFocus();
+			// keep their scrollback tabs and ensure one live session so the
+			// panel never shows a prompt-looking dead terminal. An empty list
+			// means fresh or user-closed-all, so show the empty state and let
+			// the user create explicitly instead of resurrecting a terminal.
+			if (current.sessions.length > 0 && !current.sessions.some((s) => s.status !== 'exited'))
+				void spawnAndFocus();
 		});
 	});
 
@@ -147,19 +151,39 @@
 		failedId = null;
 	}
 
+	function removeSession(id: string | null | undefined): void {
+		if (!id) return;
+		if (failedId === id) failedId = null;
+		void store.remove(id);
+	}
+
 	async function spawnAndFocus(command?: string): Promise<void> {
-		const session = await store.spawn({ cwd, env, command });
-		if (session) {
-			instance?.focus();
-			return;
+		if (spawning) return;
+		spawning = true;
+		try {
+			const session = await store.spawn({ cwd, env, command });
+			if (session) {
+				await tick();
+				instance?.focus();
+				return;
+			}
+			toasts.error(t('pty.ptyPanel.newTerminal'), t('pty.ptyPanel.disconnected'));
+		} finally {
+			spawning = false;
 		}
-		toasts.error(t('pty.ptyPanel.newTerminal'), t('pty.ptyPanel.disconnected'));
 	}
 
 	async function restartExited(id: string): Promise<void> {
-		clearFailure();
-		await store.clone(id, { cwd, env });
-		instance?.focus();
+		if (spawning) return;
+		spawning = true;
+		try {
+			clearFailure();
+			await store.clone(id, { cwd, env });
+			await tick();
+			instance?.focus();
+		} finally {
+			spawning = false;
+		}
 	}
 </script>
 
@@ -219,7 +243,7 @@
 					label={t('pty.ptyPanel.closeTerminal')}
 					compact
 					variant="ghost"
-					onclick={() => void store.remove(session.id)}
+					onclick={() => removeSession(session.id)}
 				/>
 			</div>
 		{/each}
@@ -228,10 +252,16 @@
 			label={t('pty.ptyPanel.newTerminal')}
 			compact
 			variant="ghost"
+			disabled={spawning}
 			onclick={() => void spawnAndFocus()}
 		/>
 		{#each quickCommands as quick (quick.command)}
-			<Button size="sm" variant="outline" onclick={() => void spawnAndFocus(quick.command)}>
+			<Button
+				size="sm"
+				variant="outline"
+				disabled={spawning}
+				onclick={() => void spawnAndFocus(quick.command)}
+			>
 				{quick.label}
 			</Button>
 		{/each}
@@ -241,7 +271,7 @@
 {#snippet emptyState()}
 	<div class="flex flex-col items-start gap-2">
 		<p class="text-caption text-muted-foreground">{t('pty.ptyPanel.noSessions')}</p>
-		<Button size="sm" variant="outline" onclick={() => void spawnAndFocus()}>
+		<Button size="sm" variant="outline" disabled={spawning} onclick={() => void spawnAndFocus()}>
 			{t('pty.ptyPanel.newTerminal')}
 		</Button>
 	</div>
@@ -253,7 +283,12 @@
 			class="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1 text-micro"
 		>
 			<span>{t('pty.ptyPanel.disconnected')}</span>
-			<Button size="sm" variant="outline" onclick={() => void restartExited(failedId!)}>
+			<Button
+				size="sm"
+				variant="outline"
+				disabled={spawning}
+				onclick={() => void restartExited(failedId!)}
+			>
 				{t('pty.ptyPanel.restart')}
 			</Button>
 			<Button size="sm" variant="ghost" onclick={clearFailure}>
@@ -348,8 +383,8 @@
 					<Button
 						size="sm"
 						variant="ghost"
-						onclick={() => void store.remove(store.activeId!)}
-						disabled={!store.activeId}
+						onclick={() => removeSession(store.activeId)}
+						disabled={!store.activeId || spawning}
 					>
 						{t('pty.ptyPanel.closeActive')}
 					</Button>

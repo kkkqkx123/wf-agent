@@ -35,8 +35,15 @@ function errorText(e: unknown): string {
 }
 
 async function refreshAfterWrite(touched: string[]): Promise<void> {
-	for (const path of touched) ide.invalidateParents(path);
+	const parents = new Set<string>();
+	for (const path of touched) {
+		ide.invalidateParents(path);
+		parents.add(parentOf(path));
+	}
 	invalidateFsTreeIndex();
+	// Reload every touched parent: invalidation alone leaves the tree showing
+	// pre-mutation rows until an unrelated reload happens to cover them.
+	for (const dir of parents) await ide.loadDir(dir, true);
 	await ide.refreshGitStatus();
 	ide.bumpGitRefresh();
 }

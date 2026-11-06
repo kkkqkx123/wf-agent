@@ -78,6 +78,14 @@ pub const ACTION_SPECS: &[ActionSpec] = &[
         needs_confirm: true,
     },
     ActionSpec {
+        id: "discard.unstaged",
+        danger: DangerLevel::Destructive,
+        params: &["path"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: true,
+    },
+    ActionSpec {
         id: "stash.push",
         danger: DangerLevel::Recoverable,
         params: &["message"],

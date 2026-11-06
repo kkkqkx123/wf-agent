@@ -7,6 +7,7 @@ import {
 	createEntry,
 	fileView,
 	flattenTree,
+	hasPath,
 	listDir,
 	movePath,
 	removePath,
@@ -86,7 +87,11 @@ function inScope(path: string, scope: string): boolean {
 }
 
 export function registerFs(router: MockRouter): void {
-	router.on('GET', '/api/v1/fs/list', (_p, query) => listDir(String(query.path ?? '')));
+	router.on('GET', '/api/v1/fs/list', (_p, query) => {
+		const path = String(query.path ?? '');
+		if (!hasPath(path)) return mockError(404, 'NOT_FOUND', `Preview path not found: ${path}`);
+		return listDir(path);
+	});
 	router.on('GET', '/api/v1/fs/tree', (_p, query) => {
 		const base = String(query.path ?? '');
 		const rawLimit = Number((query as Record<string, unknown>).limit ?? 2000);
@@ -95,7 +100,12 @@ export function registerFs(router: MockRouter): void {
 			: 2000;
 		return flattenTree(base, limit);
 	});
-	router.on('GET', '/api/v1/fs/stat', (_p, query) => statPath(String(query.path ?? '')));
+	router.on('GET', '/api/v1/fs/stat', (_p, query) => {
+		const path = String(query.path ?? '');
+		const stat = statPath(path);
+		if (!stat) return mockError(404, 'NOT_FOUND', `Preview path not found: ${path}`);
+		return stat;
+	});
 	router.on('GET', '/api/v1/fs/search', (_p, query) =>
 		searchWorkspace({
 			query: String(query.query ?? ''),
@@ -111,6 +121,7 @@ export function registerFs(router: MockRouter): void {
 	router.on('GET', '/api/v1/fs/content', (_p, query) => {
 		const path = String(query.path ?? 'README.md');
 		const view = fileView(path);
+		if (!view) return mockError(404, 'NOT_FOUND', `Preview file not found: ${path}`);
 		return {
 			path,
 			content: view.content,
@@ -132,8 +143,8 @@ export function registerFs(router: MockRouter): void {
 			path: result.path,
 			content: result.content,
 			size: result.content.length,
-			truncated: view.truncated,
-			is_binary: view.isBinary,
+			truncated: view?.truncated ?? false,
+			is_binary: view?.isBinary ?? false,
 			hash: result.hash,
 		};
 	});
@@ -160,6 +171,7 @@ export function registerFs(router: MockRouter): void {
 	router.on('GET', '/api/v1/fs/raw', (_p, query) => {
 		const path = String(query.path ?? '');
 		const view = fileView(path);
+		if (!view) return mockError(404, 'NOT_FOUND', `Preview file not found: ${path}`);
 		const encoded =
 			typeof btoa === 'function'
 				? btoa(String.fromCharCode(...new TextEncoder().encode(view.content)))
@@ -265,8 +277,7 @@ function searchWorkspace(options: ContentSearchOptions): {
 	if (!matcher) return { matches: [], truncated: false };
 	const offset = Math.max(0, options.offset);
 	const limit = Math.min(500, Math.max(1, options.limit));
-	const matches: Array<{ path: string; line: number; column: number | null; preview: string }> =
-		[];
+	const matches: Array<{ path: string; line: number; column: number | null; preview: string }> = [];
 	for (const [path, content] of allFiles()) {
 		if (!inScope(path, options.scope)) continue;
 		if (!matchesInclude(path, options.include)) continue;

@@ -26,6 +26,10 @@ export interface IdeDirState {
 	loading: boolean;
 	error: string | null;
 	loaded: boolean;
+	/** In-flight listing; forced reloads join it instead of dropping themselves. */
+	pending: Promise<void> | null;
+	/** Bumped by every invalidate; a fetch that spans one is stale. */
+	epoch: number;
 }
 
 function storageKey(suffix: string): string {
@@ -61,6 +65,9 @@ const SIDEBAR_WIDTH_MAX = 480;
 const HISTORY_WIDTH_DEFAULT = 288;
 const HISTORY_WIDTH_MIN = 200;
 const HISTORY_WIDTH_MAX = 480;
+const HISTORY_CHANGES_HEIGHT_DEFAULT = 280;
+const HISTORY_CHANGES_HEIGHT_MIN = 120;
+const HISTORY_CHANGES_HEIGHT_MAX = 640;
 
 export interface IdeReveal {
 	path: string;
@@ -110,6 +117,7 @@ export class IdeStore {
 	sidebarOpen = $state(true);
 	sidebarWidth = $state(SIDEBAR_WIDTH_DEFAULT);
 	historyWidth = $state(HISTORY_WIDTH_DEFAULT);
+	historyChangesHeight = $state(HISTORY_CHANGES_HEIGHT_DEFAULT);
 	pendingReveal = $state<IdeReveal | null>(null);
 	gitBadges = $state<SvelteMap<string, GitBadgeLevel>>(new SvelteMap());
 	gitBadgesAvailable = $state(true);
@@ -198,6 +206,17 @@ export class IdeStore {
 			) {
 				this.historyWidth = historyWidth;
 			}
+			const historyChangesHeight = Number(
+				sessionStorage.getItem(storageKey('history-changes-height')) ??
+					String(HISTORY_CHANGES_HEIGHT_DEFAULT),
+			);
+			if (
+				Number.isFinite(historyChangesHeight) &&
+				historyChangesHeight >= HISTORY_CHANGES_HEIGHT_MIN &&
+				historyChangesHeight <= HISTORY_CHANGES_HEIGHT_MAX
+			) {
+				this.historyChangesHeight = historyChangesHeight;
+			}
 			this.historyOpen = sessionStorage.getItem(storageKey('history')) === '1';
 		}
 		this.restoreDrafts();
@@ -222,7 +241,14 @@ export class IdeStore {
 		return untrack(() => {
 			let state = this.dirs.get(path);
 			if (!state) {
-				state = { entries: null, loading: false, error: null, loaded: false };
+				state = {
+					entries: null,
+					loading: false,
+					error: null,
+					loaded: false,
+					pending: null,
+					epoch: 0,
+				};
 				this.dirs.set(path, state);
 			}
 			return state;
@@ -231,18 +257,48 @@ export class IdeStore {
 
 	async loadDir(path: string, force = false): Promise<void> {
 		const state = this.dirState(path);
-		if (state.loading) return;
-		if (state.loaded && !force) return;
-		state.loading = true;
-		state.error = null;
-		try {
-			const entries = await listFs(path);
-			state.entries = entries;
-			state.loaded = true;
-		} catch (e) {
-			state.error = e instanceof Error ? e.message : String(e);
-		} finally {
-			state.loading = false;
+		if (state.loading) {
+			// A forced reload joins the in-flight fetch instead of dropping
+			// itself: structural mutations must never lose their tree refresh.
+			if (!force || !state.pending) return;
+			try {
+				await state.pending;
+			} catch {
+				// A failed stale fetch must not block the fresh load below.
+			}
+		} else if (state.loaded && !force) {
+			return;
+		}
+		// Loop: an invalidate that lands while fetching voids the rows just
+		// read, so re-read instead of publishing a stale tree.
+		for (;;) {
+			const seen = state.epoch;
+			state.loading = true;
+			state.error = null;
+			let entries: FsEntry[] | null = null;
+			let failure: unknown = null;
+			const pending = listFs(path).then(
+				(rows) => {
+					entries = rows;
+				},
+				(e) => {
+					failure = e;
+				},
+			);
+			state.pending = pending;
+			await pending;
+			if (this.dirState(path).pending === pending) {
+				state.pending = null;
+				state.loading = false;
+			}
+			if (state.epoch !== seen) continue;
+			if (failure !== null) {
+				state.error = failure instanceof Error ? failure.message : String(failure);
+			} else if (entries !== null) {
+				state.entries = entries;
+				state.loaded = true;
+			}
+			return;
 		}
 	}
 
@@ -251,6 +307,9 @@ export class IdeStore {
 		if (state) {
 			state.loaded = false;
 			state.entries = null;
+			// In-flight fetches that span this invalidate re-read on completion
+			// instead of publishing rows from before the mutation.
+			state.epoch += 1;
 		}
 	}
 
@@ -573,6 +632,23 @@ export class IdeStore {
 
 	resetHistoryWidth(): void {
 		this.setHistoryWidth(HISTORY_WIDTH_DEFAULT);
+	}
+
+	setHistoryChangesHeight(height: number): void {
+		const clamped = Math.min(
+			HISTORY_CHANGES_HEIGHT_MAX,
+			Math.max(HISTORY_CHANGES_HEIGHT_MIN, Math.round(height)),
+		);
+		this.historyChangesHeight = clamped;
+		try {
+			sessionStorage.setItem(storageKey('history-changes-height'), String(clamped));
+		} catch {
+			// Ignore storage failures.
+		}
+	}
+
+	resetHistoryChangesHeight(): void {
+		this.setHistoryChangesHeight(HISTORY_CHANGES_HEIGHT_DEFAULT);
 	}
 
 	resetTerminalHeight(): void {

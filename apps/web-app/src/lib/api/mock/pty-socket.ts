@@ -1,5 +1,5 @@
 /**
- * Fixture-backed WebSocket for the PTY terminal in preview mode.
+ * Fixture-backed WebSockets for preview mode.
  *
  * `connectPty` opens a real WebSocket against `${API_BASE_URL}/api/v1/pty/{id}/connect`,
  * which no preview backend serves. Install a selective override: URLs pointing
@@ -7,6 +7,12 @@
  * so the preview terminal stays interactive and the "type → output → scroll"
  * interaction chain can be exercised; every other URL keeps the native
  * WebSocket so real transports are untouched.
+ *
+ * The same override also covers the global event feed (`/api/v1/ws`, used by
+ * `openWebSocket` for multi-dimension and notification subscriptions), which
+ * no preview backend serves either. The feed mock opens immediately, answers
+ * `subscribe` with `subscribed` and `ping` with `pong`, then stays silent, so
+ * pages keep their `open` live state instead of retrying forever.
  *
  * The shell is deliberately minimal: it exists to produce believable,
  * streamed terminal output (chunked + delayed, like a real PTY) that
@@ -19,6 +25,7 @@ import { allFiles, listDir } from './workspace';
 import { exitSession, getSession } from './pty-sessions';
 
 const MOCK_URL_MARKER = '/api/v1/pty/';
+const MOCK_WS_MARKER = '/api/v1/ws';
 
 const PROMPT = '\x1b[36mpreview\x1b[0m:\x1b[34m~/wf-agent\x1b[0m$ ';
 const WELCOME = [
@@ -365,6 +372,59 @@ class MockPtySocket {
 	}
 }
 
+/**
+ * Minimal stand-in for the global event feed (`/api/v1/ws` upgrade).
+ * The shared `openWebSocket` client only needs the handshake surface:
+ * `subscribed` acks keep the live state `open` and `pong` answers the
+ * keepalive, so no reconnect storm ever starts in preview. No synthetic
+ * events are emitted; pages still load their rows over mocked REST.
+ */
+class MockEventWsSocket {
+	static readonly CONNECTING = 0;
+	static readonly OPEN = 1;
+	static readonly CLOSING = 2;
+	static readonly CLOSED = 3;
+
+	readyState = MockEventWsSocket.CONNECTING;
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	onopen: ((event?: any) => void) | null = null;
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	onmessage: ((event: any) => void) | null = null;
+	onclose: ((event: CloseEvent) => void) | null = null;
+	onerror: (() => void) | null = null;
+
+	#closed = false;
+
+	constructor(_url: string | URL) {
+		void _url;
+		setTimeout(() => {
+			if (this.#closed) return;
+			this.readyState = MockEventWsSocket.OPEN;
+			this.onopen?.({ type: 'open' });
+		}, 0);
+	}
+
+	send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
+		if (this.#closed || this.readyState !== MockEventWsSocket.OPEN) return;
+		if (typeof data !== 'string') return;
+		let type: unknown;
+		try {
+			type = (JSON.parse(data) as { type?: unknown }).type;
+		} catch {
+			return;
+		}
+		if (type === 'subscribe') this.onmessage?.({ data: JSON.stringify({ type: 'subscribed' }) });
+		else if (type === 'ping') this.onmessage?.({ data: JSON.stringify({ type: 'pong' }) });
+	}
+
+	close(code = 1000, reason = ''): void {
+		if (this.readyState === MockEventWsSocket.CLOSED) return;
+		this.readyState = MockEventWsSocket.CLOSED;
+		this.#closed = true;
+		this.onclose?.({ code, reason } as CloseEvent);
+	}
+}
+
 function sessionIdFromUrl(url: string): string | null {
 	const match = /\/api\/v1\/pty\/([^/]+)\/connect/.exec(url);
 	return match?.[1] ?? null;
@@ -378,6 +438,9 @@ export function installMockPtySocket(): void {
 		const target = String(url);
 		if (target.includes(MOCK_URL_MARKER)) {
 			return new MockPtySocket(target) as unknown as WebSocket;
+		}
+		if (target.includes(MOCK_WS_MARKER)) {
+			return new MockEventWsSocket(target) as unknown as WebSocket;
 		}
 		return protocols
 			? new (NativeWebSocket as new (u: string, p: string | string[]) => WebSocket)(

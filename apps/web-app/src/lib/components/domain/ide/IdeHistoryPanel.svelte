@@ -3,6 +3,7 @@
 	import Dialog from '#lib/ui/components/Dialog.svelte';
 	import DiffView from '#lib/ui/components/DiffView.svelte';
 	import IconButton from '#lib/ui/components/IconButton.svelte';
+	import ResizeHandle from '#lib/components/layout/ResizeHandle.svelte';
 	import { ide } from '#lib/stores/ide.svelte';
 	import { fileRowClass, markerClass } from '#lib/git/tone';
 	import {
@@ -53,11 +54,20 @@
 	let resetTarget = $state<CommitEntry | null>(null);
 	let resetMode = $state<'reset.soft' | 'reset.mixed' | 'reset.hard'>('reset.soft');
 	let resetConfirmInput = $state('');
+	let discardTarget = $state<GitFile | null>(null);
+	let discardConfirmInput = $state('');
 	let busyAction = $state<string | null>(null);
 	let actionError = $state<string | null>(null);
+	let changesOpen = $state(true);
+	let commitsOpen = $state(true);
+	let conflictedOpen = $state(true);
+	let stagedOpen = $state(true);
+	let unstagedOpen = $state(true);
+	let commitMessage = $state('');
 
 	const COMMIT_PAGE = 30;
 	const COMMIT_FILE_CAP = 50;
+	const CHANGES_PAGE = 30;
 
 	let lastSeq = -1;
 
@@ -181,6 +191,76 @@
 		}
 	}
 
+	async function afterWrite(): Promise<void> {
+		await ide.refreshGitStatus();
+		ide.bumpGitRefresh();
+		await reload();
+	}
+
+	async function runStaging(
+		action: string,
+		params: Record<string, string>,
+		confirm?: string,
+	): Promise<boolean> {
+		if (busyAction !== null) return false;
+		busyAction = action;
+		actionError = null;
+		try {
+			await runAction(action, params, confirm);
+			await afterWrite();
+			return true;
+		} catch (e) {
+			actionError = e instanceof Error ? e.message : String(e);
+			return false;
+		} finally {
+			busyAction = null;
+		}
+	}
+
+	async function commitStaged(): Promise<void> {
+		const message = commitMessage.trim();
+		if (busyAction !== null) return;
+		if (message === '') {
+			actionError = t('page.ide.commitEmpty');
+			return;
+		}
+		if (stagedChanges.length === 0) {
+			actionError = t('page.ide.commitNeedStaged');
+			return;
+		}
+		const ok = await runStaging('commit', { message });
+		if (ok) commitMessage = '';
+	}
+
+	function stageFile(file: GitFile): void {
+		void runStaging('stage.toggle', { path: file.path });
+	}
+
+	function stageAll(): void {
+		void runStaging('stage.all', {});
+	}
+
+	function unstageAll(): void {
+		void runStaging('unstage.all', {});
+	}
+
+	function openDiscard(file: GitFile): void {
+		discardTarget = file;
+		discardConfirmInput = '';
+	}
+
+	function confirmDiscard(): void {
+		const target = discardTarget;
+		if (!target || busyAction !== null) return;
+		if (discardConfirmInput.trim() !== target.path) {
+			actionError = t('domain.git.confirmMismatch');
+			return;
+		}
+		discardTarget = null;
+		discardConfirmInput = '';
+		void runStaging('discard.unstaged', { path: target.path }, target.path);
+	}
+
 	async function openFile(path: string): Promise<void> {
 		await ide.openFile(path, true);
 	}
@@ -293,7 +373,40 @@
 		</p>
 	{/if}
 
-	<div class="min-h-0 flex-1 overflow-y-auto">
+	{#if !loading && !error}
+		<div class="shrink-0 border-b border-border px-2 py-1.5">
+			<div class="flex items-center gap-1">
+				<input
+					bind:value={commitMessage}
+					placeholder={t('page.ide.commitPlaceholder')}
+					aria-label={t('page.ide.commit')}
+					disabled={busyAction !== null}
+					class="h-7 min-w-0 flex-1 rounded-md border border-input bg-card px-2 text-caption"
+					onkeydown={(e) => {
+						if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') void commitStaged();
+					}}
+				/>
+				<Button
+					size="sm"
+					variant="default"
+					title={t('page.ide.commitStagedHint')}
+					disabled={busyAction !== null ||
+						commitMessage.trim() === '' ||
+						stagedChanges.length === 0}
+					onclick={() => void commitStaged()}
+				>
+					{t('page.ide.commit')}
+				</Button>
+			</div>
+			{#if changes.length > 0 && stagedChanges.length === 0}
+				<p class="px-1 pt-1 text-micro text-muted-foreground">
+					{t('page.ide.commitNeedStaged')}
+				</p>
+			{/if}
+		</div>
+	{/if}
+
+	<div class="flex min-h-0 flex-1 flex-col">
 		{#if loading}
 			<p class="px-3 py-4 text-caption text-muted-foreground">{t('common.loading')}</p>
 		{:else if error}
@@ -305,7 +418,7 @@
 			</div>
 		{:else}
 			{#if meta && isDetached}
-				<div class="m-2 rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-micro">
+				<div class="m-2 shrink-0 rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-micro">
 					{t('page.ide.detachedHead', {
 						sha: meta.head.slice(0, 7),
 						branch: branches[0]?.name ?? 'main',
@@ -313,220 +426,400 @@
 				</div>
 			{/if}
 
-			<section aria-label={t('page.ide.historyChanges')}>
-				<p
-					class="px-3 pt-2 pb-1 text-micro font-medium tracking-wide text-muted-foreground uppercase"
-				>
-					{t('page.ide.historyChanges')} · {changes.length}
-				</p>
-				{#if changes.length === 0}
-					<p class="px-3 py-1 text-micro text-muted-foreground">—</p>
-				{:else}
-					{#snippet changeRow(file: GitFile, group: 'staged' | 'unstaged' | 'conflicted')}
-						{@const key = `${group}:${file.path}`}
-						{@const letter = group === 'staged' ? file.staged : file.unstaged}
-						{@const isOpen = expandedChange === key}
-						<div>
-							<div class="group flex items-center gap-1 px-2 py-0.5">
-								<button
-									type="button"
-									class="min-w-0 flex-1 cursor-pointer truncate rounded px-1 py-0.5 text-left text-caption hover:bg-accent/60 {fileRowClass(
-										file,
-									)}"
-									title={file.path}
-									aria-expanded={isOpen}
-									onclick={() => void toggleChange(group, file)}
-								>
-									{file.path}
-								</button>
-								<span
-									class="w-4 shrink-0 text-center font-mono text-micro {markerClass(
-										letter,
-										group === 'staged' ? 'staged' : 'unstaged',
-									)}"
-									title={letter}
-								>
-									{letter}
-								</span>
+			{#snippet changeRow(file: GitFile, group: 'staged' | 'unstaged' | 'conflicted')}
+				{@const key = `${group}:${file.path}`}
+				{@const letter = group === 'staged' ? file.staged : file.unstaged}
+				{@const isOpen = expandedChange === key}
+				{@const busy = busyAction !== null}
+				<div>
+					<div class="group relative flex items-center gap-1 px-2 py-0.5">
+						<button
+							type="button"
+							class="min-w-0 flex-1 cursor-pointer truncate rounded px-1 py-0.5 text-left text-caption hover:bg-accent/60 {fileRowClass(
+								file,
+							)}"
+							title={file.path}
+							aria-expanded={isOpen}
+							onclick={() => void toggleChange(group, file)}
+						>
+							{file.path}
+						</button>
+						<span
+							class="w-4 shrink-0 text-center font-mono text-micro {markerClass(
+								letter,
+								group === 'staged' ? 'staged' : 'unstaged',
+							)}"
+							title={letter}
+						>
+							{letter}
+						</span>
+						<div
+							class="pointer-events-none absolute inset-y-0 right-7 flex items-center bg-card/95 opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-md:pointer-events-auto max-md:opacity-100"
+						>
+							{#if group === 'unstaged'}
 								<IconButton
-									icon="file"
-									label={t('page.ide.menuOpen')}
+									icon="plus"
+									label={t('page.ide.stage')}
 									compact
-									onclick={() => void openFile(file.path)}
-									class="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
+									iconSize={14}
+									disabled={busy}
+									onclick={() => stageFile(file)}
+									class="h-6 w-6 max-md:h-7 max-md:w-7"
 								/>
-							</div>
-							{#if isOpen}
-								<div class="px-2 pb-1 pl-3">
-									{#if changeLoading && !changeDiffs[key]}
-										<p class="py-1 text-micro text-muted-foreground">{t('common.loading')}</p>
-									{:else}
-										{#each changeDiffs[key] ?? [] as diff (diff.path)}
-											<DiffView lines={diff.lines} title={diff.path} class="my-1" />
-										{/each}
-										{#if (changeDiffs[key] ?? []).length === 0}
-											<p class="py-1 text-micro text-muted-foreground">
-												{t('page.ide.diffEmpty')}
-											</p>
-										{/if}
-									{/if}
-									<div class="flex flex-wrap gap-1 pt-1">
-										<Button size="sm" variant="ghost" onclick={() => void openFile(file.path)}>
-											{t('page.ide.menuOpen')}
-										</Button>
-										<Button size="sm" variant="ghost" onclick={() => onViewFileDiff(file.path)}>
-											{t('page.ide.viewDiff')}
-										</Button>
-									</div>
+								{#if file.kind !== 'untracked'}
+									<IconButton
+										icon="undo"
+										label={t('page.ide.discardChanges')}
+										compact
+										iconSize={14}
+										disabled={busy}
+										onclick={() => openDiscard(file)}
+										class="h-6 w-6 max-md:h-7 max-md:w-7"
+									/>
+								{/if}
+							{:else if group === 'staged'}
+								<IconButton
+									icon="minus"
+									label={t('page.ide.unstage')}
+									compact
+									iconSize={14}
+									disabled={busy}
+									onclick={() => stageFile(file)}
+									class="h-6 w-6 max-md:h-7 max-md:w-7"
+								/>
+							{/if}
+							<IconButton
+								icon="file"
+								label={t('page.ide.menuOpen')}
+								compact
+								iconSize={14}
+								onclick={() => void openFile(file.path)}
+								class="h-6 w-6 max-md:h-7 max-md:w-7"
+							/>
+						</div>
+					</div>
+					{#if isOpen}
+						<div class="px-2 pb-1 pl-3">
+							{#if changeLoading && !changeDiffs[key]}
+								<p class="py-1 text-micro text-muted-foreground">{t('common.loading')}</p>
+							{:else}
+								<div class="max-h-64 overflow-y-auto rounded-md border border-border/60">
+									{#each changeDiffs[key] ?? [] as diff (diff.path)}
+										<DiffView lines={diff.lines} title={diff.path} class="my-1" />
+									{/each}
 								</div>
+								{#if (changeDiffs[key] ?? []).length === 0}
+									<p class="py-1 text-micro text-muted-foreground">
+										{t('page.ide.diffEmpty')}
+									</p>
+								{/if}
+							{/if}
+							<div class="flex flex-wrap gap-1 pt-1">
+								{#if group === 'unstaged'}
+									<Button size="sm" variant="ghost" disabled={busy} onclick={() => stageFile(file)}>
+										{t('page.ide.stage')}
+									</Button>
+									{#if file.kind !== 'untracked'}
+										<Button size="sm" variant="ghost" disabled={busy} onclick={() => openDiscard(file)}>
+											{t('page.ide.discardChanges')}
+										</Button>
+									{/if}
+								{:else if group === 'staged'}
+									<Button size="sm" variant="ghost" disabled={busy} onclick={() => stageFile(file)}>
+										{t('page.ide.unstage')}
+									</Button>
+								{/if}
+								<Button size="sm" variant="ghost" onclick={() => void openFile(file.path)}>
+									{t('page.ide.menuOpen')}
+								</Button>
+								<Button size="sm" variant="ghost" onclick={() => onViewFileDiff(file.path)}>
+									{t('page.ide.viewDiff')}
+								</Button>
+							</div>
+						</div>
+					{/if}
+				</div>
+			{/snippet}
+
+			{#snippet groupHeader(
+				section: string,
+				count: number,
+				open: boolean,
+				onToggle: () => void,
+				stageLabel?: string,
+				onStage?: () => void,
+			)}
+				<div class="flex items-center gap-1 px-2 pt-1">
+					<button
+						type="button"
+						class="flex min-w-0 flex-1 cursor-pointer items-center gap-1 rounded px-1 py-0.5 text-left text-micro font-medium tracking-wide text-muted-foreground uppercase hover:bg-accent/60"
+						aria-expanded={open}
+						aria-label={open
+							? t('page.ide.collapseSection', { section })
+							: t('page.ide.expandSection', { section })}
+						onclick={onToggle}
+					>
+						<span class="shrink-0 font-mono">{open ? '▾' : '▸'}</span>
+						<span class="min-w-0 flex-1 truncate">{section} · {count}</span>
+					</button>
+					{#if stageLabel && onStage && open && count > 0}
+						<Button
+							size="sm"
+							variant="ghost"
+							disabled={busyAction !== null}
+							onclick={onStage}
+						>
+							{stageLabel}
+						</Button>
+					{/if}
+				</div>
+			{/snippet}
+
+			{#snippet moreLink(count: number)}
+				{#if count > CHANGES_PAGE}
+					<button
+						type="button"
+						class="cursor-pointer px-3 py-0.5 text-left text-micro text-muted-foreground underline"
+						onclick={onOpenInGit}
+					>
+						{t('page.ide.showRemainingChanges', { count: count - CHANGES_PAGE })}
+					</button>
+				{/if}
+			{/snippet}
+
+			<div
+				class="flex min-h-0 shrink-0 flex-col border-b border-border {commitsOpen && changesOpen
+					? ''
+					: 'flex-1'}"
+				style={commitsOpen && changesOpen ? `height: ${ide.historyChangesHeight}px` : undefined}
+			>
+				<section aria-label={t('page.ide.historyChanges')} class="flex min-h-0 flex-1 flex-col">
+					<div class="flex items-center gap-1 px-2 pt-2 pb-1">
+						<button
+							type="button"
+							class="flex min-w-0 flex-1 cursor-pointer items-center gap-1 rounded px-1 py-0.5 text-left text-micro font-medium tracking-wide text-muted-foreground uppercase hover:bg-accent/60"
+							aria-expanded={changesOpen}
+							aria-label={changesOpen
+								? t('page.ide.collapseSection', { section: t('page.ide.historyChanges') })
+								: t('page.ide.expandSection', { section: t('page.ide.historyChanges') })}
+							onclick={() => (changesOpen = !changesOpen)}
+						>
+							<span class="shrink-0 font-mono">{changesOpen ? '▾' : '▸'}</span>
+							<span class="min-w-0 flex-1 truncate">
+								{t('page.ide.historyChanges')} · {changes.length}
+							</span>
+						</button>
+						{#if changesOpen && unstagedChanges.length > 0}
+							<Button size="sm" variant="ghost" disabled={busyAction !== null} onclick={stageAll}>
+								{t('page.ide.stageAll')}
+							</Button>
+						{/if}
+						{#if changesOpen && stagedChanges.length > 0}
+							<Button size="sm" variant="ghost" disabled={busyAction !== null} onclick={unstageAll}>
+								{t('page.ide.unstageAll')}
+							</Button>
+						{/if}
+					</div>
+					{#if changesOpen}
+						<div class="min-h-0 flex-1 overflow-y-auto pb-1 [scrollbar-gutter:stable]">
+							{#if changes.length === 0}
+								<p class="px-3 py-1 text-micro text-muted-foreground">—</p>
+							{:else}
+								{#if conflictedChanges.length > 0}
+									{@render groupHeader(
+										t('domain.git.conflicted'),
+										conflictedChanges.length,
+										conflictedOpen,
+										() => (conflictedOpen = !conflictedOpen),
+									)}
+									{#if conflictedOpen}
+										{#each conflictedChanges.slice(0, CHANGES_PAGE) as file (file.path)}
+											{@render changeRow(file, 'conflicted')}
+										{/each}
+										{@render moreLink(conflictedChanges.length)}
+									{/if}
+								{/if}
+								{#if stagedChanges.length > 0}
+									{@render groupHeader(
+										t('domain.git.staged'),
+										stagedChanges.length,
+										stagedOpen,
+										() => (stagedOpen = !stagedOpen),
+										t('page.ide.unstageAll'),
+										unstageAll,
+									)}
+									{#if stagedOpen}
+										{#each stagedChanges.slice(0, CHANGES_PAGE) as file (file.path)}
+											{@render changeRow(file, 'staged')}
+										{/each}
+										{@render moreLink(stagedChanges.length)}
+									{/if}
+								{/if}
+								{#if unstagedChanges.length > 0}
+									{@render groupHeader(
+										t('domain.git.unstaged'),
+										unstagedChanges.length,
+										unstagedOpen,
+										() => (unstagedOpen = !unstagedOpen),
+										t('page.ide.stageAll'),
+										stageAll,
+									)}
+									{#if unstagedOpen}
+										{#each unstagedChanges.slice(0, CHANGES_PAGE) as file (file.path)}
+											{@render changeRow(file, 'unstaged')}
+										{/each}
+										{@render moreLink(unstagedChanges.length)}
+									{/if}
+								{/if}
 							{/if}
 						</div>
-					{/snippet}
-					{#if conflictedChanges.length > 0}
-						<p class="px-3 pt-1 text-micro font-medium tracking-wide text-destructive uppercase">
-							{t('domain.git.conflicted')} · {conflictedChanges.length}
-						</p>
-						{#each conflictedChanges.slice(0, 30) as file (file.path)}
-							{@render changeRow(file, 'conflicted')}
-						{/each}
 					{/if}
-					{#if stagedChanges.length > 0}
-						<p
-							class="px-3 pt-1 text-micro font-medium tracking-wide text-muted-foreground uppercase"
-						>
-							{t('domain.git.staged')} · {stagedChanges.length}
-						</p>
-						{#each stagedChanges.slice(0, 30) as file (file.path)}
-							{@render changeRow(file, 'staged')}
-						{/each}
-					{/if}
-					{#if unstagedChanges.length > 0}
-						<p
-							class="px-3 pt-1 text-micro font-medium tracking-wide text-muted-foreground uppercase"
-						>
-							{t('domain.git.unstaged')} · {unstagedChanges.length}
-						</p>
-						{#each unstagedChanges.slice(0, 30) as file (file.path)}
-							{@render changeRow(file, 'unstaged')}
-						{/each}
-					{/if}
-				{/if}
-			</section>
+				</section>
+			</div>
 
-			<section aria-label={t('page.ide.historyCommits')} class="pb-3">
-				<p
-					class="px-3 pt-3 pb-1 text-micro font-medium tracking-wide text-muted-foreground uppercase"
-				>
-					{t('page.ide.historyCommits')}
-				</p>
-				{#if commits.length === 0}
-					<p class="px-3 py-1 text-micro text-muted-foreground">{t('page.ide.historyEmpty')}</p>
-				{:else}
-					{#each commits as commit (commit.id)}
-						{@const isHead = meta?.head === commit.id}
-						{@const isOpen = expandedCommit === commit.id}
-						<div class="mx-1 rounded-md {isHead ? 'bg-primary/10' : ''}">
-							<button
-								type="button"
-								class="flex w-full items-baseline gap-1.5 rounded-md px-2 py-1 text-left hover:bg-accent/60"
-								aria-expanded={isOpen}
-								onclick={() => void toggleCommit(commit)}
-							>
-								<span class="shrink-0 font-mono text-micro text-muted-foreground"
-									>{commit.shortId}</span
-								>
-								<span class="min-w-0 flex-1 truncate text-caption">{commit.subject}</span>
-							</button>
-							<p class="truncate px-2 pb-1 text-micro text-muted-foreground">
-								{commit.author} · {formatTime(commit.timestamp)}
-							</p>
-							{#if isOpen}
-								<div class="px-2 pb-1">
-									{#if filesLoading && !filesByCommit[commit.id]}
-										<p class="py-1 text-micro text-muted-foreground">{t('common.loading')}</p>
-									{:else}
-										{@const files = filesByCommit[commit.id] ?? []}
-										{#each files.slice(0, COMMIT_FILE_CAP) as file (file.path)}
-											{@const key = `${commit.id}:${file.path}`}
-											<div>
-												<div class="flex items-center gap-1">
-													<button
-														type="button"
-														class="min-w-0 flex-1 cursor-pointer truncate rounded px-1 py-0.5 text-left text-micro hover:bg-accent/60"
-														title={file.path}
-														onclick={() => void toggleCommitFile(commit, file)}
-														aria-expanded={expandedFile === key}
-													>
-														{file.path}
-													</button>
-													<span
-														class="shrink-0 rounded bg-muted px-1 text-micro text-muted-foreground"
-													>
-														{file.status}
-													</span>
-												</div>
-												{#if expandedFile === key}
-													{#if diffLoading && !diffsByKey[key]}
-														<p class="py-1 pl-3 text-micro text-muted-foreground">
-															{t('common.loading')}
-														</p>
-													{:else}
-														{#each diffsByKey[key] ?? [] as diff (diff.path)}
-															<DiffView lines={diff.lines} title={diff.path} class="my-1" />
-														{/each}
-														{#if (diffsByKey[key] ?? []).length === 0}
-															<p class="py-1 pl-3 text-micro text-muted-foreground">
-																{t('page.ide.diffEmpty')}
-															</p>
-														{/if}
+			{#if changesOpen && commitsOpen}
+				<ResizeHandle
+					label={t('page.ide.resizeHistorySplit')}
+					axis="y"
+					invert
+					class="h-2 shrink-0 text-muted-foreground hover:text-foreground"
+					pillClass="h-1 w-16 bg-border"
+					onResize={(delta) => ide.setHistoryChangesHeight(ide.historyChangesHeight + delta)}
+					onReset={() => ide.resetHistoryChangesHeight()}
+				/>
+			{/if}
+
+			<div class="flex min-h-0 flex-1 flex-col">
+				<section aria-label={t('page.ide.historyCommits')} class="flex min-h-0 flex-1 flex-col pb-3">
+					<div class="flex items-center gap-1 px-2 pt-2 pb-1">
+						<button
+							type="button"
+							class="flex min-w-0 flex-1 cursor-pointer items-center gap-1 rounded px-1 py-0.5 text-left text-micro font-medium tracking-wide text-muted-foreground uppercase hover:bg-accent/60"
+							aria-expanded={commitsOpen}
+							aria-label={commitsOpen
+								? t('page.ide.collapseSection', { section: t('page.ide.historyCommits') })
+								: t('page.ide.expandSection', { section: t('page.ide.historyCommits') })}
+							onclick={() => (commitsOpen = !commitsOpen)}
+						>
+							<span class="shrink-0 font-mono">{commitsOpen ? '▾' : '▸'}</span>
+							<span class="min-w-0 flex-1 truncate">{t('page.ide.historyCommits')}</span>
+						</button>
+					</div>
+					{#if commitsOpen}
+						<div class="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+							{#if commits.length === 0}
+								<p class="px-3 py-1 text-micro text-muted-foreground">{t('page.ide.historyEmpty')}</p>
+							{:else}
+								{#each commits as commit (commit.id)}
+									{@const isHead = meta?.head === commit.id}
+									{@const isOpen = expandedCommit === commit.id}
+									<div class="mx-1 rounded-md {isHead ? 'bg-primary/10' : ''}">
+										<button
+											type="button"
+											class="flex w-full items-baseline gap-1.5 rounded-md px-2 py-1 text-left hover:bg-accent/60"
+											aria-expanded={isOpen}
+											onclick={() => void toggleCommit(commit)}
+										>
+											<span class="shrink-0 font-mono text-micro text-muted-foreground"
+												>{commit.shortId}</span
+											>
+											<span class="min-w-0 flex-1 truncate text-caption">{commit.subject}</span>
+										</button>
+										<p class="truncate px-2 pb-1 text-micro text-muted-foreground">
+											{commit.author} · {formatTime(commit.timestamp)}
+										</p>
+										{#if isOpen}
+											<div class="px-2 pb-1">
+												{#if filesLoading && !filesByCommit[commit.id]}
+													<p class="py-1 text-micro text-muted-foreground">{t('common.loading')}</p>
+												{:else}
+													{@const files = filesByCommit[commit.id] ?? []}
+													{#each files.slice(0, COMMIT_FILE_CAP) as file (file.path)}
+														{@const key = `${commit.id}:${file.path}`}
+														<div>
+															<div class="flex items-center gap-1">
+																<button
+																	type="button"
+																	class="min-w-0 flex-1 cursor-pointer truncate rounded px-1 py-0.5 text-left text-micro hover:bg-accent/60"
+																	title={file.path}
+																	onclick={() => void toggleCommitFile(commit, file)}
+																	aria-expanded={expandedFile === key}
+																>
+																	{file.path}
+																</button>
+																<span
+																	class="shrink-0 rounded bg-muted px-1 text-micro text-muted-foreground"
+																>
+																	{file.status}
+																</span>
+															</div>
+															{#if expandedFile === key}
+																{#if diffLoading && !diffsByKey[key]}
+																	<p class="py-1 pl-3 text-micro text-muted-foreground">
+																		{t('common.loading')}
+																	</p>
+																{:else}
+																	<div class="max-h-64 overflow-y-auto rounded-md border border-border/60">
+																		{#each diffsByKey[key] ?? [] as diff (diff.path)}
+																			<DiffView lines={diff.lines} title={diff.path} class="my-1" />
+																		{/each}
+																	</div>
+																	{#if (diffsByKey[key] ?? []).length === 0}
+																		<p class="py-1 pl-3 text-micro text-muted-foreground">
+																			{t('page.ide.diffEmpty')}
+																		</p>
+																	{/if}
+																{/if}
+															{/if}
+														</div>
+													{/each}
+													{#if files.length > COMMIT_FILE_CAP}
+														<button
+															type="button"
+															class="cursor-pointer px-1 py-0.5 text-micro text-muted-foreground underline"
+															onclick={onOpenInGit}
+														>
+															{t('page.ide.historyViewAll')}
+														</button>
 													{/if}
 												{/if}
+												<div class="flex flex-wrap gap-1 pt-1">
+													<Button size="sm" variant="ghost" onclick={() => (checkoutTarget = commit)}>
+														{t('page.ide.checkoutCommit')}
+													</Button>
+													<Button
+														size="sm"
+														variant="ghost"
+														onclick={() => {
+															resetTarget = commit;
+															resetMode = 'reset.soft';
+															resetConfirmInput = '';
+														}}
+													>
+														{t('page.ide.resetToHere')}
+													</Button>
+												</div>
 											</div>
-										{/each}
-										{#if files.length > COMMIT_FILE_CAP}
-											<button
-												type="button"
-												class="cursor-pointer px-1 py-0.5 text-micro text-muted-foreground underline"
-												onclick={onOpenInGit}
-											>
-												{t('page.ide.historyViewAll')}
-											</button>
 										{/if}
-									{/if}
-									<div class="flex flex-wrap gap-1 pt-1">
-										<Button size="sm" variant="ghost" onclick={() => (checkoutTarget = commit)}>
-											{t('page.ide.checkoutCommit')}
-										</Button>
+									</div>
+								{/each}
+								{#if hasMore}
+									<div class="px-3 pt-1">
 										<Button
 											size="sm"
-											variant="ghost"
-											onclick={() => {
-												resetTarget = commit;
-												resetMode = 'reset.soft';
-												resetConfirmInput = '';
-											}}
+											variant="outline"
+											onclick={() => void loadMore()}
+											disabled={loadingMore}
 										>
-											{t('page.ide.resetToHere')}
+											{loadingMore ? t('common.loading') : t('page.ide.loadMore')}
 										</Button>
 									</div>
-								</div>
+								{/if}
 							{/if}
 						</div>
-					{/each}
-					{#if hasMore}
-						<div class="px-3 pt-1">
-							<Button
-								size="sm"
-								variant="outline"
-								onclick={() => void loadMore()}
-								disabled={loadingMore}
-							>
-								{loadingMore ? t('common.loading') : t('page.ide.loadMore')}
-							</Button>
-						</div>
 					{/if}
-				{/if}
-			</section>
+				</section>
+			</div>
 		{/if}
 	</div>
 </div>
@@ -550,6 +843,51 @@
 				{t('page.ide.historyEmpty')}
 			</p>
 		{/if}
+	</div>
+</Dialog>
+
+<Dialog
+	open={discardTarget !== null}
+	title={t('page.ide.discardUnstagedTitle')}
+	description={discardTarget ? t('page.ide.discardUnstagedDesc', { path: discardTarget.path }) : undefined}
+	onclose={() => {
+		discardTarget = null;
+		discardConfirmInput = '';
+	}}
+>
+	<div class="space-y-2 p-4">
+		<p class="text-caption text-muted-foreground">{t('page.ide.discardConfirmHint')}</p>
+		<input
+			bind:value={discardConfirmInput}
+			placeholder={discardTarget?.path ?? ''}
+			aria-label={t('page.ide.discardConfirmHint')}
+			class="h-8 w-full rounded-md border border-input bg-card px-2 text-body"
+		/>
+		{#if discardConfirmInput.length > 0 && discardTarget && discardConfirmInput.trim() !== discardTarget.path}
+			<p class="text-caption text-destructive">{t('domain.git.confirmMismatch')}</p>
+		{/if}
+		<div class="flex justify-end gap-2 pt-1">
+			<Button
+				size="sm"
+				variant="ghost"
+				onclick={() => {
+					discardTarget = null;
+					discardConfirmInput = '';
+				}}
+			>
+				{t('common.cancel')}
+			</Button>
+			<Button
+				size="sm"
+				variant="default"
+				disabled={busyAction !== null ||
+					!discardTarget ||
+					discardConfirmInput.trim() !== discardTarget.path}
+				onclick={confirmDiscard}
+			>
+				{t('page.ide.discardChanges')}
+			</Button>
+		</div>
 	</div>
 </Dialog>
 

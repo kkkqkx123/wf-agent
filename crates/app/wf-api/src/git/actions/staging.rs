@@ -17,6 +17,7 @@ pub fn handle(
         "stage.all" => Some(stage_all(ctx, action, root)),
         "unstage.all" => Some(unstage_all(ctx, action, root)),
         "discard" => Some(discard(ctx, action, request, root)),
+        "discard.unstaged" => Some(discard_unstaged(ctx, action, request, root)),
         "stage.hunk" => Some(stage_hunk(ctx, action, request, root)),
         "unstage.hunk" => Some(unstage_hunk(ctx, action, request, root)),
         "stage.lines" => Some(stage_lines(ctx, action, request, root)),
@@ -97,6 +98,28 @@ fn discard(
     let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
     run_git(root, &refs, command_timeout_ms(ctx, false))?;
     Ok(finish(action, format!("discarded {path}"), echo))
+}
+
+fn discard_unstaged(
+    ctx: &ApiContext,
+    action: &str,
+    request: &ActionRequest,
+    root: &std::path::Path,
+) -> GitResult<ActionOutcome> {
+    let path = param(request, "path")?;
+    require_confirm(request, &path, action)?;
+    validate_repo_path(root, &path)?;
+    let argv = vec![
+        "restore".to_string(),
+        "--source=HEAD".to_string(),
+        "--worktree".to_string(),
+        "--".to_string(),
+        path.clone(),
+    ];
+    let echo = echo_of(action, &argv);
+    let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+    run_git(root, &refs, command_timeout_ms(ctx, false))?;
+    Ok(finish(action, format!("discarded unstaged {path}"), echo))
 }
 
 fn split_hunks(diff_text: &str) -> (String, Vec<String>) {

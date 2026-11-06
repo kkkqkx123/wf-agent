@@ -238,6 +238,17 @@ const RAW_BINDINGS: RawBinding[] = [
 		contexts: ['files'],
 	},
 	{
+		id: 'discard.unstaged',
+		name: 'Discard unstaged',
+		aliases: [],
+		hint: 'discard',
+		hidden: true,
+		weight: 60,
+		danger: 'destructive',
+		params: ['path'],
+		contexts: ['files'],
+	},
+	{
 		id: 'discard.hunk',
 		name: 'Discard hunk',
 		aliases: ['D'],

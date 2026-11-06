@@ -137,3 +137,26 @@ describe('preview mock PTY socket', () => {
 		socket.close();
 	});
 });
+
+describe('preview mock event feed socket', () => {
+	it('opens /api/v1/ws and acks subscribe without closing', async () => {
+		const { socket, texts, closes, opened } = mockSocket('ws://localhost/mock/api/v1/ws');
+		await sleep(30);
+		expect(opened()).toBe(true);
+		socket.send(JSON.stringify({ type: 'subscribe', global: true }));
+		await sleep(20);
+		expect(texts).toEqual([JSON.stringify({ type: 'subscribed' })]);
+		expect(closes.length).toBe(0);
+		socket.close();
+	});
+
+	it('answers ping with pong so the keepalive never trips a reconnect', async () => {
+		const { socket, texts } = mockSocket('ws://localhost/mock/api/v1/ws');
+		await sleep(30);
+		texts.length = 0;
+		socket.send(JSON.stringify({ type: 'ping' }));
+		await sleep(20);
+		expect(texts).toEqual([JSON.stringify({ type: 'pong' })]);
+		socket.close();
+	});
+});

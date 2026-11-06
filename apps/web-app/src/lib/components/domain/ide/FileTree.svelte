@@ -273,11 +273,11 @@
 			ide.invalidateParents(path);
 			ide.invalidateParents(target);
 			invalidateFsTreeIndex();
-			if (ide.dirState(base).loaded) await ide.loadDir(base, true);
+			// Unconditional: the invalidate above already cleared `loaded`, so a
+			// guarded reload would never run and the tree would keep the old name.
+			await ide.loadDir(base, true);
 			const targetBase = parentOf(target);
-			if (targetBase !== base && ide.dirState(targetBase).loaded) {
-				await ide.loadDir(targetBase, true);
-			}
+			if (targetBase !== base) await ide.loadDir(targetBase, true);
 			void ide.refreshGitStatus();
 			ide.bumpGitRefresh();
 			ide.retargetPath(path, target);

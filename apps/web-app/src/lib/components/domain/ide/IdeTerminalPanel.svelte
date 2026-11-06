@@ -71,16 +71,22 @@
 		/>
 	</div>
 	<div class="min-h-0 shrink-0 overflow-hidden px-3 pb-3" style="height: {height}px">
-		<PtyPanel
-			bind:this={panel}
-			repo={repo || 'ide'}
-			{cwd}
-			fill
-			embedded
-			open={ide.terminalOpen}
-			onClose={() => {
-				ide.setTerminalOpen(false);
-			}}
-		/>
+		{#if repo}
+			<PtyPanel
+				bind:this={panel}
+				{repo}
+				{cwd}
+				fill
+				embedded
+				open={ide.terminalOpen}
+				onClose={() => {
+					ide.setTerminalOpen(false);
+				}}
+			/>
+		{:else}
+			<div class="flex h-full items-center px-1 text-caption text-muted-foreground">
+				{t('common.loading')}
+			</div>
+		{/if}
 	</div>
 </div>

@@ -10,10 +10,14 @@
  * The tree below is intentionally representative of a real checkout:
  * nested app / crates / docs / assets / configs / scripts areas, several
  * languages (ts, svelte, rs, md, json, yaml, toml, sh, py, sql, css),
- * a binary asset, a large truncated file, an empty directory, and a set
- * of generated samples. That gives the file tree, quick-open, content
- * search, editor, terminal and history panels enough shape to verify
- * UI/UX in preview mode without a backend.
+ * a binary asset, a large truncated file and an empty directory. That gives
+ * the file tree, quick-open, content search, editor, terminal and history
+ * panels enough shape to verify UI/UX in preview mode without a backend.
+ *
+ * Error behavior mirrors the real backend on purpose: unknown paths resolve
+ * to 404 (via `fileView` / `statPath` returning null), never to invented
+ * filler content, so a stale tree row or ghost tab surfaces as an error
+ * state in preview exactly like it would against `wf-server`.
  *
  * Conflict simulation: files listed in `conflictPaths` report a rotating
  * hash on every read, so a normal save (which sends `expected_hash`)
@@ -21,50 +25,11 @@
  * exercised; a forced save (no expected hash) succeeds.
  */
 
+// Only hand-declared directories live here: every ancestor of a file below is
+// derived automatically (see the ensureDirs pass under INITIAL_FILES), so this
+// list stays small and cannot drift from the file set.
 const INITIAL_DIRS: string[] = [
 	'',
-	'apps',
-	'apps/web-app',
-	'apps/web-app/src',
-	'apps/web-app/src/routes',
-	'apps/web-app/src/routes/ide',
-	'apps/web-app/src/routes/git',
-	'apps/web-app/src/routes/checkpoints',
-	'apps/web-app/src/lib',
-	'apps/web-app/src/lib/components',
-	'apps/web-app/src/lib/components/domain',
-	'apps/web-app/src/lib/components/domain/ide',
-	'apps/web-app/src/lib/stores',
-	'apps/web-app/src/lib/services',
-	'apps/web-app/src/lib/utils',
-	'crates',
-	'crates/app',
-	'crates/checkpoint',
-	'crates/checkpoint/src',
-	'crates/checkpoint/tests',
-	'crates/app/wf-api',
-	'crates/app/wf-api/src',
-	'crates/app/wf-api/src/git',
-	'crates/app/wf-server',
-	'crates/app/wf-server/src',
-	'crates/app/wf-server/src/api',
-	'crates/app/wf-server/src/api/git',
-	'crates/foundation',
-	'crates/foundation/wf-core',
-	'crates/foundation/wf-core/src',
-	'docs',
-	'docs/plan',
-	'docs/plan/user-git',
-	'docs/plan/ide',
-	'src',
-	'assets',
-	'assets/icons',
-	'scripts',
-	'configs',
-	'pytools',
-	'queries',
-	'scratch',
-	'scratch/samples',
 	// Empty directory on purpose: exercises the empty tree / drop-target UX.
 	'scratch/empty',
 ];
@@ -76,7 +41,7 @@ const INITIAL_FILES: Record<string, string> = {
 		'- `crates` — Rust workspace (app / foundation layers)\n' +
 		'- `crates/checkpoint` — restore coordinator + probe sources referenced by checkpoint fixtures\n' +
 		'- `docs` — plans and architecture notes\n' +
-		'- `scratch/samples` — many small files for tree scrolling and search\n' +
+		'- `scratch` — playground for create / rename / upload flows\n' +
 		'- `src/big.ts` — large truncated file demo\n' +
 		'- `assets/logo.png` — binary file demo\n' +
 		'- `scratch/empty` — empty directory demo\n',
@@ -87,7 +52,7 @@ const INITIAL_FILES: Record<string, string> = {
 	'apps/web-app/package.json':
 		'{\n  "name": "@wf-agent/web-app-frontend",\n  "private": true,\n  "scripts": {\n    "dev:preview": "vite dev --mode preview",\n    "check:preview": "svelte-check --tsconfig ./tsconfig.preview.json"\n  }\n}\n',
 	'apps/web-app/svelte.config.js':
-		"// preview svelte config\n// TODO: verify HMR stays fast with the preview workspace mounted.\nexport const config = { preview: true };\n",
+		'// preview svelte config\n// TODO: verify HMR stays fast with the preview workspace mounted.\nexport const config = { preview: true };\n',
 	'apps/web-app/src/main.ts':
 		'// preview entry — open this file to check tabs, dirty dot and save.\n// The preview workspace shares state with the terminal: try `cat apps/web-app/src/main.ts`.\nconsole.log("preview workspace");\n\nexport const previewRoot = "/preview/wf-agent";\n',
 	'apps/web-app/src/app.css':
@@ -112,7 +77,8 @@ const INITIAL_FILES: Record<string, string> = {
 		'<!-- deep nesting demo: components/domain/ide/FileTree.svelte -->\n<script lang="ts">\n  // Hover a row to reveal row actions; right-click for the context menu.\n  const previewRowHeight = 28;\n</script>\n\n<div>file tree ({previewRowHeight}px rows)</div>\n',
 	'apps/web-app/src/lib/components/domain/ide/FileEditor.svelte':
 		'<!-- deep nesting demo: components/domain/ide/FileEditor.svelte -->\n<script lang="ts">\n  // Dirty tabs show a dot; the status bar shows language + cursor.\n  const previewLanguages = ["typescript", "svelte", "rust", "markdown"];\n</script>\n\n<div>file editor</div>\n',
-	'crates/README.md': '# crates\n\nFoundation / infra / engine / app layers.\n\nPreview: open a `.rs` file to check the Rust language label.\n',
+	'crates/README.md':
+		'# crates\n\nFoundation / infra / engine / app layers.\n\nPreview: open a `.rs` file to check the Rust language label.\n',
 	'crates/checkpoint/src/restore_coordinator.rs':
 		'//! preview restore coordinator — mirrors the checkpoint diff fixtures.\n//!\n//! Idempotent restore: the branch existence probe runs before the snapshot\n//! write, so repeated restores converge instead of raising a conflict.\nuse crate::preview::Workspace;\n\n// restore_coordinator.rs:141 — branch_exists returns Err(BranchConflict)\n// when the probe runs after the write; keep the probe first.\npub fn restore(workspace: &Workspace, target: &str) -> Result<String, String> {\n    if let Some(existing) = workspace.find_snapshot(target) {\n        return Ok(existing);\n    }\n    if workspace.branch_exists(target) {\n        return Err(format!("BranchConflict({target})"));\n    }\n    workspace.write_snapshot(target)\n}\n',
 	'crates/checkpoint/src/branch_probe.rs':
@@ -144,7 +110,7 @@ const INITIAL_FILES: Record<string, string> = {
 	'docs/plan/user-git/05-progress.md':
 		'# User git progress (preview, untracked)\n\nThis file is untracked on purpose so the tree shows an untracked badge.\n\n- [ ] verify empty directory UX in `scratch/empty`\n- [ ] TODO: confirm binary view for `assets/logo.png`\n- [ ] TODO: confirm truncated banner for `src/big.ts`\n',
 	'docs/plan/ide/preview-checklist.md':
-		'# IDE preview checklist\n\nWalk the UI/UX without a backend:\n\n1. Tree: expand `apps`, `crates`, `scratch/samples`; check badges and hover actions.\n2. Quick-open: search `sample`, `ide`, `page`.\n3. Content search: search `preview`, `TODO`, `workspace`; try scope `scratch/samples` and include `*.ts`.\n4. Editor: open `src/big.ts` (truncated), `assets/logo.png` (binary), `src/conflicted.ts` (conflict).\n5. History: changes + commits + diff dialog.\n6. Terminal: `ls`, `ls scratch/samples`, `cat README.md`.\n',
+		'# IDE preview checklist\n\nWalk the UI/UX without a backend:\n\n1. Tree: expand `apps`, `crates`, `scratch`; check badges and hover actions.\n2. Quick-open: search `restore`, `ide`, `page`.\n3. Content search: search `preview`, `TODO`, `workspace`; try scope `crates` and include `*.rs`.\n4. Editor: open `src/big.ts` (truncated), `assets/logo.png` (binary), `src/conflicted.ts` (conflict).\n5. History: changes + commits + diff dialog.\n6. Terminal: `ls`, `ls scratch`, `cat README.md`.\n',
 	'src/conflict-demo.ts':
 		'// Save this file to trigger the conflict flow, then use Overwrite.\nexport const demo = true;\n',
 	'src/conflicted.ts':
@@ -163,32 +129,18 @@ const INITIAL_FILES: Record<string, string> = {
 	'configs/release.toml':
 		'# preview release inputs — referenced by the executions and triggers fixtures\n[workspace]\nroot = "/preview/wf-agent"\n\n[preview.release]\nchannel = "preview"\nversion = "1.0.0"\n',
 	'scripts/preview.sh':
-		'#!/bin/sh\n# preview helper — `cat scripts/preview.sh` in the terminal should match the editor.\n# TODO: add a preview smoke check for the empty directory.\necho "preview workspace: $PWD"\nls scratch/samples | head -5\n',
+		'#!/bin/sh\n# preview helper — `cat scripts/preview.sh` in the terminal should match the editor.\n# TODO: add a preview smoke check for the empty directory.\necho "preview workspace: $PWD"\nls scratch\n',
 	'scripts/check-preview.mjs':
 		'// preview node script — JavaScript language demo\n// Search "preview" groups this with the shell and python helpers.\nconsole.log("preview check: tree + search + terminal");\n',
 	'scripts/checkpoint-verify.sh':
 		'#!/bin/sh\n# preview checkpoint verify — matches the scripted tool name in fixtures.\n# `cat scripts/checkpoint-verify.sh` in the terminal should match the editor.\n# TODO: fail loudly when the restore snapshot is missing.\necho "preview verify: $PWD"\nls crates/checkpoint/src\n',
 	'pytools/analyze.py':
-	'# preview python helper — Python language demo\n# TODO: report preview search hit counts per directory.\ndef preview_summary(workspace):\n    return f"preview workspace: {workspace}"\n',
+		'# preview python helper — Python language demo\n# TODO: report preview search hit counts per directory.\ndef preview_summary(workspace):\n    return f"preview workspace: {workspace}"\n',
 	'queries/report.sql':
 		'-- preview sql — SQL language demo\n-- Search "workspace" to group this with the yaml/json configs.\nSELECT path, COUNT(*) AS preview_hits FROM workspace_files GROUP BY path;\n',
 	'scratch/README.md':
-		'# scratch (preview)\n\n`scratch/samples` holds twenty small files for scrolling, quick-open and\ncontent-search grouping. `scratch/empty` is intentionally empty to demo\nthe empty tree state and file drop targets.\n',
+		'# scratch (preview)\n\nPlayground for create / rename / upload flows. `scratch/empty` is\nintentionally empty to demo the empty tree state and file drop targets.\n',
 };
-
-// Generated demo files below keep the curated map above readable while giving
-// the tree, quick-open and content search enough volume for UI/UX checks.
-for (let i = 1; i <= 20; i += 1) {
-	const n = String(i).padStart(2, '0');
-	const todo = i % 4 === 0 ? '\n// TODO: polish preview sample ' + n : '';
-	const gitLine =
-		i % 5 === 0 ? '\n// git preview: sample tracks workspace status like a worktree file.' : '';
-	INITIAL_FILES[`scratch/samples/sample-${n}.ts`] =
-		`// preview workspace sample ${n} — quick-open "sample" lists all twenty.\n` +
-		`// content search "preview" groups these hits by file for pagination checks.${todo}${gitLine}\n` +
-		`export const sample${n} = "${n}";\n` +
-		`export const samplePreview${n} = "preview workspace ${n}";\n`;
-}
 
 // Large file: exercises the truncated banner, read-only Monaco state and
 // long-file scrolling. Every fifth row mentions preview so content search
@@ -301,12 +253,19 @@ export interface FileView {
 	hash: string;
 }
 
-/** Editor-facing view of one file: binary flag, truncation and hash. */
-export function fileView(path: string): FileView {
+/**
+ * Editor-facing view of one file: binary flag, truncation and hash.
+ * Unknown paths resolve to null (the routes turn this into a 404, like the
+ * real backend) — the preview never invents content for paths that do not
+ * exist, so stale tree rows and ghost tabs surface as error states instead
+ * of plausible-looking filler.
+ */
+export function fileView(path: string): FileView | null {
 	const key = path.replace(/\/+$/, '');
 	const raw = FILES.get(key);
-	const content = raw ?? `# Preview file: ${key}\n\nMock content for the IDE preview.\n`;
-	const size = raw !== undefined ? raw.length : content.length;
+	if (raw === undefined) return null;
+	const content = raw;
+	const size = raw.length;
 	const isBinary = isBinaryPath(key);
 	if (isBinary) {
 		return { content, size, truncated: false, isBinary: true, hash: hashFor(key) };
@@ -390,6 +349,11 @@ export function flattenTree(
 	return { entries: flat, truncated };
 }
 
+/**
+ * Metadata for one path. Unknown paths resolve to null (404 at the route),
+ * matching the real backend: callers that probe best-effort (external-change
+ * detection) already tolerate the failure.
+ */
 export function statPath(path: string): {
 	path: string;
 	is_dir: boolean;
@@ -397,7 +361,7 @@ export function statPath(path: string): {
 	modified_ms: number;
 	is_binary: boolean | null;
 	hash: string | null;
-} {
+} | null {
 	const key = path.replace(/\/+$/, '');
 	if (key === '' || DIRS.has(key)) {
 		return {
@@ -420,18 +384,13 @@ export function statPath(path: string): {
 			hash: hashFor(key),
 		};
 	}
-	return {
-		path: key,
-		is_dir: false,
-		size: 128,
-		modified_ms: FIXED_MTIME,
-		is_binary: false,
-		hash: null,
-	};
+	return null;
 }
 
-export function readFile(path: string): string {
-	return FILES.get(path) ?? `# Preview file: ${path}\n\nMock content for the IDE preview.\n`;
+/** True when `path` names the workspace root, a known directory or a file. */
+export function hasPath(path: string): boolean {
+	const key = path.replace(/\/+$/, '');
+	return key === '' || DIRS.has(key) || FILES.has(key);
 }
 
 export interface WriteResult {
@@ -554,9 +513,19 @@ export function copyPath(from: string, to: string): FsEntryRow | null {
 
 export function storeUpload(path: string, content: string): FsEntryRow {
 	const write = writeFile(path, content, null);
-	const row = statPath(write.ok ? write.path : path);
-	const name = row.path.split('/').pop() ?? row.path;
-	return { name, path: row.path, is_dir: false, size: row.size, modified_ms: FIXED_MTIME };
+	if (!write.ok) {
+		// Unreachable: a null expected hash never conflicts. Throw instead of
+		// inventing a fallback row so a real regression fails loudly.
+		throw new Error(`Preview upload failed for ${path}: ${write.message}`);
+	}
+	const name = write.path.split('/').pop() ?? write.path;
+	return {
+		name,
+		path: write.path,
+		is_dir: false,
+		size: write.content.length,
+		modified_ms: FIXED_MTIME,
+	};
 }
 
 // ---------------------------------------------------------------------------

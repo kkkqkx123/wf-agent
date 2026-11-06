@@ -12,6 +12,7 @@ function validBackup(): SettingsBackup {
 	return {
 		version: 1,
 		preferences: {
+			ptyDebug: 'inherit',
 			theme: 'dark',
 			density: 'default',
 			sidebarCollapsed: false,

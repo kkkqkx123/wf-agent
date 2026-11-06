@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { installMockPtySocket, previewSessionAlive } from './pty-socket';
-import { createSession } from './pty-sessions';
+import { installMockPtySocket, notifySessionRemoved, previewSessionAlive } from './pty-socket';
+import { createSession, removeSession } from './pty-sessions';
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -134,6 +134,23 @@ describe('preview mock PTY socket', () => {
 		expect(joined).toContain('^C');
 		expect(joined).not.toContain('README.md');
 		expect(joined).toContain('/preview/wf-agent');
+		socket.close();
+	});
+
+	it('notifies attached sockets with an exited frame and 4010 on server-side removal', async () => {
+		const session = createSession({});
+		const { socket, binaries, closes } = mockSocket(
+			`ws://localhost/mock/api/v1/pty/${session.id}/connect?cursor=0&ticket=t`,
+		);
+		await sleep(60);
+		binaries.length = 0;
+		removeSession(session.id);
+		notifySessionRemoved(session.id);
+		await sleep(30);
+		const exited = binaries.map(decodeControl).find((meta) => meta.event === 'exited');
+		expect(exited).toBeDefined();
+		expect(closes.length).toBe(1);
+		expect(closes[0].code).toBe(4010);
 		socket.close();
 	});
 });

@@ -152,6 +152,22 @@ function resumeCursorFromUrl(url: string): number {
 	}
 }
 
+/** Live sockets by session so removal can notify attachments like the real kill path. */
+const sessionSockets = new Map<string, Set<MockPtySocket>>();
+
+function attachSocket(socket: MockPtySocket, id: string): void {
+	let group = sessionSockets.get(id);
+	if (!group) {
+		group = new Set();
+		sessionSockets.set(id, group);
+	}
+	group.add(socket);
+}
+
+function detachSocket(socket: MockPtySocket, id: string): void {
+	sessionSockets.get(id)?.delete(socket);
+}
+
 class MockPtySocket {
 	static readonly CONNECTING = 0;
 	static readonly OPEN = 1;
@@ -179,6 +195,7 @@ class MockPtySocket {
 	constructor(url: string | URL) {
 		const target = String(url);
 		this.#sessionId = sessionIdFromUrl(target);
+		if (this.#sessionId) attachSocket(this, this.#sessionId);
 		this.#resumeCursor = resumeCursorFromUrl(target);
 		setTimeout(() => {
 			if (this.#closed) return;
@@ -228,10 +245,18 @@ class MockPtySocket {
 
 	close(code = 1000, reason = ''): void {
 		if (this.readyState === MockPtySocket.CLOSED) return;
+		if (this.#sessionId) detachSocket(this, this.#sessionId);
 		this.readyState = MockPtySocket.CLOSED;
 		this.#closed = true;
 		this.#outputQueue.length = 0;
 		this.onclose?.({ code, reason } as CloseEvent);
+	}
+
+	/** Server-side removal: mirror the real removed-killed-exited path for attached sockets. */
+	removed(): void {
+		if (this.readyState === MockPtySocket.CLOSED) return;
+		this.#deliverControl({ event: 'exited', exit_code: 0, reason: 'pty removed' });
+		this.close(4010, 'pty removed');
 	}
 
 	/** Cooked-line editing with immediate echo, like a real PTY. */
@@ -467,4 +492,13 @@ export function previewSessionAlive(id: string): boolean {
 
 export function dropSessionCursor(id: string): void {
 	sessionCursors.delete(id);
+}
+
+/** Removal notifies attachments with the exited frame and 4010, then forgets the cursor. */
+export function notifySessionRemoved(id: string): void {
+	dropSessionCursor(id);
+	const sockets = sessionSockets.get(id);
+	if (!sockets) return;
+	sessionSockets.delete(id);
+	for (const socket of [...sockets]) socket.removed();
 }

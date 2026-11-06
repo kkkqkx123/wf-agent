@@ -53,6 +53,13 @@
 		workbench.viewMode = defaultViewModeForPanel(workbench.panel);
 	}
 	let lastPanel = $state(workbench.panel);
+	// Mount the terminal once and hide it afterwards: reopening reuses the
+	// live sessions instead of rebuilding the panel from persistence.
+	let terminalMounted = $state(false);
+
+	$effect(() => {
+		if (workbench.terminalOpen) terminalMounted = true;
+	});
 
 	const boardResize = new BoardResize({
 		storageKey: 'git-board-width',
@@ -190,10 +197,12 @@
 			<div class="git-bottom mt-2 shrink-0 space-y-2 border-t border-border pt-2">
 				<GitKeyInput {workbench} />
 				<GitStatusBar {workbench} />
-				{#if workbench.terminalOpen}
-					{#await import('#lib/components/domain/git/GitTerminalPanel.svelte') then module}
-						<module.default {workbench} />
-					{/await}
+				{#if terminalMounted}
+					<div class={workbench.terminalOpen ? '' : 'hidden'}>
+						{#await import('#lib/components/domain/git/GitTerminalPanel.svelte') then module}
+							<module.default {workbench} />
+						{/await}
+					</div>
 				{/if}
 				{#if workbench.actionLog.length > 0}
 					<GitCommandLog {workbench} />

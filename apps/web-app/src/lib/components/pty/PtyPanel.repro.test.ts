@@ -234,3 +234,82 @@ describe('PtySessionStore terminal open/close behaviour', () => {
 		);
 	});
 });
+
+describe('PtySessionStore lifecycle and persistence validation', () => {
+	beforeEach(() => {
+		server.clear();
+		seq = 0;
+		localStorage.clear();
+		vi.clearAllMocks();
+	});
+
+	it('classifies live, exited and missing sessions explicitly', async () => {
+		const store = ptyStoreFor(freshRepo());
+		expect(store.hasLive()).toBe(false);
+		expect(store.allExited()).toBe(false);
+		expect(store.lifecycle('nope')).toBe('missing');
+
+		const session = await store.spawn();
+		expect(store.lifecycle(session!.id)).toBe('live');
+		expect(store.hasLive()).toBe(true);
+
+		store.patch(session!.id, { status: 'exited' });
+		expect(store.lifecycle(session!.id)).toBe('exited');
+		expect(store.hasLive()).toBe(false);
+		expect(store.allExited()).toBe(true);
+	});
+
+	it('drops unusable persisted records and validates every field', () => {
+		const repo = freshRepo();
+		const big = 'x'.repeat(300_000);
+		localStorage.setItem(
+			`wf.pty.v1.${repo}`,
+			JSON.stringify([
+				{
+					id: 'good',
+					title: 'Terminal 1',
+					titleNumber: 1,
+					buffer: 'hi',
+					scrollY: 3,
+					cursor: 2,
+					rows: 24,
+					cols: 80,
+					status: 'running',
+					origin: { cwd: '/r' },
+					extra: 'dropped',
+				},
+				{
+					id: 'bad-shape',
+					title: 'Terminal 2',
+					rows: 'wide',
+					cols: -1,
+					scrollY: -5,
+					cursor: -1,
+					status: 'ghost',
+					exitCode: 'x',
+					origin: { env: { A: 1, B: 'ok' } },
+				},
+				{ id: 'huge', title: 'Terminal 3', buffer: big, scrollY: 100, cursor: 300_000 },
+				{ title: 'missing id' },
+				{ id: 'good', title: 'duplicate' },
+			]),
+		);
+		const store = new PtySessionStore();
+		store.open(repo);
+		expect(store.sessions.map((s) => s.id)).toEqual(['good', 'bad-shape', 'huge']);
+		const good = store.byId('good');
+		expect(good?.origin).toEqual({ cwd: '/r' });
+		expect((good as unknown as Record<string, unknown>).extra).toBeUndefined();
+		const bad = store.byId('bad-shape');
+		expect(bad?.rows).toBeUndefined();
+		expect(bad?.cols).toBeUndefined();
+		expect(bad?.scrollY).toBeUndefined();
+		expect(bad?.cursor).toBeUndefined();
+		expect(bad?.status).toBeUndefined();
+		expect(bad?.exitCode).toBeUndefined();
+		expect(bad?.origin).toEqual({ env: { B: 'ok' } });
+		const huge = store.byId('huge');
+		expect(huge?.buffer?.length).toBeLessThan(big.length);
+		expect(huge?.scrollY).toBe(0);
+	});
+});

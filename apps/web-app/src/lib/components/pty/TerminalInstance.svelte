@@ -25,9 +25,31 @@
 		onConnect?: (id: string) => void;
 		onSessionExited?: (id: string) => void;
 		onConnectFailed?: (id: string) => void;
+		/** Keep-alive registry: the multi-tab host tracks every mounted instance by session id. */
+		register?: (id: string, api: TerminalApi) => void;
+		unregister?: (id: string) => void;
 	}
 
-	let { session, store, onConnect, onSessionExited, onConnectFailed }: Props = $props();
+	export interface TerminalApi {
+		focus: () => void;
+		adoptServerSize: (id: string, rows: number, cols: number) => void;
+		refit: () => void;
+	}
+
+	let {
+		session,
+		store,
+		onConnect,
+		onSessionExited,
+		onConnectFailed,
+		register,
+		unregister,
+	}: Props = $props();
+
+	// Snapshot the mount identity: live props can read null during teardown,
+	// and teardown must act on the session this instance was created with.
+	// svelte-ignore state_referenced_locally
+	const sessionId = typeof session?.id === 'string' ? session.id : '';
 
 	let container: HTMLDivElement;
 
@@ -104,7 +126,7 @@
 		if (!lastSize) {
 			lastSize = pendingSize;
 			pendingSize = undefined;
-			store.syncSize(session.id, rows, cols);
+			store.syncSize(sessionId, rows, cols);
 			return;
 		}
 		if (sizeTimer !== undefined) return;
@@ -116,7 +138,7 @@
 			if (disposed) return;
 			if (lastSize?.cols === next.cols && lastSize?.rows === next.rows) return;
 			lastSize = next;
-			store.syncSize(session.id, next.rows, next.cols);
+			store.syncSize(sessionId, next.rows, next.cols);
 		}, RESIZE_DEBOUNCE_MS);
 	}
 
@@ -140,13 +162,13 @@
 		if (!next || disposed) return;
 		if (lastSize?.cols === next.cols && lastSize?.rows === next.rows) return;
 		lastSize = next;
-		store.syncSize(session.id, next.rows, next.cols);
+		store.syncSize(sessionId, next.rows, next.cols);
 	}
 
 	/** Probe the server before reconnecting: exited sessions stay view-only. */
 	async function sessionAlive(): Promise<boolean> {
 		try {
-			const view: PtySession = await getPty(session.id);
+			const view: PtySession = await getPty(sessionId);
 			return view.status === 'running';
 		} catch {
 			return false;
@@ -162,9 +184,9 @@
 
 	function scheduleReconnect(startCursor: number): void {
 		if (disposed || reconnectTimer !== undefined) return;
-		ptyTrace('term.reconnect', { id: session.id, tries, startCursor });
+		ptyTrace('term.reconnect', { id: sessionId, tries, startCursor });
 		if (tries >= MAX_RECONNECT_TRIES) {
-			onConnectFailed?.(session.id);
+			onConnectFailed?.(sessionId);
 			return;
 		}
 		const delay = Math.min(250 * 2 ** Math.min(tries, 4), 4000);
@@ -191,26 +213,26 @@
 	function markExited(): void {
 		if (exitHandled) return;
 		exitHandled = true;
-		ptyTrace('term.exited', { id: session.id });
-		if (!store.byId(session.id)) return;
-		store.patch(session.id, { status: 'exited' });
-		onSessionExited?.(session.id);
+		ptyTrace('term.exited', { id: sessionId });
+		if (!store.byId(sessionId) || store.isRemoved(sessionId)) return;
+		store.patch(sessionId, { status: 'exited' });
+		onSessionExited?.(sessionId);
 	}
 
 	function open(startCursor: number): void {
 		if (disposed) return;
 		clearReconnect();
-		ptyTrace('term.open', { id: session.id, startCursor });
+		ptyTrace('term.open', { id: sessionId, startCursor });
 		socket?.dispose();
 
-		socket = connectPty(session.id, startCursor, {
+		socket = connectPty(sessionId, startCursor, {
 			onMeta: (next) => {
 				cursor = next;
 				if (!connected) {
 					connected = true;
 					tries = 0;
-					ptyTrace('term.socket.open', { id: session.id, cursor: next });
-					onConnect?.(session.id);
+					ptyTrace('term.socket.open', { id: sessionId, cursor: next });
+					onConnect?.(sessionId);
 				}
 			},
 			onData: (chunk) => {
@@ -222,7 +244,7 @@
 				markExited();
 			},
 			onClose: (code) => {
-				ptyTrace('term.socket.close', { id: session.id, code, disposed });
+				ptyTrace('term.socket.close', { id: sessionId, code, disposed });
 				if (disposed) return;
 				connected = false;
 				if (TERMINAL_CLOSE_CODES.has(code)) {
@@ -239,9 +261,14 @@
 		term?.textarea?.focus();
 	}
 
+	/** Re-measure after a hidden tab becomes visible; no-op while still hidden. */
+	export function refit(): void {
+		scheduleFit();
+	}
+
 	/** Adopt the server size only when no local measurement owns the viewport yet. */
 	export function adoptServerSize(id: string, rows: number, cols: number): void {
-		if (id !== session.id || disposed) return;
+		if (id !== sessionId || disposed) return;
 		if (!Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1) return;
 		if (lastSize !== undefined || pendingSize !== undefined) return;
 		serverKnown = { rows, cols };
@@ -302,13 +329,16 @@
 	onMount(() => {
 		// The host guards with store.active(), but the dynamic import splits
 		// the guard and the mount across flushes; never mount a dead view.
-		if (!session || typeof session.id !== 'string') return;
+		if (!session || typeof session.id !== 'string') {
+			ptyTrace('term.mount.invalid', {});
+			return;
+		}
 		const restore = session.buffer ?? '';
 		const restoreScrollY = session.scrollY ?? 0;
 		cursor = session.cursor ?? 0;
 		const openCursor = session.cursor ?? (restore ? -1 : 0);
 		ptyTrace('term.mount', {
-			id: session.id,
+			id: sessionId,
 			status: session.status ?? null,
 			buffered: restore.length,
 			openCursor,
@@ -405,6 +435,7 @@
 		resizeObserver.observe(container);
 		const handleWindowResize = () => scheduleFit();
 		window.addEventListener('resize', handleWindowResize);
+		register?.(sessionId, { focus, adoptServerSize, refit });
 
 		const onTermResize = term.onResize((size: { rows: number; cols: number }) => {
 			scheduleResize(size.rows, size.cols);
@@ -479,7 +510,8 @@
 
 	onDestroy(() => {
 		disposed = true;
-		ptyTrace('term.destroy', { id: session.id });
+		unregister?.(sessionId);
+		ptyTrace('term.destroy', { id: sessionId, store: store.uid });
 		clearReconnect();
 		if (sizeTimer !== undefined) clearTimeout(sizeTimer);
 		if (fitFrame !== undefined) cancelAnimationFrame(fitFrame);
@@ -490,7 +522,7 @@
 			try {
 				const buffer = serializeAddon?.serialize();
 				if (buffer && buffer.length > 0 && term) {
-					store.saveBuffer(session.id, buffer, term.buffer.active.viewportY, cursor);
+					store.saveBuffer(sessionId, buffer, term.buffer.active.viewportY, cursor);
 				}
 			} catch {
 				// Serialization may fail after dispose; skip persistence.

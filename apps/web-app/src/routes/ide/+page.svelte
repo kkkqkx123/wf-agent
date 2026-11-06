@@ -648,11 +648,10 @@
 						</aside>
 					{/if}
 				</div>
-				{#if ide.terminalOpen}
-					<div class="shrink-0 border-t border-border">
-						<IdeTerminalPanel repo={ide.root} />
-					</div>
-				{/if}
+				<!-- Keep the terminal mounted while hidden so open sessions and sockets survive toggling. -->
+				<div class="shrink-0 border-t border-border {ide.terminalOpen ? '' : 'hidden'}">
+					<IdeTerminalPanel repo={ide.root} />
+				</div>
 			</div>
 		</PageState>
 	</div>

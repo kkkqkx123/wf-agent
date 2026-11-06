@@ -5,6 +5,7 @@
 	import Button from '#lib/ui/components/Button.svelte';
 	import Separator from '#lib/ui/components/Separator.svelte';
 	import type TerminalInstance from './TerminalInstance.svelte';
+	import type { TerminalApi } from './TerminalInstance.svelte';
 	import {
 		normalizePtyRepoKey,
 		ptyStoreFor,
@@ -13,6 +14,7 @@
 	import { getPty } from '#lib/services/pty';
 	import {
 		clearPtyTrace,
+		describePtyDebug,
 		getPtyTrace,
 		installPtyErrorCapture,
 		isPtyDebugEnabled,
@@ -67,7 +69,21 @@
 
 	let ensuredKey: string | null = $state(null);
 	let failedId = $state<string | null>(null);
-	let instance: TerminalInstance | undefined = $state();
+	/** Every mounted tab stays alive (hidden when inactive) so its socket survives tab switches. */
+	let instances = new Map<string, TerminalApi>();
+
+	function registerInstance(id: string, api: TerminalApi): void {
+		instances.set(id, api);
+		if (id === store.activeId) void tick().then(() => api.refit());
+	}
+
+	function unregisterInstance(id: string): void {
+		instances.delete(id);
+	}
+
+	function focusInstance(id: string | null): void {
+		if (id) instances.get(id)?.focus();
+	}
 	// The terminal view (and the xterm bundle) loads on demand so the route
 	// chunks stay light and a load failure degrades to panel retry.
 	let terminalView: typeof TerminalInstance | null = $state(null);
@@ -131,7 +147,7 @@
 					ptyTrace('panel.effect.autospawn', { reason: 'empty-fresh' });
 					void spawnAndFocus();
 				}
-			} else if (!current.sessions.some((s) => s.status !== 'exited')) {
+			} else if (!current.hasLive()) {
 				ptyTrace('panel.effect.autospawn', {
 				reason: 'all-exited',
 					sessions: current.sessions.length,
@@ -178,8 +194,16 @@
 
 	/** Focus the active terminal instance (used when the host panel opens). */
 	export function focusActive(): void {
-		instance?.focus();
+		focusInstance(store.active()?.id ?? null);
 	}
+
+	// Hidden tabs report zero size until shown; re-measure the newly
+	// visible instance after each switch so fit matches the viewport.
+	$effect(() => {
+		const active = store.activeId;
+		if (!active) return;
+		void tick().then(() => instances.get(active)?.refit());
+	});
 
 	async function handleConnect(id: string): Promise<void> {
 		if (!store.byId(id)) return;
@@ -188,7 +212,7 @@
 			const view = await getPty(id);
 			if (!store.byId(id)) return;
 			store.syncMetaFromServer(id, view);
-			instance?.adoptServerSize(id, view.rows, view.cols);
+			instances.get(id)?.adoptServerSize(id, view.rows, view.cols);
 			ptyTrace('panel.connect.ok', { id });
 		} catch (error) {
 			ptyTrace('panel.connect.miss', {
@@ -217,7 +241,12 @@
 
 	function removeSession(id: string | null | undefined): void {
 		if (!id) return;
-		ptyTrace('panel.remove.click', { id, sessions: store.sessions.length });
+		ptyTrace('panel.remove.click', {
+			id,
+			repoKey: normalizedRepo,
+				store: store.uid,
+				sessions: store.sessions.length,
+			});
 		if (failedId === id) failedId = null;
 		void store.remove(id);
 	}
@@ -228,7 +257,7 @@
 		if (session) {
 			ptyTrace('panel.spawn.done', { id: session.id });
 			await tick();
-			instance?.focus();
+			focusInstance(session.id);
 			return;
 		}
 		ptyTrace('panel.spawn.empty', {});
@@ -239,6 +268,7 @@
 		const persisted = readPtyPersisted(normalizedRepo);
 		const report = {
 			url: typeof window === 'undefined' ? '' : window.location.href,
+			debug: describePtyDebug(),
 			repoKey: normalizedRepo,
 			sessions: store.sessions.map((s) => ({
 				id: s.id,
@@ -277,7 +307,7 @@
 		clearFailure();
 		await store.clone(id);
 		await tick();
-		instance?.focus();
+		focusInstance(store.activeId);
 	}
 </script>
 
@@ -335,7 +365,7 @@
 						title={t('pty.ptyPanel.renameHint')}
 						onclick={() => {
 							store.setActive(session.id);
-							instance?.focus();
+							focusInstance(session.id);
 						}}
 						ondblclick={() => startRename(session.id, session.title)}
 					>
@@ -410,16 +440,17 @@
 
 {#snippet terminalViewport(viewportClass: string)}
 	<div class={viewportClass} style={viewportStyle}>
-		{#key store.activeId}
-			{@const active = store.active()}
-			{#if active}
-				{#if terminalView}
-					{@const TerminalView = terminalView}
+		{#if terminalView}
+			{@const TerminalView = terminalView}
+			{#each store.sessions as session (session.id)}
+				<!-- All tabs stay mounted; inactive ones hide so their sockets keep streaming. -->
+				<div class="h-full w-full {store.activeId === session.id ? '' : 'hidden'}">
 					<svelte:boundary>
 						<TerminalView
-							bind:this={instance}
-							session={active}
+							session={session}
 							{store}
+							register={registerInstance}
+							unregister={unregisterInstance}
 							onConnect={(id) => void handleConnect(id)}
 							onSessionExited={handleSessionExited}
 							onConnectFailed={handleConnectFailed}
@@ -437,20 +468,20 @@
 							</div>
 						{/snippet}
 					</svelte:boundary>
-				{:else if terminalViewFailed}
-					<div class="flex h-full flex-col items-start justify-center gap-2 p-4">
-						<p class="text-caption text-muted-foreground">{t('pty.ptyPanel.disconnected')}</p>
-						<Button size="sm" variant="outline" onclick={loadTerminalView}>
-							{t('common.retry')}
-						</Button>
-					</div>
-				{:else}
-					<div class="flex h-full flex-col items-start justify-center gap-2 p-4">
-						<p class="text-caption text-muted-foreground">{t('common.loading')}</p>
-					</div>
-				{/if}
-			{/if}
-		{/key}
+				</div>
+			{/each}
+		{:else if terminalViewFailed}
+			<div class="flex h-full flex-col items-start justify-center gap-2 p-4">
+				<p class="text-caption text-muted-foreground">{t('pty.ptyPanel.disconnected')}</p>
+				<Button size="sm" variant="outline" onclick={loadTerminalView}>
+					{t('common.retry')}
+				</Button>
+			</div>
+		{:else}
+			<div class="flex h-full flex-col items-start justify-center gap-2 p-4">
+				<p class="text-caption text-muted-foreground">{t('common.loading')}</p>
+			</div>
+		{/if}
 	</div>
 {/snippet}
 

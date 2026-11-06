@@ -10,6 +10,8 @@
 export interface PreviewPtySession {
 	id: string;
 	cwd: string;
+	command?: string;
+	env?: Record<string, string>;
 	title: string;
 	status: 'running' | 'exited';
 	exit_code: number | null;
@@ -29,11 +31,14 @@ export function createSession(input: {
 	rows?: number;
 	cols?: number;
 	title?: string;
+	cwd?: string;
+	command?: string;
+	env?: Record<string, string>;
 }): PreviewPtySession {
 	seq += 1;
 	const session: PreviewPtySession = {
 		id: `pty-preview-${lifetime}-${seq}`,
-		cwd: '/preview/wf-agent',
+		cwd: input.cwd ?? '/preview/wf-agent',
 		title: input.title ?? `Terminal ${seq}`,
 		status: 'running',
 		exit_code: null,
@@ -41,6 +46,8 @@ export function createSession(input: {
 		rows: input.rows ?? 24,
 		cols: input.cols ?? 80,
 	};
+	if (input.command) session.command = input.command;
+	if (input.env && Object.keys(input.env).length > 0) session.env = { ...input.env };
 	sessions.set(session.id, session);
 	return session;
 }

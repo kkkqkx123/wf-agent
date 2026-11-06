@@ -2,7 +2,7 @@
 
 import type { MockRouter } from '../router';
 import { mockError } from './fs';
-import { dropSessionCursor } from '../pty-socket';
+import { notifySessionRemoved } from '../pty-socket';
 import {
 	createSession,
 	getSession,
@@ -37,7 +37,7 @@ export function registerPty(router: MockRouter): void {
 	});
 	router.on('DELETE', '/api/v1/pty/{id}', (params) => {
 		const removed = removeSession(params.id);
-		dropSessionCursor(params.id);
+		notifySessionRemoved(params.id);
 		if (!removed) return mockError(404, 'NOT_FOUND', `PTY session not found: ${params.id}`);
 		return { removed: true };
 	});

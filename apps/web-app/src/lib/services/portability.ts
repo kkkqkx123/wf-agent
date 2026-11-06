@@ -15,7 +15,9 @@ export type BackupDensity = 'compact' | 'default' | 'comfortable';
 export type BackupMinimap = 'auto' | 'on' | 'off';
 export type BackupToolDetail = 'compact' | 'balanced' | 'verbose';
 export type BackupChatExecution = 'agent' | 'workflow' | 'chat';
+export type BackupPtyDebug = 'inherit' | 'on' | 'off';
 export interface LocalPreferencesBackup {
+	ptyDebug: BackupPtyDebug;
 	theme: BackupTheme;
 	density: BackupDensity;
 	sidebarCollapsed: boolean;
@@ -46,6 +48,7 @@ export interface SettingsBackup {
 const KNOWN_ACTION_IDS = new Set(SHORTCUT_ACTIONS.map((action) => action.id));
 
 const PREFERENCE_KEYS: ReadonlyArray<keyof LocalPreferencesBackup> = [
+	'ptyDebug',
 	'theme',
 	'density',
 	'sidebarCollapsed',
@@ -111,6 +114,10 @@ function validatePreferences(raw: unknown): LocalPreferencesBackup {
 	}
 	const sidebarWidth = raw.sidebarWidth;
 	const inspectorWidth = raw.inspectorWidth;
+	const ptyDebug = raw.ptyDebug ?? 'inherit';
+	if (ptyDebug !== 'inherit' && ptyDebug !== 'on' && ptyDebug !== 'off') {
+		reject('Invalid preferences.ptyDebug');
+	}
 	const chatExecutionType = raw.chatExecutionType ?? 'agent';
 	if (
 		chatExecutionType !== 'agent' &&
@@ -136,6 +143,7 @@ function validatePreferences(raw: unknown): LocalPreferencesBackup {
 		reject('Invalid preferences.inspectorWidth');
 	}
 	return {
+		ptyDebug: ptyDebug as BackupPtyDebug,
 		theme: theme as BackupTheme,
 		density: density as BackupDensity,
 		sidebarCollapsed: checkBoolean(raw.sidebarCollapsed, 'preferences.sidebarCollapsed'),

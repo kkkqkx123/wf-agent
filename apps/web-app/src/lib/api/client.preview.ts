@@ -85,6 +85,18 @@ function dispatchEnvelope(
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/** Mirror openapi-fetch path substitution so `{id}` templates resolve
+ *  from `params.path` before the mock router matches. Unmatched keys stay
+ *  literal so unrouted paths still surface as explicit 404s. */
+function substitutePath(path: string, params?: { path?: Record<string, unknown> }): string {
+	const values = params?.path;
+	if (!values) return path;
+	return path.replace(/\{([^}]+)\}/g, (match, key: string) => {
+		const value = values[key];
+		return value === undefined || value === null ? match : encodeURIComponent(String(value));
+	});
+}
+
 // Route handlers may return a MockRouteError (e.g. unknown PTY session);
 // surface it as a genuine error envelope so `call()` throws ApiHttpError
 // instead of handing the marker object to services as a fake payload.
@@ -122,7 +134,7 @@ export const client: AnyClient = {
 	async GET(path: string, opts?: any): Promise<any> {
 		await delay(30); // simulate a tiny network latency
 		const query = queryOf(opts?.params);
-		const data = router.dispatch('GET', path, query, undefined);
+		const data = router.dispatch('GET', substitutePath(path, opts?.params), query, undefined);
 		return toPreviewResult('GET', path, data);
 	},
 
@@ -131,7 +143,7 @@ export const client: AnyClient = {
 		await delay(30);
 		const query = queryOf(opts?.params);
 		const body = opts?.body;
-		const data = router.dispatch('POST', path, query, body);
+		const data = router.dispatch('POST', substitutePath(path, opts?.params), query, body);
 		return toPreviewResult('POST', path, data);
 	},
 
@@ -140,7 +152,7 @@ export const client: AnyClient = {
 		await delay(30);
 		const query = queryOf(opts?.params);
 		const body = opts?.body;
-		const data = router.dispatch('PUT', path, query, body);
+		const data = router.dispatch('PUT', substitutePath(path, opts?.params), query, body);
 		return toPreviewResult('PUT', path, data);
 	},
 
@@ -148,7 +160,7 @@ export const client: AnyClient = {
 	async DELETE(path: string, opts?: any): Promise<any> {
 		await delay(30);
 		const query = queryOf(opts?.params);
-		const data = router.dispatch('DELETE', path, query, undefined);
+		const data = router.dispatch('DELETE', substitutePath(path, opts?.params), query, undefined);
 		return toPreviewResult('DELETE', path, data);
 	},
 
@@ -157,7 +169,7 @@ export const client: AnyClient = {
 		await delay(30);
 		const query = queryOf(opts?.params);
 		const body = opts?.body;
-		const data = router.dispatch('PATCH', path, query, body);
+		const data = router.dispatch('PATCH', substitutePath(path, opts?.params), query, body);
 		return toPreviewResult('PATCH', path, data);
 	},
 };
@@ -175,7 +187,7 @@ export async function request(
 	await delay(30);
 	const query = queryOf(opts?.params);
 	const body = opts?.body;
-	return dispatchEnvelope(method, path, query, body);
+	return dispatchEnvelope(method, substitutePath(path, opts?.params), query, body);
 }
 
 export async function downloadFile(

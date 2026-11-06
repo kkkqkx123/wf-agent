@@ -29,21 +29,143 @@ export interface LocalPtySession {
 
 const STORAGE_PREFIX = 'wf.pty.v1';
 const MAX_TERMINAL_SESSIONS = 20;
-const MAX_PERSIST_BUFFER_CHARS = 200_000;
+// Byte budget for the persisted scrollback tail. The unit is bytes so it
+// stays aligned with the server replay cursor (a byte offset): cutting the
+// tail never invalidates the absolute cursor stored alongside it.
+const MAX_PERSIST_BUFFER_BYTES = 262_144;
+const MAX_VIEWPORT_EDGE = 4096;
+
+/** Explicit session lifecycle: live sessions stream, exited ones keep scrollback, missing ones are gone. */
+export type PtyLifecycle = 'live' | 'exited' | 'missing';
+
+const textEncoder = new TextEncoder();
+
+/** Diagnostic counter: every live store object gets a unique identity. */
+let storeUidSeq = 0;
+
+/** Removed session ids for this page lifetime. Server ids are unique per
+ * load, so a removed id never legitimately returns: every transition
+ * consults this set, which makes removed terminal no matter which store
+ * object generation (or stale teardown) attempts the write. Bounded because
+ * entries accumulate until the page goes away. */
+const removedPtyIds = new Set<string>();
+const MAX_REMOVED_PTY_IDS = 500;
+
+function rememberRemoved(id: string): void {
+	removedPtyIds.add(id);
+	if (removedPtyIds.size > MAX_REMOVED_PTY_IDS) {
+		const oldest = removedPtyIds.values().next().value;
+		if (oldest !== undefined) removedPtyIds.delete(oldest);
+	}
+}
+
+function wasRemoved(id: string): boolean {
+	return removedPtyIds.has(id);
+}
+
+function byteLength(text: string): number {
+	for (let i = 0; i < text.length; i += 1) {
+		if (text.charCodeAt(i) > 127) return textEncoder.encode(text).length;
+	}
+	return text.length;
+}
 
 function truncateBuffer(buffer: string): {
 	buffer: string;
 	truncated: boolean;
 } {
-	if (buffer.length <= MAX_PERSIST_BUFFER_CHARS) {
+	if (byteLength(buffer) <= MAX_PERSIST_BUFFER_BYTES) {
 		return { buffer, truncated: false };
 	}
-	let kept = buffer.slice(buffer.length - MAX_PERSIST_BUFFER_CHARS);
-	const first = kept.charCodeAt(0);
-	if (first >= 0xdc00 && first <= 0xdfff) {
-		kept = kept.slice(1);
+	// Walk back from the tail by code points so the cut lands on a UTF-8
+	// boundary; astral characters never tear.
+	const points = [...buffer];
+	let keptBytes = 0;
+	let start = points.length;
+	for (let i = points.length - 1; i >= 0; i -= 1) {
+		const point = points[i] ?? '';
+		const first = point.charCodeAt(0) || 0;
+		keptBytes += point.length > 1 || first > 127 ? textEncoder.encode(point).length : 1;
+		if (keptBytes > MAX_PERSIST_BUFFER_BYTES) break;
+		start = i;
 	}
-	return { buffer: kept, truncated: true };
+	return { buffer: points.slice(start).join(''), truncated: true };
+}
+
+function validViewportEdge(value: unknown): number | undefined {
+	return typeof value === 'number' &&
+		Number.isInteger(value) &&
+		value >= 1 &&
+		value <= MAX_VIEWPORT_EDGE
+		? value
+		: undefined;
+}
+
+function validNonNegativeInt(value: unknown): number | undefined {
+	return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+		? value
+		: undefined;
+}
+
+function validStatus(value: unknown): 'running' | 'exited' | undefined {
+	return value === 'running' || value === 'exited' ? value : undefined;
+}
+
+function validOrigin(value: unknown): LocalPtySession['origin'] {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+	const raw = value as Record<string, unknown>;
+	const out: { cwd?: string; command?: string; env?: Record<string, string> } = {};
+	if (typeof raw.cwd === 'string' && raw.cwd) out.cwd = raw.cwd;
+	if (typeof raw.command === 'string' && raw.command) out.command = raw.command;
+	if (typeof raw.env === 'object' && raw.env !== null && !Array.isArray(raw.env)) {
+		const env: Record<string, string> = {};
+		for (const [key, entry] of Object.entries(raw.env as Record<string, unknown>)) {
+			if (typeof entry === 'string') env[key] = entry;
+		}
+		if (Object.keys(env).length > 0) out.env = env;
+	}
+	return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** Fully validate one persisted record; unknown fields are dropped, unusable records return null. */
+function validatePersistedSession(raw: unknown): LocalPtySession | null {
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
+	const item = raw as Record<string, unknown>;
+	if (typeof item.id !== 'string' || !item.id) return null;
+	const title = typeof item.title === 'string' && item.title ? item.title : item.id;
+	const numbered =
+		typeof item.titleNumber === 'number' &&
+		Number.isSafeInteger(item.titleNumber) &&
+		item.titleNumber > 0
+			? item.titleNumber
+			: parseTitleNumber(title);
+	let buffer = typeof item.buffer === 'string' ? item.buffer : undefined;
+	let scrollY = validNonNegativeInt(item.scrollY);
+	if (buffer !== undefined) {
+		const cut = truncateBuffer(buffer);
+		buffer = cut.buffer;
+		if (cut.truncated) scrollY = 0;
+	}
+	const rows = validViewportEdge(item.rows);
+	const cols = validViewportEdge(item.cols);
+	const cursor = validNonNegativeInt(item.cursor);
+	const status = validStatus(item.status);
+	const origin = validOrigin(item.origin);
+	return {
+		id: item.id,
+		title,
+		...(numbered ? { titleNumber: numbered } : {}),
+		...(origin ? { origin } : {}),
+		...(rows !== undefined ? { rows } : {}),
+		...(cols !== undefined ? { cols } : {}),
+		...(buffer !== undefined ? { buffer } : {}),
+		...(scrollY !== undefined ? { scrollY } : {}),
+		...(cursor !== undefined ? { cursor } : {}),
+		...(status !== undefined ? { status } : {}),
+		...(typeof item.exitCode === 'number' && Number.isSafeInteger(item.exitCode)
+			? { exitCode: item.exitCode }
+			: {}),
+	};
 }
 
 function storageKey(repo: string): string {
@@ -67,6 +189,8 @@ export class PtySessionStore {
 	activeId = $state<string | null>(null);
 	repo = $state<string>('');
 	hasStoredRecord = false;
+	/** Diagnostic identity: tells apart live store objects that share one repo key. */
+	readonly uid = ++storeUidSeq;
 
 	private persistTimer: ReturnType<typeof setTimeout> | undefined;
 	private lastViewport: { rows: number; cols: number } | undefined;
@@ -86,30 +210,16 @@ export class PtySessionStore {
 				if (Array.isArray(parsed)) {
 					const seen = new SvelteSet<string>();
 					const cleaned: LocalPtySession[] = [];
-					for (const s of parsed) {
-						if (typeof s?.id !== 'string' || seen.has(s.id)) continue;
-						seen.add(s.id);
-						const title = typeof s.title === 'string' && s.title ? s.title : s.id;
-						const numbered =
-							typeof s.titleNumber === 'number' &&
-							Number.isSafeInteger(s.titleNumber) &&
-							s.titleNumber > 0
-								? s.titleNumber
-								: parseTitleNumber(title);
-						let buffer = typeof s.buffer === 'string' ? s.buffer : undefined;
-						let scrollY = typeof s.scrollY === 'number' ? s.scrollY : undefined;
-						if (buffer !== undefined) {
-							const cut = truncateBuffer(buffer);
-							buffer = cut.buffer;
-							if (cut.truncated) scrollY = 0;
+					const dropped: string[] = [];
+					for (const item of parsed) {
+						const session = validatePersistedSession(item);
+						if (!session || seen.has(session.id)) continue;
+						if (wasRemoved(session.id)) {
+							dropped.push(session.id);
+							continue;
 						}
-						cleaned.push({
-							...s,
-							title,
-							buffer,
-							scrollY,
-							...(numbered ? { titleNumber: numbered } : {}),
-						});
+						seen.add(session.id);
+						cleaned.push(session);
 						if (cleaned.length >= MAX_TERMINAL_SESSIONS) break;
 					}
 					const used = new SvelteSet(
@@ -122,6 +232,9 @@ export class PtySessionStore {
 						s.titleNumber = next;
 						used.add(next);
 					}
+					if (dropped.length > 0) {
+						ptyTrace('store.open.tombstoned', { repo, store: this.uid, dropped });
+					}
 					this.sessions = cleaned;
 					this.hasStoredRecord = true;
 					const rawActive = (() => {
@@ -133,7 +246,13 @@ export class PtySessionStore {
 						}
 					})();
 					this.activeId = rawActive && seen.has(rawActive) ? rawActive : (cleaned[0]?.id ?? null);
-					ptyTrace('store.open', { repo, restored: cleaned.length, activeId: this.activeId });
+					ptyTrace('store.open', {
+						repo,
+						store: this.uid,
+						restored: cleaned.length,
+						ids: cleaned.map((s) => s.id),
+						activeId: this.activeId,
+					});
 				}
 			}
 		} catch {
@@ -155,6 +274,29 @@ export class PtySessionStore {
 
 	byId(id: string): LocalPtySession | undefined {
 		return this.sessions.find((s) => s.id === id);
+	}
+
+	/** True once remove() recorded this id. Removed is terminal: every
+	 * transition consults it so no path revives the id as running or exited. */
+	isRemoved(id: string): boolean {
+		return wasRemoved(id);
+	}
+
+	/** Classify one session for explicit lifecycle transitions (spawn, exit, prune). */
+	lifecycle(id: string): PtyLifecycle {
+		const session = this.byId(id);
+		if (!session) return 'missing';
+		return session.status === 'exited' ? 'exited' : 'live';
+	}
+
+	/** True when at least one session can still stream output. */
+	hasLive(): boolean {
+		return this.sessions.some((s) => s.status !== 'exited');
+	}
+
+	/** True when tabs exist but every one has ended; an empty list is not "all exited". */
+	allExited(): boolean {
+		return this.sessions.length > 0 && this.sessions.every((s) => s.status === 'exited');
 	}
 
 	private pickNextNumber(): number {
@@ -221,7 +363,7 @@ export class PtySessionStore {
 				this.sessions = [...this.sessions, session];
 				this.activeId = view.id;
 				this.schedulePersist();
-				ptyTrace('store.spawn.created', { id: view.id, activeId: this.activeId });
+				ptyTrace('store.spawn.created', { id: view.id, store: this.uid, activeId: this.activeId });
 				return session;
 			} catch (error) {
 				ptyTrace('store.spawn.failed', {
@@ -237,9 +379,13 @@ export class PtySessionStore {
 
 	/** Open an existing server session (already in the list) or adopt it. */
 	async adopt(id: string): Promise<void> {
+		if (this.isRemoved(id)) {
+			ptyTrace('store.adopt.tombstoned', { id, store: this.uid });
+			return;
+		}
 		try {
 			const view = await getPty(id);
-			ptyTrace('store.adopt.start', { id });
+			ptyTrace('store.adopt.start', { id, store: this.uid });
 			const existing = this.byId(id);
 			if (existing) {
 				this.patch(id, {
@@ -304,7 +450,7 @@ export class PtySessionStore {
 	/** Push viewport size to the server; local state updates immediately. */
 	syncSize(id: string, rows: number, cols: number): void {
 		if (!Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1) return;
-		if (!this.byId(id)) return;
+		if (!this.byId(id) || this.isRemoved(id)) return;
 		this.patch(id, { rows, cols });
 		this.schedulePersist();
 		const remember = () => {
@@ -327,10 +473,17 @@ export class PtySessionStore {
 	/** Remove a session locally and close it on the server. */
 	async remove(id: string): Promise<void> {
 		this.sessions = this.sessions.filter((s) => s.id !== id);
+		rememberRemoved(id);
 		if (this.activeId === id) {
 			this.activeId = this.sessions[0]?.id ?? null;
 		}
-		ptyTrace('store.remove', { id, remaining: this.sessions.length, activeId: this.activeId });
+		ptyTrace('store.remove', {
+			id,
+			store: this.uid,
+				repo: this.repo,
+				remaining: this.sessions.length,
+				activeId: this.activeId,
+			});
 		this.schedulePersist();
 		await closePty(id).catch(() => {});
 	}
@@ -341,8 +494,8 @@ export class PtySessionStore {
 
 	/** Record the serialized buffer after a connection cycle completes. */
 	saveBuffer(id: string, buffer: string, scrollY: number, cursor: number): void {
-		if (!this.byId(id)) return;
-		ptyTrace('store.saveBuffer', { id, chars: buffer.length, cursor });
+		if (!this.byId(id) || this.isRemoved(id)) return;
+		ptyTrace('store.saveBuffer', { id, store: this.uid, chars: buffer.length, cursor });
 		const cut = truncateBuffer(buffer);
 		this.patch(id, {
 			buffer: cut.buffer,
@@ -355,7 +508,11 @@ export class PtySessionStore {
 	/** Reconcile local sessions against the server list. */
 	async reconcile(): Promise<void> {
 		if (!this.repo || this.sessions.length === 0) {
-			ptyTrace('store.reconcile.skip', { repo: this.repo, sessions: this.sessions.length });
+			ptyTrace('store.reconcile.skip', {
+				repo: this.repo,
+				store: this.uid,
+				sessions: this.sessions.length,
+			});
 			return;
 		}
 		const startingIds = new Set(this.sessions.map((s) => s.id));
@@ -390,8 +547,10 @@ export class PtySessionStore {
 			changed = true;
 		}
 		ptyTrace('store.reconcile', {
+			store: this.uid,
 			starting: startingIds.size,
 			kept: kept.length,
+			keptIds: kept.map((s) => s.id),
 			changed,
 		});
 		if (changed) {
@@ -406,7 +565,7 @@ export class PtySessionStore {
 	/** Server confirmed metadata; viewport size stays owned by the terminal view. */
 	syncMetaFromServer(id: string, meta: PtySession): void {
 		const existing = this.byId(id);
-		if (!existing) return;
+		if (!existing || this.isRemoved(id)) return;
 		ptyTrace('store.syncMeta', { id, status: meta.status });
 		this.patch(id, {
 			status: meta.status,
@@ -467,6 +626,12 @@ export class PtySessionStore {
 	private persistNow(): void {
 		if (!this.repo) return;
 		try {
+			ptyTrace('store.persist', {
+				repo: this.repo,
+				store: this.uid,
+				ids: this.sessions.map((s) => s.id),
+				activeId: this.activeId,
+			});
 			localStorage.setItem(storageKey(this.repo), JSON.stringify(this.sessions));
 			if (this.activeId) {
 				localStorage.setItem(`${storageKey(this.repo)}.active`, this.activeId);
@@ -508,8 +673,11 @@ export function ptyStoreFor(repo: string): PtySessionStore {
 	let store = stores.get(key);
 	if (!store) {
 		store = new PtySessionStore();
+		ptyTrace('store.registry.miss', { key, store: store.uid });
 		store.open(key);
 		stores.set(key, store);
+		return store;
 	}
+	ptyTrace('store.registry.hit', { key, store: store.uid });
 	return store;
 }

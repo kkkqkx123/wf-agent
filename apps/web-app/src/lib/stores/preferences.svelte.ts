@@ -15,6 +15,8 @@ export type Density = 'compact' | 'default' | 'comfortable';
 export type MinimapMode = 'auto' | 'on' | 'off';
 /** Automatic session title mode: `truncate` is the default. */
 export type AutoTitleMode = 'off' | 'truncate' | 'llm';
+/** PTY diagnostics switch: `inherit` follows the build default (preview on, formal off). */
+export type PtyDebugMode = 'inherit' | 'on' | 'off';
 /** Default composer executor for new chat sessions. */
 export type ChatExecutionPreference = 'agent' | 'workflow' | 'chat';
 
@@ -35,6 +37,7 @@ export const INSPECTOR_WIDTH_DEFAULT = 360;
 const STORAGE_KEY = 'wf-ui-preferences';
 
 interface PersistedPreferences {
+	ptyDebug?: PtyDebugMode;
 	theme?: ThemeMode;
 	density?: Density;
 	sidebarCollapsed?: boolean;
@@ -80,6 +83,7 @@ function read(): PersistedPreferences {
 }
 
 class PreferencesStore {
+	ptyDebug = $state<PtyDebugMode>('inherit');
 	theme = $state<ThemeMode>('system');
 	density = $state<Density>('default');
 	sidebarCollapsed = $state(false);
@@ -98,6 +102,9 @@ class PreferencesStore {
 
 	constructor() {
 		const stored = read();
+		if (stored.ptyDebug === 'inherit' || stored.ptyDebug === 'on' || stored.ptyDebug === 'off') {
+			this.ptyDebug = stored.ptyDebug;
+		}
 		if (stored.theme === 'light' || stored.theme === 'dark' || stored.theme === 'system') {
 			this.theme = stored.theme;
 		}
@@ -167,6 +174,11 @@ class PreferencesStore {
 
 	get spacingScale(): number {
 		return DENSITY_SPACING_SCALE[this.density];
+	}
+
+	setPtyDebug(mode: PtyDebugMode): void {
+		this.ptyDebug = mode;
+		this.persist();
 	}
 
 	setTheme(mode: ThemeMode): void {
@@ -270,6 +282,7 @@ class PreferencesStore {
 
 	/** Replace every local field from a validated backup and persist. */
 	applyBackup(backup: LocalPreferencesBackup): void {
+		this.ptyDebug = backup.ptyDebug;
 		this.theme = backup.theme;
 		this.density = backup.density;
 		this.sidebarCollapsed = backup.sidebarCollapsed;
@@ -289,7 +302,8 @@ class PreferencesStore {
 			localStorage.setItem(
 				STORAGE_KEY,
 				JSON.stringify({
-					theme: this.theme,
+					ptyDebug: this.ptyDebug,
+						theme: this.theme,
 					density: this.density,
 					sidebarCollapsed: this.sidebarCollapsed,
 					sidebarWidth: this.sidebarWidth,

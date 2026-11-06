@@ -11,6 +11,7 @@ export interface PtyTraceEntry {
 const TRACE_CAP = 300;
 const DEBUG_QUERY = 'pty-debug';
 const DEBUG_STORAGE_KEY = 'wf.pty.debug';
+const PREFS_STORAGE_KEY = 'wf-ui-preferences';
 
 let trace: PtyTraceEntry[] = [];
 let seq = 0;
@@ -23,16 +24,78 @@ function readStorage(key: string): string | null {
 	}
 }
 
-/** True when the operator opted into PTY diagnostics via query or storage. */
-export function isPtyDebugEnabled(): boolean {
-	if (typeof window === 'undefined') return false;
+/** Build default: preview builds diagnose by default, formal builds stay silent unless opted in. */
+function buildDebugDefault(): boolean {
 	try {
-		const params = new URLSearchParams(window.location.search);
-		if (params.get(DEBUG_QUERY) === '1') return true;
+		const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
+		if (env?.VITE_PTY_DEBUG === '1') return true;
+		if (env?.VITE_PTY_DEBUG === '0') return false;
+		return env?.MODE === 'preview';
 	} catch {
-		// Non-URL environments fall through to the storage flag.
+		return false;
 	}
-	return readStorage(DEBUG_STORAGE_KEY) === '1';
+}
+
+/** Preference track tri-state read straight from the persisted document. */
+function preferenceDebugFlag(): 'on' | 'off' | null {
+	const raw = readStorage(PREFS_STORAGE_KEY);
+	if (!raw) return null;
+	try {
+		const parsed = JSON.parse(raw) as { ptyDebug?: unknown };
+		if (parsed.ptyDebug === 'on') return 'on';
+		if (parsed.ptyDebug === 'off') return 'off';
+		return null;
+	} catch {
+		return null;
+	}
+}
+
+export interface PtyDebugLayers {
+	query: string | null;
+	storage: string | null;
+	preference: 'on' | 'off' | null;
+	buildDefault: boolean;
+	enabled: boolean;
+}
+
+/** Resolve the layered switch: query beats storage, storage beats preference, preference beats build default. */
+export function describePtyDebug(): PtyDebugLayers {
+	if (typeof window === 'undefined') {
+		return { query: null, storage: null, preference: null, buildDefault: false, enabled: false };
+	}
+	let query: string | null = null;
+	try {
+		query = new URLSearchParams(window.location.search).get(DEBUG_QUERY);
+	} catch {
+		query = null;
+	}
+	if (query === '1') {
+		return { query, storage: readStorage(DEBUG_STORAGE_KEY), preference: preferenceDebugFlag(), buildDefault: buildDebugDefault(), enabled: true };
+	}
+	if (query === '0') {
+		return { query, storage: readStorage(DEBUG_STORAGE_KEY), preference: preferenceDebugFlag(), buildDefault: buildDebugDefault(), enabled: false };
+	}
+	const storage = readStorage(DEBUG_STORAGE_KEY);
+	if (storage === '1') {
+		return { query, storage, preference: preferenceDebugFlag(), buildDefault: buildDebugDefault(), enabled: true };
+	}
+	if (storage === '0') {
+		return { query, storage, preference: preferenceDebugFlag(), buildDefault: buildDebugDefault(), enabled: false };
+	}
+	const preference = preferenceDebugFlag();
+	if (preference === 'on') {
+		return { query, storage, preference, buildDefault: buildDebugDefault(), enabled: true };
+	}
+	if (preference === 'off') {
+		return { query, storage, preference, buildDefault: buildDebugDefault(), enabled: false };
+	}
+	const buildDefault = buildDebugDefault();
+	return { query, storage, preference, buildDefault, enabled: buildDefault };
+}
+
+/** True when the operator opted into PTY diagnostics via any layer. Single choke point for all trace calls. */
+export function isPtyDebugEnabled(): boolean {
+	return describePtyDebug().enabled;
 }
 
 /** Append a timestamped entry; no-op unless diagnostics are enabled. */
@@ -48,7 +111,7 @@ export function ptyTrace(event: string, detail?: Record<string, unknown>): void 
 	trace.push(entry);
 	if (trace.length > TRACE_CAP) trace = trace.slice(trace.length - TRACE_CAP);
 	try {
-		console.debug('[pty]', entry.time, event, detail ?? '');
+		console.debug('[pty]', `#${entry.seq}`, entry.time, event, detail ?? '');
 	} catch {
 		// Console unavailable; the ring buffer still holds the entries.
 	}

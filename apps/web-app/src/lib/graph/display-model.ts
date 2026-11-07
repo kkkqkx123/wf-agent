@@ -237,6 +237,22 @@ export function legendFor(preset: GraphPreset): LegendEntry[] {
 			color: tone('--destructive', TONE_FALLBACK.danger),
 		});
 	}
+	if (preset === 'execution') {
+		base.push(
+			{ label: 'Running', shape: 'rounded', color: tone('--running', TONE_FALLBACK.running) },
+			{ label: 'Failed', shape: 'rounded', color: tone('--destructive', TONE_FALLBACK.danger) },
+			{ label: 'Executed', shape: 'rounded', color: tone('--success', TONE_FALLBACK.success) },
+			{ label: 'Critical path', shape: 'rounded', color: tone('--warning', TONE_FALLBACK.warning) },
+			{ label: 'Slow', shape: 'rounded', color: tone('--warning', TONE_FALLBACK.warning) },
+			{ label: 'Decision', shape: 'diamond', color: tone('--info', TONE_FALLBACK.info) },
+			{ label: 'Pending', shape: 'rounded', color: neutral },
+			{
+				label: 'Failed branch',
+				shape: 'line-dashed',
+				color: tone('--destructive', TONE_FALLBACK.danger),
+			},
+		);
+	}
 	return base;
 }
 

@@ -13,6 +13,8 @@ import type { LocalPreferencesBackup } from '#lib/services/portability';
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type Density = 'compact' | 'default' | 'comfortable';
 export type MinimapMode = 'auto' | 'on' | 'off';
+/** Floating execution graph size in the inspector. */
+export type ExecutionFloatSize = 'compact' | 'standard';
 /** Automatic session title mode: `truncate` is the default. */
 export type AutoTitleMode = 'off' | 'truncate' | 'llm';
 /** Default composer executor for new chat sessions. */
@@ -42,6 +44,10 @@ interface PersistedPreferences {
 	inspectorWidth?: number;
 	inspectorPinned?: boolean;
 	minimapMode?: MinimapMode;
+	executionFloatExpanded?: boolean;
+	executionFloatHidden?: boolean;
+	executionFloatLegend?: boolean;
+	executionFloatSize?: ExecutionFloatSize;
 	editorFontSize?: number;
 	editorWordWrap?: boolean;
 	toolOutputPreviews?: boolean;
@@ -87,6 +93,10 @@ class PreferencesStore {
 	inspectorWidth = $state(INSPECTOR_WIDTH_DEFAULT);
 	inspectorPinned = $state(false);
 	minimapMode = $state<MinimapMode>('auto');
+	executionFloatExpanded = $state(false);
+	executionFloatHidden = $state(false);
+	executionFloatLegend = $state(false);
+	executionFloatSize = $state<ExecutionFloatSize>('standard');
 	editorFontSize = $state(EDITOR_FONT_SIZE_DEFAULT);
 	editorWordWrap = $state(false);
 	toolOutputPreviews = $state(true);
@@ -126,6 +136,18 @@ class PreferencesStore {
 			stored.minimapMode === 'off'
 		) {
 			this.minimapMode = stored.minimapMode;
+		}
+		if (typeof stored.executionFloatExpanded === 'boolean') {
+			this.executionFloatExpanded = stored.executionFloatExpanded;
+		}
+		if (typeof stored.executionFloatHidden === 'boolean') {
+			this.executionFloatHidden = stored.executionFloatHidden;
+		}
+		if (typeof stored.executionFloatLegend === 'boolean') {
+			this.executionFloatLegend = stored.executionFloatLegend;
+		}
+		if (stored.executionFloatSize === 'compact' || stored.executionFloatSize === 'standard') {
+			this.executionFloatSize = stored.executionFloatSize;
 		}
 		if (typeof stored.editorFontSize === 'number' && Number.isFinite(stored.editorFontSize)) {
 			this.editorFontSize = clampEditorFontSize(stored.editorFontSize);
@@ -221,6 +243,26 @@ class PreferencesStore {
 		this.persist();
 	}
 
+	setExecutionFloatExpanded(expanded: boolean): void {
+		this.executionFloatExpanded = expanded;
+		this.persist();
+	}
+
+	setExecutionFloatHidden(hidden: boolean): void {
+		this.executionFloatHidden = hidden;
+		this.persist();
+	}
+
+	setExecutionFloatLegend(open: boolean): void {
+		this.executionFloatLegend = open;
+		this.persist();
+	}
+
+	setExecutionFloatSize(size: ExecutionFloatSize): void {
+		this.executionFloatSize = size;
+		this.persist();
+	}
+
 	setEditorFontSize(size: number): void {
 		this.editorFontSize = clampEditorFontSize(size);
 		this.persist();
@@ -277,6 +319,10 @@ class PreferencesStore {
 		this.inspectorWidth = clampInspectorWidth(backup.inspectorWidth);
 		this.inspectorPinned = backup.inspectorPinned;
 		this.minimapMode = backup.minimapMode;
+		this.executionFloatExpanded = false;
+		this.executionFloatHidden = false;
+		this.executionFloatLegend = false;
+		this.executionFloatSize = 'standard';
 		this.toolOutputPreviews = backup.toolOutputPreviews;
 		this.toolOutputDetail = parseToolOutputDetail(backup.toolOutputDetail);
 		this.chatExecutionType = backup.chatExecutionType;
@@ -296,6 +342,10 @@ class PreferencesStore {
 					inspectorWidth: this.inspectorWidth,
 					inspectorPinned: this.inspectorPinned,
 					minimapMode: this.minimapMode,
+					executionFloatExpanded: this.executionFloatExpanded,
+					executionFloatHidden: this.executionFloatHidden,
+					executionFloatLegend: this.executionFloatLegend,
+					executionFloatSize: this.executionFloatSize,
 					editorFontSize: this.editorFontSize,
 					editorWordWrap: this.editorWordWrap,
 					toolOutputPreviews: this.toolOutputPreviews,

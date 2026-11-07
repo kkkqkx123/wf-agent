@@ -66,6 +66,7 @@
 	import { toasts } from '#lib/stores/toast.svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { t } from '#lib/i18n';
+	import ExecutionGraphFloat from './ExecutionGraphFloat.svelte';
 
 	interface Props {
 		execution: Execution;
@@ -157,6 +158,9 @@
 	let toolFilter = $state('');
 	let explorer = $state<{ focus: (id: string) => void } | null>(null);
 
+	const floatNeedsGraph = $derived(kind === 'workflow' && !preferences.executionFloatHidden);
+	const floatExpanded = $derived(preferences.executionFloatExpanded);
+
 	const failedAll = $derived([...failedNodes]);
 	const criticalAll = $derived([...criticalPath]);
 	const slowEntries = $derived([...slowNodes]);
@@ -208,6 +212,13 @@
 	const overlayEdges = $derived.by(() => {
 		const tones = projectEdgeOverlay(graphEdges, executionOverlay);
 		return applyEdgeOverlay(graphEdges, tones);
+	});
+
+	const floatExecutedCount = $derived.by(() => {
+		if (completedFrames.length > 0) return completedFrames.length;
+		return overlayNodes.filter((node) =>
+			['completed', 'complete', 'success', 'succeeded'].includes((node.status ?? '').trim().toLowerCase()),
+		).length;
 	});
 
 	const pulseIds = $derived(
@@ -405,7 +416,7 @@
 		if (!id || !isLive) return;
 		return watchExecutionActivity(id, {
 			onEvent: (event) => {
-				if (tab === 'graph') noteLiveEvent(event);
+				noteLiveEvent(event);
 				const now = Date.now();
 				if (now - lastInvalidate < 2000) return;
 				lastInvalidate = now;
@@ -429,10 +440,10 @@
 
 	// Live frames buffer here and flush on a fixed tick, so high-frequency
 	// node updates never re-render per frame. Frames arrive through the
-	// activity subscription below, which stays open on every tab; the
-	// overlay only consumes them while the graph tab is visible.
+	// activity subscription above, which stays open on every tab; the
+	// overlay feeds the graph tab and the floating mini graph.
 	$effect(() => {
-		if (tab !== 'graph' || !isLive) return;
+		if ((!floatExpanded && tab !== 'graph') || !isLive) return;
 		const timer = setInterval(() => {
 			if (pendingLive.size === 0) return;
 			const flushed = Object.fromEntries(pendingLive);
@@ -618,17 +629,18 @@
 		if (tab === 'overview' && seenTrace !== id && isLive) {
 			void loadNodeTraces(id);
 		}
-		if (tab === 'graph' && seenGraph !== id) {
+		if ((tab === 'graph' || floatNeedsGraph) && seenGraph !== id) {
 			seenGraph = id;
 			void loadGraph(id);
 		}
 		// The replay cursor walks history nodes, so the graph tab pulls
-		// state once; the state tab then reuses the same snapshot.
-		if (tab === 'graph' && seenState !== id) {
+		// state once; the state tab then reuses the same snapshot. The
+		// floating graph shares the same snapshot for its progress counts.
+		if ((tab === 'graph' || floatExpanded) && seenState !== id) {
 			seenState = id;
 			void loadState(id);
 		}
-		if (tab === 'analysis' && seenAnalysis !== id) {
+		if ((tab === 'analysis' || floatExpanded) && seenAnalysis !== id) {
 			seenAnalysis = id;
 			void loadAnalysis(id);
 		}
@@ -1333,4 +1345,31 @@
 			{/if}
 		{/if}
 	</div>
+	{#if kind === 'workflow'}
+		<ExecutionGraphFloat
+			execution={execution}
+			nodes={overlayNodes}
+			edges={overlayEdges}
+			loading={graphLoading}
+			error={graphError}
+			onretry={() => void loadGraph(execution.id)}
+			pulseIds={pulseIds}
+			failedIds={failedAll}
+			criticalIds={criticalIds}
+			heatTierById={heatTierById}
+			decisionIds={decisionIds}
+			heatLabels={heatLabels}
+			decisionLabels={decisionLabels}
+			selectedId={graphNodeId}
+			onselect={(id) => (graphNodeId = id)}
+			executedCount={floatExecutedCount}
+			slowCount={slowDisplay.length}
+			decisionCount={decisionAll.length}
+			liveCount={Object.keys(liveStatuses).length}
+			isLive={isLive}
+			streamState={streamState}
+			onGoGraph={() => (tab = 'graph')}
+			onFocusNode={(id) => focusGraphNode(id)}
+		/>
+	{/if}
 </div>

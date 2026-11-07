@@ -244,6 +244,11 @@ impl WfPluginBridge {
             let Some(analyzer) = manager.get_text_analyzer(&name) else {
                 continue;
             };
+            if rag_core::tokenizer::find_analyzer(&name).is_some() {
+                return Err(PluginError::LoadFailed(format!(
+                    "plugin '{plugin_id}' text analyzer '{name}' conflicts with an existing analyzer"
+                )));
+            }
             rag_core::plugin::register_plugin_analyzer(analyzer);
             tracing::debug!("  text-analyzer (rag-registered): {}", name);
         }
@@ -1065,5 +1070,79 @@ mod tests {
             err.to_string().contains("claude-subscription"),
             "the missing auth name must stay in the message: {err}"
         );
+    }
+
+    struct BridgeAnalyzer;
+
+    impl wf_plugin::PluginTextAnalyzer for BridgeAnalyzer {
+        fn name(&self) -> String {
+            "bridge-test-analyzer".to_string()
+        }
+
+        fn analyze(&self, text: String) -> wf_plugin::PluginResult<Vec<String>> {
+            Ok(vec![text])
+        }
+    }
+
+    struct BridgeAdvisor;
+
+    impl wf_plugin::PluginRetrievalAdvisor for BridgeAdvisor {
+        fn advise(&self, input: Value) -> wf_plugin::PluginResult<Value> {
+            Ok(input)
+        }
+    }
+
+    struct BridgeEncoding;
+
+    impl wf_plugin::PluginVectorEncoding for BridgeEncoding {
+        fn name(&self) -> String {
+            "bridge-test-encoding".to_string()
+        }
+
+        fn encode(
+            &self,
+            _text: String,
+            _options: Value,
+        ) -> wf_plugin::PluginResult<Value> {
+            Ok(serde_json::json!({}))
+        }
+    }
+
+    #[tokio::test]
+    async fn sync_retrieval_registers_and_unsync_removes() {
+        let registries = Arc::new(ResourceRegistries::new());
+        let tool_registry = Arc::new(ToolRegistry::new());
+        let gateway = Arc::new(wf_llm::LlmGateway::new());
+        let bridge = WfPluginBridge::new(registries, tool_registry, gateway);
+        let manager = ContributionManager::new();
+        manager.start_registration("p9");
+        manager
+            .as_registrar()
+            .register_text_analyzer("bridge-test-analyzer", Arc::new(BridgeAnalyzer))
+            .unwrap();
+        manager
+            .as_registrar()
+            .register_retrieval_advisor("bridge-test-advisor", Arc::new(BridgeAdvisor))
+            .unwrap();
+        manager
+            .as_registrar()
+            .register_vector_encoding("bridge-test-encoding", Arc::new(BridgeEncoding))
+            .unwrap();
+        manager
+            .as_registrar()
+            .register_snapshot_policy("bridge-test-snap", serde_json::json!({"expect": 1}))
+            .unwrap();
+
+        bridge.sync_all("p9", &manager).await.unwrap();
+        assert!(rag_core::tokenizer::find_analyzer("bridge-test-analyzer").is_some());
+        assert!(rag_core::plugin::find_retrieval_advisor("bridge-test-advisor").is_some());
+        assert!(rag_core::plugin::find_vector_encoding("bridge-test-encoding").is_some());
+        assert!(rag_core::plugin::find_snapshot_policy("bridge-test-snap").is_some());
+
+        bridge.unsync_all("p9", &manager).await.unwrap();
+        assert!(rag_core::tokenizer::find_analyzer("bridge-test-analyzer").is_none());
+        assert!(rag_core::plugin::find_retrieval_advisor("bridge-test-advisor").is_none());
+        assert!(rag_core::plugin::find_vector_encoding("bridge-test-encoding").is_none());
+        assert!(rag_core::plugin::find_snapshot_policy("bridge-test-snap").is_none());
     }
 }

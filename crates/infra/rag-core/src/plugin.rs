@@ -3,6 +3,12 @@
 //! Registration state lives here so the runtime bridge can sync manager
 //! entries without the pipeline depending on the plugin engine. Every
 //! suggestion is validated and any failure falls back to the built-in path.
+//!
+//! The storage contract stays dense-only: vector encodings are validated
+//! for shape but never change written vectors. Snapshot policies are
+//! reservation-only declarations; execution stays host-owned and no
+//! pipeline reads them. Vector and keyword backend selection, embedding,
+//! rerank, chunking, fusion and rewrite choices stay host-owned.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -94,6 +100,9 @@ pub fn clear_retrieval_advisors() {
 }
 
 /// Registers a sparse or multi-vector encoder under `name`.
+///
+/// Reservation only: the storage contract stays dense-only, so the
+/// pipeline only validates named encodings without changing writes.
 pub fn register_vector_encoding(name: &str, encoding: Arc<dyn PluginVectorEncoding>) {
     let trimmed = name.trim();
     if trimmed.is_empty() {
@@ -127,6 +136,9 @@ pub fn clear_vector_encodings() {
 }
 
 /// Stores a snapshot expectation document under `name`.
+///
+/// Reservation only: no pipeline reads stored policies. Execution stays
+/// host-owned; plugins only declare expectations for operators to compare.
 pub fn register_snapshot_policy(name: &str, policy: Arc<serde_json::Value>) {
     let trimmed = name.trim();
     if trimmed.is_empty() {
@@ -219,19 +231,22 @@ pub fn apply_retrieval_advisor(
     apply_advisor_output(hits, &output)
 }
 
-/// Applies the named registered advisor when present, otherwise keeps input.
+/// Applies the named registered advisor, failing on unknown names so
+/// configuration errors surface instead of silently keeping built-in order.
 pub fn apply_registered_advisor(
     query: &str,
     hits: Vec<RetrievedChunk>,
     name: Option<&str>,
-) -> Vec<RetrievedChunk> {
+) -> crate::error::Result<Vec<RetrievedChunk>> {
     let Some(name) = name.filter(|name| !name.trim().is_empty()) else {
-        return hits;
+        return Ok(hits);
     };
     let Some(advisor) = find_retrieval_advisor(name) else {
-        return hits;
+        return Err(crate::error::RagError::InvalidInput(format!(
+            "unknown retrieval advisor '{name}'"
+        )));
     };
-    apply_retrieval_advisor(advisor.as_ref(), query, hits)
+    Ok(apply_retrieval_advisor(advisor.as_ref(), query, hits))
 }
 
 fn apply_advisor_output(
@@ -464,10 +479,11 @@ mod tests {
         clear_snapshot_policies();
         register_retrieval_advisor("rev", Arc::new(ReverseAdvisor));
         assert!(find_retrieval_advisor("rev").is_some());
-        let hits = apply_registered_advisor("q", vec![hit("a", 0.9), hit("b", 0.8)], Some("rev"));
+        let hits = apply_registered_advisor("q", vec![hit("a", 0.9), hit("b", 0.8)], Some("rev"))
+            .expect("known advisor applies");
         assert_eq!(hits[0].chunk_id, "b");
-        let untouched = apply_registered_advisor("q", vec![hit("a", 0.9)], Some("missing-advisor"));
-        assert_eq!(untouched[0].chunk_id, "a");
+        let missing = apply_registered_advisor("q", vec![hit("a", 0.9)], Some("missing-advisor"));
+        assert!(missing.is_err());
         unregister_retrieval_advisor("rev");
         assert!(find_retrieval_advisor("rev").is_none());
 

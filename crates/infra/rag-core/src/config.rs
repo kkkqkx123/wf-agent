@@ -130,6 +130,10 @@ pub struct RagQueryConfig {
     /// Plugin retrieval advisor applied after fusion; unset keeps built-in order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retrieval_advisor: Option<String>,
+    /// Plugin vector encoding validated on the query path; unset skips validation.
+    /// The storage contract stays dense-only: validation never changes writes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vector_encoding: Option<String>,
 }
 
 /// Multi-list fusion strategy.
@@ -208,6 +212,7 @@ impl Default for RagQueryConfig {
             context_reorder: false,
             context_budget_chars: None,
             retrieval_advisor: None,
+            vector_encoding: None,
             conditions: Vec::new(),
         }
     }

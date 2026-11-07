@@ -8,6 +8,12 @@
 //! synthesis and query transforms go only through the completion port in
 //! [`llm`]. Concrete backends and providers are injected by the host, so
 //! this crate stays free of backend and model choices.
+//!
+//! Plugin contributions stay advisory: text analyzers replace segmentation,
+//! retrieval advisors reorder fused hits, vector encodings validate without
+//! changing dense writes, snapshot policies declare without executing.
+//! Backend selection, embedding, rerank, chunking, fusion and rewrite
+//! choices stay host-owned.
 
 pub mod chunker;
 pub mod citation;

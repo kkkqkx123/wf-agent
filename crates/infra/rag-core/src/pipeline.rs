@@ -184,6 +184,8 @@ where
     E: EmbeddingProvider + ?Sized,
 {
     let owned = query_text.to_string();
+    validate_vector_encoding(&owned, config)?;
+    validate_advisor_name(config)?;
     let searched = search_variants(
         store,
         embedder,
@@ -193,7 +195,7 @@ where
         config,
     )
     .await?;
-    let advised = apply_configured_advisor(searched.hits, query_text, config);
+    let advised = apply_configured_advisor(searched.hits, query_text, config)?;
     postprocess(store, collection, advised, config).await
 }
 
@@ -215,10 +217,14 @@ where
             "at least one query variant is required".to_string(),
         ));
     }
+    for variant in query_texts {
+        validate_vector_encoding(variant, config)?;
+    }
+    validate_advisor_name(config)?;
     let searched =
         search_variants(store, embedder, collection, namespace, query_texts, config).await?;
     let representative = query_texts.first().map(String::as_str).unwrap_or("");
-    let advised = apply_configured_advisor(searched.hits, representative, config);
+    let advised = apply_configured_advisor(searched.hits, representative, config)?;
     postprocess(store, collection, advised, config).await
 }
 
@@ -247,6 +253,8 @@ where
         ));
     }
     let owned = query_text.to_string();
+    validate_vector_encoding(&owned, config)?;
+    validate_advisor_name(config)?;
     let searched = search_variants(
         store,
         embedder,
@@ -277,7 +285,7 @@ where
     } else {
         searched.hits
     };
-    let advised = apply_configured_advisor(fused, query_text, config);
+    let advised = apply_configured_advisor(fused, query_text, config)?;
     postprocess(store, collection, advised, config).await
 }
 
@@ -296,13 +304,44 @@ fn fuse_hybrid(
 }
 
 /// Applies the configured plugin retrieval advisor after fusion.
-/// Unset names and any advisor failure keep the built-in order.
+/// Unknown advisor names fail so configuration errors surface.
+fn validate_advisor_name(config: &RagQueryConfig) -> Result<()> {
+    let Some(name) = config
+        .retrieval_advisor
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+    else {
+        return Ok(());
+    };
+    if crate::plugin::find_retrieval_advisor(name).is_none() {
+        return Err(RagError::InvalidInput(format!(
+            "unknown retrieval advisor '{name}'"
+        )));
+    }
+    Ok(())
+}
+
 fn apply_configured_advisor(
     hits: Vec<RetrievedChunk>,
     query_text: &str,
     config: &RagQueryConfig,
-) -> Vec<RetrievedChunk> {
+) -> Result<Vec<RetrievedChunk>> {
     crate::plugin::apply_registered_advisor(query_text, hits, config.retrieval_advisor.as_deref())
+}
+
+/// Validates the configured plugin vector encoding against the query text.
+/// The storage contract stays dense-only; passing validation never
+/// changes written vectors. Unknown names and non-object outputs fail.
+fn validate_vector_encoding(query_text: &str, config: &RagQueryConfig) -> Result<()> {
+    let Some(name) = config
+        .vector_encoding
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+    else {
+        return Ok(());
+    };
+    crate::plugin::encode_with_registered(name, query_text, serde_json::json!({}))?;
+    Ok(())
 }
 
 /// Queries and reports retrieval metrics alongside the hits.
@@ -322,6 +361,8 @@ where
 {
     let started = std::time::Instant::now();
     let owned = query_text.to_string();
+    validate_vector_encoding(&owned, config)?;
+    validate_advisor_name(config)?;
     let searched = search_variants(
         store,
         embedder,
@@ -333,7 +374,7 @@ where
     .await?;
     let requested = candidate_limit(config);
     let returned = searched.fused_len;
-    let advised = apply_configured_advisor(searched.hits, query_text, config);
+    let advised = apply_configured_advisor(searched.hits, query_text, config)?;
     let hits = postprocess(store, collection, advised, config).await?;
     let metrics = RetrievalMetrics {
         latency_ms: started.elapsed().as_millis() as u64,
@@ -973,5 +1014,37 @@ mod tests {
         .await
         .expect("metrics");
         assert_eq!(ranked.len(), metrics.hits_kept);
+    }
+
+    #[tokio::test]
+    async fn unknown_advisor_name_fails() {
+        let store = InMemoryVectorStore::new();
+        let embedder = UnitEmbedder { dimension: 8 };
+        crate::plugin::clear_retrieval_advisors();
+        let config = RagQueryConfig {
+            retrieval_advisor: Some("missing-advisor".to_string()),
+            ..RagQueryConfig::default()
+        };
+        let err = query(&store, &embedder, "kb", "kb", "ownership", &config)
+            .await
+            .expect_err("unknown advisor must fail");
+        assert!(err.to_string().contains("missing-advisor"));
+        crate::plugin::clear_retrieval_advisors();
+    }
+
+    #[tokio::test]
+    async fn unknown_encoding_name_fails() {
+        let store = InMemoryVectorStore::new();
+        let embedder = UnitEmbedder { dimension: 8 };
+        crate::plugin::clear_vector_encodings();
+        let config = RagQueryConfig {
+            vector_encoding: Some("missing-encoding".to_string()),
+            ..RagQueryConfig::default()
+        };
+        let err = query(&store, &embedder, "kb", "kb", "ownership", &config)
+            .await
+            .expect_err("unknown encoding must fail");
+        assert!(err.to_string().contains("missing-encoding"));
+        crate::plugin::clear_vector_encodings();
     }
 }

@@ -276,3 +276,65 @@ describe('persisted-list restore windows', () => {
 		expect(second.sessions.length).toBe(2);
 	});
 });
+
+describe('tombstone hardening', () => {
+	beforeEach(() => {
+		server.clear();
+		localStorage.clear();
+		vi.clearAllMocks();
+	});
+
+	it('drops tombstoned ids during reconcile even when the server still lists them', async () => {
+		const repo = freshRepo();
+		const store = ptyStoreFor(repo);
+		const first = await store.spawn({});
+		const second = await store.spawn({});
+		await flushPersist();
+
+		// A second live object on the same key restores both ids.
+		const stale = new PtySessionStore();
+		stale.open(repo);
+		expect(stale.sessions.length).toBe(2);
+
+		// Removal tombstones globally; a live server entry alone must not
+		// keep the id in a store that never observed the removal.
+		await store.remove(first!.id);
+		server.set(first!.id, {
+			id: first!.id,
+			cwd: '/test',
+			title: first!.title,
+			status: 'running',
+			exit_code: null,
+			rows: 24,
+			cols: 80,
+		});
+		await stale.reconcile();
+		expect(stale.sessions.map((s) => s.id)).toEqual([second!.id]);
+	});
+
+	it('forgets the hidden state when its tab is removed', async () => {
+		const store = ptyStoreFor(freshRepo());
+		const session = await store.spawn({});
+		expect(store.detach(session!.id)).toBe(true);
+		await store.remove(session!.id);
+		expect(store.isDetached(session!.id)).toBe(false);
+	});
+
+	it('releases a reused server id instead of opening a zombie tab', async () => {
+		const store = ptyStoreFor(freshRepo());
+		const victim = await store.spawn({});
+		await store.remove(victim!.id);
+		vi.mocked(ptyService.createPty).mockResolvedValueOnce({
+			id: victim!.id,
+			cwd: '/test',
+			title: victim!.title,
+			status: 'running',
+			exit_code: null,
+			rows: 24,
+			cols: 80,
+		});
+		expect(await store.spawn({})).toBeNull();
+		expect(store.byId(victim!.id)).toBeUndefined();
+		expect(vi.mocked(ptyService.closePty)).toHaveBeenCalledWith(victim!.id);
+	});
+});

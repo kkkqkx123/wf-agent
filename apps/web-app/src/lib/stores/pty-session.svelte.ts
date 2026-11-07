@@ -61,10 +61,12 @@ const textEncoder = new TextEncoder();
 
 /** Removed session ids for this page lifetime. Server ids are unique per
  * load, so a removed id never legitimately returns: every transition
- * consults this set, which makes removed terminal no matter which store
- * object generation (or stale teardown) attempts the write. Bounded because
- * entries accumulate until the page goes away. */
-const removedPtyIds = new Set<string>();
+ * consults this set, which suppresses writes from any store object
+ * generation or stale teardown, plus the pre-flush reopen window. Reads stay
+ * reactive so future deriveds observe tombstoning. Bounded by evicting the
+ * oldest entries, whose in-flight writes have long settled and whose ids no
+ * longer appear in rewritten storage. */
+const removedPtyIds = new SvelteSet<string>();
 const MAX_REMOVED_PTY_IDS = 500;
 
 function rememberRemoved(id: string): void {
@@ -578,6 +580,12 @@ export class PtySessionStore {
 					cols: options?.cols ?? this.lastViewport?.cols,
 					title,
 				});
+				// Server ids are never reused, but a reused id must not turn into
+				// an unusable tab: release it on the server and report failure.
+				if (wasRemoved(view.id)) {
+					await closePty(view.id).catch(() => {});
+					return null;
+				}
 				const session: LocalPtySession = {
 					id: view.id,
 					title: view.title || title,
@@ -700,6 +708,7 @@ export class PtySessionStore {
 	async remove(id: string): Promise<void> {
 		this.sessions = this.sessions.filter((s) => s.id !== id);
 		rememberRemoved(id);
+		this.detachedIds.delete(id);
 		this.connections.delete(id);
 		if (this.activeId === id) {
 			this.activeId = this.sessions[0]?.id ?? null;
@@ -738,6 +747,11 @@ export class PtySessionStore {
 		let changed = false;
 		const kept: LocalPtySession[] = [];
 		for (const s of this.sessions) {
+			// Tombstoned ids never resurface, even when another store removed them.
+			if (wasRemoved(s.id)) {
+				changed = true;
+				continue;
+			}
 			if (!startingIds.has(s.id)) {
 				kept.push(s);
 				continue;
@@ -831,9 +845,7 @@ export class PtySessionStore {
 			const payload = {
 				v: PERSIST_SCHEMA_VERSION,
 				sessions: versioned,
-				detachedIds: this.sessions
-					.filter((s) => this.detachedIds.has(s.id))
-					.map((s) => s.id),
+				detachedIds: this.sessions.filter((s) => this.detachedIds.has(s.id)).map((s) => s.id),
 			};
 			localStorage.setItem(storageKey(this.repo), JSON.stringify(payload));
 			if (this.activeId) {

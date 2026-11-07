@@ -276,29 +276,29 @@ describe('PtySessionStore lifecycle and persistence validation', () => {
 				envelope([
 					{
 						id: 'good',
-					title: 'Terminal 1',
-					titleNumber: 1,
-					buffer: 'hi',
-					scrollY: 3,
-					cursor: 2,
-					rows: 24,
-					cols: 80,
-					status: 'running',
-					origin: { cwd: '/r' },
-					extra: 'dropped',
-				},
-				{
-					id: 'bad-shape',
-					title: 'Terminal 2',
-					rows: 'wide',
-					cols: -1,
-					scrollY: -5,
-					cursor: -1,
-					status: 'ghost',
-					exitCode: 'x',
-					origin: { env: { A: 1, B: 'ok' } },
-				},
-				{ id: 'huge', title: 'Terminal 3', buffer: big, scrollY: 100, cursor: 300_000 },
+						title: 'Terminal 1',
+						titleNumber: 1,
+						buffer: 'hi',
+						scrollY: 3,
+						cursor: 2,
+						rows: 24,
+						cols: 80,
+						status: 'running',
+						origin: { cwd: '/r' },
+						extra: 'dropped',
+					},
+					{
+						id: 'bad-shape',
+						title: 'Terminal 2',
+						rows: 'wide',
+						cols: -1,
+						scrollY: -5,
+						cursor: -1,
+						status: 'ghost',
+						exitCode: 'x',
+						origin: { env: { A: 1, B: 'ok' } },
+					},
+					{ id: 'huge', title: 'Terminal 3', buffer: big, scrollY: 100, cursor: 300_000 },
 					{ title: 'missing id' },
 					{ id: 'good', title: 'duplicate' },
 				]),
@@ -587,9 +587,7 @@ describe('detach and attach transfers', () => {
 		const repo = freshRepo();
 		localStorage.setItem(
 			`wf.pty.v1.${repo}`,
-			JSON.stringify(
-				envelope([{ id: 'solo', title: 'Terminal 1' }], ['solo', 'ghost']),
-			),
+			JSON.stringify(envelope([{ id: 'solo', title: 'Terminal 1' }], ['solo', 'ghost'])),
 		);
 		const reopened = new PtySessionStore();
 		reopened.open(repo);
@@ -614,7 +612,7 @@ describe('foreign store discovery', () => {
 		localStorage.setItem(
 			`wf.pty.v1.${foreignRepo}`,
 			JSON.stringify(
-			envelope([
+				envelope([
 					{ id: victim!.id, title: 'killed before' },
 					{ id: 'foreign-live-1', title: 'Terminal 1' },
 				]),

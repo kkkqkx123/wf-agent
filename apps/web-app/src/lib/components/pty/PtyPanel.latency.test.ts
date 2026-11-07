@@ -107,8 +107,10 @@ function freshRepo(): string {
 }
 
 beforeEach(async () => {
+	// NOTE: seq stays monotonic on purpose. Removed ids are tombstoned
+	// module-wide for the page lifetime, so reusing an id string would be
+	// refused by the spawn guard instead of opening a duplicate tab.
 	server.clear();
-	seq = 0;
 	localStorage.clear();
 	const { createPty } = await import('#lib/services/pty');
 	vi.mocked(createPty).mockClear();

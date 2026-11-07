@@ -14,7 +14,7 @@ mod state;
 pub use session::PtyCreateParams;
 pub use state::{
     global_manager, lock as state_lock, lock_inner, manager_inner, sweep, PtyError, PtyManager,
-    PtyResult, PtySession, PtySessionStatus,
+    PtyResult, PtySession, PtySessionStatus, PtyTitleSource,
 };
 // Convenience re-export of common lock helper under original name for tests/internal.
 pub use state::lock;
@@ -85,8 +85,9 @@ pub fn update_pty_session(
     title: Option<String>,
     rows: Option<u16>,
     cols: Option<u16>,
+    title_source: Option<PtyTitleSource>,
 ) -> PtyResult<PtySession> {
-    global_manager().update(id, title, rows, cols)
+    global_manager().update(id, title, rows, cols, title_source)
 }
 
 pub fn remove_pty_session(id: &str) -> PtyResult<bool> {
@@ -122,6 +123,7 @@ mod tests {
             id: "pty-test".to_string(),
             cwd: "/tmp".to_string(),
             title: Mutex::new(String::new()),
+            title_source: Mutex::new(PtyTitleSource::Default),
             pid: 1,
             status: Mutex::new(PtySessionStatus::Running),
             exit_code: Mutex::new(None),
@@ -219,6 +221,57 @@ mod tests {
         assert!(att.replay.len() <= state::REPLAY_BUDGET_BYTES);
         assert_eq!(att.replay_start + att.replay.len(), att.cursor);
         assert!(att.replay.is_char_boundary(0));
+    }
+
+    #[test]
+    fn auto_title_never_overwrites_manual_rename() {
+        use state::PtyTitleSource;
+        let state = stub_state();
+        let inner = seeded_inner(state.clone());
+
+        let view = session::update_session(
+            &inner,
+            "pty-test",
+            Some("vim foo.rs".to_string()),
+            None,
+            None,
+            Some(PtyTitleSource::Auto),
+        )
+        .unwrap();
+        assert_eq!(view.title, "vim foo.rs");
+        assert_eq!(view.title_source, PtyTitleSource::Auto);
+
+        let view = session::update_session(
+            &inner,
+            "pty-test",
+            Some("my service".to_string()),
+            None,
+            None,
+            Some(PtyTitleSource::Manual),
+        )
+        .unwrap();
+        assert_eq!(view.title, "my service");
+
+        let view = session::update_session(
+            &inner,
+            "pty-test",
+            Some("less bar".to_string()),
+            None,
+            None,
+            Some(PtyTitleSource::Auto),
+        )
+        .unwrap();
+        assert_eq!(view.title, "my service");
+        assert_eq!(view.title_source, PtyTitleSource::Manual);
+    }
+
+    #[test]
+    fn session_view_reports_activity_timestamps() {
+        let state = stub_state();
+        state.touch();
+        let view = session::session_view(&state);
+        assert_eq!(view.created_at, state.created_at);
+        assert!(view.last_activity >= view.created_at);
     }
 
     #[test]

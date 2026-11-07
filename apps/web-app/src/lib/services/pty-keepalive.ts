@@ -130,6 +130,7 @@ function attachKeeper(id: string): void {
 			if (current.disposed) return;
 			current.cursor += byteLength(chunk);
 			current.pendingBytes += byteLength(chunk);
+			store.reportOutput(id);
 			scheduleSync(id);
 		},
 		onExit: (info) => {

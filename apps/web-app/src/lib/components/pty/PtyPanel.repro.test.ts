@@ -19,10 +19,13 @@ interface FakePty {
 	id: string;
 	cwd: string;
 	title: string;
+	title_source: 'default' | 'auto' | 'manual';
 	status: 'running' | 'exited';
 	exit_code: number | null;
 	rows: number;
 	cols: number;
+	created_at: number;
+	last_activity: number;
 }
 
 const server = new Map<string, FakePty>();
@@ -42,10 +45,13 @@ vi.mock('#lib/services/pty', () => ({
 				id: `pty-repro-${seq}`,
 				cwd: '/test',
 				title: input.title ?? `Terminal ${seq}`,
+				title_source: 'default',
 				status: 'running',
 				exit_code: null,
 				rows: 24,
 				cols: 80,
+				created_at: Date.now(),
+				last_activity: Date.now(),
 			};
 			server.set(session.id, { ...session });
 			return { ...session };
@@ -57,14 +63,27 @@ vi.mock('#lib/services/pty', () => ({
 		if (!session) throw new Error(`PTY session not found: ${id}`);
 		return { ...session };
 	}),
-	updatePty: vi.fn(async (id: string, patch: { title?: string; rows?: number; cols?: number }) => {
+	updatePty: vi.fn(async (
+			id: string,
+			patch: { title?: string; title_source?: FakePty['title_source']; rows?: number; cols?: number },
+		) => {
 		const session = server.get(id);
 		if (!session) throw new Error(`PTY session not found: ${id}`);
 		const next = {
 			...session,
-			title: patch.title ?? session.title,
+			title:
+								patch.title !== undefined &&
+								(patch.title_source !== 'auto' || session.title_source !== 'manual')
+									? patch.title
+									: session.title,
+			title_source:
+								patch.title !== undefined &&
+								(patch.title_source !== 'auto' || session.title_source !== 'manual')
+									? (patch.title_source ?? 'manual')
+									: session.title_source,
 			rows: patch.rows ?? session.rows,
 			cols: patch.cols ?? session.cols,
+			last_activity: Date.now(),
 		};
 		server.set(id, next);
 		return { ...next };
@@ -657,5 +676,100 @@ describe('headless cursor sync', () => {
 		await store.remove(id);
 		store.syncCursor(id, 99);
 		expect(store.byId(id)).toBeUndefined();
+	});
+});
+
+describe('shared visibility, titles and activity', () => {
+	beforeEach(() => {
+		server.clear();
+		localStorage.clear();
+		vi.clearAllMocks();
+	});
+
+	it('shares one store per repo key so both panels see the same tabs', async () => {
+		const repo = freshRepo();
+		const idePanel = ptyStoreFor(repo);
+		const terminalPage = ptyStoreFor(repo);
+		expect(terminalPage).toBe(idePanel);
+		const session = await idePanel.spawn();
+		expect(terminalPage.byId(session!.id)).toBeDefined();
+		expect(idePanel.detach(session!.id)).toBe(true);
+		expect(terminalPage.attachedSessions().length).toBe(0);
+		expect(terminalPage.attach(session!.id)).toBe(true);
+		expect(idePanel.isDetached(session!.id)).toBe(false);
+	});
+
+	it('accepts process titles until the user renames, then ignores them', async () => {
+		const store = ptyStoreFor(freshRepo());
+		const session = await store.spawn();
+		const id = session!.id;
+		store.adoptAutoTitle(id, 'vim foo.rs');
+		await vi.waitFor(() => expect(store.byId(id)?.title).toBe('vim foo.rs'));
+		store.rename(id, 'my service');
+		await vi.waitFor(() => expect(server.get(id)?.title).toBe('my service'));
+		expect(store.byId(id)?.manualTitle).toBe(true);
+		store.adoptAutoTitle(id, 'less bar');
+		expect(store.byId(id)?.title).toBe('my service');
+		store.clearManualTitle(id);
+		expect(store.byId(id)?.manualTitle).toBeUndefined();
+		store.adoptAutoTitle(id, 'less bar');
+		expect(store.byId(id)?.title).toBe('less bar');
+	});
+
+	it('treats fresh sessions as busy and quiet ones as idle estimates', async () => {
+		const store = ptyStoreFor(freshRepo());
+		const session = await store.spawn();
+		const id = session!.id;
+		expect(store.isBusy(id)).toBe(true);
+		store.reportInput(id);
+		expect(store.lastActiveAt(id)).toBeGreaterThan(0);
+		store.reportOutput(id);
+		expect(store.isBusy(id, store.lastActiveAt(id) + 1)).toBe(true);
+		expect(store.isBusy(id, store.lastActiveAt(id) + 60_000)).toBe(false);
+		store.markExited(id);
+		expect(store.isBusy(id)).toBe(false);
+	});
+
+	it('closes every exited session in one pass for the manager cleanup', async () => {
+		const store = ptyStoreFor(freshRepo());
+		const first = await store.spawn();
+		const second = await store.spawn();
+		store.markExited(first!.id);
+		const exited = store.sessions.filter((s) => s.status === 'exited').map((s) => s.id);
+		expect(exited).toEqual([first!.id]);
+		for (const id of exited) await store.remove(id);
+		expect(store.sessions.map((s) => s.id)).toEqual([second!.id]);
+	});
+
+	it('keeps the record but drops a non-boolean manual flag from storage', async () => {
+		const repo = freshRepo();
+		const store = ptyStoreFor(repo);
+		const session = await store.spawn();
+		store.close();
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		const raw = JSON.parse(localStorage.getItem(`wf.pty.v1.${repo}`) ?? '{}') as {
+			sessions: Array<Record<string, unknown>>;
+		};
+		raw.sessions[0]!['manualTitle'] = 'yes';
+		localStorage.setItem(`wf.pty.v1.${repo}`, JSON.stringify({ v: 1, sessions: raw.sessions, detachedIds: [] }));
+		const reopened = new PtySessionStore();
+		reopened.open(repo);
+		expect(reopened.byId(session!.id)?.manualTitle).toBeUndefined();
+		expect(reopened.byId(session!.id)?.title).toBe(session!.title);
+	});
+
+	it('restores the manual flag and survives a server title race', async () => {
+		const repo = freshRepo();
+		const store = ptyStoreFor(repo);
+		const session = await store.spawn();
+		store.rename(session!.id, 'my service');
+		await vi.waitFor(() => expect(server.get(session!.id)?.title).toBe('my service'));
+		store.close();
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		const reopened = new PtySessionStore();
+		reopened.open(repo);
+		expect(reopened.byId(session!.id)?.manualTitle).toBe(true);
+		await reopened.adopt(session!.id);
+		expect(reopened.byId(session!.id)?.title).toBe('my service');
 	});
 });

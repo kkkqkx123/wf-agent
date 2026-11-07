@@ -4,6 +4,8 @@ import type { components } from '#lib/api/schema';
 
 export type PtySession = components['schemas']['PtySession'];
 
+export type PtyTitleSource = PtySession['title_source'];
+
 export type PtySessionInfo = PtySession;
 
 /**
@@ -16,6 +18,7 @@ export async function createPty(input?: {
 	rows?: number;
 	cols?: number;
 	title?: string;
+	title_source?: PtyTitleSource;
 	env?: Record<string, string>;
 }): Promise<PtySession> {
 	const data = await call<unknown>(
@@ -26,6 +29,7 @@ export async function createPty(input?: {
 				rows: input?.rows,
 				cols: input?.cols,
 				title: input?.title,
+				title_source: input?.title_source,
 				env: input?.env,
 			},
 		}),
@@ -46,13 +50,14 @@ export async function getPty(id: string): Promise<PtySession> {
 
 export async function updatePty(
 	id: string,
-	input: { title?: string; rows?: number; cols?: number },
+	input: { title?: string; title_source?: PtyTitleSource; rows?: number; cols?: number },
 ): Promise<PtySession> {
 	const data = await call<unknown>(
 		client.PUT('/api/v1/pty/{id}', {
 			params: { path: { id } },
 			body: {
 				title: input.title,
+				title_source: input.title_source,
 				rows: input.rows,
 				cols: input.cols,
 			},

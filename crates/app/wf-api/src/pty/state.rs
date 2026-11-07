@@ -29,16 +29,29 @@ pub enum PtySessionStatus {
     Exited,
 }
 
+/// Who produced the current session title. Manual renames win over
+/// process-reported titles, which win over the spawn default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PtyTitleSource {
+    Default,
+    Auto,
+    Manual,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PtySession {
     pub id: String,
     pub cwd: String,
     pub title: String,
+    pub title_source: PtyTitleSource,
     pub status: PtySessionStatus,
     pub exit_code: Option<i32>,
     pub pid: Option<u32>,
     pub rows: u16,
     pub cols: u16,
+    pub created_at: i64,
+    pub last_activity: i64,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -79,6 +92,7 @@ pub struct PtyState {
     pub id: String,
     pub cwd: String,
     pub title: Mutex<String>,
+    pub title_source: Mutex<PtyTitleSource>,
     pub pid: u32,
     pub status: Mutex<PtySessionStatus>,
     pub exit_code: Mutex<Option<i32>>,
@@ -157,8 +171,9 @@ impl PtyManager {
         title: Option<String>,
         rows: Option<u16>,
         cols: Option<u16>,
+        title_source: Option<PtyTitleSource>,
     ) -> PtyResult<super::PtySession> {
-        super::session::update_session(&self.inner, id, title, rows, cols)
+        super::session::update_session(&self.inner, id, title, rows, cols, title_source)
     }
 
     pub fn remove(&self, id: &str) -> PtyResult<bool> {

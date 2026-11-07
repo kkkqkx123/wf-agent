@@ -50002,15 +50002,22 @@
               "id",
               "cwd",
               "title",
+              "title_source",
               "status",
               "rows",
-              "cols"
+              "cols",
+              "created_at",
+              "last_activity"
             ],
             "properties": {
               "cols": {
                 "type": "integer",
                 "format": "int32",
                 "minimum": 0
+              },
+              "created_at": {
+                "type": "integer",
+                "format": "int64"
               },
               "cwd": {
                 "type": "string"
@@ -50024,6 +50031,10 @@
               },
               "id": {
                 "type": "string"
+              },
+              "last_activity": {
+                "type": "integer",
+                "format": "int64"
               },
               "pid": {
                 "type": [
@@ -50043,6 +50054,9 @@
               },
               "title": {
                 "type": "string"
+              },
+              "title_source": {
+                "$ref": "#/components/schemas/PtyTitleSource"
               }
             }
           },
@@ -51746,15 +51760,22 @@
                 "id",
                 "cwd",
                 "title",
+                "title_source",
                 "status",
                 "rows",
-                "cols"
+                "cols",
+                "created_at",
+                "last_activity"
               ],
               "properties": {
                 "cols": {
                   "type": "integer",
                   "format": "int32",
                   "minimum": 0
+                },
+                "created_at": {
+                  "type": "integer",
+                  "format": "int64"
                 },
                 "cwd": {
                   "type": "string"
@@ -51768,6 +51789,10 @@
                 },
                 "id": {
                   "type": "string"
+                },
+                "last_activity": {
+                  "type": "integer",
+                  "format": "int64"
                 },
                 "pid": {
                   "type": [
@@ -51787,6 +51812,9 @@
                 },
                 "title": {
                   "type": "string"
+                },
+                "title_source": {
+                  "$ref": "#/components/schemas/PtyTitleSource"
                 }
               }
             }
@@ -53003,6 +53031,16 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "title_source": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PtyTitleSource"
+              }
             ]
           }
         }
@@ -55677,15 +55715,22 @@
           "id",
           "cwd",
           "title",
+          "title_source",
           "status",
           "rows",
-          "cols"
+          "cols",
+          "created_at",
+          "last_activity"
         ],
         "properties": {
           "cols": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
           },
           "cwd": {
             "type": "string"
@@ -55699,6 +55744,10 @@
           },
           "id": {
             "type": "string"
+          },
+          "last_activity": {
+            "type": "integer",
+            "format": "int64"
           },
           "pid": {
             "type": [
@@ -55718,6 +55767,9 @@
           },
           "title": {
             "type": "string"
+          },
+          "title_source": {
+            "$ref": "#/components/schemas/PtyTitleSource"
           }
         }
       },
@@ -55726,6 +55778,14 @@
         "enum": [
           "running",
           "exited"
+        ]
+      },
+      "PtyTitleSource": {
+        "type": "string",
+        "enum": [
+          "default",
+          "auto",
+          "manual"
         ]
       },
       "QueryBody": {
@@ -57359,6 +57419,16 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "title_source": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PtyTitleSource"
+              }
             ]
           }
         }

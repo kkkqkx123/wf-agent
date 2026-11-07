@@ -7,6 +7,7 @@
 
 export type FloatingSide = 'top' | 'bottom' | 'left' | 'right';
 export type FloatingAlign = 'start' | 'center' | 'end';
+export type FloatingCloseReason = 'outside' | 'escape';
 
 export interface FloatingRect {
 	x: number;

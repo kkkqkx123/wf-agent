@@ -9808,16 +9808,21 @@ export interface components {
             data?: {
                 /** Format: int32 */
                 cols: number;
+                /** Format: int64 */
+                created_at: number;
                 cwd: string;
                 /** Format: int32 */
                 exit_code?: number | null;
                 id: string;
+                /** Format: int64 */
+                last_activity: number;
                 /** Format: int32 */
                 pid?: number | null;
                 /** Format: int32 */
                 rows: number;
                 status: components["schemas"]["PtySessionStatus"];
                 title: string;
+                title_source: components["schemas"]["PtyTitleSource"];
             };
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -10258,16 +10263,21 @@ export interface components {
             data?: {
                 /** Format: int32 */
                 cols: number;
+                /** Format: int64 */
+                created_at: number;
                 cwd: string;
                 /** Format: int32 */
                 exit_code?: number | null;
                 id: string;
+                /** Format: int64 */
+                last_activity: number;
                 /** Format: int32 */
                 pid?: number | null;
                 /** Format: int32 */
                 rows: number;
                 status: components["schemas"]["PtySessionStatus"];
                 title: string;
+                title_source: components["schemas"]["PtyTitleSource"];
             }[];
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -10641,6 +10651,7 @@ export interface components {
             /** Format: int32 */
             rows?: number | null;
             title?: string | null;
+            title_source?: null | components["schemas"]["PtyTitleSource"];
         };
         CreateStarterBody: {
             content: string;
@@ -11559,19 +11570,26 @@ export interface components {
         PtySession: {
             /** Format: int32 */
             cols: number;
+            /** Format: int64 */
+            created_at: number;
             cwd: string;
             /** Format: int32 */
             exit_code?: number | null;
             id: string;
+            /** Format: int64 */
+            last_activity: number;
             /** Format: int32 */
             pid?: number | null;
             /** Format: int32 */
             rows: number;
             status: components["schemas"]["PtySessionStatus"];
             title: string;
+            title_source: components["schemas"]["PtyTitleSource"];
         };
         /** @enum {string} */
         PtySessionStatus: "running" | "exited";
+        /** @enum {string} */
+        PtyTitleSource: "default" | "auto" | "manual";
         /**
          * @description Wire shape of the query endpoints: filters (basic + advanced
          *     expressions) plus sort / pagination overrides.
@@ -12125,6 +12143,7 @@ export interface components {
             /** Format: int32 */
             rows?: number | null;
             title?: string | null;
+            title_source?: null | components["schemas"]["PtyTitleSource"];
         };
         UpdateStarterBody: {
             content?: string | null;

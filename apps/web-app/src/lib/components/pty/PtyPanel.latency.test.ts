@@ -10,10 +10,13 @@ interface FakePty {
 	id: string;
 	cwd: string;
 	title: string;
+	title_source: 'default' | 'auto' | 'manual';
 	status: 'running' | 'exited';
 	exit_code: number | null;
 	rows: number;
 	cols: number;
+	created_at: number;
+	last_activity: number;
 }
 
 const server = new Map<string, FakePty>();
@@ -31,10 +34,13 @@ vi.mock('#lib/services/pty', () => ({
 			id: `pty-latency-${seq}`,
 			cwd: '/test',
 			title: input.title ?? `Terminal ${seq}`,
+			title_source: 'default',
 			status: 'running',
 			exit_code: null,
 			rows: 24,
 			cols: 80,
+			created_at: Date.now(),
+			last_activity: Date.now(),
 		};
 		server.set(session.id, { ...session });
 		return { ...session };
@@ -50,15 +56,28 @@ vi.mock('#lib/services/pty', () => ({
 		return { ...session };
 	}),
 	updatePty: vi.fn(
-		async (id: string, patch: { title?: string; rows?: number; cols?: number }) => {
+		async (
+			id: string,
+			patch: { title?: string; title_source?: FakePty['title_source']; rows?: number; cols?: number },
+		) => {
 			await delay(30);
 			const session = server.get(id);
 			if (!session) throw new Error(`PTY session not found: ${id}`);
 			const next = {
 				...session,
-				title: patch.title ?? session.title,
+				title:
+									patch.title !== undefined &&
+									(patch.title_source !== 'auto' || session.title_source !== 'manual')
+										? patch.title
+										: session.title,
+				title_source:
+									patch.title !== undefined &&
+									(patch.title_source !== 'auto' || session.title_source !== 'manual')
+										? (patch.title_source ?? 'manual')
+										: session.title_source,
 				rows: patch.rows ?? session.rows,
 				cols: patch.cols ?? session.cols,
+				last_activity: Date.now(),
 			};
 			server.set(id, next);
 			return { ...next };

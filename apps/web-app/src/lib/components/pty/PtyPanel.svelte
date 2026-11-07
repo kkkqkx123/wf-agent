@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { onDestroy, tick, untrack } from 'svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import Card from '#lib/ui/components/Card.svelte';
 	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import Button from '#lib/ui/components/Button.svelte';
 	import Dialog from '#lib/ui/components/Dialog.svelte';
+	import Segmented from '#lib/ui/components/Segmented.svelte';
 	import Separator from '#lib/ui/components/Separator.svelte';
 	import type TerminalInstance from './TerminalInstance.svelte';
 	import type { TerminalApi } from './TerminalInstance.svelte';
@@ -70,8 +72,12 @@
 	let ensuredKey: string | null = $state(null);
 	let failedId = $state<string | null>(null);
 	let attachOpen = $state(false);
-	let closeConfirmId = $state<string | null>(null);
+	let closeConfirmIds = $state<string[]>([]);
 	let closeConfirmOpen = $state(false);
+	/** Manager filter, search text and multi-select; the dialog stays open across ops. */
+	let managerSearch = $state('');
+	let managerFilter = $state<'all' | 'visible' | 'hidden' | 'exited'>('all');
+	const selectedIds = new SvelteSet<string>();
 
 	/** Visible tabs; detached sessions hide from every panel but keep running. */
 	const attached = $derived(store.attachedSessions());
@@ -88,7 +94,45 @@
 			.map((s) => ({ repo: s.repo, sessions: [...s.sessions] })),
 	);
 	const foreignCount = $derived(foreignGroups.reduce((n, g) => n + g.sessions.length, 0));
-	const attachableCount = $derived(detachedMine.length + foreignCount);
+	const exitedMine = $derived(store.sessions.filter((s) => s.status === 'exited'));
+	/** Manager badge: hidden plus exited sessions (both need triage). */
+	const managerCount = $derived(detachedMine.length + exitedMine.length);
+	const managerButtonCount = $derived(managerCount + foreignCount);
+
+	function matchSearch(session: LocalPtySession): boolean {
+		const query = managerSearch.trim().toLowerCase();
+		if (!query) return true;
+		const haystack = [session.title, session.origin?.command ?? '', session.origin?.cwd ?? '']
+			.join('\n')
+			.toLowerCase();
+		return haystack.includes(query);
+	}
+
+	const visibleRows = $derived(
+		store.sessions.filter(
+			(s) => !store.isDetached(s.id) && s.status !== 'exited' && matchSearch(s),
+		),
+	);
+	const hiddenRows = $derived(
+		store.sessions.filter(
+			(s) => store.isDetached(s.id) && s.status !== 'exited' && matchSearch(s),
+		),
+	);
+	const exitedRows = $derived(store.sessions.filter((s) => s.status === 'exited' && matchSearch(s)));
+	const shownForeignGroups = $derived(
+		foreignGroups
+			.map((g) => ({ repo: g.repo, sessions: g.sessions.filter(matchSearch) }))
+			.filter((g) => g.sessions.length > 0),
+	);
+	const showVisibleSection = $derived(managerFilter === 'all' || managerFilter === 'visible');
+	const showHiddenSection = $derived(managerFilter === 'all' || managerFilter === 'hidden');
+	const showExitedSection = $derived(managerFilter === 'all' || managerFilter === 'exited');
+	/** Multi-select covers this panel's own rows; foreign rows keep single actions. */
+	const selectableIds = $derived([...visibleRows, ...hiddenRows, ...exitedRows].map((s) => s.id));
+	const selectedLive = $derived(selectableIds.filter((id) => selectedIds.has(id)));
+	const allFilteredSelected = $derived(
+		selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id)),
+	);
 
 	function registerInstance(id: string, api: TerminalApi): void {
 		registerPtyInstance(id, api);
@@ -239,30 +283,45 @@
 		});
 	}
 
-	/** Close ends the process; running sessions confirm so detach stays the quick path. */
+	/** Close ends the process; running sessions confirm so hiding stays the quick path. */
 	function requestClose(id: string | null | undefined): void {
 		if (!id) return;
 		const session = ownerStoreOf(id)?.byId(id);
 		if (!session) return;
 		if (session.status === 'exited') {
-			removeSession(id);
+			removeSession(id, ownerStoreOf(id) ?? store);
+			pruneSelection();
 			return;
 		}
-		closeConfirmId = id;
+		closeConfirmIds = [id];
 		closeConfirmOpen = true;
 	}
 
 	function cancelClose(): void {
-		closeConfirmId = null;
+		closeConfirmIds = [];
 		closeConfirmOpen = false;
 	}
 
+	/** Confirm dialog closes; the manager dialog stays open for the next triage. */
 	function confirmClose(): void {
-		const id = closeConfirmId;
-		const owner = id ? (ownerStoreOf(id) ?? store) : store;
-		closeConfirmId = null;
+		const ids = [...closeConfirmIds];
+		closeConfirmIds = [];
 		closeConfirmOpen = false;
-		removeSession(id, owner);
+		let ok = 0;
+		for (const id of ids) {
+			const owner = ownerStoreOf(id) ?? store;
+			if (!owner.byId(id)) continue;
+			removeSession(id, owner);
+			ok += 1;
+		}
+		pruneSelection();
+		if (ids.length > 1) {
+			if (ok === ids.length) {
+				toasts.success(t('pty.ptyPanel.batchClosedPartial', { ok, fail: 0 }));
+			} else {
+				toasts.warning(t('pty.ptyPanel.batchClosedPartial', { ok, fail: ids.length - ok }));
+			}
+		}
 	}
 
 	function ownerStoreOf(id: string): PtySessionStore | undefined {
@@ -272,16 +331,40 @@
 
 	function openAttach(): void {
 		discoverForeignPtyStores(store);
+		managerSearch = '';
+		managerFilter = 'all';
+		selectedIds.clear();
 		attachOpen = true;
 	}
 
+	function pruneSelection(): void {
+		for (const id of [...selectedIds]) {
+			if (!store.byId(id)) selectedIds.delete(id);
+		}
+	}
+
+	/** Show one session: attach a hidden tab or adopt a foreign one. Dialog stays open. */
+	function showRow(id: string): void {
+		const source = ownerStoreOf(id);
+		if (!source) return;
+		if (source === store) {
+			attachMine(id);
+			return;
+		}
+		attachForeign(id);
+	}
+
 	function attachMine(id: string): void {
-		store.attach(id);
-		attachOpen = false;
+		if (!store.byId(id)) return;
+		if (store.isDetached(id)) {
+			if (!store.attach(id)) return;
+		} else {
+			store.setActive(id);
+		}
 		void tick().then(() => focusInstance(id));
 	}
 
-	/** Adopt a foreign session: move its record over, the server process is untouched. */
+	/** Adopt a foreign session and show it; the server process is untouched. */
 	function attachForeign(id: string): void {
 		const source = ownerStoreOf(id);
 		if (!source) return;
@@ -296,8 +379,12 @@
 			toasts.error(t('pty.ptyPanel.attach'), t('pty.ptyPanel.targetFull'));
 			return;
 		}
-		attachOpen = false;
+		store.attach(id);
 		void tick().then(() => focusInstance(id));
+	}
+
+	function hideRow(id: string): void {
+		ownerStoreOf(id)?.detach(id);
 	}
 
 	function restartRow(id: string): void {
@@ -313,15 +400,55 @@
 			}
 		}
 		clearFailure();
-		attachOpen = false;
 		void store.clone(id).then(() => {
 			void tick().then(() => focusInstance(store.activeId));
 		});
 	}
 
 	function closeRow(id: string): void {
-		attachOpen = false;
 		requestClose(id);
+	}
+
+	function toggleSelect(id: string): void {
+		if (selectedIds.has(id)) selectedIds.delete(id);
+		else if (store.byId(id)) selectedIds.add(id);
+	}
+
+	function toggleSelectFiltered(on: boolean): void {
+		if (on) {
+			for (const id of selectableIds) selectedIds.add(id);
+		} else {
+			for (const id of selectableIds) selectedIds.delete(id);
+		}
+	}
+
+	function showSelected(): void {
+		for (const id of selectedLive) showRow(id);
+	}
+
+	function hideSelected(): void {
+		for (const id of selectedLive) hideRow(id);
+	}
+
+	function closeSelected(): void {
+		const ids = selectedLive;
+		if (ids.length === 0) return;
+		const running = ids.filter((id) => ownerStoreOf(id)?.byId(id)?.status !== 'exited');
+		const exited = ids.filter((id) => ownerStoreOf(id)?.byId(id)?.status === 'exited');
+		for (const id of exited) removeSession(id, ownerStoreOf(id) ?? store);
+		pruneSelection();
+		if (running.length > 0) {
+			closeConfirmIds = running;
+			closeConfirmOpen = true;
+		}
+	}
+
+	/** One-click cleanup for ended sessions; running ones always confirm. */
+	function closeAllExited(): void {
+		const ids = exitedMine.map((s) => s.id);
+		if (ids.length === 0) return;
+		for (const id of ids) removeSession(id);
+		pruneSelection();
 	}
 
 	function originSummary(session: LocalPtySession): string {
@@ -330,6 +457,16 @@
 
 	function statusText(session: LocalPtySession): string {
 		return session.status === 'exited' ? t('pty.ptyPanel.exited') : t('pty.ptyPanel.running');
+	}
+
+	/** Idle estimate for running sessions; null when busy, exited or unknown. */
+	function idleText(session: LocalPtySession): string | null {
+		if (session.status === 'exited') return null;
+		if (store.isBusy(session.id)) return t('pty.ptyPanel.idleNow');
+		const last = store.lastActiveAt(session.id);
+		if (!last) return null;
+		const minutes = Math.max(1, Math.round((Date.now() - last) / 60000));
+		return t('pty.ptyPanel.idleMinutes', { minutes });
 	}
 
 	async function spawnAndFocus(command?: string): Promise<void> {
@@ -425,7 +562,7 @@
 			variant="ghost"
 			onclick={() => void spawnAndFocus()}
 		/>
-		{#if attachableCount > 0}
+		{#if managerButtonCount > 0}
 			<IconButton
 				icon="eye"
 				label={t('pty.ptyPanel.attach')}
@@ -433,7 +570,7 @@
 				variant="ghost"
 				onclick={() => openAttach()}
 			/>
-			<span class="text-micro text-muted-foreground" aria-hidden="true">{attachableCount}</span>
+			<span class="text-micro text-muted-foreground" aria-hidden="true">{managerButtonCount}</span>
 		{/if}
 		{#each quickCommands as quick (quick.command)}
 			<Button size="sm" variant="outline" onclick={() => void spawnAndFocus(quick.command)}>
@@ -473,21 +610,68 @@
 	</div>
 {/snippet}
 
-{#snippet attachRow(session: LocalPtySession, foreign: boolean)}
+{#snippet allClosedState()}
+	<div class="flex flex-col items-start gap-2">
+		<p class="text-caption text-muted-foreground">{t('pty.ptyPanel.allClosed')}</p>
+		<div class="flex gap-2">
+			<Button size="sm" variant="outline" onclick={() => void spawnAndFocus()}>
+				{t('pty.ptyPanel.newTerminal')}
+			</Button>
+			{#if foreignCount > 0}
+				<Button size="sm" variant="ghost" onclick={() => openAttach()}>
+					{t('pty.ptyPanel.attach')}
+				</Button>
+			{/if}
+		</div>
+	</div>
+{/snippet}
+
+{#snippet managerRow(session: LocalPtySession, foreign: boolean)}
 	<div class="flex items-center gap-2 rounded-md border border-border px-2 py-1.5">
+		{#if !foreign}
+			<input
+				type="checkbox"
+				class="h-4 w-4 shrink-0 accent-primary"
+				checked={selectedIds.has(session.id)}
+				aria-label={t('pty.ptyPanel.selectSession', { name: session.title })}
+				onchange={() => toggleSelect(session.id)}
+			/>
+		{/if}
 		<button
 			type="button"
 			class="min-w-0 flex-1 cursor-pointer truncate text-left text-body hover:text-foreground"
 			title={originSummary(session) || session.title}
-			onclick={() => (foreign ? attachForeign(session.id) : attachMine(session.id))}
+			onclick={() => showRow(session.id)}
 		>
 			<span class="font-medium">{session.title}</span>
 			<span class="text-micro text-muted-foreground">({statusText(session)})</span>
+			{#if idleText(session)}
+				<span class="text-micro text-muted-foreground"> · {idleText(session)}</span>
+			{/if}
 			{#if originSummary(session)}
 				<span class="block truncate text-micro text-muted-foreground">{originSummary(session)}</span
 				>
 			{/if}
 		</button>
+		{#if !foreign}
+			{#if store.isDetached(session.id)}
+				<IconButton
+					icon="eye"
+					label={t('pty.ptyPanel.show')}
+					compact
+					variant="ghost"
+					onclick={() => showRow(session.id)}
+				/>
+			{:else if session.status !== 'exited'}
+				<IconButton
+					icon="eye-off"
+					label={t('pty.ptyPanel.hide')}
+					compact
+					variant="ghost"
+					onclick={() => hideRow(session.id)}
+				/>
+			{/if}
+		{/if}
 		{#if session.status === 'exited'}
 			<IconButton
 				icon="plus"
@@ -495,6 +679,15 @@
 				compact
 				variant="ghost"
 				onclick={() => restartRow(session.id)}
+			/>
+		{/if}
+		{#if session.manualTitle}
+			<IconButton
+				icon="undo"
+				label={t('pty.ptyPanel.clearManualTitle')}
+				compact
+				variant="ghost"
+				onclick={() => store.clearManualTitle(session.id)}
 			/>
 		{/if}
 		<IconButton
@@ -507,28 +700,87 @@
 	</div>
 {/snippet}
 
-{#snippet attachDialog()}
+{#snippet managerSection(title: string, rows: LocalPtySession[], foreign: boolean)}
+	{#if rows.length > 0}
+		<div class="flex flex-col gap-1.5">
+			<p class="text-micro font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
+			{#each rows as session (session.id)}
+				{@render managerRow(session, foreign)}
+			{/each}
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet managerDialog()}
 	<Dialog
 		bind:open={attachOpen}
 		title={t('pty.ptyPanel.attachDialogTitle')}
 		description={t('pty.ptyPanel.attachDialogDescription')}
+		width="42rem"
 	>
-		<div class="flex max-h-96 flex-col gap-3 overflow-y-auto">
-			{#if detachedMine.length === 0 && foreignCount === 0}
-				<p class="text-caption text-muted-foreground">{t('pty.ptyPanel.attachEmpty')}</p>
-			{/if}
-			{#if detachedMine.length > 0}
-				<div class="flex flex-col gap-1.5">
-					<p class="text-micro font-medium uppercase tracking-wide text-muted-foreground">
-						{t('pty.ptyPanel.attachSectionMine')}
-					</p>
-					{#each detachedMine as session (session.id)}
-						{@render attachRow(session, false)}
-					{/each}
-				</div>
-			{/if}
-			{#each foreignGroups as group (group.repo)}
-				{#if group.sessions.length > 0}
+		<div class="flex flex-col gap-3">
+			<div class="flex flex-wrap items-center gap-2">
+				<input
+					type="search"
+					class="min-w-40 flex-1 rounded-md border border-border bg-background px-2 py-1 text-body outline-none"
+					placeholder={t('pty.ptyPanel.managerSearchPlaceholder')}
+					aria-label={t('pty.ptyPanel.managerSearchPlaceholder')}
+					bind:value={managerSearch}
+				/>
+				<Segmented
+					items={[
+						{ id: 'all', label: t('pty.ptyPanel.filterAll') },
+						{ id: 'visible', label: t('pty.ptyPanel.filterVisible') },
+						{ id: 'hidden', label: t('pty.ptyPanel.filterHidden') },
+						{ id: 'exited', label: t('pty.ptyPanel.filterExited') },
+					]}
+					value={managerFilter}
+					onchange={(id) => {
+						if (id === 'all' || id === 'visible' || id === 'hidden' || id === 'exited') {
+							managerFilter = id;
+						}
+					}}
+					size="sm"
+				/>
+			</div>
+			<div class="flex flex-wrap items-center gap-2">
+				<label class="flex cursor-pointer items-center gap-1.5 text-caption text-muted-foreground">
+					<input
+						type="checkbox"
+						class="h-4 w-4 accent-primary"
+						checked={allFilteredSelected}
+						disabled={selectableIds.length === 0}
+						onchange={(e) => toggleSelectFiltered(e.currentTarget.checked)}
+					/>
+					{t('pty.ptyPanel.selectAll')}
+				</label>
+				<span class="text-micro text-muted-foreground">
+					{t('pty.ptyPanel.selectedCount', { count: selectedLive.length })}
+				</span>
+				<span class="flex-1"></span>
+				<Button
+					size="sm"
+					variant="ghost"
+					disabled={exitedMine.length === 0}
+					onclick={() => closeAllExited()}
+				>
+					{t('pty.ptyPanel.closeAllExited')}
+				</Button>
+			</div>
+			<div class="flex max-h-96 flex-col gap-3 overflow-y-auto">
+				{#if visibleRows.length === 0 && hiddenRows.length === 0 && exitedRows.length === 0 && shownForeignGroups.length === 0}
+					<p class="text-caption text-muted-foreground">{t('pty.ptyPanel.attachEmpty')}</p>
+				{/if}
+				{#if showVisibleSection}
+					{@render managerSection(t('pty.ptyPanel.sectionVisible'), visibleRows, false)}
+				{/if}
+				{#if showHiddenSection}
+					{@render managerSection(t('pty.ptyPanel.attachSectionMine'), hiddenRows, false)}
+				{/if}
+				{#if showExitedSection}
+					{@render managerSection(t('pty.ptyPanel.sectionExited'), exitedRows, false)}
+				{/if}
+				{#each shownForeignGroups as group (group.repo)}
 					<div class="flex flex-col gap-1.5">
 						<p
 							class="truncate text-micro font-medium uppercase tracking-wide text-muted-foreground"
@@ -537,20 +789,41 @@
 							{t('pty.ptyPanel.attachSectionOthers')} · {group.repo}
 						</p>
 						{#each group.sessions as session (session.id)}
-							{@render attachRow(session, true)}
+							{@render managerRow(session, true)}
 						{/each}
 					</div>
-				{/if}
-			{/each}
+				{/each}
+			</div>
 		</div>
+		{#snippet footer()}
+			<div class="flex flex-wrap items-center gap-2">
+				<span class="text-micro text-muted-foreground">
+					{t('pty.ptyPanel.selectedCount', { count: selectedLive.length })}
+				</span>
+				<span class="flex-1"></span>
+				<Button size="sm" variant="ghost" disabled={selectedLive.length === 0} onclick={() => showSelected()}>
+					{t('pty.ptyPanel.showSelected')}
+				</Button>
+				<Button size="sm" variant="ghost" disabled={selectedLive.length === 0} onclick={() => hideSelected()}>
+					{t('pty.ptyPanel.hideSelected')}
+				</Button>
+				<Button size="sm" variant="outline" disabled={selectedLive.length === 0} onclick={() => closeSelected()}>
+					{t('pty.ptyPanel.closeSelected')}
+				</Button>
+			</div>
+		{/snippet}
 	</Dialog>
 {/snippet}
 
 {#snippet closeConfirmDialog()}
 	<Dialog
 		bind:open={closeConfirmOpen}
-		title={t('pty.ptyPanel.closeConfirmTitle')}
-		description={t('pty.ptyPanel.closeConfirmBody')}
+		title={closeConfirmIds.length > 1
+			? t('pty.ptyPanel.batchCloseTitle', { count: closeConfirmIds.length })
+			: t('pty.ptyPanel.closeConfirmTitle')}
+		description={closeConfirmIds.length > 1
+			? t('pty.ptyPanel.batchCloseBody', { count: closeConfirmIds.length })
+			: t('pty.ptyPanel.closeConfirmBody')}
 		onclose={cancelClose}
 	>
 		<div class="flex justify-end gap-2">
@@ -632,7 +905,11 @@
 		<div class="flex h-full min-h-0 flex-col gap-1">
 			{#if attached.length === 0}
 				{#if store.sessions.length === 0}
-					{@render emptyState()}
+					{#if store.hasStoredRecord}
+						{@render allClosedState()}
+					{:else}
+						{@render emptyState()}
+					{/if}
 				{:else}
 					{@render allDetachedState()}
 				{/if}
@@ -655,7 +932,11 @@
 		>
 			{#if attached.length === 0}
 				{#if store.sessions.length === 0}
-					{@render emptyState()}
+					{#if store.hasStoredRecord}
+						{@render allClosedState()}
+					{:else}
+						{@render emptyState()}
+					{/if}
 				{:else}
 					{@render allDetachedState()}
 				{/if}
@@ -692,6 +973,6 @@
 			{/if}
 		</Card>
 	{/if}
-	{@render attachDialog()}
+	{@render managerDialog()}
 	{@render closeConfirmDialog()}
 </div>

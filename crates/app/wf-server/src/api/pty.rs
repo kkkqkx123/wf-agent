@@ -36,16 +36,37 @@ pub(crate) enum PtySessionStatus {
     Exited,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum PtyTitleSource {
+    Default,
+    Auto,
+    Manual,
+}
+
+impl From<PtyTitleSource> for wf_api::pty::PtyTitleSource {
+    fn from(value: PtyTitleSource) -> Self {
+        match value {
+            PtyTitleSource::Default => Self::Default,
+            PtyTitleSource::Auto => Self::Auto,
+            PtyTitleSource::Manual => Self::Manual,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub(crate) struct PtySession {
     pub id: String,
     pub cwd: String,
     pub title: String,
+    pub title_source: PtyTitleSource,
     pub status: PtySessionStatus,
     pub exit_code: Option<i32>,
     pub pid: Option<u32>,
     pub rows: u16,
     pub cols: u16,
+    pub created_at: i64,
+    pub last_activity: i64,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -60,6 +81,8 @@ pub(crate) struct CreatePtyBody {
     cols: Option<u16>,
     #[serde(default)]
     title: Option<String>,
+    #[serde(default)]
+    title_source: Option<PtyTitleSource>,
     /// Environment overrides for the spawned process, applied as-is.
     #[serde(default)]
     env: Option<std::collections::BTreeMap<String, String>>,
@@ -79,6 +102,8 @@ pub(crate) struct UpdatePtyBody {
     #[serde(default)]
     title: Option<String>,
     #[serde(default)]
+    title_source: Option<PtyTitleSource>,
+    #[serde(default)]
     rows: Option<u32>,
     #[serde(default)]
     cols: Option<u32>,
@@ -95,6 +120,7 @@ pub(crate) async fn handle_create_pty(
         rows: None,
         cols: None,
         title: None,
+        title_source: None,
         env: None,
     });
     let params = wf_api::pty::PtyCreateParams {
@@ -103,6 +129,7 @@ pub(crate) async fn handle_create_pty(
         rows: body.rows,
         cols: body.cols,
         title: body.title,
+        title_source: body.title_source.map(wf_api::pty::PtyTitleSource::from),
         env: body.env,
     };
     match wf_api::pty::create_pty_session(&state.ctx, params) {
@@ -151,6 +178,7 @@ pub(crate) async fn handle_update_pty(
     let _ = state;
     let body = body.map(|b| b.0).unwrap_or(UpdatePtyBody {
         title: None,
+        title_source: None,
         rows: None,
         cols: None,
     });
@@ -159,6 +187,7 @@ pub(crate) async fn handle_update_pty(
         body.title,
         body.rows.map(|v| v.min(u16::MAX as u32) as u16),
         body.cols.map(|v| v.min(u16::MAX as u32) as u16),
+        body.title_source.map(wf_api::pty::PtyTitleSource::from),
     ) {
         Ok(view) => ok(view).into_response(),
         Err(err) => error_response(err.into()),

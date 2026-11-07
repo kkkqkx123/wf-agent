@@ -234,6 +234,7 @@
 				if (!writer) return;
 				writer.push(chunk);
 				cursor += byteLength(chunk);
+				store.reportOutput(sessionId);
 			},
 			onExit: () => {
 				markExited();
@@ -428,15 +429,23 @@
 			scheduleResize(size.rows, size.cols);
 		});
 		const onTermData = term.onData((data: string) => {
+			store.reportInput(sessionId);
 			sendInput(data);
 		});
 		const onTermBinary = term.onBinary((data: string) => {
+			store.reportInput(sessionId);
 			sendInput(data);
+		});
+		// Process-reported titles (OSC 0/2) flow into the shared title
+		// unless the user renamed the session manually.
+		const onTermTitle = term.onTitleChange((title: string) => {
+			store.adoptAutoTitle(sessionId, title);
 		});
 		onDestroy(() => {
 			onTermResize.dispose();
 			onTermData.dispose();
 			onTermBinary.dispose();
+			onTermTitle.dispose();
 			window.removeEventListener('resize', handleWindowResize);
 			container.removeEventListener('copy', handleCopy, true);
 			container.removeEventListener('paste', handlePaste, true);

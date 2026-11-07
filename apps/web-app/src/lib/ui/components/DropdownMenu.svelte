@@ -4,7 +4,7 @@
 	import type { IconName } from '../icons/paths';
 	import IconButton from './IconButton.svelte';
 	import FloatingPanel from './FloatingPanel.svelte';
-	import type { FloatingCloseReason } from './FloatingPanel.svelte';
+	import type { FloatingCloseReason } from '../floating';
 	import { cn } from '../cn';
 
 	export interface MenuItem {

@@ -12,6 +12,13 @@ export interface LocalPtySession {
 	id: string;
 	title: string;
 	titleNumber?: number;
+	/** Manual rename wins over process-reported titles until cleared. */
+	manualTitle?: boolean;
+	/** Last server-reported activity clock, refreshed by list/get/attach. */
+	updatedAt?: number;
+	/** Local input/output clocks for the busy/idle heuristic; transient. */
+	lastInputAt?: number;
+	lastOutputAt?: number;
 	origin?: {
 		cwd?: string;
 		command?: string;
@@ -37,6 +44,8 @@ const MAX_PERSIST_BUFFER_BYTES = PTY_REPLAY_BUDGET_BYTES;
 const MAX_VIEWPORT_EDGE = 4096;
 const PERSIST_SCHEMA_VERSION = 1;
 const MAX_TITLE_LENGTH = 120;
+/** Idle threshold for the busy/idle heuristic (an estimate, not a task signal). */
+export const PTY_BUSY_IDLE_MS = 45_000;
 const MAX_TITLE_NUMBER = 10_000;
 const MAX_CURSOR_VALUE = 64 * 1024 * 1024;
 const MAX_ENV_VARS = 64;
@@ -132,6 +141,10 @@ function validTitle(value: unknown, fallback: string): string {
 	return raw.length > MAX_TITLE_LENGTH ? raw.slice(0, MAX_TITLE_LENGTH) : raw;
 }
 
+function validManualTitle(value: unknown): boolean | undefined {
+	return value === true ? true : undefined;
+}
+
 function validTitleNumber(value: unknown): number | undefined {
 	return typeof value === 'number' &&
 		Number.isSafeInteger(value) &&
@@ -185,6 +198,7 @@ function validatePersistedSession(raw: unknown): LocalPtySession | null {
 	if (item.v !== undefined && item.v !== PERSIST_SCHEMA_VERSION) return null;
 	const title = validTitle(item.title, item.id);
 	const numbered = validTitleNumber(item.titleNumber) ?? parseTitleNumber(title);
+	const manualTitle = validManualTitle(item.manualTitle);
 	let buffer = typeof item.buffer === 'string' ? item.buffer : undefined;
 	let scrollY = validNonNegativeInt(item.scrollY);
 	if (buffer !== undefined) {
@@ -202,6 +216,7 @@ function validatePersistedSession(raw: unknown): LocalPtySession | null {
 		id: item.id,
 		title,
 		...(numbered ? { titleNumber: numbered } : {}),
+		...(manualTitle ? { manualTitle } : {}),
 		...(origin ? { origin } : {}),
 		...(rows !== undefined ? { rows } : {}),
 		...(cols !== undefined ? { cols } : {}),
@@ -579,6 +594,7 @@ export class PtySessionStore {
 					rows: options?.rows ?? this.lastViewport?.rows,
 					cols: options?.cols ?? this.lastViewport?.cols,
 					title,
+					title_source: 'default',
 				});
 				// Server ids are never reused, but a reused id must not turn into
 				// an unusable tab: release it on the server and report failure.
@@ -586,10 +602,14 @@ export class PtySessionStore {
 					await closePty(view.id).catch(() => {});
 					return null;
 				}
+				const now = Date.now();
 				const session: LocalPtySession = {
 					id: view.id,
 					title: view.title || title,
 					titleNumber: number,
+					updatedAt: view.last_activity ?? now,
+					lastInputAt: now,
+					lastOutputAt: now,
 					origin:
 						options?.cwd !== undefined ||
 						options?.command !== undefined ||
@@ -624,12 +644,15 @@ export class PtySessionStore {
 			const view = await getPty(id);
 			const existing = this.byId(id);
 			if (existing) {
+				const manual = existing.manualTitle === true || view.title_source === 'manual';
 				this.patch(id, {
 					rows: view.rows,
 					cols: view.cols,
 					status: view.status,
 					exitCode: view.exit_code ?? undefined,
-					title: view.title || existing.title,
+					title: manual && existing.title ? existing.title : view.title || existing.title,
+					...(manual ? { manualTitle: true as const } : {}),
+					updatedAt: view.last_activity ?? Date.now(),
 				});
 			} else {
 				if (this.sessions.length >= MAX_TERMINAL_SESSIONS) {
@@ -643,6 +666,9 @@ export class PtySessionStore {
 						id: view.id,
 						title: `Terminal ${number}`,
 						titleNumber: number,
+						updatedAt: view.last_activity ?? Date.now(),
+						lastInputAt: Date.now(),
+						lastOutputAt: Date.now(),
 						rows: view.rows,
 						cols: view.cols,
 						status: view.status,
@@ -674,11 +700,82 @@ export class PtySessionStore {
 		const current = this.byId(id);
 		if (!trimmed || !current || current.title === trimmed) return;
 		const previous = current.title;
-		this.patch(id, { title: trimmed });
+		const wasManual = current.manualTitle === true;
+		this.patch(id, { title: trimmed, manualTitle: true });
 		this.schedulePersist();
-		void updatePty(id, { title: trimmed }).catch(() => {
-			if (this.byId(id)) this.patch(id, { title: previous });
+		void updatePty(id, { title: trimmed, title_source: 'manual' }).catch(() => {
+			if (this.byId(id)) this.patch(id, { title: previous, manualTitle: wasManual || undefined });
 		});
+	}
+
+	/** Clear the manual flag so process-reported titles apply again. */
+	clearManualTitle(id: string): void {
+		const current = this.byId(id);
+		if (!current || current.manualTitle !== true) return;
+		this.patch(id, { manualTitle: undefined });
+		this.schedulePersist();
+	}
+
+	/**
+	 * Accept a process-reported title (OSC title sequence observed by the
+	 * terminal view). Ignored once the user renamed the session manually.
+	 */
+	adoptAutoTitle(id: string, title: string): void {
+		const current = this.byId(id);
+		if (!current || this.isRemoved(id) || current.manualTitle === true) return;
+		const trimmed = title.trim();
+		if (!trimmed || current.title === trimmed) return;
+		const clean = trimmed.length > MAX_TITLE_LENGTH ? trimmed.slice(0, MAX_TITLE_LENGTH) : trimmed;
+		const previous = current.title;
+		this.patch(id, { title: clean });
+		this.schedulePersist();
+		void updatePty(id, { title: clean, title_source: 'auto' })
+			.then((view) => {
+				if (!this.byId(id)) return;
+				this.patch(id, {
+					title: view.title || clean,
+					...(view.title_source === 'manual' ? { manualTitle: true as const } : {}),
+					updatedAt: view.last_activity ?? Date.now(),
+				});
+				this.schedulePersist();
+			})
+			.catch(() => {
+				if (this.byId(id)) this.patch(id, { title: previous });
+			});
+	}
+
+	/** Record user input for the busy/idle heuristic. */
+	reportInput(id: string): void {
+		if (!this.byId(id) || this.isRemoved(id)) return;
+		this.patch(id, { lastInputAt: Date.now() });
+	}
+
+	/** Record terminal output for the busy/idle heuristic. */
+	reportOutput(id: string): void {
+		if (!this.byId(id) || this.isRemoved(id)) return;
+		this.patch(id, { lastOutputAt: Date.now() });
+	}
+
+	/** Latest known activity clock (local input/output or server report). */
+	lastActiveAt(id: string): number {
+		const session = this.byId(id);
+		if (!session) return 0;
+		return Math.max(
+			session.lastInputAt ?? 0,
+			session.lastOutputAt ?? 0,
+			session.updatedAt ?? 0,
+			0,
+		);
+	}
+
+	/**
+	 * Busy/idle estimate for running sessions. Idle only means no recent
+	 * input or output was observed; it never claims a task finished.
+	 */
+	isBusy(id: string, now: number = Date.now()): boolean {
+		const session = this.byId(id);
+		if (!session || session.status === 'exited') return false;
+		return now - this.lastActiveAt(id) < PTY_BUSY_IDLE_MS;
 	}
 
 	/** Push viewport size to the server; local state updates immediately. */
@@ -737,10 +834,10 @@ export class PtySessionStore {
 	async reconcile(): Promise<void> {
 		if (!this.repo || this.sessions.length === 0) return;
 		const startingIds = new Set(this.sessions.map((s) => s.id));
-		let serverIds: SvelteSet<string>;
+		let serverById: Map<string, PtySession>;
 		try {
 			const list = await listPtys();
-			serverIds = new SvelteSet(list.map((s) => s.id));
+			serverById = new Map(list.map((s) => [s.id, s]));
 		} catch {
 			return;
 		}
@@ -756,8 +853,21 @@ export class PtySessionStore {
 				kept.push(s);
 				continue;
 			}
-			if (serverIds.has(s.id)) {
-				kept.push(s);
+			if (serverById.has(s.id)) {
+				const view = serverById.get(s.id)!;
+				const manual = s.manualTitle === true || view.title_source === 'manual';
+				const title = manual && s.title ? s.title : view.title || s.title;
+				if (view.last_activity !== s.updatedAt || title !== s.title) {
+					kept.push({
+						...s,
+						title,
+						...(manual ? { manualTitle: true as const } : {}),
+						updatedAt: view.last_activity ?? s.updatedAt,
+					});
+					changed = true;
+				} else {
+					kept.push(s);
+				}
 				continue;
 			}
 			if (s.buffer) {
@@ -784,10 +894,13 @@ export class PtySessionStore {
 	syncMetaFromServer(id: string, meta: PtySession): void {
 		const existing = this.byId(id);
 		if (!existing || this.isRemoved(id)) return;
+		const manual = existing.manualTitle === true || meta.title_source === 'manual';
 		this.patch(id, {
 			status: meta.status,
 			exitCode: meta.exit_code ?? undefined,
-			title: meta.title || existing.title,
+			title: manual && existing.title ? existing.title : meta.title || existing.title,
+			...(manual ? { manualTitle: true as const } : {}),
+			updatedAt: meta.last_activity ?? Date.now(),
 			buffer: undefined,
 			scrollY: undefined,
 		});
@@ -824,6 +937,7 @@ export class PtySessionStore {
 			if (!replacement) return;
 			this.patch(replacement.id, {
 				title: previous.title,
+				...(previous.manualTitle === true ? { manualTitle: true as const } : {}),
 				titleNumber: previous.titleNumber ?? replacement.titleNumber,
 				buffer: previous.buffer,
 				scrollY: previous.scrollY,
@@ -841,7 +955,13 @@ export class PtySessionStore {
 	private persistNow(): void {
 		if (!this.repo) return;
 		try {
-			const versioned = this.sessions.map((s) => ({ ...s, v: PERSIST_SCHEMA_VERSION }));
+			// Transient activity clocks never hit storage; the server clock
+			// is refreshed by reconcile on the next open.
+			const versioned = this.sessions.map((s) => {
+				const { lastInputAt: _input, lastOutputAt: _output, updatedAt: _updated, ...rest } =
+					s;
+				return { ...rest, v: PERSIST_SCHEMA_VERSION };
+			});
 			const payload = {
 				v: PERSIST_SCHEMA_VERSION,
 				sessions: versioned,

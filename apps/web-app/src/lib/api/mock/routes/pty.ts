@@ -15,7 +15,12 @@ import {
 export function registerPty(router: MockRouter): void {
 	// ---------- pty ----------
 	router.on('POST', '/api/v1/pty', (_p, _q, body) => {
-		const b = (body ?? {}) as { rows?: number; cols?: number; title?: string };
+		const b = (body ?? {}) as {
+			rows?: number;
+			cols?: number;
+			title?: string;
+			title_source?: 'default' | 'auto' | 'manual';
+		};
 		return createSession(b);
 	});
 	router.on('GET', '/api/v1/pty', () => listSessions());
@@ -30,9 +35,14 @@ export function registerPty(router: MockRouter): void {
 		if (!getSession(params.id)) {
 			return mockError(404, 'NOT_FOUND', `PTY session not found: ${params.id}`);
 		}
-		const b = (body ?? {}) as { rows?: number; cols?: number; title?: string };
+		const b = (body ?? {}) as {
+			rows?: number;
+			cols?: number;
+			title?: string;
+			title_source?: 'default' | 'auto' | 'manual';
+		};
 		resizeSession(params.id, b.rows, b.cols);
-		renameSession(params.id, b.title);
+		renameSession(params.id, b.title, b.title_source);
 		return getSession(params.id);
 	});
 	router.on('DELETE', '/api/v1/pty/{id}', (params) => {

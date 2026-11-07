@@ -16,7 +16,6 @@ export { default as Dialog } from './components/Dialog.svelte';
 export { default as DiffView } from './components/DiffView.svelte';
 export { default as DropdownMenu } from './components/DropdownMenu.svelte';
 export { default as FloatingPanel } from './components/FloatingPanel.svelte';
-export type { FloatingCloseReason } from './components/FloatingPanel.svelte';
 export * from './floating';
 export { default as EmptyState } from './components/EmptyState.svelte';
 export { default as ErrorState } from './components/ErrorState.svelte';

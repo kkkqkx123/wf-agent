@@ -2,7 +2,7 @@
 	import { tick } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import { cn } from '../cn';
-	import { resolveFloatingPosition, type FloatingAlign, type FloatingSide } from '../floating';
+	import { resolveFloatingPosition, type FloatingAlign, type FloatingCloseReason, type FloatingSide } from '../floating';
 
 	/**
 	 * Body-teleported floating layer shared by pickers, menus and any
@@ -10,9 +10,7 @@
 	 * clear of ancestor overflow and stacking contexts, while the shared
 	 * resolver keeps flip and clamp behavior identical everywhere.
 	 */
-	export type FloatingCloseReason = 'outside' | 'escape';
-
-	interface Props {
+		interface Props {
 		/** Trigger the panel is anchored to; position follows it. */
 		anchor?: HTMLElement | null;
 		/** Render and position the panel while true. */

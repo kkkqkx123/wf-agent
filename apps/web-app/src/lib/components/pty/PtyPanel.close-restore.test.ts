@@ -20,10 +20,13 @@ interface FakePty {
 	id: string;
 	cwd: string;
 	title: string;
+	title_source: 'default' | 'auto' | 'manual';
 	status: 'running' | 'exited';
 	exit_code: number | null;
 	rows: number;
 	cols: number;
+	created_at: number;
+	last_activity: number;
 }
 
 const server = new Map<string, FakePty>();
@@ -41,10 +44,13 @@ vi.mock('#lib/services/pty', () => ({
 			id: `pty-close-restore-${seq}`,
 			cwd: '/test',
 			title: input.title ?? `Terminal ${seq}`,
+			title_source: 'default',
 			status: 'running',
 			exit_code: null,
 			rows: 24,
 			cols: 80,
+			created_at: Date.now(),
+			last_activity: Date.now(),
 		};
 		server.set(session.id, { ...session });
 		return { ...session };
@@ -60,15 +66,28 @@ vi.mock('#lib/services/pty', () => ({
 		return { ...session };
 	}),
 	updatePty: vi.fn(
-		async (id: string, patch: { title?: string; rows?: number; cols?: number }) => {
+		async (
+			id: string,
+			patch: { title?: string; title_source?: FakePty['title_source']; rows?: number; cols?: number },
+		) => {
 			await delay(30);
 			const session = server.get(id);
 			if (!session) throw new Error(`PTY session not found: ${id}`);
 			const next = {
 				...session,
-				title: patch.title ?? session.title,
+				title:
+									patch.title !== undefined &&
+									(patch.title_source !== 'auto' || session.title_source !== 'manual')
+										? patch.title
+										: session.title,
+				title_source:
+									patch.title !== undefined &&
+									(patch.title_source !== 'auto' || session.title_source !== 'manual')
+										? (patch.title_source ?? 'manual')
+										: session.title_source,
 				rows: patch.rows ?? session.rows,
 				cols: patch.cols ?? session.cols,
+				last_activity: Date.now(),
 			};
 			server.set(id, next);
 			return { ...next };
@@ -208,10 +227,13 @@ describe('persisted-list restore windows', () => {
 			id: first!.id,
 			cwd: '/test',
 			title: first!.title,
+			title_source: 'default',
 			status: 'running',
 			exit_code: null,
 			rows: 24,
 			cols: 80,
+			created_at: Date.now(),
+			last_activity: Date.now(),
 		});
 		await store.adopt(first!.id);
 		expect(store.sessions.length).toBe(0);
@@ -234,10 +256,13 @@ describe('persisted-list restore windows', () => {
 			id: first!.id,
 			cwd: '/test',
 			title: first!.title,
+			title_source: 'default',
 			status: 'exited',
 			exit_code: 0,
 			rows: 24,
 			cols: 80,
+			created_at: Date.now(),
+			last_activity: Date.now(),
 		});
 
 		// Late teardown writes against the stale object stay suppressed:
@@ -248,10 +273,13 @@ describe('persisted-list restore windows', () => {
 			id: first!.id,
 			cwd: '/test',
 			title: first!.title,
+			title_source: 'default',
 			status: 'exited',
 			exit_code: 0,
 			rows: 24,
 			cols: 80,
+			created_at: Date.now(),
+			last_activity: Date.now(),
 			pid: 1,
 		} as PtySession);
 		expect(stale.byId(first!.id)?.status).toBe('running');
@@ -303,10 +331,13 @@ describe('tombstone hardening', () => {
 			id: first!.id,
 			cwd: '/test',
 			title: first!.title,
+			title_source: 'default',
 			status: 'running',
 			exit_code: null,
 			rows: 24,
 			cols: 80,
+			created_at: Date.now(),
+			last_activity: Date.now(),
 		});
 		await stale.reconcile();
 		expect(stale.sessions.map((s) => s.id)).toEqual([second!.id]);
@@ -328,10 +359,13 @@ describe('tombstone hardening', () => {
 			id: victim!.id,
 			cwd: '/test',
 			title: victim!.title,
+			title_source: 'default',
 			status: 'running',
 			exit_code: null,
 			rows: 24,
 			cols: 80,
+			created_at: Date.now(),
+			last_activity: Date.now(),
 		});
 		expect(await store.spawn({})).toBeNull();
 		expect(store.byId(victim!.id)).toBeUndefined();

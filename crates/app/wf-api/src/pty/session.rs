@@ -21,6 +21,7 @@ pub struct PtyCreateParams {
     pub rows: Option<u16>,
     pub cols: Option<u16>,
     pub title: Option<String>,
+    pub title_source: Option<super::state::PtyTitleSource>,
     /// Environment overrides for the spawned process, applied as-is. Any
     /// caller holding the API key can already spawn a login shell as the
     /// server user, so filtering variables would only block legitimate
@@ -39,6 +40,7 @@ pub fn create_with_context(
         rows,
         cols,
         title,
+        title_source,
         env,
     } = params;
     let rows = rows.unwrap_or(24).max(1);
@@ -100,6 +102,9 @@ pub fn create_with_context(
         id: id.clone(),
         cwd: cwd_path.to_string_lossy().to_string(),
         title: Mutex::new(title.unwrap_or_default()),
+        title_source: Mutex::new(
+            title_source.unwrap_or(super::state::PtyTitleSource::Default),
+        ),
         status: Mutex::new(PtySessionStatus::Running),
         exit_code: Mutex::new(None),
         pid,
@@ -270,18 +275,27 @@ pub fn session_view(state: &PtyState) -> PtySession {
         id: state.id.clone(),
         cwd: state.cwd.clone(),
         title: lock(&state.title).clone(),
+        title_source: *lock(&state.title_source),
         status: *lock(&state.status),
         exit_code: *lock(&state.exit_code),
         pid: Some(state.pid),
         rows: *lock(&state.rows),
         cols: *lock(&state.cols),
+        created_at: state.created_at,
+        last_activity: state
+            .last_activity
+            .load(std::sync::atomic::Ordering::Relaxed),
     }
 }
 
 pub fn list_sessions(inner: &Mutex<super::state::ManagerInner>) -> Vec<PtySession> {
     let mgr = lock_inner(inner);
     let mut out: Vec<PtySession> = mgr.sessions.values().map(|s| session_view(s)).collect();
-    out.sort_by(|a, b| a.id.cmp(&b.id));
+    out.sort_by(|a, b| {
+        a.created_at
+            .cmp(&b.created_at)
+            .then_with(|| a.id.cmp(&b.id))
+    });
     out
 }
 
@@ -304,14 +318,26 @@ pub fn update_session(
     title: Option<String>,
     rows: Option<u16>,
     cols: Option<u16>,
+    title_source: Option<super::state::PtyTitleSource>,
 ) -> PtyResult<PtySession> {
+    use super::state::PtyTitleSource;
     let state = lookup(inner, id)?;
     if let Some(title) = title {
         let trimmed = title.trim().to_string();
         if trimmed.is_empty() {
             return Err(PtyError::Invalid("pty title must not be empty".to_string()));
         }
-        *lock(&state.title) = trimmed;
+        // A process-reported title never overwrites a manual rename. The
+        // caller omitting the source keeps the previous manual behavior.
+        let source = title_source.unwrap_or(PtyTitleSource::Manual);
+        if source == PtyTitleSource::Auto && *lock(&state.title_source) == PtyTitleSource::Manual
+        {
+            // Fall through to the viewport update and touch below so a
+            // stale auto report never blocks an unrelated resize.
+        } else {
+            *lock(&state.title) = trimmed;
+            *lock(&state.title_source) = source;
+        }
     }
     if rows.is_some() || cols.is_some() {
         let rows = rows.unwrap_or(*lock(&state.rows)).max(1);

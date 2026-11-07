@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use serde_json::Value;
 use wf_types::agent::AgentTemplate;
 use wf_types::tool::Tool as ToolDef;
 use wf_types::tool_description::ToolDescriptionData;
@@ -81,4 +82,28 @@ pub trait ContributionRegistrar {
         name: &str,
         advisor: Arc<dyn PluginCompactionAdvisor>,
     ) -> PluginResult<()>;
+    /// Reserve a deferred full-text analyzer; `name` selects the analyzer.
+    /// Stage 3 reservation only; the host owns backend translation.
+    fn register_text_analyzer(
+        &mut self,
+        name: &str,
+        analyzer: Arc<dyn PluginTextAnalyzer>,
+    ) -> PluginResult<()>;
+    /// Reserve deferred retrieval shaping advice; `name` selects the
+    /// grouping, fusion or rerank policy. Stage 4 reservation only.
+    fn register_retrieval_advisor(
+        &mut self,
+        name: &str,
+        advisor: Arc<dyn PluginRetrievalAdvisor>,
+    ) -> PluginResult<()>;
+    /// Reserve a deferred sparse or multi-vector encoder. Stage 5
+    /// reservation only; the host owns storage and dimension checks.
+    fn register_vector_encoding(
+        &mut self,
+        name: &str,
+        encoding: Arc<dyn PluginVectorEncoding>,
+    ) -> PluginResult<()>;
+    /// Declare deferred snapshot expectations as JSON. Stage 6 reservation
+    /// only; execution stays host-owned.
+    fn register_snapshot_policy(&mut self, name: &str, policy: Value) -> PluginResult<()>;
 }

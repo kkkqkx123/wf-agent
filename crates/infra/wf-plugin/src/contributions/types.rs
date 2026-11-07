@@ -7,7 +7,8 @@ pub use wf_plugin_sdk::contributions::{
     PluginAuthEvent, PluginAuthNext, PluginAuthOption, PluginAuthPrompt, PluginCompactionAdvisor,
     PluginEventData, PluginEventHandler, PluginExecutionContext, PluginLlmAuth, PluginLlmCodec,
     PluginLlmImages, PluginLoginChallenge, PluginLoginStep, PluginMiddlewareHandler,
-    PluginNodeHandler, PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult,
+    PluginNodeHandler, PluginNodeResult, PluginRetrievalAdvisor, PluginTextAnalyzer,
+    PluginToolContext, PluginToolExecutor, PluginToolResult, PluginVectorEncoding,
 };
 
 // ============================================================
@@ -44,6 +45,14 @@ pub enum ContributionType {
     /// hook; the engine validates every suggestion and falls back to the
     /// built-in planner on any failure.
     CompactionAdvisor,
+    /// Deferred full-text analyzer (stage 3 reservation, no execution yet).
+    TextAnalyzer,
+    /// Deferred retrieval shaping advice (stage 4 reservation).
+    RetrievalAdvisor,
+    /// Deferred sparse and multi-vector encoders (stage 5 reservation).
+    VectorEncoding,
+    /// Deferred snapshot expectations as declarative JSON (stage 6 reservation).
+    SnapshotPolicy,
 }
 
 impl ContributionType {
@@ -66,6 +75,10 @@ impl ContributionType {
             Self::ToolDescription => "tool-description",
             Self::Tool => "tool",
             Self::CompactionAdvisor => "compaction-advisor",
+            Self::TextAnalyzer => "text-analyzer",
+            Self::RetrievalAdvisor => "retrieval-advisor",
+            Self::VectorEncoding => "vector-encoding",
+            Self::SnapshotPolicy => "snapshot-policy",
         }
     }
 
@@ -88,6 +101,10 @@ impl ContributionType {
             Self::ToolDescription,
             Self::Tool,
             Self::CompactionAdvisor,
+            Self::TextAnalyzer,
+            Self::RetrievalAdvisor,
+            Self::VectorEncoding,
+            Self::SnapshotPolicy,
         ]
     }
 }

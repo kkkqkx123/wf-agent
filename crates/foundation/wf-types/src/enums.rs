@@ -152,6 +152,10 @@ pub enum MiddlewarePhase {
     AfterLlmInvocation,
     BeforeToolExecution,
     AfterToolExecution,
+    BeforeRetrieval,
+    AfterRetrieval,
+    BeforeFusion,
+    AfterRerank,
     OnError,
     OnCheckpoint,
     OnResume,
@@ -173,6 +177,10 @@ impl MiddlewarePhase {
             MiddlewarePhase::AfterLlmInvocation => "after-llm-invocation",
             MiddlewarePhase::BeforeToolExecution => "before-tool-execution",
             MiddlewarePhase::AfterToolExecution => "after-tool-execution",
+            MiddlewarePhase::BeforeRetrieval => "before-retrieval",
+            MiddlewarePhase::AfterRetrieval => "after-retrieval",
+            MiddlewarePhase::BeforeFusion => "before-fusion",
+            MiddlewarePhase::AfterRerank => "after-rerank",
             MiddlewarePhase::OnError => "on-error",
             MiddlewarePhase::OnCheckpoint => "on-checkpoint",
             MiddlewarePhase::OnResume => "on-resume",
@@ -192,6 +200,10 @@ impl From<&str> for MiddlewarePhase {
             "after-llm-invocation" => MiddlewarePhase::AfterLlmInvocation,
             "before-tool-execution" => MiddlewarePhase::BeforeToolExecution,
             "after-tool-execution" => MiddlewarePhase::AfterToolExecution,
+            "before-retrieval" => MiddlewarePhase::BeforeRetrieval,
+            "after-retrieval" => MiddlewarePhase::AfterRetrieval,
+            "before-fusion" => MiddlewarePhase::BeforeFusion,
+            "after-rerank" => MiddlewarePhase::AfterRerank,
             "on-error" => MiddlewarePhase::OnError,
             "on-checkpoint" => MiddlewarePhase::OnCheckpoint,
             "on-resume" => MiddlewarePhase::OnResume,
@@ -223,6 +235,10 @@ impl MiddlewarePhase {
                 | MiddlewarePhase::AfterLlmInvocation
                 | MiddlewarePhase::BeforeToolExecution
                 | MiddlewarePhase::AfterToolExecution
+                | MiddlewarePhase::BeforeRetrieval
+                | MiddlewarePhase::AfterRetrieval
+                | MiddlewarePhase::BeforeFusion
+                | MiddlewarePhase::AfterRerank
                 | MiddlewarePhase::OnError
                 | MiddlewarePhase::OnCheckpoint
                 | MiddlewarePhase::OnResume

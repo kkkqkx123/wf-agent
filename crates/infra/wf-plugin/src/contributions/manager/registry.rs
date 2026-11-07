@@ -43,6 +43,10 @@ pub struct ContributionManager {
     pub(crate) tool_description_registry: Registry<String, Arc<ToolDescriptionData>>,
     pub(crate) tool_registry: Registry<String, Arc<ToolDef>>,
     pub(crate) compaction_advisor_registry: Registry<String, Arc<dyn PluginCompactionAdvisor>>,
+    pub(crate) text_analyzer_registry: Registry<String, Arc<dyn PluginTextAnalyzer>>,
+    pub(crate) retrieval_advisor_registry: Registry<String, Arc<dyn PluginRetrievalAdvisor>>,
+    pub(crate) vector_encoding_registry: Registry<String, Arc<dyn PluginVectorEncoding>>,
+    pub(crate) snapshot_policy_registry: Registry<String, Arc<Value>>,
 }
 
 impl Default for ContributionManager {
@@ -73,6 +77,10 @@ impl ContributionManager {
             tool_description_registry: Registry::new(),
             tool_registry: Registry::new(),
             compaction_advisor_registry: Registry::new(),
+            text_analyzer_registry: Registry::new(),
+            retrieval_advisor_registry: Registry::new(),
+            vector_encoding_registry: Registry::new(),
+            snapshot_policy_registry: Registry::new(),
         }
     }
 
@@ -109,6 +117,11 @@ impl ContributionManager {
         self.tool_registry.unregister_by_plugin(plugin_id);
         self.compaction_advisor_registry
             .unregister_by_plugin(plugin_id);
+        self.text_analyzer_registry.unregister_by_plugin(plugin_id);
+        self.retrieval_advisor_registry
+            .unregister_by_plugin(plugin_id);
+        self.vector_encoding_registry.unregister_by_plugin(plugin_id);
+        self.snapshot_policy_registry.unregister_by_plugin(plugin_id);
     }
 
     // --- Event handler queries (core) ---
@@ -241,6 +254,26 @@ impl ContributionManager {
         for (key, owner) in self.all_compaction_advisors() {
             if owner == plugin_id {
                 records.push((ContributionType::CompactionAdvisor.as_str().into(), key));
+            }
+        }
+        for (key, owner) in self.all_text_analyzers() {
+            if owner == plugin_id {
+                records.push((ContributionType::TextAnalyzer.as_str().into(), key));
+            }
+        }
+        for (key, owner) in self.all_retrieval_advisors() {
+            if owner == plugin_id {
+                records.push((ContributionType::RetrievalAdvisor.as_str().into(), key));
+            }
+        }
+        for (key, owner) in self.all_vector_encodings() {
+            if owner == plugin_id {
+                records.push((ContributionType::VectorEncoding.as_str().into(), key));
+            }
+        }
+        for (key, owner) in self.all_snapshot_policies() {
+            if owner == plugin_id {
+                records.push((ContributionType::SnapshotPolicy.as_str().into(), key));
             }
         }
         let mut seen = std::collections::BTreeSet::new();

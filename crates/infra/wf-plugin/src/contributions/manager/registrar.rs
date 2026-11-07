@@ -277,6 +277,66 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
             .register(name.into(), plugin_id, advisor);
         Ok(())
     }
+    fn register_text_analyzer(
+        &mut self,
+        name: &str,
+        analyzer: Arc<dyn PluginTextAnalyzer>,
+    ) -> PluginResult<()> {
+        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
+        self.validate(&plugin_id, ContributionType::TextAnalyzer, name)?;
+        self.manager
+            .check_conflict(ContributionType::TextAnalyzer.as_str(), name, || {
+                self.manager.text_analyzer_registry.get_owner(name)
+            })?;
+        self.manager
+            .text_analyzer_registry
+            .register(name.into(), plugin_id, analyzer);
+        Ok(())
+    }
+    fn register_retrieval_advisor(
+        &mut self,
+        name: &str,
+        advisor: Arc<dyn PluginRetrievalAdvisor>,
+    ) -> PluginResult<()> {
+        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
+        self.validate(&plugin_id, ContributionType::RetrievalAdvisor, name)?;
+        self.manager
+            .check_conflict(ContributionType::RetrievalAdvisor.as_str(), name, || {
+                self.manager.retrieval_advisor_registry.get_owner(name)
+            })?;
+        self.manager
+            .retrieval_advisor_registry
+            .register(name.into(), plugin_id, advisor);
+        Ok(())
+    }
+    fn register_vector_encoding(
+        &mut self,
+        name: &str,
+        encoding: Arc<dyn PluginVectorEncoding>,
+    ) -> PluginResult<()> {
+        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
+        self.validate(&plugin_id, ContributionType::VectorEncoding, name)?;
+        self.manager
+            .check_conflict(ContributionType::VectorEncoding.as_str(), name, || {
+                self.manager.vector_encoding_registry.get_owner(name)
+            })?;
+        self.manager
+            .vector_encoding_registry
+            .register(name.into(), plugin_id, encoding);
+        Ok(())
+    }
+    fn register_snapshot_policy(&mut self, name: &str, policy: Value) -> PluginResult<()> {
+        let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
+        self.validate(&plugin_id, ContributionType::SnapshotPolicy, name)?;
+        self.manager
+            .check_conflict(ContributionType::SnapshotPolicy.as_str(), name, || {
+                self.manager.snapshot_policy_registry.get_owner(name)
+            })?;
+        self.manager
+            .snapshot_policy_registry
+            .register(name.into(), plugin_id, Arc::new(policy));
+        Ok(())
+    }
     fn register_middleware(
         &mut self,
         phase: MiddlewarePhase,

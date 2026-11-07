@@ -360,6 +360,51 @@ pub trait PluginCompactionAdvisor: Send + Sync {
     fn advise(&self, input: Value) -> PluginResult<Value>;
 }
 
+// ── retrieval extension reservations (trigger-based, no execution yet) ──
+// These traits reserve the plugin shapes for the deferred vector batches:
+// stage 3 full-text, stage 4 retrieval shaping, stage 5 vector encodings.
+// The host owns translation and validation; implementations stay
+// synchronous and side-effect free so the default chain never changes.
+/// Plugin-contributed text analyzer for deferred full-text filters.
+///
+/// Pure tokenize and normalize hook: the host applies one analyzer
+/// definition to memory scans, embedded scans and server text index configuration so
+/// the three backends stay consistent. Network access is forbidden.
+pub trait PluginTextAnalyzer: Send + Sync {
+    /// Analyzer name referenced by a filter policy.
+    fn name(&self) -> String;
+    /// Split `text` into search tokens; empty output matches nothing.
+    fn analyze(&self, text: String) -> PluginResult<Vec<String>>;
+}
+
+/// Plugin-contributed retrieval shaping advice for deferred grouping,
+/// recommend, prefetch fusion and sorting inputs.
+///
+/// Pure shaping hook following the compaction advisor pattern: input
+/// carries a read-only snapshot of candidate lists as JSON, output
+/// carries the fused, grouped or reordered suggestion as JSON. Returning
+/// an empty suggestion defers to the built-in path. Every suggestion is
+/// validated by the engine, so unknown ids and out-of-range ranks never
+/// reach execution. Implementations must stay synchronous.
+pub trait PluginRetrievalAdvisor: Send + Sync {
+    /// Suggest fused, grouped or reordered hits for one retrieval.
+    fn advise(&self, input: Value) -> PluginResult<Value>;
+}
+
+/// Plugin-contributed vector encoding for deferred sparse and
+/// multi-vector shapes.
+///
+/// Pure encoding hook: the host owns the storage contract and dimension
+/// checks, the plugin only maps text plus options to a sparse or
+/// multi-vector JSON shape. Absent encodings keep the dense path
+/// unchanged. Implementations must stay synchronous and side-effect free.
+pub trait PluginVectorEncoding: Send + Sync {
+    /// Encoding name referenced by a collection policy.
+    fn name(&self) -> String;
+    /// Encode `text` with `options` into a sparse or multi-vector JSON shape.
+    fn encode(&self, text: String, options: Value) -> PluginResult<Value>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

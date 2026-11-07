@@ -281,8 +281,12 @@ describe('preview attach-demo seed', () => {
 		expect(first.ids.length).toBe(2);
 		for (const id of first.ids) expect(previewSessionAlive(id)).toBe(true);
 		const raw = localStorage.getItem(`wf.pty.v1.${DEMO_FOREIGN_REPO}`);
-		const records = JSON.parse(raw ?? '[]') as Array<{ id: string }>;
-		expect(records.map((r) => r.id).sort()).toEqual([...first.ids].sort());
+		const payload = JSON.parse(raw ?? '{}') as {
+			sessions?: Array<{ id: string }>;
+			detachedIds?: Array<string>;
+		};
+		expect((payload.sessions ?? []).map((r) => r.id).sort()).toEqual([...first.ids].sort());
+		expect(payload.detachedIds).toEqual([first.ids[1]]);
 
 		const second = seedAttachDemo();
 		expect(second.ids).not.toEqual(first.ids);

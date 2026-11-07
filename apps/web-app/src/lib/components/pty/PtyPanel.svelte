@@ -226,8 +226,7 @@
 
 	/** Detach hides the tab and keeps the server process; reattach from the dialog. */
 	function detachSession(id: string | null | undefined): void {
-		if (!id || !store.byId(id)) return;
-		store.detach(id);
+		if (!id || !store.detach(id)) return;
 		void tick().then(() => focusInstance(store.activeId));
 		toasts.push({
 			title: t('pty.ptyPanel.detachedToastTitle'),
@@ -290,10 +289,10 @@
 			attachMine(id);
 			return;
 		}
-		const record = source.eject(id);
-		if (!record) return;
-		if (!store.ingest(record)) {
-			source.ingest(record);
+		const ejected = source.eject(id);
+		if (!ejected) return;
+		if (!store.ingest(ejected.record, ejected.detached)) {
+			source.ingest(ejected.record, ejected.detached);
 			toasts.error(t('pty.ptyPanel.attach'), t('pty.ptyPanel.targetFull'));
 			return;
 		}
@@ -305,10 +304,10 @@
 		const source = ownerStoreOf(id);
 		if (!source) return;
 		if (source !== store) {
-			const record = source.eject(id);
-			if (!record) return;
-			if (!store.ingest(record)) {
-				source.ingest(record);
+			const ejected = source.eject(id);
+			if (!ejected) return;
+			if (!store.ingest(ejected.record, ejected.detached)) {
+				source.ingest(ejected.record, ejected.detached);
 				toasts.error(t('pty.ptyPanel.attach'), t('pty.ptyPanel.targetFull'));
 				return;
 			}

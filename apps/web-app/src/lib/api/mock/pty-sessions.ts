@@ -116,7 +116,7 @@ export function seedAttachDemo(): { repo: string; ids: string[] } {
 	const second = createSession({ title: 'Demo migration shell', cwd: DEMO_FOREIGN_REPO });
 	lastDemoIds = [first.id, second.id];
 	const firstBuffer = 'service started on :8080\r\nworker pool ready (4/4)\r\n';
-	const records = [
+	const sessions = [
 		{
 			v: 1,
 			id: first.id,
@@ -138,11 +138,11 @@ export function seedAttachDemo(): { repo: string; ids: string[] } {
 			rows: second.rows,
 			cols: second.cols,
 			status: 'running',
-			detached: true,
 		},
 	];
+	const payload = { v: 1, sessions, detachedIds: [second.id] };
 	try {
-		localStorage.setItem(`${DEMO_STORAGE_PREFIX}.${DEMO_FOREIGN_REPO}`, JSON.stringify(records));
+		localStorage.setItem(`${DEMO_STORAGE_PREFIX}.${DEMO_FOREIGN_REPO}`, JSON.stringify(payload));
 		localStorage.setItem(`${DEMO_STORAGE_PREFIX}.${DEMO_FOREIGN_REPO}.active`, first.id);
 	} catch {
 		// Storage unavailable; the sessions still exist server-side.

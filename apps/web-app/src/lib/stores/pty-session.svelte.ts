@@ -12,8 +12,6 @@ export interface LocalPtySession {
 	id: string;
 	title: string;
 	titleNumber?: number;
-	/** Detached sessions keep their server process but hide from every panel tab bar. */
-	detached?: boolean;
 	origin?: {
 		cwd?: string;
 		command?: string;
@@ -198,11 +196,9 @@ function validatePersistedSession(raw: unknown): LocalPtySession | null {
 	const status = validStatus(item.status);
 	const origin = validOrigin(item.origin);
 	const exitCode = validExitCode(item.exitCode);
-	const detached = item.detached === true;
 	return {
 		id: item.id,
 		title,
-		...(detached ? { detached: true as const } : {}),
 		...(numbered ? { titleNumber: numbered } : {}),
 		...(origin ? { origin } : {}),
 		...(rows !== undefined ? { rows } : {}),
@@ -242,28 +238,39 @@ export class PtySessionStore {
 	private spawnQueue: Promise<void> = Promise.resolve();
 	private cloneInFlight = new Set<string>();
 	private connections = new SvelteMap<string, PtyConnectionState>();
+	/**
+	 * Hidden tab ids. Kept beside the session records instead of on them so
+	 * buffer, cursor and metadata rewrites can never drop the hidden state.
+	 */
+	private detachedIds = new SvelteSet<string>();
 
 	/** Restore persisted sessions for a repo and prune stale records. */
 	open(repo: string): void {
 		this.repo = repo;
 		this.sessions = [];
+		this.detachedIds.clear();
 		this.activeId = null;
 		this.hasStoredRecord = false;
 		try {
 			const raw = localStorage.getItem(storageKey(repo));
 			if (raw) {
-				const parsed = JSON.parse(raw) as LocalPtySession[];
-				if (Array.isArray(parsed)) {
+				const parsed = JSON.parse(raw) as {
+					v?: unknown;
+					sessions?: unknown;
+					detachedIds?: unknown;
+				};
+				if (
+					typeof parsed === 'object' &&
+					parsed !== null &&
+					(parsed.v === undefined || parsed.v === PERSIST_SCHEMA_VERSION) &&
+					Array.isArray(parsed.sessions)
+				) {
 					const seen = new SvelteSet<string>();
 					const cleaned: LocalPtySession[] = [];
-					const dropped: string[] = [];
-					for (const item of parsed) {
+					for (const item of parsed.sessions) {
 						const session = validatePersistedSession(item);
 						if (!session || seen.has(session.id)) continue;
-						if (wasRemoved(session.id)) {
-							dropped.push(session.id);
-							continue;
-						}
+						if (wasRemoved(session.id)) continue;
 						seen.add(session.id);
 						cleaned.push(session);
 						if (cleaned.length >= MAX_TERMINAL_SESSIONS) break;
@@ -294,6 +301,13 @@ export class PtySessionStore {
 						// Size probing failed; keep the count-capped list as-is.
 					}
 					this.sessions = cleaned;
+					if (Array.isArray(parsed.detachedIds)) {
+						for (const entry of parsed.detachedIds) {
+							if (typeof entry === 'string' && entry && seen.has(entry)) {
+								this.detachedIds.add(entry);
+							}
+						}
+					}
 					this.hasStoredRecord = true;
 					const rawActive = (() => {
 						try {
@@ -427,68 +441,81 @@ export class PtySessionStore {
 
 	/** Visible tabs: every session that is not detached. */
 	attachedSessions(): LocalPtySession[] {
-		return this.sessions.filter((s) => !s.detached);
+		return this.sessions.filter((s) => !this.detachedIds.has(s.id));
 	}
 
 	/** Hidden tabs: detached sessions keep their server process. */
 	detachedSessions(): LocalPtySession[] {
-		return this.sessions.filter((s) => s.detached);
+		return this.sessions.filter((s) => this.detachedIds.has(s.id));
+	}
+
+	/** True when the tab is hidden but its server process is kept. */
+	isDetached(id: string): boolean {
+		return this.detachedIds.has(id);
 	}
 
 	/** True when at least one visible session can still stream output. */
 	hasAttachedLive(): boolean {
-		return this.sessions.some((s) => !s.detached && s.status !== 'exited');
+		return this.sessions.some((s) => !this.detachedIds.has(s.id) && s.status !== 'exited');
 	}
 
-	/** Hide a tab without ending its server process. */
-	detach(id: string): void {
-		const session = this.byId(id);
-		if (!session || this.isRemoved(id) || session.detached) return;
-		this.patch(id, { detached: true });
+	/**
+	 * Hide a tab without ending its server process. Reports whether the tab
+	 * was actually hidden; an already hidden tab is left untouched so a
+	 * repeated click can never flip it back.
+	 */
+	detach(id: string): boolean {
+		if (!this.byId(id) || this.isRemoved(id) || this.detachedIds.has(id)) return false;
+		this.detachedIds.add(id);
 		if (this.activeId === id) {
-			this.activeId = this.sessions.find((s) => s.id !== id && !s.detached)?.id ?? null;
+			this.activeId =
+				this.sessions.find((s) => s.id !== id && !this.detachedIds.has(s.id))?.id ?? null;
 		}
 		this.schedulePersist();
+		return true;
 	}
 
-	/** Reopen a detached tab and make it active. */
-	attach(id: string): void {
-		const session = this.byId(id);
-		if (!session || this.isRemoved(id) || !session.detached) return;
-		this.sessions = this.sessions.map((s) => {
-			if (s.id !== id) return s;
-			const next = { ...s };
-			delete next.detached;
-			return next;
-		});
+	/**
+	 * Reopen a detached tab and make it active. Reports whether the tab was
+	 * actually reopened. Only this path clears the hidden state.
+	 */
+	attach(id: string): boolean {
+		if (!this.byId(id) || this.isRemoved(id) || !this.detachedIds.has(id)) return false;
+		this.detachedIds.delete(id);
 		this.activeId = id;
 		this.schedulePersist();
+		return true;
 	}
 
 	/**
 	 * Lift a record out of this store without ending its server process and
 	 * without recording a removal tombstone, so another store can adopt it.
+	 * The hidden state travels with the record instead of staying behind.
 	 */
-	eject(id: string): LocalPtySession | null {
+	eject(id: string): { record: LocalPtySession; detached: boolean } | null {
 		const session = this.byId(id);
 		if (!session) return null;
+		const detached = this.detachedIds.has(id);
+		this.detachedIds.delete(id);
 		this.sessions = this.sessions.filter((s) => s.id !== id);
 		this.connections.delete(id);
 		if (this.activeId === id) {
-			this.activeId = this.sessions.find((s) => !s.detached)?.id ?? null;
+			this.activeId = this.sessions.find((s) => !this.detachedIds.has(s.id))?.id ?? null;
 		}
 		this.schedulePersist();
-		return session;
+		return { record: session, detached };
 	}
 
 	/**
 	 * Adopt a record ejected from another store. The server session is
-	 * untouched; only local metadata moves. Returns false when full.
+	 * untouched; only local metadata moves. An already present id is only
+	 * focused, never rehidden or reshown. Returns false when full.
 	 */
-	ingest(record: LocalPtySession): boolean {
+	ingest(record: LocalPtySession, detached = false): boolean {
 		if (this.isRemoved(record.id)) return false;
 		if (this.byId(record.id)) {
-			this.attach(record.id);
+			this.activeId = record.id;
+			this.schedulePersist();
 			return true;
 		}
 		if (this.sessions.length >= MAX_TERMINAL_SESSIONS) return false;
@@ -498,7 +525,6 @@ export class PtySessionStore {
 		const numbered =
 			record.titleNumber && !taken.has(record.titleNumber) ? record.titleNumber : undefined;
 		const next: LocalPtySession = { ...record };
-		delete next.detached;
 		if (numbered) next.titleNumber = numbered;
 		else {
 			let n = 1;
@@ -506,6 +532,7 @@ export class PtySessionStore {
 			next.titleNumber = n;
 		}
 		this.sessions = [...this.sessions, next];
+		if (detached) this.detachedIds.add(next.id);
 		this.activeId = next.id;
 		this.schedulePersist();
 		return true;
@@ -801,7 +828,14 @@ export class PtySessionStore {
 		if (!this.repo) return;
 		try {
 			const versioned = this.sessions.map((s) => ({ ...s, v: PERSIST_SCHEMA_VERSION }));
-			localStorage.setItem(storageKey(this.repo), JSON.stringify(versioned));
+			const payload = {
+				v: PERSIST_SCHEMA_VERSION,
+				sessions: versioned,
+				detachedIds: this.sessions
+					.filter((s) => this.detachedIds.has(s.id))
+					.map((s) => s.id),
+			};
+			localStorage.setItem(storageKey(this.repo), JSON.stringify(payload));
 			if (this.activeId) {
 				localStorage.setItem(`${storageKey(this.repo)}.active`, this.activeId);
 			} else {

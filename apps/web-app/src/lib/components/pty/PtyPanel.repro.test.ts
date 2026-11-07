@@ -107,6 +107,11 @@ function installLocalStorage(): void {
 
 installLocalStorage();
 
+/** Wrap session records in the store persistence envelope. */
+function envelope(sessions: unknown[], detachedIds: string[] = []): unknown {
+	return { v: 1, sessions, detachedIds };
+}
+
 const { PtySessionStore, discoverForeignPtyStores, ptyStoreFor } =
 	await import('#lib/stores/pty-session.svelte');
 const ptyService = await import('#lib/services/pty');
@@ -267,9 +272,10 @@ describe('PtySessionStore lifecycle and persistence validation', () => {
 		const big = 'x'.repeat(300_000);
 		localStorage.setItem(
 			`wf.pty.v1.${repo}`,
-			JSON.stringify([
-				{
-					id: 'good',
+			JSON.stringify(
+				envelope([
+					{
+						id: 'good',
 					title: 'Terminal 1',
 					titleNumber: 1,
 					buffer: 'hi',
@@ -293,9 +299,10 @@ describe('PtySessionStore lifecycle and persistence validation', () => {
 					origin: { env: { A: 1, B: 'ok' } },
 				},
 				{ id: 'huge', title: 'Terminal 3', buffer: big, scrollY: 100, cursor: 300_000 },
-				{ title: 'missing id' },
-				{ id: 'good', title: 'duplicate' },
-			]),
+					{ title: 'missing id' },
+					{ id: 'good', title: 'duplicate' },
+				]),
+			),
 		);
 		const store = new PtySessionStore();
 		store.open(repo);
@@ -327,10 +334,12 @@ describe('persisted payload hardening', () => {
 		const repo = freshRepo();
 		localStorage.setItem(
 			`wf.pty.v1.${repo}`,
-			JSON.stringify([
-				{ id: 'future', title: 'Terminal 1', v: 999 },
-				{ id: 'long', title: `T${'x'.repeat(500)}` },
-			]),
+			JSON.stringify(
+				envelope([
+					{ id: 'future', title: 'Terminal 1', v: 999 },
+					{ id: 'long', title: `T${'x'.repeat(500)}` },
+				]),
+			),
 		);
 		const store = new PtySessionStore();
 		store.open(repo);
@@ -345,7 +354,7 @@ describe('persisted payload hardening', () => {
 		env.BIG = 'z'.repeat(10_000);
 		localStorage.setItem(
 			`wf.pty.v1.${repo}`,
-			JSON.stringify([{ id: 'env', title: 'Terminal 1', origin: { cwd: '/r', env } }]),
+			JSON.stringify(envelope([{ id: 'env', title: 'Terminal 1', origin: { cwd: '/r', env } }])),
 		);
 		const store = new PtySessionStore();
 		store.open(repo);
@@ -360,10 +369,12 @@ describe('persisted payload hardening', () => {
 		const repo = freshRepo();
 		localStorage.setItem(
 			`wf.pty.v1.${repo}`,
-			JSON.stringify([
-				{ id: 'a', title: 'Terminal 1', cursor: -1, exitCode: 'x' },
-				{ id: 'b', title: 'Terminal 2', cursor: 2 ** 40, exitCode: 999_999_999 },
-			]),
+			JSON.stringify(
+				envelope([
+					{ id: 'a', title: 'Terminal 1', cursor: -1, exitCode: 'x' },
+					{ id: 'b', title: 'Terminal 2', cursor: 2 ** 40, exitCode: 999_999_999 },
+				]),
+			),
 		);
 		const store = new PtySessionStore();
 		store.open(repo);
@@ -378,10 +389,12 @@ describe('persisted payload hardening', () => {
 		const big = 'y'.repeat(700_000);
 		localStorage.setItem(
 			`wf.pty.v1.${repo}`,
-			JSON.stringify([
-				{ id: 'one', title: 'Terminal 1', buffer: big, cursor: 1 },
-				{ id: 'two', title: 'Terminal 2', buffer: big, cursor: 2 },
-			]),
+			JSON.stringify(
+				envelope([
+					{ id: 'one', title: 'Terminal 1', buffer: big, cursor: 1 },
+					{ id: 'two', title: 'Terminal 2', buffer: big, cursor: 2 },
+				]),
+			),
 		);
 		const store = new PtySessionStore();
 		store.open(repo);
@@ -461,31 +474,71 @@ describe('detach and attach transfers', () => {
 		const second = await store.spawn();
 		expect(store.activeId).toBe(second!.id);
 
-		store.detach(second!.id);
-		expect(store.byId(second!.id)?.detached).toBe(true);
+		expect(store.detach(second!.id)).toBe(true);
+		expect(store.isDetached(second!.id)).toBe(true);
 		expect(store.attachedSessions().map((s) => s.id)).toEqual([first!.id]);
 		expect(store.activeId).toBe(first!.id);
 		expect(store.hasAttachedLive()).toBe(true);
 
-		store.detach(first!.id);
+		expect(store.detach(second!.id)).toBe(false);
+
+		expect(store.detach(first!.id)).toBe(true);
 		expect(store.attachedSessions().length).toBe(0);
 		expect(store.activeId).toBeNull();
 		expect(store.hasAttachedLive()).toBe(false);
 
-		store.attach(first!.id);
-		expect(store.byId(first!.id)?.detached).toBeUndefined();
+		expect(store.attach(first!.id)).toBe(true);
+		expect(store.isDetached(first!.id)).toBe(false);
 		expect(store.activeId).toBe(first!.id);
+		expect(store.attach(first!.id)).toBe(false);
+	});
+
+	it('keeps the hidden state across teardown writes and server re-syncs', async () => {
+		const store = ptyStoreFor(freshRepo());
+		const first = await store.spawn();
+		const second = await store.spawn();
+		expect(store.detach(second!.id)).toBe(true);
+
+		// TerminalInstance teardown serializes scrollback after the tab hides.
+		store.saveBuffer(second!.id, 'scrollback', 0, 11);
+		// Late socket metadata re-syncs only viewport and lifecycle fields.
+		const view = await ptyService.getPty(second!.id);
+		store.syncMetaFromServer(second!.id, view);
+		store.syncCursor(second!.id, 11);
+		store.syncSize(first!.id, 30, 100);
+
+		expect(store.isDetached(second!.id)).toBe(true);
+		expect(store.attachedSessions().map((s) => s.id)).toEqual([first!.id]);
+		expect(store.detach(second!.id)).toBe(false);
+	});
+
+	it('carries the hidden state across eject and ingest without reshowing', async () => {
+		const source = ptyStoreFor(freshRepo());
+		const session = await source.spawn();
+		expect(source.detach(session!.id)).toBe(true);
+		const ejected = source.eject(session!.id);
+		expect(ejected?.detached).toBe(true);
+
+		const target = ptyStoreFor(freshRepo());
+		expect(target.ingest(ejected!.record, ejected!.detached)).toBe(true);
+		expect(target.isDetached(session!.id)).toBe(true);
+		expect(target.attachedSessions().length).toBe(0);
+
+		// Re-ingesting a present id only focuses it, never reshows it.
+		expect(target.ingest(ejected!.record)).toBe(true);
+		expect(target.isDetached(session!.id)).toBe(true);
+		expect(target.activeId).toBe(session!.id);
 	});
 
 	it('ejects without killing or tombstoning so another store can ingest', async () => {
 		const source = ptyStoreFor(freshRepo());
 		const session = await store_spawn(source);
-		const record = source.eject(session.id);
-		expect(record).not.toBeNull();
+		const ejected = source.eject(session.id);
+		expect(ejected).not.toBeNull();
 		expect(source.byId(session.id)).toBeUndefined();
 
 		const target = ptyStoreFor(freshRepo());
-		expect(target.ingest(record!)).toBe(true);
+		expect(target.ingest(ejected!.record, ejected!.detached)).toBe(true);
 		expect(target.byId(session.id)?.title).toBe(session.title);
 		expect(target.activeId).toBe(session.id);
 		// No tombstone: the moved id stays fully usable in its new home.
@@ -504,16 +557,16 @@ describe('detach and attach transfers', () => {
 	it('refuses ingest when the target store is full and keeps the record', async () => {
 		const source = ptyStoreFor(freshRepo());
 		const session = await source.spawn();
-		const record = source.eject(session!.id);
-		expect(record).not.toBeNull();
+		const ejected = source.eject(session!.id);
+		expect(ejected).not.toBeNull();
 
 		const target = ptyStoreFor(freshRepo());
 		for (let i = 0; i < 20; i += 1) {
 			await target.spawn();
 		}
 		expect(target.sessions.length).toBe(20);
-		expect(target.ingest(record!)).toBe(false);
-		expect(source.ingest(record!)).toBe(true);
+		expect(target.ingest(ejected!.record, ejected!.detached)).toBe(false);
+		expect(source.ingest(ejected!.record, ejected!.detached)).toBe(true);
 	});
 
 	it('persists the detached flag and restores it on reopen', async () => {
@@ -526,8 +579,22 @@ describe('detach and attach transfers', () => {
 		await new Promise((resolve) => setTimeout(resolve, 400));
 		const reopened = new PtySessionStore();
 		reopened.open(repo);
-		expect(reopened.byId(session!.id)?.detached).toBe(true);
+		expect(reopened.isDetached(session!.id)).toBe(true);
 		expect(reopened.attachedSessions().length).toBe(0);
+	});
+
+	it('ignores hidden ids that have no restored record on reopen', () => {
+		const repo = freshRepo();
+		localStorage.setItem(
+			`wf.pty.v1.${repo}`,
+			JSON.stringify(
+				envelope([{ id: 'solo', title: 'Terminal 1' }], ['solo', 'ghost']),
+			),
+		);
+		const reopened = new PtySessionStore();
+		reopened.open(repo);
+		expect(reopened.isDetached('solo')).toBe(true);
+		expect(reopened.isDetached('ghost')).toBe(false);
 	});
 });
 
@@ -546,10 +613,12 @@ describe('foreign store discovery', () => {
 		const foreignRepo = `foreign-discover-${Date.now()}`;
 		localStorage.setItem(
 			`wf.pty.v1.${foreignRepo}`,
-			JSON.stringify([
-				{ id: victim!.id, title: 'killed before' },
-				{ id: 'foreign-live-1', title: 'Terminal 1' },
-			]),
+			JSON.stringify(
+			envelope([
+					{ id: victim!.id, title: 'killed before' },
+					{ id: 'foreign-live-1', title: 'Terminal 1' },
+				]),
+			),
 		);
 		localStorage.setItem(`wf.pty.v1.${foreignRepo}.active`, victim!.id);
 
@@ -564,7 +633,7 @@ describe('foreign store discovery', () => {
 		for (let i = 0; i < 12; i += 1) {
 			localStorage.setItem(
 				`wf.pty.v1.cap-${stamp}-${i}`,
-				JSON.stringify([{ id: `cap-${stamp}-${i}`, title: 'Terminal 1' }]),
+				JSON.stringify(envelope([{ id: `cap-${stamp}-${i}`, title: 'Terminal 1' }])),
 			);
 		}
 		const found = discoverForeignPtyStores(current);

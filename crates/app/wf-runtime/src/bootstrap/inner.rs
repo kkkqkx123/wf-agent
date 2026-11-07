@@ -82,20 +82,23 @@ impl Runtime {
         // into the manager; the blocking open runs after storage init.
         let keyword_location =
             wf_api::rag::resolve_keyword_location(&config.storage, &config.keyword);
+        let keyword_selection = wf_api::rag::resolve_keyword_tokenizer(&config.keyword);
+        if keyword_selection.tokenizer == wf_types::config::keyword::KeywordTokenizer::Mixed {
+            tracing::info!("keyword mixed tokenizer enabled");
+        }
+        if let Some(name) = keyword_selection.analyzer_name.as_deref() {
+            tracing::info!(analyzer = %name, "keyword custom analyzer selected");
+        }
         let mut storage_manager = StorageManager::new(config.storage);
         storage_manager.initialize().await?;
 
-        // Keyword index singleton: opened on a blocking thread since
-        // SQLite file opens block. An open failure fails bootstrap fast;
+        // Keyword index singleton: embedded and file branches open on a
+        // blocking thread pool while the remote branch probes health and
+        // version asynchronously. An open failure fails bootstrap fast;
         // only explicit disabling yields an empty slot.
         let keyword_index =
-            tokio::task::spawn_blocking(move || wf_api::rag::open_keyword_index(&keyword_location))
+            wf_api::rag::open_keyword_index_async_with(&keyword_location, &keyword_selection)
                 .await
-                .map_err(|err| {
-                    crate::error::RuntimeError::Config(format!(
-                        "Keyword index open task failed: {err}"
-                    ))
-                })?
                 .map_err(|err| crate::error::RuntimeError::Config(err.to_string()))?;
 
         // Durable checkpoint store backend: reuse the checkpoint table of the

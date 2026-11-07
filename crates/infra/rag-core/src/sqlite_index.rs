@@ -13,22 +13,34 @@ use vector_contracts::{SearchFilter, VectorPoint};
 
 use crate::error::{RagError, Result};
 use crate::keyword_index::KeywordIndex;
-use crate::retriever::{chunk_from_hit, tokenize, RetrievedChunk};
+use crate::retriever::{chunk_from_hit, RetrievedChunk};
 
 const SCHEMA: &str = "CREATE VIRTUAL TABLE IF NOT EXISTS keyword_fts USING fts5(collection UNINDEXED, chunk_id UNINDEXED, namespace UNINDEXED, source UNINDEXED, content, payload UNINDEXED, tokenize='unicode61')";
 
 /// Built-in keyword backend powered by SQLite FTS5.
 pub struct SqliteKeywordIndex {
     conn: Mutex<rusqlite::Connection>,
+    tokenizer: wf_types::config::keyword::KeywordTokenizer,
+    analyzer_name: Option<String>,
 }
 
 impl SqliteKeywordIndex {
     /// Opens an in-memory database for tests and ephemeral knowledge bases.
     pub fn open_in_memory() -> Result<Self> {
+        Self::open_in_memory_with(wf_types::config::keyword::KeywordTokenizer::English, None)
+    }
+
+    /// Opens an in-memory database with an explicit tokenizer selection.
+    pub fn open_in_memory_with(
+        tokenizer: wf_types::config::keyword::KeywordTokenizer,
+        analyzer_name: Option<String>,
+    ) -> Result<Self> {
         let conn = rusqlite::Connection::open_in_memory()
             .map_err(|err| RagError::Keyword(err.to_string()))?;
         let index = Self {
             conn: Mutex::new(conn),
+            tokenizer,
+            analyzer_name,
         };
         index.ensure_schema()?;
         Ok(index)
@@ -36,6 +48,19 @@ impl SqliteKeywordIndex {
 
     /// Opens or creates a file database.
     pub fn open(path: &str) -> Result<Self> {
+        Self::open_with(
+            path,
+            wf_types::config::keyword::KeywordTokenizer::English,
+            None,
+        )
+    }
+
+    /// Opens or creates a file database with an explicit selection.
+    pub fn open_with(
+        path: &str,
+        tokenizer: wf_types::config::keyword::KeywordTokenizer,
+        analyzer_name: Option<String>,
+    ) -> Result<Self> {
         if path.trim().is_empty() {
             return Err(RagError::InvalidInput(
                 "keyword database path must not be empty".to_string(),
@@ -50,6 +75,8 @@ impl SqliteKeywordIndex {
             .map_err(|err| RagError::Keyword(err.to_string()));
         let index = Self {
             conn: Mutex::new(conn),
+            tokenizer,
+            analyzer_name,
         };
         index.ensure_schema()?;
         Ok(index)
@@ -83,10 +110,15 @@ fn payload_string(payload: &HashMap<String, serde_json::Value>, key: &str) -> St
         .unwrap_or_default()
 }
 
-/// Escapes a user question into an FTS5 disjunction.
-/// Empty token lists yield no query so callers return early.
-fn fts_query_for(question: &str) -> Option<String> {
-    let mut terms: Vec<String> = tokenize(question)
+/// Disjunction with an explicit tokenizer; mixed uses dictionary terms
+/// quoted the same way so the FTS5 query parser re-splits them into
+/// single characters and matches the indexed rows.
+fn fts_query_for_with(
+    question: &str,
+    tokenizer: wf_types::config::keyword::KeywordTokenizer,
+    analyzer_name: Option<&str>,
+) -> Option<String> {
+    let mut terms: Vec<String> = crate::tokenizer::terms(question, tokenizer, analyzer_name)
         .into_iter()
         .map(|term| format!("\"{}\"", term.replace('"', "\"\"")))
         .collect();
@@ -96,6 +128,13 @@ fn fts_query_for(question: &str) -> Option<String> {
     terms.sort();
     terms.dedup();
     Some(terms.join(" OR "))
+}
+
+fn check_analyzer(analyzer_name: Option<&str>) -> Result<()> {
+    if let Some(name) = analyzer_name.filter(|name| !name.trim().is_empty()) {
+        crate::tokenizer::ensure_analyzer_registered(name).map_err(RagError::InvalidInput)?;
+    }
+    Ok(())
 }
 
 #[async_trait]
@@ -110,6 +149,7 @@ impl KeywordIndex for SqliteKeywordIndex {
                 "collection must not be empty".to_string(),
             ));
         }
+        check_analyzer(self.analyzer_name.as_deref())?;
         let mut guard = self.lock()?;
         let tx = guard
             .transaction()
@@ -128,6 +168,18 @@ impl KeywordIndex for SqliteKeywordIndex {
             let source = payload_string(&point.payload, vector_contracts::types::SOURCE_KEY);
             let payload = serde_json::to_string(&point.payload)
                 .map_err(|err| RagError::Keyword(err.to_string()))?;
+            use wf_types::config::keyword::KeywordTokenizer as Selection;
+            let index_content = match self.tokenizer {
+                Selection::English => content,
+                Selection::Mixed => crate::tokenizer::pretokenize(
+                    &content,
+                    self.tokenizer,
+                    self.analyzer_name.as_deref(),
+                ),
+            };
+            if index_content.trim().is_empty() {
+                continue;
+            }
             tx.execute(
                 "DELETE FROM keyword_fts WHERE collection = ?1 AND chunk_id = ?2",
                 rusqlite::params![collection, point.id],
@@ -135,7 +187,7 @@ impl KeywordIndex for SqliteKeywordIndex {
             .map_err(|err| RagError::Keyword(err.to_string()))?;
             tx.execute(
                 "INSERT INTO keyword_fts (collection, chunk_id, namespace, source, content, payload) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                rusqlite::params![collection, point.id, namespace, source, content, payload],
+                rusqlite::params![collection, point.id, namespace, source, index_content, payload],
             )
             .map_err(|err| RagError::Keyword(err.to_string()))?;
         }
@@ -154,7 +206,10 @@ impl KeywordIndex for SqliteKeywordIndex {
         if limit == 0 {
             return Ok(Vec::new());
         }
-        let Some(match_query) = fts_query_for(query) else {
+        check_analyzer(self.analyzer_name.as_deref())?;
+        let Some(match_query) =
+            fts_query_for_with(query, self.tokenizer, self.analyzer_name.as_deref())
+        else {
             return Ok(Vec::new());
         };
         let namespace = filter.and_then(|item| item.namespace.clone());
@@ -392,5 +447,47 @@ mod tests {
         let reopened = SqliteKeywordIndex::open(path.to_str().expect("path")).expect("reopen");
         assert_eq!(reopened.count("kb", None).await.expect("count"), 1);
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn sqlite_mixed_finds_chinese_terms() {
+        use wf_types::config::keyword::KeywordTokenizer;
+        let index =
+            SqliteKeywordIndex::open_in_memory_with(KeywordTokenizer::Mixed, None).expect("open");
+        index
+            .upsert(
+                "kb",
+                &[
+                    point("a", "rust所有权借用检查", "kb", "a.md"),
+                    point("b", "go并发调度", "kb", "b.md"),
+                ],
+            )
+            .await
+            .expect("upsert");
+        let filter = SearchFilter::new().with_namespace("kb");
+        let hits = index
+            .search("kb", "所有权", Some(&filter), 5)
+            .await
+            .expect("search");
+        assert!(!hits.is_empty());
+        assert_eq!(hits[0].chunk_id, "a");
+    }
+
+    #[test]
+    fn unknown_analyzer_fails_fast() {
+        use wf_types::config::keyword::KeywordTokenizer;
+        let index = SqliteKeywordIndex::open_in_memory_with(
+            KeywordTokenizer::English,
+            Some("missing".to_string()),
+        )
+        .expect("open");
+        let filter = SearchFilter::new();
+        let err = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("rt")
+            .block_on(index.search("kb", "hello", Some(&filter), 5))
+            .expect_err("unknown analyzer must fail");
+        assert!(err.to_string().contains("unknown text analyzer"));
     }
 }

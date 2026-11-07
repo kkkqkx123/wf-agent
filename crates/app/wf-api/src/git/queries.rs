@@ -241,7 +241,9 @@ fn normalize_blob_rev(raw: Option<&str>) -> GitResult<String> {
         || rev.contains(':')
         || rev.contains(' ')
     {
-        return Err(GitError::Precondition(format!("invalid git revision '{rev}'")));
+        return Err(GitError::Precondition(format!(
+            "invalid git revision '{rev}'"
+        )));
     }
     Ok(rev.to_string())
 }

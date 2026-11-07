@@ -120,8 +120,10 @@ impl ContributionManager {
         self.text_analyzer_registry.unregister_by_plugin(plugin_id);
         self.retrieval_advisor_registry
             .unregister_by_plugin(plugin_id);
-        self.vector_encoding_registry.unregister_by_plugin(plugin_id);
-        self.snapshot_policy_registry.unregister_by_plugin(plugin_id);
+        self.vector_encoding_registry
+            .unregister_by_plugin(plugin_id);
+        self.snapshot_policy_registry
+            .unregister_by_plugin(plugin_id);
     }
 
     // --- Event handler queries (core) ---

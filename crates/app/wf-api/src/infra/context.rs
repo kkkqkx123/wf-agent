@@ -372,9 +372,7 @@ impl ApiContext {
     /// Effective keyword index shared by execution and observability.
     /// Retrieval-handle state wins; the context-level index fills the
     /// gap so node behavior and management counts observe one rule.
-    pub fn effective_keyword_index(
-        &self,
-    ) -> Option<std::sync::Arc<dyn rag_core::KeywordIndex>> {
+    pub fn effective_keyword_index(&self) -> Option<std::sync::Arc<dyn rag_core::KeywordIndex>> {
         self.rag_handles
             .as_ref()
             .and_then(|handles| handles.keyword.clone())

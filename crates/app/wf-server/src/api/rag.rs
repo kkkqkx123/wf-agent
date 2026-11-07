@@ -278,9 +278,8 @@ mod tests {
     async fn rag_stats_falls_back_to_context_keyword_index() {
         let store = std::sync::Arc::new(vector_contracts::InMemoryVectorStore::new());
         let embedder = std::sync::Arc::new(UnitEmbedder { dimension: 8 });
-        let keyword: std::sync::Arc<dyn rag_core::KeywordIndex> = std::sync::Arc::new(
-            rag_core::SqliteKeywordIndex::open_in_memory().expect("keyword"),
-        );
+        let keyword: std::sync::Arc<dyn rag_core::KeywordIndex> =
+            std::sync::Arc::new(rag_core::SqliteKeywordIndex::open_in_memory().expect("keyword"));
         rag_core::pipeline::ingest_documents(
             store.as_ref(),
             Some(keyword.as_ref()),

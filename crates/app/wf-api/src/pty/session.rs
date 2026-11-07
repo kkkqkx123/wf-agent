@@ -102,9 +102,7 @@ pub fn create_with_context(
         id: id.clone(),
         cwd: cwd_path.to_string_lossy().to_string(),
         title: Mutex::new(title.unwrap_or_default()),
-        title_source: Mutex::new(
-            title_source.unwrap_or(super::state::PtyTitleSource::Default),
-        ),
+        title_source: Mutex::new(title_source.unwrap_or(super::state::PtyTitleSource::Default)),
         status: Mutex::new(PtySessionStatus::Running),
         exit_code: Mutex::new(None),
         pid,
@@ -330,8 +328,7 @@ pub fn update_session(
         // A process-reported title never overwrites a manual rename. The
         // caller omitting the source keeps the previous manual behavior.
         let source = title_source.unwrap_or(PtyTitleSource::Manual);
-        if source == PtyTitleSource::Auto && *lock(&state.title_source) == PtyTitleSource::Manual
-        {
+        if source == PtyTitleSource::Auto && *lock(&state.title_source) == PtyTitleSource::Manual {
             // Fall through to the viewport update and touch below so a
             // stale auto report never blocks an unrelated resize.
         } else {

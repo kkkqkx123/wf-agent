@@ -199,11 +199,10 @@ pub fn weighted_fusion_with_weights(
 }
 
 /// Lowercase alphanumeric tokens of a text for keyword scoring.
+/// English default stays stable; mixed segmentation lives in the shared
+/// tokenizer core and backends select it explicitly.
 pub fn tokenize(text: &str) -> Vec<String> {
-    text.split(|ch: char| !ch.is_alphanumeric())
-        .filter(|token| !token.is_empty())
-        .map(|token| token.to_lowercase())
-        .collect()
+    crate::tokenizer::english_terms(text)
 }
 
 /// BM25 term saturation constant.

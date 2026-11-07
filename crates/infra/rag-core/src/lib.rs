@@ -33,6 +33,7 @@ pub mod sync;
 pub mod synth;
 #[cfg(feature = "tantivy")]
 pub mod tantivy_index;
+pub mod tokenizer;
 pub mod transform;
 
 pub use chunker::{count_tokens, ChunkerConfig, RecursiveChunker};
@@ -84,6 +85,10 @@ pub use synth::{
 };
 #[cfg(feature = "tantivy")]
 pub use tantivy_index::TantivyKeywordIndex;
+pub use tokenizer::{
+    clear_analyzers, ensure_analyzer_registered, find_analyzer, is_cjk, mixed_terms, pretokenize,
+    register_analyzer, split_identifier, terms, CustomAnalyzer, MixedToken,
+};
 pub use transform::{
     decompose_questions, hypothetical_passage, parse_list_answer, query_sub_questions,
     query_with_feedback, query_with_hyde, refine_with_feedback, LlmQueryRewriter,
@@ -108,6 +113,13 @@ pub struct ElasticKeywordConfig {
     pub timeout_secs: u64,
     /// Documents per bulk request.
     pub batch_size: usize,
+    /// `true` counts through the exact `_count` API; `false` reads the
+    /// search total so huge collections trade accuracy for speed.
+    pub exact_count: bool,
+    /// Tokenizer selection; English preserves legacy behavior.
+    pub tokenizer: wf_types::config::keyword::KeywordTokenizer,
+    /// Plugin analyzer name replacing built-in segmentation.
+    pub analyzer_name: Option<String>,
 }
 
 impl ElasticKeywordConfig {
@@ -119,6 +131,9 @@ impl ElasticKeywordConfig {
             index: "rag-keyword".to_string(),
             timeout_secs: 10,
             batch_size: 256,
+            exact_count: true,
+            tokenizer: wf_types::config::keyword::KeywordTokenizer::English,
+            analyzer_name: None,
         }
     }
 }
@@ -126,13 +141,23 @@ impl ElasticKeywordConfig {
 /// Opens an in-RAM tantivy keyword index. Fails with a readable error
 /// when the `tantivy` feature is not compiled.
 pub fn open_tantivy_ram_keyword() -> Result<std::sync::Arc<dyn KeywordIndex>> {
+    open_tantivy_ram_keyword_with(wf_types::config::keyword::KeywordTokenizer::English, None)
+}
+
+/// Opens an in-RAM tantivy index with an explicit tokenizer selection.
+pub fn open_tantivy_ram_keyword_with(
+    tokenizer: wf_types::config::keyword::KeywordTokenizer,
+    analyzer_name: Option<String>,
+) -> Result<std::sync::Arc<dyn KeywordIndex>> {
     #[cfg(feature = "tantivy")]
     {
-        let index = tantivy_index::TantivyKeywordIndex::open_in_memory()?;
+        let index =
+            tantivy_index::TantivyKeywordIndex::open_in_memory_with(tokenizer, analyzer_name)?;
         Ok(std::sync::Arc::new(index))
     }
     #[cfg(not(feature = "tantivy"))]
     {
+        let _ = (tokenizer, analyzer_name);
         Err(RagError::Keyword(
             "tantivy backend is not compiled; enable rag-core/tantivy".to_string(),
         ))
@@ -142,18 +167,50 @@ pub fn open_tantivy_ram_keyword() -> Result<std::sync::Arc<dyn KeywordIndex>> {
 /// Opens or creates a file tantivy keyword index rooted at the directory.
 /// Fails with a readable error when the `tantivy` feature is not compiled.
 pub fn open_tantivy_dir_keyword(path: &str) -> Result<std::sync::Arc<dyn KeywordIndex>> {
+    open_tantivy_dir_keyword_with(
+        path,
+        wf_types::config::keyword::KeywordTokenizer::English,
+        None,
+    )
+}
+
+/// Opens a file tantivy index with an explicit tokenizer selection.
+pub fn open_tantivy_dir_keyword_with(
+    path: &str,
+    tokenizer: wf_types::config::keyword::KeywordTokenizer,
+    analyzer_name: Option<String>,
+) -> Result<std::sync::Arc<dyn KeywordIndex>> {
     #[cfg(feature = "tantivy")]
     {
-        let index = tantivy_index::TantivyKeywordIndex::open(path)?;
+        let index = tantivy_index::TantivyKeywordIndex::open_with(path, tokenizer, analyzer_name)?;
         Ok(std::sync::Arc::new(index))
     }
     #[cfg(not(feature = "tantivy"))]
     {
-        let _ = path;
+        let _ = (path, tokenizer, analyzer_name);
         Err(RagError::Keyword(
             "tantivy backend is not compiled; enable rag-core/tantivy".to_string(),
         ))
     }
+}
+
+/// Opens an in-memory SQLite keyword index with an explicit selection.
+pub fn open_sqlite_ram_keyword_with(
+    tokenizer: wf_types::config::keyword::KeywordTokenizer,
+    analyzer_name: Option<String>,
+) -> Result<std::sync::Arc<dyn KeywordIndex>> {
+    let index = sqlite_index::SqliteKeywordIndex::open_in_memory_with(tokenizer, analyzer_name)?;
+    Ok(std::sync::Arc::new(index))
+}
+
+/// Opens a file SQLite keyword index with an explicit selection.
+pub fn open_sqlite_file_keyword_with(
+    path: &str,
+    tokenizer: wf_types::config::keyword::KeywordTokenizer,
+    analyzer_name: Option<String>,
+) -> Result<std::sync::Arc<dyn KeywordIndex>> {
+    let index = sqlite_index::SqliteKeywordIndex::open_with(path, tokenizer, analyzer_name)?;
+    Ok(std::sync::Arc::new(index))
 }
 
 /// Opens a remote Elasticsearch keyword index. The config travels as plain
@@ -166,6 +223,26 @@ pub fn open_elastic_keyword(
     {
         let index = elastic_index::ElasticKeywordIndex::new(config)?;
         Ok(std::sync::Arc::new(index))
+    }
+    #[cfg(not(feature = "elastic"))]
+    {
+        let _ = config;
+        Err(RagError::Keyword(
+            "elastic backend is not compiled; enable rag-core/elastic".to_string(),
+        ))
+    }
+}
+
+/// Probes Elasticsearch reachability and returns the server version.
+/// Bootstrap calls this after construction so a wrong port or unreachable
+/// server fails fast; version drift only warns. Without the `elastic`
+/// feature this fails with the same readable error as the opener.
+pub async fn probe_elastic_keyword(config: &ElasticKeywordConfig) -> Result<String> {
+    #[cfg(feature = "elastic")]
+    {
+        let index = elastic_index::ElasticKeywordIndex::new(config)?;
+        index.health_check().await?;
+        index.version().await
     }
     #[cfg(not(feature = "elastic"))]
     {

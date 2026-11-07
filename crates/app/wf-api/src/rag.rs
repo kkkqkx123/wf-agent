@@ -15,7 +15,6 @@ use wf_types::config::keyword::KeywordIndexConfig;
 use wf_types::config::storage::{StorageConfig, StorageType};
 
 use crate::infra::error::{ApiError, ApiResult};
-use rag_core::KeywordIndex;
 
 /// Shared retrieval backend injected by the host runtime.
 ///
@@ -84,6 +83,37 @@ pub struct ElasticLocation {
     pub api_key: Option<String>,
     /// Index carrying every collection.
     pub index: String,
+    /// Per-request deadline in seconds.
+    pub timeout_secs: u64,
+    /// Documents per bulk request.
+    pub batch_size: usize,
+    /// `true` counts through the exact `_count` API.
+    pub exact_count: bool,
+    /// Tokenizer selection; English preserves legacy behavior.
+    pub tokenizer: wf_types::config::keyword::KeywordTokenizer,
+    /// Plugin analyzer name replacing built-in segmentation.
+    pub analyzer_name: Option<String>,
+}
+
+/// Tokenizer selection carried alongside the index location. English is
+/// the default; mixed enables dictionary segmentation on every backend.
+/// The analyzer name selects a host-registered plugin analyzer and
+/// requires a rebuild before first use.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeywordTokenizerSelection {
+    /// Built-in segmentation choice.
+    pub tokenizer: wf_types::config::keyword::KeywordTokenizer,
+    /// Plugin analyzer override.
+    pub analyzer_name: Option<String>,
+}
+
+impl Default for KeywordTokenizerSelection {
+    fn default() -> Self {
+        Self {
+            tokenizer: wf_types::config::keyword::KeywordTokenizer::English,
+            analyzer_name: None,
+        }
+    }
 }
 
 /// Environment variable overriding the database path.
@@ -103,6 +133,45 @@ pub const KEYWORD_ES_URL_ENV: &str = "WF_KEYWORD_ES_URL";
 pub const KEYWORD_ES_API_KEY_ENV: &str = "WF_KEYWORD_ES_API_KEY";
 /// Environment variable overriding the Elasticsearch index name.
 pub const KEYWORD_ES_INDEX_ENV: &str = "WF_KEYWORD_ES_INDEX";
+/// Environment variable overriding the Elasticsearch per-request deadline
+/// in seconds.
+pub const KEYWORD_ES_TIMEOUT_ENV: &str = "WF_KEYWORD_ES_TIMEOUT_SECS";
+/// Environment variable overriding the Elasticsearch documents per bulk
+/// request.
+pub const KEYWORD_ES_BATCH_ENV: &str = "WF_KEYWORD_ES_BATCH_SIZE";
+/// Environment variable selecting exact (`1`/`true`/`yes`/`on`) or
+/// approximate counting for Elasticsearch.
+pub const KEYWORD_ES_EXACT_COUNT_ENV: &str = "WF_KEYWORD_ES_EXACT_COUNT";
+/// Environment variable selecting the tokenizer (`english`/`mixed`,
+/// case-insensitive). Default keeps English-only behavior.
+pub const KEYWORD_TOKENIZER_ENV: &str = "WF_KEYWORD_TOKENIZER";
+/// Environment variable selecting a host-registered plugin analyzer.
+/// Empty means the built-in segmentation.
+pub const KEYWORD_ANALYZER_ENV: &str = "WF_KEYWORD_ANALYZER";
+
+/// Resolves the tokenizer selection. Environment overrides win over the
+/// programmatic config; the default keeps English-only behavior.
+pub fn resolve_keyword_tokenizer(config: &KeywordIndexConfig) -> KeywordTokenizerSelection {
+    use wf_types::config::keyword::KeywordTokenizer;
+    let tokenizer = std::env::var(KEYWORD_TOKENIZER_ENV)
+        .ok()
+        .map(|value| value.trim().to_lowercase())
+        .and_then(|value| match value.as_str() {
+            "english" | "en" => Some(KeywordTokenizer::English),
+            "mixed" | "cjk" | "chinese" => Some(KeywordTokenizer::Mixed),
+            _ => None,
+        })
+        .unwrap_or(config.tokenizer);
+    let analyzer_name = std::env::var(KEYWORD_ANALYZER_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| config.analyzer_name.clone());
+    KeywordTokenizerSelection {
+        tokenizer,
+        analyzer_name,
+    }
+}
 
 /// Resolves where the keyword index lives. Environment overrides win over
 /// the programmatic config; an explicit path wins over derived placement.
@@ -183,10 +252,19 @@ fn resolve_elastic_location(config: &KeywordIndexConfig) -> KeywordIndexLocation
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| config.elastic_index.clone());
+    let timeout_secs = env_u64(KEYWORD_ES_TIMEOUT_ENV).unwrap_or(config.elastic_timeout_secs);
+    let batch_size = env_usize(KEYWORD_ES_BATCH_ENV).unwrap_or(config.elastic_batch_size);
+    let exact_count = env_bool(KEYWORD_ES_EXACT_COUNT_ENV).unwrap_or(config.elastic_exact_count);
+    let selection = resolve_keyword_tokenizer(config);
     KeywordIndexLocation::Elastic(ElasticLocation {
         base_url,
         api_key,
         index,
+        timeout_secs: timeout_secs.max(1),
+        batch_size: batch_size.max(1),
+        exact_count,
+        tokenizer: selection.tokenizer,
+        analyzer_name: selection.analyzer_name,
     })
 }
 
@@ -248,6 +326,32 @@ pub fn keyword_tantivy_dir(storage: &StorageConfig) -> PathBuf {
     dir.join(format!("{app_name}-keyword-tantivy"))
 }
 
+fn env_u64(name: &str) -> Option<u64> {
+    std::env::var(name)
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .filter(|value| *value > 0)
+}
+
+fn env_usize(name: &str) -> Option<usize> {
+    std::env::var(name)
+        .ok()?
+        .trim()
+        .parse::<usize>()
+        .ok()
+        .filter(|value| *value > 0)
+}
+
+fn env_bool(name: &str) -> Option<bool> {
+    match std::env::var(name).ok()?.trim().to_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
 fn env_flag_off(name: &str) -> bool {
     match std::env::var(name) {
         Ok(value) => matches!(
@@ -298,8 +402,21 @@ impl std::fmt::Debug for SharedKeywordIndex {
 /// run it on a blocking thread pool, never on an async worker. `Disabled`
 /// yields `None`; any open failure is an explicit error so bootstrap
 /// fails fast instead of silently running without hybrid retrieval.
+/// The default English selection keeps legacy behavior; mixed and plugin
+/// analyzers go through [`open_keyword_index_with`].
 pub fn open_keyword_index(
     location: &KeywordIndexLocation,
+) -> Result<Option<SharedKeywordIndex>, ApiError> {
+    open_keyword_index_with(location, &KeywordTokenizerSelection::default())
+}
+
+/// Opens the keyword index with an explicit tokenizer selection.
+/// Blocking: callers run it on a blocking thread pool. Unknown plugin
+/// analyzers fail here for embedded branches and on first use for the
+/// remote branch after the version probe.
+pub fn open_keyword_index_with(
+    location: &KeywordIndexLocation,
+    selection: &KeywordTokenizerSelection,
 ) -> Result<Option<SharedKeywordIndex>, ApiError> {
     match location {
         KeywordIndexLocation::Disabled => {
@@ -307,14 +424,18 @@ pub fn open_keyword_index(
             Ok(None)
         }
         KeywordIndexLocation::Memory => {
-            let index = rag_core::SqliteKeywordIndex::open_in_memory().map_err(|err| {
+            let index = rag_core::open_sqlite_ram_keyword_with(
+                selection.tokenizer,
+                selection.analyzer_name.clone(),
+            )
+            .map_err(|err| {
                 ApiError::execution(format!("Failed to open in-memory keyword index: {err}"))
             })?;
             info!(
                 backend = index.backend_name(),
                 "keyword index opened in memory"
             );
-            Ok(Some(SharedKeywordIndex::new(Arc::new(index))))
+            Ok(Some(SharedKeywordIndex::new(index)))
         }
         KeywordIndexLocation::File(path) => {
             if let Some(parent) = path.parent() {
@@ -328,7 +449,12 @@ pub fn open_keyword_index(
                 }
             }
             let raw = path.to_string_lossy().into_owned();
-            let index = rag_core::SqliteKeywordIndex::open(&raw).map_err(|err| {
+            let index = rag_core::open_sqlite_file_keyword_with(
+                &raw,
+                selection.tokenizer,
+                selection.analyzer_name.clone(),
+            )
+            .map_err(|err| {
                 ApiError::execution(format!(
                     "Failed to open keyword index at '{}': {err}",
                     path.display()
@@ -339,18 +465,27 @@ pub fn open_keyword_index(
                 path = %path.display(),
                 "keyword index opened"
             );
-            Ok(Some(SharedKeywordIndex::new(Arc::new(index))))
+            Ok(Some(SharedKeywordIndex::new(index)))
         }
         KeywordIndexLocation::Tantivy(path) => {
             let index = match path {
-                None => rag_core::open_tantivy_ram_keyword().map_err(|err| {
+                None => rag_core::open_tantivy_ram_keyword_with(
+                    selection.tokenizer,
+                    selection.analyzer_name.clone(),
+                )
+                .map_err(|err| {
                     ApiError::execution(format!(
                         "Failed to open in-memory tantivy keyword index: {err}"
                     ))
                 })?,
                 Some(dir) => {
                     let raw = dir.to_string_lossy().into_owned();
-                    rag_core::open_tantivy_dir_keyword(&raw).map_err(|err| {
+                    rag_core::open_tantivy_dir_keyword_with(
+                        &raw,
+                        selection.tokenizer,
+                        selection.analyzer_name.clone(),
+                    )
+                    .map_err(|err| {
                         ApiError::execution(format!(
                             "Failed to open tantivy keyword index at '{}': {err}",
                             dir.display()
@@ -362,10 +497,7 @@ pub fn open_keyword_index(
             Ok(Some(SharedKeywordIndex::new(index)))
         }
         KeywordIndexLocation::Elastic(location) => {
-            let mut config = rag_core::ElasticKeywordConfig::new(location.base_url.clone());
-            config.api_key.clone_from(&location.api_key);
-            config.index.clone_from(&location.index);
-            let index = rag_core::open_elastic_keyword(&config).map_err(|err| {
+            let index = open_elastic_handle(location).map_err(|err| {
                 ApiError::execution(format!("Failed to open elastic keyword index: {err}"))
             })?;
             info!(
@@ -374,6 +506,102 @@ pub fn open_keyword_index(
                 "keyword index opened"
             );
             Ok(Some(SharedKeywordIndex::new(index)))
+        }
+    }
+}
+
+/// Builds the shared Elasticsearch handle from a resolved location.
+/// Construction validates the URL and feature; reachability and version
+/// are verified by [`open_keyword_index_async`] during bootstrap so a
+/// wrong port or unreachable server fails fast instead of degrading.
+fn open_elastic_handle(
+    location: &ElasticLocation,
+) -> Result<std::sync::Arc<dyn rag_core::KeywordIndex>, rag_core::RagError> {
+    let mut config = rag_core::ElasticKeywordConfig::new(location.base_url.clone());
+    config.api_key.clone_from(&location.api_key);
+    config.index.clone_from(&location.index);
+    config.timeout_secs = location.timeout_secs;
+    config.batch_size = location.batch_size;
+    config.exact_count = location.exact_count;
+    config.tokenizer = location.tokenizer;
+    config.analyzer_name.clone_from(&location.analyzer_name);
+    rag_core::open_elastic_keyword(&config)
+}
+
+fn elastic_config_for(location: &ElasticLocation) -> rag_core::ElasticKeywordConfig {
+    let mut config = rag_core::ElasticKeywordConfig::new(location.base_url.clone());
+    config.api_key.clone_from(&location.api_key);
+    config.index.clone_from(&location.index);
+    config.timeout_secs = location.timeout_secs;
+    config.batch_size = location.batch_size;
+    config.exact_count = location.exact_count;
+    config.tokenizer = location.tokenizer;
+    config.analyzer_name.clone_from(&location.analyzer_name);
+    config
+}
+
+/// Async open covering every backend: embedded and file branches run on a
+/// blocking thread pool while the remote branch probes health and version.
+/// Disabled yields `None`; any failure is explicit so bootstrap fails fast.
+pub async fn open_keyword_index_async(
+    location: &KeywordIndexLocation,
+) -> Result<Option<SharedKeywordIndex>, ApiError> {
+    open_keyword_index_async_with(location, &KeywordTokenizerSelection::default()).await
+}
+
+/// Async open with an explicit tokenizer selection. The remote branch
+/// probes health and version before returning the handle.
+pub async fn open_keyword_index_async_with(
+    location: &KeywordIndexLocation,
+    selection: &KeywordTokenizerSelection,
+) -> Result<Option<SharedKeywordIndex>, ApiError> {
+    match location {
+        KeywordIndexLocation::Elastic(resolved) => {
+            let mut config = elastic_config_for(resolved);
+            if config.analyzer_name.is_none() {
+                config.analyzer_name.clone_from(&selection.analyzer_name);
+            }
+            if config.tokenizer == wf_types::config::keyword::KeywordTokenizer::English
+                && selection.tokenizer != wf_types::config::keyword::KeywordTokenizer::English
+            {
+                config.tokenizer = selection.tokenizer;
+            }
+            let version = rag_core::probe_elastic_keyword(&config)
+                .await
+                .map_err(|err| {
+                    ApiError::execution(format!(
+                        "Failed to probe elastic keyword index at '{}': {err}",
+                        resolved.base_url
+                    ))
+                })?;
+            // Version drift only warns: major mismatch is reported, minors
+            // drift by at most one without blocking startup.
+            if version
+                .split('.')
+                .next()
+                .and_then(|major| major.parse::<u64>().ok())
+                != Some(8)
+            {
+                tracing::warn!(version = %version, "elastic version drift; expected major 8");
+            } else {
+                info!(version = %version, index = %resolved.index, "elastic keyword version probed");
+            }
+            let handle = open_elastic_handle(resolved).map_err(|err| {
+                ApiError::execution(format!("Failed to open elastic keyword index: {err}"))
+            })?;
+            info!(
+                backend = handle.backend_name(),
+                index = %resolved.index,
+                "keyword index opened"
+            );
+            Ok(Some(SharedKeywordIndex::new(handle)))
+        }
+        other => {
+            let owned = other.clone();
+            let selection = selection.clone();
+            tokio::task::spawn_blocking(move || open_keyword_index_with(&owned, &selection))
+                .await
+                .map_err(|err| ApiError::execution(format!("Keyword open task failed: {err}")))?
         }
     }
 }
@@ -622,6 +850,7 @@ fn truncate_excerpt(content: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rag_core::KeywordIndex;
     use std::sync::atomic::{AtomicU64, Ordering};
     use vector_contracts::VectorStorage as _;
 
@@ -928,8 +1157,104 @@ mod tests {
             base_url: String::new(),
             api_key: None,
             index: "rag-keyword".to_string(),
+            timeout_secs: 10,
+            batch_size: 256,
+            exact_count: true,
+            tokenizer: wf_types::config::keyword::KeywordTokenizer::English,
+            analyzer_name: None,
         });
         assert!(open_keyword_index(&location).is_err());
+    }
+
+    #[test]
+    fn elastic_location_carries_batch_timeout_and_exact_count() {
+        use wf_types::config::keyword::KeywordBackend;
+        let config = KeywordIndexConfig {
+            backend: KeywordBackend::Elastic,
+            elastic_url: Some("http://127.0.0.1:9200".to_string()),
+            elastic_timeout_secs: 7,
+            elastic_batch_size: 64,
+            elastic_exact_count: false,
+            ..Default::default()
+        };
+        let KeywordIndexLocation::Elastic(resolved) =
+            resolve_keyword_location(&memory_storage(), &config)
+        else {
+            panic!("expected elastic location");
+        };
+        assert_eq!(resolved.timeout_secs, 7);
+        assert_eq!(resolved.batch_size, 64);
+        assert!(!resolved.exact_count);
+        std::env::set_var(KEYWORD_ES_TIMEOUT_ENV, "3");
+        std::env::set_var(KEYWORD_ES_BATCH_ENV, "32");
+        std::env::set_var(KEYWORD_ES_EXACT_COUNT_ENV, "off");
+        let KeywordIndexLocation::Elastic(overridden) =
+            resolve_keyword_location(&memory_storage(), &config)
+        else {
+            std::env::remove_var(KEYWORD_ES_TIMEOUT_ENV);
+            std::env::remove_var(KEYWORD_ES_BATCH_ENV);
+            std::env::remove_var(KEYWORD_ES_EXACT_COUNT_ENV);
+            panic!("expected elastic location");
+        };
+        std::env::remove_var(KEYWORD_ES_TIMEOUT_ENV);
+        std::env::remove_var(KEYWORD_ES_BATCH_ENV);
+        std::env::remove_var(KEYWORD_ES_EXACT_COUNT_ENV);
+        assert_eq!(overridden.timeout_secs, 3);
+        assert_eq!(overridden.batch_size, 32);
+        assert!(!overridden.exact_count);
+    }
+
+    #[test]
+    fn tokenizer_selection_defaults_to_english_and_env_wins() {
+        std::env::remove_var(KEYWORD_TOKENIZER_ENV);
+        std::env::remove_var(KEYWORD_ANALYZER_ENV);
+        let selection = resolve_keyword_tokenizer(&Default::default());
+        assert_eq!(
+            selection.tokenizer,
+            wf_types::config::keyword::KeywordTokenizer::English
+        );
+        assert!(selection.analyzer_name.is_none());
+        std::env::set_var(KEYWORD_TOKENIZER_ENV, "mixed");
+        std::env::set_var(KEYWORD_ANALYZER_ENV, "custom");
+        let config = KeywordIndexConfig {
+            tokenizer: wf_types::config::keyword::KeywordTokenizer::English,
+            ..Default::default()
+        };
+        let overridden = resolve_keyword_tokenizer(&config);
+        std::env::remove_var(KEYWORD_TOKENIZER_ENV);
+        std::env::remove_var(KEYWORD_ANALYZER_ENV);
+        assert_eq!(
+            overridden.tokenizer,
+            wf_types::config::keyword::KeywordTokenizer::Mixed
+        );
+        assert_eq!(overridden.analyzer_name.as_deref(), Some("custom"));
+    }
+
+    #[test]
+    fn mixed_selection_opens_sqlite_and_searches_chinese() {
+        use wf_types::config::keyword::KeywordTokenizer;
+        let selection = KeywordTokenizerSelection {
+            tokenizer: KeywordTokenizer::Mixed,
+            analyzer_name: None,
+        };
+        let opened =
+            open_keyword_index_with(&KeywordIndexLocation::Memory, &selection).expect("open");
+        assert!(opened.is_some());
+    }
+
+    #[tokio::test]
+    async fn elastic_async_open_fails_fast_without_server() {
+        let location = KeywordIndexLocation::Elastic(ElasticLocation {
+            base_url: "http://127.0.0.1:19200".to_string(),
+            api_key: None,
+            index: "rag-keyword-test".to_string(),
+            timeout_secs: 1,
+            batch_size: 64,
+            exact_count: true,
+            tokenizer: wf_types::config::keyword::KeywordTokenizer::English,
+            analyzer_name: None,
+        });
+        assert!(open_keyword_index_async(&location).await.is_err());
     }
 
     #[tokio::test]
@@ -1112,7 +1437,9 @@ mod tests {
         .with_keyword_index(ctx_keyword.clone());
         let effective = ctx_fallback.effective_keyword_index().expect("keyword");
         assert!(Arc::ptr_eq(&effective, &ctx_keyword));
-        let node_handles = ctx_fallback.rag_node_handles("kb", "kb").expect("node handles");
+        let node_handles = ctx_fallback
+            .rag_node_handles("kb", "kb")
+            .expect("node handles");
         assert!(Arc::ptr_eq(
             node_handles.keyword.as_ref().expect("node keyword"),
             &ctx_keyword

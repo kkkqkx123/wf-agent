@@ -20,6 +20,14 @@ fn clear_env_vars() {
     std::env::remove_var("NO_COLOR");
     std::env::remove_var("WF_KEYWORD_DB_PATH");
     std::env::remove_var("WF_KEYWORD_ENABLED");
+    std::env::remove_var("WF_KEYWORD_BACKEND");
+    std::env::remove_var("WF_KEYWORD_TANTIVY_PATH");
+    std::env::remove_var("WF_KEYWORD_ES_URL");
+    std::env::remove_var("WF_KEYWORD_ES_API_KEY");
+    std::env::remove_var("WF_KEYWORD_ES_INDEX");
+    std::env::remove_var("WF_KEYWORD_ES_TIMEOUT_SECS");
+    std::env::remove_var("WF_KEYWORD_ES_BATCH_SIZE");
+    std::env::remove_var("WF_KEYWORD_ES_EXACT_COUNT");
 }
 
 fn memory_storage_config() -> StorageConfig {
@@ -1265,5 +1273,62 @@ async fn test_runtime_keyword_illegal_path_fails_fast() {
         "error must name the keyword index: {err}"
     );
     let _ = std::fs::remove_dir_all(&dir);
+    clear_env_vars();
+}
+
+#[tokio::test]
+async fn test_runtime_keyword_tantivy_without_feature_fails_fast() {
+    clear_env_vars();
+
+    let mut config = default_test_config();
+    config.keyword.backend = wf_types::config::keyword::KeywordBackend::Tantivy;
+    let err = match Runtime::bootstrap(config).await {
+        Ok(runtime) => {
+            runtime.shutdown().await.unwrap();
+            panic!("tantivy without the feature must fail bootstrap");
+        }
+        Err(e) => e,
+    };
+    assert!(
+        err.to_string().to_lowercase().contains("keyword"),
+        "tantivy open failure must name the keyword index: {err}"
+    );
+    clear_env_vars();
+}
+
+#[tokio::test]
+async fn test_runtime_keyword_elastic_without_url_fails_fast() {
+    clear_env_vars();
+
+    let mut config = default_test_config();
+    config.keyword.backend = wf_types::config::keyword::KeywordBackend::Elastic;
+    config.keyword.elastic_url = None;
+    let err = match Runtime::bootstrap(config).await {
+        Ok(_) => panic!("elastic without a URL must fail bootstrap"),
+        Err(e) => e,
+    };
+    assert!(
+        err.to_string().to_lowercase().contains("keyword"),
+        "elastic open failure must name the keyword index: {err}"
+    );
+    clear_env_vars();
+}
+
+#[tokio::test]
+async fn test_runtime_keyword_elastic_unreachable_fails_fast() {
+    clear_env_vars();
+
+    let mut config = default_test_config();
+    config.keyword.backend = wf_types::config::keyword::KeywordBackend::Elastic;
+    config.keyword.elastic_url = Some("http://127.0.0.1:19200".to_string());
+    config.keyword.elastic_timeout_secs = 1;
+    let err = match Runtime::bootstrap(config).await {
+        Ok(_) => panic!("elastic with an unreachable server must fail bootstrap"),
+        Err(e) => e,
+    };
+    assert!(
+        err.to_string().to_lowercase().contains("keyword"),
+        "elastic probe failure must name the keyword index: {err}"
+    );
     clear_env_vars();
 }

@@ -123,6 +123,7 @@ sha2 = "0.11"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 tantivy = { version = "0.27" }
+jieba-rs = "0.10"
 url = { version = "2", features = ["serde"] }
 flate2 = "1"
 lazy_static = "1"

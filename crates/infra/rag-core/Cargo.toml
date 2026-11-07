@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 vector-contracts = { path = "../vector-contracts" }
 wf-types = { path = "../../foundation/wf-types" }
+wf-plugin-sdk = { path = "../../foundation/wf-plugin-sdk" }
 jieba-rs = { workspace = true }
 once_cell = { workspace = true }
 llm-embedding = { package = "llm-suite-embedding", path = "../llm-suite/crates/llm-suite-embedding" }

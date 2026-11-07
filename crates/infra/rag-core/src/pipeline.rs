@@ -193,7 +193,8 @@ where
         config,
     )
     .await?;
-    postprocess(store, collection, searched.hits, config).await
+    let advised = apply_configured_advisor(searched.hits, query_text, config);
+    postprocess(store, collection, advised, config).await
 }
 
 /// Embeds several query variants and fuses the hit lists before expansion.
@@ -216,7 +217,9 @@ where
     }
     let searched =
         search_variants(store, embedder, collection, namespace, query_texts, config).await?;
-    postprocess(store, collection, searched.hits, config).await
+    let representative = query_texts.first().map(String::as_str).unwrap_or("");
+    let advised = apply_configured_advisor(searched.hits, representative, config);
+    postprocess(store, collection, advised, config).await
 }
 
 /// Blends dense retrieval with the keyword index.
@@ -274,7 +277,8 @@ where
     } else {
         searched.hits
     };
-    postprocess(store, collection, fused, config).await
+    let advised = apply_configured_advisor(fused, query_text, config);
+    postprocess(store, collection, advised, config).await
 }
 
 /// Fuses dense and keyword hits with the configured strategy.
@@ -289,6 +293,16 @@ fn fuse_hybrid(
         crate::config::FusionMode::Weighted => blend_keyword(dense, keyword, config.keyword_weight),
         _ => fuse_lists(vec![dense, keyword], &config.fusion),
     }
+}
+
+/// Applies the configured plugin retrieval advisor after fusion.
+/// Unset names and any advisor failure keep the built-in order.
+fn apply_configured_advisor(
+    hits: Vec<RetrievedChunk>,
+    query_text: &str,
+    config: &RagQueryConfig,
+) -> Vec<RetrievedChunk> {
+    crate::plugin::apply_registered_advisor(query_text, hits, config.retrieval_advisor.as_deref())
 }
 
 /// Queries and reports retrieval metrics alongside the hits.
@@ -319,7 +333,8 @@ where
     .await?;
     let requested = candidate_limit(config);
     let returned = searched.fused_len;
-    let hits = postprocess(store, collection, searched.hits, config).await?;
+    let advised = apply_configured_advisor(searched.hits, query_text, config);
+    let hits = postprocess(store, collection, advised, config).await?;
     let metrics = RetrievalMetrics {
         latency_ms: started.elapsed().as_millis() as u64,
         candidates_requested: requested,

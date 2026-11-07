@@ -28,6 +28,7 @@ wf-pricing = { path = "../../infra/wf-pricing" }
 wf-llm-catalog = { path = "../../infra/wf-llm-catalog" }
 wf-checkpoint = { path = "../../infra/checkpoint/wf-checkpoint" }
 wf-plugin = { path = "../../infra/wf-plugin", optional = true, default-features = false }
+rag-core = { path = "../../infra/rag-core" }
 wf-agent = { path = "../../engine/wf-agent" }
 wf-workflow = { path = "../../engine/wf-workflow" }
 wf-execution-shared = { path = "../../engine/wf-execution-shared" }

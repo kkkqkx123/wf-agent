@@ -235,6 +235,92 @@ impl WfPluginBridge {
             }
         }
     }
+
+    fn sync_retrieval(&self, plugin_id: &str, manager: &ContributionManager) -> PluginResult<()> {
+        for (name, owner) in manager.all_text_analyzers() {
+            if owner != plugin_id {
+                continue;
+            }
+            let Some(analyzer) = manager.get_text_analyzer(&name) else {
+                continue;
+            };
+            rag_core::plugin::register_plugin_analyzer(analyzer);
+            tracing::debug!("  text-analyzer (rag-registered): {}", name);
+        }
+        for (name, owner) in manager.all_retrieval_advisors() {
+            if owner != plugin_id {
+                continue;
+            }
+            let Some(advisor) = manager.get_retrieval_advisor(&name) else {
+                continue;
+            };
+            if rag_core::plugin::find_retrieval_advisor(&name).is_some() {
+                return Err(PluginError::LoadFailed(format!(
+                    "plugin '{plugin_id}' retrieval advisor '{name}' conflicts with an existing advisor"
+                )));
+            }
+            rag_core::plugin::register_retrieval_advisor(&name, advisor);
+            tracing::debug!("  retrieval-advisor (rag-registered): {}", name);
+        }
+        for (name, owner) in manager.all_vector_encodings() {
+            if owner != plugin_id {
+                continue;
+            }
+            let Some(encoding) = manager.get_vector_encoding(&name) else {
+                continue;
+            };
+            if rag_core::plugin::find_vector_encoding(&name).is_some() {
+                return Err(PluginError::LoadFailed(format!(
+                    "plugin '{plugin_id}' vector encoding '{name}' conflicts with an existing encoding"
+                )));
+            }
+            rag_core::plugin::register_vector_encoding(&name, encoding);
+            tracing::debug!("  vector-encoding (rag-registered): {}", name);
+        }
+        for (name, owner) in manager.all_snapshot_policies() {
+            if owner != plugin_id {
+                continue;
+            }
+            let Some(policy) = manager.get_snapshot_policy(&name) else {
+                continue;
+            };
+            if !rag_core::plugin::is_valid_snapshot_policy(&policy) {
+                return Err(PluginError::LoadFailed(format!(
+                    "plugin '{plugin_id}' snapshot policy '{name}' must be a JSON object"
+                )));
+            }
+            rag_core::plugin::register_snapshot_policy(&name, policy);
+            tracing::debug!("  snapshot-policy (rag-registered): {}", name);
+        }
+        Ok(())
+    }
+
+    fn unsync_retrieval(&self, plugin_id: &str, manager: &ContributionManager) {
+        for (name, owner) in manager.all_text_analyzers() {
+            if owner == plugin_id {
+                rag_core::plugin::unregister_plugin_analyzer(&name);
+                tracing::debug!("  text-analyzer (rag-removed): {}", name);
+            }
+        }
+        for (name, owner) in manager.all_retrieval_advisors() {
+            if owner == plugin_id {
+                rag_core::plugin::unregister_retrieval_advisor(&name);
+                tracing::debug!("  retrieval-advisor (rag-removed): {}", name);
+            }
+        }
+        for (name, owner) in manager.all_vector_encodings() {
+            if owner == plugin_id {
+                rag_core::plugin::unregister_vector_encoding(&name);
+                tracing::debug!("  vector-encoding (rag-removed): {}", name);
+            }
+        }
+        for (name, owner) in manager.all_snapshot_policies() {
+            if owner == plugin_id {
+                rag_core::plugin::unregister_snapshot_policy(&name);
+                tracing::debug!("  snapshot-policy (rag-removed): {}", name);
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -414,6 +500,7 @@ impl ContributionBridge for WfPluginBridge {
         self.sync_auth(plugin_id, manager)?;
         self.sync_images(plugin_id, manager);
         self.sync_advisors(plugin_id, manager)?;
+        self.sync_retrieval(plugin_id, manager)?;
 
         Ok(())
     }
@@ -427,6 +514,7 @@ impl ContributionBridge for WfPluginBridge {
         self.unsync_auth(plugin_id, manager);
         self.unsync_images(plugin_id, manager);
         self.unsync_advisors(plugin_id, manager);
+        self.unsync_retrieval(plugin_id, manager);
 
         // Symmetric teardown of `sync_all` through the shared
         // `uninstall_bundle` helper.

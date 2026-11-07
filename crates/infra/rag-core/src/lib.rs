@@ -23,6 +23,7 @@ pub mod keyword_index;
 pub mod llm;
 pub mod metrics;
 pub mod pipeline;
+pub mod plugin;
 pub mod postprocess;
 pub mod rerank_adapter;
 pub mod retriever;
@@ -62,6 +63,14 @@ pub use pipeline::{
     query_with_metrics, query_with_rerank, query_with_rerank_metrics, IngestStats,
     RerankInvocation,
 };
+pub use plugin::{
+    apply_registered_advisor, apply_retrieval_advisor, clear_retrieval_advisors,
+    clear_snapshot_policies, clear_vector_encodings, encode_with_registered,
+    find_retrieval_advisor, find_snapshot_policy, find_vector_encoding, is_valid_snapshot_policy,
+    register_plugin_analyzer, register_retrieval_advisor, register_snapshot_policy,
+    register_vector_encoding, unregister_plugin_analyzer, unregister_retrieval_advisor,
+    unregister_snapshot_policy, unregister_vector_encoding, RETRIEVAL_ADVISOR_PROTOCOL_VERSION,
+};
 pub use postprocess::{reorder_for_context, trim_to_budget, window_content};
 pub use rerank_adapter::{rerank_hits, RankedChunk};
 pub use retriever::{
@@ -87,7 +96,7 @@ pub use synth::{
 pub use tantivy_index::TantivyKeywordIndex;
 pub use tokenizer::{
     clear_analyzers, ensure_analyzer_registered, find_analyzer, is_cjk, mixed_terms, pretokenize,
-    register_analyzer, split_identifier, terms, CustomAnalyzer, MixedToken,
+    register_analyzer, split_identifier, terms, unregister_analyzer, CustomAnalyzer, MixedToken,
 };
 pub use transform::{
     decompose_questions, hypothetical_passage, parse_list_answer, query_sub_questions,

@@ -127,6 +127,9 @@ pub struct RagQueryConfig {
     /// Drop weakest hits beyond this content budget in chars (unset disables).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_budget_chars: Option<usize>,
+    /// Plugin retrieval advisor applied after fusion; unset keeps built-in order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieval_advisor: Option<String>,
 }
 
 /// Multi-list fusion strategy.
@@ -204,6 +207,7 @@ impl Default for RagQueryConfig {
             keyword_weight: default_keyword_weight(),
             context_reorder: false,
             context_budget_chars: None,
+            retrieval_advisor: None,
             conditions: Vec::new(),
         }
     }

@@ -50,6 +50,17 @@ pub fn register_analyzer(name: &str, analyzer: CustomAnalyzer) {
     }
 }
 
+/// Removes a registered host analyzer; missing names are ignored.
+pub fn unregister_analyzer(name: &str) {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    if let Ok(mut guard) = registry().lock() {
+        guard.remove(trimmed);
+    }
+}
+
 /// Finds a registered host analyzer by name.
 pub fn find_analyzer(name: &str) -> Option<CustomAnalyzer> {
     registry()

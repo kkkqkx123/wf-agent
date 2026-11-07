@@ -15,6 +15,8 @@ pub mod cleaner;
 pub mod config;
 pub mod converter;
 pub mod document;
+#[cfg(feature = "elastic")]
+pub mod elastic_index;
 pub mod error;
 pub mod eval;
 pub mod keyword_index;
@@ -29,6 +31,8 @@ pub mod router;
 pub mod sqlite_index;
 pub mod sync;
 pub mod synth;
+#[cfg(feature = "tantivy")]
+pub mod tantivy_index;
 pub mod transform;
 
 pub use chunker::{count_tokens, ChunkerConfig, RecursiveChunker};
@@ -45,6 +49,8 @@ pub use converter::{
     PathJsonConverter, PlainConverter,
 };
 pub use document::{RagChunk, RagDocument};
+#[cfg(feature = "elastic")]
+pub use elastic_index::ElasticKeywordIndex;
 pub use error::{RagError, Result};
 pub use eval::{score_case, summarize, EvalCase, EvalOutcome, EvalSummary};
 pub use keyword_index::KeywordIndex;
@@ -76,8 +82,96 @@ pub use synth::{
     query_and_synthesize, synthesize, SynthesisConfig, SynthesisInvocation, SynthesisMode,
     SynthesizedAnswer,
 };
+#[cfg(feature = "tantivy")]
+pub use tantivy_index::TantivyKeywordIndex;
 pub use transform::{
     decompose_questions, hypothetical_passage, parse_list_answer, query_sub_questions,
     query_with_feedback, query_with_hyde, refine_with_feedback, LlmQueryRewriter,
     TransformInvocation,
 };
+
+/// Connection parameters of the remote Elasticsearch keyword backend.
+///
+/// Plain data shared by every crate: hosts build it without enabling the
+/// `elastic` feature, and the feature-gated backend consumes it. Keeping
+/// the config feature-free lets the open helpers below compile on every
+/// build and fail with a readable error when the backend is not compiled.
+#[derive(Debug, Clone)]
+pub struct ElasticKeywordConfig {
+    /// Base URL of the REST API, for example `http://127.0.0.1:9200`.
+    pub base_url: String,
+    /// Optional API key sent as an `ApiKey` authorization header.
+    pub api_key: Option<String>,
+    /// Index carrying every collection.
+    pub index: String,
+    /// Per-request deadline in seconds.
+    pub timeout_secs: u64,
+    /// Documents per bulk request.
+    pub batch_size: usize,
+}
+
+impl ElasticKeywordConfig {
+    /// Builds a config with a ten-second deadline and the default index.
+    pub fn new(base_url: impl Into<String>) -> Self {
+        Self {
+            base_url: base_url.into(),
+            api_key: None,
+            index: "rag-keyword".to_string(),
+            timeout_secs: 10,
+            batch_size: 256,
+        }
+    }
+}
+
+/// Opens an in-RAM tantivy keyword index. Fails with a readable error
+/// when the `tantivy` feature is not compiled.
+pub fn open_tantivy_ram_keyword() -> Result<std::sync::Arc<dyn KeywordIndex>> {
+    #[cfg(feature = "tantivy")]
+    {
+        let index = tantivy_index::TantivyKeywordIndex::open_in_memory()?;
+        Ok(std::sync::Arc::new(index))
+    }
+    #[cfg(not(feature = "tantivy"))]
+    {
+        Err(RagError::Keyword(
+            "tantivy backend is not compiled; enable rag-core/tantivy".to_string(),
+        ))
+    }
+}
+
+/// Opens or creates a file tantivy keyword index rooted at the directory.
+/// Fails with a readable error when the `tantivy` feature is not compiled.
+pub fn open_tantivy_dir_keyword(path: &str) -> Result<std::sync::Arc<dyn KeywordIndex>> {
+    #[cfg(feature = "tantivy")]
+    {
+        let index = tantivy_index::TantivyKeywordIndex::open(path)?;
+        Ok(std::sync::Arc::new(index))
+    }
+    #[cfg(not(feature = "tantivy"))]
+    {
+        let _ = path;
+        Err(RagError::Keyword(
+            "tantivy backend is not compiled; enable rag-core/tantivy".to_string(),
+        ))
+    }
+}
+
+/// Opens a remote Elasticsearch keyword index. The config travels as plain
+/// data so hosts compile without the `elastic` feature; without it the
+/// helper fails with a readable error instead of running without hybrid.
+pub fn open_elastic_keyword(
+    config: &ElasticKeywordConfig,
+) -> Result<std::sync::Arc<dyn KeywordIndex>> {
+    #[cfg(feature = "elastic")]
+    {
+        let index = elastic_index::ElasticKeywordIndex::new(config)?;
+        Ok(std::sync::Arc::new(index))
+    }
+    #[cfg(not(feature = "elastic"))]
+    {
+        let _ = config;
+        Err(RagError::Keyword(
+            "elastic backend is not compiled; enable rag-core/elastic".to_string(),
+        ))
+    }
+}

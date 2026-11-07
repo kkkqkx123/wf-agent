@@ -56,17 +56,34 @@ impl std::fmt::Debug for RagHandles {
     }
 }
 
-/// Resolved keyword index placement: the three explicit branches.
+/// Resolved keyword index placement: one explicit branch per backend.
 /// `Disabled` is the only legitimate source of an empty keyword slot;
 /// bootstrap must fail fast on any open error instead of degrading here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeywordIndexLocation {
     /// Keyword explicitly disabled; the slot stays empty.
     Disabled,
-    /// Ephemeral index for memory storage; dies with the process.
+    /// Ephemeral SQLite index for memory storage; dies with the process.
     Memory,
-    /// File-backed index at the resolved path.
+    /// File-backed SQLite index at the resolved path.
     File(PathBuf),
+    /// Embedded tantivy index; `None` is an in-RAM index for memory
+    /// storage, `Some` a directory sibling of the storage database.
+    Tantivy(Option<PathBuf>),
+    /// Remote Elasticsearch index with plain connection data.
+    Elastic(ElasticLocation),
+}
+
+/// Connection data of a resolved Elasticsearch location. Plain data so
+/// resolution compiles without the `elastic` feature; opening validates.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ElasticLocation {
+    /// Base URL of the REST API.
+    pub base_url: String,
+    /// Optional API key; empty means no credentials.
+    pub api_key: Option<String>,
+    /// Index carrying every collection.
+    pub index: String,
 }
 
 /// Environment variable overriding the database path.
@@ -74,17 +91,38 @@ pub const KEYWORD_DB_PATH_ENV: &str = "WF_KEYWORD_DB_PATH";
 /// Environment variable overriding the master switch (`0`/`false`/`no`/
 /// `off` disable, case-insensitive).
 pub const KEYWORD_ENABLED_ENV: &str = "WF_KEYWORD_ENABLED";
+/// Environment variable selecting the backend
+/// (`sqlite`/`tantivy`/`elastic`, case-insensitive).
+pub const KEYWORD_BACKEND_ENV: &str = "WF_KEYWORD_BACKEND";
+/// Environment variable overriding the tantivy index directory. An empty
+/// value selects the in-RAM index.
+pub const KEYWORD_TANTIVY_PATH_ENV: &str = "WF_KEYWORD_TANTIVY_PATH";
+/// Environment variable overriding the Elasticsearch base URL.
+pub const KEYWORD_ES_URL_ENV: &str = "WF_KEYWORD_ES_URL";
+/// Environment variable overriding the Elasticsearch API key.
+pub const KEYWORD_ES_API_KEY_ENV: &str = "WF_KEYWORD_ES_API_KEY";
+/// Environment variable overriding the Elasticsearch index name.
+pub const KEYWORD_ES_INDEX_ENV: &str = "WF_KEYWORD_ES_INDEX";
 
 /// Resolves where the keyword index lives. Environment overrides win over
 /// the programmatic config; an explicit path wins over derived placement.
-/// Memory storage resolves to an ephemeral index, every other storage
-/// type to a file sibling of the storage database.
+/// The backend selects the branch: sqlite keeps the existing memory/file
+/// rule, tantivy resolves to an in-RAM or directory index, elastic to the
+/// configured server. Non-sqlite backends are explicit opt-ins and never
+/// selected implicitly by storage type.
 pub fn resolve_keyword_location(
     storage: &StorageConfig,
     config: &KeywordIndexConfig,
 ) -> KeywordIndexLocation {
+    use wf_types::config::keyword::KeywordBackend;
     if env_flag_off(KEYWORD_ENABLED_ENV) || !config.enabled {
         return KeywordIndexLocation::Disabled;
+    }
+    let backend = env_backend(KEYWORD_BACKEND_ENV).unwrap_or(config.backend);
+    match backend {
+        KeywordBackend::Tantivy => return resolve_tantivy_location(storage, config),
+        KeywordBackend::Elastic => return resolve_elastic_location(config),
+        KeywordBackend::Sqlite => {}
     }
     if let Some(path) = env_path(KEYWORD_DB_PATH_ENV) {
         return KeywordIndexLocation::File(path);
@@ -100,6 +138,74 @@ pub fn resolve_keyword_location(
         return KeywordIndexLocation::Memory;
     }
     KeywordIndexLocation::File(keyword_db_path(storage))
+}
+
+fn resolve_tantivy_location(
+    storage: &StorageConfig,
+    config: &KeywordIndexConfig,
+) -> KeywordIndexLocation {
+    if let Some(path) = env_tantivy_path() {
+        return KeywordIndexLocation::Tantivy(path);
+    }
+    if let Some(path) = config
+        .tantivy_path
+        .as_deref()
+        .filter(|path| !path.trim().is_empty())
+    {
+        return KeywordIndexLocation::Tantivy(Some(PathBuf::from(path)));
+    }
+    if storage.storage_type == StorageType::Memory {
+        return KeywordIndexLocation::Tantivy(None);
+    }
+    KeywordIndexLocation::Tantivy(Some(keyword_tantivy_dir(storage)))
+}
+
+fn resolve_elastic_location(config: &KeywordIndexConfig) -> KeywordIndexLocation {
+    let base_url = std::env::var(KEYWORD_ES_URL_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            config
+                .elastic_url
+                .as_deref()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_default();
+    let api_key = std::env::var(KEYWORD_ES_API_KEY_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| config.elastic_api_key.clone());
+    let index = std::env::var(KEYWORD_ES_INDEX_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| config.elastic_index.clone());
+    KeywordIndexLocation::Elastic(ElasticLocation {
+        base_url,
+        api_key,
+        index,
+    })
+}
+
+fn env_backend(name: &str) -> Option<wf_types::config::keyword::KeywordBackend> {
+    use wf_types::config::keyword::KeywordBackend;
+    match std::env::var(name).ok()?.trim().to_lowercase().as_str() {
+        "sqlite" | "fts" | "sqlite-fts" => Some(KeywordBackend::Sqlite),
+        "tantivy" => Some(KeywordBackend::Tantivy),
+        "elastic" | "elasticsearch" | "es" => Some(KeywordBackend::Elastic),
+        _ => None,
+    }
+}
+
+fn env_tantivy_path() -> Option<Option<PathBuf>> {
+    match std::env::var(KEYWORD_TANTIVY_PATH_ENV).ok() {
+        None => None,
+        Some(value) if value.trim().is_empty() => Some(None),
+        Some(value) => Some(Some(PathBuf::from(value.trim()))),
+    }
 }
 
 /// Derives the keyword database path from the storage configuration:
@@ -120,6 +226,26 @@ pub fn keyword_db_path(storage: &StorageConfig) -> PathBuf {
         })
         .unwrap_or_else(|| PathBuf::from("./storage"));
     dir.join(format!("{app_name}-keyword.db"))
+}
+
+/// Derives the tantivy index directory from the storage configuration:
+/// the storage database's sibling named after the application. Mirrors
+/// the keyword database rule, so all retrieval files move together.
+pub fn keyword_tantivy_dir(storage: &StorageConfig) -> PathBuf {
+    let app_name = storage.app_name.as_deref().unwrap_or("app");
+    let dir = storage
+        .sqlite
+        .as_ref()
+        .map(|sqlite| sqlite.db_path.as_str())
+        .filter(|path| !path.is_empty())
+        .map(|path| {
+            PathBuf::from(path)
+                .parent()
+                .map(|parent| parent.to_path_buf())
+                .unwrap_or_else(|| PathBuf::from("./storage"))
+        })
+        .unwrap_or_else(|| PathBuf::from("./storage"));
+    dir.join(format!("{app_name}-keyword-tantivy"))
 }
 
 fn env_flag_off(name: &str) -> bool {
@@ -214,6 +340,40 @@ pub fn open_keyword_index(
                 "keyword index opened"
             );
             Ok(Some(SharedKeywordIndex::new(Arc::new(index))))
+        }
+        KeywordIndexLocation::Tantivy(path) => {
+            let index = match path {
+                None => rag_core::open_tantivy_ram_keyword().map_err(|err| {
+                    ApiError::execution(format!(
+                        "Failed to open in-memory tantivy keyword index: {err}"
+                    ))
+                })?,
+                Some(dir) => {
+                    let raw = dir.to_string_lossy().into_owned();
+                    rag_core::open_tantivy_dir_keyword(&raw).map_err(|err| {
+                        ApiError::execution(format!(
+                            "Failed to open tantivy keyword index at '{}': {err}",
+                            dir.display()
+                        ))
+                    })?
+                }
+            };
+            info!(backend = index.backend_name(), "keyword index opened");
+            Ok(Some(SharedKeywordIndex::new(index)))
+        }
+        KeywordIndexLocation::Elastic(location) => {
+            let mut config = rag_core::ElasticKeywordConfig::new(location.base_url.clone());
+            config.api_key.clone_from(&location.api_key);
+            config.index.clone_from(&location.index);
+            let index = rag_core::open_elastic_keyword(&config).map_err(|err| {
+                ApiError::execution(format!("Failed to open elastic keyword index: {err}"))
+            })?;
+            info!(
+                backend = index.backend_name(),
+                index = %location.index,
+                "keyword index opened"
+            );
+            Ok(Some(SharedKeywordIndex::new(index)))
         }
     }
 }
@@ -589,6 +749,7 @@ mod tests {
         let config = KeywordIndexConfig {
             enabled: false,
             db_path: Some("/tmp/should-not-win.db".to_string()),
+            ..Default::default()
         };
         std::env::set_var(KEYWORD_DB_PATH_ENV, "/tmp/env-should-not-win.db");
         let location = resolve_keyword_location(&storage, &config);
@@ -606,6 +767,7 @@ mod tests {
         let config = KeywordIndexConfig {
             enabled: true,
             db_path: Some(explicit.to_string_lossy().into_owned()),
+            ..Default::default()
         };
         let location = resolve_keyword_location(&storage, &config);
         assert_eq!(location, KeywordIndexLocation::File(explicit));
@@ -685,6 +847,89 @@ mod tests {
         let location = KeywordIndexLocation::File(dir.clone());
         assert!(open_keyword_index(&location).is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tantivy_backend_resolves_to_directory_for_file_storage() {
+        use wf_types::config::keyword::KeywordBackend;
+        let dir = unique_temp_dir("wf-keyword-tantivy-resolve");
+        let db = dir.join("app.db");
+        let storage = sqlite_storage(&db.to_string_lossy());
+        let config = KeywordIndexConfig {
+            backend: KeywordBackend::Tantivy,
+            ..Default::default()
+        };
+        let location = resolve_keyword_location(&storage, &config);
+        assert_eq!(
+            location,
+            KeywordIndexLocation::Tantivy(Some(keyword_tantivy_dir(&storage)))
+        );
+        let memory_location = resolve_keyword_location(&memory_storage(), &config);
+        assert_eq!(memory_location, KeywordIndexLocation::Tantivy(None));
+        let explicit = dir.join("custom-tantivy");
+        let explicit_config = KeywordIndexConfig {
+            backend: KeywordBackend::Tantivy,
+            tantivy_path: Some(explicit.to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve_keyword_location(&storage, &explicit_config),
+            KeywordIndexLocation::Tantivy(Some(explicit))
+        );
+        std::env::set_var(KEYWORD_BACKEND_ENV, "tantivy");
+        let env_location = resolve_keyword_location(&storage, &Default::default());
+        std::env::remove_var(KEYWORD_BACKEND_ENV);
+        assert!(matches!(env_location, KeywordIndexLocation::Tantivy(_)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tantivy_location_open_reports_feature_status() {
+        let opened = open_keyword_index(&KeywordIndexLocation::Tantivy(None));
+        match opened {
+            Ok(shared) => assert_eq!(shared.expect("index").as_arc().backend_name(), "tantivy"),
+            Err(err) => assert!(
+                err.to_string().contains("tantivy backend is not compiled"),
+                "unexpected error: {err}"
+            ),
+        }
+    }
+
+    #[test]
+    fn elastic_backend_resolves_to_server_location() {
+        use wf_types::config::keyword::KeywordBackend;
+        let storage = memory_storage();
+        let config = KeywordIndexConfig {
+            backend: KeywordBackend::Elastic,
+            elastic_url: Some("http://127.0.0.1:9200".to_string()),
+            ..Default::default()
+        };
+        let location = resolve_keyword_location(&storage, &config);
+        assert!(matches!(location, KeywordIndexLocation::Elastic(_)));
+        let KeywordIndexLocation::Elastic(resolved) = location else {
+            unreachable!("matched above");
+        };
+        assert_eq!(resolved.base_url, "http://127.0.0.1:9200");
+        assert_eq!(resolved.index, "rag-keyword");
+        std::env::set_var(KEYWORD_BACKEND_ENV, "elastic");
+        std::env::set_var(KEYWORD_ES_URL_ENV, "http://es:9200");
+        let env_location = resolve_keyword_location(&storage, &Default::default());
+        std::env::remove_var(KEYWORD_ES_URL_ENV);
+        std::env::remove_var(KEYWORD_BACKEND_ENV);
+        let KeywordIndexLocation::Elastic(resolved) = env_location else {
+            panic!("expected elastic location, got {env_location:?}");
+        };
+        assert_eq!(resolved.base_url, "http://es:9200");
+    }
+
+    #[test]
+    fn elastic_location_open_fails_fast_without_url_or_feature() {
+        let location = KeywordIndexLocation::Elastic(ElasticLocation {
+            base_url: String::new(),
+            api_key: None,
+            index: "rag-keyword".to_string(),
+        });
+        assert!(open_keyword_index(&location).is_err());
     }
 
     #[tokio::test]

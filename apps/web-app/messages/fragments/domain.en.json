@@ -418,6 +418,8 @@
 	"domain.git.conflictEmpty": "No conflicts. The working tree is clean of unmerged paths.",
 	"domain.git.conflictPending": "Conflict markers need resolution before staging.",
 	"domain.git.conflicted": "Conflicted",
+	"domain.git.copyDiff": "Copy visible diff",
+	"domain.git.copyHunk": "Copy hunk as text",
 	"domain.git.discardHunk": "Discard hunk",
 	"domain.git.discardLines": "Discard lines",
 	"domain.git.filter": "Filter",

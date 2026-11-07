@@ -418,6 +418,8 @@
 	"domain.git.conflictEmpty": "无冲突。工作区没有未合并路径。",
 	"domain.git.conflictPending": "冲突标记需先解决才能暂存。",
 	"domain.git.conflicted": "冲突",
+	"domain.git.copyDiff": "复制所见差异",
+	"domain.git.copyHunk": "复制该 hunk 文本",
 	"domain.git.discardHunk": "丢弃 hunk",
 	"domain.git.discardLines": "丢弃行",
 	"domain.git.filter": "筛选",

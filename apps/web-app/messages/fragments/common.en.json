@@ -6,6 +6,8 @@
 	"common.confirm": "Confirm",
 	"common.copied": "Copied",
 	"common.copy": "Copy",
+	"common.copyFailed": "Copy failed",
+	"common.copyFailedDetail": "Clipboard is unavailable.",
 	"common.create": "Create",
 	"common.delete": "Delete",
 	"common.edit": "Edit",

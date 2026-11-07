@@ -203,6 +203,7 @@
 	"page.ide.resizeTerminal": "Resize terminal",
 	"page.ide.cut": "Cut",
 	"page.ide.copy": "Copy",
+	"page.ide.copyDiff": "Copy diff as text",
 	"page.ide.paste": "Paste",
 	"page.ide.pasteInto": "Paste into {path}",
 	"page.ide.selectAll": "Select all",

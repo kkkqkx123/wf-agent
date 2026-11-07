@@ -203,6 +203,7 @@
 	"page.ide.resizeTerminal": "调整终端高度",
 	"page.ide.cut": "剪切",
 	"page.ide.copy": "复制",
+	"page.ide.copyDiff": "复制差异为文本",
 	"page.ide.paste": "粘贴",
 	"page.ide.pasteInto": "粘贴到 {path}",
 	"page.ide.selectAll": "全选",

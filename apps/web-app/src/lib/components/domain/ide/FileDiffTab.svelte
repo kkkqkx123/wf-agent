@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Button from '#lib/ui/components/Button.svelte';
+	import IconButton from '#lib/ui/components/IconButton.svelte';
 	import DiffView from '#lib/ui/components/DiffView.svelte';
 	import MonacoDiffEditor from './MonacoDiffEditor.svelte';
 	import { ide } from '#lib/stores/ide.svelte';
@@ -9,6 +10,7 @@
 	import type { DiffBase } from '#lib/ide/diff-tabs';
 	import { diffEditable } from '#lib/ide/diff-tabs';
 	import type { DiffFile } from '#lib/types/diff';
+	import { diffFilesToText } from '#lib/types/diff';
 	import { t } from '#lib/i18n';
 
 	interface Props {
@@ -129,6 +131,17 @@
 		}
 	}
 
+	async function copyDiffText(): Promise<void> {
+		const text = diffFilesToText(hunks.map((file) => ({ title: file.path, file })));
+		if (!text) return;
+		try {
+			await navigator.clipboard.writeText(text);
+			toasts.success(t('common.copied'));
+		} catch {
+			toasts.error(t('common.copyFailed'), t('common.copyFailedDetail'));
+		}
+	}
+
 	async function saveFromDiff(): Promise<void> {
 		const ok = await ide.saveFile(path);
 		if (ok) {
@@ -149,6 +162,9 @@
 			<span class="shrink-0">{t('domain.git.staged')}</span>
 		{:else}
 			<span class="shrink-0">{t('page.ide.diffTabChangesSuffix')}</span>
+		{/if}
+		{#if !loading && !error && hunks.length > 0}
+			<IconButton icon="copy" label={t('page.ide.copyDiff')} onclick={() => void copyDiffText()} />
 		{/if}
 		{#if base.kind !== 'commit'}
 			<Button size="sm" variant="ghost" disabled={staging} onclick={() => void toggleStage()}>
@@ -200,7 +216,12 @@
 		{:else}
 			<div class="h-full space-y-2 overflow-y-auto p-3">
 				{#each hunks as file (file.path)}
-					<DiffView lines={file.lines} title={file.path} />
+					<DiffView
+						lines={file.lines}
+						binary={file.binary}
+						truncated={file.truncated}
+						title={file.path}
+					/>
 				{/each}
 			</div>
 		{/if}

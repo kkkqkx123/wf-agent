@@ -6,6 +6,8 @@
 	"common.confirm": "确认",
 	"common.copied": "已复制",
 	"common.copy": "复制",
+	"common.copyFailed": "复制失败",
+	"common.copyFailedDetail": "剪贴板不可用。",
 	"common.create": "创建",
 	"common.delete": "删除",
 	"common.edit": "编辑",

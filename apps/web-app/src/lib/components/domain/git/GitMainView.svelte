@@ -5,10 +5,12 @@
 	import DiffView from '#lib/ui/components/DiffView.svelte';
 	import Segmented from '#lib/ui/components/Segmented.svelte';
 	import { git as gitStore } from '#lib/stores/git.svelte';
+	import { toasts } from '#lib/stores/toast.svelte';
 	import type { GitWorkbench, MainViewMode } from '#lib/git/workbench.svelte';
 	import { selectableIndices } from '#lib/git/workbench.svelte';
 	import { parseConflictBlocks } from '#lib/git/conflicts';
 	import type { DiffFile, DiffLine } from '#lib/types/diff';
+	import { diffFilesToText, diffHunkToText } from '#lib/types/diff';
 	import { t } from '#lib/i18n';
 
 	interface Props {
@@ -77,10 +79,90 @@
 
 	let lastAnchor = $state<{ path: string; hunk: number; index: number } | null>(null);
 
-	function copySelection(): void {
-		const text = workbench.selection;
+	let copiedHunkKey = $state<string | null>(null);
+	let hunkCopyTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function fileTitle(file: DiffFile): string {
+		const counts = `+${file.additions}/-${file.deletions}`;
+		const suffix = file.truncated ? ' · truncated' : '';
+		return `${file.path} (${counts})${suffix}`;
+	}
+
+	function hasVisibleLines(files: DiffFile[], path?: string): boolean {
+		return files.some((file) => {
+			if (path && file.path !== path) return false;
+			if (file.binary) return true;
+			return file.lines.length > 0;
+		});
+	}
+
+	let hasVisibleDiff = $derived.by(() => {
+		if (
+			(workbench.panel === 'files' || workbench.panel === 'conflicts') &&
+			workbench.visibleConflicts.length > 0
+		) {
+			return false;
+		}
+		if (workbench.viewMode === 'staging') {
+			if (!selectedPath) return false;
+			return (
+				hasVisibleLines(workbench.diff, selectedPath) ||
+				hasVisibleLines(workbench.stagedDiff, selectedPath)
+			);
+		}
+		return hasVisibleLines(workbench.diff);
+	});
+
+	function visibleBlocks(): Array<{ title?: string; file: DiffFile }> {
+		if (workbench.viewMode === 'staging' && selectedPath) {
+			const stagePath = selectedPath;
+			const blocks: Array<{ title?: string; file: DiffFile }> = [];
+			for (const file of workbench.diff) {
+				if (file.path !== stagePath) continue;
+				blocks.push({
+					title: `${t('domain.git.unstaged')} · ${fileTitle(file)}`,
+					file,
+				});
+			}
+			for (const file of workbench.stagedDiff) {
+				if (file.path !== stagePath) continue;
+				blocks.push({
+					title: `${t('domain.git.stagedDiff')} · ${fileTitle(file)}`,
+					file,
+				});
+			}
+			return blocks;
+		}
+		return workbench.diff.map((file) => ({ title: fileTitle(file), file }));
+	}
+
+	async function copyVisibleDiff(): Promise<void> {
+		const text = diffFilesToText(visibleBlocks());
 		if (!text) return;
-		void navigator.clipboard?.writeText(text).catch(() => {});
+		try {
+			await navigator.clipboard.writeText(text);
+			toasts.success(t('common.copied'));
+		} catch {
+			toasts.error(t('common.copyFailed'), t('common.copyFailedDetail'));
+		}
+	}
+
+	async function copyHunk(
+		section: string,
+		file: DiffFile,
+		hunkIndex: number,
+		header: string,
+		rows: DiffLine[],
+	): Promise<void> {
+		const text = `${fileTitle(file)}\n${diffHunkToText(header, rows)}`;
+		try {
+			await navigator.clipboard.writeText(text);
+			copiedHunkKey = `${section}:${file.path}:${hunkIndex}`;
+			if (hunkCopyTimer) clearTimeout(hunkCopyTimer);
+			hunkCopyTimer = setTimeout(() => (copiedHunkKey = null), 1200);
+		} catch {
+			toasts.error(t('common.copyFailed'), t('common.copyFailedDetail'));
+		}
 	}
 
 	function onLineClick(
@@ -112,9 +194,9 @@
 	{#snippet actions()}
 		<IconButton
 			icon="copy"
-			label="Copy selection"
-			disabled={!workbench.selection}
-			onclick={copySelection}
+			label={t('domain.git.copyDiff')}
+			disabled={!hasVisibleDiff}
+			onclick={() => void copyVisibleDiff()}
 		/>
 		<IconButton
 			icon={showWhitespace ? 'eye-off' : 'eye'}
@@ -329,6 +411,15 @@
 										/>
 										<span class="font-mono text-micro text-muted-foreground">{hunk.header}</span>
 										<span class="ml-auto flex gap-1">
+											<IconButton
+												icon={copiedHunkKey === `unstaged:${file.path}:${hunkIndex}`
+													? 'check'
+													: 'copy'}
+												label={t('domain.git.copyHunk')}
+												disabled={gitStore.busy}
+												onclick={() =>
+													void copyHunk('unstaged', file, hunkIndex, hunk.header, hunk.rows)}
+											/>
 											<Button
 												size="sm"
 												variant="ghost"
@@ -470,6 +561,15 @@
 										/>
 										<span class="font-mono text-micro text-muted-foreground">{hunk.header}</span>
 										<span class="ml-auto flex gap-1">
+											<IconButton
+												icon={copiedHunkKey === `staged:${file.path}:${hunkIndex}`
+													? 'check'
+													: 'copy'}
+												label={t('domain.git.copyHunk')}
+												disabled={gitStore.busy}
+												onclick={() =>
+													void copyHunk('staged', file, hunkIndex, hunk.header, hunk.rows)}
+											/>
 											<Button
 												size="sm"
 												variant="ghost"
@@ -597,6 +697,8 @@
 					<div class="mb-2">
 						<DiffView
 							lines={file.lines}
+							binary={file.binary}
+							truncated={file.truncated}
 							title={file.truncated
 								? `${file.path} (+${file.additions}/-${file.deletions}) · truncated`
 								: `${file.path} (+${file.additions}/-${file.deletions})`}
@@ -616,6 +718,8 @@
 				<div class="mb-2">
 					<DiffView
 						lines={file.lines}
+						binary={file.binary}
+						truncated={file.truncated}
 						title={file.truncated
 							? `${file.path} (+${file.additions}/-${file.deletions}) · truncated`
 							: `${file.path} (+${file.additions}/-${file.deletions})`}
@@ -670,6 +774,8 @@
 				{/if}
 				<DiffView
 					lines={file.lines}
+					binary={file.binary}
+					truncated={file.truncated}
 					title={file.truncated
 						? `${file.path} (+${file.additions}/-${file.deletions}) · truncated`
 						: `${file.path} (+${file.additions}/-${file.deletions})`}

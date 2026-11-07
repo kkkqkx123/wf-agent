@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { t } from '#lib/i18n';
+	import { toasts } from '#lib/stores/toast.svelte';
+	import { diffFileToText } from '#lib/types/diff';
 	import { cn } from '../cn';
 
 	export interface DiffLine {
@@ -11,14 +13,43 @@
 		lines: DiffLine[];
 		title?: string;
 		class?: string;
+		binary?: boolean;
+		truncated?: boolean;
 	}
 
-	let { lines, title, class: className = '' }: Props = $props();
+	let { lines, title, class: className = '', binary = false, truncated = false }: Props = $props();
 
 	/** Unified (one column) or side-by-side (old | new) layout. */
 	let sideBySide = $state(false);
 	/** Render spaces/tabs visibly instead of raw. */
 	let showWhitespace = $state(false);
+	/** Transient confirmation for the per-file text copy. Failures use a toast. */
+	let copied = $state(false);
+	let copyTimer: ReturnType<typeof setTimeout> | null = null;
+
+	async function copyFileText(): Promise<void> {
+		const text = diffFileToText(
+			{
+				path: '',
+				kind: '',
+				lines,
+				additions: 0,
+				deletions: 0,
+				binary,
+				truncated,
+			},
+			title,
+		);
+		if (!text) return;
+		try {
+			await navigator.clipboard.writeText(text);
+			copied = true;
+			if (copyTimer) clearTimeout(copyTimer);
+			copyTimer = setTimeout(() => (copied = false), 1200);
+		} catch {
+			toasts.error(t('common.copyFailed'), t('common.copyFailedDetail'));
+		}
+	}
 
 	const ROW_TONE = {
 		add: 'bg-success/10 text-success',
@@ -94,6 +125,17 @@
 			role="group"
 			aria-label={t('common.diffViewOptions')}
 		>
+			<button
+				type="button"
+				title={copied ? t('common.copied') : t('common.copy')}
+				class={cn(
+					'rounded px-1.5 py-0.5 font-mono text-micro transition-colors hover:bg-accent',
+					copied ? 'bg-accent text-foreground' : 'text-muted-foreground',
+				)}
+				onclick={() => void copyFileText()}
+			>
+				{copied ? t('common.copied') : t('common.copy')}
+			</button>
 			<button
 				type="button"
 				aria-pressed={sideBySide}

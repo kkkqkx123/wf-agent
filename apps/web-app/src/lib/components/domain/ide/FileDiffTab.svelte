@@ -10,6 +10,7 @@
 	import type { DiffBase } from '#lib/ide/diff-tabs';
 	import { diffEditable } from '#lib/ide/diff-tabs';
 	import type { DiffFile } from '#lib/types/diff';
+	import { copyPlainText } from '#lib/utils/clipboard';
 	import { diffFilesToText } from '#lib/types/diff';
 	import { t } from '#lib/i18n';
 
@@ -134,10 +135,9 @@
 	async function copyDiffText(): Promise<void> {
 		const text = diffFilesToText(hunks.map((file) => ({ title: file.path, file })));
 		if (!text) return;
-		try {
-			await navigator.clipboard.writeText(text);
+		if (await copyPlainText(text)) {
 			toasts.success(t('common.copied'));
-		} catch {
+		} else {
 			toasts.error(t('common.copyFailed'), t('common.copyFailedDetail'));
 		}
 	}

@@ -10,6 +10,7 @@
 	import { selectableIndices } from '#lib/git/workbench.svelte';
 	import { parseConflictBlocks } from '#lib/git/conflicts';
 	import type { DiffFile, DiffLine } from '#lib/types/diff';
+	import { copyPlainText } from '#lib/utils/clipboard';
 	import { diffFilesToText, diffHunkToText } from '#lib/types/diff';
 	import { t } from '#lib/i18n';
 
@@ -99,7 +100,8 @@
 	let hasVisibleDiff = $derived.by(() => {
 		if (
 			(workbench.panel === 'files' || workbench.panel === 'conflicts') &&
-			workbench.visibleConflicts.length > 0
+			workbench.visibleConflicts.length > 0 &&
+			(!selectedPath || workbench.isSelectedConflicted)
 		) {
 			return false;
 		}
@@ -139,10 +141,9 @@
 	async function copyVisibleDiff(): Promise<void> {
 		const text = diffFilesToText(visibleBlocks());
 		if (!text) return;
-		try {
-			await navigator.clipboard.writeText(text);
+		if (await copyPlainText(text)) {
 			toasts.success(t('common.copied'));
-		} catch {
+		} else {
 			toasts.error(t('common.copyFailed'), t('common.copyFailedDetail'));
 		}
 	}
@@ -155,12 +156,11 @@
 		rows: DiffLine[],
 	): Promise<void> {
 		const text = `${fileTitle(file)}\n${diffHunkToText(header, rows)}`;
-		try {
-			await navigator.clipboard.writeText(text);
+		if (await copyPlainText(text)) {
 			copiedHunkKey = `${section}:${file.path}:${hunkIndex}`;
 			if (hunkCopyTimer) clearTimeout(hunkCopyTimer);
 			hunkCopyTimer = setTimeout(() => (copiedHunkKey = null), 1200);
-		} catch {
+		} else {
 			toasts.error(t('common.copyFailed'), t('common.copyFailedDetail'));
 		}
 	}
@@ -223,7 +223,7 @@
 		</div>
 	{/if}
 
-	{#if (workbench.panel === 'files' || workbench.panel === 'conflicts') && workbench.visibleConflicts.length > 0}
+	{#if (workbench.panel === 'files' || workbench.panel === 'conflicts') && workbench.visibleConflicts.length > 0 && (!selectedPath || workbench.isSelectedConflicted)}
 		<div class="mb-2 rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1.5">
 			<p class="text-caption text-muted-foreground">
 				{t('domain.git.conflictDescription')}

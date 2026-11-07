@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { t } from '#lib/i18n';
 	import { toasts } from '#lib/stores/toast.svelte';
+	import { copyPlainText } from '#lib/utils/clipboard';
 	import { diffFileToText } from '#lib/types/diff';
 	import { cn } from '../cn';
 
@@ -41,12 +42,11 @@
 			title,
 		);
 		if (!text) return;
-		try {
-			await navigator.clipboard.writeText(text);
+		if (await copyPlainText(text)) {
 			copied = true;
 			if (copyTimer) clearTimeout(copyTimer);
 			copyTimer = setTimeout(() => (copied = false), 1200);
-		} catch {
+		} else {
 			toasts.error(t('common.copyFailed'), t('common.copyFailedDetail'));
 		}
 	}

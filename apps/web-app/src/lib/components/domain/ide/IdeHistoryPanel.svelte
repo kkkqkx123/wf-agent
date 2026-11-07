@@ -45,7 +45,6 @@
 	let resetMode = $state<'reset.soft' | 'reset.mixed' | 'reset.hard'>('reset.soft');
 	let resetConfirmInput = $state('');
 	let discardTarget = $state<GitFile | null>(null);
-	let discardConfirmInput = $state('');
 	let busyAction = $state<string | null>(null);
 	let actionError = $state<string | null>(null);
 	let changesOpen = $state(true);
@@ -206,18 +205,12 @@
 
 	function openDiscard(file: GitFile): void {
 		discardTarget = file;
-		discardConfirmInput = '';
 	}
 
 	function confirmDiscard(): void {
 		const target = discardTarget;
 		if (!target || busyAction !== null) return;
-		if (discardConfirmInput.trim() !== target.path) {
-			actionError = t('domain.git.confirmMismatch');
-			return;
-		}
 		discardTarget = null;
-		discardConfirmInput = '';
 		void runStaging('discard.unstaged', { path: target.path }, target.path);
 	}
 
@@ -757,27 +750,15 @@
 		: undefined}
 	onclose={() => {
 		discardTarget = null;
-		discardConfirmInput = '';
 	}}
 >
 	<div class="space-y-2 p-4">
-		<p class="text-caption text-muted-foreground">{t('page.ide.discardConfirmHint')}</p>
-		<input
-			bind:value={discardConfirmInput}
-			placeholder={discardTarget?.path ?? ''}
-			aria-label={t('page.ide.discardConfirmHint')}
-			class="h-8 w-full rounded-md border border-input bg-card px-2 text-body"
-		/>
-		{#if discardConfirmInput.length > 0 && discardTarget && discardConfirmInput.trim() !== discardTarget.path}
-			<p class="text-caption text-destructive">{t('domain.git.confirmMismatch')}</p>
-		{/if}
 		<div class="flex justify-end gap-2 pt-1">
 			<Button
 				size="sm"
 				variant="ghost"
 				onclick={() => {
 					discardTarget = null;
-					discardConfirmInput = '';
 				}}
 			>
 				{t('common.cancel')}
@@ -785,9 +766,7 @@
 			<Button
 				size="sm"
 				variant="default"
-				disabled={busyAction !== null ||
-					!discardTarget ||
-					discardConfirmInput.trim() !== discardTarget.path}
+				disabled={busyAction !== null || !discardTarget}
 				onclick={confirmDiscard}
 			>
 				{t('page.ide.discardChanges')}

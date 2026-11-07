@@ -4,7 +4,7 @@
 	import TuiPanel from '#lib/ui/components/TuiPanel.svelte';
 	import Input from '#lib/ui/components/Input.svelte';
 	import { git as gitStore } from '#lib/stores/git.svelte';
-	import { GUARDED_DANGERS } from '#lib/git/workbench.svelte';
+	import { CONFIRM_DANGERS } from '#lib/git/workbench.svelte';
 	import type { GitWorkbench } from '#lib/git/workbench.svelte';
 	import { t } from '#lib/i18n';
 
@@ -117,7 +117,7 @@
 						? `${control.name} (${control.hint} · ${control.legacyKey})`
 						: `${control.name} (${control.hint})`}
 					onclick={() => void workbench.runActionId(control.id)}
-					class={GUARDED_DANGERS.has(control.danger) ? 'text-destructive' : ''}
+					class={CONFIRM_DANGERS.has(control.danger) ? 'text-destructive' : ''}
 				>
 					<span class="text-muted-foreground">{control.hint}</span>
 					{control.name}

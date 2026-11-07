@@ -1472,7 +1472,6 @@
 	"page.ide.dirOverflow": "+{count} more — refine the filter to narrow down.",
 	"page.ide.discard": "Discard",
 	"page.ide.discardChanges": "Discard changes",
-	"page.ide.discardConfirmHint": "Type the file path to confirm.",
 	"page.ide.discardUnstagedDesc": "Discard unstaged changes in {path}? Staged changes are kept. This cannot be undone.",
 	"page.ide.discardUnstagedTitle": "Discard unstaged changes?",
 	"page.ide.download": "Download",

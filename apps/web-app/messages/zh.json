@@ -1472,7 +1472,6 @@
 	"page.ide.dirOverflow": "还有 {count} 项 — 请细化筛选以缩小范围。",
 	"page.ide.discard": "放弃",
 	"page.ide.discardChanges": "放弃更改",
-	"page.ide.discardConfirmHint": "输入文件路径以确认。",
 	"page.ide.discardUnstagedDesc": "放弃 {path} 的未暂存更改？已暂存更改将保留。该操作无法撤销。",
 	"page.ide.discardUnstagedTitle": "放弃未暂存更改？",
 	"page.ide.download": "下载",

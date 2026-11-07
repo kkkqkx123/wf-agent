@@ -98,13 +98,6 @@
 	}
 
 	let hasVisibleDiff = $derived.by(() => {
-		if (
-			(workbench.panel === 'files' || workbench.panel === 'conflicts') &&
-			workbench.visibleConflicts.length > 0 &&
-			(!selectedPath || workbench.isSelectedConflicted)
-		) {
-			return false;
-		}
 		if (workbench.viewMode === 'staging') {
 			if (!selectedPath) return false;
 			return (

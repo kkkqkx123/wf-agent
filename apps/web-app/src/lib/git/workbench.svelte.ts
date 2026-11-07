@@ -1,5 +1,6 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { toasts } from '#lib/stores/toast.svelte';
+import { t } from '#lib/i18n';
 import { git as gitStore } from '#lib/stores/git.svelte';
 import {
 	getCommitFiles,
@@ -121,7 +122,12 @@ export const PARAM_DEFAULTS: Record<string, Record<string, string>> = {
 	pull: { remote: 'origin' },
 };
 
-export const GUARDED_DANGERS = new SvelteSet(['destructive', 'history_rewrite']);
+/** Actions that must pass an explicit confirm dialog. The client echoes
+ * the exact target, so the server-side exact-match check still holds without
+ * asking the user to retype it. */
+export const CONFIRM_DANGERS = new SvelteSet(['destructive', 'history_rewrite']);
+/** Actions that additionally require typing the exact target. */
+export const GUARDED_DANGERS = new SvelteSet(['history_rewrite']);
 
 /** Reverse staging actions for toast shortcuts; history undo does not apply to the index. */
 const STAGING_REVERSE: Record<string, string> = {
@@ -273,6 +279,9 @@ export class GitWorkbench {
 		this.dialogAction ? this.registry.find((entry) => entry.id === this.dialogAction) : undefined,
 	);
 	dialogNeedsConfirm = $derived(
+		this.dialogSpec ? CONFIRM_DANGERS.has(this.dialogSpec.danger) : false,
+	);
+	dialogNeedsTypedConfirm = $derived(
 		this.dialogSpec ? GUARDED_DANGERS.has(this.dialogSpec.danger) : false,
 	);
 	dialogTarget = $derived(
@@ -282,7 +291,10 @@ export class GitWorkbench {
 		this.dialogConfirm.trim() === this.dialogTarget && this.dialogTarget !== '',
 	);
 	dialogParams = $derived(this.dialogSpec?.params ?? []);
-	dialogCanSubmit = $derived(!this.dialogNeedsConfirm || this.dialogConfirmMatches);
+	dialogCanSubmit = $derived(
+		(!this.dialogNeedsConfirm || this.dialogTarget !== '') &&
+			(!this.dialogNeedsTypedConfirm || this.dialogConfirmMatches),
+	);
 	selection = $derived(gitStore.selectionFor(this.panel));
 	selectedFileEntry = $derived(
 		gitStore.selectedFile
@@ -930,11 +942,11 @@ export class GitWorkbench {
 			this.focusFilter();
 			return;
 		}
-		if (spec && (spec.params.length > 0 || GUARDED_DANGERS.has(spec.danger))) {
+		if (spec && (spec.params.length > 0 || CONFIRM_DANGERS.has(spec.danger))) {
 			// Lazygit-style single-key path: every param resolves from the
 			// current selection and the action needs no confirmation, so run
 			// it directly instead of opening the param dialog.
-			if (!GUARDED_DANGERS.has(spec.danger)) {
+			if (!CONFIRM_DANGERS.has(spec.danger)) {
 				const filled: Record<string, string> = {};
 				const allResolved = spec.params.every((key) => {
 					const value = this.paramDefault(action, key).trim();
@@ -992,9 +1004,15 @@ export class GitWorkbench {
 			if (trimmed) params[key] = trimmed;
 		}
 		let confirm: string | undefined;
-		if (this.dialogNeedsConfirm) {
-			if (!this.dialogCanSubmit) {
-				toasts.error('Confirmation mismatch', `Type the exact target: ${this.dialogTarget}`);
+		if (this.dialogNeedsTypedConfirm) {
+			if (!this.dialogConfirmMatches) {
+				toasts.error(t('domain.git.confirmMismatch'));
+				return;
+			}
+			confirm = this.dialogTarget;
+		} else if (this.dialogNeedsConfirm) {
+			if (this.dialogTarget === '') {
+				toasts.error(t('domain.git.confirmMismatch'));
 				return;
 			}
 			confirm = this.dialogTarget;

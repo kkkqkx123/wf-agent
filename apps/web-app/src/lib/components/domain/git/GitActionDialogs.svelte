@@ -5,7 +5,7 @@
 	import Input from '#lib/ui/components/Input.svelte';
 	import { git as gitStore } from '#lib/stores/git.svelte';
 	import { bindingsFor } from '#lib/git/bindings';
-	import { GUARDED_DANGERS, PARAM_LABELS } from '#lib/git/workbench.svelte';
+	import { CONFIRM_DANGERS, PARAM_LABELS } from '#lib/git/workbench.svelte';
 	import type { GitWorkbench } from '#lib/git/workbench.svelte';
 	import { t } from '#lib/i18n';
 
@@ -39,7 +39,7 @@
 				placeholder={PARAM_LABELS[param] ?? param}
 			/>
 		{/each}
-		{#if workbench.dialogNeedsConfirm}
+		{#if workbench.dialogNeedsTypedConfirm}
 			<div class="mt-2">
 				<Input
 					label={t('domain.git.confirmTarget', {
@@ -108,7 +108,7 @@
 					<span class="font-mono text-micro text-muted-foreground">{binding.id}</span></span
 				>
 				<span class="flex items-center gap-2">
-					{#if GUARDED_DANGERS.has(binding.danger)}
+					{#if CONFIRM_DANGERS.has(binding.danger)}
 						<Badge variant="danger">{binding.danger}</Badge>
 					{:else}
 						<Badge variant="neutral">{binding.danger}</Badge>

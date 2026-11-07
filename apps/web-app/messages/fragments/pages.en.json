@@ -256,7 +256,6 @@
 	"page.ide.discardChanges": "Discard changes",
 	"page.ide.discardUnstagedTitle": "Discard unstaged changes?",
 	"page.ide.discardUnstagedDesc": "Discard unstaged changes in {path}? Staged changes are kept. This cannot be undone.",
-	"page.ide.discardConfirmHint": "Type the file path to confirm.",
 	"page.ide.collapseSection": "Collapse {section}",
 	"page.ide.expandSection": "Expand {section}",
 	"page.ide.showRemainingChanges": "+{count} more — open in Git page",

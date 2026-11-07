@@ -837,4 +837,45 @@ mod tests {
             );
         }
     }
+
+    #[tokio::test]
+    async fn effective_keyword_index_prefers_handles_and_falls_back() {
+        use std::sync::Arc;
+        let store = Arc::new(vector_contracts::InMemoryVectorStore::new());
+        let embedder = Arc::new(UnitEmbedder { dimension: 8 });
+        let handle_keyword: Arc<dyn rag_core::KeywordIndex> =
+            Arc::new(rag_core::SqliteKeywordIndex::open_in_memory().expect("keyword"));
+        let ctx_keyword: Arc<dyn rag_core::KeywordIndex> =
+            Arc::new(rag_core::SqliteKeywordIndex::open_in_memory().expect("keyword"));
+        let ctx_with_both = crate::ApiContext::new(
+            wf_storage::context::StorageContext::new_memory(),
+            Arc::new(wf_resource::registry::ResourceRegistries::new()),
+        )
+        .with_rag_handles(RagHandles::new(
+            store.clone(),
+            embedder.clone(),
+            Some(handle_keyword.clone()),
+        ))
+        .with_keyword_index(ctx_keyword.clone());
+        let effective = ctx_with_both.effective_keyword_index().expect("keyword");
+        assert!(Arc::ptr_eq(&effective, &handle_keyword));
+        let ctx_fallback = crate::ApiContext::new(
+            wf_storage::context::StorageContext::new_memory(),
+            Arc::new(wf_resource::registry::ResourceRegistries::new()),
+        )
+        .with_rag_handles(RagHandles::new(store, embedder, None))
+        .with_keyword_index(ctx_keyword.clone());
+        let effective = ctx_fallback.effective_keyword_index().expect("keyword");
+        assert!(Arc::ptr_eq(&effective, &ctx_keyword));
+        let node_handles = ctx_fallback.rag_node_handles("kb", "kb").expect("node handles");
+        assert!(Arc::ptr_eq(
+            node_handles.keyword.as_ref().expect("node keyword"),
+            &ctx_keyword
+        ));
+        let ctx_empty = crate::ApiContext::new(
+            wf_storage::context::StorageContext::new_memory(),
+            Arc::new(wf_resource::registry::ResourceRegistries::new()),
+        );
+        assert!(ctx_empty.effective_keyword_index().is_none());
+    }
 }

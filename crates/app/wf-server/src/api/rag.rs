@@ -86,9 +86,10 @@ pub(crate) async fn handle_rag_stats(
         Ok(handles) => handles,
         Err(e) => return error_response(e),
     };
+    let keyword = state.ctx.effective_keyword_index();
     match wf_api::rag::collection_stats(
         handles.store.as_ref(),
-        handles.keyword.as_deref(),
+        keyword.as_deref(),
         &scope.collection,
         &scope.namespace,
     )
@@ -149,11 +150,7 @@ pub(crate) async fn handle_rag_diagnose(
     State(state): State<ApiState>,
     Query(query): Query<RagDiagnoseQuery>,
 ) -> impl IntoResponse {
-    let keyword_enabled = state.ctx.keyword_index().is_some()
-        || state
-            .ctx
-            .rag_handles()
-            .is_some_and(|handles| handles.keyword.is_some());
+    let keyword_enabled = state.ctx.effective_keyword_index().is_some();
     let mut diagnosis = wf_api::rag::diagnose_no_hits(
         &query.query,
         query.top_k,
@@ -163,9 +160,10 @@ pub(crate) async fn handle_rag_diagnose(
     );
     if let (Some(collection), Some(namespace)) = (query.collection, query.namespace) {
         if let Some(handles) = state.ctx.rag_handles() {
+            let keyword = state.ctx.effective_keyword_index();
             if let Ok(stats) = wf_api::rag::collection_stats(
                 handles.store.as_ref(),
-                handles.keyword.as_deref(),
+                keyword.as_deref(),
                 &collection,
                 &namespace,
             )
@@ -231,5 +229,86 @@ mod tests {
         let body = json_body(response).await;
         assert_eq!(body["success"], true);
         assert!(body["data"]["likely_causes"].is_array());
+    }
+
+    struct UnitEmbedder {
+        dimension: usize,
+    }
+
+    #[async_trait::async_trait]
+    impl llm_embedding::provider::EmbeddingProvider for UnitEmbedder {
+        async fn embed(
+            &self,
+            texts: &[String],
+        ) -> llm_embedding::error::Result<llm_embedding::provider::EmbeddingResult> {
+            let embeddings = texts.iter().map(|text| self.vector_for(text)).collect();
+            Ok(llm_embedding::provider::EmbeddingResult {
+                embeddings,
+                prompt_tokens: 0,
+                total_tokens: 0,
+            })
+        }
+
+        fn dimension(&self) -> usize {
+            self.dimension
+        }
+
+        fn model_name(&self) -> &str {
+            "test-unit"
+        }
+    }
+
+    impl UnitEmbedder {
+        fn vector_for(&self, text: &str) -> Vec<f32> {
+            let mut vector = vec![0.0; self.dimension];
+            for (index, byte) in text.bytes().enumerate() {
+                vector[index % self.dimension] += f32::from(byte) / 255.0;
+            }
+            let norm = vector.iter().map(|v| v * v).sum::<f32>().sqrt();
+            if norm > 0.0 {
+                for value in &mut vector {
+                    *value /= norm;
+                }
+            }
+            vector
+        }
+    }
+
+    #[tokio::test]
+    async fn rag_stats_falls_back_to_context_keyword_index() {
+        let store = std::sync::Arc::new(vector_contracts::InMemoryVectorStore::new());
+        let embedder = std::sync::Arc::new(UnitEmbedder { dimension: 8 });
+        let keyword: std::sync::Arc<dyn rag_core::KeywordIndex> = std::sync::Arc::new(
+            rag_core::SqliteKeywordIndex::open_in_memory().expect("keyword"),
+        );
+        rag_core::pipeline::ingest_documents(
+            store.as_ref(),
+            Some(keyword.as_ref()),
+            embedder.as_ref(),
+            "kb",
+            &[rag_core::RagDocument::new(
+                "d1",
+                "rust ownership borrowing rules",
+                "rust.md",
+            )],
+            &rag_core::RagIndexConfig::new("kb"),
+        )
+        .await
+        .expect("ingest");
+        let ctx = std::sync::Arc::new(
+            ApiContext::new(
+                wf_storage::context::StorageContext::new_memory(),
+                std::sync::Arc::new(wf_resource::registry::ResourceRegistries::new()),
+            )
+            .with_rag_handles(wf_api::rag::RagHandles::new(store, embedder, None))
+            .with_keyword_index(keyword),
+        );
+        let response = get(ctx, "/api/v1/rag/stats?collection=kb&namespace=kb").await;
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let body = json_body(response).await;
+        assert_eq!(body["success"], true);
+        let point_count = body["data"]["point_count"].as_u64().expect("count");
+        assert!(point_count > 0);
+        assert_eq!(body["data"]["keyword_point_count"], point_count);
     }
 }

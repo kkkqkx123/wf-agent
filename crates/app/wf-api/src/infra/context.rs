@@ -369,6 +369,18 @@ impl ApiContext {
         self.keyword_index.as_ref()
     }
 
+    /// Effective keyword index shared by execution and observability.
+    /// Retrieval-handle state wins; the context-level index fills the
+    /// gap so node behavior and management counts observe one rule.
+    pub fn effective_keyword_index(
+        &self,
+    ) -> Option<std::sync::Arc<dyn rag_core::KeywordIndex>> {
+        self.rag_handles
+            .as_ref()
+            .and_then(|handles| handles.keyword.clone())
+            .or_else(|| self.keyword_index.clone())
+    }
+
     /// Builds workflow retrieval handles from the shared backend once it
     /// is configured. Returns `None` while the vector backend is missing;
     /// the keyword side passes through when present.
@@ -385,11 +397,7 @@ impl ApiContext {
             collection,
             namespace,
         );
-        if let Some(keyword) = handles
-            .keyword
-            .clone()
-            .or_else(|| self.keyword_index.clone())
-        {
+        if let Some(keyword) = self.effective_keyword_index() {
             node_handles = node_handles.with_keyword(keyword);
         }
         Some(node_handles)

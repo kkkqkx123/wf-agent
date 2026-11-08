@@ -10,9 +10,71 @@ use serde::Deserialize;
 use utoipa::IntoParams;
 
 use crate::envelope::{error_response, ok};
-use crate::extract::ListQuery;
-use crate::paged::{fetch_size, ok_page, resolve_page};
+use crate::paged::{fetch_size, ok_page, resolve_page_fields};
 use crate::router::ApiState;
+
+fn split_tags(raw: Option<&str>) -> Option<Vec<String>> {
+    raw.map(|tags| {
+        tags.split(',')
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .collect()
+    })
+}
+
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct AgentTriggerListQuery {
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
+    trigger_type: Option<String>,
+    name: Option<String>,
+    category: Option<String>,
+    /// Comma-separated tags; a template matches when it carries any of them.
+    tags: Option<String>,
+    enabled: Option<bool>,
+}
+
+impl AgentTriggerListQuery {
+    fn filter(&self) -> wf_api::AgentTriggerTemplateFilter {
+        wf_api::AgentTriggerTemplateFilter {
+            trigger_type: self.trigger_type.clone(),
+            category: self.category.clone(),
+            tags: split_tags(self.tags.as_deref()),
+            enabled: self.enabled,
+            name: self.name.clone(),
+        }
+    }
+}
+
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct AgentTemplateListQuery {
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
+    name: Option<String>,
+    category: Option<String>,
+    /// Comma-separated tags; a template matches when it carries any of them.
+    tags: Option<String>,
+    author: Option<String>,
+    profile_type: Option<String>,
+}
+
+impl AgentTemplateListQuery {
+    fn filter(&self) -> wf_api::AgentTemplateFilter {
+        wf_api::AgentTemplateFilter {
+            name: self.name.clone(),
+            category: self.category.clone(),
+            tags: split_tags(self.tags.as_deref()),
+            author: self.author.clone(),
+            profile_type: self.profile_type.clone(),
+        }
+    }
+}
 
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -43,17 +105,18 @@ pub(crate) fn routes() -> Router<ApiState> {
     get,
     path = "/api/v1/templates/agent-trigger",
     tag = "template",
-    params(ListQuery),
+    params(AgentTriggerListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_query_agent_trigger_templates(
     State(state): State<ApiState>,
-    Query(query): Query<ListQuery>,
+    Query(query): Query<AgentTriggerListQuery>,
 ) -> impl IntoResponse {
-    match wf_api::trigger::template::query(&state.ctx, None).await {
+    let filter = query.filter();
+    match wf_api::trigger::template::query(&state.ctx, Some(&filter)).await {
         Ok(templates) => {
-            let (limit, offset) = resolve_page(&query);
+            let (limit, offset) = resolve_page_fields(query.limit, query.offset);
             let window = templates
                 .into_iter()
                 .skip(offset as usize)
@@ -69,17 +132,18 @@ pub(crate) async fn handle_query_agent_trigger_templates(
     get,
     path = "/api/v1/templates/agent-trigger/summaries",
     tag = "template",
-    params(ListQuery),
+    params(AgentTriggerListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_agent_trigger_summaries(
     State(state): State<ApiState>,
-    Query(query): Query<ListQuery>,
+    Query(query): Query<AgentTriggerListQuery>,
 ) -> impl IntoResponse {
-    match wf_api::trigger::template::summaries(&state.ctx, None).await {
+    let filter = query.filter();
+    match wf_api::trigger::template::summaries(&state.ctx, Some(&filter)).await {
         Ok(summaries) => {
-            let (limit, offset) = resolve_page(&query);
+            let (limit, offset) = resolve_page_fields(query.limit, query.offset);
             let window = summaries
                 .into_iter()
                 .skip(offset as usize)
@@ -95,17 +159,18 @@ pub(crate) async fn handle_agent_trigger_summaries(
     get,
     path = "/api/v1/templates/agent",
     tag = "template",
-    params(ListQuery),
+    params(AgentTemplateListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_query_agent_templates(
     State(state): State<ApiState>,
-    Query(query): Query<ListQuery>,
+    Query(query): Query<AgentTemplateListQuery>,
 ) -> impl IntoResponse {
-    match wf_api::template::agent_template::query(&state.ctx, None) {
+    let filter = query.filter();
+    match wf_api::template::agent_template::query(&state.ctx, Some(&filter)) {
         Ok(templates) => {
-            let (limit, offset) = resolve_page(&query);
+            let (limit, offset) = resolve_page_fields(query.limit, query.offset);
             let window = templates
                 .into_iter()
                 .skip(offset as usize)
@@ -121,17 +186,18 @@ pub(crate) async fn handle_query_agent_templates(
     get,
     path = "/api/v1/templates/agent/summaries",
     tag = "template",
-    params(ListQuery),
+    params(AgentTemplateListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_agent_template_summaries(
     State(state): State<ApiState>,
-    Query(query): Query<ListQuery>,
+    Query(query): Query<AgentTemplateListQuery>,
 ) -> impl IntoResponse {
-    match wf_api::template::agent_template::summaries(&state.ctx, None).await {
+    let filter = query.filter();
+    match wf_api::template::agent_template::summaries(&state.ctx, Some(&filter)).await {
         Ok(summaries) => {
-            let (limit, offset) = resolve_page(&query);
+            let (limit, offset) = resolve_page_fields(query.limit, query.offset);
             let window = summaries
                 .into_iter()
                 .skip(offset as usize)

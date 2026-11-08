@@ -15,6 +15,7 @@ use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/executions/batch-cancel", post(handle_batch_cancel))
+        .route("/executions/batch-pause", post(handle_batch_pause))
         .route("/executions/batch-delete", post(handle_batch_delete))
         .route("/agent-loops/batch-delete", post(handle_batch_delete_loops))
         .route("/interactions/batch-respond", post(handle_batch_respond))
@@ -26,6 +27,11 @@ const MAX_BATCH_IDS: usize = 100;
 #[derive(Deserialize, ToSchema)]
 pub(crate) struct IdsBody {
     ids: Vec<String>,
+    /// Delete related records (agent execution, agent loop) together with
+    /// the workflow execution. Only meaningful for batch-delete; ignored
+    /// by the other batch endpoints.
+    #[serde(default)]
+    full: bool,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -95,6 +101,39 @@ pub(crate) async fn handle_batch_cancel(
 
 #[utoipa::path(
     post,
+    path = "/api/v1/executions/batch-pause",
+    tag = "web",
+    request_body = IdsBody,
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_batch_pause(
+    State(state): State<ApiState>,
+    Json(body): Json<IdsBody>,
+) -> impl IntoResponse {
+    if let Err(e) = validate_ids(&body.ids) {
+        return error_response(e);
+    }
+    let mut results = Vec::with_capacity(body.ids.len());
+    for id in &body.ids {
+        match wf_api::workflow::workflow_execution::pause(&state.ctx, id).await {
+            Ok(()) => results.push(BatchItemResult {
+                id: id.clone(),
+                ok: true,
+                error: None,
+            }),
+            Err(e) => results.push(BatchItemResult {
+                id: id.clone(),
+                ok: false,
+                error: Some(e.to_string()),
+            }),
+        }
+    }
+    ok(results).into_response()
+}
+
+#[utoipa::path(
+    post,
     path = "/api/v1/executions/batch-delete",
     tag = "web",
     request_body = IdsBody,
@@ -110,7 +149,12 @@ pub(crate) async fn handle_batch_delete(
     }
     let mut results = Vec::with_capacity(body.ids.len());
     for id in &body.ids {
-        match wf_api::workflow::delete_execution(&state.ctx, id).await {
+        let deleted = if body.full {
+            wf_api::workflow::delete_execution_full(&state.ctx, id).await
+        } else {
+            wf_api::workflow::delete_execution(&state.ctx, id).await
+        };
+        match deleted {
             Ok(_) => results.push(BatchItemResult {
                 id: id.clone(),
                 ok: true,

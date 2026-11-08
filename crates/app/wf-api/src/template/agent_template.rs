@@ -223,6 +223,7 @@ mod tests {
             is_public: Some(true),
             enabled: Some(true),
             is_system: Some(false),
+            is_published: None,
         }
     }
 

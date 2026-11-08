@@ -175,6 +175,7 @@ pub async fn save_agent_template(
         is_public: None,
         is_system: None,
         enabled: None,
+        is_published: None,
     };
     ctx.storage
         .agent_template

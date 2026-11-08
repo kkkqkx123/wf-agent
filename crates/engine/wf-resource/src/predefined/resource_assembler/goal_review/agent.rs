@@ -72,6 +72,7 @@ pub fn goal_review_executor() -> AgentTemplate {
         is_public: Some(true),
         enabled: Some(true),
         is_system: Some(true),
+        is_published: None,
     }
 }
 
@@ -138,5 +139,6 @@ pub fn goal_review_reviewer() -> AgentTemplate {
         is_public: Some(true),
         enabled: Some(true),
         is_system: Some(true),
+        is_published: None,
     }
 }

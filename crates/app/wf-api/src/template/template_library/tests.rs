@@ -103,6 +103,7 @@ fn agent_template(id: &str, category: &str) -> AgentTemplate {
         is_public: Some(true),
         enabled: Some(true),
         is_system: Some(false),
+        is_published: None,
     }
 }
 

@@ -26,6 +26,10 @@ pub(crate) fn routes() -> Router<ApiState> {
             "/executions/{id}/variable-injections/{injection_id}",
             delete(handle_delete_variable_injection),
         )
+        .route(
+            "/executions/{id}/variable-injections/apply",
+            post(handle_apply_variable_injection),
+        )
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -116,6 +120,59 @@ pub(crate) async fn handle_list_variable_injections(
     match wf_api::workflow::list_variable_injections(&state.ctx, &path.id).await {
         Ok(injections) => ok(ListVariableInjectionsView {
             injections: injections.into_iter().map(view_of).collect(),
+        })
+        .into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[derive(Serialize, ToSchema)]
+pub(crate) struct ApplyVariableInjectionView {
+    pub(crate) execution_id: String,
+    pub(crate) result: serde_json::Value,
+    pub(crate) injection: VariableInjectionView,
+}
+
+/// Pause, inject and resume in one call. Each step fails fast: a pause
+/// failure submits nothing; a submit failure leaves the execution paused
+/// for the caller to resume explicitly; a resume failure leaves the
+/// injection pending. The resume drives the run to completion and returns
+/// its result.
+#[utoipa::path(
+    post,
+    path = "/api/v1/executions/{id}/variable-injections/apply",
+    tag = "workflow",
+    params(IdPath),
+    request_body = SubmitVariableInjectionBody,
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::workflow::variable_injections::ApplyVariableInjectionView>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_apply_variable_injection(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Json(body): Json<SubmitVariableInjectionBody>,
+) -> impl IntoResponse {
+    if let Err(e) = wf_api::workflow::workflow_execution::pause(&state.ctx, &path.id).await {
+        return error_response(e);
+    }
+    let injection = match wf_api::workflow::submit_variable_injection(
+        &state.ctx,
+        &path.id,
+        body.variable_name,
+        body.value,
+        body.source.as_deref(),
+        body.policy.as_deref(),
+    )
+    .await
+    {
+        Ok(injection) => injection,
+        Err(e) => return error_response(e),
+    };
+    match wf_api::workflow::workflow_execution::resume(&state.ctx, &path.id).await {
+        Ok(output) => ok(ApplyVariableInjectionView {
+            execution_id: output.execution_id.to_string(),
+            result: output.result,
+            injection: view_of(injection),
         })
         .into_response(),
         Err(e) => error_response(e),

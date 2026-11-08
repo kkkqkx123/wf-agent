@@ -511,6 +511,43 @@ pub(crate) async fn directory_middleware(
     next.run(req).await
 }
 
+/// Existence gate for execution-scoped read views (`GET
+/// /api/v1/executions/{id}/*`). Control endpoints already fail unknown
+/// ids as not-found through their owner gates, but the state / analysis /
+/// graph read views degrade to empty results, so callers cannot tell an
+/// empty execution from a missing one. This layer resolves the id across
+/// workflow and agent-loop records (live plus persisted plus checkpoint
+/// ghosts, mirroring `resolve_execution`) before any read handler runs:
+/// unknown ids fail as not-found, existing ids pass through untouched.
+///
+/// Only `GET` sub-views are gated: detail and control routes keep their
+/// own semantics, `POST` commands stay with their owner gates, and
+/// idempotent `DELETE` clears keep succeeding on missing ids. Non-execution
+/// prefixes (`/agent-loops/*`, `/unified-executions/*`, …) never match.
+pub(crate) async fn execution_existence_middleware(
+    State(ctx): State<Arc<wf_api::ApiContext>>,
+    req: Request<Body>,
+    next: Next,
+) -> Response {
+    if req.method() != axum::http::Method::GET {
+        return next.run(req).await;
+    }
+    let Some(rest) = req.uri().path().strip_prefix("/api/v1/executions/") else {
+        return next.run(req).await;
+    };
+    let mut segments = rest.split('/');
+    let (Some(id), Some(_view)) = (segments.next(), segments.next()) else {
+        return next.run(req).await;
+    };
+    if id.is_empty() {
+        return next.run(req).await;
+    }
+    match wf_api::resolve_execution(&ctx, id).await {
+        Ok(_) => next.run(req).await,
+        Err(e) => crate::envelope::error_response(e).into_response(),
+    }
+}
+
 /// Read the request directory for workspace-bound calls. `None` passes
 /// through: the workspace resolver rejects it instead of guessing, so
 /// directory-less requests fail loud instead of binding anywhere silently.

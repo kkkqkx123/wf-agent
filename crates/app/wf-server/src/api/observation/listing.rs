@@ -5,7 +5,7 @@
 
 use axum::extract::{Extension, Path, Query, State};
 use axum::response::IntoResponse;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -25,6 +25,10 @@ pub(crate) fn routes() -> Router<ApiState> {
             get(handle_unified_executions_count),
         )
         .route("/unified-executions/{id}", get(handle_unified_execution))
+        .route("/unified-executions/{id}/pause", post(handle_unified_pause))
+        .route("/unified-executions/{id}/resume", post(handle_unified_resume))
+        .route("/unified-executions/{id}/cancel", post(handle_unified_cancel))
+        .route("/unified-executions/{id}/rerun", post(handle_unified_rerun))
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -277,6 +281,202 @@ pub(crate) async fn handle_unified_execution(
     }
     match wf_api::execution_listing::get_unified_detail(&state.ctx, &path.id).await {
         Ok(detail) => crate::envelope::ok(UnifiedExecutionDetailDoc::from(detail)).into_response(),
+        Err(e) => crate::envelope::error_response(e),
+    }
+}
+
+/// Domain tag carried by unified control responses.
+fn execution_type_of(domain: wf_api::ExecutionDomain) -> wf_types::execution::ExecutionType {
+    match domain {
+        wf_api::ExecutionDomain::Workflow => wf_types::execution::ExecutionType::Workflow,
+        wf_api::ExecutionDomain::AgentLoop => wf_types::execution::ExecutionType::Agent,
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub(crate) struct UnifiedControlView {
+    pub(crate) execution_id: String,
+    #[schema(value_type = String)]
+    pub(crate) execution_type: wf_types::execution::ExecutionType,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub(crate) struct UnifiedResumeView {
+    pub(crate) execution_id: String,
+    #[schema(value_type = String)]
+    pub(crate) execution_type: wf_types::execution::ExecutionType,
+    /// Workflow resume drives the run to completion and returns its
+    /// result; agent resume only signals the loop, so the field is absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) result: Option<serde_json::Value>,
+}
+
+/// Pause one execution without caring which engine owns it. The id is
+/// resolved across workflow and agent-loop records first, so unknown ids
+/// are `NotFound` instead of silent success.
+#[utoipa::path(
+    post,
+    path = "/api/v1/unified-executions/{id}/pause",
+    tag = "observation",
+    params(IdPath),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::observation::listing::UnifiedControlView>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_unified_pause(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_execution_owner(&state.ctx, &scope, &path.id).await {
+        return crate::envelope::error_response(e);
+    }
+    let domain = match wf_api::resolve_execution(&state.ctx, &path.id).await {
+        Ok(domain) => domain,
+        Err(e) => return crate::envelope::error_response(e),
+    };
+    let result = match domain {
+        wf_api::ExecutionDomain::Workflow => {
+            wf_api::workflow::workflow_execution::pause(&state.ctx, &path.id).await
+        }
+        wf_api::ExecutionDomain::AgentLoop => {
+            wf_api::agent::agent_execution::pause(&state.ctx, &path.id).await
+        }
+    };
+    match result {
+        Ok(()) => crate::envelope::ok(UnifiedControlView {
+            execution_id: path.id,
+            execution_type: execution_type_of(domain),
+        })
+        .into_response(),
+        Err(e) => crate::envelope::error_response(e),
+    }
+}
+
+/// Cancel one execution without caring which engine owns it.
+#[utoipa::path(
+    post,
+    path = "/api/v1/unified-executions/{id}/cancel",
+    tag = "observation",
+    params(IdPath),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::observation::listing::UnifiedControlView>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_unified_cancel(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_execution_owner(&state.ctx, &scope, &path.id).await {
+        return crate::envelope::error_response(e);
+    }
+    let domain = match wf_api::resolve_execution(&state.ctx, &path.id).await {
+        Ok(domain) => domain,
+        Err(e) => return crate::envelope::error_response(e),
+    };
+    let result = match domain {
+        wf_api::ExecutionDomain::Workflow => {
+            wf_api::workflow::workflow_execution::cancel(&state.ctx, &path.id).await
+        }
+        wf_api::ExecutionDomain::AgentLoop => {
+            wf_api::agent::agent_execution::cancel(&state.ctx, &path.id).await
+        }
+    };
+    match result {
+        Ok(()) => crate::envelope::ok(UnifiedControlView {
+            execution_id: path.id,
+            execution_type: execution_type_of(domain),
+        })
+        .into_response(),
+        Err(e) => crate::envelope::error_response(e),
+    }
+}
+
+/// Resume one execution without caring which engine owns it. Workflow
+/// resume runs to completion and returns the result; agent resume only
+/// signals the live loop.
+#[utoipa::path(
+    post,
+    path = "/api/v1/unified-executions/{id}/resume",
+    tag = "observation",
+    params(IdPath),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::observation::listing::UnifiedResumeView>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_unified_resume(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_execution_owner(&state.ctx, &scope, &path.id).await {
+        return crate::envelope::error_response(e);
+    }
+    let domain = match wf_api::resolve_execution(&state.ctx, &path.id).await {
+        Ok(domain) => domain,
+        Err(e) => return crate::envelope::error_response(e),
+    };
+    match domain {
+        wf_api::ExecutionDomain::Workflow => {
+            match wf_api::workflow::workflow_execution::resume(&state.ctx, &path.id).await {
+                Ok(output) => crate::envelope::ok(UnifiedResumeView {
+                    execution_id: output.execution_id.to_string(),
+                    execution_type: execution_type_of(domain),
+                    result: Some(output.result),
+                })
+                .into_response(),
+                Err(e) => crate::envelope::error_response(e),
+            }
+        }
+        wf_api::ExecutionDomain::AgentLoop => {
+            match wf_api::agent::agent_execution::resume(&state.ctx, &path.id).await {
+                Ok(()) => crate::envelope::ok(UnifiedResumeView {
+                    execution_id: path.id,
+                    execution_type: execution_type_of(domain),
+                    result: None,
+                })
+                .into_response(),
+                Err(e) => crate::envelope::error_response(e),
+            }
+        }
+    }
+}
+
+/// Rerun one execution without caring which engine owns it. Only workflow
+/// executions support rerun; agent loops are rejected with a validation
+/// error pointing at their fork endpoint, mirroring the workflow-only
+/// rerun route.
+#[utoipa::path(
+    post,
+    path = "/api/v1/unified-executions/{id}/rerun",
+    tag = "observation",
+    params(IdPath),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::observation::listing::UnifiedResumeView>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Rerun unsupported for this executor", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_unified_rerun(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    if let Err(e) = crate::directory::require_execution_owner(&state.ctx, &scope, &path.id).await {
+        return crate::envelope::error_response(e);
+    }
+    match wf_api::resolve_execution(&state.ctx, &path.id).await {
+        Ok(wf_api::ExecutionDomain::Workflow) => {}
+        Ok(wf_api::ExecutionDomain::AgentLoop) => {
+            return crate::envelope::error_response(wf_api::ApiError::Validation(
+                "rerun is only supported for workflow executions; fork the agent loop instead"
+                    .to_string(),
+            ));
+        }
+        Err(e) => return crate::envelope::error_response(e),
+    }
+    match wf_api::workflow::workflow_execution::rerun(&state.ctx, &path.id).await {
+        Ok(output) => crate::envelope::ok(UnifiedResumeView {
+            execution_id: output.execution_id.to_string(),
+            execution_type: wf_types::execution::ExecutionType::Workflow,
+            result: Some(output.result),
+        })
+        .into_response(),
         Err(e) => crate::envelope::error_response(e),
     }
 }

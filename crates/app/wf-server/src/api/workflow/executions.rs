@@ -515,7 +515,7 @@ pub(crate) async fn handle_get_execution(
     delete,
     path = "/api/v1/executions/{id}",
     tag = "workflow",
-    params(IdPath),
+    params(IdPath, DeleteExecutionQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<String>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -523,14 +523,30 @@ pub(crate) async fn handle_delete_execution(
     State(state): State<ApiState>,
     Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
+    Query(query): Query<DeleteExecutionQuery>,
 ) -> impl IntoResponse {
     if let Err(e) = crate::directory::require_workflow_owner(&state.ctx, &scope, &path.id).await {
         return error_response(e);
     }
-    match wf_api::workflow::delete_execution(&state.ctx, &path.id).await {
+    // The default is a shallow delete: only the workflow execution
+    // record goes away. `full` additionally removes the linked agent
+    // execution and agent loop records.
+    let deleted = if query.full.unwrap_or(false) {
+        wf_api::workflow::delete_execution_full(&state.ctx, &path.id).await
+    } else {
+        wf_api::workflow::delete_execution(&state.ctx, &path.id).await
+    };
+    match deleted {
         Ok(deleted) => ok(deleted).into_response(),
         Err(e) => error_response(e),
     }
+}
+
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct DeleteExecutionQuery {
+    /// Also delete linked agent execution and agent loop records.
+    full: Option<bool>,
 }
 
 #[utoipa::path(
@@ -884,8 +900,8 @@ mod tests {
             let response = send(ctx.clone(), method, uri).await;
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "uri: {uri}");
         }
-        // Read / analysis views degrade to empty results for unknown
-        // executions instead of failing.
+        // Read / analysis views share the existence gate: unknown ids are
+        // NotFound instead of degrading to empty results.
         for (method, uri) in [
             ("GET", "/api/v1/executions/missing/state"),
             ("GET", "/api/v1/executions/missing/variables"),
@@ -905,15 +921,13 @@ mod tests {
             ("GET", "/api/v1/executions/missing/failed-nodes"),
         ] {
             let response = send(ctx.clone(), method, uri).await;
-            assert_eq!(response.status(), StatusCode::OK, "uri: {uri}");
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "uri: {uri}");
         }
-        // Graph reconstruction degrades to an empty graph for unknown
-        // executions instead of failing.
+        // Graph reconstruction over an unknown execution is NotFound.
         let graph = send(ctx.clone(), "GET", "/api/v1/executions/missing/graph").await;
-        assert_eq!(graph.status(), StatusCode::OK);
+        assert_eq!(graph.status(), StatusCode::NOT_FOUND);
 
-        // Analysis / state views over an unknown execution degrade to empty
-        // results rather than NotFound.
+        // Analysis / state views over an unknown execution are NotFound.
         for uri in [
             "/api/v1/executions/missing/context-transitions",
             "/api/v1/executions/missing/context-snapshots",
@@ -930,7 +944,7 @@ mod tests {
             "/api/v1/executions/missing/analysis/probabilities",
         ] {
             let response = send(ctx.clone(), "GET", uri).await;
-            assert_eq!(response.status(), StatusCode::OK, "uri: {uri}");
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "uri: {uri}");
         }
     }
     #[tokio::test]
@@ -949,23 +963,52 @@ mod tests {
         }
 
         let chain = send(ctx, "GET", "/api/v1/executions/exec-1/checkpoints/chain").await;
-        assert_eq!(chain.status(), StatusCode::OK);
+        assert_eq!(chain.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
     async fn slow_nodes_rejects_out_of_range_percentile() {
         let ctx = make_ctx();
+        // The existence gate runs before parameter validation, so the
+        // percentile case needs a stored execution to reach the handler.
+        wf_api::workflow::save_execution(
+            &ctx,
+            &wf_types::WorkflowExecution {
+                id: "exec-percentile".into(),
+                workflow_id: "wf-percentile".into(),
+                workflow_version: None,
+                status: wf_types::ExecutionStatus::Created,
+                current_node_id: None,
+                rerun_of: None,
+                graph: None,
+                variables: None,
+                input: None,
+                output: None,
+                node_results: None,
+                errors: None,
+                started_at: wf_common::now(),
+                completed_at: None,
+                error: None,
+                execution_type: None,
+                fork_join_context: None,
+                hierarchy: None,
+                debug: None,
+                directory: None,
+            },
+        )
+        .await
+        .unwrap();
         let response = send(
             ctx,
             "GET",
-            "/api/v1/executions/x/analysis/slow-nodes?percentile=150",
+            "/api/v1/executions/exec-percentile/analysis/slow-nodes?percentile=150",
         )
         .await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
-    async fn state_records_endpoints_are_queryable() {
+    async fn state_records_endpoints_map_unknown_to_not_found() {
         let ctx = make_ctx();
         for uri in [
             "/api/v1/executions/e-1/state-records",
@@ -979,7 +1022,7 @@ mod tests {
             "/api/v1/executions/e-1/state-records/memory/peak",
         ] {
             let response = send(ctx.clone(), "GET", uri).await;
-            assert_eq!(response.status(), StatusCode::OK, "uri: {uri}");
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "uri: {uri}");
         }
 
         let cleared = crate::router::api_router(ctx.clone())

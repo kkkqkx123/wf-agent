@@ -18,7 +18,7 @@ use axum::Router;
 
 use wf_api::ApiContext;
 
-use crate::directory::{directory_middleware, DirectoryContext};
+use crate::directory::{directory_middleware, execution_existence_middleware, DirectoryContext};
 use crate::middleware::{self, ServerMiddlewareConfig};
 use crate::server::{serve_with_router, ServeError, ServerHandle};
 use crate::server_config::ServerConfig;
@@ -153,6 +153,13 @@ pub fn api_router_with_dirs(
     let app = Router::new()
         .merge(api::system::health::routes())
         .nest("/api/v1", domain);
+    // Execution read views share one existence gate: unknown ids fail as
+    // not-found here instead of degrading to empty results per handler.
+    // Layered inside auth so authenticated checks keep their precedence.
+    let app = app.layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&ctx),
+        execution_existence_middleware,
+    ));
     let app = middleware::apply(app, Arc::clone(&config));
     let app = app.layer(axum::middleware::from_fn_with_state(
         Arc::clone(&dirs),

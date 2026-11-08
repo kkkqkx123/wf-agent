@@ -36,7 +36,8 @@ pub use definition::{
     workflow_exists, LibraryFacts,
 };
 pub use execution::{
-    delete_execution, get_execution, list_executions, save_execution, update_execution_status,
+    delete_execution, delete_execution_full, get_execution, list_executions, save_execution,
+    update_execution_status,
 };
 pub use import_export::{
     export_workflow, export_workflow_json, export_workflows, import_workflow, import_workflow_json,

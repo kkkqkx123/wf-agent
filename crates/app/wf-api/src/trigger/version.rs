@@ -68,6 +68,20 @@ pub async fn rollback_trigger_template(
     Ok(())
 }
 
+/// Delete one version snapshot; the formal template is untouched.
+pub async fn delete_trigger_template_version(
+    ctx: &ApiContext,
+    trigger_id: &str,
+    version: &str,
+) -> crate::ApiResult<bool> {
+    get_trigger_template_version(ctx, trigger_id, version).await?;
+    ctx.storage
+        .trigger_template
+        .delete_version(trigger_id, version)
+        .await?;
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

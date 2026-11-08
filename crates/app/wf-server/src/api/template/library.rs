@@ -27,6 +27,10 @@ pub(crate) fn routes() -> Router<ApiState> {
             get(handle_list_workflow_templates).post(handle_register_workflow_template),
         )
         .route(
+            "/templates/library/workflows/count",
+            get(handle_count_workflow_templates),
+        )
+        .route(
             "/templates/library/workflows/import",
             post(handle_import_workflow_template),
         )
@@ -49,8 +53,32 @@ pub(crate) fn routes() -> Router<ApiState> {
             post(handle_unpublish_workflow_template),
         )
         .route(
+            "/templates/library/workflows/{id}/clone",
+            post(handle_clone_workflow_template),
+        )
+        .route(
+            "/templates/library/workflows/{id}/validate",
+            post(handle_validate_workflow_template),
+        )
+        .route(
+            "/templates/library/workflows/{id}/versions",
+            get(handle_list_workflow_template_versions).post(handle_save_workflow_template_version),
+        )
+        .route(
+            "/templates/library/workflows/{id}/versions/{version}",
+            get(handle_get_workflow_template_version),
+        )
+        .route(
+            "/templates/library/workflows/{id}/rollback",
+            post(handle_rollback_workflow_template),
+        )
+        .route(
             "/templates/library/agents",
             get(handle_list_agent_templates).post(handle_register_agent_template),
+        )
+        .route(
+            "/templates/library/agents/count",
+            get(handle_count_agent_templates),
         )
         .route(
             "/templates/library/agents/import",
@@ -72,11 +100,23 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
         .route(
             "/templates/library/agents/{id}/versions/{version}",
-            get(handle_get_agent_template_version),
+            get(handle_get_agent_template_version).delete(handle_delete_agent_template_version),
         )
         .route(
             "/templates/library/agents/{id}/rollback",
             post(handle_rollback_agent_template),
+        )
+        .route(
+            "/templates/library/agents/{id}/publish",
+            post(handle_publish_agent_template),
+        )
+        .route(
+            "/templates/library/agents/{id}/unpublish",
+            post(handle_unpublish_agent_template),
+        )
+        .route(
+            "/templates/library/agents/{id}/validate",
+            post(handle_validate_agent_template),
         )
 }
 
@@ -314,18 +354,146 @@ pub(crate) async fn handle_clone_template(
 
 // ── library registry (workflow / agent templates) ────────────────
 
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct RegistryListQuery {
+    /// Page limit; absent returns the full filtered list.
+    limit: Option<u64>,
+    /// Page offset; only meaningful with `limit`.
+    offset: Option<u64>,
+    /// Case-insensitive substring match on the template name.
+    name: Option<String>,
+    category: Option<String>,
+    author: Option<String>,
+    /// Comma-separated tags; a template matches when it carries any of them.
+    tags: Option<String>,
+}
+
+impl RegistryListQuery {
+    fn tag_list(&self) -> Vec<String> {
+        self.tags
+            .as_deref()
+            .map(|raw| {
+                raw.split(',')
+                    .map(|t| t.trim().to_string())
+                    .filter(|t| !t.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Shared matcher over one entry's display attributes. Callers resolve
+    /// their own attribute sources (template fields with metadata
+    /// fallbacks) before matching.
+    fn matches(&self, name: &str, category: Option<&str>, tags: Option<&[String]>, author: Option<&str>) -> bool {
+        if let Some(filter_name) = self.name.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
+            if !name.to_lowercase().contains(&filter_name.to_lowercase()) {
+                return false;
+            }
+        }
+        if let Some(category_filter) = &self.category {
+            if category != Some(category_filter.as_str()) {
+                return false;
+            }
+        }
+        let wanted = self.tag_list();
+        if !wanted.is_empty() {
+            let has_any = tags
+                .map(|existing| wanted.iter().any(|tag| existing.contains(tag)))
+                .unwrap_or(false);
+            if !has_any {
+                return false;
+            }
+        }
+        if let Some(author_filter) = &self.author {
+            if author != Some(author_filter.as_str()) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+fn page_registry<T: Clone>(items: Vec<T>, limit: Option<u64>, offset: Option<u64>) -> Vec<T> {
+    match (limit, offset) {
+        (None, _) => items,
+        (Some(limit), offset) => {
+            let start = offset.unwrap_or(0) as usize;
+            items.into_iter().skip(start).take(limit as usize).collect()
+        }
+    }
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/templates/library/workflows",
     tag = "template",
+    params(RegistryListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_workflow_templates(
     State(state): State<ApiState>,
+    Query(query): Query<RegistryListQuery>,
 ) -> impl IntoResponse {
     match wf_api::template::template_library::list_workflow_templates(&state.ctx) {
-        Ok(templates) => ok(templates).into_response(),
+        Ok(templates) => {
+            let filtered = templates
+                .into_iter()
+                .filter(|t| {
+                    let category = t.template_category.as_deref().or_else(|| {
+                        t.definition.metadata.as_ref().and_then(|m| m.category.as_deref())
+                    });
+                    let tags = t.template_tags.as_ref().or_else(|| {
+                        t.definition.metadata.as_ref().and_then(|m| m.tags.as_ref())
+                    });
+                    let author = t
+                        .definition
+                        .metadata
+                        .as_ref()
+                        .and_then(|m| m.author.as_deref());
+                    query.matches(&t.name, category, tags.map(|v| v.as_slice()), author)
+                })
+                .collect();
+            ok(page_registry(filtered, query.limit, query.offset)).into_response()
+        }
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/templates/library/workflows/count",
+    tag = "template",
+    params(RegistryListQuery),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::template::templates::TemplateCountView>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_count_workflow_templates(
+    State(state): State<ApiState>,
+    Query(query): Query<RegistryListQuery>,
+) -> impl IntoResponse {
+    match wf_api::template::template_library::list_workflow_templates(&state.ctx) {
+        Ok(templates) => {
+            let count = templates
+                .iter()
+                .filter(|t| {
+                    let category = t.template_category.as_deref().or_else(|| {
+                        t.definition.metadata.as_ref().and_then(|m| m.category.as_deref())
+                    });
+                    let tags = t.template_tags.as_ref().or_else(|| {
+                        t.definition.metadata.as_ref().and_then(|m| m.tags.as_ref())
+                    });
+                    let author = t
+                        .definition
+                        .metadata
+                        .as_ref()
+                        .and_then(|m| m.author.as_deref());
+                    query.matches(&t.name, category, tags.map(|v| v.as_slice()), author)
+                })
+                .count();
+            ok(crate::api::template::templates::TemplateCountView { count }).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -451,14 +619,72 @@ pub(crate) async fn handle_unpublish_workflow_template(
     get,
     path = "/api/v1/templates/library/agents",
     tag = "template",
+    params(RegistryListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_agent_templates(
     State(state): State<ApiState>,
+    Query(query): Query<RegistryListQuery>,
 ) -> impl IntoResponse {
     match wf_api::template::template_library::list_agent_templates(&state.ctx) {
-        Ok(templates) => ok(templates).into_response(),
+        Ok(templates) => {
+            let filtered = templates
+                .into_iter()
+                .filter(|t| {
+                    let category = t.template_category.as_deref().or_else(|| {
+                        t.definition.metadata.as_ref().and_then(|m| m.category.as_deref())
+                    });
+                    let tags = t.template_tags.as_ref().or_else(|| {
+                        t.definition.metadata.as_ref().and_then(|m| m.tags.as_ref())
+                    });
+                    let author = t
+                        .definition
+                        .metadata
+                        .as_ref()
+                        .and_then(|m| m.author.as_deref());
+                    query.matches(&t.name, category, tags.map(|v| v.as_slice()), author)
+                })
+                .collect();
+            ok(page_registry(filtered, query.limit, query.offset)).into_response()
+        }
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/templates/library/agents/count",
+    tag = "template",
+    params(RegistryListQuery),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::template::templates::TemplateCountView>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_count_agent_templates(
+    State(state): State<ApiState>,
+    Query(query): Query<RegistryListQuery>,
+) -> impl IntoResponse {
+    match wf_api::template::template_library::list_agent_templates(&state.ctx) {
+        Ok(templates) => {
+            let count = templates
+                .iter()
+                .filter(|t| {
+                    let category = t.template_category.as_deref().or_else(|| {
+                        t.definition.metadata.as_ref().and_then(|m| m.category.as_deref())
+                    });
+                    let tags = t.template_tags.as_ref().or_else(|| {
+                        t.definition.metadata.as_ref().and_then(|m| m.tags.as_ref())
+                    });
+                    let author = t
+                        .definition
+                        .metadata
+                        .as_ref()
+                        .and_then(|m| m.author.as_deref());
+                    query.matches(&t.name, category, tags.map(|v| v.as_slice()), author)
+                })
+                .count();
+            ok(crate::api::template::templates::TemplateCountView { count }).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -769,6 +995,246 @@ pub(crate) async fn handle_rollback_agent_template(
     )
     .await
     {
+        Ok(()) => ok(()).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/templates/library/agents/{id}/versions/{version}",
+    tag = "template",
+    params(IdVersionPath),
+    responses((status = 200, description = "Agent template version deleted", body = crate::envelope::ApiEnvelope<bool>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_delete_agent_template_version(
+    State(state): State<ApiState>,
+    Path(path): Path<IdVersionPath>,
+) -> impl IntoResponse {
+    match wf_api::template::template_library::delete_agent_template_version(
+        &state.ctx,
+        &path.id,
+        &path.version,
+    )
+    .await
+    {
+        Ok(deleted) => ok(deleted).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/templates/library/agents/{id}/publish",
+    tag = "template",
+    params(IdPath),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<String>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_publish_agent_template(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::template::template_library::publish_agent_template(&state.ctx, &path.id).await {
+        Ok(()) => ok(path.id).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/templates/library/agents/{id}/unpublish",
+    tag = "template",
+    params(IdPath),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<String>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_unpublish_agent_template(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::template::template_library::unpublish_agent_template(&state.ctx, &path.id).await
+    {
+        Ok(()) => ok(path.id).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/templates/library/agents/{id}/validate",
+    tag = "template",
+    params(IdPath),
+    responses((status = 200, description = "Validation warnings (empty when valid)", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid template", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_validate_agent_template(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    let template =
+        match wf_api::template::template_library::get_agent_template(&state.ctx, &path.id) {
+            Ok(template) => template,
+            Err(e) => return error_response(e),
+        };
+    match wf_api::template::template_library::validate_agent_template_definition(
+        &state.ctx,
+        &template,
+    )
+    .await
+    {
+        Ok(warnings) => ok(warnings).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct CloneWorkflowTemplateBody {
+    new_id: Option<String>,
+}
+
+/// Library-scoped clone of a workflow template. The template and the
+/// workflow definition share one document, so this delegates to the
+/// workflow clone; the alias exists so library clients need no second
+/// endpoint family.
+#[utoipa::path(
+    post,
+    path = "/api/v1/templates/library/workflows/{id}/clone",
+    tag = "template",
+    params(IdPath),
+    request_body = CloneWorkflowTemplateBody,
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_clone_workflow_template(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Json(body): Json<CloneWorkflowTemplateBody>,
+) -> impl IntoResponse {
+    match wf_api::workflow::clone_workflow(&state.ctx, &path.id, body.new_id.as_deref()).await {
+        Ok(id) => ok(id).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/templates/library/workflows/{id}/validate",
+    tag = "template",
+    params(IdPath),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<bool>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid template", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_validate_workflow_template(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    let template =
+        match wf_api::template::template_library::get_workflow_template(&state.ctx, &path.id) {
+            Ok(template) => template,
+            Err(e) => return error_response(e),
+        };
+    match wf_api::workflow::validate_workflow(&template.definition) {
+        Ok(()) => ok(true).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Library aliases over the workflow version store. A library workflow
+/// template and its workflow definition are one document under one id,
+/// so versions live in the workflow version surface; these routes expose
+/// the same operations under the library prefix.
+#[utoipa::path(
+    get,
+    path = "/api/v1/templates/library/workflows/{id}/versions",
+    tag = "template",
+    params(IdPath),
+    responses((status = 200, description = "Workflow template version list", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_list_workflow_template_versions(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::workflow::list_workflow_versions(&state.ctx, &path.id).await {
+        Ok(versions) => ok(versions).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/templates/library/workflows/{id}/versions/{version}",
+    tag = "template",
+    params(IdVersionPath),
+    responses((status = 200, description = "Workflow template version detail", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_get_workflow_template_version(
+    State(state): State<ApiState>,
+    Path(path): Path<IdVersionPath>,
+) -> impl IntoResponse {
+    match wf_api::workflow::get_workflow_version(&state.ctx, &path.id, &path.version).await {
+        Ok(version) => ok(version).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[derive(serde::Deserialize, utoipa::ToSchema)]
+pub(crate) struct SaveWorkflowTemplateVersionBody {
+    version: String,
+    #[schema(value_type = Object)]
+    workflow: wf_api::WorkflowDefinition,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/templates/library/workflows/{id}/versions",
+    tag = "template",
+    params(IdPath),
+    request_body = SaveWorkflowTemplateVersionBody,
+    responses((status = 200, description = "Workflow template version saved", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_save_workflow_template_version(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Json(body): Json<SaveWorkflowTemplateVersionBody>,
+) -> impl IntoResponse {
+    match wf_api::workflow::save_workflow_version(
+        &state.ctx,
+        &path.id,
+        &body.version,
+        &body.workflow,
+    )
+    .await
+    {
+        Ok(()) => ok(body.version).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[derive(serde::Deserialize, utoipa::ToSchema)]
+pub(crate) struct RollbackWorkflowTemplateBody {
+    version: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/templates/library/workflows/{id}/rollback",
+    tag = "template",
+    params(IdPath),
+    request_body = RollbackWorkflowTemplateBody,
+    responses((status = 200, description = "Workflow template rolled back", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_rollback_workflow_template(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Json(body): Json<RollbackWorkflowTemplateBody>,
+) -> impl IntoResponse {
+    match wf_api::workflow::rollback_workflow(&state.ctx, &path.id, &body.version).await {
         Ok(()) => ok(()).into_response(),
         Err(e) => error_response(e),
     }

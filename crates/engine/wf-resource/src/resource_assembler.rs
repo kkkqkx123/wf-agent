@@ -1508,6 +1508,12 @@ mod tests {
     #[test]
     fn expression_allowlist_reports_every_unknown_call() {
         use serde_json::json;
+        // Fixture expressions must stay valid in the shared condition
+        // language (single top-level call from its closed function set):
+        // the syntax gate runs before the allowlist, so `&&` or custom
+        // names would fail there first and never isolate allowlist
+        // behavior. "Not allowed" here means known to the language but
+        // absent from the field allowlist.
         let metadata = ResourceAssemblerMetadata {
             id: "test".into(),
             name: "test".into(),
@@ -1524,7 +1530,7 @@ mod tests {
                     description: "when".into(),
                     default: None,
                     required: None,
-                    allowed_functions: Some(vec!["eq".into()]),
+                    allowed_functions: Some(vec!["eq".into(), "and".into()]),
                     properties: None,
                     element_type: None,
                 },
@@ -1535,13 +1541,13 @@ mod tests {
                 .is_empty()
         );
         let errors = validate_config_value_against_metadata(
-            &json!({"when": "eq(a, 1) && hasRole(user) || \"call (x)\""}),
+            &json!({"when": "contains(\"call (x)\", b)"}),
             &metadata,
         );
         assert_eq!(errors.len(), 1);
-        assert!(errors[0].contains("hasRole"), "{}", errors[0]);
+        assert!(errors[0].contains("contains"), "{}", errors[0]);
         let errors = validate_config_value_against_metadata(
-            &json!({"when": "nope(a) || other(b)"}),
+            &json!({"when": "and(ne(a, 1), contains(b, c))"}),
             &metadata,
         );
         assert_eq!(errors.len(), 2);
@@ -1561,7 +1567,7 @@ mod tests {
             ..metadata
         };
         assert!(
-            validate_config_value_against_metadata(&json!({"when": "any(a)"}), &open).is_empty()
+            validate_config_value_against_metadata(&json!({"when": "contains(a, b)"}), &open).is_empty()
         );
     }
 

@@ -68,3 +68,18 @@ pub async fn rollback_agent_template(ctx: &ApiContext, id: &str, version: &str) 
     update_agent_template(ctx, &template).await?;
     Ok(())
 }
+
+/// Delete one version snapshot; the formal template is untouched.
+pub async fn delete_agent_template_version(
+    ctx: &ApiContext,
+    id: &str,
+    version: &str,
+) -> ApiResult<bool> {
+    get_agent_template_version(ctx, id, version).await?;
+    ctx.storage
+        .agent_template
+        .delete_version(id, version)
+        .await
+        .map_err(crate::ApiError::from)?;
+    Ok(true)
+}

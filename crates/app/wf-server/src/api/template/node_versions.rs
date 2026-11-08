@@ -20,7 +20,7 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
         .route(
             "/templates/node/{id}/versions/{version}",
-            get(handle_get_version),
+            get(handle_get_version).delete(handle_delete_version),
         )
         .route("/templates/node/{id}/rollback", post(handle_rollback))
 }
@@ -132,6 +132,31 @@ pub(crate) async fn handle_rollback(
     .await
     {
         Ok(()) => ok(()).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/templates/node/{id}/versions/{version}",
+    operation_id = "delete_templates_node_id_versions_version",
+    tag = "template",
+    params(IdVersionPath),
+    responses((status = 200, description = "Node template version deleted", body = crate::envelope::ApiEnvelope<bool>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_delete_version(
+    State(state): State<ApiState>,
+    Path(path): Path<IdVersionPath>,
+) -> impl IntoResponse {
+    match wf_api::template::node_version::delete_node_template_version(
+        &state.ctx,
+        &path.id,
+        &path.version,
+    )
+    .await
+    {
+        Ok(deleted) => ok(deleted).into_response(),
         Err(e) => error_response(e),
     }
 }

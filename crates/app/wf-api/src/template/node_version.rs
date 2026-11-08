@@ -70,6 +70,22 @@ pub async fn rollback_node_template(
     Ok(())
 }
 
+/// Delete one version snapshot; the formal template is untouched.
+pub async fn delete_node_template_version(
+    ctx: &ApiContext,
+    node_id: &str,
+    version: &str,
+) -> crate::ApiResult<bool> {
+    // Loading first keeps the error contract identical to the other
+    // version reads: unknown versions are `NotFound`, not silent success.
+    get_node_template_version(ctx, node_id, version).await?;
+    ctx.storage
+        .node_template
+        .delete_version(node_id, version)
+        .await?;
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

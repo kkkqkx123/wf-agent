@@ -66,9 +66,25 @@ pub(crate) async fn handle_chat_recap(
     Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Json(body): Json<ChatRecapBody>,
 ) -> impl IntoResponse {
+    // Caller misuse is rejected before any state read so it reports even
+    // for unknown sessions.
+    if body.profile_id.trim().is_empty() {
+        return error_response(wf_api::ApiError::Validation(
+            "profile_id must not be empty".to_string(),
+        ));
+    }
+    // Unknown or invisible sessions stay silent (null text) instead of
+    // erroring: recap is a best-effort read and its contract promises a
+    // success envelope for anything but caller misuse.
     if let Err(e) =
         crate::directory::require_agent_owner(&state.ctx, &scope, &body.session_id.clone()).await
     {
+        if matches!(
+            e,
+            wf_api::ApiError::ExecutionNotFound { .. } | wf_api::ApiError::NotFound { .. }
+        ) {
+            return ok(RecapResponse { text: None }).into_response();
+        }
         return error_response(e);
     }
 
@@ -100,7 +116,18 @@ pub(crate) async fn handle_loop_recap(
     Path(path): Path<IdPath>,
     Json(body): Json<LoopRecapBody>,
 ) -> impl IntoResponse {
+    if body.profile_id.trim().is_empty() {
+        return error_response(wf_api::ApiError::Validation(
+            "profile_id must not be empty".to_string(),
+        ));
+    }
     if let Err(e) = crate::directory::require_agent_owner(&state.ctx, &scope, &path.id).await {
+        if matches!(
+            e,
+            wf_api::ApiError::ExecutionNotFound { .. } | wf_api::ApiError::NotFound { .. }
+        ) {
+            return ok(RecapResponse { text: None }).into_response();
+        }
         return error_response(e);
     }
 

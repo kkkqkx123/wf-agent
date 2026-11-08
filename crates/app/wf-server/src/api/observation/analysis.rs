@@ -698,7 +698,6 @@ mod tests {
     async fn analysis_endpoints_are_reachable() {
         let ctx = make_ctx();
         for uri in [
-            "/api/v1/executions/exec-1/progress",
             "/api/v1/search?q=hello",
             "/api/v1/search?q=hello&types=workflow,execution",
             "/api/v1/analysis/llm-metrics",
@@ -710,9 +709,10 @@ mod tests {
             let response = send(ctx.clone(), uri).await;
             assert_eq!(response.status(), StatusCode::OK, "uri: {uri}");
         }
-        // Error / performance analysis degrades to empty results for
-        // unknown executions.
+        // Execution-scoped reads share the existence gate: unknown ids
+        // are NotFound instead of degrading to empty results.
         for uri in [
+            "/api/v1/executions/exec-1/progress",
             "/api/v1/executions/exec-1/error-analysis",
             "/api/v1/executions/exec-1/error-analysis/advanced",
             "/api/v1/executions/exec-1/error-analysis/root-cause",
@@ -726,7 +726,7 @@ mod tests {
             "/api/v1/executions/exec-1/performance/iteration-comparison",
         ] {
             let response = send(ctx.clone(), uri).await;
-            assert_eq!(response.status(), StatusCode::OK, "uri: {uri}");
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "uri: {uri}");
         }
         // A single error context for an unknown error id is a NotFound.
         let missing = send(

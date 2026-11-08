@@ -255,7 +255,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn audit_routes_degrade_to_empty_for_unknown_executions() {
+    async fn audit_routes_map_unknown_executions_to_not_found() {
         let ctx = make_ctx();
         for uri in [
             "/api/v1/executions/exec-1/audit/summary",
@@ -266,10 +266,10 @@ mod tests {
             "/api/v1/executions/exec-1/audit/llm-calls",
             "/api/v1/executions/exec-1/audit/node-executions",
         ] {
-            // Read queries degrade to empty structures for unknown
-            // executions instead of failing.
+            // Execution-scoped reads share the existence gate: unknown
+            // ids are NotFound instead of degrading to empty structures.
             let response = send(ctx.clone(), uri).await;
-            assert_eq!(response.status(), StatusCode::OK, "uri: {uri}");
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "uri: {uri}");
         }
     }
 }

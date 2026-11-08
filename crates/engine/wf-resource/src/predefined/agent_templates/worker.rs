@@ -98,6 +98,7 @@ pub fn worker_agent_template() -> AgentTemplate {
         is_public: Some(true),
         enabled: Some(true),
         is_system: Some(true),
+        is_published: None,
     }
 }
 

@@ -24,6 +24,30 @@ pub fn list_agent_templates(ctx: &ApiContext) -> ApiResult<Vec<AgentTemplate>> {
     Ok(templates)
 }
 
+/// Validate an agent template definition against the live reference
+/// context: shape plus profile plus tool closure. Errors reject the
+/// write; warnings allow it. Shared by register, update and the
+/// by-id validate endpoint so the library never persists a template its
+/// own queries would flag as invalid.
+pub async fn validate_agent_template_definition(
+    ctx: &ApiContext,
+    template: &AgentTemplate,
+) -> ApiResult<Vec<wf_types::ValidationError>> {
+    let val_ctx = crate::workflow::validation::build_reference_context(ctx).await;
+    let result =
+        crate::agent::validation::AgentValidator::new(&val_ctx).validate(&template.definition);
+    if !result.is_valid() {
+        let detail = result
+            .errors
+            .iter()
+            .map(|e| format!("{}: {}", e.field, e.message))
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(ApiError::Validation(detail));
+    }
+    Ok(result.warnings)
+}
+
 pub async fn register_agent_template(ctx: &ApiContext, template: &AgentTemplate) -> ApiResult<()> {
     let registries = &ctx.registries;
     if registries.agent_templates.has(&template.id) {
@@ -32,6 +56,9 @@ pub async fn register_agent_template(ctx: &ApiContext, template: &AgentTemplate)
             &template.id.to_string(),
         ));
     }
+    validate_agent_template_definition(ctx, template)
+        .await
+        .map(|_| ())?;
     ctx.storage
         .agent_template
         .save(template)
@@ -68,6 +95,9 @@ pub async fn update_agent_template(ctx: &ApiContext, template: &AgentTemplate) -
     if !ctx.registries.agent_templates.has(&template.id) {
         return Err(not_found("agent_template", &template.id.to_string()));
     }
+    validate_agent_template_definition(ctx, template)
+        .await
+        .map(|_| ())?;
     ctx.storage
         .agent_template
         .save(template)
@@ -78,4 +108,21 @@ pub async fn update_agent_template(ctx: &ApiContext, template: &AgentTemplate) -
         std::sync::Arc::new(template.clone()),
     );
     Ok(())
+}
+
+/// Publish an agent template to the template library. Unset and explicit
+/// publish marks both read as published, so pre-existing templates keep
+/// their current featured/popular visibility.
+pub async fn publish_agent_template(ctx: &ApiContext, id: &str) -> ApiResult<()> {
+    let mut template = get_agent_template(ctx, id)?;
+    template.is_published = Some(true);
+    update_agent_template(ctx, &template).await
+}
+
+/// Remove the published mark from an agent template. The template stays
+/// registered and queryable; it leaves the featured/popular selections.
+pub async fn unpublish_agent_template(ctx: &ApiContext, id: &str) -> ApiResult<()> {
+    let mut template = get_agent_template(ctx, id)?;
+    template.is_published = Some(false);
+    update_agent_template(ctx, &template).await
 }

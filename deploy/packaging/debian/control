@@ -1,0 +1,12 @@
+Package: wf-agent
+# Version is kept in sync with the workspace version by
+# deploy/packaging/gen_metadata.sh; do not edit by hand.
+Version: 0.1.0
+Section: utils
+Priority: optional
+Architecture: amd64
+Depends: libc6, systemd
+Maintainer: wf-agent Contributors <wf-agent@example.com>
+Description: wf-agent workflow and autonomous agent framework
+ Modular agent framework unifying graph-based workflow orchestration
+ with autonomous LLM agent loops, served over HTTP with local CLIs.

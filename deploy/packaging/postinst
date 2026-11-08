@@ -1,0 +1,24 @@
+#!/bin/sh
+# DEB post-install: install the systemd unit, render the managed config
+# tree on first install, then follow the distribution preset.
+#
+# The managed config tree (/etc/wf) is generated at install time by the
+# bundled render script, so it is deliberately not a conffile: dpkg does
+# not track generated files and upgrades never overwrite them.
+set -e
+
+systemctl daemon-reload >/dev/null 2>&1 || true
+
+if [ ! -d /run/systemd/system ]; then
+    exit 0
+fi
+
+if [ ! -d /etc/wf ]; then
+    /usr/share/wf/deploy/scripts/render-config.sh \
+        --templates /usr/share/wf/deploy/templates \
+        --to managed --managed-dir /etc/wf >/dev/null 2>&1 || true
+fi
+
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl preset wf-server.service >/dev/null 2>&1 || true
+fi

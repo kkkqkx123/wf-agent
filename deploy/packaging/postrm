@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+
+# Only purge data on full purge; plain remove keeps config and data.
+if [ "$1" = "purge" ]; then
+    rm -rf /var/lib/wf /var/log/wf /etc/wf
+fi

@@ -16,7 +16,7 @@
  * wired in registration order by `mock/registry.ts`), wire adapters
  * (`mock/wire.ts`) and the fixture SSE stream (`mock/event-stream.ts`).
  * This facade keeps the public surface (`client`, `request`,
- * `downloadFile`, `API_BASE_URL`, `resolveApiKey`) that shared code
+ * `downloadFile`, `API_BASE_URL`, `resolveApiKey`, `resolveDirectory`) that shared code
  * imports, so the two clients stay drop-in interchangeable.
  */
 
@@ -219,5 +219,12 @@ export async function downloadFile(
 // resolveApiKey — no-op in preview (no backend to authenticate against)
 // ---------------------------------------------------------------------------
 export function resolveApiKey(): string | undefined {
+	return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// resolveDirectory — no-op in preview (fixture data is directory-agnostic)
+// ---------------------------------------------------------------------------
+export function resolveDirectory(): string | undefined {
 	return undefined;
 }

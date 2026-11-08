@@ -85,6 +85,39 @@ impl From<FsError> for crate::ApiError {
     }
 }
 
+/// Resolve the workspace root from an explicit request directory. The
+/// directory comes from the validated request scope; it must be an
+/// absolute existing directory. A missing directory is a request error,
+/// never a silent fallback: there is no server-side default workspace.
+/// The domain kill-switch still applies, so a disabled or unconfigured
+/// user domain denies workspace access even with an explicit directory.
+pub fn workspace_root_for(ctx: &ApiContext, dir: Option<&Path>) -> FsResult<PathBuf> {
+    let Some(dir) = dir else {
+        return Err(FsError::Validation(
+            "request directory is required".to_string(),
+        ));
+    };
+    let enabled = ctx
+        .user_git_config()
+        .map(|config| config.enabled)
+        .unwrap_or(false);
+    if !enabled {
+        return Err(FsError::NotEnabled);
+    }
+    if !dir.is_absolute() {
+        return Err(FsError::PathEscape(
+            "request directory must be absolute".to_string(),
+        ));
+    }
+    if !dir.is_dir() {
+        return Err(FsError::NotInitialized(format!(
+            "no workspace at {}",
+            dir.display()
+        )));
+    }
+    Ok(dir.to_path_buf())
+}
+
 pub fn workspace_root(ctx: &ApiContext) -> FsResult<PathBuf> {
     let config = ctx
         .user_git_config()
@@ -245,8 +278,8 @@ fn entry_of(root: &Path, absolute: &Path) -> FsResult<FsEntry> {
     })
 }
 
-pub fn list_dir(ctx: &ApiContext, path: &str) -> FsResult<Vec<FsEntry>> {
-    let root = workspace_root(ctx)?;
+pub fn list_dir(ctx: &ApiContext, dir: Option<&Path>, path: &str) -> FsResult<Vec<FsEntry>> {
+    let root = workspace_root_for(ctx, dir)?;
     let absolute = validate_fs_path(&root, path)?;
     let metadata =
         std::fs::symlink_metadata(&absolute).map_err(|_| FsError::NotFound(path.to_string()))?;
@@ -314,6 +347,7 @@ fn tree_skip_dir(name: &str) -> bool {
 /// path validation with the single-level listing and never reads contents.
 pub fn list_tree(
     ctx: &ApiContext,
+    dir: Option<&Path>,
     base: &str,
     max_depth: Option<u32>,
     max_entries: Option<usize>,
@@ -324,7 +358,7 @@ pub fn list_tree(
     let limit = max_entries
         .unwrap_or(FS_TREE_DEFAULT_LIMIT)
         .clamp(1, FS_TREE_MAX_LIMIT);
-    let root = workspace_root(ctx)?;
+    let root = workspace_root_for(ctx, dir)?;
     let base_absolute = validate_fs_path(&root, base)?;
     let metadata = std::fs::symlink_metadata(&base_absolute)
         .map_err(|_| FsError::NotFound(base.to_string()))?;
@@ -387,8 +421,8 @@ pub fn list_tree(
     Ok(FsTreeResult { entries, truncated })
 }
 
-pub fn stat_path(ctx: &ApiContext, path: &str) -> FsResult<FsStat> {
-    let root = workspace_root(ctx)?;
+pub fn stat_path(ctx: &ApiContext, dir: Option<&Path>, path: &str) -> FsResult<FsStat> {
+    let root = workspace_root_for(ctx, dir)?;
     let absolute = validate_fs_path(&root, path)?;
     let metadata =
         std::fs::symlink_metadata(&absolute).map_err(|_| FsError::NotFound(path.to_string()))?;
@@ -429,11 +463,11 @@ fn read_probe(absolute: &Path) -> FsResult<Vec<u8>> {
     Ok(buf)
 }
 
-pub fn read_file(ctx: &ApiContext, path: &str) -> FsResult<FsFileContent> {
+pub fn read_file(ctx: &ApiContext, dir: Option<&Path>, path: &str) -> FsResult<FsFileContent> {
     if path.is_empty() {
         return Err(FsError::IsDirectory("(workspace root)".to_string()));
     }
-    let root = workspace_root(ctx)?;
+    let root = workspace_root_for(ctx, dir)?;
     let absolute = validate_fs_path(&root, path)?;
     let metadata =
         std::fs::symlink_metadata(&absolute).map_err(|_| FsError::NotFound(path.to_string()))?;
@@ -478,6 +512,7 @@ pub fn read_file(ctx: &ApiContext, path: &str) -> FsResult<FsFileContent> {
 
 pub fn write_file(
     ctx: &ApiContext,
+    dir: Option<&Path>,
     path: &str,
     content: &str,
     expected_hash: Option<&str>,
@@ -490,7 +525,7 @@ pub fn write_file(
             "content exceeds {MAX_READ_BYTES} bytes"
         )));
     }
-    let root = workspace_root(ctx)?;
+    let root = workspace_root_for(ctx, dir)?;
     let absolute = validate_fs_path(&root, path)?;
     if let Ok(metadata) = std::fs::symlink_metadata(&absolute) {
         if metadata.file_type().is_dir() {
@@ -550,11 +585,11 @@ fn write_atomic(absolute: &Path, bytes: &[u8]) -> FsResult<()> {
     Ok(())
 }
 
-pub fn create_entry(ctx: &ApiContext, path: &str, is_dir: bool) -> FsResult<FsEntry> {
+pub fn create_entry(ctx: &ApiContext, dir: Option<&Path>, path: &str, is_dir: bool) -> FsResult<FsEntry> {
     if path.is_empty() {
         return Err(FsError::AlreadyExists("(workspace root)".to_string()));
     }
-    let root = workspace_root(ctx)?;
+    let root = workspace_root_for(ctx, dir)?;
     let absolute = validate_fs_path(&root, path)?;
     if absolute.exists() {
         return Err(FsError::AlreadyExists(path.to_string()));
@@ -580,13 +615,13 @@ pub fn create_entry(ctx: &ApiContext, path: &str, is_dir: bool) -> FsResult<FsEn
     entry_of(&root, &absolute)
 }
 
-pub fn delete_entry(ctx: &ApiContext, path: &str) -> FsResult<()> {
+pub fn delete_entry(ctx: &ApiContext, dir: Option<&Path>, path: &str) -> FsResult<()> {
     if path.is_empty() {
         return Err(FsError::Validation(
             "workspace root cannot be deleted".to_string(),
         ));
     }
-    let root = workspace_root(ctx)?;
+    let root = workspace_root_for(ctx, dir)?;
     let absolute = validate_fs_path(&root, path)?;
     let metadata =
         std::fs::symlink_metadata(&absolute).map_err(|_| FsError::NotFound(path.to_string()))?;
@@ -598,13 +633,13 @@ pub fn delete_entry(ctx: &ApiContext, path: &str) -> FsResult<()> {
     Ok(())
 }
 
-pub fn rename_entry(ctx: &ApiContext, from: &str, to: &str) -> FsResult<FsEntry> {
+pub fn rename_entry(ctx: &ApiContext, dir: Option<&Path>, from: &str, to: &str) -> FsResult<FsEntry> {
     if from.is_empty() || to.is_empty() {
         return Err(FsError::Validation(
             "source and destination must be non-empty".to_string(),
         ));
     }
-    let root = workspace_root(ctx)?;
+    let root = workspace_root_for(ctx, dir)?;
     let absolute_from = validate_fs_path(&root, from)?;
     let absolute_to = validate_fs_path(&root, to)?;
     if !absolute_from.exists() {
@@ -651,7 +686,7 @@ pub fn mime_for_path(path: &str) -> String {
 /// Server-side recursive copy used by the IDE clipboard. Byte-level copy so
 /// binary files work; pre-scans totals and removes a partially created
 /// target on failure instead of leaving a half-written tree.
-pub fn copy_entry(ctx: &ApiContext, from: &str, to: &str) -> FsResult<FsEntry> {
+pub fn copy_entry(ctx: &ApiContext, dir: Option<&Path>, from: &str, to: &str) -> FsResult<FsEntry> {
     if from.is_empty() || to.is_empty() {
         return Err(FsError::Validation(
             "source and destination must be non-empty".to_string(),
@@ -667,7 +702,7 @@ pub fn copy_entry(ctx: &ApiContext, from: &str, to: &str) -> FsResult<FsEntry> {
             "cannot copy a directory into itself".to_string(),
         ));
     }
-    let root = workspace_root(ctx)?;
+    let root = workspace_root_for(ctx, dir)?;
     let absolute_from = validate_fs_path(&root, from)?;
     let absolute_to = validate_fs_path(&root, to)?;
     let source_meta = std::fs::symlink_metadata(&absolute_from)
@@ -790,11 +825,11 @@ fn copy_dir_all(source: &Path, target: &Path) -> FsResult<()> {
 
 /// Raw bytes for download, base64-encoded to reuse the JSON envelope.
 /// Binary-safe; no UTF-8 conversion and no truncation beyond the size cap.
-pub fn read_raw(ctx: &ApiContext, path: &str) -> FsResult<FsRawContent> {
+pub fn read_raw(ctx: &ApiContext, dir: Option<&Path>, path: &str) -> FsResult<FsRawContent> {
     if path.is_empty() {
         return Err(FsError::IsDirectory("(workspace root)".to_string()));
     }
-    let root = workspace_root(ctx)?;
+    let root = workspace_root_for(ctx, dir)?;
     let absolute = validate_fs_path(&root, path)?;
     let metadata =
         std::fs::symlink_metadata(&absolute).map_err(|_| FsError::NotFound(path.to_string()))?;
@@ -831,6 +866,7 @@ pub fn read_raw(ctx: &ApiContext, path: &str) -> FsResult<FsRawContent> {
 /// explicit overwrite.
 pub fn upload_bytes(
     ctx: &ApiContext,
+    dir: Option<&Path>,
     path: &str,
     content_base64: &str,
     overwrite: bool,
@@ -845,7 +881,7 @@ pub fn upload_bytes(
             "upload exceeds {MAX_READ_BYTES} bytes"
         )));
     }
-    let root = workspace_root(ctx)?;
+    let root = workspace_root_for(ctx, dir)?;
     let absolute = validate_fs_path(&root, path)?;
     if let Ok(meta) = std::fs::symlink_metadata(&absolute) {
         if meta.file_type().is_dir() {
@@ -945,7 +981,7 @@ pub struct FsSearchOptions<'a> {
 
 /// Read-only content search over the workspace. Never reads file contents
 /// into the response beyond truncated preview lines.
-pub fn search_files(ctx: &ApiContext, options: FsSearchOptions<'_>) -> FsResult<FsSearchResult> {
+pub fn search_files(ctx: &ApiContext, dir: Option<&Path>, options: FsSearchOptions<'_>) -> FsResult<FsSearchResult> {
     let FsSearchOptions {
         query,
         base,
@@ -986,7 +1022,7 @@ pub fn search_files(ctx: &ApiContext, options: FsSearchOptions<'_>) -> FsResult<
     let regex = regex::Regex::new(&pattern)
         .map_err(|e| FsError::Validation(format!("invalid search pattern: {e}")))?;
     let includes = compile_search_patterns(include)?;
-    let root = workspace_root(ctx)?;
+    let root = workspace_root_for(ctx, dir)?;
     let base_absolute = validate_fs_path(&root, base)?;
     let metadata = std::fs::symlink_metadata(&base_absolute)
         .map_err(|_| FsError::NotFound(base.to_string()))?;

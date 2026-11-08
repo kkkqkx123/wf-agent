@@ -25,6 +25,22 @@ export function resolveApiKey(): string | undefined {
 	return undefined;
 }
 
+/**
+ * Resolve the business directory for multi-directory serving.
+ * Build-time value wins, otherwise the workspace panel persists the
+ * current repository root. Absent means single-directory mode: requests
+ * carry no directory and the server falls back to its default root.
+ */
+export function resolveDirectory(): string | undefined {
+	const fromEnv = import.meta.env.VITE_API_DIRECTORY as string | undefined;
+	if (fromEnv && fromEnv.length > 0) return fromEnv;
+	if (typeof localStorage !== 'undefined') {
+		const fromStorage = localStorage.getItem('wf.directory');
+		if (fromStorage && fromStorage.length > 0) return fromStorage;
+	}
+	return undefined;
+}
+
 export const client = createClient<paths>({
 	baseUrl: API_BASE_URL,
 	headers: { 'Content-Type': 'application/json' },
@@ -42,11 +58,13 @@ export async function request(
 	init?: { body?: unknown },
 ): Promise<{ data?: unknown; error?: unknown; status: number }> {
 	const key = resolveApiKey();
+	const directory = resolveDirectory();
 	const response = await fetch(`${API_BASE_URL}${path}`, {
 		method,
 		headers: {
 			...(init?.body === undefined ? {} : { 'Content-Type': 'application/json' }),
 			...(key ? { 'x-api-key': key } : {}),
+			...(directory ? { 'x-wf-directory': directory } : {}),
 		},
 		body: init?.body === undefined ? undefined : JSON.stringify(init.body),
 	});
@@ -73,11 +91,13 @@ export async function downloadFile(
 	init?: { method?: 'GET' | 'POST'; body?: unknown },
 ): Promise<void> {
 	const key = resolveApiKey();
+	const directory = resolveDirectory();
 	const response = await fetch(`${API_BASE_URL}${path}`, {
 		method: init?.method ?? 'GET',
 		headers: {
 			...(init?.body === undefined ? {} : { 'Content-Type': 'application/json' }),
 			...(key ? { 'x-api-key': key } : {}),
+			...(directory ? { 'x-wf-directory': directory } : {}),
 		},
 		body: init?.body === undefined ? undefined : JSON.stringify(init.body),
 	});
@@ -94,11 +114,13 @@ export async function downloadFile(
 	URL.revokeObjectURL(url);
 }
 
-/** Interceptor: inject x-api-key on every request. */
+/** Interceptor: inject x-api-key and x-wf-directory on every request. */
 client.use({
 	async onRequest({ request }) {
 		const key = resolveApiKey();
 		if (key) request.headers.set('x-api-key', key);
+		const directory = resolveDirectory();
+		if (directory) request.headers.set('x-wf-directory', directory);
 		return request;
 	},
 });

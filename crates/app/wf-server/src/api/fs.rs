@@ -1,10 +1,11 @@
-use axum::extract::{Query, State};
+use axum::extract::{Extension, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::{get, patch, post};
 use axum::Router;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
+use crate::directory::{scope_dir, DirectoryScope};
 use crate::envelope::{error_response, ok};
 use crate::router::ApiState;
 
@@ -204,9 +205,10 @@ fn query_path(value: &Option<String>) -> &str {
 #[utoipa::path(get, path = "/api/v1/fs/list", operation_id = "get_fs_list", tag = "fs", params(FsPathQuery), responses((status = 200, description = "Directory listing", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "No workspace or no such path", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
 pub(crate) async fn handle_fs_list(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<FsPathQuery>,
 ) -> impl IntoResponse {
-    match wf_api::fs::list_dir(&state.ctx, query_path(&query.path)) {
+    match wf_api::fs::list_dir(&state.ctx, scope_dir(&scope), query_path(&query.path)) {
         Ok(entries) => ok(entries.into_iter().map(entry_view).collect::<Vec<_>>()).into_response(),
         Err(err) => error_response(err.into()),
     }
@@ -215,10 +217,12 @@ pub(crate) async fn handle_fs_list(
 #[utoipa::path(get, path = "/api/v1/fs/tree", operation_id = "get_fs_tree", tag = "fs", params(FsTreeQuery), responses((status = 200, description = "Recursive file index", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "No workspace or no such path", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
 pub(crate) async fn handle_fs_tree(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<FsTreeQuery>,
 ) -> impl IntoResponse {
     match wf_api::fs::list_tree(
         &state.ctx,
+        scope_dir(&scope),
         query_path(&query.path),
         query.depth,
         query.limit,
@@ -243,6 +247,7 @@ pub(crate) async fn handle_fs_tree(
 #[utoipa::path(get, path = "/api/v1/fs/search", operation_id = "get_fs_search", tag = "fs", params(FsSearchQuery), responses((status = 200, description = "Workspace content search", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "No workspace or no such path", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
 pub(crate) async fn handle_fs_search(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<FsSearchQuery>,
 ) -> impl IntoResponse {
     let needle = query.query.as_deref().unwrap_or("").trim();
@@ -255,6 +260,7 @@ pub(crate) async fn handle_fs_search(
     }
     match wf_api::fs::search_files(
         &state.ctx,
+        scope_dir(&scope),
         wf_api::fs::FsSearchOptions {
             query: needle,
             base: query_path(&query.path),
@@ -287,9 +293,10 @@ pub(crate) async fn handle_fs_search(
 #[utoipa::path(get, path = "/api/v1/fs/content", operation_id = "get_fs_content", tag = "fs", params(FsPathQuery), responses((status = 200, description = "Text file content", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "No such file", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
 pub(crate) async fn handle_fs_content(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<FsPathQuery>,
 ) -> impl IntoResponse {
-    match wf_api::fs::read_file(&state.ctx, query_path(&query.path)) {
+    match wf_api::fs::read_file(&state.ctx, scope_dir(&scope), query_path(&query.path)) {
         Ok(content) => ok(file_view(content)).into_response(),
         Err(err) => error_response(err.into()),
     }
@@ -298,9 +305,10 @@ pub(crate) async fn handle_fs_content(
 #[utoipa::path(get, path = "/api/v1/fs/stat", operation_id = "get_fs_stat", tag = "fs", params(FsPathQuery), responses((status = 200, description = "Path metadata", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
 pub(crate) async fn handle_fs_stat(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<FsPathQuery>,
 ) -> impl IntoResponse {
-    match wf_api::fs::stat_path(&state.ctx, query_path(&query.path)) {
+    match wf_api::fs::stat_path(&state.ctx, scope_dir(&scope), query_path(&query.path)) {
         Ok(stat) => ok(stat_view(stat)).into_response(),
         Err(err) => error_response(err.into()),
     }
@@ -309,11 +317,13 @@ pub(crate) async fn handle_fs_stat(
 #[utoipa::path(put, path = "/api/v1/fs/content", operation_id = "put_fs_content", tag = "fs", params(FsPathQuery), request_body = FsWriteBody, responses((status = 200, description = "File written", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 409, description = "Hash conflict", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
 pub(crate) async fn handle_fs_write(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<FsPathQuery>,
     axum::Json(body): axum::Json<FsWriteBody>,
 ) -> impl IntoResponse {
     match wf_api::fs::write_file(
         &state.ctx,
+        scope_dir(&scope),
         query_path(&query.path),
         &body.content,
         body.expected_hash.as_deref(),
@@ -326,9 +336,10 @@ pub(crate) async fn handle_fs_write(
 #[utoipa::path(post, path = "/api/v1/fs/entries", operation_id = "post_fs_entries", tag = "fs", request_body = FsCreateBody, responses((status = 200, description = "Entry created", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
 pub(crate) async fn handle_fs_create(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     axum::Json(body): axum::Json<FsCreateBody>,
 ) -> impl IntoResponse {
-    match wf_api::fs::create_entry(&state.ctx, &body.path, body.is_dir) {
+    match wf_api::fs::create_entry(&state.ctx, scope_dir(&scope), &body.path, body.is_dir) {
         Ok(entry) => ok(entry_view(entry)).into_response(),
         Err(err) => error_response(err.into()),
     }
@@ -337,9 +348,10 @@ pub(crate) async fn handle_fs_create(
 #[utoipa::path(delete, path = "/api/v1/fs/entries", operation_id = "delete_fs_entries", tag = "fs", params(FsDeleteQuery), responses((status = 200, description = "Entry deleted", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
 pub(crate) async fn handle_fs_delete(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<FsDeleteQuery>,
 ) -> impl IntoResponse {
-    match wf_api::fs::delete_entry(&state.ctx, &query.path) {
+    match wf_api::fs::delete_entry(&state.ctx, scope_dir(&scope), &query.path) {
         Ok(()) => ok(serde_json::json!({"removed": true, "path": query.path})).into_response(),
         Err(err) => error_response(err.into()),
     }
@@ -348,9 +360,10 @@ pub(crate) async fn handle_fs_delete(
 #[utoipa::path(patch, path = "/api/v1/fs/entries/move", operation_id = "patch_fs_entries_move", tag = "fs", request_body = FsRenameBody, responses((status = 200, description = "Entry renamed", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
 pub(crate) async fn handle_fs_rename(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     axum::Json(body): axum::Json<FsRenameBody>,
 ) -> impl IntoResponse {
-    match wf_api::fs::rename_entry(&state.ctx, &body.from, &body.to) {
+    match wf_api::fs::rename_entry(&state.ctx, scope_dir(&scope), &body.from, &body.to) {
         Ok(entry) => ok(entry_view(entry)).into_response(),
         Err(err) => error_response(err.into()),
     }
@@ -359,9 +372,10 @@ pub(crate) async fn handle_fs_rename(
 #[utoipa::path(post, path = "/api/v1/fs/entries/copy", operation_id = "post_fs_entries_copy", tag = "fs", request_body = FsCopyBody, responses((status = 200, description = "Entry copied", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
 pub(crate) async fn handle_fs_copy(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     axum::Json(body): axum::Json<FsCopyBody>,
 ) -> impl IntoResponse {
-    match wf_api::fs::copy_entry(&state.ctx, &body.from, &body.to) {
+    match wf_api::fs::copy_entry(&state.ctx, scope_dir(&scope), &body.from, &body.to) {
         Ok(entry) => ok(entry_view(entry)).into_response(),
         Err(err) => error_response(err.into()),
     }
@@ -370,9 +384,10 @@ pub(crate) async fn handle_fs_copy(
 #[utoipa::path(get, path = "/api/v1/fs/raw", operation_id = "get_fs_raw", tag = "fs", params(FsPathQuery), responses((status = 200, description = "Raw file bytes as base64", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
 pub(crate) async fn handle_fs_raw(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<FsPathQuery>,
 ) -> impl IntoResponse {
-    match wf_api::fs::read_raw(&state.ctx, query_path(&query.path)) {
+    match wf_api::fs::read_raw(&state.ctx, scope_dir(&scope), query_path(&query.path)) {
         Ok(raw) => ok(FsRawView {
             path: raw.path,
             filename: raw.filename,
@@ -388,9 +403,10 @@ pub(crate) async fn handle_fs_raw(
 #[utoipa::path(post, path = "/api/v1/fs/upload", operation_id = "post_fs_upload", tag = "fs", request_body = FsUploadBody, responses((status = 200, description = "File uploaded", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
 pub(crate) async fn handle_fs_upload(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     axum::Json(body): axum::Json<FsUploadBody>,
 ) -> impl IntoResponse {
-    match wf_api::fs::upload_bytes(&state.ctx, &body.path, &body.content_base64, body.overwrite) {
+    match wf_api::fs::upload_bytes(&state.ctx, scope_dir(&scope), &body.path, &body.content_base64, body.overwrite) {
         Ok(entry) => ok(entry_view(entry)).into_response(),
         Err(err) => error_response(err.into()),
     }

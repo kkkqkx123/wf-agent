@@ -32,6 +32,7 @@ pub struct PtyCreateParams {
 pub fn create_with_context(
     ctx: Option<&ApiContext>,
     params: PtyCreateParams,
+    default_dir: Option<&std::path::Path>,
     inner: &Mutex<super::state::ManagerInner>,
 ) -> PtyResult<PtySession> {
     let PtyCreateParams {
@@ -46,7 +47,7 @@ pub fn create_with_context(
     let rows = rows.unwrap_or(24).max(1);
     let cols = cols.unwrap_or(80).max(1);
 
-    let cwd_path = resolve_cwd(ctx, cwd)?;
+    let cwd_path = resolve_cwd(ctx, cwd, default_dir)?;
     if !cwd_path.exists() {
         return Err(PtyError::Invalid(format!(
             "working directory does not exist: {}",
@@ -242,7 +243,17 @@ pub fn request_kill(state: &PtyState, reason: &'static str) {
         .store(true, std::sync::atomic::Ordering::Release);
 }
 
-pub fn resolve_cwd(ctx: Option<&ApiContext>, cwd: Option<String>) -> PtyResult<PathBuf> {
+/// Resolve the working directory for a new PTY session. An explicit cwd
+/// keeps its legacy validation against the configured repository root; the
+/// request directory only replaces the implicit default (repository root,
+/// then process working directory). This keeps headerless clients on the
+/// previous behavior while directory-scoped requests spawn inside their
+/// own directory.
+pub fn resolve_cwd(
+    ctx: Option<&ApiContext>,
+    cwd: Option<String>,
+    default_dir: Option<&std::path::Path>,
+) -> PtyResult<PathBuf> {
     if let Some(cwd) = cwd {
         let p = PathBuf::from(&cwd);
         if let Some(ctx) = ctx {
@@ -258,6 +269,8 @@ pub fn resolve_cwd(ctx: Option<&ApiContext>, cwd: Option<String>) -> PtyResult<P
             }
         }
         Ok(p)
+    } else if let Some(default) = default_dir {
+        Ok(default.to_path_buf())
     } else if let Some(ctx) = ctx {
         match crate::git::repo_root(ctx) {
             Ok(p) => Ok(p),

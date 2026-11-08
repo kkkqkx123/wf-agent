@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use wf_config::error::{ConfigError, ConfigResult};
 
+use crate::directory::DirectoryConfig;
 use crate::middleware::ServerMiddlewareConfig;
 
 /// Built-in listen address used when no other source provides one.
@@ -35,7 +36,8 @@ pub const STATIC_DIR_ENV_VAR: &str = "WF_SERVER_STATIC_DIR";
 /// directory (`server.toml`).
 pub const SERVER_CONFIG_FILE: &str = "server.toml";
 
-/// Owned server configuration: transport plus middleware.
+/// Owned server configuration: transport plus middleware plus the
+/// multi-directory allowlist.
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
     pub bind_addr: SocketAddr,
@@ -43,6 +45,10 @@ pub struct ServerConfig {
     /// Web frontend build directory served with SPA fallback; `None`
     /// disables static hosting (API-only mode).
     pub static_dir: Option<PathBuf>,
+    /// Directory allowlist for multi-directory serving. Empty serves only
+    /// the default project root; every explicit request directory must
+    /// fall inside one of these roots.
+    pub directory: DirectoryConfig,
 }
 
 impl Default for ServerConfig {
@@ -51,6 +57,7 @@ impl Default for ServerConfig {
             bind_addr: default_bind_addr(),
             middleware: ServerMiddlewareConfig::default(),
             static_dir: None,
+            directory: DirectoryConfig::default(),
         }
     }
 }
@@ -85,6 +92,7 @@ impl ServerConfig {
             bind_addr: Self::resolve_bind_addr(settings_layer, project_layer, cli_addr)?,
             middleware: ServerMiddlewareConfig::resolve(settings_layer, project_layer)?,
             static_dir: Self::resolve_static_dir(settings_layer, project_layer, cli_static_dir)?,
+            directory: Self::resolve_directory(settings_layer, project_layer)?,
         })
     }
 
@@ -134,6 +142,20 @@ impl ServerConfig {
         }
         Ok(None)
     }
+
+    /// Resolve the directory allowlist: project file layer wins over the
+    /// settings file layer, then the environment wins over both. A present
+    /// but invalid file fails startup so a typo cannot silently close off
+    /// served directories.
+    fn resolve_directory(
+        settings_layer: Option<&Path>,
+        project_layer: Option<&Path>,
+    ) -> ConfigResult<DirectoryConfig> {
+        let file = load_merged_server_file(settings_layer, project_layer)?;
+        Ok(DirectoryConfig::resolve(
+            file.and_then(|file| file.allowed_roots),
+        ))
+    }
 }
 
 fn default_bind_addr() -> SocketAddr {
@@ -146,6 +168,7 @@ fn default_bind_addr() -> SocketAddr {
 struct ServerFileConfig {
     bind_addr: Option<String>,
     static_dir: Option<String>,
+    allowed_roots: Option<Vec<String>>,
 }
 
 /// Load and merge `server.toml` from the settings layer (low) and the
@@ -200,6 +223,28 @@ mod tests {
     fn default_bind_addr_parses() {
         let config = ServerConfig::default();
         assert_eq!(config.bind_addr.to_string(), DEFAULT_BIND_ADDR);
+    }
+
+    #[test]
+    fn directory_defaults_to_empty_allowlist() {
+        let config = ServerConfig::default();
+        assert!(config.directory.allowed_roots.is_empty());
+    }
+
+    #[test]
+    fn file_layer_provides_allowed_roots() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(project_server_dir(dir.path())).unwrap();
+        std::fs::write(
+            project_server_dir(dir.path()).join(SERVER_CONFIG_FILE),
+            "allowed_roots = [\"/srv/wf/projects\"]\n",
+        )
+        .unwrap();
+        let config = ServerConfig::resolve(Some(dir.path()), None, None, None).unwrap();
+        assert_eq!(
+            config.directory.allowed_roots,
+            vec![PathBuf::from("/srv/wf/projects")]
+        );
     }
 
     #[test]

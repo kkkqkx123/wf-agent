@@ -1,12 +1,19 @@
 # Server transport configuration.
 #
-# Schema:    wf_server::server_config::ServerConfig file layer (`bind_addr` only).
+# Schema:    wf_server::server_config::ServerConfig file layer
+# (`bind_addr`, `static_dir`, `allowed_roots`).
 # Sample: copy to `{settings_dir}/server/` or `{project}/.wf/server/`
 # (independent family owned by wf-server).
-# Priority (high to low): `--addr` flag > `WF_SERVER_BIND_ADDR` env >
-# project `.wf/server/` > settings-dir `server/` > `127.0.0.1:3000`.
+# Priority (high to low): `--addr` flag > `WF_SERVER_BIND_ADDR` /
+# `WF_SERVER_STATIC_DIR` / `WF_DIRECTORY_ROOTS` env >
+# project `.wf/server/` > settings-dir `server/` > built-in defaults.
 #
 # A missing file falls back to the default; a present but invalid file
 # fails startup, so a typo never silently binds elsewhere.
 
 bind_addr = "127.0.0.1:3000"
+
+# Extra servable directory roots (absolute paths). Explicit request
+# directories must fall inside one of these; empty permits every validated
+# directory the client names. The environment wins over this file when set.
+# allowed_roots = ["/srv/wf/projects"]

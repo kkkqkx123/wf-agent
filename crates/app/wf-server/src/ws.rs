@@ -643,6 +643,7 @@ mod tests {
             ctx,
             "127.0.0.1:0".parse().unwrap(),
             Arc::new(crate::middleware::ServerMiddlewareConfig::default()),
+            Arc::new(crate::directory::DirectoryContext::new(crate::directory::DirectoryConfig::default())),
         )
         .await
         .expect("server should bind")
@@ -853,6 +854,7 @@ mod tests {
             ctx,
             "127.0.0.1:0".parse().unwrap(),
             Arc::new(config),
+            Arc::new(crate::directory::DirectoryContext::new(crate::directory::DirectoryConfig::default())),
         )
         .await
         .expect("server should bind");

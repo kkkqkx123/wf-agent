@@ -656,6 +656,8 @@ use utoipa::OpenApi;
         crate::api::system::health::handle_storage_stats,
         crate::api::system::health::handle_diagnostics,
         crate::api::system::health::handle_event_health,
+        crate::api::system::directories::handle_directories,
+        crate::api::system::directories::handle_directories_invalidate,
         crate::api::rag::handle_rag_stats,
         crate::api::rag::handle_rag_preview,
         crate::api::rag::handle_rag_diagnose,

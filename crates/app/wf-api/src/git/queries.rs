@@ -1,7 +1,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use super::config::{command_timeout_ms, repo_root, validate_repo_path};
+use super::config::{command_timeout_ms, repo_root_for, validate_repo_path};
 use super::parse::{
     log_format_args, parse_branches, parse_diff_unified, parse_log_entries, parse_name_status,
     parse_porcelain_v2_branch_info, parse_porcelain_v2_files, parse_stash_list, parse_tags,
@@ -21,8 +21,8 @@ fn hash_hex(input: &str) -> String {
     format!("{:016x}", hasher.finish())
 }
 
-fn status_output(ctx: &ApiContext) -> GitResult<(std::path::PathBuf, String)> {
-    let root = repo_root(ctx)?;
+fn status_output(ctx: &ApiContext, dir: Option<&std::path::Path>) -> GitResult<(std::path::PathBuf, String)> {
+    let root = repo_root_for(ctx, dir)?;
     let timeout = command_timeout_ms(ctx, false);
     let out = run_git(
         &root,
@@ -57,8 +57,8 @@ fn branch_summary(root: &std::path::Path, timeout: u64) -> String {
     .unwrap_or_default()
 }
 
-pub fn fingerprint(ctx: &ApiContext) -> GitResult<Fingerprint> {
-    let (root, status) = status_output(ctx)?;
+pub fn fingerprint(ctx: &ApiContext, dir: Option<&std::path::Path>) -> GitResult<Fingerprint> {
+    let (root, status) = status_output(ctx, dir)?;
     let timeout = command_timeout_ms(ctx, false);
     let head = head_commit(&root, timeout);
     let summary = branch_summary(&root, timeout);
@@ -69,8 +69,8 @@ pub fn fingerprint(ctx: &ApiContext) -> GitResult<Fingerprint> {
     })
 }
 
-pub fn meta(ctx: &ApiContext) -> GitResult<RepoMeta> {
-    let (root, status) = status_output(ctx)?;
+pub fn meta(ctx: &ApiContext, dir: Option<&std::path::Path>) -> GitResult<RepoMeta> {
+    let (root, status) = status_output(ctx, dir)?;
     let timeout = command_timeout_ms(ctx, false);
     let (branch, upstream, ahead, behind) = parse_porcelain_v2_branch_info(&status);
     let head = head_commit(&root, timeout);
@@ -113,8 +113,8 @@ pub fn meta(ctx: &ApiContext) -> GitResult<RepoMeta> {
     })
 }
 
-pub fn status(ctx: &ApiContext) -> GitResult<StatusView> {
-    let (_, output) = status_output(ctx)?;
+pub fn status(ctx: &ApiContext, dir: Option<&std::path::Path>) -> GitResult<StatusView> {
+    let (_, output) = status_output(ctx, dir)?;
     let (branch, upstream, ahead, behind) = parse_porcelain_v2_branch_info(&output);
     let files = parse_porcelain_v2_files(&output);
     let mut staged = 0usize;
@@ -144,13 +144,13 @@ pub fn status(ctx: &ApiContext) -> GitResult<StatusView> {
     })
 }
 
-pub fn file_entries(ctx: &ApiContext) -> GitResult<Vec<FileEntry>> {
-    let (_, output) = status_output(ctx)?;
+pub fn file_entries(ctx: &ApiContext, dir: Option<&std::path::Path>) -> GitResult<Vec<FileEntry>> {
+    let (_, output) = status_output(ctx, dir)?;
     Ok(parse_porcelain_v2_files(&output))
 }
 
-pub fn diff_unstaged(ctx: &ApiContext, path: Option<&str>) -> GitResult<Vec<DiffFileView>> {
-    let root = repo_root(ctx)?;
+pub fn diff_unstaged(ctx: &ApiContext, dir: Option<&std::path::Path>, path: Option<&str>) -> GitResult<Vec<DiffFileView>> {
+    let root = repo_root_for(ctx, dir)?;
     let timeout = command_timeout_ms(ctx, false);
     if let Some(path) = path {
         validate_repo_path(&root, path)?;
@@ -165,8 +165,8 @@ pub fn diff_unstaged(ctx: &ApiContext, path: Option<&str>) -> GitResult<Vec<Diff
     Ok(parse_diff_unified(&out.stdout))
 }
 
-pub fn diff_staged(ctx: &ApiContext, path: Option<&str>) -> GitResult<Vec<DiffFileView>> {
-    let root = repo_root(ctx)?;
+pub fn diff_staged(ctx: &ApiContext, dir: Option<&std::path::Path>, path: Option<&str>) -> GitResult<Vec<DiffFileView>> {
+    let root = repo_root_for(ctx, dir)?;
     let timeout = command_timeout_ms(ctx, false);
     if let Some(path) = path {
         validate_repo_path(&root, path)?;
@@ -190,6 +190,7 @@ pub fn diff_staged(ctx: &ApiContext, path: Option<&str>) -> GitResult<Vec<DiffFi
 
 pub fn diff_refs(
     ctx: &ApiContext,
+    dir: Option<&std::path::Path>,
     from: &str,
     to: &str,
     path: Option<&str>,
@@ -202,7 +203,7 @@ pub fn diff_refs(
     if from.contains('\0') || to.contains('\0') || from.contains("....") {
         return Err(GitError::Precondition("invalid diff ref".to_string()));
     }
-    let root = repo_root(ctx)?;
+    let root = repo_root_for(ctx, dir)?;
     let timeout = command_timeout_ms(ctx, false);
     if let Some(path) = path {
         validate_repo_path(&root, path)?;
@@ -252,8 +253,8 @@ fn normalize_blob_rev(raw: Option<&str>) -> GitResult<String> {
 /// unstaged tabs read `HEAD`, staged tabs read `:staged` and `HEAD`,
 /// commit tabs read the parent commit. Missing blobs report
 /// `exists: false` instead of failing so added files degrade to hunk view.
-pub fn git_file(ctx: &ApiContext, path: &str, rev: Option<&str>) -> GitResult<GitFileView> {
-    let root = repo_root(ctx)?;
+pub fn git_file(ctx: &ApiContext, dir: Option<&std::path::Path>, path: &str, rev: Option<&str>) -> GitResult<GitFileView> {
+    let root = repo_root_for(ctx, dir)?;
     let timeout = command_timeout_ms(ctx, false);
     validate_repo_path(&root, path)?;
     let rev = normalize_blob_rev(rev)?;
@@ -306,11 +307,12 @@ pub fn git_file(ctx: &ApiContext, path: &str, rev: Option<&str>) -> GitResult<Gi
 
 pub fn commits(
     ctx: &ApiContext,
+    dir: Option<&std::path::Path>,
     limit: u32,
     offset: u32,
     branch: Option<&str>,
 ) -> GitResult<Vec<CommitEntry>> {
-    let root = repo_root(ctx)?;
+    let root = repo_root_for(ctx, dir)?;
     let timeout = command_timeout_ms(ctx, false);
     let limit = limit.clamp(1, 200).to_string();
     let offset = offset.to_string();
@@ -332,13 +334,13 @@ pub fn commits(
     Ok(parse_log_entries(&out.stdout))
 }
 
-pub fn commit_files(ctx: &ApiContext, commit: &str) -> GitResult<Vec<CommitFileEntry>> {
+pub fn commit_files(ctx: &ApiContext, dir: Option<&std::path::Path>, commit: &str) -> GitResult<Vec<CommitFileEntry>> {
     if commit.trim().is_empty() || commit.contains('\0') {
         return Err(GitError::Precondition(
             "commit must not be empty".to_string(),
         ));
     }
-    let root = repo_root(ctx)?;
+    let root = repo_root_for(ctx, dir)?;
     let timeout = command_timeout_ms(ctx, false);
     let out = run_git(
         &root,
@@ -348,8 +350,8 @@ pub fn commit_files(ctx: &ApiContext, commit: &str) -> GitResult<Vec<CommitFileE
     Ok(parse_name_status(&out.stdout))
 }
 
-pub fn branches(ctx: &ApiContext) -> GitResult<Vec<BranchEntry>> {
-    let root = repo_root(ctx)?;
+pub fn branches(ctx: &ApiContext, dir: Option<&std::path::Path>) -> GitResult<Vec<BranchEntry>> {
+    let root = repo_root_for(ctx, dir)?;
     let timeout = command_timeout_ms(ctx, false);
     let format =
         "%(refname:short)%1f%(HEAD)%1f%(upstream:short)%1f%(objectname:short)%1f%(subject)%1e";
@@ -390,8 +392,8 @@ pub fn branches(ctx: &ApiContext) -> GitResult<Vec<BranchEntry>> {
     Ok(entries)
 }
 
-pub fn remotes(ctx: &ApiContext) -> GitResult<Vec<RemoteEntry>> {
-    let root = repo_root(ctx)?;
+pub fn remotes(ctx: &ApiContext, dir: Option<&std::path::Path>) -> GitResult<Vec<RemoteEntry>> {
+    let root = repo_root_for(ctx, dir)?;
     let timeout = command_timeout_ms(ctx, true);
     let out = run_git(&root, &["remote", "-v"], timeout)?;
     let mut map: std::collections::BTreeMap<String, String> = Default::default();
@@ -438,8 +440,8 @@ pub fn remotes(ctx: &ApiContext) -> GitResult<Vec<RemoteEntry>> {
     Ok(out_entries)
 }
 
-pub fn tags(ctx: &ApiContext) -> GitResult<Vec<TagEntry>> {
-    let root = repo_root(ctx)?;
+pub fn tags(ctx: &ApiContext, dir: Option<&std::path::Path>) -> GitResult<Vec<TagEntry>> {
+    let root = repo_root_for(ctx, dir)?;
     let timeout = command_timeout_ms(ctx, false);
     let format = "%(refname:short)%1f%(objectname:short)%1f%(*objectname:short)%1f%(subject)%1e";
     let out = run_git(
@@ -450,15 +452,15 @@ pub fn tags(ctx: &ApiContext) -> GitResult<Vec<TagEntry>> {
     Ok(parse_tags(&out.stdout))
 }
 
-pub fn stash_list(ctx: &ApiContext) -> GitResult<Vec<StashEntry>> {
-    let root = repo_root(ctx)?;
+pub fn stash_list(ctx: &ApiContext, dir: Option<&std::path::Path>) -> GitResult<Vec<StashEntry>> {
+    let root = repo_root_for(ctx, dir)?;
     let timeout = command_timeout_ms(ctx, false);
     let out = run_git(&root, &["stash", "list"], timeout)?;
     Ok(parse_stash_list(&out.stdout))
 }
 
-pub fn submodule_status(ctx: &ApiContext) -> GitResult<Vec<SubmoduleEntry>> {
-    let root = repo_root(ctx)?;
+pub fn submodule_status(ctx: &ApiContext, dir: Option<&std::path::Path>) -> GitResult<Vec<SubmoduleEntry>> {
+    let root = repo_root_for(ctx, dir)?;
     let timeout = command_timeout_ms(ctx, false);
     let out = run_git(&root, &["submodule", "status"], timeout);
     let output = match out {
@@ -491,8 +493,8 @@ pub fn submodule_status(ctx: &ApiContext) -> GitResult<Vec<SubmoduleEntry>> {
     Ok(entries)
 }
 
-pub fn worktrees(ctx: &ApiContext) -> GitResult<Vec<WorktreeEntry>> {
-    let root = repo_root(ctx)?;
+pub fn worktrees(ctx: &ApiContext, dir: Option<&std::path::Path>) -> GitResult<Vec<WorktreeEntry>> {
+    let root = repo_root_for(ctx, dir)?;
     let timeout = command_timeout_ms(ctx, false);
     let out = run_git(&root, &["worktree", "list", "--porcelain"], timeout);
     let output = match out {
@@ -537,8 +539,8 @@ pub fn worktrees(ctx: &ApiContext) -> GitResult<Vec<WorktreeEntry>> {
     Ok(entries)
 }
 
-pub fn reflog(ctx: &ApiContext, limit: u32) -> GitResult<Vec<ReflogEntry>> {
-    let root = repo_root(ctx)?;
+pub fn reflog(ctx: &ApiContext, dir: Option<&std::path::Path>, limit: u32) -> GitResult<Vec<ReflogEntry>> {
+    let root = repo_root_for(ctx, dir)?;
     let timeout = command_timeout_ms(ctx, false);
     let limit = limit.clamp(1, 200).to_string();
     let out = run_git(

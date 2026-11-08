@@ -6,7 +6,7 @@ use std::convert::Infallible;
 use utoipa::IntoParams;
 
 use axum::body::Bytes;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
@@ -16,6 +16,7 @@ use serde_json::json;
 
 use wf_api::analysis::search::SearchOptions;
 
+use crate::directory::{scope_dir, DirectoryScope};
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdErrorPath, IdPath};
 use crate::router::ApiState;
@@ -186,6 +187,7 @@ pub(crate) struct MentionSearchQuery {
 )]
 pub(crate) async fn handle_mention_search(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<MentionSearchQuery>,
 ) -> impl IntoResponse {
     if query.q.trim().is_empty() {
@@ -205,7 +207,7 @@ pub(crate) async fn handle_mention_search(
         kinds,
         limit: query.limit.unwrap_or(20),
     };
-    match wf_api::mention::search(&state.ctx, &options).await {
+    match wf_api::mention::search(&state.ctx, scope_dir(&scope), &options).await {
         Ok(result) => ok(result).into_response(),
         Err(e) => error_response(e),
     }

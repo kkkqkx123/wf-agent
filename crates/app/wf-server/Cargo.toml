@@ -19,6 +19,7 @@ wf-common = { path = "../../foundation/wf-common" }
 wf-api = { path = "../wf-api" }
 wf-types = { path = "../../foundation/wf-types" }
 wf-runtime = { path = "../wf-runtime", default-features = false }
+dashmap.workspace = true
 utoipa.workspace = true
 
 [features]

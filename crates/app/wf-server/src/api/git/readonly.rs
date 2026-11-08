@@ -1,10 +1,11 @@
-use axum::extract::{Query, State};
+use axum::extract::{Extension, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
 use serde::Deserialize;
 use utoipa::IntoParams;
 
+use crate::directory::{scope_dir, DirectoryScope};
 use crate::envelope::{error_response, ok};
 use crate::router::ApiState;
 
@@ -59,24 +60,33 @@ pub(crate) struct CommitFilesQuery {
 }
 
 #[utoipa::path(get, path = "/api/v1/git/meta", operation_id = "get_git_meta", tag = "git", responses((status = 200, description = "Repository metadata", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "No repository", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal error", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
-pub(crate) async fn handle_git_meta(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::git::meta(&state.ctx) {
+pub(crate) async fn handle_git_meta(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
+) -> impl IntoResponse {
+    match wf_api::git::meta(&state.ctx, scope_dir(&scope)) {
         Ok(meta) => ok(meta).into_response(),
         Err(err) => error_response(err.into()),
     }
 }
 
 #[utoipa::path(get, path = "/api/v1/git/status", operation_id = "get_git_status", tag = "git", responses((status = 200, description = "Working tree status", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "No repository", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
-pub(crate) async fn handle_git_status(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::git::status(&state.ctx) {
+pub(crate) async fn handle_git_status(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
+) -> impl IntoResponse {
+    match wf_api::git::status(&state.ctx, scope_dir(&scope)) {
         Ok(view) => ok(view).into_response(),
         Err(err) => error_response(err.into()),
     }
 }
 
 #[utoipa::path(get, path = "/api/v1/git/files", operation_id = "get_git_files", tag = "git", responses((status = 200, description = "Three-state file list", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
-pub(crate) async fn handle_git_files(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::git::file_entries(&state.ctx) {
+pub(crate) async fn handle_git_files(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
+) -> impl IntoResponse {
+    match wf_api::git::file_entries(&state.ctx, scope_dir(&scope)) {
         Ok(files) => ok(files).into_response(),
         Err(err) => error_response(err.into()),
     }
@@ -85,9 +95,10 @@ pub(crate) async fn handle_git_files(State(state): State<ApiState>) -> impl Into
 #[utoipa::path(get, path = "/api/v1/git/diff", operation_id = "get_git_diff", tag = "git", params(DiffQuery), responses((status = 200, description = "Unstaged diff by hunk", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
 pub(crate) async fn handle_git_diff(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<DiffQuery>,
 ) -> impl IntoResponse {
-    match wf_api::git::diff_unstaged(&state.ctx, query.path.as_deref()) {
+    match wf_api::git::diff_unstaged(&state.ctx, scope_dir(&scope), query.path.as_deref()) {
         Ok(diff) => ok(diff).into_response(),
         Err(err) => error_response(err.into()),
     }
@@ -96,9 +107,10 @@ pub(crate) async fn handle_git_diff(
 #[utoipa::path(get, path = "/api/v1/git/diff/staged", operation_id = "get_git_diff_staged", tag = "git", params(DiffQuery), responses((status = 200, description = "Staged diff by hunk", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
 pub(crate) async fn handle_git_diff_staged(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<DiffQuery>,
 ) -> impl IntoResponse {
-    match wf_api::git::diff_staged(&state.ctx, query.path.as_deref()) {
+    match wf_api::git::diff_staged(&state.ctx, scope_dir(&scope), query.path.as_deref()) {
         Ok(diff) => ok(diff).into_response(),
         Err(err) => error_response(err.into()),
     }
@@ -107,9 +119,10 @@ pub(crate) async fn handle_git_diff_staged(
 #[utoipa::path(get, path = "/api/v1/git/diff/range", operation_id = "get_git_diff_range", tag = "git", params(DiffRangeQuery), responses((status = 200, description = "Ref range diff by hunk", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
 pub(crate) async fn handle_git_diff_range(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<DiffRangeQuery>,
 ) -> impl IntoResponse {
-    match wf_api::git::diff_refs(&state.ctx, &query.from, &query.to, query.path.as_deref()) {
+    match wf_api::git::diff_refs(&state.ctx, scope_dir(&scope), &query.from, &query.to, query.path.as_deref()) {
         Ok(diff) => ok(diff).into_response(),
         Err(err) => error_response(err.into()),
     }
@@ -125,9 +138,10 @@ pub(crate) struct GitFileQuery {
 #[utoipa::path(get, path = "/api/v1/git/file", operation_id = "get_git_file", tag = "git", params(GitFileQuery), responses((status = 200, description = "File content at one revision", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "No repository", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
 pub(crate) async fn handle_git_file(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<GitFileQuery>,
 ) -> impl IntoResponse {
-    match wf_api::git::git_file(&state.ctx, &query.path, query.rev.as_deref()) {
+    match wf_api::git::git_file(&state.ctx, scope_dir(&scope), &query.path, query.rev.as_deref()) {
         Ok(file) => ok(file).into_response(),
         Err(err) => error_response(err.into()),
     }
@@ -136,10 +150,12 @@ pub(crate) async fn handle_git_file(
 #[utoipa::path(get, path = "/api/v1/git/commits", operation_id = "get_git_commits", tag = "git", params(CommitsQuery), responses((status = 200, description = "Commit list", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
 pub(crate) async fn handle_git_commits(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<CommitsQuery>,
 ) -> impl IntoResponse {
     match wf_api::git::commits(
         &state.ctx,
+        scope_dir(&scope),
         query.limit.unwrap_or(50),
         query.offset.unwrap_or(0),
         query.branch.as_deref(),
@@ -152,73 +168,98 @@ pub(crate) async fn handle_git_commits(
 #[utoipa::path(get, path = "/api/v1/git/commits/files", operation_id = "get_git_commit_files", tag = "git", params(CommitFilesQuery), responses((status = 200, description = "Commit file list", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
 pub(crate) async fn handle_git_commit_files(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<CommitFilesQuery>,
 ) -> impl IntoResponse {
-    match wf_api::git::commit_files(&state.ctx, &query.commit) {
+    match wf_api::git::commit_files(&state.ctx, scope_dir(&scope), &query.commit) {
         Ok(files) => ok(files).into_response(),
         Err(err) => error_response(err.into()),
     }
 }
 
 #[utoipa::path(get, path = "/api/v1/git/branches", operation_id = "get_git_branches", tag = "git", responses((status = 200, description = "Local branches", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
-pub(crate) async fn handle_git_branches(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::git::branches(&state.ctx) {
+pub(crate) async fn handle_git_branches(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
+) -> impl IntoResponse {
+    match wf_api::git::branches(&state.ctx, scope_dir(&scope)) {
         Ok(branches) => ok(branches).into_response(),
         Err(err) => error_response(err.into()),
     }
 }
 
 #[utoipa::path(get, path = "/api/v1/git/remotes", operation_id = "get_git_remotes", tag = "git", responses((status = 200, description = "Remotes with branches", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
-pub(crate) async fn handle_git_remotes(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::git::remotes(&state.ctx) {
+pub(crate) async fn handle_git_remotes(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
+) -> impl IntoResponse {
+    match wf_api::git::remotes(&state.ctx, scope_dir(&scope)) {
         Ok(remotes) => ok(remotes).into_response(),
         Err(err) => error_response(err.into()),
     }
 }
 
 #[utoipa::path(get, path = "/api/v1/git/tags", operation_id = "get_git_tags", tag = "git", responses((status = 200, description = "Tags", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
-pub(crate) async fn handle_git_tags(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::git::tags(&state.ctx) {
+pub(crate) async fn handle_git_tags(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
+) -> impl IntoResponse {
+    match wf_api::git::tags(&state.ctx, scope_dir(&scope)) {
         Ok(tags) => ok(tags).into_response(),
         Err(err) => error_response(err.into()),
     }
 }
 
 #[utoipa::path(get, path = "/api/v1/git/stash", operation_id = "get_git_stash", tag = "git", responses((status = 200, description = "Stash list", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
-pub(crate) async fn handle_git_stash(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::git::stash_list(&state.ctx) {
+pub(crate) async fn handle_git_stash(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
+) -> impl IntoResponse {
+    match wf_api::git::stash_list(&state.ctx, scope_dir(&scope)) {
         Ok(entries) => ok(entries).into_response(),
         Err(err) => error_response(err.into()),
     }
 }
 
 #[utoipa::path(get, path = "/api/v1/git/submodules", operation_id = "get_git_submodules", tag = "git", responses((status = 200, description = "Submodules read-only", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
-pub(crate) async fn handle_git_submodules(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::git::submodule_status(&state.ctx) {
+pub(crate) async fn handle_git_submodules(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
+) -> impl IntoResponse {
+    match wf_api::git::submodule_status(&state.ctx, scope_dir(&scope)) {
         Ok(entries) => ok(entries).into_response(),
         Err(err) => error_response(err.into()),
     }
 }
 
 #[utoipa::path(get, path = "/api/v1/git/worktrees", operation_id = "get_git_worktrees", tag = "git", responses((status = 200, description = "Worktrees read-only", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
-pub(crate) async fn handle_git_worktrees(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::git::worktrees(&state.ctx) {
+pub(crate) async fn handle_git_worktrees(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
+) -> impl IntoResponse {
+    match wf_api::git::worktrees(&state.ctx, scope_dir(&scope)) {
         Ok(entries) => ok(entries).into_response(),
         Err(err) => error_response(err.into()),
     }
 }
 
 #[utoipa::path(get, path = "/api/v1/git/reflog", operation_id = "get_git_reflog", tag = "git", responses((status = 200, description = "Reflog entries", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
-pub(crate) async fn handle_git_reflog(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::git::reflog(&state.ctx, 100) {
+pub(crate) async fn handle_git_reflog(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
+) -> impl IntoResponse {
+    match wf_api::git::reflog(&state.ctx, scope_dir(&scope), 100) {
         Ok(entries) => ok(entries).into_response(),
         Err(err) => error_response(err.into()),
     }
 }
 
 #[utoipa::path(get, path = "/api/v1/git/fingerprint", operation_id = "get_git_fingerprint", tag = "git", responses((status = 200, description = "Repository state fingerprint", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
-pub(crate) async fn handle_git_fingerprint(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::git::fingerprint(&state.ctx) {
+pub(crate) async fn handle_git_fingerprint(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
+) -> impl IntoResponse {
+    match wf_api::git::fingerprint(&state.ctx, scope_dir(&scope)) {
         Ok(fp) => ok(fp).into_response(),
         Err(err) => error_response(err.into()),
     }

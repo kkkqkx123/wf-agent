@@ -1,10 +1,11 @@
-use axum::extract::State;
+use axum::extract::{Extension, State};
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::Router;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
+use crate::directory::{scope_dir, DirectoryScope};
 use crate::envelope::{error_response, ok};
 use crate::router::ApiState;
 
@@ -24,6 +25,7 @@ pub(crate) struct GitActionBody {
 #[utoipa::path(post, path = "/api/v1/git/action", operation_id = "post_git_action", tag = "git", request_body = GitActionBody, responses((status = 200, description = "Action outcome with command echo", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Unknown action or missing params", body = crate::envelope::ErrorResponse), (status = 409, description = "Unavailable or confirm required", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
 pub(crate) async fn handle_git_action(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     axum::Json(body): axum::Json<GitActionBody>,
 ) -> impl IntoResponse {
     let request = wf_api::git::ActionRequest {
@@ -31,7 +33,7 @@ pub(crate) async fn handle_git_action(
         params: body.params,
         confirm: body.confirm,
     };
-    match wf_api::git::execute_action(&state.ctx, &request) {
+    match wf_api::git::execute_action(&state.ctx, scope_dir(&scope), &request) {
         Ok(outcome) => {
             // The readonly `refresh` entry only re-reads state; every other
             // success mutated the repository and wakes fingerprint listeners.

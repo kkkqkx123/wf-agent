@@ -32943,6 +32943,106 @@
         ]
       }
     },
+    "/api/v1/system/directories": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "get_system_directories",
+        "responses": {
+          "200": {
+            "description": "Directory serving state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_DirectoriesView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/directories/invalidate": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "post_system_directories_invalidate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectoriesInvalidateBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Cache entry dropped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "No such cached entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/system/stale": {
       "get": {
         "tags": [
@@ -47802,6 +47902,50 @@
           }
         }
       },
+      "ApiEnvelope_DirectoriesView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "allowed_roots",
+              "allow_any_explicit",
+              "cached_entries"
+            ],
+            "properties": {
+              "allow_any_explicit": {
+                "type": "boolean"
+              },
+              "allowed_roots": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "cached_entries": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_EntityMetadataDoc": {
         "type": "object",
         "required": [
@@ -53438,6 +53582,40 @@
               "type": "string"
             },
             "description": "Raw unified lines (`+`/`-`/context)."
+          }
+        }
+      },
+      "DirectoriesInvalidateBody": {
+        "type": "object",
+        "required": [
+          "directory"
+        ],
+        "properties": {
+          "directory": {
+            "type": "string"
+          }
+        }
+      },
+      "DirectoriesView": {
+        "type": "object",
+        "required": [
+          "allowed_roots",
+          "allow_any_explicit",
+          "cached_entries"
+        ],
+        "properties": {
+          "allow_any_explicit": {
+            "type": "boolean"
+          },
+          "allowed_roots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cached_entries": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },

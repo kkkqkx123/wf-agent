@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::config::repo_root;
+use super::config::repo_root_for;
 use super::registry::{acquire_write_lock, action_spec};
 use super::types::{DangerLevel, GitError, GitResult};
 use crate::infra::context::ApiContext;
@@ -91,7 +91,11 @@ pub(crate) fn finish(action: &str, message: String, echo: String) -> ActionOutco
     }
 }
 
-pub fn execute_action(ctx: &ApiContext, request: &ActionRequest) -> GitResult<ActionOutcome> {
+pub fn execute_action(
+    ctx: &ApiContext,
+    dir: Option<&std::path::Path>,
+    request: &ActionRequest,
+) -> GitResult<ActionOutcome> {
     let action = request.action.trim();
     if action.is_empty() {
         return Err(GitError::UnknownAction(String::new()));
@@ -105,7 +109,7 @@ pub fn execute_action(ctx: &ApiContext, request: &ActionRequest) -> GitResult<Ac
         ));
     }
     if spec.danger == DangerLevel::Readonly && action == "refresh" {
-        let fp = super::queries::fingerprint(ctx).map_err(crate::ApiError::from);
+        let fp = super::queries::fingerprint(ctx, dir).map_err(crate::ApiError::from);
         return match fp {
             Ok(_) => Ok(ActionOutcome {
                 action: action.to_string(),
@@ -122,19 +126,20 @@ pub fn execute_action(ctx: &ApiContext, request: &ActionRequest) -> GitResult<Ac
         )));
     }
     let _guard = acquire_write_lock();
-    let outcome = dispatch_write(ctx, action, request)?;
+    let outcome = dispatch_write(ctx, dir, action, request)?;
     if action != "undo" && action != "redo" {
-        undo::clear_redo_after_write(ctx);
+        undo::clear_redo_after_write(ctx, dir);
     }
     Ok(outcome)
 }
 
 fn dispatch_write(
     ctx: &ApiContext,
+    dir: Option<&std::path::Path>,
     action: &str,
     request: &ActionRequest,
 ) -> GitResult<ActionOutcome> {
-    let root = repo_root(ctx)?;
+    let root = repo_root_for(ctx, dir)?;
     if let Some(res) = undo::handle(ctx, action, request, &root) {
         return res;
     }
@@ -189,7 +194,7 @@ mod tests {
             wf_storage::context::StorageContext::new_memory(),
             std::sync::Arc::new(wf_resource::registry::ResourceRegistries::new()),
         );
-        let err = execute_action(&ctx, &request("nope.missing")).unwrap_err();
+        let err = execute_action(&ctx, None, &request("nope.missing")).unwrap_err();
         assert!(matches!(err, GitError::UnknownAction(_)));
     }
 
@@ -199,7 +204,7 @@ mod tests {
             wf_storage::context::StorageContext::new_memory(),
             std::sync::Arc::new(wf_resource::registry::ResourceRegistries::new()),
         );
-        let err = execute_action(&ctx, &request("branch.delete")).unwrap_err();
+        let err = execute_action(&ctx, None, &request("branch.delete")).unwrap_err();
         assert!(matches!(
             err,
             GitError::NotEnabled | GitError::Precondition(_) | GitError::ConfirmRequired(_)

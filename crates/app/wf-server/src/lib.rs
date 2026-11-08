@@ -1,4 +1,5 @@
 pub mod api;
+pub mod directory;
 pub mod envelope;
 pub mod extract;
 pub mod metrics;

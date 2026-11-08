@@ -7,7 +7,7 @@
 use std::convert::Infallible;
 
 use axum::body::Bytes;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -18,6 +18,7 @@ use utoipa::{IntoParams, ToSchema};
 use wf_api::WorkflowExecutionListOptions;
 
 use crate::api::agent::loops::{AppendAgentLoopBody, SetAppendModeBody};
+use crate::directory::{scope_file_scope, DirectoryScope};
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdPath, IdSnakeNodePath};
 use crate::paged::{fetch_size, ok_page, resolve_page_fields};
@@ -112,7 +113,17 @@ pub struct ExecuteBody {
 
 fn execution_options(
     body: &ExecuteBody,
-) -> Option<wf_types::workflow_execution::WorkflowExecutionOptions> {
+    scope: &Option<DirectoryScope>,
+) -> Result<Option<wf_types::workflow_execution::WorkflowExecutionOptions>, wf_api::ApiError> {
+    // Launching without a directory is rejected: the execution would
+    // otherwise run in a workspace the client never named.
+    crate::directory::require_scope_dir(scope)?;
+    // The request directory anchors the execution only when the body
+    // carries no explicit file scope, so explicit values always win.
+    let file_scope = body
+        .file_scope
+        .clone()
+        .or_else(|| scope.as_ref().map(scope_file_scope));
     let has_runtime = body.max_steps.is_some()
         || body.timeout.is_some()
         || body.max_execution_time.is_some()
@@ -121,12 +132,12 @@ fn execution_options(
         || body.max_pause_duration.is_some()
         || body.max_navigation_multiplier.is_some()
         || body.loop_max_iterations_cap.is_some()
-        || body.file_scope.is_some();
+        || file_scope.is_some();
     if !has_runtime {
-        return None;
+        return Ok(None);
     }
-    Some(wf_types::workflow_execution::WorkflowExecutionOptions {
-        file_scope: body.file_scope.clone(),
+    Ok(Some(wf_types::workflow_execution::WorkflowExecutionOptions {
+        file_scope,
         input: None,
         max_steps: body.max_steps,
         timeout: body.timeout,
@@ -136,7 +147,7 @@ fn execution_options(
         max_pause_duration: body.max_pause_duration,
         max_navigation_multiplier: body.max_navigation_multiplier,
         loop_max_iterations_cap: body.loop_max_iterations_cap,
-    })
+    }))
 }
 
 #[derive(Serialize, ToSchema)]
@@ -161,10 +172,11 @@ pub struct StreamMetadataView {
 )]
 pub(crate) async fn handle_execute_workflow(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
     Json(body): Json<ExecuteBody>,
 ) -> impl IntoResponse {
-    let options = execution_options(&body);
+    let options = match execution_options(&body, &scope) { Ok(options) => options, Err(e) => return error_response(e), };
     let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
         workflow_id: path.id,
         version: body.version,
@@ -197,10 +209,11 @@ pub(crate) async fn handle_execute_workflow(
 )]
 pub(crate) async fn handle_execute_stream(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
     Json(body): Json<ExecuteBody>,
 ) -> Response {
-    let options = execution_options(&body);
+    let options = match execution_options(&body, &scope) { Ok(options) => options, Err(e) => return error_response(e), };
     let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
         workflow_id: path.id,
         version: body.version,
@@ -242,10 +255,11 @@ pub(crate) struct BackgroundExecuteView {
 )]
 pub(crate) async fn handle_execute_background(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Path(path): Path<IdPath>,
     Json(body): Json<ExecuteBody>,
 ) -> impl IntoResponse {
-    let options = execution_options(&body);
+    let options = match execution_options(&body, &scope) { Ok(options) => options, Err(e) => return error_response(e), };
     let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
         workflow_id: path.id,
         version: body.version,

@@ -35,9 +35,17 @@
   `agent-loops`、`node-templates`、`prompt-templates`、`scripts`）只做
   `import` 起点，网关与注册表的来源是 API 与存储，启动时不扫描它们。
 - `deploy/scripts/bootstrap-dev.sh`：开发自举渲染（开发环境默认不足时补齐）。
-- `deploy/systemd/`：系统服务与个人单元模板。`EnvironmentFile` 给密钥、
-  `WorkingDirectory` 指向业务项目、显式传参，不写死任何路径。
-- `deploy/env/wf-server.env.template`：环境文件模板，只留空键、不带值。
+- `deploy/systemd/`：系统服务与个人单元模板。单单元服务全部业务目录：
+  每个工作区请求自带目录（`x-wf-directory` 请求头或 `directory` 查询参数），
+  服务端不存在默认工作区，无目录的工作区请求直接失败，绝不静默绑定。
+  `WorkingDirectory` 取中性位置、不承载数据语义；`--config` 只选项目层
+  配置来源，从不是操作默认。`EnvironmentFile` 给密钥与路径锚定，
+  显式传参，不写死任何业务路径。
+- `deploy/env/wf-server.env.template`：环境文件模板。`WF_USER_GIT_ENABLED`
+  是工作区域总开关（默认开，关则全部工作区路由显式拒绝），
+  `WF_STORAGE_SQLITE_DB_PATH` 钉死单全局库位置（相对路径在服务语境下无定义），
+  `WF_DIRECTORY_ROOTS` 列出可被显式请求的目录根（为空则允许任何已校验目录）；
+  密钥只留空键、不带值。
 
 ## 禁忌
 

@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use axum::extract::{Path, State};
+use axum::extract::{Extension, Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::{Deserialize, Serialize};
@@ -11,6 +11,7 @@ use utoipa::ToSchema;
 
 use wf_api::Message;
 
+use crate::directory::{scope_file_scope, DirectoryScope};
 use crate::envelope::{error_response, ok};
 use crate::extract::IdPath;
 use crate::router::ApiState;
@@ -78,8 +79,12 @@ pub struct RunAgentLoopBody {
 
 pub(crate) async fn params_from_body(
     state: &ApiState,
+    scope: &Option<DirectoryScope>,
     body: RunAgentLoopBody,
 ) -> Result<wf_api::agent::agent_execution::RunAgentLoopParams, wf_api::ApiError> {
+    // Launching without a directory is rejected: the run would otherwise
+    // touch a workspace the client never named.
+    crate::directory::require_scope_dir(scope)?;
     // Server is the single washing point: raw client text is cleaned here
     // before the blank check so ANSI-only messages are rejected as empty.
     let message = wf_types::message::sanitize_user_text(&body.message);
@@ -139,7 +144,9 @@ pub(crate) async fn params_from_body(
         ),
     };
     let config = wf_api::AgentLoopConfig {
-        file_scope: body.file_scope,
+        // The request directory anchors the run only when the body
+        // carries no explicit file scope, so explicit values always win.
+        file_scope: body.file_scope.or_else(|| scope.as_ref().map(scope_file_scope)),
         agent_id: wf_api::Id::from(agent_id),
         model,
         max_iterations: body.max_iterations,
@@ -244,11 +251,12 @@ pub(crate) struct AgentRunView {
 )]
 pub(crate) async fn handle_run_loop(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Json(body): Json<RunAgentLoopBody>,
 ) -> impl IntoResponse {
     match wf_api::agent::agent_execution::run(
         &state.ctx,
-        match params_from_body(&state, body).await {
+        match params_from_body(&state, &scope, body).await {
             Ok(params) => params,
             Err(e) => return error_response(e),
         },
@@ -281,11 +289,12 @@ pub(crate) async fn handle_run_loop(
 )]
 pub(crate) async fn handle_stream_loop(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     Json(body): Json<RunAgentLoopBody>,
 ) -> Response {
     match wf_api::agent::agent_execution::stream(
         state.ctx.clone(),
-        match params_from_body(&state, body).await {
+        match params_from_body(&state, &scope, body).await {
             Ok(params) => params,
             Err(e) => return error_response(e),
         },

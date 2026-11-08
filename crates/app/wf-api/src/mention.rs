@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use crate::analysis::search::{search as search_resources, SearchOptions};
 use crate::ApiContext;
-use crate::ApiResult;
+use crate::{ApiError, ApiResult};
 use wf_storage::adapter::base::BaseStorageAdapter;
 
 #[derive(Debug, Clone, Serialize)]
@@ -28,6 +28,7 @@ pub struct MentionSearchOptions {
 /// Search mention candidates across all registered data sources.
 pub async fn search(
     ctx: &ApiContext,
+    dir: Option<&std::path::Path>,
     options: &MentionSearchOptions,
 ) -> ApiResult<Vec<MentionCandidate>> {
     let query = options.query.trim();
@@ -157,14 +158,16 @@ pub async fn search(
         }
     }
 
-    // Files (best-effort local scan).
+    // Files (best-effort local scan) anchor on the request directory.
+    // A missing directory is a request error, never a silent fallback:
+    // there is no server-side default workspace.
     if wants("file") {
-        let root = ctx
-            .user_git_config()
-            .and_then(|config| config.repo_root.clone())
-            .filter(|value| !value.trim().is_empty())
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        let Some(dir) = dir else {
+            return Err(ApiError::Validation(
+                "request directory is required".to_string(),
+            ));
+        };
+        let root = dir.to_path_buf();
         let mut files = scan_files(&root, if query.is_empty() { None } else { Some(query) });
         files.truncate(limit);
         for rel in files {

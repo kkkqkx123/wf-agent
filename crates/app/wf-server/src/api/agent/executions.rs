@@ -2,7 +2,7 @@
 //! checkpoints. Handlers are thin transport adapters over the
 //! `wf-api::agent` execution and checkpoint surfaces.
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
@@ -544,6 +544,7 @@ pub(crate) struct AgentResumeView {
 )]
 pub(crate) async fn handle_resume_checkpoint(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<crate::directory::DirectoryScope>>,
     Path(path): Path<crate::extract::IdCidPath>,
     Json(body): Json<ResumeCheckpointBody>,
 ) -> impl IntoResponse {
@@ -569,7 +570,7 @@ pub(crate) async fn handle_resume_checkpoint(
         return error_response(e);
     }
     let in_place = body.mode == ResumeCheckpointMode::InPlace;
-    let run_params = match super::loops::params_from_body(&state, body.run).await {
+    let run_params = match super::loops::params_from_body(&state, &scope, body.run).await {
         Ok(params) => params,
         Err(e) => return error_response(e),
     };

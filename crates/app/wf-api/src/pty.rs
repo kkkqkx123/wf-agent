@@ -68,8 +68,9 @@ pub struct PtyAttachment {
 pub fn create_pty_session(
     ctx: &ApiContext,
     params: session::PtyCreateParams,
+    default_dir: Option<&std::path::Path>,
 ) -> PtyResult<PtySession> {
-    global_manager().create_with_context(Some(ctx), params)
+    global_manager().create_with_context(Some(ctx), params, default_dir)
 }
 
 pub fn list_pty_sessions() -> Vec<PtySession> {

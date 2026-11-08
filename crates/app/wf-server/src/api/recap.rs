@@ -119,6 +119,7 @@ mod tests {
         let state = ApiState {
             ctx: make_ctx(),
             config: Arc::new(crate::middleware::ServerMiddlewareConfig::default()),
+            dirs: Arc::new(crate::directory::DirectoryContext::new(crate::directory::DirectoryConfig::default())),
             locks: crate::api::workflow::locks::DefinitionLocks::default(),
         };
         // Unknown session: no history, so the read converges to null text

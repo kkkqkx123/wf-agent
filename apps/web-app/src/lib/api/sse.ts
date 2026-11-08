@@ -1,4 +1,4 @@
-import { API_BASE_URL, client, resolveApiKey } from '#lib/api/client';
+import { API_BASE_URL, client, resolveApiKey, resolveDirectory } from '#lib/api/client';
 import { call } from '#lib/api/envelope';
 import type { EventRecord } from '#lib/types/models';
 import { decodeSystemFrame } from '#lib/utils/stream-parser';
@@ -84,6 +84,8 @@ export function openEventStream(options: EventStreamOptions): () => void {
 		void fetchStreamTicket().then((ticket) => {
 			if (closed) return;
 			const params = new URLSearchParams();
+			const directory = resolveDirectory();
+			if (directory) params.set('directory', directory);
 			if (options.executionId) params.set('execution_id', options.executionId);
 			if (options.agentLoopId) params.set('agent_loop_id', options.agentLoopId);
 			if (options.workflowId) params.set('workflow_id', options.workflowId);

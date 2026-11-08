@@ -36,10 +36,27 @@ fn make_ctx() -> Arc<ApiContext> {
     ))
 }
 
+/// A request scope anchored on the OS temp directory. params_from_body
+/// never touches the directory itself (file scope is only stored), so a
+/// shared existing directory is enough; the point under test is that a
+/// present scope passes the directory requirement.
+fn test_scope() -> Option<crate::directory::DirectoryScope> {
+    let directory = std::env::temp_dir()
+        .canonicalize()
+        .unwrap_or_else(|_| std::env::temp_dir());
+    let project = crate::directory::discover_project(&directory);
+    Some(crate::directory::DirectoryScope {
+        project_id: crate::directory::project_id_for(&project),
+        project,
+        directory,
+    })
+}
+
 fn test_state() -> crate::router::ApiState {
     crate::router::ApiState {
         ctx: make_ctx(),
         config: Arc::new(crate::middleware::ServerMiddlewareConfig::default()),
+        dirs: Arc::new(crate::directory::DirectoryContext::new(crate::directory::DirectoryConfig::default())),
         locks: crate::api::workflow::locks::DefinitionLocks::default(),
     }
 }
@@ -66,7 +83,7 @@ async fn run_body_forwards_checkpoint_message_interval() {
     }))
     .unwrap();
     assert_eq!(
-        params_from_body(&test_state(), body)
+        params_from_body(&test_state(), &test_scope(), body)
             .await
             .expect("resolve params")
             .config
@@ -82,7 +99,7 @@ async fn run_body_forwards_checkpoint_message_interval() {
     }))
     .unwrap();
     assert_eq!(
-        params_from_body(&test_state(), zero)
+        params_from_body(&test_state(), &test_scope(), zero)
             .await
             .expect("resolve params")
             .config
@@ -97,7 +114,7 @@ async fn run_body_forwards_checkpoint_message_interval() {
     }))
     .unwrap();
     assert_eq!(
-        params_from_body(&test_state(), absent)
+        params_from_body(&test_state(), &test_scope(), absent)
             .await
             .expect("resolve params")
             .config
@@ -115,7 +132,7 @@ async fn run_body_rejects_empty_message_and_defaults_empty_model() {
         "message": "   ",
     }))
     .unwrap();
-    assert!(params_from_body(&test_state(), empty).await.is_err());
+    assert!(params_from_body(&test_state(), &test_scope(), empty).await.is_err());
 
     // Rule A2: an empty or sentinel model normalizes to the server default.
     for model in ["", "default"] {
@@ -126,7 +143,7 @@ async fn run_body_rejects_empty_message_and_defaults_empty_model() {
         }))
         .unwrap();
         assert_eq!(
-            params_from_body(&test_state(), body)
+            params_from_body(&test_state(), &test_scope(), body)
                 .await
                 .expect("resolve params")
                 .config
@@ -147,7 +164,7 @@ async fn run_body_parses_temporary_mode_strictly() {
     }))
     .unwrap();
     assert_eq!(
-        params_from_body(&test_state(), absent)
+        params_from_body(&test_state(), &test_scope(), absent)
             .await
             .expect("resolve params")
             .config
@@ -172,7 +189,7 @@ async fn run_body_parses_temporary_mode_strictly() {
         }))
         .unwrap();
         assert_eq!(
-            params_from_body(&test_state(), body)
+            params_from_body(&test_state(), &test_scope(), body)
                 .await
                 .expect("resolve params")
                 .config
@@ -187,7 +204,7 @@ async fn run_body_parses_temporary_mode_strictly() {
         "temporary_mode": "full",
     }))
     .unwrap();
-    assert!(params_from_body(&test_state(), unknown).await.is_err());
+    assert!(params_from_body(&test_state(), &test_scope(), unknown).await.is_err());
 }
 
 #[tokio::test]

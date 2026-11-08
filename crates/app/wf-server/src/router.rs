@@ -18,6 +18,7 @@ use axum::Router;
 
 use wf_api::ApiContext;
 
+use crate::directory::{directory_middleware, DirectoryContext};
 use crate::middleware::{self, ServerMiddlewareConfig};
 use crate::server::{serve_with_router, ServeError, ServerHandle};
 use crate::server_config::ServerConfig;
@@ -28,6 +29,7 @@ use crate::{api, metrics, ws};
 pub(crate) struct ApiState {
     pub(crate) ctx: Arc<ApiContext>,
     pub(crate) config: Arc<ServerMiddlewareConfig>,
+    pub(crate) dirs: Arc<DirectoryContext>,
     pub(crate) locks: api::workflow::locks::DefinitionLocks,
 }
 
@@ -50,6 +52,20 @@ pub(crate) fn api_router(ctx: Arc<ApiContext>) -> Router {
 /// the root. Embedding and tests use this to exercise auth / rate limiting /
 /// CORS on the full API surface.
 pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddlewareConfig>) -> Router {
+    let dirs = Arc::new(DirectoryContext::new(crate::directory::DirectoryConfig::default()));
+    api_router_with_dirs(ctx, config, dirs)
+}
+
+/// Same as [`api_router_with_config`] with an explicit directory context
+/// for multi-directory serving. Requests resolve their directory scope
+/// from the `x-wf-directory` header or the `directory` query parameter and
+/// fall back to the configured default root; rejections render through the
+/// shared error envelope before reaching domain handlers.
+pub fn api_router_with_dirs(
+    ctx: Arc<ApiContext>,
+    config: Arc<ServerMiddlewareConfig>,
+    dirs: Arc<DirectoryContext>,
+) -> Router {
     let domain: Router<ApiState> = Router::new()
         // workflow definition + execution + graph analysis
         .merge(api::workflow::workflows::routes())
@@ -128,14 +144,20 @@ pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddleware
         // own absolute prefixes and is merged at the root below)
         .merge(api::system::events::routes())
         .merge(api::system::dependencies::routes())
+        .merge(api::system::directories::routes())
         .merge(ws::routes());
     let app = Router::new()
         .merge(api::system::health::routes())
         .nest("/api/v1", domain);
     let app = middleware::apply(app, Arc::clone(&config));
+    let app = app.layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&dirs),
+        directory_middleware,
+    ));
     let app = app.with_state(ApiState {
         ctx,
         config,
+        dirs,
         locks: api::workflow::locks::DefinitionLocks::default(),
     });
     mount_openapi_docs(app)
@@ -167,9 +189,11 @@ pub fn full_router_with_middleware(
     registry: Arc<wf_metrics::MetricsRegistry>,
     ctx: Arc<ApiContext>,
     config: Arc<ServerMiddlewareConfig>,
+    dirs: Arc<DirectoryContext>,
 ) -> Router {
     let http = registry.http();
-    let router = metrics::router(registry).merge(api_router_with_config(ctx, config));
+    let router =
+        metrics::router(registry).merge(api_router_with_dirs(ctx, config, dirs));
     middleware::with_request_metrics(router, Some(http))
 }
 
@@ -178,8 +202,9 @@ pub fn full_router_with_middleware(
 pub async fn serve_api_with_config(
     ctx: Arc<ApiContext>,
     config: &ServerConfig,
+    dirs: Arc<DirectoryContext>,
 ) -> Result<ServerHandle, ServeError> {
-    let router = api_router_with_config(ctx, Arc::new(config.middleware.clone()));
+    let router = api_router_with_dirs(ctx, Arc::new(config.middleware.clone()), dirs);
     let router = with_static_fallback(router, &config.static_dir);
     serve_with_router(router, config.bind_addr).await
 }
@@ -190,8 +215,14 @@ pub async fn serve_full_with_config(
     registry: Arc<wf_metrics::MetricsRegistry>,
     ctx: Arc<ApiContext>,
     config: &ServerConfig,
+    dirs: Arc<DirectoryContext>,
 ) -> Result<ServerHandle, ServeError> {
-    let router = full_router_with_middleware(registry, ctx, Arc::new(config.middleware.clone()));
+    let router = full_router_with_middleware(
+        registry,
+        ctx,
+        Arc::new(config.middleware.clone()),
+        dirs,
+    );
     let router = with_static_fallback(router, &config.static_dir);
     serve_with_router(router, config.bind_addr).await
 }
@@ -220,7 +251,8 @@ pub(crate) async fn serve_full_with_middleware(
     ctx: Arc<ApiContext>,
     addr: std::net::SocketAddr,
     config: Arc<ServerMiddlewareConfig>,
+    dirs: Arc<DirectoryContext>,
 ) -> Result<ServerHandle, ServeError> {
-    let router = full_router_with_middleware(registry, ctx, config);
+    let router = full_router_with_middleware(registry, ctx, config, dirs);
     serve_with_router(router, addr).await
 }

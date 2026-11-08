@@ -40,11 +40,6 @@ struct Args {
     #[arg(long)]
     storage: Option<String>,
 
-    /// Repository root exposed through the user_git domain (IDE + Git pages).
-    /// Falls back to `WF_REPO_ROOT` when unset.
-    #[arg(long)]
-    repo_root: Option<PathBuf>,
-
     /// Log level: trace|debug|info|warn|error
     #[arg(long)]
     log_level: Option<String>,
@@ -59,17 +54,21 @@ fn build_runtime_config(args: &Args) -> (RuntimeConfig, Option<InfraSourceConfig
         }
     }
 
-    let repo_root = args
-        .repo_root
-        .clone()
-        .or_else(|| std::env::var_os("WF_REPO_ROOT").map(PathBuf::from));
-    if let Some(root) = repo_root {
-        config.user_git = Some(UserGitConfig {
-            enabled: true,
-            repo_root: Some(root.to_string_lossy().to_string()),
-            ..Default::default()
-        });
-    }
+    // Workspace-bound domains (fs, git, pty, mentions) carry no server-side
+    // default workspace: every request names its directory explicitly and
+    // directory-less requests fail loud at the handler. This switch only
+    // flips the domain kill-switch; `WF_USER_GIT_ENABLED=false` locks every
+    // workspace-bound route down to an explicit rejection.
+    let workspace_enabled = match std::env::var("WF_USER_GIT_ENABLED") {
+        Ok(raw) if raw.trim().eq_ignore_ascii_case("false") => false,
+        Ok(raw) if raw.trim().eq_ignore_ascii_case("0") => false,
+        Ok(raw) if raw.trim().eq_ignore_ascii_case("no") => false,
+        _ => true,
+    };
+    config.user_git = Some(UserGitConfig {
+        enabled: workspace_enabled,
+        ..Default::default()
+    });
 
     if let Some(level) = args.log_level.as_deref() {
         let lower = level.to_ascii_lowercase();
@@ -145,11 +144,24 @@ async fn main() {
 
     let metrics_registry = runtime.metrics().map(|m| m.registry().clone());
 
+    // Multi-directory serving: no server-side default workspace exists.
+    // Every workspace-bound request names its directory; the allowlist
+    // gates explicit directories, and directory-less requests fail loud
+    // at the handler instead of binding anywhere silently.
+    let dirs = Arc::new(wf_server::directory::DirectoryContext::new(
+        server_config.directory.clone(),
+    ));
+    info!(
+        allowed_roots = server_config.directory.allowed_roots.len(),
+        cached_directories = dirs.entry_count(),
+        "directory scope ready"
+    );
+
     let addr = server_config.bind_addr;
 
     let handle = if let Some(registry) = metrics_registry.clone() {
         info!(%addr, "starting wf-server with metrics");
-        match wf_server::serve_full_with_config(registry, ctx.clone(), &server_config).await {
+        match wf_server::serve_full_with_config(registry, ctx.clone(), &server_config, Arc::clone(&dirs)).await {
             Ok(h) => h,
             Err(e) => {
                 eprintln!("bind failed at {addr}: {e}");
@@ -158,7 +170,7 @@ async fn main() {
         }
     } else {
         info!(%addr, "starting wf-server");
-        match wf_server::serve_api_with_config(ctx.clone(), &server_config).await {
+        match wf_server::serve_api_with_config(ctx.clone(), &server_config, Arc::clone(&dirs)).await {
             Ok(h) => h,
             Err(e) => {
                 eprintln!("bind failed at {addr}: {e}");

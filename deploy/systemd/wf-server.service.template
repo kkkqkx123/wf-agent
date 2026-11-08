@@ -1,12 +1,21 @@
 # System service for wf-server (hosted / shared deployment).
 #
-# Rendered by deploy/scripts/render-config.sh --to managed, which fills
-# the @@PLACEHOLDER@@ values below (double-at style avoids clashes with
-# the ${VAR} interpolation done by the process itself and with systemd
-# specifiers). Installed to /etc/systemd/system/wf-server.service.
+# Single unit serves every business directory: the request carries the
+# directory (`x-wf-directory` header or `directory` query parameter).
+# There is no server-side default workspace: a directory-less request to
+a workspace-bound route fails instead of binding anywhere silently.
+# Switching the config source project is a deploy-time render choice, not
+# a request concern; the unit itself never changes per request.
 #
 # Principal: shared service. Reads the managed directory plus the business
-# project .wf/ only; it never reads ambient home-directory state.
+# project trees listed in WF_DIRECTORY_ROOTS only; it never reads ambient
+# home-directory state.
+#
+# WorkingDirectory is intentionally neutral: relative storage paths would
+# resolve against it, so service deployments must pin absolute paths
+# through WF_STORAGE_SQLITE_DB_PATH (see wf-server.env.template).
+# `--config` selects the project-layer config source only; it is never
+# an operation default.
 
 [Unit]
 Description=wf-agent server (managed)
@@ -15,7 +24,7 @@ After=network.target
 [Service]
 Type=simple
 User=wf
-WorkingDirectory=@@PROJECT_ROOT@@
+WorkingDirectory=/
 EnvironmentFile=@@MANAGED_DIR@@/wf-server.env
 ExecStart=/usr/local/bin/wf-server --config @@PROJECT_ROOT@@ --settings-dir @@MANAGED_DIR@@
 Restart=on-failure

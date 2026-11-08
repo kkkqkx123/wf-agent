@@ -103,8 +103,8 @@ pub(crate) fn clear_redo_best_effort(ctx: &ApiContext, root: &std::path::Path) {
     let _ = timeout;
 }
 
-pub(crate) fn clear_redo_after_write(ctx: &ApiContext) {
-    let root = match super::super::config::repo_root(ctx) {
+pub(crate) fn clear_redo_after_write(ctx: &ApiContext, dir: Option<&std::path::Path>) {
+    let root = match super::super::config::repo_root_for(ctx, dir) {
         Ok(root) => root,
         Err(_) => return,
     };
@@ -155,7 +155,7 @@ fn undo(ctx: &ApiContext, root: &std::path::Path) -> GitResult<ActionOutcome> {
     guard_mid_operation(&git_dir)?;
     let cur_sha = current_head(root, timeout)?;
     let cur_branch = current_branch(root, timeout);
-    let logs = super::super::queries::reflog(ctx, 20)?;
+    let logs = super::super::queries::reflog(ctx, Some(root), 20)?;
     if logs.is_empty() {
         return Err(GitError::Precondition("nothing to undo".to_string()));
     }

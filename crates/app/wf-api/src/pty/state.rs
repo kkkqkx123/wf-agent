@@ -153,8 +153,9 @@ impl PtyManager {
         &self,
         ctx: Option<&ApiContext>,
         params: super::session::PtyCreateParams,
+        default_dir: Option<&std::path::Path>,
     ) -> PtyResult<super::PtySession> {
-        super::session::create_with_context(ctx, params, &self.inner)
+        super::session::create_with_context(ctx, params, default_dir, &self.inner)
     }
 
     pub fn list(&self) -> Vec<super::PtySession> {

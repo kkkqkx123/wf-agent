@@ -13,17 +13,46 @@ pub fn git_config(ctx: &ApiContext) -> GitResult<UserGitConfig> {
 }
 
 pub fn repo_root(ctx: &ApiContext) -> GitResult<PathBuf> {
-    let config = git_config(ctx)?;
-    let root = config.repo_root.clone().ok_or_else(|| {
-        GitError::NotInitialized("user_git.repo_root is not configured".to_string())
-    })?;
-    let path = PathBuf::from(&root);
-    if !path.join(".git").exists() && !path.join("HEAD").exists() {
+    repo_root_for(ctx, None)
+}
+
+/// Resolve the repository root from an explicit request directory. The
+/// directory comes from the validated request scope; it must be an
+/// absolute existing directory, and it keeps the repository presence check
+/// so non-repository directories report the same typed error. A missing
+/// directory is a request error, never a silent fallback: there is no
+/// server-side default workspace. The domain kill-switch still applies.
+pub fn repo_root_for(ctx: &ApiContext, dir: Option<&Path>) -> GitResult<PathBuf> {
+    let Some(dir) = dir else {
+        return Err(GitError::Precondition(
+            "request directory is required".to_string(),
+        ));
+    };
+    let enabled = ctx
+        .user_git_config()
+        .map(|config| config.enabled)
+        .unwrap_or(false);
+    if !enabled {
+        return Err(GitError::NotEnabled);
+    }
+    if !dir.is_absolute() {
+        return Err(GitError::PathEscape(
+            "request directory must be absolute".to_string(),
+        ));
+    }
+    if !dir.is_dir() {
         return Err(GitError::NotInitialized(format!(
-            "no git repository at {root}"
+            "no git repository at {}",
+            dir.display()
         )));
     }
-    Ok(path)
+    if !dir.join(".git").exists() && !dir.join("HEAD").exists() {
+        return Err(GitError::NotInitialized(format!(
+            "no git repository at {}",
+            dir.display()
+        )));
+    }
+    Ok(dir.to_path_buf())
 }
 
 pub fn command_timeout_ms(ctx: &ApiContext, remote: bool) -> u64 {

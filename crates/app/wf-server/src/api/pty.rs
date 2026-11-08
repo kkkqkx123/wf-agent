@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use axum::body::{Body, Bytes};
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::http::{header, HeaderMap, Request};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -11,6 +11,7 @@ use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
+use crate::directory::{require_scope_dir, DirectoryScope};
 use crate::envelope::{error_response, ok};
 use crate::extract::IdPath;
 use crate::middleware::AuthConfig;
@@ -112,6 +113,7 @@ pub(crate) struct UpdatePtyBody {
 #[utoipa::path(post, path = "/api/v1/pty", operation_id = "post_pty", tag = "pty", request_body = CreatePtyBody, responses((status = 200, description = "PTY session created", body = crate::envelope::ApiEnvelope<PtySession>)), security(("api_key" = [])))]
 pub(crate) async fn handle_create_pty(
     State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
     body: Option<axum::Json<CreatePtyBody>>,
 ) -> impl IntoResponse {
     let body = body.map(|b| b.0).unwrap_or(CreatePtyBody {
@@ -123,6 +125,12 @@ pub(crate) async fn handle_create_pty(
         title_source: None,
         env: None,
     });
+    // Spawning without a directory is rejected: the session would
+    // otherwise start in a workspace the client never named.
+    let default_dir = match require_scope_dir(&scope) {
+        Ok(dir) => dir,
+        Err(e) => return error_response(e),
+    };
     let params = wf_api::pty::PtyCreateParams {
         cwd: body.cwd,
         command: body.command,
@@ -132,7 +140,7 @@ pub(crate) async fn handle_create_pty(
         title_source: body.title_source.map(wf_api::pty::PtyTitleSource::from),
         env: body.env,
     };
-    match wf_api::pty::create_pty_session(&state.ctx, params) {
+    match wf_api::pty::create_pty_session(&state.ctx, params, Some(default_dir)) {
         Ok(view) => ok(view).into_response(),
         Err(err) => error_response(err.into()),
     }

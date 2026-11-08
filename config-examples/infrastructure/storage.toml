@@ -11,6 +11,10 @@ type = "sqlite"                         # Storage backend: sqlite | postgres | m
 app_name = "wf-agent"
 
 # --- SQLite storage options (used when type = "sqlite") ---
+# NOTE: a relative db_path resolves against the process working directory.
+# Service deployments must pin an absolute path through
+# WF_STORAGE_SQLITE_DB_PATH instead of relying on the unit's working
+directory (deliberately neutral); unset keeps this file value.
 [sqlite]
 db_path = "./data/workflow.db"
 enable_wal = true

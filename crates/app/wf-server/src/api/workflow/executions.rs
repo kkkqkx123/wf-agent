@@ -136,18 +136,20 @@ fn execution_options(
     if !has_runtime {
         return Ok(None);
     }
-    Ok(Some(wf_types::workflow_execution::WorkflowExecutionOptions {
-        file_scope,
-        input: None,
-        max_steps: body.max_steps,
-        timeout: body.timeout,
-        max_execution_time: body.max_execution_time,
-        enable_checkpoints: body.enable_checkpoints,
-        node_timeout: body.node_timeout,
-        max_pause_duration: body.max_pause_duration,
-        max_navigation_multiplier: body.max_navigation_multiplier,
-        loop_max_iterations_cap: body.loop_max_iterations_cap,
-    }))
+    Ok(Some(
+        wf_types::workflow_execution::WorkflowExecutionOptions {
+            file_scope,
+            input: None,
+            max_steps: body.max_steps,
+            timeout: body.timeout,
+            max_execution_time: body.max_execution_time,
+            enable_checkpoints: body.enable_checkpoints,
+            node_timeout: body.node_timeout,
+            max_pause_duration: body.max_pause_duration,
+            max_navigation_multiplier: body.max_navigation_multiplier,
+            loop_max_iterations_cap: body.loop_max_iterations_cap,
+        },
+    ))
 }
 
 #[derive(Serialize, ToSchema)]
@@ -176,7 +178,10 @@ pub(crate) async fn handle_execute_workflow(
     Path(path): Path<IdPath>,
     Json(body): Json<ExecuteBody>,
 ) -> impl IntoResponse {
-    let options = match execution_options(&body, &scope) { Ok(options) => options, Err(e) => return error_response(e), };
+    let options = match execution_options(&body, &scope) {
+        Ok(options) => options,
+        Err(e) => return error_response(e),
+    };
     let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
         workflow_id: path.id,
         version: body.version,
@@ -213,7 +218,10 @@ pub(crate) async fn handle_execute_stream(
     Path(path): Path<IdPath>,
     Json(body): Json<ExecuteBody>,
 ) -> Response {
-    let options = match execution_options(&body, &scope) { Ok(options) => options, Err(e) => return error_response(e), };
+    let options = match execution_options(&body, &scope) {
+        Ok(options) => options,
+        Err(e) => return error_response(e),
+    };
     let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
         workflow_id: path.id,
         version: body.version,
@@ -259,7 +267,10 @@ pub(crate) async fn handle_execute_background(
     Path(path): Path<IdPath>,
     Json(body): Json<ExecuteBody>,
 ) -> impl IntoResponse {
-    let options = match execution_options(&body, &scope) { Ok(options) => options, Err(e) => return error_response(e), };
+    let options = match execution_options(&body, &scope) {
+        Ok(options) => options,
+        Err(e) => return error_response(e),
+    };
     let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
         workflow_id: path.id,
         version: body.version,

@@ -12,7 +12,7 @@ use utoipa::ToSchema;
 use wf_api::Message;
 
 use crate::directory::{scope_file_scope, DirectoryScope};
-use crate::envelope::{error_response, ok};
+use crate::envelope::{error_response, ok, session_error_response};
 use crate::extract::IdPath;
 use crate::router::ApiState;
 use crate::sse::{execution_frames, sse_response};
@@ -146,7 +146,9 @@ pub(crate) async fn params_from_body(
     let config = wf_api::AgentLoopConfig {
         // The request directory anchors the run only when the body
         // carries no explicit file scope, so explicit values always win.
-        file_scope: body.file_scope.or_else(|| scope.as_ref().map(scope_file_scope)),
+        file_scope: body
+            .file_scope
+            .or_else(|| scope.as_ref().map(scope_file_scope)),
         agent_id: wf_api::Id::from(agent_id),
         model,
         max_iterations: body.max_iterations,
@@ -325,7 +327,7 @@ pub(crate) async fn handle_pause_loop(
 ) -> impl IntoResponse {
     match wf_api::agent::agent_execution::pause(&state.ctx, &path.id).await {
         Ok(()) => ok(()).into_response(),
-        Err(e) => error_response(e),
+        Err(e) => session_error_response(e),
     }
 }
 
@@ -348,7 +350,7 @@ pub(crate) async fn handle_resume_loop(
 ) -> impl IntoResponse {
     match wf_api::agent::agent_execution::resume(&state.ctx, &path.id).await {
         Ok(()) => ok(()).into_response(),
-        Err(e) => error_response(e),
+        Err(e) => session_error_response(e),
     }
 }
 
@@ -371,7 +373,7 @@ pub(crate) async fn handle_cancel_loop(
 ) -> impl IntoResponse {
     match wf_api::agent::agent_execution::cancel(&state.ctx, &path.id).await {
         Ok(()) => ok(()).into_response(),
-        Err(e) => error_response(e),
+        Err(e) => session_error_response(e),
     }
 }
 
@@ -422,7 +424,7 @@ pub(crate) async fn handle_append_loop(
     .await
     {
         Ok(()) => ok(()).into_response(),
-        Err(e) => error_response(e),
+        Err(e) => session_error_response(e),
     }
 }
 
@@ -446,7 +448,7 @@ pub(crate) async fn handle_set_append_mode_loop(
 ) -> impl IntoResponse {
     match wf_api::agent::agent_execution::set_append_mode(&state.ctx, &path.id, &body.mode).await {
         Ok(()) => ok(()).into_response(),
-        Err(e) => error_response(e),
+        Err(e) => session_error_response(e),
     }
 }
 
@@ -467,6 +469,6 @@ pub(crate) async fn handle_convert_pending_to_steering_loop(
 ) -> impl IntoResponse {
     match wf_api::agent::agent_execution::convert_pending_to_steering(&state.ctx, &path.id).await {
         Ok(()) => ok(()).into_response(),
-        Err(e) => error_response(e),
+        Err(e) => session_error_response(e),
     }
 }

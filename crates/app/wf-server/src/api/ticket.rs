@@ -109,6 +109,20 @@ pub(crate) fn consume(ticket: &str, scope: &TicketScope) -> bool {
     }
 }
 
+/// Central ticket exemption table: every request that authenticates with a
+/// single-use credential in its own handler instead of the API key.
+/// Covers event stream tickets, terminal connect tickets and pairing
+/// connect codes. The auth middleware only defers; each handler still
+/// consumes and validates its own credential.
+pub(crate) fn is_auth_exempt_request(uri: &Uri) -> bool {
+    is_stream_ticket_request(uri) || is_pairing_connect_request(uri)
+}
+
+fn is_pairing_connect_request(uri: &Uri) -> bool {
+    uri.path() == "/api/v1/server/connect"
+        || uri.path().starts_with("/api/v1/server/connect/")
+}
+
 /// Whether a request is a stream handshake that presents a ticket instead of
 /// the API key. The auth middleware uses this to defer validation to the
 /// stream handler.

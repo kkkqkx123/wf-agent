@@ -585,7 +585,12 @@ fn write_atomic(absolute: &Path, bytes: &[u8]) -> FsResult<()> {
     Ok(())
 }
 
-pub fn create_entry(ctx: &ApiContext, dir: Option<&Path>, path: &str, is_dir: bool) -> FsResult<FsEntry> {
+pub fn create_entry(
+    ctx: &ApiContext,
+    dir: Option<&Path>,
+    path: &str,
+    is_dir: bool,
+) -> FsResult<FsEntry> {
     if path.is_empty() {
         return Err(FsError::AlreadyExists("(workspace root)".to_string()));
     }
@@ -633,7 +638,12 @@ pub fn delete_entry(ctx: &ApiContext, dir: Option<&Path>, path: &str) -> FsResul
     Ok(())
 }
 
-pub fn rename_entry(ctx: &ApiContext, dir: Option<&Path>, from: &str, to: &str) -> FsResult<FsEntry> {
+pub fn rename_entry(
+    ctx: &ApiContext,
+    dir: Option<&Path>,
+    from: &str,
+    to: &str,
+) -> FsResult<FsEntry> {
     if from.is_empty() || to.is_empty() {
         return Err(FsError::Validation(
             "source and destination must be non-empty".to_string(),
@@ -981,7 +991,11 @@ pub struct FsSearchOptions<'a> {
 
 /// Read-only content search over the workspace. Never reads file contents
 /// into the response beyond truncated preview lines.
-pub fn search_files(ctx: &ApiContext, dir: Option<&Path>, options: FsSearchOptions<'_>) -> FsResult<FsSearchResult> {
+pub fn search_files(
+    ctx: &ApiContext,
+    dir: Option<&Path>,
+    options: FsSearchOptions<'_>,
+) -> FsResult<FsSearchResult> {
     let FsSearchOptions {
         query,
         base,

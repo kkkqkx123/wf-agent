@@ -56,7 +56,9 @@ fn test_state() -> crate::router::ApiState {
     crate::router::ApiState {
         ctx: make_ctx(),
         config: Arc::new(crate::middleware::ServerMiddlewareConfig::default()),
-        dirs: Arc::new(crate::directory::DirectoryContext::new(crate::directory::DirectoryConfig::default())),
+        dirs: Arc::new(crate::directory::DirectoryContext::new(
+            crate::directory::DirectoryConfig::default(),
+        )),
         locks: crate::api::workflow::locks::DefinitionLocks::default(),
     }
 }
@@ -132,7 +134,9 @@ async fn run_body_rejects_empty_message_and_defaults_empty_model() {
         "message": "   ",
     }))
     .unwrap();
-    assert!(params_from_body(&test_state(), &test_scope(), empty).await.is_err());
+    assert!(params_from_body(&test_state(), &test_scope(), empty)
+        .await
+        .is_err());
 
     // Rule A2: an empty or sentinel model normalizes to the server default.
     for model in ["", "default"] {
@@ -204,7 +208,9 @@ async fn run_body_parses_temporary_mode_strictly() {
         "temporary_mode": "full",
     }))
     .unwrap();
-    assert!(params_from_body(&test_state(), &test_scope(), unknown).await.is_err());
+    assert!(params_from_body(&test_state(), &test_scope(), unknown)
+        .await
+        .is_err());
 }
 
 #[tokio::test]

@@ -132,3 +132,18 @@ pub(crate) struct CursorQuery {
     pub(crate) limit: Option<u64>,
     pub(crate) cursor: Option<String>,
 }
+
+/// `{code}` path parameter used by pairing connect routes.
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Path)]
+pub(crate) struct CodePath {
+    pub(crate) code: String,
+}
+
+/// `?code=` query used by the pairing connect endpoint for clients that
+/// cannot place the code in the path.
+#[derive(Deserialize, Debug, Default, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct CodeQuery {
+    pub(crate) code: Option<String>,
+}

@@ -1099,11 +1099,7 @@ mod tests {
             "bridge-test-encoding".to_string()
         }
 
-        fn encode(
-            &self,
-            _text: String,
-            _options: Value,
-        ) -> wf_plugin::PluginResult<Value> {
+        fn encode(&self, _text: String, _options: Value) -> wf_plugin::PluginResult<Value> {
             Ok(serde_json::json!({}))
         }
     }

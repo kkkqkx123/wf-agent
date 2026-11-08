@@ -162,6 +162,26 @@ pub(crate) fn error_response(e: wf_api::ApiError) -> Response {
     api_error_response_internal(e).into_response()
 }
 
+/// Render a session-scoped `wf-api` error with stable session codes.
+/// Missing handles report `SESSION_NOT_FOUND`; state conflicts on a live
+/// session (pause/resume/cancel/append while busy) report `SESSION_BUSY`
+/// so clients can retry after the current turn instead of treating the
+/// failure as a parameter error. All other errors keep the generic mapping.
+pub(crate) fn session_error_response(e: wf_api::ApiError) -> Response {
+    match &e {
+        wf_api::ApiError::ExecutionNotFound { id } => {
+            session_not_found(format!("session [{id}] not found"))
+        }
+        wf_api::ApiError::Execution {
+            category:
+                wf_api::ApiErrorCategory::Conflict | wf_api::ApiErrorCategory::Cancelled,
+            message,
+            ..
+        } => session_busy(message.clone()),
+        _ => error_response(e),
+    }
+}
+
 /// Render a payload as a file download (`Content-Disposition: attachment`)
 /// with content type, filename and length headers so browsers save it
 /// directly instead of displaying JSON.
@@ -191,11 +211,63 @@ pub(crate) fn unauthorized(message: impl Into<String>) -> Response {
         .into_response()
 }
 
+/// 401 response carrying a Basic challenge for browser navigations.
+/// Fetch callers handle the status code; only page loads receive the
+/// challenge so the native prompt never stalls the web client.
+pub(crate) fn unauthorized_with_challenge(message: impl Into<String>) -> Response {
+    let mut response = unauthorized(message);
+    if let Ok(value) = "Basic realm=\"Secure Area\"".parse::<axum::http::HeaderValue>() {
+        response
+            .headers_mut()
+            .insert(axum::http::header::WWW_AUTHENTICATE, value);
+    }
+    response
+}
+
 /// 403 response used by the auth middleware.
 pub(crate) fn forbidden(message: impl Into<String>) -> Response {
     (
         StatusCode::FORBIDDEN,
         Json(ErrorResponse::new("FORBIDDEN", message)),
+    )
+        .into_response()
+}
+
+/// 404 response for a missing directory location. Kept distinct from the
+/// generic not-found code so clients can tell a wrong directory from a
+/// wrong entity id without parsing messages.
+pub(crate) fn location_not_found(message: impl Into<String>) -> Response {
+    (
+        StatusCode::NOT_FOUND,
+        Json(ErrorResponse::new("LOCATION_NOT_FOUND", message)),
+    )
+        .into_response()
+}
+
+/// 404 response for a missing session handle.
+pub(crate) fn session_not_found(message: impl Into<String>) -> Response {
+    (
+        StatusCode::NOT_FOUND,
+        Json(ErrorResponse::new("SESSION_NOT_FOUND", message)),
+    )
+        .into_response()
+}
+
+/// 409 response for a busy session. Retriable after the current turn
+/// finishes, unlike a parameter conflict.
+pub(crate) fn session_busy(message: impl Into<String>) -> Response {
+    (
+        StatusCode::CONFLICT,
+        Json(ErrorResponse::new("SESSION_BUSY", message)),
+    )
+        .into_response()
+}
+
+/// 403 response for an invalid or consumed ticket or pairing code.
+pub(crate) fn ticket_invalid(message: impl Into<String>) -> Response {
+    (
+        StatusCode::FORBIDDEN,
+        Json(ErrorResponse::new("TICKET_INVALID", message)),
     )
         .into_response()
 }

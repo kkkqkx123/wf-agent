@@ -55,6 +55,44 @@ impl From<PtyTitleSource> for wf_api::pty::PtyTitleSource {
     }
 }
 
+impl From<wf_api::pty::PtyTitleSource> for PtyTitleSource {
+    fn from(value: wf_api::pty::PtyTitleSource) -> Self {
+        match value {
+            wf_api::pty::PtyTitleSource::Default => Self::Default,
+            wf_api::pty::PtyTitleSource::Auto => Self::Auto,
+            wf_api::pty::PtyTitleSource::Manual => Self::Manual,
+        }
+    }
+}
+
+impl From<wf_api::pty::PtySessionStatus> for PtySessionStatus {
+    fn from(value: wf_api::pty::PtySessionStatus) -> Self {
+        match value {
+            wf_api::pty::PtySessionStatus::Running => Self::Running,
+            wf_api::pty::PtySessionStatus::Exited => Self::Exited,
+        }
+    }
+}
+
+impl From<wf_api::pty::PtySession> for PtySession {
+    fn from(view: wf_api::pty::PtySession) -> Self {
+        Self {
+            id: view.id,
+            cwd: view.cwd,
+            title: view.title,
+            title_source: PtyTitleSource::from(view.title_source),
+            status: PtySessionStatus::from(view.status),
+            exit_code: view.exit_code,
+            pid: view.pid,
+            rows: view.rows,
+            cols: view.cols,
+            created_at: view.created_at,
+            last_activity: view.last_activity,
+            persistent: view.persistent,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub(crate) struct PtySession {
     pub id: String,
@@ -68,6 +106,8 @@ pub(crate) struct PtySession {
     pub cols: u16,
     pub created_at: i64,
     pub last_activity: i64,
+    #[serde(default)]
+    pub persistent: bool,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -87,6 +127,9 @@ pub(crate) struct CreatePtyBody {
     /// Environment overrides for the spawned process, applied as-is.
     #[serde(default)]
     env: Option<std::collections::BTreeMap<String, String>>,
+    /// Request a persistent workspace terminal that survives idle sweeps.
+    #[serde(default)]
+    persistent: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -124,6 +167,7 @@ pub(crate) async fn handle_create_pty(
         title: None,
         title_source: None,
         env: None,
+        persistent: None,
     });
     // Spawning without a directory is rejected: the session would
     // otherwise start in a workspace the client never named.
@@ -139,9 +183,10 @@ pub(crate) async fn handle_create_pty(
         title: body.title,
         title_source: body.title_source.map(wf_api::pty::PtyTitleSource::from),
         env: body.env,
+        persistent: body.persistent.unwrap_or(false),
     };
     match wf_api::pty::create_pty_session(&state.ctx, params, Some(default_dir)) {
-        Ok(view) => ok(view).into_response(),
+        Ok(view) => ok(PtySession::from(view)).into_response(),
         Err(err) => error_response(err.into()),
     }
 }
@@ -149,7 +194,10 @@ pub(crate) async fn handle_create_pty(
 #[utoipa::path(get, path = "/api/v1/pty", operation_id = "get_pty", tag = "pty", responses((status = 200, description = "PTY sessions", body = crate::envelope::ApiEnvelope<Vec<PtySession>>)), security(("api_key" = [])))]
 pub(crate) async fn handle_list_pty(State(state): State<ApiState>) -> impl IntoResponse {
     let _ = state;
-    let list = wf_api::pty::list_pty_sessions();
+    let list: Vec<PtySession> = wf_api::pty::list_pty_sessions()
+        .into_iter()
+        .map(PtySession::from)
+        .collect();
     ok(list).into_response()
 }
 
@@ -160,7 +208,7 @@ pub(crate) async fn handle_get_pty(
 ) -> impl IntoResponse {
     let _ = state;
     match wf_api::pty::get_pty_session(&id) {
-        Ok(view) => ok(view).into_response(),
+        Ok(view) => ok(PtySession::from(view)).into_response(),
         Err(err) => error_response(err.into()),
     }
 }
@@ -197,7 +245,7 @@ pub(crate) async fn handle_update_pty(
         body.cols.map(|v| v.min(u16::MAX as u32) as u16),
         body.title_source.map(wf_api::pty::PtyTitleSource::from),
     ) {
-        Ok(view) => ok(view).into_response(),
+        Ok(view) => ok(PtySession::from(view)).into_response(),
         Err(err) => error_response(err.into()),
     }
 }
@@ -209,7 +257,7 @@ pub(crate) async fn handle_pty_connect_token(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     if !crate::api::ticket::ticket_request_authorized(&headers, &state.config.cors) {
-        return crate::envelope::forbidden("invalid PTY connect-token request");
+        return crate::envelope::ticket_invalid("invalid PTY connect-token request");
     }
     // The session must exist before a ticket is bound to it.
     if let Err(err) = wf_api::pty::get_pty_session(&id) {
@@ -259,7 +307,8 @@ fn authorize_pty_handshake(
         }
         return Err((4003, "invalid PTY connect ticket".to_string()));
     }
-    authenticate_connection(&state.config.auth, request).map_err(|msg| (4001, msg))
+    authenticate_connection(&state.config.auth, &state.config.cors, request)
+        .map_err(|msg| (4001, msg))
 }
 
 async fn handle_pty_socket(
@@ -407,8 +456,18 @@ async fn handle_pty_socket(
     send_task.abort();
 }
 
-fn authenticate_connection(auth: &AuthConfig, request: &Request<Body>) -> Result<(), String> {
+fn authenticate_connection(
+    auth: &AuthConfig,
+    cors: &crate::middleware::CorsConfig,
+    request: &Request<Body>,
+) -> Result<(), String> {
     if !auth.enabled {
+        return Ok(());
+    }
+    if !crate::middleware::socket_origin_allowed(request, cors) {
+        return Err("Invalid request origin.".to_string());
+    }
+    if crate::middleware::password_authorized(auth, request.headers()) {
         return Ok(());
     }
     let key = request

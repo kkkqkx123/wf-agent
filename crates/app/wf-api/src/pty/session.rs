@@ -27,6 +27,8 @@ pub struct PtyCreateParams {
     /// server user, so filtering variables would only block legitimate
     /// session customization (locale, pager, editor, tool config).
     pub env: Option<std::collections::BTreeMap<String, String>>,
+    /// Request a persistent workspace terminal that survives idle sweeps.
+    pub persistent: bool,
 }
 
 pub fn create_with_context(
@@ -43,6 +45,7 @@ pub fn create_with_context(
         title,
         title_source,
         env,
+        persistent,
     } = params;
     let rows = rows.unwrap_or(24).max(1);
     let cols = cols.unwrap_or(80).max(1);
@@ -107,6 +110,7 @@ pub fn create_with_context(
         status: Mutex::new(PtySessionStatus::Running),
         exit_code: Mutex::new(None),
         pid,
+        persistent,
         rows: Mutex::new(rows),
         cols: Mutex::new(cols),
         output: Mutex::new(super::state::Output {
@@ -296,6 +300,7 @@ pub fn session_view(state: &PtyState) -> PtySession {
         last_activity: state
             .last_activity
             .load(std::sync::atomic::Ordering::Relaxed),
+        persistent: state.persistent,
     }
 }
 

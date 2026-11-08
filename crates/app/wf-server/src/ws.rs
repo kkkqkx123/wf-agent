@@ -47,7 +47,7 @@ use wf_api::infra::events::subscribe;
 use wf_api::{now, timestamp_to_iso};
 use wf_api::{ApiContext, EventSubscriptionOptions};
 
-use crate::middleware::AuthConfig;
+use crate::middleware::{AuthConfig, CorsConfig};
 use crate::router::ApiState;
 
 /// Interval between protocol `Ping` frames keeping the connection alive.
@@ -75,7 +75,7 @@ async fn ws_handler(
 }
 
 async fn handle_socket(socket: WebSocket, state: ApiState, request: Request<Body>) {
-    if let Err(message) = authenticate_connection(&state.config.auth, &request) {
+    if let Err(message) = authenticate_connection(&state.config.auth, &state.config.cors, &request) {
         tracing::warn!(target: "wf_server", %message, "websocket connection rejected");
         let mut socket = socket;
         let _ = socket
@@ -563,12 +563,23 @@ async fn send_error(tx: &mpsc::Sender<Outbound>, message: impl Into<String>) {
     .await;
 }
 
-/// API-key authentication via header or the `api_key` query parameter.
-/// No-op when auth is disabled. Mirrors the HTTP middleware (which also
-/// gates this path); the query fallback exists because browsers cannot set
-/// WebSocket headers.
-fn authenticate_connection(auth: &AuthConfig, request: &Request<Body>) -> Result<(), String> {
+/// Socket authentication: password session (Basic or cookie) first, then the
+/// API key via header or the `api_key` query parameter. No-op when auth is
+/// disabled. Mirrors the HTTP middleware (which also gates this path); the
+/// query fallback exists because browsers cannot set WebSocket headers.
+/// A present `Origin` must match the request host or be explicitly trusted.
+fn authenticate_connection(
+    auth: &AuthConfig,
+    cors: &CorsConfig,
+    request: &Request<Body>,
+) -> Result<(), String> {
     if !auth.enabled {
+        return Ok(());
+    }
+    if !crate::middleware::socket_origin_allowed(request, cors) {
+        return Err("Invalid request origin.".to_string());
+    }
+    if crate::middleware::password_authorized(auth, request.headers()) {
         return Ok(());
     }
     let key = request
@@ -643,7 +654,9 @@ mod tests {
             ctx,
             "127.0.0.1:0".parse().unwrap(),
             Arc::new(crate::middleware::ServerMiddlewareConfig::default()),
-            Arc::new(crate::directory::DirectoryContext::new(crate::directory::DirectoryConfig::default())),
+            Arc::new(crate::directory::DirectoryContext::new(
+                crate::directory::DirectoryConfig::default(),
+            )),
         )
         .await
         .expect("server should bind")
@@ -854,7 +867,9 @@ mod tests {
             ctx,
             "127.0.0.1:0".parse().unwrap(),
             Arc::new(config),
-            Arc::new(crate::directory::DirectoryContext::new(crate::directory::DirectoryConfig::default())),
+            Arc::new(crate::directory::DirectoryContext::new(
+                crate::directory::DirectoryConfig::default(),
+            )),
         )
         .await
         .expect("server should bind");

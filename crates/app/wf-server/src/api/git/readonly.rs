@@ -122,7 +122,13 @@ pub(crate) async fn handle_git_diff_range(
     Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<DiffRangeQuery>,
 ) -> impl IntoResponse {
-    match wf_api::git::diff_refs(&state.ctx, scope_dir(&scope), &query.from, &query.to, query.path.as_deref()) {
+    match wf_api::git::diff_refs(
+        &state.ctx,
+        scope_dir(&scope),
+        &query.from,
+        &query.to,
+        query.path.as_deref(),
+    ) {
         Ok(diff) => ok(diff).into_response(),
         Err(err) => error_response(err.into()),
     }
@@ -141,7 +147,12 @@ pub(crate) async fn handle_git_file(
     Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<GitFileQuery>,
 ) -> impl IntoResponse {
-    match wf_api::git::git_file(&state.ctx, scope_dir(&scope), &query.path, query.rev.as_deref()) {
+    match wf_api::git::git_file(
+        &state.ctx,
+        scope_dir(&scope),
+        &query.path,
+        query.rev.as_deref(),
+    ) {
         Ok(file) => ok(file).into_response(),
         Err(err) => error_response(err.into()),
     }

@@ -381,10 +381,30 @@ impl DirectoryContext {
         Ok(Some(scope))
     }
 
-    /// Drop one cached directory entry. In-flight requests already holding
-    /// the scope are unaffected; the next request revalidates from disk.
+    /// Drop one cached directory entry. The input is canonicalized first
+    /// so equivalent spellings hit the same cache key. In-flight requests
+    /// already holding the scope are unaffected; the next request
+    /// revalidates from disk.
     pub fn invalidate(&self, directory: &str) -> bool {
-        self.entries.remove(directory).is_some()
+        let key = canonicalize_dir(directory)
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| directory.trim().to_string());
+        if self.entries.remove(&key).is_some() {
+            return true;
+        }
+        self.entries.remove(directory.trim()).is_some()
+    }
+
+    /// Canonical cache keys backing the location service map, for the
+    /// debug surface. Read-only; keys are canonical directory paths.
+    pub fn cached_keys(&self) -> Vec<String> {
+        let mut keys: Vec<String> = self
+            .entries
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect();
+        keys.sort();
+        keys
     }
 
     /// Directory allowlist backing explicit request directories.
@@ -408,7 +428,8 @@ impl DirectoryContext {
 }
 
 /// Request middleware resolving the directory scope into extensions.
-/// Rejections render through the shared error envelope; every other request
+/// Directory rejections use the location-specific code so clients can
+/// tell a wrong directory from a wrong entity id; every other request
 /// continues with `Option<DirectoryScope>` present (possibly `None`).
 pub(crate) async fn directory_middleware(
     State(ctx): State<Arc<DirectoryContext>>,
@@ -418,6 +439,12 @@ pub(crate) async fn directory_middleware(
     let query = req.uri().query().map(str::to_string);
     let scope = match ctx.resolve(req.headers(), query.as_deref()) {
         Ok(scope) => scope,
+        Err(crate::directory::DirectoryError::NotFound(raw)) => {
+            return crate::envelope::location_not_found(format!("location not found: {raw}"));
+        }
+        Err(crate::directory::DirectoryError::Forbidden(raw)) => {
+            return crate::envelope::location_not_found(format!("location not served: {raw}"));
+        }
         Err(err) => return crate::envelope::error_response(err.into()).into_response(),
     };
     let mut req = req;
@@ -438,9 +465,10 @@ pub(crate) fn scope_dir(scope: &Option<DirectoryScope>) -> Option<&Path> {
 /// directory the client never named is never acceptable, so absence fails
 /// loud here rather than falling back to any server-side path.
 pub(crate) fn require_scope_dir(scope: &Option<DirectoryScope>) -> Result<&Path, wf_api::ApiError> {
-    scope.as_ref().map(|scope| scope.directory.as_path()).ok_or_else(|| {
-        wf_api::ApiError::Validation("request directory is required".to_string())
-    })
+    scope
+        .as_ref()
+        .map(|scope| scope.directory.as_path())
+        .ok_or_else(|| wf_api::ApiError::Validation("request directory is required".to_string()))
 }
 
 /// Build the per-execution filesystem scope anchoring one execution on the
@@ -511,10 +539,7 @@ mod tests {
 
     #[test]
     fn canonicalize_rejects_bad_inputs() {
-        assert_eq!(
-            canonicalize_dir("   ").unwrap_err(),
-            DirectoryError::Empty
-        );
+        assert_eq!(canonicalize_dir("   ").unwrap_err(), DirectoryError::Empty);
         assert!(matches!(
             canonicalize_dir("relative/path").unwrap_err(),
             DirectoryError::NotAbsolute(_)
@@ -539,7 +564,12 @@ mod tests {
         std::fs::create_dir(root.path().join(".git")).unwrap();
         let nested = root.path().join("a").join("b");
         std::fs::create_dir_all(&nested).unwrap();
-        assert_eq!(discover_project(&nested), root.path().canonicalize().unwrap_or_else(|_| root.path().to_path_buf()));
+        assert_eq!(
+            discover_project(&nested),
+            root.path()
+                .canonicalize()
+                .unwrap_or_else(|_| root.path().to_path_buf())
+        );
     }
 
     #[test]
@@ -602,8 +632,7 @@ mod tests {
     fn missing_scope_fails_loud() {
         assert!(require_scope_dir(&None).is_err());
         let dir = temp_dir("wf-dir-require");
-        let scope = resolve_scope(Some(dir.path().to_str().unwrap()), &config_with(&[]))
-            .unwrap();
+        let scope = resolve_scope(Some(dir.path().to_str().unwrap()), &config_with(&[])).unwrap();
         assert_eq!(
             require_scope_dir(&scope).unwrap(),
             dir.path().canonicalize().unwrap()
@@ -615,10 +644,12 @@ mod tests {
             wf_storage::context::StorageContext::new_memory(),
             std::sync::Arc::new(wf_resource::registry::ResourceRegistries::new()),
         );
-        std::sync::Arc::new(ctx.with_user_git(wf_types::config::user_git::UserGitConfig {
-            enabled: true,
-            ..Default::default()
-        }))
+        std::sync::Arc::new(
+            ctx.with_user_git(wf_types::config::user_git::UserGitConfig {
+                enabled: true,
+                ..Default::default()
+            }),
+        )
     }
 
     #[tokio::test]
@@ -665,11 +696,9 @@ mod tests {
 
     #[test]
     fn error_maps_to_api_taxonomy() {
-        let api: wf_api::ApiError =
-            DirectoryError::NotFound("/missing".to_string()).into();
+        let api: wf_api::ApiError = DirectoryError::NotFound("/missing".to_string()).into();
         assert!(matches!(api, wf_api::ApiError::NotFound { .. }));
-        let api: wf_api::ApiError =
-            DirectoryError::Forbidden("/elsewhere".to_string()).into();
+        let api: wf_api::ApiError = DirectoryError::Forbidden("/elsewhere".to_string()).into();
         assert!(matches!(api, wf_api::ApiError::Validation(_)));
     }
 }

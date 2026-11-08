@@ -406,7 +406,13 @@ pub(crate) async fn handle_fs_upload(
     Extension(scope): Extension<Option<DirectoryScope>>,
     axum::Json(body): axum::Json<FsUploadBody>,
 ) -> impl IntoResponse {
-    match wf_api::fs::upload_bytes(&state.ctx, scope_dir(&scope), &body.path, &body.content_base64, body.overwrite) {
+    match wf_api::fs::upload_bytes(
+        &state.ctx,
+        scope_dir(&scope),
+        &body.path,
+        &body.content_base64,
+        body.overwrite,
+    ) {
         Ok(entry) => ok(entry_view(entry)).into_response(),
         Err(err) => error_response(err.into()),
     }

@@ -1,4 +1,5 @@
 pub mod api;
+pub mod auth_session;
 pub mod directory;
 pub mod envelope;
 pub mod extract;
@@ -6,6 +7,7 @@ pub mod metrics;
 pub mod middleware;
 pub mod openapi;
 pub mod paged;
+pub mod pairing;
 pub mod router;
 pub mod server;
 pub mod server_config;

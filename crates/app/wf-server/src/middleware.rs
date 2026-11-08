@@ -1,4 +1,4 @@
-//! Server middleware: request logging, CORS, API-key auth and per-IP rate
+//! Server middleware: request logging, CORS, auth and per-IP rate
 //! limiting. Every layer no-ops unless its
 //! config is enabled, so the default (env-driven) configuration keeps the
 //! API surface open by default.
@@ -32,10 +32,15 @@ pub const RATE_LIMIT_CONFIG_FILE: &str = "rate-limit.toml";
 /// File name of the CORS middleware config inside the server directory.
 pub const CORS_CONFIG_FILE: &str = "cors.toml";
 
+/// Environment variable carrying the server password. Secrets stay
+/// env-only and never enter the file layer.
+pub const SERVER_PASSWORD_ENV_VAR: &str = "WF_SERVER_PASSWORD";
+
 #[derive(Debug, Clone)]
 pub struct AuthConfig {
     pub enabled: bool,
     pub api_keys: Vec<String>,
+    pub password: Option<String>,
     pub header_name: String,
     pub allow_query_param: bool,
     pub query_param_name: String,
@@ -43,8 +48,8 @@ pub struct AuthConfig {
 }
 
 impl AuthConfig {
-    /// Overlay the environment-supported fields (`AUTH_ENABLED`, `API_KEYS`).
-    /// Keys stay env-only: the file layer has no key field by design.
+    /// Overlay the environment-supported fields (`AUTH_ENABLED`, `API_KEYS`,
+    /// `WF_SERVER_PASSWORD`). Keys stay env-only: the file layer has no key field by design.
     /// Parsing reuses the shared `wf_config::env` parsers so bool/list
     /// semantics match the rest of the system; invalid values warn and keep
     /// the current value instead of failing startup.
@@ -63,6 +68,16 @@ impl AuthConfig {
                     ),
                 }
             }
+        }
+        if let Ok(raw) = std::env::var(SERVER_PASSWORD_ENV_VAR) {
+            if raw.trim().is_empty() {
+                self.password = None;
+            } else {
+                self.password = Some(raw);
+            }
+        }
+        if self.password_required() {
+            self.enabled = true;
         }
     }
 
@@ -87,17 +102,26 @@ impl AuthConfig {
     }
 }
 
+impl AuthConfig {
+    /// Whether password protection is active.
+    pub fn password_required(&self) -> bool {
+        crate::auth_session::password_required(&self.password)
+    }
+}
+
 impl Default for AuthConfig {
     fn default() -> Self {
         Self {
             enabled: false,
             api_keys: Vec::new(),
+            password: None,
             header_name: "x-api-key".to_string(),
             allow_query_param: true,
             query_param_name: "api_key".to_string(),
             excluded_paths: vec![
                 "/health".to_string(),
                 "/api/v1/info".to_string(),
+                "/api/v1/server/connect".to_string(),
                 "/".to_string(),
             ],
         }
@@ -474,14 +498,77 @@ async fn request_logging(req: Request<Body>, next: Next) -> Response {
 // ---------------------------------------------------------------------------
 
 /// Whether a request origin is permitted by the CORS policy. A missing
-/// origin is never allowed; `*` permits any present origin.
+/// origin is never allowed; `*` permits any present origin. Trusted
+/// built-ins cover local loopback, desktop protocols and the hosted
+/// frontend so ticket and socket upgrades behave without custom config.
 pub(crate) fn origin_allowed(origin: Option<&str>, cors: &CorsConfig) -> bool {
+    is_allowed_cors_origin(origin, cors)
+}
+
+/// Reference-compatible origin allowlist: loopback, desktop and hosted
+/// origins are trusted in addition to the configured list.
+pub fn is_allowed_cors_origin(origin: Option<&str>, cors: &CorsConfig) -> bool {
     let Some(origin) = origin else {
         return false;
     };
+    if origin.starts_with("http://localhost:")
+        || origin.starts_with("https://localhost:")
+        || origin.starts_with("http://127.0.0.1:")
+        || origin.starts_with("https://127.0.0.1:")
+        || origin.starts_with("http://[::1]:")
+        || origin.starts_with("https://[::1]:")
+    {
+        return true;
+    }
+    if origin.starts_with("oc://renderer")
+        || origin == "tauri://localhost"
+        || origin == "http://tauri.localhost"
+        || origin == "https://tauri.localhost"
+    {
+        return true;
+    }
+    if let Some(host) = origin_host(origin) {
+        if host == "opencode.ai" || host.ends_with(".opencode.ai") {
+            return true;
+        }
+    }
     cors.allowed_origins
         .iter()
         .any(|allowed| allowed == "*" || allowed == origin)
+}
+
+/// Whether a present origin may use the request host. Missing origins read
+/// as same-origin; otherwise the origin host must match or be explicitly
+/// trusted.
+pub fn is_allowed_request_origin(
+    origin: Option<&str>,
+    host: Option<&str>,
+    cors: &CorsConfig,
+) -> bool {
+    let Some(origin) = origin else {
+        return true;
+    };
+    if let (Some(origin_host), Some(host)) = (origin_host(origin), host) {
+        if origin_host.eq_ignore_ascii_case(host) {
+            return true;
+        }
+    }
+    is_allowed_cors_origin(Some(origin), cors)
+}
+
+fn origin_host(origin: &str) -> Option<String> {
+    let without_scheme = origin.rsplit("://").next().unwrap_or(origin);
+    let authority = without_scheme.split('/').next().unwrap_or(without_scheme);
+    let authority = authority.rsplit('@').next().unwrap_or(authority);
+    if authority.starts_with('[') {
+        let end = authority.find(']')?;
+        return Some(authority[1..end].to_ascii_lowercase());
+    }
+    let host = authority.split(':').next().unwrap_or(authority);
+    if host.is_empty() {
+        return None;
+    }
+    Some(host.to_ascii_lowercase())
 }
 
 async fn cors_middleware(
@@ -563,7 +650,12 @@ async fn auth_middleware(
     }
     // Stream handshakes that present a single-use ticket authenticate in
     // their own handler; the ticket is the credential, not the API key.
-    if crate::api::ticket::is_stream_ticket_request(req.uri()) {
+    // Pairing connect consumes its one-time code in its handler.
+    if crate::api::ticket::is_auth_exempt_request(req.uri()) {
+        return next.run(req).await;
+    }
+
+    if password_authorized(auth, req.headers()) {
         return next.run(req).await;
     }
 
@@ -581,15 +673,95 @@ async fn auth_middleware(
         });
 
     match key {
-        None => crate::envelope::unauthorized(
-            "API key is required. Provide it via X-API-Key header or api_key query parameter.",
-        ),
+        None => unauthorized_response(&req),
         Some(key) if !auth.api_keys.iter().any(|k| k == &key) => {
             crate::envelope::forbidden("Invalid API key.")
         }
         Some(_) => next.run(req).await,
     }
 }
+
+/// Password, Basic and session-cookie authorization. Enabled only when a
+/// server password is configured; otherwise every request falls through to
+/// API-key checks. Secrets never travel in the query string: only the
+/// Authorization header and the HttpOnly session cookie are accepted.
+pub(crate) fn password_authorized(auth: &AuthConfig, headers: &HeaderMap) -> bool {
+    let Some(password) = auth.password.as_deref().filter(|value| !value.is_empty()) else {
+        return false;
+    };
+    if let Some(authorization) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+    {
+        if let Some((username, secret)) = crate::auth_session::decode_basic(authorization) {
+            if crate::auth_session::basic_authorized(&username, &secret, password) {
+                return true;
+            }
+        }
+    }
+    let cookie_header = headers
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    let host = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok());
+    // Same-site pages on other ports still send the cookie, so only
+    // same-origin requests may use it: the origin host must match the
+    // request host verbatim.
+    if let Some(origin) = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+    {
+        let origin_host = origin_host(origin);
+        let host_without_port = host
+            .map(|value| value.split(':').next().unwrap_or(value))
+            .unwrap_or("");
+        let same = origin_host
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case(host_without_port));
+        if !same {
+            return false;
+        }
+    }
+    let cookie_name = crate::auth_session::session_cookie_name(host);
+    if let Some(token) = crate::auth_session::cookie_value(cookie_header, &cookie_name) {
+        if crate::auth_session::verify_session(&token, password, wf_common::epoch_ms() as i64) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Whether a socket upgrade (WebSocket/EventSource) may proceed for its
+/// `Origin`. Missing origins read as same-origin; otherwise the origin
+/// must match the request host or be explicitly trusted.
+pub(crate) fn socket_origin_allowed(request: &Request<Body>, cors: &CorsConfig) -> bool {
+    let origin = request
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok());
+    let host = request
+        .headers()
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok());
+    is_allowed_request_origin(origin, host, cors)
+}
+
+fn unauthorized_response(req: &Request<Body>) -> Response {
+    let fetch_mode = req
+        .headers()
+        .get("sec-fetch-mode")
+        .and_then(|value| value.to_str().ok());
+    if crate::auth_session::wants_challenge(fetch_mode) {
+        return crate::envelope::unauthorized_with_challenge("Authentication required.");
+    }
+    crate::envelope::unauthorized(
+        "API key is required. Provide it via X-API-Key header or api_key query parameter.",
+    )
+}
+
+
 
 // ---------------------------------------------------------------------------
 // Rate limit

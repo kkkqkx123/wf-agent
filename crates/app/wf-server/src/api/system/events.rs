@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use wf_api::EventSubscriptionOptions;
 
 use crate::api::ticket::{self, StreamTicket, TicketScope};
-use crate::envelope::{err, error_response, forbidden, ok, ApiError};
+use crate::envelope::{err, error_response, ok, ticket_invalid, ApiError};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
 use crate::paged::{fetch_size, ok_cursor_page, ok_page, resolve_cursor_page, resolve_page};
 use crate::router::ApiState;
@@ -26,6 +26,19 @@ use crate::sse::sse_response;
 /// Max concurrent SSE connections, default of 100.
 const MAX_SSE_CLIENTS: usize = 100;
 static SSE_CLIENTS: AtomicUsize = AtomicUsize::new(0);
+/// Cumulative SSE rejections when the connection cap is hit. Exposed
+/// through `/system/event-health` so slow-consumer pressure is observable
+/// without adding new Prometheus series.
+static SSE_REJECTED: AtomicUsize = AtomicUsize::new(0);
+
+/// Snapshot of the SSE transport counters for health reporting.
+pub(crate) fn sse_transport_stats() -> serde_json::Value {
+    serde_json::json!({
+        "live": SSE_CLIENTS.load(Ordering::SeqCst),
+        "rejected": SSE_REJECTED.load(Ordering::SeqCst),
+        "max": MAX_SSE_CLIENTS,
+    })
+}
 
 /// Decrements the SSE client counter when the response body is dropped
 /// (client disconnect or stream end).
@@ -548,6 +561,8 @@ pub(crate) struct StreamEventsQuery {
     /// Only these event types (comma-separated canonical SCREAMING names);
     /// unknown names are rejected so a typo never silently matches nothing.
     event_types: Option<String>,
+    /// Reference-compatible alias for `event_types` with the same semantics.
+    types: Option<String>,
     /// Narrow checkpoint events to one snapshot or commit id.
     snapshot_id: Option<String>,
     /// Opaque reconnect cursor (same hex token as the websocket `cursor`);
@@ -574,7 +589,7 @@ pub(crate) async fn handle_events_stream_ticket(
     headers: HeaderMap,
 ) -> Response {
     if !ticket::ticket_request_authorized(&headers, &state.config.cors) {
-        return forbidden("invalid event stream ticket request");
+        return ticket_invalid("invalid event stream ticket request");
     }
     let issued = ticket::issue(TicketScope::Events);
     ok(StreamTicket {
@@ -629,20 +644,26 @@ pub(crate) async fn handle_event_stream(
             .map(|value| crate::middleware::origin_allowed(Some(value), &state.config.cors))
             .unwrap_or(true);
         if !origin_ok || !ticket::consume(presented, &TicketScope::Events) {
-            return forbidden("invalid event stream ticket");
+            return ticket_invalid("invalid event stream ticket");
         }
     }
     if SSE_CLIENTS.fetch_add(1, Ordering::SeqCst) >= MAX_SSE_CLIENTS {
         SSE_CLIENTS.fetch_sub(1, Ordering::SeqCst);
+        SSE_REJECTED.fetch_add(1, Ordering::SeqCst);
         tracing::warn!(target: "wf_server", "SSE connection rejected: max connections ({MAX_SSE_CLIENTS}) reached");
         return crate::envelope::service_unavailable("Too many SSE connections");
     }
     // Client disconnect drops the guard and the stream, cancelling the
     // subscription immediately; no explicit cancel frame is needed.
+    // The stream is volatile by contract: a slow consumer overflows and
+    // the connection is dropped, and events during disconnection are
+    // missed. Reconnect with the opaque `since` cursor to replay the
+    // bounded retained window.
     let _guard = SseClientGuard;
 
     let execution_id = query.execution_id.clone();
-    let event_types = match query.event_types.as_deref().map(parse_event_types) {
+    let type_filter = query.event_types.as_deref().or(query.types.as_deref());
+    let event_types = match type_filter.map(parse_event_types) {
         Some(Ok(types)) => Some(types),
         Some(Err(message)) => return err(ApiError::validation(message)).into_response(),
         None => None,
@@ -679,10 +700,11 @@ pub(crate) async fn handle_event_stream(
             Err(_) => Vec::new(),
         };
     let sub = wf_api::infra::events::subscribe(&state.ctx, options);
-    // Initial connection event plus the bounded reconnect backlog.
+    // Initial handshake plus the bounded reconnect backlog. The handshake
+    // type matches the reference `server.connected` event.
     let connected = futures::stream::once(async move {
         let payload = serde_json::json!({
-            "type": "connected",
+            "type": "server.connected",
             "data": { "executionId": execution_id }
         });
         let frame = format!("data: {payload}\n\n");
@@ -906,7 +928,9 @@ mod tests {
 
         let frames = client.await.unwrap();
         assert!(
-            frames.iter().any(|f| f.contains("\"type\":\"connected\"")),
+            frames
+                .iter()
+                .any(|f| f.contains("\"type\":\"server.connected\"")),
             "expected connected frame, got: {frames:?}"
         );
         assert!(

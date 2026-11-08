@@ -126,6 +126,7 @@ mod tests {
             title: Mutex::new(String::new()),
             title_source: Mutex::new(PtyTitleSource::Default),
             pid: 1,
+            persistent: false,
             status: Mutex::new(PtySessionStatus::Running),
             exit_code: Mutex::new(None),
             rows: Mutex::new(24),

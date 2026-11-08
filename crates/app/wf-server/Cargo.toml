@@ -21,6 +21,8 @@ wf-types = { path = "../../foundation/wf-types" }
 wf-runtime = { path = "../wf-runtime", default-features = false }
 dashmap.workspace = true
 utoipa.workspace = true
+base64.workspace = true
+sha2.workspace = true
 
 [features]
 # Product default: the plugin subsystem plus all three backends. The

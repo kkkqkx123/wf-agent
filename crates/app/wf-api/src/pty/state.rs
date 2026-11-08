@@ -52,6 +52,11 @@ pub struct PtySession {
     pub cols: u16,
     pub created_at: i64,
     pub last_activity: i64,
+    /// Whether the session is retained as a persistent workspace terminal.
+    /// Ephemeral sessions sweep on idle; persistent sessions survive idle
+    /// sweeps until explicitly removed.
+    #[serde(default)]
+    pub persistent: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -94,6 +99,7 @@ pub struct PtyState {
     pub title: Mutex<String>,
     pub title_source: Mutex<PtyTitleSource>,
     pub pid: u32,
+    pub persistent: bool,
     pub status: Mutex<PtySessionStatus>,
     pub exit_code: Mutex<Option<i32>>,
     pub rows: Mutex<u16>,
@@ -226,7 +232,7 @@ pub fn sweep(inner: &Mutex<ManagerInner>) {
             let idle = now_ms - st.last_activity.load(Ordering::Relaxed).max(st.created_at)
                 > IDLE_TIMEOUT_MS;
             let unwatched = lock(&st.output).subscribers.is_empty();
-            if idle && unwatched {
+            if idle && unwatched && !st.persistent {
                 victims.push((id.clone(), st.clone()));
             } else if *lock(&st.status) == PtySessionStatus::Exited {
                 exited.push((id.clone(), st.created_at));

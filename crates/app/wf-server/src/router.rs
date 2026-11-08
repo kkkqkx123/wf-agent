@@ -52,7 +52,9 @@ pub(crate) fn api_router(ctx: Arc<ApiContext>) -> Router {
 /// the root. Embedding and tests use this to exercise auth / rate limiting /
 /// CORS on the full API surface.
 pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddlewareConfig>) -> Router {
-    let dirs = Arc::new(DirectoryContext::new(crate::directory::DirectoryConfig::default()));
+    let dirs = Arc::new(DirectoryContext::new(
+        crate::directory::DirectoryConfig::default(),
+    ));
     api_router_with_dirs(ctx, config, dirs)
 }
 
@@ -145,6 +147,7 @@ pub fn api_router_with_dirs(
         .merge(api::system::events::routes())
         .merge(api::system::dependencies::routes())
         .merge(api::system::directories::routes())
+        .merge(api::system::server::routes())
         .merge(ws::routes());
     let app = Router::new()
         .merge(api::system::health::routes())
@@ -192,8 +195,7 @@ pub fn full_router_with_middleware(
     dirs: Arc<DirectoryContext>,
 ) -> Router {
     let http = registry.http();
-    let router =
-        metrics::router(registry).merge(api_router_with_dirs(ctx, config, dirs));
+    let router = metrics::router(registry).merge(api_router_with_dirs(ctx, config, dirs));
     middleware::with_request_metrics(router, Some(http))
 }
 
@@ -217,12 +219,8 @@ pub async fn serve_full_with_config(
     config: &ServerConfig,
     dirs: Arc<DirectoryContext>,
 ) -> Result<ServerHandle, ServeError> {
-    let router = full_router_with_middleware(
-        registry,
-        ctx,
-        Arc::new(config.middleware.clone()),
-        dirs,
-    );
+    let router =
+        full_router_with_middleware(registry, ctx, Arc::new(config.middleware.clone()), dirs);
     let router = with_static_fallback(router, &config.static_dir);
     serve_with_router(router, config.bind_addr).await
 }

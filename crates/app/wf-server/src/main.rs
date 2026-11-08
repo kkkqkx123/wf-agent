@@ -161,7 +161,14 @@ async fn main() {
 
     let handle = if let Some(registry) = metrics_registry.clone() {
         info!(%addr, "starting wf-server with metrics");
-        match wf_server::serve_full_with_config(registry, ctx.clone(), &server_config, Arc::clone(&dirs)).await {
+        match wf_server::serve_full_with_config(
+            registry,
+            ctx.clone(),
+            &server_config,
+            Arc::clone(&dirs),
+        )
+        .await
+        {
             Ok(h) => h,
             Err(e) => {
                 eprintln!("bind failed at {addr}: {e}");
@@ -170,7 +177,8 @@ async fn main() {
         }
     } else {
         info!(%addr, "starting wf-server");
-        match wf_server::serve_api_with_config(ctx.clone(), &server_config, Arc::clone(&dirs)).await {
+        match wf_server::serve_api_with_config(ctx.clone(), &server_config, Arc::clone(&dirs)).await
+        {
             Ok(h) => h,
             Err(e) => {
                 eprintln!("bind failed at {addr}: {e}");

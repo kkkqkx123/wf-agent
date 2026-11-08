@@ -11,7 +11,7 @@ use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
-use crate::directory::{require_scope_dir, DirectoryScope};
+use crate::directory::{ensure_path_owned, DirectoryScope};
 use crate::envelope::{error_response, ok};
 use crate::extract::IdPath;
 use crate::middleware::AuthConfig;
@@ -171,10 +171,25 @@ pub(crate) async fn handle_create_pty(
     });
     // Spawning without a directory is rejected: the session would
     // otherwise start in a workspace the client never named.
-    let default_dir = match require_scope_dir(&scope) {
-        Ok(dir) => dir,
-        Err(e) => return error_response(e),
+    let scope = match scope.as_ref() {
+        Some(scope) => scope,
+        None => {
+            return error_response(wf_api::ApiError::Validation(
+                "request directory is required".to_string(),
+            ));
+        }
     };
+    let default_dir = scope.directory.as_path();
+    if let Some(cwd) = body.cwd.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        let candidate = if std::path::Path::new(cwd).is_absolute() {
+            std::path::PathBuf::from(cwd)
+        } else {
+            scope.directory.join(cwd)
+        };
+        if let Err(err) = ensure_path_owned(scope, &candidate) {
+            return error_response(err.into());
+        }
+    }
     let params = wf_api::pty::PtyCreateParams {
         cwd: body.cwd,
         command: body.command,

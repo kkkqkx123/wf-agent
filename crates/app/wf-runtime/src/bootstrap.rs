@@ -31,5 +31,9 @@ pub use metrics::init_metrics_context;
 pub use plugin::init_plugins;
 pub use plugin::init_plugins_and_resources;
 pub use runtime::Runtime;
-pub use storage::{init_event_persistence, postgres_connection_string, storage_db_path};
+pub use storage::{
+    acquire_storage_lock, default_storage_data_dir, default_storage_db_path,
+    init_event_persistence, is_memory_db_path, postgres_connection_string, storage_db_path,
+    storage_lock_path, STORAGE_DATA_DIR_ENV,
+};
 pub use tool_registry::{hydrate_tool_registry_from_storage, init_tool_registry_with_mcp};

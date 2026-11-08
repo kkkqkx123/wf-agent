@@ -31,6 +31,10 @@ pub struct StorageManager {
     config: StorageConfig,
     initialized: bool,
     context: Option<Arc<StorageContext>>,
+    /// Single-instance guard for sqlite: the lock file stays open while
+    /// storage is live so a second process guarding the same database
+    /// fails at startup instead of opening the same file twice.
+    _lock_file: Option<std::fs::File>,
 }
 
 impl std::fmt::Debug for StorageManager {
@@ -48,6 +52,7 @@ impl StorageManager {
             config,
             initialized: false,
             context: None,
+            _lock_file: None,
         }
     }
 
@@ -78,6 +83,15 @@ impl StorageManager {
             }
             StorageBackendType::Sqlite => {
                 let db_path = crate::bootstrap::storage_db_path(&self.config);
+                if !crate::bootstrap::is_memory_db_path(&db_path) {
+                    let lock = crate::bootstrap::acquire_storage_lock(&db_path)
+                        .map_err(RuntimeError::Config)?;
+                    info!(
+                        lock = %crate::bootstrap::storage_lock_path(&db_path).display(),
+                        "sqlite single-instance guard acquired"
+                    );
+                    self._lock_file = Some(lock);
+                }
                 let path_str = db_path.to_string_lossy();
                 info!("Initializing Sqlite storage at {:?}", db_path);
                 StorageContext::new_sqlite(&path_str, CacheConfig::default()).await?

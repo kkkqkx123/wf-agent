@@ -96,6 +96,9 @@ impl From<wf_client::ClientError> for CliError {
                 "LOCATION_NOT_FOUND" => Self::Business(format!(
                     "remote {code}: {message}; check --directory / WF_DIRECTORY"
                 )),
+                "FORBIDDEN" => Self::Business(format!(
+                    "remote {code}: {message}; directory is not served, check server allowlist and `wf directories`"
+                )),
                 "TICKET_INVALID" => Self::Business(format!(
                     "remote {code}: {message}; ticket expired, retry the handshake"
                 )),

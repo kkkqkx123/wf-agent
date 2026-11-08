@@ -138,10 +138,11 @@ impl TuiApp {
         self.pending_scope.request(crate::redraw::RedrawScope::Full);
     }
 
-    /// Fetch the newest agent-loop summaries for the recent pane. Failures
-    /// surface as a notice; the tabs pane keeps working regardless. Rows are
-    /// newest-first with server titles so the pane matches the mini `/sessions`
-    /// listing and empty servers stay explicit instead of silent.
+    /// Fetch the newest agent-loop summaries for the recent pane, scoped to
+    /// the handle workspace so multi-project servers never mix projects.
+    /// Failures surface as a notice; the tabs pane keeps working regardless.
+    /// Rows are newest-first with server titles so the pane matches the mini
+    /// `/sessions` listing and empty servers stay explicit instead of silent.
     pub(super) fn request_recent_sessions(&mut self) {
         let client = self.client.clone();
         let tx = self.data_tx.clone();
@@ -149,7 +150,9 @@ impl TuiApp {
         self.tasks.push(tokio::spawn(async move {
             let result: Result<Vec<crate::session_list::RecentSession>, String> = async {
                 let data: serde_json::Value = client
-                    .get_json(wf_cli_shared::paths::AGENT_LOOPS_SUMMARIES)
+                    .get_json(&client.with_directory_query(
+                        wf_cli_shared::paths::AGENT_LOOPS_SUMMARIES,
+                    ))
                     .await
                     .map_err(|err| err.to_string())?;
                 let mut items = data
@@ -752,7 +755,10 @@ impl TuiApp {
             tab.parent_id = entry.parent_id;
             tab.model = entry.model;
             tab.agent = entry.agent;
-            tab.workspace = entry.workspace;
+            tab.workspace = entry.workspace.filter(|workspace| {
+                let path = std::path::Path::new(workspace);
+                !workspace.trim().is_empty() && path.is_dir()
+            });
             self.sessions.push(tab);
         }
         let active = saved.active.min(self.sessions.len().saturating_sub(1));

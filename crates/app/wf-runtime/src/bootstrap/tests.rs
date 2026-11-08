@@ -429,7 +429,7 @@ fn test_storage_db_path_resolution() {
     };
     assert_eq!(
         storage_db_path(&config),
-        PathBuf::from("./storage/myapp.db")
+        crate::bootstrap::default_storage_db_path("myapp")
     );
 
     let config = StorageConfig {

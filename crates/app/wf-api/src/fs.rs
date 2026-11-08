@@ -118,22 +118,6 @@ pub fn workspace_root_for(ctx: &ApiContext, dir: Option<&Path>) -> FsResult<Path
     Ok(dir.to_path_buf())
 }
 
-pub fn workspace_root(ctx: &ApiContext) -> FsResult<PathBuf> {
-    let config = ctx
-        .user_git_config()
-        .cloned()
-        .filter(|c| c.enabled)
-        .ok_or(FsError::NotEnabled)?;
-    let root = config.repo_root.ok_or_else(|| {
-        FsError::NotInitialized("user_git.repo_root is not configured".to_string())
-    })?;
-    let path = PathBuf::from(&root);
-    if !path.join(".git").exists() && !path.join("HEAD").exists() && !path.is_dir() {
-        return Err(FsError::NotInitialized(format!("no workspace at {root}")));
-    }
-    Ok(path)
-}
-
 pub fn validate_fs_path(root: &Path, path: &str) -> FsResult<PathBuf> {
     if path.len() > 1024 {
         return Err(FsError::PathEscape(

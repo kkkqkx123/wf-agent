@@ -1690,6 +1690,67 @@
         ]
       }
     },
+    "/api/v1/agent-loops/import": {
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "Import a transcript using the same normalization as live runs so old\nexports replay without format drift.",
+        "operationId": "handle_import_loop",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunAgentLoopBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Imported loop output",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_AgentRunView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid transcript",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/agent-loops/latest-session-anchor": {
       "get": {
         "tags": [
@@ -3254,6 +3315,87 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/agent-loops/{id}/fork": {
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "Fork a live loop through a checkpoint branch without copying product\nstorage. Missing checkpoint selects the latest restorable checkpoint;\na foreign checkpoint maps to a conflict so senders retry rather than\ntreating the failure as a parameter error.",
+        "operationId": "handle_fork_loop",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForkLoopBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Forked loop output",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_AgentRunView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Checkpoint belongs to another session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
           },
           "503": {
             "description": "Service unavailable: resource limit reached"
@@ -5702,6 +5844,67 @@
         ]
       }
     },
+    "/api/v1/agent-loops/{id}/share": {
+      "get": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "Share a loop as a read-only view without duplicating storage.",
+        "operationId": "handle_share_loop",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Shared loop view",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/agent-loops/{id}/status": {
       "get": {
         "tags": [
@@ -6349,6 +6552,87 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/agent-loops/{id}/transfer": {
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "Transfer a loop by branching its conversation to a fresh handle.\nStorage stays shared through the checkpoint lineage; the source record\nis left untouched so the operation stays idempotent.",
+        "operationId": "handle_transfer_loop",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForkLoopBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Transferred loop output",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_AgentRunView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Checkpoint belongs to another session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
           },
           "503": {
             "description": "Service unavailable: resource limit reached"
@@ -12333,6 +12617,7 @@
         "tags": [
           "system"
         ],
+        "description": "Volatile SSE stream: slow consumers disconnect on overflow, disconnect gaps are lost, reconnect with the opaque since cursor for a bounded replay.",
         "operationId": "handle_event_stream",
         "parameters": [
           {
@@ -12381,6 +12666,15 @@
             "name": "event_types",
             "in": "query",
             "description": "Only these event types (comma-separated canonical SCREAMING names);\nunknown names are rejected so a typo never silently matches nothing.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "types",
+            "in": "query",
+            "description": "Reference-compatible alias for `event_types` with the same semantics.",
             "required": false,
             "schema": {
               "type": "string"
@@ -29923,6 +30217,17 @@
           "pty"
         ],
         "operationId": "get_pty",
+        "parameters": [
+          {
+            "name": "persistent_only",
+            "in": "query",
+            "description": "When true, return only persistent workspace terminals.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "PTY sessions",
@@ -31908,6 +32213,479 @@
         ]
       }
     },
+    "/api/v1/server/config": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "handle_server_config",
+        "responses": {
+          "200": {
+            "description": "Effective server config entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ServerConfigView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "handle_server_config_update",
+        "responses": {
+          "200": {
+            "description": "Config updated (currently unsupported)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ServerConfigView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Config updates unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/server/connect": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "handle_server_connect_query",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ConnectView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Expired or consumed code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
+    "/api/v1/server/connect/{code}": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "handle_server_connect",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ConnectView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Expired or consumed code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
+    "/api/v1/server/info": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "handle_server_info",
+        "responses": {
+          "200": {
+            "description": "Server identity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ServerInfoView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/server/migration-status": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "handle_migration_status",
+        "responses": {
+          "200": {
+            "description": "Migration status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_MigrationStatusView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/server/pair": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "handle_server_pair",
+        "responses": {
+          "200": {
+            "description": "One-time pairing code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_PairView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/server/projects": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "handle_server_projects",
+        "responses": {
+          "200": {
+            "description": "Cached projects",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ProjectsView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "handle_server_projects_refresh",
+        "responses": {
+          "200": {
+            "description": "Revalidated projects",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ProjectsView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/server/shells": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "handle_server_shells",
+        "responses": {
+          "200": {
+            "description": "Discoverable shells",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ShellsView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/server/status": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "handle_server_status",
+        "responses": {
+          "200": {
+            "description": "Server stop state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ServerStatusView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/skills": {
       "get": {
         "tags": [
@@ -32943,6 +33721,93 @@
         ]
       }
     },
+    "/api/v1/system/debug/heap": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "handle_debug_heap",
+        "responses": {
+          "200": {
+            "description": "Heap snapshot (currently unsupported)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Heap snapshot unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/debug/location": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "get_system_debug_location",
+        "responses": {
+          "200": {
+            "description": "Cached location keys",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_String"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/system/directories": {
       "get": {
         "tags": [
@@ -33078,6 +33943,47 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/system/tasks": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Unified task view over existing ledgers without a new task table.\nCounts come from the trigger ledger and the in-memory registries so the\nview stays consistent with the surfaces that own the data.",
+        "operationId": "handle_system_tasks",
+        "responses": {
+          "200": {
+            "description": "Task counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_SystemTasksView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
           },
           "503": {
             "description": "Service unavailable: resource limit reached"
@@ -47413,6 +48319,38 @@
           }
         }
       },
+      "ApiEnvelope_ConnectView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "token"
+            ],
+            "properties": {
+              "token": {
+                "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_CursorPageView_ArtifactEntryDoc": {
         "type": "object",
         "required": [
@@ -47913,7 +48851,8 @@
             "required": [
               "allowed_roots",
               "allow_any_explicit",
-              "cached_entries"
+              "cached_entries",
+              "cached_keys"
             ],
             "properties": {
               "allow_any_explicit": {
@@ -47928,6 +48867,12 @@
               "cached_entries": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "cached_keys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -49206,6 +50151,44 @@
           }
         }
       },
+      "ApiEnvelope_MigrationStatusView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "migrated",
+              "version"
+            ],
+            "properties": {
+              "migrated": {
+                "type": "boolean"
+              },
+              "version": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_Option_ExternalUpdateHintDoc": {
         "type": "object",
         "required": [
@@ -50075,6 +51058,78 @@
           }
         }
       },
+      "ApiEnvelope_PairView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "code",
+              "expiresIn"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "expiresIn": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_ProjectsView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "projects"
+            ],
+            "properties": {
+              "projects": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ProjectEntry"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_PromoteReportDoc": {
         "type": "object",
         "required": [
@@ -50179,6 +51234,9 @@
               "last_activity": {
                 "type": "integer",
                 "format": "int64"
+              },
+              "persistent": {
+                "type": "boolean"
               },
               "pid": {
                 "type": [
@@ -50632,6 +51690,177 @@
           }
         }
       },
+      "ApiEnvelope_ServerConfigView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "entries"
+            ],
+            "properties": {
+              "entries": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ConfigEntry"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_ServerInfoView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "version",
+              "pid",
+              "urls",
+              "tmp",
+              "capabilities"
+            ],
+            "properties": {
+              "capabilities": {
+                "$ref": "#/components/schemas/ServerCapabilities"
+              },
+              "hostname": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pid": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "tmp": {
+                "type": "string"
+              },
+              "urls": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_ServerStatusView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "stopped",
+              "version",
+              "pid"
+            ],
+            "properties": {
+              "pid": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "stopped": {
+                "type": "boolean"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_ShellsView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "shells"
+            ],
+            "properties": {
+              "shells": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_StarterView": {
         "type": "object",
         "required": [
@@ -50928,6 +52157,49 @@
               "truncated": {
                 "type": "boolean",
                 "description": "Set when nodes remain past this page; follow `next_cursor` for them."
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_SystemTasksView": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "trigger_executions",
+              "agent_loops",
+              "workflows"
+            ],
+            "properties": {
+              "agent_loops": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "trigger_executions": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "workflows": {
+                "type": "integer",
+                "minimum": 0
               }
             }
           },
@@ -51938,6 +53210,9 @@
                   "type": "integer",
                   "format": "int64"
                 },
+                "persistent": {
+                  "type": "boolean"
+                },
                 "pid": {
                   "type": [
                     "integer",
@@ -52010,6 +53285,33 @@
                   "description": "`linked` when the durable link exists, `pending` when the link write\nfailed and awaits startup compensation, `missing` when no link was\never recorded."
                 }
               }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_Vec_String": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           },
           "error": {
@@ -52984,6 +54286,21 @@
           }
         }
       },
+      "ConfigEntry": {
+        "type": "object",
+        "required": [
+          "key",
+          "value"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
       "ConflictFileDoc": {
         "type": "object",
         "description": "A file whose merge commit carries the unresolved-conflict flag\n(`wf_checkpoint::provenance::ConflictFile` mirrored).",
@@ -53052,6 +54369,17 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "ConnectView": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
           }
         }
       },
@@ -53162,6 +54490,13 @@
             "propertyNames": {
               "type": "string"
             }
+          },
+          "persistent": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Request a persistent workspace terminal that survives idle sweeps."
           },
           "rows": {
             "type": [
@@ -53601,7 +54936,8 @@
         "required": [
           "allowed_roots",
           "allow_any_explicit",
-          "cached_entries"
+          "cached_entries",
+          "cached_keys"
         ],
         "properties": {
           "allow_any_explicit": {
@@ -53616,6 +54952,12 @@
           "cached_entries": {
             "type": "integer",
             "minimum": 0
+          },
+          "cached_keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -54310,6 +55652,24 @@
             "type": "boolean"
           }
         }
+      },
+      "ForkLoopBody": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/RunAgentLoopBody"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "checkpoint_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        ]
       },
       "FsCopyBody": {
         "type": "object",
@@ -55571,6 +56931,23 @@
           }
         }
       },
+      "MigrationStatusView": {
+        "type": "object",
+        "required": [
+          "migrated",
+          "version"
+        ],
+        "properties": {
+          "migrated": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "NodeExecutionDoc": {
         "type": "object",
         "description": "One workflow node execution attempt.",
@@ -55662,6 +57039,22 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "PairView": {
+        "type": "object",
+        "required": [
+          "code",
+          "expiresIn"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "expiresIn": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -55830,6 +57223,35 @@
           }
         }
       },
+      "ProjectEntry": {
+        "type": "object",
+        "required": [
+          "projectId",
+          "directory"
+        ],
+        "properties": {
+          "directory": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectsView": {
+        "type": "object",
+        "required": [
+          "projects"
+        ],
+        "properties": {
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectEntry"
+            }
+          }
+        }
+      },
       "PromoteReportDoc": {
         "type": "object",
         "description": "Impact report returned when a draft is promoted to formal.",
@@ -55926,6 +57348,9 @@
           "last_activity": {
             "type": "integer",
             "format": "int64"
+          },
+          "persistent": {
+            "type": "boolean"
           },
           "pid": {
             "type": [
@@ -56755,6 +58180,90 @@
           }
         }
       },
+      "ServerCapabilities": {
+        "type": "object",
+        "required": [
+          "persistentPty"
+        ],
+        "properties": {
+          "persistentPty": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ServerConfigView": {
+        "type": "object",
+        "required": [
+          "entries"
+        ],
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConfigEntry"
+            }
+          }
+        }
+      },
+      "ServerInfoView": {
+        "type": "object",
+        "required": [
+          "version",
+          "pid",
+          "urls",
+          "tmp",
+          "capabilities"
+        ],
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/ServerCapabilities"
+          },
+          "hostname": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pid": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "tmp": {
+            "type": "string"
+          },
+          "urls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "ServerStatusView": {
+        "type": "object",
+        "required": [
+          "stopped",
+          "version",
+          "pid"
+        ],
+        "properties": {
+          "pid": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "stopped": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
       "SetAppendModeBody": {
         "type": "object",
         "required": [
@@ -56783,6 +58292,20 @@
         "properties": {
           "value": {
             "description": "Variable value (any JSON)"
+          }
+        }
+      },
+      "ShellsView": {
+        "type": "object",
+        "required": [
+          "shells"
+        ],
+        "properties": {
+          "shells": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -57115,6 +58638,28 @@
           },
           "auto_import": {
             "type": "boolean"
+          }
+        }
+      },
+      "SystemTasksView": {
+        "type": "object",
+        "required": [
+          "trigger_executions",
+          "agent_loops",
+          "workflows"
+        ],
+        "properties": {
+          "agent_loops": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "trigger_executions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "workflows": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },

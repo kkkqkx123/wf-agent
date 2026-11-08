@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use wf_api::EventSubscriptionOptions;
 
 use crate::api::ticket::{self, StreamTicket, TicketScope};
-use crate::envelope::{err, error_response, ok, ticket_invalid, ApiError};
+use crate::envelope::{err, error_response, ok, ticket_invalid, InvalidParams};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
 use crate::paged::{fetch_size, ok_cursor_page, ok_page, resolve_cursor_page, resolve_page};
 use crate::router::ApiState;
@@ -30,12 +30,17 @@ static SSE_CLIENTS: AtomicUsize = AtomicUsize::new(0);
 /// through `/system/event-health` so slow-consumer pressure is observable
 /// without adding new Prometheus series.
 static SSE_REJECTED: AtomicUsize = AtomicUsize::new(0);
+/// Cumulative slow-consumer disconnects when the per-connection queue
+/// overflows. Incremented alongside rejections so operators can tell
+/// admission pressure from consumption pressure.
+static SSE_OVERFLOWED: AtomicUsize = AtomicUsize::new(0);
 
 /// Snapshot of the SSE transport counters for health reporting.
 pub(crate) fn sse_transport_stats() -> serde_json::Value {
     serde_json::json!({
         "live": SSE_CLIENTS.load(Ordering::SeqCst),
         "rejected": SSE_REJECTED.load(Ordering::SeqCst),
+        "overflowed": SSE_OVERFLOWED.load(Ordering::SeqCst),
         "max": MAX_SSE_CLIENTS,
     })
 }
@@ -117,7 +122,7 @@ pub(crate) async fn handle_list_events(
 ) -> impl IntoResponse {
     let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
         Ok(page) => page,
-        Err(message) => return err(ApiError::validation(message)).into_response(),
+        Err(message) => return err(InvalidParams::validation(message)).into_response(),
     };
     // `history` truncates to `limit` from the start, so deep pages
     // over-fetch past the offset. The fetch grows with the offset instead
@@ -162,7 +167,7 @@ pub(crate) async fn handle_clear_events(
     Query(query): Query<ClearEventsQuery>,
 ) -> impl IntoResponse {
     if !query.force.unwrap_or(false) {
-        return err(ApiError::validation(
+        return err(InvalidParams::validation(
             "clearing the event history requires ?force=true",
         ))
         .into_response();
@@ -216,7 +221,7 @@ pub(crate) async fn handle_search_events(
 ) -> impl IntoResponse {
     let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
         Ok(page) => page,
-        Err(message) => return err(ApiError::validation(message)).into_response(),
+        Err(message) => return err(InvalidParams::validation(message)).into_response(),
     };
     let fetch = offset.saturating_add(limit).saturating_add(1) as usize;
     let options = wf_api::EventQueryOptions {
@@ -282,7 +287,7 @@ pub(crate) async fn handle_execution_timeline(
 ) -> impl IntoResponse {
     let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
         Ok(page) => page,
-        Err(message) => return err(ApiError::validation(message)).into_response(),
+        Err(message) => return err(InvalidParams::validation(message)).into_response(),
     };
     match wf_api::infra::events::timeline(&state.ctx, &path.execution_id).await {
         Ok(events) => {
@@ -312,7 +317,7 @@ pub(crate) async fn handle_agent_timeline(
 ) -> impl IntoResponse {
     let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
         Ok(page) => page,
-        Err(message) => return err(ApiError::validation(message)).into_response(),
+        Err(message) => return err(InvalidParams::validation(message)).into_response(),
     };
     match wf_api::infra::events::agent_timeline(&state.ctx, &path.id).await {
         Ok(events) => {
@@ -342,7 +347,7 @@ pub(crate) async fn handle_execution_timeline_view(
 ) -> impl IntoResponse {
     let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
         Ok(page) => page,
-        Err(message) => return err(ApiError::validation(message)).into_response(),
+        Err(message) => return err(InvalidParams::validation(message)).into_response(),
     };
     match wf_api::infra::events::get_execution_timeline(&state.ctx, &path.execution_id).await {
         Ok(Some(timeline)) => ok(page_execution_timeline(timeline, limit, offset)).into_response(),
@@ -618,6 +623,7 @@ fn parse_event_types(raw: &str) -> Result<Vec<wf_types::events::EventType>, Stri
     get,
     path = "/api/v1/events/stream",
     tag = "system",
+    description = "Volatile SSE stream: slow consumers disconnect on overflow, disconnect gaps are lost, reconnect with the opaque since cursor for a bounded replay.",
     params(StreamEventsQuery),
     responses(
         (status = 200, description = "Server-sent events stream", content_type = "text/event-stream"),
@@ -665,7 +671,7 @@ pub(crate) async fn handle_event_stream(
     let type_filter = query.event_types.as_deref().or(query.types.as_deref());
     let event_types = match type_filter.map(parse_event_types) {
         Some(Ok(types)) => Some(types),
-        Some(Err(message)) => return err(ApiError::validation(message)).into_response(),
+        Some(Err(message)) => return err(InvalidParams::validation(message)).into_response(),
         None => None,
     };
     let options = EventSubscriptionOptions {
@@ -700,6 +706,21 @@ pub(crate) async fn handle_event_stream(
             Err(_) => Vec::new(),
         };
     let sub = wf_api::infra::events::subscribe(&state.ctx, options);
+    // Per-connection bounded queue: a slow consumer that falls 256 events
+    // behind is disconnected and counted, keeping one stuck connection
+    // from growing memory without bound. Reconnect with the opaque `since`
+    // cursor to replay the bounded retained window.
+    let (mut overflow_tx, overflow_rx) = futures::channel::mpsc::channel::<wf_types::events::BaseEvent>(256);
+    tokio::spawn(async move {
+        let mut sub = sub;
+        while let Some(event) = sub.next().await {
+            if overflow_tx.try_send(event).is_err() {
+                SSE_OVERFLOWED.fetch_add(1, Ordering::SeqCst);
+                break;
+            }
+        }
+    });
+    let sub = overflow_rx;
     // Initial handshake plus the bounded reconnect backlog. The handshake
     // type matches the reference `server.connected` event.
     let connected = futures::stream::once(async move {

@@ -34,7 +34,7 @@ use wf_api::{
     TRIGGER_INPUT_METADATA_KEY, WEBHOOK_SPEC_METADATA_KEY,
 };
 
-use crate::envelope::{err, ok, ApiError};
+use crate::envelope::{err, ok, InvalidParams};
 use crate::router::ApiState;
 
 /// Body keys never copied into event metadata.
@@ -67,14 +67,14 @@ pub(crate) async fn handle_webhook_fire(
     Json(body): Json<serde_json::Value>,
 ) -> Response {
     let Some(template) = state.ctx.registries.trigger_templates.get(&name) else {
-        return err(ApiError::validation(format!("unknown webhook '{}'", name))).into_response();
+        return err(InvalidParams::validation(format!("unknown webhook '{}'", name))).into_response();
     };
     let spec_value = template
         .metadata
         .as_ref()
         .and_then(|meta| meta.get(WEBHOOK_SPEC_METADATA_KEY).cloned());
     let Some(spec_value) = spec_value else {
-        return err(ApiError::validation(format!(
+        return err(InvalidParams::validation(format!(
             "trigger '{}' is not a webhook",
             name
         )))
@@ -83,7 +83,7 @@ pub(crate) async fn handle_webhook_fire(
     let spec: WebhookSpec = match serde_json::from_value(spec_value) {
         Ok(spec) => spec,
         Err(e) => {
-            return err(ApiError::validation(format!(
+            return err(InvalidParams::validation(format!(
                 "trigger '{}' has an unreadable webhook_spec: {}",
                 name, e
             )))
@@ -91,7 +91,7 @@ pub(crate) async fn handle_webhook_fire(
         }
     };
     if let Err(e) = spec.validate(&name) {
-        return err(ApiError::validation(e)).into_response();
+        return err(InvalidParams::validation(e)).into_response();
     }
 
     if !check_auth(&spec.auth, &headers) {
@@ -108,7 +108,7 @@ pub(crate) async fn handle_webhook_fire(
     let execution_id = match (&spec.target, body_execution_id) {
         (ScheduleTarget::ExecutionScoped, Some(id)) if !id.is_empty() => Some(id),
         (ScheduleTarget::ExecutionScoped, _) => {
-            return err(ApiError::validation(format!(
+            return err(InvalidParams::validation(format!(
                 "webhook '{}' targets a live execution but the body carries no execution_id",
                 name
             )))
@@ -161,7 +161,7 @@ pub(crate) async fn handle_webhook_fire(
         metadata: Some(metadata),
     };
     if let Err(e) = state.ctx.event_bus.publish(event) {
-        return err(ApiError::validation(format!(
+        return err(InvalidParams::validation(format!(
             "webhook '{}' failed to publish: {}",
             name, e
         )))

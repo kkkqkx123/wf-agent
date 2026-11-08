@@ -42,6 +42,10 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/agent-loops/{id}/resume", post(handle_resume_loop))
         .route("/agent-loops/{id}/cancel", post(handle_cancel_loop))
         .route("/agent-loops/{id}/append", post(handle_append_loop))
+        .route("/agent-loops/{id}/fork", post(handle_fork_loop))
+        .route("/agent-loops/{id}/transfer", post(handle_transfer_loop))
+        .route("/agent-loops/{id}/share", get(handle_share_loop))
+        .route("/agent-loops/import", post(handle_import_loop))
         .route(
             "/agent-loops/{id}/append-mode",
             post(handle_set_append_mode_loop),

@@ -191,12 +191,25 @@ pub(crate) async fn handle_create_pty(
     }
 }
 
-#[utoipa::path(get, path = "/api/v1/pty", operation_id = "get_pty", tag = "pty", responses((status = 200, description = "PTY sessions", body = crate::envelope::ApiEnvelope<Vec<PtySession>>)), security(("api_key" = [])))]
-pub(crate) async fn handle_list_pty(State(state): State<ApiState>) -> impl IntoResponse {
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct ListPtyQuery {
+    /// When true, return only persistent workspace terminals.
+    #[serde(default)]
+    persistent_only: Option<bool>,
+}
+
+#[utoipa::path(get, path = "/api/v1/pty", operation_id = "get_pty", tag = "pty", params(ListPtyQuery), responses((status = 200, description = "PTY sessions", body = crate::envelope::ApiEnvelope<Vec<PtySession>>)), security(("api_key" = [])))]
+pub(crate) async fn handle_list_pty(
+    State(state): State<ApiState>,
+    Query(query): Query<ListPtyQuery>,
+) -> impl IntoResponse {
     let _ = state;
+    let only = query.persistent_only.unwrap_or(false);
     let list: Vec<PtySession> = wf_api::pty::list_pty_sessions()
         .into_iter()
         .map(PtySession::from)
+        .filter(|view| !only || view.persistent)
         .collect();
     ok(list).into_response()
 }

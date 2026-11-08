@@ -374,14 +374,14 @@ pub(crate) async fn handle_list_executions(
     let order_desc = match parse_order(query.order.as_deref()) {
         Ok(order) => order,
         Err(message) => {
-            return crate::envelope::err(crate::envelope::ApiError::validation(message))
+            return crate::envelope::err(crate::envelope::InvalidParams::validation(message))
                 .into_response()
         }
     };
     let status_filter = match parse_status_opt(query.status.as_deref()) {
         Ok(status) => status,
         Err(message) => {
-            return crate::envelope::err(crate::envelope::ApiError::validation(message))
+            return crate::envelope::err(crate::envelope::InvalidParams::validation(message))
                 .into_response()
         }
     };
@@ -416,7 +416,7 @@ pub(crate) async fn handle_count_executions(
     let status_filter = match parse_status_opt(query.status.as_deref()) {
         Ok(status) => status,
         Err(message) => {
-            return crate::envelope::err(crate::envelope::ApiError::validation(message))
+            return crate::envelope::err(crate::envelope::InvalidParams::validation(message))
                 .into_response()
         }
     };

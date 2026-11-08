@@ -116,7 +116,7 @@ pub(crate) async fn handle_respond_interaction(
     Json(body): Json<AgentRespondBody>,
 ) -> impl IntoResponse {
     let Some(agent_loop_id) = body.agent_loop_id else {
-        return crate::envelope::err(crate::envelope::ApiError::validation(
+        return crate::envelope::err(crate::envelope::InvalidParams::validation(
             "agent_loop_id is required to respond to an agent interaction",
         ))
         .into_response();

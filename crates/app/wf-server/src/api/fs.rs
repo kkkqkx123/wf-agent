@@ -1,11 +1,11 @@
 use axum::extract::{Extension, Query, State};
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use axum::Router;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
-use crate::directory::{scope_dir, DirectoryScope};
+use crate::directory::{ensure_path_owned, scope_dir, DirectoryScope};
 use crate::envelope::{error_response, ok};
 use crate::router::ApiState;
 
@@ -202,6 +202,27 @@ fn query_path(value: &Option<String>) -> &str {
     value.as_deref().unwrap_or("")
 }
 
+/// Reject absolute targets outside the request scope and relative targets
+/// that escape via `..`. Joins relative paths onto the scope directory so
+/// equivalent spellings compare equal; failures use the location code so
+/// cross-directory misuse never reads as a missing entity id.
+fn check_owned(scope: &Option<DirectoryScope>, rel: &str) -> Option<Response> {
+    let scope = scope.as_ref()?;
+    let target = std::path::Path::new(rel);
+    let joined = if target.is_absolute() {
+        target.to_path_buf()
+    } else {
+        scope.directory.join(target)
+    };
+    match ensure_path_owned(scope, &joined) {
+        Ok(()) => None,
+        Err(_) => Some(crate::envelope::location_not_found(format!(
+            "location not served: {rel}"
+        ))),
+    }
+}
+
+
 #[utoipa::path(get, path = "/api/v1/fs/list", operation_id = "get_fs_list", tag = "fs", params(FsPathQuery), responses((status = 200, description = "Directory listing", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "No workspace or no such path", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
 pub(crate) async fn handle_fs_list(
     State(state): State<ApiState>,
@@ -321,6 +342,9 @@ pub(crate) async fn handle_fs_write(
     Query(query): Query<FsPathQuery>,
     axum::Json(body): axum::Json<FsWriteBody>,
 ) -> impl IntoResponse {
+    if let Some(res) = check_owned(&scope, query_path(&query.path)) {
+        return res.into_response();
+    }
     match wf_api::fs::write_file(
         &state.ctx,
         scope_dir(&scope),
@@ -339,6 +363,9 @@ pub(crate) async fn handle_fs_create(
     Extension(scope): Extension<Option<DirectoryScope>>,
     axum::Json(body): axum::Json<FsCreateBody>,
 ) -> impl IntoResponse {
+    if let Some(res) = check_owned(&scope, &body.path) {
+        return res.into_response();
+    }
     match wf_api::fs::create_entry(&state.ctx, scope_dir(&scope), &body.path, body.is_dir) {
         Ok(entry) => ok(entry_view(entry)).into_response(),
         Err(err) => error_response(err.into()),
@@ -351,6 +378,9 @@ pub(crate) async fn handle_fs_delete(
     Extension(scope): Extension<Option<DirectoryScope>>,
     Query(query): Query<FsDeleteQuery>,
 ) -> impl IntoResponse {
+    if let Some(res) = check_owned(&scope, &query.path) {
+        return res.into_response();
+    }
     match wf_api::fs::delete_entry(&state.ctx, scope_dir(&scope), &query.path) {
         Ok(()) => ok(serde_json::json!({"removed": true, "path": query.path})).into_response(),
         Err(err) => error_response(err.into()),
@@ -363,6 +393,9 @@ pub(crate) async fn handle_fs_rename(
     Extension(scope): Extension<Option<DirectoryScope>>,
     axum::Json(body): axum::Json<FsRenameBody>,
 ) -> impl IntoResponse {
+    if let Some(res) = check_owned(&scope, &body.from).or_else(|| check_owned(&scope, &body.to)) {
+        return res.into_response();
+    }
     match wf_api::fs::rename_entry(&state.ctx, scope_dir(&scope), &body.from, &body.to) {
         Ok(entry) => ok(entry_view(entry)).into_response(),
         Err(err) => error_response(err.into()),
@@ -375,6 +408,9 @@ pub(crate) async fn handle_fs_copy(
     Extension(scope): Extension<Option<DirectoryScope>>,
     axum::Json(body): axum::Json<FsCopyBody>,
 ) -> impl IntoResponse {
+    if let Some(res) = check_owned(&scope, &body.from).or_else(|| check_owned(&scope, &body.to)) {
+        return res.into_response();
+    }
     match wf_api::fs::copy_entry(&state.ctx, scope_dir(&scope), &body.from, &body.to) {
         Ok(entry) => ok(entry_view(entry)).into_response(),
         Err(err) => error_response(err.into()),

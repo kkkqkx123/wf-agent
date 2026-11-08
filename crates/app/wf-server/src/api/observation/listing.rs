@@ -12,7 +12,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use wf_api::execution_listing::{UnifiedExecutionFilter, UnifiedExecutionSummary};
 
-use crate::envelope::{err, ApiError};
+use crate::envelope::{err, InvalidParams};
 use crate::extract::IdPath;
 use crate::paged::{ok_cursor_page, resolve_cursor_page};
 use crate::router::ApiState;
@@ -147,7 +147,7 @@ pub(crate) async fn handle_unified_executions(
 ) -> impl IntoResponse {
     let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
         Ok(page) => page,
-        Err(message) => return err(ApiError::validation(message)).into_response(),
+        Err(message) => return err(InvalidParams::validation(message)).into_response(),
     };
     let filter = match parse_filter(
         query.status.as_deref(),
@@ -157,7 +157,7 @@ pub(crate) async fn handle_unified_executions(
         query.started_to,
     ) {
         Ok(filter) => filter,
-        Err(message) => return err(ApiError::validation(message)).into_response(),
+        Err(message) => return err(InvalidParams::validation(message)).into_response(),
     };
     // Ask for one extra item past the page: `from_window` turns the extra
     // item into `has_more` plus the following cursor and drops it.
@@ -196,7 +196,7 @@ pub(crate) async fn handle_unified_executions_count(
         query.started_to,
     ) {
         Ok(filter) => filter,
-        Err(message) => return err(ApiError::validation(message)).into_response(),
+        Err(message) => return err(InvalidParams::validation(message)).into_response(),
     };
     match wf_api::execution_listing::count_unified(&state.ctx, Some(&filter)).await {
         Ok(count) => crate::envelope::ok(UnifiedExecutionCountView { count }).into_response(),

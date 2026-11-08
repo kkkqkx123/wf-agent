@@ -319,6 +319,25 @@ export function registerAgentLoops(router: MockRouter): void {
 		result: 'Preview run accepted; connect a live backend to execute.',
 		iterations: 1,
 	}));
+	router.on('POST', '/api/v1/agent-loops/{id}/fork', (params) => ({
+		agent_loop_id: `loop-preview-fork-${params.id}`,
+		result: 'Preview fork accepted; connect a live backend to branch.',
+		iterations: 1,
+	}));
+	router.on('POST', '/api/v1/agent-loops/{id}/transfer', (params) => ({
+		agent_loop_id: `loop-preview-transfer-${params.id}`,
+		result: 'Preview transfer accepted; connect a live backend to branch.',
+		iterations: 1,
+	}));
+	router.on('GET', '/api/v1/agent-loops/{id}/share', (params) => ({
+		shared: true,
+		loop: { id: params.id, status: 'running' },
+	}));
+	router.on('POST', '/api/v1/agent-loops/import', () => ({
+		agent_loop_id: 'loop-preview-import',
+		result: 'Preview import accepted; connect a live backend to execute.',
+		iterations: 1,
+	}));
 	router.on('POST', '/api/v1/agent-loops/{id}/append', () => ({ ok: true }));
 	router.on('POST', '/api/v1/agent-loops/{id}/append-mode', () => ({ ok: true }));
 	router.on('POST', '/api/v1/agent-loops/{id}/convert-pending', () => ({ ok: true }));

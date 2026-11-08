@@ -19,8 +19,7 @@
 //! for routing. The per-directory entry cache only memoizes validated
 //! scopes; it never invents them.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -274,12 +273,16 @@ pub fn discover_project(directory: &Path) -> PathBuf {
     }
 }
 
-/// Stable id for a canonical project path. Deterministic within a binary;
-/// persisted cross-restart identity is future work.
+/// Stable id for a canonical project path. FNV-1a over the path bytes
+/// stays identical across restarts so cached project entries keep their
+/// identity without a persisted table.
 pub fn project_id_for(project: &Path) -> String {
-    let mut hasher = DefaultHasher::new();
-    project.to_string_lossy().hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in project.to_string_lossy().as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
 }
 
 /// Resolve one raw directory value (or its absence) to a validated scope.
@@ -321,6 +324,7 @@ struct CachedEntry {
 pub struct DirectoryContext {
     config: DirectoryConfig,
     entries: dashmap::DashMap<String, CachedEntry>,
+    ready: AtomicBool,
 }
 
 impl DirectoryContext {
@@ -328,7 +332,19 @@ impl DirectoryContext {
         Self {
             config,
             entries: dashmap::DashMap::new(),
+            ready: AtomicBool::new(true),
         }
+    }
+
+    /// Flip the serving gate. Embedders mark the context not ready while
+    /// plugins activate; requests during the window fail fast with 503.
+    pub fn set_ready(&self, ready: bool) {
+        self.ready.store(ready, Ordering::SeqCst);
+    }
+
+    /// Whether directory services are ready to serve requests.
+    pub fn is_ready(&self) -> bool {
+        self.ready.load(Ordering::SeqCst)
     }
 
     /// Resolve the request directory from headers and query string. The
@@ -431,11 +447,26 @@ impl DirectoryContext {
 /// Directory rejections use the location-specific code so clients can
 /// tell a wrong directory from a wrong entity id; every other request
 /// continues with `Option<DirectoryScope>` present (possibly `None`).
+/// Whether a target path stays inside the request scope. Canonicalizes
+/// best-effort so equivalent spellings compare equal; unresolvable paths
+/// fall back to lexical prefix comparison and fail closed.
+pub(crate) fn ensure_path_owned(scope: &DirectoryScope, target: &Path) -> Result<(), DirectoryError> {
+    let anchor = std::fs::canonicalize(&scope.directory).unwrap_or_else(|_| scope.directory.clone());
+    let owned = std::fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
+    if owned == anchor || owned.starts_with(&anchor) {
+        return Ok(());
+    }
+    Err(DirectoryError::Forbidden(owned.to_string_lossy().into_owned()))
+}
+
 pub(crate) async fn directory_middleware(
     State(ctx): State<Arc<DirectoryContext>>,
     req: Request<Body>,
     next: Next,
 ) -> Response {
+    if !ctx.is_ready() {
+        return crate::envelope::service_unavailable("directory services are warming up");
+    }
     let query = req.uri().query().map(str::to_string);
     let scope = match ctx.resolve(req.headers(), query.as_deref()) {
         Ok(scope) => scope,

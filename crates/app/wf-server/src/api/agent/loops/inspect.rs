@@ -7,7 +7,7 @@ use axum::response::IntoResponse;
 use serde::Deserialize;
 use utoipa::IntoParams;
 
-use crate::envelope::{err, error_response, ok, ApiError};
+use crate::envelope::{err, error_response, ok, InvalidParams};
 use crate::extract::{CursorQuery, IdNamePath, IdPath, ListQuery};
 use crate::paged::{
     fetch_size, ok_cursor_page, ok_page, resolve_cursor_page, resolve_page, resolve_page_fields,
@@ -61,7 +61,7 @@ pub(crate) async fn handle_loop_summaries(
         .transpose()
     {
         Ok(status) => status,
-        Err(message) => return err(ApiError::validation(message)).into_response(),
+        Err(message) => return err(InvalidParams::validation(message)).into_response(),
     };
     let filter = wf_api::AgentLoopFilter {
         ids: None,
@@ -82,7 +82,7 @@ pub(crate) async fn handle_loop_summaries(
                     summaries.sort_by_key(|s| s.start_time.unwrap_or(i64::MAX));
                 }
                 Some(raw) => {
-                    return err(ApiError::validation(format!(
+                    return err(InvalidParams::validation(format!(
                         "unknown order: {raw} (expected asc or desc)"
                     )))
                     .into_response();
@@ -215,7 +215,7 @@ pub(crate) async fn handle_loop_timeline(
 ) -> impl IntoResponse {
     let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
         Ok(page) => page,
-        Err(message) => return err(ApiError::validation(message)).into_response(),
+        Err(message) => return err(InvalidParams::validation(message)).into_response(),
     };
     match wf_api::agent::agent_loop_registry::execution_timeline(&state.ctx, &path.id).await {
         Ok(timeline) => {

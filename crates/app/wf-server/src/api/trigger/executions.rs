@@ -48,6 +48,7 @@ pub(crate) fn routes() -> Router<ApiState> {
             get(handle_get_trigger_execution).delete(handle_delete_trigger_execution),
         )
         .route("/triggers/history", get(handle_trigger_history))
+        .route("/system/tasks", get(handle_system_tasks))
 }
 
 // ── triggers ──────────────────────────────────────────────────────
@@ -86,7 +87,7 @@ pub(crate) async fn handle_list_trigger_executions(
         Some(raw) => match raw.parse::<wf_types::TriggerExecutionOutcome>() {
             Ok(outcome) => Some(outcome),
             Err(e) => {
-                return crate::envelope::err(crate::envelope::ApiError::validation(e.to_string()))
+                return crate::envelope::err(crate::envelope::InvalidParams::validation(e.to_string()))
                     .into_response()
             }
         },
@@ -330,6 +331,44 @@ pub(crate) async fn handle_trigger_history(
         }
         Err(e) => error_response(e),
     }
+}
+
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub(crate) struct SystemTasksView {
+    trigger_executions: usize,
+    agent_loops: usize,
+    workflows: usize,
+}
+
+/// Unified task view over existing ledgers without a new task table.
+/// Counts come from the trigger ledger and the in-memory registries so the
+/// view stays consistent with the surfaces that own the data.
+#[utoipa::path(
+    get,
+    path = "/api/v1/system/tasks",
+    tag = "system",
+    responses((status = 200, description = "Task counts", body = crate::envelope::ApiEnvelope<SystemTasksView>)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_system_tasks(State(state): State<ApiState>) -> impl IntoResponse {
+    let triggers = wf_api::trigger::execution::list_trigger_executions(
+        &state.ctx.storage,
+        Some(wf_api::TriggerExecutionListOptions::default()),
+    )
+    .await
+    .map(|rows| rows.len())
+    .unwrap_or(0);
+    let loops = wf_api::agent::agent_loop_registry::count(&state.ctx).await.unwrap_or(0);
+    let workflows = wf_api::workflow::execution::count_executions(&state.ctx, None)
+        .await
+        .unwrap_or(0) as usize;
+    ok(SystemTasksView {
+        trigger_executions: triggers,
+        agent_loops: loops,
+        workflows,
+    })
+    .into_response()
 }
 
 #[cfg(test)]

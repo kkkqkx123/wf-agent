@@ -7,11 +7,11 @@ use axum::Json;
 use serde::Serialize;
 use utoipa::ToSchema;
 
-pub(crate) struct ApiError {
+pub(crate) struct InvalidParams {
     message: String,
 }
 
-impl ApiError {
+impl InvalidParams {
     pub(crate) fn validation(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
@@ -87,7 +87,7 @@ pub(crate) fn ok<T: Serialize>(data: T) -> Json<ApiEnvelope<T>> {
     })
 }
 
-pub(crate) fn err(e: ApiError) -> (StatusCode, Json<ErrorResponse>) {
+pub(crate) fn err(e: InvalidParams) -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::BAD_REQUEST,
         Json(ErrorResponse::new("INVALID_PARAMS", e.message)),

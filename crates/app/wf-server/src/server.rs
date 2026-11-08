@@ -36,6 +36,7 @@ impl ServerHandle {
     /// Signal graceful shutdown and await the server task, draining
     /// in-flight requests before returning.
     pub async fn shutdown(self) {
+        crate::api::system::server::mark_server_stopping();
         let _ = self.shutdown.send(());
         let _ = self.task.await;
     }

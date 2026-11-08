@@ -53,6 +53,16 @@ use crate::router::ApiState;
 /// Interval between protocol `Ping` frames keeping the connection alive.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 
+static WS_CLIENTS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// Snapshot of live WebSocket connections for health reporting.
+pub(crate) fn ws_transport_stats() -> serde_json::Value {
+    serde_json::json!({
+        "live": WS_CLIENTS.load(std::sync::atomic::Ordering::SeqCst),
+    })
+}
+
 /// Messages flowing from subscription forwarder tasks to the connection loop.
 enum Outbound {
     /// Serialized JSON text to write to the socket.
@@ -87,6 +97,7 @@ async fn handle_socket(socket: WebSocket, state: ApiState, request: Request<Body
         return;
     }
 
+    WS_CLIENTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let client_id = format!("ws_{}", wf_api::generate_id());
     let (mut sender, mut receiver) = socket.split();
     let (out_tx, mut out_rx) = mpsc::channel::<Outbound>(256);
@@ -158,6 +169,7 @@ async fn handle_socket(socket: WebSocket, state: ApiState, request: Request<Body
         handle.abort();
         tracing::debug!(target: "wf_server", %client_id, %key, "websocket subscription aborted");
     }
+    WS_CLIENTS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     tracing::debug!(target: "wf_server", %client_id, "websocket client disconnected");
 }
 

@@ -144,7 +144,7 @@ pub(crate) async fn handle_increment_version(
         Some("minor") => wf_api::workflow::VersionStrategy::Minor,
         Some("major") => wf_api::workflow::VersionStrategy::Major,
         Some(other) => {
-            return crate::envelope::err(crate::envelope::ApiError::validation(format!(
+            return crate::envelope::err(crate::envelope::InvalidParams::validation(format!(
                 "unsupported version level: {other}"
             )))
             .into_response()

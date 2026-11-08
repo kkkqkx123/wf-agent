@@ -131,3 +131,32 @@ export function extractCapped<T>(data: unknown): CappedResult<T> {
 		truncated: (d.truncated as boolean | undefined) ?? false,
 	};
 }
+
+/** Stable backend error codes the UI branches on. */
+export const ERROR_CODES = {
+	sessionBusy: 'SESSION_BUSY',
+	sessionNotFound: 'SESSION_NOT_FOUND',
+	ticketInvalid: 'TICKET_INVALID',
+	locationNotFound: 'LOCATION_NOT_FOUND',
+	serviceUnavailable: 'SERVICE_UNAVAILABLE',
+} as const;
+
+/** True when the session is busy (409); the caller should retry after it settles. */
+export function isSessionBusy(error: unknown): boolean {
+	return error instanceof ApiHttpError && error.code === ERROR_CODES.sessionBusy;
+}
+
+/** True when the session handle is gone (404). */
+export function isSessionNotFound(error: unknown): boolean {
+	return error instanceof ApiHttpError && error.code === ERROR_CODES.sessionNotFound;
+}
+
+/** True when a one-time ticket expired (403); the caller should re-mint. */
+export function isTicketInvalid(error: unknown): boolean {
+	return error instanceof ApiHttpError && error.code === ERROR_CODES.ticketInvalid;
+}
+
+/** True when the directory scope is wrong (404); hint at --directory. */
+export function isLocationNotFound(error: unknown): boolean {
+	return error instanceof ApiHttpError && error.code === ERROR_CODES.locationNotFound;
+}

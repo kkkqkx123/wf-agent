@@ -397,7 +397,7 @@ pub(crate) async fn handle_slow_nodes(
     let percentile = match query.percentile {
         Some(value) if (0.0..=100.0).contains(&value) => value,
         Some(_) => {
-            return err(crate::envelope::ApiError::validation(
+            return err(crate::envelope::InvalidParams::validation(
                 "percentile must be within 0..=100",
             ))
             .into_response()

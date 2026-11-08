@@ -72,6 +72,9 @@ pub enum EventSub {
     },
     /// Event statistics.
     Stats,
+    /// Transport health with SSE overflow and WS live counts
+    /// (`GET /system/event-health`).
+    Health,
     /// Execution timeline.
     Timeline {
         /// Execution id.

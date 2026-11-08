@@ -285,7 +285,7 @@ pub(crate) async fn handle_skill_resources(
         Some("scripts") => SkillResourceType::Scripts,
         Some("assets") => SkillResourceType::Assets,
         Some(other) => {
-            return crate::envelope::err(crate::envelope::ApiError::validation(format!(
+            return crate::envelope::err(crate::envelope::InvalidParams::validation(format!(
                 "unknown skill resource type: {other}"
             )))
             .into_response()

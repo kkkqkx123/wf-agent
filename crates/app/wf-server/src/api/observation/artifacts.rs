@@ -13,7 +13,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use wf_api::execution_artifacts::{ArtifactEntry, ArtifactFilter, ArtifactKind};
 
-use crate::envelope::{err, ApiError};
+use crate::envelope::{err, InvalidParams};
 use crate::extract::IdPath;
 use crate::paged::{ok_cursor_page, resolve_cursor_page};
 use crate::router::ApiState;
@@ -113,11 +113,11 @@ pub(crate) async fn handle_execution_artifacts(
 ) -> impl IntoResponse {
     let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
         Ok(page) => page,
-        Err(message) => return err(ApiError::validation(message)).into_response(),
+        Err(message) => return err(InvalidParams::validation(message)).into_response(),
     };
     let kind = match parse_kind(query.kind.as_deref()) {
         Ok(kind) => kind,
-        Err(message) => return err(ApiError::validation(message)).into_response(),
+        Err(message) => return err(InvalidParams::validation(message)).into_response(),
     };
     let filter = ArtifactFilter {
         execution_id: Some(path.id.clone()),
@@ -156,11 +156,11 @@ pub(crate) async fn handle_query_artifacts(
 ) -> impl IntoResponse {
     let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
         Ok(page) => page,
-        Err(message) => return err(ApiError::validation(message)).into_response(),
+        Err(message) => return err(InvalidParams::validation(message)).into_response(),
     };
     let kind = match parse_kind(query.kind.as_deref()) {
         Ok(kind) => kind,
-        Err(message) => return err(ApiError::validation(message)).into_response(),
+        Err(message) => return err(InvalidParams::validation(message)).into_response(),
     };
     let filter = ArtifactFilter {
         execution_id: query.execution_id,

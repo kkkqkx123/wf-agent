@@ -20,7 +20,7 @@ use wf_metrics::{
     MetricsRegistry, ReportOptions,
 };
 
-use crate::envelope::{err, ApiError};
+use crate::envelope::{err, InvalidParams};
 
 pub(crate) const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
 
@@ -198,7 +198,7 @@ pub(crate) async fn handle_export(
             PROMETHEUS_CONTENT_TYPE,
             format_registry_prometheus(&state.registry),
         ),
-        Some(other) => err(ApiError::validation(format!(
+        Some(other) => err(InvalidParams::validation(format!(
             "unsupported export format: {other}"
         )))
         .into_response(),

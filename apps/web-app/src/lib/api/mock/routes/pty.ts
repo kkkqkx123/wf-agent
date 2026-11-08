@@ -23,7 +23,14 @@ export function registerPty(router: MockRouter): void {
 		};
 		return createSession(b);
 	});
-	router.on('GET', '/api/v1/pty', () => listSessions());
+	router.on('GET', '/api/v1/pty', (_p, query) => {
+		const only = String((query as Record<string, unknown>).persistent_only ?? '').toLowerCase();
+		const sessions = listSessions();
+		if (only === 'true' || only === '1') {
+			return (sessions as Array<Record<string, unknown>>).filter((s) => s.persistent === true);
+		}
+		return sessions;
+	});
 	router.on('GET', '/api/v1/pty/{id}', (params) => {
 		const session = getSession(params.id);
 		// Mirror the real backend: unknown ids are 404 so the session store

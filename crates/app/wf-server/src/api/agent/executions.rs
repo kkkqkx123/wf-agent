@@ -155,21 +155,21 @@ pub(crate) async fn handle_agent_executions(
     let order_desc = match parse_order(query.order.as_deref()) {
         Ok(order) => order,
         Err(message) => {
-            return crate::envelope::err(crate::envelope::ApiError::validation(message))
+            return crate::envelope::err(crate::envelope::InvalidParams::validation(message))
                 .into_response()
         }
     };
     let status = match parse_status_opt(query.status.as_deref()) {
         Ok(status) => status,
         Err(message) => {
-            return crate::envelope::err(crate::envelope::ApiError::validation(message))
+            return crate::envelope::err(crate::envelope::InvalidParams::validation(message))
                 .into_response()
         }
     };
     let execution_type = match parse_execution_type_opt(query.execution_type.as_deref()) {
         Ok(execution_type) => execution_type,
         Err(message) => {
-            return crate::envelope::err(crate::envelope::ApiError::validation(message))
+            return crate::envelope::err(crate::envelope::InvalidParams::validation(message))
                 .into_response()
         }
     };
@@ -215,14 +215,14 @@ pub(crate) async fn handle_agent_executions_count(
     let status = match parse_status_opt(query.status.as_deref()) {
         Ok(status) => status,
         Err(message) => {
-            return crate::envelope::err(crate::envelope::ApiError::validation(message))
+            return crate::envelope::err(crate::envelope::InvalidParams::validation(message))
                 .into_response()
         }
     };
     let execution_type = match parse_execution_type_opt(query.execution_type.as_deref()) {
         Ok(execution_type) => execution_type,
         Err(message) => {
-            return crate::envelope::err(crate::envelope::ApiError::validation(message))
+            return crate::envelope::err(crate::envelope::InvalidParams::validation(message))
                 .into_response()
         }
     };
@@ -354,7 +354,7 @@ pub(crate) async fn handle_executions_by_status(
     let status = match path.status.parse::<wf_types::ExecutionStatus>() {
         Ok(status) => status,
         Err(_) => {
-            return crate::envelope::err(crate::envelope::ApiError::validation(format!(
+            return crate::envelope::err(crate::envelope::InvalidParams::validation(format!(
                 "unknown agent execution status: {}",
                 path.status
             )))

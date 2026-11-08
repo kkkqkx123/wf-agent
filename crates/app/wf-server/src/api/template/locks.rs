@@ -7,7 +7,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 
 use crate::api::workflow::locks::{publish_lock_event, AcquireLockBody, LockView, OwnerBody};
-use crate::envelope::{err, ok, ApiError};
+use crate::envelope::{err, ok, InvalidParams};
 use crate::extract::IdPath;
 use crate::router::ApiState;
 
@@ -60,7 +60,7 @@ async fn acquire(
     body: AcquireLockBody,
 ) -> axum::response::Response {
     if body.owner_id.is_empty() {
-        return err(ApiError::validation("owner_id must not be empty")).into_response();
+        return err(InvalidParams::validation("owner_id must not be empty")).into_response();
     }
     let before = state
         .locks
@@ -104,7 +104,7 @@ async fn heartbeat(
                 )
                 .await;
             }
-            err(ApiError::validation("no active lease to renew")).into_response()
+            err(InvalidParams::validation("no active lease to renew")).into_response()
         }
     }
 }

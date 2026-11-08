@@ -141,6 +141,9 @@ pub enum TaskSub {
     },
     /// Show task statistics.
     Stats,
+    /// Unified counts over trigger / loop / workflow ledgers
+    /// (`GET /api/v1/system/tasks`). No new task table behind it.
+    System,
     /// Cancel a task.
     Cancel {
         /// Task id.

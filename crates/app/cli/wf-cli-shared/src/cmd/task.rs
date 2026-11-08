@@ -44,6 +44,10 @@ pub async fn run(cli: &Cli, sub: &TaskSub) -> CliResult<()> {
             let data: serde_json::Value = client.get_json("/api/v1/tasks/stats").await?;
             render_envelope(cli.output, OutputEnvelope::success("task-stats", data))
         }
+        TaskSub::System => {
+            let data: serde_json::Value = client.system_tasks().await?;
+            render_envelope(cli.output, OutputEnvelope::success("task-system", data))
+        }
         TaskSub::Cancel { id } => {
             client
                 .post_json::<_, serde_json::Value>(

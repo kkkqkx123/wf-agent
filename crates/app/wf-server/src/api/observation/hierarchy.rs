@@ -14,7 +14,7 @@ use wf_api::execution_hierarchy;
 use wf_types::execution::ExecutionType;
 use wf_types::ExecutionStatus;
 
-use crate::envelope::{err, error_response, ok, ApiError};
+use crate::envelope::{err, error_response, ok, InvalidParams};
 use crate::extract::IdPath;
 use crate::paged::encode_cursor;
 use crate::router::ApiState;
@@ -203,7 +203,7 @@ pub(crate) async fn handle_subtree(
     let (limit, offset) =
         match crate::paged::resolve_cursor_page(query.limit, query.cursor.as_deref()) {
             Ok(page) => page,
-            Err(message) => return err(ApiError::validation(message)).into_response(),
+            Err(message) => return err(InvalidParams::validation(message)).into_response(),
         };
     match execution_hierarchy::subtree(&state.ctx, &path.id, limit as usize, offset as usize).await
     {

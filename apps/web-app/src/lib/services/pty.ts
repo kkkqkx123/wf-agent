@@ -37,8 +37,12 @@ export async function createPty(input?: {
 	return requireData(data, 'PTY session') as PtySession;
 }
 
-export async function listPtys(): Promise<PtySession[]> {
-	const data = await call<unknown>(client.GET('/api/v1/pty'));
+export async function listPtys(persistentOnly = false): Promise<PtySession[]> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/pty', {
+			params: { query: persistentOnly ? { persistent_only: true } : {} },
+		}),
+	);
 	const rows = requireData(data, 'PTY sessions') as PtySession[];
 	return Array.isArray(rows) ? rows : [];
 }

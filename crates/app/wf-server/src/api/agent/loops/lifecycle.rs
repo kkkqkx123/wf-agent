@@ -472,3 +472,160 @@ pub(crate) async fn handle_convert_pending_to_steering_loop(
         Err(e) => session_error_response(e),
     }
 }
+
+#[derive(serde::Deserialize, utoipa::ToSchema)]
+pub(crate) struct ForkLoopBody {
+    #[serde(default)]
+    checkpoint_id: Option<String>,
+    #[serde(flatten)]
+    run: RunAgentLoopBody,
+}
+
+/// Fork a live loop through a checkpoint branch without copying product
+/// storage. Missing checkpoint selects the latest restorable checkpoint;
+/// a foreign checkpoint maps to a conflict so senders retry rather than
+/// treating the failure as a parameter error.
+#[utoipa::path(
+    post,
+    path = "/api/v1/agent-loops/{id}/fork",
+    tag = "agent",
+    params(IdPath),
+    request_body = ForkLoopBody,
+    responses(
+        (status = 200, description = "Forked loop output", body = crate::envelope::ApiEnvelope<crate::api::agent::loops::AgentRunView>),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 409, description = "Checkpoint belongs to another session", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_fork_loop(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
+    Path(path): Path<IdPath>,
+    Json(body): Json<ForkLoopBody>,
+) -> impl IntoResponse {
+    let checkpoint_id = match body.checkpoint_id {
+        Some(id) => id,
+        None => match latest_restorable_checkpoint(&state.ctx, &path.id).await {
+            Ok(id) => id,
+            Err(e) => return session_error_response(e),
+        },
+    };
+    let run_params = match params_from_body(&state, &scope, body.run).await {
+        Ok(params) => params,
+        Err(e) => return session_error_response(e),
+    };
+    match wf_api::agent::agent_execution::resume_from_checkpoint(
+        &state.ctx, &path.id, &checkpoint_id, run_params, false,
+    )
+    .await
+    {
+        Ok(output) => ok(AgentRunView {
+            agent_loop_id: output.agent_loop_id.to_string(),
+            result: output.result,
+            iterations: output.iterations,
+        })
+        .into_response(),
+        Err(e) => inbox_conflict_response(e),
+    }
+}
+
+/// Transfer a loop by branching its conversation to a fresh handle.
+/// Storage stays shared through the checkpoint lineage; the source record
+/// is left untouched so the operation stays idempotent.
+#[utoipa::path(
+    post,
+    path = "/api/v1/agent-loops/{id}/transfer",
+    tag = "agent",
+    params(IdPath),
+    request_body = ForkLoopBody,
+    responses(
+        (status = 200, description = "Transferred loop output", body = crate::envelope::ApiEnvelope<crate::api::agent::loops::AgentRunView>),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 409, description = "Checkpoint belongs to another session", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_transfer_loop(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
+    Path(path): Path<IdPath>,
+    Json(body): Json<ForkLoopBody>,
+) -> impl IntoResponse {
+    handle_fork_loop(State(state), Extension(scope), Path(path), Json(ForkLoopBody { checkpoint_id: body.checkpoint_id, run: body.run })).await
+}
+
+/// Share a loop as a read-only view without duplicating storage.
+#[utoipa::path(
+    get,
+    path = "/api/v1/agent-loops/{id}/share",
+    tag = "agent",
+    params(IdPath),
+    responses(
+        (status = 200, description = "Shared loop view", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_share_loop(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::agent::agent_loop_registry::summary(&state.ctx, &path.id).await {
+        Ok(Some(summary)) => ok(serde_json::json!({ "shared": true, "loop": summary })).into_response(),
+        Ok(None) => crate::envelope::session_not_found(format!("session [{}] not found", path.id)).into_response(),
+        Err(e) => session_error_response(e),
+    }
+}
+
+/// Import a transcript using the same normalization as live runs so old
+/// exports replay without format drift.
+#[utoipa::path(
+    post,
+    path = "/api/v1/agent-loops/import",
+    tag = "agent",
+    request_body = RunAgentLoopBody,
+    responses(
+        (status = 200, description = "Imported loop output", body = crate::envelope::ApiEnvelope<crate::api::agent::loops::AgentRunView>),
+        (status = 400, description = "Invalid transcript", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_import_loop(
+    State(state): State<ApiState>,
+    Extension(scope): Extension<Option<DirectoryScope>>,
+    Json(body): Json<RunAgentLoopBody>,
+) -> impl IntoResponse {
+    match params_from_body(&state, &scope, body).await {
+        Ok(params) => match wf_api::agent::agent_execution::run(&state.ctx, params).await {
+            Ok(output) => ok(AgentRunView {
+                agent_loop_id: output.agent_loop_id.to_string(),
+                result: output.result,
+                iterations: output.iterations,
+            })
+            .into_response(),
+            Err(e) => session_error_response(e),
+        },
+        Err(e) => session_error_response(e),
+    }
+}
+
+async fn latest_restorable_checkpoint(
+    ctx: &wf_api::ApiContext,
+    agent_loop_id: &str,
+) -> Result<String, wf_api::ApiError> {
+    wf_api::agent::agent_checkpoint::latest_restorable_checkpoint_id(ctx, agent_loop_id).await
+}
+
+/// A checkpoint that exists under another session is an inbox conflict:
+/// report a conflict so the sender retries against the owning session
+/// instead of treating the failure as a malformed request.
+fn inbox_conflict_response(e: wf_api::ApiError) -> axum::response::Response {
+    match &e {
+        wf_api::ApiError::Validation(message) if message.contains("does not belong") => {
+            crate::envelope::session_error_response(wf_api::ApiError::Conflict(message.clone()))
+        }
+        _ => session_error_response(e),
+    }
+}
+

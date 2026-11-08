@@ -652,6 +652,94 @@ impl WfClient {
         .await
     }
 
+    /// Fork a loop through its latest restorable checkpoint
+    /// (`POST /api/v1/agent-loops/{id}/fork`).
+    pub async fn fork_agent_loop(
+        &self,
+        id: &str,
+        checkpoint_id: Option<String>,
+        body: &serde_json::Value,
+    ) -> ClientResult<serde_json::Value> {
+        let mut payload = body.clone();
+        if let serde_json::Value::Object(ref mut map) = payload {
+            if let Some(cid) = checkpoint_id {
+                map.insert("checkpoint_id".to_string(), serde_json::Value::String(cid));
+            }
+        }
+        self.post_json(&format!("/api/v1/agent-loops/{id}/fork"), &payload)
+            .await
+    }
+
+    /// Transfer a loop by branching its conversation
+    /// (`POST /api/v1/agent-loops/{id}/transfer`).
+    pub async fn transfer_agent_loop(
+        &self,
+        id: &str,
+        checkpoint_id: Option<String>,
+        body: &serde_json::Value,
+    ) -> ClientResult<serde_json::Value> {
+        let mut payload = body.clone();
+        if let serde_json::Value::Object(ref mut map) = payload {
+            if let Some(cid) = checkpoint_id {
+                map.insert("checkpoint_id".to_string(), serde_json::Value::String(cid));
+            }
+        }
+        self.post_json(&format!("/api/v1/agent-loops/{id}/transfer"), &payload)
+            .await
+    }
+
+    /// Share a loop as a read-only view (`GET /api/v1/agent-loops/{id}/share`).
+    pub async fn share_agent_loop(&self, id: &str) -> ClientResult<serde_json::Value> {
+        self.get_json(&format!("/api/v1/agent-loops/{id}/share"))
+            .await
+    }
+
+    /// Import a transcript with live-run normalization
+    /// (`POST /api/v1/agent-loops/import`).
+    pub async fn import_agent_loop(
+        &self,
+        body: &serde_json::Value,
+    ) -> ClientResult<serde_json::Value> {
+        self.post_json("/api/v1/agent-loops/import", body).await
+    }
+
+    /// Unified task counts over trigger / loop / workflow ledgers
+    /// (`GET /api/v1/system/tasks`). No new task table behind it.
+    pub async fn system_tasks(&self) -> ClientResult<serde_json::Value> {
+        self.get_json("/api/v1/system/tasks").await
+    }
+
+    /// Transport health with SSE overflow and WS live counts
+    /// (`GET /system/event-health`).
+    pub async fn event_health(&self) -> ClientResult<serde_json::Value> {
+        self.get_json("/system/event-health").await
+    }
+
+    /// Server liveness with the graceful-shutdown latch
+    /// (`GET /api/v1/server/status`).
+    pub async fn server_status(&self) -> ClientResult<serde_json::Value> {
+        self.get_json("/api/v1/server/status").await
+    }
+
+    /// Effective server config entries (`GET /api/v1/server/config`).
+    /// Writes stay unavailable (`PUT` answers 503).
+    pub async fn server_config(&self) -> ClientResult<serde_json::Value> {
+        self.get_json("/api/v1/server/config").await
+    }
+
+    /// List PTY sessions, optionally persistent workspace terminals only.
+    pub async fn list_ptys(
+        &self,
+        persistent_only: bool,
+    ) -> ClientResult<serde_json::Value> {
+        let path = if persistent_only {
+            "/api/v1/pty?persistent_only=true".to_string()
+        } else {
+            "/api/v1/pty".to_string()
+        };
+        self.get_json(&path).await
+    }
+
     /// Delete an agent loop and its conversation (`DELETE /api/v1/agent-loops/{id}`).
     pub async fn delete_agent_loop(&self, id: &str) -> ClientResult<bool> {
         self.delete_json(&format!("/api/v1/agent-loops/{id}")).await

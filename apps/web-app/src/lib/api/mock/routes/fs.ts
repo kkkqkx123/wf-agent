@@ -86,6 +86,10 @@ function inScope(path: string, scope: string): boolean {
 	return path === clean || path.startsWith(`${clean}/`);
 }
 
+function isEscapingScope(path: string): boolean {
+	return path.split('/').includes('..');
+}
+
 export function registerFs(router: MockRouter): void {
 	router.on('GET', '/api/v1/fs/list', (_p, query) => {
 		const path = String(query.path ?? '');
@@ -133,6 +137,7 @@ export function registerFs(router: MockRouter): void {
 	});
 	router.on('PUT', '/api/v1/fs/content', (_p, query, body) => {
 		const path = String(query.path ?? 'README.md');
+		if (isEscapingScope(path)) return mockError(404, 'LOCATION_NOT_FOUND', `Preview location not served: ${path}`);
 		const b = (body ?? {}) as { content?: string; expected_hash?: string | null };
 		const result = writeFile(path, String(b.content ?? ''), b.expected_hash ?? null);
 		if (!result.ok) {
@@ -150,20 +155,24 @@ export function registerFs(router: MockRouter): void {
 	});
 	router.on('POST', '/api/v1/fs/entries', (_p, _q, body) => {
 		const b = (body ?? {}) as { path?: string; is_dir?: boolean };
+		if (isEscapingScope(String(b.path ?? ''))) return mockError(404, 'LOCATION_NOT_FOUND', `Preview location not served: ${b.path ?? ''}`);
 		return createEntry(String(b.path ?? 'preview.txt'), Boolean(b.is_dir));
 	});
-	router.on('DELETE', '/api/v1/fs/entries', (_p, query) => ({
-		removed: removePath(String(query.path ?? '')),
-		path: String(query.path ?? ''),
-	}));
+	router.on('DELETE', '/api/v1/fs/entries', (_p, query) => {
+		const path = String(query.path ?? '');
+		if (isEscapingScope(path)) return mockError(404, 'LOCATION_NOT_FOUND', `Preview location not served: ${path}`);
+		return { removed: removePath(path), path };
+	});
 	router.on('PATCH', '/api/v1/fs/entries/move', (_p, _q, body) => {
 		const b = (body ?? {}) as { from?: string; to?: string };
+		if (isEscapingScope(String(b.from ?? '')) || isEscapingScope(String(b.to ?? ''))) return mockError(404, 'LOCATION_NOT_FOUND', 'Preview location not served');
 		const moved = movePath(String(b.from ?? ''), String(b.to ?? 'preview.txt'));
 		if (!moved) return mockError(404, 'NOT_FOUND', `Preview path not found: ${b.from ?? ''}`);
 		return moved;
 	});
 	router.on('POST', '/api/v1/fs/entries/copy', (_p, _q, body) => {
 		const b = (body ?? {}) as { from?: string; to?: string };
+		if (isEscapingScope(String(b.from ?? '')) || isEscapingScope(String(b.to ?? ''))) return mockError(404, 'LOCATION_NOT_FOUND', 'Preview location not served');
 		const copied = copyPath(String(b.from ?? ''), String(b.to ?? 'preview-copy.txt'));
 		if (!copied) return mockError(404, 'NOT_FOUND', `Preview path not found: ${b.from ?? ''}`);
 		return copied;

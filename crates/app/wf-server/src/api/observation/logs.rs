@@ -12,7 +12,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use wf_api::execution_logs::{LogEntry, LogFilter};
 
-use crate::envelope::{err, ApiError};
+use crate::envelope::{err, InvalidParams};
 use crate::extract::IdPath;
 use crate::paged::{ok_cursor_page, resolve_cursor_page};
 use crate::router::ApiState;
@@ -117,11 +117,11 @@ pub(crate) async fn handle_execution_logs(
 ) -> impl IntoResponse {
     let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
         Ok(page) => page,
-        Err(message) => return err(ApiError::validation(message)).into_response(),
+        Err(message) => return err(InvalidParams::validation(message)).into_response(),
     };
     let event_types = match parse_event_types(query.event_types.as_deref()) {
         Ok(types) => types,
-        Err(message) => return err(ApiError::validation(message)).into_response(),
+        Err(message) => return err(InvalidParams::validation(message)).into_response(),
     };
     let filter = LogFilter {
         execution_id: None,
@@ -161,11 +161,11 @@ pub(crate) async fn handle_query_logs(
 ) -> impl IntoResponse {
     let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
         Ok(page) => page,
-        Err(message) => return err(ApiError::validation(message)).into_response(),
+        Err(message) => return err(InvalidParams::validation(message)).into_response(),
     };
     let event_types = match parse_event_types(query.event_types.as_deref()) {
         Ok(types) => types,
-        Err(message) => return err(ApiError::validation(message)).into_response(),
+        Err(message) => return err(InvalidParams::validation(message)).into_response(),
     };
     let filter = LogFilter {
         execution_id: query.execution_id,

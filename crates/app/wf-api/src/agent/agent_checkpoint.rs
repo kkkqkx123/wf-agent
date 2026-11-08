@@ -531,6 +531,29 @@ fn parse_checkpoint_status(
     }
 }
 
+
+/// Latest non-seed checkpoint id for forking or transfer without copying
+/// product storage. Seed marks are skipped so a fresh loop without real
+/// progress reports missing instead of forking an empty seed.
+pub async fn latest_restorable_checkpoint_id(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<String> {
+    let mut all = state_manager(ctx)
+        .list_by_entity(agent_loop_id)
+        .await
+        .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?;
+    all.retain(|meta| {
+        !wf_checkpoint::coordinator::base::is_seed_marked(&meta.custom_fields)
+    });
+    all.into_iter()
+        .max_by(|a, b| (a.timestamp, &a.id).cmp(&(b.timestamp, &b.id)))
+        .map(|meta| meta.id)
+        .ok_or_else(|| ApiError::ExecutionNotFound {
+            id: agent_loop_id.to_string(),
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

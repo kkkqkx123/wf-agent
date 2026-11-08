@@ -53,6 +53,10 @@ pub async fn run(cli: &Cli, sub: &EventSub) -> CliResult<()> {
             let data: serde_json::Value = client.get_json("/api/v1/events/stats").await?;
             render_envelope(cli.output, OutputEnvelope::success("event-stats", data))
         }
+        EventSub::Health => {
+            let data: serde_json::Value = client.event_health().await?;
+            render_envelope(cli.output, OutputEnvelope::success("event-health", data))
+        }
         EventSub::Timeline { id } => {
             let data: serde_json::Value = client
                 .get_json(&format!("/api/v1/events/timeline/{id}"))

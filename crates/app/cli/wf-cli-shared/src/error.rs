@@ -86,7 +86,24 @@ impl From<wf_client::ClientError> for CliError {
     fn from(err: wf_client::ClientError) -> Self {
         use wf_client::ClientError as C;
         match err {
-            C::Remote { code, message } => Self::Business(format!("remote {code}: {message}")),
+            C::Remote { code, message } => match code.as_str() {
+                "SESSION_BUSY" => Self::Business(format!(
+                    "remote {code}: {message}; session is busy, retry after it settles"
+                )),
+                "SESSION_NOT_FOUND" => {
+                    Self::Business(format!("remote {code}: {message}; check the session id"))
+                }
+                "LOCATION_NOT_FOUND" => Self::Business(format!(
+                    "remote {code}: {message}; check --directory / WF_DIRECTORY"
+                )),
+                "TICKET_INVALID" => Self::Business(format!(
+                    "remote {code}: {message}; ticket expired, retry the handshake"
+                )),
+                "SERVICE_UNAVAILABLE" => Self::Business(format!(
+                    "remote {code}: {message}; server not ready or operation unsupported"
+                )),
+                _ => Self::Business(format!("remote {code}: {message}")),
+            },
             // Transport failures (connection refused, timeout, ...) are
             // operational, not configuration: exit 1 instead of 3 so
             // scripts can distinguish "server down" from "bad flags".

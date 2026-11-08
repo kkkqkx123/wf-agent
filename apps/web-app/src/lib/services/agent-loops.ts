@@ -753,6 +753,97 @@ export async function runAgentLoop(id: string, input: RunLoopInput): Promise<Age
 	};
 }
 
+
+export interface ForkLoopInput extends RunLoopInput {
+    /** Checkpoint to branch from; absent selects the latest restorable one. */
+    checkpointId?: string;
+}
+
+function forkBody(input: ForkLoopInput): Record<string, unknown> {
+    const message = assertAgentMessage(input.message);
+    const model = assertAgentModel(input.model);
+    const fileScope = assertFileScope(input.fileScope ?? null);
+    return {
+        ...(input.checkpointId ? { checkpoint_id: input.checkpointId } : {}),
+        model,
+        message,
+        tool_call_protocol: { format: 'json' },
+        conversation: input.conversation ?? [],
+        file_scope: fileScope,
+        ...(input.temporaryMode ? { temporary_mode: input.temporaryMode } : {}),
+    };
+}
+
+function toRunResult(id: string, data: AgentRunViewDto | null | undefined): AgentRunResult {
+    const payload = requireData(data, `Fork result missing for loop ${id}`);
+    const agentLoopId = payload.agent_loop_id ?? '';
+    if (!agentLoopId) throw new Error(`Fork result carries no loop id for ${id}`);
+    return { agentLoopId, result: payload.result, iterations: payload.iterations ?? 0 };
+}
+
+/** Branch a live loop through a checkpoint without copying product storage. */
+export async function forkAgentLoop(id: string, input: ForkLoopInput): Promise<AgentRunResult> {
+    const data = await call<AgentRunViewDto>(
+        client.POST('/api/v1/agent-loops/{id}/fork', {
+            params: { path: { id } },
+            body: forkBody(input),
+        }),
+    );
+    return toRunResult(id, data);
+}
+
+/** Transfer a loop by branching its conversation to a fresh handle. */
+export async function transferAgentLoop(id: string, input: ForkLoopInput): Promise<AgentRunResult> {
+    const data = await call<AgentRunViewDto>(
+        client.POST('/api/v1/agent-loops/{id}/transfer', {
+            params: { path: { id } },
+            body: forkBody(input),
+        }),
+    );
+    return toRunResult(id, data);
+}
+
+export interface SharedLoopView {
+    shared: boolean;
+    loop: unknown;
+}
+
+/** Read-only shared view of a loop; storage stays shared server-side. */
+export async function shareAgentLoop(id: string): Promise<SharedLoopView> {
+    const data = requireData(
+        await call<SharedLoopView>(
+            client.GET('/api/v1/agent-loops/{id}/share', { params: { path: { id } } }),
+        ),
+        `Share view missing for loop ${id}`,
+    );
+    return data;
+}
+
+/** Import a transcript with the same normalization as live runs. */
+export async function importAgentLoop(input: RunLoopInput): Promise<AgentRunResult> {
+    const message = assertAgentMessage(input.message);
+    const model = assertAgentModel(input.model);
+    const fileScope = assertFileScope(input.fileScope ?? null);
+    const data = requireData(
+        await call<AgentRunViewDto>(
+            client.POST('/api/v1/agent-loops/import', {
+                body: {
+                    model,
+                    message,
+                    tool_call_protocol: { format: 'json' },
+                    conversation: input.conversation ?? [],
+                    file_scope: fileScope,
+                    ...(input.temporaryMode ? { temporary_mode: input.temporaryMode } : {}),
+                },
+            }),
+        ),
+        'Import result missing',
+    );
+    const agentLoopId = data.agent_loop_id ?? '';
+    if (!agentLoopId) throw new Error('Import result carries no loop id');
+    return { agentLoopId, result: data.result, iterations: data.iterations ?? 0 };
+}
+
 /**
  * True detail aggregation: summary, decision graph, iterations and tool
  * frequency load together. Messages, variables and checkpoints stay

@@ -155,7 +155,7 @@ pub(crate) async fn handle_query_library(
         Some("trigger") => Some(wf_api::TemplateKind::Trigger),
         Some("all") | None => None,
         Some(other) => {
-            return crate::envelope::err(crate::envelope::ApiError::validation(format!(
+            return crate::envelope::err(crate::envelope::InvalidParams::validation(format!(
                 "unknown template kind: {other}"
             )))
             .into_response()

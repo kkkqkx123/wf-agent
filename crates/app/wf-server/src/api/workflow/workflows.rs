@@ -312,7 +312,7 @@ pub(crate) async fn handle_parse_workflow(
         None | Some("json") => wf_api::infra::config::ConfigFormat::Json,
         Some("toml") => wf_api::infra::config::ConfigFormat::Toml,
         Some(other) => {
-            return crate::envelope::err(crate::envelope::ApiError::validation(format!(
+            return crate::envelope::err(crate::envelope::InvalidParams::validation(format!(
                 "unsupported config format: {other}"
             )))
             .into_response()
@@ -445,7 +445,7 @@ pub(crate) async fn handle_export_workflow(
             },
             Err(e) => error_response(e),
         },
-        Some(other) => crate::envelope::err(crate::envelope::ApiError::validation(format!(
+        Some(other) => crate::envelope::err(crate::envelope::InvalidParams::validation(format!(
             "unsupported export format: {other}"
         )))
         .into_response(),

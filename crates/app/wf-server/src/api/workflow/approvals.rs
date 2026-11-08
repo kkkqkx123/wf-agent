@@ -21,7 +21,7 @@ use wf_api::UserInteractionListOptions;
 use wf_api::UserInteractionStorageMetadata;
 use wf_api::{ToolApprovalOptions, ToolExecutionOptions};
 
-use crate::envelope::{err, error_response, ok, ApiError};
+use crate::envelope::{err, error_response, ok, InvalidParams};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
 use crate::paged::{fetch_size, ok_page, resolve_page, resolve_page_fields};
 use crate::router::ApiState;
@@ -74,7 +74,7 @@ pub(crate) async fn handle_request_approval(
     Json(body): Json<ApprovalRequestBody>,
 ) -> impl IntoResponse {
     if !wf_api::entity::user_interaction::has_handler(&state.ctx).await {
-        return err(ApiError::validation(
+        return err(InvalidParams::validation(
             "no user interaction handler is registered; cannot wait for approval",
         ))
         .into_response();
@@ -140,7 +140,7 @@ pub(crate) async fn handle_check_approval(
     if matches!(decision, wf_api::ApprovalDecision::Ask)
         && !wf_api::entity::user_interaction::has_handler(&state.ctx).await
     {
-        return err(ApiError::validation(
+        return err(InvalidParams::validation(
             "no user interaction handler is registered; cannot wait for approval",
         ))
         .into_response();
@@ -221,7 +221,7 @@ pub(crate) async fn handle_execute_tool(
     if matches!(decision, wf_api::ApprovalDecision::Ask)
         && !wf_api::entity::user_interaction::has_handler(&state.ctx).await
     {
-        return err(ApiError::validation(
+        return err(InvalidParams::validation(
             "no user interaction handler is registered; cannot wait for approval",
         ))
         .into_response();

@@ -17,7 +17,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use crate::envelope::{err, ok, ApiError};
+use crate::envelope::{err, ok, InvalidParams};
 use crate::extract::IdPath;
 use crate::router::ApiState;
 
@@ -231,7 +231,7 @@ pub(crate) async fn handle_acquire_lock(
     Json(body): Json<AcquireLockBody>,
 ) -> impl IntoResponse {
     if body.owner_id.is_empty() {
-        return err(ApiError::validation("owner_id must not be empty")).into_response();
+        return err(InvalidParams::validation("owner_id must not be empty")).into_response();
     }
     let before = state
         .locks
@@ -283,7 +283,7 @@ pub(crate) async fn handle_heartbeat_lock(
                 )
                 .await;
             }
-            err(ApiError::validation("no active lease to renew")).into_response()
+            err(InvalidParams::validation("no active lease to renew")).into_response()
         }
     }
 }

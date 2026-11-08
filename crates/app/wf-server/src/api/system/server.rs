@@ -104,6 +104,16 @@ pub(crate) struct MigrationStatusView {
 
 
 
+static SERVER_STOPPING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Mark the process as stopping so `/server/status` stays observable
+/// through the graceful-shutdown window. Embedders may call this before
+/// dropping traffic.
+pub(crate) fn mark_server_stopping() {
+    SERVER_STOPPING.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
 fn request_urls(headers: &HeaderMap) -> Vec<String> {
     let host = headers
         .get(header::HOST)
@@ -156,10 +166,7 @@ pub(crate) async fn handle_server_info(
 )]
 pub(crate) async fn handle_server_status() -> impl IntoResponse {
     ok(ServerStatusView {
-        // The process has no detached stop latch; a running handler is
-        // definitionally not stopped. The flag exists so shutdown sequencing
-        // stays observable when an embedder adds one later.
-        stopped: false,
+        stopped: SERVER_STOPPING.load(std::sync::atomic::Ordering::SeqCst),
         version: env!("CARGO_PKG_VERSION").to_string(),
         pid: std::process::id(),
     })
@@ -272,11 +279,37 @@ async fn connect_with_code(state: &ApiState, headers: &HeaderMap, code: &str) ->
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_server_config(State(state): State<ApiState>) -> impl IntoResponse {
-    let _ = state;
-    ok(ServerConfigView {
-        entries: Vec::new(),
-    })
-    .into_response()
+    let mut entries = vec![
+        ConfigEntry {
+            key: "auth.enabled".to_string(),
+            value: state.config.auth.enabled.to_string(),
+        },
+        ConfigEntry {
+            key: "rate_limit.enabled".to_string(),
+            value: state.config.rate_limit.enabled.to_string(),
+        },
+        ConfigEntry {
+            key: "cors.allowed_origins".to_string(),
+            value: state.config.cors.allowed_origins.join(","),
+        },
+        ConfigEntry {
+            key: "directory.allow_any_explicit".to_string(),
+            value: state.dirs.config().allowed_roots.is_empty().to_string(),
+        },
+        ConfigEntry {
+            key: "directory.allowed_roots".to_string(),
+            value: state
+                .dirs
+                .config()
+                .allowed_roots
+                .iter()
+                .map(|root| root.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join(","),
+        },
+    ];
+    entries.sort_by(|a, b| a.key.cmp(&b.key));
+    ok(ServerConfigView { entries }).into_response()
 }
 
 #[utoipa::path(
@@ -284,6 +317,7 @@ pub(crate) async fn handle_server_config(State(state): State<ApiState>) -> impl 
     path = "/api/v1/server/config",
     tag = "system",
     responses(
+        (status = 200, description = "Config updated (currently unsupported)", body = crate::envelope::ApiEnvelope<ServerConfigView>),
         (status = 503, description = "Config updates unavailable", body = crate::envelope::ErrorResponse),
     ),
     security(("api_key" = []))
@@ -380,7 +414,10 @@ pub(crate) async fn handle_migration_status() -> impl IntoResponse {
     get,
     path = "/api/v1/system/debug/heap",
     tag = "system",
-    responses((status = 503, description = "Heap snapshot unavailable", body = crate::envelope::ErrorResponse)),
+    responses(
+        (status = 200, description = "Heap snapshot (currently unsupported)", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 503, description = "Heap snapshot unavailable", body = crate::envelope::ErrorResponse),
+    ),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_debug_heap() -> impl IntoResponse {

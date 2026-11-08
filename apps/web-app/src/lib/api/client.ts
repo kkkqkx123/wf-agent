@@ -28,8 +28,8 @@ export function resolveApiKey(): string | undefined {
 /**
  * Resolve the business directory for multi-directory serving.
  * Build-time value wins, otherwise the workspace panel persists the
- * current repository root. Absent means single-directory mode: requests
- * carry no directory and the server falls back to its default root.
+ * current repository root. Absent means requests carry no directory and
+ * workspace-bound handlers reject them instead of guessing.
  */
 export function resolveDirectory(): string | undefined {
 	const fromEnv = import.meta.env.VITE_API_DIRECTORY as string | undefined;
@@ -39,6 +39,91 @@ export function resolveDirectory(): string | undefined {
 		if (fromStorage && fromStorage.length > 0) return fromStorage;
 	}
 	return undefined;
+}
+
+/**
+ * Validate a workspace directory spelling before persisting it: it must
+ * be a non-empty absolute path. Server membership (allowlist, existence)
+ * is checked by `fetchServerDirectories`, not here.
+ */
+export function validateDirectoryFormat(raw: string): string | undefined {
+	const trimmed = raw.trim();
+	if (trimmed.length === 0) return 'directory must not be empty';
+	if (!trimmed.startsWith('/')) return 'directory must be absolute';
+	return undefined;
+}
+
+/**
+ * Persist the workspace directory after format validation. Empty clears
+ * the stored value back to directory-less mode. Throws on invalid
+ * spelling so callers surface the problem before any request fails.
+ */
+export function setDirectory(raw: string | undefined): string | undefined {
+	if (typeof localStorage === 'undefined') return undefined;
+	const trimmed = (raw ?? '').trim();
+	if (trimmed.length === 0) {
+		localStorage.removeItem('wf.directory');
+		return undefined;
+	}
+	const problem = validateDirectoryFormat(trimmed);
+	if (problem) throw new Error(problem);
+	localStorage.setItem('wf.directory', trimmed);
+	return trimmed;
+}
+
+/** Directory rejection kinds, so the UI can tell a typo from a server
+ * that is not configured to serve the path. */
+export type DirectoryProblem = 'not-found' | 'not-served' | 'validation';
+
+/**
+ * Classify a failed response as a directory problem when its envelope
+ * code says so. `LOCATION_NOT_FOUND` means the path is wrong, `FORBIDDEN`
+ * means the allowlist does not serve it.
+ */
+export function classifyDirectoryError(body: unknown, status: number): DirectoryProblem | undefined {
+	const code =
+		typeof body === 'object' && body !== null && 'error' in body
+			? (body as { error?: { code?: unknown } }).error?.code
+			: undefined;
+	if (code === 'LOCATION_NOT_FOUND' || status === 404) return 'not-found';
+	if (code === 'FORBIDDEN' || status === 403) return 'not-served';
+	if (code === 'VALIDATION' || status === 400) return 'validation';
+	return undefined;
+}
+
+/**
+ * Read the server directory state (allowlist plus cached directories
+ * with project identity) backing workspace pickers. Returns `undefined`
+ * when the request itself fails, so pickers fall back to free input.
+ */
+export async function fetchServerDirectories(): Promise<
+	{ allowedRoots: string[]; cached: { directory: string; project: string; projectId: string }[] } | undefined
+> {
+	const { data } = await request('GET', '/api/v1/system/directories');
+	if (typeof data !== 'object' || data === null) return undefined;
+	const view = (data as { data?: unknown }).data ?? data;
+	if (typeof view !== 'object' || view === null) return undefined;
+	const directories = view as {
+		allowed_roots?: unknown;
+		projects?: { directory?: unknown; project?: unknown; project_id?: unknown }[];
+	};
+	const allowedRoots = Array.isArray(directories.allowed_roots)
+		? directories.allowed_roots.filter((root): root is string => typeof root === 'string')
+		: [];
+	const cached = Array.isArray(directories.projects)
+		? directories.projects.flatMap((entry) =>
+				typeof entry.directory === 'string' && typeof entry.project === 'string'
+					? [
+							{
+								directory: entry.directory,
+								project: entry.project,
+								projectId: typeof entry.project_id === 'string' ? entry.project_id : '',
+							},
+						]
+					: [],
+				)
+		: [];
+	return { allowedRoots, cached };
 }
 
 export const client = createClient<paths>({

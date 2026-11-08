@@ -22,12 +22,24 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/system/debug/location", get(handle_debug_location))
 }
 
+/// One cached workspace: the directory the client named plus the owning
+/// project root and stable project id derived from it.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub(crate) struct DirectoryProjectView {
+    directory: String,
+    project: String,
+    project_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub(crate) struct DirectoriesView {
     allowed_roots: Vec<String>,
     allow_any_explicit: bool,
     cached_entries: usize,
     cached_keys: Vec<String>,
+    /// Cached scopes with project identity, so workspace pickers can
+    /// show "directory in project" without a second round trip.
+    projects: Vec<DirectoryProjectView>,
 }
 
 #[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
@@ -48,6 +60,16 @@ pub(crate) async fn handle_directories(State(state): State<ApiState>) -> impl In
         allow_any_explicit: state.dirs.config().allowed_roots.is_empty(),
         cached_entries: state.dirs.entry_count(),
         cached_keys: state.dirs.cached_keys(),
+        projects: state
+            .dirs
+            .cached_scopes()
+            .into_iter()
+            .map(|scope| DirectoryProjectView {
+                directory: scope.directory.to_string_lossy().into_owned(),
+                project: scope.project.to_string_lossy().into_owned(),
+                project_id: scope.project_id,
+            })
+            .collect(),
     })
     .into_response()
 }

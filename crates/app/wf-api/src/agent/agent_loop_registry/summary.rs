@@ -58,6 +58,33 @@ pub async fn summary(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<Option<
     Ok(None)
 }
 
+/// Whether a session summary belongs to the requested business directory.
+/// Canonical paths compare equal; unresolvable spellings fall back to a
+/// trimmed string comparison so a stale filter never matches silently.
+/// Shared by the summaries listing and the resume anchor so both scope
+/// sessions to a directory through one comparison.
+pub fn summary_matches_directory(summary: &AgentLoopSummary, directory: &str) -> bool {
+    let Some(summary_dir) = summary
+        .directory
+        .as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+    else {
+        return false;
+    };
+    let wanted = directory.trim();
+    if wanted.is_empty() {
+        return false;
+    }
+    match (
+        std::fs::canonicalize(summary_dir),
+        std::fs::canonicalize(wanted),
+    ) {
+        (Ok(current), Ok(target)) => current == target,
+        _ => summary_dir == wanted,
+    }
+}
+
 /// Longest stored session title, in characters. Longer input is truncated
 /// rather than rejected so rename stays total.
 const MAX_TITLE_CHARS: usize = 80;
@@ -425,6 +452,10 @@ pub async fn live_summary(entity: &wf_agent::entity::AgentLoopEntity) -> AgentLo
         profile_id: Some(entity.model().to_string()),
         parent_execution_id: entity.parent_execution_id().map(|p| p.to_string()),
         title: None,
+        directory: entity
+            .effective_config()
+            .and_then(|config| config.file_scope.as_ref())
+            .and_then(|scope| scope.workdir.clone()),
     }
 }
 
@@ -449,6 +480,11 @@ fn persisted_summary(record: &wf_types::AgentExecution) -> AgentLoopSummary {
             .as_ref()
             .and_then(|h| h.parent_execution_id()),
         title: None,
+        directory: record
+            .loop_config
+            .as_ref()
+            .and_then(|config| config.file_scope.as_ref())
+            .and_then(|scope| scope.workdir.clone()),
     }
 }
 
@@ -467,5 +503,6 @@ fn meta_summary(meta: &wf_types::AgentLoopStorageMetadata) -> Option<AgentLoopSu
         profile_id: None,
         parent_execution_id: None,
         title: normalized_stored_title(meta.title.as_deref()),
+        directory: None,
     })
 }

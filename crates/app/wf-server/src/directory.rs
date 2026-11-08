@@ -46,8 +46,8 @@ pub const DIRECTORY_QUERY_PARAM: &str = "directory";
 pub const DIRECTORY_ROOTS_ENV_VAR: &str = "WF_DIRECTORY_ROOTS";
 
 /// Marker files identifying a version-controlled project root. A `.git`
-/// entry may be a file (linked worktree), so existence is checked without
-/// assuming a directory.
+/// entry may be a file (linked worktree), so the discovery walk checks
+/// file versus directory instead of assuming a directory.
 const PROJECT_MARKERS: &[&str] = &[".git", ".hg"];
 
 /// Idle time after which a cached directory entry is evicted on the next
@@ -257,12 +257,24 @@ pub fn canonicalize_dir(raw: &str) -> Result<PathBuf, DirectoryError> {
 }
 
 /// Find the owning project root: nearest ancestor (inclusive) carrying a
-/// version-control marker, or the directory itself when absent.
+/// version-control marker, or the directory itself when absent. A `.git`
+/// file marks a linked worktree: the worktree's project is the main
+/// checkout it was created from, resolved through the `gitdir` pointer
+/// without spawning any process.
 pub fn discover_project(directory: &Path) -> PathBuf {
     let mut current = directory.to_path_buf();
     loop {
         for marker in PROJECT_MARKERS {
-            if current.join(marker).exists() {
+            let candidate = current.join(marker);
+            if *marker == ".git" {
+                if candidate.is_dir() {
+                    return current;
+                }
+                if candidate.is_file() {
+                    return main_checkout_for(&current, &candidate)
+                        .unwrap_or_else(|| current.clone());
+                }
+            } else if candidate.exists() {
                 return current;
             }
         }
@@ -271,6 +283,37 @@ pub fn discover_project(directory: &Path) -> PathBuf {
             None => return directory.to_path_buf(),
         }
     }
+}
+
+/// Main checkout owning a linked worktree: parse the `.git` file's
+/// `gitdir` pointer and, when it points inside a `worktrees` directory,
+/// return the checkout holding that administrative directory. Returns
+/// `None` when the pointer is unreadable or already points at the main
+/// checkout, letting the caller keep the worktree directory itself.
+fn main_checkout_for(worktree: &Path, dot_git: &Path) -> Option<PathBuf> {
+    let content = std::fs::read_to_string(dot_git).ok()?;
+    let gitdir = content.strip_prefix("gitdir:")?.trim();
+    if gitdir.is_empty() {
+        return None;
+    }
+    let gitdir = if std::path::Path::new(gitdir).is_absolute() {
+        PathBuf::from(gitdir)
+    } else {
+        worktree.join(gitdir)
+    };
+    let mut current = gitdir.as_path();
+    while let Some(name) = current.file_name().and_then(|n| n.to_str()) {
+        if name == "worktrees" {
+            // `<main>/.git/worktrees/<name>` -> `<main>/.git` -> `<main>`.
+            let dot = current.parent()?;
+            if dot.file_name().and_then(|n| n.to_str()) != Some(".git") {
+                return None;
+            }
+            return dot.parent().map(Path::to_path_buf);
+        }
+        current = current.parent()?;
+    }
+    None
 }
 
 /// Stable id for a canonical project path. FNV-1a over the path bytes
@@ -423,6 +466,19 @@ impl DirectoryContext {
         keys
     }
 
+    /// Snapshot of every cached directory scope for the introspection
+    /// surface: directory plus the owning project root and stable project
+    /// id. Read-only; sorted by directory so repeated reads diff cleanly.
+    pub fn cached_scopes(&self) -> Vec<DirectoryScope> {
+        let mut scopes: Vec<DirectoryScope> = self
+            .entries
+            .iter()
+            .map(|entry| entry.value().scope.clone())
+            .collect();
+        scopes.sort_by(|a, b| a.directory.cmp(&b.directory));
+        scopes
+    }
+
     /// Directory allowlist backing explicit request directories.
     pub fn config(&self) -> &DirectoryConfig {
         &self.config
@@ -474,7 +530,10 @@ pub(crate) async fn directory_middleware(
             return crate::envelope::location_not_found(format!("location not found: {raw}"));
         }
         Err(crate::directory::DirectoryError::Forbidden(raw)) => {
-            return crate::envelope::location_not_found(format!("location not served: {raw}"));
+            // Allowed-root rejections stay distinct from missing locations:
+            // 404 means the path is wrong, this branch means the server is
+            // not configured to serve the path at all.
+            return crate::envelope::forbidden(format!("location not served: {raw}"));
         }
         Err(err) => return crate::envelope::error_response(err.into()).into_response(),
     };
@@ -483,7 +542,6 @@ pub(crate) async fn directory_middleware(
     next.run(req).await
 }
 
-/// Read the request directory from a resolved scope.
 /// Read the request directory for workspace-bound calls. `None` passes
 /// through: the workspace resolver rejects it instead of guessing, so
 /// directory-less requests fail loud instead of binding anywhere silently.
@@ -606,6 +664,39 @@ mod tests {
     #[test]
     fn project_discovery_falls_back_to_self() {
         let dir = temp_dir("wf-dir-plain");
+        let canonical = dir.path().canonicalize().unwrap();
+        assert_eq!(discover_project(&canonical), canonical);
+    }
+
+    #[test]
+    fn project_discovery_resolves_linked_worktree_to_main() {
+        let root = temp_dir("wf-dir-main");
+        std::fs::create_dir(root.path().join(".git")).unwrap();
+        let canonical_root = root
+            .path()
+            .canonicalize()
+            .unwrap_or_else(|_| root.path().to_path_buf());
+        let worktree = temp_dir("wf-dir-linked");
+        let gitdir = canonical_root
+            .join(".git")
+            .join("worktrees")
+            .join("linked");
+        std::fs::write(
+            worktree.path().join(".git"),
+            format!("gitdir: {}", gitdir.display()),
+        )
+        .unwrap();
+        let canonical_worktree = worktree
+            .path()
+            .canonicalize()
+            .unwrap_or_else(|_| worktree.path().to_path_buf());
+        assert_eq!(discover_project(&canonical_worktree), canonical_root);
+    }
+
+    #[test]
+    fn project_discovery_keeps_unreadable_git_file() {
+        let dir = temp_dir("wf-dir-gitfile");
+        std::fs::write(dir.path().join(".git"), "not-a-gitdir-pointer").unwrap();
         let canonical = dir.path().canonicalize().unwrap();
         assert_eq!(discover_project(&canonical), canonical);
     }

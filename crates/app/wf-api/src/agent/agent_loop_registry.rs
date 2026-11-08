@@ -21,7 +21,8 @@ pub use history::{
 };
 pub use summary::{
     count, derive_title_from_messages, ensure_loop_title, get_status, has, list_by_status,
-    normalize_title, statistics, summaries, summary, update_status, update_title,
+    normalize_title, statistics, summaries, summary, summary_matches_directory, update_status,
+    update_title,
 };
 pub use timeline::{context_evolution, execution_timeline, variable_history};
 pub use types::{

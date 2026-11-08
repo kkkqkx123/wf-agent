@@ -16,7 +16,9 @@
  * wired in registration order by `mock/registry.ts`), wire adapters
  * (`mock/wire.ts`) and the fixture SSE stream (`mock/event-stream.ts`).
  * This facade keeps the public surface (`client`, `request`,
- * `downloadFile`, `API_BASE_URL`, `resolveApiKey`, `resolveDirectory`) that shared code
+ * `downloadFile`, `API_BASE_URL`, `resolveApiKey`, `resolveDirectory`,
+ * `validateDirectoryFormat`, `setDirectory`, `classifyDirectoryError`,
+ * `fetchServerDirectories`) that shared code
  * imports, so the two clients stay drop-in interchangeable.
  */
 
@@ -227,4 +229,31 @@ export function resolveApiKey(): string | undefined {
 // ---------------------------------------------------------------------------
 export function resolveDirectory(): string | undefined {
 	return undefined;
+}
+
+export function validateDirectoryFormat(raw: string): string | undefined {
+	const trimmed = raw.trim();
+	if (trimmed.length === 0) return 'directory must not be empty';
+	if (!trimmed.startsWith('/')) return 'directory must be absolute';
+	return undefined;
+}
+
+export function setDirectory(raw: string | undefined): string | undefined {
+	const trimmed = (raw ?? '').trim();
+	if (trimmed.length === 0) return undefined;
+	const problem = validateDirectoryFormat(trimmed);
+	if (problem) throw new Error(problem);
+	return trimmed;
+}
+
+export type DirectoryProblem = 'not-found' | 'not-served' | 'validation';
+
+export function classifyDirectoryError(_body: unknown, _status: number): DirectoryProblem | undefined {
+	return undefined;
+}
+
+export async function fetchServerDirectories(): Promise<
+	{ allowedRoots: string[]; cached: { directory: string; project: string; projectId: string }[] } | undefined
+> {
+	return { allowedRoots: [], cached: [] };
 }

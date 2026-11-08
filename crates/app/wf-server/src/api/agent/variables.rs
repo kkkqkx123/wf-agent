@@ -598,10 +598,21 @@ mod tests {
     }
 }
 
+/// Resume discovery filter: when `directory` is present, the anchor is the
+/// newest resumable session anchored on that directory instead of the
+/// global newest. Canonical comparison, like the summaries filter.
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct LatestSessionAnchorQuery {
+    /// Business directory to scope resume discovery to.
+    directory: Option<String>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/agent-loops/latest-session-anchor",
     tag = "agent",
+    params(LatestSessionAnchorQuery),
     responses(
         (status = 200, description = "Latest resumable session anchor", body = crate::envelope::ApiEnvelope<Option<String>>),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
@@ -610,8 +621,16 @@ mod tests {
 )]
 pub(crate) async fn handle_latest_session_anchor(
     State(state): State<ApiState>,
+    Query(query): Query<LatestSessionAnchorQuery>,
 ) -> impl IntoResponse {
-    match wf_api::agent::agent_message::latest_session_anchor(&state.ctx).await {
+    let Some(directory) = query.directory.as_deref().map(str::trim).filter(|d| !d.is_empty())
+    else {
+        return match wf_api::agent::agent_message::latest_session_anchor(&state.ctx).await {
+            Ok(anchor) => ok(anchor).into_response(),
+            Err(e) => error_response(e),
+        };
+    };
+    match wf_api::agent::agent_message::latest_session_anchor_in(&state.ctx, directory).await {
         Ok(anchor) => ok(anchor).into_response(),
         Err(e) => error_response(e),
     }

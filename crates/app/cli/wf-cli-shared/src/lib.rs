@@ -34,6 +34,7 @@ pub mod run_stream;
 pub mod run_summary;
 pub mod stdio_prompt;
 pub mod turn;
+pub mod workspace;
 
 pub use args::{Cli, Command};
 pub use connection::ClientHandle;
@@ -163,6 +164,9 @@ pub async fn run(cli: Cli) -> CliResult<()> {
         Some(Command::Diagnostics) => {
             return cmd::diagnostics::run_diagnostics(&cli).await;
         }
+        Some(Command::Directories) => {
+            return cmd::directories::run(&cli).await;
+        }
         _ => {}
     }
 
@@ -228,6 +232,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         interactive,
         approval_timeout,
         assume_yes,
+        worktree,
     ) = match &cli.command {
         Some(Command::Run {
             prompt,
@@ -245,6 +250,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             interactive,
             approval_timeout,
             assume_yes,
+            worktree,
             remote: _,
         }) => (
             prompt.clone(),
@@ -262,6 +268,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             *interactive,
             *approval_timeout,
             *assume_yes,
+            worktree.clone(),
         ),
         _ => (
             None,
@@ -279,6 +286,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             false,
             None,
             false,
+            None,
         ),
     };
     // Stdin doubles as the answer channel with `--interactive`, so it must
@@ -323,6 +331,30 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         assume_yes,
         timeout_ms: cli.timeout,
         context,
+    };
+
+    // A worktree run relocates before connecting: the new worktree becomes
+    // this invocation's workspace, so the client header, local file access
+    // and the anchored execution all observe the same directory.
+    let owned_cli;
+    let cli = match worktree {
+        Some(name) => {
+            let base = crate::workspace::resolve_workspace_dir(cli)
+                .map_err(CliError::Arguments)?;
+            let target = crate::workspace::ensure_worktree(
+                &base,
+                (!name.trim().is_empty()).then_some(name.as_str()),
+            )
+            .map_err(CliError::Arguments)?;
+            eprintln!("worktree {}", target.display());
+            owned_cli = Cli {
+                directory: Some(target),
+                directory_arg: None,
+                ..cli.clone()
+            };
+            &owned_cli
+        }
+        None => cli,
     };
 
     let handle = ClientHandle::from_cli(cli).await?;

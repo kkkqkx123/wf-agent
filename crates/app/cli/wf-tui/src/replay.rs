@@ -182,10 +182,13 @@ pub async fn replay_scrollack_page(
 }
 
 /// Find the most recent session id (by start time descending). Considers
-/// completed, failed, running and any status, live and persisted.
+/// completed, failed, running and any status, live and persisted. Scoped
+/// to the handle's workspace directory, like the mini resume path.
 pub async fn latest_session_id(client: &WfClient) -> CliResult<Option<String>> {
     if let Ok(value) = client
-        .get_json::<serde_json::Value>("/api/v1/agent-loops/latest-session-anchor")
+        .get_json::<serde_json::Value>(
+            &client.with_directory_query("/api/v1/agent-loops/latest-session-anchor"),
+        )
         .await
     {
         let id = value
@@ -198,7 +201,9 @@ pub async fn latest_session_id(client: &WfClient) -> CliResult<Option<String>> {
         }
     }
 
-    let data: serde_json::Value = client.get_json("/api/v1/agent-loops/summaries").await?;
+    let data: serde_json::Value = client
+        .get_json(&client.with_directory_query("/api/v1/agent-loops/summaries"))
+        .await?;
     let mut summaries = data
         .get("items")
         .and_then(|v| v.as_array())

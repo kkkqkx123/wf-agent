@@ -60,8 +60,9 @@ pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddleware
 
 /// Same as [`api_router_with_config`] with an explicit directory context
 /// for multi-directory serving. Requests resolve their directory scope
-/// from the `x-wf-directory` header or the `directory` query parameter and
-/// fall back to the configured default root; rejections render through the
+/// from the `x-wf-directory` header or the `directory` query parameter;
+/// there is no default root, so directory-less requests carry no scope
+/// and workspace-bound handlers reject them. Rejections render through the
 /// shared error envelope before reaching domain handlers.
 pub fn api_router_with_dirs(
     ctx: Arc<ApiContext>,

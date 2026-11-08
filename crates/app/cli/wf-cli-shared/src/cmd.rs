@@ -22,6 +22,7 @@ pub mod checkpoint;
 pub mod checkpoint_view;
 pub mod config;
 pub mod diagnostics;
+pub mod directories;
 pub mod event;
 pub mod execution;
 pub mod execution_logs;

@@ -243,8 +243,9 @@ impl WfClient {
     }
 }
 
-/// Shared SSE status gate: the auth header already travels via the client
-/// default headers, and failures preserve the envelope code and message.
+/// Shared SSE status gate: the auth and directory headers already travel
+/// via the client default headers, and failures preserve the envelope code
+/// and message.
 async fn stream_response(
     resp: reqwest::Response,
 ) -> ClientResult<impl Stream<Item = Result<SseFrame, ClientError>> + Send> {

@@ -1349,13 +1349,25 @@ impl NativeSession {
             .unwrap_or_default()
     }
 
+    /// Session listing scoped to this handle's workspace: the directory
+    /// filter keeps multi-directory servers from mixing projects. Absent
+    /// workspace means the legacy global listing.
+    fn scoped_url(client: &WfClient, base: &str) -> String {
+        client.with_directory_query(base)
+    }
+
     /// Most recently active stored session and its messages. Prefers the
     /// server-side latest session anchor (newest persisted conversation);
     /// falls back to scanning summaries when the anchor endpoint is
-    /// unavailable. Returns `None` when nothing resumable exists.
+    /// unavailable. Both paths scope to the workspace directory, so
+    /// `--resume` revives the latest session of the current project.
+    /// Returns `None` when nothing resumable exists.
     async fn load_latest(client: &WfClient) -> Option<(String, Vec<wf_types::message::Message>)> {
         if let Ok(value) = client
-            .get_json::<serde_json::Value>("/api/v1/agent-loops/latest-session-anchor")
+            .get_json::<serde_json::Value>(&Self::scoped_url(
+                client,
+                "/api/v1/agent-loops/latest-session-anchor",
+            ))
             .await
         {
             let id = value
@@ -1372,7 +1384,7 @@ impl NativeSession {
         }
 
         let summaries: serde_json::Value = client
-            .get_json("/api/v1/agent-loops/summaries")
+            .get_json(&Self::scoped_url(client, "/api/v1/agent-loops/summaries"))
             .await
             .ok()?;
         let items = summaries
@@ -1427,9 +1439,13 @@ impl NativeSession {
     }
 
     /// One fetched session row for the interactive `/sessions` listing.
+    /// Scoped to the workspace directory like resume discovery.
     async fn fetch_session_rows(client: &WfClient) -> Vec<MiniSessionRow> {
         let value: Result<serde_json::Value, _> = client
-            .get_json("/api/v1/agent-loops/summaries?order=desc&limit=50")
+            .get_json(&Self::scoped_url(
+                client,
+                "/api/v1/agent-loops/summaries?order=desc&limit=50",
+            ))
             .await;
         let items = value
             .ok()

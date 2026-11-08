@@ -44,6 +44,12 @@ pub struct AgentLoopSummary {
     /// first user message snippet recorded at persist time.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// Canonical business directory the session runs in, taken from the
+    /// run's file scope workdir. Absent for runs created before directory
+    /// tracking or without a workspace anchor. Session listings filter on
+    /// this so multi-directory servers never mix projects.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub directory: Option<String>,
 }
 
 /// Iteration detail for agent loop history.

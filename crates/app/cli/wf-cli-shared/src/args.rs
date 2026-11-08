@@ -95,6 +95,16 @@ pub struct Cli {
     /// merged under `--context` (agent turns only). Global for all forms.
     #[arg(long = "context-file", global = true, value_name = "PATH")]
     pub context_file: Option<std::path::PathBuf>,
+    /// Business directory the session runs in. Wins over `WF_DIRECTORY`
+    /// and the process working directory; every request announces it as
+    /// `x-wf-directory` so multi-directory servers isolate sessions.
+    #[arg(long, global = true, value_name = "DIR")]
+    pub directory: Option<std::path::PathBuf>,
+    /// Positional business directory for interactive forms (no
+    /// subcommand). Same meaning as `--directory`; the two are mutually
+    /// exclusive and the positional form is rejected with subcommands.
+    #[arg(value_name = "DIRECTORY")]
+    pub directory_arg: Option<std::path::PathBuf>,
     /// Subcommand; absent selects an interactive form.
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -139,6 +149,17 @@ impl Cli {
         if self.history_file.is_some() && self.no_history {
             return Err("--history-file and --no-history are mutually exclusive".to_string());
         }
+        if self.directory.is_some() && self.directory_arg.is_some() {
+            return Err("--directory and the positional DIRECTORY are mutually exclusive".to_string());
+        }
+        if self.command.is_some() && self.directory_arg.is_some() {
+            return Err("the positional DIRECTORY applies to interactive forms; use --directory with subcommands".to_string());
+        }
+        if let Some(dir) = self.directory.as_ref().or(self.directory_arg.as_ref()) {
+            if dir.as_os_str().is_empty() {
+                return Err("directory must not be empty".to_string());
+            }
+        }
         if let Some(timeout) = self.timeout {
             if timeout == 0 {
                 return Err("--timeout must be greater than 0".to_string());
@@ -157,6 +178,7 @@ impl Cli {
             interactive,
             approval_timeout,
             assume_yes,
+            worktree,
             ..
         }) = &self.command
         {
@@ -209,6 +231,25 @@ impl Cli {
             }
             if let Some(context_str) = self.context.as_deref() {
                 crate::turn::parse_agent_context(Some(context_str), None)?;
+            }
+            if let Some(name) = worktree {
+                if workflow.is_some() {
+                    return Err(
+                        "--worktree starts an agent session; it cannot be combined with --workflow"
+                            .to_string(),
+                    );
+                }
+                let trimmed = name.trim();
+                if !trimmed.is_empty()
+                    && (trimmed.contains('/')
+                        || trimmed.contains('\\')
+                        || trimmed == "."
+                        || trimmed == "..")
+                {
+                    return Err(format!(
+                        "invalid --worktree name '{name}': use a plain directory name"
+                    ));
+                }
             }
         }
         Ok(())
@@ -323,6 +364,12 @@ pub enum Command {
         /// Remote server URL for this run (overrides --remote / WF_REMOTE).
         #[arg(long)]
         remote: Option<String>,
+        /// Start the session in a new git worktree of the current project,
+        /// keeping the caller subfolder when the worktree has it. An
+        /// optional name picks the worktree directory; absent means an
+        /// auto-generated one. Agent turns only; rejected with --workflow.
+        #[arg(long, value_name = "NAME", num_args = 0..=1, default_missing_value = "")]
+        worktree: Option<String>,
     },
     /// Print resolved CLI mode / output routing (diagnostics).
     DebugMode,
@@ -484,6 +531,9 @@ pub enum Command {
     Health,
     /// Show full diagnostics.
     Diagnostics,
+    /// Show the resolved workspace: which directory this invocation runs
+    /// in, where it came from, and what the server allows and caches.
+    Directories,
     /// TUI display config backup (`tui.toml` only; keymap and theme files
     /// are out of scope, copy those by hand).
     Config {
@@ -840,6 +890,62 @@ mod tests {
         let cli = parse(&["run", "hi", "--interactive", "--approval-timeout", "0"]).unwrap();
         let err = cli.validate().unwrap_err();
         assert!(err.contains("greater than 0"), "{err}");
+    }
+
+    #[test]
+    fn directory_flag_and_positional_parse() {
+        let cli = parse(&["--directory", "/tmp"]).unwrap();
+        assert_eq!(
+            cli.directory.as_deref().map(|p| p.to_string_lossy().to_string()),
+            Some("/tmp".into())
+        );
+        assert!(cli.directory_arg.is_none());
+        assert!(cli.validate().is_ok());
+
+        let cli = parse(&["/tmp"]).unwrap();
+        assert!(cli.directory.is_none());
+        assert!(cli.directory_arg.is_some());
+        assert!(cli.validate().is_ok());
+
+        let cli = parse(&["--directory", "/a", "/b"]).unwrap();
+        let err = cli.validate().unwrap_err();
+        assert!(err.contains("mutually exclusive"), "{err}");
+
+        let mut cli = parse(&["run", "x"]).unwrap();
+        cli.directory_arg = Some(std::path::PathBuf::from("/tmp"));
+        let err = cli.validate().unwrap_err();
+        assert!(err.contains("--directory with subcommands"), "{err}");
+
+        let cli = parse(&["run", "--directory", "/tmp", "x"]).unwrap();
+        assert!(cli.validate().is_ok());
+    }
+
+    #[test]
+    fn worktree_flag_parses_and_rejects_workflow() {
+        let cli = parse(&["run", "hi", "--worktree"]).unwrap();
+        let Some(Command::Run { worktree, .. }) = &cli.command else {
+            panic!("expected run");
+        };
+        assert_eq!(worktree.as_deref(), Some(""));
+        assert!(cli.validate().is_ok());
+
+        let cli = parse(&["run", "hi", "--worktree", "feat"]).unwrap();
+        assert!(cli.validate().is_ok());
+
+        let cli = parse(&["run", "hi", "--worktree", "a/b"]).unwrap();
+        let err = cli.validate().unwrap_err();
+        assert!(err.contains("plain directory name"), "{err}");
+
+        let cli = parse(&["run", "--workflow", "wf-1", "--worktree"]).unwrap();
+        let err = cli.validate().unwrap_err();
+        assert!(err.contains("--worktree"), "{err}");
+    }
+
+    #[test]
+    fn directories_command_parses() {
+        let cli = parse(&["directories"]).unwrap();
+        assert!(matches!(cli.command, Some(Command::Directories)));
+        assert!(cli.validate().is_ok());
     }
 
     #[test]

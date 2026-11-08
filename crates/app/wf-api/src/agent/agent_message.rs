@@ -143,6 +143,36 @@ pub async fn latest_session_anchor(ctx: &ApiContext) -> ApiResult<Option<String>
     Ok(anchor)
 }
 
+/// Newest resumable session anchored on one business directory: summaries
+/// filtered by directory, newest first, first candidate with persisted
+/// messages wins so empty turns never become resume targets.
+pub async fn latest_session_anchor_in(
+    ctx: &ApiContext,
+    directory: &str,
+) -> ApiResult<Option<String>> {
+    let mut summaries = crate::agent::agent_loop_registry::summaries(ctx, None).await?;
+    summaries.sort_by_key(|s| std::cmp::Reverse(s.start_time.unwrap_or(i64::MIN)));
+    let mut checked = 0;
+    for summary in summaries {
+        if !crate::agent::agent_loop_registry::summary_matches_directory(&summary, directory) {
+            continue;
+        }
+        checked += 1;
+        if checked > 50 {
+            break;
+        }
+        let messages = ctx
+            .storage
+            .message
+            .list_by_agent_loop(&summary.id, None)
+            .await?;
+        if !messages.is_empty() {
+            return Ok(Some(summary.id));
+        }
+    }
+    Ok(None)
+}
+
 /// Remove stale duplicate messages of an agent loop, keeping the latest
 /// copy per message id; returns the number of records removed.
 ///

@@ -34,6 +34,10 @@ pub(crate) struct LoopSummariesQuery {
     order: Option<String>,
     /// Substring filter over id, title and status (case-insensitive).
     q: Option<String>,
+    /// Only list sessions anchored on this business directory. Canonical
+    /// comparison, so equivalent spellings of the same directory match.
+    /// Absent keeps the legacy global listing.
+    directory: Option<String>,
 }
 
 /// Live-first agent loop summaries (live registry merged with persisted
@@ -73,6 +77,11 @@ pub(crate) async fn handle_loop_summaries(
     };
     match wf_api::agent::agent_loop_registry::summaries(&state.ctx, Some(&filter)).await {
         Ok(mut summaries) => {
+            if let Some(dir) = query.directory.as_deref() {
+                summaries.retain(|s| {
+                    wf_api::agent::agent_loop_registry::summary_matches_directory(s, dir)
+                });
+            }
             match query.order.as_deref() {
                 None => {}
                 Some(raw) if raw.eq_ignore_ascii_case("desc") => {

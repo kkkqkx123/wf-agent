@@ -1757,6 +1757,17 @@
           "agent"
         ],
         "operationId": "handle_latest_session_anchor",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "description": "Business directory to scope resume discovery to.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Latest resumable session anchor",
@@ -1913,6 +1924,15 @@
             "name": "q",
             "in": "query",
             "description": "Substring filter over id, title and status (case-insensitive).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "description": "Only list sessions anchored on this business directory. Canonical\ncomparison, so equivalent spellings of the same directory match.\nAbsent keeps the legacy global listing.",
             "required": false,
             "schema": {
               "type": "string"
@@ -48852,7 +48872,8 @@
               "allowed_roots",
               "allow_any_explicit",
               "cached_entries",
-              "cached_keys"
+              "cached_keys",
+              "projects"
             ],
             "properties": {
               "allow_any_explicit": {
@@ -48873,6 +48894,13 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "projects": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DirectoryProjectView"
+                },
+                "description": "Cached scopes with project identity, so workspace pickers can\nshow \"directory in project\" without a second round trip."
               }
             }
           },
@@ -54937,7 +54965,8 @@
           "allowed_roots",
           "allow_any_explicit",
           "cached_entries",
-          "cached_keys"
+          "cached_keys",
+          "projects"
         ],
         "properties": {
           "allow_any_explicit": {
@@ -54958,6 +54987,33 @@
             "items": {
               "type": "string"
             }
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DirectoryProjectView"
+            },
+            "description": "Cached scopes with project identity, so workspace pickers can\nshow \"directory in project\" without a second round trip."
+          }
+        }
+      },
+      "DirectoryProjectView": {
+        "type": "object",
+        "description": "One cached workspace: the directory the client named plus the owning\nproject root and stable project id derived from it.",
+        "required": [
+          "directory",
+          "project",
+          "project_id"
+        ],
+        "properties": {
+          "directory": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
           }
         }
       },

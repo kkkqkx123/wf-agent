@@ -22,6 +22,17 @@ use crate::generated;
 /// Default local server address when neither `--remote` nor `WF_REMOTE` is set.
 pub const DEFAULT_BASE_URL: &str = "http://127.0.0.1:3000";
 
+/// Request header carrying the business directory. Wins over the query
+/// parameter on the server; mirrors `wf-server`'s directory middleware.
+/// Every request built on the shared HTTP client carries this header, so
+/// regular calls, typed calls and SSE posts stay on the same workspace.
+pub const DIRECTORY_HEADER: &str = "x-wf-directory";
+
+/// Query parameter carrying the business directory for channels that
+/// cannot set headers (server-sent event subscriptions, websocket
+/// upgrades). Header-capable callers prefer [`DIRECTORY_HEADER`].
+pub const DIRECTORY_QUERY_PARAM: &str = "directory";
+
 /// Connection settings for one `wf-server` instance.
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
@@ -29,6 +40,10 @@ pub struct ClientConfig {
     pub base_url: String,
     /// Value for the `x-api-key` header; also read from `WF_API_KEY`.
     pub api_key: Option<String>,
+    /// Canonical business directory for multi-directory serving. Sent as
+    /// the `x-wf-directory` default header; absent means the request
+    /// carries no directory and workspace-bound handlers reject it.
+    pub directory: Option<String>,
 }
 
 impl ClientConfig {
@@ -36,6 +51,7 @@ impl ClientConfig {
         Self {
             base_url: base_url.into().trim_end_matches('/').to_string(),
             api_key: None,
+            directory: None,
         }
     }
 
@@ -48,16 +64,72 @@ impl ClientConfig {
         self
     }
 
+    /// Attach the canonical business directory. Blank values are ignored
+    /// so unset environment entries cannot produce an empty header.
+    pub fn with_directory(mut self, directory: Option<String>) -> Self {
+        if let Some(dir) = directory {
+            if !dir.trim().is_empty() {
+                self.directory = Some(dir);
+            }
+        }
+        self
+    }
+
+    /// Business directory header value, when configured.
+    pub fn directory(&self) -> Option<&str> {
+        self.directory.as_deref()
+    }
+
     /// Resolve from explicit flags first, then the environment.
     /// Single resolution entry: explicit flag, active tunnel entry, generic
     /// remote environment, then the local default.
     pub fn resolve(remote: Option<String>, api_key: Option<String>) -> Self {
+        Self::resolve_with_directory(remote, api_key, None)
+    }
+
+    /// Resolve connection plus the business directory in one place so
+    /// every CLI form shares the same flag-over-environment precedence.
+    pub fn resolve_with_directory(
+        remote: Option<String>,
+        api_key: Option<String>,
+        directory: Option<String>,
+    ) -> Self {
         let base_url = crate::remote::resolve_base_url(remote.as_deref(), None, DEFAULT_BASE_URL);
         let key = api_key
             .filter(|k| !k.trim().is_empty())
             .or_else(env_api_key);
-        Self::new(base_url).with_api_key(key)
+        Self::new(base_url)
+            .with_api_key(key)
+            .with_directory(directory)
     }
+}
+
+/// Append the business directory as an encoded query parameter for
+/// headerless channels. Returns the path unchanged when no directory is
+/// configured. Header-capable callers never need this: the default header
+/// already travels on every request built from the shared client.
+pub fn with_directory_query(path: &str, directory: Option<&str>) -> String {
+    let Some(dir) = directory.filter(|d| !d.trim().is_empty()) else {
+        return path.to_string();
+    };
+    let separator = if path.contains('?') { '&' } else { '?' };
+    format!("{path}{separator}{DIRECTORY_QUERY_PARAM}={}", encode_directory(dir))
+}
+
+/// Percent-encode a directory the way browsers encode a header value for
+/// a query string: unreserved marks pass through, everything else becomes
+/// `%XX`. Keeps one encoder beside the header so SSE and download paths
+/// cannot drift from each other.
+fn encode_directory(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for byte in raw.bytes() {
+        if matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
 
 /// One agent loop bound to a workflow node, as returned by
@@ -82,12 +154,19 @@ pub struct WfClient {
 }
 
 impl WfClient {
-    /// Build from an explicit config.
+    /// Build from an explicit config. The business directory travels as a
+    /// default header, so the typed client, the JSON escape hatch and the
+    /// SSE layer share one workspace without per-callsite plumbing.
     pub fn new(config: ClientConfig) -> Self {
         let mut headers = reqwest::header::HeaderMap::new();
         if let Some(key) = &config.api_key {
             if let Ok(value) = reqwest::header::HeaderValue::from_str(key) {
                 headers.insert("x-api-key", value);
+            }
+        }
+        if let Some(directory) = &config.directory {
+            if let Ok(value) = reqwest::header::HeaderValue::from_str(directory) {
+                headers.insert(DIRECTORY_HEADER, value);
             }
         }
         let http = reqwest::Client::builder()
@@ -110,8 +189,34 @@ impl WfClient {
         Self::new(ClientConfig::resolve(remote, api_key))
     }
 
+    /// Resolve connection plus the business directory from CLI flags /
+    /// environment. Every CLI form uses this so the workspace cannot be
+    /// forgotten on one path while present on another.
+    pub fn from_remote_with_directory(
+        remote: Option<String>,
+        api_key: Option<String>,
+        directory: Option<String>,
+    ) -> Self {
+        Self::new(ClientConfig::resolve_with_directory(
+            remote, api_key, directory,
+        ))
+    }
+
     pub fn base_url(&self) -> &str {
         &self.config.base_url
+    }
+
+    /// Canonical business directory carried on every request, when set.
+    /// Empty when the client was built without a workspace.
+    pub fn directory(&self) -> Option<&str> {
+        self.config.directory()
+    }
+
+    /// Append the configured directory as a query parameter for headerless
+    /// channels (event subscriptions, downloads). Header-capable requests
+    /// already carry the directory and must not use this.
+    pub fn with_directory_query(&self, path: &str) -> String {
+        with_directory_query(path, self.directory())
     }
 
     /// Access the fully-typed progenitor client for new call sites.
@@ -852,5 +957,46 @@ mod tests {
         });
         let err = unwrap_envelope::<serde_json::Value>(&body).unwrap_err();
         assert!(matches!(err, ClientError::Remote { .. }));
+    }
+
+    #[test]
+    fn directory_defaults_to_none_and_ignores_blanks() {
+        let cfg = ClientConfig::resolve(None, None);
+        assert_eq!(cfg.directory(), None);
+        let cfg = ClientConfig::new("http://127.0.0.1:3000")
+            .with_directory(Some("   ".to_string()));
+        assert_eq!(cfg.directory(), None);
+        let cfg = ClientConfig::resolve_with_directory(None, None, Some("/repo".to_string()));
+        assert_eq!(cfg.directory(), Some("/repo"));
+    }
+
+    #[test]
+    fn directory_travels_on_the_shared_client() {
+        let client =
+            WfClient::from_remote_with_directory(None, None, Some("/repo".to_string()));
+        assert_eq!(client.directory(), Some("/repo"));
+        assert_eq!(
+            client.with_directory_query("/api/v1/events/stream"),
+            "/api/v1/events/stream?directory=%2Frepo"
+        );
+        let bare = WfClient::from_remote(None, None);
+        assert_eq!(bare.directory(), None);
+        assert_eq!(
+            bare.with_directory_query("/api/v1/events/stream"),
+            "/api/v1/events/stream"
+        );
+    }
+
+    #[test]
+    fn directory_query_suffix_encodes_headerless_channels() {
+        assert_eq!(with_directory_query("/events", None), "/events");
+        assert_eq!(
+            with_directory_query("/events", Some("/repo")),
+            "/events?directory=%2Frepo"
+        );
+        assert_eq!(
+            with_directory_query("/events?cursor=1", Some("/a b")),
+            "/events?cursor=1&directory=%2Fa%20b"
+        );
     }
 }
